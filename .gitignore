@@ -1,0 +1,24 @@
+.buildpath
+.settings/
+.project
+*.patch
+.idea/
+.git/
+.phpintel/
+.DS_Store
+admin-src/
+.vscode
+
+# WorkBuddy 内部文件
+.workbuddy/
+.workbuddy.local
+.superpowers/
+
+# 运行时代码生成/缓存
+runtime/
+*.log
+
+# 编辑器临时文件
+*.swp
+*.swo
+*~

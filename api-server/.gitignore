@@ -1,0 +1,32 @@
+.buildpath
+.settings/
+.project
+*.patch
+.idea/
+.git/
+runtime/
+vendor/
+.phpintel/
+.env
+.DS_Store
+.phpunit*
+docker-compose.yml
+doc/
+/plugin/vendor/
+composer.phar
+*.lock
+node_modules/*
+*.cache
+config/autoload/menu.php
+# bt
+config/autoload/menu.php
+.user.ini
+404.html
+
+# txt
+/*.txt
+public/.user.ini
+public/*.txt
+
+# nohup
+nohup.out
