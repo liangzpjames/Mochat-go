@@ -1,0 +1,22 @@
+services:
+  tools:
+    image: "${MOCHAT_GO_DEV_IMAGE:-golang:1.26-alpine}"
+    working_dir: /src
+    volumes:
+      - ../..:/src
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        sh scripts/audit_architecture_boundaries.sh &&
+        go test ./... &&
+        go vet ./... &&
+        go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate
+        ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance
+
+volumes:
+  go-mod-cache:
+    name: mochat-go-mod-cache
+  go-build-cache:
+    name: mochat-go-build-cache

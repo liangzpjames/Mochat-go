@@ -8,6 +8,7 @@ unset GOROOT
 ./scripts/audit_standalone_independence.sh
 ./scripts/audit_architecture_boundaries.sh
 ./scripts/test_audit_architecture_boundaries.sh
+./scripts/test_dev_check.sh
 ./scripts/audit_acceptance_suite_coverage.sh
 ./scripts/audit_manifest_route_smoke_coverage.sh
 ./scripts/audit_functional_module_matrix.sh
