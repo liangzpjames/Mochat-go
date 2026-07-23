@@ -12,6 +12,9 @@ on:
       - "go.sum"
       - "internal/**"
       - "scripts/ci_mysql57_amd64.sh"
+      - "scripts/audit_architecture_boundaries.sh"
+      - "scripts/architecture-size-baseline.txt"
+      - "scripts/test_audit_architecture_boundaries.sh"
       - "scripts/lint_mysql57_schema.sh"
       - "scripts/smoke_mysql57_schema_migrate.sh"
       - "scripts/standalone_acceptance.sh"
@@ -25,6 +28,9 @@ on:
       - "go.sum"
       - "internal/**"
       - "scripts/ci_mysql57_amd64.sh"
+      - "scripts/audit_architecture_boundaries.sh"
+      - "scripts/architecture-size-baseline.txt"
+      - "scripts/test_audit_architecture_boundaries.sh"
       - "scripts/lint_mysql57_schema.sh"
       - "scripts/smoke_mysql57_schema_migrate.sh"
       - "scripts/standalone_acceptance.sh"
@@ -46,6 +52,11 @@ jobs:
 
       - name: Docker info
         run: docker info
+
+      - name: Architecture boundaries
+        run: |
+          ./scripts/audit_architecture_boundaries.sh
+          ./scripts/test_audit_architecture_boundaries.sh
 
       - name: Run MySQL 5.7 amd64 gate
         run: |
