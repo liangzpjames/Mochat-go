@@ -103,3 +103,12 @@ MOCHAT_ACCEPTANCE_SUITE=frontend ./scripts/standalone_acceptance.sh
 ```
 
 只有这些分组有新鲜通过记录后，才能把相应检查项标记完成。
+
+## GitHub 替换记录
+
+- 覆盖前 `main`：`3dcd216c188df34f2c3ed489b8e8b9473e635488`
+- 可恢复备份：`backup/pre-phase0-main-20260723`
+- Phase 0 工作分支：`phase0/modular-monolith-foundation`
+- 首次替换后的 `main`：`9993080e9f666d51f08891369b6b8ed274e956d5`
+
+替换使用带旧 SHA 的 `--force-with-lease`，避免覆盖操作期间出现的并发远端更新。
