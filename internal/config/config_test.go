@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	appruntime "jiyi/mochat-go/internal/app/runtime"
 )
 
 func TestFromEnvDefaults(t *testing.T) {
@@ -15,6 +17,9 @@ func TestFromEnvDefaults(t *testing.T) {
 	}
 	if cfg.ListenAddr != ":8080" {
 		t.Fatalf("ListenAddr = %q", cfg.ListenAddr)
+	}
+	if cfg.RuntimeRole != appruntime.RoleAll {
+		t.Fatalf("RuntimeRole = %q, want %q", cfg.RuntimeRole, appruntime.RoleAll)
 	}
 	if cfg.Standalone {
 		t.Fatalf("Standalone = true")
@@ -149,6 +154,61 @@ func TestFromEnvDefaults(t *testing.T) {
 	}
 	if cfg.SidebarFrontendAddr != "" || cfg.OperationFrontendAddr != "" {
 		t.Fatalf("frontend addrs = sidebar %q operation %q", cfg.SidebarFrontendAddr, cfg.OperationFrontendAddr)
+	}
+}
+
+func TestFromEnvRuntimeRole(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_RUNTIME_ROLE", "api")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RuntimeRole != appruntime.RoleAPI {
+		t.Fatalf("RuntimeRole = %q, want %q", cfg.RuntimeRole, appruntime.RoleAPI)
+	}
+}
+
+func TestFromEnvRejectsInvalidRuntimeRole(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_RUNTIME_ROLE", "background")
+
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "invalid runtime role") {
+		t.Fatalf("FromEnv() error = %v, want invalid runtime role", err)
+	}
+}
+
+func TestFromEnvRuntimeRoleFiltersBackgroundResponsibilities(t *testing.T) {
+	tests := []struct {
+		role                      string
+		wantWorker, wantScheduler bool
+	}{
+		{role: "all", wantWorker: true, wantScheduler: true},
+		{role: "api"},
+		{role: "worker", wantWorker: true},
+		{role: "scheduler", wantScheduler: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.role, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("MOCHAT_GO_RUNTIME_ROLE", tt.role)
+			t.Setenv("MOCHAT_GO_ENABLE_MARK_TAGS_WORKER", "1")
+			t.Setenv("MOCHAT_GO_ENABLE_PULL_AGENT_CRON", "1")
+			t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+
+			cfg, err := FromEnv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.EnableMarkTagsWorker != tt.wantWorker {
+				t.Fatalf("EnableMarkTagsWorker = %v, want %v", cfg.EnableMarkTagsWorker, tt.wantWorker)
+			}
+			if cfg.EnablePullAgentCron != tt.wantScheduler {
+				t.Fatalf("EnablePullAgentCron = %v, want %v", cfg.EnablePullAgentCron, tt.wantScheduler)
+			}
+		})
 	}
 }
 

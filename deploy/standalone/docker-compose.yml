@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile
     environment:
       TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
+      MOCHAT_GO_RUNTIME_ROLE: "${MOCHAT_GO_RUNTIME_ROLE:-all}"
       MOCHAT_GO_STANDALONE: "1"
       MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "1"
       MOCHAT_GO_ADDR: "0.0.0.0:8080"

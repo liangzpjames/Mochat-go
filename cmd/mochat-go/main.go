@@ -6,7 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"jiyi/mochat-go/internal/authjwt"
@@ -34,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
-	log.Printf("runtime mode: standalone=%t all_migrated_routes_default=%t php_fallback_enabled=%t", cfg.Standalone, cfg.EnableAllMigratedRoutes, strings.TrimSpace(cfg.PHPUpstream) != "")
+	log.Printf("runtime mode: role=%s standalone=%t all_migrated_routes_default=%t php_fallback_enabled=%t", cfg.RuntimeRole, cfg.Standalone, cfg.EnableAllMigratedRoutes, strings.TrimSpace(cfg.PHPUpstream) != "")
 	alertCredentialManager, err := saasalertcredentials.NewManager(saasalertcredentials.Config{
 		EncryptionKey:       cfg.SaaSAlertCredentialEncryptionKey,
 		EncryptionKeys:      cfg.SaaSAlertCredentialEncryptionKeys,
@@ -3183,6 +3185,14 @@ func main() {
 	}
 	if backgroundTasksEnabled {
 		options = append(options, compatserver.WithBackgroundTasks(workerGroup.Snapshots))
+	}
+	if !cfg.RuntimeRole.RunsAPI() {
+		log.Printf("runtime role %s started without HTTP listeners", cfg.RuntimeRole)
+		shutdown := make(chan os.Signal, 1)
+		signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+		<-shutdown
+		log.Printf("runtime role %s stopping after shutdown signal", cfg.RuntimeRole)
+		return
 	}
 
 	handler, err := compatserver.New(cfg, options...)

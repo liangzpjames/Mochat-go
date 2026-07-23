@@ -12,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	appruntime "jiyi/mochat-go/internal/app/runtime"
 	"jiyi/mochat-go/internal/buildinfo"
 	"jiyi/mochat-go/internal/clientip"
 	"jiyi/mochat-go/internal/outboundhttp"
@@ -26,6 +27,7 @@ const (
 )
 
 type Config struct {
+	RuntimeRole                                        appruntime.Role
 	ListenAddr                                         string
 	Standalone                                         bool
 	EnableAllMigratedRoutes                            bool
@@ -528,6 +530,10 @@ type Config struct {
 }
 
 func FromEnv() (Config, error) {
+	runtimeRole, err := appruntime.ParseRole(os.Getenv("MOCHAT_GO_RUNTIME_ROLE"))
+	if err != nil {
+		return Config{}, err
+	}
 	standalone := envBool("MOCHAT_GO_STANDALONE")
 	redisDB, err := envInt("MOCHAT_REDIS_DB", "REDIS_DB", 0)
 	if err != nil {
@@ -1181,6 +1187,7 @@ func FromEnv() (Config, error) {
 	)
 
 	cfg := Config{
+		RuntimeRole:                                        runtimeRole,
 		ListenAddr:                                         listenAddr,
 		Standalone:                                         standalone,
 		EnableAllMigratedRoutes:                            enableAllMigratedRoutes,
@@ -1681,6 +1688,7 @@ func FromEnv() (Config, error) {
 		SkipJWTBlacklist:                                   envBool("MOCHAT_GO_SKIP_JWT_BLACKLIST"),
 		ProxyTimeout:                                       30 * time.Second,
 	}
+	cfg.applyRuntimeRole()
 
 	if raw := os.Getenv("MOCHAT_PROXY_TIMEOUT_SECONDS"); raw != "" {
 		seconds, err := strconv.Atoi(raw)
@@ -2051,6 +2059,54 @@ func FromEnv() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (cfg *Config) applyRuntimeRole() {
+	if !cfg.RuntimeRole.RunsWorkers() {
+		cfg.EnableWeWorkCallbackWorker = false
+		cfg.EnableEmployeeApplyWorker = false
+		cfg.EnableAsyncFileUploadWorker = false
+		cfg.EnableMarkTagsWorker = false
+		cfg.EnableMessageRemindWorker = false
+		cfg.EnableWorkRoomSyncWorker = false
+		cfg.EnableWorkContactSyncWorker = false
+		cfg.EnableWorkDepartmentListWorker = false
+		cfg.EnableMediaIDUpdateWorker = false
+		cfg.EnableEmployeeStatisticWorker = false
+	}
+	if !cfg.RuntimeRole.RunsScheduler() {
+		cfg.EnablePullAgentCron = false
+		cfg.EnableEmployeeStatisticCron = false
+		cfg.EnableChannelCodeCron = false
+		cfg.EnableContactBatchSendCron = false
+		cfg.EnableRoomBatchSendCron = false
+		cfg.EnableContactSyncSendResultCron = false
+		cfg.EnableRoomSyncSendResultCron = false
+		cfg.EnableRoomTagPullCron = false
+		cfg.EnableCorpDataCron = false
+		cfg.EnableMediaIDUpdateCron = false
+		cfg.EnableTransferStateRefreshCron = false
+		cfg.EnableSOPLogCron = false
+		cfg.EnableSensitiveWordMonitorCron = false
+		cfg.EnableWorkMessageArchiveSyncCron = false
+		cfg.EnableSaaSStorageReconcileCron = false
+		cfg.EnableSaaSAlertNotificationDispatchCron = false
+		cfg.EnableSaaSOperationQueueAssignmentReminderCron = false
+		cfg.EnableSaaSApprovalReminderCron = false
+		cfg.EnableSaaSSystemHealthCron = false
+		cfg.EnableSaaSBackupCron = false
+		cfg.EnableSaaSComplianceCron = false
+		cfg.EnableSaaSIdentityCleanupCron = false
+		cfg.EnableSaaSServiceAccountUsageAlertCron = false
+		cfg.EnableSaaSAuditIntegrityCron = false
+		cfg.EnableSaaSAuditAnchorCron = false
+		cfg.EnableSaaSServiceAccountUsageCleanupCron = false
+		cfg.EnableSaaSTenantDomainDeliveryCron = false
+		cfg.EnableSaaSNotificationHealthRecoveryCron = false
+		cfg.EnableSaaSSubscriptionReconcileCron = false
+		cfg.EnableSaaSPaymentDunningCron = false
+		cfg.EnableSaaSPaymentSettlementSyncCron = false
+	}
 }
 
 func offsetListenAddr(listenAddr string, offset int) string {
