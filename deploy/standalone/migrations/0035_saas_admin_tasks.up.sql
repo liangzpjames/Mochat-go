@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_tasks` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `task_type` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '任务类型',
+  `status` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending' COMMENT '任务状态',
+  `tenant_id` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '目标租户 ID，批量任务为 0',
+  `package_code` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '套餐编码',
+  `actor_user_id` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '创建人用户 ID',
+  `actor_tenant_id` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '创建人租户 ID',
+  `request_json` json DEFAULT NULL COMMENT '任务请求参数',
+  `preview_json` json DEFAULT NULL COMMENT '执行前预览结果',
+  `result_json` json DEFAULT NULL COMMENT '执行结果',
+  `remark` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '任务备注',
+  `last_error` text COLLATE utf8mb4_unicode_ci COMMENT '最近错误',
+  `applied_at` timestamp NULL DEFAULT NULL COMMENT '应用时间',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_mochat_go_saas_admin_tasks_status_time` (`status`, `created_at`),
+  KEY `idx_mochat_go_saas_admin_tasks_type_package` (`task_type`, `package_code`, `created_at`),
+  KEY `idx_mochat_go_saas_admin_tasks_tenant_time` (`tenant_id`, `created_at`),
+  KEY `idx_mochat_go_saas_admin_tasks_actor_time` (`actor_user_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Go 独立版 SaaS 总后台运营任务';

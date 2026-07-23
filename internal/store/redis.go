@@ -1,0 +1,1010 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"jiyi/mochat-go/internal/dashboard"
+
+	"github.com/redis/go-redis/v9"
+)
+
+type RedisConfig struct {
+	Addr     string
+	Password string
+	DB       int
+}
+
+type RedisStore struct {
+	client *redis.Client
+}
+
+func NewRedisStore(cfg RedisConfig) *RedisStore {
+	return &RedisStore{client: redis.NewClient(&redis.Options{
+		Addr:     cfg.Addr,
+		Password: cfg.Password,
+		DB:       cfg.DB,
+	})}
+}
+
+func (s *RedisStore) Ping(ctx context.Context) error {
+	return s.client.Ping(ctx).Err()
+}
+
+func (s *RedisStore) Close() error {
+	return s.client.Close()
+}
+
+func (s *RedisStore) UserCorpCache(ctx context.Context, userID int) (string, error) {
+	value, err := s.client.Get(ctx, fmt.Sprintf("mc:user.%d", userID)).Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *RedisStore) SetUserCorpCache(ctx context.Context, userID int, value string) error {
+	return s.client.Set(ctx, fmt.Sprintf("mc:user.%d", userID), value, 0).Err()
+}
+
+func (s *RedisStore) DeleteUserCorpCache(ctx context.Context, userID int) error {
+	return s.client.Del(ctx, fmt.Sprintf("mc:user.%d", userID)).Err()
+}
+
+func (s *RedisStore) ContactTransferStateLogID(ctx context.Context) (int, error) {
+	value, err := s.client.Get(ctx, "log_id").Int()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	return value, err
+}
+
+func (s *RedisStore) SetContactTransferStateLogID(ctx context.Context, logID int, ttl time.Duration) error {
+	return s.client.Set(ctx, "log_id", logID, ttl).Err()
+}
+
+func (s *RedisStore) EmployeeStatisticApplied(ctx context.Context, corpID int, employeeID int, startUnix int64) (bool, error) {
+	count, err := s.client.Exists(ctx, employeeStatisticRedisKey(corpID, employeeID, startUnix)).Result()
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *RedisStore) SetEmployeeStatisticApplied(ctx context.Context, corpID int, employeeID int, startUnix int64, ttl time.Duration) error {
+	return s.client.Set(ctx, employeeStatisticRedisKey(corpID, employeeID, startUnix), startUnix, ttl).Err()
+}
+
+func (s *RedisStore) JWTBlacklisted(ctx context.Context, key string) (bool, error) {
+	count, err := s.client.Exists(ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *RedisStore) AddJWTBlacklist(ctx context.Context, key string, ttl time.Duration) error {
+	return s.client.Set(ctx, key, time.Now().Unix(), ttl).Err()
+}
+
+func (s *RedisStore) EnqueueWeWorkCallback(ctx context.Context, event dashboard.WeWorkCallbackEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.WeWorkCallbackQueueDescriptor(), event, dashboard.WeWorkCallbackIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueWeWorkCallback(ctx context.Context, timeout time.Duration) (dashboard.WeWorkCallbackDelivery, bool, error) {
+	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.WeWorkCallbackDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.WeWorkCallbackDelivery{}, false, err
+	}
+	var event dashboard.WeWorkCallbackEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.WeWorkCallbackDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.WeWorkCallbackDelivery{}, false, err
+	}
+	return dashboard.WeWorkCallbackDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckWeWorkCallback(ctx context.Context, delivery dashboard.WeWorkCallbackDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.WeWorkCallbackQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryWeWorkCallback(ctx context.Context, delivery dashboard.WeWorkCallbackDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverWeWorkCallbackProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueContactWelcome(ctx context.Context, event dashboard.ContactWelcomeEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.ContactWelcomeQueueDescriptor(), event, dashboard.ContactWelcomeIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueContactWelcome(ctx context.Context, timeout time.Duration) (dashboard.ContactWelcomeDelivery, bool, error) {
+	descriptor := dashboard.ContactWelcomeQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.ContactWelcomeDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.ContactWelcomeDelivery{}, false, err
+	}
+	var event dashboard.ContactWelcomeEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.ContactWelcomeDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.ContactWelcomeDelivery{}, false, err
+	}
+	return dashboard.ContactWelcomeDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckContactWelcome(ctx context.Context, delivery dashboard.ContactWelcomeDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.ContactWelcomeQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryContactWelcome(ctx context.Context, delivery dashboard.ContactWelcomeDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.ContactWelcomeQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverContactWelcomeProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.ContactWelcomeQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) WorkContactWelcomeStatus(ctx context.Context, contactID int) (int, error) {
+	status, err := s.client.Get(ctx, workContactWelcomeStatusRedisKey(contactID)).Int()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	return status, err
+}
+
+func (s *RedisStore) SetWorkContactWelcomeStatus(ctx context.Context, contactID int, status int, ttl time.Duration) error {
+	return s.client.Set(ctx, workContactWelcomeStatusRedisKey(contactID), status, ttl).Err()
+}
+
+func (s *RedisStore) EnqueueEmployeeApply(ctx context.Context, event dashboard.EmployeeApplyEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.EmployeeApplyQueueDescriptor(), event, dashboard.EmployeeApplyIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueEmployeeApply(ctx context.Context, timeout time.Duration) (dashboard.EmployeeApplyDelivery, bool, error) {
+	descriptor := dashboard.EmployeeApplyQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.EmployeeApplyDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.EmployeeApplyDelivery{}, false, err
+	}
+	var event dashboard.EmployeeApplyEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.EmployeeApplyDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.EmployeeApplyDelivery{}, false, err
+	}
+	return dashboard.EmployeeApplyDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckEmployeeApply(ctx context.Context, delivery dashboard.EmployeeApplyDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.EmployeeApplyQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryEmployeeApply(ctx context.Context, delivery dashboard.EmployeeApplyDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.EmployeeApplyQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverEmployeeApplyProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.EmployeeApplyQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueAsyncFileUpload(ctx context.Context, event dashboard.AsyncFileUploadEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.AsyncFileUploadQueueDescriptor(), event, dashboard.AsyncFileUploadIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueAsyncFileUpload(ctx context.Context, timeout time.Duration) (dashboard.AsyncFileUploadDelivery, bool, error) {
+	descriptor := dashboard.AsyncFileUploadQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.AsyncFileUploadDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.AsyncFileUploadDelivery{}, false, err
+	}
+	var event dashboard.AsyncFileUploadEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.AsyncFileUploadDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.AsyncFileUploadDelivery{}, false, err
+	}
+	return dashboard.AsyncFileUploadDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckAsyncFileUpload(ctx context.Context, delivery dashboard.AsyncFileUploadDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.AsyncFileUploadQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryAsyncFileUpload(ctx context.Context, delivery dashboard.AsyncFileUploadDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.AsyncFileUploadQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverAsyncFileUploadProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.AsyncFileUploadQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueMarkTags(ctx context.Context, event dashboard.MarkTagsEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.MarkTagsQueueDescriptor(), event, dashboard.MarkTagsIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueMarkTags(ctx context.Context, timeout time.Duration) (dashboard.MarkTagsDelivery, bool, error) {
+	descriptor := dashboard.MarkTagsQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.MarkTagsDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.MarkTagsDelivery{}, false, err
+	}
+	var event dashboard.MarkTagsEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.MarkTagsDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.MarkTagsDelivery{}, false, err
+	}
+	return dashboard.MarkTagsDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckMarkTags(ctx context.Context, delivery dashboard.MarkTagsDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.MarkTagsQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryMarkTags(ctx context.Context, delivery dashboard.MarkTagsDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.MarkTagsQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverMarkTagsProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.MarkTagsQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueMessageRemind(ctx context.Context, event dashboard.MessageRemindEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.MessageRemindQueueDescriptor(), event, dashboard.MessageRemindIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueMessageRemind(ctx context.Context, timeout time.Duration) (dashboard.MessageRemindDelivery, bool, error) {
+	descriptor := dashboard.MessageRemindQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.MessageRemindDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.MessageRemindDelivery{}, false, err
+	}
+	var event dashboard.MessageRemindEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.MessageRemindDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.MessageRemindDelivery{}, false, err
+	}
+	return dashboard.MessageRemindDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckMessageRemind(ctx context.Context, delivery dashboard.MessageRemindDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.MessageRemindQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryMessageRemind(ctx context.Context, delivery dashboard.MessageRemindDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.MessageRemindQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverMessageRemindProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.MessageRemindQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueWorkRoomSync(ctx context.Context, event dashboard.WorkRoomSyncEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.WorkRoomSyncQueueDescriptor(), event, dashboard.WorkRoomSyncIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueWorkRoomSync(ctx context.Context, timeout time.Duration) (dashboard.WorkRoomSyncDelivery, bool, error) {
+	descriptor := dashboard.WorkRoomSyncQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.WorkRoomSyncDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.WorkRoomSyncDelivery{}, false, err
+	}
+	var event dashboard.WorkRoomSyncEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.WorkRoomSyncDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.WorkRoomSyncDelivery{}, false, err
+	}
+	return dashboard.WorkRoomSyncDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckWorkRoomSync(ctx context.Context, delivery dashboard.WorkRoomSyncDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.WorkRoomSyncQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryWorkRoomSync(ctx context.Context, delivery dashboard.WorkRoomSyncDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.WorkRoomSyncQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverWorkRoomSyncProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.WorkRoomSyncQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueWorkContactSync(ctx context.Context, event dashboard.WorkContactSyncEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.WorkContactSyncQueueDescriptor(), event, dashboard.WorkContactSyncIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueWorkContactSync(ctx context.Context, timeout time.Duration) (dashboard.WorkContactSyncDelivery, bool, error) {
+	descriptor := dashboard.WorkContactSyncQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.WorkContactSyncDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.WorkContactSyncDelivery{}, false, err
+	}
+	var event dashboard.WorkContactSyncEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.WorkContactSyncDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.WorkContactSyncDelivery{}, false, err
+	}
+	return dashboard.WorkContactSyncDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckWorkContactSync(ctx context.Context, delivery dashboard.WorkContactSyncDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.WorkContactSyncQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryWorkContactSync(ctx context.Context, delivery dashboard.WorkContactSyncDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.WorkContactSyncQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverWorkContactSyncProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.WorkContactSyncQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueWorkDepartmentList(ctx context.Context, event dashboard.WorkDepartmentListEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.WorkDepartmentListQueueDescriptor(), event, dashboard.WorkDepartmentListIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueWorkDepartmentList(ctx context.Context, timeout time.Duration) (dashboard.WorkDepartmentListDelivery, bool, error) {
+	descriptor := dashboard.WorkDepartmentListQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.WorkDepartmentListDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.WorkDepartmentListDelivery{}, false, err
+	}
+	var event dashboard.WorkDepartmentListEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.WorkDepartmentListDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.WorkDepartmentListDelivery{}, false, err
+	}
+	return dashboard.WorkDepartmentListDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckWorkDepartmentList(ctx context.Context, delivery dashboard.WorkDepartmentListDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.WorkDepartmentListQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryWorkDepartmentList(ctx context.Context, delivery dashboard.WorkDepartmentListDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.WorkDepartmentListQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverWorkDepartmentListProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.WorkDepartmentListQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueMediumMediaIDUpdate(ctx context.Context, event dashboard.MediumMediaIDUpdateEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.MediumMediaIDUpdateQueueDescriptor(), event, dashboard.MediumMediaIDUpdateIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueMediumMediaIDUpdate(ctx context.Context, timeout time.Duration) (dashboard.MediumMediaIDUpdateDelivery, bool, error) {
+	descriptor := dashboard.MediumMediaIDUpdateQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.MediumMediaIDUpdateDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.MediumMediaIDUpdateDelivery{}, false, err
+	}
+	var event dashboard.MediumMediaIDUpdateEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.MediumMediaIDUpdateDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.MediumMediaIDUpdateDelivery{}, false, err
+	}
+	return dashboard.MediumMediaIDUpdateDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckMediumMediaIDUpdate(ctx context.Context, delivery dashboard.MediumMediaIDUpdateDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.MediumMediaIDUpdateQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryMediumMediaIDUpdate(ctx context.Context, delivery dashboard.MediumMediaIDUpdateDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.MediumMediaIDUpdateQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverMediumMediaIDUpdateProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.MediumMediaIDUpdateQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) EnqueueEmployeeStatisticApply(ctx context.Context, event dashboard.EmployeeStatisticApplyEvent) error {
+	return s.enqueueReliableQueueItem(ctx, dashboard.EmployeeStatisticApplyQueueDescriptor(), event, dashboard.EmployeeStatisticApplyIdempotencyKey(event))
+}
+
+func (s *RedisStore) DequeueEmployeeStatisticApply(ctx context.Context, timeout time.Duration) (dashboard.EmployeeStatisticApplyDelivery, bool, error) {
+	descriptor := dashboard.EmployeeStatisticApplyQueueDescriptor()
+	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+	if err == redis.Nil {
+		return dashboard.EmployeeStatisticApplyDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.EmployeeStatisticApplyDelivery{}, false, err
+	}
+	var event dashboard.EmployeeStatisticApplyEvent
+	attempts, err := decodeReliableQueuePayload(raw, &event)
+	if err != nil {
+		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
+		return dashboard.EmployeeStatisticApplyDelivery{}, false, err
+	}
+	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
+	if err != nil {
+		return dashboard.EmployeeStatisticApplyDelivery{}, false, err
+	}
+	return dashboard.EmployeeStatisticApplyDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+}
+
+func (s *RedisStore) AckEmployeeStatisticApply(ctx context.Context, delivery dashboard.EmployeeStatisticApplyDelivery) error {
+	return s.ackReliableQueueItem(ctx, dashboard.EmployeeStatisticApplyQueueDescriptor().ProcessingKey, delivery.Raw)
+}
+
+func (s *RedisStore) RetryEmployeeStatisticApply(ctx context.Context, delivery dashboard.EmployeeStatisticApplyDelivery, reason string, maxAttempts int) (bool, error) {
+	descriptor := dashboard.EmployeeStatisticApplyQueueDescriptor()
+	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
+		SourceKey:      descriptor.SourceKey,
+		ProcessingKey:  descriptor.ProcessingKey,
+		DeadLetterKey:  descriptor.DeadLetterKey,
+		Raw:            delivery.Raw,
+		Event:          delivery.Event,
+		CurrentAttempt: delivery.Attempts,
+		Reason:         reason,
+		MaxAttempts:    maxAttempts,
+	})
+}
+
+func (s *RedisStore) RecoverEmployeeStatisticApplyProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	descriptor := dashboard.EmployeeStatisticApplyQueueDescriptor()
+	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
+		SourceKey:     descriptor.SourceKey,
+		ProcessingKey: descriptor.ProcessingKey,
+		DeadLetterKey: descriptor.DeadLetterKey,
+		StaleAfter:    staleAfter,
+		MaxAttempts:   maxAttempts,
+	})
+}
+
+func (s *RedisStore) GetOperationSessionValue(ctx context.Context, sessionID string, key string) (map[string]any, bool, error) {
+	raw, err := s.client.HGet(ctx, operationSessionRedisKey(sessionID), key).Result()
+	if err == redis.Nil {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var value map[string]any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return nil, false, err
+	}
+	return value, true, nil
+}
+
+func (s *RedisStore) SetOperationSessionValue(ctx context.Context, sessionID string, key string, value map[string]any, ttl time.Duration) error {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	redisKey := operationSessionRedisKey(sessionID)
+	if err := s.client.HSet(ctx, redisKey, key, raw).Err(); err != nil {
+		return err
+	}
+	return s.client.Expire(ctx, redisKey, ttl).Err()
+}
+
+func operationSessionRedisKey(sessionID string) string {
+	return "mochat-go:operation-session:" + sessionID
+}
+
+func employeeStatisticRedisKey(corpID int, employeeID int, startUnix int64) string {
+	return fmt.Sprintf("EMPLOYEE_STATISTICS_APPLY_%d%d%d", corpID, employeeID, startUnix)
+}
+
+func workContactWelcomeStatusRedisKey(contactID int) string {
+	return fmt.Sprintf("contact:welcome_status:%d", contactID)
+}
+
+type reliableQueueEnvelope struct {
+	Queue               string          `json:"queue,omitempty"`
+	PayloadType         string          `json:"payloadType,omitempty"`
+	IdempotencyKey      string          `json:"idempotencyKey,omitempty"`
+	EnqueuedAt          string          `json:"enqueuedAt,omitempty"`
+	Payload             json.RawMessage `json:"payload"`
+	Attempts            int             `json:"attempts"`
+	LastError           string          `json:"lastError,omitempty"`
+	LastFailedAt        string          `json:"lastFailedAt,omitempty"`
+	ProcessingStartedAt string          `json:"processingStartedAt,omitempty"`
+}
+
+type reliableQueueMalformedEnvelope struct {
+	Raw          string `json:"raw"`
+	Attempts     int    `json:"attempts"`
+	LastError    string `json:"lastError,omitempty"`
+	LastFailedAt string `json:"lastFailedAt,omitempty"`
+}
+
+type reliableQueueRetryOptions struct {
+	SourceKey      string
+	ProcessingKey  string
+	DeadLetterKey  string
+	Raw            string
+	Event          any
+	CurrentAttempt int
+	Reason         string
+	MaxAttempts    int
+}
+
+type reliableQueueRecoveryOptions struct {
+	SourceKey     string
+	ProcessingKey string
+	DeadLetterKey string
+	StaleAfter    time.Duration
+	MaxAttempts   int
+}
+
+func (s *RedisStore) enqueueReliableQueueItem(ctx context.Context, descriptor dashboard.QueuePayloadDescriptor, event any, idempotencyKey string) error {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	envelope := reliableQueueEnvelope{
+		Queue:          descriptor.Name,
+		PayloadType:    descriptor.PayloadType,
+		IdempotencyKey: idempotencyKey,
+		EnqueuedAt:     time.Now().Format(time.RFC3339),
+		Payload:        payload,
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+	if idempotencyKey == "" {
+		return s.client.RPush(ctx, descriptor.SourceKey, raw).Err()
+	}
+	ttlSeconds := int(descriptor.IdempotencyTTL.Seconds())
+	if ttlSeconds <= 0 {
+		ttlSeconds = int((10 * time.Minute).Seconds())
+	}
+	const script = `
+local ok = redis.call("SET", KEYS[2], "1", "NX", "EX", ARGV[2])
+if ok then
+  redis.call("RPUSH", KEYS[1], ARGV[1])
+  return 1
+end
+return 0
+`
+	return s.client.Eval(ctx, script, []string{descriptor.SourceKey, idempotencyKey}, string(raw), ttlSeconds).Err()
+}
+
+func decodeReliableQueuePayload(raw string, out any) (int, error) {
+	var envelope reliableQueueEnvelope
+	if err := json.Unmarshal([]byte(raw), &envelope); err == nil && len(envelope.Payload) > 0 {
+		if err := json.Unmarshal(envelope.Payload, out); err != nil {
+			return envelope.Attempts, err
+		}
+		return envelope.Attempts, nil
+	}
+	if err := json.Unmarshal([]byte(raw), out); err != nil {
+		return 0, err
+	}
+	return 0, nil
+}
+
+func decodeReliableQueueEnvelope(raw string) (reliableQueueEnvelope, bool) {
+	var envelope reliableQueueEnvelope
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil || len(envelope.Payload) == 0 {
+		return reliableQueueEnvelope{}, false
+	}
+	return envelope, true
+}
+
+func reliableQueuePayload(raw string, event any) (json.RawMessage, error) {
+	if envelope, ok := decodeReliableQueueEnvelope(raw); ok && json.Valid(envelope.Payload) {
+		return append(json.RawMessage(nil), envelope.Payload...), nil
+	}
+	if json.Valid([]byte(raw)) {
+		return append(json.RawMessage(nil), []byte(raw)...), nil
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func reliableQueueEnvelopeForEvent(raw string, event any) (reliableQueueEnvelope, error) {
+	if envelope, ok := decodeReliableQueueEnvelope(raw); ok && json.Valid(envelope.Payload) {
+		return envelope, nil
+	}
+	payload, err := reliableQueuePayload(raw, event)
+	if err != nil {
+		return reliableQueueEnvelope{}, err
+	}
+	return reliableQueueEnvelope{Payload: payload}, nil
+}
+
+func (s *RedisStore) markReliableQueueProcessing(ctx context.Context, processingKey string, raw string, event any, attempts int) (string, error) {
+	envelope, ok := decodeReliableQueueEnvelope(raw)
+	if !ok {
+		payload, err := reliableQueuePayload(raw, event)
+		if err != nil {
+			return "", err
+		}
+		envelope = reliableQueueEnvelope{Payload: payload, Attempts: attempts}
+	}
+	envelope.ProcessingStartedAt = time.Now().Format(time.RFC3339)
+	nextRaw, err := json.Marshal(envelope)
+	if err != nil {
+		return "", err
+	}
+	if err := s.moveReliableQueueItem(ctx, processingKey, processingKey, raw, string(nextRaw)); err != nil {
+		return "", err
+	}
+	return string(nextRaw), nil
+}
+
+func (s *RedisStore) ackReliableQueueItem(ctx context.Context, processingKey string, raw string) error {
+	removed, err := s.client.LRem(ctx, processingKey, 1, raw).Result()
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
+		return fmt.Errorf("queue delivery is not in processing list")
+	}
+	return nil
+}
+
+func (s *RedisStore) retryReliableQueueItem(ctx context.Context, opts reliableQueueRetryOptions) (bool, error) {
+	maxAttempts := opts.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	attempts := opts.CurrentAttempt + 1
+	envelope, err := reliableQueueEnvelopeForEvent(opts.Raw, opts.Event)
+	if err != nil {
+		return false, err
+	}
+	envelope.Attempts = attempts
+	envelope.LastError = opts.Reason
+	envelope.LastFailedAt = time.Now().Format(time.RFC3339)
+	envelope.ProcessingStartedAt = ""
+	nextRaw, err := json.Marshal(envelope)
+	if err != nil {
+		return false, err
+	}
+	targetKey := opts.SourceKey
+	deadLettered := false
+	if attempts >= maxAttempts {
+		targetKey = opts.DeadLetterKey
+		deadLettered = true
+	}
+	if err := s.moveReliableQueueItem(ctx, opts.ProcessingKey, targetKey, opts.Raw, string(nextRaw)); err != nil {
+		return false, err
+	}
+	return deadLettered, nil
+}
+
+func (s *RedisStore) recoverReliableQueueProcessing(ctx context.Context, opts reliableQueueRecoveryOptions) (int, error) {
+	staleAfter := opts.StaleAfter
+	if staleAfter <= 0 {
+		staleAfter = 5 * time.Minute
+	}
+	maxAttempts := opts.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	rawItems, err := s.client.LRange(ctx, opts.ProcessingKey, 0, -1).Result()
+	if err != nil {
+		return 0, err
+	}
+	recovered := 0
+	now := time.Now()
+	for _, raw := range rawItems {
+		envelope, ok := decodeReliableQueueEnvelope(raw)
+		if !ok {
+			if !json.Valid([]byte(raw)) {
+				if err := s.moveMalformedQueueItem(ctx, opts.ProcessingKey, opts.DeadLetterKey, raw, "processing item is not valid JSON"); err != nil {
+					return recovered, err
+				}
+				recovered++
+				continue
+			}
+			envelope = reliableQueueEnvelope{Payload: append(json.RawMessage(nil), []byte(raw)...)}
+		}
+		if envelope.ProcessingStartedAt != "" {
+			startedAt, err := time.Parse(time.RFC3339, envelope.ProcessingStartedAt)
+			if err == nil && now.Sub(startedAt) < staleAfter {
+				continue
+			}
+		}
+		envelope.Attempts++
+		envelope.LastError = "processing timeout recovered"
+		envelope.LastFailedAt = now.Format(time.RFC3339)
+		envelope.ProcessingStartedAt = ""
+		nextRaw, err := json.Marshal(envelope)
+		if err != nil {
+			return recovered, err
+		}
+		targetKey := opts.SourceKey
+		if envelope.Attempts >= maxAttempts {
+			targetKey = opts.DeadLetterKey
+		}
+		if err := s.moveReliableQueueItem(ctx, opts.ProcessingKey, targetKey, raw, string(nextRaw)); err != nil {
+			return recovered, err
+		}
+		recovered++
+	}
+	return recovered, nil
+}
+
+func (s *RedisStore) moveMalformedQueueItem(ctx context.Context, processingKey string, deadLetterKey string, raw string, reason string) error {
+	nextRaw, err := json.Marshal(reliableQueueMalformedEnvelope{
+		Raw:          raw,
+		Attempts:     1,
+		LastError:    reason,
+		LastFailedAt: time.Now().Format(time.RFC3339),
+	})
+	if err != nil {
+		return err
+	}
+	return s.moveReliableQueueItem(ctx, processingKey, deadLetterKey, raw, string(nextRaw))
+}
+
+func (s *RedisStore) moveReliableQueueItem(ctx context.Context, processingKey string, targetKey string, raw string, nextRaw string) error {
+	const script = `
+local removed = redis.call("LREM", KEYS[1], 1, ARGV[1])
+if removed > 0 then
+  redis.call("RPUSH", KEYS[2], ARGV[2])
+end
+return removed
+`
+	removed, err := s.client.Eval(ctx, script, []string{processingKey, targetKey}, raw, nextRaw).Int()
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
+		return fmt.Errorf("queue delivery is not in processing list")
+	}
+	return nil
+}

@@ -1,0 +1,206 @@
+MoChat Go standalone acceptance started at 2026-07-19 11:49:55, suite=saas
+
+==> SaaS provisioning
+ Network mochat-go-saas-provision-check_default  Creating
+ Network mochat-go-saas-provision-check_default  Created
+ Volume mochat-go-saas-provision-check_redis-data  Creating
+ Volume mochat-go-saas-provision-check_redis-data  Created
+ Volume mochat-go-saas-provision-check_mysql-data  Creating
+ Volume mochat-go-saas-provision-check_mysql-data  Created
+ Container mochat-go-saas-provision-check-mysql-1  Creating
+ Container mochat-go-saas-provision-check-redis-1  Creating
+ Container mochat-go-saas-provision-check-redis-1  Created
+ Container mochat-go-saas-provision-check-mysql-1  Created
+ Container mochat-go-saas-provision-check-mysql-1  Starting
+ Container mochat-go-saas-provision-check-redis-1  Starting
+ Container mochat-go-saas-provision-check-redis-1  Started
+ Container mochat-go-saas-provision-check-mysql-1  Started
+saas provisioning smoke passed
+
+==> SaaS tenant isolation
+ Network mochat-go-saas-isolation-check_default  Creating
+ Network mochat-go-saas-isolation-check_default  Created
+ Volume mochat-go-saas-isolation-check_mysql-data  Creating
+ Volume mochat-go-saas-isolation-check_mysql-data  Created
+ Volume mochat-go-saas-isolation-check_redis-data  Creating
+ Volume mochat-go-saas-isolation-check_redis-data  Created
+ Container mochat-go-saas-isolation-check-redis-1  Creating
+ Container mochat-go-saas-isolation-check-mysql-1  Creating
+ Container mochat-go-saas-isolation-check-redis-1  Created
+ Container mochat-go-saas-isolation-check-mysql-1  Created
+ Container mochat-go-saas-isolation-check-redis-1  Starting
+ Container mochat-go-saas-isolation-check-mysql-1  Starting
+ Container mochat-go-saas-isolation-check-redis-1  Started
+ Container mochat-go-saas-isolation-check-mysql-1  Started
+saas tenant isolation smoke passed
+
+==> SaaS quota enforcement
+ Network mochat-go-saas-quota-check_default  Creating
+ Network mochat-go-saas-quota-check_default  Created
+ Volume mochat-go-saas-quota-check_mysql-data  Creating
+ Volume mochat-go-saas-quota-check_mysql-data  Created
+ Volume mochat-go-saas-quota-check_redis-data  Creating
+ Volume mochat-go-saas-quota-check_redis-data  Created
+ Container mochat-go-saas-quota-check-mysql-1  Creating
+ Container mochat-go-saas-quota-check-redis-1  Creating
+ Container mochat-go-saas-quota-check-redis-1  Created
+ Container mochat-go-saas-quota-check-mysql-1  Created
+ Container mochat-go-saas-quota-check-redis-1  Starting
+ Container mochat-go-saas-quota-check-mysql-1  Starting
+ Container mochat-go-saas-quota-check-redis-1  Started
+ Container mochat-go-saas-quota-check-mysql-1  Started
+saas quota enforcement smoke passed
+
+==> SaaS storage reconcile
+ Network mochat-go-saas-storage-reconcile-check_default  Creating
+ Network mochat-go-saas-storage-reconcile-check_default  Created
+ Volume mochat-go-saas-storage-reconcile-check_mysql-data  Creating
+ Volume mochat-go-saas-storage-reconcile-check_mysql-data  Created
+ Volume mochat-go-saas-storage-reconcile-check_redis-data  Creating
+ Volume mochat-go-saas-storage-reconcile-check_redis-data  Created
+ Container mochat-go-saas-storage-reconcile-check-redis-1  Creating
+ Container mochat-go-saas-storage-reconcile-check-mysql-1  Creating
+ Container mochat-go-saas-storage-reconcile-check-mysql-1  Created
+ Container mochat-go-saas-storage-reconcile-check-redis-1  Created
+ Container mochat-go-saas-storage-reconcile-check-mysql-1  Starting
+ Container mochat-go-saas-storage-reconcile-check-redis-1  Starting
+ Container mochat-go-saas-storage-reconcile-check-redis-1  Started
+ Container mochat-go-saas-storage-reconcile-check-mysql-1  Started
+saas storage reconcile smoke passed
+
+==> SaaS storage reclaim
+ Network mochat-go-saas-storage-reclaim-check_default  Creating
+ Network mochat-go-saas-storage-reclaim-check_default  Created
+ Volume mochat-go-saas-storage-reclaim-check_mysql-data  Creating
+ Volume mochat-go-saas-storage-reclaim-check_mysql-data  Created
+ Volume mochat-go-saas-storage-reclaim-check_redis-data  Creating
+ Volume mochat-go-saas-storage-reclaim-check_redis-data  Created
+ Container mochat-go-saas-storage-reclaim-check-redis-1  Creating
+ Container mochat-go-saas-storage-reclaim-check-mysql-1  Creating
+ Container mochat-go-saas-storage-reclaim-check-redis-1  Created
+ Container mochat-go-saas-storage-reclaim-check-mysql-1  Created
+ Container mochat-go-saas-storage-reclaim-check-redis-1  Starting
+ Container mochat-go-saas-storage-reclaim-check-mysql-1  Starting
+ Container mochat-go-saas-storage-reclaim-check-redis-1  Started
+ Container mochat-go-saas-storage-reclaim-check-mysql-1  Started
+saas storage reclaim smoke passed
+
+==> SaaS usage refresh
+ Network mochat-go-saas-usage-refresh-check_default  Creating
+ Network mochat-go-saas-usage-refresh-check_default  Created
+ Volume mochat-go-saas-usage-refresh-check_mysql-data  Creating
+ Volume mochat-go-saas-usage-refresh-check_mysql-data  Created
+ Container mochat-go-saas-usage-refresh-check-mysql-1  Creating
+ Container mochat-go-saas-usage-refresh-check-mysql-1  Created
+ Container mochat-go-saas-usage-refresh-check-mysql-1  Starting
+ Container mochat-go-saas-usage-refresh-check-mysql-1  Started
+saas usage refresh smoke passed
+
+==> SaaS alert tenant setting dispatch
+ Network mochat-go-saas-alert-setting-dispatch-check_default  Creating
+ Network mochat-go-saas-alert-setting-dispatch-check_default  Created
+ Volume mochat-go-saas-alert-setting-dispatch-check_mysql-data  Creating
+ Volume mochat-go-saas-alert-setting-dispatch-check_mysql-data  Created
+ Container mochat-go-saas-alert-setting-dispatch-check-mysql-1  Creating
+ Container mochat-go-saas-alert-setting-dispatch-check-mysql-1  Created
+ Container mochat-go-saas-alert-setting-dispatch-check-mysql-1  Starting
+ Container mochat-go-saas-alert-setting-dispatch-check-mysql-1  Started
+SaaS alert setting dispatch smoke passed
+
+==> WeCom credential encryption, rotation, and admin governance
+ Network mochat-go-wecom-credential-check_default  Creating
+ Network mochat-go-wecom-credential-check_default  Created
+ Volume mochat-go-wecom-credential-check_mysql-data  Creating
+ Volume mochat-go-wecom-credential-check_mysql-data  Created
+ Volume mochat-go-wecom-credential-check_redis-data  Creating
+ Volume mochat-go-wecom-credential-check_redis-data  Created
+ Container mochat-go-wecom-credential-check-mysql-1  Creating
+ Container mochat-go-wecom-credential-check-redis-1  Creating
+ Container mochat-go-wecom-credential-check-redis-1  Created
+ Container mochat-go-wecom-credential-check-mysql-1  Created
+ Container mochat-go-wecom-credential-check-redis-1  Starting
+ Container mochat-go-wecom-credential-check-mysql-1  Starting
+ Container mochat-go-wecom-credential-check-redis-1  Started
+ Container mochat-go-wecom-credential-check-mysql-1  Started
+WeCom credential encryption smoke passed
+
+==> SaaS admin dashboard overview
+ Network mochat-go-saas-admin-dashboard-check_default  Creating
+ Network mochat-go-saas-admin-dashboard-check_default  Created
+ Volume mochat-go-saas-admin-dashboard-check_mysql-data  Creating
+ Volume mochat-go-saas-admin-dashboard-check_mysql-data  Created
+ Volume mochat-go-saas-admin-dashboard-check_redis-data  Creating
+ Volume mochat-go-saas-admin-dashboard-check_redis-data  Created
+ Container mochat-go-saas-admin-dashboard-check-mysql-1  Creating
+ Container mochat-go-saas-admin-dashboard-check-redis-1  Creating
+ Container mochat-go-saas-admin-dashboard-check-redis-1  Created
+ Container mochat-go-saas-admin-dashboard-check-mysql-1  Created
+ Container mochat-go-saas-admin-dashboard-check-redis-1  Starting
+ Container mochat-go-saas-admin-dashboard-check-mysql-1  Starting
+ Container mochat-go-saas-admin-dashboard-check-redis-1  Started
+ Container mochat-go-saas-admin-dashboard-check-mysql-1  Started
+SaaS admin dashboard smoke passed
+
+==> SaaS admin platform access RBAC
+ Network mochat-go-saas-admin-access-rbac-check_default  Creating
+ Network mochat-go-saas-admin-access-rbac-check_default  Created
+ Volume mochat-go-saas-admin-access-rbac-check_mysql-data  Creating
+ Volume mochat-go-saas-admin-access-rbac-check_mysql-data  Created
+ Volume mochat-go-saas-admin-access-rbac-check_redis-data  Creating
+ Volume mochat-go-saas-admin-access-rbac-check_redis-data  Created
+ Container mochat-go-saas-admin-access-rbac-check-mysql-1  Creating
+ Container mochat-go-saas-admin-access-rbac-check-redis-1  Creating
+ Container mochat-go-saas-admin-access-rbac-check-redis-1  Created
+ Container mochat-go-saas-admin-access-rbac-check-mysql-1  Created
+ Container mochat-go-saas-admin-access-rbac-check-redis-1  Starting
+ Container mochat-go-saas-admin-access-rbac-check-mysql-1  Starting
+ Container mochat-go-saas-admin-access-rbac-check-redis-1  Started
+ Container mochat-go-saas-admin-access-rbac-check-mysql-1  Started
+SaaS admin access RBAC smoke passed
+
+==> SaaS tenant branding and standalone frontend metadata
+ Network mochat-go-saas-branding-check_default  Creating
+ Network mochat-go-saas-branding-check_default  Created
+ Volume mochat-go-saas-branding-check_redis-data  Creating
+ Volume mochat-go-saas-branding-check_redis-data  Created
+ Volume mochat-go-saas-branding-check_mysql-data  Creating
+ Volume mochat-go-saas-branding-check_mysql-data  Created
+ Container mochat-go-saas-branding-check-mysql-1  Creating
+ Container mochat-go-saas-branding-check-redis-1  Creating
+ Container mochat-go-saas-branding-check-redis-1  Created
+ Container mochat-go-saas-branding-check-mysql-1  Created
+ Container mochat-go-saas-branding-check-mysql-1  Starting
+ Container mochat-go-saas-branding-check-redis-1  Starting
+ Container mochat-go-saas-branding-check-redis-1  Started
+ Container mochat-go-saas-branding-check-mysql-1  Started
+NAME                                    IMAGE            COMMAND                  SERVICE   CREATED         STATUS                            PORTS
+mochat-go-saas-branding-check-mysql-1   mariadb:10.6     "docker-entrypoint.s…"   mysql     4 minutes ago   Up 4 minutes (health: starting)   0.0.0.0:13418->3306/tcp, [::]:13418->3306/tcp
+mochat-go-saas-branding-check-redis-1   redis:7-alpine   "docker-entrypoint.s…"   redis     4 minutes ago   Up 4 minutes (healthy)            0.0.0.0:26491->6379/tcp, [::]:26491->6379/tcp
+mysql-1  | 2026-07-19 12:39:25+08:00 [Note] [Entrypoint]: Entrypoint script for MariaDB Server 1:10.6.27+maria~ubu2204 started.
+mysql-1  | 2026-07-19 12:39:35+08:00 [Note] [Entrypoint]: Switching to dedicated user 'mysql'
+mysql-1  | 2026-07-19 12:39:35+08:00 [Note] [Entrypoint]: Entrypoint script for MariaDB Server 1:10.6.27+maria~ubu2204 started.
+mysql-1  | 2026-07-19 12:39:57+08:00 [Note] [Entrypoint]: Initializing database files
+mysql-1  | 2026-07-19 12:39:58 0 [Warning] mariadbd: io_uring_queue_init() failed with EPERM: sysctl kernel.io_uring_disabled has the value 2, or 1 and the user of the process is not a member of sysctl kernel.io_uring_group. (see man 2 io_uring_setup).
+mysql-1  | 2026-07-19 12:39:58 0 [Warning] InnoDB: liburing disabled: falling back to innodb_use_native_aio=OFF
+mysql-1  | 2026-07-19 12:40:56+08:00 [Note] [Entrypoint]: Database files initialized
+mysql-1  | 2026-07-19 12:40:56+08:00 [Note] [Entrypoint]: Starting temporary server
+mysql-1  | 2026-07-19 12:40:56+08:00 [Note] [Entrypoint]: Waiting for server startup
+mysql-1  | 2026-07-19 12:40:57 0 [Note] Starting MariaDB 10.6.27-MariaDB-ubu2204 source revision b2050fdb4a8776422baf01a41bf86845994edb97 server_uid LTP201pCV8f5y3w/7DHY7GRsshg= as process 160
+mysql-1  | 2026-07-19 12:40:57 0 [Note] InnoDB: Compressed tables use zlib 1.2.11
+mysql-1  | 2026-07-19 12:40:57 0 [Note] InnoDB: Number of pools: 1
+mysql-1  | 2026-07-19 12:40:57 0 [Note] InnoDB: Using ARMv8 crc32 + pmull instructions
+mysql-1  | 2026-07-19 12:40:58 0 [Warning] mariadbd: io_uring_queue_init() failed with EPERM: sysctl kernel.io_uring_disabled has the value 2, or 1 and the user of the process is not a member of sysctl kernel.io_uring_group. (see man 2 io_uring_setup).
+mysql-1  | 2026-07-19 12:40:58 0 [Warning] InnoDB: liburing disabled: falling back to innodb_use_native_aio=OFF
+mysql-1  | 2026-07-19 12:40:58 0 [Note] InnoDB: Initializing buffer pool, total size = 134217728, chunk size = 134217728
+mysql-1  | 2026-07-19 12:40:58 0 [Note] InnoDB: Completed initialization of buffer pool
+mysql-1  | 2026-07-19 12:41:01 0 [Note] InnoDB: 128 rollback segments are active.
+mysql-1  | 2026-07-19 12:41:02 0 [Note] InnoDB: Creating shared tablespace for temporary tables
+mysql-1  | 2026-07-19 12:41:02 0 [Note] InnoDB: Setting file './ibtmp1' size to 12 MB. Physically writing the file full; Please wait ...
+mysql-1  | 2026-07-19 12:41:02 0 [Note] InnoDB: File './ibtmp1' size is now 12 MB.
+mysql-1  | 2026-07-19 12:41:02 0 [Note] InnoDB: 10.6.27 started; log sequence number 41896; transaction id 14
+mysql-1  | 2026-07-19 12:41:02 0 [Note] Plugin 'FEEDBACK' is disabled.
+mysql-1  | 2026-07-19 12:41:09 0 [Note] mariadbd: ready for connections.
+mysql-1  | Version: '10.6.27-MariaDB-ubu2204'  socket: '/run/mysqld/mysqld.sock'  port: 0  mariadb.org binary distribution
+mysql-1  | 2026-07-19 12:41:10+08:00 [Note] [Entrypoint]: Temporary server started.
+SaaS branding smoke failed at line 121
+tail: /var/folders/kb/j3ftznkj1sl14d0v300ymzzw0000gn/T//mochat-go-saas-branding.8q82RS/go.log: No such file or directory

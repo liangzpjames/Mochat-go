@@ -1,0 +1,395 @@
+MoChat Go standalone acceptance started at 2026-07-19 11:27:37, suite=core
+
+==> fast static/unit/build gate
+standalone independence audit passed
+acceptance suite coverage audit passed: smoke_scripts=107 referenced=107
+manifest route smoke coverage audit passed: manifest_routes=224 directly_covered=224 smoke_scripts=107
+functional module matrix audit passed: modules=29 manifest_unique_paths=213/213 manifest_route_entries=224 runtime_unique_paths=589/589 runtime_route_entries=731
+  基础运行与静态入口: manifest_paths=3 runtime_paths=7 smokes=smoke_standalone.sh, standalone_stack_check.sh, smoke_admin_core_dashboard.sh
+  租户、账号、角色与菜单: manifest_paths=56 runtime_paths=60 smokes=smoke_bootstrap_standalone.sh, smoke_saas_tenant_isolation.sh, smoke_admin_core_dashboard.sh, smoke_standalone_compose_app.sh
+  客户、客户群、标签与画像: manifest_paths=43 runtime_paths=43 smokes=smoke_admin_core_dashboard.sh, smoke_work_contact_tag_remote_write.sh, smoke_work_contact_sync_worker.sh, smoke_work_room_sync_worker.sh, smoke_sidebar_frontend_contact.sh
+  素材库与上传存储: manifest_paths=14 runtime_paths=14 smokes=smoke_admin_core_dashboard.sh, smoke_sidebar_frontend_contact.sh, smoke_media_id_update_worker.sh, smoke_media_id_update_cron.sh, smoke_saas_storage_reclaim.sh
+  企微回调、通讯录同步与异步队列: manifest_paths=1 runtime_paths=1 smokes=smoke_wework_callback_worker.sh, smoke_work_contact_sync_worker.sh, smoke_work_department_list_worker.sh, smoke_employee_apply_worker.sh
+  微信开放平台与公众号: manifest_paths=7 runtime_paths=7 smokes=smoke_official_account_ticket.sh, smoke_operation_frontend_work_fission.sh
+  侧边栏工作台: manifest_paths=15 runtime_paths=20 smokes=smoke_sidebar_frontend_contact.sh, smoke_frontend_static_browser.sh
+  渠道活码: manifest_paths=12 runtime_paths=12 smokes=smoke_channel_code_dashboard.sh, smoke_channel_code_cron.sh, smoke_saas_storage_reclaim.sh
+  客户转接: manifest_paths=6 runtime_paths=6 smokes=smoke_contact_transfer_dashboard.sh, smoke_transfer_state_refresh_cron.sh
+  好友欢迎语与入群欢迎语: manifest_paths=11 runtime_paths=11 smokes=smoke_greeting_dashboard.sh, smoke_room_welcome_dashboard.sh, smoke_saas_storage_reclaim.sh
+  客户群发与客户群群发: manifest_paths=15 runtime_paths=16 smokes=smoke_contact_message_batch_send_dashboard.sh, smoke_room_message_batch_send_dashboard.sh, smoke_contact_batch_send_cron.sh, smoke_room_batch_send_cron.sh, smoke_saas_storage_reclaim.sh
+  任务宝裂变与 operation 前端: manifest_paths=17 runtime_paths=25 smokes=smoke_work_fission_dashboard.sh, smoke_operation_frontend_work_fission.sh, smoke_saas_storage_reclaim.sh
+  标签建群: manifest_paths=9 runtime_paths=12 smokes=smoke_room_tag_pull_dashboard.sh, smoke_room_tag_pull_cron.sh, smoke_saas_storage_reclaim.sh
+  自动拉群: manifest_paths=4 runtime_paths=5 smokes=smoke_work_room_auto_pull_dashboard.sh, smoke_saas_storage_reclaim.sh
+  批量加好友: manifest_paths=0 runtime_paths=10 smokes=smoke_contact_batch_add_dashboard.sh, smoke_saas_storage_reclaim.sh
+  敏感词与会话监控: manifest_paths=0 runtime_paths=11 smokes=smoke_sensitive_word_dashboard.sh, smoke_sensitive_word_monitor_cron.sh, smoke_work_message_archive_sync_cron.sh
+  个人和群 SOP: manifest_paths=0 runtime_paths=16 smokes=smoke_sop_dashboard.sh, smoke_sidebar_frontend_contact.sh
+  门店活码: manifest_paths=0 runtime_paths=21 smokes=smoke_shop_code_dashboard.sh, smoke_saas_storage_reclaim.sh
+  互动雷达: manifest_paths=0 runtime_paths=14 smokes=smoke_radar_dashboard.sh, smoke_saas_storage_reclaim.sh
+  自动标签与会话存档: manifest_paths=0 runtime_paths=18 smokes=smoke_auto_tag_dashboard.sh, smoke_auto_tag_keyword_task.sh, smoke_work_message_archive_sync_cron.sh, smoke_mark_tags_worker.sh
+  抽奖活动: manifest_paths=0 runtime_paths=14 smokes=smoke_lottery_dashboard.sh, smoke_saas_storage_reclaim.sh
+  群裂变: manifest_paths=0 runtime_paths=14 smokes=smoke_room_fission_dashboard.sh, smoke_dashboard_frontend_login.sh, smoke_saas_storage_reclaim.sh
+  群打卡: manifest_paths=0 runtime_paths=15 smokes=smoke_room_clock_in_dashboard.sh, smoke_saas_storage_reclaim.sh
+  群质检: manifest_paths=0 runtime_paths=9 smokes=smoke_room_quality_dashboard.sh
+  群日历: manifest_paths=0 runtime_paths=8 smokes=smoke_room_calendar_dashboard.sh
+  客户群提醒: manifest_paths=0 runtime_paths=8 smokes=smoke_room_remind_dashboard.sh, smoke_message_remind_worker.sh
+  无限拉群: manifest_paths=0 runtime_paths=7 smokes=smoke_room_infinite_pull_dashboard.sh, smoke_saas_storage_reclaim.sh
+  SaaS 告警管理: manifest_paths=0 runtime_paths=4 smokes=smoke_employee_apply_worker.sh, smoke_saas_alert_notification_cron.sh, smoke_saas_alert_setting_dispatch.sh
+  SaaS 总后台与平台运营: manifest_paths=0 runtime_paths=181 smokes=smoke_saas_admin_dashboard.sh, smoke_saas_admin_access_rbac.sh, smoke_saas_admin_approvals.sh, smoke_saas_admin_approval_governance.sh, smoke_saas_package_definition_approval.sh, smoke_saas_tenant_package_assignment_approval.sh, smoke_saas_tenant_provision_approval.sh, smoke_saas_tenant_renewal_approval.sh, smoke_saas_subscription_transition_approval.sh, smoke_saas_invoice_issue_approval.sh, smoke_saas_payment_order_create_approval.sh, smoke_saas_payment_settlement_close_approval.sh, smoke_saas_payment_settlement_reopen_approval.sh, smoke_saas_payment_settlement_resolve_approval.sh, smoke_saas_admin_system_health.sh, smoke_saas_audit_integrity.sh, smoke_saas_service_accounts.sh, smoke_saas_backup_recovery.sh, smoke_saas_compliance_lifecycle.sh, smoke_saas_identity_security.sh, smoke_saas_branding.sh, smoke_saas_tenant_domains.sh, smoke_saas_release_readiness.sh, smoke_wecom_credential_encryption.sh, smoke_saas_notification_slo.sh, smoke_saas_notification_health_recovery_cron.sh, smoke_saas_subscription_lifecycle.sh, smoke_saas_payment_collection.sh, smoke_saas_payment_refunds.sh, smoke_saas_billing_invoices.sh, smoke_saas_payment_settlements.sh, smoke_saas_payment_settlement_sync.sh, smoke_standalone_compose_app.sh
+login corp validation audit passed
+queue annotation coverage source=embedded:internal/server/compat_manifest_embedded.json
+php_async_annotations=15
+go_semantic_queues=11
+  async-file-upload: annotations=1 php=api-server/app/core/common/src/QueueService/AsyncFileUpload.php smoke=scripts/smoke_async_file_upload_worker.sh
+  contact-welcome: annotations=1 php=api-server/app/core/work-contact/src/QueueService/SendWelcome.php smoke=scripts/smoke_wework_callback_worker.sh
+  employee-apply: annotations=1 php=api-server/app/core/work-employee/src/QueueService/EmployeeApply.php smoke=scripts/smoke_employee_apply_worker.sh
+  employee-statistic-apply: annotations=1 php=api-server/app/core/work-employee/src/QueueService/EmployeeStatisticApply.php smoke=scripts/smoke_employee_statistic_worker.sh
+  mark-tags: annotations=1 php=api-server/app/core/work-contact/src/QueueService/Tag/MarkTags.php smoke=scripts/smoke_mark_tags_worker.sh
+  medium-media-id-update: annotations=1 php=api-server/app/core/medium/src/Queue/MediaIdUpdateQueue.php smoke=scripts/smoke_media_id_update_worker.sh
+  message-remind: annotations=3 php=api-server/app/core/work-agent/src/QueueService/MessageRemind.php smoke=scripts/smoke_message_remind_worker.sh
+  wework-callback: annotations=1 php=api-server/app/core/corp/src/QueueService/WeWorkCallback.php smoke=scripts/smoke_wework_callback_worker.sh
+  work-contact-sync: annotations=2 php=api-server/app/core/work-contact/src/QueueService/AdminSynContactApply.php, api-server/app/core/work-contact/src/QueueService/SyncContactApply.php smoke=scripts/smoke_work_contact_sync_worker.sh
+  work-department-list: annotations=1 php=api-server/app/core/work-department/src/QueueService/ListApply.php smoke=scripts/smoke_work_department_list_worker.sh
+  work-room-sync: annotations=2 php=api-server/app/core/work-room/src/QueueService/UpdateApply.php, api-server/app/core/work-room/src/QueueService/UpdateCallback.php smoke=scripts/smoke_work_room_sync_worker.sh
+queue annotation coverage passed
+wework callback event coverage audit passed: process_events=20 smoke_events=20 unit_events=18
+  event.change_contact.create_party
+  event.change_contact.create_user
+  event.change_contact.delete_party
+  event.change_contact.delete_user
+  event.change_contact.update_party
+  event.change_contact.update_tag
+  event.change_contact.update_user
+  event.change_external_chat.create
+  event.change_external_chat.dismiss
+  event.change_external_chat.update
+  event.change_external_contact.add_external_contact
+  event.change_external_contact.add_half_external_contact
+  event.change_external_contact.del_external_contact
+  event.change_external_contact.del_follow_user
+  event.change_external_contact.edit_external_contact
+  event.change_external_contact.transfer_fail
+  event.change_external_tag.create
+  event.change_external_tag.delete
+  event.change_external_tag.shuffle
+  event.change_external_tag.update
+worker SaaS usage assertion audit passed
+SaaS metric coverage audit passed: metrics=26
+  corps
+  users
+  contacts
+  rooms
+  agents
+  channel_codes
+  shop_codes
+  radars
+  lotteries
+  room_infinite_pulls
+  room_fissions
+  room_clock_ins
+  room_qualities
+  room_calendars
+  room_reminds
+  contact_sops
+  room_sops
+  sensitive_words
+  storage_mb
+  contact_message_batches
+  room_message_batches
+  room_tag_pulls
+  work_room_auto_pulls
+  work_fissions
+  official_accounts
+  async_executions
+SaaS storage reclaim coverage audit passed: functions=26 groups=14
+  batch send delete
+  channel code rollback
+  contact batch add import
+  lottery delete
+  medium update and delete
+  radar delete
+  room clock in delete
+  room fission invite and delete
+  room infinite pull delete
+  room tag pull delete
+  room welcome update and delete
+  shop code update page setting and delete
+  work fission delete
+  work room auto pull update and rollback
+production evidence gate smoke passed
+?   	jiyi/mochat-go/cmd/mochat-bootstrap	[no test files]
+?   	jiyi/mochat-go/cmd/mochat-go	[no test files]
+?   	jiyi/mochat-go/cmd/mochat-inventory	[no test files]
+?   	jiyi/mochat-go/cmd/mochat-migrate	[no test files]
+ok  	jiyi/mochat-go/cmd/mochat-saas-maintenance	(cached)
+ok  	jiyi/mochat-go/internal/authjwt	(cached)
+?   	jiyi/mochat-go/internal/buildinfo	[no test files]
+ok  	jiyi/mochat-go/internal/clientip	(cached)
+ok  	jiyi/mochat-go/internal/config	0.808s
+ok  	jiyi/mochat-go/internal/dashboard	(cached)
+ok  	jiyi/mochat-go/internal/frontend	(cached)
+ok  	jiyi/mochat-go/internal/identitysecurity	(cached)
+ok  	jiyi/mochat-go/internal/inventory	(cached)
+ok  	jiyi/mochat-go/internal/migration	(cached)
+ok  	jiyi/mochat-go/internal/mysqlconn	(cached)
+ok  	jiyi/mochat-go/internal/outboundhttp	(cached)
+ok  	jiyi/mochat-go/internal/saasalertcredentials	(cached)
+ok  	jiyi/mochat-go/internal/saasauditanchor	(cached)
+ok  	jiyi/mochat-go/internal/saasbackup	(cached)
+ok  	jiyi/mochat-go/internal/saascompliance	(cached)
+ok  	jiyi/mochat-go/internal/server	(cached)
+ok  	jiyi/mochat-go/internal/serviceaccountkey	(cached)
+ok  	jiyi/mochat-go/internal/session	(cached)
+ok  	jiyi/mochat-go/internal/store	(cached)
+ok  	jiyi/mochat-go/internal/taskrunner	(cached)
+ok  	jiyi/mochat-go/internal/wechatopencredentials	(cached)
+ok  	jiyi/mochat-go/internal/wecomcredentials	(cached)
+standalone inventory parity skipped by MOCHAT_ACCEPTANCE_SKIP_INVENTORY_PARITY=1; this is the independent delivery evidence mode
+
+==> schema migration apply/baseline/rollback
+ Network mochat-go-schema-migrate-check_default  Creating
+ Network mochat-go-schema-migrate-check_default  Created
+ Volume mochat-go-schema-migrate-check_mysql-data  Creating
+ Volume mochat-go-schema-migrate-check_mysql-data  Created
+ Container mochat-go-schema-migrate-check-mysql-1  Creating
+ Container mochat-go-schema-migrate-check-mysql-1  Created
+ Container mochat-go-schema-migrate-check-mysql-1  Starting
+ Container mochat-go-schema-migrate-check-mysql-1  Started
+schema migration smoke passed
+
+==> standalone smoke without PHP/source/manifest
+standalone smoke passed
+
+==> independent package smoke without original PHP checkout
+standalone independence audit passed
+queue annotation coverage source=embedded:internal/server/compat_manifest_embedded.json
+php_async_annotations=15
+go_semantic_queues=11
+  async-file-upload: annotations=1 php=api-server/app/core/common/src/QueueService/AsyncFileUpload.php smoke=scripts/smoke_async_file_upload_worker.sh
+  contact-welcome: annotations=1 php=api-server/app/core/work-contact/src/QueueService/SendWelcome.php smoke=scripts/smoke_wework_callback_worker.sh
+  employee-apply: annotations=1 php=api-server/app/core/work-employee/src/QueueService/EmployeeApply.php smoke=scripts/smoke_employee_apply_worker.sh
+  employee-statistic-apply: annotations=1 php=api-server/app/core/work-employee/src/QueueService/EmployeeStatisticApply.php smoke=scripts/smoke_employee_statistic_worker.sh
+  mark-tags: annotations=1 php=api-server/app/core/work-contact/src/QueueService/Tag/MarkTags.php smoke=scripts/smoke_mark_tags_worker.sh
+  medium-media-id-update: annotations=1 php=api-server/app/core/medium/src/Queue/MediaIdUpdateQueue.php smoke=scripts/smoke_media_id_update_worker.sh
+  message-remind: annotations=3 php=api-server/app/core/work-agent/src/QueueService/MessageRemind.php smoke=scripts/smoke_message_remind_worker.sh
+  wework-callback: annotations=1 php=api-server/app/core/corp/src/QueueService/WeWorkCallback.php smoke=scripts/smoke_wework_callback_worker.sh
+  work-contact-sync: annotations=2 php=api-server/app/core/work-contact/src/QueueService/AdminSynContactApply.php, api-server/app/core/work-contact/src/QueueService/SyncContactApply.php smoke=scripts/smoke_work_contact_sync_worker.sh
+  work-department-list: annotations=1 php=api-server/app/core/work-department/src/QueueService/ListApply.php smoke=scripts/smoke_work_department_list_worker.sh
+  work-room-sync: annotations=2 php=api-server/app/core/work-room/src/QueueService/UpdateApply.php, api-server/app/core/work-room/src/QueueService/UpdateCallback.php smoke=scripts/smoke_work_room_sync_worker.sh
+queue annotation coverage passed
+standalone smoke passed
+independent package manifest check passed: routes=224 tables=70
+independent package smoke passed
+
+==> production evidence gate rule smoke
+production evidence gate smoke passed
+
+==> standalone MySQL/Redis stack check
+ Network mochat-go-standalone-check_default  Creating
+ Network mochat-go-standalone-check_default  Created
+ Volume mochat-go-standalone-check_mysql-data  Creating
+ Volume mochat-go-standalone-check_mysql-data  Created
+ Volume mochat-go-standalone-check_redis-data  Creating
+ Volume mochat-go-standalone-check_redis-data  Created
+ Container mochat-go-standalone-check-mysql-1  Creating
+ Container mochat-go-standalone-check-redis-1  Creating
+ Container mochat-go-standalone-check-redis-1  Created
+ Container mochat-go-standalone-check-mysql-1  Created
+ Container mochat-go-standalone-check-mysql-1  Starting
+ Container mochat-go-standalone-check-redis-1  Starting
+ Container mochat-go-standalone-check-redis-1  Started
+ Container mochat-go-standalone-check-mysql-1  Started
+standalone stack check passed
+
+==> standalone compose app check
+#1 [internal] load local bake definitions
+#1 reading from stdin 583B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile:
+#2 transferring dockerfile: 2.25kB 0.0s done
+#2 DONE 0.2s
+
+#3 [internal] load metadata for docker.io/library/golang:1.26-alpine
+#3 DONE 0.0s
+
+#4 [internal] load metadata for docker.io/library/alpine:3.22
+#4 DONE 0.0s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 147B done
+#5 DONE 0.0s
+
+#6 [build  1/16] FROM docker.io/library/golang:1.26-alpine
+#6 DONE 0.0s
+
+#7 [stage-1  1/11] FROM docker.io/library/alpine:3.22
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 66.32kB 0.3s done
+#8 DONE 0.4s
+
+#9 [build 14/16] COPY deploy/mysql57 ./deploy/mysql57
+#9 CACHED
+
+#10 [build 10/16] COPY scripts ./scripts
+#10 CACHED
+
+#11 [build 11/16] COPY web ./web
+#11 CACHED
+
+#12 [build  6/16] COPY .dockerignore Dockerfile ./
+#12 CACHED
+
+#13 [build  4/16] COPY go.mod go.sum ./
+#13 CACHED
+
+#14 [build  7/16] COPY .github ./.github
+#14 CACHED
+
+#15 [build 12/16] COPY deploy/standalone ./deploy/standalone
+#15 CACHED
+
+#16 [build 13/16] COPY deploy/local ./deploy/local
+#16 CACHED
+
+#17 [build  2/16] WORKDIR /src
+#17 CACHED
+
+#18 [build  9/16] COPY internal ./internal
+#18 CACHED
+
+#19 [build  3/16] RUN apk add --no-cache python3
+#19 CACHED
+
+#20 [build  8/16] COPY cmd ./cmd
+#20 CACHED
+
+#21 [build  5/16] RUN go mod download
+#21 CACHED
+
+#22 [build 15/16] COPY LICENSE NOTICE.md SOURCE_OFFER.md MODIFICATIONS.md THIRD_PARTY_NOTICES.md ./
+#22 CACHED
+
+#23 [build 16/16] RUN SOURCE_FINGERPRINT="$(python3 scripts/source_fingerprint.py | python3 -c 'import json,sys; print(json.load(sys.stdin)["fingerprint"])')" 	&& test "${#SOURCE_FINGERPRINT}" -eq 64 	&& BUILD_LDFLAGS="-X jiyi/mochat-go/internal/buildinfo.SourceFingerprint=${SOURCE_FINGERPRINT}" 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-go ./cmd/mochat-go 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-migrate ./cmd/mochat-migrate 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-bootstrap ./cmd/mochat-bootstrap 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-saas-maintenance ./cmd/mochat-saas-maintenance
+#23 DONE 290.1s
+
+#24 [stage-1  2/11] RUN apk add --no-cache mariadb-client tzdata 	&& addgroup -S mochat 	&& adduser -S -G mochat -u 10001 mochat
+#24 CACHED
+
+#25 [stage-1  3/11] WORKDIR /app
+#25 CACHED
+
+#26 [stage-1  4/11] COPY --from=build /out/mochat-go /usr/local/bin/mochat-go
+#26 DONE 0.6s
+
+#27 [stage-1  5/11] COPY --from=build /out/mochat-migrate /usr/local/bin/mochat-migrate
+#27 DONE 0.1s
+
+#28 [stage-1  6/11] COPY --from=build /out/mochat-bootstrap /usr/local/bin/mochat-bootstrap
+#28 DONE 0.1s
+
+#29 [stage-1  7/11] COPY --from=build /out/mochat-saas-maintenance /usr/local/bin/mochat-saas-maintenance
+#29 DONE 0.4s
+
+#30 [stage-1  8/11] COPY --from=build /src/web ./web
+#30 DONE 0.3s
+
+#31 [stage-1  9/11] COPY --from=build /src/deploy/standalone ./deploy/standalone
+#31 DONE 0.3s
+
+#32 [stage-1 10/11] COPY --from=build /src/LICENSE /src/NOTICE.md /src/SOURCE_OFFER.md /src/MODIFICATIONS.md /src/THIRD_PARTY_NOTICES.md ./
+#32 DONE 0.2s
+
+#33 [stage-1 11/11] RUN mkdir -p /app/storage/upload/static /app/storage/backups /app/audit-anchors 	&& chown -R mochat:mochat /app/storage /app/audit-anchors
+#33 DONE 1.5s
+
+#34 exporting to image
+#34 exporting layers
+#34 exporting layers 1.2s done
+#34 writing image sha256:cf83943a2c4a9f2bdb8d93426fd7abd101c837382d12c64e3bcbceb3770deabb done
+#34 naming to docker.io/library/mochat-go-local-evidence-compose-app-app 0.0s done
+#34 DONE 1.3s
+
+#35 resolving provenance for metadata file
+#35 DONE 0.1s
+ mochat-go-local-evidence-compose-app-app  Built
+ Network mochat-go-local-evidence-compose-app_default  Creating
+ Network mochat-go-local-evidence-compose-app_default  Created
+ Volume mochat-go-local-evidence-compose-app_redis-data  Creating
+ Volume mochat-go-local-evidence-compose-app_redis-data  Created
+ Volume mochat-go-local-evidence-compose-app_app-storage  Creating
+ Volume mochat-go-local-evidence-compose-app_app-storage  Created
+ Volume mochat-go-local-evidence-compose-app_audit-anchor-storage  Creating
+ Volume mochat-go-local-evidence-compose-app_audit-anchor-storage  Created
+ Volume mochat-go-local-evidence-compose-app_mysql-data  Creating
+ Volume mochat-go-local-evidence-compose-app_mysql-data  Created
+ Container mochat-go-local-evidence-compose-app-mysql-1  Creating
+ Container mochat-go-local-evidence-compose-app-redis-1  Creating
+ Container mochat-go-local-evidence-compose-app-redis-1  Created
+ Container mochat-go-local-evidence-compose-app-mysql-1  Created
+ Container mochat-go-local-evidence-compose-app-app-1  Creating
+ Container mochat-go-local-evidence-compose-app-app-1  Created
+ Container mochat-go-local-evidence-compose-app-mysql-1  Starting
+ Container mochat-go-local-evidence-compose-app-redis-1  Starting
+ Container mochat-go-local-evidence-compose-app-redis-1  Started
+ Container mochat-go-local-evidence-compose-app-mysql-1  Started
+ Container mochat-go-local-evidence-compose-app-mysql-1  Waiting
+ Container mochat-go-local-evidence-compose-app-redis-1  Waiting
+ Container mochat-go-local-evidence-compose-app-redis-1  Healthy
+ Container mochat-go-local-evidence-compose-app-mysql-1  Healthy
+ Container mochat-go-local-evidence-compose-app-app-1  Starting
+ Container mochat-go-local-evidence-compose-app-app-1  Started
+standalone compose app smoke passed
+
+==> standalone route coverage must be complete
+ Network mochat-go-route-coverage_default  Creating
+ Network mochat-go-route-coverage_default  Created
+ Volume mochat-go-route-coverage_mysql-data  Creating
+ Volume mochat-go-route-coverage_mysql-data  Created
+ Volume mochat-go-route-coverage_redis-data  Creating
+ Volume mochat-go-route-coverage_redis-data  Created
+ Container mochat-go-route-coverage-mysql-1  Creating
+ Container mochat-go-route-coverage-redis-1  Creating
+ Container mochat-go-route-coverage-redis-1  Created
+ Container mochat-go-route-coverage-mysql-1  Created
+ Container mochat-go-route-coverage-redis-1  Starting
+ Container mochat-go-route-coverage-mysql-1  Starting
+ Container mochat-go-route-coverage-redis-1  Started
+ Container mochat-go-route-coverage-mysql-1  Started
+route_total=224
+migrated_manifest_route_total=224
+missing_route_total=0
+extra_route_total=209
+coverage_json=/var/folders/kb/j3ftznkj1sl14d0v300ymzzw0000gn/T/mochat-go-route-coverage.LCoJDG/coverage.json
+
+==> bootstrap standalone tenant
+ Network mochat-go-bootstrap-check_default  Creating
+ Network mochat-go-bootstrap-check_default  Created
+ Volume mochat-go-bootstrap-check_redis-data  Creating
+ Volume mochat-go-bootstrap-check_redis-data  Created
+ Volume mochat-go-bootstrap-check_mysql-data  Creating
+ Volume mochat-go-bootstrap-check_mysql-data  Created
+ Container mochat-go-bootstrap-check-redis-1  Creating
+ Container mochat-go-bootstrap-check-mysql-1  Creating
+ Container mochat-go-bootstrap-check-redis-1  Created
+ Container mochat-go-bootstrap-check-mysql-1  Created
+ Container mochat-go-bootstrap-check-redis-1  Starting
+ Container mochat-go-bootstrap-check-mysql-1  Starting
+ Container mochat-go-bootstrap-check-redis-1  Started
+ Container mochat-go-bootstrap-check-mysql-1  Started
+bootstrap standalone smoke passed
+
+==> queue idempotency
+ Network mochat-go-queue-idempotency-check_default  Creating
+ Network mochat-go-queue-idempotency-check_default  Created
+ Volume mochat-go-queue-idempotency-check_redis-data  Creating
+ Volume mochat-go-queue-idempotency-check_redis-data  Created
+ Container mochat-go-queue-idempotency-check-redis-1  Creating
+ Container mochat-go-queue-idempotency-check-redis-1  Created
+ Container mochat-go-queue-idempotency-check-redis-1  Starting
+ Container mochat-go-queue-idempotency-check-redis-1  Started
+ok  	jiyi/mochat-go/internal/store	0.876s
+queue idempotency smoke passed
+
+MoChat Go standalone acceptance finished at 2026-07-19 11:49:55, suite=core

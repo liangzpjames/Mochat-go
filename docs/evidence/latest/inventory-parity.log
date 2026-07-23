@@ -1,0 +1,7 @@
+2026/07/19 11:27:36 routes=224 tables=70 crontabs=9 events=10 queues=15
+routes: php_scan=224 embedded=224
+tables: php_scan=70 embedded=70
+crontabs: php_scan=9 embedded=9
+event_handlers: php_scan=10 embedded=10
+async_queues: php_scan=15 embedded=15
+standalone inventory parity passed

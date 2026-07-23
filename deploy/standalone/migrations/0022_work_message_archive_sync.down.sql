@@ -1,0 +1,33 @@
+ALTER TABLE `mc_work_message_10`
+  DROP INDEX `idx_mc_work_message_10_corp_seq`,
+  DROP INDEX `idx_mc_work_message_10_corp_msgid`;
+ALTER TABLE `mc_work_message_9`
+  DROP INDEX `idx_mc_work_message_9_corp_seq`,
+  DROP INDEX `idx_mc_work_message_9_corp_msgid`;
+ALTER TABLE `mc_work_message_8`
+  DROP INDEX `idx_mc_work_message_8_corp_seq`,
+  DROP INDEX `idx_mc_work_message_8_corp_msgid`;
+ALTER TABLE `mc_work_message_7`
+  DROP INDEX `idx_mc_work_message_7_corp_seq`,
+  DROP INDEX `idx_mc_work_message_7_corp_msgid`;
+ALTER TABLE `mc_work_message_6`
+  DROP INDEX `idx_mc_work_message_6_corp_seq`,
+  DROP INDEX `idx_mc_work_message_6_corp_msgid`;
+ALTER TABLE `mc_work_message_5`
+  DROP INDEX `idx_mc_work_message_5_corp_seq`,
+  DROP INDEX `idx_mc_work_message_5_corp_msgid`;
+ALTER TABLE `mc_work_message_4`
+  DROP INDEX `idx_mc_work_message_4_corp_seq`,
+  DROP INDEX `idx_mc_work_message_4_corp_msgid`;
+ALTER TABLE `mc_work_message_3`
+  DROP INDEX `idx_mc_work_message_3_corp_seq`,
+  DROP INDEX `idx_mc_work_message_3_corp_msgid`;
+ALTER TABLE `mc_work_message_2`
+  DROP INDEX `idx_mc_work_message_2_corp_seq`,
+  DROP INDEX `idx_mc_work_message_2_corp_msgid`;
+ALTER TABLE `mc_work_message_1`
+  DROP INDEX `idx_mc_work_message_1_corp_seq`,
+  DROP INDEX `idx_mc_work_message_1_corp_msgid`;
+
+ALTER TABLE `mc_work_message_id`
+  MODIFY COLUMN `last_id` int(11) NOT NULL DEFAULT '0' COMMENT '最后一次查询最大id';

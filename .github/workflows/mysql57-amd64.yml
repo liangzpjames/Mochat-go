@@ -1,0 +1,62 @@
+name: mysql57-amd64
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/mysql57-amd64.yml"
+      - "cmd/mochat-migrate/**"
+      - "deploy/mysql57/**"
+      - "deploy/standalone/**"
+      - "go.mod"
+      - "go.sum"
+      - "internal/**"
+      - "scripts/ci_mysql57_amd64.sh"
+      - "scripts/lint_mysql57_schema.sh"
+      - "scripts/smoke_mysql57_schema_migrate.sh"
+      - "scripts/standalone_acceptance.sh"
+  pull_request:
+    paths:
+      - ".github/workflows/mysql57-amd64.yml"
+      - "cmd/mochat-migrate/**"
+      - "deploy/mysql57/**"
+      - "deploy/standalone/**"
+      - "go.mod"
+      - "go.sum"
+      - "internal/**"
+      - "scripts/ci_mysql57_amd64.sh"
+      - "scripts/lint_mysql57_schema.sh"
+      - "scripts/smoke_mysql57_schema_migrate.sh"
+      - "scripts/standalone_acceptance.sh"
+
+jobs:
+  mysql57-amd64:
+    name: MySQL 5.7 amd64 gate
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Docker info
+        run: docker info
+
+      - name: Run MySQL 5.7 amd64 gate
+        run: |
+          mkdir -p docs/evidence/ci
+          env -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/evidence/ci/mysql57-amd64.log
+          grep -q "mysql57 amd64 CI gate passed" docs/evidence/ci/mysql57-amd64.log
+
+      - name: Upload MySQL 5.7 evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mysql57-amd64-evidence
+          path: docs/evidence/ci/mysql57-amd64.log
+          if-no-files-found: error

@@ -1,0 +1,160 @@
+# 本地 PHP/MySQL/Redis 联调环境
+
+这个 compose 用于方案一的真实联调：PHP MoChat 保持原服务，Go 网关逐步接管接口。
+
+## 启动依赖
+
+```bash
+cd /Users/lv/Documents/企业微信/mochat-go
+docker compose -f deploy/local/docker-compose.yml up -d mysql redis
+docker compose -f deploy/local/docker-compose.yml up -d php
+```
+
+说明：
+
+- 数据库服务映射到宿主机 `127.0.0.1:13306`，服务名仍为 `mysql`。
+- Redis 映射到宿主机 `127.0.0.1:26379`。
+- PHP Hyperf 默认映射到宿主机 `127.0.0.1:9501`；如果端口被占用，可设置 `MOCHAT_PHP_PORT=19501`。
+- MySQL 初始化会先导入 `mochat/api-server/storage/install/mochat.sql`，再顺序加载 Go 独立版 `deploy/standalone/migrations/0002_seed_core_data.up.sql` 到 `0086_saas_tenant_provision_approval_guard.up.sql`，保证本地兼容栈具备当前完整迁移基线，包括总后台治理、服务账号 OpenAPI 用量预警与独立 pepper 密钥环、通知、企微和微信开放平台凭据加密、审计完整性摘要链、外部密钥签名锚点、发布候选双人审批、审批策略、备份策略、合规生命周期策略、租户身份安全策略变更，以及全部 critical 动作不可绕过的双人会签，并包含审批后可续跑的备份保留清理、合规导出提前删除、法律保留解除、服务账号配置变更、API Key 创建/轮换/吊销、MFA 重置、平台套餐定义变更、租户套餐分配和平台开户双人门禁。
+- PHP 镜像沿用原项目 `mochat/api-server/Dockerfile`，构建时会执行 `composer install`。
+
+本地数据库镜像使用 `mariadb:10.6`，原因是 Docker 官方 `mysql:5.7` 在 Apple Silicon 上需要 amd64/qemu，初始化阶段会段错误。生产兼容验收仍应使用项目要求的 MySQL 5.7。
+
+## 自动化检查
+
+```bash
+cd /Users/lv/Documents/企业微信/mochat-go
+./scripts/local_stack_check.sh
+./scripts/smoke_real_php_auth_chain.sh
+```
+
+脚本会启动 MariaDB/Redis，验证 `mc_user` 表、`mc_rbac_menu` 菜单数据、Redis `PONG`，再启动 Go 网关检查 auth/RBAC/corp/corpData/workEmployee/workDepartment/workContactTagGroup/sidebar workContactTagGroup/workContactTag/workContact/workContactRoom/workRoom/contactTransfer/sidebar workRoom roomManage/workRoomAutoPull/roomTagPull/contactMessageBatchSend/roomMessageBatchSend/officialAccount/workFission/sidebar medium mediaIdUpdate/dashboard workContact/sidebar workContact/contactProcessStatus/contactField/contactFieldPivot/sidebar contactFieldPivot/channelCode/channelCodeGroup/chatTool/dashboard corp store/weWork callback/dashboard agent store/sidebar agent OAuth/JSSDK/TXT 验证与上传、角色读接口、菜单读接口和 `/compat/status` 的 165 条迁移计数。默认退出时会清理容器和卷；如需保留现场可加 `KEEP_STACK=1`。
+
+`smoke_real_php_auth_chain.sh` 会进一步复用本地已构建 PHP 镜像或启动真实 PHP Hyperf 容器，插入临时测试账号、企业、部门、员工部门关系、员工统计、客户主表、客户员工关系、客户群关系、离职继承待分配记录、自动拉群、标签建群、客户群发、客户群群发、公众号授权、裂变活动、客户互动轨迹、客户标签分组、客户标签、渠道活码和渠道活码分组、客户画像字段和值、角色、企业日数据和企业应用，验证 Go token 可被 PHP 识别，并覆盖 Go `workFission/index/show/info/statistics/chooseContact/store/update/invite/inviteData/inviteDetail/destroy` 与 PHP 原接口可用性、Go 返回字段、创建更新写库和删除软删结果。该脚本同时覆盖原有企业授权、客户、客户群、标签、群发、公众号、画像、角色、菜单、侧边栏、企业应用 OAuth/JSSDK 和 TXT 验证链路；默认使用 `MOCHAT_PHP_PORT=19501`，避免宿主机 `9501` 被占用时失败。
+
+## Go 网关联调
+
+```bash
+cd /Users/lv/Documents/企业微信/mochat-go
+env -u GOROOT \
+  MOCHAT_GO_ADDR=127.0.0.1:18080 \
+  MOCHAT_SOURCE_ROOT=../mochat \
+  MOCHAT_COMPAT_MANIFEST=../docs/migration/compat_manifest.json \
+  MOCHAT_PHP_UPSTREAM=http://127.0.0.1:9501 \
+  MOCHAT_MYSQL_DSN='mochat:mochat_pass@tcp(127.0.0.1:13306)/mochat?parseTime=true&loc=Local' \
+  MOCHAT_REDIS_ADDR=127.0.0.1:26379 \
+  MOCHAT_SIMPLE_JWT_SECRET='3S6ybWbSy&23fFeq8' \
+  MOCHAT_SIMPLE_JWT_PREFIX=mc_jwt_ \
+  MOCHAT_GO_MIGRATE_AUTH=1 \
+  MOCHAT_GO_MIGRATE_LOGIN_SHOW=1 \
+  MOCHAT_GO_MIGRATE_LOGOUT=1 \
+  MOCHAT_GO_MIGRATE_PERMISSION_BY_USER=1 \
+  MOCHAT_GO_MIGRATE_CORP_SELECT=1 \
+  MOCHAT_GO_MIGRATE_CORP_BIND=1 \
+  MOCHAT_GO_MIGRATE_CORP_INDEX=1 \
+  MOCHAT_GO_MIGRATE_CORP_SHOW=1 \
+  MOCHAT_GO_MIGRATE_CORP_STORE=1 \
+  MOCHAT_GO_MIGRATE_CORP_UPDATE=1 \
+  MOCHAT_GO_MIGRATE_WEWORK_CALLBACK=1 \
+  MOCHAT_GO_MIGRATE_CHAT_TOOL_CONFIG=1 \
+  MOCHAT_GO_MIGRATE_AGENT_TXT_VERIFY=1 \
+  MOCHAT_GO_MIGRATE_AGENT_TXT_VERIFY_UPLOAD=1 \
+  MOCHAT_GO_MIGRATE_AGENT_STORE=1 \
+  MOCHAT_GO_MIGRATE_ROLE_SELECT=1 \
+  MOCHAT_GO_MIGRATE_ROLE_INDEX=1 \
+  MOCHAT_GO_MIGRATE_ROLE_SHOW=1 \
+  MOCHAT_GO_MIGRATE_ROLE_PERMISSION_SHOW=1 \
+  MOCHAT_GO_MIGRATE_ROLE_SHOW_EMPLOYEE=1 \
+  MOCHAT_GO_MIGRATE_MENU_ICON_INDEX=1 \
+  MOCHAT_GO_MIGRATE_MENU_SELECT=1 \
+  MOCHAT_GO_MIGRATE_MENU_INDEX=1 \
+  MOCHAT_GO_MIGRATE_MENU_SHOW=1 \
+  MOCHAT_GO_MIGRATE_CORP_DATA_INDEX=1 \
+  MOCHAT_GO_MIGRATE_CORP_DATA_LINE_CHAT=1 \
+  MOCHAT_GO_MIGRATE_WORK_EMPLOYEE_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_EMPLOYEE_SEARCH_CONDITION=1 \
+  MOCHAT_GO_MIGRATE_WORK_DEPARTMENT_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_EMPLOYEE_DEPARTMENT_MEMBER_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_DEPARTMENT_SELECT_BY_PHONE=1 \
+  MOCHAT_GO_MIGRATE_WORK_DEPARTMENT_PAGE_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_DEPARTMENT_SHOW_EMPLOYEE=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_TAG_GROUP_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_TAG_GROUP_DETAIL=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_WORK_CONTACT_TAG_GROUP_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_TAG_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_TAG_DETAIL=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_TAG_LIST=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_TAG_ALL=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_TAG_SYNC=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_LOSS=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_SOURCE=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_SHOW=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_ROOM_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_ROOM_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_STATISTICS=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_STATISTICS_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_AUTO_PULL_INDEX=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_AUTO_PULL_SHOW=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_AUTO_PULL_STORE=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_AUTO_PULL_UPDATE=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_INDEX=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_SHOW=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_SHOW_CONTACT=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_ROOM_LIST=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_CHOOSE_CONTACT=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_STORE=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_FILTER_CONTACT=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_REMIND_SEND=1 \
+  MOCHAT_GO_MIGRATE_ROOM_TAG_PULL_DESTROY=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_INDEX=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_SHOW=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_SHOW_ROOM=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_EMPLOYEE_SEND_INDEX=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_CONTACT_RECEIVE_INDEX=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_STORE=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_REMIND=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_DESTROY=1 \
+  MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_INDEX=1 \
+  MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_SHOW=1 \
+  MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_ROOM_OWNER_SEND_INDEX=1 \
+  MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_ROOM_RECEIVE_INDEX=1 \
+  MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_STORE=1 \
+  MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_REMIND=1 \
+  MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_DESTROY=1 \
+  MOCHAT_GO_MIGRATE_OFFICIAL_ACCOUNT_INDEX=1 \
+  MOCHAT_GO_MIGRATE_OFFICIAL_ACCOUNT_SET=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_WORK_CONTACT_TAG_ALL=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_WORK_CONTACT_DETAIL=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_WORK_CONTACT_SHOW=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_WORK_CONTACT_TRACK=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_WORK_CONTACT_UPDATE=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_PROCESS_STATUS_INDEX=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_PROCESS_STATUS_UPDATE=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_TRACK=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_UPDATE=1 \
+  MOCHAT_GO_MIGRATE_WORK_CONTACT_BATCH_LABELING=1 \
+  MOCHAT_GO_MIGRATE_WORK_ROOM_BATCH_UPDATE=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_FIELD_INDEX=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_FIELD_SHOW=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_FIELD_PORTRAIT=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_FIELD_PIVOT_INDEX=1 \
+  MOCHAT_GO_MIGRATE_CONTACT_FIELD_PIVOT_UPDATE=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_FIELD_PIVOT_INDEX=1 \
+  MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_FIELD_PIVOT_UPDATE=1 \
+  go run ./cmd/mochat-go
+```
+
+## 清理
+
+```bash
+cd /Users/lv/Documents/企业微信/mochat-go
+docker compose -f deploy/local/docker-compose.yml down
+```
+
+如果要清空数据库和 Redis：
+
+```bash
+docker compose -f deploy/local/docker-compose.yml down -v
+```

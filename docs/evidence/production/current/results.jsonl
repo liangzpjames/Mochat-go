@@ -1,0 +1,2 @@
+{"name": "严格生产证据文件检查", "slug": "production-evidence", "returncode": 1, "started_at": "2026-07-19 07:40:38 CST", "finished_at": "2026-07-19 07:40:38 CST", "log": "docs/evidence/production/current/production-evidence.log"}
+{"name": "skip-local 生产候选门禁", "slug": "production-candidate", "returncode": 1, "started_at": "2026-07-19 07:40:38 CST", "finished_at": "2026-07-19 07:41:29 CST", "log": "docs/evidence/production/current/production-candidate.log"}

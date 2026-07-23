@@ -1,0 +1,52 @@
+ALTER TABLE `mochat_go_saas_payment_orders`
+  ADD COLUMN `refund_pending_amount_cents` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT '已申请但未成功的退款预占金额，单位分' AFTER `amount_cents`,
+  ADD COLUMN `refunded_amount_cents` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT '已成功退款金额，单位分' AFTER `refund_pending_amount_cents`,
+  ADD COLUMN `latest_refund_id` bigint(20) unsigned NOT NULL DEFAULT '0' COMMENT '最近退款记录 ID' AFTER `billing_event_id`,
+  ADD KEY `idx_mochat_go_saas_payment_orders_refund` (`status`, `refund_pending_amount_cents`, `refunded_amount_cents`, `id`);
+
+ALTER TABLE `mochat_go_saas_payment_webhook_events`
+  ADD COLUMN `refund_id` bigint(20) unsigned NOT NULL DEFAULT '0' AFTER `order_id`,
+  ADD COLUMN `refund_no` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' AFTER `order_no`,
+  ADD COLUMN `provider_refund_no` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' AFTER `provider_order_no`,
+  ADD KEY `idx_mochat_go_saas_payment_webhook_refund` (`refund_id`, `refund_no`, `id`);
+
+CREATE TABLE IF NOT EXISTS `mochat_go_saas_payment_refunds` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `refund_no` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '平台内部退款单号',
+  `payment_order_id` bigint(20) unsigned NOT NULL DEFAULT '0',
+  `order_no` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `tenant_id` int(10) unsigned NOT NULL DEFAULT '0',
+  `provider` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'gateway',
+  `provider_refund_no` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `idempotency_key` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(24) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'requested' COMMENT 'requested/processing/succeeded/failed/canceled',
+  `amount_cents` bigint(20) unsigned NOT NULL DEFAULT '0',
+  `currency` char(3) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CNY',
+  `reason` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `entitlement_action` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'keep' COMMENT 'keep/suspend/cancel',
+  `latest_webhook_event_id` bigint(20) unsigned NOT NULL DEFAULT '0',
+  `billing_event_id` bigint(20) unsigned NOT NULL DEFAULT '0',
+  `subscription_event_id` bigint(20) unsigned NOT NULL DEFAULT '0',
+  `subscription_operation_id` bigint(20) unsigned NOT NULL DEFAULT '0',
+  `requested_by_user_id` int(10) unsigned NOT NULL DEFAULT '0',
+  `requested_by_tenant_id` int(10) unsigned NOT NULL DEFAULT '0',
+  `requested_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `succeeded_at` timestamp NULL DEFAULT NULL,
+  `failed_at` timestamp NULL DEFAULT NULL,
+  `canceled_at` timestamp NULL DEFAULT NULL,
+  `failure_code` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `failure_message` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `version` int(10) unsigned NOT NULL DEFAULT '1',
+  `remark` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `metadata_json` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uni_mochat_go_saas_payment_refunds_no` (`refund_no`),
+  UNIQUE KEY `uni_mochat_go_saas_payment_refunds_idempotency` (`payment_order_id`, `idempotency_key`),
+  UNIQUE KEY `uni_mochat_go_saas_payment_refunds_provider_no` (`provider`, `provider_refund_no`),
+  KEY `idx_mochat_go_saas_payment_refunds_order_status` (`payment_order_id`, `status`, `id`),
+  KEY `idx_mochat_go_saas_payment_refunds_tenant_status` (`tenant_id`, `status`, `created_at`),
+  KEY `idx_mochat_go_saas_payment_refunds_status_time` (`status`, `created_at`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Go 独立版 SaaS 支付退款账本';

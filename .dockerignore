@@ -1,0 +1,13 @@
+.git
+.gitignore
+tmp
+output
+storage
+*.log
+*.pid
+node_modules
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example

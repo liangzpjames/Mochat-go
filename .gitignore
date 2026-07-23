@@ -1,0 +1,24 @@
+docs/evidence/production/readiness.env.local
+docs/evidence/production/*.env.local
+docs/evidence/production/playwright-auth-state.json
+deploy/standalone/.env
+deploy/standalone/.env.local
+
+# Local dependency and build caches
+**/node_modules/
+web/saas-admin/.vite/
+web/saas-admin/coverage/
+
+# Local test, browser, and runtime artifacts
+.playwright-cli/
+.tmp-*/
+output/
+
+# Local application data
+storage/upload/
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

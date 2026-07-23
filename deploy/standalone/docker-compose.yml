@@ -1,0 +1,344 @@
+services:
+  app:
+    profiles:
+      - app
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
+      MOCHAT_GO_STANDALONE: "1"
+      MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "1"
+      MOCHAT_GO_ADDR: "0.0.0.0:8080"
+      MOCHAT_MYSQL_DSN: "${MOCHAT_MYSQL_USER:-mochat}:${MOCHAT_MYSQL_PASSWORD:-mochat_pass}@tcp(mysql:3306)/${MOCHAT_MYSQL_DATABASE:-mochat}?parseTime=true&loc=Local"
+      MOCHAT_REDIS_ADDR: "redis:6379"
+      MOCHAT_SIMPLE_JWT_SECRET: "${MOCHAT_SIMPLE_JWT_SECRET:-change-me-standalone-secret}"
+      MOCHAT_SIMPLE_JWT_PREFIX: "${MOCHAT_SIMPLE_JWT_PREFIX:-mc_jwt_}"
+      MOCHAT_SIDEBAR_JWT_SECRET: "${MOCHAT_SIDEBAR_JWT_SECRET:-Br3LXhp&Ysha1zRDh}"
+      MOCHAT_SIDEBAR_JWT_PREFIX: "${MOCHAT_SIDEBAR_JWT_PREFIX:-default}"
+      MOCHAT_FILE_STORAGE_ROOT: "/app/storage/upload/static"
+      MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD: "${MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD:-0}"
+      MOCHAT_GO_SAAS_ADMIN_APPROVAL_REQUIRED: "${MOCHAT_GO_SAAS_ADMIN_APPROVAL_REQUIRED:-0}"
+      MOCHAT_GO_LOGIN_PREFILL_PHONE: "${MOCHAT_GO_LOGIN_PREFILL_PHONE:-}"
+      MOCHAT_GO_LOGIN_PREFILL_PASSWORD: "${MOCHAT_GO_LOGIN_PREFILL_PASSWORD:-}"
+      MOCHAT_GO_ENABLE_SAAS_BILLING_PORTAL: "${MOCHAT_GO_ENABLE_SAAS_BILLING_PORTAL:-0}"
+      MOCHAT_GO_SAAS_PLATFORM_ADMIN_TENANT_ID: "${MOCHAT_GO_SAAS_PLATFORM_ADMIN_TENANT_ID:-1}"
+      MOCHAT_GO_RELEASE_SOURCE_FINGERPRINT: "${MOCHAT_GO_RELEASE_SOURCE_FINGERPRINT:-}"
+      MOCHAT_GO_SAAS_RELEASE_EVIDENCE_VERIFY_TIMEOUT_SECONDS: "${MOCHAT_GO_SAAS_RELEASE_EVIDENCE_VERIFY_TIMEOUT_SECONDS:-30}"
+      MOCHAT_GO_SAAS_RELEASE_EVIDENCE_MAX_BYTES: "${MOCHAT_GO_SAAS_RELEASE_EVIDENCE_MAX_BYTES:-67108864}"
+      MOCHAT_GO_SAAS_RELEASE_EVIDENCE_ALLOWED_CIDRS: "${MOCHAT_GO_SAAS_RELEASE_EVIDENCE_ALLOWED_CIDRS:-}"
+      MOCHAT_GO_SAAS_RELEASE_EVIDENCE_CA_FILE: "${MOCHAT_GO_SAAS_RELEASE_EVIDENCE_CA_FILE:-}"
+      MOCHAT_GO_ENABLE_SAAS_ALERT_DASHBOARD: "${MOCHAT_GO_ENABLE_SAAS_ALERT_DASHBOARD:-0}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_URL: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_URL:-}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_SECRET: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_SECRET:-}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_TIMEOUT_SECONDS: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_TIMEOUT_SECONDS:-5}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_RETRY_ATTEMPTS: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_RETRY_ATTEMPTS:-1}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_RETRY_DELAY_MS: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_RETRY_DELAY_MS:-250}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_TITLE_TEMPLATE: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_TITLE_TEMPLATE:-}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_BODY_TEMPLATE: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_BODY_TEMPLATE:-}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_REQUIRE_HTTPS: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_REQUIRE_HTTPS:-1}"
+      MOCHAT_GO_SAAS_ALERT_WEBHOOK_ALLOWED_CIDRS: "${MOCHAT_GO_SAAS_ALERT_WEBHOOK_ALLOWED_CIDRS:-}"
+      MOCHAT_GO_SAAS_ALERT_CREDENTIAL_ENCRYPTION_KEY: "${MOCHAT_GO_SAAS_ALERT_CREDENTIAL_ENCRYPTION_KEY:-}"
+      MOCHAT_GO_SAAS_ALERT_CREDENTIAL_ENCRYPTION_KEYS: "${MOCHAT_GO_SAAS_ALERT_CREDENTIAL_ENCRYPTION_KEYS:-}"
+      MOCHAT_GO_SAAS_ALERT_CREDENTIAL_ENCRYPTION_KEY_ID: "${MOCHAT_GO_SAAS_ALERT_CREDENTIAL_ENCRYPTION_KEY_ID:-primary}"
+      MOCHAT_GO_SAAS_ALERT_CREDENTIAL_REQUIRE_ENCRYPTION: "${MOCHAT_GO_SAAS_ALERT_CREDENTIAL_REQUIRE_ENCRYPTION:-0}"
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY:-}"
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEYS: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEYS:-}"
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID:-primary}"
+      MOCHAT_GO_WECOM_CREDENTIAL_REQUIRE_ENCRYPTION: "${MOCHAT_GO_WECOM_CREDENTIAL_REQUIRE_ENCRYPTION:-0}"
+      MOCHAT_GO_WECOM_CREDENTIAL_ROTATION_LIMIT: "${MOCHAT_GO_WECOM_CREDENTIAL_ROTATION_LIMIT:-100}"
+      MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_ENCRYPTION_KEY: "${MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_ENCRYPTION_KEY:-}"
+      MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_ENCRYPTION_KEYS: "${MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_ENCRYPTION_KEYS:-}"
+      MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_ENCRYPTION_KEY_ID: "${MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_ENCRYPTION_KEY_ID:-primary}"
+      MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_REQUIRE_ENCRYPTION: "${MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_REQUIRE_ENCRYPTION:-0}"
+      MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_ROTATION_LIMIT: "${MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_ROTATION_LIMIT:-100}"
+      MOCHAT_GO_SAAS_ALERT_NOTIFICATION_MAX_ATTEMPTS: "${MOCHAT_GO_SAAS_ALERT_NOTIFICATION_MAX_ATTEMPTS:-3}"
+      MOCHAT_GO_SAAS_ALERT_NOTIFICATION_RETRY_DELAY_SECONDS: "${MOCHAT_GO_SAAS_ALERT_NOTIFICATION_RETRY_DELAY_SECONDS:-300}"
+      MOCHAT_GO_ENABLE_SAAS_ALERT_NOTIFICATION_DISPATCH_CRON: "${MOCHAT_GO_ENABLE_SAAS_ALERT_NOTIFICATION_DISPATCH_CRON:-0}"
+      MOCHAT_GO_SAAS_ALERT_NOTIFICATION_DISPATCH_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_ALERT_NOTIFICATION_DISPATCH_CRON_INTERVAL_SECONDS:-300}"
+      MOCHAT_GO_SAAS_ALERT_NOTIFICATION_DISPATCH_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_ALERT_NOTIFICATION_DISPATCH_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_ALERT_NOTIFICATION_DISPATCH_LIMIT: "${MOCHAT_GO_SAAS_ALERT_NOTIFICATION_DISPATCH_LIMIT:-100}"
+      MOCHAT_GO_ENABLE_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_CRON: "${MOCHAT_GO_ENABLE_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_CRON:-0}"
+      MOCHAT_GO_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_CRON_INTERVAL_SECONDS:-3600}"
+      MOCHAT_GO_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_LIMIT: "${MOCHAT_GO_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_LIMIT:-500}"
+      MOCHAT_GO_ENABLE_SAAS_APPROVAL_REMINDER_CRON: "${MOCHAT_GO_ENABLE_SAAS_APPROVAL_REMINDER_CRON:-0}"
+      MOCHAT_GO_SAAS_APPROVAL_REMINDER_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_APPROVAL_REMINDER_CRON_INTERVAL_SECONDS:-300}"
+      MOCHAT_GO_SAAS_APPROVAL_REMINDER_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_APPROVAL_REMINDER_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_APPROVAL_REMINDER_LIMIT: "${MOCHAT_GO_SAAS_APPROVAL_REMINDER_LIMIT:-100}"
+      MOCHAT_GO_ENABLE_SAAS_SYSTEM_HEALTH_CRON: "${MOCHAT_GO_ENABLE_SAAS_SYSTEM_HEALTH_CRON:-0}"
+      MOCHAT_GO_SAAS_SYSTEM_HEALTH_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_SYSTEM_HEALTH_CRON_INTERVAL_SECONDS:-300}"
+      MOCHAT_GO_SAAS_SYSTEM_HEALTH_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_SYSTEM_HEALTH_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_SYSTEM_HEALTH_FAILURE_WINDOW_HOURS: "${MOCHAT_GO_SAAS_SYSTEM_HEALTH_FAILURE_WINDOW_HOURS:-24}"
+      MOCHAT_GO_SAAS_SYSTEM_HEALTH_NOTIFICATION_STALE_MINUTES: "${MOCHAT_GO_SAAS_SYSTEM_HEALTH_NOTIFICATION_STALE_MINUTES:-15}"
+      MOCHAT_GO_ENABLE_SAAS_BACKUP_CRON: "${MOCHAT_GO_ENABLE_SAAS_BACKUP_CRON:-0}"
+      MOCHAT_GO_SAAS_BACKUP_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_BACKUP_CRON_INTERVAL_SECONDS:-300}"
+      MOCHAT_GO_SAAS_BACKUP_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_BACKUP_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_BACKUP_ROOT: "/app/storage/backups"
+      MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY: "${MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY:-}"
+      MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEYS: "${MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEYS:-}"
+      MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY_ID: "${MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY_ID:-primary}"
+      MOCHAT_GO_SAAS_BACKUP_DUMP_BINARY: "${MOCHAT_GO_SAAS_BACKUP_DUMP_BINARY:-mysqldump}"
+      MOCHAT_GO_SAAS_BACKUP_RESTORE_BINARY: "${MOCHAT_GO_SAAS_BACKUP_RESTORE_BINARY:-mysql}"
+      MOCHAT_GO_SAAS_BACKUP_RESTORE_DSN: "${MOCHAT_GO_SAAS_BACKUP_RESTORE_DSN:-}"
+      MOCHAT_GO_SAAS_BACKUP_RESTORE_ADMIN_DSN: "${MOCHAT_GO_SAAS_BACKUP_RESTORE_ADMIN_DSN:-}"
+      MOCHAT_GO_SAAS_BACKUP_RESTORE_AUTO_PROVISION: "${MOCHAT_GO_SAAS_BACKUP_RESTORE_AUTO_PROVISION:-0}"
+      MOCHAT_GO_SAAS_BACKUP_RESTORE_KEEP_ON_FAILURE: "${MOCHAT_GO_SAAS_BACKUP_RESTORE_KEEP_ON_FAILURE:-0}"
+      MOCHAT_GO_SAAS_BACKUP_RESTORE_DATABASE_PREFIX: "${MOCHAT_GO_SAAS_BACKUP_RESTORE_DATABASE_PREFIX:-mochat_restore_}"
+      MOCHAT_GO_SAAS_BACKUP_S3_ENDPOINT: "${MOCHAT_GO_SAAS_BACKUP_S3_ENDPOINT:-}"
+      MOCHAT_GO_SAAS_BACKUP_S3_BUCKET: "${MOCHAT_GO_SAAS_BACKUP_S3_BUCKET:-}"
+      MOCHAT_GO_SAAS_BACKUP_S3_REGION: "${MOCHAT_GO_SAAS_BACKUP_S3_REGION:-}"
+      MOCHAT_GO_SAAS_BACKUP_S3_ACCESS_KEY_ID: "${MOCHAT_GO_SAAS_BACKUP_S3_ACCESS_KEY_ID:-}"
+      MOCHAT_GO_SAAS_BACKUP_S3_SECRET_ACCESS_KEY: "${MOCHAT_GO_SAAS_BACKUP_S3_SECRET_ACCESS_KEY:-}"
+      MOCHAT_GO_SAAS_BACKUP_S3_SESSION_TOKEN: "${MOCHAT_GO_SAAS_BACKUP_S3_SESSION_TOKEN:-}"
+      MOCHAT_GO_SAAS_BACKUP_S3_USE_SSL: "${MOCHAT_GO_SAAS_BACKUP_S3_USE_SSL:-1}"
+      MOCHAT_GO_SAAS_BACKUP_S3_PREFIX: "${MOCHAT_GO_SAAS_BACKUP_S3_PREFIX:-mochat-go/backups}"
+      MOCHAT_GO_ENABLE_SAAS_COMPLIANCE_CRON: "${MOCHAT_GO_ENABLE_SAAS_COMPLIANCE_CRON:-0}"
+      MOCHAT_GO_SAAS_COMPLIANCE_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_COMPLIANCE_CRON_INTERVAL_SECONDS:-300}"
+      MOCHAT_GO_SAAS_COMPLIANCE_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_COMPLIANCE_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_COMPLIANCE_ARTIFACT_ROOT: "/app/storage/compliance"
+      MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEY: "${MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEY:-}"
+      MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEYS: "${MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEYS:-}"
+      MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEY_ID: "${MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEY_ID:-primary}"
+      MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY: "${MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY:-0}"
+      MOCHAT_GO_SAAS_IDENTITY_ENFORCE_SESSIONS: "${MOCHAT_GO_SAAS_IDENTITY_ENFORCE_SESSIONS:-0}"
+      MOCHAT_GO_SAAS_IDENTITY_TRUST_PROXY_HEADERS: "${MOCHAT_GO_SAAS_IDENTITY_TRUST_PROXY_HEADERS:-0}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_TRUST_PROXY_HEADERS: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_TRUST_PROXY_HEADERS:-0}"
+      MOCHAT_GO_SAAS_TRUSTED_PROXY_CIDRS: "${MOCHAT_GO_SAAS_TRUSTED_PROXY_CIDRS:-}"
+      MOCHAT_GO_SAAS_IDENTITY_ISSUER: "${MOCHAT_GO_SAAS_IDENTITY_ISSUER:-MoChat Go}"
+      MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY: "${MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY:-}"
+      MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEYS: "${MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEYS:-}"
+      MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY_ID: "${MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY_ID:-primary}"
+      MOCHAT_GO_ENABLE_SAAS_IDENTITY_CLEANUP_CRON: "${MOCHAT_GO_ENABLE_SAAS_IDENTITY_CLEANUP_CRON:-0}"
+      MOCHAT_GO_SAAS_IDENTITY_CLEANUP_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_IDENTITY_CLEANUP_CRON_INTERVAL_SECONDS:-3600}"
+      MOCHAT_GO_SAAS_IDENTITY_CLEANUP_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_IDENTITY_CLEANUP_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_IDENTITY_CLEANUP_LIMIT: "${MOCHAT_GO_SAAS_IDENTITY_CLEANUP_LIMIT:-1000}"
+      MOCHAT_GO_ENABLE_SAAS_SERVICE_ACCOUNT_USAGE_CLEANUP_CRON: "${MOCHAT_GO_ENABLE_SAAS_SERVICE_ACCOUNT_USAGE_CLEANUP_CRON:-0}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_CLEANUP_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_CLEANUP_CRON_INTERVAL_SECONDS:-86400}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_CLEANUP_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_CLEANUP_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_CLEANUP_LIMIT: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_CLEANUP_LIMIT:-10000}"
+      MOCHAT_GO_ENABLE_SAAS_SERVICE_ACCOUNT_USAGE_ALERT_CRON: "${MOCHAT_GO_ENABLE_SAAS_SERVICE_ACCOUNT_USAGE_ALERT_CRON:-0}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_ALERT_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_ALERT_CRON_INTERVAL_SECONDS:-300}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_ALERT_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_ALERT_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_ALERT_LIMIT: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_USAGE_ALERT_LIMIT:-100}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_KEY_PEPPER: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_KEY_PEPPER:-}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_KEY_PEPPERS: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_KEY_PEPPERS:-}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_KEY_PEPPER_ID: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_KEY_PEPPER_ID:-primary}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_ALLOW_LEGACY_JWT_PEPPER: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_ALLOW_LEGACY_JWT_PEPPER:-1}"
+      MOCHAT_GO_SAAS_SERVICE_ACCOUNT_REQUIRE_DEDICATED_PEPPER: "${MOCHAT_GO_SAAS_SERVICE_ACCOUNT_REQUIRE_DEDICATED_PEPPER:-0}"
+      MOCHAT_GO_ENABLE_SAAS_AUDIT_INTEGRITY_CRON: "${MOCHAT_GO_ENABLE_SAAS_AUDIT_INTEGRITY_CRON:-0}"
+      MOCHAT_GO_SAAS_AUDIT_INTEGRITY_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_AUDIT_INTEGRITY_CRON_INTERVAL_SECONDS:-3600}"
+      MOCHAT_GO_SAAS_AUDIT_INTEGRITY_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_AUDIT_INTEGRITY_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_AUDIT_INTEGRITY_LIMIT: "${MOCHAT_GO_SAAS_AUDIT_INTEGRITY_LIMIT:-100}"
+      MOCHAT_GO_ENABLE_SAAS_AUDIT_ANCHOR_CRON: "${MOCHAT_GO_ENABLE_SAAS_AUDIT_ANCHOR_CRON:-0}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_CRON_INTERVAL_SECONDS:-86400}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_LIMIT: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_LIMIT:-100}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_ARTIFACT_ROOT: "/app/audit-anchors"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEY: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEY:-}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEYS: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEYS:-}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEY_ID: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEY_ID:-primary}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_REQUIRE_REMOTE: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_REQUIRE_REMOTE:-0}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_ENDPOINT: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_ENDPOINT:-}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_BUCKET: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_BUCKET:-}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_REGION: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_REGION:-}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_ACCESS_KEY_ID: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_ACCESS_KEY_ID:-}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_SECRET_ACCESS_KEY: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_SECRET_ACCESS_KEY:-}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_SESSION_TOKEN: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_SESSION_TOKEN:-}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_USE_SSL: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_USE_SSL:-1}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_PREFIX: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_PREFIX:-mochat-go/audit-anchors}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_RETENTION_MODE: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_RETENTION_MODE:-compliance}"
+      MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_RETENTION_DAYS: "${MOCHAT_GO_SAAS_AUDIT_ANCHOR_S3_RETENTION_DAYS:-3650}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DNS_SERVER: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DNS_SERVER:-}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DNS_TIMEOUT_SECONDS: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DNS_TIMEOUT_SECONDS:-5}"
+      MOCHAT_GO_ENABLE_SAAS_TENANT_DOMAIN_DELIVERY_CRON: "${MOCHAT_GO_ENABLE_SAAS_TENANT_DOMAIN_DELIVERY_CRON:-0}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CRON_INTERVAL_SECONDS:-60}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_BRIDGE_BASE_URL: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_BRIDGE_BASE_URL:-}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_BRIDGE_TOKEN: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_BRIDGE_TOKEN:-}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_BRIDGE_TIMEOUT_SECONDS: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_BRIDGE_TIMEOUT_SECONDS:-10}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_URL: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_URL:-}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_SECRET: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_SECRET:-}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_TOLERANCE_SECONDS: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_TOLERANCE_SECONDS:-300}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_LIMIT: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_LIMIT:-20}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_LEASE_SECONDS: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_LEASE_SECONDS:-120}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_RETRY_DELAY_SECONDS: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_RETRY_DELAY_SECONDS:-60}"
+      MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_WAIT_SECONDS: "${MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_WAIT_SECONDS:-600}"
+      MOCHAT_GO_ENABLE_SAAS_NOTIFICATION_HEALTH_RECOVERY_CRON: "${MOCHAT_GO_ENABLE_SAAS_NOTIFICATION_HEALTH_RECOVERY_CRON:-0}"
+      MOCHAT_GO_SAAS_NOTIFICATION_HEALTH_RECOVERY_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_NOTIFICATION_HEALTH_RECOVERY_CRON_INTERVAL_SECONDS:-900}"
+      MOCHAT_GO_SAAS_NOTIFICATION_HEALTH_RECOVERY_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_NOTIFICATION_HEALTH_RECOVERY_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_NOTIFICATION_HEALTH_RECOVERY_WINDOW_HOURS: "${MOCHAT_GO_SAAS_NOTIFICATION_HEALTH_RECOVERY_WINDOW_HOURS:-24}"
+      MOCHAT_GO_SAAS_NOTIFICATION_HEALTH_RECOVERY_STALE_MINUTES: "${MOCHAT_GO_SAAS_NOTIFICATION_HEALTH_RECOVERY_STALE_MINUTES:-15}"
+      MOCHAT_GO_ENABLE_SAAS_SUBSCRIPTION_RECONCILE_CRON: "${MOCHAT_GO_ENABLE_SAAS_SUBSCRIPTION_RECONCILE_CRON:-0}"
+      MOCHAT_GO_SAAS_SUBSCRIPTION_RECONCILE_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_SUBSCRIPTION_RECONCILE_CRON_INTERVAL_SECONDS:-300}"
+      MOCHAT_GO_SAAS_SUBSCRIPTION_RECONCILE_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_SUBSCRIPTION_RECONCILE_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_SUBSCRIPTION_RECONCILE_LIMIT: "${MOCHAT_GO_SAAS_SUBSCRIPTION_RECONCILE_LIMIT:-500}"
+      MOCHAT_GO_ENABLE_SAAS_PAYMENT_WEBHOOK: "${MOCHAT_GO_ENABLE_SAAS_PAYMENT_WEBHOOK:-0}"
+      MOCHAT_GO_SAAS_PAYMENT_WEBHOOK_SECRET: "${MOCHAT_GO_SAAS_PAYMENT_WEBHOOK_SECRET:-}"
+      MOCHAT_GO_SAAS_PAYMENT_WEBHOOK_TOLERANCE_SECONDS: "${MOCHAT_GO_SAAS_PAYMENT_WEBHOOK_TOLERANCE_SECONDS:-300}"
+      MOCHAT_GO_ENABLE_SAAS_PAYMENT_DUNNING_CRON: "${MOCHAT_GO_ENABLE_SAAS_PAYMENT_DUNNING_CRON:-0}"
+      MOCHAT_GO_SAAS_PAYMENT_DUNNING_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_PAYMENT_DUNNING_CRON_INTERVAL_SECONDS:-300}"
+      MOCHAT_GO_SAAS_PAYMENT_DUNNING_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_PAYMENT_DUNNING_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_PAYMENT_DUNNING_LIMIT: "${MOCHAT_GO_SAAS_PAYMENT_DUNNING_LIMIT:-100}"
+      MOCHAT_GO_SAAS_PAYMENT_DUNNING_RETRY_DELAY_SECONDS: "${MOCHAT_GO_SAAS_PAYMENT_DUNNING_RETRY_DELAY_SECONDS:-86400}"
+      MOCHAT_GO_ENABLE_SAAS_PAYMENT_SETTLEMENT_SYNC_CRON: "${MOCHAT_GO_ENABLE_SAAS_PAYMENT_SETTLEMENT_SYNC_CRON:-0}"
+      MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_SYNC_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_SYNC_CRON_INTERVAL_SECONDS:-900}"
+      MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_SYNC_CRON_RUN_ON_START: "${MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_SYNC_CRON_RUN_ON_START:-0}"
+      MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_BRIDGE_BASE_URL: "${MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_BRIDGE_BASE_URL:-}"
+      MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_BRIDGE_TOKEN: "${MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_BRIDGE_TOKEN:-}"
+      MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_PROVIDERS: "${MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_PROVIDERS:-}"
+      MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_SYNC_LIMIT: "${MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_SYNC_LIMIT:-100}"
+      MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_BRIDGE_TIMEOUT_SECONDS: "${MOCHAT_GO_SAAS_PAYMENT_SETTLEMENT_BRIDGE_TIMEOUT_SECONDS:-10}"
+    ports:
+      - "${MOCHAT_GO_PORT:-18080}:8080"
+      - "${MOCHAT_SIDEBAR_PORT:-18081}:8081"
+      - "${MOCHAT_OPERATION_PORT:-18082}:8082"
+    volumes:
+      - app-storage:/app/storage
+      - audit-anchor-storage:/app/audit-anchors
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  mysql:
+    image: mariadb:10.6
+    environment:
+      TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
+      MARIADB_DATABASE: "${MOCHAT_MYSQL_DATABASE:-mochat}"
+      MARIADB_ROOT_PASSWORD: "${MOCHAT_MYSQL_ROOT_PASSWORD:-mochat_root}"
+      MARIADB_USER: "${MOCHAT_MYSQL_USER:-mochat}"
+      MARIADB_PASSWORD: "${MOCHAT_MYSQL_PASSWORD:-mochat_pass}"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${MOCHAT_MYSQL_PORT:-13316}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./schema/mochat.sql:/docker-entrypoint-initdb.d/001-mochat.sql:ro
+      - ./migrations/0002_seed_core_data.up.sql:/docker-entrypoint-initdb.d/002-seed-core-data.sql:ro
+      - ./migrations/0003_saas_provisioning.up.sql:/docker-entrypoint-initdb.d/003-saas-provisioning.sql:ro
+      - ./migrations/0004_saas_storage_objects.up.sql:/docker-entrypoint-initdb.d/004-saas-storage-objects.sql:ro
+      - ./migrations/0005_background_tasks.up.sql:/docker-entrypoint-initdb.d/005-background-tasks.sql:ro
+      - ./migrations/0006_saas_alerts.up.sql:/docker-entrypoint-initdb.d/006-saas-alerts.sql:ro
+      - ./migrations/0007_wechat_component_tickets.up.sql:/docker-entrypoint-initdb.d/007-wechat-component-tickets.sql:ro
+      - ./migrations/0008_saas_alert_notifications.up.sql:/docker-entrypoint-initdb.d/008-saas-alert-notifications.sql:ro
+      - ./migrations/0009_contact_batch_add_rbac.up.sql:/docker-entrypoint-initdb.d/009-contact-batch-add-rbac.sql:ro
+      - ./migrations/0010_sensitive_words.up.sql:/docker-entrypoint-initdb.d/010-sensitive-words.sql:ro
+      - ./migrations/0011_sop_rbac.up.sql:/docker-entrypoint-initdb.d/011-sop-rbac.sql:ro
+      - ./migrations/0012_shop_code.up.sql:/docker-entrypoint-initdb.d/012-shop-code.sql:ro
+      - ./migrations/0013_radar.up.sql:/docker-entrypoint-initdb.d/013-radar.sql:ro
+      - ./migrations/0014_auto_tag.up.sql:/docker-entrypoint-initdb.d/014-auto-tag.sql:ro
+      - ./migrations/0015_lottery.up.sql:/docker-entrypoint-initdb.d/015-lottery.sql:ro
+      - ./migrations/0016_room_fission.up.sql:/docker-entrypoint-initdb.d/016-room-fission.sql:ro
+      - ./migrations/0017_room_clock_in.up.sql:/docker-entrypoint-initdb.d/017-room-clock-in.sql:ro
+      - ./migrations/0018_room_quality.up.sql:/docker-entrypoint-initdb.d/018-room-quality.sql:ro
+      - ./migrations/0019_room_calendar.up.sql:/docker-entrypoint-initdb.d/019-room-calendar.sql:ro
+      - ./migrations/0020_room_remind.up.sql:/docker-entrypoint-initdb.d/020-room-remind.sql:ro
+      - ./migrations/0021_room_infinite_pull.up.sql:/docker-entrypoint-initdb.d/021-room-infinite-pull.sql:ro
+      - ./migrations/0022_work_message_archive_sync.up.sql:/docker-entrypoint-initdb.d/022-work-message-archive-sync.sql:ro
+      - ./migrations/0023_saas_alert_settings.up.sql:/docker-entrypoint-initdb.d/023-saas-alert-settings.sql:ro
+      - ./migrations/0024_saas_package_extended_limits.up.sql:/docker-entrypoint-initdb.d/024-saas-package-extended-limits.sql:ro
+      - ./migrations/0025_saas_radar_limit.up.sql:/docker-entrypoint-initdb.d/025-saas-radar-limit.sql:ro
+      - ./migrations/0026_saas_lottery_limit.up.sql:/docker-entrypoint-initdb.d/026-saas-lottery-limit.sql:ro
+      - ./migrations/0027_saas_room_infinite_pull_limit.up.sql:/docker-entrypoint-initdb.d/027-saas-room-infinite-pull-limit.sql:ro
+      - ./migrations/0028_saas_room_fission_limit.up.sql:/docker-entrypoint-initdb.d/028-saas-room-fission-limit.sql:ro
+      - ./migrations/0029_saas_room_clock_in_limit.up.sql:/docker-entrypoint-initdb.d/029-saas-room-clock-in-limit.sql:ro
+      - ./migrations/0030_saas_room_operation_limits.up.sql:/docker-entrypoint-initdb.d/030-saas-room-operation-limits.sql:ro
+      - ./migrations/0031_saas_sop_limits.up.sql:/docker-entrypoint-initdb.d/031-saas-sop-limits.sql:ro
+      - ./migrations/0032_saas_sensitive_word_limit.up.sql:/docker-entrypoint-initdb.d/032-saas-sensitive-word-limit.sql:ro
+      - ./migrations/0033_saas_admin_operation_logs.up.sql:/docker-entrypoint-initdb.d/033-saas-admin-operation-logs.sql:ro
+      - ./migrations/0034_saas_billing_events.up.sql:/docker-entrypoint-initdb.d/034-saas-billing-events.sql:ro
+      - ./migrations/0035_saas_admin_tasks.up.sql:/docker-entrypoint-initdb.d/035-saas-admin-tasks.sql:ro
+      - ./migrations/0036_saas_notification_policy_controls.up.sql:/docker-entrypoint-initdb.d/036-saas-notification-policy-controls.sql:ro
+      - ./migrations/0037_saas_notification_health_index.up.sql:/docker-entrypoint-initdb.d/037-saas-notification-health-index.sql:ro
+      - ./migrations/0038_saas_notification_slo_index.up.sql:/docker-entrypoint-initdb.d/038-saas-notification-slo-index.sql:ro
+      - ./migrations/0039_saas_subscription_lifecycle.up.sql:/docker-entrypoint-initdb.d/039-saas-subscription-lifecycle.sql:ro
+      - ./migrations/0040_saas_payment_collection.up.sql:/docker-entrypoint-initdb.d/040-saas-payment-collection.sql:ro
+      - ./migrations/0041_saas_payment_refunds.up.sql:/docker-entrypoint-initdb.d/041-saas-payment-refunds.sql:ro
+      - ./migrations/0042_saas_billing_invoices.up.sql:/docker-entrypoint-initdb.d/042-saas-billing-invoices.sql:ro
+      - ./migrations/0043_saas_payment_settlements.up.sql:/docker-entrypoint-initdb.d/043-saas-payment-settlements.sql:ro
+      - ./migrations/0044_saas_payment_settlement_sync.up.sql:/docker-entrypoint-initdb.d/044-saas-payment-settlement-sync.sql:ro
+      - ./migrations/0045_saas_admin_rbac.up.sql:/docker-entrypoint-initdb.d/045-saas-admin-rbac.sql:ro
+      - ./migrations/0046_saas_admin_approvals.up.sql:/docker-entrypoint-initdb.d/046-saas-admin-approvals.sql:ro
+      - ./migrations/0047_saas_admin_approval_governance.up.sql:/docker-entrypoint-initdb.d/047-saas-admin-approval-governance.sql:ro
+      - ./migrations/0048_saas_admin_system_health.up.sql:/docker-entrypoint-initdb.d/048-saas-admin-system-health.sql:ro
+      - ./migrations/0049_saas_service_accounts.up.sql:/docker-entrypoint-initdb.d/049-saas-service-accounts.sql:ro
+      - ./migrations/0050_saas_backup_recovery.up.sql:/docker-entrypoint-initdb.d/050-saas-backup-recovery.sql:ro
+      - ./migrations/0051_saas_backup_resilience.up.sql:/docker-entrypoint-initdb.d/051-saas-backup-resilience.sql:ro
+      - ./migrations/0052_saas_compliance_lifecycle.up.sql:/docker-entrypoint-initdb.d/052-saas-compliance-lifecycle.sql:ro
+      - ./migrations/0053_saas_identity_security.up.sql:/docker-entrypoint-initdb.d/053-saas-identity-security.sql:ro
+      - ./migrations/0054_saas_branding_profiles.up.sql:/docker-entrypoint-initdb.d/054-saas-branding-profiles.sql:ro
+      - ./migrations/0055_saas_tenant_domains.up.sql:/docker-entrypoint-initdb.d/055-saas-tenant-domains.sql:ro
+      - ./migrations/0056_saas_domain_delivery.up.sql:/docker-entrypoint-initdb.d/056-saas-domain-delivery.sql:ro
+      - ./migrations/0057_saas_release_readiness.up.sql:/docker-entrypoint-initdb.d/057-saas-release-readiness.sql:ro
+      - ./migrations/0058_saas_release_evidence_integrity.up.sql:/docker-entrypoint-initdb.d/058-saas-release-evidence-integrity.sql:ro
+      - ./migrations/0059_saas_service_account_rate_limits.up.sql:/docker-entrypoint-initdb.d/059-saas-service-account-rate-limits.sql:ro
+      - ./migrations/0060_saas_service_account_usage_retention.up.sql:/docker-entrypoint-initdb.d/060-saas-service-account-usage-retention.sql:ro
+      - ./migrations/0061_saas_service_account_usage_alerts.up.sql:/docker-entrypoint-initdb.d/061-saas-service-account-usage-alerts.sql:ro
+      - ./migrations/0062_saas_audit_integrity.up.sql:/docker-entrypoint-initdb.d/062-saas-audit-integrity.sql:ro
+      - ./migrations/0063_saas_audit_anchor_signatures.up.sql:/docker-entrypoint-initdb.d/063-saas-audit-anchor-signatures.sql:ro
+      - ./migrations/0064_saas_audit_anchor_remote_immutability.up.sql:/docker-entrypoint-initdb.d/064-saas-audit-anchor-remote-immutability.sql:ro
+      - ./migrations/0065_saas_service_account_key_pepper_ring.up.sql:/docker-entrypoint-initdb.d/065-saas-service-account-key-pepper-ring.sql:ro
+      - ./migrations/0066_saas_alert_credential_encryption.up.sql:/docker-entrypoint-initdb.d/066-saas-alert-credential-encryption.sql:ro
+      - ./migrations/0067_wecom_credential_encryption.up.sql:/docker-entrypoint-initdb.d/067-wecom-credential-encryption.sql:ro
+      - ./migrations/0068_wechat_open_credential_encryption.up.sql:/docker-entrypoint-initdb.d/068-wechat-open-credential-encryption.sql:ro
+      - ./migrations/0069_saas_release_candidate_approval.up.sql:/docker-entrypoint-initdb.d/069-saas-release-candidate-approval.sql:ro
+      - ./migrations/0070_saas_approval_policy_change_guard.up.sql:/docker-entrypoint-initdb.d/070-saas-approval-policy-change-guard.sql:ro
+      - ./migrations/0071_saas_backup_policy_change_guard.up.sql:/docker-entrypoint-initdb.d/071-saas-backup-policy-change-guard.sql:ro
+      - ./migrations/0072_saas_backup_cleanup_saga.up.sql:/docker-entrypoint-initdb.d/072-saas-backup-cleanup-saga.sql:ro
+      - ./migrations/0073_saas_compliance_export_deletion_saga.up.sql:/docker-entrypoint-initdb.d/073-saas-compliance-export-deletion-saga.sql:ro
+      - ./migrations/0074_saas_compliance_legal_hold_release_guard.up.sql:/docker-entrypoint-initdb.d/074-saas-compliance-legal-hold-release-guard.sql:ro
+      - ./migrations/0075_saas_compliance_policy_change_guard.up.sql:/docker-entrypoint-initdb.d/075-saas-compliance-policy-change-guard.sql:ro
+      - ./migrations/0076_saas_identity_policy_change_guard.up.sql:/docker-entrypoint-initdb.d/076-saas-identity-policy-change-guard.sql:ro
+      - ./migrations/0077_saas_tenant_disable_approval_guard.up.sql:/docker-entrypoint-initdb.d/077-saas-tenant-disable-approval-guard.sql:ro
+      - ./migrations/0078_saas_critical_approval_policy_guard.up.sql:/docker-entrypoint-initdb.d/078-saas-critical-approval-policy-guard.sql:ro
+      - ./migrations/0079_saas_service_account_key_revoke_guard.up.sql:/docker-entrypoint-initdb.d/079-saas-service-account-key-revoke-guard.sql:ro
+      - ./migrations/0080_saas_service_account_update_guard.up.sql:/docker-entrypoint-initdb.d/080-saas-service-account-update-guard.sql:ro
+      - ./migrations/0081_saas_service_account_key_rotate_guard.up.sql:/docker-entrypoint-initdb.d/081-saas-service-account-key-rotate-guard.sql:ro
+      - ./migrations/0082_saas_service_account_create_guard.up.sql:/docker-entrypoint-initdb.d/082-saas-service-account-create-guard.sql:ro
+      - ./migrations/0083_saas_identity_mfa_reset_guard.up.sql:/docker-entrypoint-initdb.d/083-saas-identity-mfa-reset-guard.sql:ro
+      - ./migrations/0084_saas_package_definition_guard.up.sql:/docker-entrypoint-initdb.d/084-saas-package-definition-guard.sql:ro
+      - ./migrations/0085_saas_tenant_package_assignment_guard.up.sql:/docker-entrypoint-initdb.d/085-saas-tenant-package-assignment-guard.sql:ro
+      - ./migrations/0086_saas_tenant_provision_approval_guard.up.sql:/docker-entrypoint-initdb.d/086-saas-tenant-provision-approval-guard.sql:ro
+      - ./migrations/0087_saas_tenant_renewal_approval_guard.up.sql:/docker-entrypoint-initdb.d/087-saas-tenant-renewal-approval-guard.sql:ro
+      - ./migrations/0088_saas_subscription_transition_approval_guard.up.sql:/docker-entrypoint-initdb.d/088-saas-subscription-transition-approval-guard.sql:ro
+      - ./migrations/0089_saas_invoice_issue_approval_guard.up.sql:/docker-entrypoint-initdb.d/089-saas-invoice-issue-approval-guard.sql:ro
+      - ./migrations/0090_saas_payment_order_create_approval_guard.up.sql:/docker-entrypoint-initdb.d/090-saas-payment-order-create-approval-guard.sql:ro
+      - ./migrations/0091_saas_payment_settlement_close_guard.up.sql:/docker-entrypoint-initdb.d/091-saas-payment-settlement-close-guard.sql:ro
+      - ./migrations/0092_saas_payment_settlement_reopen_guard.up.sql:/docker-entrypoint-initdb.d/092-saas-payment-settlement-reopen-guard.sql:ro
+      - ./migrations/0093_saas_payment_settlement_resolve_guard.up.sql:/docker-entrypoint-initdb.d/093-saas-payment-settlement-resolve-guard.sql:ro
+      - ./migrations/0094_saas_tenant_domain_command_guard.up.sql:/docker-entrypoint-initdb.d/094-saas-tenant-domain-command-guard.sql:ro
+      - ./migrations/0095_saas_tenant_domain_create_guard.up.sql:/docker-entrypoint-initdb.d/095-saas-tenant-domain-create-guard.sql:ro
+      - ./migrations/0096_saas_tenant_enable_approval_guard.up.sql:/docker-entrypoint-initdb.d/096-saas-tenant-enable-approval-guard.sql:ro
+      - ./migrations/0097_saas_release_evidence_action_tracking.up.sql:/docker-entrypoint-initdb.d/097-saas-release-evidence-action-tracking.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u\"$${MARIADB_USER}\" -p\"$${MARIADB_PASSWORD}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${MOCHAT_REDIS_PORT:-26389}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  app-storage:
+  audit-anchor-storage:
+  mysql-data:
+  redis-data:

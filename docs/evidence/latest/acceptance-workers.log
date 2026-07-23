@@ -1,0 +1,7 @@
+MoChat Go standalone acceptance started at 2026-07-19 12:45:01, suite=workers
+
+==> async file upload worker
+ Network mochat-go-async-file-upload-check_default  Creating
+ Network mochat-go-async-file-upload-check_default  Created
+ Volume mochat-go-async-file-upload-check_redis-data  Creating
+ Volume mochat-go-async-file-upload-check_redis-data  Created

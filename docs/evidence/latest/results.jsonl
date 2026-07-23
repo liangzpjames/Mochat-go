@@ -1,0 +1,5 @@
+{"name": "快速本地门禁", "slug": "test", "returncode": 0, "started_at": "2026-07-19 11:26:20 CST", "finished_at": "2026-07-19 11:27:01 CST", "log": "docs/evidence/latest/test.log"}
+{"name": "独立交付包 smoke", "slug": "independent-package", "returncode": 0, "started_at": "2026-07-19 11:27:02 CST", "finished_at": "2026-07-19 11:27:35 CST", "log": "docs/evidence/latest/independent-package.log"}
+{"name": "迁移期 PHP 清单对齐", "slug": "inventory-parity", "returncode": 0, "started_at": "2026-07-19 11:27:35 CST", "finished_at": "2026-07-19 11:27:36 CST", "log": "docs/evidence/latest/inventory-parity.log"}
+{"name": "独立验收套件：core", "slug": "acceptance-core", "returncode": 0, "started_at": "2026-07-19 11:27:36 CST", "finished_at": "2026-07-19 11:49:55 CST", "log": "docs/evidence/latest/acceptance-core.log"}
+{"name": "独立验收套件：saas", "slug": "acceptance-saas", "returncode": 1, "started_at": "2026-07-19 11:49:55 CST", "finished_at": "2026-07-19 12:44:58 CST", "log": "docs/evidence/latest/acceptance-saas.log"}

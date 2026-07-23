@@ -1,0 +1,133 @@
+{
+  "schema": 1,
+  "generated_at": "2026-07-18 11:45:42 CST",
+  "status": "仍缺生产证据，不能标记最终完成",
+  "strict": true,
+  "skip_quick": true,
+  "min_evidence_bytes": 32,
+  "current_source_fingerprint": "7c5ef5690ec238b7330aeefd85fe1df81d659835c6895d1eba054b97cd0085f1",
+  "manifest": {
+    "routes": 224,
+    "tables": 70,
+    "crontabs": 9,
+    "event_handlers": 10,
+    "async_queues": 15
+  },
+  "quick_ok": true,
+  "evidence_ok": false,
+  "ok": false,
+  "quick_checks": [],
+  "evidence": [
+    {
+      "title": "MySQL 5.7 amd64 真实容器门禁",
+      "env": "MOCHAT_EVIDENCE_MYSQL57_AMD64",
+      "path": "docs/evidence/production/mysql57-amd64.log",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_MYSQL57_AMD64=docs/evidence/production/mysql57-amd64.log` 指向的文件不存在。",
+      "description": "在 amd64/x86_64 CI 执行 `env -u GOROOT ./scripts/ci_mysql57_amd64.sh` 的日志或报告。"
+    },
+    {
+      "title": "真实企业微信账号联调",
+      "env": "MOCHAT_EVIDENCE_REAL_WECOM",
+      "path": "docs/evidence/production/real-wecom.md",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_REAL_WECOM=docs/evidence/production/real-wecom.md` 指向的文件不存在。",
+      "description": "真实企业微信账号下授权、回调解密、通讯录、客户、客户群、标签、素材和企微应用链路验收记录。"
+    },
+    {
+      "title": "真实微信开放平台联调",
+      "env": "MOCHAT_EVIDENCE_REAL_WECHAT_OPEN",
+      "path": "docs/evidence/production/real-wechat-open.md",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_REAL_WECHAT_OPEN=docs/evidence/production/real-wechat-open.md` 指向的文件不存在。",
+      "description": "真实微信开放平台第三方平台 ticket、预授权、授权回跳、公众号资料回填、取消授权和消息回调验收记录。"
+    },
+    {
+      "title": "真实 SaaS 多租户数据回归",
+      "env": "MOCHAT_EVIDENCE_REAL_SAAS_TENANTS",
+      "path": "docs/evidence/production/real-saas-tenants.md",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_REAL_SAAS_TENANTS=docs/evidence/production/real-saas-tenants.md` 指向的文件不存在。",
+      "description": "两个以上真实租户业务数据下菜单权限、企业归属、资源额度、上传账本、异步任务和告警隔离验收记录。"
+    },
+    {
+      "title": "生产前端浏览器回归",
+      "env": "MOCHAT_EVIDENCE_PROD_FRONTEND",
+      "path": "docs/evidence/production/prod-frontend.md",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_PROD_FRONTEND=docs/evidence/production/prod-frontend.md` 指向的文件不存在。",
+      "description": "dashboard/sidebar/operation 生产构建产物的真实浏览器业务路径和异常路径回归记录。"
+    },
+    {
+      "title": "稳定性记录",
+      "env": "MOCHAT_EVIDENCE_STABILITY",
+      "path": "docs/evidence/production/stability.md",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_STABILITY=docs/evidence/production/stability.md` 指向的文件不存在。",
+      "description": "目标部署环境短稳回归、健康检查或外部监控记录；legacy 场景可指向 `soak.ndjson`。"
+    }
+  ],
+  "missing_envs": [],
+  "invalid_evidence": [
+    {
+      "title": "MySQL 5.7 amd64 真实容器门禁",
+      "env": "MOCHAT_EVIDENCE_MYSQL57_AMD64",
+      "path": "docs/evidence/production/mysql57-amd64.log",
+      "exists": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_MYSQL57_AMD64=docs/evidence/production/mysql57-amd64.log` 指向的文件不存在。"
+    },
+    {
+      "title": "真实企业微信账号联调",
+      "env": "MOCHAT_EVIDENCE_REAL_WECOM",
+      "path": "docs/evidence/production/real-wecom.md",
+      "exists": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_REAL_WECOM=docs/evidence/production/real-wecom.md` 指向的文件不存在。"
+    },
+    {
+      "title": "真实微信开放平台联调",
+      "env": "MOCHAT_EVIDENCE_REAL_WECHAT_OPEN",
+      "path": "docs/evidence/production/real-wechat-open.md",
+      "exists": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_REAL_WECHAT_OPEN=docs/evidence/production/real-wechat-open.md` 指向的文件不存在。"
+    },
+    {
+      "title": "真实 SaaS 多租户数据回归",
+      "env": "MOCHAT_EVIDENCE_REAL_SAAS_TENANTS",
+      "path": "docs/evidence/production/real-saas-tenants.md",
+      "exists": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_REAL_SAAS_TENANTS=docs/evidence/production/real-saas-tenants.md` 指向的文件不存在。"
+    },
+    {
+      "title": "生产前端浏览器回归",
+      "env": "MOCHAT_EVIDENCE_PROD_FRONTEND",
+      "path": "docs/evidence/production/prod-frontend.md",
+      "exists": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_PROD_FRONTEND=docs/evidence/production/prod-frontend.md` 指向的文件不存在。"
+    },
+    {
+      "title": "稳定性记录",
+      "env": "MOCHAT_EVIDENCE_STABILITY",
+      "path": "docs/evidence/production/stability.md",
+      "exists": false,
+      "size": 0,
+      "issue": "`MOCHAT_EVIDENCE_STABILITY=docs/evidence/production/stability.md` 指向的文件不存在。"
+    }
+  ]
+}

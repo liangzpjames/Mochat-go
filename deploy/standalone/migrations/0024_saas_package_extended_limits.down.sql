@@ -1,0 +1,10 @@
+ALTER TABLE `mochat_go_saas_packages`
+  DROP COLUMN `async_executions`,
+  DROP COLUMN `official_accounts`,
+  DROP COLUMN `work_fissions`,
+  DROP COLUMN `work_room_auto_pulls`,
+  DROP COLUMN `room_tag_pulls`,
+  DROP COLUMN `room_message_batches`,
+  DROP COLUMN `contact_message_batches`,
+  DROP COLUMN `shop_codes`,
+  DROP COLUMN `channel_codes`;

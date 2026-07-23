@@ -1,0 +1,156 @@
+services:
+  mysql:
+    image: mariadb:10.6
+    environment:
+      MARIADB_DATABASE: mochat
+      MARIADB_ROOT_PASSWORD: mochat_root
+      MARIADB_USER: mochat
+      MARIADB_PASSWORD: mochat_pass
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${MOCHAT_MYSQL_PORT:-13306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../../../mochat/api-server/storage/install/mochat.sql:/docker-entrypoint-initdb.d/001-mochat.sql:ro
+      - ../standalone/migrations/0002_seed_core_data.up.sql:/docker-entrypoint-initdb.d/002-seed-core-data.sql:ro
+      - ../standalone/migrations/0003_saas_provisioning.up.sql:/docker-entrypoint-initdb.d/003-saas-provisioning.sql:ro
+      - ../standalone/migrations/0004_saas_storage_objects.up.sql:/docker-entrypoint-initdb.d/004-saas-storage-objects.sql:ro
+      - ../standalone/migrations/0005_background_tasks.up.sql:/docker-entrypoint-initdb.d/005-background-tasks.sql:ro
+      - ../standalone/migrations/0006_saas_alerts.up.sql:/docker-entrypoint-initdb.d/006-saas-alerts.sql:ro
+      - ../standalone/migrations/0007_wechat_component_tickets.up.sql:/docker-entrypoint-initdb.d/007-wechat-component-tickets.sql:ro
+      - ../standalone/migrations/0008_saas_alert_notifications.up.sql:/docker-entrypoint-initdb.d/008-saas-alert-notifications.sql:ro
+      - ../standalone/migrations/0009_contact_batch_add_rbac.up.sql:/docker-entrypoint-initdb.d/009-contact-batch-add-rbac.sql:ro
+      - ../standalone/migrations/0010_sensitive_words.up.sql:/docker-entrypoint-initdb.d/010-sensitive-words.sql:ro
+      - ../standalone/migrations/0011_sop_rbac.up.sql:/docker-entrypoint-initdb.d/011-sop-rbac.sql:ro
+      - ../standalone/migrations/0012_shop_code.up.sql:/docker-entrypoint-initdb.d/012-shop-code.sql:ro
+      - ../standalone/migrations/0013_radar.up.sql:/docker-entrypoint-initdb.d/013-radar.sql:ro
+      - ../standalone/migrations/0014_auto_tag.up.sql:/docker-entrypoint-initdb.d/014-auto-tag.sql:ro
+      - ../standalone/migrations/0015_lottery.up.sql:/docker-entrypoint-initdb.d/015-lottery.sql:ro
+      - ../standalone/migrations/0016_room_fission.up.sql:/docker-entrypoint-initdb.d/016-room-fission.sql:ro
+      - ../standalone/migrations/0017_room_clock_in.up.sql:/docker-entrypoint-initdb.d/017-room-clock-in.sql:ro
+      - ../standalone/migrations/0018_room_quality.up.sql:/docker-entrypoint-initdb.d/018-room-quality.sql:ro
+      - ../standalone/migrations/0019_room_calendar.up.sql:/docker-entrypoint-initdb.d/019-room-calendar.sql:ro
+      - ../standalone/migrations/0020_room_remind.up.sql:/docker-entrypoint-initdb.d/020-room-remind.sql:ro
+      - ../standalone/migrations/0021_room_infinite_pull.up.sql:/docker-entrypoint-initdb.d/021-room-infinite-pull.sql:ro
+      - ../standalone/migrations/0022_work_message_archive_sync.up.sql:/docker-entrypoint-initdb.d/022-work-message-archive-sync.sql:ro
+      - ../standalone/migrations/0023_saas_alert_settings.up.sql:/docker-entrypoint-initdb.d/023-saas-alert-settings.sql:ro
+      - ../standalone/migrations/0024_saas_package_extended_limits.up.sql:/docker-entrypoint-initdb.d/024-saas-package-extended-limits.sql:ro
+      - ../standalone/migrations/0025_saas_radar_limit.up.sql:/docker-entrypoint-initdb.d/025-saas-radar-limit.sql:ro
+      - ../standalone/migrations/0026_saas_lottery_limit.up.sql:/docker-entrypoint-initdb.d/026-saas-lottery-limit.sql:ro
+      - ../standalone/migrations/0027_saas_room_infinite_pull_limit.up.sql:/docker-entrypoint-initdb.d/027-saas-room-infinite-pull-limit.sql:ro
+      - ../standalone/migrations/0028_saas_room_fission_limit.up.sql:/docker-entrypoint-initdb.d/028-saas-room-fission-limit.sql:ro
+      - ../standalone/migrations/0029_saas_room_clock_in_limit.up.sql:/docker-entrypoint-initdb.d/029-saas-room-clock-in-limit.sql:ro
+      - ../standalone/migrations/0030_saas_room_operation_limits.up.sql:/docker-entrypoint-initdb.d/030-saas-room-operation-limits.sql:ro
+      - ../standalone/migrations/0031_saas_sop_limits.up.sql:/docker-entrypoint-initdb.d/031-saas-sop-limits.sql:ro
+      - ../standalone/migrations/0032_saas_sensitive_word_limit.up.sql:/docker-entrypoint-initdb.d/032-saas-sensitive-word-limit.sql:ro
+      - ../standalone/migrations/0033_saas_admin_operation_logs.up.sql:/docker-entrypoint-initdb.d/033-saas-admin-operation-logs.sql:ro
+      - ../standalone/migrations/0034_saas_billing_events.up.sql:/docker-entrypoint-initdb.d/034-saas-billing-events.sql:ro
+      - ../standalone/migrations/0035_saas_admin_tasks.up.sql:/docker-entrypoint-initdb.d/035-saas-admin-tasks.sql:ro
+      - ../standalone/migrations/0036_saas_notification_policy_controls.up.sql:/docker-entrypoint-initdb.d/036-saas-notification-policy-controls.sql:ro
+      - ../standalone/migrations/0037_saas_notification_health_index.up.sql:/docker-entrypoint-initdb.d/037-saas-notification-health-index.sql:ro
+      - ../standalone/migrations/0038_saas_notification_slo_index.up.sql:/docker-entrypoint-initdb.d/038-saas-notification-slo-index.sql:ro
+      - ../standalone/migrations/0039_saas_subscription_lifecycle.up.sql:/docker-entrypoint-initdb.d/039-saas-subscription-lifecycle.sql:ro
+      - ../standalone/migrations/0040_saas_payment_collection.up.sql:/docker-entrypoint-initdb.d/040-saas-payment-collection.sql:ro
+      - ../standalone/migrations/0041_saas_payment_refunds.up.sql:/docker-entrypoint-initdb.d/041-saas-payment-refunds.sql:ro
+      - ../standalone/migrations/0042_saas_billing_invoices.up.sql:/docker-entrypoint-initdb.d/042-saas-billing-invoices.sql:ro
+      - ../standalone/migrations/0043_saas_payment_settlements.up.sql:/docker-entrypoint-initdb.d/043-saas-payment-settlements.sql:ro
+      - ../standalone/migrations/0044_saas_payment_settlement_sync.up.sql:/docker-entrypoint-initdb.d/044-saas-payment-settlement-sync.sql:ro
+      - ../standalone/migrations/0045_saas_admin_rbac.up.sql:/docker-entrypoint-initdb.d/045-saas-admin-rbac.sql:ro
+      - ../standalone/migrations/0046_saas_admin_approvals.up.sql:/docker-entrypoint-initdb.d/046-saas-admin-approvals.sql:ro
+      - ../standalone/migrations/0047_saas_admin_approval_governance.up.sql:/docker-entrypoint-initdb.d/047-saas-admin-approval-governance.sql:ro
+      - ../standalone/migrations/0048_saas_admin_system_health.up.sql:/docker-entrypoint-initdb.d/048-saas-admin-system-health.sql:ro
+      - ../standalone/migrations/0049_saas_service_accounts.up.sql:/docker-entrypoint-initdb.d/049-saas-service-accounts.sql:ro
+      - ../standalone/migrations/0050_saas_backup_recovery.up.sql:/docker-entrypoint-initdb.d/050-saas-backup-recovery.sql:ro
+      - ../standalone/migrations/0051_saas_backup_resilience.up.sql:/docker-entrypoint-initdb.d/051-saas-backup-resilience.sql:ro
+      - ../standalone/migrations/0052_saas_compliance_lifecycle.up.sql:/docker-entrypoint-initdb.d/052-saas-compliance-lifecycle.sql:ro
+      - ../standalone/migrations/0053_saas_identity_security.up.sql:/docker-entrypoint-initdb.d/053-saas-identity-security.sql:ro
+      - ../standalone/migrations/0054_saas_branding_profiles.up.sql:/docker-entrypoint-initdb.d/054-saas-branding-profiles.sql:ro
+      - ../standalone/migrations/0055_saas_tenant_domains.up.sql:/docker-entrypoint-initdb.d/055-saas-tenant-domains.sql:ro
+      - ../standalone/migrations/0056_saas_domain_delivery.up.sql:/docker-entrypoint-initdb.d/056-saas-domain-delivery.sql:ro
+      - ../standalone/migrations/0057_saas_release_readiness.up.sql:/docker-entrypoint-initdb.d/057-saas-release-readiness.sql:ro
+      - ../standalone/migrations/0058_saas_release_evidence_integrity.up.sql:/docker-entrypoint-initdb.d/058-saas-release-evidence-integrity.sql:ro
+      - ../standalone/migrations/0059_saas_service_account_rate_limits.up.sql:/docker-entrypoint-initdb.d/059-saas-service-account-rate-limits.sql:ro
+      - ../standalone/migrations/0060_saas_service_account_usage_retention.up.sql:/docker-entrypoint-initdb.d/060-saas-service-account-usage-retention.sql:ro
+      - ../standalone/migrations/0061_saas_service_account_usage_alerts.up.sql:/docker-entrypoint-initdb.d/061-saas-service-account-usage-alerts.sql:ro
+      - ../standalone/migrations/0062_saas_audit_integrity.up.sql:/docker-entrypoint-initdb.d/062-saas-audit-integrity.sql:ro
+      - ../standalone/migrations/0063_saas_audit_anchor_signatures.up.sql:/docker-entrypoint-initdb.d/063-saas-audit-anchor-signatures.sql:ro
+      - ../standalone/migrations/0064_saas_audit_anchor_remote_immutability.up.sql:/docker-entrypoint-initdb.d/064-saas-audit-anchor-remote-immutability.sql:ro
+      - ../standalone/migrations/0065_saas_service_account_key_pepper_ring.up.sql:/docker-entrypoint-initdb.d/065-saas-service-account-key-pepper-ring.sql:ro
+      - ../standalone/migrations/0066_saas_alert_credential_encryption.up.sql:/docker-entrypoint-initdb.d/066-saas-alert-credential-encryption.sql:ro
+      - ../standalone/migrations/0067_wecom_credential_encryption.up.sql:/docker-entrypoint-initdb.d/067-wecom-credential-encryption.sql:ro
+      - ../standalone/migrations/0068_wechat_open_credential_encryption.up.sql:/docker-entrypoint-initdb.d/068-wechat-open-credential-encryption.sql:ro
+      - ../standalone/migrations/0069_saas_release_candidate_approval.up.sql:/docker-entrypoint-initdb.d/069-saas-release-candidate-approval.sql:ro
+      - ../standalone/migrations/0070_saas_approval_policy_change_guard.up.sql:/docker-entrypoint-initdb.d/070-saas-approval-policy-change-guard.sql:ro
+      - ../standalone/migrations/0071_saas_backup_policy_change_guard.up.sql:/docker-entrypoint-initdb.d/071-saas-backup-policy-change-guard.sql:ro
+      - ../standalone/migrations/0072_saas_backup_cleanup_saga.up.sql:/docker-entrypoint-initdb.d/072-saas-backup-cleanup-saga.sql:ro
+      - ../standalone/migrations/0073_saas_compliance_export_deletion_saga.up.sql:/docker-entrypoint-initdb.d/073-saas-compliance-export-deletion-saga.sql:ro
+      - ../standalone/migrations/0074_saas_compliance_legal_hold_release_guard.up.sql:/docker-entrypoint-initdb.d/074-saas-compliance-legal-hold-release-guard.sql:ro
+      - ../standalone/migrations/0075_saas_compliance_policy_change_guard.up.sql:/docker-entrypoint-initdb.d/075-saas-compliance-policy-change-guard.sql:ro
+      - ../standalone/migrations/0076_saas_identity_policy_change_guard.up.sql:/docker-entrypoint-initdb.d/076-saas-identity-policy-change-guard.sql:ro
+      - ../standalone/migrations/0077_saas_tenant_disable_approval_guard.up.sql:/docker-entrypoint-initdb.d/077-saas-tenant-disable-approval-guard.sql:ro
+      - ../standalone/migrations/0078_saas_critical_approval_policy_guard.up.sql:/docker-entrypoint-initdb.d/078-saas-critical-approval-policy-guard.sql:ro
+      - ../standalone/migrations/0079_saas_service_account_key_revoke_guard.up.sql:/docker-entrypoint-initdb.d/079-saas-service-account-key-revoke-guard.sql:ro
+      - ../standalone/migrations/0080_saas_service_account_update_guard.up.sql:/docker-entrypoint-initdb.d/080-saas-service-account-update-guard.sql:ro
+      - ../standalone/migrations/0081_saas_service_account_key_rotate_guard.up.sql:/docker-entrypoint-initdb.d/081-saas-service-account-key-rotate-guard.sql:ro
+      - ../standalone/migrations/0082_saas_service_account_create_guard.up.sql:/docker-entrypoint-initdb.d/082-saas-service-account-create-guard.sql:ro
+      - ../standalone/migrations/0083_saas_identity_mfa_reset_guard.up.sql:/docker-entrypoint-initdb.d/083-saas-identity-mfa-reset-guard.sql:ro
+      - ../standalone/migrations/0084_saas_package_definition_guard.up.sql:/docker-entrypoint-initdb.d/084-saas-package-definition-guard.sql:ro
+      - ../standalone/migrations/0085_saas_tenant_package_assignment_guard.up.sql:/docker-entrypoint-initdb.d/085-saas-tenant-package-assignment-guard.sql:ro
+      - ../standalone/migrations/0086_saas_tenant_provision_approval_guard.up.sql:/docker-entrypoint-initdb.d/086-saas-tenant-provision-approval-guard.sql:ro
+      - ../standalone/migrations/0087_saas_tenant_renewal_approval_guard.up.sql:/docker-entrypoint-initdb.d/087-saas-tenant-renewal-approval-guard.sql:ro
+      - ../standalone/migrations/0088_saas_subscription_transition_approval_guard.up.sql:/docker-entrypoint-initdb.d/088-saas-subscription-transition-approval-guard.sql:ro
+      - ../standalone/migrations/0089_saas_invoice_issue_approval_guard.up.sql:/docker-entrypoint-initdb.d/089-saas-invoice-issue-approval-guard.sql:ro
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-umochat", "-pmochat_pass"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${MOCHAT_REDIS_PORT:-26379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  php:
+    build:
+      context: ../../../mochat/api-server
+    environment:
+      APP_NAME: mochat
+      APP_ENV: production
+      DB_DRIVER: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: mochat
+      DB_USERNAME: mochat
+      DB_PASSWORD: mochat_pass
+      DB_CHARSET: utf8mb4
+      DB_COLLATION: utf8mb4_unicode_ci
+      DB_PREFIX: mc_
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: ""
+      REDIS_DB: 0
+      SIMPLE_JWT_SECRET: "3S6ybWbSy&23fFeq8"
+      SIMPLE_JWT_PREFIX: mc_jwt_
+      SIDEBAR_JWT_SECRET: Br3LXhp&Ysha1zRDh
+      FILE_DRIVER: local
+    ports:
+      - "${MOCHAT_PHP_PORT:-9501}:9501"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  redis-data:

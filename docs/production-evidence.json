@@ -1,0 +1,191 @@
+{
+  "schema": 1,
+  "generated_at": "2026-07-15 10:15:39 CST",
+  "status": "仍缺生产证据，不能标记最终完成",
+  "strict": false,
+  "skip_quick": false,
+  "min_evidence_bytes": 32,
+  "current_source_fingerprint": "026b3cef88d869a0e53ac6ce6c0c493d69d2102b981106808ec520ee1a084102",
+  "manifest": {
+    "routes": 224,
+    "tables": 70,
+    "crontabs": 9,
+    "event_handlers": 10,
+    "async_queues": 15
+  },
+  "quick_ok": true,
+  "evidence_ok": false,
+  "ok": false,
+  "quick_checks": [
+    {
+      "name": "standalone independence",
+      "ok": true,
+      "summary": "standalone independence audit passed"
+    },
+    {
+      "name": "independent package smoke",
+      "ok": true,
+      "summary": "independent package smoke passed"
+    },
+    {
+      "name": "acceptance suite coverage",
+      "ok": true,
+      "summary": "acceptance suite coverage audit passed: smoke_scripts=96 referenced=96"
+    },
+    {
+      "name": "manifest route smoke coverage",
+      "ok": true,
+      "summary": "manifest route smoke coverage audit passed: manifest_routes=224 directly_covered=224 smoke_scripts=96"
+    },
+    {
+      "name": "functional module matrix",
+      "ok": true,
+      "summary": "functional module matrix audit passed: modules=29 manifest_unique_paths=213/213 manifest_route_entries=224 runtime_unique_paths=587/587 runtime_route_entries=729"
+    },
+    {
+      "name": "queue annotation coverage",
+      "ok": true,
+      "summary": "queue annotation coverage source=embedded:internal/server/compat_manifest_embedded.json / queue annotation coverage passed"
+    },
+    {
+      "name": "wework callback event coverage",
+      "ok": true,
+      "summary": "wework callback event coverage audit passed: process_events=20 smoke_events=20 unit_events=18"
+    },
+    {
+      "name": "worker SaaS usage assertions",
+      "ok": true,
+      "summary": "worker SaaS usage assertion audit passed"
+    },
+    {
+      "name": "SaaS metric coverage",
+      "ok": true,
+      "summary": "SaaS metric coverage audit passed: metrics=26"
+    },
+    {
+      "name": "SaaS storage reclaim coverage",
+      "ok": true,
+      "summary": "SaaS storage reclaim coverage audit passed: functions=26 groups=14"
+    }
+  ],
+  "evidence": [
+    {
+      "title": "MySQL 5.7 amd64 真实容器门禁",
+      "env": "MOCHAT_EVIDENCE_MYSQL57_AMD64",
+      "path": "",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_MYSQL57_AMD64` 指向证据文件。",
+      "description": "在 amd64/x86_64 CI 执行 `env -u GOROOT ./scripts/ci_mysql57_amd64.sh` 的日志或报告。"
+    },
+    {
+      "title": "真实企业微信账号联调",
+      "env": "MOCHAT_EVIDENCE_REAL_WECOM",
+      "path": "",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_REAL_WECOM` 指向证据文件。",
+      "description": "真实企业微信账号下授权、回调解密、通讯录、客户、客户群、标签、素材和企微应用链路验收记录。"
+    },
+    {
+      "title": "真实微信开放平台联调",
+      "env": "MOCHAT_EVIDENCE_REAL_WECHAT_OPEN",
+      "path": "",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_REAL_WECHAT_OPEN` 指向证据文件。",
+      "description": "真实微信开放平台第三方平台 ticket、预授权、授权回跳、公众号资料回填、取消授权和消息回调验收记录。"
+    },
+    {
+      "title": "真实 SaaS 多租户数据回归",
+      "env": "MOCHAT_EVIDENCE_REAL_SAAS_TENANTS",
+      "path": "",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_REAL_SAAS_TENANTS` 指向证据文件。",
+      "description": "两个以上真实租户业务数据下菜单权限、企业归属、资源额度、上传账本、异步任务和告警隔离验收记录。"
+    },
+    {
+      "title": "生产前端浏览器回归",
+      "env": "MOCHAT_EVIDENCE_PROD_FRONTEND",
+      "path": "",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_PROD_FRONTEND` 指向证据文件。",
+      "description": "dashboard/sidebar/operation 生产构建产物的真实浏览器业务路径和异常路径回归记录。"
+    },
+    {
+      "title": "稳定性记录",
+      "env": "MOCHAT_EVIDENCE_STABILITY",
+      "path": "",
+      "exists": false,
+      "valid": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_STABILITY` 指向证据文件。",
+      "description": "目标部署环境短稳回归、健康检查或外部监控记录；legacy 场景可指向 `soak.ndjson`。"
+    }
+  ],
+  "missing_envs": [
+    "MOCHAT_EVIDENCE_MYSQL57_AMD64",
+    "MOCHAT_EVIDENCE_REAL_WECOM",
+    "MOCHAT_EVIDENCE_REAL_WECHAT_OPEN",
+    "MOCHAT_EVIDENCE_REAL_SAAS_TENANTS",
+    "MOCHAT_EVIDENCE_PROD_FRONTEND",
+    "MOCHAT_EVIDENCE_STABILITY"
+  ],
+  "invalid_evidence": [
+    {
+      "title": "MySQL 5.7 amd64 真实容器门禁",
+      "env": "MOCHAT_EVIDENCE_MYSQL57_AMD64",
+      "path": "",
+      "exists": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_MYSQL57_AMD64` 指向证据文件。"
+    },
+    {
+      "title": "真实企业微信账号联调",
+      "env": "MOCHAT_EVIDENCE_REAL_WECOM",
+      "path": "",
+      "exists": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_REAL_WECOM` 指向证据文件。"
+    },
+    {
+      "title": "真实微信开放平台联调",
+      "env": "MOCHAT_EVIDENCE_REAL_WECHAT_OPEN",
+      "path": "",
+      "exists": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_REAL_WECHAT_OPEN` 指向证据文件。"
+    },
+    {
+      "title": "真实 SaaS 多租户数据回归",
+      "env": "MOCHAT_EVIDENCE_REAL_SAAS_TENANTS",
+      "path": "",
+      "exists": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_REAL_SAAS_TENANTS` 指向证据文件。"
+    },
+    {
+      "title": "生产前端浏览器回归",
+      "env": "MOCHAT_EVIDENCE_PROD_FRONTEND",
+      "path": "",
+      "exists": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_PROD_FRONTEND` 指向证据文件。"
+    },
+    {
+      "title": "稳定性记录",
+      "env": "MOCHAT_EVIDENCE_STABILITY",
+      "path": "",
+      "exists": false,
+      "size": 0,
+      "issue": "设置 `MOCHAT_EVIDENCE_STABILITY` 指向证据文件。"
+    }
+  ]
+}

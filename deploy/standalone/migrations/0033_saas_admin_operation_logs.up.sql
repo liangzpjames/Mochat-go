@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_operation_logs` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '受影响租户 ID，非租户目标为 0',
+  `actor_user_id` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '操作人用户 ID',
+  `actor_tenant_id` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '操作人租户 ID',
+  `action` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '操作动作',
+  `target_type` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '目标类型',
+  `target_id` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '目标 ID',
+  `target_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '目标名称',
+  `before_json` json DEFAULT NULL COMMENT '操作前快照',
+  `after_json` json DEFAULT NULL COMMENT '操作后快照',
+  `remark` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '操作备注',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_mochat_go_saas_admin_ops_tenant_time` (`tenant_id`, `created_at`),
+  KEY `idx_mochat_go_saas_admin_ops_actor_time` (`actor_user_id`, `created_at`),
+  KEY `idx_mochat_go_saas_admin_ops_action_time` (`action`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Go 独立版 SaaS 总后台操作日志';

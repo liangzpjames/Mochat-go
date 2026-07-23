@@ -1,0 +1,15 @@
+ALTER TABLE `mochat_go_saas_admin_audit_anchor_checkpoints`
+  ADD COLUMN `remote_status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'disabled' COMMENT 'disabled/pending/exported/failed' AFTER `artifact_error`,
+  ADD COLUMN `remote_provider` varchar(24) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '' AFTER `remote_status`,
+  ADD COLUMN `remote_bucket` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' AFTER `remote_provider`,
+  ADD COLUMN `remote_object_key` varchar(512) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' AFTER `remote_bucket`,
+  ADD COLUMN `remote_etag` varchar(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '' AFTER `remote_object_key`,
+  ADD COLUMN `remote_version_id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' AFTER `remote_etag`,
+  ADD COLUMN `remote_sha256` char(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '' AFTER `remote_version_id`,
+  ADD COLUMN `remote_size_bytes` bigint(20) unsigned NOT NULL DEFAULT '0' AFTER `remote_sha256`,
+  ADD COLUMN `remote_retention_mode` varchar(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '' AFTER `remote_size_bytes`,
+  ADD COLUMN `remote_retain_until` char(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '' AFTER `remote_retention_mode`,
+  ADD COLUMN `remote_error` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' AFTER `remote_retain_until`,
+  ADD COLUMN `remote_exported_at` datetime DEFAULT NULL AFTER `remote_error`,
+  ADD COLUMN `remote_verified_at` datetime DEFAULT NULL AFTER `remote_exported_at`,
+  ADD KEY `idx_mochat_go_saas_audit_anchor_remote` (`remote_status`, `remote_verified_at`);

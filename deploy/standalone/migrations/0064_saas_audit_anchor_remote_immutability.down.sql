@@ -1,0 +1,15 @@
+ALTER TABLE `mochat_go_saas_admin_audit_anchor_checkpoints`
+  DROP KEY `idx_mochat_go_saas_audit_anchor_remote`,
+  DROP COLUMN `remote_verified_at`,
+  DROP COLUMN `remote_exported_at`,
+  DROP COLUMN `remote_error`,
+  DROP COLUMN `remote_retain_until`,
+  DROP COLUMN `remote_retention_mode`,
+  DROP COLUMN `remote_size_bytes`,
+  DROP COLUMN `remote_sha256`,
+  DROP COLUMN `remote_version_id`,
+  DROP COLUMN `remote_etag`,
+  DROP COLUMN `remote_object_key`,
+  DROP COLUMN `remote_bucket`,
+  DROP COLUMN `remote_provider`,
+  DROP COLUMN `remote_status`;

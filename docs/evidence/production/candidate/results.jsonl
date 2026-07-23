@@ -1,0 +1,3 @@
+{"name": "严格生产证据检查", "slug": "production-evidence", "returncode": 1, "started_at": "2026-07-18 11:47:16 CST", "finished_at": "2026-07-18 11:47:36 CST", "log": "docs/evidence/production/candidate/production-evidence.log"}
+{"name": "严格目标完成度审计", "slug": "goal-completion", "returncode": 1, "started_at": "2026-07-18 11:47:36 CST", "finished_at": "2026-07-18 11:48:49 CST", "log": "docs/evidence/production/candidate/goal-completion.log"}
+{"name": "源码与验收指纹匹配", "slug": "source-fingerprint", "returncode": 0, "started_at": "2026-07-18 11:48:50 CST", "finished_at": "2026-07-18 11:48:50 CST", "log": "docs/evidence/production/candidate/source-fingerprint.log"}

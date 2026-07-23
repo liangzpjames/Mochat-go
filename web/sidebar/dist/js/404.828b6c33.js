@@ -1,0 +1,1 @@
+(window["webpackJsonp"]=window["webpackJsonp"]||[]).push([["404"],{2754:function(n,c,e){"use strict";e.r(c);var t=e("7a23");const s={class:"page"};function a(n,c,e,a,o,r){return Object(t["D"])(),Object(t["h"])("div",s," 404 ")}var o={},r=e("6b0d"),d=e.n(r);const i=d()(o,[["render",a]]);c["default"]=i}}]);

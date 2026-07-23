@@ -1,0 +1,4644 @@
+{
+  "algorithm": "sha256",
+  "file_count": 922,
+  "files": [
+    {
+      "path": ".dockerignore",
+      "sha256": "43ec826983d3cb21e98105ffa077428ec8a2cb4dcf3f3918e0affe7c8faf4f13",
+      "size": 107
+    },
+    {
+      "path": ".github/workflows/mysql57-amd64.yml",
+      "sha256": "0a0bb58671b00958732f63d2d7c2a5f73d517fe19e214048ee55e49f080367ed",
+      "size": 1692
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "a2f49ffbe4370b88a31862aca504b9cff8dad60b1adff28659aa146c3d986fec",
+      "size": 2210
+    },
+    {
+      "path": "cmd/mochat-bootstrap/main.go",
+      "sha256": "0148531554e708588285b0d4e6309396e48df2d2c55f472f68a07d49e93959ce",
+      "size": 43568
+    },
+    {
+      "path": "cmd/mochat-go/main.go",
+      "sha256": "330120f93997ab5bae8c4b4b81629e70c957946ce6c03c2e55cc5bebbe7fc4f2",
+      "size": 204615
+    },
+    {
+      "path": "cmd/mochat-inventory/main.go",
+      "sha256": "559586ab985072c5b025bdeb7c802f31f3bd235dd7af073e7c1e78cf47165fe5",
+      "size": 781
+    },
+    {
+      "path": "cmd/mochat-migrate/main.go",
+      "sha256": "a852cb7c4cdc25027ba7eab74ba6ad259283cfae870149b76960a9721fdc81a5",
+      "size": 1976
+    },
+    {
+      "path": "cmd/mochat-saas-maintenance/main.go",
+      "sha256": "b53261d5586a194a80e69dd7b13f3eba11d375fb6d3efae9f974f49cd748561a",
+      "size": 59747
+    },
+    {
+      "path": "cmd/mochat-saas-maintenance/main_test.go",
+      "sha256": "e149496836f895123244f7b85c2b7ee76dec24a6ac575d19982d6b7655eaecbf",
+      "size": 5614
+    },
+    {
+      "path": "deploy/local/README.md",
+      "sha256": "ce39b9a0a64df80116c4cda540277cfa43546fe78f27b336d8769f843bc44a63",
+      "size": 9330
+    },
+    {
+      "path": "deploy/local/docker-compose.yml",
+      "sha256": "df10cbcf8d4278232ee9e6878f911f1478a0e13fa4a58baabe6c0dd166d1df1e",
+      "size": 13544
+    },
+    {
+      "path": "deploy/mysql57/docker-compose.yml",
+      "sha256": "4fe24c2e2ca7e50ab647f41aa25297774822debfaa811c499e17d26785bfbfdf",
+      "size": 655
+    },
+    {
+      "path": "deploy/standalone/.env.example",
+      "sha256": "77291cd3966e3f1ad42592ef00a114cb9598a92f5f452e2747119f0cdce6e8ce",
+      "size": 11630
+    },
+    {
+      "path": "deploy/standalone/README.md",
+      "sha256": "cba97097eebcda406c68d99a66ed6fe0f33f2f1d4fa7319f7bd95ccfc5263257",
+      "size": 66345
+    },
+    {
+      "path": "deploy/standalone/docker-compose.yml",
+      "sha256": "c1f30bb1afae2885a280496ba51a1f34d333d961546402722223c58b46976e76",
+      "size": 31818
+    },
+    {
+      "path": "deploy/standalone/migrations/0002_seed_core_data.down.sql",
+      "sha256": "84c54d9129936e284330beb5f202dd7de7de1dbb4b4e01bd075c65548869c8e2",
+      "size": 1540
+    },
+    {
+      "path": "deploy/standalone/migrations/0002_seed_core_data.up.sql",
+      "sha256": "de6513fb142d38fbd0205ecaa6e6ddbdd9d765e5c455ab20bd2afdd158d276ed",
+      "size": 124583
+    },
+    {
+      "path": "deploy/standalone/migrations/0003_saas_provisioning.down.sql",
+      "sha256": "1608c670761ab3ba58eb52e7f6683e5f68a1d0c0d3f5954e122536cb2b636af0",
+      "size": 261
+    },
+    {
+      "path": "deploy/standalone/migrations/0003_saas_provisioning.up.sql",
+      "sha256": "e246640770413be52bea1a58556f0f2f53f0b5cf9f9d162cb56a5588114bbdd2",
+      "size": 6033
+    },
+    {
+      "path": "deploy/standalone/migrations/0004_saas_storage_objects.down.sql",
+      "sha256": "43e0d663125503811705e98e32e447ac08930f9c32ff8a26c64de69ce6f61e7c",
+      "size": 55
+    },
+    {
+      "path": "deploy/standalone/migrations/0004_saas_storage_objects.up.sql",
+      "sha256": "2bd14d164af2954b7d08ed24ecd0f0d1eaa483144b804485f450ae802c3cc3e3",
+      "size": 1516
+    },
+    {
+      "path": "deploy/standalone/migrations/0005_background_tasks.down.sql",
+      "sha256": "e843f03a385c3471175c83a06f35d8a367d2f57b12c2b0d11e47f7048c35af27",
+      "size": 167
+    },
+    {
+      "path": "deploy/standalone/migrations/0005_background_tasks.up.sql",
+      "sha256": "c2f590ee35e54cd69ce2a0882247c1dbfc118d5d608c159eeb33867a1b67eb9c",
+      "size": 3543
+    },
+    {
+      "path": "deploy/standalone/migrations/0006_saas_alerts.down.sql",
+      "sha256": "7fbc325177a1bb5145fcf275ac95a38ae7a79a368feef2f6900faf233eec0e85",
+      "size": 46
+    },
+    {
+      "path": "deploy/standalone/migrations/0006_saas_alerts.up.sql",
+      "sha256": "ba959dcc1312e6a82e99fad24d6231e5def459b29c04dbec7e5a872564efba6a",
+      "size": 2387
+    },
+    {
+      "path": "deploy/standalone/migrations/0007_wechat_component_tickets.down.sql",
+      "sha256": "222d92da0e949c9d7b536ddb3d90b675dcdcbc3534c165600922aff47f6b3214",
+      "size": 59
+    },
+    {
+      "path": "deploy/standalone/migrations/0007_wechat_component_tickets.up.sql",
+      "sha256": "4da2dbf0bbdd1fa15e49e10c465caefb3b699048f791674d4daf78d7ceb85b37",
+      "size": 691
+    },
+    {
+      "path": "deploy/standalone/migrations/0008_saas_alert_notifications.down.sql",
+      "sha256": "8a0df0a2e026dbe800fa25bc86c5605c8967a0e107575da24556cd2d39acd918",
+      "size": 59
+    },
+    {
+      "path": "deploy/standalone/migrations/0008_saas_alert_notifications.up.sql",
+      "sha256": "070a2514d0e544f3bf2bbef90df6b8f3a7bc35fe0617733ff48668c6efeb1098",
+      "size": 1920
+    },
+    {
+      "path": "deploy/standalone/migrations/0009_contact_batch_add_rbac.down.sql",
+      "sha256": "a05b0a5db31814ab5ca2e2c51d18b672b7e448b822b44e409d66e2d66d5547ec",
+      "size": 819
+    },
+    {
+      "path": "deploy/standalone/migrations/0009_contact_batch_add_rbac.up.sql",
+      "sha256": "90640c544cdd5d4d488885f6a2c261daf4727981715395ff0f8d2066eb1496ed",
+      "size": 3198
+    },
+    {
+      "path": "deploy/standalone/migrations/0010_sensitive_words.down.sql",
+      "sha256": "d1444b12593441f62e3394ee6d3b7387129651e7975f16d517cf43009665f82f",
+      "size": 141
+    },
+    {
+      "path": "deploy/standalone/migrations/0010_sensitive_words.up.sql",
+      "sha256": "a42a175b6856d36c13e099958f9a72acc7252876a9a33fe7f63fa6e9816432aa",
+      "size": 3450
+    },
+    {
+      "path": "deploy/standalone/migrations/0011_sop_rbac.down.sql",
+      "sha256": "1f40d8d3b46bd9a8ccb0c468f4b15ea8529434088674a0d27f16aaf938188f8c",
+      "size": 866
+    },
+    {
+      "path": "deploy/standalone/migrations/0011_sop_rbac.up.sql",
+      "sha256": "43cf37313ce66fbe9f77e602609daf14efdeac7c075eb9b1ed497d96eff75788",
+      "size": 6935
+    },
+    {
+      "path": "deploy/standalone/migrations/0012_shop_code.down.sql",
+      "sha256": "67201af09105ab9070ffbab57b62831c236e19b16499f417bd4e23653685dd5a",
+      "size": 262
+    },
+    {
+      "path": "deploy/standalone/migrations/0012_shop_code.up.sql",
+      "sha256": "a4269383f0986af27d5c2905288c5310fd667a28d05ed6d95bd4909bed80666b",
+      "size": 7482
+    },
+    {
+      "path": "deploy/standalone/migrations/0013_radar.down.sql",
+      "sha256": "785991995ab84d06a095bba584d48483ef9d07f3598648cd50845ad8e1d065f9",
+      "size": 324
+    },
+    {
+      "path": "deploy/standalone/migrations/0013_radar.up.sql",
+      "sha256": "b4bff71c670330fe028837a37bdbe323da7a0bd5a4142456a4c55066303066b3",
+      "size": 10098
+    },
+    {
+      "path": "deploy/standalone/migrations/0014_auto_tag.down.sql",
+      "sha256": "2f61bbc08ae49ee53b96d02f899de3f8506523986a694bfafb167760e673542e",
+      "size": 1049
+    },
+    {
+      "path": "deploy/standalone/migrations/0014_auto_tag.up.sql",
+      "sha256": "ddb051b374908da54b9cae1ff1ed42ced2a24546b376d8b299a0faf83577ba0b",
+      "size": 13398
+    },
+    {
+      "path": "deploy/standalone/migrations/0015_lottery.down.sql",
+      "sha256": "0b67fe29ea7dbb97fddf86d77c6c53a0e773d4df07a6ba71152554c63a009c7a",
+      "size": 283
+    },
+    {
+      "path": "deploy/standalone/migrations/0015_lottery.up.sql",
+      "sha256": "a2ad7ff2c2dcf1c88e2e75e03f1350db90e523c10783be294f79a6bdd04be61d",
+      "size": 8267
+    },
+    {
+      "path": "deploy/standalone/migrations/0016_room_fission.down.sql",
+      "sha256": "4b03643aff17f9c1c138083d13b58a5e312f5001ca6a8a1c603fa719abce158c",
+      "size": 394
+    },
+    {
+      "path": "deploy/standalone/migrations/0016_room_fission.up.sql",
+      "sha256": "f320f8aa69df5300709ced4c703428a3c67bff5a4e35bce81d46f2450f7febec",
+      "size": 11345
+    },
+    {
+      "path": "deploy/standalone/migrations/0017_room_clock_in.down.sql",
+      "sha256": "ab061f5b0e4a2c7d8cd75aac70123280f5fca0e56f566d1b0a48adf04eb67f6f",
+      "size": 247
+    },
+    {
+      "path": "deploy/standalone/migrations/0017_room_clock_in.up.sql",
+      "sha256": "0ad69d8229612c152a96119ae44b94f3b83c044969c435f9842b1ded120127bd",
+      "size": 7473
+    },
+    {
+      "path": "deploy/standalone/migrations/0018_room_quality.down.sql",
+      "sha256": "0a3a567b4822c59d5cdca9a4489ab29fc6274e9312018a2bba315cda4205238e",
+      "size": 192
+    },
+    {
+      "path": "deploy/standalone/migrations/0018_room_quality.up.sql",
+      "sha256": "43f5c1aa11d0e2e3f352132503b801b0befefa5901ff196efd2ae1fa1800a78b",
+      "size": 5511
+    },
+    {
+      "path": "deploy/standalone/migrations/0019_room_calendar.down.sql",
+      "sha256": "5896682590ca46e9461109d002f76836d8a93d22810fcd032f7a22be5b3a820b",
+      "size": 229
+    },
+    {
+      "path": "deploy/standalone/migrations/0019_room_calendar.up.sql",
+      "sha256": "2cb8afc57061ce6229accf60592e6c8b09f0e48d5e6097be1ac15e679384bbcd",
+      "size": 5176
+    },
+    {
+      "path": "deploy/standalone/migrations/0020_room_remind.down.sql",
+      "sha256": "33eba8c0fccb3fba5230f7048109b20a85c8a3db390c39df9b1bd1be3204a88b",
+      "size": 164
+    },
+    {
+      "path": "deploy/standalone/migrations/0020_room_remind.up.sql",
+      "sha256": "80c4b333a1e957a405be275b924e4f2bcb5d6cc25f770bc851bdf7a8210f5b7b",
+      "size": 4333
+    },
+    {
+      "path": "deploy/standalone/migrations/0021_room_infinite_pull.down.sql",
+      "sha256": "c96eff22d8515a008fc505a59f4bb9a1c07e3e3d7d9dfd42b18a032175b16074",
+      "size": 125
+    },
+    {
+      "path": "deploy/standalone/migrations/0021_room_infinite_pull.up.sql",
+      "sha256": "60bb4941b94e16e9d9b5f6b77d20f6ffe60f07c9bdc9bf9392167e007b5c3eed",
+      "size": 3429
+    },
+    {
+      "path": "deploy/standalone/migrations/0022_work_message_archive_sync.down.sql",
+      "sha256": "5c3f2bf2ba2dcd06a8270c2f961e4967269cd7b113a502afcae3b5d13028cfd0",
+      "size": 1410
+    },
+    {
+      "path": "deploy/standalone/migrations/0022_work_message_archive_sync.up.sql",
+      "sha256": "ac97a1b847af40fecfdbd59f64111207d1d307ab6c8033080c2a898c66024d7b",
+      "size": 1768
+    },
+    {
+      "path": "deploy/standalone/migrations/0023_saas_alert_settings.down.sql",
+      "sha256": "3d17958e456b4782cb585ff2378364b9b2b44b3a83da36fab1e35a4b5bba4f7f",
+      "size": 55
+    },
+    {
+      "path": "deploy/standalone/migrations/0023_saas_alert_settings.up.sql",
+      "sha256": "12ce3c290d1cab3ef45b8c8ee7b4ff0562532053ffffe902ec32a394c1fcb3b4",
+      "size": 2214
+    },
+    {
+      "path": "deploy/standalone/migrations/0024_saas_package_extended_limits.down.sql",
+      "sha256": "71f4317dedfafcc0fe048b91b4f6e84998eb3d35f545d9431ece7dd65b6e8e48",
+      "size": 346
+    },
+    {
+      "path": "deploy/standalone/migrations/0024_saas_package_extended_limits.up.sql",
+      "sha256": "0b1f6335328f4e0cd1f318ba9fd8c013afee03e11255de8fe261e0604205799a",
+      "size": 1347
+    },
+    {
+      "path": "deploy/standalone/migrations/0025_saas_radar_limit.down.sql",
+      "sha256": "d2f2c46534aee37493738efb1b1e732081f3f62540414144d5247e8143d7940a",
+      "size": 62
+    },
+    {
+      "path": "deploy/standalone/migrations/0025_saas_radar_limit.up.sql",
+      "sha256": "557b9d9e3eb4a07ac4463a6b1f43a5e0ba9951f19ddf124f15738f39826a2e24",
+      "size": 164
+    },
+    {
+      "path": "deploy/standalone/migrations/0026_saas_lottery_limit.down.sql",
+      "sha256": "09fbdf7d224396fbd5eeaccb19c031a7b669cbf8ff933a4465059c85e008634d",
+      "size": 65
+    },
+    {
+      "path": "deploy/standalone/migrations/0026_saas_lottery_limit.up.sql",
+      "sha256": "248134b184b5617a3ea61e52f7bbea001efec1483bfc19a2b1347143cc336059",
+      "size": 163
+    },
+    {
+      "path": "deploy/standalone/migrations/0027_saas_room_infinite_pull_limit.down.sql",
+      "sha256": "f74c04e90760ab71e4267f617610e12bd9d3999fb370b719d22f23173266d1a1",
+      "size": 75
+    },
+    {
+      "path": "deploy/standalone/migrations/0027_saas_room_infinite_pull_limit.up.sql",
+      "sha256": "40625212c4457f9fb3ac374cafc3dd812be525959c587cfc429b98a33c8734f1",
+      "size": 176
+    },
+    {
+      "path": "deploy/standalone/migrations/0028_saas_room_fission_limit.down.sql",
+      "sha256": "15a2bff797280e5ee570d23104327c9e25015d6ff6ed2f6f779017dce3401981",
+      "size": 69
+    },
+    {
+      "path": "deploy/standalone/migrations/0028_saas_room_fission_limit.up.sql",
+      "sha256": "acf8762025bd1092d53396be7696088a972688b37eec9cd950b6eb6c2d051df3",
+      "size": 177
+    },
+    {
+      "path": "deploy/standalone/migrations/0029_saas_room_clock_in_limit.down.sql",
+      "sha256": "b0536120f76cf9ed7dda92d37587b60a3574e11eb4bacbb2c74dd1419afa0d91",
+      "size": 70
+    },
+    {
+      "path": "deploy/standalone/migrations/0029_saas_room_clock_in_limit.up.sql",
+      "sha256": "44abe0cfc842a77b25361b7b0b616bf7c77b298ec9140f43b6f8acb9fe62c027",
+      "size": 172
+    },
+    {
+      "path": "deploy/standalone/migrations/0030_saas_room_operation_limits.down.sql",
+      "sha256": "a9ab7d9199158ba15bc15fbc232474b88a33848be85561c392892f1da1ef25cd",
+      "size": 132
+    },
+    {
+      "path": "deploy/standalone/migrations/0030_saas_room_operation_limits.up.sql",
+      "sha256": "a8400cde1b2c8be45f68edf8d88684e5bad08ed85e236913d1cd335d11c66fcd",
+      "size": 453
+    },
+    {
+      "path": "deploy/standalone/migrations/0031_saas_sop_limits.down.sql",
+      "sha256": "4ba7cb83b1af870c5aadbda730b364c741dec38fd281b8c6a0fae2cb26ff3204",
+      "size": 95
+    },
+    {
+      "path": "deploy/standalone/migrations/0031_saas_sop_limits.up.sql",
+      "sha256": "251f40cb63b7b0fb8a991a938e537c597425df71eaa3201d9062d06f2a6d5b4f",
+      "size": 306
+    },
+    {
+      "path": "deploy/standalone/migrations/0032_saas_sensitive_word_limit.down.sql",
+      "sha256": "12529eb36fc13deba2bf69c2fc78f9bf93a3bd87e76ac2c79aef9ef4f50a3660",
+      "size": 71
+    },
+    {
+      "path": "deploy/standalone/migrations/0032_saas_sensitive_word_limit.up.sql",
+      "sha256": "0438faee57162e23bcd7836b2c5939655825ab71cc90c3d7e2be1141d6f6915e",
+      "size": 175
+    },
+    {
+      "path": "deploy/standalone/migrations/0033_saas_admin_operation_logs.down.sql",
+      "sha256": "256b9a8d6e77e70c055e6dc3843a402c424609dae7850a646d4bca41069ababd",
+      "size": 60
+    },
+    {
+      "path": "deploy/standalone/migrations/0033_saas_admin_operation_logs.up.sql",
+      "sha256": "a568c8624470242461d7bb94dd6d458b466ca6eb839076619bfbf1ed61baac4f",
+      "size": 1548
+    },
+    {
+      "path": "deploy/standalone/migrations/0034_saas_billing_events.down.sql",
+      "sha256": "dd074d07f11eab0372975b905acb31dba0a809843f667520d6e35524ed3571ff",
+      "size": 54
+    },
+    {
+      "path": "deploy/standalone/migrations/0034_saas_billing_events.up.sql",
+      "sha256": "15a7042f4dfd9b4c612f32f8030b7d6e2350d0ca7628ab07127d953ca6e2586e",
+      "size": 2042
+    },
+    {
+      "path": "deploy/standalone/migrations/0035_saas_admin_tasks.down.sql",
+      "sha256": "46c7817f19378b8e322dd54ba8b6eb534589f2d3adb34f9f502abd0fae5d5c63",
+      "size": 51
+    },
+    {
+      "path": "deploy/standalone/migrations/0035_saas_admin_tasks.up.sql",
+      "sha256": "79c049e04d6cf267c543e5783f8079d4a09fdd1649a157a41aeef4619e1b948f",
+      "size": 1754
+    },
+    {
+      "path": "deploy/standalone/migrations/0036_saas_notification_policy_controls.down.sql",
+      "sha256": "00d9ece10016e61375de5ac1a0ba3b06676229960a18e48e749a3fa943b793e1",
+      "size": 402
+    },
+    {
+      "path": "deploy/standalone/migrations/0036_saas_notification_policy_controls.up.sql",
+      "sha256": "960963e136fa856c9be6bfe8a2d7c3aa252e560e40e00909bf8a95ee4627ef78",
+      "size": 1503
+    },
+    {
+      "path": "deploy/standalone/migrations/0037_saas_notification_health_index.down.sql",
+      "sha256": "13b850e0631979c05d62d9adf91f0e07cdb516611ce763687965e9f41bb0365d",
+      "size": 118
+    },
+    {
+      "path": "deploy/standalone/migrations/0037_saas_notification_health_index.up.sql",
+      "sha256": "40574f787e3bfab92cedff12feb88cf01e1b6efa7ab2948befb0af8b93313a77",
+      "size": 251
+    },
+    {
+      "path": "deploy/standalone/migrations/0038_saas_notification_slo_index.down.sql",
+      "sha256": "131b7073719eefa98ec05846f0c7ea39ea4eb3b4358cadb516efd0e07d417696",
+      "size": 115
+    },
+    {
+      "path": "deploy/standalone/migrations/0038_saas_notification_slo_index.up.sql",
+      "sha256": "cff4c6d7ebe1a5ad4c102fbd6b9eb0e74b755745c9eb388faddab603e2c34ea2",
+      "size": 259
+    },
+    {
+      "path": "deploy/standalone/migrations/0039_saas_subscription_lifecycle.down.sql",
+      "sha256": "10f5c878687a8c2c90b3e4329b030cfdcc2159de31213be7154c305253361968",
+      "size": 112
+    },
+    {
+      "path": "deploy/standalone/migrations/0039_saas_subscription_lifecycle.up.sql",
+      "sha256": "d0f503d52e82c8b695ca3aa12566b960789e50a6f77e7345ec0649c6cf42456b",
+      "size": 5498
+    },
+    {
+      "path": "deploy/standalone/migrations/0040_saas_payment_collection.down.sql",
+      "sha256": "eda981fcfe74c1c719e8bc4c76ccf19f8168ead8fd9e74da8f9bd153d6ffb101",
+      "size": 116
+    },
+    {
+      "path": "deploy/standalone/migrations/0040_saas_payment_collection.up.sql",
+      "sha256": "95c084f363f41661bf2780731d05027198f1cff14707f40eef0d70c05f9db1b8",
+      "size": 5361
+    },
+    {
+      "path": "deploy/standalone/migrations/0041_saas_payment_refunds.down.sql",
+      "sha256": "0c36629bb3185553f8951771ab3f0a5b372f225f89a4c4d1685817724fca2ecf",
+      "size": 476
+    },
+    {
+      "path": "deploy/standalone/migrations/0041_saas_payment_refunds.up.sql",
+      "sha256": "2aad3e7e18d0481a1bc35b625fe6f5ae8119675309032156cf43c593ef9a740f",
+      "size": 3939
+    },
+    {
+      "path": "deploy/standalone/migrations/0042_saas_billing_invoices.down.sql",
+      "sha256": "1882f5d9a0a28676612ec21ea7377384b9e95e99805b20f38f305811a359b0c4",
+      "size": 429
+    },
+    {
+      "path": "deploy/standalone/migrations/0042_saas_billing_invoices.up.sql",
+      "sha256": "1411a93033af29bb4585245516955cf60a31f2a3612e129d60673eb980a7009c",
+      "size": 6331
+    },
+    {
+      "path": "deploy/standalone/migrations/0043_saas_payment_settlements.down.sql",
+      "sha256": "059fc9dc59373bcc775e72755aac54d3eee3bc470e1d80d0adf8c90a68c6c578",
+      "size": 132
+    },
+    {
+      "path": "deploy/standalone/migrations/0043_saas_payment_settlements.up.sql",
+      "sha256": "118547b683e0c09dd5e368ad869235f5b78d4f5305653c966fb3bf0d0465e3c6",
+      "size": 6547
+    },
+    {
+      "path": "deploy/standalone/migrations/0044_saas_payment_settlement_sync.down.sql",
+      "sha256": "2597134ffe72835f5751b57a731d21943d1e5c68b47ae4e39aaf367cc6db9763",
+      "size": 138
+    },
+    {
+      "path": "deploy/standalone/migrations/0044_saas_payment_settlement_sync.up.sql",
+      "sha256": "9a701703ea70d5cfd8a3b6a66f08ee70bbac6cf3d6bf52d0f70f88106a596f66",
+      "size": 3218
+    },
+    {
+      "path": "deploy/standalone/migrations/0045_saas_admin_rbac.down.sql",
+      "sha256": "8b309f13533cda07d87241a8ec51ff155e9589d5f5cace4e2f19f8fd112283e7",
+      "size": 226
+    },
+    {
+      "path": "deploy/standalone/migrations/0045_saas_admin_rbac.up.sql",
+      "sha256": "704526deaeb2e6ecf0b4b8f5437beb92358e3ae22671b0c4af47f6f5904b49a8",
+      "size": 6203
+    },
+    {
+      "path": "deploy/standalone/migrations/0046_saas_admin_approvals.down.sql",
+      "sha256": "60aa4033553afa226cdda1910798b13bf326e6ee8181e959a37ce9e21c6bac13",
+      "size": 452
+    },
+    {
+      "path": "deploy/standalone/migrations/0046_saas_admin_approvals.up.sql",
+      "sha256": "7958054637994c4ca62c8a6d63679112b42767c9451dd06f600509ab5870a31e",
+      "size": 5063
+    },
+    {
+      "path": "deploy/standalone/migrations/0047_saas_admin_approval_governance.down.sql",
+      "sha256": "66c17768b3a8d1b184d7146d73e30c1fcba424838b0c93e236117b67cfc827f5",
+      "size": 729
+    },
+    {
+      "path": "deploy/standalone/migrations/0047_saas_admin_approval_governance.up.sql",
+      "sha256": "473af7bc4307cd45dbdb5869187cb2889510b751d785713b286b8cac9120f82e",
+      "size": 5579
+    },
+    {
+      "path": "deploy/standalone/migrations/0048_saas_admin_system_health.down.sql",
+      "sha256": "abc739fc7a2f6da857e581dfee4888a7bf5e8070ad760d9b529d67b6157960fa",
+      "size": 403
+    },
+    {
+      "path": "deploy/standalone/migrations/0048_saas_admin_system_health.up.sql",
+      "sha256": "7953c5adad6c5e509a4ba4ed97f13f7d453b017450aeb984a77677485618d5dd",
+      "size": 4539
+    },
+    {
+      "path": "deploy/standalone/migrations/0049_saas_service_accounts.down.sql",
+      "sha256": "e06be9a1cbdc20131caa95bb3a194ebd4d215e171942a0ca23053bebc67e6455",
+      "size": 411
+    },
+    {
+      "path": "deploy/standalone/migrations/0049_saas_service_accounts.up.sql",
+      "sha256": "3022b358f5a4262cc6cc3aa54c6d4505297291d0229ff5c80904e8c3a31a2252",
+      "size": 3840
+    },
+    {
+      "path": "deploy/standalone/migrations/0050_saas_backup_recovery.down.sql",
+      "sha256": "f4fce24972ca1da31ec2a96af6a3de13aa4b7f426cd80ec3d3fcc37ed2ceda5f",
+      "size": 445
+    },
+    {
+      "path": "deploy/standalone/migrations/0050_saas_backup_recovery.up.sql",
+      "sha256": "ec9f5cbd97ba030dffbee474771d3d2caeae50d92748e7acae95901c91e29347",
+      "size": 6361
+    },
+    {
+      "path": "deploy/standalone/migrations/0051_saas_backup_resilience.down.sql",
+      "sha256": "1c67d520e0953b61ad2260219cfb6a99e1241d9fcb7b1eb1c44901fa3ca81cde",
+      "size": 736
+    },
+    {
+      "path": "deploy/standalone/migrations/0051_saas_backup_resilience.up.sql",
+      "sha256": "edec2c16db85023a9157fb6dc646e92dc225139aee01b0c4867af1e092c80a0c",
+      "size": 2222
+    },
+    {
+      "path": "deploy/standalone/migrations/0052_saas_compliance_lifecycle.down.sql",
+      "sha256": "6f3dc39a33c857e7e3db2c1e55652436c449de5b086bdca0b1be5d6ba9c66928",
+      "size": 737
+    },
+    {
+      "path": "deploy/standalone/migrations/0052_saas_compliance_lifecycle.up.sql",
+      "sha256": "16ac14769bff6919a4007033a31cb7266af16b7fde919903b08f55ac7c958290",
+      "size": 10623
+    },
+    {
+      "path": "deploy/standalone/migrations/0053_saas_identity_security.down.sql",
+      "sha256": "70e06e49591d23bda547790fa6d9943f7fdec412ae99c0e269dfa05f7291a4bf",
+      "size": 738
+    },
+    {
+      "path": "deploy/standalone/migrations/0053_saas_identity_security.up.sql",
+      "sha256": "b183174e5852caf27a9a9b8d52d4ce37d1e606323f0b3429b46ff20441c6e3e8",
+      "size": 11089
+    },
+    {
+      "path": "deploy/standalone/migrations/0054_saas_branding_profiles.down.sql",
+      "sha256": "f7dfb5c42fef3c36ff82ac799a2d930562a4be290801ed0ee014119a6c9b18f5",
+      "size": 365
+    },
+    {
+      "path": "deploy/standalone/migrations/0054_saas_branding_profiles.up.sql",
+      "sha256": "dd69a9f3d14c729dfe16ce0989120864e8ad13168a1d316391ec5deaaf52a2d5",
+      "size": 2304
+    },
+    {
+      "path": "deploy/standalone/migrations/0055_saas_tenant_domains.down.sql",
+      "sha256": "5bc9ab75f06d580471e302f2f96df097f54c517fc447023e9dfb8deec4b61c1d",
+      "size": 360
+    },
+    {
+      "path": "deploy/standalone/migrations/0055_saas_tenant_domains.up.sql",
+      "sha256": "f78423314a5ff3f2bb1a041819c48edebd9db0e515a501bbcf6576cf1d377969",
+      "size": 2366
+    },
+    {
+      "path": "deploy/standalone/migrations/0056_saas_domain_delivery.down.sql",
+      "sha256": "5ab144a8aa32aaee02fcd7d6fff59f0c96f5f475d94762c7ee7a8071b52728e5",
+      "size": 200
+    },
+    {
+      "path": "deploy/standalone/migrations/0056_saas_domain_delivery.up.sql",
+      "sha256": "c91b6c89663fcac60b5ed1f6e133500a58b6004aab25c645cefcbdc6b0632e5d",
+      "size": 5827
+    },
+    {
+      "path": "deploy/standalone/migrations/0057_saas_release_readiness.down.sql",
+      "sha256": "851cba63a1844e0082f93fcb24846706c9841c4bdf510a865b05b1bc51758d41",
+      "size": 420
+    },
+    {
+      "path": "deploy/standalone/migrations/0057_saas_release_readiness.up.sql",
+      "sha256": "9ce485c43c54f29444d9901332fa10b8cecf51dbaf231d7ab28f9ef6fe1d61c5",
+      "size": 3999
+    },
+    {
+      "path": "deploy/standalone/migrations/0058_saas_release_evidence_integrity.down.sql",
+      "sha256": "14802a2290a108076da1ed455ebc8829f55f22de486fb54e35640301aeb80a47",
+      "size": 175
+    },
+    {
+      "path": "deploy/standalone/migrations/0058_saas_release_evidence_integrity.up.sql",
+      "sha256": "515ee5c40cb9cbc77b595dd4e47aa7b9dd9acf4d83cbf3487df6ecddd00248e5",
+      "size": 339
+    },
+    {
+      "path": "deploy/standalone/migrations/0059_saas_service_account_rate_limits.down.sql",
+      "sha256": "a5323c1bd61edbf59c110b795c161ea46c8488c98e3e3f9574ba46405f506ed6",
+      "size": 480
+    },
+    {
+      "path": "deploy/standalone/migrations/0059_saas_service_account_rate_limits.up.sql",
+      "sha256": "541ed49d2800609ae21232079326bdef3c425cb8d7b808c4a16287d0d1d5c33a",
+      "size": 2131
+    },
+    {
+      "path": "deploy/standalone/migrations/0060_saas_service_account_usage_retention.down.sql",
+      "sha256": "7aff927eba8f78a39f44a5d386c3db5cab2b866ba45c3c4228a37bb73e118977",
+      "size": 103
+    },
+    {
+      "path": "deploy/standalone/migrations/0060_saas_service_account_usage_retention.up.sql",
+      "sha256": "ab828cc055253905f2532cfad5968909b944508819151da74a84ca1d7b31d026",
+      "size": 223
+    },
+    {
+      "path": "deploy/standalone/migrations/0061_saas_service_account_usage_alerts.down.sql",
+      "sha256": "5957f73f9997ae26e7bca8d59492ef2abbab0da67a721ab531fe38b507245292",
+      "size": 418
+    },
+    {
+      "path": "deploy/standalone/migrations/0061_saas_service_account_usage_alerts.up.sql",
+      "sha256": "8c8c158e9f4e0566f24b0391ea6c8de072673d992d1de8d1b52551834bca4d29",
+      "size": 1270
+    },
+    {
+      "path": "deploy/standalone/migrations/0062_saas_audit_integrity.down.sql",
+      "sha256": "4369d6b27c96ade94a79dd2aaccf583ccf2946dc97316fd2fad8aa21f0a4185b",
+      "size": 435
+    },
+    {
+      "path": "deploy/standalone/migrations/0062_saas_audit_integrity.up.sql",
+      "sha256": "7765889e9e9a72e6a0f97292c48e7c2f1f35536cd97ca99c9714e20a55070396",
+      "size": 4116
+    },
+    {
+      "path": "deploy/standalone/migrations/0063_saas_audit_anchor_signatures.down.sql",
+      "sha256": "688811487b4a8aae0c27eb66c5105f5c6444bdf7b2c31181b1abedfe1b6c2c90",
+      "size": 70
+    },
+    {
+      "path": "deploy/standalone/migrations/0063_saas_audit_anchor_signatures.up.sql",
+      "sha256": "d1c197c3510d1367351020a7bc886e4b201682334f8cb249a29c3f75d81d3fc3",
+      "size": 2732
+    },
+    {
+      "path": "deploy/standalone/migrations/0064_saas_audit_anchor_remote_immutability.down.sql",
+      "sha256": "ac36e976287daf9083df315a8e6163e7a915546158c1f88cdfe2f300be7e864f",
+      "size": 551
+    },
+    {
+      "path": "deploy/standalone/migrations/0064_saas_audit_anchor_remote_immutability.up.sql",
+      "sha256": "409e9838c4a8b336b22fa6ba69ee67bc6c2394af332fe027aa3c4623afef7025",
+      "size": 1674
+    },
+    {
+      "path": "deploy/standalone/migrations/0065_saas_service_account_key_pepper_ring.down.sql",
+      "sha256": "0d30b3929012c6ebb85cb01584fb2bcd36ee43774a1d7dd2ea68bf8a6ee8ab25",
+      "size": 141
+    },
+    {
+      "path": "deploy/standalone/migrations/0065_saas_service_account_key_pepper_ring.up.sql",
+      "sha256": "b1aa7c861ff6eb4add440570ed8140058c6b73de952012126d0a89843ceba48b",
+      "size": 301
+    },
+    {
+      "path": "deploy/standalone/migrations/0066_saas_alert_credential_encryption.down.sql",
+      "sha256": "7ebc1fafbca778937527d73bcd26b2295f926ccf0e003cd7406c0329dedb983e",
+      "size": 199
+    },
+    {
+      "path": "deploy/standalone/migrations/0066_saas_alert_credential_encryption.up.sql",
+      "sha256": "469b20c657c40bfd0f7b2fe4ca0a136dd960f4e48e499819251f9cd11913f961",
+      "size": 493
+    },
+    {
+      "path": "deploy/standalone/migrations/0067_wecom_credential_encryption.down.sql",
+      "sha256": "5a569a0185131cdfab60e369c23aaf7d412c091ac91df023bb2782a9d5e8387c",
+      "size": 327
+    },
+    {
+      "path": "deploy/standalone/migrations/0067_wecom_credential_encryption.up.sql",
+      "sha256": "65233eced7727cf478c0919b996c80a7fb0f7fb2b6f6209239cf3d04f9f697f1",
+      "size": 909
+    },
+    {
+      "path": "deploy/standalone/migrations/0068_wechat_open_credential_encryption.down.sql",
+      "sha256": "e5f6664e09e7662eb9f1d828e9e2aa5c9801784ea7adcba00370a0738f75d25e",
+      "size": 388
+    },
+    {
+      "path": "deploy/standalone/migrations/0068_wechat_open_credential_encryption.up.sql",
+      "sha256": "397dd28bbbd8260c3543f16600250d01b736e6fb06c9f1c50697a851718d4562",
+      "size": 1037
+    },
+    {
+      "path": "deploy/standalone/migrations/0069_saas_release_candidate_approval.down.sql",
+      "sha256": "f09838c3d1539e54922c5016a1ae5bb3dba19fc8a28d801e022338b33f89857e",
+      "size": 101
+    },
+    {
+      "path": "deploy/standalone/migrations/0069_saas_release_candidate_approval.up.sql",
+      "sha256": "cd3fef23dad08a23aee570c0135d8d344fd8950caee03566f2ff49c1d62af271",
+      "size": 319
+    },
+    {
+      "path": "deploy/standalone/migrations/0070_saas_approval_policy_change_guard.down.sql",
+      "sha256": "7a110a3b3871d063ea29983fc41e56d0735fde0efb8ab12abc7ba7add3f8c8aa",
+      "size": 101
+    },
+    {
+      "path": "deploy/standalone/migrations/0070_saas_approval_policy_change_guard.up.sql",
+      "sha256": "73b08e9c8bfcdd7473440434a2edc0fd9062d3d86ab89ce4e29421912e364fb6",
+      "size": 320
+    },
+    {
+      "path": "deploy/standalone/migrations/0071_saas_backup_policy_change_guard.down.sql",
+      "sha256": "5d09d5a73a40dba90df58f4d7a4d9c17e5f1edc6603bfc1e1bffb1e02a497981",
+      "size": 99
+    },
+    {
+      "path": "deploy/standalone/migrations/0071_saas_backup_policy_change_guard.up.sql",
+      "sha256": "eeb971ceb0ebb72b226d4c8bd5ca7366b5e793e343f3b5bcb5de8b64be6d0c78",
+      "size": 318
+    },
+    {
+      "path": "deploy/standalone/migrations/0072_saas_backup_cleanup_saga.down.sql",
+      "sha256": "94b9bebc796fd058656262430ba7e2a63ec4d76c7469ca0b099893f072312aa4",
+      "size": 446
+    },
+    {
+      "path": "deploy/standalone/migrations/0072_saas_backup_cleanup_saga.up.sql",
+      "sha256": "d4527664c5c80e4952685d111366ffa7d7ec7f4c049e8823bb992e266d6c527a",
+      "size": 4596
+    },
+    {
+      "path": "deploy/standalone/migrations/0073_saas_compliance_export_deletion_saga.down.sql",
+      "sha256": "8e21dfdbfb12147494465876d4fad50450592fc657e0ecc583aa804c72f09dd7",
+      "size": 726
+    },
+    {
+      "path": "deploy/standalone/migrations/0073_saas_compliance_export_deletion_saga.up.sql",
+      "sha256": "1433930fe1b77d8ac6bbf08a6f7f0c00e60ae4aeb04d5787773900507b6b02d8",
+      "size": 1999
+    },
+    {
+      "path": "deploy/standalone/migrations/0074_saas_compliance_legal_hold_release_guard.down.sql",
+      "sha256": "2aeb25dcd99fcf0ef6edaf324ebd4a64ce82b0faca99e4f5d7ca82791a6691ba",
+      "size": 108
+    },
+    {
+      "path": "deploy/standalone/migrations/0074_saas_compliance_legal_hold_release_guard.up.sql",
+      "sha256": "688c71a45b09ec340d403cd1f53bebf5d018319c46d2eade056cd45a5bc23426",
+      "size": 327
+    },
+    {
+      "path": "deploy/standalone/migrations/0075_saas_compliance_policy_change_guard.down.sql",
+      "sha256": "ebc5d567f81da8977e6f46bea38f2a83854c983074cea1fb4c97262d4e742293",
+      "size": 103
+    },
+    {
+      "path": "deploy/standalone/migrations/0075_saas_compliance_policy_change_guard.up.sql",
+      "sha256": "160162bb5f033df70e02a1890f2eb9f9da374117c821793339f3546f4873c90a",
+      "size": 322
+    },
+    {
+      "path": "deploy/standalone/migrations/0076_saas_identity_policy_change_guard.down.sql",
+      "sha256": "98ff1fdcc8489cfce6622b150c2589f2d9e7ffc3324c3694119ebb3d8b38a6cf",
+      "size": 101
+    },
+    {
+      "path": "deploy/standalone/migrations/0076_saas_identity_policy_change_guard.up.sql",
+      "sha256": "d7adda4f29de2eb95a08fa68728f688690b9d364028788eaa58925f022bba122",
+      "size": 320
+    },
+    {
+      "path": "deploy/standalone/migrations/0077_saas_tenant_disable_approval_guard.down.sql",
+      "sha256": "acea21660cd3cb30a765a2698c322fe7f0b0adce2ea5094c7211e0a4ad14d076",
+      "size": 248
+    },
+    {
+      "path": "deploy/standalone/migrations/0077_saas_tenant_disable_approval_guard.up.sql",
+      "sha256": "d3216a5d7b8d6b752229c3ea1540fcdb13f771f9464b375e366fefc87867ac6f",
+      "size": 365
+    },
+    {
+      "path": "deploy/standalone/migrations/0078_saas_critical_approval_policy_guard.down.sql",
+      "sha256": "7ab45b1fb5178693afc035e4dce27498c26035ca4ab36faab61f4a06f0302bf0",
+      "size": 332
+    },
+    {
+      "path": "deploy/standalone/migrations/0078_saas_critical_approval_policy_guard.up.sql",
+      "sha256": "ea7eba461fa753a78f674fdd31e43b1a358aa9a7c771d0f2f8e215ad4f4fdf71",
+      "size": 789
+    },
+    {
+      "path": "deploy/standalone/migrations/0079_saas_service_account_key_revoke_guard.down.sql",
+      "sha256": "20e81b44482b98fa30d0fe1371ddf265dfc11295b1746cb5cc35937f16f417d7",
+      "size": 106
+    },
+    {
+      "path": "deploy/standalone/migrations/0079_saas_service_account_key_revoke_guard.up.sql",
+      "sha256": "754d35329dabfb94451b3d3242f95686c797a77049916c7521fb76d225435c23",
+      "size": 703
+    },
+    {
+      "path": "deploy/standalone/migrations/0080_saas_service_account_update_guard.down.sql",
+      "sha256": "d5510c8504219ef04d1d34dcb97b557fa9cb1fcbf83cec5c789633c44e1ddbee",
+      "size": 101
+    },
+    {
+      "path": "deploy/standalone/migrations/0080_saas_service_account_update_guard.up.sql",
+      "sha256": "28008cad1c62d0e725fb7c473b0e3c0bad7bdc23c695e310cec552fc31b9abfc",
+      "size": 694
+    },
+    {
+      "path": "deploy/standalone/migrations/0081_saas_service_account_key_rotate_guard.down.sql",
+      "sha256": "538cc6e7e3361d59253199e690d375629d039c010bad46523f32446e48450082",
+      "size": 105
+    },
+    {
+      "path": "deploy/standalone/migrations/0081_saas_service_account_key_rotate_guard.up.sql",
+      "sha256": "c500a90a388358d3ab642f3716e274e9058f0dc030f991a65b95108e581a9df3",
+      "size": 702
+    },
+    {
+      "path": "deploy/standalone/migrations/0082_saas_service_account_create_guard.down.sql",
+      "sha256": "fceb199ff1d481f40767aee939b8d42728b98dbe516815e8d4188f9a36cd0380",
+      "size": 101
+    },
+    {
+      "path": "deploy/standalone/migrations/0082_saas_service_account_create_guard.up.sql",
+      "sha256": "36e17ac7222cd9f0201894aadc08650690974fbebd54d0bc0fc3e7fb90f6fd8b",
+      "size": 694
+    },
+    {
+      "path": "deploy/standalone/migrations/0083_saas_identity_mfa_reset_guard.down.sql",
+      "sha256": "7cefa31f0c92418cde1bb5ed81ccd474b252527a285371b2c8d3f0dbd40610ba",
+      "size": 97
+    },
+    {
+      "path": "deploy/standalone/migrations/0083_saas_identity_mfa_reset_guard.up.sql",
+      "sha256": "307b66d1baa855598a9840220794ed08e198709f5fd38f482fd10013e74cb71b",
+      "size": 686
+    },
+    {
+      "path": "deploy/standalone/migrations/0084_saas_package_definition_guard.down.sql",
+      "sha256": "22c68ec8c6feb6f1b48d84800011b9be6d021e0151963c408c68f8d63561a941",
+      "size": 157
+    },
+    {
+      "path": "deploy/standalone/migrations/0084_saas_package_definition_guard.up.sql",
+      "sha256": "e9064ff999a7b8db816f0794b44ed2ab02699650422958ca7e19cfc177ea765c",
+      "size": 820
+    },
+    {
+      "path": "deploy/standalone/migrations/0085_saas_tenant_package_assignment_guard.down.sql",
+      "sha256": "96bc66c2d37e821e3c05bf0d6dc311b9c7804bfe1ea5e03864b4c11cbefffff7",
+      "size": 171
+    },
+    {
+      "path": "deploy/standalone/migrations/0085_saas_tenant_package_assignment_guard.up.sql",
+      "sha256": "cc73a35190880d662fffacc1cee87f15898f204dc32861e72d406f68389fe9f6",
+      "size": 859
+    },
+    {
+      "path": "deploy/standalone/migrations/0086_saas_tenant_provision_approval_guard.down.sql",
+      "sha256": "180e97931de66ceaa75c2e55fe7ba7a518fceffa0e655726ac2ccbe3f0b19dba",
+      "size": 162
+    },
+    {
+      "path": "deploy/standalone/migrations/0086_saas_tenant_provision_approval_guard.up.sql",
+      "sha256": "91ec7d293c372182a20bc760207f4562125010525f828d2ecf61ebf68fa03608",
+      "size": 839
+    },
+    {
+      "path": "deploy/standalone/migrations/0087_saas_tenant_renewal_approval_guard.down.sql",
+      "sha256": "8bfc677b552ca58aad212729650124813dc2dfa58fbd5450078a228ed7aa5117",
+      "size": 93
+    },
+    {
+      "path": "deploy/standalone/migrations/0087_saas_tenant_renewal_approval_guard.up.sql",
+      "sha256": "a45c279c34caa1502f095b7abb764544405a57616ee649ce0f9a031c1496ffa8",
+      "size": 678
+    },
+    {
+      "path": "deploy/standalone/migrations/0088_saas_subscription_transition_approval_guard.down.sql",
+      "sha256": "0d83f477a07ce2f38e441bfec5283e0faf29cb55ae8cb96a8f24c41a78fb455f",
+      "size": 109
+    },
+    {
+      "path": "deploy/standalone/migrations/0088_saas_subscription_transition_approval_guard.up.sql",
+      "sha256": "54871987fbe6003b5bf0b616a316c305449ce76b8f00ec1325f48a246a3a8b50",
+      "size": 710
+    },
+    {
+      "path": "deploy/standalone/migrations/0089_saas_invoice_issue_approval_guard.down.sql",
+      "sha256": "b31bc0332f27ee65e4bcc8baa7464d6194035178f8d5a7a8317a58773bfe288a",
+      "size": 100
+    },
+    {
+      "path": "deploy/standalone/migrations/0089_saas_invoice_issue_approval_guard.up.sql",
+      "sha256": "39a732c3088f65ad93410d019b269a4b1b97a9ad0132f329a18a924b929b78bd",
+      "size": 692
+    },
+    {
+      "path": "deploy/standalone/migrations/README.md",
+      "sha256": "8ded7dfc34e6acf6804c5670a7e30d9643f9aecf516871ba14fa51995bdd3bfb",
+      "size": 42665
+    },
+    {
+      "path": "deploy/standalone/schema/mochat.sql",
+      "sha256": "3b97cf81629ce945e4df9dbb10bb2afc5bc65712e289ab1f66f696f748225a09",
+      "size": 98026
+    },
+    {
+      "path": "go.mod",
+      "sha256": "d823e5e0cb6cec485d13bfe939578a3c2ba00aacd9f74dc52173b97264189b39",
+      "size": 1151
+    },
+    {
+      "path": "go.sum",
+      "sha256": "99ab630b542d93bbc351dfd6e035e76b2825e0a5b939facc8bf5954ef105efe1",
+      "size": 6587
+    },
+    {
+      "path": "internal/authjwt/simple_jwt.go",
+      "sha256": "dea4eed5b09f40b0264cc76a8b4c4e09fca5a007fc4cd21941fdca9ae8d0d6e2",
+      "size": 8595
+    },
+    {
+      "path": "internal/authjwt/simple_jwt_test.go",
+      "sha256": "31089f38e196de3235849c221ba113ada195b0723920e10f1541d42911685900",
+      "size": 5629
+    },
+    {
+      "path": "internal/buildinfo/buildinfo.go",
+      "sha256": "d901a4b725d30683848d0600339cddfbe2b9d444a1b5b96c2a760ab9e43e9198",
+      "size": 118
+    },
+    {
+      "path": "internal/clientip/resolver.go",
+      "sha256": "0b4e8135308aef164d2975e3c00eb1c5dae9f547c44512c377edf148356e6db1",
+      "size": 4449
+    },
+    {
+      "path": "internal/clientip/resolver_test.go",
+      "sha256": "7d9fcf372411795147fe64419429c8c20b3a3a2cb983a06acd2b07a1429d9241",
+      "size": 2793
+    },
+    {
+      "path": "internal/config/config.go",
+      "sha256": "3b0e26e62540030faaba7b4bd2ec0113e87aae02545068a6fe1cf659c17c2907",
+      "size": 159874
+    },
+    {
+      "path": "internal/config/config_test.go",
+      "sha256": "6c814aab246b80719dde43e850e5a7d1d21020a2597643f3612eccaa0fb61da5",
+      "size": 147609
+    },
+    {
+      "path": "internal/dashboard/agent_store.go",
+      "sha256": "3ff7c8373ebf85cd38ef623b94364256d73f0bdf0cd493d17c5c9d4900cefc32",
+      "size": 6004
+    },
+    {
+      "path": "internal/dashboard/agent_store_test.go",
+      "sha256": "a01a41d2ae8dfc9458c6c3333ee57c346219a115396f7bdb876384977ba0a7a8",
+      "size": 8375
+    },
+    {
+      "path": "internal/dashboard/agent_store_wecom.go",
+      "sha256": "32f290ece9c4cc25bb574ed1b830b5aa970ec5e05dfa31ba048c138e43d1ada6",
+      "size": 1376
+    },
+    {
+      "path": "internal/dashboard/agent_txt_upload.go",
+      "sha256": "0eb91d648dcbf59e8091badbb1ffdb323f327cdd3ae4f12323cf7c033bf50022",
+      "size": 2228
+    },
+    {
+      "path": "internal/dashboard/agent_txt_upload_test.go",
+      "sha256": "431f8bf0436e8f618751d3ea44a16bb96a36183f4fc1caf688ad0f2b685dc203",
+      "size": 2293
+    },
+    {
+      "path": "internal/dashboard/async_file_upload_worker.go",
+      "sha256": "900a30c8ca0fce62997bcd0acab1ae0efc20d3b41d383ae0c5c9dfba6e1963d9",
+      "size": 13268
+    },
+    {
+      "path": "internal/dashboard/async_file_upload_worker_test.go",
+      "sha256": "c7afc23c2fe2838980fd044d0806462b0a8a5f0fae638226c12898be4a03a72a",
+      "size": 12540
+    },
+    {
+      "path": "internal/dashboard/auth.go",
+      "sha256": "2bf6e31f78c2ea8f5b109641d1f11e8ccdda1c5aeadca3f185535e89d58d26cb",
+      "size": 10461
+    },
+    {
+      "path": "internal/dashboard/auth_test.go",
+      "sha256": "b8af0f4c323476c9694eac135ddc80338d58eab349b08ec0fcabd4bcbd66decc",
+      "size": 11737
+    },
+    {
+      "path": "internal/dashboard/auto_tag_dashboard.go",
+      "sha256": "b9de8ab2aa7f3428bb95c179234e830aeb5ca55613953c2e1234c73e1db7ae60",
+      "size": 40685
+    },
+    {
+      "path": "internal/dashboard/auto_tag_dashboard_test.go",
+      "sha256": "d989fa7d19593e33d5c47e4de0da66bdf314a9d0ef469eafbcd0f2e87d4a85ac",
+      "size": 10586
+    },
+    {
+      "path": "internal/dashboard/batch_send_result_cron.go",
+      "sha256": "ed028e698fb24dec4aad2aeb8e70f0576c49a4d2875d69cf10f772b6972eb1a5",
+      "size": 10087
+    },
+    {
+      "path": "internal/dashboard/batch_send_result_cron_test.go",
+      "sha256": "36f1ccf70c477b3609383a0093da278aa9ae18f43e3881fb777e23d9dfb80430",
+      "size": 9323
+    },
+    {
+      "path": "internal/dashboard/batch_send_schedule_cron.go",
+      "sha256": "fd5b2c0391eaf1a8f68199726472ec1fa72fe9a92e5a4e7097eb50e01315a958",
+      "size": 11991
+    },
+    {
+      "path": "internal/dashboard/batch_send_schedule_cron_test.go",
+      "sha256": "d9347220858b399f71a3a56403623dfa7704e7ee3484a7b87ddc885655c34c2a",
+      "size": 7097
+    },
+    {
+      "path": "internal/dashboard/channel_code.go",
+      "sha256": "4f7ebaddc0c578078401ad01b807f4a45c2d66e3377c3d9f69c973af48b4fe32",
+      "size": 13561
+    },
+    {
+      "path": "internal/dashboard/channel_code_cron.go",
+      "sha256": "6963f45dbc8f18602344232a23db88ee18f41f2c5c857152f9fd0b536d162461",
+      "size": 4399
+    },
+    {
+      "path": "internal/dashboard/channel_code_cron_test.go",
+      "sha256": "9d975f94e6a846754a3668cd434f8ad9804400d795e0f06788d1f69ad2e66c8e",
+      "size": 5155
+    },
+    {
+      "path": "internal/dashboard/channel_code_routes.go",
+      "sha256": "d10c187ba8820bc4d058bf9635acbee4a51a900743812f90504617a425f63ea8",
+      "size": 15085
+    },
+    {
+      "path": "internal/dashboard/channel_code_test.go",
+      "sha256": "f6ccc81bd875f48263b81fe197f297c303b57b4e10ca98449e5dadd381001252",
+      "size": 28572
+    },
+    {
+      "path": "internal/dashboard/channel_code_wecom.go",
+      "sha256": "af8bf36c9686d1cf3ede71c4af843c677da1bec77cab98bed21b695bbcd2fc9d",
+      "size": 1297
+    },
+    {
+      "path": "internal/dashboard/channel_code_write.go",
+      "sha256": "49bc514873e3c93f80f9bb0ac34450e462fbf123f640b7377a1b25e5fb9e5211",
+      "size": 14122
+    },
+    {
+      "path": "internal/dashboard/chat_tool.go",
+      "sha256": "af5f7d7e0abd04c40aa1ca2eb3a9775a8bae88561ca6f8f9eaed9c2468f995d3",
+      "size": 4507
+    },
+    {
+      "path": "internal/dashboard/chat_tool_test.go",
+      "sha256": "c52e1f393a376e890a37a53da7e0116d74aac924ddc16b3f76d4cff0812061d5",
+      "size": 4405
+    },
+    {
+      "path": "internal/dashboard/common_upload.go",
+      "sha256": "af31cd222a9467f2900b58a8779d0afe53f351c7a8867a42e74ae481e32903c5",
+      "size": 14791
+    },
+    {
+      "path": "internal/dashboard/common_upload_test.go",
+      "sha256": "6d10fbbb5d71504a47189fd9bc3a11242361a36c13e0358f40b47b04391451ec",
+      "size": 10100
+    },
+    {
+      "path": "internal/dashboard/contact_batch_add.go",
+      "sha256": "b9ede9930de5d748759610fe1502a96717838ec779d898d1ae7ac8402d57826b",
+      "size": 3422
+    },
+    {
+      "path": "internal/dashboard/contact_batch_add_dashboard.go",
+      "sha256": "b0e2b2a89e6205ade2e940d68dc4f0ecc71577b939173f684721cac9a4cc044a",
+      "size": 41136
+    },
+    {
+      "path": "internal/dashboard/contact_batch_add_test.go",
+      "sha256": "9d0704bd68426113949a28d27a7faf88e158ead844dde2da855532df2dba9002",
+      "size": 11610
+    },
+    {
+      "path": "internal/dashboard/contact_field.go",
+      "sha256": "caf2dc2bf2c9cc216ba825c8f6a9d2652826fad1e06217fa7944784cada9523e",
+      "size": 34232
+    },
+    {
+      "path": "internal/dashboard/contact_field_test.go",
+      "sha256": "449e57f00cecd797dab038f9e537021137b6598880d891c4c58330b83bd8137b",
+      "size": 21268
+    },
+    {
+      "path": "internal/dashboard/contact_message_batch_send.go",
+      "sha256": "8e1eb97cf6f46000879ea17c3c242d9d8909d20480d8b375a581243a84629d23",
+      "size": 40896
+    },
+    {
+      "path": "internal/dashboard/contact_message_batch_send_test.go",
+      "sha256": "d4d9ab24997acf5f8b71bc0b3b81cf017b3ef22cf789ff495b5b0e123965bcfc",
+      "size": 19427
+    },
+    {
+      "path": "internal/dashboard/contact_sop.go",
+      "sha256": "631c01f48e3b8d9a0ae98ac2d675b5c48f7edc993c3c55c95c5bab6207bedf0a",
+      "size": 6083
+    },
+    {
+      "path": "internal/dashboard/contact_sop_test.go",
+      "sha256": "6bfb6e54fe69460ca709323f029e334e1b60d577298e781658cdfa60ac13e779",
+      "size": 4044
+    },
+    {
+      "path": "internal/dashboard/contact_transfer.go",
+      "sha256": "5a29a7342690f1b2d4d03744219f948930dbc4d636775a6d2ba7ea0b78d0edcd",
+      "size": 23926
+    },
+    {
+      "path": "internal/dashboard/contact_transfer_cron.go",
+      "sha256": "6cab063127f0f138f62b2eb283f676aed99ed94a1e392fbe448443d7a31f6bb2",
+      "size": 3849
+    },
+    {
+      "path": "internal/dashboard/contact_transfer_cron_test.go",
+      "sha256": "55162ea8e2a74edc4e3983dee9326cf3436374fba9eaed998894cf05aa578ff8",
+      "size": 3825
+    },
+    {
+      "path": "internal/dashboard/contact_transfer_test.go",
+      "sha256": "1193984a9faadf243659ab2082afa905ab858117a03b1dd68a5fcf86d8417c7b",
+      "size": 10347
+    },
+    {
+      "path": "internal/dashboard/contact_transfer_wecom.go",
+      "sha256": "01ea7e1eb9d52ecf2848b438ab5d730227e5d007d5d7a757b064ca62dae0f5bd",
+      "size": 5355
+    },
+    {
+      "path": "internal/dashboard/contact_welcome_worker.go",
+      "sha256": "ef3998a1eb61a90198e64b987c56159bc531865ac48cba29eac4b91d46a0ae77",
+      "size": 21305
+    },
+    {
+      "path": "internal/dashboard/contact_welcome_worker_test.go",
+      "sha256": "202dfa2a4c5b11db57f2b9072576f36527a61610ade0762944d222decbc155da",
+      "size": 4663
+    },
+    {
+      "path": "internal/dashboard/corp.go",
+      "sha256": "256c0896f131f4bd48d71c27b1e0cd64fac6306e511f8dd28cd8409457900f57",
+      "size": 5701
+    },
+    {
+      "path": "internal/dashboard/corp_admin.go",
+      "sha256": "42b68fff3edb475cd53306f44aa41f8aef323376a951adf95d56a775b8651963",
+      "size": 17191
+    },
+    {
+      "path": "internal/dashboard/corp_admin_test.go",
+      "sha256": "dc1e7506172efab0b36a8d668d3bbe7d624373e4c8922b00f1cfd84da7deda07",
+      "size": 16840
+    },
+    {
+      "path": "internal/dashboard/corp_admin_wecom.go",
+      "sha256": "ad9f3f589ba22c0d37e94b8853dd23e6898e8007c0549b86538e34868884cef9",
+      "size": 1067
+    },
+    {
+      "path": "internal/dashboard/corp_data.go",
+      "sha256": "7978a5bdf79f73afe3ba7ad39842ffe020a7b5eee87355b3fc17bb11c09e59bd",
+      "size": 5915
+    },
+    {
+      "path": "internal/dashboard/corp_data_cron.go",
+      "sha256": "a373b0c8332e5bee525ef9820ed8531a0605792e92f440fe4b2ab9d110f55293",
+      "size": 1739
+    },
+    {
+      "path": "internal/dashboard/corp_data_cron_test.go",
+      "sha256": "cf6640f60ed9e8476023a7ee091dbac25bb053e17ea29a3c0cd0822802ee2644",
+      "size": 2117
+    },
+    {
+      "path": "internal/dashboard/corp_data_test.go",
+      "sha256": "10c1a90dfd059b8e437d11c86779c28665bb79b6946dcb0ce865a41e3143d162",
+      "size": 5455
+    },
+    {
+      "path": "internal/dashboard/corp_test.go",
+      "sha256": "f16c5298f8793012aa5e7ec267b23ff5e28144fd56238698bca53bedc8ba1afb",
+      "size": 6769
+    },
+    {
+      "path": "internal/dashboard/employee_apply_worker.go",
+      "sha256": "956055a134b4c64d08ffbd9fcde5ec8812314baf9a53adcd4c8357c30502a357",
+      "size": 6061
+    },
+    {
+      "path": "internal/dashboard/employee_apply_worker_test.go",
+      "sha256": "89ea6108532cf8e07259313ff6f783ba15573aa4e1edb407ce7bbc0f829e4eb1",
+      "size": 9139
+    },
+    {
+      "path": "internal/dashboard/employee_statistic_apply_worker.go",
+      "sha256": "86e9357253343d8b0b18fdb57af886dd86e25e6e25dffa51e3141d2b9171dcac",
+      "size": 7312
+    },
+    {
+      "path": "internal/dashboard/employee_statistic_apply_worker_test.go",
+      "sha256": "8f916c46efdb282b7259fef05c1d21c13a40ceed1568e9ccbd7aceff4121db52",
+      "size": 7447
+    },
+    {
+      "path": "internal/dashboard/employee_statistic_cron.go",
+      "sha256": "be63c23743f5e769543541322e850c6c0889e010ed120d461ea67179a2858972",
+      "size": 6101
+    },
+    {
+      "path": "internal/dashboard/employee_statistic_cron_test.go",
+      "sha256": "5a340641d0e4f85aad4d6fe48eb8dc447b4b2829f4287459313d074b9eb28c83",
+      "size": 5499
+    },
+    {
+      "path": "internal/dashboard/external_tenant.go",
+      "sha256": "810f5f288c874d5883a2f0e2f847c4ceab8aee7f6d28a006d909f074cbbc20bb",
+      "size": 2030
+    },
+    {
+      "path": "internal/dashboard/greeting.go",
+      "sha256": "e3271204f33b4db2a2d363876ea3757c56752bb02e36785ea7aa07d4f511cfee",
+      "size": 17899
+    },
+    {
+      "path": "internal/dashboard/greeting_test.go",
+      "sha256": "12c615684674892c20bc268cace7bede4fca28437cbd7817a770428d422f77a8",
+      "size": 6032
+    },
+    {
+      "path": "internal/dashboard/identity_login_page.go",
+      "sha256": "5d7e73dd39e9ea151c7cdabbd4a656badf96b0a2f46bd595b4065af0a285add5",
+      "size": 11540
+    },
+    {
+      "path": "internal/dashboard/identity_login_page_test.go",
+      "sha256": "52a2bd7fa84b896de49ce20b1a70de31f8fdaf58e6ccf5878ec34d9bcbdd52bf",
+      "size": 4398
+    },
+    {
+      "path": "internal/dashboard/login_show.go",
+      "sha256": "451cc752c75fbad4b7560c0087ab438374876f13855112e01b305106f2b40a07",
+      "size": 6818
+    },
+    {
+      "path": "internal/dashboard/login_show_test.go",
+      "sha256": "bc085daeff20f459b3b028580d0191b698f857e5049a8fed1e51bbd807212980",
+      "size": 6996
+    },
+    {
+      "path": "internal/dashboard/logout.go",
+      "sha256": "de226bf1972dd53fe9de35969c6701a31d06990968c4ab91a43c8148fb8e542b",
+      "size": 2477
+    },
+    {
+      "path": "internal/dashboard/logout_test.go",
+      "sha256": "c94980cb82a5fee6c5aa950e8300690836aab290fb6fba8a5d27621a8b8dd30c",
+      "size": 3775
+    },
+    {
+      "path": "internal/dashboard/lottery_dashboard.go",
+      "sha256": "12033c7f3eff18badff0810ba948a52949ca4aebf9bed2cd04d4928f1ff08a57",
+      "size": 25431
+    },
+    {
+      "path": "internal/dashboard/lottery_dashboard_test.go",
+      "sha256": "47191d43b4b6f2bae03058eec14646a72cd6b27daa544ce50885b83f16fc5c27",
+      "size": 8378
+    },
+    {
+      "path": "internal/dashboard/lottery_page.go",
+      "sha256": "ef038be0896687ba43f12c2728bc83e3d9e595de9b3448b3772019d9588a8485",
+      "size": 23188
+    },
+    {
+      "path": "internal/dashboard/lottery_page_test.go",
+      "sha256": "6a91c3503acddbe5bf86c3413e2e102ed746acac0ce6cbf38e5c8c8fc82b07bb",
+      "size": 1660
+    },
+    {
+      "path": "internal/dashboard/mark_tags_worker.go",
+      "sha256": "4ceb86a53e0a86144b9a5e19a2cacb45dd003c6e4f6946b25a056193c1566109",
+      "size": 8695
+    },
+    {
+      "path": "internal/dashboard/mark_tags_worker_test.go",
+      "sha256": "afe9228ce2debc8a08850b630c81740e7c1e754364f0867e22a10a60a0a79e73",
+      "size": 5685
+    },
+    {
+      "path": "internal/dashboard/medium.go",
+      "sha256": "92e5e1f81f26f55d50ecb3ccd1f5e0856cc9f8bbaf6f64f98c8057faebeefacc",
+      "size": 22714
+    },
+    {
+      "path": "internal/dashboard/medium_cron.go",
+      "sha256": "acaae81b11763e2b44677c15f793b94be43dc300fe5d82d05f8c2a711a8e23a8",
+      "size": 4727
+    },
+    {
+      "path": "internal/dashboard/medium_cron_test.go",
+      "sha256": "ad01385bd072223a2e16ce6aa5e3df571b5f2a9b25831179dcb1711c5af84aed",
+      "size": 4092
+    },
+    {
+      "path": "internal/dashboard/medium_group.go",
+      "sha256": "9909c9f2fe069d602a52e5aaad2ff3b23ed2fdfef7a05303c973efff200bb495",
+      "size": 9689
+    },
+    {
+      "path": "internal/dashboard/medium_group_test.go",
+      "sha256": "d52e6666471117638b85895eea583a414ac50c3e0ee30cd4442dd079408bd6be",
+      "size": 6314
+    },
+    {
+      "path": "internal/dashboard/medium_media_id_update_worker.go",
+      "sha256": "cd8d16bb5481e125b9486ac71f2a1385fd85f6cdc2bff249d57cddc5452ca823",
+      "size": 9685
+    },
+    {
+      "path": "internal/dashboard/medium_media_id_update_worker_test.go",
+      "sha256": "72864464c8b288889b8f7dea93a9fa67a9f33d191b647e7924ffe4f90246e911",
+      "size": 8234
+    },
+    {
+      "path": "internal/dashboard/medium_test.go",
+      "sha256": "aed5e29feac8f8aa185ff45a5288d9c5d8af70f9495d8999163e7febd492079e",
+      "size": 11465
+    },
+    {
+      "path": "internal/dashboard/menu_admin.go",
+      "sha256": "548877732ca0e51b3e320503c05c17f2dc5853e82fc8250fdf25a75e06b88c35",
+      "size": 20365
+    },
+    {
+      "path": "internal/dashboard/menu_admin_test.go",
+      "sha256": "67d98b6d70788303cf21a220f69c47b5fe1883e4c2c02e287cd730cd595bee6c",
+      "size": 8313
+    },
+    {
+      "path": "internal/dashboard/menu_read.go",
+      "sha256": "affbaa0313c13ea876fc390d357327e229d26c021dc742e0783286a5a8e35313",
+      "size": 2767
+    },
+    {
+      "path": "internal/dashboard/menu_read_test.go",
+      "sha256": "64841f57f179df9e2f53acfe903cfab6f04353b09dae2749c080df60f37642ec",
+      "size": 2547
+    },
+    {
+      "path": "internal/dashboard/message_remind_worker.go",
+      "sha256": "ac00888c3fac4f344471c24aeb005494e0ab8fed22c1d24d42a8a9c7a0ffa212",
+      "size": 17998
+    },
+    {
+      "path": "internal/dashboard/message_remind_worker_test.go",
+      "sha256": "7e6c967d78dfd465b6723d02daf5e2ddc237caeee1e1c29857c5fbeac2cd5dc0",
+      "size": 9076
+    },
+    {
+      "path": "internal/dashboard/official_account.go",
+      "sha256": "4da935eea79d899dc131fc7f88d9d57702e9d08ce75d2e331ccbe05dde251ed5",
+      "size": 7141
+    },
+    {
+      "path": "internal/dashboard/official_account_authorization.go",
+      "sha256": "f8af5e6c54ecdbc006be58b0117be0cb9f2a5164523c287eff836f51a8fdcb46",
+      "size": 8388
+    },
+    {
+      "path": "internal/dashboard/official_account_callback.go",
+      "sha256": "f7512d12800440ec1ddf3a672454cc7afff9fb398a61912f84d479bff645f4fe",
+      "size": 10273
+    },
+    {
+      "path": "internal/dashboard/official_account_callback_test.go",
+      "sha256": "82962579967f1e5297e0741cab9429f741029a7b23d9555ddcef3925c197f899",
+      "size": 9762
+    },
+    {
+      "path": "internal/dashboard/official_account_oauth_wechat.go",
+      "sha256": "fb6bcabf51573b8ce0204093d184f4ccd5a4e5d21764acd396f9dc918c57fc9f",
+      "size": 21248
+    },
+    {
+      "path": "internal/dashboard/official_account_oauth_wechat_test.go",
+      "sha256": "81772fc5ab89fafe692a8f87c700f944bb43bbfef282f3fd20cb96db7b09e511",
+      "size": 2375
+    },
+    {
+      "path": "internal/dashboard/official_account_test.go",
+      "sha256": "67b334990d73ee49617de7e538e64e1c19bc6599038f3ec2fbc4a804ccb7d5f3",
+      "size": 5462
+    },
+    {
+      "path": "internal/dashboard/operation_h5.go",
+      "sha256": "29dcc4746488b11d3be5cc78093a1ea381baeb18e6a045cc17cc1cf62028e512",
+      "size": 40461
+    },
+    {
+      "path": "internal/dashboard/operation_load_oauth.go",
+      "sha256": "5bd83e6d84959a9b83020b0144d818a643bf2ee047fd8c03e5e5f71bf7c5953c",
+      "size": 6974
+    },
+    {
+      "path": "internal/dashboard/permission.go",
+      "sha256": "41af47c81e633d751d03f4ef2efd8530f6008d9db4f473823432ccec2db19b79",
+      "size": 4711
+    },
+    {
+      "path": "internal/dashboard/permission_test.go",
+      "sha256": "8ecf9b7867c874635cd980bfff762c32f04cd01a9449c87323af53ec010bff50",
+      "size": 7740
+    },
+    {
+      "path": "internal/dashboard/queue_registry.go",
+      "sha256": "6a55d9eeabd4445022fcdb806d6aef8954d1984de7b2ed659d80ae3f7abf1e05",
+      "size": 17543
+    },
+    {
+      "path": "internal/dashboard/queue_registry_test.go",
+      "sha256": "b8ed6c4e8be7c50c8580a7667b2c36dd607fb89a2256e20f3f47e8005e428509",
+      "size": 11738
+    },
+    {
+      "path": "internal/dashboard/radar_dashboard.go",
+      "sha256": "98a1f5cde3e04932b0f824976ebc3181c9a51517ac877227b904234cfff242c8",
+      "size": 33831
+    },
+    {
+      "path": "internal/dashboard/radar_dashboard_test.go",
+      "sha256": "360c556f93bb454a3998acac88869792e426921c9924b0e8a64379df2c411db0",
+      "size": 11137
+    },
+    {
+      "path": "internal/dashboard/radar_page.go",
+      "sha256": "9f66577a26ded0ba43039d52b4fb0e211a08c9b7422b48bb4531d3c6edc298f2",
+      "size": 30081
+    },
+    {
+      "path": "internal/dashboard/radar_page_test.go",
+      "sha256": "f8232a481ffa64cddd21734e381ed8b5106d8409335073710b212d09ab07f005",
+      "size": 1753
+    },
+    {
+      "path": "internal/dashboard/rbac.go",
+      "sha256": "71f7e225719a5c66686a598504de81bff96a72867d67f1d9cc7397a747f2b81a",
+      "size": 4741
+    },
+    {
+      "path": "internal/dashboard/rbac_test.go",
+      "sha256": "bf43564720a2667814b76fb22db9b9a51b2d106d154cb44b8d67df5934759b31",
+      "size": 5424
+    },
+    {
+      "path": "internal/dashboard/request_params.go",
+      "sha256": "b3ddac0b9fe51a82b38991e8685fe3ffd7927b3ac761e26d82ff345a21f35922",
+      "size": 4493
+    },
+    {
+      "path": "internal/dashboard/role_admin.go",
+      "sha256": "a965b3ff1ebc301fe14563b4ec4c7e36cf8bacebb3eb7a72dc27b5a5da3427b3",
+      "size": 21472
+    },
+    {
+      "path": "internal/dashboard/role_admin_test.go",
+      "sha256": "1cff83bed96fed3f8fa0649923a221cf785c6cfeaa02f2c4cec31f107559ad3d",
+      "size": 11108
+    },
+    {
+      "path": "internal/dashboard/role_select.go",
+      "sha256": "2b8e7c54bff9b960cd7933ee167c8a8aa0dc421ab85abcea393619cd5c1578f3",
+      "size": 1656
+    },
+    {
+      "path": "internal/dashboard/role_select_test.go",
+      "sha256": "6d0f99bfffd53f4c83c8d6299abd9c30ffb67a9632cf623fc2dddbef91614981",
+      "size": 2100
+    },
+    {
+      "path": "internal/dashboard/room_calendar_dashboard.go",
+      "sha256": "c69a66d38b33f521e617c9a5222134c83c36b5250825e1926c8558c88d5be6cb",
+      "size": 21150
+    },
+    {
+      "path": "internal/dashboard/room_calendar_dashboard_test.go",
+      "sha256": "030fa2a04a8cb4bdb5c5f8bb904b600e49dd1772e5b99165caa6136d9dce457e",
+      "size": 7187
+    },
+    {
+      "path": "internal/dashboard/room_calendar_page.go",
+      "sha256": "7d77d2f7e74cab217ae1b546f6df2f6484fa7ff00800f25ada318b8b04fda6cd",
+      "size": 19270
+    },
+    {
+      "path": "internal/dashboard/room_calendar_page_test.go",
+      "sha256": "242eae38e812a90929705f5a8ad3ba87bf6069b542de215b3057562e4ab5c2b4",
+      "size": 1619
+    },
+    {
+      "path": "internal/dashboard/room_clock_in_dashboard.go",
+      "sha256": "d03b6eba4c18aba92ddb5bd54a7c63aa2a77fdb380690a9b7a8ce4006dca741b",
+      "size": 27519
+    },
+    {
+      "path": "internal/dashboard/room_clock_in_dashboard_test.go",
+      "sha256": "fb45143bb66556a95fff350b167794df893610d8c8604b6e5ad9b06bec7b1790",
+      "size": 8259
+    },
+    {
+      "path": "internal/dashboard/room_clock_in_page.go",
+      "sha256": "16bb7a3f57ebff464851c3af7206d12c7248293bfb731493afae001c4ba4dad5",
+      "size": 26126
+    },
+    {
+      "path": "internal/dashboard/room_clock_in_page_test.go",
+      "sha256": "d7c43f1fbff287cf65480ffeedfe5606f88ee25ec061d8684e455e13d257d5fd",
+      "size": 1686
+    },
+    {
+      "path": "internal/dashboard/room_fission_dashboard.go",
+      "sha256": "c3b5d0af513fd0d7e8ad5adfb283e91978e6300146e72ba7a6546ada816619a4",
+      "size": 38698
+    },
+    {
+      "path": "internal/dashboard/room_fission_dashboard_test.go",
+      "sha256": "42258711b6ed7843cb81d65f0afd167ba6e24093b359f45a7018c58aafbc423b",
+      "size": 9666
+    },
+    {
+      "path": "internal/dashboard/room_fission_page.go",
+      "sha256": "b8fbac1513ddb6f01f1c1888410d7c3606d7ba70354bc230329dbd232c4acb72",
+      "size": 28752
+    },
+    {
+      "path": "internal/dashboard/room_fission_page_test.go",
+      "sha256": "2f269740608c2e3015f8b69a44b3be4290681d096cec59669f77b852e3f23dc2",
+      "size": 1789
+    },
+    {
+      "path": "internal/dashboard/room_infinite_pull_dashboard.go",
+      "sha256": "4bf49a32098f375f1c523606cb7113cd36c74af80bd2e4ba6a46fab6ffa783e8",
+      "size": 17166
+    },
+    {
+      "path": "internal/dashboard/room_infinite_pull_dashboard_test.go",
+      "sha256": "b97ffb19df19f26c06543b95e9394db9e0f636f902675899baddf8075bb0136e",
+      "size": 7141
+    },
+    {
+      "path": "internal/dashboard/room_infinite_pull_page.go",
+      "sha256": "103d7208b4c1d72be6be9c32de919ba0c6d0a884512143b394e41eb2ff8b5a90",
+      "size": 19207
+    },
+    {
+      "path": "internal/dashboard/room_infinite_pull_page_test.go",
+      "sha256": "1517134992a8bbb05de622dc800f17899156d355b65af0f39e0d6ca348cf4244",
+      "size": 1671
+    },
+    {
+      "path": "internal/dashboard/room_message_batch_send.go",
+      "sha256": "6f65bf04b0889a820856dd4edddc17b3cab7b6abebf78186191dcdce79196b4c",
+      "size": 26449
+    },
+    {
+      "path": "internal/dashboard/room_message_batch_send_test.go",
+      "sha256": "88a21a38fec27a153e524729e5b80107f4f820634892f8cad1436c0b8dca7c5c",
+      "size": 16001
+    },
+    {
+      "path": "internal/dashboard/room_quality_dashboard.go",
+      "sha256": "ac127234425f16b8d28c732e49c3c606d8d877916d81ccd97fdadf136b00fb94",
+      "size": 19792
+    },
+    {
+      "path": "internal/dashboard/room_quality_dashboard_test.go",
+      "sha256": "bcc084989f02904116aa30763532f355dac966d09c5a99208579650dc1ecbb2b",
+      "size": 8006
+    },
+    {
+      "path": "internal/dashboard/room_quality_page.go",
+      "sha256": "4e893aab819838c52efe1ef7f818fa184fec279f8e0ddc75c1294cc4068f798a",
+      "size": 18748
+    },
+    {
+      "path": "internal/dashboard/room_quality_page_test.go",
+      "sha256": "b181a43b556f94e56ebcd20483ebde8f7666ed600e5d5b4647262e695cc414ff",
+      "size": 1614
+    },
+    {
+      "path": "internal/dashboard/room_remind_dashboard.go",
+      "sha256": "519b209e3a8d18fc340ed7738eaca0bd40cf6d69fd5c42a75ae8d826aa3cd393",
+      "size": 19149
+    },
+    {
+      "path": "internal/dashboard/room_remind_dashboard_test.go",
+      "sha256": "a611490b34a2b9385ed22dff0cf683fc626b7065add09d5436e6b718d86116d1",
+      "size": 6641
+    },
+    {
+      "path": "internal/dashboard/room_remind_page.go",
+      "sha256": "f136189a599837b2e5eeb2160bcb8c69b77d9697a1516872020e36a63e45612a",
+      "size": 18484
+    },
+    {
+      "path": "internal/dashboard/room_remind_page_test.go",
+      "sha256": "8b4f1d286cd131a88c507e74b312265ae011bc9d3515576e982db371156c3d23",
+      "size": 1601
+    },
+    {
+      "path": "internal/dashboard/room_sop.go",
+      "sha256": "d53748b59ebb113f8fcfe52d08ae9fb61fdbf554384fd39634a3e725124ca4e3",
+      "size": 4461
+    },
+    {
+      "path": "internal/dashboard/room_sop_test.go",
+      "sha256": "24ec1457ae45d8783d50fde1d1226eb900a944b73f8c8bc659339f9a1f8fb75f",
+      "size": 3510
+    },
+    {
+      "path": "internal/dashboard/room_tag_pull.go",
+      "sha256": "8535faf9802e11f2b7496e4a6088d254facdf9a9fa402882cac5fbad6c06ee06",
+      "size": 38511
+    },
+    {
+      "path": "internal/dashboard/room_tag_pull_cron.go",
+      "sha256": "9b1783bbe9c8415d3aa7fc8fcb8b7c7419c7367b3825160e73677bd1eab78350",
+      "size": 6382
+    },
+    {
+      "path": "internal/dashboard/room_tag_pull_cron_test.go",
+      "sha256": "1dbfd39a396e1ac303fb2ae572f248b90b95f51245e41bfe7b1e0eb5f4280638",
+      "size": 3559
+    },
+    {
+      "path": "internal/dashboard/room_tag_pull_page.go",
+      "sha256": "ed6ebadc326ad526a243ef4ea3d66c06b7f2d360d59af96ed8e30adf46a988de",
+      "size": 14038
+    },
+    {
+      "path": "internal/dashboard/room_tag_pull_page_test.go",
+      "sha256": "a19b8b0c3d21c5bd5f98731c5aea6d4f3d468ac8ab7a0596984adc862e1f72e8",
+      "size": 1640
+    },
+    {
+      "path": "internal/dashboard/room_tag_pull_test.go",
+      "sha256": "fa0ad44e9bd6ab264f6cc70bfb5fe4d431ea07586f739d4f6a220913001fa539",
+      "size": 21445
+    },
+    {
+      "path": "internal/dashboard/room_welcome.go",
+      "sha256": "b367c8fee5c484cd1704fbe2d3163c54552c09a613ad68a1b96e0932337069c3",
+      "size": 25179
+    },
+    {
+      "path": "internal/dashboard/room_welcome_test.go",
+      "sha256": "12b71ff59a24a731470ea814ba9f80638ceb15f38007dbd8dfe7c858ed160a8f",
+      "size": 7928
+    },
+    {
+      "path": "internal/dashboard/room_welcome_wecom.go",
+      "sha256": "300b87f316b0541cef5903a70c6f110cbabf050a2294134da050030be0ac063d",
+      "size": 18332
+    },
+    {
+      "path": "internal/dashboard/saas_admin.go",
+      "sha256": "4f5c56cd71f7b503299a230ebb3e8de857e82167f66e1de50c3947068e581a0c",
+      "size": 692494
+    },
+    {
+      "path": "internal/dashboard/saas_admin_access.go",
+      "sha256": "9249ef007b4959286946453d3f8c243194d705f0cf760a6a3c1148b5273c8336",
+      "size": 33075
+    },
+    {
+      "path": "internal/dashboard/saas_admin_access_test.go",
+      "sha256": "004c051ae6fe9d7da38760adc3b8d69c916f66282a297cc2e4ba24da8537c98f",
+      "size": 15881
+    },
+    {
+      "path": "internal/dashboard/saas_admin_approval.go",
+      "sha256": "3f81ddb179c347a5e144ed69b8718c835cfa9a2e6e550a64afff6426186828e8",
+      "size": 99143
+    },
+    {
+      "path": "internal/dashboard/saas_admin_approval_governance.go",
+      "sha256": "d201933bdcd00f4206b66cd11af4f0f3cd336763592f5237175d381c18adc631",
+      "size": 15825
+    },
+    {
+      "path": "internal/dashboard/saas_admin_approval_reminder_cron.go",
+      "sha256": "2aea356c459bf20f69b5dc668e79fa6badcbe7ca0246edc2f538b57aa5a1d21a",
+      "size": 1573
+    },
+    {
+      "path": "internal/dashboard/saas_admin_approval_test.go",
+      "sha256": "ade3c64f276969730c93cdeef157d5949fb26f4560820cf45b94f4862c0859f8",
+      "size": 31129
+    },
+    {
+      "path": "internal/dashboard/saas_admin_audit_anchor.go",
+      "sha256": "977070aff07fb07f18bdc2d8f8a834cb9a421dee36211dde9e5fcc1619e46116",
+      "size": 8793
+    },
+    {
+      "path": "internal/dashboard/saas_admin_audit_integrity.go",
+      "sha256": "99764cd290b5a803cee420497ecc745b72c187cfe9d38bbde8d6ce8608929770",
+      "size": 9891
+    },
+    {
+      "path": "internal/dashboard/saas_admin_audit_integrity_cron.go",
+      "sha256": "526a118c7e3a540df3c1766d9d1b241396b06e017cc6885690af52dd2974efa0",
+      "size": 1554
+    },
+    {
+      "path": "internal/dashboard/saas_admin_audit_integrity_cron_test.go",
+      "sha256": "e4a11abb1489a0300e397395b79af97a8d5de9797b0ef01061bd1d64e6929cd6",
+      "size": 1276
+    },
+    {
+      "path": "internal/dashboard/saas_admin_audit_integrity_test.go",
+      "sha256": "e7d79ea345b8b0b9fed5368c029af0bed016d4979d1aa445193f537380470f1e",
+      "size": 3557
+    },
+    {
+      "path": "internal/dashboard/saas_admin_invoice.go",
+      "sha256": "d6b90bf2b5c30b08ad6467e41d8c911cb2b98ccf32437f7ce982963a0ba3a459",
+      "size": 18932
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_health.go",
+      "sha256": "7e344ff6b4f36974141e437ebb056e6e5432168a139ff06db3056591323a69ec",
+      "size": 22201
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_health_recovery.go",
+      "sha256": "f25f50fa78358bc14c5c9461fe2d7b74ce1e6c21fbe82df678047dabf4c0ca06",
+      "size": 9363
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_health_recovery_cron.go",
+      "sha256": "5f86894a0d38c39f1a6cbd13f5a28ff4dc71390752a3ea5af1cf5c54f4011cc5",
+      "size": 2404
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_health_recovery_cron_test.go",
+      "sha256": "a1b4a9c27d38e2c529d9f1641e1cf3a89cbec4c0eae5d627d89ffee1df1701f2",
+      "size": 3850
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_health_recovery_test.go",
+      "sha256": "71896dd76248e89bf45c3e0fbed70ac7d24ed24f95dc7053be93c713253b3eb8",
+      "size": 8424
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_health_test.go",
+      "sha256": "5dd8c4c4dfad56eefd5d8ccad479fcf14d69d35abf7f99a17d982846665916ec",
+      "size": 9207
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_policy.go",
+      "sha256": "0ede5d1bb4d635a4b1f8d73d3dffc3c70e8114b7751a40113bb718cc1b9bbed0",
+      "size": 18709
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_policy_test.go",
+      "sha256": "4bcfcb99f42efdfe72d0165a7f8211fd4a41ece9395905aad5a6c797b2ffed77",
+      "size": 21140
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_slo.go",
+      "sha256": "4cfd8f64fac996e36391ffbab962d91c8303a1668015721138f24ccce34db331",
+      "size": 24113
+    },
+    {
+      "path": "internal/dashboard/saas_admin_notification_slo_test.go",
+      "sha256": "a081770a66b0c46e5d8e9e0bc4012e6b0e106d3904ebf7a2276ef0a9ddf5c49d",
+      "size": 11281
+    },
+    {
+      "path": "internal/dashboard/saas_admin_operation_queue_assignment_reminder_cron.go",
+      "sha256": "cabe85bf6b1c17bdff62de6f6a9b56ea342cd6862759d9767ca486fe2ef44e56",
+      "size": 2982
+    },
+    {
+      "path": "internal/dashboard/saas_admin_operation_queue_assignment_reminder_cron_test.go",
+      "sha256": "120986f4bf2f8c76680d4c4b9120e046bcf441c5a35001c9c6c5cc8bed125e7d",
+      "size": 8768
+    },
+    {
+      "path": "internal/dashboard/saas_admin_page.go",
+      "sha256": "c5a2911e19d16c13bc0ac7f5e51323da6ace6c16f1b1c5b0ea82e2b24385eef0",
+      "size": 822921
+    },
+    {
+      "path": "internal/dashboard/saas_admin_page_test.go",
+      "sha256": "6b1e5dfbc196c04a4c52afafcab6428982dd14469a7af5d00dd1fe128733d47b",
+      "size": 44012
+    },
+    {
+      "path": "internal/dashboard/saas_admin_payment.go",
+      "sha256": "166a36ac8273f9af025620aa6254dd24710462ba9ed90ea060d4e951660de5b7",
+      "size": 44339
+    },
+    {
+      "path": "internal/dashboard/saas_admin_payment_test.go",
+      "sha256": "8f3aa9a15a9620ff91532a9c767416b306fa97db86a41b6c0807a21b0fe4c2c9",
+      "size": 13881
+    },
+    {
+      "path": "internal/dashboard/saas_admin_refund.go",
+      "sha256": "9e8e75ec431996e96e50dba4548397cf6d30a8ad0671759b0543ec318db02115",
+      "size": 21559
+    },
+    {
+      "path": "internal/dashboard/saas_admin_refund_test.go",
+      "sha256": "60e89cf41362db225f42c47c09037936095b617eeeb46799c0777574f6e276aa",
+      "size": 9360
+    },
+    {
+      "path": "internal/dashboard/saas_admin_settlement.go",
+      "sha256": "9bff25acc621b7da64c27c0424111289c6a6c00385df7a57d24db54e89e91030",
+      "size": 46116
+    },
+    {
+      "path": "internal/dashboard/saas_admin_settlement_sync.go",
+      "sha256": "07adf469df31b64e9fcd05961687150c70dc6867ec1c9cee09ea9045a372c63b",
+      "size": 7161
+    },
+    {
+      "path": "internal/dashboard/saas_admin_settlement_test.go",
+      "sha256": "c8a78570a9f2105569871844d2d33e60681354c2ad845bdc03808eac7a2a42e8",
+      "size": 11656
+    },
+    {
+      "path": "internal/dashboard/saas_admin_subscription.go",
+      "sha256": "5efe908b8f4097dedb997ef8d8ffee1158dcc41b9fcfa47f60acbcdb073fbc75",
+      "size": 35041
+    },
+    {
+      "path": "internal/dashboard/saas_admin_subscription_reconcile_cron.go",
+      "sha256": "fc27af670b18f0f3639a02c242266b3eff9d72a9bf82a4b48e235fedeb158aa2",
+      "size": 1571
+    },
+    {
+      "path": "internal/dashboard/saas_admin_subscription_test.go",
+      "sha256": "43ad9c349c41eb684af607176a4681dfdf15bbfe48cc3f839f7a642a0e1e301c",
+      "size": 8724
+    },
+    {
+      "path": "internal/dashboard/saas_admin_system_health.go",
+      "sha256": "bd67937f542a524a500b096383de12175ac21ce705e64c303bbb8cfea1e96643",
+      "size": 24113
+    },
+    {
+      "path": "internal/dashboard/saas_admin_system_health_cron.go",
+      "sha256": "b18cfceda0c3daacad74a7162a00412ddb0736814f28e13019d7d12302783588",
+      "size": 2081
+    },
+    {
+      "path": "internal/dashboard/saas_admin_system_health_test.go",
+      "sha256": "0b0d3f17345bc752a8914e17e482fa5b1f91136ccaf5268db050ffaade2bb191",
+      "size": 7410
+    },
+    {
+      "path": "internal/dashboard/saas_admin_test.go",
+      "sha256": "ebe063f3e9603a046f4b7f3726a1cae9dcf4b3a65f662a5e0b95a325d091832d",
+      "size": 473601
+    },
+    {
+      "path": "internal/dashboard/saas_admin_wechat_open_credential.go",
+      "sha256": "78200138a2007939cb6a5d8e8a5ad4022014755f1b3c4a1bdfd4a98ee7671feb",
+      "size": 5485
+    },
+    {
+      "path": "internal/dashboard/saas_admin_wechat_open_credential_test.go",
+      "sha256": "4d8397d4feb7dbef7e8fe04e155745ea153eb891a8772cd6a8d32a1c811a4de8",
+      "size": 4541
+    },
+    {
+      "path": "internal/dashboard/saas_admin_wecom_credential.go",
+      "sha256": "4e765e676641938aaf23804e20ea7ca4e1012451977b85a26af2182dd6d9fd2a",
+      "size": 5403
+    },
+    {
+      "path": "internal/dashboard/saas_admin_wecom_credential_test.go",
+      "sha256": "c5c28b03b9131a6364d9375acf5f4c35ca6d4da678bafc8bbbc52dea77b42253",
+      "size": 6797
+    },
+    {
+      "path": "internal/dashboard/saas_alert.go",
+      "sha256": "2b45e46aabbf3b65987f6a1ab3012219550fd4c2c3094a205ab28a34e64bd9bd",
+      "size": 9692
+    },
+    {
+      "path": "internal/dashboard/saas_alert_notification.go",
+      "sha256": "7b4e7026ec56384681a88e366393e139831fe2f00a2e5a6d854b54c228f9a862",
+      "size": 7413
+    },
+    {
+      "path": "internal/dashboard/saas_alert_notification_cron.go",
+      "sha256": "9c904419e29578007f21c8bea20fd777c59970b3bc3fd2665dffc8fbc161a1c3",
+      "size": 1352
+    },
+    {
+      "path": "internal/dashboard/saas_alert_notification_policy.go",
+      "sha256": "8a493242b2d50d10eb040da2954f8d81a14b246cb55bd08b1b0ce99d735c8fa2",
+      "size": 5600
+    },
+    {
+      "path": "internal/dashboard/saas_alert_notification_test.go",
+      "sha256": "1a43bbc776be7b571115fcd5da3cda765c4472614c704ac65b8b55ffd0b7e4e9",
+      "size": 18109
+    },
+    {
+      "path": "internal/dashboard/saas_alert_notifier.go",
+      "sha256": "d3499ece9d2a16d630416dc09e66e81fe3c8803a9b6a21714d5a6f26dbcce846",
+      "size": 8818
+    },
+    {
+      "path": "internal/dashboard/saas_alert_notifier_test.go",
+      "sha256": "f519bea01d7bf16f90a3e12102ee586aa3957496872cdf9daf4c1125cda94cf0",
+      "size": 8162
+    },
+    {
+      "path": "internal/dashboard/saas_alert_page.go",
+      "sha256": "0f3bfcdaa97471839aa01d50fab79726455dab7eeca58f356bdce60f9b30e73c",
+      "size": 25228
+    },
+    {
+      "path": "internal/dashboard/saas_alert_setting.go",
+      "sha256": "3cf253d430759e485d28f8cb8aa9dec4878b9998e67aecf92bff1ce2248e94c6",
+      "size": 20467
+    },
+    {
+      "path": "internal/dashboard/saas_alert_setting_test.go",
+      "sha256": "7d20052229682396f93dadcb769f353c8910111f1a63a6a0f689e1608bc001b6",
+      "size": 3080
+    },
+    {
+      "path": "internal/dashboard/saas_alert_test.go",
+      "sha256": "41e414b477617bc7f11efea2cd50f4f47e75685ccdb5bd3d744851d43dd3a4f5",
+      "size": 14323
+    },
+    {
+      "path": "internal/dashboard/saas_alert_webhook_security.go",
+      "sha256": "df4878e282fe4912ece97f2e6c3cb2f6f66b7bdf9785edd0abcef6d11a80494c",
+      "size": 1221
+    },
+    {
+      "path": "internal/dashboard/saas_backup_recovery.go",
+      "sha256": "5099246cee35e1b549b8c5cef5250cc69a5231ae78972dba0b56a327c1db24f6",
+      "size": 15403
+    },
+    {
+      "path": "internal/dashboard/saas_backup_recovery_test.go",
+      "sha256": "c76122ac2e9cab9c3c8bd2a3ae0ff12a82fc16dcb9921ae01139ec251d66afb5",
+      "size": 11722
+    },
+    {
+      "path": "internal/dashboard/saas_billing.go",
+      "sha256": "d7ec02419677b2e2a2d85ff62f7a6035237fc36d30d55b1b55f2e6671f9d8983",
+      "size": 9234
+    },
+    {
+      "path": "internal/dashboard/saas_billing_page.go",
+      "sha256": "e3329a7029fdd7428a0ff2dc9983d9f5a1adb49e99f0ef5d8191f7ad49638ad5",
+      "size": 20543
+    },
+    {
+      "path": "internal/dashboard/saas_branding.go",
+      "sha256": "13e23347c2a645f1a13f18e29128c340570423d783f36fa546103b87599a1f33",
+      "size": 14442
+    },
+    {
+      "path": "internal/dashboard/saas_branding_test.go",
+      "sha256": "53ed6fa51c26680f53f76a9a57dcff49b489997e5bbfe84226df10e3666d8f4b",
+      "size": 10632
+    },
+    {
+      "path": "internal/dashboard/saas_compliance.go",
+      "sha256": "a303cb852b5482580ec6b1f88d962c2a9ed3984869397f23575a8866b61118a6",
+      "size": 19283
+    },
+    {
+      "path": "internal/dashboard/saas_compliance_export_deletion_test.go",
+      "sha256": "aea57fb63fa1c400aab7f3ce8e404a7c3bd9b2a78f0f79996beaa0f4a5a516a9",
+      "size": 12541
+    },
+    {
+      "path": "internal/dashboard/saas_compliance_legal_hold_release_test.go",
+      "sha256": "1ba03808a07a8170ed3a13974c7f05b28b5a05a160aa581a47c1b2545bde8a5d",
+      "size": 8430
+    },
+    {
+      "path": "internal/dashboard/saas_compliance_policy_update_test.go",
+      "sha256": "a505be366428ba508bdd6769b62881777ad9f1e0b9cde047e1d7773b18ed8614",
+      "size": 9843
+    },
+    {
+      "path": "internal/dashboard/saas_critical_approval_policy_guard_test.go",
+      "sha256": "16650eda036588bc85b8f756e73222efc6efbb531e0370c44a4909c8e0504be4",
+      "size": 4155
+    },
+    {
+      "path": "internal/dashboard/saas_event_metrics.go",
+      "sha256": "8f92790ca304eeb6e23c97f2f2c1158f1881b4413da6cff7b4619b985993904d",
+      "size": 534
+    },
+    {
+      "path": "internal/dashboard/saas_identity_mfa_reset_test.go",
+      "sha256": "1608904b3dcd5772ada27cc69e64353df88934d3ec2f033ea1056ee8faca6502",
+      "size": 7976
+    },
+    {
+      "path": "internal/dashboard/saas_identity_policy_update_test.go",
+      "sha256": "3c216fb179cc7f00d13c54da49a9d0e5be2148dcae9d45535086999eee0f2f00",
+      "size": 9617
+    },
+    {
+      "path": "internal/dashboard/saas_identity_security.go",
+      "sha256": "f8fa731e503971c15b1106ab346529a12daf425c01d14bdbfeaee992d8ce6027",
+      "size": 17866
+    },
+    {
+      "path": "internal/dashboard/saas_invoice.go",
+      "sha256": "bc75074ec6487b9d90cf4ce786f7b006b94e5ddca83b9a1eb060d6b459ac6c18",
+      "size": 18949
+    },
+    {
+      "path": "internal/dashboard/saas_invoice_issue_approval_test.go",
+      "sha256": "a6406e557d359a79e2dfe6fe2d331ad7e4d7c84f8004d5c607d8442282b43ed6",
+      "size": 10299
+    },
+    {
+      "path": "internal/dashboard/saas_invoice_test.go",
+      "sha256": "f4adc4273830d0f469c5834687cab133106fc873333e01edbb1fde577670a546",
+      "size": 8657
+    },
+    {
+      "path": "internal/dashboard/saas_package_upsert_approval_test.go",
+      "sha256": "e359df1a92273c6a4932c7cc871a102c29fbc8cba9d25fd2bae8adc2ce294169",
+      "size": 7701
+    },
+    {
+      "path": "internal/dashboard/saas_payment_dunning_cron.go",
+      "sha256": "974bf4863124a5e0d90b653a7d9815c3297cf2e18b57544d344e95587b95e0f4",
+      "size": 1888
+    },
+    {
+      "path": "internal/dashboard/saas_payment_settlement_sync.go",
+      "sha256": "9d945895eaf88098101dafca161fa2ba575c52e6bdf8478c064980d1b5fd7fb9",
+      "size": 19762
+    },
+    {
+      "path": "internal/dashboard/saas_payment_settlement_sync_test.go",
+      "sha256": "8a2f0e0a5b8cbcc1ef8511507b346d50a236eacf846c3aa5fe18dcbf87fdead3",
+      "size": 9781
+    },
+    {
+      "path": "internal/dashboard/saas_quota.go",
+      "sha256": "41beb279d10d659acfdadbfedb75433a3c1df36c64ac1ba4d17dee3549eb96ec",
+      "size": 8178
+    },
+    {
+      "path": "internal/dashboard/saas_release_evidence_verifier.go",
+      "sha256": "9de956b410a83919708b8895dc374b6d45929960fb383b91c4dc9f4f0d5746bd",
+      "size": 6739
+    },
+    {
+      "path": "internal/dashboard/saas_release_evidence_verifier_test.go",
+      "sha256": "e881f1ad04fee4fc56eb46bed48466eb0f97613248b0fa6852ce856cd9f9c24b",
+      "size": 3862
+    },
+    {
+      "path": "internal/dashboard/saas_release_readiness.go",
+      "sha256": "bedad6dd0b36d9854117fe9ecbf520e5e95c34a4e73a0f9e56cbafcecfdb43b4",
+      "size": 32680
+    },
+    {
+      "path": "internal/dashboard/saas_release_readiness_test.go",
+      "sha256": "95224cb3c8c4b2d099b203811eb5ef289754dc71d2291abaf1dcab5f5e472e28",
+      "size": 26059
+    },
+    {
+      "path": "internal/dashboard/saas_service_account.go",
+      "sha256": "578120ef14371f1dac2ca5493a7f582701874c53e3b82bf62b6673fdc0c0ca7c",
+      "size": 58593
+    },
+    {
+      "path": "internal/dashboard/saas_service_account_key_revoke_approval_test.go",
+      "sha256": "f8bab93554b5d5b0aa40719d0a22c4f79c9ada1b24190ee473befa8171fb4ae2",
+      "size": 27869
+    },
+    {
+      "path": "internal/dashboard/saas_service_account_test.go",
+      "sha256": "af97466f08e936aa1734d9733a737909ac994f0863e1e5672d8c5fde041e0729",
+      "size": 27005
+    },
+    {
+      "path": "internal/dashboard/saas_service_account_usage_alert.go",
+      "sha256": "38cbc59a75f2cc06ea3eed871c5370f12b72793f81d5aee884d1a5fa56ff3304",
+      "size": 4019
+    },
+    {
+      "path": "internal/dashboard/saas_service_account_usage_alert_cron.go",
+      "sha256": "234abce01269d3e7e2e47a12632e2aea7df280cebaeed9e732563e13bdaf9350",
+      "size": 1324
+    },
+    {
+      "path": "internal/dashboard/saas_service_account_usage_alert_cron_test.go",
+      "sha256": "db1562a8686bdefdbe827872bda16a1aa0cf53ebc57ed6b979c6bfa47d20b77e",
+      "size": 1645
+    },
+    {
+      "path": "internal/dashboard/saas_service_account_usage_cleanup_cron.go",
+      "sha256": "ce55040bf6f313855f7d3273200f6d20aec3de781209d7a47914d6f74abfcf38",
+      "size": 1095
+    },
+    {
+      "path": "internal/dashboard/saas_service_account_usage_cleanup_cron_test.go",
+      "sha256": "38ce4a83453a26c4b4dc3f60113f6778676c7df0dcacfebd23d2a9ad853c9bf0",
+      "size": 1358
+    },
+    {
+      "path": "internal/dashboard/saas_subscription_transition_approval_test.go",
+      "sha256": "9dcd4fbe3a46766bbe03040818a633580d8a83664a4606ec5857ef19717bb936",
+      "size": 8071
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_disable_approval_guard_test.go",
+      "sha256": "fbb9c628ae39e2822c9e49182c4db93d7280128b8b09aafd9ed25b8712599538",
+      "size": 2298
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_domain.go",
+      "sha256": "5a732e501a3f13f7ffdbc0d993fcfc8cd07aba3754f30ad8cd22a8137114093c",
+      "size": 17585
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_domain_delivery.go",
+      "sha256": "d8575f38f8113644b13434fc4a341b0d5d4c9a24f45b6e8830019f13201eb145",
+      "size": 22500
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_domain_delivery_http.go",
+      "sha256": "4f25ff2dfda85679848197e7bb74b285a46fd606482a75cd476a92c162ebdeb5",
+      "size": 10733
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_domain_delivery_test.go",
+      "sha256": "c666d79972f2d5f9728e4c00be964f0c72a262ffa89a76794ef1ff7102996028",
+      "size": 10294
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_domain_test.go",
+      "sha256": "8857317500dc3e7f89431107c37bd458c72a985fd46011cf6bd2241b032e702a",
+      "size": 9217
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_package_update_approval_test.go",
+      "sha256": "2cc6dda4d89accb92789c51603b04a4b26ad8256dc8bf60212dbbf69e698cff4",
+      "size": 8321
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_provision_approval_test.go",
+      "sha256": "c6906d834cd3b26eb3674676d9ab597605c1cff0f1304fcbdbec2d7d1c9f7209",
+      "size": 11514
+    },
+    {
+      "path": "internal/dashboard/saas_tenant_renewal_approval_test.go",
+      "sha256": "916c3e37a36e748631064e00a35a1b1c9d8adbbccbcf24eb2c44e90e9c19dcec",
+      "size": 10962
+    },
+    {
+      "path": "internal/dashboard/saas_wechat_open_credential.go",
+      "sha256": "8503350c1c90152b9749e99171aa2d03c264e1edd35a662196e96dc7452b3e8f",
+      "size": 2014
+    },
+    {
+      "path": "internal/dashboard/saas_wecom_credential.go",
+      "sha256": "be4f0b96dee5ccc8902d98fb6d9de453e88f4cb111d3b5f50e98b91ac1e9bbf3",
+      "size": 1867
+    },
+    {
+      "path": "internal/dashboard/sensitive_word.go",
+      "sha256": "39d3e35379abbfbb2093ff2e94c21b507d0d8943ece1d1d88628fb6c78733721",
+      "size": 18435
+    },
+    {
+      "path": "internal/dashboard/sensitive_word_cron.go",
+      "sha256": "afb78eb4524234715b79e7cc65b01ef2f397c9a95f7a2086a81f6f62b916a0c2",
+      "size": 12422
+    },
+    {
+      "path": "internal/dashboard/sensitive_word_cron_test.go",
+      "sha256": "f09f6979aa81ac8da941d0e32b912271195ec2156b89a62149b37914098e155f",
+      "size": 4928
+    },
+    {
+      "path": "internal/dashboard/sensitive_word_page.go",
+      "sha256": "bf6c5ec4ffa4a160ed508cbd48d1a5cdea03718bd209faa2f56a9bf12837ecb2",
+      "size": 21172
+    },
+    {
+      "path": "internal/dashboard/sensitive_word_test.go",
+      "sha256": "a8efe8ce372b837d76476e00142ae6f5b48d97bfb1ee9adce44668768e20addf",
+      "size": 10926
+    },
+    {
+      "path": "internal/dashboard/session_bridge.go",
+      "sha256": "d3ee90b9861c280de38b1a1675d6cb2f5218b9fd850da99c7a01ace88886427f",
+      "size": 4038
+    },
+    {
+      "path": "internal/dashboard/shop_code_dashboard.go",
+      "sha256": "d580b75383e6d6063a3e1a4661e9450c0ab4970d66eebefaa4814c883678b272",
+      "size": 36374
+    },
+    {
+      "path": "internal/dashboard/shop_code_dashboard_test.go",
+      "sha256": "f2452e4a977910c994718541aaa76b9665dbe0ac123a6e640dcd3e1ae0a28f8f",
+      "size": 11381
+    },
+    {
+      "path": "internal/dashboard/shop_code_page.go",
+      "sha256": "3e26a9b4faeeb936032e9efe631eb72951a6dd6cd075c138b88e796acc2773e0",
+      "size": 35900
+    },
+    {
+      "path": "internal/dashboard/shop_code_page_test.go",
+      "sha256": "753a3be4bc780ecbbfc8129437967331a62e8a565ab3ad9f903fd12da990aabf",
+      "size": 2039
+    },
+    {
+      "path": "internal/dashboard/sidebar_agent.go",
+      "sha256": "92d245c19c2f8b1421cae3b72dcc2ac018b831be5fdcc973f63c2830aabc6203",
+      "size": 12849
+    },
+    {
+      "path": "internal/dashboard/sidebar_agent_test.go",
+      "sha256": "29c3433d8b312fa8cbe52d62932ece975f7d6ddd835d357c48fe4b351bfce758",
+      "size": 7617
+    },
+    {
+      "path": "internal/dashboard/sidebar_agent_wecom.go",
+      "sha256": "1944497f553ef8e082b22786fff7e2cba8a425585c199396869dfd646a0bbb3e",
+      "size": 4248
+    },
+    {
+      "path": "internal/dashboard/sop_dashboard.go",
+      "sha256": "57bd9c87102791e13bb19b0421364801c0c02d586ca4b125fe79ef7a44e35956",
+      "size": 27406
+    },
+    {
+      "path": "internal/dashboard/sop_dashboard_page.go",
+      "sha256": "3b40f0e5f324f22510d431eef745bf37a3b37ffe4f547fb6e1e9cded92c89b78",
+      "size": 27731
+    },
+    {
+      "path": "internal/dashboard/sop_dashboard_page_test.go",
+      "sha256": "0ec5bbd8ee706792c33d6a13ef9ca743f8e7ddcebed6c8999924113223c33564",
+      "size": 2801
+    },
+    {
+      "path": "internal/dashboard/sop_dashboard_test.go",
+      "sha256": "81311d376ee883906ba82fcf288add029bf1fcba9f1fbd6bb713a4e6f644ceec",
+      "size": 13989
+    },
+    {
+      "path": "internal/dashboard/sop_log_cron.go",
+      "sha256": "f66f7d62b30317144735403414b4f574b0b1dd3cb72afc956f39d9f9b94a68c1",
+      "size": 34457
+    },
+    {
+      "path": "internal/dashboard/sop_log_cron_test.go",
+      "sha256": "a88f231aaad991221bd54c014c0735e9ff89e6de66bd69a4c38fffa97008374a",
+      "size": 12179
+    },
+    {
+      "path": "internal/dashboard/statistic.go",
+      "sha256": "8d9426934b0cdd38cfaf21f968a218793c0d5b92f4a843f3cb8e3868ae0068ac",
+      "size": 18984
+    },
+    {
+      "path": "internal/dashboard/statistic_test.go",
+      "sha256": "c5724da2eb2568b710991a99fdcbffd74def4d55f39dd75897d338f78f62acd4",
+      "size": 9593
+    },
+    {
+      "path": "internal/dashboard/statistic_wecom.go",
+      "sha256": "11a0cd27b0ecd1964a045f48f9499f7d8dac13ad5a277c5e4163d566716ed966",
+      "size": 1027
+    },
+    {
+      "path": "internal/dashboard/user_admin.go",
+      "sha256": "4885516245d0571fdb466819957c36c914eba8f550273efa6a289c8ef38ec7b2",
+      "size": 24482
+    },
+    {
+      "path": "internal/dashboard/user_admin_test.go",
+      "sha256": "01682578efe0dcaea3bfc1f7d8bba85520e9265ce6a73a1a1022104ff5ee3283",
+      "size": 11807
+    },
+    {
+      "path": "internal/dashboard/wework_callback.go",
+      "sha256": "f0c6c85be8150c6c0fc3612f39a6e8ac1e6da3af3d6c4a4a469b9bf73d031eae",
+      "size": 8679
+    },
+    {
+      "path": "internal/dashboard/wework_callback_test.go",
+      "sha256": "74244844d0204034186b057457601872c33b9de8d72b91777ab6cd3009ce913e",
+      "size": 5874
+    },
+    {
+      "path": "internal/dashboard/wework_callback_worker.go",
+      "sha256": "ee07fcaa0835175a009bce3a42a1f6779e41dfd4d88260a7591c0fc9ac5db585",
+      "size": 39055
+    },
+    {
+      "path": "internal/dashboard/wework_callback_worker_test.go",
+      "sha256": "226319fe741dc2ceaf8b47214bbce70bbdfd624ddc37e47825e61650a4ee54fe",
+      "size": 74986
+    },
+    {
+      "path": "internal/dashboard/work_agent_cron.go",
+      "sha256": "cd4ba5807ffbf81e8739f9d405465a1e07497262fd0541f490a941733c03f692",
+      "size": 2683
+    },
+    {
+      "path": "internal/dashboard/work_agent_cron_test.go",
+      "sha256": "fab6c0ac5561df3d64d87c1f9a9a33551378f74a4cb998a9626e7039db7f36cf",
+      "size": 3257
+    },
+    {
+      "path": "internal/dashboard/work_contact_batch_labeling.go",
+      "sha256": "21f732f1e4f8ed25b85ffaf26a6cc239472342e2d1052babd4d093d910b85f8d",
+      "size": 1806
+    },
+    {
+      "path": "internal/dashboard/work_contact_batch_labeling_test.go",
+      "sha256": "a1e0737bc38bb5e20e26967af4b61166105c5414aa7a7c49b5974ed6760128c0",
+      "size": 2421
+    },
+    {
+      "path": "internal/dashboard/work_contact_sync.go",
+      "sha256": "7d1024390eeca5820a1b3754aa4edd45f8c61b2a0bcc89bd0f87ad17f22e851a",
+      "size": 9910
+    },
+    {
+      "path": "internal/dashboard/work_contact_sync_test.go",
+      "sha256": "290c8a2a1ca0acb6c9ce08034badfac465a026a45fb35d5d289e346f50a6fd96",
+      "size": 6958
+    },
+    {
+      "path": "internal/dashboard/work_contact_sync_worker.go",
+      "sha256": "bbf76b697ecec8fc1c22f693e357b77939af6225086d3da839b575cf793dbff5",
+      "size": 14715
+    },
+    {
+      "path": "internal/dashboard/work_contact_sync_worker_test.go",
+      "sha256": "9d92db22893b88a0b8c6dd6a118a2db604a8967bae2d4dcb1b0962754dfe6a83",
+      "size": 9348
+    },
+    {
+      "path": "internal/dashboard/work_contact_tag_sync.go",
+      "sha256": "08fc04b5aed2c9a7a61c462a19d9524df4a75a62b4ed08e9c238941b0ad038f0",
+      "size": 8072
+    },
+    {
+      "path": "internal/dashboard/work_contact_tag_sync_test.go",
+      "sha256": "65a1dd821831d73b4544d533d71e2bbb7d4d2be9f66227caba90913c66cf690a",
+      "size": 3782
+    },
+    {
+      "path": "internal/dashboard/work_contact_update.go",
+      "sha256": "9d93d6adab87be45c7477542aed2620d971f4d3e97d8abd51b84a858903a7bdb",
+      "size": 7908
+    },
+    {
+      "path": "internal/dashboard/work_contact_update_test.go",
+      "sha256": "89126ff292ee47b78dfb7fe0a60f326ee11359b4592149773a539e109988cf9d",
+      "size": 8238
+    },
+    {
+      "path": "internal/dashboard/work_department_list_worker.go",
+      "sha256": "b9f4f21eaace2ef8e1ffdf384e69966dd4ee0468d65ddc2deaebc7ff1d5f93f9",
+      "size": 10040
+    },
+    {
+      "path": "internal/dashboard/work_department_list_worker_test.go",
+      "sha256": "b99704ea0993e3982e34efa29c54f35ce22af289adce24c14ef01a519c25b5ec",
+      "size": 10381
+    },
+    {
+      "path": "internal/dashboard/work_employee_sync.go",
+      "sha256": "89deb784455700accc3b82fdbbe1958cbf8b9da54c852057f0eb8e1ec71a475f",
+      "size": 15021
+    },
+    {
+      "path": "internal/dashboard/work_employee_sync_runner.go",
+      "sha256": "c4637fcdf6dcd433a841fd5a4d9182da959b46275cf7cfb319e635415f4febee",
+      "size": 2572
+    },
+    {
+      "path": "internal/dashboard/work_employee_sync_test.go",
+      "sha256": "e9d3781744cba017cc81028fc6380a7a3609302c84c437feb535de098c2100ef",
+      "size": 6299
+    },
+    {
+      "path": "internal/dashboard/work_fission.go",
+      "sha256": "80df235f409260b6f30e8087ca5e753d3caa98e4668469d69cc47e426bca71f5",
+      "size": 49653
+    },
+    {
+      "path": "internal/dashboard/work_fission_oauth.go",
+      "sha256": "e2e1a681868a139a89e3e43d2769d8b3b5defafe770b1a9dd798d5c3dde6d7f2",
+      "size": 9775
+    },
+    {
+      "path": "internal/dashboard/work_fission_operation.go",
+      "sha256": "dd6f646215bf102d3d3d8b3909f4d883b70265e677b483b3e3f9555e970d6ebc",
+      "size": 16987
+    },
+    {
+      "path": "internal/dashboard/work_fission_test.go",
+      "sha256": "6347d79588e0aa018380b16b3d0731fc9be53eb54f68df59131e4e4209d6d3a4",
+      "size": 23966
+    },
+    {
+      "path": "internal/dashboard/work_message_archive_sync_cron.go",
+      "sha256": "0244dc42498a5bf2f86b9acf5fb57bbcc99ea872c6352ae529900edd568e8213",
+      "size": 12152
+    },
+    {
+      "path": "internal/dashboard/work_message_archive_sync_cron_test.go",
+      "sha256": "4ea3800448d8e2f56d59af1fc2c2fc32ef20c0b9505326a33397847c9720875b",
+      "size": 4943
+    },
+    {
+      "path": "internal/dashboard/work_read.go",
+      "sha256": "815f24cc72d71d554ee4072470cb02609c060c967da7e5f00fed13afa3d3920b",
+      "size": 94788
+    },
+    {
+      "path": "internal/dashboard/work_read_test.go",
+      "sha256": "4ef7c6244a6e987f984619d2b990d6faa1c62690dfbe37d07c9ee29f2e871572",
+      "size": 102351
+    },
+    {
+      "path": "internal/dashboard/work_room_auto_pull.go",
+      "sha256": "32225633f4acd61e2a54a3a1fffc37c04e9acbcf71af8fce6d18cf1fa9a31691",
+      "size": 21349
+    },
+    {
+      "path": "internal/dashboard/work_room_auto_pull_test.go",
+      "sha256": "7f551b4189bdd5266ceac82d24a9c181213f61fe125d4390ad8f222eb58481f1",
+      "size": 18878
+    },
+    {
+      "path": "internal/dashboard/work_room_auto_pull_wecom.go",
+      "sha256": "fdd81a8d2a1e64a82ad027155e88e789ace3ada2316ed809d86ca4129dbb3e31",
+      "size": 1695
+    },
+    {
+      "path": "internal/dashboard/work_room_batch_update.go",
+      "sha256": "32ddf6f24966a18d678664fddce72004542895e5e22100118457b054bb76d342",
+      "size": 2976
+    },
+    {
+      "path": "internal/dashboard/work_room_batch_update_test.go",
+      "sha256": "31de3a354d8f4cf5120ac0f173ac89047dba5b6e5d2b1221d3baf81463443e72",
+      "size": 5721
+    },
+    {
+      "path": "internal/dashboard/work_room_group.go",
+      "sha256": "1b2ca9dd87edcc45b63a835783fe923f13e90fc20a6cf2da431d80da3d44c370",
+      "size": 8613
+    },
+    {
+      "path": "internal/dashboard/work_room_group_test.go",
+      "sha256": "e5155eafca662b230b4e93eab13c79fa0ad8a7df15fefc0d7a60a9915552c446",
+      "size": 5868
+    },
+    {
+      "path": "internal/dashboard/work_room_sync.go",
+      "sha256": "83b209de36d68ebde9d3b368773e4371a2d23993272dd48f92232ef3d37c073a",
+      "size": 6484
+    },
+    {
+      "path": "internal/dashboard/work_room_sync_test.go",
+      "sha256": "7631704338cdac4ab5e8d614164062f5af2004c31fddebd121c77852d07366c3",
+      "size": 6003
+    },
+    {
+      "path": "internal/dashboard/work_room_sync_worker.go",
+      "sha256": "047ab287447a376441c5b1103c95f4adf284e807bebc64f7151fdc0f36e40b35",
+      "size": 10944
+    },
+    {
+      "path": "internal/dashboard/work_room_sync_worker_test.go",
+      "sha256": "54530e11a6ae59ff7abaa0faab5f0b74f84ef3395335102671fcca2cb661df4a",
+      "size": 7396
+    },
+    {
+      "path": "internal/dashboard/worker_execution.go",
+      "sha256": "1cba4e0c19cb5a4e8018786a8ec1356076c3e286a55a6923e37f9809efce14e9",
+      "size": 3944
+    },
+    {
+      "path": "internal/dashboard/worker_execution_test.go",
+      "sha256": "da4bb982319998cf0e72b8a10586c3ba986a785dd0ab0a22aa25a26dd86c2bc9",
+      "size": 5410
+    },
+    {
+      "path": "internal/frontend/static.go",
+      "sha256": "4507ad7a110151f2d10172a98dd64041a91d065fd60a98a2324c7e0a3a03a9a7",
+      "size": 6667
+    },
+    {
+      "path": "internal/frontend/static_test.go",
+      "sha256": "73e0ff202ab19c507347ee84357dd888dae7c989dc74368be1b1d8c623ebd591",
+      "size": 12065
+    },
+    {
+      "path": "internal/identitysecurity/cron.go",
+      "sha256": "db535f0c3e999c9057b937d99f895273fbea3b9eada3f5b0a2e797c84ed3ed1e",
+      "size": 841
+    },
+    {
+      "path": "internal/identitysecurity/crypto.go",
+      "sha256": "973e415815841e96fcbe4c834c017cc6702d80100375e8e5dc6ef2383ece7264",
+      "size": 5071
+    },
+    {
+      "path": "internal/identitysecurity/manager.go",
+      "sha256": "f65a94b7e4dbe56d38d45eb86a34b56b98284eadefc8462a987247b5e2521734",
+      "size": 25731
+    },
+    {
+      "path": "internal/identitysecurity/manager_test.go",
+      "sha256": "9ca67b01f81d26585bf06c380d4677bd66167932b2c15e467e385c7ec754745e",
+      "size": 12355
+    },
+    {
+      "path": "internal/identitysecurity/types.go",
+      "sha256": "c4838dfe0ff8e4afe52fe3ed8f1ade246c7fed250e5f177e60fc2174f5e5eb29",
+      "size": 16434
+    },
+    {
+      "path": "internal/inventory/inventory.go",
+      "sha256": "c3e9e8305f0a27e85c03f817fcd6f22c12b22dad6517354adbd938a15d35349c",
+      "size": 11025
+    },
+    {
+      "path": "internal/inventory/inventory_test.go",
+      "sha256": "2f6bfef58ac44970a58037c36e52622e7659b00819d6b93ead510e52b1521169",
+      "size": 3085
+    },
+    {
+      "path": "internal/migration/migration.go",
+      "sha256": "ea9903948d68e210cf4a310a9909ee872aa10c67e3dcb788a8232a9152a396f4",
+      "size": 13005
+    },
+    {
+      "path": "internal/migration/migration_test.go",
+      "sha256": "56b96e869945d272912ce819dbdcf018fb7b8ae3b421f095b538e0e79c80ecb2",
+      "size": 3798
+    },
+    {
+      "path": "internal/migration/sqlsplit.go",
+      "sha256": "298928c7aed0ce8dd87bac921358d72e7ec4d6ba3b7fe4bd6cc95f0cc56583f4",
+      "size": 2252
+    },
+    {
+      "path": "internal/migration/sqlsplit_test.go",
+      "sha256": "23c428391577b1630d114af629ad1debe8031879b920da7b78cc51b0abe30cd8",
+      "size": 1030
+    },
+    {
+      "path": "internal/mysqlconn/mysqlconn.go",
+      "sha256": "b174c1b959436c1508efa48cc3361e90a32ae191b3d8730c88b82445b77f5144",
+      "size": 1847
+    },
+    {
+      "path": "internal/mysqlconn/mysqlconn_test.go",
+      "sha256": "ae2e864047ed574ccca0b183ff7623174422918f7a5f348de96f47d91fff91dc",
+      "size": 1361
+    },
+    {
+      "path": "internal/outboundhttp/guard.go",
+      "sha256": "02cd2d1c380796afc429821312965b1d7c892ae1447b5c6afa1da39951a03d26",
+      "size": 11504
+    },
+    {
+      "path": "internal/outboundhttp/guard_test.go",
+      "sha256": "9beafe80ba2e920e3b35d507e5119633fbc8fc2362b1591c0d04835d47a86174",
+      "size": 5524
+    },
+    {
+      "path": "internal/saasalertcredentials/manager.go",
+      "sha256": "47134308bb7db7b2c1861e6c276c0b3aa709c5b13e8fe63dd0e94a7723f0754d",
+      "size": 6438
+    },
+    {
+      "path": "internal/saasalertcredentials/manager_test.go",
+      "sha256": "a5b2ede6275d97e93e30d51202c2522fa4a3c6e4a500e8be90224e619c2e75e0",
+      "size": 3921
+    },
+    {
+      "path": "internal/saasalertcredentials/source.go",
+      "sha256": "80b0178d411fba3068c8664dc69fa44fba499db18ff5a8592c50accb36f7d92d",
+      "size": 1184
+    },
+    {
+      "path": "internal/saasauditanchor/cron.go",
+      "sha256": "23e8a9dd293f5111e8d51b67ef3019c029845387dbaadedcda9203057f087b99",
+      "size": 1307
+    },
+    {
+      "path": "internal/saasauditanchor/manager.go",
+      "sha256": "917ee23bd8ba439797aa99224692ed3b5c0886ec890b5e771d5f3fb4d8838cd4",
+      "size": 25405
+    },
+    {
+      "path": "internal/saasauditanchor/manager_test.go",
+      "sha256": "3fc6ed7d70d577570ad58ebe6743c6be2bbce957e01beaecd06158e3b3d972d9",
+      "size": 15724
+    },
+    {
+      "path": "internal/saasauditanchor/remote_s3.go",
+      "sha256": "64c721711fc86121688b959fde3dee0bb269980ce871a0dc2669008db582c18b",
+      "size": 10570
+    },
+    {
+      "path": "internal/saasauditanchor/remote_s3_test.go",
+      "sha256": "1bf9a722e01ea67cff69a7bd33edd63d4dc4cc2ac21432413eed5d23d3d086ad",
+      "size": 2164
+    },
+    {
+      "path": "internal/saasauditanchor/types.go",
+      "sha256": "dff082136d84bcd692c47db02a5bc1bef97c062286e953e51f84abf4137606a8",
+      "size": 7594
+    },
+    {
+      "path": "internal/saasbackup/artifact.go",
+      "sha256": "039a1898e90f3685084f93e89e87af43a7a0400b7d660a86ccd63a56027651cc",
+      "size": 7819
+    },
+    {
+      "path": "internal/saasbackup/artifact_test.go",
+      "sha256": "b6590e48f51b4f17e593265982fc0d49562ba325fdbb5bfeba55079381899099",
+      "size": 5126
+    },
+    {
+      "path": "internal/saasbackup/cleanup_test.go",
+      "sha256": "f33a57fde01c6d8215ed9c159ebd3002382ef34f373247c58ae1fc1cc04631f2",
+      "size": 7906
+    },
+    {
+      "path": "internal/saasbackup/cron.go",
+      "sha256": "688d1ec4e8607719fddde8cbabc5e0a63f88b2fc8c73ba230cdaa3fc56f38be6",
+      "size": 975
+    },
+    {
+      "path": "internal/saasbackup/manager.go",
+      "sha256": "c803643c16d45518baa8afacf3e829c7b36d20011cc2eca602dcfb592febebe2",
+      "size": 47793
+    },
+    {
+      "path": "internal/saasbackup/manager_resilience_test.go",
+      "sha256": "1b6a7c2bc08ad23e427d5c8c155af4029fefe24092a5a7341fc8054bf5b4551d",
+      "size": 8916
+    },
+    {
+      "path": "internal/saasbackup/replica_s3.go",
+      "sha256": "88345f7b3d887e4d1eb23ceb5dd10b5afbeea335d6b25b32fafeb2e0e1bd4e66",
+      "size": 7168
+    },
+    {
+      "path": "internal/saasbackup/replica_s3_test.go",
+      "sha256": "aece5421b40c55a812f8c79af01aa35097d6bbcb8ae9f18cba1a731af04f883a",
+      "size": 1896
+    },
+    {
+      "path": "internal/saasbackup/types.go",
+      "sha256": "c9eca095d5c9b73f0fcd48a9df48a4036cb6791e0467987308d9f989c263c3a0",
+      "size": 14206
+    },
+    {
+      "path": "internal/saascompliance/artifact.go",
+      "sha256": "110b9e6c442aab9ba9b284642df05cd875beb968972be59cb50f674b7e9e5e59",
+      "size": 4338
+    },
+    {
+      "path": "internal/saascompliance/artifact_test.go",
+      "sha256": "019c94b61f3b365d07651b4c779c66bc208acd72698375e57ca07e93ec64878c",
+      "size": 4014
+    },
+    {
+      "path": "internal/saascompliance/cron.go",
+      "sha256": "d007255d4bb9ff5cdebabe4a9cfc1cd90ed8d2ca8c05d0a4b1a25b2c7ff0e75e",
+      "size": 835
+    },
+    {
+      "path": "internal/saascompliance/inventory.go",
+      "sha256": "6725dc9f44676a46fce707c4a421b1395f9534893c51bac516eff78c8614d815",
+      "size": 11959
+    },
+    {
+      "path": "internal/saascompliance/manager.go",
+      "sha256": "dd2a790c1623e61e60f702cde967a892d9b43c94cecc4bd908f4085d1e24b811",
+      "size": 43102
+    },
+    {
+      "path": "internal/saascompliance/types.go",
+      "sha256": "660542572e0accc49a59e4a3bd825d144fab6f7b6b94c3125efedcdc84eac1ce",
+      "size": 15264
+    },
+    {
+      "path": "internal/server/compat_manifest_embedded.json",
+      "sha256": "2b2ebf9d34229b3208e24281402b1bf3b17dc53b51f27a874e3e83a77eb15477",
+      "size": 46770
+    },
+    {
+      "path": "internal/server/server.go",
+      "sha256": "426f98f3836f9995a3c9da9239243847a4251915924f8da6f0cc179c2cea636b",
+      "size": 299181
+    },
+    {
+      "path": "internal/server/server_test.go",
+      "sha256": "5dc10c1fed38adf38a6b8adfcc5f603f09d5be4a8a149118bc7c2781509a608a",
+      "size": 232733
+    },
+    {
+      "path": "internal/serviceaccountkey/manager.go",
+      "sha256": "638135bed7a4d5a98e261127c5a54fe16d84ff91791e93a2c693025b232c81a3",
+      "size": 5816
+    },
+    {
+      "path": "internal/serviceaccountkey/manager_test.go",
+      "sha256": "6533656477763891a7f946ca5a9b7e6831fe05f746a9502433d0be52e0a8dfa6",
+      "size": 2229
+    },
+    {
+      "path": "internal/session/context.go",
+      "sha256": "524b0654281a560df5ec344b653d4869527102efc1051623047ec1928048e23e",
+      "size": 1838
+    },
+    {
+      "path": "internal/session/context_test.go",
+      "sha256": "4b208f58e772e39ca3626f49eabc2584cf9969bb1f4e78e5ef7814f45205695d",
+      "size": 2273
+    },
+    {
+      "path": "internal/store/auto_tag.go",
+      "sha256": "b583be51bd18932ca8e75333da4db91659de9d4ce1407418cf5a8fc5964224c1",
+      "size": 72400
+    },
+    {
+      "path": "internal/store/contact_transfer.go",
+      "sha256": "9a27e255ea82cb05aa7dd33259c145b948ccb8dd50bfd8836004027221866d4f",
+      "size": 14954
+    },
+    {
+      "path": "internal/store/lottery.go",
+      "sha256": "b6f888b758671648d1470fe20b5ac9899a3f517c6038badc921b9c67f2effb9d",
+      "size": 22715
+    },
+    {
+      "path": "internal/store/mysql.go",
+      "sha256": "4e7d93a08f06ab84979e3ba44477ddf5049af597a81f8d92042a8b33810f6398",
+      "size": 836413
+    },
+    {
+      "path": "internal/store/operation_h5.go",
+      "sha256": "c821936f06ab1993736a5bdc0fd93136d67691d1ea71fff8fbf843d6c5f05245",
+      "size": 22657
+    },
+    {
+      "path": "internal/store/radar.go",
+      "sha256": "10c7ef5accccc42aa15a86ea10a996a4f6c8d2bff9912ce4c58c48b7f5cbc6d4",
+      "size": 24820
+    },
+    {
+      "path": "internal/store/redis.go",
+      "sha256": "e5b5b080adba46b0aa525d5320cb28de215bee05909320b343f2b793cb181d55",
+      "size": 40346
+    },
+    {
+      "path": "internal/store/redis_integration_test.go",
+      "sha256": "66fa5e965fa4b93dfc1474d39ef7914416e1744821ae815bff2e753c9af22451",
+      "size": 21553
+    },
+    {
+      "path": "internal/store/redis_test.go",
+      "sha256": "8dba3e82aaaba2c7b18b88b1c3222c9b3680481c65173109a6a9bbb042a63106",
+      "size": 2495
+    },
+    {
+      "path": "internal/store/room_calendar.go",
+      "sha256": "97a7bc2f9280e2a355c46e30456305b9c21efd9286323c733404ef62ba5b6eea",
+      "size": 13280
+    },
+    {
+      "path": "internal/store/room_clock_in.go",
+      "sha256": "e073f333bc221239fdc1af675601a3d4472db30a0498bad93413cc0131faebab",
+      "size": 17720
+    },
+    {
+      "path": "internal/store/room_fission.go",
+      "sha256": "dd39160cf9cb49464a2c6cedb4d1404ef30c9aaa938d5f640b24ee6772daa6db",
+      "size": 33381
+    },
+    {
+      "path": "internal/store/room_infinite_pull.go",
+      "sha256": "722b6a9627e2552ea228b8611696eb4c7aee50455c7fd5ad46b569208c1a6316",
+      "size": 9839
+    },
+    {
+      "path": "internal/store/room_quality.go",
+      "sha256": "da204d314fbdb06a48db48b84a0dc58fffaec94d24590a59dc8c228d7bf49121",
+      "size": 10532
+    },
+    {
+      "path": "internal/store/room_remind.go",
+      "sha256": "567efc434def1c832af5acaec9cd364606cf4d3bdf6560810f2ba34c06276b1f",
+      "size": 7941
+    },
+    {
+      "path": "internal/store/saas_admin_access.go",
+      "sha256": "779d90e8c5570e5110b906690c6c88e0aa690e7453e13ca865e07cc133c9e209",
+      "size": 22924
+    },
+    {
+      "path": "internal/store/saas_admin_approval.go",
+      "sha256": "ef30ce3c128a2b817384763b732b97fab16f7448143f6fd148946d815b45abe0",
+      "size": 33807
+    },
+    {
+      "path": "internal/store/saas_admin_approval_governance.go",
+      "sha256": "abf5d3180da85c1a7368b273bb142ac3e7d2d6808303151aeb5a23e26652f141",
+      "size": 24463
+    },
+    {
+      "path": "internal/store/saas_admin_system_health.go",
+      "sha256": "799396f9108d3ddb15dbd571bc1d99d97f95123d2a59cfc7323e27b5d1a38a98",
+      "size": 46443
+    },
+    {
+      "path": "internal/store/saas_alert_credentials_test.go",
+      "sha256": "c83f242e10a299784724183f1c1c608792669a94099d6523253b9e83af10d2a5",
+      "size": 3810
+    },
+    {
+      "path": "internal/store/saas_audit_anchor.go",
+      "sha256": "34b89a8239b43ba0e3259bd51f1efc4a7bcbce56b622c712a0658f792c82e7b2",
+      "size": 18941
+    },
+    {
+      "path": "internal/store/saas_audit_integrity.go",
+      "sha256": "437cfa1e3d42d871cfd1887978432387b7b203e37da3a6a74219245085b2bf34",
+      "size": 25775
+    },
+    {
+      "path": "internal/store/saas_backup_cleanup.go",
+      "sha256": "7450020d5453b6723361f484229d76a3328a385c5af8dd2863fb622b01baba63",
+      "size": 27088
+    },
+    {
+      "path": "internal/store/saas_backup_recovery.go",
+      "sha256": "10f00ce2650828fa92e5779277741945a91c624729a3be891c9bf65087021216",
+      "size": 32977
+    },
+    {
+      "path": "internal/store/saas_branding.go",
+      "sha256": "2eee6fdbae77bbb4ab431d63138ad9c3a1d061ee04801e71128f8c0162be64f1",
+      "size": 10808
+    },
+    {
+      "path": "internal/store/saas_compliance.go",
+      "sha256": "135f8c3329eee512021b6f83f80c142ecfcac5a93b01f6f79e24a0146520e0ee",
+      "size": 67377
+    },
+    {
+      "path": "internal/store/saas_compliance_export_deletion.go",
+      "sha256": "0d90c6e49221ff0541857ebda7f9617a65a6557f942083fd14ae1c8ef05c4f2a",
+      "size": 12456
+    },
+    {
+      "path": "internal/store/saas_identity_security.go",
+      "sha256": "4b882e7a2d1c291758f27b0a5bf966260b5777cef4556dd6b5c4c02775352889",
+      "size": 70254
+    },
+    {
+      "path": "internal/store/saas_invoice.go",
+      "sha256": "bd92edd7d3fb6087b56e23a4c525efd5cb045bba54ccb1242956539cf7c47a92",
+      "size": 39329
+    },
+    {
+      "path": "internal/store/saas_payment.go",
+      "sha256": "2412d6fc29dc2a87ce85e807dd3921952225644fa4f3de6cf30ac32ae4088c56",
+      "size": 50610
+    },
+    {
+      "path": "internal/store/saas_refund.go",
+      "sha256": "7b80ce28851ae8a0f978a41fc65cd36b47e1262ff6569aa7f09e9c22b24630ab",
+      "size": 41653
+    },
+    {
+      "path": "internal/store/saas_release_readiness.go",
+      "sha256": "4ec8fd74b76b9ecc420a01d598e335f4ac9f656b6d187b609aa7d476c0dfb88a",
+      "size": 14953
+    },
+    {
+      "path": "internal/store/saas_service_account.go",
+      "sha256": "6942c0bf32ae19d1b46e3d12fe43108975c1c3357fd651693261d38a46be3af5",
+      "size": 55347
+    },
+    {
+      "path": "internal/store/saas_service_account_usage_alert.go",
+      "sha256": "d756cce7c359e83a0f16c01ba35db2c824fa7f6582082c48b9ef218e64169f73",
+      "size": 15491
+    },
+    {
+      "path": "internal/store/saas_settlement.go",
+      "sha256": "47751c59a167f00f2dec43172686788acec5520b05e9dcc71e060ba40d5e74e9",
+      "size": 51590
+    },
+    {
+      "path": "internal/store/saas_settlement_sync.go",
+      "sha256": "b3e21f4a8390fa7b91b6e3bd3fce767a1c341dcec805d3d0ba7f2a7fa22bdd4b",
+      "size": 21807
+    },
+    {
+      "path": "internal/store/saas_storage_test.go",
+      "sha256": "486683510a70cda9f3445909c4aab6db3ef9203228f6caeaf7e0c4d56cff8bb4",
+      "size": 11950
+    },
+    {
+      "path": "internal/store/saas_subscription.go",
+      "sha256": "285ad6b8db6db586976526e9722f77391c1a747960733b59baaa29c0036ffb4e",
+      "size": 34679
+    },
+    {
+      "path": "internal/store/saas_tenant_domain.go",
+      "sha256": "21fc27b5dedd732e26889b8e571dc33ebca00ca61d4c66305e473ee0db255e3f",
+      "size": 25767
+    },
+    {
+      "path": "internal/store/saas_tenant_domain_delivery.go",
+      "sha256": "3ff3548a5b980ff5e47eb18593d30b2f9b0920e7a888d13d2f58f88d02f217f1",
+      "size": 44279
+    },
+    {
+      "path": "internal/store/sensitive_word_monitor.go",
+      "sha256": "f7dbc907ba922e189e6adf72b9c3a8acf1243fa92e23faeccb17c644e6f0ae65",
+      "size": 7311
+    },
+    {
+      "path": "internal/store/shop_code.go",
+      "sha256": "1567232d81732e9693d024a7ff5faf4e6e4879df9a4ac96e599303b55f543482",
+      "size": 25268
+    },
+    {
+      "path": "internal/store/sop_log.go",
+      "sha256": "8bce7bcb59603f8ffe44a3d77bd52fd6baf9cb8c9e1a519194a80d3a62b4f16b",
+      "size": 9554
+    },
+    {
+      "path": "internal/store/wechat_open_credentials.go",
+      "sha256": "972a5e605e6e6aa0ee58e6c1925caef73e61f7ca40a0a0955e8acd9f70d4e071",
+      "size": 21495
+    },
+    {
+      "path": "internal/store/wechat_open_credentials_test.go",
+      "sha256": "60874532743e07331b4fe0aa1ae752f2103d7b21ecb452f425cd22dbdca0abc2",
+      "size": 4962
+    },
+    {
+      "path": "internal/store/wecom_credentials.go",
+      "sha256": "d9c80a5b40d827ab5917a96b15fa23bbb51aaf79fb013bcd5e6a028d4e8e1dff",
+      "size": 18407
+    },
+    {
+      "path": "internal/store/wecom_credentials_test.go",
+      "sha256": "db4664608a5b04aca3ff2b28b15d5bb9926c4f53f337dbe182a3576f899643c1",
+      "size": 6069
+    },
+    {
+      "path": "internal/store/work_message_archive_sync.go",
+      "sha256": "9ad3c6eefb6f0ffd98d69c9e5605715b7092712927dc71ecba1cfde76a6766e7",
+      "size": 11710
+    },
+    {
+      "path": "internal/taskrunner/sql_recorder.go",
+      "sha256": "ef8e121260698cfe657a9e2f5696e22097a92d5e0b29453fd2e66f867ad0575b",
+      "size": 10535
+    },
+    {
+      "path": "internal/taskrunner/taskrunner.go",
+      "sha256": "434bdafbc1829e198bf90473e7149bca430dda03ad71e93a5f179afc095a23f7",
+      "size": 9960
+    },
+    {
+      "path": "internal/taskrunner/taskrunner_test.go",
+      "sha256": "f13221bbb09d509a6e0acdca3649acec631c57b56ae80995da4a36014ef1bf19",
+      "size": 10838
+    },
+    {
+      "path": "internal/wechatopencredentials/manager.go",
+      "sha256": "71482083287e6f3c321dd7fdfdc8dd2de28a7d307f3836ac4a4a45823ba7699b",
+      "size": 8298
+    },
+    {
+      "path": "internal/wechatopencredentials/manager_test.go",
+      "sha256": "441af0929a62d7c7591f01ab65b7fb7bab845ab2cd414b531987883fbe99fca0",
+      "size": 3324
+    },
+    {
+      "path": "internal/wechatopencredentials/source.go",
+      "sha256": "f5655b67d60b1c23a73d84acac3c7ac0a83b8cf6256a4949c3ec5630d5d49e3d",
+      "size": 873
+    },
+    {
+      "path": "internal/wecomcredentials/manager.go",
+      "sha256": "2b88c421cbc8767db3607cccba207ff52193e3035a3fadcf0f086ab20caa4fc4",
+      "size": 7760
+    },
+    {
+      "path": "internal/wecomcredentials/manager_test.go",
+      "sha256": "800ee7d9a157fb3d8f32c377e603a16a2fb79ac9881f1466312652c99430afa5",
+      "size": 3943
+    },
+    {
+      "path": "internal/wecomcredentials/source.go",
+      "sha256": "fbd2e3fabfed5e7716066084c83703fdc2da38738c0e9359f2e748464709be95",
+      "size": 868
+    },
+    {
+      "path": "scripts/audit_acceptance_suite_coverage.sh",
+      "sha256": "09a4d868132d300eb4c0c52f246c8e10c4ffbfac332ba28c19cf91a86f8e1bad",
+      "size": 1161
+    },
+    {
+      "path": "scripts/audit_frontend_dist_api_coverage.sh",
+      "sha256": "64c5807c5ff76c5a4fde6d5ca5b4e1a17dd024b55606715452c6ff1cdb949fda",
+      "size": 7807
+    },
+    {
+      "path": "scripts/audit_functional_module_matrix.sh",
+      "sha256": "e8c85ad0c96be5b7529a4694ef9508722b3a9fc36eb4c6f9c5e3bd94be1d9a84",
+      "size": 38676
+    },
+    {
+      "path": "scripts/audit_goal_completion.sh",
+      "sha256": "99c961bd94d01d027d34fbc955c72bbfdb4ee806abac58d82b0d7876efdc7665",
+      "size": 23303
+    },
+    {
+      "path": "scripts/audit_login_corp_validation.sh",
+      "sha256": "9ed0dda673f75ab5773b20b4171729fdc732de7bcd71ec769f6589d57b98436c",
+      "size": 1532
+    },
+    {
+      "path": "scripts/audit_manifest_route_smoke_coverage.sh",
+      "sha256": "c16926163a10ea57c45b5aad14c50c8188e78e8a7b95ca3239837a6b4c6acd7d",
+      "size": 2222
+    },
+    {
+      "path": "scripts/audit_queue_annotation_coverage.sh",
+      "sha256": "7fbd72b9dca66bf5479071e07e10db212e6fb628886872ee92aeeb94269dd6e6",
+      "size": 10834
+    },
+    {
+      "path": "scripts/audit_saas_metric_coverage.sh",
+      "sha256": "fff1f13a568a223956d9fbcbdeadd6a611ed8c98967db9905823a4bff1039b6e",
+      "size": 3159
+    },
+    {
+      "path": "scripts/audit_saas_storage_reclaim_coverage.sh",
+      "sha256": "0e80a3e59985b24153d30ecf5d205a0d375b3eb14e31f89a979b676c966ec3d4",
+      "size": 5881
+    },
+    {
+      "path": "scripts/audit_standalone_independence.sh",
+      "sha256": "a3ca5fa648945b5690a242872ff464dd342faa4521b39b9d57be0cda74f5e2ef",
+      "size": 5015
+    },
+    {
+      "path": "scripts/audit_wework_callback_event_coverage.sh",
+      "sha256": "00f608bc42d81bf98bd3b3ef22f473c11f0a3427308ca0a780996fc75d739153",
+      "size": 3283
+    },
+    {
+      "path": "scripts/audit_worker_saas_usage_assertions.sh",
+      "sha256": "44087d16eaa8f6a5a828251d13cf44c4368e49ce6c8c4839f0e5d695a7a09678",
+      "size": 2010
+    },
+    {
+      "path": "scripts/capture_prod_frontend_evidence.sh",
+      "sha256": "ca8ef5a9d91c759e53121d9b9f5e46954f672744e38417d2bc338477bc7b15b6",
+      "size": 14501
+    },
+    {
+      "path": "scripts/capture_real_saas_tenants_evidence.sh",
+      "sha256": "089e53c735583f74cad3c0687dafe629e6ea85d8554e842189cbbe5403637a46",
+      "size": 13280
+    },
+    {
+      "path": "scripts/capture_real_wechat_open_evidence.sh",
+      "sha256": "15d10ecefc681e2a17c8e1d11a6839ec1f68f8eef71e3c9473499166d29012a7",
+      "size": 11805
+    },
+    {
+      "path": "scripts/capture_real_wecom_evidence.sh",
+      "sha256": "07c9126b2f082d3934da4ed4f8c50abc3b7eb22a6aa6707453142cb2e06a17f3",
+      "size": 11704
+    },
+    {
+      "path": "scripts/capture_stability_evidence.sh",
+      "sha256": "5b5e435251fb09015b2caabd8030c296d24c80f762da8e4a2067cbd7e821896d",
+      "size": 12537
+    },
+    {
+      "path": "scripts/ci_mysql57_amd64.sh",
+      "sha256": "c5a717eac2459615c5f3bd4803f0088cc1926f820e96145d3073f910219dc756",
+      "size": 823
+    },
+    {
+      "path": "scripts/collect_production_evidence_pack.sh",
+      "sha256": "e2b616b93f6cf748840c4c56a62cdcb435ec4c47a506a04428324d696ca11f31",
+      "size": 17858
+    },
+    {
+      "path": "scripts/collect_standalone_evidence.sh",
+      "sha256": "da271c41ebafd133581c511a2b468601b2f911f7ac0f71658b3126a58c9f92c6",
+      "size": 19401
+    },
+    {
+      "path": "scripts/import_mysql57_amd64_evidence.sh",
+      "sha256": "85825174965d61b76d92196be1171691f92b492cc7d245d17e99d85649abf114",
+      "size": 2952
+    },
+    {
+      "path": "scripts/init_production_evidence_pack.sh",
+      "sha256": "f22304f79814e861bd01b36fae4abdc110ad529a53f89c5f0933e3388ef582bc",
+      "size": 4736
+    },
+    {
+      "path": "scripts/lint_mysql57_schema.sh",
+      "sha256": "9533a4f96f081e8c579a5861d937bc7d86a839f5a78ce755c779c20ad2ea4a99",
+      "size": 1771
+    },
+    {
+      "path": "scripts/list_standalone_soak_processes.sh",
+      "sha256": "d044b24d79c2c3c2a1fc474d27c24d405bd088cd8e1de6cf96e2a306712b1f67",
+      "size": 1301
+    },
+    {
+      "path": "scripts/local_stack_check.sh",
+      "sha256": "3b2b56d124e0685113e092cd1ee69853145ccacabbeb583b7df2b98f779b776f",
+      "size": 19732
+    },
+    {
+      "path": "scripts/production_candidate_gate.sh",
+      "sha256": "a6f6bdf0798a752025a1638cdb00d0dfb6f53613c694e6ab48a4c55b6d67d914",
+      "size": 10945
+    },
+    {
+      "path": "scripts/production_evidence_check.sh",
+      "sha256": "2ef0695e207f4b5333bb8565f61e99ddd0102f6bcccc9da8f3ad23b46ca1b33f",
+      "size": 19802
+    },
+    {
+      "path": "scripts/production_evidence_doctor.sh",
+      "sha256": "e116a45d859e9985ccc40e72471882c212c678bae0c8ff462d0fe112d13c2c10",
+      "size": 21203
+    },
+    {
+      "path": "scripts/production_evidence_env_preflight.sh",
+      "sha256": "ccd6d3b359627daf21e4f88d65b40873ad1da06688a7831927ad999093bc8723",
+      "size": 17637
+    },
+    {
+      "path": "scripts/production_url_guard.sh",
+      "sha256": "512658580f9659025c51cf6b99dd5527887a4f6f87ee04efdc612f8e8659b85e",
+      "size": 1152
+    },
+    {
+      "path": "scripts/smoke_admin_core_dashboard.sh",
+      "sha256": "5c87298e6a5eb949a886a0cfc6b89a13a09cce5c01111aca26271cc17c0de0e8",
+      "size": 19544
+    },
+    {
+      "path": "scripts/smoke_async_file_upload_saas_usage.sh",
+      "sha256": "21620173fec4aa8e060d1d35f594320cb1d6737af9162ace77ceea70579c28f7",
+      "size": 12539
+    },
+    {
+      "path": "scripts/smoke_async_file_upload_worker.sh",
+      "sha256": "95b4953dfb8a4d69c8b147e6808d76e1ff306d2aa1269c4d9b2980026a287942",
+      "size": 5893
+    },
+    {
+      "path": "scripts/smoke_auto_tag_dashboard.sh",
+      "sha256": "c0fdaa2fb1911f5a5592f71e3b57b675bc49e3300144950691ebed414ba06ec0",
+      "size": 23966
+    },
+    {
+      "path": "scripts/smoke_auto_tag_keyword_task.sh",
+      "sha256": "5ebf2f0cafd44cfd7035fc0c2c532db6cdcbbeb84928bf44c8dd6eb6fa1767dd",
+      "size": 19688
+    },
+    {
+      "path": "scripts/smoke_bootstrap_standalone.sh",
+      "sha256": "673454917c51c17fdaef6c201d0bbf09175648289b1eeab03e4b44a8b95ffd8e",
+      "size": 12610
+    },
+    {
+      "path": "scripts/smoke_channel_code_cron.sh",
+      "sha256": "f4ee2897579e60931fa4d73bb6e3766a468b1dec750514528f3fe1c3b91d3587",
+      "size": 9936
+    },
+    {
+      "path": "scripts/smoke_channel_code_dashboard.sh",
+      "sha256": "d51b82e15a28428b8a7a1f666cdb460ad288d6a41b2f381155aa75c74b2bfc85",
+      "size": 25050
+    },
+    {
+      "path": "scripts/smoke_contact_batch_add_dashboard.sh",
+      "sha256": "5c9a3eced6e18f03180fffa176f3d02c3c68f7dc9191b54e9319844f2aa5a7f3",
+      "size": 17157
+    },
+    {
+      "path": "scripts/smoke_contact_batch_send_cron.sh",
+      "sha256": "f429f3c76b5a769aa1a93b220ff68df716370a2cb601d88d9260ed5d0e128ead",
+      "size": 9480
+    },
+    {
+      "path": "scripts/smoke_contact_message_batch_send_dashboard.sh",
+      "sha256": "5bc2993033281224e9da020c9dd6e33065ea054ae712126f20cffad26fd7a4ce",
+      "size": 24815
+    },
+    {
+      "path": "scripts/smoke_contact_sync_send_result_cron.sh",
+      "sha256": "201bc0f6d4245bfb158cdd7ca7f8b6b7f8a1e358814dc178e620afa483329c6d",
+      "size": 10316
+    },
+    {
+      "path": "scripts/smoke_contact_transfer_dashboard.sh",
+      "sha256": "ee68aeba4a0ce843c660ff7b9aea6cc678dda9b6e805e029c896a14de0f63ee1",
+      "size": 18326
+    },
+    {
+      "path": "scripts/smoke_corp_data_cron.sh",
+      "sha256": "bb5cce1ff76cd24e9759e59b65fd39ac913b96274aa2ae711087743134e78f0c",
+      "size": 8250
+    },
+    {
+      "path": "scripts/smoke_dashboard_frontend_login.sh",
+      "sha256": "0199c22356ab5c82657cd850a8ee8b0949ca9e9782d358af4cf0c924b94c858e",
+      "size": 84212
+    },
+    {
+      "path": "scripts/smoke_employee_apply_worker.sh",
+      "sha256": "e7d14127742a42d4fcb80b5f4b91ca3b22d26e00a991d17fc75cd05579ac46a9",
+      "size": 31278
+    },
+    {
+      "path": "scripts/smoke_employee_statistic_cron.sh",
+      "sha256": "b36760ad9bce84e176d631dbf4cdcdfae70285c05b7a002d7642cd77940d39ce",
+      "size": 9528
+    },
+    {
+      "path": "scripts/smoke_employee_statistic_worker.sh",
+      "sha256": "84586d00337d07e68d701a2568469f658c384226e4939688a897102415e9038a",
+      "size": 11245
+    },
+    {
+      "path": "scripts/smoke_fallback.sh",
+      "sha256": "e7378e0ffa159018664723bbba4cff0c3fb4579b91681989840dbfba4b831d76",
+      "size": 7114
+    },
+    {
+      "path": "scripts/smoke_frontend_static_browser.sh",
+      "sha256": "2562b0d3987006f611fe004dcb1659a357511aab4d676a5bac3040c0edf3a7c8",
+      "size": 5834
+    },
+    {
+      "path": "scripts/smoke_greeting_dashboard.sh",
+      "sha256": "9b690be4e25c10ec7e2d2b385eeb632d69313864cdaf6ae7f32470da28bb0db5",
+      "size": 14469
+    },
+    {
+      "path": "scripts/smoke_independent_package.sh",
+      "sha256": "df02979384fa444458fd604b7667412df99ecb8ec5c5e621294c361df5399ed5",
+      "size": 6185
+    },
+    {
+      "path": "scripts/smoke_lottery_dashboard.sh",
+      "sha256": "2ecdd79ccecc9f1cd78c5a48546cc269b67d36b8e934e219275a27acb32b313f",
+      "size": 19373
+    },
+    {
+      "path": "scripts/smoke_mark_tags_worker.sh",
+      "sha256": "d72f08e9f80e19cc02e4c4f25cb775b9d22ce35ccfaadfea9dde5ec3597359b5",
+      "size": 11991
+    },
+    {
+      "path": "scripts/smoke_media_id_update_cron.sh",
+      "sha256": "ddb6f90bcb8e16ebf790d889a113da1cea07e59b5ebd311164aa03ff330533e0",
+      "size": 7476
+    },
+    {
+      "path": "scripts/smoke_media_id_update_worker.sh",
+      "sha256": "984fb7155b1ebe03e42cb94ff1f8fb4c921fe51f5e1e16af49e71111d7570c75",
+      "size": 10601
+    },
+    {
+      "path": "scripts/smoke_message_remind_worker.sh",
+      "sha256": "5652620d77e49f3dc1138aef4d9ba095c9534dcbace85fa6184c1478617bf02c",
+      "size": 10144
+    },
+    {
+      "path": "scripts/smoke_mysql57_schema_migrate.sh",
+      "sha256": "add0ebffc4ea13adaab6f97869c489febdeeca53d76689e4c3423e380cb9aaae",
+      "size": 36799
+    },
+    {
+      "path": "scripts/smoke_official_account_ticket.sh",
+      "sha256": "d93831a91872c2e7aa8189f61e7d2b88f4d61fce861b1beeaf011af3b7b27ab9",
+      "size": 40266
+    },
+    {
+      "path": "scripts/smoke_operation_frontend_work_fission.sh",
+      "sha256": "3da729f8a8095aafe6669e588ae9cd69576afd41438ad186cdabb9940297595b",
+      "size": 25161
+    },
+    {
+      "path": "scripts/smoke_production_evidence_gate.sh",
+      "sha256": "7b46915ce728cb9b11a212857471cf5a32b1982f6534c4ce067bb953f03c8d92",
+      "size": 41488
+    },
+    {
+      "path": "scripts/smoke_pull_agent_cron.sh",
+      "sha256": "dfb12cf6b37e98a03838ebc1f77e08c2839fc7d4fa18eaa7345696b07669b0d4",
+      "size": 7706
+    },
+    {
+      "path": "scripts/smoke_queue_idempotency.sh",
+      "sha256": "50c6b6d23a76911c86dccffa76e4dd6b7e809010a4d1f2ca918b436bf53067d1",
+      "size": 1331
+    },
+    {
+      "path": "scripts/smoke_radar_dashboard.sh",
+      "sha256": "677242fffe428ff2c5c17d8641945657ca39efc9264b17d02e47e1590ea232db",
+      "size": 19387
+    },
+    {
+      "path": "scripts/smoke_real_php_auth_chain.sh",
+      "sha256": "da0133098c65700e3a05930e59a4f617a92df7275f14ecb96c5e81276c233d4b",
+      "size": 266156
+    },
+    {
+      "path": "scripts/smoke_room_batch_send_cron.sh",
+      "sha256": "2508128e45637824311648603dcb7c029d663bd69f9ac799b96df5903656ebd2",
+      "size": 9090
+    },
+    {
+      "path": "scripts/smoke_room_calendar_dashboard.sh",
+      "sha256": "3ae63b0b055c4ab768209027eca9acf38be1f75cd33aa8f7ec6fc3c3900489dc",
+      "size": 15907
+    },
+    {
+      "path": "scripts/smoke_room_clock_in_dashboard.sh",
+      "sha256": "02474a54d7f11c611a90771c35dee5baa392474d9f5977163b143d8dedfead8b",
+      "size": 19936
+    },
+    {
+      "path": "scripts/smoke_room_fission_dashboard.sh",
+      "sha256": "38efa808164259029b5baa8aa1fc80cd3ebd7ea9f09fb8b293c90beb27ea7c3c",
+      "size": 21966
+    },
+    {
+      "path": "scripts/smoke_room_infinite_pull_dashboard.sh",
+      "sha256": "9e64465638b366fecfb4a6a6bf110201c3a27a1f5e42bc1f279f96bdbcfe8bfa",
+      "size": 14916
+    },
+    {
+      "path": "scripts/smoke_room_message_batch_send_dashboard.sh",
+      "sha256": "6ce84bd2de80b86dd0e730c46fd48998d4c0d25dfe5f8b4fe98989f7733b898d",
+      "size": 21507
+    },
+    {
+      "path": "scripts/smoke_room_quality_dashboard.sh",
+      "sha256": "0601f70e97f15b4195290f34ad547c096b2d31367d19ea81717008ae35132d6f",
+      "size": 16000
+    },
+    {
+      "path": "scripts/smoke_room_remind_dashboard.sh",
+      "sha256": "1d862296f40a3deef0582d4a6b796dec21012714aae6ee78547b7f292ccb5344",
+      "size": 15034
+    },
+    {
+      "path": "scripts/smoke_room_sync_send_result_cron.sh",
+      "sha256": "daa74f95e2fc62ed8c9ea17f21a811118e9780bf52ac50335315a855229d56ef",
+      "size": 9948
+    },
+    {
+      "path": "scripts/smoke_room_tag_pull_cron.sh",
+      "sha256": "d58862b9220c0397e4dabaee248c97349c96a919d26ae12a232879fcfb438140",
+      "size": 9299
+    },
+    {
+      "path": "scripts/smoke_room_tag_pull_dashboard.sh",
+      "sha256": "34b5c07670cfe234a731bd7b0b7c808b13682c4976712485dc46e78e970125c9",
+      "size": 24395
+    },
+    {
+      "path": "scripts/smoke_room_welcome_dashboard.sh",
+      "sha256": "c16cf60219073de1df92e03105e59c14f8e08e61968bcbf269b74c87e0c57669",
+      "size": 15047
+    },
+    {
+      "path": "scripts/smoke_saas_admin_access_rbac.sh",
+      "sha256": "e49ea2521504d80377f3aa346cd015fa5d93b8e7b7cfb2449b6961a9aaf3b0d2",
+      "size": 22043
+    },
+    {
+      "path": "scripts/smoke_saas_admin_approval_governance.sh",
+      "sha256": "6fc311a6efd30d825939e5c76b6aa8536aa8a6e128514af8ba82049375a6840b",
+      "size": 31881
+    },
+    {
+      "path": "scripts/smoke_saas_admin_approvals.sh",
+      "sha256": "76955f996ddf9a060123a82928b5d38782f775c6a6998d5af387d5f2eabfe786",
+      "size": 28071
+    },
+    {
+      "path": "scripts/smoke_saas_admin_dashboard.sh",
+      "sha256": "a50f24eb6bd32f453b38a2cf7004a5efdfb519480e8284fba02bebb6e0cb7fc2",
+      "size": 293192
+    },
+    {
+      "path": "scripts/smoke_saas_admin_system_health.sh",
+      "sha256": "1aeb398173a5a371fe97987364e4af20dbb18b36609a7e01df1ebd92038050e1",
+      "size": 26371
+    },
+    {
+      "path": "scripts/smoke_saas_alert_notification_cron.sh",
+      "sha256": "783e6b185e6c3b115fe3bc1af588e63fa995b41a9adcaf56f2f084e82fbc43ba",
+      "size": 9248
+    },
+    {
+      "path": "scripts/smoke_saas_alert_setting_dispatch.sh",
+      "sha256": "a6267ec15142d09b1b84d58378cdd710a4535cae2b5ef87468c87f1b1a5fe4f1",
+      "size": 26906
+    },
+    {
+      "path": "scripts/smoke_saas_audit_anchor.sh",
+      "sha256": "562fd9c49ae1fe3c512f8aab4fb9429b89b3238d821cd62b6877129bdfa3c4a3",
+      "size": 341
+    },
+    {
+      "path": "scripts/smoke_saas_audit_integrity.sh",
+      "sha256": "94e504c9a939e4ba87ff529df0aa343b40eeed928d6cd52dc98815318890948e",
+      "size": 27249
+    },
+    {
+      "path": "scripts/smoke_saas_backup_recovery.sh",
+      "sha256": "9888dc3f2051e73e50d168079e7d975e2bca8302097179753d9687e1871e03df",
+      "size": 40945
+    },
+    {
+      "path": "scripts/smoke_saas_billing_invoices.sh",
+      "sha256": "5ca62685ea398a02fdba0a307adb37b023d585deb54a1e5b2195fe7ad964c636",
+      "size": 28382
+    },
+    {
+      "path": "scripts/smoke_saas_branding.sh",
+      "sha256": "ee79c3a63a241a6477dd05d275961b98b46c3c1c3972c9d54d0d79807bf5970c",
+      "size": 16789
+    },
+    {
+      "path": "scripts/smoke_saas_compliance_lifecycle.sh",
+      "sha256": "01243d84b28359ec7eb6ee52cf79c95bff0ac0f57a7443ee44bba33bcf25abed",
+      "size": 45379
+    },
+    {
+      "path": "scripts/smoke_saas_identity_security.sh",
+      "sha256": "cf24818b38fea8aa6318f19f048732417586f949c1440fc1579739ba2db49a95",
+      "size": 30674
+    },
+    {
+      "path": "scripts/smoke_saas_invoice_issue_approval.sh",
+      "sha256": "4d016f4e6da51723c75237611851dad2043f20a29d4e7a8185c82283dbe41182",
+      "size": 22539
+    },
+    {
+      "path": "scripts/smoke_saas_notification_health_recovery_cron.sh",
+      "sha256": "a1fd619a4eb2d49e9cb277d95879a33c00dc5d0b380e258f57c52cb0bfe4d474",
+      "size": 11787
+    },
+    {
+      "path": "scripts/smoke_saas_notification_slo.sh",
+      "sha256": "4ff22e3812a23c78571dd1ca849ca598af093b920ec0ccd6b6c5beceb3066acb",
+      "size": 14933
+    },
+    {
+      "path": "scripts/smoke_saas_operation_queue_assignment_reminder_cron.sh",
+      "sha256": "91b221e0131048661c6352f2e2339600797bcacb6f827ed1c4e103a9624d4b47",
+      "size": 10184
+    },
+    {
+      "path": "scripts/smoke_saas_package_definition_approval.sh",
+      "sha256": "e3c28f4b03f571bda17aa8e95c778920a40242444e7c29e97e24a26294141185",
+      "size": 18791
+    },
+    {
+      "path": "scripts/smoke_saas_payment_collection.sh",
+      "sha256": "698adc675a3156255e798c06e3104b82f035b9c59a5d0b6ace3d62d805ba4436",
+      "size": 23887
+    },
+    {
+      "path": "scripts/smoke_saas_payment_refunds.sh",
+      "sha256": "c77959d1372db18979bfb0ad77c2a7768148fad2233f590315820d7de2cbcabe",
+      "size": 24661
+    },
+    {
+      "path": "scripts/smoke_saas_payment_settlement_sync.sh",
+      "sha256": "938a95e139dadfde9ae5863f8aeb9e1d3e28eed7fcaf84898a16bc54df9f5d45",
+      "size": 16115
+    },
+    {
+      "path": "scripts/smoke_saas_payment_settlements.sh",
+      "sha256": "feb95a2c72165978b27bfe25f4f3e1405e4f24457eda989fe8605666dfb1d7e1",
+      "size": 24166
+    },
+    {
+      "path": "scripts/smoke_saas_provisioning.sh",
+      "sha256": "f32a7b161b1a440feb5dad035c9289afb4cffc8d1e3098e1d6430a236ee25841",
+      "size": 11222
+    },
+    {
+      "path": "scripts/smoke_saas_quota_enforcement.sh",
+      "sha256": "5171544cbd1e1338a7d2714692e43bbe3d3e85cc6db2a95c1f45b7f113e8258f",
+      "size": 50581
+    },
+    {
+      "path": "scripts/smoke_saas_release_readiness.sh",
+      "sha256": "d249f7367d78c75b2f11a2c7ab0960f50220680439a218a7e3f34df4f32dec40",
+      "size": 53222
+    },
+    {
+      "path": "scripts/smoke_saas_service_accounts.sh",
+      "sha256": "f1bf458db9adf7c0172b2339218cdfdb416373a35d29aaf5cc127290c781c917",
+      "size": 61663
+    },
+    {
+      "path": "scripts/smoke_saas_storage_reclaim.sh",
+      "sha256": "fbe5699548a4cb590c3a59a39ae1f959e290cbc4f2e0294dd3fcef67dd447fbc",
+      "size": 62058
+    },
+    {
+      "path": "scripts/smoke_saas_storage_reconcile.sh",
+      "sha256": "48ad26982f7537f9fc205e998090c7d44479fda507a8ed8ea701ad8b7ab84537",
+      "size": 9027
+    },
+    {
+      "path": "scripts/smoke_saas_subscription_lifecycle.sh",
+      "sha256": "e6490c779fede58fef690e830384013f4ff57c8b5539757c64152931dc2d90c6",
+      "size": 18003
+    },
+    {
+      "path": "scripts/smoke_saas_subscription_transition_approval.sh",
+      "sha256": "f3e9fe4e138bc74ce09fe6eb516cd7ab0a546cb2decc881f7e35d71877ed961c",
+      "size": 21813
+    },
+    {
+      "path": "scripts/smoke_saas_tenant_domains.sh",
+      "sha256": "4aab5a2fbe35355dc3b9445c9ecf13fcda2f99d8b7c0106e50370d75fc4e0e1d",
+      "size": 32996
+    },
+    {
+      "path": "scripts/smoke_saas_tenant_isolation.sh",
+      "sha256": "e67331a919b24d8df25f129aeafdd5d5ea60f7e2dd5970c5cdaa9ccef3f1009c",
+      "size": 19619
+    },
+    {
+      "path": "scripts/smoke_saas_tenant_package_assignment_approval.sh",
+      "sha256": "cc37c90e23e157e43a05b5801f2c32ec5fc3cd60f1bea0d2a21139426b359d97",
+      "size": 19556
+    },
+    {
+      "path": "scripts/smoke_saas_tenant_provision_approval.sh",
+      "sha256": "277e1ba207124c5fc113059cf6aebbc50357d0b5ac30bcdaccfa623581f9a6a8",
+      "size": 26120
+    },
+    {
+      "path": "scripts/smoke_saas_tenant_renewal_approval.sh",
+      "sha256": "396717c6449c437b56e878ffaf7f612098c3a0c58aad9d60c4f17b694712a83c",
+      "size": 25756
+    },
+    {
+      "path": "scripts/smoke_saas_usage_refresh.sh",
+      "sha256": "c0bf62f0c4350efbe11d042553962903323e5bdf201a88ab803ae61608e5e261",
+      "size": 17963
+    },
+    {
+      "path": "scripts/smoke_schema_migrate.sh",
+      "sha256": "9ae40c7af5ef0dd476006f043a38464cfec375a4bc470f453dbbb812fec324a5",
+      "size": 167880
+    },
+    {
+      "path": "scripts/smoke_sensitive_word_dashboard.sh",
+      "sha256": "4549f8c398be657e443e19fa9a33cc3a05c02e9ec212eca7b1473162b6c6a9c7",
+      "size": 15513
+    },
+    {
+      "path": "scripts/smoke_sensitive_word_monitor_cron.sh",
+      "sha256": "6e318ffe240d2bde2fb8f0eee92a4764102b391579436977b2cd4a037272d208",
+      "size": 11234
+    },
+    {
+      "path": "scripts/smoke_shop_code_dashboard.sh",
+      "sha256": "23914108ad4babda81b57f05d5385db1e7711ceb45d72bd3f7c5a3b856f9b873",
+      "size": 18786
+    },
+    {
+      "path": "scripts/smoke_sidebar_frontend_contact.sh",
+      "sha256": "1a8000da9f1a20e238d7f82f3c9b8a562f5bbc60d0e8bc87cb5c89ff0b8e580e",
+      "size": 36311
+    },
+    {
+      "path": "scripts/smoke_sop_dashboard.sh",
+      "sha256": "8927b040ab2b827a18c407999a5f56fd93b392f9767b466658c0ba5aa8dfff71",
+      "size": 19392
+    },
+    {
+      "path": "scripts/smoke_standalone.sh",
+      "sha256": "696da209e74baa6c0a0b41d7028f272ce8f280dd073770e0a71d4024ca260622",
+      "size": 4917
+    },
+    {
+      "path": "scripts/smoke_standalone_compose_app.sh",
+      "sha256": "f9fd4f1e6d80ad19831d5b976967bf00591582937b1ee6ae5b7457760dfb4bf3",
+      "size": 35311
+    },
+    {
+      "path": "scripts/smoke_transfer_state_refresh_cron.sh",
+      "sha256": "2b9b363872a850133e5d3f8aafac847fe8150ff2003d9587d68c3f1e839c4e2d",
+      "size": 8198
+    },
+    {
+      "path": "scripts/smoke_wecom_credential_encryption.sh",
+      "sha256": "1791969b2c0495ab5e4a11e3e39ada5cd179ac6a54b6c77542d6fbdb21eecb88",
+      "size": 18715
+    },
+    {
+      "path": "scripts/smoke_wework_callback_worker.sh",
+      "sha256": "8ba57ae6ca423eae5acff652e8e3752b18b5ba03fdbd8ca82df2e0fb884efa25",
+      "size": 75270
+    },
+    {
+      "path": "scripts/smoke_work_contact_sync_worker.sh",
+      "sha256": "68818e32be1d5c002739b183ed38839bdc1df868a6fcaf843feb600c95e79048",
+      "size": 15982
+    },
+    {
+      "path": "scripts/smoke_work_contact_tag_remote_write.sh",
+      "sha256": "e6ba4acb3bdec62fa29b547139463360da46130790c8155d6f28eaa5bd9249a9",
+      "size": 14644
+    },
+    {
+      "path": "scripts/smoke_work_department_list_worker.sh",
+      "sha256": "496034af4426bde73752f648115ed3bd0300b9e057dc12712c122211d60b540e",
+      "size": 13848
+    },
+    {
+      "path": "scripts/smoke_work_fission_dashboard.sh",
+      "sha256": "9d049209dbcd224b1856f2a28d249f04d8820e67fdd31d4af9192fe66c404bf4",
+      "size": 33930
+    },
+    {
+      "path": "scripts/smoke_work_message_archive_sync_cron.sh",
+      "sha256": "2c25c3a4475dcb5d867d8b41968ee2d69d216674a2f420a381a0ee2593d63c87",
+      "size": 13076
+    },
+    {
+      "path": "scripts/smoke_work_room_auto_pull_dashboard.sh",
+      "sha256": "23c655dabe444f0eef7c7553c6f9c9973614b9c1f32ac24645b2bd052452d4c3",
+      "size": 19012
+    },
+    {
+      "path": "scripts/smoke_work_room_sync_worker.sh",
+      "sha256": "6e86c8f32966862cb000dc7700c38a435f2b4c7040e7421f3e7feedb16d53cc8",
+      "size": 12533
+    },
+    {
+      "path": "scripts/source_fingerprint.py",
+      "sha256": "2e07354210abdd4996f4eec78922470eefd07f710b6f3810364cf7245b29882d",
+      "size": 4546
+    },
+    {
+      "path": "scripts/standalone_acceptance.sh",
+      "sha256": "e5ffe5b73431ad9ad9d2abe0632721b7c1d9322d44e2caa5e4f273d258ea32de",
+      "size": 13163
+    },
+    {
+      "path": "scripts/standalone_inventory_parity.sh",
+      "sha256": "570e99a38edac782d39fe0066ae6a1649f9cec3bd19f7a671c35ffc380de3036",
+      "size": 2445
+    },
+    {
+      "path": "scripts/standalone_route_coverage.sh",
+      "sha256": "95ab5f6eec3bb2b14f7da26be0e35aea3433cc492397f84ea0707667b8fbb730",
+      "size": 5910
+    },
+    {
+      "path": "scripts/standalone_soak_24h.sh",
+      "sha256": "4d3e6f586fffeddb51e9f67b260f0a792e9c580ed2c1881e2d532bfd087e0a16",
+      "size": 10584
+    },
+    {
+      "path": "scripts/standalone_stack_check.sh",
+      "sha256": "ff0c071c76d04552a7bd9645a6ce7fc48dfc83b8ccb51caf99fa0f6cfd38efab",
+      "size": 7754
+    },
+    {
+      "path": "scripts/standalone_stage_report.sh",
+      "sha256": "9061687c4a8aa638a44d556fb9229aa5911b0b63b82ef0cf4a0ade007e453bb3",
+      "size": 11527
+    },
+    {
+      "path": "scripts/sync_frontend_dist.sh",
+      "sha256": "7fa29a47aabc5e45511cfc00df7b10cd03756a38bda6b1ab21e66c4e44a847c8",
+      "size": 622
+    },
+    {
+      "path": "scripts/test.sh",
+      "sha256": "7ab5c0b8e44434e04ae5b83415741eedae4f9ba38025329d0530c76327d43bb6",
+      "size": 820
+    },
+    {
+      "path": "web/dashboard/dist/assets/avatar-default.af3289da.svg",
+      "sha256": "8e4c1422ecfafc36a24a4a3b191b6fb37ae63064dd5e55ed833a076aea5e86df",
+      "size": 1741
+    },
+    {
+      "path": "web/dashboard/dist/assets/avatar-room-default.67bead38.svg",
+      "sha256": "0bdeca037dad797950e045c3ed99867064aad57c3808a89a09f04f49bb6b4fd3",
+      "size": 5377
+    },
+    {
+      "path": "web/dashboard/dist/assets/default-cover.png",
+      "sha256": "e43cee47af4d6604447885c6e96b78fdf6b353da5b30d00fed193684ce841d3b",
+      "size": 13057
+    },
+    {
+      "path": "web/dashboard/dist/css/app.1ab4121d.css",
+      "sha256": "fb76703ace465704a853d322ee95ac65e76f3921c0d755541056a4f61df2f902",
+      "size": 60055
+    },
+    {
+      "path": "web/dashboard/dist/css/app.1ab4121d.css.gz",
+      "sha256": "e2714efb513b96202a9038525e5156a27279eb711e7d4ef8d6595be503d48e6a",
+      "size": 9065
+    },
+    {
+      "path": "web/dashboard/dist/css/auto-tag.400f69dd.css",
+      "sha256": "2d77b77ee3bd54c1062ad04e292aec39b5ece53a6ad4a45d40fb4738bfcfedd5",
+      "size": 19665
+    },
+    {
+      "path": "web/dashboard/dist/css/auto-tag.400f69dd.css.gz",
+      "sha256": "def8ce3eb823d74e4b06252c52155abad73c076d2e165e73c216ee7726f1de53",
+      "size": 2523
+    },
+    {
+      "path": "web/dashboard/dist/css/auto-tag~contact-message-batch-send~room-tag-pull.3ffd50ee.css",
+      "sha256": "2c86448814a05a2bee25d9864d3918c398c5e4b41be6b4970d84c48006402860",
+      "size": 4840
+    },
+    {
+      "path": "web/dashboard/dist/css/channel-code.d2ff0fc1.css",
+      "sha256": "589f9a6a22d1ca2f298022f6ba29eacb8f987f0b5cf0e916bd0aa0fc5d645f90",
+      "size": 11787
+    },
+    {
+      "path": "web/dashboard/dist/css/channel-code.d2ff0fc1.css.gz",
+      "sha256": "17eebac054cda0f1df641e4de1307561dd48153b85b28d439892132af8e0db22",
+      "size": 1930
+    },
+    {
+      "path": "web/dashboard/dist/css/chat-tool.9c81c11b.css",
+      "sha256": "4bd5c5f1d336c7af33e3b59f6c4f3ccc4d5314c4dd125c98bea165f08a00c6f0",
+      "size": 2804
+    },
+    {
+      "path": "web/dashboard/dist/css/chunk-vendors.c8bdc5a3.css",
+      "sha256": "f6b466c1a32d5cabd708c69926b14d39fb31ac0de83c4407af3c3cebacdd5417",
+      "size": 494762
+    },
+    {
+      "path": "web/dashboard/dist/css/chunk-vendors.c8bdc5a3.css.gz",
+      "sha256": "22eee6e234b3373eaeb31785a3dcb9cabf16ad51c478cc53393d4d2c07cb9306",
+      "size": 55114
+    },
+    {
+      "path": "web/dashboard/dist/css/contact-message-batch-send.5c1cc6b5.css",
+      "sha256": "0999f53c2139bcb4c9702a3ff85b1864f5584bc1553281081e46e0c1914e59cc",
+      "size": 8719
+    },
+    {
+      "path": "web/dashboard/dist/css/contact-transfer.b9122808.css",
+      "sha256": "613270118741b79f72cb1c86d0ac5d1869d532acf94fe714ef3c6d1b80790e12",
+      "size": 9860
+    },
+    {
+      "path": "web/dashboard/dist/css/corp.d09fa6b0.css",
+      "sha256": "21f0a793b8ff7879743b8301f788ff8a4a7299c44aa8526592c674df4cfe624b",
+      "size": 9058
+    },
+    {
+      "path": "web/dashboard/dist/css/department.99dfcfcf.css",
+      "sha256": "e8f4f45a4eae51164b3be759c0d3e06413c34fd0e0c9eb4a6e7cca4d79d1f32d",
+      "size": 565
+    },
+    {
+      "path": "web/dashboard/dist/css/greeting.42875872.css",
+      "sha256": "7c4471930fd609095bb8a9b6628490fd34d0327ef7403479f093c67136feae83",
+      "size": 8631
+    },
+    {
+      "path": "web/dashboard/dist/css/login.66cd0406.css",
+      "sha256": "9de9946b995dc0c68635090ebc214c5b38a32fb773db46863b150fc42a3c48d9",
+      "size": 1717
+    },
+    {
+      "path": "web/dashboard/dist/css/medium.c9249fb2.css",
+      "sha256": "ce73d1386be307f3a1805db1f1e1ee1051386598285ab50717709044f220c5f1",
+      "size": 5625
+    },
+    {
+      "path": "web/dashboard/dist/css/official-account.e6f07b9a.css",
+      "sha256": "1c987b952885d373195b601eb8d94e0ad23c44b2b3136ff28ffe14aa342504a2",
+      "size": 2880
+    },
+    {
+      "path": "web/dashboard/dist/css/rbac.7a9d471d.css",
+      "sha256": "e2505e0920de8557c03efee1b778556c4ff7e6e5b165930209ad2d5886eb0be1",
+      "size": 45391
+    },
+    {
+      "path": "web/dashboard/dist/css/rbac.7a9d471d.css.gz",
+      "sha256": "c61fff839bb8e428d4407de6b43275d8c4b46103f5fd283410f8805b5eb45822",
+      "size": 4952
+    },
+    {
+      "path": "web/dashboard/dist/css/room-auto-pull.2a53e67f.css",
+      "sha256": "f3d9f3e2955de1dd63eb45a62c5bb854189212ed5486be9d1e8eb48b4dc5e2ea",
+      "size": 11215
+    },
+    {
+      "path": "web/dashboard/dist/css/room-auto-pull.2a53e67f.css.gz",
+      "sha256": "f41cf822323b11fe22ececc745fd02a567a1ab55fd8063b46d76f8675fa159e4",
+      "size": 1883
+    },
+    {
+      "path": "web/dashboard/dist/css/room-message-batch-send.2689fa37.css",
+      "sha256": "95a148d624a8562e8b604db456a831714240a6dc54d724f7909959f4f77e5915",
+      "size": 8902
+    },
+    {
+      "path": "web/dashboard/dist/css/room-tag-pull.ed2da02c.css",
+      "sha256": "2a1e530efc953c42ee273f7cb5387eaab797955da0fbe6d4aa596abd755efe79",
+      "size": 7946
+    },
+    {
+      "path": "web/dashboard/dist/css/room-welcome.271f4c64.css",
+      "sha256": "98d1c101f1ed6f608b5c40f7942c835abadeaecdb94e5ec288e279c3a93e5d2f",
+      "size": 6661
+    },
+    {
+      "path": "web/dashboard/dist/css/statistics.aed5aa23.css",
+      "sha256": "ed88e10bb9bf0eb4848326334fdf6656f50eb8249fdc60da92ba6285279951dc",
+      "size": 4272
+    },
+    {
+      "path": "web/dashboard/dist/css/user.75148d7f.css",
+      "sha256": "6e07f82babda1e48a58f4034b432d827557d72df3e6e62e0f9eac49ca757fc1b",
+      "size": 881
+    },
+    {
+      "path": "web/dashboard/dist/css/work-contact.93876d9e.css",
+      "sha256": "6db47930b8bbdc95cbd2280307faded99d798742281fd9effb8339764e2e8add",
+      "size": 10257
+    },
+    {
+      "path": "web/dashboard/dist/css/work-contact.93876d9e.css.gz",
+      "sha256": "a94ccae7e5f30cb6bfdc6d662f4fe0405a6639d78f452f659f47f8be0b88aae6",
+      "size": 1922
+    },
+    {
+      "path": "web/dashboard/dist/css/work-employee.13763d96.css",
+      "sha256": "d172651a293f89774c5005b500f0326b5112d660ff548b16767a812015f5a51d",
+      "size": 855
+    },
+    {
+      "path": "web/dashboard/dist/css/work-fission.d50991d7.css",
+      "sha256": "de4a1e0e342c883c961c15d1ba9629c8fe8617f178203d21cf6af4671c42909d",
+      "size": 34764
+    },
+    {
+      "path": "web/dashboard/dist/css/work-fission.d50991d7.css.gz",
+      "sha256": "8149a20f70f2d63873c5a1663503b0112efc03645bcf7745a3dbe8f38b4dafe0",
+      "size": 4189
+    },
+    {
+      "path": "web/dashboard/dist/css/work-room.98c63fcc.css",
+      "sha256": "4394d408fc75170afccf64dbca6aae9fed0f945511cd89a045a636fccfbd7036",
+      "size": 6525
+    },
+    {
+      "path": "web/dashboard/dist/dll/antDesignVue-manifest.json",
+      "sha256": "2ef63a4ec6549439d9ca0c01012f01a423f8071f383b31ff21a5b149d24af288",
+      "size": 12211
+    },
+    {
+      "path": "web/dashboard/dist/dll/antDesignVue.dll.js",
+      "sha256": "86832b11096003812b68fa05e6629dc442a91f1ac5efa592b9c237ea991d5a39",
+      "size": 801668
+    },
+    {
+      "path": "web/dashboard/dist/dll/antDesignVue.dll.js.gz",
+      "sha256": "3ef6e54f99383c966f10018bc30b879de625c818982bea9a135d4507c424838c",
+      "size": 224545
+    },
+    {
+      "path": "web/dashboard/dist/dll/corejs-manifest.json",
+      "sha256": "26411b6f72a71469ed5bbdc50037eeac858f3d55296b8029c89272991cf55aea",
+      "size": 93693
+    },
+    {
+      "path": "web/dashboard/dist/dll/corejs.dll.js",
+      "sha256": "212a0f4cc1a2a8aaf84710379513bff579917b5b016d0c11628f3535624b39af",
+      "size": 274096
+    },
+    {
+      "path": "web/dashboard/dist/dll/corejs.dll.js.gz",
+      "sha256": "4a570f49932506e187d9d7fdd661c82969b8b803f36541c05541853e76287cc5",
+      "size": 82335
+    },
+    {
+      "path": "web/dashboard/dist/dll/echarts-manifest.json",
+      "sha256": "c9e83355bb9b25e5594483a0e2aabfd5fa3127ff9868e602d51b2289a49104ab",
+      "size": 51763
+    },
+    {
+      "path": "web/dashboard/dist/dll/echarts.dll.js",
+      "sha256": "b022a75b6c824ba06d5c68807757a339717c28f56b9b804129496ffa8089e626",
+      "size": 843755
+    },
+    {
+      "path": "web/dashboard/dist/dll/echarts.dll.js.gz",
+      "sha256": "bc1828e3bfadfb3b3855113be82d9cefb4a2f4bc0cb6e05d96f11a3a8f89d3b3",
+      "size": 279370
+    },
+    {
+      "path": "web/dashboard/dist/dll/vueContainerQuery-manifest.json",
+      "sha256": "e49fba15643d6c2e510a2a8ae06ea6bf959329e70c42b121863e950010a4e8f9",
+      "size": 167
+    },
+    {
+      "path": "web/dashboard/dist/dll/vueContainerQuery.dll.js",
+      "sha256": "27cf398b83abff31b6eb9b5222f230bcf64c4ea14085e79372247065a8cd3cf6",
+      "size": 32689
+    },
+    {
+      "path": "web/dashboard/dist/dll/vueContainerQuery.dll.js.gz",
+      "sha256": "6642210a6a062d687d469849a38a7f37ca1d2919785dc436c8e1f7c7ea0bd9a4",
+      "size": 10697
+    },
+    {
+      "path": "web/dashboard/dist/dll/vueCropper-manifest.json",
+      "sha256": "5241fb3fa722900dcf8b5b72900170487e24c7cd9aed170582130fef2025b4dc",
+      "size": 133
+    },
+    {
+      "path": "web/dashboard/dist/dll/vueCropper.dll.js",
+      "sha256": "e0b831a56e612e2a5aeee9db3fee27102aa8400c710380313d9bde02076282d1",
+      "size": 40192
+    },
+    {
+      "path": "web/dashboard/dist/dll/vueCropper.dll.js.gz",
+      "sha256": "e3be3c115c25468e1d479b45f45bb0ae6415c76c2044c6e069a696e6805dc225",
+      "size": 10979
+    },
+    {
+      "path": "web/dashboard/dist/favicon.ico",
+      "sha256": "4f12e333b1dcb8b260fe6627fcb0719a2a6c48768684392e0df94380a6fca8a1",
+      "size": 4286
+    },
+    {
+      "path": "web/dashboard/dist/img/WechatGroup-icon.b155025c.png",
+      "sha256": "0aefc3d5298b93e977c9340fb6fc878b4475a5eae0af1317ad937ef31edbc798",
+      "size": 7224
+    },
+    {
+      "path": "web/dashboard/dist/img/applets.1a8d9ca5.png",
+      "sha256": "0f13b254ccce2e4b9790bb03bafd1dc6460e6d977e419006cc79875168ff6efc",
+      "size": 17981
+    },
+    {
+      "path": "web/dashboard/dist/img/background.e06f03d5.png",
+      "sha256": "43cad634da44774cf3128d241c320e1a7bd42017996ed5d3d36d63789fe15eb9",
+      "size": 93044
+    },
+    {
+      "path": "web/dashboard/dist/img/card-four.85e1b915.png",
+      "sha256": "70763e9c5302c38a59ba5467fd6bcbae55a7608abca21b03386d3742aacb05a6",
+      "size": 16261
+    },
+    {
+      "path": "web/dashboard/dist/img/card-one.9b4bcb64.png",
+      "sha256": "e43cee47af4d6604447885c6e96b78fdf6b353da5b30d00fed193684ce841d3b",
+      "size": 13057
+    },
+    {
+      "path": "web/dashboard/dist/img/card-three.f5bd562d.png",
+      "sha256": "4aa6ce7e8d3b40113ff748934a5688bbaa567c2787e7a0ab9bd2feb658ea02ad",
+      "size": 15971
+    },
+    {
+      "path": "web/dashboard/dist/img/card-two.edbad675.png",
+      "sha256": "7985b5c50a59ae71575e7edd950a356917af02a2d9e1fa652c96191fc100fd5b",
+      "size": 14470
+    },
+    {
+      "path": "web/dashboard/dist/img/customer-icon.58bbf8c3.png",
+      "sha256": "214ade93fd75f2880962f83247047f0d1ecd97d7641e508f1772eb7a3e311765",
+      "size": 7757
+    },
+    {
+      "path": "web/dashboard/dist/img/customer.e0bc6c82.png",
+      "sha256": "a2fa52cec53e9eb2aeb8c3f2a09842ccc7b4d8fe72f798be07beda341acfb512",
+      "size": 74282
+    },
+    {
+      "path": "web/dashboard/dist/img/enhance.33c58bfe.png",
+      "sha256": "cdce2d70de822c5e4ed1b204976f39429375c88c03782d6724df96672deddac6",
+      "size": 212483
+    },
+    {
+      "path": "web/dashboard/dist/img/enterpriseMembers-icon.1d1bfd97.png",
+      "sha256": "cde076799a5d9ec32e43c4ed9f372e0e12a098992ff3568897c30ea6e7190f42",
+      "size": 6922
+    },
+    {
+      "path": "web/dashboard/dist/img/logo-no-word.c30823d0.png",
+      "sha256": "2331999ff6d729f3311b8e317cbdac02331e17b4d059960f9f339fc85fd8a959",
+      "size": 14602
+    },
+    {
+      "path": "web/dashboard/dist/img/memberGroup-icon.85869262.png",
+      "sha256": "7fe8a501ffbd59d4e83e063fb76bf621d74631ae32809ae3afe4b556dad9093a",
+      "size": 7183
+    },
+    {
+      "path": "web/dashboard/dist/img/optBtn-one.bff2a0cc.png",
+      "sha256": "6d52d6428e4c6d85cf6a8fddf67c5276d03f25bbcf3be35ea93e00700c9041fd",
+      "size": 5879
+    },
+    {
+      "path": "web/dashboard/dist/img/optBtn-three.1f81a3e8.png",
+      "sha256": "9544c0f9117e58f38a2ba21629b04b3f8c9056a4868c658a68cadb0c162c1215",
+      "size": 6342
+    },
+    {
+      "path": "web/dashboard/dist/img/optBtn-two.6ed3740b.png",
+      "sha256": "87d157e31fc0d497ac9058523769dd97726971487384f54e108322fc0cb30f3e",
+      "size": 7883
+    },
+    {
+      "path": "web/dashboard/dist/img/phone.1c130fa6.png",
+      "sha256": "6223ff4a5d93eead35a2c7eb7ddc8aacbd9cea6beb43e13e8c016b5caab21f4f",
+      "size": 46944
+    },
+    {
+      "path": "web/dashboard/dist/img/qr-preview.a1dd61f0.png",
+      "sha256": "add46a10f6186a7d284167a0d6c996b39481422339bf56f3abfe1311983da931",
+      "size": 30971
+    },
+    {
+      "path": "web/dashboard/dist/img/title.2a4352c4.png",
+      "sha256": "f6cd7371d1395e37dd979339ea4627260cbc9a617091949e779b05c24317945d",
+      "size": 8183
+    },
+    {
+      "path": "web/dashboard/dist/img/wx-mp.91ca1983.png",
+      "sha256": "f5a2b525f5dded6d465df6da30cdc9700df3cc281cc44e2ca827ec150bb94fdf",
+      "size": 5183
+    },
+    {
+      "path": "web/dashboard/dist/index.html",
+      "sha256": "fb50d8aface0e1f967a5b6bbdb0d87744dc684db025ae5839d364bdb218bbadd",
+      "size": 4673
+    },
+    {
+      "path": "web/dashboard/dist/js/app.5432e6d2.js",
+      "sha256": "5111a1bbb826cfa6c9bde4ec1b2d98bac8fc6963827c4b11cf004dc821c15fe2",
+      "size": 64135
+    },
+    {
+      "path": "web/dashboard/dist/js/app.5432e6d2.js.gz",
+      "sha256": "62dce1a32761900c9239712d586f4b8a9a29b46b012581f73fe7ed74b122cde3",
+      "size": 18425
+    },
+    {
+      "path": "web/dashboard/dist/js/auto-tag.df57f91d.js",
+      "sha256": "45d1da63a6e84ec2d9ba29c313f93535e4a752d05b9f0bd4f0aecb81c4fcb745",
+      "size": 65231
+    },
+    {
+      "path": "web/dashboard/dist/js/auto-tag.df57f91d.js.gz",
+      "sha256": "bc21ee17fcc0da1bc2bb8a8e791bd25f5ef363c85ae4d0c742a8212c98f7564a",
+      "size": 11491
+    },
+    {
+      "path": "web/dashboard/dist/js/auto-tag~contact-message-batch-send~room-tag-pull.bff076a7.js",
+      "sha256": "9f48de47ffd6c8112d4de4aff4d2b77fe5ff60bac973f8d56e88f007048d93bf",
+      "size": 17088
+    },
+    {
+      "path": "web/dashboard/dist/js/auto-tag~contact-message-batch-send~room-tag-pull.bff076a7.js.gz",
+      "sha256": "967bb9ed6d8cb88e2e9e28a9bd15350ea6c7acfb1fdc33de311c621a74166992",
+      "size": 4389
+    },
+    {
+      "path": "web/dashboard/dist/js/channel-code.533bfe83.js",
+      "sha256": "7beedaca16e1e3c9e6593b52fdf2acb2f1a73c080d946cefa8410b6f246cf19c",
+      "size": 119209
+    },
+    {
+      "path": "web/dashboard/dist/js/channel-code.533bfe83.js.gz",
+      "sha256": "1cf6b1490063b63e60b07cd33e330f4d521394896c22e7dca021ac67c896af6c",
+      "size": 22831
+    },
+    {
+      "path": "web/dashboard/dist/js/chat-tool.34f1760e.js",
+      "sha256": "e9fcb08cf6cbd3072a6381db6e77771bd37cdd469278f376f35e1252c06e8e4b",
+      "size": 11631
+    },
+    {
+      "path": "web/dashboard/dist/js/chat-tool.34f1760e.js.gz",
+      "sha256": "86861399e2f41da16cfbe3b16cdb99619ebb559fd79945d45d15d7afff1fc081",
+      "size": 3282
+    },
+    {
+      "path": "web/dashboard/dist/js/chunk-vendors.73e8662b.js",
+      "sha256": "62bce9cf89c13c36fedeacd319398c3e290dfb2c89d5e49346c373e67e0fd1c1",
+      "size": 995346
+    },
+    {
+      "path": "web/dashboard/dist/js/chunk-vendors.73e8662b.js.gz",
+      "sha256": "fce70489529b1e165d112aec48f5f6dd9952aa072762db4237ae75e8ef8a5e69",
+      "size": 301872
+    },
+    {
+      "path": "web/dashboard/dist/js/contact-message-batch-send.7a305e32.js",
+      "sha256": "5bfd3d899fb85215c4230241805a670cd5930ebbd528d0cd2a34956b8c09ba8e",
+      "size": 33286
+    },
+    {
+      "path": "web/dashboard/dist/js/contact-message-batch-send.7a305e32.js.gz",
+      "sha256": "414104cd0737531d443453f3e4b7258fbaa02da070c8166a093c5f376a5f3643",
+      "size": 7706
+    },
+    {
+      "path": "web/dashboard/dist/js/contact-transfer.07ac569a.js",
+      "sha256": "8a567befac4069ac3c80025594622570d425a22c66706279169c8dd8567e5016",
+      "size": 30309
+    },
+    {
+      "path": "web/dashboard/dist/js/contact-transfer.07ac569a.js.gz",
+      "sha256": "fc703731d1ce7ee1f72b0add623206b26db92d210906e36837495cbdcf86b168",
+      "size": 5923
+    },
+    {
+      "path": "web/dashboard/dist/js/corp.d925b994.js",
+      "sha256": "47499c523f6d51c44fa309857fe8bfc1d1299bb62002e0bdf539494082522f84",
+      "size": 23593
+    },
+    {
+      "path": "web/dashboard/dist/js/corp.d925b994.js.gz",
+      "sha256": "7b62766268cc8a5e0d92c2c3982a7c50f3d2ccffed7ea0d2adae152dc51e4344",
+      "size": 7428
+    },
+    {
+      "path": "web/dashboard/dist/js/department.c702d804.js",
+      "sha256": "2e0f130015e212895fa1d3bab206656f71d8e339a16a9c1eb032e49992c405d9",
+      "size": 6253
+    },
+    {
+      "path": "web/dashboard/dist/js/fail.14567eaf.js",
+      "sha256": "a08433c9c3e3a8b3530e669fb60bc8269e68fb3bf795799530496fbcda8ce745",
+      "size": 577
+    },
+    {
+      "path": "web/dashboard/dist/js/greeting.fdc172ca.js",
+      "sha256": "a6e6960558a47b80f3d00abb800dcf1089622cece1f78bcc6087f084edb4d8e9",
+      "size": 50141
+    },
+    {
+      "path": "web/dashboard/dist/js/greeting.fdc172ca.js.gz",
+      "sha256": "caa8f188bfafaee6e8f66e2e580beaa20c31033d654bfda16ca78389f627a87a",
+      "size": 11624
+    },
+    {
+      "path": "web/dashboard/dist/js/login.fe0aef03.js",
+      "sha256": "a8de375c8e49ddf640e4cc813afc140f5cfcfe00d5c42ba7cfc47b88be983b7d",
+      "size": 7003
+    },
+    {
+      "path": "web/dashboard/dist/js/medium.52d0d276.js",
+      "sha256": "fee31bfc5f4cec2034821c45d62fb711aa2c3d78a5f7822ad93abd9422d4836a",
+      "size": 47445
+    },
+    {
+      "path": "web/dashboard/dist/js/medium.52d0d276.js.gz",
+      "sha256": "529c103c6a9dc846a1232e06d4f26ce6703c7cb8d8a016626dae14a0a4dd7b9e",
+      "size": 8030
+    },
+    {
+      "path": "web/dashboard/dist/js/official-account.8ad64ee1.js",
+      "sha256": "b6bfe954163eacf0606245d0f1ad9fa7de1759a16b9c77a5665a66579353d83b",
+      "size": 6452
+    },
+    {
+      "path": "web/dashboard/dist/js/rbac.0319d980.js",
+      "sha256": "b35a2083a3871bb52764ee31129103d98f9d77e60cb3c223144cdd642ba15f72",
+      "size": 36259
+    },
+    {
+      "path": "web/dashboard/dist/js/rbac.0319d980.js.gz",
+      "sha256": "0972b7fc2868d88c328631b8f091e91483e63e02cfc83a008a59a12b79b80a56",
+      "size": 8708
+    },
+    {
+      "path": "web/dashboard/dist/js/room-auto-pull.6365b660.js",
+      "sha256": "d2baa4c7b4d22f3f2402feca0de2822dde08840ec13143778ad6ef99b6b4d1e8",
+      "size": 39884
+    },
+    {
+      "path": "web/dashboard/dist/js/room-auto-pull.6365b660.js.gz",
+      "sha256": "9cd59427dcc0bc26145e8ac7044dd9a283a2b35b2a606be79acc5b0180d36a5a",
+      "size": 10623
+    },
+    {
+      "path": "web/dashboard/dist/js/room-message-batch-send.035fb23e.js",
+      "sha256": "2fff6438d96d75fed6bf38281d6a64e7671c944c5b1a2972788ca818ebbb0e53",
+      "size": 50971
+    },
+    {
+      "path": "web/dashboard/dist/js/room-message-batch-send.035fb23e.js.gz",
+      "sha256": "c1ef3e48405da311406125b91e583c0021a3ab274c85243cf4e04215aa771b87",
+      "size": 12322
+    },
+    {
+      "path": "web/dashboard/dist/js/room-tag-pull.95a2a018.js",
+      "sha256": "a39021e1f149c4931852b3421897b1e6f422edc37a2ca441fdfe470601206ce7",
+      "size": 31845
+    },
+    {
+      "path": "web/dashboard/dist/js/room-tag-pull.95a2a018.js.gz",
+      "sha256": "b1c292d39c28001965b55ee4817b1be2173a2c0b896d13792b47c92331df09c5",
+      "size": 8051
+    },
+    {
+      "path": "web/dashboard/dist/js/room-welcome.813e3cda.js",
+      "sha256": "791e5834252d9dff9099cd33d9dbd350cbf5b6a1fd783ba99e3ca41e2d965d92",
+      "size": 19943
+    },
+    {
+      "path": "web/dashboard/dist/js/room-welcome.813e3cda.js.gz",
+      "sha256": "841ce5956179af3491ac92b06cf3ae2b081dd37931fc67ae8d5025e041463d75",
+      "size": 5660
+    },
+    {
+      "path": "web/dashboard/dist/js/statistics.9d51bf75.js",
+      "sha256": "e01058918435481e33a8d57333b2fe46d5c495d87d3035cf1127bf6b09a0a64f",
+      "size": 20554
+    },
+    {
+      "path": "web/dashboard/dist/js/statistics.9d51bf75.js.gz",
+      "sha256": "4cd80592cbbabb8e893c431074a04744bc2b3729317bd46a99aa1dabfab2b93f",
+      "size": 5284
+    },
+    {
+      "path": "web/dashboard/dist/js/user.4a490b8f.js",
+      "sha256": "ac9a02ef3cf461d7d37f8b7b96c53ede2912b387e8cce847fe97335f8c3e21b8",
+      "size": 15009
+    },
+    {
+      "path": "web/dashboard/dist/js/user.4a490b8f.js.gz",
+      "sha256": "efd5b220355e741aac899868958e4cfbce3dd58dfcbf175f27de3d56d1c77d49",
+      "size": 4125
+    },
+    {
+      "path": "web/dashboard/dist/js/work-contact.65fe4f50.js",
+      "sha256": "8db7adebc0cc2f168151567df676a1b11ccc308c3654f72856005d0d4990f38e",
+      "size": 75080
+    },
+    {
+      "path": "web/dashboard/dist/js/work-contact.65fe4f50.js.gz",
+      "sha256": "33f8327206a7b1292c113abea3fbe4654b14bf56d6f2940d7aea328f46f67b44",
+      "size": 16390
+    },
+    {
+      "path": "web/dashboard/dist/js/work-employee.3c823b3c.js",
+      "sha256": "113fd73e52b09a0a3fff46d503915f1c2490411d8f746cced3990488ceb1b431",
+      "size": 6785
+    },
+    {
+      "path": "web/dashboard/dist/js/work-fission.f5aac19c.js",
+      "sha256": "0aa5e5d2701770c3cfeb52d7cc3e7306d75924dcfabce941dc6bf02678aba00d",
+      "size": 126712
+    },
+    {
+      "path": "web/dashboard/dist/js/work-fission.f5aac19c.js.gz",
+      "sha256": "9e5e017d74ba31ccd2dce2a55feb32cbdc0e78250d854714d9226f707394d6a3",
+      "size": 34536
+    },
+    {
+      "path": "web/dashboard/dist/js/work-room.9e8d3b96.js",
+      "sha256": "6d925122860160365dfd2734749889e88f0a487db9a8057ef63d6bec2789a79f",
+      "size": 41598
+    },
+    {
+      "path": "web/dashboard/dist/js/work-room.9e8d3b96.js.gz",
+      "sha256": "515febe683ad767d402b511ea79eccc00901f75810072f701394a92f2e7b51cc",
+      "size": 9925
+    },
+    {
+      "path": "web/dashboard/dist/vendor/axios-0.19.0.min.js",
+      "sha256": "4b52781951c70cc8a2ae2afdaac5d673c656c3be0f1c769fa6c1e9e4f5ed8d3b",
+      "size": 13696
+    },
+    {
+      "path": "web/dashboard/dist/vendor/vue-2.6.10.min.js",
+      "sha256": "72194d152571dd375c4365e5c3b4af9db2c06af0102ced18fcb062597d38be26",
+      "size": 93675
+    },
+    {
+      "path": "web/dashboard/dist/vendor/vue-router-3.1.3.min.js",
+      "sha256": "affbcf214bd3a1b0a9619b0c9af53b1cce7c70d7780fafef7480aa0c56a957b6",
+      "size": 26090
+    },
+    {
+      "path": "web/dashboard/dist/vendor/vuex-3.1.1.min.js",
+      "sha256": "e973901e74ff65888bbe2e58b95cfb957d5db316bb185a106f543d99176d1d65",
+      "size": 9875
+    },
+    {
+      "path": "web/operation/dist/css/app.ad6cd3b2.css",
+      "sha256": "ce3fa8dab559b488ae03bdc40013ccac4f364ca8397ee05b0e505a3a07b37073",
+      "size": 35163
+    },
+    {
+      "path": "web/operation/dist/css/chunk-vendors.f147525a.css",
+      "sha256": "003df0359843a8d95deef73481135d28ea1599156d24799deef4f0da41b40e80",
+      "size": 450672
+    },
+    {
+      "path": "web/operation/dist/favicon.ico",
+      "sha256": "4f12e333b1dcb8b260fe6627fcb0719a2a6c48768684392e0df94380a6fca8a1",
+      "size": 4286
+    },
+    {
+      "path": "web/operation/dist/img/001.f03058a9.png",
+      "sha256": "f13c3fc96ec43f6eed8529567d67d8c8e41a736a038905ada330090bf8984d19",
+      "size": 23192
+    },
+    {
+      "path": "web/operation/dist/img/bg.c1fb989f.png",
+      "sha256": "d50afbe178d7dd184f8035761299868c4e09b8e00813348cdd7a9c305cb36b89",
+      "size": 98142
+    },
+    {
+      "path": "web/operation/dist/img/error.e1b086f7.png",
+      "sha256": "43133a9f6aa1cd0564fc9decb96639325ebfcef521ff9af1f4aa4243375bcf81",
+      "size": 5634
+    },
+    {
+      "path": "web/operation/dist/img/gift-image.17e07efe.png",
+      "sha256": "66ae7207c2252a0b2b40032810ce9cf68a6b884ff831781a40e648d1e03b3634",
+      "size": 90982
+    },
+    {
+      "path": "web/operation/dist/img/gift.91b89ef1.png",
+      "sha256": "496cf507e5c2033be2efcbf7da93c9eb1fc15e853eae0d88e4edc465bae63bea",
+      "size": 6523
+    },
+    {
+      "path": "web/operation/dist/index.html",
+      "sha256": "1c0d9dbbb1b218716596722d3834a19d0a0101c113c23d5f233d9c06834b7858",
+      "size": 1253
+    },
+    {
+      "path": "web/operation/dist/js/app.aa6da544.js",
+      "sha256": "35a7bc49c23aa4216402f9b3baf76921faaad0076cc119e2991634e91dfb6079",
+      "size": 45399
+    },
+    {
+      "path": "web/operation/dist/js/app.aa6da544.js.map",
+      "sha256": "3524d0958acf1e944ab28b075c275be3e1659d3cef5e7292dabc219363128a1e",
+      "size": 240194
+    },
+    {
+      "path": "web/operation/dist/js/chunk-vendors.3ff962cb.js",
+      "sha256": "d6a75cd3a3eccdc72a623595a1987b96e99d35c56c204ce9fd5130d9b3b7e9ba",
+      "size": 2056025
+    },
+    {
+      "path": "web/operation/dist/js/chunk-vendors.3ff962cb.js.map",
+      "sha256": "296ef40c33fc814943ec95d0a22026c4e131f36a07003126481e4a5538516118",
+      "size": 6573735
+    },
+    {
+      "path": "web/sidebar/dist/css/app.34c5e202.css",
+      "sha256": "f0b3812a4e3dc1f6fd4289d0e1326422711499f90f9b52cf93d5c66ee1458708",
+      "size": 1079
+    },
+    {
+      "path": "web/sidebar/dist/css/auth.0c5f88b4.css",
+      "sha256": "847a5bddb9c29d8e341cd505a22392fa9df830699a50b727982ee06ba7cfde10",
+      "size": 514
+    },
+    {
+      "path": "web/sidebar/dist/css/chunk-vendors.33e7bf46.css",
+      "sha256": "efe14773f7a66cdac3236fee0828a13c29298840243c49587d93c4bf26f98990",
+      "size": 105226
+    },
+    {
+      "path": "web/sidebar/dist/css/contact.a65b9c9e.css",
+      "sha256": "216f2f061a6b1341d7c440de04aba5d6cc28fe51f09798364aab1d7cc27c7bc1",
+      "size": 11532
+    },
+    {
+      "path": "web/sidebar/dist/css/contactBatchAdd.8fc1e8e2.css",
+      "sha256": "972bea25e22497559f4daca4b757558da9b3e248f447bf23ff93dd820f3e73ba",
+      "size": 2016
+    },
+    {
+      "path": "web/sidebar/dist/css/medium.e36afc0c.css",
+      "sha256": "4b3122667dbb8f88c2c36caa3f525f0fea6dc7bf0cd31242a9cde143baf1af64",
+      "size": 3362
+    },
+    {
+      "path": "web/sidebar/dist/css/room.39c733f6.css",
+      "sha256": "4cebe5549cd6c627c0c95005d1e6788803dd707a39e382fac256d9b701fca212",
+      "size": 4130
+    },
+    {
+      "path": "web/sidebar/dist/favicon.ico",
+      "sha256": "4f12e333b1dcb8b260fe6627fcb0719a2a6c48768684392e0df94380a6fca8a1",
+      "size": 4286
+    },
+    {
+      "path": "web/sidebar/dist/img/pdf.86a36327.png",
+      "sha256": "451d11eee10ce6c1055fc2681e274fc1b48e291739e0b249dcd81f16ff91028d",
+      "size": 4942
+    },
+    {
+      "path": "web/sidebar/dist/img/word.43c4a346.png",
+      "sha256": "0b5b1192bb74d02d2e5d8fa8889fd0135a5782d5f833badf3162eaf84e3bd49c",
+      "size": 5037
+    },
+    {
+      "path": "web/sidebar/dist/index.html",
+      "sha256": "386533e34e20c99871dec5d44656839bfe0d55c1b83fd40251d50c1eb423ea3c",
+      "size": 1615
+    },
+    {
+      "path": "web/sidebar/dist/js/404.828b6c33.js",
+      "sha256": "d767680f85e3f9f6006cf7634f74874e304d0ad97c8af572fbd2fcf05b0bcdb4",
+      "size": 306
+    },
+    {
+      "path": "web/sidebar/dist/js/app.040724a3.js",
+      "sha256": "7c43d81c909e0b22e416356470c290ad3882ae0339c9fea724e617d0466f9c53",
+      "size": 15913
+    },
+    {
+      "path": "web/sidebar/dist/js/auth.943b9aac.js",
+      "sha256": "f69d020b63e33dcee85fa8c3a5d6b5032ec8625517616a352c8092fa50a5902d",
+      "size": 12871
+    },
+    {
+      "path": "web/sidebar/dist/js/chunk-vendors.091c5818.js",
+      "sha256": "d23ba7fa495b8da3ef02709c62c0e9a4d4860d79186e7f401446db51d2f835aa",
+      "size": 265998
+    },
+    {
+      "path": "web/sidebar/dist/js/contact.54934c27.js",
+      "sha256": "5fa7aff660f0e95a2d92448618341ed97f4f4f6459fd4170c028b7ab71d47e4e",
+      "size": 32709
+    },
+    {
+      "path": "web/sidebar/dist/js/contactBatchAdd.80336d32.js",
+      "sha256": "d1b4f89bbf90fa37ce825880a9d8099d970c96386ab1669d066ebdfe729e4d45",
+      "size": 7366
+    },
+    {
+      "path": "web/sidebar/dist/js/login.c01ffd78.js",
+      "sha256": "9452d41a362b35d1cb961b6636b605e034a319eab09c3f05f9b7d0340979fdb3",
+      "size": 410
+    },
+    {
+      "path": "web/sidebar/dist/js/medium.d628453d.js",
+      "sha256": "966957c49b42448adb2860d27beb0446dbb3911b5507877d07a9398608f56e5e",
+      "size": 29625
+    },
+    {
+      "path": "web/sidebar/dist/js/room.1b41596e.js",
+      "sha256": "698e87eb36c04990056449a22fcb1baac63e50e5f7e17c0e0a70c11cefd69af9",
+      "size": 3787
+    }
+  ],
+  "fingerprint": "7c5ef5690ec238b7330aeefd85fe1df81d659835c6895d1eba054b97cd0085f1",
+  "generated_at": "2026-07-18 11:48:50 CST",
+  "ignore_parts": [
+    ".DS_Store",
+    ".git",
+    "node_modules"
+  ],
+  "ignore_prefixes": [
+    "docs/evidence",
+    "output",
+    "storage",
+    "tmp"
+  ],
+  "include_files": [
+    ".dockerignore",
+    "Dockerfile",
+    "go.mod",
+    "go.sum"
+  ],
+  "include_roots": [
+    ".github",
+    "cmd",
+    "deploy",
+    "internal",
+    "scripts",
+    "web"
+  ],
+  "schema": 1
+}

@@ -1,0 +1,1497 @@
+{
+  "source_revision": "64df1ad3c9c2a2b0c82ee8a853a398cc3606947e",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/",
+      "file": "api-server/config/routes.php"
+    },
+    {
+      "method": "HEAD",
+      "path": "/",
+      "file": "api-server/config/routes.php"
+    },
+    {
+      "method": "POST",
+      "path": "/",
+      "file": "api-server/config/routes.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/agent/store",
+      "file": "api-server/app/core/work-agent/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/agent/txtVerifyUpload",
+      "file": "api-server/app/core/work-agent/src/Action/Dashboard/TxtVerifyUpload.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/channelCode/contact",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Contact.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/channelCode/index",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/channelCode/show",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/channelCode/statistics",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Statistics.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/channelCode/statisticsIndex",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/StatisticsIndex.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/channelCode/store",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/channelCode/update",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/channelCodeGroup/detail",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Group/Detail.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/channelCodeGroup/index",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Group/Index.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/channelCodeGroup/move",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Group/Move.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/channelCodeGroup/store",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Group/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/channelCodeGroup/update",
+      "file": "api-server/plugin/mochat/channel-code/src/Action/Dashboard/Group/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/chatTool/config",
+      "file": "api-server/app/core/chat-tool/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/common/upload",
+      "file": "api-server/app/core/common/src/Action/Dashboard/Upload.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/common/uploadFile",
+      "file": "api-server/app/core/common/src/Action/Dashboard/UploadFile.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/contactField/batchUpdate",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Field/BatchUpdate.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/contactField/destroy",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Field/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactField/index",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Field/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactField/portrait",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Field/Portrait.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactField/show",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Field/Show.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/contactField/statusUpdate",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Field/StatusUpdate.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/contactField/store",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Field/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/contactField/update",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Field/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactFieldPivot/index",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/FieldPivot/Index.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/contactFieldPivot/update",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/FieldPivot/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactMessageBatchSend/contactReceiveIndex",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Action/Dashboard/ContactReceiveIndex.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/contactMessageBatchSend/destroy",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Action/Dashboard/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactMessageBatchSend/employeeSendIndex",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Action/Dashboard/EmployeeSendIndex.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactMessageBatchSend/index",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/contactMessageBatchSend/remind",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Action/Dashboard/Remind.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactMessageBatchSend/show",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactMessageBatchSend/showRoom",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Action/Dashboard/ShowRoom.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/contactMessageBatchSend/store",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/contactTransfer/index",
+      "file": "api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactTransfer/info",
+      "file": "api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/Info.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactTransfer/log",
+      "file": "api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/Log.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactTransfer/room",
+      "file": "api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/Room.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/contactTransfer/room",
+      "file": "api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/TransferRoom.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactTransfer/saveUnassignedList",
+      "file": "api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/SaveUnassignedList.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/contactTransfer/unassignedList",
+      "file": "api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/UnassignedList.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/corp/bind",
+      "file": "api-server/app/core/corp/src/Action/Dashboard/Bind.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/corp/index",
+      "file": "api-server/app/core/corp/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/corp/select",
+      "file": "api-server/app/core/corp/src/Action/Dashboard/Select.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/corp/show",
+      "file": "api-server/app/core/corp/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/corp/store",
+      "file": "api-server/app/core/corp/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/corp/update",
+      "file": "api-server/app/core/corp/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/corp/weWorkCallback",
+      "file": "api-server/app/core/corp/src/Action/Dashboard/WeWorkCallback.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/corp/weWorkCallback",
+      "file": "api-server/app/core/corp/src/Action/Dashboard/WeWorkCallback.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/corpData/index",
+      "file": "api-server/app/core/index/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/corpData/lineChat",
+      "file": "api-server/app/core/index/src/Action/Dashboard/LineChat.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/greeting/destroy",
+      "file": "api-server/plugin/mochat/greeting/src/Action/Dashboard/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/greeting/index",
+      "file": "api-server/plugin/mochat/greeting/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/greeting/show",
+      "file": "api-server/plugin/mochat/greeting/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/greeting/store",
+      "file": "api-server/plugin/mochat/greeting/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/greeting/update",
+      "file": "api-server/plugin/mochat/greeting/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/medium/destroy",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Destroy.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/medium/groupUpdate",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/GroupUpdate.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/medium/index",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/medium/show",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/medium/store",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/medium/update",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/mediumGroup/destroy",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Group/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/mediumGroup/index",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Group/Index.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/mediumGroup/store",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Group/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/mediumGroup/update",
+      "file": "api-server/app/core/medium/src/Action/Dashboard/Group/Update.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/menu/destroy",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Menu/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/menu/iconIndex",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Menu/IconIndex.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/menu/index",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Menu/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/menu/select",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Menu/Select.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/menu/show",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Menu/Show.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/menu/statusUpdate",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Menu/StatusUpdate.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/menu/store",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Menu/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/menu/update",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Menu/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/officialAccount/authEventCallback",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/AuthEventCallback.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/officialAccount/authEventCallback",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/AuthEventCallback.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/officialAccount/authRedirect/",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/AuthRedirect.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/officialAccount/authRedirect/",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/AuthRedirect.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/officialAccount/getPreAuthUrl",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/GetPreAuthUrl.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/officialAccount/index",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/officialAccount/set",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/Set.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/role/destroy",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/role/index",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/role/permissionByUser",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/PermissionByUser.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/role/permissionShow",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/PermissionShow.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/role/permissionStore",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/PermissionStore.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/role/select",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/Select.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/role/show",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/Show.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/role/showEmployee",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/ShowEmployee.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/role/statusUpdate",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/StatusUpdate.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/role/store",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/role/update",
+      "file": "api-server/app/core/rbac/src/Action/Dashboard/Role/Update.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/roomMessageBatchSend/destroy",
+      "file": "api-server/plugin/mochat/room-message-batch-send/src/Action/Dashboard/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomMessageBatchSend/index",
+      "file": "api-server/plugin/mochat/room-message-batch-send/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomMessageBatchSend/remind",
+      "file": "api-server/plugin/mochat/room-message-batch-send/src/Action/Dashboard/Remind.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomMessageBatchSend/roomOwnerSendIndex",
+      "file": "api-server/plugin/mochat/room-message-batch-send/src/Action/Dashboard/RoomOwnerSendIndex.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomMessageBatchSend/roomReceiveIndex",
+      "file": "api-server/plugin/mochat/room-message-batch-send/src/Action/Dashboard/RoomReceiveIndex.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomMessageBatchSend/show",
+      "file": "api-server/plugin/mochat/room-message-batch-send/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/roomMessageBatchSend/store",
+      "file": "api-server/plugin/mochat/room-message-batch-send/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomTagPull/chooseContact",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/ChooseContact.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/roomTagPull/destroy",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/Destroy.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/roomTagPull/filterContact",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/FilterContact.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomTagPull/index",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomTagPull/remindSend",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/RemindSend.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomTagPull/roomList",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/RoomList.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomTagPull/show",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomTagPull/showContact",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/ShowContact.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/roomTagPull/store",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/roomWelcome/destroy",
+      "file": "api-server/plugin/mochat/room-welcome/src/Action/Dashboard/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomWelcome/index",
+      "file": "api-server/plugin/mochat/room-welcome/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomWelcome/select",
+      "file": "api-server/plugin/mochat/room-welcome/src/Action/Dashboard/Select.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/roomWelcome/show",
+      "file": "api-server/plugin/mochat/room-welcome/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/roomWelcome/store",
+      "file": "api-server/plugin/mochat/room-welcome/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/roomWelcome/update",
+      "file": "api-server/plugin/mochat/room-welcome/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/statistic/employeeCounts",
+      "file": "api-server/plugin/mochat/statistic/src/Action/Dashboard/EmployeeCounts.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/statistic/employees",
+      "file": "api-server/plugin/mochat/statistic/src/Action/Dashboard/Employees.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/statistic/employeesTrend",
+      "file": "api-server/plugin/mochat/statistic/src/Action/Dashboard/EmployeesTrend.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/statistic/index",
+      "file": "api-server/plugin/mochat/statistic/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/statistic/topList",
+      "file": "api-server/plugin/mochat/statistic/src/Action/Dashboard/TopList.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/user/auth",
+      "file": "api-server/app/core/user/src/Action/Dashboard/Auth.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/user/index",
+      "file": "api-server/app/core/user/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/user/loginShow",
+      "file": "api-server/app/core/user/src/Action/Dashboard/LoginShow.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/user/logout",
+      "file": "api-server/app/core/user/src/Action/Dashboard/Logout.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/user/passwordReset",
+      "file": "api-server/app/core/user/src/Action/Dashboard/PasswordReset.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/user/passwordUpdate",
+      "file": "api-server/app/core/user/src/Action/Dashboard/PasswordUpdate.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/user/show",
+      "file": "api-server/app/core/user/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/user/statusUpdate",
+      "file": "api-server/app/core/user/src/Action/Dashboard/StatusUpdate.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/user/store",
+      "file": "api-server/app/core/user/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/user/update",
+      "file": "api-server/app/core/user/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/workContact/batchLabeling",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/BatchLabeling.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContact/index",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContact/lossContact",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/LossContact.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContact/show",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContact/source",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Source.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workContact/synContact",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/SynContact.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContact/track",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Track.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workContact/update",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContactRoom/index",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Room/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContactTag/allTag",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/AllTag.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContactTag/contactTagList",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/ContactTagList.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/workContactTag/destroy",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContactTag/detail",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/Detail.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContactTag/index",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/Index.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workContactTag/move",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/Move.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/workContactTag/store",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workContactTag/synContactTag",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/SynContactTag.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workContactTag/update",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/Tag/Update.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/workContactTagGroup/destroy",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/TagGroup/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContactTagGroup/detail",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/TagGroup/Detail.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workContactTagGroup/index",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/TagGroup/Index.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/workContactTagGroup/store",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/TagGroup/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workContactTagGroup/update",
+      "file": "api-server/app/core/work-contact/src/Action/Dashboard/TagGroup/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workDepartment/index",
+      "file": "api-server/app/core/work-department/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workDepartment/pageIndex",
+      "file": "api-server/app/core/work-department/src/Action/Dashboard/PageIndex.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workDepartment/selectByPhone",
+      "file": "api-server/app/core/work-department/src/Action/Dashboard/SelectByPhone.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workDepartment/showEmployee",
+      "file": "api-server/app/core/work-department/src/Action/Dashboard/ShowEmployee.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workEmployee/index",
+      "file": "api-server/app/core/work-employee/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workEmployee/searchCondition",
+      "file": "api-server/app/core/work-employee/src/Action/Dashboard/SearchCondition.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workEmployee/synEmployee",
+      "file": "api-server/app/core/work-employee/src/Action/Dashboard/SyncEmployee.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workEmployeeDepartment/memberIndex",
+      "file": "api-server/app/core/work-employee/src/Action/Dashboard/Department/MemberIndex.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workFission/chooseContact",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/ChooseContact.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/workFission/destroy",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workFission/index",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workFission/info",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/Info.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/workFission/invite",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/Invite.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workFission/inviteData",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/InviteData.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workFission/inviteDetail",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/InviteDetail.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workFission/show",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workFission/statistics",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/Statistics.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/workFission/store",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workFission/update",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workRoom/batchUpdate",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/BatchUpdate.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workRoom/index",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workRoom/roomIndex",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/RoomIndex.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workRoom/statistics",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/Statistics.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workRoom/statisticsIndex",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/StatisticsIndex.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workRoom/syn",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/Sync.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workRoomAutoPull/index",
+      "file": "api-server/plugin/mochat/room-auto-pull/src/Action/Dashboard/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workRoomAutoPull/show",
+      "file": "api-server/plugin/mochat/room-auto-pull/src/Action/Dashboard/Show.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/workRoomAutoPull/store",
+      "file": "api-server/plugin/mochat/room-auto-pull/src/Action/Dashboard/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workRoomAutoPull/update",
+      "file": "api-server/plugin/mochat/room-auto-pull/src/Action/Dashboard/Update.php"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dashboard/workRoomGroup/destroy",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/Group/Destroy.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/workRoomGroup/index",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/Group/Index.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/workRoomGroup/store",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/Group/Store.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/dashboard/workRoomGroup/update",
+      "file": "api-server/app/core/work-room/src/Action/Dashboard/Group/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/{appId}/officialAccount/messageEventCallback",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/MessageEventCallback.php"
+    },
+    {
+      "method": "POST",
+      "path": "/dashboard/{appId}/officialAccount/messageEventCallback",
+      "file": "api-server/app/core/official-account/src/Action/Dashboard/MessageEventCallback.php"
+    },
+    {
+      "method": "GET",
+      "path": "/favicon.ico",
+      "file": "api-server/config/routes.php"
+    },
+    {
+      "method": "GET",
+      "path": "/load/{params?}",
+      "file": "api-server/config/routes.php"
+    },
+    {
+      "method": "POST",
+      "path": "/load/{params?}",
+      "file": "api-server/config/routes.php"
+    },
+    {
+      "method": "GET",
+      "path": "/operation/auth/workFission",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Operation/Auth.php"
+    },
+    {
+      "method": "POST",
+      "path": "/operation/auth/workFission",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Operation/Auth.php"
+    },
+    {
+      "method": "GET",
+      "path": "/operation/openUserInfo/workFission",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Operation/OpenUserInfo.php"
+    },
+    {
+      "method": "GET",
+      "path": "/operation/workFission/inviteFriends",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Operation/InviteFriends.php"
+    },
+    {
+      "method": "GET",
+      "path": "/operation/workFission/poster",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Operation/Poster.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/operation/workFission/receive",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Operation/Receive.php"
+    },
+    {
+      "method": "GET",
+      "path": "/operation/workFission/taskData",
+      "file": "api-server/plugin/mochat/work-fission/src/Action/Operation/TaskData.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/agent/auth",
+      "file": "api-server/app/core/work-agent/src/Action/Sidebar/Auth.php"
+    },
+    {
+      "method": "POST",
+      "path": "/sidebar/agent/auth",
+      "file": "api-server/app/core/work-agent/src/Action/Sidebar/Auth.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/agent/jssdkConfig",
+      "file": "api-server/app/core/work-agent/src/Action/Sidebar/JssdkConfig.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/agent/oauth",
+      "file": "api-server/app/core/work-agent/src/Action/Sidebar/OAuth.php"
+    },
+    {
+      "method": "POST",
+      "path": "/sidebar/common/upload",
+      "file": "api-server/app/core/common/src/Action/Sidebar/Upload.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/contactFieldPivot/index",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/FieldPivot/Index.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/sidebar/contactFieldPivot/update",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/FieldPivot/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/contactProcessStatus/index",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/ProcessStatus/Index.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/sidebar/contactProcessStatus/update",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/ProcessStatus/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/medium/index",
+      "file": "api-server/app/core/medium/src/Action/Sidebar/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/medium/mediaIdUpdate",
+      "file": "api-server/app/core/medium/src/Action/Sidebar/MediaIdUpdate.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/mediumGroup/index",
+      "file": "api-server/app/core/medium/src/Action/Sidebar/Group/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/workContact/detail",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/Detail.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/workContact/show",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/Show.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/workContact/track",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/Track.php"
+    },
+    {
+      "method": "PUT",
+      "path": "/sidebar/workContact/update",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/Update.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/workContactTag/allTag",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/Tag/AllTag.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/workContactTagGroup/index",
+      "file": "api-server/app/core/work-contact/src/Action/Sidebar/TagGroup/Index.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/workRoom/roomManage",
+      "file": "api-server/app/core/work-room/src/Action/Sidebar/RoomManage.php"
+    },
+    {
+      "method": "GET",
+      "path": "/sidebar/wxJsSdk/config",
+      "file": "api-server/app/core/common/src/Action/Sidebar/WxJSSDK/Config.php"
+    },
+    {
+      "method": "GET",
+      "path": "/weWork/callback",
+      "file": "api-server/config/routes.php"
+    },
+    {
+      "method": "POST",
+      "path": "/weWork/callback",
+      "file": "api-server/config/routes.php"
+    },
+    {
+      "method": "GET",
+      "path": "/{wxVerifyTxt:WW_verify_[0-9a-zA-Z]{16}\\.txt$}",
+      "file": "api-server/app/core/work-agent/src/Action/Dashboard/TxtVerifyShow.php"
+    }
+  ],
+  "tables": [
+    {
+      "name": "mc_business_log"
+    },
+    {
+      "name": "mc_channel_code"
+    },
+    {
+      "name": "mc_channel_code_group"
+    },
+    {
+      "name": "mc_chat_tool"
+    },
+    {
+      "name": "mc_contact_employee_process"
+    },
+    {
+      "name": "mc_contact_employee_track"
+    },
+    {
+      "name": "mc_contact_field"
+    },
+    {
+      "name": "mc_contact_field_pivot"
+    },
+    {
+      "name": "mc_contact_message_batch_send"
+    },
+    {
+      "name": "mc_contact_message_batch_send_employee"
+    },
+    {
+      "name": "mc_contact_message_batch_send_result"
+    },
+    {
+      "name": "mc_contact_process"
+    },
+    {
+      "name": "mc_corp"
+    },
+    {
+      "name": "mc_corp_day_data"
+    },
+    {
+      "name": "mc_greeting"
+    },
+    {
+      "name": "mc_medium"
+    },
+    {
+      "name": "mc_medium_group"
+    },
+    {
+      "name": "mc_official_account"
+    },
+    {
+      "name": "mc_official_account_set"
+    },
+    {
+      "name": "mc_plugin"
+    },
+    {
+      "name": "mc_rbac_menu"
+    },
+    {
+      "name": "mc_rbac_role"
+    },
+    {
+      "name": "mc_rbac_role_menu"
+    },
+    {
+      "name": "mc_rbac_user_role"
+    },
+    {
+      "name": "mc_room_message_batch_send"
+    },
+    {
+      "name": "mc_room_message_batch_send_employee"
+    },
+    {
+      "name": "mc_room_message_batch_send_result"
+    },
+    {
+      "name": "mc_room_tag_pull"
+    },
+    {
+      "name": "mc_room_tag_pull_contact"
+    },
+    {
+      "name": "mc_room_welcome_template"
+    },
+    {
+      "name": "mc_sys_log"
+    },
+    {
+      "name": "mc_system_config"
+    },
+    {
+      "name": "mc_system_config_value"
+    },
+    {
+      "name": "mc_tenant"
+    },
+    {
+      "name": "mc_user"
+    },
+    {
+      "name": "mc_work_agent"
+    },
+    {
+      "name": "mc_work_contact"
+    },
+    {
+      "name": "mc_work_contact_employee"
+    },
+    {
+      "name": "mc_work_contact_room"
+    },
+    {
+      "name": "mc_work_contact_tag"
+    },
+    {
+      "name": "mc_work_contact_tag_group"
+    },
+    {
+      "name": "mc_work_contact_tag_pivot"
+    },
+    {
+      "name": "mc_work_department"
+    },
+    {
+      "name": "mc_work_employee"
+    },
+    {
+      "name": "mc_work_employee_department"
+    },
+    {
+      "name": "mc_work_employee_statistic"
+    },
+    {
+      "name": "mc_work_employee_tag"
+    },
+    {
+      "name": "mc_work_employee_tag_pivot"
+    },
+    {
+      "name": "mc_work_fission"
+    },
+    {
+      "name": "mc_work_fission_contact"
+    },
+    {
+      "name": "mc_work_fission_invite"
+    },
+    {
+      "name": "mc_work_fission_poster"
+    },
+    {
+      "name": "mc_work_fission_push"
+    },
+    {
+      "name": "mc_work_fission_welcome"
+    },
+    {
+      "name": "mc_work_room"
+    },
+    {
+      "name": "mc_work_room_auto_pull"
+    },
+    {
+      "name": "mc_work_room_group"
+    },
+    {
+      "name": "mc_work_transfer_log"
+    },
+    {
+      "name": "mc_work_unassigned"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_0"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_1"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_2"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_3"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_4"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_5"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_6"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_7"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_8"
+    },
+    {
+      "name": "mc_work_unionid_external_userid_mapping_9"
+    },
+    {
+      "name": "mc_work_update_time"
+    }
+  ],
+  "crontabs": [
+    {
+      "name": "ContactSyncSendResultTask",
+      "rule": "0 * * * *",
+      "memo": "同步客户群发结果任务",
+      "file": "api-server/plugin/mochat/contact-message-batch-send/src/Task/ContactSyncSendResultTask.php"
+    },
+    {
+      "name": "RoomSyncSendResultTask",
+      "rule": "0 * * * *",
+      "memo": "同步客户群群发结果任务",
+      "file": "api-server/plugin/mochat/room-message-batch-send/src/Task/RoomSyncSendResultTask.php"
+    },
+    {
+      "name": "RoomTagPull",
+      "rule": "*\\/5 * * * * ",
+      "memo": "这是一个标签建群的定时任务",
+      "file": "api-server/plugin/mochat/room-tag-pull/src/Task/RoomTagPull.php"
+    },
+    {
+      "name": "TransferStateRefresh",
+      "rule": "*\\/5 * * * *",
+      "memo": "分配状态更新定时器",
+      "file": "api-server/plugin/mochat/contact-transfer/src/Task/TransferStateRefresh.php"
+    },
+    {
+      "name": "channelCode",
+      "rule": "*\\/30 * * * * *",
+      "memo": "渠道码-更新客户联系我方式",
+      "file": "api-server/plugin/mochat/channel-code/src/Task/ChannelCode.php"
+    },
+    {
+      "name": "corpData",
+      "rule": "*\\/10 * * * *",
+      "memo": "首页数据统计",
+      "file": "api-server/app/core/index/src/Task/CorpData.php"
+    },
+    {
+      "name": "employeeStatistic",
+      "rule": "30 0 * * *",
+      "memo": "成员统计拉取",
+      "file": "api-server/app/core/work-employee/src/Task/WorkEmployeeStatistic.php"
+    },
+    {
+      "name": "mediaIdUpdate",
+      "rule": "*\\/5 * * * *",
+      "memo": "素材库media_id更新",
+      "file": "api-server/app/core/medium/src/Task/MediaIdUpdate.php"
+    },
+    {
+      "name": "pullAgent",
+      "rule": "0 * * * *",
+      "memo": "企业微信应用-同步应用",
+      "file": "api-server/app/core/work-agent/src/Task/SyncWorkAgent.php"
+    }
+  ],
+  "event_handlers": [
+    {
+      "event_path": "",
+      "file": "api-server/app/core/corp/src/EventHandler/NormalHandler.php"
+    },
+    {
+      "event_path": "event/change_contact/create_party",
+      "file": "api-server/app/core/work-department/src/EventHandler/DepartmentStoreHandler.php"
+    },
+    {
+      "event_path": "event/change_contact/create_user",
+      "file": "api-server/app/core/work-employee/src/EventHandler/EmployeeStoreHandler.php"
+    },
+    {
+      "event_path": "event/change_contact/delete_party",
+      "file": "api-server/app/core/work-department/src/EventHandler/DepartmentMoveHandler.php"
+    },
+    {
+      "event_path": "event/change_contact/delete_user",
+      "file": "api-server/app/core/work-employee/src/EventHandler/EmployeeMoveHandler.php"
+    },
+    {
+      "event_path": "event/change_contact/update_party",
+      "file": "api-server/app/core/work-department/src/EventHandler/DepartmentUpdateHandler.php"
+    },
+    {
+      "event_path": "event/change_contact/update_user",
+      "file": "api-server/app/core/work-employee/src/EventHandler/EmployeeUpdateHandler.php"
+    },
+    {
+      "event_path": "event/change_external_chat/create",
+      "file": "api-server/app/core/work-room/src/EventHandler/WorkRoomCreateHandler.php"
+    },
+    {
+      "event_path": "event/change_external_chat/dismiss",
+      "file": "api-server/app/core/work-room/src/EventHandler/WorkRoomDismissHandler.php"
+    },
+    {
+      "event_path": "event/change_external_chat/update",
+      "file": "api-server/app/core/work-room/src/EventHandler/WorkRoomUpdateHandler.php"
+    }
+  ],
+  "async_queues": [
+    {
+      "pool": "callback",
+      "file": "api-server/app/core/corp/src/QueueService/WeWorkCallback.php"
+    },
+    {
+      "pool": "contact",
+      "file": "api-server/app/core/work-contact/src/QueueService/AdminSynContactApply.php"
+    },
+    {
+      "pool": "contact",
+      "file": "api-server/app/core/work-contact/src/QueueService/SyncContactApply.php"
+    },
+    {
+      "pool": "contact",
+      "file": "api-server/app/core/work-contact/src/QueueService/Tag/MarkTags.php"
+    },
+    {
+      "pool": "employee",
+      "file": "api-server/app/core/work-department/src/QueueService/ListApply.php"
+    },
+    {
+      "pool": "employee",
+      "file": "api-server/app/core/work-employee/src/QueueService/EmployeeApply.php"
+    },
+    {
+      "pool": "employee",
+      "file": "api-server/app/core/work-employee/src/QueueService/EmployeeStatisticApply.php"
+    },
+    {
+      "pool": "file",
+      "file": "api-server/app/core/common/src/QueueService/AsyncFileUpload.php"
+    },
+    {
+      "pool": "file",
+      "file": "api-server/app/core/medium/src/Queue/MediaIdUpdateQueue.php"
+    },
+    {
+      "pool": "remind",
+      "file": "api-server/app/core/work-agent/src/QueueService/MessageRemind.php"
+    },
+    {
+      "pool": "remind",
+      "file": "api-server/app/core/work-agent/src/QueueService/MessageRemind.php"
+    },
+    {
+      "pool": "remind",
+      "file": "api-server/app/core/work-agent/src/QueueService/MessageRemind.php"
+    },
+    {
+      "pool": "room",
+      "file": "api-server/app/core/work-room/src/QueueService/UpdateApply.php"
+    },
+    {
+      "pool": "room",
+      "file": "api-server/app/core/work-room/src/QueueService/UpdateCallback.php"
+    },
+    {
+      "pool": "welcome",
+      "file": "api-server/app/core/work-contact/src/QueueService/SendWelcome.php"
+    }
+  ]
+}

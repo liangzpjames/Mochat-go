@@ -1,0 +1,8 @@
+==> 全套非 PHP 本地短验收证据包 skipped by MOCHAT_PRODUCTION_CANDIDATE_SKIP_LOCAL=1
+==> 严格生产证据检查
+    failed, see docs/evidence/production/current/candidate/production-evidence.log
+==> 严格目标完成度审计
+    failed, see docs/evidence/production/current/candidate/goal-completion.log
+==> 源码与验收指纹匹配
+    passed, see docs/evidence/production/current/candidate/source-fingerprint.log
+docs/evidence/production/current/candidate/index.md

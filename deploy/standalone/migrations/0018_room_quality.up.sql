@@ -1,0 +1,58 @@
+CREATE TABLE IF NOT EXISTS `mc_room_quality` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '规则名称',
+  `description` text COLLATE utf8mb4_unicode_ci COMMENT '规则说明',
+  `rule` json DEFAULT NULL COMMENT '质检规则配置',
+  `rooms` json DEFAULT NULL COMMENT '适用客户群ID',
+  `status` tinyint(1) NOT NULL DEFAULT '1' COMMENT '状态（0：停用，1：启用）',
+  `tenant_id` int(11) DEFAULT NULL COMMENT '租户id',
+  `corp_id` int(11) DEFAULT NULL COMMENT '企业id',
+  `create_user_id` int(11) NOT NULL DEFAULT '0' COMMENT '创建人ID',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_room_quality_corp_deleted` (`corp_id`, `deleted_at`),
+  KEY `idx_mc_room_quality_tenant` (`tenant_id`),
+  KEY `idx_mc_room_quality_create_user` (`create_user_id`),
+  KEY `idx_mc_room_quality_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='群质检-规则主表';
+
+CREATE TABLE IF NOT EXISTS `mc_room_quality_contact` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `quality_id` int(11) NOT NULL DEFAULT '0' COMMENT '群质检规则ID',
+  `room_id` int(11) NOT NULL DEFAULT '0' COMMENT '客户群ID',
+  `room_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '客户群名称',
+  `contact_id` int(11) NOT NULL DEFAULT '0' COMMENT '客户ID',
+  `external_user_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '外部联系人ID',
+  `nickname` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '客户昵称',
+  `avatar` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '客户头像',
+  `employee_ids` json DEFAULT NULL COMMENT '相关员工ID',
+  `content` text COLLATE utf8mb4_unicode_ci COMMENT '触发内容',
+  `msg_type` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '消息类型',
+  `trigger_at` timestamp NULL DEFAULT NULL COMMENT '触发时间',
+  `status` tinyint(1) NOT NULL DEFAULT '0' COMMENT '处理状态（0：待处理，1：已处理）',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_room_quality_contact_quality` (`quality_id`, `deleted_at`),
+  KEY `idx_mc_room_quality_contact_room` (`room_id`, `deleted_at`),
+  KEY `idx_mc_room_quality_contact_contact` (`contact_id`),
+  KEY `idx_mc_room_quality_contact_external` (`external_user_id`),
+  KEY `idx_mc_room_quality_contact_status` (`status`, `trigger_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='群质检-触发记录';
+
+INSERT IGNORE INTO `mc_rbac_menu` (`id`, `parent_id`, `name`, `level`, `path`, `icon`, `status`, `link_type`, `is_page_menu`, `link_url`, `data_permission`, `operate_id`, `operate_name`, `sort`, `created_at`, `updated_at`, `deleted_at`) VALUES
+('584', '330', '群质检', '3', '#1#-#330#-#584#', '', '1', '1', '1', '/dashboard/roomQuality/index', '2', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('585', '584', '创建群质检', '4', '#1#-#330#-#584#-#585#', '', '1', '1', '1', '/dashboard/roomQuality/create', '2', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('586', '584', '群质检详情', '4', '#1#-#330#-#584#-#586#', '', '1', '1', '1', '/dashboard/roomQuality/show', '2', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('587', '584', '修改群质检', '4', '#1#-#330#-#584#-#587#', '', '1', '1', '1', '/dashboard/roomQuality/update', '2', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('588', '584', '群质检新建接口', '4', '#1#-#330#-#584#-#588#', '', '1', '1', '2', '/dashboard/roomQuality/store#post', '1', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('589', '584', '群质检列表接口', '4', '#1#-#330#-#584#-#589#', '', '1', '1', '2', '/dashboard/roomQuality/index#get', '1', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('590', '584', '群质检状态接口', '4', '#1#-#330#-#584#-#590#', '', '1', '1', '2', '/dashboard/roomQuality/status#put', '1', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('591', '584', '群质检弹窗信息接口', '4', '#1#-#330#-#584#-#591#', '', '1', '1', '2', '/dashboard/roomQuality/info#get', '1', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('592', '584', '群质检更新接口', '4', '#1#-#330#-#584#-#592#', '', '1', '1', '2', '/dashboard/roomQuality/update#put', '1', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('593', '584', '群质检客户接口', '4', '#1#-#330#-#584#-#593#', '', '1', '1', '2', '/dashboard/roomQuality/showContact#get', '1', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('594', '584', '群质检删除接口', '4', '#1#-#330#-#584#-#594#', '', '1', '1', '2', '/dashboard/roomQuality/destroy#delete', '1', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL),
+('595', '584', '群质检客户详情接口', '4', '#1#-#330#-#584#-#595#', '', '1', '1', '2', '/dashboard/roomQuality/contactDetail#get', '1', '0', '系统', '99', '2021-09-07 01:10:00', '2021-09-07 01:10:00', NULL);

@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "generated_at": "2026-07-19 07:40:38 CST",
+  "source_fingerprint": "ad95a7ba63dc2ec688355083c5cedbb9e81790ada25a4136ee01c01c06ae0e25",
+  "source_dir": "docs/evidence/production",
+  "pack_dir": "docs/evidence/production/current",
+  "copy_files": true,
+  "run_candidate": true,
+  "items": [
+    {
+      "env": "MOCHAT_EVIDENCE_MYSQL57_AMD64",
+      "title": "MySQL 5.7 amd64 真实容器门禁",
+      "source": "docs/evidence/production/mysql57-amd64.log",
+      "path": "docs/evidence/production/current/mysql57-amd64.log",
+      "copied": false,
+      "copy_blocked": false,
+      "copy_block_reason": "",
+      "copy_issue": "",
+      "exists": false,
+      "size": 0,
+      "sha256": ""
+    },
+    {
+      "env": "MOCHAT_EVIDENCE_REAL_WECOM",
+      "title": "真实企业微信账号联调",
+      "source": "docs/evidence/production/real-wecom.md",
+      "path": "docs/evidence/production/current/real-wecom.md",
+      "copied": false,
+      "copy_blocked": false,
+      "copy_block_reason": "",
+      "copy_issue": "",
+      "exists": false,
+      "size": 0,
+      "sha256": ""
+    },
+    {
+      "env": "MOCHAT_EVIDENCE_REAL_WECHAT_OPEN",
+      "title": "真实微信开放平台联调",
+      "source": "docs/evidence/production/real-wechat-open.md",
+      "path": "docs/evidence/production/current/real-wechat-open.md",
+      "copied": false,
+      "copy_blocked": false,
+      "copy_block_reason": "",
+      "copy_issue": "",
+      "exists": false,
+      "size": 0,
+      "sha256": ""
+    },
+    {
+      "env": "MOCHAT_EVIDENCE_REAL_SAAS_TENANTS",
+      "title": "真实 SaaS 多租户数据回归",
+      "source": "docs/evidence/production/real-saas-tenants.md",
+      "path": "docs/evidence/production/current/real-saas-tenants.md",
+      "copied": false,
+      "copy_blocked": false,
+      "copy_block_reason": "",
+      "copy_issue": "",
+      "exists": false,
+      "size": 0,
+      "sha256": ""
+    },
+    {
+      "env": "MOCHAT_EVIDENCE_PROD_FRONTEND",
+      "title": "生产前端浏览器回归",
+      "source": "docs/evidence/production/prod-frontend.md",
+      "path": "docs/evidence/production/current/prod-frontend.md",
+      "copied": false,
+      "copy_blocked": false,
+      "copy_block_reason": "",
+      "copy_issue": "",
+      "exists": false,
+      "size": 0,
+      "sha256": ""
+    },
+    {
+      "env": "MOCHAT_EVIDENCE_STABILITY",
+      "title": "稳定性记录",
+      "source": "docs/evidence/production/stability.md",
+      "path": "docs/evidence/production/current/stability.md",
+      "copied": false,
+      "copy_blocked": false,
+      "copy_block_reason": "",
+      "copy_issue": "",
+      "exists": false,
+      "size": 0,
+      "sha256": ""
+    }
+  ]
+}

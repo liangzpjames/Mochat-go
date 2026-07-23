@@ -1,0 +1,6 @@
+MOCHAT_EVIDENCE_MYSQL57_AMD64=docs/evidence/production/current/mysql57-amd64.log
+MOCHAT_EVIDENCE_REAL_WECOM=docs/evidence/production/current/real-wecom.md
+MOCHAT_EVIDENCE_REAL_WECHAT_OPEN=docs/evidence/production/current/real-wechat-open.md
+MOCHAT_EVIDENCE_REAL_SAAS_TENANTS=docs/evidence/production/current/real-saas-tenants.md
+MOCHAT_EVIDENCE_PROD_FRONTEND=docs/evidence/production/current/prod-frontend.md
+MOCHAT_EVIDENCE_STABILITY=docs/evidence/production/current/stability.md

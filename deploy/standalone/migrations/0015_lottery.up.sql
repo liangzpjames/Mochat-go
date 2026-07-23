@@ -1,0 +1,97 @@
+CREATE TABLE IF NOT EXISTS `mc_lottery` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '活动名称',
+  `description` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '活动说明',
+  `type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '活动模板（roulette：转盘）',
+  `time_type` tinyint(1) NOT NULL COMMENT '截止日期（1：永久有效，2：自定义活动时间）',
+  `start_time` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '开始时间',
+  `end_time` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '结束时间',
+  `contact_tags` json DEFAULT NULL COMMENT '客户标签',
+  `tenant_id` int(11) DEFAULT NULL COMMENT '租户id',
+  `corp_id` int(11) DEFAULT NULL COMMENT '企业id',
+  `create_user_id` int(11) DEFAULT NULL COMMENT '创建人ID',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_lottery_corp_deleted` (`corp_id`, `deleted_at`),
+  KEY `idx_mc_lottery_tenant` (`tenant_id`),
+  KEY `idx_mc_lottery_create_user` (`create_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='抽奖活动-基本信息表';
+
+CREATE TABLE IF NOT EXISTS `mc_lottery_contact` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `lottery_id` int(11) NOT NULL COMMENT '活动id',
+  `union_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '微信union_id',
+  `contact_id` int(11) DEFAULT '0' COMMENT '客户id（mc_work_contact.id。不能匹配时为0）',
+  `nickname` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '昵称',
+  `avatar` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '头像',
+  `employee_ids` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '企业员工',
+  `city` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '城市',
+  `source` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '来源',
+  `grade` int(11) DEFAULT '0' COMMENT '客户评分',
+  `contact_tags` json DEFAULT NULL COMMENT '客户标签',
+  `draw_num` int(11) DEFAULT '0' COMMENT '抽奖次数',
+  `win_num` int(11) DEFAULT '0' COMMENT '获奖次数',
+  `status` tinyint(11) DEFAULT '0' COMMENT '状态（0：未完成，1：已完成）',
+  `write_off` tinyint(1) DEFAULT '0' COMMENT '核销（0：未核销，1：已核销）',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_lottery_contact_lottery` (`lottery_id`, `deleted_at`),
+  KEY `idx_mc_lottery_contact_contact` (`contact_id`),
+  KEY `idx_mc_lottery_contact_status` (`status`, `write_off`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='抽奖活动-客户表';
+
+CREATE TABLE IF NOT EXISTS `mc_lottery_contact_record` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `lottery_id` int(11) NOT NULL COMMENT '活动id',
+  `contact_id` int(11) NOT NULL COMMENT '客户id（mc_lottery_contact.id）',
+  `prize_id` int(11) NOT NULL COMMENT '奖品id',
+  `prize_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '奖品名称',
+  `receive_status` tinyint(1) DEFAULT '0' COMMENT '领奖状态（0：未领取。1：已领取）',
+  `receive_qr` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '客服二维码链接',
+  `receive_type` tinyint(1) NOT NULL COMMENT '兑奖方式（1：客服二维码，2：兑换码）',
+  `receive_code` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '兑换码',
+  `write_off` tinyint(255) NOT NULL DEFAULT '0' COMMENT '核销（0：未核销，1：已核销）',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_lottery_contact_record_lottery` (`lottery_id`, `deleted_at`),
+  KEY `idx_mc_lottery_contact_record_contact` (`contact_id`, `deleted_at`),
+  KEY `idx_mc_lottery_contact_record_prize` (`prize_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='抽奖活动-客户参与记录表';
+
+CREATE TABLE IF NOT EXISTS `mc_lottery_prize` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `lottery_id` int(11) NOT NULL COMMENT '活动id',
+  `prize_set` json DEFAULT NULL COMMENT '奖品设置',
+  `is_show` tinyint(1) NOT NULL COMMENT '实时展示已中奖客户记录(0：否，1：是）',
+  `exchange_set` json DEFAULT NULL COMMENT '兑奖设置',
+  `draw_set` json DEFAULT NULL COMMENT '抽奖限制设置',
+  `win_set` json DEFAULT NULL COMMENT '中奖限制设置',
+  `corp_card` json DEFAULT NULL COMMENT '企业名片（头像、名称、简介）',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_lottery_prize_lottery` (`lottery_id`, `deleted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='抽奖活动-奖品信息表';
+
+INSERT IGNORE INTO `mc_rbac_menu` (`id`, `parent_id`, `name`, `level`, `path`, `icon`, `status`, `link_type`, `is_page_menu`, `link_url`, `data_permission`, `operate_id`, `operate_name`, `sort`, `created_at`, `updated_at`, `deleted_at`) VALUES
+('283', '330', '抽奖活动', '3', '#1#-#330#-#283#', '', '1', '1', '1', '/dashboard/lottery/index', '2', '0', '系统', '99', '2021-06-08 10:04:48', '2021-08-09 17:01:36', NULL),
+('284', '283', '创建抽奖活动', '4', '#1#-#330#-#283#-#284#', '', '1', '1', '1', '/dashboard/lottery/create', '2', '0', '系统', '99', '2021-06-08 11:50:00', '2021-08-09 17:01:36', NULL),
+('294', '283', '详情', '4', '#1#-#330#-#283#-#294#', '', '1', '1', '1', '/dashboard/lottery/show', '2', '0', '系统', '99', '2021-06-10 10:18:57', '2021-08-09 17:01:36', NULL),
+('318', '283', '修改', '4', '#1#-#330#-#283#-#318#', '', '1', '1', '1', '/dashboard/lottery/modify', '2', '0', '系统', '99', '2021-06-17 20:15:35', '2021-08-09 17:01:36', NULL),
+('470', '283', '抽奖活动列表接口', '4', '#1#-#330#-#283#-#470#', '', '1', '1', '2', '/dashboard/lottery/index#get', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('471', '283', '批量打标签接口', '4', '#1#-#330#-#283#-#471#', '', '1', '1', '2', '/dashboard/lottery/batchContactTags#put', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('472', '283', '抽奖活动删除接口', '4', '#1#-#330#-#283#-#472#', '', '1', '1', '2', '/dashboard/lottery/destroy#delete', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('473', '283', '抽奖活动弹窗信息接口', '4', '#1#-#330#-#283#-#473#', '', '1', '1', '2', '/dashboard/lottery/info#get', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('474', '283', '抽奖活动分享接口', '4', '#1#-#330#-#283#-#474#', '', '1', '1', '2', '/dashboard/lottery/share#get', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('475', '283', '抽奖活动详情接口', '4', '#1#-#330#-#283#-#475#', '', '1', '1', '2', '/dashboard/lottery/show#get', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('476', '283', '抽奖活动详情客户接口', '4', '#1#-#330#-#283#-#476#', '', '1', '1', '2', '/dashboard/lottery/showContact#get', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('477', '283', '抽奖活动新建接口', '4', '#1#-#330#-#283#-#477#', '', '1', '1', '2', '/dashboard/lottery/store#post', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('478', '283', '抽奖活动更新接口', '4', '#1#-#330#-#283#-#478#', '', '1', '1', '2', '/dashboard/lottery/update#put', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL),
+('479', '283', '抽奖活动核销接口', '4', '#1#-#330#-#283#-#479#', '', '1', '1', '2', '/dashboard/lottery/writeOff#get', '1', '0', '系统', '99', '2021-09-06 23:30:44', '2021-09-06 23:30:44', NULL);

@@ -1,0 +1,9 @@
+ALTER TABLE `mochat_go_saas_service_accounts`
+  DROP KEY `idx_mochat_go_saas_service_account_usage_alert_eval`,
+  DROP COLUMN `rejection_alert_last_notified_at`,
+  DROP COLUMN `usage_alert_last_notified_at`,
+  DROP COLUMN `usage_alert_last_evaluated_at`,
+  DROP COLUMN `usage_alert_cooldown_minutes`,
+  DROP COLUMN `rejection_warning_count`,
+  DROP COLUMN `usage_warning_percent`,
+  DROP COLUMN `usage_alert_enabled`;

@@ -1,0 +1,224 @@
+{
+  "schema": 1,
+  "generated_at": "2026-07-18 11:45:42 CST",
+  "production_evidence_dir": "docs/evidence/production",
+  "run_enabled": false,
+  "refresh_existing": false,
+  "strict": false,
+  "started_24h_run": false,
+  "standard_files_complete": false,
+  "standard_files_valid": false,
+  "capture_env_ready_or_file_exists": false,
+  "gate_ok": false,
+  "gate_returncode": 1,
+  "gate_report": "docs/evidence/production/readiness-production-evidence.md",
+  "gate_json": "docs/evidence/production/readiness-production-evidence.json",
+  "gate_log": "docs/evidence/production/readiness-production-evidence.log",
+  "env_template": "docs/evidence/production/readiness.env.todo",
+  "missing_count": 6,
+  "not_ready_count": 6,
+  "items": [
+    {
+      "key": "mysql57-amd64",
+      "title": "MySQL 5.7 amd64 真实容器门禁",
+      "evidence_env": "MOCHAT_EVIDENCE_MYSQL57_AMD64",
+      "standard_file": "docs/evidence/production/mysql57-amd64.log",
+      "exists": false,
+      "size": 0,
+      "evidence_valid": false,
+      "evidence_validation_status": "无效",
+      "evidence_issue": "`MOCHAT_EVIDENCE_MYSQL57_AMD64=docs/evidence/production/mysql57-amd64.log` 指向的文件不存在。",
+      "capture_ready": false,
+      "missing_env": [
+        "MOCHAT_MYSQL57_AMD64_EVIDENCE_SOURCE"
+      ],
+      "required_env_groups": [
+        [
+          "MOCHAT_MYSQL57_AMD64_EVIDENCE_SOURCE"
+        ]
+      ],
+      "command": [
+        "./scripts/import_mysql57_amd64_evidence.sh"
+      ],
+      "next": "设置 MOCHAT_MYSQL57_AMD64_EVIDENCE_SOURCE 指向 amd64 CI artifact/log 后运行本脚本或 import_mysql57_amd64_evidence.sh。",
+      "capture": null
+    },
+    {
+      "key": "real-wecom",
+      "title": "真实企业微信账号联调",
+      "evidence_env": "MOCHAT_EVIDENCE_REAL_WECOM",
+      "standard_file": "docs/evidence/production/real-wecom.md",
+      "exists": false,
+      "size": 0,
+      "evidence_valid": false,
+      "evidence_validation_status": "无效",
+      "evidence_issue": "`MOCHAT_EVIDENCE_REAL_WECOM=docs/evidence/production/real-wecom.md` 指向的文件不存在。",
+      "capture_ready": false,
+      "missing_env": [
+        "MOCHAT_REAL_WECOM_BASE_URL",
+        "MOCHAT_REAL_WECOM_TOKEN",
+        "MOCHAT_REAL_WECOM_CALLBACK_EVIDENCE",
+        "MOCHAT_REAL_WECOM_AGENT_MESSAGE_EVIDENCE",
+        "MOCHAT_REAL_WECOM_LOG_REF"
+      ],
+      "required_env_groups": [
+        [
+          "MOCHAT_REAL_WECOM_BASE_URL",
+          "MOCHAT_REAL_WECOM_TOKEN",
+          "MOCHAT_REAL_WECOM_CALLBACK_EVIDENCE",
+          "MOCHAT_REAL_WECOM_AGENT_MESSAGE_EVIDENCE",
+          "MOCHAT_REAL_WECOM_LOG_REF"
+        ]
+      ],
+      "command": [
+        "./scripts/capture_real_wecom_evidence.sh"
+      ],
+      "next": "准备真实企微 dashboard token、回调解密记录、应用消息记录和日志/工单引用。",
+      "capture": null
+    },
+    {
+      "key": "real-wechat-open",
+      "title": "真实微信开放平台联调",
+      "evidence_env": "MOCHAT_EVIDENCE_REAL_WECHAT_OPEN",
+      "standard_file": "docs/evidence/production/real-wechat-open.md",
+      "exists": false,
+      "size": 0,
+      "evidence_valid": false,
+      "evidence_validation_status": "无效",
+      "evidence_issue": "`MOCHAT_EVIDENCE_REAL_WECHAT_OPEN=docs/evidence/production/real-wechat-open.md` 指向的文件不存在。",
+      "capture_ready": false,
+      "missing_env": [
+        "MOCHAT_REAL_WECHAT_OPEN_BASE_URL",
+        "MOCHAT_REAL_WECHAT_OPEN_TOKEN",
+        "MOCHAT_REAL_WECHAT_OPEN_TICKET_EVIDENCE",
+        "MOCHAT_REAL_WECHAT_OPEN_AUTH_REDIRECT_EVIDENCE",
+        "MOCHAT_REAL_WECHAT_OPEN_CANCEL_EVIDENCE",
+        "MOCHAT_REAL_WECHAT_OPEN_MESSAGE_CALLBACK_EVIDENCE",
+        "MOCHAT_REAL_WECHAT_OPEN_LOG_REF"
+      ],
+      "required_env_groups": [
+        [
+          "MOCHAT_REAL_WECHAT_OPEN_BASE_URL",
+          "MOCHAT_REAL_WECHAT_OPEN_TOKEN",
+          "MOCHAT_REAL_WECHAT_OPEN_TICKET_EVIDENCE",
+          "MOCHAT_REAL_WECHAT_OPEN_AUTH_REDIRECT_EVIDENCE",
+          "MOCHAT_REAL_WECHAT_OPEN_CANCEL_EVIDENCE",
+          "MOCHAT_REAL_WECHAT_OPEN_MESSAGE_CALLBACK_EVIDENCE",
+          "MOCHAT_REAL_WECHAT_OPEN_LOG_REF"
+        ]
+      ],
+      "command": [
+        "./scripts/capture_real_wechat_open_evidence.sh"
+      ],
+      "next": "准备真实开放平台 ticket、预授权/授权回跳、取消授权、消息回调和日志/工单引用。",
+      "capture": null
+    },
+    {
+      "key": "real-saas-tenants",
+      "title": "真实 SaaS 多租户数据回归",
+      "evidence_env": "MOCHAT_EVIDENCE_REAL_SAAS_TENANTS",
+      "standard_file": "docs/evidence/production/real-saas-tenants.md",
+      "exists": false,
+      "size": 0,
+      "evidence_valid": false,
+      "evidence_validation_status": "无效",
+      "evidence_issue": "`MOCHAT_EVIDENCE_REAL_SAAS_TENANTS=docs/evidence/production/real-saas-tenants.md` 指向的文件不存在。",
+      "capture_ready": false,
+      "missing_env": [
+        "MOCHAT_REAL_SAAS_BASE_URL",
+        "MOCHAT_REAL_SAAS_TENANT_A_TOKEN",
+        "MOCHAT_REAL_SAAS_TENANT_B_TOKEN",
+        "MOCHAT_REAL_SAAS_TENANT_A_MARKER",
+        "MOCHAT_REAL_SAAS_TENANT_B_MARKER",
+        "MOCHAT_REAL_SAAS_TENANT_A_FORBIDDEN_PATHS",
+        "MOCHAT_REAL_SAAS_TENANT_B_FORBIDDEN_PATHS",
+        "MOCHAT_REAL_SAAS_QUOTA_EVIDENCE",
+        "MOCHAT_REAL_SAAS_UPLOAD_LEDGER_EVIDENCE",
+        "MOCHAT_REAL_SAAS_ASYNC_EVIDENCE",
+        "MOCHAT_REAL_SAAS_ALERT_EVIDENCE"
+      ],
+      "required_env_groups": [
+        [
+          "MOCHAT_REAL_SAAS_BASE_URL",
+          "MOCHAT_REAL_SAAS_TENANT_A_TOKEN",
+          "MOCHAT_REAL_SAAS_TENANT_B_TOKEN",
+          "MOCHAT_REAL_SAAS_TENANT_A_MARKER",
+          "MOCHAT_REAL_SAAS_TENANT_B_MARKER",
+          "MOCHAT_REAL_SAAS_TENANT_A_FORBIDDEN_PATHS",
+          "MOCHAT_REAL_SAAS_TENANT_B_FORBIDDEN_PATHS",
+          "MOCHAT_REAL_SAAS_QUOTA_EVIDENCE",
+          "MOCHAT_REAL_SAAS_UPLOAD_LEDGER_EVIDENCE",
+          "MOCHAT_REAL_SAAS_ASYNC_EVIDENCE",
+          "MOCHAT_REAL_SAAS_ALERT_EVIDENCE"
+        ]
+      ],
+      "command": [
+        "./scripts/capture_real_saas_tenants_evidence.sh"
+      ],
+      "next": "准备两个真实租户 token、租户标识、互访禁止路径、额度/账本/异步/告警证据。",
+      "capture": null
+    },
+    {
+      "key": "prod-frontend",
+      "title": "生产前端浏览器回归",
+      "evidence_env": "MOCHAT_EVIDENCE_PROD_FRONTEND",
+      "standard_file": "docs/evidence/production/prod-frontend.md",
+      "exists": false,
+      "size": 0,
+      "evidence_valid": false,
+      "evidence_validation_status": "无效",
+      "evidence_issue": "`MOCHAT_EVIDENCE_PROD_FRONTEND=docs/evidence/production/prod-frontend.md` 指向的文件不存在。",
+      "capture_ready": false,
+      "missing_env": [
+        "MOCHAT_PROD_FRONTEND_BASE_URL"
+      ],
+      "required_env_groups": [
+        [
+          "MOCHAT_PROD_FRONTEND_BASE_URL"
+        ]
+      ],
+      "command": [
+        "./scripts/capture_prod_frontend_evidence.sh"
+      ],
+      "next": "设置生产 base URL；需要登录时先准备 MOCHAT_PROD_FRONTEND_AUTH_STATE。",
+      "capture": null
+    },
+    {
+      "key": "stability",
+      "title": "稳定性记录",
+      "evidence_env": "MOCHAT_EVIDENCE_STABILITY",
+      "standard_file": "docs/evidence/production/stability.md",
+      "exists": false,
+      "size": 0,
+      "evidence_valid": false,
+      "evidence_validation_status": "无效",
+      "evidence_issue": "`MOCHAT_EVIDENCE_STABILITY=docs/evidence/production/stability.md` 指向的文件不存在。",
+      "capture_ready": false,
+      "missing_env": [
+        "MOCHAT_STABILITY_MONITOR_EVIDENCE",
+        "MOCHAT_STABILITY_HEALTH_EVIDENCE",
+        "MOCHAT_STABILITY_RESOURCE_EVIDENCE",
+        "MOCHAT_STABILITY_TIME_RANGE",
+        "MOCHAT_STABILITY_LOG_REF"
+      ],
+      "required_env_groups": [
+        [
+          "MOCHAT_STABILITY_MONITOR_EVIDENCE",
+          "MOCHAT_STABILITY_HEALTH_EVIDENCE",
+          "MOCHAT_STABILITY_RESOURCE_EVIDENCE",
+          "MOCHAT_STABILITY_TIME_RANGE",
+          "MOCHAT_STABILITY_LOG_REF"
+        ],
+        [
+          "MOCHAT_STABILITY_SOAK_LOG",
+          "MOCHAT_STABILITY_LOG_REF"
+        ]
+      ],
+      "command": [
+        "./scripts/capture_stability_evidence.sh"
+      ],
+      "next": "提供短稳/外部监控、健康检查和资源记录；legacy soak.ndjson 仍可导入。本脚本不会启动新的 24 小时运行。",
+      "capture": null
+    }
+  ]
+}

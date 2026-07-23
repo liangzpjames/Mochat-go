@@ -1,0 +1,78 @@
+CREATE TABLE IF NOT EXISTS `mc_shop_code` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '名称',
+  `type` tinyint(1) NOT NULL COMMENT '类型（1：扫码添加店主。2：扫码加入门店群。3：扫码加入城市群）',
+  `employee` json DEFAULT NULL COMMENT '店主',
+  `employee_qrcode` json DEFAULT NULL COMMENT '店主二维码',
+  `qw_code` json DEFAULT NULL COMMENT '拉群活码（mc_work_room_auto_pull）',
+  `search_keyword` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '搜索关键词',
+  `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '地址',
+  `country` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '国家',
+  `province` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '省',
+  `city` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '城市',
+  `district` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '地区',
+  `lat` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '地址纬度',
+  `lng` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '地址经度',
+  `status` tinyint(1) NOT NULL DEFAULT '1' COMMENT '状态（0：关闭，1：开启）',
+  `tenant_id` int(11) DEFAULT NULL COMMENT '租户id',
+  `corp_id` int(11) DEFAULT NULL COMMENT '企业id',
+  `create_user_id` int(11) DEFAULT NULL COMMENT '创建人ID',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_shop_code_corp_type_status` (`corp_id`, `type`, `status`),
+  KEY `idx_mc_shop_code_city` (`corp_id`, `province`, `city`, `district`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='门店活码-基本信息表';
+
+CREATE TABLE IF NOT EXISTS `mc_shop_code_page` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `type` tinyint(1) NOT NULL COMMENT '类型（1：扫码添加店主。2：扫码加入门店群。3：扫码加入城市群）',
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '页面标题',
+  `show_type` tinyint(1) NOT NULL DEFAULT '1' COMMENT '扫码页面展示（1：默认样式，2：自定义海报）',
+  `default` json NOT NULL COMMENT '默认样式（企业介绍，企业logo，扫码引导语，门店地址）',
+  `poster` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '自定义海报',
+  `autoPass` tinyint(1) NOT NULL DEFAULT '0' COMMENT '好友直接入群（0：关闭，1：开启）',
+  `tenant_id` int(11) DEFAULT NULL COMMENT '租户id',
+  `corp_id` int(11) DEFAULT NULL COMMENT '企业id',
+  `create_user_id` int(11) DEFAULT NULL COMMENT '创建人ID',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_shop_code_page_corp_type` (`corp_id`, `type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='门店活码-页面设置表';
+
+CREATE TABLE IF NOT EXISTS `mc_shop_code_record` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `type` tinyint(1) NOT NULL COMMENT '类型（1：扫码添加店主。2：扫码加入门店群。3：扫码加入城市群）',
+  `corp_id` int(11) DEFAULT NULL COMMENT '企业id',
+  `shop_id` int(11) DEFAULT NULL COMMENT '门店id',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_shop_code_record_corp_type` (`corp_id`, `type`),
+  KEY `idx_mc_shop_code_record_shop` (`shop_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='门店活码-页面点击记录表';
+
+INSERT IGNORE INTO `mc_rbac_menu` (`id`, `parent_id`, `name`, `level`, `path`, `icon`, `status`, `link_type`, `is_page_menu`, `link_url`, `data_permission`, `operate_id`, `operate_name`, `sort`, `created_at`, `updated_at`, `deleted_at`) VALUES
+('279', '2', '门店活码', '3', '#2#-#279#', '', '1', '1', '1', '/dashboard/shopCode/employeeIndex', '2', '0', '系统', '99', '2021-06-07 09:09:54', '2021-08-09 17:01:36', NULL),
+('387', '279', '按关键词搜索地址', '4', '#1#-#2#-#279#-#387#', '', '1', '1', '2', '/dashboard/shopCode/addressKeyWordList#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('388', '279', '批量打标签', '4', '#1#-#2#-#279#-#388#', '', '1', '1', '2', '/dashboard/shopCode/batchContactTags#put', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('389', '279', '删除', '4', '#1#-#2#-#279#-#389#', '', '1', '1', '2', '/dashboard/shopCode/destroy#delete', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('390', '279', '列表', '4', '#1#-#2#-#279#-#390#', '', '1', '1', '2', '/dashboard/shopCode/index#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('391', '279', '详情', '4', '#1#-#2#-#279#-#391#', '', '1', '1', '2', '/dashboard/shopCode/info#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('392', '279', '位置信息', '4', '#1#-#2#-#279#-#392#', '', '1', '1', '2', '/dashboard/shopCode/location#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('393', '279', '页面信息展示', '4', '#1#-#2#-#279#-#393#', '', '1', '1', '2', '/dashboard/shopCode/pageInfo#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('394', '279', '页面信息设置', '4', '#1#-#2#-#279#-#394#', '', '1', '1', '2', '/dashboard/shopCode/pageSet#post', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('395', '279', '搜索城市', '4', '#1#-#2#-#279#-#395#', '', '1', '1', '2', '/dashboard/shopCode/searchCity#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('396', '279', '分享', '4', '#1#-#2#-#279#-#396#', '', '1', '1', '2', '/dashboard/shopCode/share#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('397', '279', '详情', '4', '#1#-#2#-#279#-#397#', '', '1', '1', '2', '/dashboard/shopCode/show#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('398', '279', '客户详情', '4', '#1#-#2#-#279#-#398#', '', '1', '1', '2', '/dashboard/shopCode/showContact#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('399', '279', '门店', '4', '#1#-#2#-#279#-#399#', '', '1', '1', '2', '/dashboard/shopCode/showShop#get', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('400', '279', '修改状态', '4', '#1#-#2#-#279#-#400#', '', '1', '1', '2', '/dashboard/shopCode/status#put', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('401', '279', '新增门店活码', '4', '#1#-#2#-#279#-#401#', '', '1', '1', '2', '/dashboard/shopCode/store#post', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('402', '279', '修改门店活码', '4', '#1#-#2#-#279#-#402#', '', '1', '1', '2', '/dashboard/shopCode/update#put', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('403', '279', '修改门店活码员工', '4', '#1#-#2#-#279#-#403#', '', '1', '1', '2', '/dashboard/shopCode/updateEmployee#post', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL),
+('404', '279', '修改门店二维码', '4', '#1#-#2#-#279#-#404#', '', '1', '1', '2', '/dashboard/shopCode/updateQrcode#post', '1', '0', '系统', '99', NULL, '2021-09-03 00:29:39', NULL);

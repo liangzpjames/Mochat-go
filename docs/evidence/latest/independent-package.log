@@ -1,0 +1,19 @@
+standalone independence audit passed
+queue annotation coverage source=embedded:internal/server/compat_manifest_embedded.json
+php_async_annotations=15
+go_semantic_queues=11
+  async-file-upload: annotations=1 php=api-server/app/core/common/src/QueueService/AsyncFileUpload.php smoke=scripts/smoke_async_file_upload_worker.sh
+  contact-welcome: annotations=1 php=api-server/app/core/work-contact/src/QueueService/SendWelcome.php smoke=scripts/smoke_wework_callback_worker.sh
+  employee-apply: annotations=1 php=api-server/app/core/work-employee/src/QueueService/EmployeeApply.php smoke=scripts/smoke_employee_apply_worker.sh
+  employee-statistic-apply: annotations=1 php=api-server/app/core/work-employee/src/QueueService/EmployeeStatisticApply.php smoke=scripts/smoke_employee_statistic_worker.sh
+  mark-tags: annotations=1 php=api-server/app/core/work-contact/src/QueueService/Tag/MarkTags.php smoke=scripts/smoke_mark_tags_worker.sh
+  medium-media-id-update: annotations=1 php=api-server/app/core/medium/src/Queue/MediaIdUpdateQueue.php smoke=scripts/smoke_media_id_update_worker.sh
+  message-remind: annotations=3 php=api-server/app/core/work-agent/src/QueueService/MessageRemind.php smoke=scripts/smoke_message_remind_worker.sh
+  wework-callback: annotations=1 php=api-server/app/core/corp/src/QueueService/WeWorkCallback.php smoke=scripts/smoke_wework_callback_worker.sh
+  work-contact-sync: annotations=2 php=api-server/app/core/work-contact/src/QueueService/AdminSynContactApply.php, api-server/app/core/work-contact/src/QueueService/SyncContactApply.php smoke=scripts/smoke_work_contact_sync_worker.sh
+  work-department-list: annotations=1 php=api-server/app/core/work-department/src/QueueService/ListApply.php smoke=scripts/smoke_work_department_list_worker.sh
+  work-room-sync: annotations=2 php=api-server/app/core/work-room/src/QueueService/UpdateApply.php, api-server/app/core/work-room/src/QueueService/UpdateCallback.php smoke=scripts/smoke_work_room_sync_worker.sh
+queue annotation coverage passed
+standalone smoke passed
+independent package manifest check passed: routes=224 tables=70
+independent package smoke passed
