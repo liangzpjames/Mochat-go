@@ -22,3 +22,10 @@ storage/upload/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local Go command binaries
+/mochat-go
+/mochat-inventory
+/mochat-migrate
+/mochat-bootstrap
+/mochat-saas-maintenance

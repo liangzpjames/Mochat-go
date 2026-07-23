@@ -16,11 +16,11 @@
 
 ## 待完成
 
-- [ ] 执行 `scripts/test.sh` 完整快速门禁并记录退出码。
+- [ ] 在单一 Linux 环境原样执行 `scripts/test.sh` 完整快速门禁；组成项已分别通过。
 - [ ] 执行 standalone `core`、`saas`、`frontend` 分组验收。
 - [ ] 核实是否能获得旧 dashboard/sidebar/operation 可编辑源码。
 - [ ] 核实权威分支策略、生产 tag 和历史仓库是否另有来源。
-- [ ] 完成最终敏感信息与大文件扫描。
+- [x] 完成最终敏感信息与大文件扫描。
 - [ ] 推送全部 Phase 0 提交并核对远端 SHA。
 - [ ] 创建覆盖前远端 `main` 的备份引用。
 - [ ] Phase 0 验收完成后，将新代码替换到远端 `main`。
