@@ -127,7 +127,8 @@ compose up -d --build app
 wait_url "http://127.0.0.1:$GO_PORT/readyz" 200
 wait_url "http://127.0.0.1:$SIDEBAR_PORT/contact" 200
 wait_url "http://127.0.0.1:$OPERATION_PORT/workFission" 200
-wait_url "http://127.0.0.1:$GO_PORT/dashboard/saasAdmin/page" 200
+wait_url "http://127.0.0.1:$GO_PORT/dashboard/saasAdmin/page" 307
+wait_url "http://127.0.0.1:$GO_PORT/saas-admin/" 200
 wait_mysql_scalar "SELECT COUNT(*) FROM mochat_go_background_tasks WHERE name = 'cron-saas-notification-health-recovery' AND status = 'running'" "1"
 wait_mysql_scalar "SELECT IF(COUNT(*) >= 1, 1, 0) FROM mochat_go_background_task_executions WHERE task_name = 'cron-saas-notification-health-recovery' AND kind = 'periodic_tick' AND status = 'succeeded'" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mochat_go_background_tasks WHERE name = 'cron-saas-admin-approval-reminder' AND status = 'running'" "1"
@@ -185,7 +186,7 @@ test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_admin_roles WHERE is_s
 curl -sS -f "http://127.0.0.1:$GO_PORT/readyz" >"$WORK_DIR/readyz.json"
 curl -sS -f "http://127.0.0.1:$GO_PORT/compat/routes" >"$WORK_DIR/routes.json"
 curl -sS -f "http://127.0.0.1:$GO_PORT/login" >"$WORK_DIR/dashboard-login.html"
-curl -sS -f "http://127.0.0.1:$GO_PORT/dashboard/saasAdmin/page" >"$WORK_DIR/saas-admin.html"
+curl -sS -f "http://127.0.0.1:$GO_PORT/saas-admin/" >"$WORK_DIR/saas-admin.html"
 curl -sS -f "http://127.0.0.1:$SIDEBAR_PORT/contact" >"$WORK_DIR/sidebar-contact.html"
 curl -sS -f "http://127.0.0.1:$OPERATION_PORT/workFission" >"$WORK_DIR/operation-work-fission.html"
 
@@ -582,8 +583,7 @@ assert work_employee_index["data"]["list"][0]["name"] == "容器验收员工", w
 assert 'id="app"' in dashboard_login and "/js/app." in dashboard_login, dashboard_login[:200]
 assert 'id="app"' in sidebar_contact and "/js/app." in sidebar_contact, sidebar_contact[:200]
 assert 'id="app"' in operation_work_fission and "/js/app." in operation_work_fission, operation_work_fission[:200]
-assert 'id="backupCenter"' in saas_admin, saas_admin[:500]
-assert "/dashboard/saasAdmin/backupOverview" in saas_admin, saas_admin[:500]
-assert "sourceFingerprintAuthoritative" in saas_admin, saas_admin[:500]
+assert 'id="root"' in saas_admin, saas_admin[:500]
+assert "/saas-admin/assets/" in saas_admin, saas_admin[:500]
 print("standalone compose app smoke passed")
 PY

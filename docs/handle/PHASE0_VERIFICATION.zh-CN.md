@@ -1,13 +1,13 @@
 # Phase 0 验证记录
 
-> 验证时间：2026-07-23
+> 验证时间：2026-07-26
 > 分支：`phase0/modular-monolith-foundation`
 
 ## 结论
 
-Phase 0 新增的运行角色、模块模板、架构门禁和 Docker 开发入口已通过容器化测试与构建。仓库原 `scripts/test.sh` 的组成项已分别执行；在 Git Bash 中运行到生产证据 smoke 时受 Windows Python `/tmp` 路径语义影响失败，相同生产证据 smoke 随后在纯 Linux Python 容器内退出 0。
+Phase 0 新增的运行角色、模块模板、架构门禁和 Docker 开发入口已通过容器化测试与构建。仓库原 `scripts/test.sh` 已在纯 Linux 容器内原样退出 0；standalone core 的组成项也全部通过。
 
-standalone `core/saas/frontend` 分组尚未完成本轮新鲜执行，因此本记录不把 Phase 0 描述为生产 readiness，也不改变原 `ready=false`。
+Windows 本机已安装并验证 Go 1.26.5、Docker Desktop 与 jq。SaaS 分组前 8 项通过，但 Git Bash 调用 Windows `curl.exe` 时会破坏中文 JSON 编码，总后台后续验收必须迁到 WSL2/Linux。本记录不把 Phase 0 描述为生产 readiness，也不改变原 `ready=false`。
 
 ## 已通过
 
@@ -41,6 +41,39 @@ go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mocha
 ```
 
 容器 `phase0-quick` 最终状态为 `exited 0`；所有 Go package 通过。
+
+### Linux 完整快速门禁与 core
+
+在 `golang:1.26-bookworm` 的 Linux named volume 中原样执行：
+
+```text
+bash scripts/test.sh
+```
+
+退出 0。core 分组的 schema migration、standalone smoke、独立交付包、生产证据规则、MySQL/Redis stack、compose app、224/224 路由覆盖、租户 bootstrap 和队列幂等均分别退出 0。
+
+### Windows 本地 Go
+
+```text
+go version
+go vet ./...
+go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance
+```
+
+Go 版本为 `go1.26.5 windows/amd64`，vet 与五个命令构建通过。`go test ./...` 在 Windows 原生文件系统上仍有 Unix 路径分隔符和权限位断言失败，因此完整测试以 Linux 容器结果为准。
+
+### SaaS 已通过部分
+
+- provisioning；
+- tenant isolation；
+- quota enforcement；
+- storage reconcile；
+- storage reclaim；
+- usage refresh；
+- alert setting dispatch；
+- WeCom credential encryption/rotation/admin governance。
+
+其中 storage reclaim 与 WeCom 凭据 smoke 已在修正 Windows 编码定位和独立 SaaS Admin SPA 入口后重新退出 0。
 
 ### 原有静态/审计门禁
 
@@ -85,15 +118,15 @@ size: 88,993,758 bytes
 
 | 项目 | 状态 | 原因/下一步 |
 | --- | --- | --- |
-| 单次原样执行 `scripts/test.sh` | 环境组合限制 | Git Bash + Windows Python 的 `/tmp` 不一致；各组成项已在适合的容器中分别通过 |
-| standalone `core` | 未执行完成 | 入口强制先跑上述单次 `scripts/test.sh` |
-| standalone `saas` | 未执行 | 等统一 Linux shell/Go/Docker 执行环境 |
+| 单次原样执行 `scripts/test.sh` | 已通过 | 纯 Linux 容器退出 0 |
+| standalone `core` | 已通过组成项 | Windows 外层容器无法直接共享 sibling Docker localhost，因此按组成项逐一执行 |
+| standalone `saas` | 部分通过 | 前 8 项通过；Git Bash + Windows curl 会破坏中文 JSON，余项需 WSL2/Linux |
 | standalone `frontend` | 未执行 | 等统一 Linux shell/Go/Docker 执行环境 |
 | 真实生产证据 6 项 | 未具备 | 无服务器、域名、真实账号和监控资源 |
 
 ## 后续验证建议
 
-在 Linux CI runner 或带完整 WSL2 工具链的机器执行：
+在 Linux CI runner 或安装 Ubuntu 的 WSL2 中执行：
 
 ```bash
 ./scripts/test.sh

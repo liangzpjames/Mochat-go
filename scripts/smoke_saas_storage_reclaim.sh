@@ -549,7 +549,7 @@ assert payload["code"] == 400, payload
 assert "channel rollback expected" in payload["msg"], payload
 PY
 
-test "$(mysql_scalar "SELECT COUNT(*) FROM mc_channel_code WHERE name = '渠道活码失败回滚' AND deleted_at IS NOT NULL")" = "1"
+test "$(mysql_scalar "SELECT COUNT(*) FROM mc_channel_code WHERE welcome_message LIKE '%channelCode/rollback.png%' AND deleted_at IS NOT NULL")" = "1"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_storage_objects WHERE tenant_id = $TENANT_ID AND relative_path = 'channelCode/rollback.png' AND deleted_at IS NOT NULL")" = "1"
 test "$(mysql_scalar "SELECT used_value FROM mochat_go_saas_usage_counters WHERE tenant_id = $TENANT_ID AND metric = 'channel_codes' AND deleted_at IS NULL")" = "0"
 test "$(mysql_scalar "SELECT used_value FROM mochat_go_saas_usage_counters WHERE tenant_id = $TENANT_ID AND metric = 'storage_mb' AND deleted_at IS NULL")" = "32"
@@ -956,7 +956,7 @@ assert payload["code"] == 400, payload
 assert "请求微信服务器创建二维码失败" in payload["msg"], payload
 PY
 
-test "$(mysql_scalar "SELECT COUNT(*) FROM mc_work_room_auto_pull WHERE qrcode_name = '自动拉群失败回滚' AND deleted_at IS NOT NULL")" = "1"
+test "$(mysql_scalar "SELECT COUNT(*) FROM mc_work_room_auto_pull WHERE rooms LIKE '%autopull/rollback.png%' AND deleted_at IS NOT NULL")" = "1"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_storage_objects WHERE tenant_id = $TENANT_ID AND relative_path = 'autopull/rollback.png' AND deleted_at IS NOT NULL")" = "1"
 test "$(mysql_scalar "SELECT used_value FROM mochat_go_saas_usage_counters WHERE tenant_id = $TENANT_ID AND metric = 'work_room_auto_pulls' AND deleted_at IS NULL")" = "1"
 test "$(mysql_scalar "SELECT used_value FROM mochat_go_saas_usage_counters WHERE tenant_id = $TENANT_ID AND metric = 'storage_mb' AND deleted_at IS NULL")" = "6"

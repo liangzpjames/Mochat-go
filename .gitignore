@@ -29,3 +29,8 @@ Thumbs.db
 /mochat-migrate
 /mochat-bootstrap
 /mochat-saas-maintenance
+/mochat-go.exe
+/mochat-inventory.exe
+/mochat-migrate.exe
+/mochat-bootstrap.exe
+/mochat-saas-maintenance.exe

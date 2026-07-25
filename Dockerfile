@@ -13,9 +13,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY scripts ./scripts
 COPY web ./web
-COPY deploy/standalone ./deploy/standalone
-COPY deploy/local ./deploy/local
-COPY deploy/mysql57 ./deploy/mysql57
+COPY deploy ./deploy
 COPY LICENSE NOTICE.md SOURCE_OFFER.md MODIFICATIONS.md THIRD_PARTY_NOTICES.md ./
 
 RUN SOURCE_FINGERPRINT="$(python3 scripts/source_fingerprint.py | python3 -c 'import json,sys; print(json.load(sys.stdin)["fingerprint"])')" \

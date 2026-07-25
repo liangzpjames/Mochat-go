@@ -78,7 +78,7 @@ if ! grep -Eqi 'mysql57 amd64 CI gate passed|mysql 5\.7 schema migration smoke p
 fi
 
 CURRENT_SOURCE_FINGERPRINT="$(python3 ./scripts/source_fingerprint.py | python3 -c 'import json, sys; print(json.load(sys.stdin)["fingerprint"])')"
-if ! grep -Eiq "(源码指纹|source fingerprint)[：:][[:space:]]*\`?$CURRENT_SOURCE_FINGERPRINT\`?" "$EXTRACTED"; then
+if ! grep -Eiq "(源码指纹：|source fingerprint:)[[:space:]]*\`?$CURRENT_SOURCE_FINGERPRINT\`?" "$EXTRACTED"; then
   echo "mysql57 amd64 evidence is missing current source fingerprint" >&2
   echo "expected: 源码指纹：$CURRENT_SOURCE_FINGERPRINT" >&2
   exit 1

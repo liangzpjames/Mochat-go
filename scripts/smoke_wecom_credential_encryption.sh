@@ -399,10 +399,10 @@ test "$(mysql_scalar "SELECT COUNT(*) FROM mc_corp WHERE id = $CORP_ID AND emplo
 api_get "$ADMIN_TOKEN" '/dashboard/saasAdmin/wecomCredentialProtection' "$WORK_DIR/protection-final.json"
 jq -e '.code == 200 and .data.credentialProtection.healthy == true and .data.credentialProtection.legacyPlaintextCount == 0 and .data.credentialProtection.rotationRequiredCount == 0 and .data.credentialProtection.corpCredentialCount >= 2 and .data.credentialProtection.agentCredentialCount >= 2' "$WORK_DIR/protection-final.json" >/dev/null
 
-curl -sS -f "http://$GO_ADDR/dashboard/saasAdmin/page" >"$WORK_DIR/page.html"
-grep -q 'id="weComCredentialCenter"' "$WORK_DIR/page.html"
-grep -q 'id="rotateWeComCredentials"' "$WORK_DIR/page.html"
-grep -q "fetch('/dashboard/saasAdmin/wecomCredentialRotation'" "$WORK_DIR/page.html"
+test "$(curl -sS -o /dev/null -w '%{http_code}' "http://$GO_ADDR/dashboard/saasAdmin/page")" = "307"
+curl -sS -f "http://$GO_ADDR/saas-admin/" >"$WORK_DIR/page.html"
+grep -q 'id="root"' "$WORK_DIR/page.html"
+grep -q '/saas-admin/assets/' "$WORK_DIR/page.html"
 grep -q 'GET /dashboard/saasAdmin/wecomCredentialProtection' "$GO_LOG"
 grep -q 'POST/PUT /dashboard/saasAdmin/wecomCredentialRotation' "$GO_LOG"
 
