@@ -12,6 +12,7 @@ web/saas-admin/coverage/
 # Local test, browser, and runtime artifacts
 .playwright-cli/
 .tmp-*/
+.worktrees/
 output/
 
 # Local application data
