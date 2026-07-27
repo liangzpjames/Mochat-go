@@ -550,6 +550,61 @@ var routes = []string{"GET /dashboard/api/example"}
   }
 });
 
+test('audit rejects a stale Go evidence dash when a contract is discovered', () => {
+  const root = createFixture();
+  try {
+    write(root, 'internal/server/example.go', `package server
+var migratedContracts = []string{"GET /dashboard/api/example"}
+`);
+    writeManifest(root);
+    runRefresh(root);
+    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'go_evidence', '-');
+
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /go_evidence must match discovered evidence internal\/server\/example\.go/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('audit requires the generated Go evidence gap row for every unresolved contract', () => {
+  const root = createFixture();
+  try {
+    runRefresh(root);
+    const gapFile = join(root, 'docs/handle/frontend-audit/api-contract-gaps.csv');
+    const lines = readFileSync(gapFile, 'utf8').trim().split(/\r?\n/);
+    const gapIndex = lines.findIndex((line) => line.includes(',go_evidence,'));
+    assert.notEqual(gapIndex, -1, 'refresh must generate a go_evidence gap');
+    writeFileSync(gapFile, `${lines.filter((_, index) => index !== gapIndex).join('\n')}\n`);
+
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /discovered contract evidence is missing: dashboard:GET:\/api\/example:go_evidence|Go evidence gap is missing/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('audit rejects stale evidence in a generated Go evidence gap row', () => {
+  const root = createFixture();
+  try {
+    runRefresh(root);
+    const gapFile = join(root, 'docs/handle/frontend-audit/api-contract-gaps.csv');
+    const lines = readFileSync(gapFile, 'utf8').trim().split(/\r?\n/);
+    const gapIndex = lines.findIndex((line) => line.includes(',go_evidence,'));
+    assert.notEqual(gapIndex, -1, 'refresh must generate a go_evidence gap');
+    lines[gapIndex] = lines[gapIndex].replace(/,[^,]+$/, ',web/legacy/dashboard/src/api/stale.js');
+    writeFileSync(gapFile, `${lines.join('\n')}\n`);
+
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /evidence must match discovered evidence web\/legacy\/dashboard\/src\/api\/example\.js/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('refresh derives semantic audit fields instead of migration placeholders', () => {
   const root = createFixture();
   try {

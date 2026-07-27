@@ -851,6 +851,14 @@ function generatedArtifacts(root) {
   const apis = found.apis.map((item) => {
     const go_evidence = findGoEvidence(root, item.app, item.method, item.path, goSources);
     const api = { ...item, go_evidence };
+    if (go_evidence === '-') contractGaps.push({
+      app: item.app,
+      method: item.method,
+      path: item.path,
+      dimension: 'go_evidence',
+      reason: 'no-go-route-evidence',
+      evidence: item.source_file,
+    });
     const php = phpContracts.get(`${item.method} ${mountedPath(item.app, item.path)}`) ?? null;
     const phpShape = phpResponseShape(loadPHPContent(root, php, phpCache));
     const goHandler = goHandlerDetails(goByFile.get(go_evidence), item.method, mountedPath(item.app, item.path));
@@ -977,6 +985,7 @@ function compareDerivedEvidence(inventory, generated, errors) {
     if (api.request_fields !== expected.request_fields) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: request_fields must match discovered evidence ${expected.request_fields}`);
     if (api.response_fields !== expected.response_fields) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: response_fields must match discovered evidence ${expected.response_fields}`);
     if (api.corp_scope !== expected.corp_scope) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: corp_scope must match discovered evidence ${expected.corp_scope}`);
+    if (api.go_evidence !== expected.go_evidence) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence must match discovered evidence ${expected.go_evidence}`);
   }
   const routeSpecification = specifications['routes.csv']; const expectedRoutes = new Map((generated['routes.csv'] ?? []).map((row) => [routeSpecification.key(row), row]));
   for (const route of inventory['routes.csv'] ?? []) {
