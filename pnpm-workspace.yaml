@@ -3,6 +3,9 @@ packages:
   - web/packages/*
 allowBuilds:
   esbuild: true
+overrides:
+  '@typescript-eslint/tsconfig-utils': 8.55.0
+  '@typescript-eslint/types': 8.55.0
 autoInstallPeers: false
 dedupePeerDependents: true
 engineStrict: true

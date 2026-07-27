@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 const dependencyFields = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
 const requiredWorkspacePatterns = ['web/apps/*', 'web/packages/*'];
+const requiredNodeRange = '>=22.12 <25';
+const requiredNodeInterval = {
+  lower: { version: [22, 12, 0], inclusive: true },
+  upper: { version: [25, 0, 0], inclusive: false },
+};
 const requiredWorkspaceSettings = {
   autoInstallPeers: false,
   dedupePeerDependents: true,
@@ -132,6 +137,143 @@ function normalizedLockImporters(lockfile) {
   return importers;
 }
 
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    const difference = left[index] - right[index];
+    if (difference !== 0) return Math.sign(difference);
+  }
+  return 0;
+}
+
+function parseVersion(value) {
+  const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(value);
+  if (!match) return null;
+  return {
+    version: [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)],
+    parts: match[3] === undefined ? (match[2] === undefined ? 1 : 2) : 3,
+  };
+}
+
+function mergeLower(current, candidate) {
+  if (!current) return candidate;
+  const comparison = compareVersions(current.version, candidate.version);
+  if (comparison > 0 || (comparison === 0 && !current.inclusive)) return current;
+  if (comparison < 0 || (comparison === 0 && !candidate.inclusive)) return candidate;
+  return current;
+}
+
+function mergeUpper(current, candidate) {
+  if (!current) return candidate;
+  const comparison = compareVersions(current.version, candidate.version);
+  if (comparison < 0 || (comparison === 0 && !current.inclusive)) return current;
+  if (comparison > 0 || (comparison === 0 && !candidate.inclusive)) return candidate;
+  return current;
+}
+
+function rangeForToken(token) {
+  if (token === '*' || token.toLowerCase() === 'x') return {};
+  const match = /^(\^|~|>=|<=|>|<|=)?(.+)$/.exec(token);
+  const operator = match?.[1] ?? '';
+  const parsed = parseVersion(match?.[2] ?? '');
+  if (!parsed) return null;
+  const { version, parts } = parsed;
+  if (operator === '>=') return { lower: { version, inclusive: true } };
+  if (operator === '>') return { lower: { version, inclusive: false } };
+  if (operator === '<=') return { upper: { version, inclusive: true } };
+  if (operator === '<') return { upper: { version, inclusive: false } };
+  if (operator === '^') {
+    const upper = [...version];
+    const pivot = version.findIndex((part) => part !== 0);
+    upper[pivot === -1 ? 0 : pivot] += 1;
+    for (let index = (pivot === -1 ? 0 : pivot) + 1; index < 3; index += 1) upper[index] = 0;
+    return { lower: { version, inclusive: true }, upper: { version: upper, inclusive: false } };
+  }
+  if (operator === '~') {
+    const upper = [...version];
+    upper[parts === 1 ? 0 : 1] += 1;
+    for (let index = (parts === 1 ? 0 : 1) + 1; index < 3; index += 1) upper[index] = 0;
+    return { lower: { version, inclusive: true }, upper: { version: upper, inclusive: false } };
+  }
+  if (operator === '=') return { lower: { version, inclusive: true }, upper: { version, inclusive: true } };
+  const upper = [...version];
+  upper[parts - 1] += 1;
+  for (let index = parts; index < 3; index += 1) upper[index] = 0;
+  return { lower: { version, inclusive: true }, upper: { version: upper, inclusive: false } };
+}
+
+function parseNodeEngineRange(range) {
+  return range.trim().replace(/(\^|~|>=|<=|>|<|=)\s+/g, '$1').split(/\s*\|\|\s*/).map((clause) => {
+    const interval = {};
+    for (const token of clause.trim().split(/\s+/)) {
+      const tokenRange = rangeForToken(token);
+      if (!tokenRange) return null;
+      if (tokenRange.lower) interval.lower = mergeLower(interval.lower, tokenRange.lower);
+      if (tokenRange.upper) interval.upper = mergeUpper(interval.upper, tokenRange.upper);
+    }
+    if (interval.lower && interval.upper) {
+      const comparison = compareVersions(interval.lower.version, interval.upper.version);
+      if (comparison > 0 || (comparison === 0 && (!interval.lower.inclusive || !interval.upper.inclusive))) return null;
+    }
+    return interval;
+  });
+}
+
+function lowerStartsAtOrBefore(lower, version) {
+  if (!lower) return true;
+  const comparison = compareVersions(lower.version, version);
+  return comparison < 0 || (comparison === 0 && lower.inclusive);
+}
+
+function upperExtendsBeyond(upper, version) {
+  if (!upper) return true;
+  return compareVersions(upper.version, version) > 0;
+}
+
+function intervalSort(left, right) {
+  if (!left.lower) return right.lower ? -1 : 0;
+  if (!right.lower) return 1;
+  const comparison = compareVersions(left.lower.version, right.lower.version);
+  if (comparison !== 0) return comparison;
+  return Number(right.lower.inclusive) - Number(left.lower.inclusive);
+}
+
+function supportsRequiredNodeRange(range) {
+  const intervals = parseNodeEngineRange(range);
+  if (intervals.some((interval) => interval === null)) return false;
+  let cursor = requiredNodeInterval.lower.version;
+  for (const interval of intervals.sort(intervalSort)) {
+    if (!lowerStartsAtOrBefore(interval.lower, cursor) || !upperExtendsBeyond(interval.upper, cursor)) continue;
+    if (!interval.upper || compareVersions(interval.upper.version, requiredNodeInterval.upper.version) >= 0) return true;
+    cursor = interval.upper.version;
+  }
+  return false;
+}
+
+function validateLockfileNodeEngines(lockfile, errors) {
+  let inPackages = false;
+  let packageName = null;
+  for (const line of lockfile.split(/\r?\n/)) {
+    if (!inPackages) {
+      if (line === 'packages:') inPackages = true;
+      continue;
+    }
+    if (/^\S/.test(line)) break;
+    const packageMatch = /^ {2}(.+):\s*$/.exec(line);
+    if (packageMatch) {
+      packageName = yamlScalar(packageMatch[1]);
+      continue;
+    }
+    const enginesMatch = /^ {4}engines:\s+\{(.+)\}\s*$/.exec(line);
+    const nodeMatch = enginesMatch && /(?:^|,\s*)node:\s*('(?:[^']*)'|"(?:[^"]*)"|[^,}]+)/.exec(enginesMatch[1]);
+    if (nodeMatch && packageName) {
+      const range = yamlScalar(nodeMatch[1]);
+      if (!supportsRequiredNodeRange(range)) {
+        errors.push(`pnpm-lock.yaml: ${packageName} node engine ${range} excludes required Node range ${requiredNodeRange}`);
+      }
+    }
+  }
+}
+
 function validateDuplicates(packageInfo, occurrences, errors) {
   const byName = new Map();
   for (const occurrence of occurrences) {
@@ -184,6 +326,8 @@ function checkLockfile(root, packages, workspaceConfig, errors) {
     errors.push('pnpm-lock.yaml drift: lockfile must declare lockfileVersion and importers');
     return;
   }
+
+  validateLockfileNodeEngines(lockfile, errors);
 
   const importers = normalizedLockImporters(lockfile);
   const peerImportersOptional = workspaceConfig.settings.autoInstallPeers === false;
@@ -248,10 +392,10 @@ export function checkDependencyPolicy(root = process.cwd()) {
     validateReact(packageInfo, occurrences, errors);
     for (const occurrence of occurrences) {
       const target = packageTarget(packageInfo, occurrence, byName, byWorkspacePath);
-      if (packageInfo.kind === 'app' && target && !occurrence.specifier.startsWith('workspace:')) {
-        if (occurrence.name === target.manifest.name) {
+      if (packageInfo.kind === 'app' && target) {
+        if (occurrence.name === target.manifest.name && occurrence.specifier !== 'workspace:*') {
           errors.push(`${packageInfo.workspacePath}: internal dependency ${occurrence.name} must use workspace:*`);
-        } else {
+        } else if (occurrence.name !== target.manifest.name && !occurrence.specifier.startsWith('workspace:')) {
           errors.push(`${packageInfo.workspacePath}: app internal dependency ${occurrence.name} must use workspace protocol for ${target.manifest.name}`);
         }
       }

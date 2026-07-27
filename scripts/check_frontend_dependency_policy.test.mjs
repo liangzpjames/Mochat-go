@@ -80,6 +80,25 @@ test('rejects app references to internal packages without workspace star', async
   assert.match(result.errors.join('\n'), /internal dependency @mochat\/config must use workspace:\*/);
 }));
 
+test('rejects non-star workspace specifiers for direct internal dependencies', async () => withFixture(async (root) => {
+  for (const specifier of ['workspace:^', 'workspace:~', 'workspace:1.0.0']) {
+    write(root, 'web/apps/dashboard/package.json', JSON.stringify({
+      name: '@mochat/dashboard',
+      private: true,
+      dependencies: {
+        '@mochat/config': specifier,
+        react: '19.2.8',
+        'react-dom': '19.2.8',
+      },
+    }, null, 2));
+    writeFileSync(join(root, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\n  web/apps/dashboard:\n    dependencies:\n      '@mochat/config':\n        specifier: ${specifier}\n        version: link:../../packages/config\n      react:\n        specifier: 19.2.8\n        version: 19.2.8\n      react-dom:\n        specifier: 19.2.8\n        version: 19.2.8\n\n  web/packages/config: {}\n`);
+
+    const result = await check(root);
+    assert.equal(result.ok, false, specifier);
+    assert.match(result.errors.join('\n'), /internal dependency @mochat\/config must use workspace:\*/);
+  }
+}));
+
 test('rejects shared packages that depend on applications', async () => withFixture(async (root) => {
   write(root, 'web/packages/config/package.json', JSON.stringify({
     name: '@mochat/config',
@@ -230,4 +249,12 @@ test('rejects unsupported workspace patterns and unexpected importer IDs', async
   assert.equal(result.ok, false);
   assert.match(result.errors.join('\n'), /unsupported workspace package pattern web\/\*\*/);
   assert.match(result.errors.join('\n'), /unexpected importer web\/apps\/hidden/);
+}));
+
+test('rejects transitive lockfile packages whose Node engine excludes the workspace range', async () => withFixture(async (root) => {
+  writeFileSync(join(root, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\n  web/apps/dashboard:\n    dependencies:\n      '@mochat/config':\n        specifier: workspace:*\n        version: link:../../packages/config\n      react:\n        specifier: 19.2.8\n        version: 19.2.8\n      react-dom:\n        specifier: 19.2.8\n        version: 19.2.8\n\n  web/packages/config: {}\n\npackages:\n\n  eslint-visitor-keys@5.0.1:\n    resolution: {integrity: sha512-example}\n    engines: {node: ^20.19.0 || ^22.13.0 || >=24}\n`);
+
+  const result = await check(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /eslint-visitor-keys@5\.0\.1 node engine \^20\.19\.0 \|\| \^22\.13\.0 \|\| >=24 excludes required Node range >=22\.12 <25/);
 }));
