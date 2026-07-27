@@ -7,8 +7,8 @@ deploy/standalone/.env.local
 # Local dependency and build caches
 **/node_modules/
 pnpm-debug.log*
-web/saas-admin/.vite/
-web/saas-admin/coverage/
+web/apps/saas-admin/.vite/
+web/apps/saas-admin/coverage/
 
 # Local test, browser, and runtime artifacts
 .playwright-cli/

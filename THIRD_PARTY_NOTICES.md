@@ -37,4 +37,4 @@ SaaS 总后台的信息架构和交互模式参考 Nuwa Admin，并针对 MoChat
 | clsx | `2.1.1` | MIT |
 | tailwind-merge | `2.6.1` | MIT |
 
-前端精确依赖树由根目录 `pnpm-lock.yaml` 锁定。
+上述直接运行时依赖版本与 `web/apps/saas-admin/package.json` 一致，完整依赖树由根目录 `pnpm-lock.yaml` 锁定。
