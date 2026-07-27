@@ -1,0 +1,3 @@
+web/legacy/dashboard/** -text
+web/legacy/sidebar/** -text
+web/legacy/operation/** -text
