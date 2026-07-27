@@ -121,6 +121,19 @@ test('allows a peer dependency absent from an importer when autoInstallPeers is 
   assert.equal(result.ok, true, result.errors.join('\n'));
 }));
 
+test('rejects a peer-only package recorded under a non-peer importer type', async () => withFixture(async (root) => {
+  write(root, 'web/apps/dashboard/package.json', JSON.stringify({
+    name: '@mochat/dashboard',
+    private: true,
+    peerDependencies: { typescript: '5.9.3' },
+  }, null, 2));
+  writeFileSync(join(root, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\n  web/apps/dashboard:\n    dependencies:\n      typescript:\n        specifier: 5.9.3\n        version: 5.9.3\n\n  web/packages/config: {}\n`);
+
+  const result = await check(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /stale dependency typescript under dependencies/);
+}));
+
 test('rejects dependency type moves between manifest and lockfile', async () => withFixture(async (root) => {
   write(root, 'web/apps/dashboard/package.json', JSON.stringify({
     name: '@mochat/dashboard',
@@ -173,4 +186,48 @@ test('ignores nested manifests outside direct workspace package children', async
 
   const result = await check(root);
   assert.equal(result.ok, true, result.errors.join('\n'));
+}));
+
+test('rejects a shared package that aliases an app through workspace protocol', async () => withFixture(async (root) => {
+  write(root, 'web/packages/config/package.json', JSON.stringify({
+    name: '@mochat/config',
+    private: true,
+    dependencies: { dashboardAlias: 'workspace:@mochat/dashboard@*' },
+  }, null, 2));
+  writeFileSync(join(root, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\n  web/apps/dashboard: {}\n\n  web/packages/config:\n    dependencies:\n      dashboardAlias:\n        specifier: workspace:@mochat/dashboard@*\n        version: link:../../apps/dashboard\n`);
+
+  const result = await check(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /shared package @mochat\/config must not depend on app @mochat\/dashboard/);
+}));
+
+test('rejects an app local file reference to another app', async () => withFixture(async (root) => {
+  write(root, 'web/apps/sidebar/package.json', JSON.stringify({
+    name: '@mochat/sidebar',
+    private: true,
+    dependencies: { dashboardLocal: 'file:../dashboard' },
+  }, null, 2));
+  writeFileSync(join(root, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\n  web/apps/dashboard:\n    dependencies:\n      '@mochat/config':\n        specifier: workspace:*\n        version: link:../../packages/config\n      react:\n        specifier: 19.2.8\n        version: 19.2.8\n      react-dom:\n        specifier: 19.2.8\n        version: 19.2.8\n\n  web/apps/sidebar:\n    dependencies:\n      dashboardLocal:\n        specifier: file:../dashboard\n        version: link:../dashboard\n\n  web/packages/config: {}\n`);
+
+  const result = await check(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /app internal dependency dashboardLocal must use workspace protocol for @mochat\/dashboard/);
+}));
+
+test('requires both approved direct-child workspace patterns', async () => withFixture(async (root) => {
+  write(root, 'pnpm-workspace.yaml', `packages:\n  - web/packages/*\nautoInstallPeers: false\ndedupePeerDependents: true\nengineStrict: true\npreferWorkspacePackages: true\nsaveExact: true\nstrictPeerDependencies: true\n`);
+
+  const result = await check(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /pnpm-workspace.yaml must include web\/apps\/\*/);
+}));
+
+test('rejects unsupported workspace patterns and unexpected importer IDs', async () => withFixture(async (root) => {
+  write(root, 'pnpm-workspace.yaml', `packages:\n  - web/apps/*\n  - web/packages/*\n  - web/**\nautoInstallPeers: false\ndedupePeerDependents: true\nengineStrict: true\npreferWorkspacePackages: true\nsaveExact: true\nstrictPeerDependencies: true\n`);
+  writeFileSync(join(root, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\n  web/apps/dashboard:\n    dependencies:\n      '@mochat/config':\n        specifier: workspace:*\n        version: link:../../packages/config\n      react:\n        specifier: 19.2.8\n        version: 19.2.8\n      react-dom:\n        specifier: 19.2.8\n        version: 19.2.8\n\n  web/apps/hidden: {}\n\n  web/packages/config: {}\n`);
+
+  const result = await check(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /unsupported workspace package pattern web\/\*\*/);
+  assert.match(result.errors.join('\n'), /unexpected importer web\/apps\/hidden/);
 }));

@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dependencyFields = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
-const lockDependencyFields = new Set(dependencyFields);
+const requiredWorkspacePatterns = ['web/apps/*', 'web/packages/*'];
 const requiredWorkspaceSettings = {
   autoInstallPeers: false,
   dedupePeerDependents: true,
@@ -61,6 +61,12 @@ function parseWorkspaceConfig(root, errors) {
 
   for (const [name, expected] of Object.entries(requiredWorkspaceSettings)) {
     if (settings[name] !== expected) errors.push(`pnpm-workspace.yaml must set ${name}: ${expected}`);
+  }
+  for (const pattern of requiredWorkspacePatterns) {
+    if (!packages.includes(pattern)) errors.push(`pnpm-workspace.yaml must include ${pattern}`);
+  }
+  for (const pattern of packages) {
+    if (!requiredWorkspacePatterns.includes(pattern)) errors.push(`pnpm-workspace.yaml has unsupported workspace package pattern ${pattern}`);
   }
   return { packages, settings };
 }
@@ -152,6 +158,21 @@ function validateReact(packageInfo, occurrences, errors) {
   }
 }
 
+function packageTarget(packageInfo, occurrence, byName, byWorkspacePath) {
+  const direct = byName.get(occurrence.name);
+  if (direct) return direct;
+
+  const alias = /^workspace:(@[^/]+\/[^@]+|[^@]+)@/.exec(occurrence.specifier);
+  if (alias) return byName.get(alias[1]);
+
+  const local = /^(?:file|link):(.+)$/.exec(occurrence.specifier);
+  if (local) {
+    const targetPath = posix.normalize(posix.join(packageInfo.workspacePath, local[1].replaceAll('\\', '/'))).replace(/\/package\.json$/, '');
+    return byWorkspacePath.get(targetPath);
+  }
+  return undefined;
+}
+
 function checkLockfile(root, packages, workspaceConfig, errors) {
   const path = join(root, 'pnpm-lock.yaml');
   if (!existsSync(path)) {
@@ -166,6 +187,10 @@ function checkLockfile(root, packages, workspaceConfig, errors) {
 
   const importers = normalizedLockImporters(lockfile);
   const peerImportersOptional = workspaceConfig.settings.autoInstallPeers === false;
+  const expectedImporterIds = new Set(packages.map((packageInfo) => packageInfo.workspacePath));
+  for (const importerId of importers.keys()) {
+    if (!expectedImporterIds.has(importerId)) errors.push(`pnpm-lock.yaml drift: unexpected importer ${importerId}`);
+  }
   for (const packageInfo of packages) {
     const importer = importers.get(packageInfo.workspacePath);
     if (!importer) {
@@ -173,8 +198,8 @@ function checkLockfile(root, packages, workspaceConfig, errors) {
       continue;
     }
     const occurrences = dependencyOccurrences(packageInfo.manifest);
-    for (const occurrence of occurrences) {
-      if (peerImportersOptional && occurrence.field === 'peerDependencies') continue;
+    const expectedOccurrences = peerImportersOptional ? occurrences.filter((occurrence) => occurrence.field !== 'peerDependencies') : occurrences;
+    for (const occurrence of expectedOccurrences) {
       const lockEntry = importer.entries.get(occurrence.name);
       if (!lockEntry) {
         errors.push(`pnpm-lock.yaml drift: ${packageInfo.workspacePath} dependency ${occurrence.name} is missing from ${occurrence.field}`);
@@ -184,7 +209,7 @@ function checkLockfile(root, packages, workspaceConfig, errors) {
         errors.push(`pnpm-lock.yaml drift: ${packageInfo.workspacePath} dependency ${occurrence.name} has specifier ${lockEntry.specifier ?? '<missing>'}, expected ${occurrence.specifier}`);
       }
     }
-    const manifestNames = new Set(occurrences.map((occurrence) => occurrence.name));
+    const manifestNames = new Set(expectedOccurrences.map((occurrence) => occurrence.name));
     for (const [name, lockEntry] of importer.entries) {
       if (peerImportersOptional && lockEntry.field === 'peerDependencies') continue;
       if (!manifestNames.has(name)) errors.push(`pnpm-lock.yaml drift: ${packageInfo.workspacePath} has stale dependency ${name} under ${lockEntry.field}`);
@@ -213,19 +238,25 @@ export function checkDependencyPolicy(root = process.cwd()) {
     else packageInfo.kind = 'workspace';
   }
   const validPackages = packages.filter((packageInfo) => packageInfo.manifest);
-  const byName = new Map(validPackages.slice(1).filter((packageInfo) => typeof packageInfo.manifest.name === 'string').map((packageInfo) => [packageInfo.manifest.name, packageInfo]));
+  const workspacePackages = validPackages.slice(1);
+  const byName = new Map(workspacePackages.filter((packageInfo) => typeof packageInfo.manifest.name === 'string').map((packageInfo) => [packageInfo.manifest.name, packageInfo]));
+  const byWorkspacePath = new Map(workspacePackages.map((packageInfo) => [packageInfo.workspacePath, packageInfo]));
 
   for (const packageInfo of validPackages) {
     const occurrences = dependencyOccurrences(packageInfo.manifest);
     validateDuplicates(packageInfo, occurrences, errors);
     validateReact(packageInfo, occurrences, errors);
     for (const occurrence of occurrences) {
-      const target = byName.get(occurrence.name);
-      if (packageInfo.kind === 'app' && target && occurrence.specifier !== 'workspace:*') {
-        errors.push(`${packageInfo.workspacePath}: internal dependency ${occurrence.name} must use workspace:*`);
+      const target = packageTarget(packageInfo, occurrence, byName, byWorkspacePath);
+      if (packageInfo.kind === 'app' && target && !occurrence.specifier.startsWith('workspace:')) {
+        if (occurrence.name === target.manifest.name) {
+          errors.push(`${packageInfo.workspacePath}: internal dependency ${occurrence.name} must use workspace:*`);
+        } else {
+          errors.push(`${packageInfo.workspacePath}: app internal dependency ${occurrence.name} must use workspace protocol for ${target.manifest.name}`);
+        }
       }
       if (packageInfo.kind === 'shared' && target?.kind === 'app') {
-        errors.push(`${packageInfo.workspacePath}: shared package ${packageInfo.manifest.name} must not depend on app ${occurrence.name}`);
+        errors.push(`${packageInfo.workspacePath}: shared package ${packageInfo.manifest.name} must not depend on app ${target.manifest.name}`);
       }
     }
   }
