@@ -117,7 +117,7 @@ function App() {
 
   const profile = profileQuery.data.profile
   const approvalMode = approvalQuery.data || { required: false, policies: [] }
-  const activeView = views.find((item) => item.key === view) || views[0]
+  const activeView = views.find((item) => item.key === view) ?? views[0]!
   const health = healthQuery.data?.summary
 
   const pageProps = { navigate, profile, approvalMode }

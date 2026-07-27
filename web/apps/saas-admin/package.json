@@ -1,0 +1,35 @@
+{
+  "name": "@mochat/saas-admin",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "pnpm run typecheck && vite build",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "1.1.23",
+    "@tanstack/react-query": "5.101.4",
+    "clsx": "2.1.1",
+    "lucide-react": "1.27.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "sonner": "1.7.4",
+    "tailwind-merge": "2.6.1"
+  },
+  "devDependencies": {
+    "@mochat/config": "workspace:*",
+    "@tailwindcss/vite": "4.1.7",
+    "@types/node": "20.19.43",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "4.7.0",
+    "tailwindcss": "4.1.7",
+    "typescript": "5.8.3",
+    "vite": "6.4.3",
+    "vitest": "2.1.9"
+  }
+}

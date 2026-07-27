@@ -7,11 +7,12 @@ SOURCE_ROOT="${MOCHAT_FRONTEND_SOURCE_ROOT:-../mochat}"
 TARGET_ROOT="${MOCHAT_FRONTEND_TARGET_ROOT:-web}"
 
 sync_one() {
-  local name="$1"
-  local source="$SOURCE_ROOT/$name/dist"
-  local target="$TARGET_ROOT/$name/dist"
+  local source_name="$1"
+  local target_name="$2"
+  local source="$SOURCE_ROOT/$source_name/dist"
+  local target="$TARGET_ROOT/$target_name/dist"
   if [ ! -f "$source/index.html" ]; then
-    echo "$name dist not found: $source" >&2
+    echo "$source_name dist not found: $source" >&2
     exit 1
   fi
   mkdir -p "$target"
@@ -21,8 +22,9 @@ sync_one() {
   test -f "$target/index.html"
 }
 
-sync_one dashboard
-sync_one sidebar
-sync_one operation
+sync_one dashboard dashboard
+sync_one sidebar sidebar
+sync_one operation operation
+sync_one saas-admin apps/saas-admin
 
 echo "frontend dist synced to $TARGET_ROOT"

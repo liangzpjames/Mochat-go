@@ -1058,7 +1058,7 @@ func FromEnv() (Config, error) {
 	defaultOperationBaseURL := defaultBaseURL
 	defaultFileStorageRoot := "../mochat/api-server/storage/upload/static"
 	defaultDashboardDist := "./web/dashboard/dist"
-	defaultSaaSAdminDist := "./web/saas-admin/dist"
+	defaultSaaSAdminDist := "./web/apps/saas-admin/dist"
 	defaultSidebarDist := "./web/sidebar/dist"
 	defaultOperationDist := "./web/operation/dist"
 	defaultSidebarFrontendAddr := ""

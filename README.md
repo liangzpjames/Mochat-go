@@ -92,7 +92,7 @@ env -u GOROOT \
 | `MOCHAT_OPERATION_BASE_URL` / `OPERATION_BASE_URL` | `MOCHAT_GO_ADDR` 派生的本机 URL；显式设置 `MOCHAT_PHP_UPSTREAM` 时默认跟随 upstream | 裂变等 operation 页面授权跳转 URL 的基础域名 |
 | `MOCHAT_FILE_STORAGE_ROOT` / `FILE_STORAGE_ROOT` | standalone 为 `./storage/upload/static`；兼容模式为 `../mochat/api-server/storage/upload/static` | `txtVerifyUpload`、通用上传和 `AsyncFileUpload` 异步文件队列写入文件的本地存储根目录；Go 服务会把该目录以只读方式托管到 `/static/*` |
 | `MOCHAT_DASHBOARD_DIST` | `./web/dashboard/dist` | Go 服务托管 dashboard 前端静态产物的目录；目录不存在时不接管前端路由 |
-| `MOCHAT_SAAS_ADMIN_DIST` | `./web/saas-admin/dist` | Go 服务在 `/saas-admin/` 托管获客前 SaaS 总后台 MVP 的静态产物目录 |
+| `MOCHAT_SAAS_ADMIN_DIST` | `./web/apps/saas-admin/dist` | Go 服务在 `/saas-admin/` 托管获客前 SaaS 总后台 MVP 的静态产物目录 |
 | `MOCHAT_GO_LOGIN_PREFILL_PHONE` | 空 | 仅在 localhost/回环地址的登录页预填账号；生产和客户域名不输出 |
 | `MOCHAT_GO_LOGIN_PREFILL_PASSWORD` | 空 | 仅在 localhost/回环地址的登录页预填密码；不要在生产环境配置 |
 | `MOCHAT_SIDEBAR_DIST` | `./web/sidebar/dist` | Go 服务托管 sidebar 前端静态产物的目录；目录不存在时不启动 sidebar 前端入口 |

@@ -170,7 +170,7 @@ surfaces = [
     ("dashboard", repo / "web/dashboard/dist", lambda root: scan_dist_api_calls(root, "/dashboard")),
     ("sidebar", repo / "web/sidebar/dist", lambda root: scan_dist_api_calls(root, "/sidebar")),
     ("operation", repo / "web/operation/dist", lambda root: scan_dist_api_calls(root, "/operation")),
-    ("saas-admin", repo / "web/saas-admin/src", scan_saas_admin_source_calls),
+    ("saas-admin", repo / "web/apps/saas-admin/src", scan_saas_admin_source_calls),
 ]
 
 surface_results = []

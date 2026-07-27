@@ -2,6 +2,7 @@ packages:
   - web/apps/*
   - web/packages/*
 allowBuilds:
+  '@tailwindcss/oxide': true
   esbuild: true
 overrides:
   '@typescript-eslint/tsconfig-utils': 8.55.0

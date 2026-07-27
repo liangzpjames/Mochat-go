@@ -43,7 +43,7 @@ README 和独立化缺口文档说明，本项目源自 MoChat PHP 版本的迁�
 | 企业管理后台 | 企业管理员、运营、销售主管 | `web/dashboard/dist`，主服务 `/dashboard/*` | 企微配置、客户运营、群运营、营销活动、统计、权限 |
 | 企微侧边栏 | 一线员工 | `web/sidebar/dist`，独立端口或 `/sidebar-app/` | 客户详情、互动轨迹、SOP、素材、批量加好友等 |
 | 营销活动 H5 | 外部联系人/参与者 | `web/operation/dist`，独立端口或 `/operation-app/` | 裂变活动、OAuth、海报、助力和领奖 |
-| SaaS 总后台 | 平台运营、财务、安全、交付人员 | `web/saas-admin` React 应用及 `/dashboard/saasAdmin/*` | 租户、套餐、经营、续费、财务、告警、审批、安全、交付 |
+| SaaS 总后台 | 平台运营、财务、安全、交付人员 | `web/apps/saas-admin` React 应用及 `/dashboard/saasAdmin/*` | 租户、套餐、经营、续费、财务、告警、审批、安全、交付 |
 
 ### 2.3 商业化目标
 
@@ -88,7 +88,7 @@ HTTP 请求
 
 | 前端 | 技术 | 当前源码状态 |
 | --- | --- | --- |
-| SaaS 总后台 | React 19、TypeScript 5.8、Vite 6、TanStack Query 5、Tailwind CSS 4、Radix Dialog、Lucide、Sonner | 有完整源码，位于 `web/saas-admin/src` |
+| SaaS 总后台 | React 19、TypeScript 5.8、Vite 6、TanStack Query 5、Tailwind CSS 4、Radix Dialog、Lucide、Sonner | 有完整源码，位于 `web/apps/saas-admin/src` |
 | 原企业后台 | Vue 2.6、Vue Router 3.1、Vuex 3.1、Axios 0.19、ECharts 等 | 当前目录主要只有 `web/dashboard/dist` 构建产物 |
 | 企微侧边栏 | Vue 2 构建产物 | 当前主要只有 `web/sidebar/dist` |
 | 营销活动 H5 | Vue 2 构建产物 | 当前主要只有 `web/operation/dist` |
@@ -577,7 +577,7 @@ MOCHAT_SIMPLE_JWT_SECRET='replace-with-strong-secret' \
 docker compose -f deploy/standalone/docker-compose.yml --profile app up -d --build
 
 # SaaS React 总后台
-cd web/saas-admin
+cd web/apps/saas-admin
 pnpm install
 pnpm run typecheck
 pnpm run build

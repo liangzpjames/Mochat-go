@@ -24,7 +24,7 @@ dashboard、sidebar 和 operation 的既有生产静态产物还包含其构建�
 
 ## SaaS 总后台前端
 
-SaaS 总后台的信息架构和交互模式参考 Nuwa Admin，并针对 MoChat Go 的真实 API、权限和获客前 MVP 范围重新实现。Nuwa Admin 采用 Apache-2.0 许可证，原始声明为 `Copyright 2019 北京翻转极光科技有限责任公司`；许可证副本见 [web/saas-admin/NUWA-APACHE-2.0.txt](web/saas-admin/NUWA-APACHE-2.0.txt)。
+SaaS 总后台的信息架构和交互模式参考 Nuwa Admin，并针对 MoChat Go 的真实 API、权限和获客前 MVP 范围重新实现。Nuwa Admin 采用 Apache-2.0 许可证，原始声明为 `Copyright 2019 北京翻转极光科技有限责任公司`；许可证副本见 [web/apps/saas-admin/NUWA-APACHE-2.0.txt](web/apps/saas-admin/NUWA-APACHE-2.0.txt)。
 
 | 组件 | 锁定版本 | 许可证 |
 | --- | --- | --- |
@@ -37,4 +37,4 @@ SaaS 总后台的信息架构和交互模式参考 Nuwa Admin，并针对 MoChat
 | clsx | `2.1.1` | MIT |
 | tailwind-merge | `2.6.1` | MIT |
 
-前端精确依赖树由 `web/saas-admin/pnpm-lock.yaml` 锁定。
+前端精确依赖树由根目录 `pnpm-lock.yaml` 锁定。

@@ -80,10 +80,8 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 }
 
 export function jsonRequest(method: 'POST' | 'PUT' | 'DELETE', payload?: unknown): RequestInit {
-  return {
-    method,
-    body: payload === undefined ? undefined : JSON.stringify(payload),
-  }
+  if (payload === undefined) return { method }
+  return { method, body: JSON.stringify(payload) }
 }
 
 export function hasPermission(permissions: string[], permission: string): boolean {

@@ -146,7 +146,7 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.DashboardDist != "./web/dashboard/dist" {
 		t.Fatalf("DashboardDist = %q", cfg.DashboardDist)
 	}
-	if cfg.SaaSAdminDist != "./web/saas-admin/dist" {
+	if cfg.SaaSAdminDist != "./web/apps/saas-admin/dist" {
 		t.Fatalf("SaaSAdminDist = %q", cfg.SaaSAdminDist)
 	}
 	if cfg.SidebarDist != "./web/sidebar/dist" || cfg.OperationDist != "./web/operation/dist" {
@@ -167,6 +167,18 @@ func TestFromEnvRuntimeRole(t *testing.T) {
 	}
 	if cfg.RuntimeRole != appruntime.RoleAPI {
 		t.Fatalf("RuntimeRole = %q, want %q", cfg.RuntimeRole, appruntime.RoleAPI)
+	}
+}
+
+func TestFromEnvDefaultSaaSAdminDist(t *testing.T) {
+	clearEnv(t)
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SaaSAdminDist != "./web/apps/saas-admin/dist" {
+		t.Fatalf("SaaSAdminDist = %q", cfg.SaaSAdminDist)
 	}
 }
 
@@ -257,7 +269,7 @@ func TestStandaloneDefaultsDoNotDependOnMoChatSourceOrPHP(t *testing.T) {
 	if cfg.DashboardDist != "./web/dashboard/dist" {
 		t.Fatalf("DashboardDist = %q", cfg.DashboardDist)
 	}
-	if cfg.SaaSAdminDist != "./web/saas-admin/dist" {
+	if cfg.SaaSAdminDist != "./web/apps/saas-admin/dist" {
 		t.Fatalf("SaaSAdminDist = %q", cfg.SaaSAdminDist)
 	}
 	if cfg.SidebarDist != "./web/sidebar/dist" || cfg.OperationDist != "./web/operation/dist" {

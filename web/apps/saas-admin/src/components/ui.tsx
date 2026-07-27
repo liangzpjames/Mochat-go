@@ -176,7 +176,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
-  description?: string
+  description?: string | undefined
   children: ReactNode
   footer?: ReactNode
   size?: 'sm' | 'md' | 'lg'
