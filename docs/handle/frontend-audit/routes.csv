@@ -1,5 +1,5 @@
 app,path,name,source_file,auth,corp_context,permission,render_target
-dashboard,*,*,web/legacy/dashboard/src/router/base/error.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
+dashboard,*,-,web/legacy/dashboard/src/router/base/error.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/,/,web/legacy/dashboard/src/router/router.config.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/404,404,web/legacy/dashboard/src/router/base/error.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/autoTag/dayPartCreate,/autoTagDayPartCreate,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
@@ -29,7 +29,7 @@ dashboard,/corpData/index,systemHomePage,web/legacy/dashboard/src/router/asyncRo
 dashboard,/department/index,departmentIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,check;search;sync,dashboard-spa
 dashboard,/greeting/index,greetingIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,delete;edit,dashboard-spa
 dashboard,/greeting/store,greetingStore,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,add,dashboard-spa
-dashboard,/login,login,web/legacy/dashboard/src/router/base/index.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
+dashboard,/login,login,web/legacy/dashboard/src/router/base/index.js,public,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/lossContact/index,lossContact,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/mediumGroup/index,mediumGroupIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,add;delete;edit;editGroup;move,dashboard-spa
 dashboard,/menu/index,menuIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,add;edit;search,dashboard-spa
@@ -64,27 +64,27 @@ dashboard,/workRoom/index,workRoomIndex,web/legacy/dashboard/src/router/asyncRou
 dashboard,/workRoom/statistics,statistics,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/workRoomAutoPull/index,workRoomAutoPull,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,detail;download;edit;search,dashboard-spa
 dashboard,/workRoomAutoPull/store,workRoomAutoPullStore,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,submit,dashboard-spa
-operation,/,workFissionIndex,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
-operation,/explain,/roomClockIn,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
-operation,/fissionSpeed,fissionSpeed,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
+operation,/,-,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
+operation,/explain,-,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
+operation,/fissionSpeed,-,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
 operation,/lottery,lotteryIndex,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
 operation,/roomClockIn,/roomClockIn,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
-operation,/roomFission,roomFission,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
-operation,/roomInfinitePull,roomInfinitePull,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
+operation,/roomFission,-,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
+operation,/roomInfinitePull,-,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
 operation,/shopCode,shopCodeIndex,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
-operation,/speed,lotteryIndex,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
+operation,/speed,-,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
 operation,/workFission,workFissionIndex,web/legacy/operation/src/router/index.js,no-auth-header,operation-corp-context,implicit-route-access,operation-spa
-sidebar,/:pathMatch(.*),404,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
-sidebar,/,root,web/legacy/sidebar/src/router/index.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
+sidebar,/:pathMatch(.*),-,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
+sidebar,/,index,web/legacy/sidebar/src/router/routes.js,public,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/404,404,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
-sidebar,/auth,auth,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
-sidebar,/codeAuth,codeAuth,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
+sidebar,/auth,auth,web/legacy/sidebar/src/router/routes.js,public,sidebar-corp-context,implicit-route-access,sidebar-embedded
+sidebar,/codeAuth,codeAuth,web/legacy/sidebar/src/router/routes.js,public,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/contact,contact,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/contact/editDetail,contactEditDetail,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/contact/remark,contactRemark,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/contact/settingTag,contactSettingTag,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/contactBatchAdd,contactBatchAdd,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/contactSop,contactSop,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
-sidebar,/login,login,web/legacy/sidebar/src/router/index.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
+sidebar,/login,login,web/legacy/sidebar/src/router/routes.js,public,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/medium,medium,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded
 sidebar,/roomSop,roomSop,web/legacy/sidebar/src/router/routes.js,Bearer cookie token,sidebar-corp-context,implicit-route-access,sidebar-embedded

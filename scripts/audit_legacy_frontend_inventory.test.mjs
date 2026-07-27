@@ -47,15 +47,20 @@ function createFixture() {
   const api = 'web/legacy/dashboard/src/api/example.js';
   const asset = 'web/legacy/dashboard/src/assets/example.svg';
   write(root, router, "export const routes = [{ path: '/example', name: 'example', component: () => import('@/views/example/index') }];\n");
-  write(root, view, '<template><main v-permission="\'/example@edit\'"><img src="@/assets/example.svg"></main></template>\n');
-  write(root, api, "export const example = () => request({ url: '/api/example', method: 'get' });\n");
+  write(root, view, `<template><main v-permission="'/example@edit'"><img src="@/assets/example.svg"></main></template>
+<script>
+import { example } from '@/api/example'
+export default { created () { example({ id: 1 }) } }
+</script>
+`);
+  write(root, api, "export function example (params) { return request({ url: '/api/example', method: 'get', params }) }\n");
   write(root, asset, '<svg/>\n');
   write(root, 'web/legacy/dashboard/package.json', '{"dependencies":{"vue":"^2.6.10"}}\n');
   write(root, 'web/legacy/README.md', '# Legacy frontend reference sources\n\n- Source commit: `3dcd216c188df34f2c3ed489b8e8b9473e635488`\n');
   const auditDirectory = 'docs/handle/frontend-audit';
   write(root, `${auditDirectory}/pages.csv`, `${columns['pages.csv']}\ndashboard,${view},-,legacy,frontend,low,1\ndashboard,${router},/example,legacy,frontend,low,1\n`);
   write(root, `${auditDirectory}/routes.csv`, `${columns['routes.csv']}\ndashboard,/example,example,${router},required,required,*,spa\n`);
-  write(root, `${auditDirectory}/apis.csv`, `${columns['apis.csv']}\ndashboard,GET,/api/example,${api},id,id,required,corp,-\n`);
+  write(root, `${auditDirectory}/apis.csv`, `${columns['apis.csv']}\ndashboard,GET,/api/example,${api},params:id,id,required,corp,-\n`);
   write(root, `${auditDirectory}/permissions.csv`, `${columns['permissions.csv']}\ndashboard,/example,/example,view,${router}\n`);
   write(root, `${auditDirectory}/assets.csv`, `${columns['assets.csv']}\ndashboard,${asset},svg,verified,${view}\n`);
   write(root, `${auditDirectory}/dependencies.csv`, `${columns['dependencies.csv']}\ndashboard,vue,^2.6.10,react,replace,medium\n`);
@@ -72,6 +77,10 @@ function runAudit(root) {
   }
 }
 
+function runRefresh(root) {
+  return execFileSync(process.execPath, [auditScript, '--refresh', '--check', '--root', root], { encoding: 'utf8' });
+}
+
 function replace(root, relativePath, from, to) {
   const fullPath = join(root, relativePath);
   writeFileSync(fullPath, readFileSync(fullPath, 'utf8').replace(from, to));
@@ -79,6 +88,22 @@ function replace(root, relativePath, from, to) {
 
 function csvRows(root, relativePath) {
   return readFileSync(join(root, relativePath), 'utf8').trim().split(/\r?\n/).slice(1).map((line) => line.split(','));
+}
+
+function csvObjects(root, relativePath) {
+  const [header, ...rows] = readFileSync(join(root, relativePath), 'utf8').trim().split(/\r?\n/).map((line) => line.split(','));
+  return rows.map((row) => Object.fromEntries(header.map((column, index) => [column, row[index]])));
+}
+
+function setCsvCell(root, relativePath, keyColumn, keyValue, column, value) {
+  const file = join(root, relativePath);
+  const lines = readFileSync(file, 'utf8').trim().split(/\r?\n/).map((line) => line.split(','));
+  const keyIndex = lines[0].indexOf(keyColumn);
+  const columnIndex = lines[0].indexOf(column);
+  const row = lines.slice(1).find((values) => values[keyIndex] === keyValue);
+  assert.ok(row, `missing ${keyColumn}=${keyValue} in ${relativePath}`);
+  row[columnIndex] = value;
+  writeFileSync(file, `${lines.map((values) => values.join(',')).join('\n')}\n`);
 }
 
 function expectAuditFailure(mutate, expected) {
@@ -229,10 +254,193 @@ test('committed HEAD archive preserves the four canonical source blobs and modes
   assert.deepEqual(headEntries, pinnedEntries);
 });
 
+test('refresh derives transport and actual request properties from each exported function', () => {
+  const root = createFixture();
+  try {
+    write(root, 'web/legacy/dashboard/src/api/example.js', `
+export function example (params) {
+  return request({ url: '/api/example', method: 'get', params })
+}
+export function store (params) {
+  const payload = { corpId: params.corpId, displayName: params.name }
+  return request({ url: '/corp/store', method: 'post', data: payload })
+}
+export function destructured ({ token, redirect }) {
+  return request({ url: '/api/destructured', method: 'put', data: { token, redirect } })
+}
+export function filtered ({ unused }) {
+  return request({ url: '/api/filtered', method: 'post', data: { actual: true } })
+}
+export function blocked (params) {
+  return request({ url: '/api/blocked', method: 'delete', data: params })
+}
+`);
+    write(root, 'web/legacy/dashboard/src/views/example/index.vue', `<template><main></main></template>
+<script>
+import { example, store } from '@/api/example'
+export default {
+  created () {
+    example({ id: 1, search: '' })
+    store({ corpId: 7, name: 'Acme' })
+  }
+}
+</script>
+`);
+    writeManifest(root);
+
+    runRefresh(root);
+    const apis = csvObjects(root, 'docs/handle/frontend-audit/apis.csv');
+    const byPath = new Map(apis.map((api) => [api.path, api]));
+    assert.equal(byPath.get('/api/example').request_fields, 'params:id;search');
+    assert.equal(byPath.get('/corp/store').request_fields, 'data:corpId;displayName');
+    assert.equal(byPath.get('/api/destructured').request_fields, 'data:redirect;token');
+    assert.equal(byPath.get('/api/filtered').request_fields, 'data:actual');
+    assert.equal(byPath.get('/api/blocked').request_fields, 'data:blocked[no-callsite]');
+    assert.ok(apis.every((api) => !/^(?:data|params):params$|^none$/.test(api.request_fields)));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fails when request_fields are replaced with a generic payload expression', () => {
+  const root = createFixture();
+  try {
+    runRefresh(root);
+    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'request_fields', 'params:params');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: apis\.csv:2: request_fields must match discovered evidence params:id/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('refresh limits route metadata to declaration object boundaries and derives route auth', () => {
+  const root = createFixture();
+  try {
+    write(root, 'web/legacy/dashboard/src/router/base/index.js', `
+export const baseRouterMap = [
+  { path: '/login', name: 'login', component: () => import('@/views/login/login') }
+]
+`);
+    write(root, 'web/legacy/dashboard/src/router/navigationGuards.js', `
+const whiteList = ['login']
+router.beforeEach((to, from, next) => {
+  if (storage.get('ACCESS_TOKEN') && to.path !== '/login') next()
+  else if (whiteList.includes(to.name)) next()
+  else next({ path: '/login' })
+})
+`);
+    write(root, 'web/legacy/dashboard/src/views/login/login.vue', '<template><main>login</main></template>\n');
+
+    write(root, 'web/legacy/sidebar/src/router/index.js', `
+router.beforeEach((to, from, next) => {
+  if (checkLogin(to, from, next) === false) next({ path: '/login' })
+  else next()
+})
+`);
+    write(root, 'web/legacy/sidebar/src/router/routes.js', `
+const routes = [
+  { path: '/', name: 'index', component: () => import('views/index') },
+  { path: '/login', name: 'login', component: () => import('views/login') },
+  { path: '/codeAuth', name: 'codeAuth', component: () => import('views/codeAuth') },
+  { path: '/auth', name: 'auth', component: () => import('views/auth') },
+  { path: '/contact', name: 'contact', component: () => import('views/contact') }
+]
+export default routes
+`);
+    write(root, 'web/legacy/sidebar/src/utils/index.js', `
+export function checkLogin (to) {
+  if (to.fullPath === '/' || to.path === '/codeAuth' || to.path === '/auth' || to.path === '/login') return
+  return Boolean(getCookie('token'))
+}
+`);
+    for (const view of ['index', 'login', 'codeAuth', 'auth', 'contact']) {
+      write(root, `web/legacy/sidebar/src/views/${view}.vue`, `<template><main>${view}</main></template>\n`);
+    }
+    write(root, 'web/legacy/sidebar/package.json', '{"dependencies":{}}\n');
+
+    write(root, 'web/legacy/operation/src/router/index.js', `
+import root from '../views/root'
+import workFission from '../views/workFission'
+import speed from '../views/speed'
+import lottery from '../views/lottery'
+import explain from '../views/explain'
+import roomClockIn from '../views/roomClockIn'
+const routes = [
+  { path: '/', component: root },
+  { path: '/workFission', name: 'workFissionIndex', component: workFission },
+  { path: '/speed', component: speed },
+  { path: '/lottery', name: 'lotteryIndex', component: lottery },
+  { path: '/explain', component: explain },
+  { path: '/roomClockIn', name: '/roomClockIn', component: roomClockIn }
+]
+`);
+    for (const view of ['root', 'workFission', 'speed', 'lottery', 'explain', 'roomClockIn']) {
+      write(root, `web/legacy/operation/src/views/${view}.vue`, `<template><main>${view}</main></template>\n`);
+    }
+    write(root, 'web/legacy/operation/package.json', '{"dependencies":{}}\n');
+    writeManifest(root);
+
+    runRefresh(root);
+    const routes = csvObjects(root, 'docs/handle/frontend-audit/routes.csv');
+    const route = (app, path) => routes.find((item) => item.app === app && item.path === path);
+    assert.equal(route('operation', '/').name, '-');
+    assert.equal(route('operation', '/speed').name, '-');
+    assert.equal(route('operation', '/explain').name, '-');
+    assert.equal(route('dashboard', '/login').auth, 'public');
+    assert.equal(route('dashboard', '/example').auth, 'ACCESS_TOKEN');
+    assert.equal(route('sidebar', '/').auth, 'public');
+    assert.equal(route('sidebar', '/login').auth, 'public');
+    assert.equal(route('sidebar', '/auth').auth, 'public');
+    assert.equal(route('sidebar', '/codeAuth').auth, 'public');
+    assert.equal(route('sidebar', '/contact').auth, 'Bearer cookie token');
+    assert.match(route('sidebar', '/login').source_file, /src\/router\/routes\.js$/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fails when Go evidence combines a route with an unrelated HTTP method', () => {
+  const root = createFixture();
+  try {
+    runRefresh(root);
+    write(root, 'internal/server/example.go', `package server
+import "net/http"
+var routes = []struct{ method, path string }{
+  {method: http.MethodPost, path: "/dashboard/api/example"},
+}
+var unrelated = http.MethodGet
+// "GET /dashboard/api/example" is documentation, not executable evidence.
+`);
+    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'go_evidence', 'internal/server/example.go');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: apis\.csv:2: go_evidence does not prove GET \/dashboard\/api\/example/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('accepts Go evidence when method and route share one exact contract construct', () => {
+  const root = createFixture();
+  try {
+    runRefresh(root);
+    write(root, 'internal/server/example.go', `package server
+var routes = []string{"GET /dashboard/api/example"}
+`);
+    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'go_evidence', 'internal/server/example.go');
+    const result = runAudit(root);
+    assert.equal(result.status, 0, result.output);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('refresh derives semantic audit fields instead of migration placeholders', () => {
   const root = createFixture();
   try {
-    execFileSync(process.execPath, [auditScript, '--refresh', '--check', '--root', root], { encoding: 'utf8' });
+    runRefresh(root);
     const audit = 'docs/handle/frontend-audit';
     const [page] = csvRows(root, `${audit}/pages.csv`).filter((row) => row[1].includes('/views/example/'));
     const [route] = csvRows(root, `${audit}/routes.csv`);
@@ -243,7 +451,7 @@ test('refresh derives semantic audit fields instead of migration placeholders', 
     assert.equal(page[2], '/example');
     assert.equal(route[4], 'ACCESS_TOKEN');
     assert.equal(route[5], 'dashboard-corp-context');
-    assert.equal(api[4], 'none');
+    assert.equal(api[4], 'params:id');
     assert.equal(api[5], 'response.data');
     assert.equal(api[6], 'ACCESS_TOKEN');
     assert.equal(api[7], '/dashboard');

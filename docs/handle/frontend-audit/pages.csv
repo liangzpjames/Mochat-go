@@ -116,8 +116,6 @@ operation,web/legacy/operation/src/views/roomInfinitePull/roomInfinitePull.vue,/
 operation,web/legacy/operation/src/views/shopCode/shopCodeIndex.vue,/shopCode,legacy,unassigned,medium,unassigned
 operation,web/legacy/operation/src/views/workFission/index.vue,/workFission,legacy,unassigned,medium,unassigned
 operation,web/legacy/operation/src/views/workFission/speed.vue,/speed,legacy,unassigned,medium,unassigned
-sidebar,web/legacy/sidebar/src/router/index.js,/,legacy,unassigned,medium,unassigned
-sidebar,web/legacy/sidebar/src/router/index.js,/login,legacy,unassigned,medium,unassigned
 sidebar,web/legacy/sidebar/src/router/routes.js,/:pathMatch(.*),legacy,unassigned,medium,unassigned
 sidebar,web/legacy/sidebar/src/views/auth/index.vue,/auth,legacy,unassigned,medium,unassigned
 sidebar,web/legacy/sidebar/src/views/codeAuth/index.vue,/codeAuth,legacy,unassigned,medium,unassigned
@@ -129,8 +127,8 @@ sidebar,web/legacy/sidebar/src/views/contactBatchAdd/index.vue,/contactBatchAdd,
 sidebar,web/legacy/sidebar/src/views/contactSop/contactSop.vue,/contactSop,legacy,unassigned,medium,unassigned
 sidebar,web/legacy/sidebar/src/views/contactSop/contactSopIndex.vue,-,legacy,unassigned,medium,unassigned
 sidebar,web/legacy/sidebar/src/views/error/404.vue,/404,legacy,unassigned,medium,unassigned
-sidebar,web/legacy/sidebar/src/views/index/index.vue,-,legacy,unassigned,medium,unassigned
-sidebar,web/legacy/sidebar/src/views/login/index.vue,-,legacy,unassigned,medium,unassigned
+sidebar,web/legacy/sidebar/src/views/index/index.vue,/,legacy,unassigned,medium,unassigned
+sidebar,web/legacy/sidebar/src/views/login/index.vue,/login,legacy,unassigned,medium,unassigned
 sidebar,web/legacy/sidebar/src/views/medium/index.vue,/medium,legacy,unassigned,medium,unassigned
 sidebar,web/legacy/sidebar/src/views/roomSop/pushRule.vue,-,legacy,unassigned,medium,unassigned
 sidebar,web/legacy/sidebar/src/views/roomSop/roomQuality.vue,-,legacy,unassigned,medium,unassigned

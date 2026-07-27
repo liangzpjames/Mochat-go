@@ -26,6 +26,125 @@ function walk(root, directory) {
   });
 }
 function decomment(text) { return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''); }
+function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function syntaxMask(text) {
+  const mask = [...text];
+  let state = 'code';
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]; const next = text[index + 1];
+    if (state === 'line-comment') {
+      if (character === '\n') state = 'code'; else mask[index] = ' ';
+      continue;
+    }
+    if (state === 'block-comment') {
+      if (character === '*' && next === '/') { mask[index] = ' '; mask[index + 1] = ' '; index += 1; state = 'code'; }
+      else if (character !== '\n') mask[index] = ' ';
+      continue;
+    }
+    if (state !== 'code') {
+      mask[index] = character === '\n' ? '\n' : ' ';
+      if (character === '\\') { if (index + 1 < text.length) mask[index + 1] = ' '; index += 1; }
+      else if ((state === 'single-quote' && character === "'") || (state === 'double-quote' && character === '"') || (state === 'template' && character === '`')) state = 'code';
+      continue;
+    }
+    if (character === '/' && next === '/') { mask[index] = ' '; mask[index + 1] = ' '; index += 1; state = 'line-comment'; }
+    else if (character === '/' && next === '*') { mask[index] = ' '; mask[index + 1] = ' '; index += 1; state = 'block-comment'; }
+    else if (character === "'") { mask[index] = ' '; state = 'single-quote'; }
+    else if (character === '"') { mask[index] = ' '; state = 'double-quote'; }
+    else if (character === '`') { mask[index] = ' '; state = 'template'; }
+  }
+  return mask.join('');
+}
+function matchingDelimiter(text, opening, mask = syntaxMask(text)) {
+  const closingByOpening = { '{': '}', '[': ']', '(': ')' };
+  const openingCharacter = text[opening]; const closingCharacter = closingByOpening[openingCharacter];
+  if (!closingCharacter) return -1;
+  let depth = 0;
+  for (let index = opening; index < text.length; index += 1) {
+    if (mask[index] === openingCharacter) depth += 1;
+    else if (mask[index] === closingCharacter) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+function splitTopLevel(text) {
+  const mask = syntaxMask(text); const result = []; const stack = []; const openingByClosing = { '}': '{', ']': '[', ')': '(' };
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = mask[index];
+    if ('{[('.includes(character)) stack.push(character);
+    else if ('}])'.includes(character) && stack.at(-1) === openingByClosing[character]) stack.pop();
+    else if (character === ',' && stack.length === 0) { result.push(text.slice(start, index).trim()); start = index + 1; }
+  }
+  result.push(text.slice(start).trim());
+  return result.filter(Boolean);
+}
+function objectProperties(objectText) {
+  const trimmed = objectText.trim(); const inner = trimmed.startsWith('{') ? trimmed.slice(1, trimmed.endsWith('}') ? -1 : undefined) : trimmed;
+  return splitTopLevel(inner).map((raw) => {
+    const segment = raw.trim();
+    if (segment.startsWith('...')) return { spread: segment.slice(3).trim(), raw };
+    const mask = syntaxMask(segment); const stack = []; const openingByClosing = { '}': '{', ']': '[', ')': '(' };
+    let colon = -1;
+    for (let index = 0; index < segment.length; index += 1) {
+      const character = mask[index];
+      if ('{[('.includes(character)) stack.push(character);
+      else if ('}])'.includes(character) && stack.at(-1) === openingByClosing[character]) stack.pop();
+      else if (character === ':' && stack.length === 0) { colon = index; break; }
+    }
+    if (colon === -1) {
+      return /^[A-Za-z_$][\w$]*$/.test(segment) ? { key: segment, value: segment, raw } : { raw };
+    }
+    const keyText = segment.slice(0, colon).trim(); const value = segment.slice(colon + 1).trim();
+    const keyMatch = /^(?:([A-Za-z_$][\w$]*)|['"]([^'"]+)['"]|\[\s*(['"])(.*?)\3\s*\])$/.exec(keyText);
+    return { key: keyMatch ? (keyMatch[1] || keyMatch[2] || keyMatch[4]) : null, computed: keyMatch ? null : keyText, value, raw };
+  });
+}
+function objectPropertyMap(objectText) {
+  return new Map(objectProperties(objectText).filter((property) => property.key).map((property) => [property.key, property.value]));
+}
+function quotedLiteral(value) { return /^(['"])([\s\S]*)\1$/.exec(value.trim())?.[2] ?? null; }
+function enclosingObject(text, position) {
+  const mask = syntaxMask(text); const openings = [];
+  for (let index = 0; index < position; index += 1) {
+    if (mask[index] === '{') openings.push(index);
+    else if (mask[index] === '}') openings.pop();
+  }
+  const opening = openings.at(-1); if (opening === undefined) return null;
+  const closing = matchingDelimiter(text, opening, mask);
+  return closing === -1 ? null : { opening, closing, text: text.slice(opening, closing + 1) };
+}
+function readExpression(text, start) {
+  let opening = start;
+  while (/\s/.test(text[opening] ?? '')) opening += 1;
+  const mask = syntaxMask(text); const first = text[opening];
+  if ('{[('.includes(first ?? '')) {
+    const closing = matchingDelimiter(text, opening, mask);
+    return { text: text.slice(opening, closing + 1), start: opening, end: closing + 1 };
+  }
+  const stack = []; const openingByClosing = { '}': '{', ']': '[', ')': '(' };
+  for (let index = opening; index < text.length; index += 1) {
+    const character = mask[index];
+    if ('{[('.includes(character)) stack.push(character);
+    else if ('}])'.includes(character)) {
+      if (!stack.length) return { text: text.slice(opening, index).trim(), start: opening, end: index };
+      if (stack.at(-1) === openingByClosing[character]) stack.pop();
+    } else if (stack.length === 0 && (character === ',' || character === ';' || character === '\n')) {
+      return { text: text.slice(opening, index).trim(), start: opening, end: index };
+    }
+  }
+  return { text: text.slice(opening).trim(), start: opening, end: text.length };
+}
+function braceStackAt(text, position) {
+  const mask = syntaxMask(text); const stack = [];
+  for (let index = 0; index < position; index += 1) {
+    if (mask[index] === '{') stack.push(index);
+    else if (mask[index] === '}') stack.pop();
+  }
+  return stack;
+}
 function parseCsv(content) {
   const rows = []; let row = []; let field = ''; let quoted = false;
   for (let index = 0; index < content.length; index += 1) {
@@ -46,36 +165,61 @@ function extensionKind(file) { return extname(file).slice(1) || 'file'; }
 function routeName(path) { return path === '/' ? 'root' : path.replace(/^\//, '').replace(/[^a-zA-Z0-9]+(.)/g, (_, next) => next.toUpperCase()) || 'route'; }
 function mountedPath(app, path) { return `/${app}${path.startsWith('/') ? path : `/${path}`}`; }
 function methodToken(method) { return `http.Method${method[0]}${method.slice(1).toLowerCase()}`; }
+function goContentHasContract(content, method, contract) {
+  const code = decomment(content).replace(/\/\/.*$/gm, '');
+  const exactContract = `${method} ${contract}`; const token = methodToken(method);
+  if (new RegExp(`(?:^|[^A-Z])["\`]${escapeRegExp(exactContract)}["\`]`).test(code)) return true;
+  for (const match of code.matchAll(/^\s*case\s+(.+):\s*$/gm)) if (match[1].includes(`"${contract}"`) && match[1].includes(token)) return true;
+  for (const match of code.matchAll(/\b(?:httptest\.)?NewRequest\s*\(/g)) {
+    const opening = code.indexOf('(', match.index); const closing = matchingDelimiter(code, opening);
+    if (closing !== -1) {
+      const call = code.slice(opening + 1, closing);
+      if (call.includes(token) && new RegExp(`["\`]${escapeRegExp(contract)}(?:\\?[^"\`]*)?["\`]`).test(call)) return true;
+    }
+  }
+  for (const match of code.matchAll(new RegExp(`["\`]${escapeRegExp(contract)}["\`]`, 'g'))) {
+    const object = enclosingObject(code, match.index);
+    if (!object) continue;
+    const properties = objectPropertyMap(object.text);
+    if (quotedLiteral(properties.get('path') ?? '') === contract && (properties.get('method') ?? '').trim() === token) return true;
+  }
+  return false;
+}
 function findGoEvidence(root, app, method, path) {
   const contract = mountedPath(app, path);
   const candidates = ['internal/server', 'internal/dashboard', 'internal/store'].flatMap((directory) => walk(root, directory).filter((file) => file.endsWith('.go')));
   return candidates.find((file) => {
     const content = readFileSync(rootFile(root, file), 'utf8');
-    return content.includes(`${method} ${contract}`) || (content.includes(`"${contract}`) && content.includes(methodToken(method)));
+    return goContentHasContract(content, method, contract);
   }) ?? '-';
 }
 function evidenceHasContract(root, evidence, app, method, path) {
   const content = readFileSync(rootFile(root, evidence), 'utf8'); const contract = mountedPath(app, path);
-  return content.includes(`${method} ${contract}`) || (content.includes(`"${contract}`) && content.includes(methodToken(method)));
+  return goContentHasContract(content, method, contract);
 }
 function clientSemantics(app) {
   if (app === 'dashboard') return { auth: 'ACCESS_TOKEN', corp: 'dashboard-corp-context', target: 'dashboard-spa' };
   if (app === 'sidebar') return { auth: 'Bearer cookie token', corp: 'sidebar-corp-context', target: 'sidebar-embedded' };
   return { auth: 'no-auth-header', corp: 'operation-corp-context', target: 'operation-spa' };
 }
+function routeAuth(app, path) {
+  if (app === 'dashboard') return path === '/login' ? 'public' : 'ACCESS_TOKEN';
+  if (app === 'sidebar') return ['/', '/login', '/auth', '/codeAuth'].includes(path) ? 'public' : 'Bearer cookie token';
+  return 'no-auth-header';
+}
 function replacementFor(pkg) {
   const replacements = { vue: 'react', 'vue-router': 'react-router', vuex: 'zustand', axios: 'fetch-wrapper', 'ant-design-vue': 'antd', vant: 'antd-mobile', 'vue-i18n': 'react-intl', 'vue-echarts': 'echarts-for-react', 'vue-quill-editor': 'react-quill', 'vue-clipboard2': 'clipboard-copy', 'vue-cropper': 'react-easy-crop', 'vue-drag-resize': 'react-rnd', 'vue-pdf': 'react-pdf', 'vue-luck-draw': 'react-custom-roulette' };
   return replacements[pkg] ?? 'no-direct-react-replacement';
 }
 function decisionFor(pkg) { return replacementFor(pkg) === 'no-direct-react-replacement' ? 'retire-or-reassess' : 'replace'; }
-function componentSource(root, app, router, content, position) {
-  const nearby = content.slice(position, position + 700);
-  const dynamic = /(?:component\s*:\s*\(\)\s*=>\s*import\s*\(\s*['"])(?:@\/)?views\/([^'"]+)/.exec(nearby);
+function componentSource(root, app, content, component) {
+  if (!component) return null;
+  const dynamic = /(?:\(\)\s*=>\s*import\s*\(\s*['"])(?:@\/)?views\/([^'"]+)/.exec(component);
   if (dynamic) {
     const base = `web/legacy/${app}/src/views/${dynamic[1]}`;
     return [ `${base}.vue`, `${base}/index.vue` ].find((file) => fileExists(root, file)) ?? null;
   }
-  const staticComponent = /component\s*:\s*([A-Za-z_$][\w$]*)/.exec(nearby)?.[1];
+  const staticComponent = /^([A-Za-z_$][\w$]*)$/.exec(component.trim())?.[1];
   if (!staticComponent) return null;
   const imports = [...content.matchAll(new RegExp(`import\\s+${staticComponent}\\s+from\\s+['"]([^'"]+)['"]`, 'g'))];
   if (!imports.length) return null;
@@ -97,22 +241,210 @@ function assetUses(root, asset) {
   return usedBy.length ? usedBy.sort().join(';') : 'unreferenced-in-legacy-source';
 }
 
+function scriptSource(file, content) {
+  if (!file.endsWith('.vue')) return content;
+  return /<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/i.exec(content)?.[1] ?? '';
+}
+function resolveApiImport(root, app, sourceFile, imported) {
+  let absolute;
+  if (imported.startsWith('@/')) absolute = rootFile(root, `web/legacy/${app}/src/${imported.slice(2)}`);
+  else absolute = resolve(dirname(rootFile(root, sourceFile)), imported);
+  if (!absolute.endsWith('.js')) absolute += '.js';
+  return normalize(relative(root, absolute));
+}
+function collectApiCallsites(root, app) {
+  const result = new Map(); const base = `web/legacy/${app}/src`;
+  const sources = walk(root, base).filter((file) => /\.(js|jsx|vue)$/.test(file) && !file.includes('/src/api/'));
+  for (const sourceFile of sources) {
+    const sourceContent = readFileSync(rootFile(root, sourceFile), 'utf8');
+    const modelEvidence = [...sourceContent.matchAll(/\bv-model(?:\.[\w-]+)*\s*=\s*["'](?:this\.)?([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)["']/g)]
+      .map((match) => `this.${match[1]}.${match[2]} = undefined`).join('\n');
+    const text = `${decomment(scriptSource(sourceFile, sourceContent))}\n${modelEvidence}`;
+    for (const imported of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]([^'"]*(?:\/api\/|@\/api\/)[^'"]*)['"]/g)) {
+      const apiFile = resolveApiImport(root, app, sourceFile, imported[2]);
+      for (const importedName of imported[1].split(',').map((name) => name.trim()).filter(Boolean)) {
+        const [exportName, alias] = importedName.split(/\s+as\s+/); const localName = alias ?? exportName;
+        const callPattern = new RegExp(`(?<![.$\\w])${escapeRegExp(localName)}\\s*\\(`, 'g');
+        for (const call of text.matchAll(callPattern)) {
+          const opening = text.indexOf('(', call.index); const closing = matchingDelimiter(text, opening);
+          if (closing === -1 || /^\s*\{/.test(text.slice(closing + 1))) continue;
+          const argumentsList = splitTopLevel(text.slice(opening + 1, closing));
+          const key = `${apiFile}:${exportName}`;
+          if (!result.has(key)) result.set(key, []);
+          result.get(key).push({ text, position: call.index, argument: (argumentsList[0] ?? '').trim(), sourceFile });
+        }
+      }
+    }
+  }
+  return result;
+}
+function fieldEvidence() { return { fields: new Set(), blockers: new Set(), hasEvidence: false }; }
+function mergeFieldEvidence(target, source) {
+  for (const field of source.fields) target.fields.add(field);
+  for (const blocker of source.blockers) target.blockers.add(blocker);
+  target.hasEvidence ||= source.hasEvidence;
+  return target;
+}
+function assignedFields(text, target, start, end) {
+  const result = fieldEvidence(); const escaped = escapeRegExp(target); const source = text.slice(start, end);
+  const patterns = [
+    new RegExp(`${escaped}\\s*\\.\\s*([A-Za-z_$][\\w$]*)\\s*=`, 'g'),
+    new RegExp(`${escaped}\\s*\\[\\s*['"]([^'"]+)['"]\\s*\\]\\s*=`, 'g'),
+    new RegExp(`${escaped}\\s*\\.\\s*append\\s*\\(\\s*['"]([^'"]+)['"]`, 'g'),
+  ];
+  for (const pattern of patterns) for (const match of source.matchAll(pattern)) { result.fields.add(match[1]); result.hasEvidence = true; }
+  return result;
+}
+function enclosingMethod(text, position, parameter) {
+  for (const opening of braceStackAt(text, position).reverse()) {
+    const prefix = text.slice(Math.max(0, opening - 300), opening);
+    const method = /(?:^|[,\n{])\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*$/.exec(prefix);
+    if (!method) continue;
+    const parameters = splitTopLevel(method[2]).map((item) => item.split('=')[0].trim());
+    const parameterIndex = parameters.indexOf(parameter);
+    if (parameterIndex !== -1) return { name: method[1], opening, parameterIndex, defaults: splitTopLevel(method[2]) };
+  }
+  return null;
+}
+function resolveLocalMethodParameter(text, method, depth, seen) {
+  const result = fieldEvidence(); const key = `method:${method.name}:${method.parameterIndex}`;
+  if (seen.has(key)) { result.blockers.add('cyclic-callsite'); return result; }
+  const nextSeen = new Set(seen); nextSeen.add(key);
+  const pattern = new RegExp(`(?<![\\w$])(?:this\\s*\\.\\s*)?${escapeRegExp(method.name)}\\s*\\(`, 'g');
+  let calls = 0;
+  for (const call of text.matchAll(pattern)) {
+    const opening = text.indexOf('(', call.index); const closing = matchingDelimiter(text, opening);
+    if (closing === -1 || /^\s*\{/.test(text.slice(closing + 1)) || opening < method.opening && closing > method.opening) continue;
+    const argumentsList = splitTopLevel(text.slice(opening + 1, closing)); const argument = (argumentsList[method.parameterIndex] ?? '').trim();
+    calls += 1;
+    mergeFieldEvidence(result, resolveExpressionFields(text, argument, call.index, depth + 1, nextSeen));
+  }
+  const defaultValue = method.defaults[method.parameterIndex]?.split('=').slice(1).join('=').trim();
+  if (!calls && defaultValue) mergeFieldEvidence(result, resolveExpressionFields(text, defaultValue, method.opening, depth + 1, nextSeen));
+  if (!calls && !defaultValue) result.blockers.add('opaque-method-parameter');
+  return result;
+}
+function resolveExpressionFields(text, expression, position, depth = 0, seen = new Set()) {
+  const result = fieldEvidence(); const value = expression.trim();
+  if (depth > 7) { result.blockers.add('resolution-depth'); return result; }
+  if (!value || value === 'undefined' || value === 'null') { result.hasEvidence = true; return result; }
+  if (value.startsWith('{')) {
+    result.hasEvidence = true;
+    for (const property of objectProperties(value)) {
+      if (property.key) result.fields.add(property.key);
+      else if (property.spread) mergeFieldEvidence(result, resolveExpressionFields(text, property.spread, position, depth + 1, new Set(seen)));
+      else result.blockers.add(property.computed ? 'computed-property' : 'unparsed-property');
+    }
+    return result;
+  }
+  if (/^new\s+FormData\s*\(/.test(value)) { result.hasEvidence = true; return result; }
+  if (/^this\.[A-Za-z_$][\w$]*$/.test(value)) {
+    if (seen.has(value)) { result.blockers.add('cyclic-reference'); return result; }
+    const nextSeen = new Set(seen); nextSeen.add(value); const escaped = escapeRegExp(value);
+    for (const assignment of text.slice(0, position).matchAll(new RegExp(`${escaped}\\s*=\\s*`, 'g'))) {
+      const expressionValue = readExpression(text, assignment.index + assignment[0].length);
+      mergeFieldEvidence(result, resolveExpressionFields(text, expressionValue.text, assignment.index, depth + 1, nextSeen));
+    }
+    const member = value.slice(5); const propertyPattern = new RegExp(`(?:^|[,\\n{])\\s*${escapeRegExp(member)}\\s*:\\s*`, 'g');
+    for (const property of text.matchAll(propertyPattern)) {
+      const expressionValue = readExpression(text, property.index + property[0].length);
+      mergeFieldEvidence(result, resolveExpressionFields(text, expressionValue.text, property.index, depth + 1, nextSeen));
+    }
+    mergeFieldEvidence(result, assignedFields(text, value, 0, text.length));
+    if (!result.hasEvidence && !result.blockers.size) result.blockers.add('opaque-member');
+    return result;
+  }
+  if (/^[A-Za-z_$][\w$]*$/.test(value)) {
+    if (seen.has(value)) { result.blockers.add('cyclic-reference'); return result; }
+    const nextSeen = new Set(seen); nextSeen.add(value); const escaped = escapeRegExp(value);
+    let scopeStart = null; let initializer = null;
+    for (const opening of [...braceStackAt(text, position).reverse(), -1]) {
+      const scope = text.slice(opening + 1, position);
+      const assignments = [...scope.matchAll(new RegExp(`(?:\\b(?:const|let|var)\\s+${escaped}|(?<![.\\w$])${escaped})\\s*=\\s*`, 'g'))];
+      if (!assignments.length) continue;
+      const assignment = assignments.at(-1); scopeStart = opening + 1;
+      initializer = readExpression(text, scopeStart + assignment.index + assignment[0].length);
+      break;
+    }
+    if (initializer) {
+      mergeFieldEvidence(result, resolveExpressionFields(text, initializer.text, initializer.start, depth + 1, nextSeen));
+      mergeFieldEvidence(result, assignedFields(text, value, scopeStart, position));
+      for (const assignment of text.slice(scopeStart, position).matchAll(new RegExp(`Object\\.assign\\s*\\(\\s*${escaped}\\s*,\\s*`, 'g'))) {
+        const absolute = scopeStart + assignment.index + assignment[0].length; const assigned = readExpression(text, absolute);
+        mergeFieldEvidence(result, resolveExpressionFields(text, assigned.text, absolute, depth + 1, nextSeen));
+      }
+      if (!result.hasEvidence && !result.blockers.size) result.blockers.add('opaque-variable');
+      return result;
+    }
+    mergeFieldEvidence(result, assignedFields(text, value, 0, position));
+    const method = enclosingMethod(text, position, value);
+    if (method) mergeFieldEvidence(result, resolveLocalMethodParameter(text, method, depth, nextSeen));
+    if (!result.hasEvidence && !result.blockers.size) result.blockers.add('opaque-variable');
+    return result;
+  }
+  const helper = /^this\.([A-Za-z_$][\w$]*)\s*\(([\s\S]*)\)$/.exec(value);
+  if (helper) {
+    const pattern = new RegExp(`(?:^|[,\\n{])\\s*${escapeRegExp(helper[1])}\\s*\\([^)]*\\)\\s*\\{`, 'g');
+    for (const method of text.matchAll(pattern)) {
+      const opening = text.indexOf('{', method.index + method[0].length - 1); const closing = matchingDelimiter(text, opening);
+      const body = text.slice(opening + 1, closing);
+      for (const returned of body.matchAll(/\breturn\s+/g)) {
+        const absolute = opening + 1 + returned.index + returned[0].length; const expressionValue = readExpression(text, absolute);
+        mergeFieldEvidence(result, resolveExpressionFields(text, expressionValue.text, absolute, depth + 1, new Set(seen)));
+      }
+    }
+    if (!result.hasEvidence && !result.blockers.size) result.blockers.add('opaque-helper');
+    return result;
+  }
+  result.blockers.add(/^[\w$]+(?:\.[\w$]+)+$/.test(value) ? 'scalar-expression' : 'dynamic-expression');
+  return result;
+}
+function formatRequestFields(transport, evidence) {
+  const fields = [...evidence.fields].sort(); const blockers = [...evidence.blockers].sort();
+  const values = [...fields];
+  if (blockers.length) values.push(`blocked[${blockers.join('|')}]`);
+  if (!values.length) values.push('none');
+  return `${transport}:${values.join(';')}`;
+}
+function requestFieldsFor(api, calls) {
+  if (!api.transport) return 'none';
+  const evidence = fieldEvidence();
+  const firstParameter = splitTopLevel(api.parameters)[0]?.split('=')[0].trim() ?? '';
+  const forwarded = /^[A-Za-z_$][\w$]*$/.test(firstParameter) && api.payload.trim() === firstParameter;
+  if (!forwarded) {
+    const position = Math.max(0, api.body.lastIndexOf(api.payload));
+    mergeFieldEvidence(evidence, resolveExpressionFields(api.body, api.payload, position));
+  }
+  if (forwarded || evidence.blockers.has('opaque-variable') || evidence.blockers.has('cyclic-reference')) {
+    const callEvidence = fieldEvidence();
+    for (const call of calls) mergeFieldEvidence(callEvidence, resolveExpressionFields(call.text, call.argument, call.position));
+    if (!calls.length) callEvidence.blockers.add('no-callsite');
+    mergeFieldEvidence(evidence, callEvidence);
+    if (callEvidence.hasEvidence && !callEvidence.blockers.size) {
+      evidence.blockers.delete('opaque-variable'); evidence.blockers.delete('cyclic-reference');
+    }
+  }
+  return formatRequestFields(api.transport, evidence);
+}
+
 function discover(root) {
   const discovered = { pages: [], routes: [], apis: [], permissions: [], assets: [], dependencies: [] };
   for (const app of applications) {
     const base = `web/legacy/${app}`;
     if (!fileExists(root, base)) continue;
+    const apiCallsites = collectApiCallsites(root, app);
     const routerFiles = walk(root, `${base}/src/router`).filter((file) => file.endsWith('.js'));
     const routeKeys = new Set();
     for (const router of routerFiles) {
       const content = decomment(readFileSync(rootFile(root, router), 'utf8'));
       for (const match of content.matchAll(/\bpath\s*:\s*['"]([^'"]+)['"]/g)) {
-        const path = match[1];
+        const object = enclosingObject(content, match.index); if (!object) continue;
+        const properties = objectPropertyMap(object.text); const path = quotedLiteral(properties.get('path') ?? '');
+        if (path !== match[1] || !['component', 'redirect', 'children'].some((property) => properties.has(property))) continue;
         const key = `${app}:${path}`;
         if (path && !routeKeys.has(key)) {
-          const nearby = content.slice(match.index, match.index + 700);
-          const name = /\bname\s*:\s*['"]([^'"]+)['"]/.exec(nearby)?.[1] ?? routeName(path);
-          routeKeys.add(key); discovered.routes.push({ app, path, name, source_file: router, component: componentSource(root, app, router, content, match.index) });
+          const name = quotedLiteral(properties.get('name') ?? '') ?? '-';
+          routeKeys.add(key); discovered.routes.push({ app, path, name, source_file: router, component: componentSource(root, app, content, properties.get('component')) });
         }
       }
     }
@@ -125,11 +457,40 @@ function discover(root) {
     for (const route of appRoutes) discovered.permissions.push({ app, route: route.path, source_file: route.component ?? route.source_file, component: route.component });
     for (const apiFile of walk(root, `${base}/src/api`).filter((file) => file.endsWith('.js'))) {
       const content = decomment(readFileSync(rootFile(root, apiFile), 'utf8'));
-      for (const match of content.matchAll(/\burl\s*:\s*['"]([^'"]+)['"][\s\S]{0,160}?\bmethod\s*:\s*['"]([^'"]+)['"]/g)) {
-        const method = match[2].toUpperCase(); const path = match[1]; const nearby = content.slice(Math.max(0, match.index - 300), match.index + match[0].length + 200);
-        const payload = /\b(data|params)\s*:\s*([^,}\n]+)/.exec(nearby);
-        const request_fields = payload ? `${payload[1]}:${payload[2].trim()}` : 'none';
-        if (!discovered.apis.some((api) => api.app === app && api.method === method && api.path === path)) discovered.apis.push({ app, method, path, source_file: apiFile, request_fields });
+      for (const exported of content.matchAll(/\bexport\s+function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/g)) {
+        const bodyOpening = content.indexOf('{', exported.index + exported[0].length - 1); const bodyClosing = matchingDelimiter(content, bodyOpening);
+        if (bodyClosing === -1) continue;
+        const body = content.slice(bodyOpening + 1, bodyClosing); const request = /\b(?:request|newRequest|request_op)\s*\(/.exec(body);
+        if (!request) continue;
+        const callOpening = body.indexOf('(', request.index); const callClosing = matchingDelimiter(body, callOpening);
+        const configOpening = body.indexOf('{', callOpening);
+        if (callClosing === -1 || configOpening === -1 || configOpening > callClosing) continue;
+        const configClosing = matchingDelimiter(body, configOpening); if (configClosing === -1 || configClosing > callClosing) continue;
+        const config = body.slice(configOpening, configClosing + 1); const properties = objectPropertyMap(config);
+        const path = quotedLiteral(properties.get('url') ?? ''); const methodValue = quotedLiteral(properties.get('method') ?? '');
+        if (!path || !methodValue) continue;
+        const method = methodValue.toUpperCase(); const transport = properties.has('data') ? 'data' : properties.has('params') ? 'params' : null;
+        const payload = transport ? properties.get(transport) : '';
+        const api = { app, method, path, source_file: apiFile, exportName: exported[1], parameters: exported[2], body, transport, payload };
+        const request_fields = requestFieldsFor(api, apiCallsites.get(`${apiFile}:${api.exportName}`) ?? []);
+        if (!discovered.apis.some((item) => item.app === app && item.method === method && item.path === path)) discovered.apis.push({ app, method, path, source_file: apiFile, request_fields });
+      }
+      for (const exported of content.matchAll(/\bexport\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\(([^)]*)\)|([A-Za-z_$][\w$]*))\s*=>/g)) {
+        const expressionStart = exported.index + exported[0].length; const remaining = content.slice(expressionStart);
+        const boundary = remaining.search(/(?:;\s*|\n\s*)export\s+/); const body = boundary === -1 ? remaining : remaining.slice(0, boundary);
+        const request = /\b(?:request|newRequest|request_op)\s*\(/.exec(body); if (!request) continue;
+        const callOpening = body.indexOf('(', request.index); const callClosing = matchingDelimiter(body, callOpening);
+        const configOpening = body.indexOf('{', callOpening);
+        if (callClosing === -1 || configOpening === -1 || configOpening > callClosing) continue;
+        const configClosing = matchingDelimiter(body, configOpening); if (configClosing === -1 || configClosing > callClosing) continue;
+        const properties = objectPropertyMap(body.slice(configOpening, configClosing + 1));
+        const path = quotedLiteral(properties.get('url') ?? ''); const methodValue = quotedLiteral(properties.get('method') ?? '');
+        if (!path || !methodValue) continue;
+        const method = methodValue.toUpperCase(); const transport = properties.has('data') ? 'data' : properties.has('params') ? 'params' : null;
+        const payload = transport ? properties.get(transport) : '';
+        const api = { app, method, path, source_file: apiFile, exportName: exported[1], parameters: exported[2] ?? exported[3] ?? '', body, transport, payload };
+        const request_fields = requestFieldsFor(api, apiCallsites.get(`${apiFile}:${api.exportName}`) ?? []);
+        if (!discovered.apis.some((item) => item.app === app && item.method === method && item.path === path)) discovered.apis.push({ app, method, path, source_file: apiFile, request_fields });
       }
     }
     for (const asset of [...walk(root, `${base}/src/assets`), ...walk(root, `${base}/src/static`)]) discovered.assets.push({ app, source_file: asset });
@@ -144,7 +505,7 @@ function generatedInventory(root) {
   const found = discover(root);
   return {
     'pages.csv': found.pages.map((item) => ({ ...item, route: item.route ?? '-', status: 'legacy', owner: 'unassigned', risk: 'medium', batch: 'unassigned' })),
-    'routes.csv': found.routes.map((item) => ({ ...item, ...clientSemantics(item.app), auth: clientSemantics(item.app).auth, corp_context: clientSemantics(item.app).corp, permission: actionEvidence(root, item.path, item.component), render_target: clientSemantics(item.app).target })),
+    'routes.csv': found.routes.map((item) => ({ ...item, ...clientSemantics(item.app), auth: routeAuth(item.app, item.path), corp_context: clientSemantics(item.app).corp, permission: actionEvidence(root, item.path, item.component), render_target: clientSemantics(item.app).target })),
     'apis.csv': found.apis.map((item) => ({ ...item, response_fields: 'response.data', auth: clientSemantics(item.app).auth, corp_scope: `/${item.app}`, go_evidence: findGoEvidence(root, item.app, item.method, item.path) })),
     'permissions.csv': found.permissions.map((item) => ({ ...item, menu_link_url: item.route, actions: actionEvidence(root, item.route, item.component) })),
     'assets.csv': found.assets.map((item) => ({ ...item, kind: extensionKind(item.source_file), license_status: 'blocked', used_by: assetUses(root, item.source_file) })),
@@ -201,9 +562,23 @@ function compareCoverage(inventory, generated, errors) {
     for (const key of [...actual].sort()) if (!expected.has(key)) errors.push(`frontend-audit: ${file}:1: inventory ${labels[file]} is not discovered: ${key}`);
   }
 }
+function compareDerivedEvidence(inventory, generated, errors) {
+  const apiSpecification = specifications['apis.csv']; const expectedApis = new Map((generated['apis.csv'] ?? []).map((row) => [apiSpecification.key(row), row]));
+  for (const api of inventory['apis.csv'] ?? []) {
+    const expected = expectedApis.get(apiSpecification.key(api)); if (!expected) continue;
+    if (api.request_fields !== expected.request_fields) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: request_fields must match discovered evidence ${expected.request_fields}`);
+  }
+  const routeSpecification = specifications['routes.csv']; const expectedRoutes = new Map((generated['routes.csv'] ?? []).map((row) => [routeSpecification.key(row), row]));
+  for (const route of inventory['routes.csv'] ?? []) {
+    const expected = expectedRoutes.get(routeSpecification.key(route)); if (!expected) continue;
+    if (route.name !== expected.name) errors.push(`frontend-audit: routes.csv:${route.rowNumber}: name must match route declaration ${expected.name}`);
+    if (route.source_file !== expected.source_file) errors.push(`frontend-audit: routes.csv:${route.rowNumber}: source_file must match route declaration ${expected.source_file}`);
+    if (route.auth !== expected.auth) errors.push(`frontend-audit: routes.csv:${route.rowNumber}: auth must match route guard evidence ${expected.auth}`);
+  }
+}
 
 function audit(root) {
-  const errors = []; const inventory = readInventory(root, errors); const generated = generatedInventory(root); validateManifest(root, errors); compareCoverage(inventory, generated, errors);
+  const errors = []; const inventory = readInventory(root, errors); const generated = generatedInventory(root); validateManifest(root, errors); compareCoverage(inventory, generated, errors); compareDerivedEvidence(inventory, generated, errors);
   for (const page of inventory['pages.csv'] ?? []) if (!['legacy', 'candidate', 'blocked'].includes(page.status)) errors.push(`frontend-audit: pages.csv:${page.rowNumber}: status must be legacy, candidate, or blocked`);
   const pages = new Set((inventory['pages.csv'] ?? []).map((page) => `${page.app}:${page.route}`));
   for (const route of inventory['routes.csv'] ?? []) if (!pages.has(`${route.app}:${route.path}`)) errors.push(`frontend-audit: routes.csv:${route.rowNumber}: route "${route.path}" has no matching page`);

@@ -75,7 +75,7 @@ operation,/shopCode,/shopCode,implicit-route-access,web/legacy/operation/src/vie
 operation,/speed,/speed,implicit-route-access,web/legacy/operation/src/views/workFission/speed.vue
 operation,/workFission,/workFission,implicit-route-access,web/legacy/operation/src/views/workFission/index.vue
 sidebar,/:pathMatch(.*),/:pathMatch(.*),implicit-route-access,web/legacy/sidebar/src/router/routes.js
-sidebar,/,/,implicit-route-access,web/legacy/sidebar/src/router/index.js
+sidebar,/,/,implicit-route-access,web/legacy/sidebar/src/views/index/index.vue
 sidebar,/404,/404,implicit-route-access,web/legacy/sidebar/src/views/error/404.vue
 sidebar,/auth,/auth,implicit-route-access,web/legacy/sidebar/src/views/auth/index.vue
 sidebar,/codeAuth,/codeAuth,implicit-route-access,web/legacy/sidebar/src/views/codeAuth/index.vue
@@ -85,6 +85,6 @@ sidebar,/contact/remark,/contact/remark,implicit-route-access,web/legacy/sidebar
 sidebar,/contact/settingTag,/contact/settingTag,implicit-route-access,web/legacy/sidebar/src/views/contact/settingTag.vue
 sidebar,/contactBatchAdd,/contactBatchAdd,implicit-route-access,web/legacy/sidebar/src/views/contactBatchAdd/index.vue
 sidebar,/contactSop,/contactSop,implicit-route-access,web/legacy/sidebar/src/views/contactSop/contactSop.vue
-sidebar,/login,/login,implicit-route-access,web/legacy/sidebar/src/router/index.js
+sidebar,/login,/login,implicit-route-access,web/legacy/sidebar/src/views/login/index.vue
 sidebar,/medium,/medium,implicit-route-access,web/legacy/sidebar/src/views/medium/index.vue
 sidebar,/roomSop,/roomSop,implicit-route-access,web/legacy/sidebar/src/views/roomSop/roomSop.vue
