@@ -1,0 +1,16 @@
+app,path,name,source_file,auth,corp_context,permission,render_target
+dashboard,/corp/index,corpIndex,web/legacy/dashboard/src/router/asyncRouter.js,required,required,corp.manage,spa
+dashboard,/workContact/index,workContactIndex,web/legacy/dashboard/src/router/asyncRouter.js,required,required,workContact.view,spa
+dashboard,/workFission/taskpage,workFissionTaskpage,web/legacy/dashboard/src/router/asyncRouter.js,required,required,workFission.view,spa
+dashboard,/login,login,web/legacy/dashboard/src/router/index.js,anonymous,none,-,spa
+sidebar,/,index,web/legacy/sidebar/src/router/routes.js,required,required,-,embedded-sidebar
+sidebar,/contact,contact,web/legacy/sidebar/src/router/routes.js,required,required,workContact.view,embedded-sidebar
+sidebar,/contactSop,contactSop,web/legacy/sidebar/src/router/routes.js,required,required,contactSop.view,embedded-sidebar
+sidebar,/contactBatchAdd,contactBatchAdd,web/legacy/sidebar/src/router/routes.js,required,required,contactBatchAdd.view,embedded-sidebar
+sidebar,/roomSop,roomSop,web/legacy/sidebar/src/router/routes.js,required,required,roomSop.view,embedded-sidebar
+operation,/,home,web/legacy/operation/src/router/index.js,required,required,-,spa
+operation,/workFission,workFissionIndex,web/legacy/operation/src/router/index.js,required,required,workFission.view,spa
+operation,/lottery,lotteryIndex,web/legacy/operation/src/router/index.js,required,required,lottery.view,spa
+operation,/shopCode,shopCodeIndex,web/legacy/operation/src/router/index.js,required,required,shopCode.view,spa
+operation,/roomFission,roomFission,web/legacy/operation/src/router/index.js,required,required,roomFission.view,spa
+operation,/roomInfinitePull,roomInfinitePull,web/legacy/operation/src/router/index.js,required,required,roomInfinitePull.view,spa

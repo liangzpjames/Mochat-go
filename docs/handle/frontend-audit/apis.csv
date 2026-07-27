@@ -1,0 +1,15 @@
+app,method,path,source_file,request_fields,response_fields,auth,corp_scope,go_evidence
+dashboard,GET,/corp/index,web/legacy/dashboard/src/api/corp.js,page;perPage,data;meta,required,corp,internal/server/server_test.go
+dashboard,POST,/corp/store,web/legacy/dashboard/src/api/corp.js,corp_name;corp_type,data,required,corp,internal/server/server_test.go
+dashboard,GET,/workContact/index,web/legacy/dashboard/src/api/workContact.js,page;perPage;name,data;meta,required,corp,internal/server/server_test.go
+dashboard,GET,/workContact/show,web/legacy/dashboard/src/api/workContact.js,id,data,required,corp,internal/server/server_test.go
+dashboard,GET,/workFission/index,web/legacy/dashboard/src/api/workFission.js,page;perPage,data;meta,required,corp,internal/server/server_test.go
+dashboard,DELETE,/workFission/destroy,web/legacy/dashboard/src/api/workFission.js,id,data,required,corp,internal/server/server_test.go
+sidebar,GET,/workContact/show,web/legacy/sidebar/src/api/contact.js,wxExternalUserid,data,required,corp,internal/server/server_test.go
+sidebar,PUT,/workContact/update,web/legacy/sidebar/src/api/contact.js,wxExternalUserid;remark,data,required,corp,internal/server/server_test.go
+sidebar,GET,/contactSop/getSopInfo,web/legacy/sidebar/src/api/contactSop.js,contact_id,data,required,corp,api-server/app/Api/Controller/ContactSopController.php
+sidebar,GET,/contactBatchAdd/detail,web/legacy/sidebar/src/api/contactBatchAdd.js,id,data,required,corp,api-server/app/Api/Controller/ContactBatchAddController.php
+operation,GET,/workFission/taskData,web/legacy/operation/src/api/workFission.js,taskId,data,required,corp,internal/server/server_test.go
+operation,GET,/openUserInfo/workFission,web/legacy/operation/src/api/workFission.js,id,data,anonymous,corp,internal/server/server_test.go
+operation,POST,/lottery/contactData,web/legacy/operation/src/api/lottery.js,id;page,data;meta,required,corp,internal/store/lottery.go
+operation,GET,/shopCode/areaCode,web/legacy/operation/src/api/shopCode.js,province;city,data,required,corp,api-server/app/Api/Controller/ShopCodeController.php

@@ -1,0 +1,13 @@
+app,route,menu_link_url,actions,source_file
+dashboard,/corp/index,/corp/index,list;create;update,web/legacy/dashboard/src/store/modules/permission.js
+dashboard,/workContact/index,/workContact/index,list;view;update,web/legacy/dashboard/src/store/modules/permission.js
+dashboard,/workFission/taskpage,/workFission/taskpage,list;create;delete,web/legacy/dashboard/src/store/modules/permission.js
+sidebar,/contact,/contact,view;update,web/legacy/sidebar/src/router/routes.js
+sidebar,/contactSop,/contactSop,view,web/legacy/sidebar/src/router/routes.js
+sidebar,/contactBatchAdd,/contactBatchAdd,view,web/legacy/sidebar/src/router/routes.js
+sidebar,/roomSop,/roomSop,view;update,web/legacy/sidebar/src/router/routes.js
+operation,/workFission,/workFission,view;share,web/legacy/operation/src/router/index.js
+operation,/lottery,/lottery,view;receive,web/legacy/operation/src/router/index.js
+operation,/shopCode,/shopCode,view,web/legacy/operation/src/router/index.js
+operation,/roomFission,/roomFission,view;share,web/legacy/operation/src/router/index.js
+operation,/roomInfinitePull,/roomInfinitePull,view,web/legacy/operation/src/router/index.js

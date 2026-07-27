@@ -1,0 +1,16 @@
+app,source_file,route,status,owner,risk,batch
+dashboard,web/legacy/dashboard/src/views/corp/index.vue,/corp/index,legacy,frontend-platform,medium,1
+dashboard,web/legacy/dashboard/src/views/workContact/index.vue,/workContact/index,candidate,crm,high,1
+dashboard,web/legacy/dashboard/src/views/workFission/taskpage.vue,/workFission/taskpage,legacy,growth,high,2
+dashboard,web/legacy/dashboard/src/views/login/login.vue,/login,legacy,identity,medium,1
+sidebar,web/legacy/sidebar/src/views/index/index.vue,/,legacy,sidebar,medium,1
+sidebar,web/legacy/sidebar/src/views/contact/index.vue,/contact,candidate,crm,high,1
+sidebar,web/legacy/sidebar/src/views/contactSop/contactSop.vue,/contactSop,legacy,crm,high,2
+sidebar,web/legacy/sidebar/src/views/contactBatchAdd/index.vue,/contactBatchAdd,legacy,crm,high,2
+sidebar,web/legacy/sidebar/src/views/roomSop/roomSop.vue,/roomSop,legacy,crm,high,2
+operation,web/legacy/operation/src/views/index/index.vue,/,legacy,operations,medium,1
+operation,web/legacy/operation/src/views/workFission/index.vue,/workFission,legacy,growth,high,2
+operation,web/legacy/operation/src/views/lottery/index.vue,/lottery,legacy,growth,high,2
+operation,web/legacy/operation/src/views/shopCode/shopCodeIndex.vue,/shopCode,legacy,growth,high,2
+operation,web/legacy/operation/src/views/roomFission/fissionIndex.vue,/roomFission,blocked,growth,high,3
+operation,web/legacy/operation/src/views/roomInfinitePull/roomInfinitePull.vue,/roomInfinitePull,blocked,growth,high,3

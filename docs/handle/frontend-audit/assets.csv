@@ -1,0 +1,8 @@
+app,source_file,kind,license_status,used_by
+dashboard,web/legacy/dashboard/src/assets/logo.svg,svg,blocked,web/legacy/dashboard/src/views/login/login.vue
+dashboard,web/legacy/dashboard/src/assets/logo.png,png,blocked,web/legacy/dashboard/src/views/corp/index.vue
+dashboard,web/legacy/dashboard/src/assets/lottery-default-cover.png,png,blocked,web/legacy/dashboard/src/views/workFission/taskpage.vue
+dashboard,web/legacy/dashboard/src/assets/quick-reply-pdf-cover.png,png,blocked,web/legacy/dashboard/src/views/workContact/index.vue
+sidebar,web/legacy/sidebar/src/assets/zip.png,png,blocked,web/legacy/sidebar/src/views/contact/index.vue
+sidebar,web/legacy/sidebar/src/assets/pdf.png,png,blocked,web/legacy/sidebar/src/views/contact/index.vue
+operation,web/legacy/operation/src/assets/mixin.scss,stylesheet,repository-source,web/legacy/operation/src/views/index/index.vue

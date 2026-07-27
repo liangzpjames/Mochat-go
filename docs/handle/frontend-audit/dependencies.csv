@@ -1,0 +1,13 @@
+app,package,legacy_range,replacement,decision,risk
+dashboard,vue,^2.6.10,react,replace,high
+dashboard,vue-router,^3.1.2,react-router,replace,high
+dashboard,vuex,^3.1.1,zustand,replace,medium
+dashboard,axios,^0.19.0,fetch-wrapper,replace,medium
+sidebar,vue,^3.0.0,react,replace,high
+sidebar,vue-router,^4.0.0-0,react-router,replace,high
+sidebar,vant,3.2.2,radix-ui,replace,medium
+sidebar,axios,^0.21.0,fetch-wrapper,replace,medium
+operation,vue,^2.6.11,react,replace,high
+operation,vue-router,^3.2.0,react-router,replace,high
+operation,vuex,^3.4.0,zustand,replace,medium
+operation,axios,^0.21.1,fetch-wrapper,replace,medium
