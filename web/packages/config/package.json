@@ -1,0 +1,11 @@
+{
+  "name": "@mochat/config",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./tsconfig": "./tsconfig/base.json",
+    "./vitest": "./vitest/base.ts",
+    "./eslint": "./eslint/index.mjs"
+  }
+}

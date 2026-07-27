@@ -6,6 +6,7 @@ deploy/standalone/.env.local
 
 # Local dependency and build caches
 **/node_modules/
+pnpm-debug.log*
 web/saas-admin/.vite/
 web/saas-admin/coverage/
 

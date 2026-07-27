@@ -1,0 +1,16 @@
+{
+  "name": "mochat-go-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=22.12 <25"
+  },
+  "scripts": {
+    "check:audit": "node scripts/audit_legacy_frontend_inventory.mjs --check",
+    "check:deps": "node scripts/check_frontend_dependency_policy.mjs",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "build": "pnpm -r --if-present build"
+  }
+}
