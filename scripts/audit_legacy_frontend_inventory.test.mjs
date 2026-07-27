@@ -34,7 +34,7 @@ function legacyFiles(root, directory = 'web/legacy') {
 
 function writeManifest(root) {
   const entries = legacyFiles(root)
-    .filter((file) => !file.endsWith('/SOURCE_MANIFEST.sha256'))
+    .filter((file) => /^web\/legacy\/(dashboard|sidebar|operation)\//.test(file))
     .sort()
     .map((file) => `${createHash('sha256').update(readFileSync(join(root, file))).digest('hex')}  ${file}`);
   write(root, 'web/legacy/SOURCE_MANIFEST.sha256', `${entries.join('\n')}\n`);
@@ -47,14 +47,15 @@ function createFixture() {
   const api = 'web/legacy/dashboard/src/api/example.js';
   const asset = 'web/legacy/dashboard/src/assets/example.svg';
   write(root, router, "export const routes = [{ path: '/example', name: 'example', component: () => import('@/views/example/index') }];\n");
-  write(root, view, '<template><main>example</main></template>\n');
+  write(root, view, '<template><main v-permission="\'/example@edit\'"><img src="@/assets/example.svg"></main></template>\n');
   write(root, api, "export const example = () => request({ url: '/api/example', method: 'get' });\n");
   write(root, asset, '<svg/>\n');
   write(root, 'web/legacy/dashboard/package.json', '{"dependencies":{"vue":"^2.6.10"}}\n');
+  write(root, 'web/legacy/README.md', '# Legacy frontend reference sources\n\n- Source commit: `3dcd216c188df34f2c3ed489b8e8b9473e635488`\n');
   const auditDirectory = 'docs/handle/frontend-audit';
   write(root, `${auditDirectory}/pages.csv`, `${columns['pages.csv']}\ndashboard,${view},-,legacy,frontend,low,1\ndashboard,${router},/example,legacy,frontend,low,1\n`);
   write(root, `${auditDirectory}/routes.csv`, `${columns['routes.csv']}\ndashboard,/example,example,${router},required,required,*,spa\n`);
-  write(root, `${auditDirectory}/apis.csv`, `${columns['apis.csv']}\ndashboard,GET,/api/example,${api},id,id,required,corp,internal/server/example.go\n`);
+  write(root, `${auditDirectory}/apis.csv`, `${columns['apis.csv']}\ndashboard,GET,/api/example,${api},id,id,required,corp,-\n`);
   write(root, `${auditDirectory}/permissions.csv`, `${columns['permissions.csv']}\ndashboard,/example,/example,view,${router}\n`);
   write(root, `${auditDirectory}/assets.csv`, `${columns['assets.csv']}\ndashboard,${asset},svg,verified,${view}\n`);
   write(root, `${auditDirectory}/dependencies.csv`, `${columns['dependencies.csv']}\ndashboard,vue,^2.6.10,react,replace,medium\n`);
@@ -74,6 +75,10 @@ function runAudit(root) {
 function replace(root, relativePath, from, to) {
   const fullPath = join(root, relativePath);
   writeFileSync(fullPath, readFileSync(fullPath, 'utf8').replace(from, to));
+}
+
+function csvRows(root, relativePath) {
+  return readFileSync(join(root, relativePath), 'utf8').trim().split(/\r?\n/).slice(1).map((line) => line.split(','));
 }
 
 function expectAuditFailure(mutate, expected) {
@@ -205,6 +210,47 @@ test('manifest hashes match a clean archive from the pinned legacy commit', () =
       const archivePath = source.replace(/^web\/legacy\//, '');
       assert.equal(createHash('sha256').update(readFileSync(join(extracted, archivePath))).digest('hex'), hash);
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('committed HEAD archive preserves the four canonical source blobs and modes', () => {
+  const paths = [
+    'dashboard/src/router/asyncRouter.js',
+    'dashboard/src/views/chatTool/enhance.vue',
+    'operation/src/router/index.js',
+    'sidebar/src/router/routes.js',
+  ];
+  const pinned = execFileSync('git', ['ls-tree', '3dcd216c188df34f2c3ed489b8e8b9473e635488', '--', ...paths], { cwd: repositoryRoot, encoding: 'utf8' });
+  const head = execFileSync('git', ['ls-tree', 'HEAD', '--', ...paths.map((path) => `web/legacy/${path}`)], { cwd: repositoryRoot, encoding: 'utf8' });
+  const pinnedEntries = new Map(pinned.trim().split(/\r?\n/).map((line) => { const [metadata, path] = line.split('\t'); const [mode, , blob] = metadata.split(' '); return [path, `${mode}:${blob}`]; }));
+  const headEntries = new Map(head.trim().split(/\r?\n/).map((line) => { const [metadata, path] = line.split('\t'); const [mode, , blob] = metadata.split(' '); return [path.replace(/^web\/legacy\//, ''), `${mode}:${blob}`]; }));
+  assert.deepEqual(headEntries, pinnedEntries);
+});
+
+test('refresh derives semantic audit fields instead of migration placeholders', () => {
+  const root = createFixture();
+  try {
+    execFileSync(process.execPath, [auditScript, '--refresh', '--check', '--root', root], { encoding: 'utf8' });
+    const audit = 'docs/handle/frontend-audit';
+    const [page] = csvRows(root, `${audit}/pages.csv`).filter((row) => row[1].includes('/views/example/'));
+    const [route] = csvRows(root, `${audit}/routes.csv`);
+    const [api] = csvRows(root, `${audit}/apis.csv`);
+    const [permission] = csvRows(root, `${audit}/permissions.csv`);
+    const [asset] = csvRows(root, `${audit}/assets.csv`);
+    const [dependency] = csvRows(root, `${audit}/dependencies.csv`);
+    assert.equal(page[2], '/example');
+    assert.equal(route[4], 'ACCESS_TOKEN');
+    assert.equal(route[5], 'dashboard-corp-context');
+    assert.equal(api[4], 'none');
+    assert.equal(api[5], 'response.data');
+    assert.equal(api[6], 'ACCESS_TOKEN');
+    assert.equal(api[7], '/dashboard');
+    assert.equal(permission[3], 'edit');
+    assert.match(asset[4], /views\/example\/index\.vue/);
+    assert.equal(dependency[3], 'react');
+    assert.equal(dependency[4], 'replace');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

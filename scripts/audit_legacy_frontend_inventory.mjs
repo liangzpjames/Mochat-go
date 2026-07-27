@@ -44,9 +44,57 @@ function csv(file, rows) { return `${specifications[file].columns.join(',')}\n${
 function splitReferences(value) { return value.split(';').map((item) => item.trim()).filter((item) => item && item !== '-'); }
 function extensionKind(file) { return extname(file).slice(1) || 'file'; }
 function routeName(path) { return path === '/' ? 'root' : path.replace(/^\//, '').replace(/[^a-zA-Z0-9]+(.)/g, (_, next) => next.toUpperCase()) || 'route'; }
-function findGoEvidence(root, path) {
+function mountedPath(app, path) { return `/${app}${path.startsWith('/') ? path : `/${path}`}`; }
+function methodToken(method) { return `http.Method${method[0]}${method.slice(1).toLowerCase()}`; }
+function findGoEvidence(root, app, method, path) {
+  const contract = mountedPath(app, path);
   const candidates = ['internal/server', 'internal/dashboard', 'internal/store'].flatMap((directory) => walk(root, directory).filter((file) => file.endsWith('.go')));
-  return candidates.find((file) => readFileSync(rootFile(root, file), 'utf8').includes(path)) ?? '-';
+  return candidates.find((file) => {
+    const content = readFileSync(rootFile(root, file), 'utf8');
+    return content.includes(`${method} ${contract}`) || (content.includes(`"${contract}`) && content.includes(methodToken(method)));
+  }) ?? '-';
+}
+function evidenceHasContract(root, evidence, app, method, path) {
+  const content = readFileSync(rootFile(root, evidence), 'utf8'); const contract = mountedPath(app, path);
+  return content.includes(`${method} ${contract}`) || (content.includes(`"${contract}`) && content.includes(methodToken(method)));
+}
+function clientSemantics(app) {
+  if (app === 'dashboard') return { auth: 'ACCESS_TOKEN', corp: 'dashboard-corp-context', target: 'dashboard-spa' };
+  if (app === 'sidebar') return { auth: 'Bearer cookie token', corp: 'sidebar-corp-context', target: 'sidebar-embedded' };
+  return { auth: 'no-auth-header', corp: 'operation-corp-context', target: 'operation-spa' };
+}
+function replacementFor(pkg) {
+  const replacements = { vue: 'react', 'vue-router': 'react-router', vuex: 'zustand', axios: 'fetch-wrapper', 'ant-design-vue': 'antd', vant: 'antd-mobile', 'vue-i18n': 'react-intl', 'vue-echarts': 'echarts-for-react', 'vue-quill-editor': 'react-quill', 'vue-clipboard2': 'clipboard-copy', 'vue-cropper': 'react-easy-crop', 'vue-drag-resize': 'react-rnd', 'vue-pdf': 'react-pdf', 'vue-luck-draw': 'react-custom-roulette' };
+  return replacements[pkg] ?? 'no-direct-react-replacement';
+}
+function decisionFor(pkg) { return replacementFor(pkg) === 'no-direct-react-replacement' ? 'retire-or-reassess' : 'replace'; }
+function componentSource(root, app, router, content, position) {
+  const nearby = content.slice(position, position + 700);
+  const dynamic = /(?:component\s*:\s*\(\)\s*=>\s*import\s*\(\s*['"])(?:@\/)?views\/([^'"]+)/.exec(nearby);
+  if (dynamic) {
+    const base = `web/legacy/${app}/src/views/${dynamic[1]}`;
+    return [ `${base}.vue`, `${base}/index.vue` ].find((file) => fileExists(root, file)) ?? null;
+  }
+  const staticComponent = /component\s*:\s*([A-Za-z_$][\w$]*)/.exec(nearby)?.[1];
+  if (!staticComponent) return null;
+  const imports = [...content.matchAll(new RegExp(`import\\s+${staticComponent}\\s+from\\s+['"]([^'"]+)['"]`, 'g'))];
+  if (!imports.length) return null;
+  const raw = imports[0][1].replace(/^@\//, '');
+  const normalized = raw.startsWith('views/') ? raw.slice(6) : raw.replace(/^\.\.\/views\//, '');
+  const base = `web/legacy/${app}/src/views/${normalized}`;
+  return [ `${base}.vue`, `${base}/index.vue` ].find((file) => fileExists(root, file)) ?? null;
+}
+function actionEvidence(root, route, component) {
+  if (!component || !fileExists(root, component)) return 'implicit-route-access';
+  const text = readFileSync(rootFile(root, component), 'utf8');
+  const actions = [...text.matchAll(new RegExp(`${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@([^'"\\s]+)`, 'g'))].map((match) => match[1]);
+  return actions.length ? [...new Set(actions)].sort().join(';') : 'implicit-route-access';
+}
+function assetUses(root, asset) {
+  const name = asset.split('/').at(-1);
+  const code = applications.flatMap((app) => walk(root, `web/legacy/${app}/src`)).filter((file) => !file.startsWith(asset) && /\.(vue|jsx|js|css|less|scss|html)$/.test(file));
+  const usedBy = code.filter((file) => readFileSync(rootFile(root, file), 'utf8').includes(name));
+  return usedBy.length ? usedBy.sort().join(';') : 'unreferenced-in-legacy-source';
 }
 
 function discover(root) {
@@ -61,17 +109,27 @@ function discover(root) {
       for (const match of content.matchAll(/\bpath\s*:\s*['"]([^'"]+)['"]/g)) {
         const path = match[1];
         const key = `${app}:${path}`;
-        if (path && !routeKeys.has(key)) { routeKeys.add(key); discovered.routes.push({ app, path, name: routeName(path), source_file: router }); }
+        if (path && !routeKeys.has(key)) {
+          const nearby = content.slice(match.index, match.index + 700);
+          const name = /\bname\s*:\s*['"]([^'"]+)['"]/.exec(nearby)?.[1] ?? routeName(path);
+          routeKeys.add(key); discovered.routes.push({ app, path, name, source_file: router, component: componentSource(root, app, router, content, match.index) });
+        }
       }
     }
-    for (const view of walk(root, `${base}/src/views`).filter((file) => /\.(vue|jsx)$/.test(file))) discovered.pages.push({ app, source_file: view });
-    for (const route of discovered.routes.filter((item) => item.app === app)) discovered.pages.push({ app, source_file: route.source_file, route: route.path });
-    for (const route of discovered.routes.filter((item) => item.app === app)) discovered.permissions.push({ app, route: route.path, source_file: route.source_file });
+    const appRoutes = discovered.routes.filter((item) => item.app === app);
+    for (const view of walk(root, `${base}/src/views`).filter((file) => /\.(vue|jsx)$/.test(file))) {
+      const route = appRoutes.find((item) => item.component === view)?.path ?? '-';
+      discovered.pages.push({ app, source_file: view, route });
+    }
+    for (const route of appRoutes.filter((item) => !item.component)) discovered.pages.push({ app, source_file: route.source_file, route: route.path });
+    for (const route of appRoutes) discovered.permissions.push({ app, route: route.path, source_file: route.component ?? route.source_file, component: route.component });
     for (const apiFile of walk(root, `${base}/src/api`).filter((file) => file.endsWith('.js'))) {
       const content = decomment(readFileSync(rootFile(root, apiFile), 'utf8'));
       for (const match of content.matchAll(/\burl\s*:\s*['"]([^'"]+)['"][\s\S]{0,160}?\bmethod\s*:\s*['"]([^'"]+)['"]/g)) {
-        const method = match[2].toUpperCase(); const path = match[1];
-        if (!discovered.apis.some((api) => api.app === app && api.method === method && api.path === path)) discovered.apis.push({ app, method, path, source_file: apiFile });
+        const method = match[2].toUpperCase(); const path = match[1]; const nearby = content.slice(Math.max(0, match.index - 300), match.index + match[0].length + 200);
+        const payload = /\b(data|params)\s*:\s*([^,}\n]+)/.exec(nearby);
+        const request_fields = payload ? `${payload[1]}:${payload[2].trim()}` : 'none';
+        if (!discovered.apis.some((api) => api.app === app && api.method === method && api.path === path)) discovered.apis.push({ app, method, path, source_file: apiFile, request_fields });
       }
     }
     for (const asset of [...walk(root, `${base}/src/assets`), ...walk(root, `${base}/src/static`)]) discovered.assets.push({ app, source_file: asset });
@@ -86,11 +144,11 @@ function generatedInventory(root) {
   const found = discover(root);
   return {
     'pages.csv': found.pages.map((item) => ({ ...item, route: item.route ?? '-', status: 'legacy', owner: 'unassigned', risk: 'medium', batch: 'unassigned' })),
-    'routes.csv': found.routes.map((item) => ({ ...item, auth: 'unknown', corp_context: 'unknown', permission: '-', render_target: 'legacy' })),
-    'apis.csv': found.apis.map((item) => ({ ...item, request_fields: '-', response_fields: '-', auth: 'unknown', corp_scope: 'unknown', go_evidence: findGoEvidence(root, item.path) })),
-    'permissions.csv': found.permissions.map((item) => ({ ...item, menu_link_url: item.route, actions: '-' })),
-    'assets.csv': found.assets.map((item) => ({ ...item, kind: extensionKind(item.source_file), license_status: 'blocked', used_by: '-' })),
-    'dependencies.csv': found.dependencies.map((item) => ({ ...item, replacement: 'TBD', decision: 'replace', risk: 'medium' })),
+    'routes.csv': found.routes.map((item) => ({ ...item, ...clientSemantics(item.app), auth: clientSemantics(item.app).auth, corp_context: clientSemantics(item.app).corp, permission: actionEvidence(root, item.path, item.component), render_target: clientSemantics(item.app).target })),
+    'apis.csv': found.apis.map((item) => ({ ...item, response_fields: 'response.data', auth: clientSemantics(item.app).auth, corp_scope: `/${item.app}`, go_evidence: findGoEvidence(root, item.app, item.method, item.path) })),
+    'permissions.csv': found.permissions.map((item) => ({ ...item, menu_link_url: item.route, actions: actionEvidence(root, item.route, item.component) })),
+    'assets.csv': found.assets.map((item) => ({ ...item, kind: extensionKind(item.source_file), license_status: 'blocked', used_by: assetUses(root, item.source_file) })),
+    'dependencies.csv': found.dependencies.map((item) => ({ ...item, replacement: replacementFor(item.package), decision: decisionFor(item.package), risk: item.package === 'vue' || item.package === 'vue-router' ? 'high' : 'medium' })),
   };
 }
 
@@ -107,7 +165,7 @@ function readInventory(root, errors) {
       if (values.length !== specification.columns.length) errors.push(`frontend-audit: ${file}:${rowNumber}: expected ${specification.columns.length} columns`);
       for (const column of specification.columns) if (!row[column]) errors.push(`frontend-audit: ${file}:${rowNumber}: ${column} is required`);
       const key = specification.key(row); if (seen.has(key)) errors.push(`frontend-audit: ${file}:${rowNumber}: duplicate key ${key}`); seen.add(key);
-      for (const column of specification.sourceColumns) for (const source of splitReferences(row[column])) if (!fileExists(root, source)) errors.push(`frontend-audit: ${file}:${rowNumber}: ${column} does not exist: ${source}`);
+      for (const column of specification.sourceColumns) for (const source of splitReferences(row[column])) if (source !== 'unreferenced-in-legacy-source' && !fileExists(root, source)) errors.push(`frontend-audit: ${file}:${rowNumber}: ${column} does not exist: ${source}`);
       return { ...row, rowNumber };
     });
   }
@@ -151,7 +209,11 @@ function audit(root) {
   for (const route of inventory['routes.csv'] ?? []) if (!pages.has(`${route.app}:${route.path}`)) errors.push(`frontend-audit: routes.csv:${route.rowNumber}: route "${route.path}" has no matching page`);
   const routes = new Set((inventory['routes.csv'] ?? []).map((route) => `${route.app}:${route.path}`));
   for (const permission of inventory['permissions.csv'] ?? []) if (!routes.has(`${permission.app}:${permission.route}`)) errors.push(`frontend-audit: permissions.csv:${permission.rowNumber}: route "${permission.route}" does not exist`);
-  for (const api of inventory['apis.csv'] ?? []) if (api.go_evidence !== '-' && (!api.go_evidence.startsWith('internal/') || !/^internal\/(server|dashboard|store)\/.+\.go$/.test(api.go_evidence) || !fileExists(root, api.go_evidence))) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence must be '-' or an existing Go path under internal/server, internal/dashboard, or internal/store`);
+  for (const api of inventory['apis.csv'] ?? []) if (api.go_evidence !== '-') {
+    if (!api.go_evidence.startsWith('internal/') || !/^internal\/(server|dashboard|store)\/.+\.go$/.test(api.go_evidence) || !fileExists(root, api.go_evidence)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence must be '-' or an existing Go path under internal/server, internal/dashboard, or internal/store`);
+    else if (!evidenceHasContract(root, api.go_evidence, api.app, api.method, api.path)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence does not prove ${api.method} ${mountedPath(api.app, api.path)}`);
+  }
+  for (const [file, rows] of Object.entries(inventory)) for (const row of rows) for (const [column, value] of Object.entries(row)) if (column !== 'rowNumber' && /\b(TBD|TODO|unknown)\b/i.test(value)) errors.push(`frontend-audit: ${file}:${row.rowNumber}: ${column} contains a prohibited placeholder`);
   return { errors, inventory };
 }
 
