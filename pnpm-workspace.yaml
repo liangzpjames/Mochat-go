@@ -1,3 +1,9 @@
 packages:
   - web/apps/*
   - web/packages/*
+autoInstallPeers: false
+dedupePeerDependents: true
+engineStrict: true
+preferWorkspacePackages: true
+saveExact: true
+strictPeerDependencies: true

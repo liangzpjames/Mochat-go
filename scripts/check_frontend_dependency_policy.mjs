@@ -1,84 +1,193 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dependencyFields = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+const lockDependencyFields = new Set(dependencyFields);
+const requiredWorkspaceSettings = {
+  autoInstallPeers: false,
+  dedupePeerDependents: true,
+  engineStrict: true,
+  preferWorkspacePackages: true,
+  saveExact: true,
+  strictPeerDependencies: true,
+};
 
-function readJson(path, errors) {
+function readJson(path, root, errors) {
   try {
     return JSON.parse(readFileSync(path, 'utf8'));
   } catch (error) {
-    errors.push(`${relative(process.cwd(), path).replaceAll('\\', '/')}: invalid JSON (${error.message})`);
+    errors.push(`${relative(root, path).replaceAll('\\', '/')}: invalid JSON (${error.message})`);
     return null;
   }
 }
 
-function packageManifests(root, directory) {
-  const result = [];
-  if (!existsSync(directory)) return result;
+function yamlScalar(value) {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+    return trimmed.slice(1, -1);
+  }
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  return trimmed;
+}
 
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) result.push(...packageManifests(root, path));
-    if (entry.isFile() && entry.name === 'package.json') {
-      result.push({ path, workspacePath: relative(root, dirname(path)).replaceAll('\\', '/') });
+function parseWorkspaceConfig(root, errors) {
+  const path = join(root, 'pnpm-workspace.yaml');
+  if (!existsSync(path)) {
+    errors.push('pnpm-workspace.yaml is missing');
+    return { packages: [], settings: {} };
+  }
+
+  const packages = [];
+  const settings = {};
+  let inPackages = false;
+  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    if (/^packages:\s*$/.test(line)) {
+      inPackages = true;
+      continue;
+    }
+    const packageMatch = /^\s+-\s+(.+?)\s*$/.exec(line);
+    if (inPackages && packageMatch) {
+      packages.push(yamlScalar(packageMatch[1]));
+      continue;
+    }
+    const settingMatch = /^([A-Za-z][A-Za-z0-9]*):\s*(.+?)\s*$/.exec(line);
+    if (settingMatch) {
+      inPackages = false;
+      settings[settingMatch[1]] = yamlScalar(settingMatch[2]);
+    }
+  }
+
+  for (const [name, expected] of Object.entries(requiredWorkspaceSettings)) {
+    if (settings[name] !== expected) errors.push(`pnpm-workspace.yaml must set ${name}: ${expected}`);
+  }
+  return { packages, settings };
+}
+
+function directWorkspacePackages(root, patterns) {
+  const result = [];
+  for (const pattern of patterns) {
+    if (typeof pattern !== 'string' || !pattern.endsWith('/*')) continue;
+    const parent = join(root, pattern.slice(0, -2));
+    if (!existsSync(parent)) continue;
+    for (const entry of readdirSync(parent, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const path = join(parent, entry.name, 'package.json');
+      if (existsSync(path)) {
+        result.push({ path, workspacePath: relative(root, join(parent, entry.name)).replaceAll('\\', '/') });
+      }
     }
   }
   return result;
 }
 
-function allDependencies(manifest) {
-  return dependencyFields.flatMap((field) => Object.entries(manifest[field] ?? {}));
+function dependencyOccurrences(manifest) {
+  return dependencyFields.flatMap((field) => Object.entries(manifest[field] ?? {}).map(([name, specifier]) => ({ field, name, specifier })));
 }
 
-function escaped(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function normalizedLockImporters(lockfile) {
+  const importers = new Map();
+  const lines = lockfile.split(/\r?\n/);
+  let inImporters = false;
+  let importer = null;
+  let dependencyType = null;
+  let dependency = null;
+
+  for (const line of lines) {
+    if (!inImporters) {
+      if (line === 'importers:') inImporters = true;
+      continue;
+    }
+    if (/^\S/.test(line)) break;
+    const importerMatch = /^ {2}([^ ].*?):\s*(?:\{\})?\s*$/.exec(line);
+    if (importerMatch) {
+      importer = { entries: new Map() };
+      importers.set(yamlScalar(importerMatch[1]), importer);
+      dependencyType = null;
+      dependency = null;
+      continue;
+    }
+    const typeMatch = /^ {4}(dependencies|devDependencies|optionalDependencies|peerDependencies):\s*(?:\{\})?\s*$/.exec(line);
+    if (typeMatch && importer) {
+      dependencyType = typeMatch[1];
+      dependency = null;
+      continue;
+    }
+    const dependencyMatch = /^ {6}([^ ].*?):\s*$/.exec(line);
+    if (dependencyMatch && importer && dependencyType) {
+      dependency = { field: dependencyType, specifier: null };
+      importer.entries.set(yamlScalar(dependencyMatch[1]), dependency);
+      continue;
+    }
+    const specifierMatch = /^ {8}specifier:\s*(.+?)\s*$/.exec(line);
+    if (specifierMatch && dependency) dependency.specifier = yamlScalar(specifierMatch[1]);
+  }
+  return importers;
 }
 
-function lockImporter(lockfile, workspacePath) {
-  const key = escaped(workspacePath);
-  const matcher = new RegExp(`^  (?:'${key}'|"${key}"|${key}):[^\\n]*(?:\\r?\\n|$)`, 'm');
-  const match = matcher.exec(lockfile);
-  if (!match) return null;
-  const start = match.index + match[0].length;
-  const remainder = lockfile.slice(start);
-  const next = /^  (?:'[^']+'|"[^"]+"|[^\s][^:]*):[^\n]*(?:\r?\n|$)/m.exec(remainder);
-  return remainder.slice(0, next?.index ?? remainder.length);
+function validateDuplicates(packageInfo, occurrences, errors) {
+  const byName = new Map();
+  for (const occurrence of occurrences) {
+    const previous = byName.get(occurrence.name);
+    if (previous) {
+      errors.push(`${packageInfo.workspacePath}: declares ${occurrence.name} in both ${previous.field} and ${occurrence.field}`);
+    } else {
+      byName.set(occurrence.name, occurrence);
+    }
+  }
 }
 
-function lockSpecifier(importer, packageName) {
-  const name = escaped(packageName);
-  const matcher = new RegExp(
-    `^      (?:'${name}'|"${name}"|${name}):\\r?\\n(?:^        [^\\n]*\\r?\\n)*?^        specifier: ([^\\r\\n]+)$`,
-    'm',
-  );
-  return matcher.exec(importer)?.[1]?.trim() ?? null;
+function validateReact(packageInfo, occurrences, errors) {
+  const byField = new Map(dependencyFields.map((field) => [field, new Map()]));
+  for (const occurrence of occurrences) byField.get(occurrence.field).set(occurrence.name, occurrence.specifier);
+  for (const [field, dependencies] of byField) {
+    const react = dependencies.get('react');
+    const reactDom = dependencies.get('react-dom');
+    if (react !== undefined || reactDom !== undefined) {
+      if (react !== reactDom || !/^19\.2\.\d+$/.test(react ?? '')) {
+        errors.push(`${packageInfo.workspacePath}: ${field} react and react-dom must use the same exact version in the 19.2.x line`);
+      }
+    }
+  }
 }
 
-function checkLockfile(root, packages, errors) {
+function checkLockfile(root, packages, workspaceConfig, errors) {
   const path = join(root, 'pnpm-lock.yaml');
   if (!existsSync(path)) {
     errors.push('pnpm-lock.yaml drift: lockfile is missing');
     return;
   }
-
   const lockfile = readFileSync(path, 'utf8');
   if (!/^lockfileVersion:\s*['"]?\d/.test(lockfile) || !/^importers:/m.test(lockfile)) {
     errors.push('pnpm-lock.yaml drift: lockfile must declare lockfileVersion and importers');
     return;
   }
 
+  const importers = normalizedLockImporters(lockfile);
+  const peerImportersOptional = workspaceConfig.settings.autoInstallPeers === false;
   for (const packageInfo of packages) {
-    const importer = lockImporter(lockfile, packageInfo.workspacePath);
-    if (importer === null) {
+    const importer = importers.get(packageInfo.workspacePath);
+    if (!importer) {
       errors.push(`pnpm-lock.yaml drift: missing importer ${packageInfo.workspacePath}`);
       continue;
     }
-    for (const [name, specifier] of allDependencies(packageInfo.manifest)) {
-      const actual = lockSpecifier(importer, name);
-      if (actual !== specifier) {
-        errors.push(`pnpm-lock.yaml drift: ${packageInfo.workspacePath} dependency ${name} has specifier ${actual ?? '<missing>'}, expected ${specifier}`);
+    const occurrences = dependencyOccurrences(packageInfo.manifest);
+    for (const occurrence of occurrences) {
+      if (peerImportersOptional && occurrence.field === 'peerDependencies') continue;
+      const lockEntry = importer.entries.get(occurrence.name);
+      if (!lockEntry) {
+        errors.push(`pnpm-lock.yaml drift: ${packageInfo.workspacePath} dependency ${occurrence.name} is missing from ${occurrence.field}`);
+      } else if (lockEntry.field !== occurrence.field) {
+        errors.push(`pnpm-lock.yaml drift: ${packageInfo.workspacePath} dependency ${occurrence.name} is recorded under ${lockEntry.field}, expected ${occurrence.field}`);
+      } else if (lockEntry.specifier !== occurrence.specifier) {
+        errors.push(`pnpm-lock.yaml drift: ${packageInfo.workspacePath} dependency ${occurrence.name} has specifier ${lockEntry.specifier ?? '<missing>'}, expected ${occurrence.specifier}`);
       }
+    }
+    const manifestNames = new Set(occurrences.map((occurrence) => occurrence.name));
+    for (const [name, lockEntry] of importer.entries) {
+      if (peerImportersOptional && lockEntry.field === 'peerDependencies') continue;
+      if (!manifestNames.has(name)) errors.push(`pnpm-lock.yaml drift: ${packageInfo.workspacePath} has stale dependency ${name} under ${lockEntry.field}`);
     }
   }
 }
@@ -86,7 +195,7 @@ function checkLockfile(root, packages, errors) {
 export function checkDependencyPolicy(root = process.cwd()) {
   const errors = [];
   const rootManifestPath = join(root, 'package.json');
-  const rootManifest = existsSync(rootManifestPath) ? readJson(rootManifestPath, errors) : null;
+  const rootManifest = existsSync(rootManifestPath) ? readJson(rootManifestPath, root, errors) : null;
   if (!rootManifest) {
     if (!errors.length) errors.push('root package.json is missing');
     return { ok: false, errors };
@@ -95,38 +204,33 @@ export function checkDependencyPolicy(root = process.cwd()) {
     errors.push('root package.json must declare packageManager as an exact pnpm version');
   }
 
-  const apps = packageManifests(root, join(root, 'web', 'apps')).map((info) => ({ ...info, kind: 'app' }));
-  const shared = packageManifests(root, join(root, 'web', 'packages')).map((info) => ({ ...info, kind: 'shared' }));
-  const packages = [{ workspacePath: '.', manifest: rootManifest, kind: 'root' }, ...apps, ...shared];
-
+  const workspaceConfig = parseWorkspaceConfig(root, errors);
+  const packages = [{ workspacePath: '.', manifest: rootManifest, kind: 'root' }, ...directWorkspacePackages(root, workspaceConfig.packages)];
+  for (const packageInfo of packages.slice(1)) packageInfo.manifest = readJson(packageInfo.path, root, errors);
   for (const packageInfo of packages.slice(1)) {
-    packageInfo.manifest = readJson(packageInfo.path, errors);
+    if (packageInfo.workspacePath.startsWith('web/apps/')) packageInfo.kind = 'app';
+    else if (packageInfo.workspacePath.startsWith('web/packages/')) packageInfo.kind = 'shared';
+    else packageInfo.kind = 'workspace';
   }
   const validPackages = packages.filter((packageInfo) => packageInfo.manifest);
   const byName = new Map(validPackages.slice(1).filter((packageInfo) => typeof packageInfo.manifest.name === 'string').map((packageInfo) => [packageInfo.manifest.name, packageInfo]));
 
   for (const packageInfo of validPackages) {
-    const dependencies = new Map(allDependencies(packageInfo.manifest));
-    const react = dependencies.get('react');
-    const reactDom = dependencies.get('react-dom');
-    if (react !== undefined || reactDom !== undefined) {
-      if (react !== reactDom || !/^19\.2\.\d+$/.test(react ?? '')) {
-        errors.push(`${packageInfo.workspacePath}: react and react-dom must use the same exact version in the 19.2.x line`);
-      }
-    }
-
-    for (const [dependencyName, specifier] of dependencies) {
-      const target = byName.get(dependencyName);
-      if (packageInfo.kind === 'app' && target && specifier !== 'workspace:*') {
-        errors.push(`${packageInfo.workspacePath}: internal dependency ${dependencyName} must use workspace:*`);
+    const occurrences = dependencyOccurrences(packageInfo.manifest);
+    validateDuplicates(packageInfo, occurrences, errors);
+    validateReact(packageInfo, occurrences, errors);
+    for (const occurrence of occurrences) {
+      const target = byName.get(occurrence.name);
+      if (packageInfo.kind === 'app' && target && occurrence.specifier !== 'workspace:*') {
+        errors.push(`${packageInfo.workspacePath}: internal dependency ${occurrence.name} must use workspace:*`);
       }
       if (packageInfo.kind === 'shared' && target?.kind === 'app') {
-        errors.push(`${packageInfo.workspacePath}: shared package ${packageInfo.manifest.name} must not depend on app ${dependencyName}`);
+        errors.push(`${packageInfo.workspacePath}: shared package ${packageInfo.manifest.name} must not depend on app ${occurrence.name}`);
       }
     }
   }
 
-  checkLockfile(root, validPackages, errors);
+  checkLockfile(root, validPackages, workspaceConfig, errors);
   return { ok: errors.length === 0, errors };
 }
 
