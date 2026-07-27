@@ -184,3 +184,24 @@ The refreshed CSV inspection reported:
 - `/corp/store=data:contactSecret;corpName;employeeSecret;wxCorpId`
 
 The complete pinned-source tree comparison reported `pinned_entries=392`, `head_entries=392`, `blob_mode_mismatches=0`, and `working_tree_changes=0`. The scoped whitespace check excludes the immutable legacy trees, preserving the inherited source-byte exception documented above.
+
+## Third Fix Review B
+
+### Semantic response and enterprise-scope contracts
+
+- Replaced every transport placeholder `response.data` with either finite `fields:<name;...>` evidence or an explicit `blocked[reason]@evidence` value. The refreshed census is 120 concrete and 253 blocked response contracts; no blanket transport value remains.
+- Replaced `/dashboard`, `/sidebar`, and `/operation` scope placeholders with `explicit:<field>@evidence`, `server-current-enterprise@evidence`, `public-unscoped@evidence`, or `blocked[reason]@evidence`. The bounded census is 8 explicit, 79 server-current, 24 public/unscoped, and 262 blocked contracts.
+- Added `api-contract-evidence.csv`, a one-to-one 373-row endpoint map across legacy declarations, current Go route evidence, pinned-PHP handlers read only with `git show`, and client consumers. Added `api-contract-gaps.csv`, which machine-validates every blocked response/scope reason and evidence reference; it has 515 gap rows.
+- Endpoint aliases are reconciled before a `no-callsite` conclusion, including `/officialAccount/index`, `/roomWelcome/update`, and `/user/statusUpdate`. `/workMessage/toUsers` remains blocked because both declarations genuinely have no consumer. Three leading-slash alias pairs now share mounted-endpoint evidence while the required 373 raw inventory rows remain intact.
+- Go contract matching strips comments before checking method/path constructs. Client response extraction excludes array operations such as `.map()`, and destructured request parameters contribute only fields that flow into the request payload.
+
+### RED/GREEN evidence
+
+1. RED: the first semantic regressions reported 20 pass / 5 fail, covering alias reconciliation, semantic response/scope generation, blanket-placeholder rejection, and the missing gap register.
+2. RED: focused consumer regressions exposed `.map()` as a false response field and client `corpIds` as a false explicit override of server-current handler scope.
+3. RED: a mounted leading-slash alias fixture reported 26 pass / 1 fail before normalized endpoint evidence was merged.
+4. GREEN: the final Node suite passes all semantic, negative-comment, payload, route, and inventory regressions.
+
+### Verification
+
+`node scripts/audit_legacy_frontend_inventory.mjs --refresh --check` prints `frontend-audit: ok (135 pages, 89 routes, 373 apis)`. Placeholder scans report zero `response.data` values, zero mount-prefix scope values, and zero `TBD`, `TODO`, or `unknown` markers. The canonical 392-entry source blob/mode comparison and scoped non-legacy whitespace check remain required immediately before commit.

@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 
 const sourceCommit = '3dcd216c188df34f2c3ed489b8e8b9473e635488';
 const auditDirectory = 'docs/handle/frontend-audit';
+const contractEvidenceFile = 'api-contract-evidence.csv';
+const contractGapFile = 'api-contract-gaps.csv';
+const contractEvidenceColumns = ['app', 'method', 'path', 'legacy_declarations', 'go_route_evidence', 'php_handler', 'client_consumers', 'response_evidence', 'scope_evidence'];
+const contractGapColumns = ['app', 'method', 'path', 'dimension', 'reason', 'evidence'];
 const applications = ['dashboard', 'sidebar', 'operation'];
+const generatedArtifactsCache = new Map();
 const specifications = {
   'pages.csv': { columns: ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'], key: (row) => `${row.app}:${row.source_file}:${row.route}`, sourceColumns: ['source_file'] },
   'routes.csv': { columns: ['app', 'path', 'name', 'source_file', 'auth', 'corp_context', 'permission', 'render_target'], key: (row) => `${row.app}:${row.path}`, sourceColumns: ['source_file'] },
@@ -26,6 +32,39 @@ function walk(root, directory) {
   });
 }
 function decomment(text) { return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''); }
+function stripCommentsPreserveStrings(text) {
+  const output = [...text]; let state = 'code';
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]; const next = text[index + 1];
+    if (state === 'line-comment') {
+      if (character === '\n') state = 'code'; else output[index] = ' ';
+      continue;
+    }
+    if (state === 'block-comment') {
+      if (character === '*' && next === '/') {
+        output[index] = ' '; output[index + 1] = ' '; index += 1; state = 'code';
+      } else if (character !== '\n') output[index] = ' ';
+      continue;
+    }
+    if (state === 'single-quote' || state === 'double-quote') {
+      if (character === '\\') index += 1;
+      else if ((state === 'single-quote' && character === "'") || (state === 'double-quote' && character === '"')) state = 'code';
+      continue;
+    }
+    if (state === 'raw-string') {
+      if (character === '`') state = 'code';
+      continue;
+    }
+    if (character === '/' && next === '/') {
+      output[index] = ' '; output[index + 1] = ' '; index += 1; state = 'line-comment';
+    } else if (character === '/' && next === '*') {
+      output[index] = ' '; output[index + 1] = ' '; index += 1; state = 'block-comment';
+    } else if (character === "'") state = 'single-quote';
+    else if (character === '"') state = 'double-quote';
+    else if (character === '`') state = 'raw-string';
+  }
+  return output.join('');
+}
 function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function syntaxMask(text) {
   const mask = [...text];
@@ -159,14 +198,15 @@ function parseCsv(content) {
   return rows.filter((values) => values.some((value) => value.trim()));
 }
 function csvCell(value) { return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value; }
-function csv(file, rows) { return `${specifications[file].columns.join(',')}\n${rows.map((row) => specifications[file].columns.map((column) => csvCell(row[column] ?? '')).join(',')).join('\n')}\n`; }
+function csvWithColumns(columns, rows) { return `${columns.join(',')}\n${rows.map((row) => columns.map((column) => csvCell(row[column] ?? '')).join(',')).join('\n')}\n`; }
+function csv(file, rows) { return csvWithColumns(specifications[file].columns, rows); }
 function splitReferences(value) { return value.split(';').map((item) => item.trim()).filter((item) => item && item !== '-'); }
 function extensionKind(file) { return extname(file).slice(1) || 'file'; }
 function routeName(path) { return path === '/' ? 'root' : path.replace(/^\//, '').replace(/[^a-zA-Z0-9]+(.)/g, (_, next) => next.toUpperCase()) || 'route'; }
 function mountedPath(app, path) { return `/${app}${path.startsWith('/') ? path : `/${path}`}`; }
 function methodToken(method) { return `http.Method${method[0]}${method.slice(1).toLowerCase()}`; }
 function goContentHasContract(content, method, contract) {
-  const code = decomment(content).replace(/\/\/.*$/gm, '');
+  const code = stripCommentsPreserveStrings(content);
   const exactContract = `${method} ${contract}`; const token = methodToken(method);
   if (new RegExp(`(?:^|[^A-Z])["\`]${escapeRegExp(exactContract)}["\`]`).test(code)) return true;
   for (const match of code.matchAll(/^\s*case\s+(.+):\s*$/gm)) if (match[1].includes(`"${contract}"`) && match[1].includes(token)) return true;
@@ -185,13 +225,14 @@ function goContentHasContract(content, method, contract) {
   }
   return false;
 }
-function findGoEvidence(root, app, method, path) {
+function loadGoSources(root) {
+  return ['internal/server', 'internal/dashboard', 'internal/store']
+    .flatMap((directory) => walk(root, directory).filter((file) => file.endsWith('.go')))
+    .map((file) => ({ file, content: readFileSync(rootFile(root, file), 'utf8') }));
+}
+function findGoEvidence(root, app, method, path, sources = loadGoSources(root)) {
   const contract = mountedPath(app, path);
-  const candidates = ['internal/server', 'internal/dashboard', 'internal/store'].flatMap((directory) => walk(root, directory).filter((file) => file.endsWith('.go')));
-  return candidates.find((file) => {
-    const content = readFileSync(rootFile(root, file), 'utf8');
-    return goContentHasContract(content, method, contract);
-  }) ?? '-';
+  return sources.find(({ content }) => goContentHasContract(content, method, contract))?.file ?? '-';
 }
 function evidenceHasContract(root, evidence, app, method, path) {
   const content = readFileSync(rootFile(root, evidence), 'utf8'); const contract = mountedPath(app, path);
@@ -271,12 +312,107 @@ function collectApiCallsites(root, app) {
           const argumentsList = splitTopLevel(text.slice(opening + 1, closing));
           const key = `${apiFile}:${exportName}`;
           if (!result.has(key)) result.set(key, []);
-          result.get(key).push({ text, position: call.index, argument: (argumentsList[0] ?? '').trim(), sourceFile });
+          result.get(key).push({ text, position: call.index, opening, closing, argument: (argumentsList[0] ?? '').trim(), sourceFile });
         }
       }
     }
   }
   return result;
+}
+function collectMemberFields(text, root, fields) {
+  const escaped = escapeRegExp(root);
+  const patterns = [
+    new RegExp(`${escaped}\\s*\\.\\s*data\\s*\\.\\s*([A-Za-z_$][\\w$]*)`, 'g'),
+    new RegExp(`${escaped}\\s*\\.\\s*data\\s*\\[\\s*['"]([^'"]+)['"]\\s*\\]`, 'g'),
+  ];
+  for (const pattern of patterns) for (const match of text.matchAll(pattern)) {
+    if (!/^\s*\(/.test(text.slice(match.index + match[0].length))) fields.add(match[1]);
+  }
+  for (const match of text.matchAll(new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${escaped}\\s*\\.\\s*data`, 'g'))) {
+    for (const property of splitTopLevel(match[1])) {
+      const field = /^([A-Za-z_$][\w$]*)/.exec(property.trim())?.[1];
+      if (field) fields.add(field);
+    }
+  }
+}
+function collectLocalDataFields(text, root, fields) {
+  const escaped = escapeRegExp(root);
+  for (const match of text.matchAll(new RegExp(`${escaped}\\s*\\.\\s*([A-Za-z_$][\\w$]*)`, 'g'))) {
+    if (!/^\s*\(/.test(text.slice(match.index + match[0].length))) fields.add(match[1]);
+  }
+  for (const match of text.matchAll(new RegExp(`${escaped}\\s*\\[\\s*['"]([^'"]+)['"]\\s*\\]`, 'g'))) fields.add(match[1]);
+}
+function responseFieldsFromCall(call) {
+  const fields = new Set(); const afterCall = call.text.slice(call.closing + 1);
+  if (/^\s*\.then\s*\(/.test(afterCall)) {
+    const thenOpening = call.text.indexOf('(', call.closing + 1); const thenClosing = matchingDelimiter(call.text, thenOpening);
+    if (thenClosing !== -1) {
+      const callback = call.text.slice(thenOpening + 1, thenClosing);
+      const parameter = /^\s*(?:\(\s*)?([A-Za-z_$][\w$]*)\s*(?:\))?\s*=>/.exec(callback)?.[1]
+        ?? /^\s*function\s*\(\s*([A-Za-z_$][\w$]*)\s*\)/.exec(callback)?.[1];
+      if (parameter) collectMemberFields(callback, parameter, fields);
+      const dataBinding = /^\s*\(\s*\{\s*data(?:\s*:\s*([A-Za-z_$][\w$]*))?\s*\}\s*\)\s*=>/.exec(callback);
+      if (dataBinding) collectLocalDataFields(callback, dataBinding[1] ?? 'data', fields);
+      const nestedBinding = /^\s*\(\s*\{\s*data\s*:\s*\{([^}]*)\}\s*\}\s*\)\s*=>/.exec(callback);
+      if (nestedBinding) for (const property of splitTopLevel(nestedBinding[1])) {
+        const field = /^([A-Za-z_$][\w$]*)/.exec(property.trim())?.[1];
+        if (field) fields.add(field);
+      }
+    }
+  }
+  const prefix = call.text.slice(Math.max(0, call.position - 200), call.position);
+  const assigned = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s*$/.exec(prefix)?.[1];
+  if (assigned) {
+    const enclosing = braceStackAt(call.text, call.position).at(-1);
+    const scopeEnd = enclosing === undefined ? call.text.length : matchingDelimiter(call.text, enclosing);
+    collectMemberFields(call.text.slice(call.closing + 1, scopeEnd === -1 ? call.text.length : scopeEnd), assigned, fields);
+  }
+  const destructured = /(?:const|let|var)\s*\{\s*data\s*:\s*\{([^}]*)\}\s*\}\s*=\s*await\s*$/.exec(prefix);
+  if (destructured) for (const property of splitTopLevel(destructured[1])) {
+    const field = /^([A-Za-z_$][\w$]*)/.exec(property.trim())?.[1];
+    if (field) fields.add(field);
+  }
+  return fields;
+}
+function mergeRequestFieldValues(values) {
+  if (values.every((value) => value === 'none')) return 'none';
+  const parsed = values.map((value) => {
+    const separator = value.indexOf(':');
+    return separator === -1 ? { transport: value, fields: [], blockers: [] } : {
+      transport: value.slice(0, separator),
+      fields: value.slice(separator + 1).split(';').filter((part) => part && !part.startsWith('blocked[') && part !== 'none'),
+      blockers: [...value.matchAll(/blocked\[([^\]]+)\]/g)].flatMap((match) => match[1].split('|')),
+    };
+  });
+  const transports = [...new Set(parsed.map((entry) => entry.transport))];
+  if (transports.length !== 1) return `${transports[0]}:blocked[transport-mismatch]`;
+  const fields = [...new Set(parsed.flatMap((entry) => entry.fields))].sort();
+  let blockers = [...new Set(parsed.flatMap((entry) => entry.blockers))].sort();
+  if (parsed.some((entry) => entry.fields.length || !entry.blockers.includes('no-callsite'))) blockers = blockers.filter((blocker) => blocker !== 'no-callsite');
+  const parts = [...fields];
+  if (blockers.length) parts.push(`blocked[${blockers.join('|')}]`);
+  if (!parts.length) parts.push('none');
+  return `${transports[0]}:${parts.join(';')}`;
+}
+function registerDiscoveredApi(discovered, api, calls) {
+  let endpoint = discovered.apis.find((item) => item.app === api.app && item.method === api.method && item.path === api.path);
+  if (!endpoint) {
+    endpoint = {
+      app: api.app,
+      method: api.method,
+      path: api.path,
+      source_file: api.source_file,
+      declarations: [],
+      request_variants: [],
+      client_consumers: [],
+      client_response_fields: [],
+    };
+    discovered.apis.push(endpoint);
+  }
+  endpoint.declarations.push(api.source_file);
+  endpoint.request_variants.push(requestFieldsFor(api, calls));
+  endpoint.client_consumers.push(...calls.map((call) => call.sourceFile));
+  endpoint.client_response_fields.push(...calls.flatMap((call) => [...responseFieldsFromCall(call)]));
 }
 function fieldEvidence() { return { fields: new Set(), blockers: new Set(), hasEvidence: false }; }
 function mergeFieldEvidence(target, source) {
@@ -472,8 +608,7 @@ function discover(root) {
         const method = methodValue.toUpperCase(); const transport = properties.has('data') ? 'data' : properties.has('params') ? 'params' : null;
         const payload = transport ? properties.get(transport) : '';
         const api = { app, method, path, source_file: apiFile, exportName: exported[1], parameters: exported[2], body, transport, payload };
-        const request_fields = requestFieldsFor(api, apiCallsites.get(`${apiFile}:${api.exportName}`) ?? []);
-        if (!discovered.apis.some((item) => item.app === app && item.method === method && item.path === path)) discovered.apis.push({ app, method, path, source_file: apiFile, request_fields });
+        registerDiscoveredApi(discovered, api, apiCallsites.get(`${apiFile}:${api.exportName}`) ?? []);
       }
       for (const exported of content.matchAll(/\bexport\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\(([^)]*)\)|([A-Za-z_$][\w$]*))\s*=>/g)) {
         const expressionStart = exported.index + exported[0].length; const remaining = content.slice(expressionStart);
@@ -489,29 +624,268 @@ function discover(root) {
         const method = methodValue.toUpperCase(); const transport = properties.has('data') ? 'data' : properties.has('params') ? 'params' : null;
         const payload = transport ? properties.get(transport) : '';
         const api = { app, method, path, source_file: apiFile, exportName: exported[1], parameters: exported[2] ?? exported[3] ?? '', body, transport, payload };
-        const request_fields = requestFieldsFor(api, apiCallsites.get(`${apiFile}:${api.exportName}`) ?? []);
-        if (!discovered.apis.some((item) => item.app === app && item.method === method && item.path === path)) discovered.apis.push({ app, method, path, source_file: apiFile, request_fields });
+        registerDiscoveredApi(discovered, api, apiCallsites.get(`${apiFile}:${api.exportName}`) ?? []);
       }
     }
     for (const asset of [...walk(root, `${base}/src/assets`), ...walk(root, `${base}/src/static`)]) discovered.assets.push({ app, source_file: asset });
     const packageFile = `${base}/package.json`;
     if (fileExists(root, packageFile)) for (const [pkg, range] of Object.entries(JSON.parse(readFileSync(rootFile(root, packageFile), 'utf8')).dependencies ?? {})) discovered.dependencies.push({ app, package: pkg, legacy_range: String(range) });
   }
+  const mountedAliases = new Map();
+  for (const api of discovered.apis) {
+    const key = `${api.method} ${mountedPath(api.app, api.path)}`;
+    if (!mountedAliases.has(key)) mountedAliases.set(key, []);
+    mountedAliases.get(key).push(api);
+  }
+  for (const aliases of mountedAliases.values()) {
+    if (aliases.length < 2) continue;
+    const requestVariants = aliases.flatMap((api) => api.request_variants);
+    const declarations = aliases.flatMap((api) => api.declarations);
+    const clientConsumers = aliases.flatMap((api) => api.client_consumers);
+    const clientResponseFields = aliases.flatMap((api) => api.client_response_fields);
+    for (const api of aliases) {
+      api.request_variants = [...requestVariants];
+      api.declarations = [...declarations];
+      api.client_consumers = [...clientConsumers];
+      api.client_response_fields = [...clientResponseFields];
+    }
+  }
+  for (const api of discovered.apis) {
+    api.request_fields = mergeRequestFieldValues(api.request_variants);
+    api.declarations = [...new Set(api.declarations)].sort();
+    api.client_consumers = [...new Set(api.client_consumers)].sort();
+    api.client_response_fields = [...new Set(api.client_response_fields)].sort();
+    delete api.request_variants;
+  }
   for (const key of Object.keys(discovered)) discovered[key].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
   return discovered;
 }
 
-function generatedInventory(root) {
-  const found = discover(root);
-  return {
+function loadPHPContractMap(root) {
+  const contracts = new Map();
+  let paths = [];
+  try {
+    paths = execFileSync('git', ['ls-tree', '-r', '--name-only', sourceCommit, 'api-server'], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).split(/\r?\n/).filter((path) => /\/src\/Action\/.+\.php$/.test(path));
+  } catch {
+    return contracts;
+  }
+  for (const path of paths) {
+    let content;
+    try {
+      content = execFileSync('git', ['show', `${sourceCommit}:${path}`], {
+        cwd: root,
+        encoding: 'utf8',
+        maxBuffer: 8 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch {
+      continue;
+    }
+    for (const annotation of content.matchAll(/@RequestMapping\(path="([^"]+)",\s*methods="([^"]+)"\)/g)) {
+      const line = content.slice(0, annotation.index).split('\n').length;
+      for (const method of annotation[2].split(',').map((value) => value.trim().toUpperCase()).filter(Boolean)) {
+        contracts.set(`${method} ${annotation[1]}`, { path, line, content });
+      }
+    }
+  }
+  return contracts;
+}
+function phpEvidenceReference(contract) {
+  return contract ? `git:${sourceCommit}:${contract.path}#L${contract.line}` : '-';
+}
+function loadPHPContent(root, contract, cache) {
+  if (!contract) return '';
+  if (contract.content) return contract.content;
+  if (!cache.has(contract.path)) {
+    try {
+      cache.set(contract.path, execFileSync('git', ['show', `${sourceCommit}:${contract.path}`], {
+        cwd: root,
+        encoding: 'utf8',
+        maxBuffer: 8 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }));
+    } catch {
+      cache.set(contract.path, '');
+    }
+  }
+  return cache.get(contract.path);
+}
+function namedFunctionBody(content, name, receiver = null) {
+  const code = stripCommentsPreserveStrings(content); const patterns = receiver
+    ? [new RegExp(`\\bfunc\\s*\\([^)]*\\*?${escapeRegExp(receiver)}[^)]*\\)\\s*${escapeRegExp(name)}\\s*\\([^)]*\\)[^{]*\\{`, 'g')]
+    : [
+        new RegExp(`\\bpublic\\s+function\\s+${escapeRegExp(name)}\\s*\\([^)]*\\)[^{]*\\{`, 'g'),
+        new RegExp(`\\bfunc\\s+${escapeRegExp(name)}\\s*\\([^)]*\\)[^{]*\\{`, 'g'),
+      ];
+  for (const pattern of patterns) for (const match of code.matchAll(pattern)) {
+    const opening = code.indexOf('{', match.index); const closing = matchingDelimiter(code, opening);
+    if (closing !== -1) return content.slice(opening + 1, closing);
+  }
+  return '';
+}
+function phpResponseShape(content) {
+  const body = namedFunctionBody(content, 'handle'); const fields = new Set();
+  if (!body) return { fields, empty: false, indirect: true, body, content };
+  const mask = syntaxMask(stripCommentsPreserveStrings(body)); let empty = false;
+  const nestedFunctionRanges = [];
+  for (const nested of mask.matchAll(/\bfunction\s*(?:&\s*)?(?:[A-Za-z_][\w]*\s*)?\([^)]*\)\s*(?:use\s*\([^)]*\)\s*)?(?::\s*[^{]+)?\{/g)) {
+    const opening = mask.indexOf('{', nested.index); const closing = matchingDelimiter(body, opening, mask);
+    if (closing !== -1) nestedFunctionRanges.push([opening, closing]);
+  }
+  const isNestedReturn = (position) => nestedFunctionRanges.some(([opening, closing]) => opening < position && position < closing);
+  for (const returned of mask.matchAll(/\breturn\s*\[/g)) {
+    if (isNestedReturn(returned.index)) continue;
+    const opening = mask.indexOf('[', returned.index); const closing = matchingDelimiter(body, opening, mask);
+    if (closing === -1) continue;
+    const entries = splitTopLevel(body.slice(opening + 1, closing));
+    if (!entries.length) empty = true;
+    for (const entry of entries) {
+      const key = /^\s*(['"])([A-Za-z_$][\w$-]*)\1\s*=>/.exec(entry)?.[2];
+      if (key) fields.add(key);
+    }
+  }
+  const indirect = [...mask.matchAll(/\breturn\b/g)].some((returned) => {
+    if (isNestedReturn(returned.index)) return false;
+    const value = body.slice(returned.index + returned[0].length).trimStart();
+    return value && !value.startsWith('[') && !value.startsWith(';');
+  });
+  return { fields, empty, indirect, body, content };
+}
+function goHandlerDetails(source, method, contract) {
+  if (!source) return null;
+  const code = stripCommentsPreserveStrings(source.content); const token = methodToken(method);
+  for (const match of code.matchAll(new RegExp(`["\`]${escapeRegExp(contract)}["\`]`, 'g'))) {
+    const object = enclosingObject(code, match.index);
+    if (!object) continue;
+    const properties = objectPropertyMap(object.text);
+    if (quotedLiteral(properties.get('path') ?? '') !== contract || (properties.get('method') ?? '').trim() !== token) continue;
+    const handler = /^([A-Za-z_$][\w$]*)$/.exec((properties.get('handler') ?? '').trim())?.[1];
+    if (!handler) continue;
+    const body = namedFunctionBody(source.content, handler);
+    if (body) return { file: source.file, handler, body, evidence: `${source.file}#${handler}` };
+  }
+  return null;
+}
+function goResponseShape(handler) {
+  const fields = new Set(); let empty = false;
+  if (!handler) return { fields, empty };
+  const code = stripCommentsPreserveStrings(handler.body);
+  for (const call of code.matchAll(/\b(writeEnvelope|writeJSON)\s*\(/g)) {
+    const opening = code.indexOf('(', call.index); const closing = matchingDelimiter(code, opening);
+    if (closing === -1) continue;
+    const args = splitTopLevel(code.slice(opening + 1, closing));
+    if (!args.some((argument) => argument.trim() === 'http.StatusOK' || argument.trim() === '200')) continue;
+    const payload = (call[1] === 'writeEnvelope' ? args[4] : args[2])?.trim() ?? '';
+    const mapOpening = payload.indexOf('{');
+    if (/^map\s*\[[^\]]+\]\s*(?:any|interface\s*\{\s*\})\s*\{/.test(payload) && mapOpening !== -1) {
+      const properties = objectProperties(payload.slice(mapOpening));
+      if (!properties.length) empty = true;
+      for (const property of properties) if (property.key) fields.add(property.key);
+    } else if (/^\[\](?:any|interface\s*\{\s*\})\s*\{\s*\}$/.test(payload) || payload === 'nil') empty = true;
+  }
+  return { fields, empty };
+}
+function responseContract(api, php, phpShape, goHandler) {
+  const goShape = goResponseShape(goHandler);
+  const fields = new Set([...api.client_response_fields, ...phpShape.fields, ...goShape.fields]);
+  const evidence = [];
+  if (api.client_response_fields.length) evidence.push(...api.client_consumers.map((file) => `client:${file}`));
+  if (phpShape.fields.size || phpShape.empty) evidence.push(phpEvidenceReference(php));
+  if (goShape.fields.size || goShape.empty) evidence.push(`go:${goHandler.evidence}`);
+  if (fields.size) return { value: `fields:${[...fields].sort().join(';')}`, evidence: [...new Set(evidence)].sort().join(';') };
+  if ((phpShape.empty && !phpShape.indirect) || goShape.empty) {
+    return { value: 'fields:none', evidence: [...new Set(evidence)].sort().join(';') };
+  }
+  const location = php ? phpEvidenceReference(php) : api.go_evidence !== '-' ? api.go_evidence : api.source_file;
+  const reason = php && phpShape.indirect ? 'indirect-response-shape' : 'no-static-response-fields';
+  return { value: `blocked[${reason}]@${location}`, reason, evidence: location };
+}
+function explicitCorpFields(api, phpShape) {
+  const clientFields = new Set(); const phpFields = new Set();
+  const requestValue = api.request_fields.includes(':') ? api.request_fields.slice(api.request_fields.indexOf(':') + 1) : '';
+  for (const field of requestValue.split(';')) if (/^(?:corpId|corp_id|corpIds|corp_ids)$/.test(field)) clientFields.add(field);
+  for (const match of phpShape.body.matchAll(/\$this->request->(?:input|get)\s*\(\s*['"]((?:corpId|corp_id|corpIds|corp_ids))['"]/g)) phpFields.add(match[1]);
+  for (const inputs of phpShape.body.matchAll(/\$this->request->inputs\s*\(\s*\[([\s\S]*?)\]/g)) {
+    for (const match of inputs[1].matchAll(/['"]((?:corpId|corp_id|corpIds|corp_ids))['"]/g)) phpFields.add(match[1]);
+  }
+  return { client: [...clientFields].sort(), php: [...phpFields].sort() };
+}
+function phpUsesCurrentEnterprise(body) {
+  const code = stripCommentsPreserveStrings(body);
+  if (/(?:user\s*\(\s*\)\s*\[\s*['"]corpIds?['"]\s*\]|user\s*\(\s*['"]corpId['"]\s*\))/.test(code)) return true;
+  for (const assignment of code.matchAll(/\$([A-Za-z_][\w]*)\s*=\s*user\s*\(\s*\)\s*;/g)) {
+    if (new RegExp(`\\$${escapeRegExp(assignment[1])}\\s*\\[\\s*['"]corpIds?['"]\\s*\\]`).test(code.slice(assignment.index))) return true;
+  }
+  return false;
+}
+function scopeContract(api, php, phpShape, goHandler) {
+  const explicit = explicitCorpFields(api, phpShape);
+  if (explicit.php.length) return { value: `explicit:${explicit.php.join(';')}@${phpEvidenceReference(php)}`, evidence: phpEvidenceReference(php) };
+  const phpCode = stripCommentsPreserveStrings(phpShape.body);
+  if (phpUsesCurrentEnterprise(phpShape.body)) {
+    const evidence = phpEvidenceReference(php);
+    return { value: `server-current-enterprise@${evidence}`, evidence };
+  }
+  if (goHandler && /(?:CurrentEnterpriseID|currentEnterprise|currentCorp|resolveCorpID)/.test(stripCommentsPreserveStrings(goHandler.body))) {
+    return { value: `server-current-enterprise@${goHandler.file}`, evidence: `${goHandler.file}#${goHandler.handler}` };
+  }
+  if (!php && explicit.client.length) return { value: `explicit:${explicit.client.join(';')}@${api.source_file}`, evidence: api.source_file };
+  const publicPath = api.app === 'operation' || (api.app === 'dashboard' && api.path === '/user/auth');
+  const middlewareFreePHP = php && !/(?:DashboardAuthMiddleware|SidebarAuthMiddleware)/.test(stripCommentsPreserveStrings(phpShape.content));
+  if (publicPath || middlewareFreePHP) {
+    const evidence = php ? phpEvidenceReference(php) : api.source_file;
+    return { value: `public-unscoped@${evidence}`, evidence };
+  }
+  const location = php ? phpEvidenceReference(php) : api.go_evidence !== '-' ? api.go_evidence : api.source_file;
+  return { value: `blocked[no-static-corp-scope]@${location}`, reason: 'no-static-corp-scope', evidence: location };
+}
+function generatedArtifacts(root) {
+  if (generatedArtifactsCache.has(root)) return generatedArtifactsCache.get(root);
+  const found = discover(root); const goSources = loadGoSources(root); const goByFile = new Map(goSources.map((source) => [source.file, source]));
+  const phpContracts = loadPHPContractMap(root); const phpCache = new Map(); const contractEvidence = []; const contractGaps = [];
+  const apis = found.apis.map((item) => {
+    const go_evidence = findGoEvidence(root, item.app, item.method, item.path, goSources);
+    const api = { ...item, go_evidence };
+    const php = phpContracts.get(`${item.method} ${mountedPath(item.app, item.path)}`) ?? null;
+    const phpShape = phpResponseShape(loadPHPContent(root, php, phpCache));
+    const goHandler = goHandlerDetails(goByFile.get(go_evidence), item.method, mountedPath(item.app, item.path));
+    const response = responseContract(api, php, phpShape, goHandler);
+    const scope = scopeContract(api, php, phpShape, goHandler);
+    if (response.reason) contractGaps.push({ app: item.app, method: item.method, path: item.path, dimension: 'response', reason: response.reason, evidence: response.evidence });
+    if (scope.reason) contractGaps.push({ app: item.app, method: item.method, path: item.path, dimension: 'corp_scope', reason: scope.reason, evidence: scope.evidence });
+    contractEvidence.push({
+      app: item.app,
+      method: item.method,
+      path: item.path,
+      legacy_declarations: item.declarations.join(';'),
+      go_route_evidence: go_evidence,
+      php_handler: phpEvidenceReference(php),
+      client_consumers: item.client_consumers.join(';') || '-',
+      response_evidence: response.evidence || response.value,
+      scope_evidence: scope.evidence,
+    });
+    return { ...item, response_fields: response.value, auth: clientSemantics(item.app).auth, corp_scope: scope.value, go_evidence };
+  });
+  const inventory = {
     'pages.csv': found.pages.map((item) => ({ ...item, route: item.route ?? '-', status: 'legacy', owner: 'unassigned', risk: 'medium', batch: 'unassigned' })),
     'routes.csv': found.routes.map((item) => ({ ...item, ...clientSemantics(item.app), auth: routeAuth(item.app, item.path), corp_context: clientSemantics(item.app).corp, permission: actionEvidence(root, item.path, item.component), render_target: clientSemantics(item.app).target })),
-    'apis.csv': found.apis.map((item) => ({ ...item, response_fields: 'response.data', auth: clientSemantics(item.app).auth, corp_scope: `/${item.app}`, go_evidence: findGoEvidence(root, item.app, item.method, item.path) })),
+    'apis.csv': apis,
     'permissions.csv': found.permissions.map((item) => ({ ...item, menu_link_url: item.route, actions: actionEvidence(root, item.route, item.component) })),
     'assets.csv': found.assets.map((item) => ({ ...item, kind: extensionKind(item.source_file), license_status: 'blocked', used_by: assetUses(root, item.source_file) })),
     'dependencies.csv': found.dependencies.map((item) => ({ ...item, replacement: replacementFor(item.package), decision: decisionFor(item.package), risk: item.package === 'vue' || item.package === 'vue-router' ? 'high' : 'medium' })),
   };
+  contractEvidence.sort((left, right) => `${left.app}:${left.method}:${left.path}`.localeCompare(`${right.app}:${right.method}:${right.path}`));
+  contractGaps.sort((left, right) => `${left.app}:${left.method}:${left.path}:${left.dimension}`.localeCompare(`${right.app}:${right.method}:${right.path}:${right.dimension}`));
+  const artifacts = { inventory, contractEvidence, contractGaps };
+  generatedArtifactsCache.set(root, artifacts);
+  return artifacts;
 }
+function generatedInventory(root) { return generatedArtifacts(root).inventory; }
 
 function readInventory(root, errors) {
   const result = {};
@@ -531,6 +905,40 @@ function readInventory(root, errors) {
     });
   }
   return result;
+}
+function readContractRows(root, file, columns, key, errors) {
+  const path = `${auditDirectory}/${file}`;
+  if (!fileExists(root, path)) {
+    errors.push(`frontend-audit: ${file}:1: file is required`);
+    return [];
+  }
+  const rows = parseCsv(readFileSync(rootFile(root, path), 'utf8')); const header = rows.shift() ?? [];
+  if (header.join(',') !== columns.join(',')) {
+    errors.push(`frontend-audit: ${file}:1: columns must be ${columns.join(',')}`);
+    return [];
+  }
+  const seen = new Set();
+  return rows.map((values, index) => {
+    const rowNumber = index + 2; const row = Object.fromEntries(columns.map((column, position) => [column, (values[position] ?? '').trim()]));
+    if (values.length !== columns.length) errors.push(`frontend-audit: ${file}:${rowNumber}: expected ${columns.length} columns`);
+    for (const column of columns) if (!row[column]) errors.push(`frontend-audit: ${file}:${rowNumber}: ${column} is required`);
+    const rowKey = key(row);
+    if (seen.has(rowKey)) errors.push(`frontend-audit: ${file}:${rowNumber}: duplicate key ${rowKey}`);
+    seen.add(rowKey);
+    return { ...row, rowNumber };
+  });
+}
+function compareContractRows(actual, expected, file, columns, key, errors) {
+  const actualByKey = new Map(actual.map((row) => [key(row), row])); const expectedByKey = new Map(expected.map((row) => [key(row), row]));
+  for (const [rowKey, expectedRow] of expectedByKey) {
+    const row = actualByKey.get(rowKey);
+    if (!row) {
+      errors.push(`frontend-audit: ${file}:1: discovered contract evidence is missing: ${rowKey}`);
+      continue;
+    }
+    for (const column of columns) if (row[column] !== expectedRow[column]) errors.push(`frontend-audit: ${file}:${row.rowNumber}: ${column} must match discovered evidence ${expectedRow[column]}`);
+  }
+  for (const [rowKey, row] of actualByKey) if (!expectedByKey.has(rowKey)) errors.push(`frontend-audit: ${file}:${row.rowNumber}: contract evidence is not discovered: ${rowKey}`);
 }
 
 function validateManifest(root, errors) {
@@ -567,6 +975,8 @@ function compareDerivedEvidence(inventory, generated, errors) {
   for (const api of inventory['apis.csv'] ?? []) {
     const expected = expectedApis.get(apiSpecification.key(api)); if (!expected) continue;
     if (api.request_fields !== expected.request_fields) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: request_fields must match discovered evidence ${expected.request_fields}`);
+    if (api.response_fields !== expected.response_fields) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: response_fields must match discovered evidence ${expected.response_fields}`);
+    if (api.corp_scope !== expected.corp_scope) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: corp_scope must match discovered evidence ${expected.corp_scope}`);
   }
   const routeSpecification = specifications['routes.csv']; const expectedRoutes = new Map((generated['routes.csv'] ?? []).map((row) => [routeSpecification.key(row), row]));
   for (const route of inventory['routes.csv'] ?? []) {
@@ -578,12 +988,36 @@ function compareDerivedEvidence(inventory, generated, errors) {
 }
 
 function audit(root) {
-  const errors = []; const inventory = readInventory(root, errors); const generated = generatedInventory(root); validateManifest(root, errors); compareCoverage(inventory, generated, errors); compareDerivedEvidence(inventory, generated, errors);
+  const errors = []; const inventory = readInventory(root, errors); const artifacts = generatedArtifacts(root); const generated = artifacts.inventory;
+  const contractEvidence = readContractRows(root, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
+  const contractGaps = readContractRows(root, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
+  validateManifest(root, errors); compareCoverage(inventory, generated, errors); compareDerivedEvidence(inventory, generated, errors);
+  compareContractRows(contractEvidence, artifacts.contractEvidence, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
+  compareContractRows(contractGaps, artifacts.contractGaps, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
   for (const page of inventory['pages.csv'] ?? []) if (!['legacy', 'candidate', 'blocked'].includes(page.status)) errors.push(`frontend-audit: pages.csv:${page.rowNumber}: status must be legacy, candidate, or blocked`);
   const pages = new Set((inventory['pages.csv'] ?? []).map((page) => `${page.app}:${page.route}`));
   for (const route of inventory['routes.csv'] ?? []) if (!pages.has(`${route.app}:${route.path}`)) errors.push(`frontend-audit: routes.csv:${route.rowNumber}: route "${route.path}" has no matching page`);
   const routes = new Set((inventory['routes.csv'] ?? []).map((route) => `${route.app}:${route.path}`));
   for (const permission of inventory['permissions.csv'] ?? []) if (!routes.has(`${permission.app}:${permission.route}`)) errors.push(`frontend-audit: permissions.csv:${permission.rowNumber}: route "${permission.route}" does not exist`);
+  const gapsByKey = new Map(contractGaps.map((gap) => [`${gap.app}:${gap.method}:${gap.path}:${gap.dimension}`, gap]));
+  for (const api of inventory['apis.csv'] ?? []) {
+    if (api.response_fields === 'response.data') errors.push(`frontend-audit: apis.csv:${api.rowNumber}: response_fields cannot be transport unwrapping response.data`);
+    if (!/^fields:(?:none|[A-Za-z_$][\w$-]*(?:;[A-Za-z_$][\w$-]*)*)$/.test(api.response_fields) && !/^blocked\[[a-z0-9-]+\]@.+$/.test(api.response_fields)) {
+      errors.push(`frontend-audit: apis.csv:${api.rowNumber}: response_fields must be concrete fields or blocked[reason]@evidence`);
+    }
+    if (['/dashboard', '/sidebar', '/operation'].includes(api.corp_scope)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: corp_scope cannot be an application mount prefix`);
+    if (!/^explicit:[A-Za-z_$][\w$]*(?:;[A-Za-z_$][\w$]*)*@.+$/.test(api.corp_scope)
+      && !/^(?:server-current-enterprise|public-unscoped)@.+$/.test(api.corp_scope)
+      && !/^blocked\[[a-z0-9-]+\]@.+$/.test(api.corp_scope)) {
+      errors.push(`frontend-audit: apis.csv:${api.rowNumber}: corp_scope must be explicit, server-current-enterprise, public-unscoped, or blocked[reason]@evidence`);
+    }
+    for (const [dimension, value] of [['response', api.response_fields], ['corp_scope', api.corp_scope]]) {
+      const blocked = /^blocked\[([a-z0-9-]+)\]@(.+)$/.exec(value);
+      if (!blocked) continue;
+      const gap = gapsByKey.get(`${api.app}:${api.method}:${api.path}:${dimension}`);
+      if (!gap || gap.reason !== blocked[1] || gap.evidence !== blocked[2]) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: blocked semantic gap is missing or does not match ${dimension}`);
+    }
+  }
   for (const api of inventory['apis.csv'] ?? []) if (api.go_evidence !== '-') {
     if (!api.go_evidence.startsWith('internal/') || !/^internal\/(server|dashboard|store)\/.+\.go$/.test(api.go_evidence) || !fileExists(root, api.go_evidence)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence must be '-' or an existing Go path under internal/server, internal/dashboard, or internal/store`);
     else if (!evidenceHasContract(root, api.go_evidence, api.app, api.method, api.path)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence does not prove ${api.method} ${mountedPath(api.app, api.path)}`);
@@ -593,8 +1027,10 @@ function audit(root) {
 }
 
 function refresh(root) {
-  const inventory = generatedInventory(root); mkdirSync(rootFile(root, auditDirectory), { recursive: true } );
+  const artifacts = generatedArtifacts(root); const inventory = artifacts.inventory; mkdirSync(rootFile(root, auditDirectory), { recursive: true } );
   for (const [file, rows] of Object.entries(inventory)) writeFileSync(rootFile(root, `${auditDirectory}/${file}`), csv(file, rows));
+  writeFileSync(rootFile(root, `${auditDirectory}/${contractEvidenceFile}`), csvWithColumns(contractEvidenceColumns, artifacts.contractEvidence));
+  writeFileSync(rootFile(root, `${auditDirectory}/${contractGapFile}`), csvWithColumns(contractGapColumns, artifacts.contractGaps));
   const sources = applications.flatMap((app) => walk(root, `web/legacy/${app}`)).sort();
   writeFileSync(rootFile(root, 'web/legacy/SOURCE_MANIFEST.sha256'), `${sources.map((file) => `${createHash('sha256').update(readFileSync(rootFile(root, file))).digest('hex')}  ${file}`).join('\n')}\n`);
 }

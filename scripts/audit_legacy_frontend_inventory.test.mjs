@@ -268,8 +268,8 @@ export function store (params) {
 export function destructured ({ token, redirect }) {
   return request({ url: '/api/destructured', method: 'put', data: { token, redirect } })
 }
-export function filtered ({ unused }) {
-  return request({ url: '/api/filtered', method: 'post', data: { actual: true } })
+export function filtered ({ actual, unused }) {
+  return request({ url: '/api/filtered', method: 'post', data: { actual } })
 }
 export function blocked (params) {
   return request({ url: '/api/blocked', method: 'delete', data: params })
@@ -310,6 +310,99 @@ test('fails when request_fields are replaced with a generic payload expression',
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
     assert.match(result.output, /frontend-audit: apis\.csv:2: request_fields must match discovered evidence params:id/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('refresh reconciles endpoint aliases before declaring no-callsite evidence', () => {
+  const root = createFixture();
+  try {
+    write(root, 'web/legacy/dashboard/src/api/example.js', `
+export function officialAccountUnused (params) {
+  return request({ url: '/officialAccount/index', method: 'get', params })
+}
+export function officialAccountUsed (params) {
+  return request({ url: '/officialAccount/index', method: 'get', params })
+}
+export function roomWelcomeUnused (params) {
+  return request({ url: '/roomWelcome/update', method: 'put', data: params })
+}
+export function roomWelcomeUsed (params) {
+  return request({ url: '/roomWelcome/update', method: 'put', data: params })
+}
+export function userStatusUnused (params) {
+  return request({ url: '/user/statusUpdate', method: 'put', data: params })
+}
+export function userStatusUsed (params) {
+  return request({ url: '/user/statusUpdate', method: 'put', data: params })
+}
+export function messageUsersUnused (params) {
+  return request({ url: '/workMessage/toUsers', method: 'get', params })
+}
+export function messageUsersUsed (params) {
+  return request({ url: '/workMessage/toUsers', method: 'get', params })
+}
+`);
+    write(root, 'web/legacy/dashboard/src/views/example/index.vue', `<template><main></main></template>
+<script>
+import {
+  officialAccountUsed,
+  roomWelcomeUsed,
+  userStatusUsed,
+  messageUsersUsed
+} from '@/api/example'
+export default {
+  created () {
+    officialAccountUsed({ type: 1 })
+    roomWelcomeUsed({ id: 2, content: 'hello' })
+    userStatusUsed({ userId: 3, status: 1 })
+    messageUsersUsed({ page: 1, name: '' })
+  }
+}
+</script>
+`);
+    writeManifest(root);
+
+    runRefresh(root);
+    const byPath = new Map(csvObjects(root, 'docs/handle/frontend-audit/apis.csv').map((api) => [api.path, api.request_fields]));
+    assert.equal(byPath.get('/officialAccount/index'), 'params:type');
+    assert.equal(byPath.get('/roomWelcome/update'), 'data:content;id');
+    assert.equal(byPath.get('/user/statusUpdate'), 'data:status;userId');
+    assert.equal(byPath.get('/workMessage/toUsers'), 'params:name;page');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('refresh reconciles leading-slash aliases by their mounted endpoint', () => {
+  const root = createFixture();
+  try {
+    write(root, 'web/legacy/dashboard/src/api/example.js', `
+export function unusedWithoutSlash (params) {
+  return request({ url: 'workMessage/index', method: 'get', params })
+}
+export function usedWithSlash (params) {
+  return request({ url: '/workMessage/index', method: 'get', params })
+}
+`);
+    write(root, 'web/legacy/dashboard/src/views/example/index.vue', `<template><main></main></template>
+<script>
+import { usedWithSlash } from '@/api/example'
+export default {
+  created () {
+    usedWithSlash({ page: 1, perPage: 20 })
+  }
+}
+</script>
+`);
+    writeManifest(root);
+
+    runRefresh(root);
+    const aliases = csvObjects(root, 'docs/handle/frontend-audit/apis.csv')
+      .filter((api) => api.path.endsWith('workMessage/index'));
+    assert.equal(aliases.length, 2);
+    assert.deepEqual(new Set(aliases.map((api) => api.request_fields)), new Set(['params:page;perPage']));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -422,14 +515,34 @@ var unrelated = http.MethodGet
   }
 });
 
-test('accepts Go evidence when method and route share one exact contract construct', () => {
+test('rejects Go evidence that exists only inside comments', () => {
   const root = createFixture();
   try {
     runRefresh(root);
     write(root, 'internal/server/example.go', `package server
-var routes = []string{"GET /dashboard/api/example"}
+/*
+var routes = []struct{ method, path string }{
+  {method: http.MethodGet, path: "/dashboard/api/example"},
+}
+*/
+// var exact = "GET /dashboard/api/example"
 `);
     setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'go_evidence', 'internal/server/example.go');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: apis\.csv:2: go_evidence does not prove GET \/dashboard\/api\/example/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('accepts Go evidence when method and route share one exact contract construct', () => {
+  const root = createFixture();
+  try {
+    write(root, 'internal/server/example.go', `package server
+var routes = []string{"GET /dashboard/api/example"}
+`);
+    runRefresh(root);
     const result = runAudit(root);
     assert.equal(result.status, 0, result.output);
   } finally {
@@ -452,9 +565,11 @@ test('refresh derives semantic audit fields instead of migration placeholders', 
     assert.equal(route[4], 'ACCESS_TOKEN');
     assert.equal(route[5], 'dashboard-corp-context');
     assert.equal(api[4], 'params:id');
-    assert.equal(api[5], 'response.data');
+    assert.match(api[5], /^(?:fields:|blocked\[)/);
+    assert.notEqual(api[5], 'response.data');
     assert.equal(api[6], 'ACCESS_TOKEN');
-    assert.equal(api[7], '/dashboard');
+    assert.match(api[7], /^(?:explicit:|server-current-enterprise@|public-unscoped@|blocked\[)/);
+    assert.notEqual(api[7], '/dashboard');
     assert.equal(permission[3], 'edit');
     assert.match(asset[4], /views\/example\/index\.vue/);
     assert.equal(dependency[3], 'react');
@@ -462,4 +577,115 @@ test('refresh derives semantic audit fields instead of migration placeholders', 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('refresh derives public, explicit-corp, server-current, and blocked contract semantics', () => {
+  const root = createFixture();
+  try {
+    write(root, 'web/legacy/dashboard/src/api/example.js', `
+export function login (data) {
+  return request({ url: '/user/auth', method: 'post', data })
+}
+export function updateCorp (data) {
+  return request({ url: '/corp/update', method: 'put', data })
+}
+export function scoped (params) {
+  return request({ url: '/api/scoped', method: 'get', params })
+}
+export function blocked (params) {
+  return request({ url: '/api/blocked', method: 'get', params })
+}
+`);
+    write(root, 'web/legacy/dashboard/src/views/example/index.vue', `<template><main></main></template>
+<script>
+import { login, updateCorp, scoped } from '@/api/example'
+export default {
+  async created () {
+    login({ phone: '13800000000', password: 'secret' }).then(response => {
+      this.token = response.data.token
+      this.expire = response.data.expire
+    })
+    updateCorp({ corpId: 7, corpName: 'Acme' }).then(response => {
+      this.updated = response.data.updated
+    })
+    const response = await scoped({ corpIds: [7], page: 1 })
+    this.items = response.data.items
+    scoped({ corpIds: [7], page: 2 }).then(response => response.data.map(item => item))
+  }
+}
+</script>
+`);
+    write(root, 'internal/server/example.go', `package server
+import "net/http"
+var routes = []struct{ method, path string; handler http.HandlerFunc }{
+  {method: http.MethodGet, path: "/dashboard/api/scoped", handler: scopedHandler},
+}
+func scopedHandler(w http.ResponseWriter, r *http.Request) {
+  corpID := CurrentEnterpriseID(r.Context())
+  writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{"items": corpID})
+}
+`);
+    writeManifest(root);
+
+    runRefresh(root);
+    const apis = csvObjects(root, 'docs/handle/frontend-audit/apis.csv');
+    const api = (path) => apis.find((item) => item.path === path);
+    assert.equal(api('/user/auth').response_fields, 'fields:expire;token');
+    assert.match(api('/user/auth').corp_scope, /^public-unscoped@/);
+    assert.equal(api('/corp/update').response_fields, 'fields:updated');
+    assert.match(api('/corp/update').corp_scope, /^explicit:corpId@/);
+    assert.equal(api('/api/scoped').response_fields, 'fields:items');
+    assert.match(api('/api/scoped').corp_scope, /^server-current-enterprise@internal\/server\/example\.go/);
+    assert.match(api('/api/blocked').response_fields, /^blocked\[[^\]]+\]@web\/legacy\/dashboard\/src\/api\/example\.js$/);
+    assert.match(api('/api/blocked').corp_scope, /^blocked\[[^\]]+\]@web\/legacy\/dashboard\/src\/api\/example\.js$/);
+
+    const gaps = csvObjects(root, 'docs/handle/frontend-audit/api-contract-gaps.csv');
+    assert.ok(gaps.some((gap) => gap.path === '/api/blocked' && gap.dimension === 'response'));
+    assert.ok(gaps.some((gap) => gap.path === '/api/blocked' && gap.dimension === 'corp_scope'));
+    const evidence = csvObjects(root, 'docs/handle/frontend-audit/api-contract-evidence.csv');
+    assert.equal(evidence.length, apis.length);
+    assert.ok(evidence.some((row) => row.path === '/api/scoped' && /views\/example\/index\.vue/.test(row.client_consumers)));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('audit rejects blanket response.data and mounted-prefix corp scope values', () => {
+  const root = createFixture();
+  try {
+    runRefresh(root);
+    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'response_fields', 'response.data');
+    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'corp_scope', '/dashboard');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /response_fields must match discovered evidence/);
+    assert.match(result.output, /corp_scope must match discovered evidence/);
+    assert.match(result.output, /response_fields cannot be transport unwrapping response\.data/);
+    assert.match(result.output, /corp_scope cannot be an application mount prefix/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('audit requires every blocked semantic value to match the gaps register', () => {
+  const root = createFixture();
+  try {
+    runRefresh(root);
+    const gapFile = join(root, 'docs/handle/frontend-audit/api-contract-gaps.csv');
+    const lines = readFileSync(gapFile, 'utf8').trim().split(/\r?\n/);
+    assert.ok(lines.length > 1);
+    writeFileSync(gapFile, `${lines.slice(0, -1).join('\n')}\n`);
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /blocked semantic gap is missing|contract gap register does not match discovered evidence/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('generated response contracts exclude fields returned only by nested PHP callbacks', () => {
+  const apis = csvObjects(repositoryRoot, 'docs/handle/frontend-audit/apis.csv');
+  const contract = (path) => apis.find((api) => api.path === path);
+  assert.equal(contract('/workEmployee/searchCondition').response_fields, 'fields:contactAuth;status;syncTime');
+  assert.match(contract('/workDepartment/selectByPhone').response_fields, /^blocked\[indirect-response-shape\]@/);
 });
