@@ -1,0 +1,7 @@
+{
+  "extends": "@mochat/config/tsconfig",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src"]
+}

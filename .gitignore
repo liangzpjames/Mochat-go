@@ -9,6 +9,7 @@ deploy/standalone/.env.local
 pnpm-debug.log*
 web/apps/saas-admin/.vite/
 web/apps/saas-admin/coverage/
+web/packages/*/dist/
 
 # Local test, browser, and runtime artifacts
 .playwright-cli/

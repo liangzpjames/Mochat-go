@@ -1,0 +1,27 @@
+{
+  "name": "@mochat/api-client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint src",
+    "test": "vitest run --config ../config/vitest/base.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@mochat/config": "workspace:*",
+    "@mochat/testing": "workspace:*",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./errors": "./src/errors.ts",
+    "./schema": "./src/schema.ts"
+  }
+}

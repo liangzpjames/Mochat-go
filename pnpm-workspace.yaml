@@ -4,6 +4,7 @@ packages:
 allowBuilds:
   '@tailwindcss/oxide': true
   esbuild: true
+  msw: true
 overrides:
   '@typescript-eslint/tsconfig-utils': 8.55.0
   '@typescript-eslint/types': 8.55.0

@@ -1,0 +1,22 @@
+{
+  "name": "@mochat/auth",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint src",
+    "test": "vitest run --config ../config/vitest/base.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@mochat/config": "workspace:*",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./session": "./src/session.ts"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@mochat/testing",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "msw": "2.13.3"
+  },
+  "devDependencies": {
+    "@mochat/config": "workspace:*",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./handlers": "./src/handlers.ts",
+    "./server": "./src/server.ts"
+  }
+}

@@ -154,6 +154,22 @@ function parseVersion(value) {
   };
 }
 
+function rangeForWildcardVersion(value) {
+  const parts = value.toLowerCase().split('.');
+  if (parts.length > 3 || parts.some((part) => !/^(?:\d+|x|\*)$/.test(part))) return null;
+  const wildcardIndex = parts.findIndex((part) => part === 'x' || part === '*');
+  if (wildcardIndex <= 0 || parts.slice(wildcardIndex).some((part) => part !== 'x' && part !== '*')) return null;
+  const lowerVersion = [0, 0, 0];
+  for (let index = 0; index < wildcardIndex; index += 1) lowerVersion[index] = Number(parts[index]);
+  const upperVersion = [...lowerVersion];
+  upperVersion[wildcardIndex - 1] += 1;
+  for (let index = wildcardIndex; index < upperVersion.length; index += 1) upperVersion[index] = 0;
+  return {
+    lower: { version: lowerVersion, inclusive: true },
+    upper: { version: upperVersion, inclusive: false },
+  };
+}
+
 function mergeLower(current, candidate) {
   if (!current) return candidate;
   const comparison = compareVersions(current.version, candidate.version);
@@ -174,6 +190,15 @@ function rangeForToken(token) {
   if (token === '*' || token.toLowerCase() === 'x') return {};
   const match = /^(\^|~|>=|<=|>|<|=)?(.+)$/.exec(token);
   const operator = match?.[1] ?? '';
+  const wildcardRange = rangeForWildcardVersion(match?.[2] ?? '');
+  if (wildcardRange) {
+    if (!operator || operator === '=') return wildcardRange;
+    if (operator === '>=') return { lower: wildcardRange.lower };
+    if (operator === '>') return { lower: { ...wildcardRange.upper, inclusive: true } };
+    if (operator === '<') return { upper: { ...wildcardRange.lower, inclusive: false } };
+    if (operator === '<=') return { upper: wildcardRange.upper };
+    return null;
+  }
   const parsed = parseVersion(match?.[2] ?? '');
   if (!parsed) return null;
   const { version, parts } = parsed;

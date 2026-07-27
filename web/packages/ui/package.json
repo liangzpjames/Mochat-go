@@ -1,0 +1,29 @@
+{
+  "name": "@mochat/ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint src",
+    "test": "vitest run --config ../config/vitest/base.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@mochat/config": "workspace:*",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./error-state": "./src/error-state.tsx",
+    "./loading-state": "./src/loading-state.tsx"
+  }
+}

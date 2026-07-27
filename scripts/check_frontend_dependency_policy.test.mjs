@@ -258,3 +258,10 @@ test('rejects transitive lockfile packages whose Node engine excludes the worksp
   assert.equal(result.ok, false);
   assert.match(result.errors.join('\n'), /eslint-visitor-keys@5\.0\.1 node engine \^20\.19\.0 \|\| \^22\.13\.0 \|\| >=24 excludes required Node range >=22\.12 <25/);
 }));
+
+test('accepts a wildcard disjunction when a later clause covers the workspace Node range', async () => withFixture(async (root) => {
+  writeFileSync(join(root, 'pnpm-lock.yaml'), `lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n\n  web/apps/dashboard:\n    dependencies:\n      '@mochat/config':\n        specifier: workspace:*\n        version: link:../../packages/config\n      react:\n        specifier: 19.2.8\n        version: 19.2.8\n      react-dom:\n        specifier: 19.2.8\n        version: 19.2.8\n\n  web/packages/config: {}\n\npackages:\n\n  get-caller-file@2.0.5:\n    resolution: {integrity: sha512-example}\n    engines: {node: 6.* || 8.* || >= 10.*}\n`);
+
+  const result = await check(root);
+  assert.equal(result.ok, true, result.errors.join('\n'));
+}));
