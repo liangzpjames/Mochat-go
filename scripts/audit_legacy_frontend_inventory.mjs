@@ -8,6 +8,7 @@ const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
 const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
 const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'risk', 'batch'];
 const unassignedPageFile = 'docs/phases/phase-2-frontend-migration/audit/unassigned-pages.csv';
+const dashboardBatch2CandidateFile = 'docs/phases/phase-2-frontend-migration/audit/dashboard-batch2-candidates.csv';
 const contractEvidenceFile = 'api-contract-evidence.csv';
 const contractGapFile = 'api-contract-gaps.csv';
 const contractEvidenceColumns = ['app', 'method', 'path', 'legacy_declarations', 'go_route_evidence', 'php_handler', 'client_consumers', 'response_evidence', 'scope_evidence'];
@@ -23,6 +24,7 @@ const specifications = {
   'dependencies.csv': { columns: ['app', 'package', 'legacy_range', 'replacement', 'decision', 'risk'], key: (row) => `${row.app}:${row.package}`, sourceColumns: [] },
 };
 const unassignedPageColumns = [...specifications['pages.csv'].columns, 'blocking_fields'];
+const dashboardBatch2CandidateColumns = ['order', 'route', 'source_file', 'risk', 'status', 'api_contract_count', 'go_evidence_count'];
 const dashboardBatch2Routes = new Set([
   '/contactField/index',
   '/department/index',
@@ -1036,6 +1038,32 @@ function recommendedPageMetadata(page) {
   return { status: 'legacy', risk: 'high', batch: 'dashboard-batch4' };
 }
 
+function dashboardBatch2Candidates(pages, apis) {
+  const riskOrder = { low: 0, medium: 1, high: 2, critical: 3 };
+  return pages
+    .filter((page) => page.app === 'dashboard'
+      && page.batch === 'dashboard-batch2'
+      && !['-', '*', '/', '/404', '/login'].includes(page.route))
+    .map((page) => {
+      const feature = page.route.split('/').filter(Boolean)[0] ?? '';
+      const contracts = apis.filter((api) => api.app === 'dashboard'
+        && (api.path === `/${feature}` || api.path.startsWith(`/${feature}/`)));
+      return {
+        route: page.route,
+        source_file: page.source_file,
+        risk: page.risk,
+        status: page.status,
+        api_contract_count: String(contracts.length),
+        go_evidence_count: String(contracts.filter((api) => api.go_evidence !== '-').length),
+      };
+    })
+    .sort((left, right) => (riskOrder[left.risk] ?? 99) - (riskOrder[right.risk] ?? 99)
+      || (Number(left.api_contract_count) - Number(left.go_evidence_count)) - (Number(right.api_contract_count) - Number(right.go_evidence_count))
+      || Number(left.api_contract_count) - Number(right.api_contract_count)
+      || left.route.localeCompare(right.route))
+    .map((row, index) => ({ order: String(index + 1), ...row }));
+}
+
 function initializePageMetadata(root) {
   const pages = generatedArtifacts(root).inventory['pages.csv'];
   const errors = [];
@@ -1210,6 +1238,14 @@ function audit(root) {
     || readFileSync(rootFile(root, unassignedPageFile), 'utf8').replaceAll('\r\n', '\n') !== expectedUnassignedPages) {
     errors.push('frontend-audit: unassigned-pages.csv: report is stale; run npm run refresh:audit');
   }
+  const expectedDashboardBatch2Candidates = csvWithColumns(
+    dashboardBatch2CandidateColumns,
+    dashboardBatch2Candidates(expectedPages, generated['apis.csv']),
+  );
+  if (!fileExists(root, dashboardBatch2CandidateFile)
+    || readFileSync(rootFile(root, dashboardBatch2CandidateFile), 'utf8').replaceAll('\r\n', '\n') !== expectedDashboardBatch2Candidates) {
+    errors.push('frontend-audit: dashboard-batch2-candidates.csv: report is stale; run npm run refresh:audit');
+  }
   compareContractRows(contractEvidence, artifacts.contractEvidence, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   compareContractRows(contractGaps, artifacts.contractGaps, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
   for (const api of inventory['apis.csv'] ?? []) {
@@ -1266,6 +1302,10 @@ function refresh(root) {
   mkdirSync(dirname(rootFile(root, unassignedPageFile)), { recursive: true });
   for (const [file, rows] of Object.entries(inventory)) writeFileSync(rootFile(root, `${auditDirectory}/${file}`), csv(file, rows));
   writeFileSync(rootFile(root, unassignedPageFile), csvWithColumns(unassignedPageColumns, unassignedPages(inventory['pages.csv'])));
+  writeFileSync(
+    rootFile(root, dashboardBatch2CandidateFile),
+    csvWithColumns(dashboardBatch2CandidateColumns, dashboardBatch2Candidates(inventory['pages.csv'], inventory['apis.csv'])),
+  );
   writeFileSync(rootFile(root, `${auditDirectory}/${contractEvidenceFile}`), csvWithColumns(contractEvidenceColumns, artifacts.contractEvidence));
   writeFileSync(rootFile(root, `${auditDirectory}/${contractGapFile}`), csvWithColumns(contractGapColumns, artifacts.contractGaps));
   const sources = applications.flatMap((app) => walk(root, `web/legacy/${app}`)).sort();

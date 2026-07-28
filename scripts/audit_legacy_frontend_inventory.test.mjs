@@ -13,6 +13,8 @@ const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/p
 const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'risk', 'batch'];
 const unassignedPageFile = 'docs/phases/phase-2-frontend-migration/audit/unassigned-pages.csv';
 const unassignedPageColumns = [...pageMetadataOverrideColumns, 'blocking_fields'];
+const dashboardBatch2CandidateFile = 'docs/phases/phase-2-frontend-migration/audit/dashboard-batch2-candidates.csv';
+const dashboardBatch2CandidateColumns = ['order', 'route', 'source_file', 'risk', 'status', 'api_contract_count', 'go_evidence_count'];
 const columns = {
   'pages.csv': 'app,source_file,route,status,risk,batch',
   'routes.csv': 'app,path,name,source_file,auth,corp_context,permission,render_target',
@@ -79,6 +81,7 @@ export default { created () { example({ id: 1 }) } }
     `${pageMetadataOverrideColumns.join(',')}\ndashboard,${view},/example,candidate,low,phase2-batch2\n`,
   );
   write(root, unassignedPageFile, `${unassignedPageColumns.join(',')}\n`);
+  write(root, dashboardBatch2CandidateFile, `${dashboardBatch2CandidateColumns.join(',')}\n`);
   writeManifest(root);
   return root;
 }
@@ -354,6 +357,64 @@ test('page metadata initialization appends missing decisions without overwriting
       { status: department.status, risk: department.risk, batch: department.batch },
       { status: 'legacy', risk: 'medium', batch: 'dashboard-batch2' },
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Dashboard Batch 2 candidate report is ordered and excludes non-candidates', () => {
+  const root = createFixture();
+  try {
+    write(root, 'web/legacy/dashboard/src/views/department/index.vue', '<template><main>department</main></template>\n');
+    write(root, 'web/legacy/dashboard/src/views/role/index.vue', '<template><main>role</main></template>\n');
+    write(
+      root,
+      'web/legacy/dashboard/src/router/batch2.js',
+      `export const routes = [
+  { path: '/role/index', component: () => import('@/views/role/index') },
+  { path: '/department/index', component: () => import('@/views/department/index') }
+];\n`,
+    );
+    writeManifest(root);
+
+    runInitialize(root);
+    runRefresh(root);
+
+    const reportPath = join(root, dashboardBatch2CandidateFile);
+    assert.equal(existsSync(reportPath), true);
+    const rows = csvObjects(root, dashboardBatch2CandidateFile);
+    assert.deepEqual(
+      rows.map((row) => ({
+        order: row.order,
+        route: row.route,
+        source_file: row.source_file,
+        risk: row.risk,
+        status: row.status,
+        api_contract_count: row.api_contract_count,
+        go_evidence_count: row.go_evidence_count,
+      })),
+      [
+        {
+          order: '1',
+          route: '/department/index',
+          source_file: 'web/legacy/dashboard/src/views/department/index.vue',
+          risk: 'medium',
+          status: 'legacy',
+          api_contract_count: '0',
+          go_evidence_count: '0',
+        },
+        {
+          order: '2',
+          route: '/role/index',
+          source_file: 'web/legacy/dashboard/src/views/role/index.vue',
+          risk: 'medium',
+          status: 'legacy',
+          api_contract_count: '0',
+          go_evidence_count: '0',
+        },
+      ],
+    );
+    assert.equal(rows.some((row) => ['-', '*', '/', '/404', '/login'].includes(row.route)), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
