@@ -8,15 +8,15 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
 Usage: MOCHAT_PROD_FRONTEND_BASE_URL=https://mochat-prod.your-domain.cn ./scripts/capture_prod_frontend_evidence.sh
 
-用真实浏览器采集生产前端回归证据，生成 docs/evidence/production/prod-frontend.md。
+用真实浏览器采集生产前端回归证据，生成 docs/phases/phase-pre0-standalone/evidence/production/prod-frontend.md。
 
 环境变量：
   MOCHAT_PROD_FRONTEND_BASE_URL
       必填，生产站点 base URL。
   MOCHAT_PROD_FRONTEND_OUT
-      输出 Markdown，默认 docs/evidence/production/prod-frontend.md。
+      输出 Markdown，默认 docs/phases/phase-pre0-standalone/evidence/production/prod-frontend.md。
   MOCHAT_PROD_FRONTEND_SCREENSHOT_DIR
-      截图目录，默认 docs/evidence/production/frontend-screenshots。
+      截图目录，默认 docs/phases/phase-pre0-standalone/evidence/production/frontend-screenshots。
   MOCHAT_PROD_FRONTEND_BUILD_VERSION
       构建版本；未设置时记录为 unknown。
   MOCHAT_PROD_FRONTEND_DASHBOARD_PATHS
@@ -68,8 +68,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 SCRIPT_PATH="$WORK_DIR/capture-prod-frontend.js"
-OUT="${MOCHAT_PROD_FRONTEND_OUT:-docs/evidence/production/prod-frontend.md}"
-SCREENSHOT_DIR="${MOCHAT_PROD_FRONTEND_SCREENSHOT_DIR:-docs/evidence/production/frontend-screenshots}"
+OUT="${MOCHAT_PROD_FRONTEND_OUT:-docs/phases/phase-pre0-standalone/evidence/production/prod-frontend.md}"
+SCREENSHOT_DIR="${MOCHAT_PROD_FRONTEND_SCREENSHOT_DIR:-docs/phases/phase-pre0-standalone/evidence/production/frontend-screenshots}"
 
 cat >"$SCRIPT_PATH" <<'JS'
 const fs = require('fs');
@@ -128,8 +128,8 @@ function sameOrigin(baseURL, requestURL) {
 
 async function main() {
   const baseURL = env('MOCHAT_PROD_FRONTEND_BASE_URL');
-  const outputPath = env('MOCHAT_PROD_FRONTEND_OUT', 'docs/evidence/production/prod-frontend.md');
-  const screenshotDir = env('MOCHAT_PROD_FRONTEND_SCREENSHOT_DIR', 'docs/evidence/production/frontend-screenshots');
+  const outputPath = env('MOCHAT_PROD_FRONTEND_OUT', 'docs/phases/phase-pre0-standalone/evidence/production/prod-frontend.md');
+  const screenshotDir = env('MOCHAT_PROD_FRONTEND_SCREENSHOT_DIR', 'docs/phases/phase-pre0-standalone/evidence/production/frontend-screenshots');
   const buildVersion = env('MOCHAT_PROD_FRONTEND_BUILD_VERSION', 'unknown');
   const sourceFingerprint = env('MOCHAT_EVIDENCE_SOURCE_FINGERPRINT');
   const timeoutMs = Number(env('MOCHAT_PROD_FRONTEND_TIMEOUT_MS', '30000'));

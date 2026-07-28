@@ -112,9 +112,9 @@ jobs:
 
       - name: Run MySQL 5.7 amd64 gate
         run: |
-          mkdir -p docs/evidence/ci
-          env -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/evidence/ci/mysql57-amd64.log
-          grep -q "mysql57 amd64 CI gate passed" docs/evidence/ci/mysql57-amd64.log
+          mkdir -p docs/phases/phase-pre0-standalone/evidence/ci
+          env -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log
+          grep -q "mysql57 amd64 CI gate passed" docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log
 
       - name: Install Playwright Chromium
         run: pnpm --filter @mochat/e2e exec playwright install --with-deps chromium
@@ -127,5 +127,5 @@ jobs:
         if: always()
         with:
           name: mysql57-amd64-evidence
-          path: docs/evidence/ci/mysql57-amd64.log
+          path: docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log
           if-no-files-found: error

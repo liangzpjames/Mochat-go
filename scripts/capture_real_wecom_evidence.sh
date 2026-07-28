@@ -8,7 +8,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
 Usage: MOCHAT_REAL_WECOM_BASE_URL=https://mochat-prod.your-domain.cn ./scripts/capture_real_wecom_evidence.sh
 
-用生产 API 和真实联调记录采集企业微信账号联调证据，生成 docs/evidence/production/real-wecom.md。
+用生产 API 和真实联调记录采集企业微信账号联调证据，生成 docs/phases/phase-pre0-standalone/evidence/production/real-wecom.md。
 
 必填环境变量：
   MOCHAT_REAL_WECOM_BASE_URL
@@ -38,7 +38,7 @@ Usage: MOCHAT_REAL_WECOM_BASE_URL=https://mochat-prod.your-domain.cn ./scripts/c
 
 可选环境变量：
   MOCHAT_REAL_WECOM_OUT
-      输出 Markdown，默认 docs/evidence/production/real-wecom.md。
+      输出 Markdown，默认 docs/phases/phase-pre0-standalone/evidence/production/real-wecom.md。
   MOCHAT_REAL_WECOM_AUTH_HEADER
       认证头名，默认 Authorization。
   MOCHAT_REAL_WECOM_AUTH_PREFIX
@@ -179,7 +179,7 @@ async function main() {
   }
 
   const baseURL = env('MOCHAT_REAL_WECOM_BASE_URL');
-  const outputPath = env('MOCHAT_REAL_WECOM_OUT', 'docs/evidence/production/real-wecom.md');
+  const outputPath = env('MOCHAT_REAL_WECOM_OUT', 'docs/phases/phase-pre0-standalone/evidence/production/real-wecom.md');
   const token = env('MOCHAT_REAL_WECOM_TOKEN');
   const timeoutMs = Number(env('MOCHAT_REAL_WECOM_TIMEOUT_MS', '20000'));
   const expectedStatuses = parseStatusSet(env('MOCHAT_REAL_WECOM_EXPECTED_STATUS', '200'));

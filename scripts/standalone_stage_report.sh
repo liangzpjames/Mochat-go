@@ -201,7 +201,7 @@ if source_fingerprint and not source_fingerprint.get("error"):
         [
             f"- 当前指纹：`{source_fingerprint.get('fingerprint')}`",
             f"- 纳入文件数：`{source_fingerprint.get('file_count')}`",
-            "- 指纹范围：Go 源码、验收脚本、部署配置、前端构建产物和关键构建文件；排除 `docs/evidence/`、`storage/`、`output/`、`tmp/` 和 `node_modules` 等生成物。",
+            "- 指纹范围：Go 源码、验收脚本、部署配置、前端构建产物和关键构建文件；排除 `docs/phases/phase-pre0-standalone/evidence/`、`storage/`、`output/`、`tmp/` 和 `node_modules` 等生成物。",
         ]
     )
 else:

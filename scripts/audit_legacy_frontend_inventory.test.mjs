@@ -57,7 +57,7 @@ export default { created () { example({ id: 1 }) } }
   write(root, asset, '<svg/>\n');
   write(root, 'web/legacy/dashboard/package.json', '{"dependencies":{"vue":"^2.6.10"}}\n');
   write(root, 'web/legacy/README.md', '# Legacy frontend reference sources\n\n- Source commit: `3dcd216c188df34f2c3ed489b8e8b9473e635488`\n');
-  const auditDirectory = 'docs/handle/frontend-audit';
+  const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
   write(root, `${auditDirectory}/pages.csv`, `${columns['pages.csv']}\ndashboard,${view},-,legacy,frontend,low,1\ndashboard,${router},/example,legacy,frontend,low,1\n`);
   write(root, `${auditDirectory}/routes.csv`, `${columns['routes.csv']}\ndashboard,/example,example,${router},required,required,*,spa\n`);
   write(root, `${auditDirectory}/apis.csv`, `${columns['apis.csv']}\ndashboard,GET,/api/example,${api},params:id,id,required,corp,-\n`);
@@ -120,28 +120,28 @@ function expectAuditFailure(mutate, expected) {
 
 test('fails when a route has no matching page', () => {
   expectAuditFailure(
-    (root) => replace(root, 'docs/handle/frontend-audit/routes.csv', '/example,example', '/orphan,orphan'),
+    (root) => replace(root, 'docs/phases/phase-1-frontend-foundation/audit/routes.csv', '/example,example', '/orphan,orphan'),
     /frontend-audit: routes\.csv:2: route "\/orphan" has no matching page/,
   );
 });
 
 test('fails when an API method or path is missing', () => {
   expectAuditFailure(
-    (root) => replace(root, 'docs/handle/frontend-audit/apis.csv', 'GET,/api/example', ',/api/example\ndashboard,GET,,web/legacy/dashboard/src/api/example.js,id,id,required,corp,internal/server/example.go'),
+    (root) => replace(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv', 'GET,/api/example', ',/api/example\ndashboard,GET,,web/legacy/dashboard/src/api/example.js,id,id,required,corp,internal/server/example.go'),
     /frontend-audit: apis\.csv:[23]: (method|path) is required/,
   );
 });
 
 test('fails when a dependency decision is missing', () => {
   expectAuditFailure(
-    (root) => replace(root, 'docs/handle/frontend-audit/dependencies.csv', ',replace,medium', ',,medium'),
+    (root) => replace(root, 'docs/phases/phase-1-frontend-foundation/audit/dependencies.csv', ',replace,medium', ',,medium'),
     /frontend-audit: dependencies\.csv:2: decision is required/,
   );
 });
 
 test('fails when an asset license status is missing', () => {
   expectAuditFailure(
-    (root) => replace(root, 'docs/handle/frontend-audit/assets.csv', ',verified,', ',,'),
+    (root) => replace(root, 'docs/phases/phase-1-frontend-foundation/audit/assets.csv', ',verified,', ',,'),
     /frontend-audit: assets\.csv:2: license_status is required/,
   );
 });
@@ -289,7 +289,7 @@ export default {
     writeManifest(root);
 
     runRefresh(root);
-    const apis = csvObjects(root, 'docs/handle/frontend-audit/apis.csv');
+    const apis = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv');
     const byPath = new Map(apis.map((api) => [api.path, api]));
     assert.equal(byPath.get('/api/example').request_fields, 'params:id;search');
     assert.equal(byPath.get('/corp/store').request_fields, 'data:corpId;displayName');
@@ -306,7 +306,7 @@ test('fails when request_fields are replaced with a generic payload expression',
   const root = createFixture();
   try {
     runRefresh(root);
-    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'request_fields', 'params:params');
+    setCsvCell(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv', 'path', '/api/example', 'request_fields', 'params:params');
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
     assert.match(result.output, /frontend-audit: apis\.csv:2: request_fields must match discovered evidence params:id/);
@@ -365,7 +365,7 @@ export default {
     writeManifest(root);
 
     runRefresh(root);
-    const byPath = new Map(csvObjects(root, 'docs/handle/frontend-audit/apis.csv').map((api) => [api.path, api.request_fields]));
+    const byPath = new Map(csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv').map((api) => [api.path, api.request_fields]));
     assert.equal(byPath.get('/officialAccount/index'), 'params:type');
     assert.equal(byPath.get('/roomWelcome/update'), 'data:content;id');
     assert.equal(byPath.get('/user/statusUpdate'), 'data:status;userId');
@@ -399,7 +399,7 @@ export default {
     writeManifest(root);
 
     runRefresh(root);
-    const aliases = csvObjects(root, 'docs/handle/frontend-audit/apis.csv')
+    const aliases = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv')
       .filter((api) => api.path.endsWith('workMessage/index'));
     assert.equal(aliases.length, 2);
     assert.deepEqual(new Set(aliases.map((api) => api.request_fields)), new Set(['params:page;perPage']));
@@ -476,7 +476,7 @@ const routes = [
     writeManifest(root);
 
     runRefresh(root);
-    const routes = csvObjects(root, 'docs/handle/frontend-audit/routes.csv');
+    const routes = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/routes.csv');
     const route = (app, path) => routes.find((item) => item.app === app && item.path === path);
     assert.equal(route('operation', '/').name, '-');
     assert.equal(route('operation', '/speed').name, '-');
@@ -506,7 +506,7 @@ var routes = []struct{ method, path string }{
 var unrelated = http.MethodGet
 // "GET /dashboard/api/example" is documentation, not executable evidence.
 `);
-    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'go_evidence', 'internal/server/example.go');
+    setCsvCell(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv', 'path', '/api/example', 'go_evidence', 'internal/server/example.go');
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
     assert.match(result.output, /frontend-audit: apis\.csv:2: go_evidence does not prove GET \/dashboard\/api\/example/);
@@ -527,7 +527,7 @@ var routes = []struct{ method, path string }{
 */
 // var exact = "GET /dashboard/api/example"
 `);
-    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'go_evidence', 'internal/server/example.go');
+    setCsvCell(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv', 'path', '/api/example', 'go_evidence', 'internal/server/example.go');
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
     assert.match(result.output, /frontend-audit: apis\.csv:2: go_evidence does not prove GET \/dashboard\/api\/example/);
@@ -558,7 +558,7 @@ var migratedContracts = []string{"GET /dashboard/api/example"}
 `);
     writeManifest(root);
     runRefresh(root);
-    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'go_evidence', '-');
+    setCsvCell(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv', 'path', '/api/example', 'go_evidence', '-');
 
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
@@ -572,7 +572,7 @@ test('audit requires the generated Go evidence gap row for every unresolved cont
   const root = createFixture();
   try {
     runRefresh(root);
-    const gapFile = join(root, 'docs/handle/frontend-audit/api-contract-gaps.csv');
+    const gapFile = join(root, 'docs/phases/phase-1-frontend-foundation/audit/api-contract-gaps.csv');
     const lines = readFileSync(gapFile, 'utf8').trim().split(/\r?\n/);
     const gapIndex = lines.findIndex((line) => line.includes(',go_evidence,'));
     assert.notEqual(gapIndex, -1, 'refresh must generate a go_evidence gap');
@@ -590,7 +590,7 @@ test('audit rejects stale evidence in a generated Go evidence gap row', () => {
   const root = createFixture();
   try {
     runRefresh(root);
-    const gapFile = join(root, 'docs/handle/frontend-audit/api-contract-gaps.csv');
+    const gapFile = join(root, 'docs/phases/phase-1-frontend-foundation/audit/api-contract-gaps.csv');
     const lines = readFileSync(gapFile, 'utf8').trim().split(/\r?\n/);
     const gapIndex = lines.findIndex((line) => line.includes(',go_evidence,'));
     assert.notEqual(gapIndex, -1, 'refresh must generate a go_evidence gap');
@@ -609,7 +609,7 @@ test('refresh derives semantic audit fields instead of migration placeholders', 
   const root = createFixture();
   try {
     runRefresh(root);
-    const audit = 'docs/handle/frontend-audit';
+    const audit = 'docs/phases/phase-1-frontend-foundation/audit';
     const [page] = csvRows(root, `${audit}/pages.csv`).filter((row) => row[1].includes('/views/example/'));
     const [route] = csvRows(root, `${audit}/routes.csv`);
     const [api] = csvRows(root, `${audit}/apis.csv`);
@@ -683,7 +683,7 @@ func scopedHandler(w http.ResponseWriter, r *http.Request) {
     writeManifest(root);
 
     runRefresh(root);
-    const apis = csvObjects(root, 'docs/handle/frontend-audit/apis.csv');
+    const apis = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv');
     const api = (path) => apis.find((item) => item.path === path);
     assert.equal(api('/user/auth').response_fields, 'fields:expire;token');
     assert.match(api('/user/auth').corp_scope, /^public-unscoped@/);
@@ -694,10 +694,10 @@ func scopedHandler(w http.ResponseWriter, r *http.Request) {
     assert.match(api('/api/blocked').response_fields, /^blocked\[[^\]]+\]@web\/legacy\/dashboard\/src\/api\/example\.js$/);
     assert.match(api('/api/blocked').corp_scope, /^blocked\[[^\]]+\]@web\/legacy\/dashboard\/src\/api\/example\.js$/);
 
-    const gaps = csvObjects(root, 'docs/handle/frontend-audit/api-contract-gaps.csv');
+    const gaps = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/api-contract-gaps.csv');
     assert.ok(gaps.some((gap) => gap.path === '/api/blocked' && gap.dimension === 'response'));
     assert.ok(gaps.some((gap) => gap.path === '/api/blocked' && gap.dimension === 'corp_scope'));
-    const evidence = csvObjects(root, 'docs/handle/frontend-audit/api-contract-evidence.csv');
+    const evidence = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/api-contract-evidence.csv');
     assert.equal(evidence.length, apis.length);
     assert.ok(evidence.some((row) => row.path === '/api/scoped' && /views\/example\/index\.vue/.test(row.client_consumers)));
   } finally {
@@ -709,8 +709,8 @@ test('audit rejects blanket response.data and mounted-prefix corp scope values',
   const root = createFixture();
   try {
     runRefresh(root);
-    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'response_fields', 'response.data');
-    setCsvCell(root, 'docs/handle/frontend-audit/apis.csv', 'path', '/api/example', 'corp_scope', '/dashboard');
+    setCsvCell(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv', 'path', '/api/example', 'response_fields', 'response.data');
+    setCsvCell(root, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv', 'path', '/api/example', 'corp_scope', '/dashboard');
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
     assert.match(result.output, /response_fields must match discovered evidence/);
@@ -726,7 +726,7 @@ test('audit requires every blocked semantic value to match the gaps register', (
   const root = createFixture();
   try {
     runRefresh(root);
-    const gapFile = join(root, 'docs/handle/frontend-audit/api-contract-gaps.csv');
+    const gapFile = join(root, 'docs/phases/phase-1-frontend-foundation/audit/api-contract-gaps.csv');
     const lines = readFileSync(gapFile, 'utf8').trim().split(/\r?\n/);
     assert.ok(lines.length > 1);
     writeFileSync(gapFile, `${lines.slice(0, -1).join('\n')}\n`);
@@ -739,7 +739,7 @@ test('audit requires every blocked semantic value to match the gaps register', (
 });
 
 test('generated response contracts exclude fields returned only by nested PHP callbacks', () => {
-  const apis = csvObjects(repositoryRoot, 'docs/handle/frontend-audit/apis.csv');
+  const apis = csvObjects(repositoryRoot, 'docs/phases/phase-1-frontend-foundation/audit/apis.csv');
   const contract = (path) => apis.find((api) => api.path === path);
   assert.equal(contract('/workEmployee/searchCondition').response_fields, 'fields:contactAuth;status;syncTime');
   assert.match(contract('/workDepartment/selectByPhone').response_fields, /^blocked\[indirect-response-shape\]@/);

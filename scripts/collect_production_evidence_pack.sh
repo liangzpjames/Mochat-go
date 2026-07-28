@@ -13,10 +13,10 @@ Usage: ./scripts/collect_production_evidence_pack.sh
 
 环境变量：
   MOCHAT_PRODUCTION_EVIDENCE_SOURCE_DIR
-      生产证据来源目录，默认 docs/evidence/production。
+      生产证据来源目录，默认 docs/phases/phase-pre0-standalone/evidence/production。
       未显式设置 MOCHAT_EVIDENCE_* 时，会读取该目录下的标准文件名。
   MOCHAT_PRODUCTION_EVIDENCE_PACK_DIR
-      输出证据包目录，默认 docs/evidence/production/current。
+      输出证据包目录，默认 docs/phases/phase-pre0-standalone/evidence/production/current。
   MOCHAT_PRODUCTION_EVIDENCE_RUN_CANDIDATE
       设为 1 时继续运行 skip-local 生产候选门禁，默认 1。
   MOCHAT_PRODUCTION_EVIDENCE_COPY
@@ -267,8 +267,8 @@ def run_capture(name: str, slug: str, cmd: list[str], env: dict[str, str], out_d
     }
 
 
-source_dir = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_SOURCE_DIR", "docs/evidence/production"))
-pack_dir = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_PACK_DIR", "docs/evidence/production/current"))
+source_dir = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_SOURCE_DIR", "docs/phases/phase-pre0-standalone/evidence/production"))
+pack_dir = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_PACK_DIR", "docs/phases/phase-pre0-standalone/evidence/production/current"))
 run_candidate = bool_env("MOCHAT_PRODUCTION_EVIDENCE_RUN_CANDIDATE", "1")
 copy_files = bool_env("MOCHAT_PRODUCTION_EVIDENCE_COPY", "1")
 

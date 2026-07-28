@@ -16,19 +16,19 @@ Phase 1 的 workspace、共享契约、Dashboard React 单入口、身份与企�
 
 | time | commit | command | exit_code | evidence | result |
 | --- | --- | --- | ---: | --- | --- |
-| 2026-07-28 13:20 +08:00 | `ae9f0bd` | `git status --short` | 0 | `docs/evidence/frontend-phase1/known-limitations.txt` | 仅有未跟踪的会话草稿 `.superpowers/`；未达到字面上的空工作区，且该目录未提交 |
-| 2026-07-28 13:41 +08:00 | `ae9f0bd` | `corepack pnpm install --frozen-lockfile` | 0 | `docs/evidence/frontend-phase1/windows-frontend-gates.txt` | lockfile 可复现 |
-| 2026-07-28 13:26 +08:00 | `ae9f0bd` | `powershell -File scripts/test_frontend_check.ps1` | 0 | `docs/evidence/frontend-phase1/windows-frontend-gates.txt` | Windows 门禁失败传播用例通过 |
-| 2026-07-28 13:26 +08:00 | `ae9f0bd` | `powershell -File scripts/frontend_check.ps1 quick` | 0 | `docs/evidence/frontend-phase1/windows-frontend-gates.txt` | audit、依赖、lint、typecheck、unit/contract 全绿 |
-| 2026-07-28 13:27 +08:00 | `ae9f0bd` | `powershell -File scripts/frontend_check.ps1 build` | 0 | `docs/evidence/frontend-phase1/windows-frontend-gates.txt` | frozen lockfile 与两端生产构建通过 |
-| 2026-07-28 13:27 +08:00 | `ae9f0bd` | `powershell -File scripts/frontend_check.ps1 e2e` | 0 | `docs/evidence/frontend-phase1/windows-frontend-gates.txt` | 登录、企业、401/403/404、React/legacy/API 路由通过 |
-| 2026-07-28 13:25 +08:00 | `ae9f0bd` | `go test ./internal/frontend ./cmd/mochat-frontend-e2e` | 0 | `docs/evidence/frontend-phase1/windows-frontend-gates.txt` | Go 静态入口与 E2E server 通过 |
-| 2026-07-28 13:25 +08:00 | `ae9f0bd` | `docker run --rm -v "${PWD}:/workspace" -w /workspace alpine:3.20 sh -n scripts/frontend_check.sh` | 0 | `docs/evidence/frontend-phase1/windows-frontend-gates.txt` | Linux shell 语法通过 |
-| 2026-07-28 13:30 +08:00 | `ae9f0bd` | `go test ./...`（Windows） | 1 | `docs/evidence/frontend-phase1/known-limitations.txt` | 已知平台限制：反斜杠路径及 POSIX mode 断言；未发现 Task 9 新失败 |
-| 2026-07-28 13:34 +08:00 | `ae9f0bd` | `docker run --rm -v "${PWD}:/src:ro" -v mochat-go-mod-cache:/go/pkg/mod -v mochat-go-build-cache:/root/.cache/go-build -w /src golang:1.26-alpine sh -c 'go test ./... && go vet ./...'` | 0 | `docs/evidence/frontend-phase1/linux-go-gates.txt` | Linux 全量 Go 测试与 vet 通过 |
-| 2026-07-28 13:48 +08:00 | `4906ed8` | Linux 等价 `dev_check quick` 内部门禁与 command builds | 0 | `docs/evidence/frontend-phase1/linux-go-gates.txt` | 架构审计、自测、dev_check 自测和全部 command build 通过 |
-| 2026-07-28 13:41 +08:00 | `ae9f0bd` | `bash scripts/dev_check.sh quick` | 1 | `docs/evidence/frontend-phase1/known-limitations.txt` | Windows 主机缺可用 Bash；完整等价内部命令已在 Linux Docker 通过 |
-| 2026-07-28 13:28 +08:00 | `ae9f0bd` | `git diff --check` | 0 | `docs/evidence/frontend-phase1/windows-frontend-gates.txt` | 无空白错误 |
+| 2026-07-28 13:20 +08:00 | `ae9f0bd` | `git status --short` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/known-limitations.txt` | 仅有未跟踪的会话草稿 `.superpowers/`；未达到字面上的空工作区，且该目录未提交 |
+| 2026-07-28 13:41 +08:00 | `ae9f0bd` | `corepack pnpm install --frozen-lockfile` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/windows-frontend-gates.txt` | lockfile 可复现 |
+| 2026-07-28 13:26 +08:00 | `ae9f0bd` | `powershell -File scripts/test_frontend_check.ps1` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/windows-frontend-gates.txt` | Windows 门禁失败传播用例通过 |
+| 2026-07-28 13:26 +08:00 | `ae9f0bd` | `powershell -File scripts/frontend_check.ps1 quick` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/windows-frontend-gates.txt` | audit、依赖、lint、typecheck、unit/contract 全绿 |
+| 2026-07-28 13:27 +08:00 | `ae9f0bd` | `powershell -File scripts/frontend_check.ps1 build` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/windows-frontend-gates.txt` | frozen lockfile 与两端生产构建通过 |
+| 2026-07-28 13:27 +08:00 | `ae9f0bd` | `powershell -File scripts/frontend_check.ps1 e2e` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/windows-frontend-gates.txt` | 登录、企业、401/403/404、React/legacy/API 路由通过 |
+| 2026-07-28 13:25 +08:00 | `ae9f0bd` | `go test ./internal/frontend ./cmd/mochat-frontend-e2e` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/windows-frontend-gates.txt` | Go 静态入口与 E2E server 通过 |
+| 2026-07-28 13:25 +08:00 | `ae9f0bd` | `docker run --rm -v "${PWD}:/workspace" -w /workspace alpine:3.20 sh -n scripts/frontend_check.sh` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/windows-frontend-gates.txt` | Linux shell 语法通过 |
+| 2026-07-28 13:30 +08:00 | `ae9f0bd` | `go test ./...`（Windows） | 1 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/known-limitations.txt` | 已知平台限制：反斜杠路径及 POSIX mode 断言；未发现 Task 9 新失败 |
+| 2026-07-28 13:34 +08:00 | `ae9f0bd` | `docker run --rm -v "${PWD}:/src:ro" -v mochat-go-mod-cache:/go/pkg/mod -v mochat-go-build-cache:/root/.cache/go-build -w /src golang:1.26-alpine sh -c 'go test ./... && go vet ./...'` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/linux-go-gates.txt` | Linux 全量 Go 测试与 vet 通过 |
+| 2026-07-28 13:48 +08:00 | `4906ed8` | Linux 等价 `dev_check quick` 内部门禁与 command builds | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/linux-go-gates.txt` | 架构审计、自测、dev_check 自测和全部 command build 通过 |
+| 2026-07-28 13:41 +08:00 | `ae9f0bd` | `bash scripts/dev_check.sh quick` | 1 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/known-limitations.txt` | Windows 主机缺可用 Bash；完整等价内部命令已在 Linux Docker 通过 |
+| 2026-07-28 13:28 +08:00 | `ae9f0bd` | `git diff --check` | 0 | `docs/phases/phase-1-frontend-foundation/evidence/frontend-phase1/windows-frontend-gates.txt` | 无空白错误 |
 
 ## 浏览器覆盖
 

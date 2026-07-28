@@ -6,7 +6,7 @@
 - 将原连续堆叠的超前总后台收口为概览、客户租户、套餐、平台账号、系统运维和上线检查六个工作区；支付结算、客户成功、白标域名、服务账号和深度合规能力继续保留在后端但退出首版主导航。
 - 新增 `/saas-admin/` 独立静态应用；原 `/dashboard/saasAdmin/page` 保持兼容并跳转到新入口。静态目录可通过 `MOCHAT_SAAS_ADMIN_DIST` 配置。
 - 独立部署样例默认进入单人运营模式，确保唯一平台管理员可以完成首个客户开户；第二位平台管理员就位后应将 `MOCHAT_GO_SAAS_ADMIN_APPROVAL_REQUIRED` 改为 `1` 恢复双人审批。
-- 上线边界和延期条件记录在 `docs/saas-admin-mvp-scope.md`；生产发布仍由六类真实外部证据门禁决定，不执行 24 小时本地运行。
+- 上线边界和延期条件记录在 `docs/reference/product/saas-admin-mvp-scope.md`；生产发布仍由六类真实外部证据门禁决定，不执行 24 小时本地运行。
 
 ## 2026-07-19 发布证据补证责任闭环
 
@@ -134,4 +134,4 @@
 - Vue 2.6.10、Vue Router 3.1.3、Vuex 3.1.1 和 Axios 0.19.0 改为随独立包同源提供；移除上游 dashboard 的百度统计注入。
 - 增加空库迁移、rollback/baseline/legacy、MySQL 5.7、RBAC、真实 MariaDB/Redis、浏览器和独立包验收脚本。
 
-详细阶段记录和验证证据见 `docs/standalone-gap.md` 与 `docs/evidence/`。
+详细阶段记录和验证证据见 `docs/phases/phase-pre0-standalone/reports/standalone-gap.md` 与 `docs/phases/phase-pre0-standalone/evidence/`。

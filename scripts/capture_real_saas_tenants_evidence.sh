@@ -8,7 +8,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
 Usage: MOCHAT_REAL_SAAS_BASE_URL=https://mochat-prod.your-domain.cn ./scripts/capture_real_saas_tenants_evidence.sh
 
-用生产 API 采集真实 SaaS 多租户数据回归证据，生成 docs/evidence/production/real-saas-tenants.md。
+用生产 API 采集真实 SaaS 多租户数据回归证据，生成 docs/phases/phase-pre0-standalone/evidence/production/real-saas-tenants.md。
 
 必填环境变量：
   MOCHAT_REAL_SAAS_BASE_URL
@@ -30,7 +30,7 @@ Usage: MOCHAT_REAL_SAAS_BASE_URL=https://mochat-prod.your-domain.cn ./scripts/ca
 
 可选环境变量：
   MOCHAT_REAL_SAAS_OUT
-      输出 Markdown，默认 docs/evidence/production/real-saas-tenants.md。
+      输出 Markdown，默认 docs/phases/phase-pre0-standalone/evidence/production/real-saas-tenants.md。
   MOCHAT_REAL_SAAS_TENANT_A_NAME
   MOCHAT_REAL_SAAS_TENANT_B_NAME
       证据中展示的租户名称，默认 tenant-a / tenant-b。
@@ -182,7 +182,7 @@ async function main() {
   }
 
   const baseURL = env('MOCHAT_REAL_SAAS_BASE_URL');
-  const outputPath = env('MOCHAT_REAL_SAAS_OUT', 'docs/evidence/production/real-saas-tenants.md');
+  const outputPath = env('MOCHAT_REAL_SAAS_OUT', 'docs/phases/phase-pre0-standalone/evidence/production/real-saas-tenants.md');
   const sourceFingerprint = env('MOCHAT_EVIDENCE_SOURCE_FINGERPRINT');
   const timeoutMs = Number(env('MOCHAT_REAL_SAAS_TIMEOUT_MS', '20000'));
   const expectedReadStatuses = parseStatusSet(env('MOCHAT_REAL_SAAS_EXPECTED_READ_STATUS', '200'));

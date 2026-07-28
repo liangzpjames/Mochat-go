@@ -1,6 +1,6 @@
-docs/evidence/production/readiness.env.local
-docs/evidence/production/*.env.local
-docs/evidence/production/playwright-auth-state.json
+docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local
+docs/phases/phase-pre0-standalone/evidence/production/*.env.local
+docs/phases/phase-pre0-standalone/evidence/production/playwright-auth-state.json
 deploy/standalone/.env
 deploy/standalone/.env.local
 

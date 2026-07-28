@@ -17,7 +17,7 @@ Usage: ./scripts/import_mysql57_amd64_evidence.sh <mysql57-amd64.log|artifact.zi
   MOCHAT_MYSQL57_AMD64_EVIDENCE_SOURCE
       未传入参数时读取的来源文件。
   MOCHAT_MYSQL57_AMD64_EVIDENCE_TARGET
-      导入目标，默认 docs/evidence/production/mysql57-amd64.log。
+      导入目标，默认 docs/phases/phase-pre0-standalone/evidence/production/mysql57-amd64.log。
 
 该脚本只校验和复制证据文件，不启动 24 小时持续运行。
 EOF
@@ -25,7 +25,7 @@ EOF
 fi
 
 SOURCE="${1:-${MOCHAT_MYSQL57_AMD64_EVIDENCE_SOURCE:-}}"
-TARGET="${MOCHAT_MYSQL57_AMD64_EVIDENCE_TARGET:-docs/evidence/production/mysql57-amd64.log}"
+TARGET="${MOCHAT_MYSQL57_AMD64_EVIDENCE_TARGET:-docs/phases/phase-pre0-standalone/evidence/production/mysql57-amd64.log}"
 
 if [ -z "$SOURCE" ]; then
   echo "missing source; pass a log/artifact path or set MOCHAT_MYSQL57_AMD64_EVIDENCE_SOURCE" >&2

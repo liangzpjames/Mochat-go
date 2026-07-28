@@ -7,7 +7,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
 Usage: MOCHAT_STABILITY_MONITOR_EVIDENCE=@monitor.txt ./scripts/capture_stability_evidence.sh
 
-从目标部署环境已有短稳回归、健康检查或外部监控记录生成稳定性证据，输出 docs/evidence/production/stability.md。
+从目标部署环境已有短稳回归、健康检查或外部监控记录生成稳定性证据，输出 docs/phases/phase-pre0-standalone/evidence/production/stability.md。
 
 必填环境变量：
   MOCHAT_STABILITY_LOG_REF
@@ -21,7 +21,7 @@ Usage: MOCHAT_STABILITY_MONITOR_EVIDENCE=@monitor.txt ./scripts/capture_stabilit
 
 可选环境变量：
   MOCHAT_STABILITY_OUT
-      输出 Markdown，默认 docs/evidence/production/stability.md。
+      输出 Markdown，默认 docs/phases/phase-pre0-standalone/evidence/production/stability.md。
   MOCHAT_STABILITY_MIN_DURATION_SECONDS
       最小稳定性记录秒数，默认 300。
   MOCHAT_STABILITY_MIN_ITERATIONS
@@ -152,7 +152,7 @@ def parse_soak_log(path):
     return records
 
 
-out_path = pathlib.Path(env("MOCHAT_STABILITY_OUT", "docs/evidence/production/stability.md"))
+out_path = pathlib.Path(env("MOCHAT_STABILITY_OUT", "docs/phases/phase-pre0-standalone/evidence/production/stability.md"))
 soak_log_raw = env("MOCHAT_STABILITY_SOAK_LOG")
 monitor_evidence = load_value(env("MOCHAT_STABILITY_MONITOR_EVIDENCE"))
 health_evidence = load_value(env("MOCHAT_STABILITY_HEALTH_EVIDENCE"))

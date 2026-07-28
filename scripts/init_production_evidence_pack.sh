@@ -7,11 +7,11 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
 Usage: ./scripts/init_production_evidence_pack.sh
 
-初始化生产证据模板文件，默认输出到 docs/evidence/production/。
+初始化生产证据模板文件，默认输出到 docs/phases/phase-pre0-standalone/evidence/production/。
 
 环境变量：
   MOCHAT_PRODUCTION_EVIDENCE_DIR
-      输出目录，默认 docs/evidence/production。
+      输出目录，默认 docs/phases/phase-pre0-standalone/evidence/production。
   MOCHAT_PRODUCTION_EVIDENCE_FORCE
       设为 1 时覆盖已有模板目标文件。
 
@@ -21,7 +21,7 @@ EOF
   exit 0
 fi
 
-OUT_DIR="${MOCHAT_PRODUCTION_EVIDENCE_DIR:-docs/evidence/production}"
+OUT_DIR="${MOCHAT_PRODUCTION_EVIDENCE_DIR:-docs/phases/phase-pre0-standalone/evidence/production}"
 FORCE="${MOCHAT_PRODUCTION_EVIDENCE_FORCE:-0}"
 MARKER="MOCHAT_EVIDENCE_TEMPLATE_DO_NOT_USE"
 
@@ -58,7 +58,7 @@ $MARKER
 
 请在 amd64/x86_64 CI 或等价环境执行：
 
-env -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/evidence/production/mysql57-amd64.log
+env -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/phases/phase-pre0-standalone/evidence/production/mysql57-amd64.log
 
 真实有效日志必须包含 mysql57 amd64 CI gate passed 或 mysql 5.7 schema migration smoke passed。
 真实有效日志还必须包含当前 scripts/source_fingerprint.py 生成的 源码指纹。

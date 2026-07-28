@@ -4,7 +4,7 @@
 
 standalone Compose 默认通过 `MOCHAT_TIMEZONE=Asia/Shanghai` 统一应用与 MariaDB 时区；部署到其他地区时应在环境文件中显式改为目标 IANA 时区，不要让应用、数据库和运维 CLI 使用不同日期边界。
 
-完整交付候选流程见 `docs/release-candidate.md`。正式部署前先复制 `deploy/standalone/.env.example` 为已忽略的 `deploy/standalone/.env.local`，替换所有 `CHANGE_ME` 值，再通过 `--env-file deploy/standalone/.env.local` 启动。
+完整交付候选流程见 `docs/phases/phase-pre0-standalone/plans/release-candidate.md`。正式部署前先复制 `deploy/standalone/.env.example` 为已忽略的 `deploy/standalone/.env.local`，替换所有 `CHANGE_ME` 值，再通过 `--env-file deploy/standalone/.env.local` 启动。
 
 Docker 构建会用 `scripts/source_fingerprint.py` 计算源码与验收配置指纹，并通过 Go linker 写入四个交付二进制。SaaS 发布准备中心只接受当前运行二进制内置的权威指纹，前端自动回填且不可修改；未内置指纹时发布候选门禁保持禁用。本地直接 `go run` 可用 `MOCHAT_GO_RELEASE_SOURCE_FINGERPRINT` 注入当前指纹，正式镜像的内置值始终优先，环境变量不能覆盖。
 

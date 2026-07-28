@@ -154,7 +154,7 @@ mochat-go/
 建议新开发者按以下顺序阅读：
 
 1. 本文档；
-2. `docs/standalone-gap.md` 与 `docs/release-candidate.md`；
+2. `docs/phases/phase-pre0-standalone/reports/standalone-gap.md` 与 `docs/phases/phase-pre0-standalone/plans/release-candidate.md`；
 3. `cmd/mochat-go/main.go`，只看生命周期和模块装配；
 4. `internal/server/server.go`，了解实际 URL 如何映射；
 5. 选择一个小模块，阅读 `dashboard handler -> store interface -> MySQLStore -> smoke` 全链路；
@@ -591,7 +591,7 @@ pnpm run build
 - [ ] 获得旧 dashboard/sidebar/operation 的可编辑源码；
 - [ ] 明确当前是否已有线上客户、域名、企微应用和会话存档授权；
 - [ ] 在干净环境跑通 core、saas、frontend 三组验收；
-- [ ] 查看 `docs/evidence/production/readiness.json` 的 6 项缺口并分配负责人；
+- [ ] 查看 `docs/phases/phase-pre0-standalone/evidence/production/readiness.json` 的 6 项缺口并分配负责人；
 - [ ] 列出全部环境变量、密钥所有者、轮换周期和生产存储位置；
 - [ ] 核实 MySQL/MariaDB 正式支持矩阵和数据规模；
 - [ ] 核实支付、短信/通知、对象存储、监控、工单的真实供应商；
@@ -605,12 +605,12 @@ pnpm run build
 ### 仓库内
 
 - `README.md`：完整环境变量和迁移时间线；
-- `docs/standalone-gap.md`：独立化口径与当前生产缺口；
-- `docs/saas-admin-mvp-scope.md`：SaaS 总后台 MVP 边界；
-- `docs/release-candidate.md`：发布候选和证据口径；
+- `docs/phases/phase-pre0-standalone/reports/standalone-gap.md`：独立化口径与当前生产缺口；
+- `docs/reference/product/saas-admin-mvp-scope.md`：SaaS 总后台 MVP 边界；
+- `docs/phases/phase-pre0-standalone/plans/release-candidate.md`：发布候选和证据口径；
 - `docs/production-evidence.md`：真实生产证据采集；
-- `docs/evidence/production/readiness.json`：机器可读的当前 readiness；
-- `docs/payment-settlement-bridge.md`：支付结算桥接协议；
+- `docs/phases/phase-pre0-standalone/evidence/production/readiness.json`：机器可读的当前 readiness；
+- `docs/reference/protocols/payment-settlement-bridge.md`：支付结算桥接协议；
 - `deploy/standalone/README.md`：独立部署；
 - `MODIFICATIONS.md`：相对上游的修改；
 - `LICENSE`、`NOTICE.md`、`SOURCE_OFFER.md`、`THIRD_PARTY_NOTICES.md`：许可与分发义务。

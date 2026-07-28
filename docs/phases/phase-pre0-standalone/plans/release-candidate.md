@@ -4,7 +4,7 @@
 
 ## 当前结论
 
-- 本地短门禁已通过，最新证据见 `docs/evidence/latest/index.md`。
+- 本地短门禁已通过，最新证据见 `docs/phases/phase-pre0-standalone/evidence/latest/index.md`。
 - Go standalone 不依赖原 `mochat/` PHP checkout，独立交付包 smoke 已通过。
 - manifest 运行时路由覆盖为 `224/224`，旧前端 dist API 覆盖审计已通过。
 - 发布候选生成已纳入 `release.candidate.gate` 双人审批；直接绕过审批调用返回 `428`。
@@ -32,7 +32,7 @@
 - 环境变量样例：`deploy/standalone/.env.example`
 - 前端构建产物：`web/dashboard/dist`、`web/sidebar/dist`、`web/operation/dist`
 - 本地验收脚本：`scripts/collect_standalone_evidence.sh`
-- 生产证据采集说明：`docs/evidence/production/README.md`
+- 生产证据采集说明：`docs/phases/phase-pre0-standalone/evidence/production/README.md`
 
 ## 部署步骤
 
@@ -141,10 +141,10 @@ MOCHAT_LOCAL_EVIDENCE_ACCEPTANCE_SUITES=all \
 
 关键输出：
 
-- `docs/evidence/latest/index.md`
-- `docs/evidence/latest/source-fingerprint.json`
-- `docs/evidence/latest/production-evidence.json`
-- `docs/evidence/latest/goal-completion.json`
+- `docs/phases/phase-pre0-standalone/evidence/latest/index.md`
+- `docs/phases/phase-pre0-standalone/evidence/latest/source-fingerprint.json`
+- `docs/phases/phase-pre0-standalone/evidence/latest/production-evidence.json`
+- `docs/phases/phase-pre0-standalone/evidence/latest/goal-completion.json`
 
 只验证 SaaS 总后台短链路时可执行：
 
@@ -287,7 +287,7 @@ API Key 使用 `mch_live_<12 hex>_<43 base64url>` 格式，明文只在创建或
 指纹复核：
 
 ```bash
-env -u GOROOT ./scripts/source_fingerprint.py --check docs/evidence/latest/source-fingerprint.json
+env -u GOROOT ./scripts/source_fingerprint.py --check docs/phases/phase-pre0-standalone/evidence/latest/source-fingerprint.json
 ```
 
 生产候选复核当前会失败，这是预期结果，直到真实生产证据齐备：
@@ -314,13 +314,13 @@ MOCHAT_PRODUCTION_CANDIDATE_SKIP_LOCAL=1 \
 
 ```bash
 ./scripts/production_evidence_doctor.sh
-cp docs/evidence/production/readiness.env.todo docs/evidence/production/readiness.env.local
+cp docs/phases/phase-pre0-standalone/evidence/production/readiness.env.todo docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local
 ```
 
 填写 `readiness.env.local` 后做预检：
 
 ```bash
-MOCHAT_PRODUCTION_EVIDENCE_ENV_FILE=docs/evidence/production/readiness.env.local \
+MOCHAT_PRODUCTION_EVIDENCE_ENV_FILE=docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local \
 ./scripts/production_evidence_env_preflight.sh
 ```
 
@@ -328,7 +328,7 @@ MOCHAT_PRODUCTION_EVIDENCE_ENV_FILE=docs/evidence/production/readiness.env.local
 
 ```bash
 set -a
-. docs/evidence/production/readiness.env.local
+. docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local
 set +a
 MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_RUN=1 ./scripts/production_evidence_doctor.sh
 ./scripts/collect_production_evidence_pack.sh
@@ -339,9 +339,9 @@ MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_RUN=1 ./scripts/production_evidence_doctor.sh
 默认不启动新的 24 小时持续运行。稳定性证据推荐使用目标环境已有的短稳回归和外部监控记录：
 
 ```bash
-MOCHAT_STABILITY_MONITOR_EVIDENCE=@docs/evidence/production/stability-monitor-run.txt \
-MOCHAT_STABILITY_HEALTH_EVIDENCE=@docs/evidence/production/stability-health-run.txt \
-MOCHAT_STABILITY_RESOURCE_EVIDENCE=@docs/evidence/production/stability-resource-run.txt \
+MOCHAT_STABILITY_MONITOR_EVIDENCE=@docs/phases/phase-pre0-standalone/evidence/production/stability-monitor-run.txt \
+MOCHAT_STABILITY_HEALTH_EVIDENCE=@docs/phases/phase-pre0-standalone/evidence/production/stability-health-run.txt \
+MOCHAT_STABILITY_RESOURCE_EVIDENCE=@docs/phases/phase-pre0-standalone/evidence/production/stability-resource-run.txt \
 MOCHAT_STABILITY_TIME_RANGE="2026-07-09 10:00:00 CST 至 2026-07-09 10:30:00 CST" \
 MOCHAT_STABILITY_LOG_REF="监控面板/日志/工单引用" \
 ./scripts/capture_stability_evidence.sh
@@ -358,7 +358,7 @@ MOCHAT_STABILITY_LOG_REF="监控面板/日志/工单引用" \
 - 真实 MinIO 以 `--with-lock` 创建 bucket，并用 7 天 compliance 保留完成专项 smoke：受保护版本删除被拒绝，远端对象缺失和孤儿版本均能被发现，维护命令和历史回填同时通过。
 - `scripts/smoke_schema_migrate.sh` 已覆盖 64 个版本的空库 apply、checksum、status、重复 apply、baseline、legacy 升级、0064 down/up 与完整重放；MySQL 5.7 静态门禁覆盖 127 个 schema/迁移文件。本机 arm64 不伪造 MySQL 5.7 amd64 实容器证据。
 - 当前功能矩阵为 smoke `95/95`、manifest `224/224`、运行时唯一路径 `582/582`、路由条目 `721`、SaaS/总后台路径 `174`、前端 dist API `209/209`。合规清单保持 158 项，可恢复擦除保持 161 步。
-- `docs/evidence/latest/results.jsonl` 于 `2026-07-13 04:46:47 CST` 至 `05:23:34 CST` 按最终源码完整重建，`14/14` 返回 0。源码与验收指纹为 `7781d0d8d5f16aa110af7f5a302591a0b84eb226b6ecbf8f80d5fec7980fef34`，纳入 818 个文件。
+- `docs/phases/phase-pre0-standalone/evidence/latest/results.jsonl` 于 `2026-07-13 04:46:47 CST` 至 `05:23:34 CST` 按最终源码完整重建，`14/14` 返回 0。源码与验收指纹为 `7781d0d8d5f16aa110af7f5a302591a0b84eb226b6ecbf8f80d5fec7980fef34`，纳入 818 个文件。
 - 真实 Compose 预览数据库账本为 `64/0064_saas_audit_anchor_remote_immutability`，最终镜像为 `sha256:a7395de448d46fdf4073a17fa70502afe76d3caf6a618a72066ae273a0f1b35e`。运行日志确认 `source=build` 且内置指纹一致；当前 11 个检查点均已远端导出并校验通过，远端失败、待传、本地孤儿和远端孤儿都是 0，Object Lock 健康探针返回“连接正常”。
 - 迁移前备份为 `/tmp/mochat-preview-before-0064-20260713-042217.sql`，大小 769749 字节，SHA-256 为 `e83af4f6383d160658910e68e59de16c34de2ec2d80a6b0df7248c11edb636ea`，文件权限为 `0600`。Playwright 已在 `1440x1000` 和 `390x844` 验证远端锚点页面，授权后控制台 0 error/0 warning，移动端无页面级横向溢出，宽表仅在内部滚动。
 - 生产证据检查仍明确缺少 6 类外部证据：MySQL 5.7 amd64、真实企业微信、真实微信开放平台、两个以上真实 SaaS 租户、生产域名前端浏览器和目标环境短稳/监控记录。候选检查继续以这些外部证据为准，本轮未启动 24 小时运行。
@@ -388,7 +388,7 @@ MOCHAT_STABILITY_LOG_REF="监控面板/日志/工单引用" \
 - 超 SLA 的演示审批已通过受控 API 撤回，事件与操作审计完整落库。最新手动健康扫描为 `32/32 healthy`，`approval_sla_overdue`、`backup_automation` 和 `backup_freshness` 均 healthy，当前活动问题为 0。
 - 最终本地证据包的 14 条命令记录均返回 0，包含 `core/saas/workers/cron/frontend/mysql57` 六个套件、路由 `224/224`、前端 dist API `209/209` 和 smoke `96/96`。MySQL 5.7 的 135 个 schema 静态检查通过，ARM 上跳过的实容器未被当作 amd64 证据。
 - 当前指纹为 `357041312a9c86b48cc2e8830cb87f7a419ca275d1e3c925991d3fe6d5a608c0`，纳入 855 个文件；镜像 `sha256:88ad810e68c14d07b43c3f0a626361256c3a80b22309fa87e664ae0f1b5d14f5` 与 App/MariaDB/Redis 当前 healthy。桌面和移动浏览器回归无溢出、无重叠、无控制台错误或警告。
-- 当前候选只剩 6 类目标生产环境的外部证据。`docs/evidence/production/current/index.md` 已记录这 6 项缺失和严格门禁失败；本轮不要求且未执行 24 小时 run。
+- 当前候选只剩 6 类目标生产环境的外部证据。`docs/phases/phase-pre0-standalone/evidence/production/current/index.md` 已记录这 6 项缺失和严格门禁失败；本轮不要求且未执行 24 小时 run。
 
 ## 当前候选增量（0068 + 发布证据远端工件复核）
 
@@ -699,7 +699,7 @@ docker compose \
 ## 最终本地候选快照（2026-07-19）
 
 - 总后台客户经营口径已统一为“业务租户”，平台控制租户不再进入总览、经营、续费、客户成功、运营待办、日报和导出；显式租户范围仍可用于平台租户排障。真实 MariaDB/Redis 专项 smoke、全量 Go 测试和桌面/移动 Playwright 均通过。
-- 正式本地证据包 `docs/evidence/latest` 已从头生成，15 条命令全部成功，六套短验收 `core/saas/workers/cron/frontend/mysql57` 全绿，验收前后源码指纹稳定。发布准备、审批过期与前端登录端口隔离三个验收缺口已修正并纳入该证据包。
+- 正式本地证据包 `docs/phases/phase-pre0-standalone/evidence/latest` 已从头生成，15 条命令全部成功，六套短验收 `core/saas/workers/cron/frontend/mysql57` 全绿，验收前后源码指纹稳定。发布准备、审批过期与前端登录端口隔离三个验收缺口已修正并纳入该证据包。
 - 最终候选指纹为 `4126eaa2835b908374aba231f4b10f87f793e215c8b399bbc0fd1b63428c9a05`，文件数 941。预览镜像为 `sha256:c7af82a5d49e1ce659a1c8772722bf9d6253bd039704deab580bf5d606bb74b2`，App、MySQL、Redis 均 healthy，健康探针返回 200，迁移账本为 `93/0093_saas_payment_settlement_resolve_guard`。
 - 该快照可以进入真实环境补证，但不能标记生产可发布。发布准备仍为 `0/6`、`ready=false`，缺 MySQL 5.7 amd64、真实企业微信、真实微信开放平台、两个以上真实 SaaS 租户、生产前端浏览器和目标环境短稳/外部监控；`require_24h=false`，不执行 24 小时运行。
 

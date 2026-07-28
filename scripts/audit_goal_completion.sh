@@ -21,7 +21,7 @@ Usage: ./scripts/audit_goal_completion.sh
   MOCHAT_GOAL_COMPLETION_JSON_OUT
       写入机器可读 JSON 报告的路径；未设置时不输出 JSON。
   MOCHAT_GOAL_COMPLETION_EVIDENCE_DIR
-      本地短证据包目录，默认 docs/evidence/latest。
+      本地短证据包目录，默认 docs/phases/phase-pre0-standalone/evidence/latest。
   MOCHAT_GOAL_COMPLETION_SOURCE_ROOT
       PHP 源码清单对齐使用的原 MoChat 源码目录，默认 ../mochat。
   MOCHAT_GOAL_COMPLETION_STRICT
@@ -38,7 +38,7 @@ STRICT="${MOCHAT_GOAL_COMPLETION_STRICT:-0}"
 REQUIRE_24H="${MOCHAT_GOAL_COMPLETION_REQUIRE_24H:-0}"
 OUT="${MOCHAT_GOAL_COMPLETION_OUT:-}"
 JSON_OUT="${MOCHAT_GOAL_COMPLETION_JSON_OUT:-}"
-EVIDENCE_DIR="${MOCHAT_GOAL_COMPLETION_EVIDENCE_DIR:-docs/evidence/latest}"
+EVIDENCE_DIR="${MOCHAT_GOAL_COMPLETION_EVIDENCE_DIR:-docs/phases/phase-pre0-standalone/evidence/latest}"
 
 case "$STRICT" in
   0|1) ;;
@@ -70,7 +70,7 @@ import tempfile
 strict = sys.argv[1] == "1"
 require_24h = sys.argv[2] == "1"
 out_path = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
-evidence_dir_arg = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else pathlib.Path("docs/evidence/latest")
+evidence_dir_arg = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else pathlib.Path("docs/phases/phase-pre0-standalone/evidence/latest")
 json_out_path = pathlib.Path(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] else None
 repo = pathlib.Path.cwd()
 evidence_dir = evidence_dir_arg if evidence_dir_arg.is_absolute() else repo / evidence_dir_arg

@@ -8,6 +8,6 @@
 - dashboard、sidebar、operation 前端静态产物及本地化依赖；
 - 数据库 schema、增量迁移、部署配置和构建脚本；
 - `LICENSE`、`NOTICE.md`、`MODIFICATIONS.md` 和 `THIRD_PARTY_NOTICES.md`；
-- 与交付版本匹配的 tag、commit 或 `docs/evidence/latest/source-fingerprint.json`。
+- 与交付版本匹配的 tag、commit 或 `docs/phases/phase-pre0-standalone/evidence/latest/source-fingerprint.json`。
 
 当前对应源码即为本 `mochat-go` 目录。正式交付时应固定版本标识和源码获取地址，不应只提供运行镜像。

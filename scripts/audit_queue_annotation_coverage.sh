@@ -102,7 +102,7 @@ config = read("internal/config/config.go")
 config_test = read("internal/config/config_test.go")
 store = read("internal/store/redis.go")
 main = read("cmd/mochat-go/main.go")
-docs = read("docs/standalone-gap.md")
+docs = read("docs/phases/phase-pre0-standalone/reports/standalone-gap.md")
 
 registry_names = set(re.findall(r'QueueName\w+\s*=\s*"([^"]+)"', registry))
 registry_body = re.search(r"func QueuePayloadRegistry\(\) \[\]QueuePayloadDescriptor \{(.*?)\n\}", registry, re.S)

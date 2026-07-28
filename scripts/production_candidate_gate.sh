@@ -12,11 +12,11 @@ Usage: ./scripts/production_candidate_gate.sh
   1. 默认先生成全套非 PHP 本地短验收证据包。
   2. 再执行严格生产证据检查，要求外部生产证据文件有效。
   3. 校验候选证据包的源码与验收指纹仍匹配当前工作区。
-  4. 输出汇总报告到 docs/evidence/production/candidate/。
+  4. 输出汇总报告到 docs/phases/phase-pre0-standalone/evidence/production/candidate/。
 
 环境变量：
   MOCHAT_PRODUCTION_CANDIDATE_DIR
-      输出目录，默认 docs/evidence/production/candidate。
+      输出目录，默认 docs/phases/phase-pre0-standalone/evidence/production/candidate。
   MOCHAT_PRODUCTION_CANDIDATE_LOCAL_SUITES
       本地短验收套件，默认 core saas workers cron frontend mysql57。
   MOCHAT_PRODUCTION_CANDIDATE_SKIP_LOCAL
@@ -35,7 +35,7 @@ EOF
   exit 0
 fi
 
-OUT_DIR="${MOCHAT_PRODUCTION_CANDIDATE_DIR:-docs/evidence/production/candidate}"
+OUT_DIR="${MOCHAT_PRODUCTION_CANDIDATE_DIR:-docs/phases/phase-pre0-standalone/evidence/production/candidate}"
 LOCAL_SUITES="${MOCHAT_PRODUCTION_CANDIDATE_LOCAL_SUITES:-core saas workers cron frontend mysql57}"
 SKIP_LOCAL="${MOCHAT_PRODUCTION_CANDIDATE_SKIP_LOCAL:-0}"
 RESULTS_JSONL="$OUT_DIR/results.jsonl"
@@ -129,9 +129,9 @@ FINGERPRINT_REFERENCE="$OUT_DIR/local/source-fingerprint.json"
 FINGERPRINT_REFERENCE_LABEL="本地短验收证据包"
 GOAL_EVIDENCE_DIR="$OUT_DIR/local"
 if [ "$SKIP_LOCAL" = "1" ]; then
-  FINGERPRINT_REFERENCE="docs/evidence/latest/source-fingerprint.json"
+  FINGERPRINT_REFERENCE="docs/phases/phase-pre0-standalone/evidence/latest/source-fingerprint.json"
   FINGERPRINT_REFERENCE_LABEL="latest 本地短验收证据包"
-  GOAL_EVIDENCE_DIR="docs/evidence/latest"
+  GOAL_EVIDENCE_DIR="docs/phases/phase-pre0-standalone/evidence/latest"
 fi
 
 run_capture "严格生产证据检查" "production-evidence" \

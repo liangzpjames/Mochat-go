@@ -1,6 +1,6 @@
 # Legacy frontend license audit
 
-The repository root [LICENSE](../../../LICENSE) is GPL-3.0. The React administrative source also carries [NUWA-APACHE-2.0.txt](../../../web/saas-admin/NUWA-APACHE-2.0.txt), the Apache-2.0 license text. Neither file establishes provenance for assets restored under `web/legacy`.
+The repository root [LICENSE](../../../../LICENSE) is GPL-3.0. The React administrative source also carries [NUWA-APACHE-2.0.txt](../../../../web/apps/saas-admin/NUWA-APACHE-2.0.txt), the Apache-2.0 license text. Neither file establishes provenance for assets restored under `web/legacy`.
 
 For every dependency in the restored `dashboard/package.json`, `sidebar/package.json`, and `operation/package.json`, verify the resolved package license before a replacement is shipped: run `npm view <package>@<resolved-version> license repository.url`, retain the package-lock/yarn-lock evidence if present, and compare its notice requirements against the destination application's distribution license. The dependency matrix records the migration decision; it is not a substitute for a package-specific license review.
 

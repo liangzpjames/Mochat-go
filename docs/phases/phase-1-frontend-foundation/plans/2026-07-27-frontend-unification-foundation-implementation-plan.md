@@ -65,13 +65,13 @@ Phase 1 完成时必须同时满足：
 - Create: `web/legacy/dashboard/**`（来自备份分支的 `dashboard/**`）
 - Create: `web/legacy/sidebar/**`（来自备份分支的 `sidebar/**`）
 - Create: `web/legacy/operation/**`（来自备份分支的 `operation/**`）
-- Create: `docs/handle/frontend-audit/pages.csv`
-- Create: `docs/handle/frontend-audit/routes.csv`
-- Create: `docs/handle/frontend-audit/apis.csv`
-- Create: `docs/handle/frontend-audit/permissions.csv`
-- Create: `docs/handle/frontend-audit/assets.csv`
-- Create: `docs/handle/frontend-audit/dependencies.csv`
-- Create: `docs/handle/frontend-audit/licenses.md`
+- Create: `docs/phases/phase-1-frontend-foundation/audit/pages.csv`
+- Create: `docs/phases/phase-1-frontend-foundation/audit/routes.csv`
+- Create: `docs/phases/phase-1-frontend-foundation/audit/apis.csv`
+- Create: `docs/phases/phase-1-frontend-foundation/audit/permissions.csv`
+- Create: `docs/phases/phase-1-frontend-foundation/audit/assets.csv`
+- Create: `docs/phases/phase-1-frontend-foundation/audit/dependencies.csv`
+- Create: `docs/phases/phase-1-frontend-foundation/audit/licenses.md`
 - Create: `scripts/audit_legacy_frontend_inventory.mjs`
 - Create: `scripts/audit_legacy_frontend_inventory.test.mjs`
 
@@ -192,7 +192,7 @@ Expected: 全部退出码 0，且无 CSV 缺项、悬空引用或空许可证状
 - [ ] **Step 9: 提交**
 
 ```powershell
-git add web/legacy docs/handle/frontend-audit scripts/audit_legacy_frontend_inventory*
+git add web/legacy docs/phases/phase-1-frontend-foundation/audit scripts/audit_legacy_frontend_inventory*
 git commit -m "docs: restore and audit legacy frontends"
 ```
 
@@ -802,9 +802,9 @@ git commit -m "feat: route dashboard through migration manifest"
 - Create: `web/apps/dashboard/src/features/home/home-page.tsx`
 - Create: `web/apps/dashboard/src/features/home/home-page.test.tsx`
 - Modify: `web/apps/dashboard/src/migration-routes.json`
-- Modify: `docs/handle/frontend-audit/pages.csv`
-- Modify: `docs/handle/frontend-audit/routes.csv`
-- Modify: `docs/handle/frontend-audit/apis.csv`
+- Modify: `docs/phases/phase-1-frontend-foundation/audit/pages.csv`
+- Modify: `docs/phases/phase-1-frontend-foundation/audit/routes.csv`
+- Modify: `docs/phases/phase-1-frontend-foundation/audit/apis.csv`
 
 **Interfaces:**
 
@@ -859,7 +859,7 @@ Expected: 全部通过；manifest 和 CSV 状态一致。
 - [ ] **Step 7: 提交**
 
 ```powershell
-git add web/apps/dashboard/src/features web/apps/dashboard/src/migration-routes.json docs/handle/frontend-audit
+git add web/apps/dashboard/src/features web/apps/dashboard/src/migration-routes.json docs/phases/phase-1-frontend-foundation/audit
 git commit -m "feat: migrate dashboard foundation routes"
 ```
 

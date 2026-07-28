@@ -14,14 +14,14 @@ Usage: ./scripts/production_evidence_env_preflight.sh
 
 环境变量：
   MOCHAT_PRODUCTION_EVIDENCE_READINESS_JSON
-      doctor 生成的 JSON，默认 docs/evidence/production/readiness.json。
+      doctor 生成的 JSON，默认 docs/phases/phase-pre0-standalone/evidence/production/readiness.json。
   MOCHAT_PRODUCTION_EVIDENCE_ENV_FILE
-      待预检 env 文件，默认 docs/evidence/production/readiness.env.local。
+      待预检 env 文件，默认 docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local。
       建议由 readiness.env.todo 复制后填写，不要直接把密钥写入 readiness.env.todo。
   MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_OUT
-      输出 Markdown 报告，默认 docs/evidence/production/preflight.md。
+      输出 Markdown 报告，默认 docs/phases/phase-pre0-standalone/evidence/production/preflight.md。
   MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_JSON_OUT
-      输出机器可读 JSON，默认 docs/evidence/production/preflight.json。
+      输出机器可读 JSON，默认 docs/phases/phase-pre0-standalone/evidence/production/preflight.json。
   MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_STRICT
       设为 1 时，只要任一证据没有有效标准文件且采集环境仍未就绪即返回非 0，默认 0。
   MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_ALLOW_NON_PROD
@@ -253,10 +253,10 @@ def validate_value(name: str, value: str) -> list[str]:
     return errors
 
 
-readiness_json = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_READINESS_JSON", "docs/evidence/production/readiness.json"))
-env_file = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_ENV_FILE", "docs/evidence/production/readiness.env.local"))
-out_path = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_OUT", "docs/evidence/production/preflight.md"))
-json_out_path = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_JSON_OUT", "docs/evidence/production/preflight.json"))
+readiness_json = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_READINESS_JSON", "docs/phases/phase-pre0-standalone/evidence/production/readiness.json"))
+env_file = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_ENV_FILE", "docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local"))
+out_path = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_OUT", "docs/phases/phase-pre0-standalone/evidence/production/preflight.md"))
+json_out_path = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_JSON_OUT", "docs/phases/phase-pre0-standalone/evidence/production/preflight.json"))
 strict = bool_env("MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_STRICT", "0")
 allow_non_prod = bool_env("MOCHAT_PRODUCTION_EVIDENCE_PREFLIGHT_ALLOW_NON_PROD", "0")
 

@@ -2,8 +2,8 @@
 
 ## 单页迁移流程
 
-1. 从 `docs/handle/frontend-audit/pages.csv` 领取一条 `candidate`；`blocked` 项先解除许可证、账号、API 或资产阻塞。
-2. 在 pages、routes、apis、permissions、assets、dependencies 六类审计矩阵中补齐 API、权限和企业/租户基线；浏览器截图、视觉差异和命令输出记录到 `docs/evidence/frontend/<route-slug>/`，并在验收表引用。
+1. 从 `docs/phases/phase-1-frontend-foundation/audit/pages.csv` 领取一条 `candidate`；`blocked` 项先解除许可证、账号、API 或资产阻塞。
+2. 在 pages、routes、apis、permissions、assets、dependencies 六类审计矩阵中补齐 API、权限和企业/租户基线；浏览器截图、视觉差异和命令输出记录到 `docs/phases/phase-pre0-standalone/evidence/frontend/<route-slug>/`，并在验收表引用。
 3. 先写失败测试：页面单元测试、API 契约测试，以及对应的 Playwright 场景。
 4. 在所属 React app 实现页面；服务端数据交给 TanStack Query，客户端瞬时状态才进入 Zustand。
 5. 依次运行单页测试、契约测试、`frontend_check quick`、`frontend_check build` 和 `frontend_check e2e`。

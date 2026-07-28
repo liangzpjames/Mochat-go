@@ -8,7 +8,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
 Usage: MOCHAT_REAL_WECHAT_OPEN_BASE_URL=https://mochat-prod.your-domain.cn ./scripts/capture_real_wechat_open_evidence.sh
 
-用生产 API 和真实联调记录采集微信开放平台联调证据，生成 docs/evidence/production/real-wechat-open.md。
+用生产 API 和真实联调记录采集微信开放平台联调证据，生成 docs/phases/phase-pre0-standalone/evidence/production/real-wechat-open.md。
 
 必填环境变量：
   MOCHAT_REAL_WECHAT_OPEN_BASE_URL
@@ -34,7 +34,7 @@ Usage: MOCHAT_REAL_WECHAT_OPEN_BASE_URL=https://mochat-prod.your-domain.cn ./scr
 
 可选环境变量：
   MOCHAT_REAL_WECHAT_OPEN_OUT
-      输出 Markdown，默认 docs/evidence/production/real-wechat-open.md。
+      输出 Markdown，默认 docs/phases/phase-pre0-standalone/evidence/production/real-wechat-open.md。
   MOCHAT_REAL_WECHAT_OPEN_AUTH_HEADER
       认证头名，默认 Authorization。
   MOCHAT_REAL_WECHAT_OPEN_AUTH_PREFIX
@@ -175,7 +175,7 @@ async function main() {
   }
 
   const baseURL = env('MOCHAT_REAL_WECHAT_OPEN_BASE_URL');
-  const outputPath = env('MOCHAT_REAL_WECHAT_OPEN_OUT', 'docs/evidence/production/real-wechat-open.md');
+  const outputPath = env('MOCHAT_REAL_WECHAT_OPEN_OUT', 'docs/phases/phase-pre0-standalone/evidence/production/real-wechat-open.md');
   const token = env('MOCHAT_REAL_WECHAT_OPEN_TOKEN');
   const timeoutMs = Number(env('MOCHAT_REAL_WECHAT_OPEN_TIMEOUT_MS', '20000'));
   const expectedStatuses = parseStatusSet(env('MOCHAT_REAL_WECHAT_OPEN_EXPECTED_STATUS', '200'));

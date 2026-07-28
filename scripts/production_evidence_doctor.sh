@@ -14,13 +14,13 @@ Usage: ./scripts/production_evidence_doctor.sh
 
 环境变量：
   MOCHAT_PRODUCTION_EVIDENCE_DIR
-      生产证据目录，默认 docs/evidence/production。
+      生产证据目录，默认 docs/phases/phase-pre0-standalone/evidence/production。
   MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_OUT
-      输出报告，默认 docs/evidence/production/readiness.md。
+      输出报告，默认 docs/phases/phase-pre0-standalone/evidence/production/readiness.md。
   MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_JSON_OUT
-      输出机器可读 JSON，默认 docs/evidence/production/readiness.json。
+      输出机器可读 JSON，默认 docs/phases/phase-pre0-standalone/evidence/production/readiness.json。
   MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_ENV_OUT
-      输出待填写环境变量清单，默认 docs/evidence/production/readiness.env.todo。
+      输出待填写环境变量清单，默认 docs/phases/phase-pre0-standalone/evidence/production/readiness.env.todo。
   MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_RUN
       设为 1 时，对采集环境变量已齐备但标准证据缺失/需刷新的项目执行采集或导入脚本，默认 0。
   MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_STRICT
@@ -32,7 +32,7 @@ MySQL 5.7 amd64 证据导入需要设置：
   MOCHAT_MYSQL57_AMD64_EVIDENCE_SOURCE
 
 其他真实账号、SaaS、生产前端和稳定性证据所需变量见：
-  docs/evidence/production/README.md
+  docs/phases/phase-pre0-standalone/evidence/production/README.md
 
 该脚本不会启动 24 小时持续运行。
 EOF
@@ -159,7 +159,7 @@ def parse_gate_validations(json_path: pathlib.Path, report_path: pathlib.Path) -
     return validations
 
 
-evidence_dir = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_DIR", "docs/evidence/production"))
+evidence_dir = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_DIR", "docs/phases/phase-pre0-standalone/evidence/production"))
 out_path = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_OUT", str(evidence_dir / "readiness.md")))
 json_out_path = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_JSON_OUT", str(evidence_dir / "readiness.json")))
 env_out_path = to_path(os.environ.get("MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_ENV_OUT", str(evidence_dir / "readiness.env.todo")))
@@ -464,17 +464,17 @@ lines.extend(
         "",
         "环境变量齐备后执行采集/导入并复核：",
         "",
-        f"先复制 `{display_path(env_out_path)}` 为 `docs/evidence/production/readiness.env.local` 并填写，再执行预检：",
+        f"先复制 `{display_path(env_out_path)}` 为 `docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local` 并填写，再执行预检：",
         "",
         "```bash",
-        "MOCHAT_PRODUCTION_EVIDENCE_ENV_FILE=docs/evidence/production/readiness.env.local ./scripts/production_evidence_env_preflight.sh",
+        "MOCHAT_PRODUCTION_EVIDENCE_ENV_FILE=docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local ./scripts/production_evidence_env_preflight.sh",
         "```",
         "",
         "预检通过后加载变量并采集：",
         "",
         "```bash",
         "set -a",
-        ". docs/evidence/production/readiness.env.local",
+        ". docs/phases/phase-pre0-standalone/evidence/production/readiness.env.local",
         "set +a",
         "MOCHAT_PRODUCTION_EVIDENCE_DOCTOR_RUN=1 ./scripts/production_evidence_doctor.sh",
         "```",

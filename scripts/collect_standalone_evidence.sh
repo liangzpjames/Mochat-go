@@ -8,11 +8,11 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
 Usage: ./scripts/collect_standalone_evidence.sh
 
-生成本地短验收证据包，默认输出到 docs/evidence/latest/。
+生成本地短验收证据包，默认输出到 docs/phases/phase-pre0-standalone/evidence/latest/。
 
 环境变量：
   MOCHAT_LOCAL_EVIDENCE_DIR
-      输出目录，默认 docs/evidence/latest。
+      输出目录，默认 docs/phases/phase-pre0-standalone/evidence/latest。
   MOCHAT_LOCAL_EVIDENCE_ACCEPTANCE_SUITES
       要运行的非 PHP standalone_acceptance 套件，默认 core。
       支持空格或逗号分隔：core saas workers cron frontend mysql57。
@@ -40,7 +40,7 @@ EOF
   exit 0
 fi
 
-OUT_DIR="${MOCHAT_LOCAL_EVIDENCE_DIR:-docs/evidence/latest}"
+OUT_DIR="${MOCHAT_LOCAL_EVIDENCE_DIR:-docs/phases/phase-pre0-standalone/evidence/latest}"
 RESULTS_JSONL="$OUT_DIR/results.jsonl"
 POISON_SOURCE_ROOT="$OUT_DIR/should-not-read-php-source"
 POISON_MANIFEST="$OUT_DIR/should-not-read-manifest.json"

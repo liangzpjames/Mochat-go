@@ -14,7 +14,7 @@ test_path = repo / "internal/dashboard/wework_callback_worker_test.go"
 smoke_path = repo / "scripts/smoke_wework_callback_worker.sh"
 test_entry_path = repo / "scripts/test.sh"
 readme_path = repo / "README.md"
-gap_path = repo / "docs/standalone-gap.md"
+gap_path = repo / "docs/phases/phase-pre0-standalone/reports/standalone-gap.md"
 
 worker = worker_path.read_text(encoding="utf-8")
 tests = test_path.read_text(encoding="utf-8")

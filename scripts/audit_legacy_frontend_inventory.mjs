@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, extname, join, relative, resolve } from 'node:path';
 
 const sourceCommit = '3dcd216c188df34f2c3ed489b8e8b9473e635488';
-const auditDirectory = 'docs/handle/frontend-audit';
+const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
 const contractEvidenceFile = 'api-contract-evidence.csv';
 const contractGapFile = 'api-contract-gaps.csv';
 const contractEvidenceColumns = ['app', 'method', 'path', 'legacy_declarations', 'go_route_evidence', 'php_handler', 'client_consumers', 'response_evidence', 'scope_evidence'];

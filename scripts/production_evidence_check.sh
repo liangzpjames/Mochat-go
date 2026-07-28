@@ -440,8 +440,8 @@ lines.extend(
         "- 上线前设置 `MOCHAT_PRODUCTION_EVIDENCE_STRICT=1`，缺任一生产证据或本地门禁失败都会返回非 0。",
         "- 仅自检证据文件规则时可设置 `MOCHAT_PRODUCTION_EVIDENCE_SKIP_QUICK=1`；生产候选门禁不要跳过快速本地门禁。",
         "- 可设置 `MOCHAT_PRODUCTION_EVIDENCE_MIN_BYTES` 调整证据文件最小字节数，默认 `32`。",
-        "- 可设置 `MOCHAT_PRODUCTION_EVIDENCE_OUT=docs/production-evidence.md` 写入 Markdown 报告。",
-        "- 可设置 `MOCHAT_PRODUCTION_EVIDENCE_JSON_OUT=docs/production-evidence.json` 同步写入不含完整命令输出和密钥的机器可读 JSON。",
+        "- 可设置 `MOCHAT_PRODUCTION_EVIDENCE_OUT=docs/phases/phase-pre0-standalone/evidence/production-evidence.md` 写入 Markdown 报告。",
+        "- 可设置 `MOCHAT_PRODUCTION_EVIDENCE_JSON_OUT=docs/phases/phase-pre0-standalone/evidence/production-evidence.json` 同步写入不含完整命令输出和密钥的机器可读 JSON。",
         "- 生产证据文件必须脱敏；严格检查会拒绝疑似原始 Authorization、Bearer、access_token、corpsecret、password 等敏感值。",
         "- 每个生产证据文件必须记录当前 `scripts/source_fingerprint.py` 生成的源码指纹；指纹不匹配会被判定为过期证据。",
     ]
