@@ -1,0 +1,60 @@
+:root {
+  color: #17233d;
+  font-family:
+    Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: #f3f5f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.dashboard-shell {
+  min-height: 100vh;
+}
+
+.dashboard-header {
+  align-items: center;
+  background: #17233d;
+  color: #fff;
+  display: flex;
+  gap: 1rem;
+  height: 64px;
+  padding: 0 24px;
+}
+
+.dashboard-body {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: calc(100vh - 64px);
+}
+
+.dashboard-sidebar {
+  background: #fff;
+  border-right: 1px solid #e8e8e8;
+  padding: 20px 16px;
+}
+
+.dashboard-sidebar h2 {
+  font-size: 1rem;
+}
+
+.dashboard-content {
+  min-width: 0;
+  padding: 24px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-body {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-sidebar {
+    border-bottom: 1px solid #e8e8e8;
+    border-right: 0;
+  }
+}

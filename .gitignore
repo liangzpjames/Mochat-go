@@ -9,6 +9,9 @@ deploy/standalone/.env.local
 pnpm-debug.log*
 web/apps/saas-admin/.vite/
 web/apps/saas-admin/coverage/
+web/apps/dashboard/.vite/
+web/apps/dashboard/coverage/
+web/apps/dashboard/dist/
 web/packages/*/dist/
 
 # Local test, browser, and runtime artifacts
