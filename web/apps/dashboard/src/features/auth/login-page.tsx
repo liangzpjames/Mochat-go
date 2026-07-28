@@ -1,7 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { Session } from '@mochat/auth';
+import { Button, Card, Input, Typography } from 'antd';
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 
@@ -45,7 +46,7 @@ export function LoginPage({
   const {
     formState: { errors, isSubmitting },
     handleSubmit,
-    register,
+    control,
   } = useForm<LoginInput>({
     defaultValues: { phone: '', password: '' },
     resolver: zodResolver(loginSchema),
@@ -63,28 +64,81 @@ export function LoginPage({
   });
 
   return (
-    <main>
-      <h1>登录</h1>
-      <form onSubmit={(event) => void submit(event)}>
-        <label>
-          手机号
-          <input autoComplete="username" {...register('phone')} />
-        </label>
-        {errors.phone?.message && <div>{errors.phone.message}</div>}
-        <label>
-          密码
-          <input
-            autoComplete="current-password"
-            type="password"
-            {...register('password')}
+    <main className="login-page">
+      <section className="login-brand" aria-label="MoChat 产品介绍">
+        <div className="login-brand-mark" aria-hidden="true">M</div>
+        <p className="login-brand-name">MoChat</p>
+        <Typography.Title level={1}>企业客户运营平台</Typography.Title>
+        <Typography.Paragraph>
+          统一管理企业、客户与运营能力，安全进入你的工作空间。
+        </Typography.Paragraph>
+      </section>
+      <Card className="login-card" variant="borderless">
+        <div className="login-card-heading">
+          <Typography.Text className="login-eyebrow">
+            企业管理后台
+          </Typography.Text>
+          <Typography.Title level={2}>登录</Typography.Title>
+          <Typography.Paragraph>
+            使用管理员手机号和密码继续
+          </Typography.Paragraph>
+        </div>
+        <form
+          className="login-form"
+          onSubmit={(event) => void submit(event)}
+        >
+          <label htmlFor="login-phone">手机号</label>
+          <Controller
+            control={control}
+            name="phone"
+            render={({ field }) => (
+              <Input
+                {...field}
+                autoComplete="username"
+                id="login-phone"
+                placeholder="请输入手机号"
+                size="large"
+              />
+            )}
           />
-        </label>
-        {errors.password?.message && <div>{errors.password.message}</div>}
-        {serverError !== null && <div role="alert">{serverError}</div>}
-        <button disabled={isSubmitting} type="submit">
-          {isSubmitting ? '登录中…' : '登录'}
-        </button>
-      </form>
+          {errors.phone?.message && (
+            <div className="login-field-error">{errors.phone.message}</div>
+          )}
+          <label htmlFor="login-password">密码</label>
+          <Controller
+            control={control}
+            name="password"
+            render={({ field }) => (
+              <Input.Password
+                {...field}
+                autoComplete="current-password"
+                id="login-password"
+                placeholder="请输入密码"
+                size="large"
+              />
+            )}
+          />
+          {errors.password?.message && (
+            <div className="login-field-error">{errors.password.message}</div>
+          )}
+          {serverError !== null && (
+            <div className="login-server-error" role="alert">
+              {serverError}
+            </div>
+          )}
+          <Button
+            aria-label={isSubmitting ? '登录中…' : '登录'}
+            block
+            disabled={isSubmitting}
+            htmlType="submit"
+            loading={isSubmitting}
+            size="large"
+            type="primary"
+          >
+            {isSubmitting ? '登录中…' : '登录'}
+          </Button>
+        </form>
+      </Card>
     </main>
   );
 }

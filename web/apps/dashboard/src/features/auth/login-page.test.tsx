@@ -43,6 +43,17 @@ function submitCredentials() {
 }
 
 describe('LoginPage', () => {
+  it('renders the branded Ant Design login surface', () => {
+    renderLogin();
+
+    expect(screen.getByRole('main').className).toContain('login-page');
+    expect(screen.getByText('企业管理后台')).toBeTruthy();
+    expect(screen.getByLabelText('手机号').className).toContain('ant-input');
+    expect(screen.getByRole('button', { name: '登录' }).className).toContain(
+      'ant-btn',
+    );
+  });
+
   it('validates empty fields before sending a request', async () => {
     const props = renderLogin();
 
