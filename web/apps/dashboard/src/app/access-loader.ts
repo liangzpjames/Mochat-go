@@ -11,6 +11,7 @@ import {
 export type AccessContext = {
   session: Session;
   corp: CorpOption;
+  menu: readonly MenuNode[];
   allowedRoutes: ReadonlySet<string>;
   allowedActions: ReadonlySet<string>;
 };
@@ -77,6 +78,7 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
       return {
         session,
         corp,
+        menu,
         allowedRoutes: routes,
         allowedActions: actions,
       };

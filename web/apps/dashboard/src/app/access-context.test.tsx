@@ -29,6 +29,7 @@ describe('DashboardAccessProvider', () => {
     const value: AccessContext = {
       session,
       corp: { id: '3', name: '迁移企业', authorized: true },
+      menu: [],
       allowedRoutes: new Set(['/contact/index']),
       allowedActions: new Set(['/contact@delete']),
     };

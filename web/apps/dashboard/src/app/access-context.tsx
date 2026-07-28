@@ -29,3 +29,7 @@ export function useDashboardAccess(): AccessContext {
   }
   return value;
 }
+
+export function useOptionalDashboardAccess(): AccessContext | null {
+  return useContext(DashboardAccessContext);
+}

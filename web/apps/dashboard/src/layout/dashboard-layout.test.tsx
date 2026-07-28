@@ -68,6 +68,44 @@ describe('Dashboard shell', () => {
     expect(screen.getByRole('main')).toBeTruthy();
   });
 
+  it('renders authorized menu routes and the SaaS Admin entry', async () => {
+    renderDashboard({
+      session: true,
+      accessLoader: () => Promise.resolve({
+        session: {
+          token: 'Bearer test',
+          userId: '7',
+          corpId: '12',
+          expiresAt: null,
+        },
+        corp: { id: '12', name: '测试企业', authorized: true },
+        menu: [{
+          name: '客户管理',
+          icon: null,
+          linkUrl: null,
+          linkType: 1,
+          children: [{
+            name: '客户列表',
+            icon: null,
+            linkUrl: '/workContact/index',
+            linkType: 1,
+            children: [],
+          }],
+        }],
+        allowedRoutes: new Set(['/workContact/index']),
+        allowedActions: new Set(),
+      }),
+    });
+
+    expect(
+      (await screen.findByRole('link', { name: '客户列表' })).getAttribute('href'),
+    ).toBe('/workContact/index');
+    expect(
+      screen.getByRole('link', { name: 'SaaS 管理后台' }).getAttribute('href'),
+    ).toBe('/saas-admin/');
+    expect(screen.queryByText('菜单将在权限加载后显示')).toBeNull();
+  });
+
   it('renders the React 404 page for an unknown route', async () => {
     renderDashboard({ session: true, initialPath: '/not-registered' });
 

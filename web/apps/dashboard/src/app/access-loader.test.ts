@@ -136,6 +136,7 @@ describe('createAccessLoader', () => {
     });
 
     expect(result).toMatchObject({ session, corp: corps[0] });
+    expect(result).toMatchObject({ menu: menus });
     expect(result).not.toHaveProperty('state');
   });
 

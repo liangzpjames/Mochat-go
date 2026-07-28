@@ -27,6 +27,33 @@ body {
   padding: 0 24px;
 }
 
+.dashboard-brand,
+.dashboard-admin-link {
+  color: #fff;
+  text-decoration: none;
+}
+
+.dashboard-brand {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-product-name {
+  color: #c9d2e3;
+}
+
+.dashboard-admin-link {
+  border: 1px solid rgb(255 255 255 / 36%);
+  border-radius: 6px;
+  margin-left: auto;
+  padding: 7px 12px;
+}
+
+.dashboard-admin-link:hover {
+  background: rgb(255 255 255 / 10%);
+}
+
 .dashboard-body {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -41,6 +68,40 @@ body {
 
 .dashboard-sidebar h2 {
   font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.dashboard-corp-name,
+.dashboard-menu-empty {
+  color: #7c879c;
+  font-size: 0.875rem;
+}
+
+.dashboard-menu-list {
+  display: grid;
+  gap: 4px;
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.dashboard-menu-link {
+  border-radius: 6px;
+  color: #344054;
+  display: block;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+
+.dashboard-menu-link:hover {
+  background: #f2f5fa;
+  color: #1677ff;
+}
+
+.dashboard-menu-link-active {
+  background: #eaf3ff;
+  color: #0958d9;
+  font-weight: 600;
 }
 
 .dashboard-content {
