@@ -84,7 +84,7 @@ export function createApiClient(options: ApiClientOptions): {
           code: envelope.code,
         });
       }
-      if (envelope.code !== 0) {
+      if (envelope.code !== 0 && envelope.code !== 200) {
         throw new ApiError('validation', envelope.msg, {
           status: response.status,
           code: envelope.code,

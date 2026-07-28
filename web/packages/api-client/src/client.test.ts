@@ -75,6 +75,23 @@ describe('createApiClient', () => {
     expect(result).toEqual({ id: '7' });
   });
 
+  it('accepts the dashboard API success code', async () => {
+    server.use(
+      http.get('https://api.example.test/dashboard/user/loginShow', () =>
+        HttpResponse.json({ code: 200, msg: 'success', data: { userId: 7 } }),
+      ),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/dashboard/',
+      getToken: () => null,
+      onUnauthorized: vi.fn(),
+    });
+
+    const result = await client.request<{ userId: number }>('/user/loginShow');
+
+    expect(result).toEqual({ userId: 7 });
+  });
+
   it('maps a 401 response and invokes onUnauthorized exactly once', async () => {
     server.use(
       http.get('https://api.example.test/private', () =>
