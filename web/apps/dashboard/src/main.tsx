@@ -24,6 +24,8 @@ import { loadMenu } from './features/navigation/menu-api';
 import { buildMenuAccess } from './features/navigation/menu-tree';
 import { createPasswordApi } from './features/password/password-api';
 import { PasswordPage } from './features/password/password-page';
+import { createEmployeeApi } from './features/employee/employee-api';
+import { EmployeePage } from './features/employee/employee-page';
 import './styles/index.css';
 
 const rootElement = document.getElementById('root');
@@ -47,6 +49,7 @@ const loginClient = createApiClient({
 const queryClient = createDashboardQueryClient();
 const corpAdminApi = createCorpAdminApi(apiClient);
 const passwordApi = createPasswordApi(apiClient);
+const employeeApi = createEmployeeApi(apiClient);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -87,6 +90,7 @@ const router = createDashboardRouter({
         }}
       />
     ),
+    '/workEmployee/index': <EmployeePage api={employeeApi} />,
   },
   renderAccess: (access, children) => (
     <CorpProvider

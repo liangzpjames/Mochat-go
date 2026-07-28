@@ -127,6 +127,18 @@ describe('Dashboard shell', () => {
     expect(await screen.findByRole('heading', { name: '修改密码' })).toBeTruthy();
   });
 
+  it('renders the migrated employee page at its existing route', async () => {
+    renderDashboard({
+      session: true,
+      initialPath: '/workEmployee/index',
+      reactPages: {
+        '/workEmployee/index': <h1>企业成员</h1>,
+      },
+    });
+
+    expect(await screen.findByRole('heading', { name: '企业成员' })).toBeTruthy();
+  });
+
   it('renders the route error boundary when initial data loading fails', async () => {
     renderDashboard({
       session: true,

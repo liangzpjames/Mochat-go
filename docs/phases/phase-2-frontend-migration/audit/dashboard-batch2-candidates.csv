@@ -1,8 +1,7 @@
 order,route,source_file,risk,status,api_contract_count,go_evidence_count
-1,/workEmployee/index,web/legacy/dashboard/src/views/workEmployee/index.vue,medium,legacy,3,3
-2,/department/index,web/legacy/dashboard/src/views/department/index.vue,medium,legacy,4,4
-3,/contactField/index,web/legacy/dashboard/src/views/contactField/index.vue,medium,legacy,6,6
-4,/role/index,web/legacy/dashboard/src/views/role/index.vue,medium,legacy,7,7
-5,/menu/index,web/legacy/dashboard/src/views/menu/index.vue,medium,legacy,8,8
-6,/user/index,web/legacy/dashboard/src/views/user/index.vue,medium,legacy,8,8
-7,/workContactTag/index,web/legacy/dashboard/src/views/workContactTag/index.vue,medium,legacy,11,11
+1,/department/index,web/legacy/dashboard/src/views/department/index.vue,medium,legacy,4,4
+2,/contactField/index,web/legacy/dashboard/src/views/contactField/index.vue,medium,legacy,6,6
+3,/role/index,web/legacy/dashboard/src/views/role/index.vue,medium,legacy,7,7
+4,/menu/index,web/legacy/dashboard/src/views/menu/index.vue,medium,legacy,8,8
+5,/user/index,web/legacy/dashboard/src/views/user/index.vue,medium,legacy,8,8
+6,/workContactTag/index,web/legacy/dashboard/src/views/workContactTag/index.vue,medium,legacy,11,11
