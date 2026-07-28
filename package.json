@@ -8,6 +8,7 @@
   "scripts": {
     "check:audit": "node scripts/audit_legacy_frontend_inventory.mjs --check",
     "check:deps": "node scripts/check_frontend_dependency_policy.mjs",
+    "docs:check": "node scripts/check_documentation_structure.mjs",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --filter=!@mochat/e2e --if-present test",
