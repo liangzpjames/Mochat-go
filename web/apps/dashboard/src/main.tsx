@@ -26,6 +26,8 @@ import { createPasswordApi } from './features/password/password-api';
 import { PasswordPage } from './features/password/password-page';
 import { createEmployeeApi } from './features/employee/employee-api';
 import { EmployeePage } from './features/employee/employee-page';
+import { createDepartmentApi } from './features/department/department-api';
+import { DepartmentPage } from './features/department/department-page';
 import './styles/index.css';
 
 const rootElement = document.getElementById('root');
@@ -50,6 +52,7 @@ const queryClient = createDashboardQueryClient();
 const corpAdminApi = createCorpAdminApi(apiClient);
 const passwordApi = createPasswordApi(apiClient);
 const employeeApi = createEmployeeApi(apiClient);
+const departmentApi = createDepartmentApi(apiClient);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -91,6 +94,15 @@ const router = createDashboardRouter({
       />
     ),
     '/workEmployee/index': <EmployeePage api={employeeApi} />,
+    '/department/index': (
+      <DepartmentPage
+        api={{
+          ...departmentApi,
+          conditions: () => employeeApi.conditions(),
+          sync: () => employeeApi.sync(),
+        }}
+      />
+    ),
   },
   renderAccess: (access, children) => (
     <CorpProvider

@@ -29,7 +29,7 @@ dashboard,web/legacy/dashboard/src/views/contactTransfer/workAllotRecord.vue,/co
 dashboard,web/legacy/dashboard/src/views/contactTransfer/workIndex.vue,/contactTransfer/workIndex,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/corp/index.vue,/corp/index,react,medium,phase1-batch1
 dashboard,web/legacy/dashboard/src/views/corpData/index.vue,/corpData/index,legacy,high,dashboard-batch3
-dashboard,web/legacy/dashboard/src/views/department/index.vue,/department/index,legacy,medium,dashboard-batch2
+dashboard,web/legacy/dashboard/src/views/department/index.vue,/department/index,react,medium,dashboard-batch2
 dashboard,web/legacy/dashboard/src/views/error/404.vue,/404,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/greeting/components/department.vue,-,legacy,high,dashboard-batch3
 dashboard,web/legacy/dashboard/src/views/greeting/components/upload.vue,-,legacy,high,dashboard-batch3
