@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-统一底座 Task 1–10 已执行并验收，但仍处于发布纠偏状态。技术基础闭环不等于前端产品全量迁移完成。
+已完成。统一底座 Task 1–10 与发布纠偏均已实施并通过本地验收。技术基础闭环不等于前端产品全量迁移完成。
 
 ## 实施前状态
 
@@ -23,12 +23,12 @@ Dashboard、Sidebar、Operation 和 SaaS Admin 没有统一 workspace、共享�
 - manifest 当前包含 61 条 Dashboard 路由：`/corp/index` 为 React，60 条为 legacy。
 - 登录、企业上下文、权限、错误边界和路由决策已有自动化覆盖。
 - 前端审计矩阵、迁移 Runbook 和 Windows/Linux 验收证据已形成。
+- Dashboard 与 SaaS Admin 已同时进入 Docker 镜像，`/` 与 `/saas-admin/` 返回不同应用及独立资源。
+- Dashboard Shell 已按权限菜单生成可点击导航，并提供 SaaS 管理后台入口。
+- 登录页已使用 Ant Design 完成产品化视觉与响应式布局。
 
-## 未完成与阻塞
+## 转入后续阶段的风险
 
-- Dockerfile 漏构建和复制 SaaS Admin dist，`/saas-admin/` 当前错误返回 Dashboard。
-- Dashboard 菜单数据尚未形成完整的可点击导航。
-- 登录页只实现功能骨架，视觉质量低于原 Vue 页面。
 - Dashboard bundle 约 1.19 MB，后续迁移需拆包。
 - 真实账号、真实 SaaS 租户和生产证据仍缺失。
 - 前端审计测试有 2 项既有失败，原因是 `internal/dashboard/corp_admin_test.go` 不存在。
@@ -42,5 +42,4 @@ Dashboard、Sidebar、Operation 和 SaaS Admin 没有统一 workspace、共享�
 
 ## 下一阶段入口
 
-先完成 SaaS Admin Docker 发布纠偏，再进入 [Phase 2：前端逐页迁移](../phase-2-frontend-migration/README.md)。
-
+进入 [Phase 2：前端逐页迁移](../phase-2-frontend-migration/README.md)，先建立页面 metadata override 和批次基线。

@@ -47,3 +47,19 @@ Phase 1 的 workspace、共享契约、Dashboard React 单入口、身份与企�
 - Dashboard 首包约 1.19 MB，当前仅告警；后续批次需要按页面切分。
 - legacy 页面 E2E 已验证 Go 路由和静态 document，后续应增加关键资源及可见业务内容断言。
 - 生产 readiness 六项仍受真实账号、租户、基础设施与运行证据阻塞。
+
+## 发布纠偏补充验收（2026-07-28）
+
+Phase 1 的发布链路、可达导航和登录表现已完成纠偏：
+
+| command | result |
+| --- | --- |
+| `node --test scripts/check_frontend_release_chain.test.mjs` | 3/3 通过，静态验证 Dockerfile、同步脚本和 compose smoke 同时识别两套应用 |
+| `pnpm --filter @mochat/dashboard test` | 13 个文件、56 项测试通过 |
+| Dashboard `typecheck` / `lint` / `build` | 全部通过；首包体积告警保留给 Phase 2 拆包 |
+| Docker Compose 重建 | `standalone-app-1`、MariaDB、Redis 均 healthy |
+| `GET /`、`GET /login`、`GET /saas-admin/` | 均为 200 |
+| Dashboard 与 SaaS HTML 身份比较 | 内容不同；分别引用 `/assets/index-B-R-tSYK.js` 与 `/saas-admin/assets/index-DaXsz8ef.js` |
+| SaaS 静态资源请求 | 200 |
+
+对应提交：`9f93cd9`（双应用发布）、`aa42a52`（授权导航）、`9a7eb1c`（登录呈现）。本地测试入口保持为 `http://127.0.0.1:18090/` 与 `http://127.0.0.1:18090/saas-admin/`。

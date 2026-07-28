@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-未开始，尚未建立可计算的任务完成比例。
+设计完成，实施未开始；尚未建立可计算的任务完成比例。
 
 ## 实施前状态
 
@@ -10,8 +10,8 @@
 - React 业务页面只有 `/corp/index`。
 - 60 条 Dashboard 路由仍使用 legacy。
 - Sidebar 和 Operation 尚未迁移。
-- React Shell 缺少完整导航渠道。
-- SaaS Admin Docker 发布缺失必须先修复。
+- React Shell 已提供授权导航和 SaaS Admin 入口。
+- SaaS Admin 已作为独立产物进入 Docker 发布链路。
 - 审计中还有 134 条页面未分配 owner、risk 和 batch。
 
 ## 阶段目标
@@ -25,6 +25,7 @@
 
 - 已建立逐页迁移 Runbook、六类审计矩阵和显式 manifest 机制。
 - 已通过 `/corp/index` 证明单路由 React 切换闭环。
+- 已完成 [Phase 2 迁移设计](plans/2026-07-28-phase2-frontend-migration-design.md)。
 
 ## 未完成与阻塞
 
@@ -40,4 +41,3 @@
 ## 下一阶段入口
 
 第一项实施是 page metadata override 与防覆盖测试；完成后生成 Dashboard batch 2 候选顺序。
-
