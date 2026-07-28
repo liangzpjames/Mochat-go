@@ -28,6 +28,8 @@ import { createEmployeeApi } from './features/employee/employee-api';
 import { EmployeePage } from './features/employee/employee-page';
 import { createDepartmentApi } from './features/department/department-api';
 import { DepartmentPage } from './features/department/department-page';
+import { createContactFieldApi } from './features/contact-field/contact-field-api';
+import { ContactFieldPage } from './features/contact-field/contact-field-page';
 import './styles/index.css';
 
 const rootElement = document.getElementById('root');
@@ -53,6 +55,7 @@ const corpAdminApi = createCorpAdminApi(apiClient);
 const passwordApi = createPasswordApi(apiClient);
 const employeeApi = createEmployeeApi(apiClient);
 const departmentApi = createDepartmentApi(apiClient);
+const contactFieldApi = createContactFieldApi(apiClient);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -103,6 +106,7 @@ const router = createDashboardRouter({
         }}
       />
     ),
+    '/contactField/index': <ContactFieldPage api={contactFieldApi} />,
   },
   renderAccess: (access, children) => (
     <CorpProvider

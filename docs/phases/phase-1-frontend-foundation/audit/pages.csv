@@ -18,7 +18,7 @@ dashboard,web/legacy/dashboard/src/views/channelCode/store.vue,/channelCode/stor
 dashboard,web/legacy/dashboard/src/views/chatTool/components/settingSteps.vue,-,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/chatTool/customer.vue,/chatTool/customer,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/chatTool/enhance.vue,/chatTool/enhance,legacy,high,dashboard-batch4
-dashboard,web/legacy/dashboard/src/views/contactField/index.vue,/contactField/index,legacy,medium,dashboard-batch2
+dashboard,web/legacy/dashboard/src/views/contactField/index.vue,/contactField/index,react,medium,dashboard-batch2
 dashboard,web/legacy/dashboard/src/views/contactMessageBatchSend/index.vue,/contactMessageBatchSend/index,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/contactMessageBatchSend/show.vue,/contactMessageBatchSend/show,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/contactMessageBatchSend/store.vue,/contactMessageBatchSend/store,legacy,high,dashboard-batch4
