@@ -34,6 +34,8 @@ import { createRoleApi } from './features/role/role-api';
 import { RolePage } from './features/role/role-page';
 import { createMenuAdminApi } from './features/menu-admin/menu-admin-api';
 import { MenuAdminPage } from './features/menu-admin/menu-admin-page';
+import { createUserAdminApi } from './features/user-admin/user-admin-api';
+import { UserAdminPage } from './features/user-admin/user-admin-page';
 import './styles/index.css';
 
 const rootElement = document.getElementById('root');
@@ -62,6 +64,7 @@ const departmentApi = createDepartmentApi(apiClient);
 const contactFieldApi = createContactFieldApi(apiClient);
 const roleApi = createRoleApi(apiClient);
 const menuAdminApi = createMenuAdminApi(apiClient);
+const userAdminApi = createUserAdminApi(apiClient);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -116,6 +119,7 @@ const router = createDashboardRouter({
     '/role/index': <RolePage api={roleApi}
       navigate={(path) => void routerRef.current?.navigate(path)} />,
     '/menu/index': <MenuAdminPage api={menuAdminApi} />,
+    '/user/index': <UserAdminPage api={userAdminApi} />,
   },
   renderAccess: (access, children) => (
     <CorpProvider

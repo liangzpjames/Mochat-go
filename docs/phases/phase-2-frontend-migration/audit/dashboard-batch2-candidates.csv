@@ -1,3 +1,2 @@
 order,route,source_file,risk,status,api_contract_count,go_evidence_count
-1,/user/index,web/legacy/dashboard/src/views/user/index.vue,medium,legacy,8,8
-2,/workContactTag/index,web/legacy/dashboard/src/views/workContactTag/index.vue,medium,legacy,11,11
+1,/workContactTag/index,web/legacy/dashboard/src/views/workContactTag/index.vue,medium,legacy,11,11
