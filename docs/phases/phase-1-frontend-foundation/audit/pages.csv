@@ -44,7 +44,7 @@ dashboard,web/legacy/dashboard/src/views/mediumGroup/index.vue,/mediumGroup/inde
 dashboard,web/legacy/dashboard/src/views/menu/index.vue,/menu/index,legacy,medium,dashboard-batch2
 dashboard,web/legacy/dashboard/src/views/officialAccount/create.vue,/officialAccount/create,legacy,critical,blocked-external
 dashboard,web/legacy/dashboard/src/views/officialAccount/index.vue,/officialAccount/index,legacy,critical,blocked-external
-dashboard,web/legacy/dashboard/src/views/passwordUpdate/index.vue,/passwordUpdate/index,legacy,medium,dashboard-batch2
+dashboard,web/legacy/dashboard/src/views/passwordUpdate/index.vue,/passwordUpdate/index,react,medium,dashboard-batch2
 dashboard,web/legacy/dashboard/src/views/radar/components/addSourceTitle.vue,-,legacy,high,dashboard-batch3
 dashboard,web/legacy/dashboard/src/views/radar/components/clickDetails.vue,-,legacy,high,dashboard-batch3
 dashboard,web/legacy/dashboard/src/views/radar/components/share.vue,-,legacy,high,dashboard-batch3

@@ -22,6 +22,8 @@ import { CorpPage } from './features/corp/corp-page';
 import { CorpProvider } from './features/corp/corp-provider';
 import { loadMenu } from './features/navigation/menu-api';
 import { buildMenuAccess } from './features/navigation/menu-tree';
+import { createPasswordApi } from './features/password/password-api';
+import { PasswordPage } from './features/password/password-page';
 import './styles/index.css';
 
 const rootElement = document.getElementById('root');
@@ -44,6 +46,7 @@ const loginClient = createApiClient({
 });
 const queryClient = createDashboardQueryClient();
 const corpAdminApi = createCorpAdminApi(apiClient);
+const passwordApi = createPasswordApi(apiClient);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -75,6 +78,15 @@ const router = createDashboardRouter({
   loadInitialData: () => Promise.resolve(),
   reactPages: {
     '/corp/index': <CorpPage api={corpAdminApi} />,
+    '/passwordUpdate/index': (
+      <PasswordPage
+        api={passwordApi}
+        onUpdated={() => {
+          authStore.clearSession();
+          void routerRef.current?.navigate('/login');
+        }}
+      />
+    ),
   },
   renderAccess: (access, children) => (
     <CorpProvider

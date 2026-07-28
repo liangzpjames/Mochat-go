@@ -383,6 +383,12 @@ export default { created () { example({ id: 1 }) } }
     writeManifest(root);
 
     runInitialize(root);
+    replace(
+      root,
+      pageMetadataOverrideFile,
+      'dashboard,web/legacy/dashboard/src/views/department/index.vue,/department/index,legacy,medium,dashboard-batch2',
+      'dashboard,web/legacy/dashboard/src/views/department/index.vue,/department/index,react,medium,dashboard-batch2',
+    );
     runRefresh(root);
 
     const reportPath = join(root, dashboardBatch2CandidateFile);
@@ -401,15 +407,6 @@ export default { created () { example({ id: 1 }) } }
       [
         {
           order: '1',
-          route: '/department/index',
-          source_file: 'web/legacy/dashboard/src/views/department/index.vue',
-          risk: 'medium',
-          status: 'legacy',
-          api_contract_count: '0',
-          go_evidence_count: '0',
-        },
-        {
-          order: '2',
           route: '/role/index',
           source_file: 'web/legacy/dashboard/src/views/role/index.vue',
           risk: 'medium',

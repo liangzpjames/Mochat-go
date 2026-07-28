@@ -1042,6 +1042,7 @@ function dashboardBatch2Candidates(pages, contractEvidence) {
   const riskOrder = { low: 0, medium: 1, high: 2, critical: 3 };
   return pages
     .filter((page) => page.app === 'dashboard'
+      && page.status === 'legacy'
       && page.batch === 'dashboard-batch2'
       && !['-', '*', '/', '/404', '/login'].includes(page.route))
     .map((page) => {
