@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -11,6 +11,8 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const auditScript = join(repositoryRoot, 'scripts', 'audit_legacy_frontend_inventory.mjs');
 const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
 const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'];
+const unassignedPageFile = 'docs/phases/phase-2-frontend-migration/audit/unassigned-pages.csv';
+const unassignedPageColumns = [...pageMetadataOverrideColumns, 'blocking_fields'];
 const columns = {
   'pages.csv': 'app,source_file,route,status,owner,risk,batch',
   'routes.csv': 'app,path,name,source_file,auth,corp_context,permission,render_target',
@@ -76,6 +78,7 @@ export default { created () { example({ id: 1 }) } }
     pageMetadataOverrideFile,
     `${pageMetadataOverrideColumns.join(',')}\ndashboard,${view},/example,candidate,frontend-platform,low,phase2-batch2\n`,
   );
+  write(root, unassignedPageFile, `${unassignedPageColumns.join(',')}\n`);
   writeManifest(root);
   return root;
 }
@@ -203,6 +206,40 @@ test('page metadata override survives refresh while discovered facts still updat
       { status: 'candidate', owner: 'frontend-platform', risk: 'low', batch: 'phase2-batch2' },
     );
     assert.equal(readFileSync(overridePath, 'utf8'), updatedOverride);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('unassigned page report is deterministic and lists blocking fields', () => {
+  const root = createFixture();
+  try {
+    const unassignedView = 'web/legacy/dashboard/src/views/unassigned/index.vue';
+    write(root, unassignedView, '<template><main>unassigned</main></template>\n');
+    writeManifest(root);
+
+    runRefresh(root);
+
+    assert.equal(existsSync(join(root, unassignedPageFile)), true);
+    const rows = csvObjects(root, unassignedPageFile);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].source_file, unassignedView);
+    assert.equal(rows[0].blocking_fields, 'owner;batch');
+    const before = readFileSync(join(root, unassignedPageFile), 'utf8');
+    runRefresh(root);
+    assert.equal(readFileSync(join(root, unassignedPageFile), 'utf8'), before);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('audit rejects a stale unassigned page report', () => {
+  const root = createFixture();
+  try {
+    replace(root, unassignedPageFile, unassignedPageColumns.join(','), `${unassignedPageColumns.join(',')}\ndashboard,stale,-,legacy,unassigned,medium,unassigned,owner;batch`);
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: unassigned-pages\.csv: report is stale; run npm run refresh:audit/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

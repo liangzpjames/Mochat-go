@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-设计完成，实施未开始；尚未建立可计算的任务完成比例。
+实施已开始；page metadata 基线已建立，尚未建立可计算的任务完成比例。
 
 ## 实施前状态
 
@@ -26,11 +26,12 @@
 - 已建立逐页迁移 Runbook、六类审计矩阵和显式 manifest 机制。
 - 已通过 `/corp/index` 证明单路由 React 切换闭环。
 - 已完成 [Phase 2 迁移设计](plans/2026-07-28-phase2-frontend-migration-design.md)。
+- page metadata override 与防覆盖测试已实现。
+- 当前阻塞页面已发布至 [未分配页面清单](audit/unassigned-pages.csv)。
 
 ## 未完成与阻塞
 
-- page metadata override 尚未实现，运行审计刷新可能覆盖人工批次元数据。
-- 134 条页面尚未分配负责人、风险和批次。
+- 134 条页面尚未在 override 文件中完成 owner、risk 和 batch 决策；完成前不发布阶段完成比例，也不确定 Dashboard Batch 2 首批路由。
 - 部分 legacy 资产的许可证或来源未确认。
 - 真实企微、微信开放平台及租户数据不足以验收复杂页面。
 
@@ -40,4 +41,4 @@
 
 ## 下一阶段入口
 
-第一项实施是 page metadata override 与防覆盖测试；完成后生成 Dashboard batch 2 候选顺序。
+为 134 条阻塞页面分配 owner、risk 和 batch，随后生成 Dashboard Batch 2 候选顺序。

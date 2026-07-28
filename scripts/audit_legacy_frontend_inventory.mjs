@@ -7,6 +7,7 @@ const sourceCommit = '3dcd216c188df34f2c3ed489b8e8b9473e635488';
 const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
 const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
 const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'];
+const unassignedPageFile = 'docs/phases/phase-2-frontend-migration/audit/unassigned-pages.csv';
 const contractEvidenceFile = 'api-contract-evidence.csv';
 const contractGapFile = 'api-contract-gaps.csv';
 const contractEvidenceColumns = ['app', 'method', 'path', 'legacy_declarations', 'go_route_evidence', 'php_handler', 'client_consumers', 'response_evidence', 'scope_evidence'];
@@ -21,6 +22,7 @@ const specifications = {
   'assets.csv': { columns: ['app', 'source_file', 'kind', 'license_status', 'used_by'], key: (row) => `${row.app}:${row.source_file}`, sourceColumns: ['source_file'] },
   'dependencies.csv': { columns: ['app', 'package', 'legacy_range', 'replacement', 'decision', 'risk'], key: (row) => `${row.app}:${row.package}`, sourceColumns: [] },
 };
+const unassignedPageColumns = [...specifications['pages.csv'].columns, 'blocking_fields'];
 
 function normalize(file) { return file.replaceAll('\\', '/'); }
 function rootFile(root, file) { return resolve(root, file); }
@@ -978,6 +980,18 @@ function mergePageMetadata(pages, overrides) {
   }));
 }
 
+function unassignedPages(pages) {
+  return pages
+    .filter((page) => page.owner === 'unassigned' || page.batch === 'unassigned')
+    .map((page) => ({
+      ...page,
+      blocking_fields: [
+        page.owner === 'unassigned' ? 'owner' : '',
+        page.batch === 'unassigned' ? 'batch' : '',
+      ].filter(Boolean).join(';'),
+    }));
+}
+
 function readInventory(root, errors) {
   const result = {};
   for (const [file, specification] of Object.entries(specifications)) {
@@ -1128,6 +1142,11 @@ function audit(root) {
   const contractEvidence = readContractRows(root, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   const contractGaps = readContractRows(root, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
   validateManifest(root, errors); compareCoverage(inventory, generated, errors); comparePageMetadata(inventory, expectedPages, errors); compareDerivedEvidence(inventory, generated, errors);
+  const expectedUnassignedPages = csvWithColumns(unassignedPageColumns, unassignedPages(expectedPages));
+  if (!fileExists(root, unassignedPageFile)
+    || readFileSync(rootFile(root, unassignedPageFile), 'utf8').replaceAll('\r\n', '\n') !== expectedUnassignedPages) {
+    errors.push('frontend-audit: unassigned-pages.csv: report is stale; run npm run refresh:audit');
+  }
   compareContractRows(contractEvidence, artifacts.contractEvidence, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   compareContractRows(contractGaps, artifacts.contractGaps, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
   for (const api of inventory['apis.csv'] ?? []) {
@@ -1181,7 +1200,9 @@ function refresh(root) {
     'pages.csv': mergePageMetadata(artifacts.inventory['pages.csv'], pageMetadataOverrides),
   };
   mkdirSync(rootFile(root, auditDirectory), { recursive: true } );
+  mkdirSync(dirname(rootFile(root, unassignedPageFile)), { recursive: true });
   for (const [file, rows] of Object.entries(inventory)) writeFileSync(rootFile(root, `${auditDirectory}/${file}`), csv(file, rows));
+  writeFileSync(rootFile(root, unassignedPageFile), csvWithColumns(unassignedPageColumns, unassignedPages(inventory['pages.csv'])));
   writeFileSync(rootFile(root, `${auditDirectory}/${contractEvidenceFile}`), csvWithColumns(contractEvidenceColumns, artifacts.contractEvidence));
   writeFileSync(rootFile(root, `${auditDirectory}/${contractGapFile}`), csvWithColumns(contractGapColumns, artifacts.contractGaps));
   const sources = applications.flatMap((app) => walk(root, `web/legacy/${app}`)).sort();
