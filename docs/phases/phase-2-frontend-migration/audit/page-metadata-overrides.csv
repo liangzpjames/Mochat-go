@@ -48,7 +48,7 @@ dashboard,web/legacy/dashboard/src/views/passwordUpdate/index.vue,/passwordUpdat
 dashboard,web/legacy/dashboard/src/views/radar/components/addSourceTitle.vue,-,legacy,high,dashboard-batch3
 dashboard,web/legacy/dashboard/src/views/radar/components/clickDetails.vue,-,legacy,high,dashboard-batch3
 dashboard,web/legacy/dashboard/src/views/radar/components/share.vue,-,legacy,high,dashboard-batch3
-dashboard,web/legacy/dashboard/src/views/role/index.vue,/role/index,legacy,medium,dashboard-batch2
+dashboard,web/legacy/dashboard/src/views/role/index.vue,/role/index,react,medium,dashboard-batch2
 dashboard,web/legacy/dashboard/src/views/role/permissionShow.vue,/role/permissionShow,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/roomCalendar/components/group.vue,-,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/roomCalendar/components/setCalnder.vue,-,legacy,high,dashboard-batch4

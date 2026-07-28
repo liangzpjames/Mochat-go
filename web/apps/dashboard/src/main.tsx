@@ -30,6 +30,8 @@ import { createDepartmentApi } from './features/department/department-api';
 import { DepartmentPage } from './features/department/department-page';
 import { createContactFieldApi } from './features/contact-field/contact-field-api';
 import { ContactFieldPage } from './features/contact-field/contact-field-page';
+import { createRoleApi } from './features/role/role-api';
+import { RolePage } from './features/role/role-page';
 import './styles/index.css';
 
 const rootElement = document.getElementById('root');
@@ -56,6 +58,7 @@ const passwordApi = createPasswordApi(apiClient);
 const employeeApi = createEmployeeApi(apiClient);
 const departmentApi = createDepartmentApi(apiClient);
 const contactFieldApi = createContactFieldApi(apiClient);
+const roleApi = createRoleApi(apiClient);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -107,6 +110,8 @@ const router = createDashboardRouter({
       />
     ),
     '/contactField/index': <ContactFieldPage api={contactFieldApi} />,
+    '/role/index': <RolePage api={roleApi}
+      navigate={(path) => void routerRef.current?.navigate(path)} />,
   },
   renderAccess: (access, children) => (
     <CorpProvider
