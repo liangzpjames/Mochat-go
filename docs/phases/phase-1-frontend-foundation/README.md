@@ -31,7 +31,7 @@ Dashboard、Sidebar、Operation 和 SaaS Admin 没有统一 workspace、共享�
 
 - Dashboard bundle 约 1.19 MB，后续迁移需拆包。
 - 真实账号、真实 SaaS 租户和生产证据仍缺失。
-- 前端审计测试有 2 项既有失败，原因是 `internal/dashboard/corp_admin_test.go` 不存在。
+- 前端审计测试已恢复为 30/30 通过；Windows Go 路径分隔符和 POSIX 权限断言仍作为平台限制记录。
 
 ## 验收与证据
 

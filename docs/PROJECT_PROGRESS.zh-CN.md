@@ -33,7 +33,7 @@
 
 1. **迁移基线未完成。** 开始 Dashboard batch 2 前，必须给 134 条未分配页面补齐 owner、risk 和 batch，并保护元数据不被 `--refresh` 覆盖。
 2. **外部证据缺失。** 真实企微、微信开放平台、SaaS 租户及生产环境证据仍未提供。
-3. **既有测试限制。** Windows 环境存在既有 Go 路径/权限问题；前端审计测试还有 2 项因 `internal/dashboard/corp_admin_test.go` 不存在而失败。
+3. **既有测试限制。** Windows 环境仍存在 Go 路径分隔符和 POSIX 权限断言问题；前端审计测试已恢复为 30/30 通过。
 4. **性能风险。** Dashboard 首包约 1.19 MB，Phase 2 必须按页面切分。
 
 ## 精确下一任务

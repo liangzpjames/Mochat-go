@@ -57,6 +57,11 @@ export default { created () { example({ id: 1 }) } }
   write(root, asset, '<svg/>\n');
   write(root, 'web/legacy/dashboard/package.json', '{"dependencies":{"vue":"^2.6.10"}}\n');
   write(root, 'web/legacy/README.md', '# Legacy frontend reference sources\n\n- Source commit: `3dcd216c188df34f2c3ed489b8e8b9473e635488`\n');
+  write(
+    root,
+    'internal/dashboard/corp_admin_test.go',
+    readFileSync(join(repositoryRoot, 'internal/dashboard/corp_admin_test.go'), 'utf8'),
+  );
   const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
   write(root, `${auditDirectory}/pages.csv`, `${columns['pages.csv']}\ndashboard,${view},-,legacy,frontend,low,1\ndashboard,${router},/example,legacy,frontend,low,1\n`);
   write(root, `${auditDirectory}/routes.csv`, `${columns['routes.csv']}\ndashboard,/example,example,${router},required,required,*,spa\n`);
@@ -642,7 +647,7 @@ export function login (data) {
   return request({ url: '/user/auth', method: 'post', data })
 }
 export function updateCorp (data) {
-  return request({ url: '/corp/update', method: 'put', data })
+  return request({ url: '/api/corp-update-example', method: 'put', data })
 }
 export function scoped (params) {
   return request({ url: '/api/scoped', method: 'get', params })
@@ -687,8 +692,8 @@ func scopedHandler(w http.ResponseWriter, r *http.Request) {
     const api = (path) => apis.find((item) => item.path === path);
     assert.equal(api('/user/auth').response_fields, 'fields:expire;token');
     assert.match(api('/user/auth').corp_scope, /^public-unscoped@/);
-    assert.equal(api('/corp/update').response_fields, 'fields:updated');
-    assert.match(api('/corp/update').corp_scope, /^explicit:corpId@/);
+    assert.equal(api('/api/corp-update-example').response_fields, 'fields:updated');
+    assert.match(api('/api/corp-update-example').corp_scope, /^explicit:corpId@/);
     assert.equal(api('/api/scoped').response_fields, 'fields:items');
     assert.match(api('/api/scoped').corp_scope, /^server-current-enterprise@internal\/server\/example\.go/);
     assert.match(api('/api/blocked').response_fields, /^blocked\[[^\]]+\]@web\/legacy\/dashboard\/src\/api\/example\.js$/);

@@ -61,5 +61,6 @@ Phase 1 的发布链路、可达导航和登录表现已完成纠偏：
 | `GET /`、`GET /login`、`GET /saas-admin/` | 均为 200 |
 | Dashboard 与 SaaS HTML 身份比较 | 内容不同；分别引用 `/assets/index-B-R-tSYK.js` 与 `/saas-admin/assets/index-DaXsz8ef.js` |
 | SaaS 静态资源请求 | 200 |
+| `node --test scripts/audit_legacy_frontend_inventory.test.mjs` | 30/30 通过；临时审计夹具已包含 Corp Admin Go 契约证据，语义测试不再与真实 `/corp/update` 固定覆盖冲突 |
 
 对应提交：`9f93cd9`（双应用发布）、`aa42a52`（授权导航）、`9a7eb1c`（登录呈现）。本地测试入口保持为 `http://127.0.0.1:18090/` 与 `http://127.0.0.1:18090/saas-admin/`。
