@@ -90,7 +90,7 @@ function runAudit(root) {
 }
 
 function runRefresh(root) {
-  return execFileSync(process.execPath, [auditScript, '--refresh', '--check', '--root', root], { encoding: 'utf8' });
+  return execFileSync(process.execPath, [auditScript, '--refresh', '--check', '--root', root], { encoding: 'utf8', stdio: 'pipe' });
 }
 
 function replace(root, relativePath, from, to) {
@@ -163,6 +163,46 @@ test('page metadata override rejects unsupported risk levels', () => {
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
     assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:2: risk must be low, medium, high, or critical/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata override survives refresh while discovered facts still update', () => {
+  const root = createFixture();
+  try {
+    const overridePath = join(root, pageMetadataOverrideFile);
+    const before = readFileSync(overridePath, 'utf8');
+
+    runRefresh(root);
+
+    let page = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/pages.csv')
+      .find((row) => row.source_file.includes('/views/example/'));
+    assert.deepEqual(
+      { status: page.status, owner: page.owner, risk: page.risk, batch: page.batch },
+      { status: 'candidate', owner: 'frontend-platform', risk: 'low', batch: 'phase2-batch2' },
+    );
+    assert.equal(readFileSync(overridePath, 'utf8'), before);
+
+    replace(root, 'web/legacy/dashboard/src/router/asyncRouter.js', "path: '/example'", "path: '/renamed'");
+    writeManifest(root);
+    assert.throws(
+      () => runRefresh(root),
+      /frontend-audit: page-metadata-overrides\.csv:2: override does not match a discovered page/,
+    );
+
+    replace(root, pageMetadataOverrideFile, '/example,candidate', '/renamed,candidate');
+    const updatedOverride = readFileSync(overridePath, 'utf8');
+    runRefresh(root);
+
+    page = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/pages.csv')
+      .find((row) => row.source_file.includes('/views/example/'));
+    assert.equal(page.route, '/renamed');
+    assert.deepEqual(
+      { status: page.status, owner: page.owner, risk: page.risk, batch: page.batch },
+      { status: 'candidate', owner: 'frontend-platform', risk: 'low', batch: 'phase2-batch2' },
+    );
+    assert.equal(readFileSync(overridePath, 'utf8'), updatedOverride);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -1,1 +1,2 @@
 app,source_file,route,status,owner,risk,batch
+dashboard,web/legacy/dashboard/src/views/corp/index.vue,/corp/index,react,frontend-platform,medium,phase1-batch1

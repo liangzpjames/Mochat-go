@@ -971,6 +971,13 @@ function readPageMetadataOverrides(root, pages, errors) {
   return overrides;
 }
 
+function mergePageMetadata(pages, overrides) {
+  return pages.map((page) => ({
+    ...page,
+    ...(overrides.get(specifications['pages.csv'].key(page)) ?? {}),
+  }));
+}
+
 function readInventory(root, errors) {
   const result = {};
   for (const [file, specification] of Object.entries(specifications)) {
@@ -1054,6 +1061,17 @@ function compareCoverage(inventory, generated, errors) {
     for (const key of [...actual].sort()) if (!expected.has(key)) errors.push(`frontend-audit: ${file}:1: inventory ${labels[file]} is not discovered: ${key}`);
   }
 }
+function comparePageMetadata(inventory, expected, errors) {
+  const specification = specifications['pages.csv'];
+  const actualByKey = new Map((inventory['pages.csv'] ?? []).map((row) => [specification.key(row), row]));
+  for (const expectedRow of expected) {
+    const actual = actualByKey.get(specification.key(expectedRow));
+    if (!actual) continue;
+    for (const column of ['status', 'owner', 'risk', 'batch']) {
+      if (actual[column] !== expectedRow[column]) errors.push(`frontend-audit: pages.csv:${actual.rowNumber}: ${column} must match page metadata ${expectedRow[column]}`);
+    }
+  }
+}
 function compareDerivedEvidence(inventory, generated, errors) {
   const apiSpecification = specifications['apis.csv']; const expectedApis = new Map((generated['apis.csv'] ?? []).map((row) => [apiSpecification.key(row), row]));
   for (const api of inventory['apis.csv'] ?? []) {
@@ -1105,10 +1123,11 @@ function validateGoTestReference(root, value, label, errors, contract) {
 
 function audit(root) {
   const errors = []; const inventory = readInventory(root, errors); const artifacts = generatedArtifacts(root); const generated = artifacts.inventory;
-  readPageMetadataOverrides(root, generated['pages.csv'], errors);
+  const pageMetadataOverrides = readPageMetadataOverrides(root, generated['pages.csv'], errors);
+  const expectedPages = mergePageMetadata(generated['pages.csv'], pageMetadataOverrides);
   const contractEvidence = readContractRows(root, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   const contractGaps = readContractRows(root, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
-  validateManifest(root, errors); compareCoverage(inventory, generated, errors); compareDerivedEvidence(inventory, generated, errors);
+  validateManifest(root, errors); compareCoverage(inventory, generated, errors); comparePageMetadata(inventory, expectedPages, errors); compareDerivedEvidence(inventory, generated, errors);
   compareContractRows(contractEvidence, artifacts.contractEvidence, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   compareContractRows(contractGaps, artifacts.contractGaps, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
   for (const api of inventory['apis.csv'] ?? []) {
@@ -1154,9 +1173,13 @@ function audit(root) {
 }
 
 function refresh(root) {
-  const artifacts = generatedArtifacts(root); const inventory = artifacts.inventory; const errors = [];
-  readPageMetadataOverrides(root, inventory['pages.csv'], errors);
+  const artifacts = generatedArtifacts(root); const errors = [];
+  const pageMetadataOverrides = readPageMetadataOverrides(root, artifacts.inventory['pages.csv'], errors);
   if (errors.length) throw new Error(errors.join('\n'));
+  const inventory = {
+    ...artifacts.inventory,
+    'pages.csv': mergePageMetadata(artifacts.inventory['pages.csv'], pageMetadataOverrides),
+  };
   mkdirSync(rootFile(root, auditDirectory), { recursive: true } );
   for (const [file, rows] of Object.entries(inventory)) writeFileSync(rootFile(root, `${auditDirectory}/${file}`), csv(file, rows));
   writeFileSync(rootFile(root, `${auditDirectory}/${contractEvidenceFile}`), csvWithColumns(contractEvidenceColumns, artifacts.contractEvidence));
