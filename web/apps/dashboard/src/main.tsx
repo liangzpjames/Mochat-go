@@ -36,6 +36,8 @@ import { createMenuAdminApi } from './features/menu-admin/menu-admin-api';
 import { MenuAdminPage } from './features/menu-admin/menu-admin-page';
 import { createUserAdminApi } from './features/user-admin/user-admin-api';
 import { UserAdminPage } from './features/user-admin/user-admin-page';
+import { createContactTagApi } from './features/contact-tag/contact-tag-api';
+import { ContactTagPage } from './features/contact-tag/contact-tag-page';
 import './styles/index.css';
 
 const rootElement = document.getElementById('root');
@@ -65,6 +67,7 @@ const contactFieldApi = createContactFieldApi(apiClient);
 const roleApi = createRoleApi(apiClient);
 const menuAdminApi = createMenuAdminApi(apiClient);
 const userAdminApi = createUserAdminApi(apiClient);
+const contactTagApi = createContactTagApi(apiClient);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -120,6 +123,7 @@ const router = createDashboardRouter({
       navigate={(path) => void routerRef.current?.navigate(path)} />,
     '/menu/index': <MenuAdminPage api={menuAdminApi} />,
     '/user/index': <UserAdminPage api={userAdminApi} />,
+    '/workContactTag/index': <ContactTagPage api={contactTagApi} />,
   },
   renderAccess: (access, children) => (
     <CorpProvider

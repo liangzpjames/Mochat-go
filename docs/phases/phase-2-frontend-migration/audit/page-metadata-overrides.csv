@@ -80,7 +80,7 @@ dashboard,web/legacy/dashboard/src/views/user/index.vue,/user/index,react,medium
 dashboard,web/legacy/dashboard/src/views/workContact/components/department.vue,-,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/workContact/contactFieldPivot.vue,/workContact/contactFieldPivot,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/workContact/index.vue,/workContact/index,legacy,high,dashboard-batch4
-dashboard,web/legacy/dashboard/src/views/workContactTag/index.vue,/workContactTag/index,legacy,medium,dashboard-batch2
+dashboard,web/legacy/dashboard/src/views/workContactTag/index.vue,/workContactTag/index,react,medium,dashboard-batch2
 dashboard,web/legacy/dashboard/src/views/workEmployee/index.vue,/workEmployee/index,react,medium,dashboard-batch2
 dashboard,web/legacy/dashboard/src/views/workFission/components/create/step/step1.vue,-,legacy,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/workFission/components/create/step/step2.vue,-,legacy,high,dashboard-batch4
