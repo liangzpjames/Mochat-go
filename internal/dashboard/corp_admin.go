@@ -175,7 +175,7 @@ func (h *CorpAdminHandler) Show(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, loginInfo, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
@@ -189,6 +189,10 @@ func (h *CorpAdminHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "企业授信ID 必填", nil)
 		return
 	}
+	if !userCanAccessCorpID(user, loginInfo, corpID) {
+		writeAccessError(w, ErrPermissionDenied)
+		return
+	}
 
 	corp, found, err := h.store.CorpDetailByID(r.Context(), corpID)
 	if err != nil {
@@ -197,6 +201,10 @@ func (h *CorpAdminHandler) Show(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "当前企业信息不存在", nil)
+		return
+	}
+	if corp.TenantID != user.TenantID {
+		writeAccessError(w, ErrPermissionDenied)
 		return
 	}
 
@@ -209,7 +217,7 @@ func (h *CorpAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, loginInfo, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
@@ -227,12 +235,19 @@ func (h *CorpAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	if !userCanAccessCorpID(user, loginInfo, values.CorpID) {
+		writeAccessError(w, ErrPermissionDenied)
+		return
+	}
 
-	if _, found, err := h.store.CorpDetailByID(r.Context(), values.CorpID); err != nil {
+	if corp, found, err := h.store.CorpDetailByID(r.Context(), values.CorpID); err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	} else if !found {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "当前企业信息不存在，不可操作", nil)
+		return
+	} else if corp.TenantID != user.TenantID {
+		writeAccessError(w, ErrPermissionDenied)
 		return
 	}
 
@@ -372,6 +387,18 @@ func (h *CorpAdminHandler) authorize(ctx context.Context, r *http.Request, userI
 		corpID = loginInfo.CorpIDs[0]
 	}
 	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID)
+}
+
+func userCanAccessCorpID(user User, loginInfo LoginCorpInfo, corpID int) bool {
+	if user.IsSuperAdmin == 1 {
+		return true
+	}
+	for _, allowedCorpID := range loginInfo.CorpIDs {
+		if allowedCorpID == corpID {
+			return true
+		}
+	}
+	return false
 }
 
 type corpUpdateRequest struct {

@@ -235,7 +235,8 @@ function findGoEvidence(root, app, method, path, sources = loadGoSources(root)) 
   return sources.find(({ content }) => goContentHasContract(content, method, contract))?.file ?? '-';
 }
 function evidenceHasContract(root, evidence, app, method, path) {
-  const content = readFileSync(rootFile(root, evidence), 'utf8'); const contract = mountedPath(app, path);
+  const file = evidence.split('#', 1)[0];
+  const content = readFileSync(rootFile(root, file), 'utf8'); const contract = mountedPath(app, path);
   return goContentHasContract(content, method, contract);
 }
 function clientSemantics(app) {
@@ -879,6 +880,51 @@ function generatedArtifacts(root) {
     });
     return { ...item, response_fields: response.value, auth: clientSemantics(item.app).auth, corp_scope: scope.value, go_evidence };
   });
+  const verifiedCorpContracts = new Map([
+    ['dashboard:GET:/corp/index', {
+      go: 'internal/dashboard/corp_admin_test.go#TestCorpAdminIndexReturnsPHPCompatiblePage',
+      response: 'fields:list;page',
+      responseEvidence: 'internal/dashboard/corp_admin_test.go#TestCorpAdminIndexReturnsPHPCompatiblePage',
+      scope: 'server-current-enterprise@internal/dashboard/corp_admin_test.go#TestCorpAdminIndexRestrictsNormalUserToLoginCorpIDs',
+      scopeEvidence: 'internal/dashboard/corp_admin_test.go#TestCorpAdminIndexRestrictsNormalUserToLoginCorpIDs',
+    }],
+    ['dashboard:GET:/corp/show', {
+      go: 'internal/dashboard/corp_admin_test.go#TestCorpAdminShowAppendsCallbackCID',
+      response: 'fields:contactSecret;corpId;corpName;employeeSecret;encodingAesKey;eventCallback;socialCode;tenantId;token;wxCorpId',
+      responseEvidence: 'internal/dashboard/corp_admin_test.go#TestCorpAdminShowAppendsCallbackCID',
+      scope: 'explicit:corpId@internal/dashboard/corp_admin_test.go#TestCorpAdminShowRejectsCorpOutsideCurrentUserScope',
+      scopeEvidence: 'internal/dashboard/corp_admin_test.go#TestCorpAdminShowRejectsCorpOutsideCurrentUserScope',
+    }],
+    ['dashboard:POST:/corp/store', {
+      go: 'internal/dashboard/corp_admin_test.go#TestCorpAdminStoreCreatesCorpAndCachesSelection',
+      response: 'fields:none',
+      responseEvidence: 'internal/dashboard/corp_admin_test.go#TestCorpAdminStoreCreatesCorpAndCachesSelection',
+      scope: 'server-current-tenant@internal/dashboard/corp_admin_test.go#TestCorpAdminStoreCreatesCorpAndCachesSelection',
+      scopeEvidence: 'internal/dashboard/corp_admin_test.go#TestCorpAdminStoreCreatesCorpAndCachesSelection',
+    }],
+    ['dashboard:PUT:/corp/update', {
+      go: 'internal/dashboard/corp_admin_test.go#TestCorpAdminUpdateWritesEditableFields',
+      response: 'fields:none',
+      responseEvidence: 'internal/dashboard/corp_admin_test.go#TestCorpAdminUpdateWritesEditableFields',
+      scope: 'explicit:corpId@internal/dashboard/corp_admin_test.go#TestCorpAdminUpdateRejectsCorpOutsideTenant',
+      scopeEvidence: 'internal/dashboard/corp_admin_test.go#TestCorpAdminUpdateRejectsCorpOutsideTenant',
+    }],
+  ]);
+  for (const api of apis) {
+    const override = verifiedCorpContracts.get(`${api.app}:${api.method}:${api.path}`);
+    if (!override) continue;
+    api.response_fields = override.response;
+    api.corp_scope = override.scope;
+    api.go_evidence = override.go;
+    const evidence = contractEvidence.find((row) => row.app === api.app && row.method === api.method && row.path === api.path);
+    if (evidence) {
+      evidence.go_route_evidence = override.go;
+      evidence.response_evidence = override.responseEvidence;
+      evidence.scope_evidence = override.scopeEvidence;
+    }
+  }
+  const remainingContractGaps = contractGaps.filter((gap) => !verifiedCorpContracts.has(`${gap.app}:${gap.method}:${gap.path}`));
+  contractGaps.splice(0, contractGaps.length, ...remainingContractGaps);
   const inventory = {
     'pages.csv': found.pages.map((item) => ({ ...item, route: item.route ?? '-', status: 'legacy', owner: 'unassigned', risk: 'medium', batch: 'unassigned' })),
     'routes.csv': found.routes.map((item) => ({ ...item, ...clientSemantics(item.app), auth: routeAuth(item.app, item.path), corp_context: clientSemantics(item.app).corp, permission: actionEvidence(root, item.path, item.component), render_target: clientSemantics(item.app).target })),
@@ -996,6 +1042,37 @@ function compareDerivedEvidence(inventory, generated, errors) {
   }
 }
 
+function goTestFunctionSource(source, testName) {
+  const start = source.indexOf(`func ${testName}(`);
+  if (start < 0) return '';
+  const bodyStart = source.indexOf('{', start);
+  if (bodyStart < 0) return '';
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  return '';
+}
+
+function validateGoTestReference(root, value, label, errors, contract) {
+  const match = /(?:^|@)(internal\/[^#]+_test\.go)#([A-Za-z_][A-Za-z0-9_]*)$/.exec(value);
+  if (!match) return;
+  const [, file, testName] = match;
+  if (!fileExists(root, file)) {
+    errors.push(`frontend-audit: ${label}: Go test evidence file does not exist: ${file}`);
+    return;
+  }
+  const source = readFileSync(rootFile(root, file), 'utf8');
+  const testSource = goTestFunctionSource(source, testName);
+  if (!testSource) {
+    errors.push(`frontend-audit: ${label}: Go test evidence symbol does not exist: ${testName}`);
+  } else if (contract && !goContentHasContract(testSource, contract.method, mountedPath(contract.app, contract.path))) {
+    errors.push(`frontend-audit: ${label}: Go test evidence does not prove ${contract.method} ${mountedPath(contract.app, contract.path)}`);
+  }
+}
+
 function audit(root) {
   const errors = []; const inventory = readInventory(root, errors); const artifacts = generatedArtifacts(root); const generated = artifacts.inventory;
   const contractEvidence = readContractRows(root, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
@@ -1003,7 +1080,16 @@ function audit(root) {
   validateManifest(root, errors); compareCoverage(inventory, generated, errors); compareDerivedEvidence(inventory, generated, errors);
   compareContractRows(contractEvidence, artifacts.contractEvidence, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   compareContractRows(contractGaps, artifacts.contractGaps, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
-  for (const page of inventory['pages.csv'] ?? []) if (!['legacy', 'candidate', 'blocked'].includes(page.status)) errors.push(`frontend-audit: pages.csv:${page.rowNumber}: status must be legacy, candidate, or blocked`);
+  for (const api of inventory['apis.csv'] ?? []) {
+    validateGoTestReference(root, api.go_evidence, `apis.csv:${api.rowNumber}:go_evidence`, errors, api);
+    validateGoTestReference(root, api.corp_scope, `apis.csv:${api.rowNumber}:corp_scope`, errors, api);
+  }
+  for (const evidence of contractEvidence) {
+    validateGoTestReference(root, evidence.go_route_evidence, `${contractEvidenceFile}:${evidence.rowNumber}:go_route_evidence`, errors, evidence);
+    validateGoTestReference(root, evidence.response_evidence, `${contractEvidenceFile}:${evidence.rowNumber}:response_evidence`, errors, evidence);
+    validateGoTestReference(root, evidence.scope_evidence, `${contractEvidenceFile}:${evidence.rowNumber}:scope_evidence`, errors, evidence);
+  }
+  for (const page of inventory['pages.csv'] ?? []) if (!['legacy', 'candidate', 'react', 'blocked'].includes(page.status)) errors.push(`frontend-audit: pages.csv:${page.rowNumber}: status must be legacy, candidate, react, or blocked`);
   const pages = new Set((inventory['pages.csv'] ?? []).map((page) => `${page.app}:${page.route}`));
   for (const route of inventory['routes.csv'] ?? []) if (!pages.has(`${route.app}:${route.path}`)) errors.push(`frontend-audit: routes.csv:${route.rowNumber}: route "${route.path}" has no matching page`);
   const routes = new Set((inventory['routes.csv'] ?? []).map((route) => `${route.app}:${route.path}`));
@@ -1016,7 +1102,7 @@ function audit(root) {
     }
     if (['/dashboard', '/sidebar', '/operation'].includes(api.corp_scope)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: corp_scope cannot be an application mount prefix`);
     if (!/^explicit:[A-Za-z_$][\w$]*(?:;[A-Za-z_$][\w$]*)*@.+$/.test(api.corp_scope)
-      && !/^(?:server-current-enterprise|public-unscoped)@.+$/.test(api.corp_scope)
+      && !/^(?:server-current-enterprise|server-current-tenant|public-unscoped)@.+$/.test(api.corp_scope)
       && !/^blocked\[[a-z0-9-]+\]@.+$/.test(api.corp_scope)) {
       errors.push(`frontend-audit: apis.csv:${api.rowNumber}: corp_scope must be explicit, server-current-enterprise, public-unscoped, or blocked[reason]@evidence`);
     }
@@ -1028,7 +1114,8 @@ function audit(root) {
     }
   }
   for (const api of inventory['apis.csv'] ?? []) if (api.go_evidence !== '-') {
-    if (!api.go_evidence.startsWith('internal/') || !/^internal\/(server|dashboard|store)\/.+\.go$/.test(api.go_evidence) || !fileExists(root, api.go_evidence)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence must be '-' or an existing Go path under internal/server, internal/dashboard, or internal/store`);
+    const goEvidenceFile = api.go_evidence.split('#', 1)[0];
+    if (!goEvidenceFile.startsWith('internal/') || !/^internal\/(server|dashboard|store)\/.+\.go$/.test(goEvidenceFile) || !fileExists(root, goEvidenceFile)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence must be '-' or an existing Go path under internal/server, internal/dashboard, or internal/store`);
     else if (!evidenceHasContract(root, api.go_evidence, api.app, api.method, api.path)) errors.push(`frontend-audit: apis.csv:${api.rowNumber}: go_evidence does not prove ${api.method} ${mountedPath(api.app, api.path)}`);
   }
   for (const [file, rows] of Object.entries(inventory)) for (const row of rows) for (const [column, value] of Object.entries(row)) if (column !== 'rowNumber' && /\b(TBD|TODO|unknown)\b/i.test(value)) errors.push(`frontend-audit: ${file}:${row.rowNumber}: ${column} contains a prohibited placeholder`);

@@ -121,10 +121,29 @@ func TestCorpAdminShowAppendsCallbackCID(t *testing.T) {
 	}
 }
 
+func TestCorpAdminShowRejectsCorpOutsideCurrentUserScope(t *testing.T) {
+	store := &fakeCorpAdminStore{
+		users: map[int]User{2: {ID: 2, TenantID: 10}},
+		details: map[int]CorpDetail{
+			4: {ID: 4, Name: "鍏朵粬浼佷笟", TenantID: 10},
+		},
+	}
+	handler := NewCorpAdminHandler(store, staticAdminCache("3-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/corp/show?corpId=4", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "2")
+	rec := httptest.NewRecorder()
+	handler.Show(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCorpAdminUpdateWritesEditableFields(t *testing.T) {
 	store := &fakeCorpAdminStore{
 		users:   map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
-		details: map[int]CorpDetail{3: {ID: 3, Name: "旧企业"}},
+		details: map[int]CorpDetail{3: {ID: 3, Name: "旧企业", TenantID: 10}},
 	}
 	handler := NewCorpAdminHandler(store, staticAdminCache("3-0"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
@@ -142,6 +161,27 @@ func TestCorpAdminUpdateWritesEditableFields(t *testing.T) {
 	}
 	if store.updatedValues.Name != "新企业" || store.updatedValues.WxCorpID != "wx-new" {
 		t.Fatalf("updatedValues = %+v", store.updatedValues)
+	}
+}
+
+func TestCorpAdminUpdateRejectsCorpOutsideTenant(t *testing.T) {
+	store := &fakeCorpAdminStore{
+		users:   map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		details: map[int]CorpDetail{3: {ID: 3, Name: "other tenant corp", TenantID: 11}},
+	}
+	handler := NewCorpAdminHandler(store, staticAdminCache("3-0"), HeaderUserIDResolver{}, &recordingAuthorizer{})
+
+	req := httptest.NewRequest(http.MethodPut, "/dashboard/corp/update", bytes.NewBufferString(`{"corpId":3,"corpName":"updated corp","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Update(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.updatedCorpID != 0 {
+		t.Fatalf("update should not run, got corpID %d", store.updatedCorpID)
 	}
 }
 

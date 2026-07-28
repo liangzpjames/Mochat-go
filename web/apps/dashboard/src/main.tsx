@@ -17,6 +17,8 @@ import {
   bindCorp,
   loadCorps,
 } from './features/corp/corp-api';
+import { createCorpAdminApi } from './features/corp/corp-admin-api';
+import { CorpPage } from './features/corp/corp-page';
 import { CorpProvider } from './features/corp/corp-provider';
 import { loadMenu } from './features/navigation/menu-api';
 import { buildMenuAccess } from './features/navigation/menu-tree';
@@ -41,6 +43,7 @@ const loginClient = createApiClient({
   onUnauthorized: () => undefined,
 });
 const queryClient = createDashboardQueryClient();
+const corpAdminApi = createCorpAdminApi(apiClient);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -70,6 +73,9 @@ const router = createDashboardRouter({
   authenticate: (input) => authenticate(loginClient, input),
   getSession: () => authStore.getSession(),
   loadInitialData: () => Promise.resolve(),
+  reactPages: {
+    '/corp/index': <CorpPage api={corpAdminApi} />,
+  },
   renderAccess: (access, children) => (
     <CorpProvider
       bindCorp={(corpId) => bindCorp(apiClient, corpId)}

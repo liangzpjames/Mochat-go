@@ -24,7 +24,7 @@ dashboard,/contactTransfer/resignAllotRecord,contactTransferResignAllotRecord,we
 dashboard,/contactTransfer/resignIndex,contactTransferResignIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/contactTransfer/workAllotRecord,contactTransferWorkAllotRecord,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/contactTransfer/workIndex,contactTransferWorkIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
-dashboard,/corp/index,corpIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,addwx;check;edit;search,dashboard-spa
+dashboard,/corp/index,corpIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,addwx;check;edit;search,react-dashboard
 dashboard,/corpData/index,systemHomePage,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,implicit-route-access,dashboard-spa
 dashboard,/department/index,departmentIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,check;search;sync,dashboard-spa
 dashboard,/greeting/index,greetingIndex,web/legacy/dashboard/src/router/asyncRouter.js,ACCESS_TOKEN,dashboard-corp-context,delete;edit,dashboard-spa

@@ -27,7 +27,7 @@ dashboard,web/legacy/dashboard/src/views/contactTransfer/resignAllotRecord.vue,/
 dashboard,web/legacy/dashboard/src/views/contactTransfer/resignIndex.vue,/contactTransfer/resignIndex,legacy,unassigned,medium,unassigned
 dashboard,web/legacy/dashboard/src/views/contactTransfer/workAllotRecord.vue,/contactTransfer/workAllotRecord,legacy,unassigned,medium,unassigned
 dashboard,web/legacy/dashboard/src/views/contactTransfer/workIndex.vue,/contactTransfer/workIndex,legacy,unassigned,medium,unassigned
-dashboard,web/legacy/dashboard/src/views/corp/index.vue,/corp/index,legacy,unassigned,medium,unassigned
+dashboard,web/legacy/dashboard/src/views/corp/index.vue,/corp/index,react,frontend-platform,medium,phase1-batch1
 dashboard,web/legacy/dashboard/src/views/corpData/index.vue,/corpData/index,legacy,unassigned,medium,unassigned
 dashboard,web/legacy/dashboard/src/views/department/index.vue,/department/index,legacy,unassigned,medium,unassigned
 dashboard,web/legacy/dashboard/src/views/error/404.vue,/404,legacy,unassigned,medium,unassigned
