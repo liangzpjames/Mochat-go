@@ -38,6 +38,7 @@ type Config struct {
 	OperationBaseURL                                   string
 	FileStorageRoot                                    string
 	DashboardDist                                      string
+	LegacyDashboardDist                                string
 	SaaSAdminDist                                      string
 	SidebarDist                                        string
 	OperationDist                                      string
@@ -1057,7 +1058,8 @@ func FromEnv() (Config, error) {
 	defaultSidebarBaseURL := defaultBaseURL
 	defaultOperationBaseURL := defaultBaseURL
 	defaultFileStorageRoot := "../mochat/api-server/storage/upload/static"
-	defaultDashboardDist := "./web/dashboard/dist"
+	defaultDashboardDist := "./web/apps/dashboard/dist"
+	defaultLegacyDashboardDist := "./web/dashboard/dist"
 	defaultSaaSAdminDist := "./web/apps/saas-admin/dist"
 	defaultSidebarDist := "./web/sidebar/dist"
 	defaultOperationDist := "./web/operation/dist"
@@ -1198,6 +1200,7 @@ func FromEnv() (Config, error) {
 		OperationBaseURL:                                   envOrDefault("MOCHAT_OPERATION_BASE_URL", envOrDefault("OPERATION_BASE_URL", defaultOperationBaseURL)),
 		FileStorageRoot:                                    envOrDefault("MOCHAT_FILE_STORAGE_ROOT", envOrDefault("FILE_STORAGE_ROOT", defaultFileStorageRoot)),
 		DashboardDist:                                      envOrDefault("MOCHAT_DASHBOARD_DIST", defaultDashboardDist),
+		LegacyDashboardDist:                                envOrDefault("MOCHAT_LEGACY_DASHBOARD_DIST", defaultLegacyDashboardDist),
 		SaaSAdminDist:                                      envOrDefault("MOCHAT_SAAS_ADMIN_DIST", defaultSaaSAdminDist),
 		SidebarDist:                                        envOrDefault("MOCHAT_SIDEBAR_DIST", defaultSidebarDist),
 		OperationDist:                                      envOrDefault("MOCHAT_OPERATION_DIST", defaultOperationDist),

@@ -143,8 +143,11 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.FileStorageRoot != "../mochat/api-server/storage/upload/static" {
 		t.Fatalf("FileStorageRoot = %q", cfg.FileStorageRoot)
 	}
-	if cfg.DashboardDist != "./web/dashboard/dist" {
+	if cfg.DashboardDist != "./web/apps/dashboard/dist" {
 		t.Fatalf("DashboardDist = %q", cfg.DashboardDist)
+	}
+	if cfg.LegacyDashboardDist != "./web/dashboard/dist" {
+		t.Fatalf("LegacyDashboardDist = %q", cfg.LegacyDashboardDist)
 	}
 	if cfg.SaaSAdminDist != "./web/apps/saas-admin/dist" {
 		t.Fatalf("SaaSAdminDist = %q", cfg.SaaSAdminDist)
@@ -266,8 +269,11 @@ func TestStandaloneDefaultsDoNotDependOnMoChatSourceOrPHP(t *testing.T) {
 	if cfg.FileStorageRoot != "./storage/upload/static" {
 		t.Fatalf("FileStorageRoot = %q", cfg.FileStorageRoot)
 	}
-	if cfg.DashboardDist != "./web/dashboard/dist" {
+	if cfg.DashboardDist != "./web/apps/dashboard/dist" {
 		t.Fatalf("DashboardDist = %q", cfg.DashboardDist)
+	}
+	if cfg.LegacyDashboardDist != "./web/dashboard/dist" {
+		t.Fatalf("LegacyDashboardDist = %q", cfg.LegacyDashboardDist)
 	}
 	if cfg.SaaSAdminDist != "./web/apps/saas-admin/dist" {
 		t.Fatalf("SaaSAdminDist = %q", cfg.SaaSAdminDist)
@@ -2515,6 +2521,7 @@ func TestJWTAndRedisOverrides(t *testing.T) {
 	t.Setenv("MOCHAT_REDIS_DB", "2")
 	t.Setenv("MOCHAT_GO_WORKER_PROCESSING_TIMEOUT_SECONDS", "45")
 	t.Setenv("MOCHAT_DASHBOARD_DIST", "./tmp-dashboard-dist")
+	t.Setenv("MOCHAT_LEGACY_DASHBOARD_DIST", "./tmp-legacy-dashboard-dist")
 	t.Setenv("MOCHAT_SAAS_ADMIN_DIST", "./tmp-saas-admin-dist")
 
 	cfg, err := FromEnv()
@@ -2544,6 +2551,9 @@ func TestJWTAndRedisOverrides(t *testing.T) {
 	}
 	if cfg.DashboardDist != "./tmp-dashboard-dist" {
 		t.Fatalf("dashboard dist = %q", cfg.DashboardDist)
+	}
+	if cfg.LegacyDashboardDist != "./tmp-legacy-dashboard-dist" {
+		t.Fatalf("legacy dashboard dist = %q", cfg.LegacyDashboardDist)
 	}
 	if cfg.SaaSAdminDist != "./tmp-saas-admin-dist" {
 		t.Fatalf("saas admin dist = %q", cfg.SaaSAdminDist)
@@ -3205,6 +3215,7 @@ func clearEnv(t *testing.T) {
 		"MOCHAT_FILE_STORAGE_ROOT",
 		"FILE_STORAGE_ROOT",
 		"MOCHAT_DASHBOARD_DIST",
+		"MOCHAT_LEGACY_DASHBOARD_DIST",
 		"MOCHAT_SAAS_ADMIN_DIST",
 		"MOCHAT_SIDEBAR_DIST",
 		"MOCHAT_OPERATION_DIST",

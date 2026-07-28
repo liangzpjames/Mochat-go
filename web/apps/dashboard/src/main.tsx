@@ -2,10 +2,14 @@ import { createRoot } from 'react-dom/client';
 
 import { createAuthStore } from '@mochat/auth';
 import { createApiClient } from '@mochat/api-client';
-import { parseRouteManifest } from '@mochat/routing';
+import {
+  parseRouteManifest,
+  resolveRoute,
+} from '@mochat/routing';
 
 import migrationRoutesJson from './migration-routes.json';
 import { createAccessLoader } from './app/access-loader';
+import { createLegacyRouteLoader } from './app/legacy-route-loader';
 import { createDashboardQueryClient, DashboardProviders } from './app/providers';
 import { createDashboardRouter } from './app/router';
 import { authenticate } from './features/auth/auth-api';
@@ -37,17 +41,29 @@ const loginClient = createApiClient({
   onUnauthorized: () => undefined,
 });
 const queryClient = createDashboardQueryClient();
+const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
-  ...parseRouteManifest(migrationRoutesJson).map((route) => route.path),
+  ...migrationManifest.map((route) => route.path),
 ]);
-const accessLoader = createAccessLoader({
+const loadAccess = createAccessLoader({
   clearSession: () => authStore.clearSession(),
   getSession: () => authStore.getSession(),
   knownRoutes,
   loadCorps: () => loadCorps(apiClient),
   loadMenu: () => loadMenu(apiClient),
 });
+const accessLoader = async ({ request }: { request: Request }) => {
+  const access = await loadAccess({ request });
+  const route = resolveRoute(new URL(request.url).pathname, migrationManifest);
+  if (route?.target === 'legacy' && !('state' in access)) {
+    await createLegacyRouteLoader({
+      allowedRoutes: access.allowedRoutes,
+      manifest: migrationManifest,
+    })({ request });
+  }
+  return access;
+};
 const routerRef: { current?: ReturnType<typeof createDashboardRouter> } = {};
 const router = createDashboardRouter({
   accessLoader,

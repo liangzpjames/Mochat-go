@@ -23,7 +23,7 @@ describe('authenticate', () => {
       body: JSON.stringify({ phone: '13800138000', password: 'secret' }),
     });
     expect(result).toEqual({
-      token,
+      token: `Bearer ${token}`,
       userId: '7',
       corpId: null,
       expiresAt: 3_601_000,

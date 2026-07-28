@@ -1,3 +1,14 @@
+FROM node:24-alpine AS frontend-build
+
+WORKDIR /src
+
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY web ./web
+RUN pnpm install --frozen-lockfile \
+	&& pnpm --filter @mochat/dashboard build
+
 FROM golang:1.26-alpine AS build
 
 WORKDIR /src
@@ -37,6 +48,7 @@ COPY --from=build /out/mochat-migrate /usr/local/bin/mochat-migrate
 COPY --from=build /out/mochat-bootstrap /usr/local/bin/mochat-bootstrap
 COPY --from=build /out/mochat-saas-maintenance /usr/local/bin/mochat-saas-maintenance
 COPY --from=build /src/web ./web
+COPY --from=frontend-build /src/web/apps/dashboard/dist ./web/apps/dashboard/dist
 COPY --from=build /src/deploy/standalone ./deploy/standalone
 COPY --from=build /src/LICENSE /src/NOTICE.md /src/SOURCE_OFFER.md /src/MODIFICATIONS.md /src/THIRD_PARTY_NOTICES.md ./
 

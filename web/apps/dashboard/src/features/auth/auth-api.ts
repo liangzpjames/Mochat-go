@@ -47,7 +47,9 @@ export async function authenticate(
     body: JSON.stringify(input),
   }) as AuthResponse;
   return {
-    token: result.token,
+    token: /^Bearer\s/i.test(result.token)
+      ? result.token
+      : `Bearer ${result.token}`,
     userId: tokenUserId(result.token),
     corpId: null,
     expiresAt: now + result.expire * 1_000,

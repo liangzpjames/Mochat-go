@@ -25,4 +25,7 @@ sync_one dashboard
 sync_one sidebar
 sync_one operation
 
-echo "frontend dist synced to $TARGET_ROOT"
+pnpm --filter @mochat/dashboard build
+test -f "web/apps/dashboard/dist/index.html"
+
+echo "legacy frontend dists synced to $TARGET_ROOT; React dashboard built at web/apps/dashboard/dist"

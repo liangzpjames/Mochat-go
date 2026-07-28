@@ -3180,6 +3180,14 @@ func main() {
 		workerGroup.WithRecorder(recorder)
 		log.Printf("background task recorder enabled: mysql tables=mochat_go_background_tasks,mochat_go_background_task_runs,mochat_go_background_task_executions")
 	}
+	var migrationManifest frontend.MigrationManifest
+	if cfg.RuntimeRole.RunsAPI() {
+		var err error
+		migrationManifest, err = frontend.LoadMigrationManifest("web/apps/dashboard/src/migration-routes.json")
+		if err != nil {
+			log.Fatalf("load dashboard migration manifest: %v", err)
+		}
+	}
 	if err := workerGroup.Start(context.Background()); err != nil {
 		log.Fatalf("start background tasks: %v", err)
 	}
@@ -3200,6 +3208,10 @@ func main() {
 		log.Fatalf("build server: %v", err)
 	}
 	serveHandler := frontend.WrapDashboard(handler, frontend.DashboardConfig{DistDir: cfg.DashboardDist})
+	serveHandler = frontend.WrapLegacyDashboard(serveHandler, frontend.LegacyDashboardConfig{
+		DistDir:  cfg.LegacyDashboardDist,
+		Manifest: migrationManifest,
+	})
 	serveHandler = frontend.WrapApp(serveHandler, frontend.AppConfig{DistDir: cfg.OperationDist, MountPath: "/operation-app/"})
 	serveHandler = frontend.WrapApp(serveHandler, frontend.AppConfig{DistDir: cfg.SidebarDist, MountPath: "/sidebar-app/"})
 	if cfg.EnableSaaSAdminDashboard {
