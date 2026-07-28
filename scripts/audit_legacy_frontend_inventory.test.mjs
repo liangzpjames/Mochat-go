@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const auditScript = join(repositoryRoot, 'scripts', 'audit_legacy_frontend_inventory.mjs');
+const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
+const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'];
 const columns = {
   'pages.csv': 'app,source_file,route,status,owner,risk,batch',
   'routes.csv': 'app,path,name,source_file,auth,corp_context,permission,render_target',
@@ -69,6 +71,11 @@ export default { created () { example({ id: 1 }) } }
   write(root, `${auditDirectory}/permissions.csv`, `${columns['permissions.csv']}\ndashboard,/example,/example,view,${router}\n`);
   write(root, `${auditDirectory}/assets.csv`, `${columns['assets.csv']}\ndashboard,${asset},svg,verified,${view}\n`);
   write(root, `${auditDirectory}/dependencies.csv`, `${columns['dependencies.csv']}\ndashboard,vue,^2.6.10,react,replace,medium\n`);
+  write(
+    root,
+    pageMetadataOverrideFile,
+    `${pageMetadataOverrideColumns.join(',')}\ndashboard,${view},/example,candidate,frontend-platform,low,phase2-batch2\n`,
+  );
   writeManifest(root);
   return root;
 }
@@ -110,6 +117,56 @@ function setCsvCell(root, relativePath, keyColumn, keyValue, column, value) {
   row[columnIndex] = value;
   writeFileSync(file, `${lines.map((values) => values.join(',')).join('\n')}\n`);
 }
+
+test('page metadata override requires the canonical schema', () => {
+  const root = createFixture();
+  try {
+    replace(root, pageMetadataOverrideFile, pageMetadataOverrideColumns.join(','), 'app,source_file,route,owner,risk,batch');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:1: columns must be app,source_file,route,status,owner,risk,batch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata override rejects duplicate page keys', () => {
+  const root = createFixture();
+  try {
+    const file = join(root, pageMetadataOverrideFile);
+    const content = readFileSync(file, 'utf8');
+    writeFileSync(file, `${content}${content.trim().split(/\r?\n/)[1]}\n`);
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:3: duplicate key dashboard:web\/legacy\/dashboard\/src\/views\/example\/index\.vue:\/example/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata override rejects stale page keys', () => {
+  const root = createFixture();
+  try {
+    replace(root, pageMetadataOverrideFile, '/example,candidate', '/missing,candidate');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:2: override does not match a discovered page/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata override rejects unsupported risk levels', () => {
+  const root = createFixture();
+  try {
+    replace(root, pageMetadataOverrideFile, ',low,phase2-batch2', ',urgent,phase2-batch2');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:2: risk must be low, medium, high, or critical/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function expectAuditFailure(mutate, expected) {
   const root = createFixture();

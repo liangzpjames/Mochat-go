@@ -5,6 +5,8 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 
 const sourceCommit = '3dcd216c188df34f2c3ed489b8e8b9473e635488';
 const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
+const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
+const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'];
 const contractEvidenceFile = 'api-contract-evidence.csv';
 const contractGapFile = 'api-contract-gaps.csv';
 const contractEvidenceColumns = ['app', 'method', 'path', 'legacy_declarations', 'go_route_evidence', 'php_handler', 'client_consumers', 'response_evidence', 'scope_evidence'];
@@ -941,6 +943,34 @@ function generatedArtifacts(root) {
 }
 function generatedInventory(root) { return generatedArtifacts(root).inventory; }
 
+function readPageMetadataOverrides(root, pages, errors) {
+  if (!fileExists(root, pageMetadataOverrideFile)) {
+    errors.push('frontend-audit: page-metadata-overrides.csv:1: file is required');
+    return new Map();
+  }
+  const rows = parseCsv(readFileSync(rootFile(root, pageMetadataOverrideFile), 'utf8'));
+  const header = rows.shift() ?? [];
+  if (header.join(',') !== pageMetadataOverrideColumns.join(',')) {
+    errors.push(`frontend-audit: page-metadata-overrides.csv:1: columns must be ${pageMetadataOverrideColumns.join(',')}`);
+    return new Map();
+  }
+  const discovered = new Set(pages.map(specifications['pages.csv'].key));
+  const overrides = new Map();
+  rows.forEach((values, index) => {
+    const rowNumber = index + 2;
+    const row = Object.fromEntries(pageMetadataOverrideColumns.map((column, position) => [column, (values[position] ?? '').trim()]));
+    if (values.length !== pageMetadataOverrideColumns.length) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: expected ${pageMetadataOverrideColumns.length} columns`);
+    for (const column of pageMetadataOverrideColumns) if (!row[column]) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: ${column} is required`);
+    const key = specifications['pages.csv'].key(row);
+    if (overrides.has(key)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: duplicate key ${key}`);
+    if (!discovered.has(key)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: override does not match a discovered page`);
+    if (!['legacy', 'candidate', 'react', 'blocked'].includes(row.status)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: status must be legacy, candidate, react, or blocked`);
+    if (!['low', 'medium', 'high', 'critical'].includes(row.risk)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: risk must be low, medium, high, or critical`);
+    overrides.set(key, { status: row.status, owner: row.owner, risk: row.risk, batch: row.batch });
+  });
+  return overrides;
+}
+
 function readInventory(root, errors) {
   const result = {};
   for (const [file, specification] of Object.entries(specifications)) {
@@ -1075,6 +1105,7 @@ function validateGoTestReference(root, value, label, errors, contract) {
 
 function audit(root) {
   const errors = []; const inventory = readInventory(root, errors); const artifacts = generatedArtifacts(root); const generated = artifacts.inventory;
+  readPageMetadataOverrides(root, generated['pages.csv'], errors);
   const contractEvidence = readContractRows(root, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   const contractGaps = readContractRows(root, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
   validateManifest(root, errors); compareCoverage(inventory, generated, errors); compareDerivedEvidence(inventory, generated, errors);
@@ -1123,7 +1154,10 @@ function audit(root) {
 }
 
 function refresh(root) {
-  const artifacts = generatedArtifacts(root); const inventory = artifacts.inventory; mkdirSync(rootFile(root, auditDirectory), { recursive: true } );
+  const artifacts = generatedArtifacts(root); const inventory = artifacts.inventory; const errors = [];
+  readPageMetadataOverrides(root, inventory['pages.csv'], errors);
+  if (errors.length) throw new Error(errors.join('\n'));
+  mkdirSync(rootFile(root, auditDirectory), { recursive: true } );
   for (const [file, rows] of Object.entries(inventory)) writeFileSync(rootFile(root, `${auditDirectory}/${file}`), csv(file, rows));
   writeFileSync(rootFile(root, `${auditDirectory}/${contractEvidenceFile}`), csvWithColumns(contractEvidenceColumns, artifacts.contractEvidence));
   writeFileSync(rootFile(root, `${auditDirectory}/${contractGapFile}`), csvWithColumns(contractGapColumns, artifacts.contractGaps));
