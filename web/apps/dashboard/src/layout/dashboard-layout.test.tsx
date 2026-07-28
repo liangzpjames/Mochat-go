@@ -5,13 +5,26 @@ import { RouterProvider } from 'react-router';
 
 import { createDashboardQueryClient } from '../app/providers';
 import { createDashboardRouter } from '../app/router';
+import type {
+  AccessContext,
+  CorpSelection,
+} from '../app/access-loader';
 
 afterEach(cleanup);
+
+function rejectRouteResponse(status: number): Promise<never> {
+  // React Router represents loader HTTP failures with Response objects.
+  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+  return Promise.reject(new Response(null, { status }));
+}
 
 function renderDashboard(options: {
   session: boolean;
   initialPath?: string;
   loadInitialData?: () => Promise<void>;
+  accessLoader?: (args: { request: Request }) => Promise<
+    AccessContext | CorpSelection
+  >;
 }) {
   const queryClient = createDashboardQueryClient();
   const router = createDashboardRouter({
@@ -23,6 +36,9 @@ function renderDashboard(options: {
     } : null,
     initialEntries: [options.initialPath ?? '/'],
     loadInitialData: options.loadInitialData ?? (() => Promise.resolve()),
+    ...(options.accessLoader === undefined
+      ? {}
+      : { accessLoader: options.accessLoader }),
   });
 
   return render(
@@ -39,6 +55,7 @@ describe('Dashboard shell', () => {
     renderDashboard({ session: false });
 
     expect(await screen.findByRole('heading', { name: '登录' })).toBeTruthy();
+    expect(screen.getByLabelText('手机号')).toBeTruthy();
     expect(consoleError).not.toHaveBeenCalled();
     expect(consoleWarn).not.toHaveBeenCalled();
   });
@@ -65,6 +82,37 @@ describe('Dashboard shell', () => {
 
     expect(await screen.findByRole('heading', { name: '加载失败' })).toBeTruthy();
     await waitFor(() => expect(screen.getByText('bootstrap failed')).toBeTruthy());
+  });
+
+  it('renders forbidden and not-found responses from the access loader', async () => {
+    const forbidden = renderDashboard({
+      session: true,
+      initialPath: '/restricted',
+      accessLoader: () => rejectRouteResponse(403),
+    });
+    expect(await screen.findByRole('heading', { name: '无权访问' })).toBeTruthy();
+    forbidden.unmount();
+
+    renderDashboard({
+      session: true,
+      initialPath: '/unknown',
+      accessLoader: () => rejectRouteResponse(404),
+    });
+    expect(await screen.findByRole('heading', { name: '页面不存在' })).toBeTruthy();
+  });
+
+  it('offers a manual retry for network failures from the access loader', async () => {
+    const accessLoader = vi.fn(() => Promise.reject(new Error('offline')));
+    renderDashboard({
+      session: true,
+      initialPath: '/',
+      accessLoader,
+    });
+
+    expect(await screen.findByText('offline')).toBeTruthy();
+    expect(accessLoader).toHaveBeenCalledOnce();
+    screen.getByRole('button', { name: '重试' }).click();
+    await waitFor(() => expect(accessLoader).toHaveBeenCalledTimes(2));
   });
 
   it('uses the approved query retry and focus defaults', () => {

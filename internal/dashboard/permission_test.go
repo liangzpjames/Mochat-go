@@ -13,8 +13,9 @@ func TestPermissionByUserReturnsSuperAdminMenuTree(t *testing.T) {
 		user: User{ID: 7, TenantID: 1, IsSuperAdmin: 1},
 		menus: []Menu{
 			{ID: 1, Name: "企微管理", ParentID: 0, Level: 1, LinkURL: "/dashboard_baseSysManager", IsPageMenu: 1, Sort: 1},
-			{ID: 2, Name: "客户管理", ParentID: 1, Level: 2, LinkURL: "/dashboard/workContact/index", IsPageMenu: 1, Sort: 2},
-			{ID: 3, Name: "隐藏按钮", ParentID: 2, Level: 3, LinkURL: "/dashboard/workContact/index@delete", IsPageMenu: 2, Sort: 3},
+			{ID: 2, Name: "客户管理", ParentID: 1, Level: 2, LinkURL: "/dashboard_baseContact", IsPageMenu: 1, Sort: 2},
+			{ID: 3, Name: "客户列表", ParentID: 2, Level: 3, LinkURL: "/dashboard/workContact/index", IsPageMenu: 1, Sort: 3},
+			{ID: 4, Name: "删除客户", ParentID: 3, Level: 4, LinkURL: "/dashboard/workContact/index@delete", IsPageMenu: 2, Sort: 4},
 		},
 	}
 	handler := NewPermissionByUserHandler(store, HeaderUserIDResolver{})
@@ -43,8 +44,15 @@ func TestPermissionByUserReturnsSuperAdminMenuTree(t *testing.T) {
 	if len(body.Data[0].Children) != 1 {
 		t.Fatalf("child count = %d", len(body.Data[0].Children))
 	}
-	if body.Data[0].Children[0].LinkURL != "/workContact/index" {
-		t.Fatalf("child linkUrl = %q", body.Data[0].Children[0].LinkURL)
+	if len(body.Data[0].Children[0].Children) != 1 {
+		t.Fatalf("section children = %+v", body.Data[0].Children[0].Children)
+	}
+	if body.Data[0].Children[0].Children[0].LinkURL != "/workContact/index" {
+		t.Fatalf("page linkUrl = %q", body.Data[0].Children[0].Children[0].LinkURL)
+	}
+	page := body.Data[0].Children[0].Children[0]
+	if len(page.Children) != 1 || page.Children[0].LinkURL != "/workContact/index@delete" {
+		t.Fatalf("page actions = %+v", page.Children)
 	}
 }
 

@@ -21316,13 +21316,15 @@ func (s *MySQLStore) RoleMenusByRoleIDs(ctx context.Context, roleIDs []int) ([]d
 	return roleMenus, rows.Err()
 }
 
-func (s *MySQLStore) PageMenus(ctx context.Context) ([]dashboard.Menu, error) {
-	return s.queryMenus(ctx, `
+const pageMenusQuery = `
 		SELECT id, name, level, data_permission, icon, link_type, link_url, parent_id, is_page_menu, sort
 		FROM mc_rbac_menu
-		WHERE is_page_menu = 1 AND deleted_at IS NULL
+		WHERE is_page_menu IN (1, 2) AND deleted_at IS NULL
 		ORDER BY sort ASC
-	`)
+	`
+
+func (s *MySQLStore) PageMenus(ctx context.Context) ([]dashboard.Menu, error) {
+	return s.queryMenus(ctx, pageMenusQuery)
 }
 
 func (s *MySQLStore) MenusByIDs(ctx context.Context, menuIDs []int) ([]dashboard.Menu, error) {

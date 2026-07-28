@@ -99,7 +99,7 @@ func (h *PermissionByUserHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 func normalizePageMenus(menus []Menu) []Menu {
 	out := make([]Menu, 0, len(menus))
 	for _, menu := range menus {
-		if menu.IsPageMenu != 1 {
+		if menu.IsPageMenu != 1 && menu.IsPageMenu != 2 {
 			continue
 		}
 		menu.LinkURL = strings.ReplaceAll(menu.LinkURL, "/dashboard", "")
