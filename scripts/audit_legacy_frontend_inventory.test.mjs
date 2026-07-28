@@ -366,7 +366,12 @@ test('Dashboard Batch 2 candidate report is ordered and excludes non-candidates'
   const root = createFixture();
   try {
     write(root, 'web/legacy/dashboard/src/views/department/index.vue', '<template><main>department</main></template>\n');
-    write(root, 'web/legacy/dashboard/src/views/role/index.vue', '<template><main>role</main></template>\n');
+    write(root, 'web/legacy/dashboard/src/views/role/index.vue', `<template><main>role</main></template>
+<script>
+import { example } from '@/api/example'
+export default { created () { example({ id: 1 }) } }
+</script>
+`);
     write(
       root,
       'web/legacy/dashboard/src/router/batch2.js',
@@ -409,7 +414,7 @@ test('Dashboard Batch 2 candidate report is ordered and excludes non-candidates'
           source_file: 'web/legacy/dashboard/src/views/role/index.vue',
           risk: 'medium',
           status: 'legacy',
-          api_contract_count: '0',
+          api_contract_count: '1',
           go_evidence_count: '0',
         },
       ],
