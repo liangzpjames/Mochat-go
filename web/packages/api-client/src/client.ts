@@ -13,7 +13,8 @@ function bearerToken(token: string): string {
 
 function resolveInput(input: RequestInfo | URL, baseUrl: string): RequestInfo | URL {
   if (typeof input === 'string') {
-    return new URL(input, baseUrl);
+    const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+    return new URL(input.replace(/^\/+/, ''), normalizedBase);
   }
   return input;
 }
@@ -42,6 +43,19 @@ export function createApiClient(options: ApiClientOptions): {
       try {
         payload = await response.json();
       } catch (error) {
+        if (response.status === 401) {
+          options.onUnauthorized();
+          throw new ApiError('unauthorized', response.statusText || 'Unauthorized', {
+            status: response.status,
+            cause: error,
+          });
+        }
+        if (response.status === 403) {
+          throw new ApiError('forbidden', response.statusText || 'Forbidden', {
+            status: response.status,
+            cause: error,
+          });
+        }
         if (response.status >= 500) {
           throw new ApiError('server', response.statusText || 'Server error', {
             status: response.status,

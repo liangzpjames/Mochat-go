@@ -39,6 +39,25 @@ describe('createApiClient', () => {
     expect(authorization).toBe('Bearer secret-token');
   });
 
+  it('keeps the API base path when callers use a leading slash', async () => {
+    let requested = false;
+    server.use(
+      http.get('https://api.example.test/dashboard/users/current', () => {
+        requested = true;
+        return HttpResponse.json({ code: 0, msg: 'ok', data: { id: '7' } });
+      }),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/dashboard/',
+      getToken: () => null,
+      onUnauthorized: vi.fn(),
+    });
+
+    await client.request('/users/current');
+
+    expect(requested).toBe(true);
+  });
+
   it('unwraps the data from a successful API envelope', async () => {
     server.use(
       http.get('https://api.example.test/users/current', () =>
@@ -76,6 +95,28 @@ describe('createApiClient', () => {
       status: 401,
       code: 40101,
       message: 'login required',
+    });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps a non-JSON 401 and still invokes onUnauthorized exactly once', async () => {
+    server.use(
+      http.get(
+        'https://api.example.test/private-text',
+        () => new HttpResponse('login required', { status: 401, statusText: 'Unauthorized' }),
+      ),
+    );
+    const onUnauthorized = vi.fn();
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/',
+      getToken: () => null,
+      onUnauthorized,
+    });
+
+    await expectApiError(client.request('/private-text'), {
+      kind: 'unauthorized',
+      status: 401,
+      message: 'Unauthorized',
     });
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
   });
