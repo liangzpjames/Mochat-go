@@ -3,7 +3,7 @@ import { join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dependencyFields = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
-const requiredWorkspacePatterns = ['web/apps/*', 'web/packages/*'];
+const requiredWorkspacePatterns = ['web/apps/*', 'web/e2e', 'web/packages/*'];
 const requiredNodeRange = '>=22.12 <25';
 const requiredNodeInterval = {
   lower: { version: [22, 12, 0], inclusive: true },
@@ -79,7 +79,12 @@ function parseWorkspaceConfig(root, errors) {
 function directWorkspacePackages(root, patterns) {
   const result = [];
   for (const pattern of patterns) {
-    if (typeof pattern !== 'string' || !pattern.endsWith('/*')) continue;
+    if (typeof pattern !== 'string') continue;
+    if (!pattern.endsWith('/*')) {
+      const path = join(root, pattern, 'package.json');
+      if (existsSync(path)) result.push({ path, workspacePath: pattern });
+      continue;
+    }
     const parent = join(root, pattern.slice(0, -2));
     if (!existsSync(parent)) continue;
     for (const entry of readdirSync(parent, { withFileTypes: true })) {

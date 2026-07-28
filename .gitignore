@@ -13,6 +13,8 @@ web/apps/dashboard/.vite/
 web/apps/dashboard/coverage/
 web/apps/dashboard/dist/
 web/packages/*/dist/
+web/e2e/playwright-report/
+web/e2e/test-results/
 
 # Local test, browser, and runtime artifacts
 .playwright-cli/

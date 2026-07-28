@@ -1,6 +1,7 @@
 {
   "extends": "@mochat/config/tsconfig",
   "compilerOptions": {
+    "jsx": "react-jsx",
     "noEmit": true
   },
   "include": ["src"]

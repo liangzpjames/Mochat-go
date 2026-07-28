@@ -1,0 +1,100 @@
+import type { Page, Route } from '@playwright/test';
+
+type BackendOptions = {
+  corps?: Array<{ corpId: number; corpName: string }>;
+  menuRoutes?: string[];
+  unauthorizedCorpSelect?: boolean;
+};
+
+const jwt = 'header.eyJ1aWQiOjF9.signature';
+
+function envelope(data: unknown, code = 200, msg = 'success') {
+  return { code, msg, data };
+}
+
+function menu(routes: string[]) {
+  return [{
+    name: 'root',
+    linkUrl: null,
+    linkType: 1,
+    children: [{
+      name: 'section',
+      linkUrl: null,
+      linkType: 1,
+      children: routes.map((path) => ({
+        name: path,
+        linkUrl: path,
+        linkType: 1,
+        children: path === '/corp/index'
+          ? ['search', 'addwx', 'check', 'edit'].map((action) => ({
+              name: action,
+              linkUrl: `/corp/index@${action}`,
+              linkType: 1,
+              children: [],
+            }))
+          : [],
+      })),
+    }],
+  }];
+}
+
+export async function mockDashboardBackend(
+  page: Page,
+  options: BackendOptions = {},
+) {
+  const corps = options.corps ?? [{ corpId: 7, corpName: '测试企业' }];
+  const menuRoutes = options.menuRoutes ?? ['/corp/index', '/workContact/index'];
+  await page.route('**/dashboard/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (!url.pathname.startsWith('/dashboard/')) {
+      await route.continue();
+      return;
+    }
+    const path = url.pathname.replace(/^\/dashboard/, '');
+    if (path === '/user/auth') {
+      await json(route, envelope({ token: jwt, expire: 3600 }));
+      return;
+    }
+    if (path === '/corp/select' && options.unauthorizedCorpSelect) {
+      await json(route, envelope(null, 401, 'unauthorized'), 401);
+      return;
+    }
+    if (path === '/corp/select') {
+      await json(route, envelope(corps));
+      return;
+    }
+    if (path === '/corp/bind') {
+      await json(route, envelope([]));
+      return;
+    }
+    if (path === '/role/permissionByUser') {
+      await json(route, envelope(menu(menuRoutes)));
+      return;
+    }
+    if (path === '/corp/index') {
+      await json(route, envelope({
+        list: [{ corpId: 7, corpName: '测试企业', wxCorpId: 'wx-7', createdAt: '2026-07-28' }],
+        page: { perPage: 10, total: 1, totalPage: 1 },
+      }));
+      return;
+    }
+    await json(route, envelope([]));
+  });
+}
+
+export async function seedSession(page: Page, corpId: string | null = '7') {
+  await page.addInitScript(({ token, selectedCorp }) => {
+    localStorage.setItem('ACCESS_TOKEN', JSON.stringify(token));
+    localStorage.setItem('userId', JSON.stringify('1'));
+    localStorage.setItem('corpId', JSON.stringify(selectedCorp));
+    localStorage.setItem('expiresAt', JSON.stringify(Date.now() + 3_600_000));
+  }, { token: `Bearer ${jwt}`, selectedCorp: corpId });
+}
+
+async function json(route: Route, body: unknown, status = 200) {
+  await route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify(body),
+  });
+}

@@ -29,12 +29,13 @@ describe('createLegacyRouteLoader', () => {
     const replace = vi.fn();
     const loader = createLegacyRouteLoader({
       allowedRoutes: new Set(['/workContact/index']),
+      getHash: () => '#top',
       manifest: routes,
       replace,
     });
 
     await loader({
-      request: new Request('https://app.test/workContact/index?tab=1#top'),
+      request: new Request('https://app.test/workContact/index?tab=1'),
     });
 
     expect(replace).toHaveBeenCalledWith(

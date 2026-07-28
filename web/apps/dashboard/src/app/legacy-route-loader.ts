@@ -6,6 +6,7 @@ import {
 export type LegacyRouteLoaderDeps = {
   allowedRoutes: ReadonlySet<string>;
   manifest: readonly MigrationRoute[];
+  getHash?: () => string;
   replace?: (url: string) => void;
 };
 
@@ -29,7 +30,8 @@ export function createLegacyRouteLoader(deps: LegacyRouteLoaderDeps) {
       ) {
         throwRouteResponse(403);
       }
-      const destination = `/_legacy/dashboard${url.pathname}${url.search}${url.hash}`;
+      const hash = url.hash || (deps.getHash ?? (() => window.location.hash))();
+      const destination = `/_legacy/dashboard${url.pathname}${url.search}${hash}`;
       (deps.replace ?? ((target) => window.location.replace(target)))(destination);
       return null;
     });

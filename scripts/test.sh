@@ -19,6 +19,7 @@ unset GOROOT
 ./scripts/audit_saas_metric_coverage.sh
 ./scripts/audit_saas_storage_reclaim_coverage.sh
 ./scripts/smoke_production_evidence_gate.sh
+./scripts/frontend_check.sh quick
 go test ./...
 go vet ./...
 go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance

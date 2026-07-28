@@ -10,7 +10,7 @@
     "check:deps": "node scripts/check_frontend_dependency_policy.mjs",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --filter=!@mochat/e2e --if-present test",
     "build": "pnpm -r --if-present build"
   }
 }

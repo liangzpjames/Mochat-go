@@ -1,0 +1,18 @@
+{
+  "name": "@mochat/e2e",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint playwright.config.ts tests",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@mochat/config": "workspace:*",
+    "@playwright/test": "1.62.0",
+    "@types/node": "20.19.43",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3"
+  }
+}
