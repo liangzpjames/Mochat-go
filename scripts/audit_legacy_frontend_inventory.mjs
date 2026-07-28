@@ -6,7 +6,7 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 const sourceCommit = '3dcd216c188df34f2c3ed489b8e8b9473e635488';
 const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
 const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
-const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'];
+const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'risk', 'batch'];
 const unassignedPageFile = 'docs/phases/phase-2-frontend-migration/audit/unassigned-pages.csv';
 const contractEvidenceFile = 'api-contract-evidence.csv';
 const contractGapFile = 'api-contract-gaps.csv';
@@ -15,7 +15,7 @@ const contractGapColumns = ['app', 'method', 'path', 'dimension', 'reason', 'evi
 const applications = ['dashboard', 'sidebar', 'operation'];
 const generatedArtifactsCache = new Map();
 const specifications = {
-  'pages.csv': { columns: ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'], key: (row) => `${row.app}:${row.source_file}:${row.route}`, sourceColumns: ['source_file'] },
+  'pages.csv': { columns: ['app', 'source_file', 'route', 'status', 'risk', 'batch'], key: (row) => `${row.app}:${row.source_file}:${row.route}`, sourceColumns: ['source_file'] },
   'routes.csv': { columns: ['app', 'path', 'name', 'source_file', 'auth', 'corp_context', 'permission', 'render_target'], key: (row) => `${row.app}:${row.path}`, sourceColumns: ['source_file'] },
   'apis.csv': { columns: ['app', 'method', 'path', 'source_file', 'request_fields', 'response_fields', 'auth', 'corp_scope', 'go_evidence'], key: (row) => `${row.app}:${row.method}:${row.path}`, sourceColumns: ['source_file'] },
   'permissions.csv': { columns: ['app', 'route', 'menu_link_url', 'actions', 'source_file'], key: (row) => `${row.app}:${row.route}:${row.menu_link_url}`, sourceColumns: ['source_file'] },
@@ -930,7 +930,7 @@ function generatedArtifacts(root) {
   const remainingContractGaps = contractGaps.filter((gap) => !verifiedCorpContracts.has(`${gap.app}:${gap.method}:${gap.path}`));
   contractGaps.splice(0, contractGaps.length, ...remainingContractGaps);
   const inventory = {
-    'pages.csv': found.pages.map((item) => ({ ...item, route: item.route ?? '-', status: 'legacy', owner: 'unassigned', risk: 'medium', batch: 'unassigned' })),
+    'pages.csv': found.pages.map((item) => ({ ...item, route: item.route ?? '-', status: 'legacy', risk: 'unassigned', batch: 'unassigned' })),
     'routes.csv': found.routes.map((item) => ({ ...item, ...clientSemantics(item.app), auth: routeAuth(item.app, item.path), corp_context: clientSemantics(item.app).corp, permission: actionEvidence(root, item.path, item.component), render_target: clientSemantics(item.app).target })),
     'apis.csv': apis,
     'permissions.csv': found.permissions.map((item) => ({ ...item, menu_link_url: item.route, actions: actionEvidence(root, item.route, item.component) })),
@@ -968,7 +968,7 @@ function readPageMetadataOverrides(root, pages, errors) {
     if (!discovered.has(key)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: override does not match a discovered page`);
     if (!['legacy', 'candidate', 'react', 'blocked'].includes(row.status)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: status must be legacy, candidate, react, or blocked`);
     if (!['low', 'medium', 'high', 'critical'].includes(row.risk)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: risk must be low, medium, high, or critical`);
-    overrides.set(key, { status: row.status, owner: row.owner, risk: row.risk, batch: row.batch });
+    overrides.set(key, { status: row.status, risk: row.risk, batch: row.batch });
   });
   return overrides;
 }
@@ -982,11 +982,11 @@ function mergePageMetadata(pages, overrides) {
 
 function unassignedPages(pages) {
   return pages
-    .filter((page) => page.owner === 'unassigned' || page.batch === 'unassigned')
+    .filter((page) => page.risk === 'unassigned' || page.batch === 'unassigned')
     .map((page) => ({
       ...page,
       blocking_fields: [
-        page.owner === 'unassigned' ? 'owner' : '',
+        page.risk === 'unassigned' ? 'risk' : '',
         page.batch === 'unassigned' ? 'batch' : '',
       ].filter(Boolean).join(';'),
     }));
@@ -1081,7 +1081,7 @@ function comparePageMetadata(inventory, expected, errors) {
   for (const expectedRow of expected) {
     const actual = actualByKey.get(specification.key(expectedRow));
     if (!actual) continue;
-    for (const column of ['status', 'owner', 'risk', 'batch']) {
+    for (const column of ['status', 'risk', 'batch']) {
       if (actual[column] !== expectedRow[column]) errors.push(`frontend-audit: pages.csv:${actual.rowNumber}: ${column} must match page metadata ${expectedRow[column]}`);
     }
   }

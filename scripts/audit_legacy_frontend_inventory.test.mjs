@@ -10,11 +10,11 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const auditScript = join(repositoryRoot, 'scripts', 'audit_legacy_frontend_inventory.mjs');
 const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
-const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'];
+const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'risk', 'batch'];
 const unassignedPageFile = 'docs/phases/phase-2-frontend-migration/audit/unassigned-pages.csv';
 const unassignedPageColumns = [...pageMetadataOverrideColumns, 'blocking_fields'];
 const columns = {
-  'pages.csv': 'app,source_file,route,status,owner,risk,batch',
+  'pages.csv': 'app,source_file,route,status,risk,batch',
   'routes.csv': 'app,path,name,source_file,auth,corp_context,permission,render_target',
   'apis.csv': 'app,method,path,source_file,request_fields,response_fields,auth,corp_scope,go_evidence',
   'permissions.csv': 'app,route,menu_link_url,actions,source_file',
@@ -67,7 +67,7 @@ export default { created () { example({ id: 1 }) } }
     readFileSync(join(repositoryRoot, 'internal/dashboard/corp_admin_test.go'), 'utf8'),
   );
   const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
-  write(root, `${auditDirectory}/pages.csv`, `${columns['pages.csv']}\ndashboard,${view},-,legacy,frontend,low,1\ndashboard,${router},/example,legacy,frontend,low,1\n`);
+  write(root, `${auditDirectory}/pages.csv`, `${columns['pages.csv']}\ndashboard,${view},-,legacy,low,1\ndashboard,${router},/example,legacy,low,1\n`);
   write(root, `${auditDirectory}/routes.csv`, `${columns['routes.csv']}\ndashboard,/example,example,${router},required,required,*,spa\n`);
   write(root, `${auditDirectory}/apis.csv`, `${columns['apis.csv']}\ndashboard,GET,/api/example,${api},params:id,id,required,corp,-\n`);
   write(root, `${auditDirectory}/permissions.csv`, `${columns['permissions.csv']}\ndashboard,/example,/example,view,${router}\n`);
@@ -76,7 +76,7 @@ export default { created () { example({ id: 1 }) } }
   write(
     root,
     pageMetadataOverrideFile,
-    `${pageMetadataOverrideColumns.join(',')}\ndashboard,${view},/example,candidate,frontend-platform,low,phase2-batch2\n`,
+    `${pageMetadataOverrideColumns.join(',')}\ndashboard,${view},/example,candidate,low,phase2-batch2\n`,
   );
   write(root, unassignedPageFile, `${unassignedPageColumns.join(',')}\n`);
   writeManifest(root);
@@ -124,10 +124,10 @@ function setCsvCell(root, relativePath, keyColumn, keyValue, column, value) {
 test('page metadata override requires the canonical schema', () => {
   const root = createFixture();
   try {
-    replace(root, pageMetadataOverrideFile, pageMetadataOverrideColumns.join(','), 'app,source_file,route,owner,risk,batch');
+    replace(root, pageMetadataOverrideFile, pageMetadataOverrideColumns.join(','), 'app,source_file,route,status,batch');
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
-    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:1: columns must be app,source_file,route,status,owner,risk,batch/);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:1: columns must be app,source_file,route,status,risk,batch/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -182,8 +182,8 @@ test('page metadata override survives refresh while discovered facts still updat
     let page = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/pages.csv')
       .find((row) => row.source_file.includes('/views/example/'));
     assert.deepEqual(
-      { status: page.status, owner: page.owner, risk: page.risk, batch: page.batch },
-      { status: 'candidate', owner: 'frontend-platform', risk: 'low', batch: 'phase2-batch2' },
+      { status: page.status, risk: page.risk, batch: page.batch },
+      { status: 'candidate', risk: 'low', batch: 'phase2-batch2' },
     );
     assert.equal(readFileSync(overridePath, 'utf8'), before);
 
@@ -202,8 +202,8 @@ test('page metadata override survives refresh while discovered facts still updat
       .find((row) => row.source_file.includes('/views/example/'));
     assert.equal(page.route, '/renamed');
     assert.deepEqual(
-      { status: page.status, owner: page.owner, risk: page.risk, batch: page.batch },
-      { status: 'candidate', owner: 'frontend-platform', risk: 'low', batch: 'phase2-batch2' },
+      { status: page.status, risk: page.risk, batch: page.batch },
+      { status: 'candidate', risk: 'low', batch: 'phase2-batch2' },
     );
     assert.equal(readFileSync(overridePath, 'utf8'), updatedOverride);
   } finally {
@@ -224,7 +224,7 @@ test('unassigned page report is deterministic and lists blocking fields', () => 
     const rows = csvObjects(root, unassignedPageFile);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].source_file, unassignedView);
-    assert.equal(rows[0].blocking_fields, 'owner;batch');
+    assert.equal(rows[0].blocking_fields, 'risk;batch');
     const before = readFileSync(join(root, unassignedPageFile), 'utf8');
     runRefresh(root);
     assert.equal(readFileSync(join(root, unassignedPageFile), 'utf8'), before);
@@ -236,10 +236,26 @@ test('unassigned page report is deterministic and lists blocking fields', () => 
 test('audit rejects a stale unassigned page report', () => {
   const root = createFixture();
   try {
-    replace(root, unassignedPageFile, unassignedPageColumns.join(','), `${unassignedPageColumns.join(',')}\ndashboard,stale,-,legacy,unassigned,medium,unassigned,owner;batch`);
+    replace(root, unassignedPageFile, unassignedPageColumns.join(','), `${unassignedPageColumns.join(',')}\ndashboard,stale,-,legacy,unassigned,unassigned,risk;batch`);
     const result = runAudit(root);
     assert.notEqual(result.status, 0);
     assert.match(result.output, /frontend-audit: unassigned-pages\.csv: report is stale; run npm run refresh:audit/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page schemas do not contain owner', () => {
+  const root = createFixture();
+  try {
+    for (const file of [
+      'docs/phases/phase-1-frontend-foundation/audit/pages.csv',
+      pageMetadataOverrideFile,
+      unassignedPageFile,
+    ]) {
+      const header = readFileSync(join(root, file), 'utf8').split(/\r?\n/, 1)[0].split(',');
+      assert.equal(header.includes('owner'), false, `${file} must not contain owner`);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
