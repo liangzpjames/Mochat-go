@@ -583,6 +583,7 @@ assert work_employee_index["data"]["list"][0]["name"] == "容器验收员工", w
 assert 'id="app"' in dashboard_login and "/js/app." in dashboard_login, dashboard_login[:200]
 assert 'id="app"' in sidebar_contact and "/js/app." in sidebar_contact, sidebar_contact[:200]
 assert 'id="app"' in operation_work_fission and "/js/app." in operation_work_fission, operation_work_fission[:200]
+assert dashboard_login != saas_admin, "SaaS Admin fell through to the Dashboard SPA"
 assert 'id="root"' in saas_admin, saas_admin[:500]
 assert "/saas-admin/assets/" in saas_admin, saas_admin[:500]
 print("standalone compose app smoke passed")

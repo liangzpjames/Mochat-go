@@ -27,5 +27,7 @@ sync_one operation
 
 pnpm --filter @mochat/dashboard build
 test -f "web/apps/dashboard/dist/index.html"
+pnpm --filter @mochat/saas-admin build
+test -f "web/apps/saas-admin/dist/index.html"
 
-echo "legacy frontend dists synced to $TARGET_ROOT; React dashboard built at web/apps/dashboard/dist"
+echo "legacy frontend dists synced to $TARGET_ROOT; React dashboard and SaaS Admin builds are ready"
