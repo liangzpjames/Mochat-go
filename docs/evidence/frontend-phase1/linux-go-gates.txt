@@ -1,0 +1,15 @@
+time=2026-07-28 13:34 +08:00
+commit=ae9f0bdf04d2b876e6e9b1d0dd0a5f99827538da
+environment=Docker Desktop; golang:1.26-alpine
+
+command=docker run --rm -v "${PWD}:/src:ro" -v mochat-go-mod-cache:/go/pkg/mod -v mochat-go-build-cache:/root/.cache/go-build -w /src golang:1.26-alpine sh -c 'go test ./... && go vet ./...'
+exit_code=0
+output=all Go packages passed; go vet passed
+
+time=2026-07-28 13:48 +08:00
+commit=4906ed8
+command=docker run --rm -v "${PWD}:/src:ro" -v mochat-go-mod-cache:/go/pkg/mod -v mochat-go-build-cache:/root/.cache/go-build -w /src golang:1.26-alpine sh -c 'set -eu; mkdir -p /tmp/repo/scripts; cp /src/scripts/*.sh /src/scripts/architecture-size-baseline.txt /tmp/repo/scripts/; cp -a /src/internal /src/cmd /tmp/repo/; find /tmp/repo/scripts /tmp/repo/internal /tmp/repo/cmd -type f \( -name "*.sh" -o -name "*.go" -o -name "architecture-size-baseline.txt" \) -exec dos2unix {} +; cd /tmp/repo; sh scripts/audit_architecture_boundaries.sh; sh scripts/test_audit_architecture_boundaries.sh; sh scripts/test_dev_check.sh; cd /src; go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance ./cmd/mochat-frontend-e2e'
+exit_code=0
+output=architecture boundaries passed; architecture boundary audit self-test passed; dev check command self-test passed; all command builds passed
+
+note=The temporary LF normalization is required because the Windows worktree is checked out with CRLF. A normal Linux CI checkout uses LF and does not require this adaptation.

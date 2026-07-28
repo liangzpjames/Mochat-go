@@ -28,6 +28,8 @@
 | `2026-07-23-phase0-architecture-design.md` | 已确认的 Phase 0 架构设计 |
 | `2026-07-23-phase0-implementation-plan.md` | 可跟踪实施计划 |
 | `2026-07-27-frontend-unification-foundation-implementation-plan.md` | Phase 1 前端统一底座实施计划 |
+| `FRONTEND_PHASE1_VERIFICATION.zh-CN.md` | Phase 1 前端验收证据、结论与未关闭条件 |
+| `FRONTEND_MIGRATION_RUNBOOK.zh-CN.md` | 后续逐页迁移、发布与回滚流程 |
 | `ARCHITECTURE.zh-CN.md` | 后续需求开发的架构规则 |
 | `LOCAL_DEVELOPMENT.zh-CN.md` | Docker 本地开发与验证 |
 | `PHASE0_CHECKLIST.zh-CN.md` | Phase 0 状态与退出条件 |

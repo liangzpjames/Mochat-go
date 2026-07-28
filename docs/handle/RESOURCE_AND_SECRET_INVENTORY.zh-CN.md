@@ -5,7 +5,11 @@
 | 类别 | 项目 | 当前状态 | 负责人 | 正式存储位置 | 轮换/复核周期 |
 | --- | --- | --- | --- | --- | --- |
 | 代码 | 权威 Git 仓库 | 已具备 | 待指定 | GitHub | 每次发布 |
-| 代码 | 旧三端可编辑源码 | 未具备 | 待指定 | 待定 | 获取后复核 |
+| 代码 | 旧三端可编辑源码 | 已具备，许可证/资产仍有 blocked 项 | 待指定 | `web/legacy/` 与来源 manifest | 每批迁移前 |
+| 工具链 | Node.js `>=22.12 <25` | 已具备 | 待指定 | 开发机与 GitHub Actions | 每季度 |
+| 工具链 | pnpm `11.17.0` / Corepack | 已具备 | 待指定 | 根 `packageManager` 与 lockfile | 每次升级 |
+| 浏览器 | Playwright Chromium | 本地 Chrome 已验证；CI Chromium 自动安装 | 待指定 | Playwright cache（lockfile hash） | 每次升级 |
+| CI | GitHub Actions Linux runner | 已配置，目标提交运行结果待确认 | 待指定 | `mysql57-amd64.yml` | 每次提交 |
 | 计算 | 开发服务器 | 未具备 | 待指定 | 待定 | 待定 |
 | 计算 | 测试/预发/生产服务器 | 未具备 | 待指定 | 待定 | 待定 |
 | 数据库 | MySQL/MariaDB 实例 | 未具备 | 待指定 | 待定 | 待定 |

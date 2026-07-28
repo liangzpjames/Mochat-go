@@ -1,0 +1,17 @@
+time=2026-07-28 13:20-13:41 +08:00
+commit=ae9f0bdf04d2b876e6e9b1d0dd0a5f99827538da
+
+command=git status --short
+exit_code=0
+output=untracked .superpowers/ session scratch existed; it was explicitly excluded from every commit
+
+command=go test ./...
+platform=Windows
+exit_code=1
+output=internal/dashboard failed path separator assertions; internal/saasauditanchor and internal/saasbackup failed POSIX mode assertions
+disposition=pre-existing Windows-only failures; user explicitly requested not to fix them; the same suite passed in Linux Docker
+
+command=bash scripts/dev_check.sh quick
+exit_code=1
+output=WSL execvpe(/bin/bash) failed: No such file or directory
+disposition=the host has no usable Bash; Linux-equivalent inner gates are recorded in linux-go-gates.txt
