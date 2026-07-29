@@ -119,7 +119,7 @@ func TestWrapDashboardPassesAPIPathsToNext(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/roomTagPull/contactDetail?id=917001", nil))
-	if rec.Code != http.StatusAccepted || rec.Body.String() != "/roomTagPull/contactDetail" {
+	if rec.Code != http.StatusOK || rec.Body.String() != "index" {
 		t.Fatalf("room tag pull contact detail path = %d %q", rec.Code, rec.Body.String())
 	}
 
@@ -240,6 +240,21 @@ func TestWrapAppCanMountFrontendUnderPrefix(t *testing.T) {
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sidebar-app/css/app.css", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "body{}" {
 		t.Fatalf("mounted asset = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestWrapAppRewritesViteAssetsUnderPrefix(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.html"), `<link rel="stylesheet" href="/assets/app.css"><script type="module" src="/assets/app.js"></script>`)
+	handler := WrapApp(http.NotFoundHandler(), AppConfig{DistDir: dir, MountPath: "/sidebar-app"})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sidebar-app/contact/remark", nil))
+	body := rec.Body.String()
+	for _, want := range []string{`href="/sidebar-app/assets/app.css"`, `src="/sidebar-app/assets/app.js"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("mounted Vite html missing %q in %q", want, body)
+		}
 	}
 }
 

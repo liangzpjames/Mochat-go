@@ -99,8 +99,8 @@ if ! NODE_PATH="$PLAYWRIGHT_NODE_PATH${NODE_PATH:+:$NODE_PATH}" node -e 'require
   echo "Node Playwright module is not available; set PLAYWRIGHT_NODE_PATH or install playwright" >&2
   exit 1
 fi
-if [ ! -f web/operation/dist/index.html ]; then
-  echo "operation dist not found: web/operation/dist" >&2
+if [ ! -f web/apps/operation/dist/index.html ]; then
+  echo "operation dist not found: web/apps/operation/dist" >&2
   exit 1
 fi
 

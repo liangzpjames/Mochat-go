@@ -167,9 +167,9 @@ if not server_path.exists():
 
 routes = runtime_routes(server_path.read_text(encoding="utf-8"))
 surfaces = [
-    ("dashboard", repo / "web/dashboard/dist", lambda root: scan_dist_api_calls(root, "/dashboard")),
-    ("sidebar", repo / "web/sidebar/dist", lambda root: scan_dist_api_calls(root, "/sidebar")),
-    ("operation", repo / "web/operation/dist", lambda root: scan_dist_api_calls(root, "/operation")),
+    ("dashboard", repo / "web/apps/dashboard/dist", lambda root: scan_dist_api_calls(root, "/dashboard")),
+    ("sidebar", repo / "web/apps/sidebar/dist", lambda root: scan_dist_api_calls(root, "/sidebar")),
+    ("operation", repo / "web/apps/operation/dist", lambda root: scan_dist_api_calls(root, "/operation")),
     ("saas-admin", repo / "web/apps/saas-admin/src", scan_saas_admin_source_calls),
 ]
 

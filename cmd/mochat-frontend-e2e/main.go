@@ -9,11 +9,6 @@ import (
 )
 
 func main() {
-	manifest, err := frontend.LoadMigrationManifest("web/apps/dashboard/src/migration-routes.json")
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	apiNotFound := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -22,9 +17,13 @@ func main() {
 	handler := frontend.WrapDashboard(apiNotFound, frontend.DashboardConfig{
 		DistDir: "web/apps/dashboard/dist",
 	})
-	handler = frontend.WrapLegacyDashboard(handler, frontend.LegacyDashboardConfig{
-		DistDir:  "web/dashboard/dist",
-		Manifest: manifest,
+	handler = frontend.WrapApp(handler, frontend.AppConfig{
+		DistDir:   "web/apps/operation/dist",
+		MountPath: "/operation-app/",
+	})
+	handler = frontend.WrapApp(handler, frontend.AppConfig{
+		DistDir:   "web/apps/sidebar/dist",
+		MountPath: "/sidebar-app/",
 	})
 
 	log.Fatal(http.ListenAndServe("127.0.0.1:4174", handler))

@@ -156,9 +156,11 @@ func (h *appHandler) rewriteFrontend(body string, ext string) string {
 	if ext == ".html" {
 		replacer := strings.NewReplacer(
 			`href="/favicon.ico"`, `href="`+prefix+`favicon.ico"`,
+			`href="/assets/`, `href="`+prefix+`assets/`,
 			`href="/css/`, `href="`+prefix+`css/`,
 			`href="/js/`, `href="`+prefix+`js/`,
 			`href="/img/`, `href="`+prefix+`img/`,
+			`src="/assets/`, `src="`+prefix+`assets/`,
 			`src="/js/`, `src="`+prefix+`js/`,
 			`src="/img/`, `src="`+prefix+`img/`,
 			`src="/vendor/`, `src="`+prefix+`vendor/`,
@@ -216,7 +218,7 @@ func reservedPath(path string) bool {
 	if path == "/healthz" || path == "/readyz" || path == "/compat/status" || path == "/compat/routes" {
 		return true
 	}
-	if path == "/roomTagPull/contactDetail" || path == "/roomTagPull/clientDetails" {
+	if path == "/roomTagPull/clientDetails" {
 		return true
 	}
 	for _, prefix := range []string{
@@ -235,6 +237,7 @@ func reservedPath(path string) bool {
 		"/openUserInfo/",
 		"/static/",
 		"/compat/",
+		"/_legacy/",
 	} {
 		if strings.HasPrefix(path, prefix) {
 			return true

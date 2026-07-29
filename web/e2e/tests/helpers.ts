@@ -13,6 +13,7 @@ function envelope(data: unknown, code = 200, msg = 'success') {
 }
 
 function menu(routes: string[]) {
+  const actions = ['search', 'addwx', 'check', 'edit', 'advanced', 'all', 'add', 'batch', 'close', 'sync'];
   return [{
     name: 'root',
     linkUrl: null,
@@ -25,14 +26,12 @@ function menu(routes: string[]) {
         name: path,
         linkUrl: path,
         linkType: 1,
-        children: path === '/corp/index'
-          ? ['search', 'addwx', 'check', 'edit'].map((action) => ({
+        children: actions.map((action) => ({
               name: action,
-              linkUrl: `/corp/index@${action}`,
+              linkUrl: `${path}@${action}`,
               linkType: 1,
               children: [],
-            }))
-          : [],
+            })),
       })),
     }],
   }];
@@ -75,6 +74,61 @@ export async function mockDashboardBackend(
       await json(route, envelope({
         list: [{ corpId: 7, corpName: '测试企业', wxCorpId: 'wx-7', createdAt: '2026-07-28' }],
         page: { perPage: 10, total: 1, totalPage: 1 },
+      }));
+      return;
+    }
+    if (path.startsWith('/contactField/index')) {
+      await json(route, envelope({
+        list: [],
+        page: { page: 1, perPage: 10, total: 0, totalPage: 0 },
+      }));
+      return;
+    }
+    if (path.startsWith('/workDepartment/pageIndex')) {
+      await json(route, envelope({
+        list: [],
+        page: { page: 1, perPage: 10, total: 0, totalPage: 0 },
+      }));
+      return;
+    }
+    if (path === '/workEmployee/searchCondition') {
+      await json(route, envelope({ status: [], contactAuth: [], syncTime: '' }));
+      return;
+    }
+    if (path.startsWith('/workEmployee/index')) {
+      await json(route, envelope({
+        list: [],
+        page: { page: 1, perPage: 10, total: 0, totalPage: 0 },
+      }));
+      return;
+    }
+    if (path.startsWith('/workContactTag/index')) {
+      await json(route, envelope({
+        list: [],
+        syncTagTime: '',
+        page: { page: 1, perPage: 10, total: 0, totalPage: 0 },
+      }));
+      return;
+    }
+    if (path === '/workContactTagGroup/index') {
+      await json(route, envelope([]));
+      return;
+    }
+    if (path.startsWith('/menu/index')) {
+      await json(route, envelope({
+        list: [],
+        page: { page: 1, perPage: 10, total: 0, totalPage: 0 },
+      }));
+      return;
+    }
+    if (path === '/menu/select' || path === '/menu/iconIndex') {
+      await json(route, envelope([]));
+      return;
+    }
+    if (path.startsWith('/role/index')) {
+      await json(route, envelope({
+        list: [],
+        page: { page: 1, perPage: 10, total: 0, totalPage: 0 },
       }));
       return;
     }

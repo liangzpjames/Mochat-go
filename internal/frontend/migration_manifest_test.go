@@ -122,14 +122,14 @@ func TestMigrationManifestLoadsFromFile(t *testing.T) {
 	}
 }
 
-func TestMigrationManifestRepositorySourceContainsLegacyRoutes(t *testing.T) {
+func TestMigrationManifestRepositorySourceHasExitedLegacy(t *testing.T) {
 	manifest, err := LoadMigrationManifest(filepath.Join(
 		"..", "..", "web", "apps", "dashboard", "src", "migration-routes.json",
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !manifest.IsLegacyRoute("/workContact/index") {
-		t.Fatal("repository manifest does not register audited legacy routes")
+	if manifest.IsLegacyRoute("/workContact/index") {
+		t.Fatal("repository manifest still registers a legacy route")
 	}
 }

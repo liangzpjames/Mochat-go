@@ -57,7 +57,7 @@ if ! NODE_PATH="$PLAYWRIGHT_NODE_PATH${NODE_PATH:+:$NODE_PATH}" node -e 'require
   exit 1
 fi
 
-for dist in web/dashboard/dist web/sidebar/dist web/operation/dist; do
+for dist in web/apps/dashboard/dist web/apps/sidebar/dist web/apps/operation/dist; do
   if [ ! -f "$dist/index.html" ]; then
     echo "frontend dist not found: $dist" >&2
     exit 1

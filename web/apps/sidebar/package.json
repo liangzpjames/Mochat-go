@@ -1,0 +1,28 @@
+{
+  "name": "@mochat/sidebar",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mochat/routing": "workspace:*",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router": "7.18.1"
+  },
+  "devDependencies": {
+    "@mochat/config": "workspace:*",
+    "@testing-library/react": "16.3.2",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.4",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vite": "8.1.5",
+    "vitest": "2.1.9"
+  }
+}

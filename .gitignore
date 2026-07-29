@@ -12,6 +12,8 @@ web/apps/saas-admin/coverage/
 web/apps/dashboard/.vite/
 web/apps/dashboard/coverage/
 web/apps/dashboard/dist/
+web/apps/sidebar/dist/
+web/apps/operation/dist/
 web/packages/*/dist/
 web/e2e/playwright-report/
 web/e2e/test-results/

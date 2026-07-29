@@ -364,7 +364,7 @@ Update the Phase 2 README:
 ```markdown
 - 单人开发模式已删除 owner 元数据。
 - 135 条页面已完成风险与批次基线。
-- Dashboard Batch 2 首批候选见 [候选顺序](audit/dashboard-batch2-candidates.csv)。
+- Dashboard Batch 2 首批候选见 [候选顺序](../../phases/phase-2-frontend-migration/audit/dashboard-batch2-candidates.csv)。
 - 下一项实施从候选报告第 1 条路由开始，逐路由通过交付门禁后切换 manifest。
 ```
 
@@ -386,4 +386,3 @@ Expected: all tests PASS and no whitespace errors. Run the audit separately and 
 git add scripts/audit_legacy_frontend_inventory.mjs scripts/audit_legacy_frontend_inventory.test.mjs docs/phases/phase-2-frontend-migration/README.md docs/phases/phase-2-frontend-migration/audit/dashboard-batch2-candidates.csv
 git commit -m "docs: publish dashboard batch2 candidates"
 ```
-

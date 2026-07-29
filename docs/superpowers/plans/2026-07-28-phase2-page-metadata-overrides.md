@@ -299,7 +299,7 @@ Update the Phase 2 README state to:
 
 ```markdown
 - page metadata override 与防覆盖测试已实现。
-- 当前 134 条阻塞页面见 [未分配页面清单](audit/unassigned-pages.csv)。
+- 当前 134 条阻塞页面见 [未分配页面清单](../../phases/phase-2-frontend-migration/audit/unassigned-pages.csv)。
 - 在 owner、risk 和 batch 决策录入 override 文件前，不发布阶段完成比例，也不确定 Dashboard Batch 2 首批路由。
 ```
 

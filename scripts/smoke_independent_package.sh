@@ -87,9 +87,7 @@ test ! -e "$MOCHAT_COMPAT_MANIFEST"
 for legal_file in LICENSE NOTICE.md SOURCE_OFFER.md MODIFICATIONS.md THIRD_PARTY_NOTICES.md; do
   test -s "$legal_file" || { echo "independent package missing $legal_file" >&2; exit 1; }
 done
-for vendor_file in vue-2.6.10.min.js vue-router-3.1.3.min.js vuex-3.1.1.min.js axios-0.19.0.min.js; do
-  test -s "web/dashboard/dist/vendor/$vendor_file" || { echo "independent package missing dashboard vendor $vendor_file" >&2; exit 1; }
-done
+test -s "web/apps/dashboard/dist/index.html" || { echo "independent package missing React dashboard build" >&2; exit 1; }
 grep -q 'GNU GENERAL PUBLIC LICENSE' LICENSE
 grep -q '0056_saas_domain_delivery' MODIFICATIONS.md
 grep -q '0057_saas_release_readiness' MODIFICATIONS.md

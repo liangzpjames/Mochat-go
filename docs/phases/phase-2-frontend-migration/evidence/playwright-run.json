@@ -1,0 +1,7 @@
+{
+  "status": "passed",
+  "failedTests": [],
+  "suite": "web/e2e/tests/dashboard-migration.spec.ts",
+  "expectedTests": 91,
+  "recordedAt": "2026-07-29T06:19:37.171Z"
+}
