@@ -33,6 +33,40 @@ cd /Users/lv/Documents/企业微信/mochat-go
 
 完整本地独立栈验收使用上方快速验收命令。
 
+### Docker Desktop 一键部署
+
+在 Windows PowerShell 中从仓库根目录执行：
+
+```powershell
+.\scripts\deploy_docker_desktop.ps1
+```
+
+脚本会使用固定 Compose 项目名 `mochat-go-desktop`，自动检查 Docker Desktop、构建并替换上一次部署的容器、等待 MySQL/Redis/应用健康、执行数据库迁移、初始化管理员，并检查 Dashboard、SaaS Admin、Sidebar、Operation 四个前端入口。默认管理员账号为 `13800000000`，默认密码为 `MochatLocal@123`，可通过 `-AdminPhone` 和 `-AdminPassword` 覆盖。
+
+默认部署只替换容器，保留 MySQL、Redis、上传文件、备份和审计锚点等数据卷。只有明确需要清空全部项目数据时才执行：
+
+```powershell
+.\scripts\deploy_docker_desktop.ps1 -ResetData
+```
+
+`-ResetData` 会永久删除 `mochat-go-desktop` 项目的数据卷。端口被其他项目占用时，可显式指定端口：
+
+```powershell
+.\scripts\deploy_docker_desktop.ps1 `
+  -DashboardPort 28080 `
+  -SidebarPort 28081 `
+  -OperationPort 28082 `
+  -MySQLPort 23316 `
+  -RedisPort 36389
+```
+
+其他常用参数包括 `-ProjectName`（Compose 项目名）、`-SkipHttpCheck`（跳过前端 HTTP 检查）和 `-DryRun`（只打印将执行的命令）。默认访问地址为：
+
+- Dashboard：`http://127.0.0.1:18080/`
+- SaaS Admin：`http://127.0.0.1:18080/saas-admin/`
+- Sidebar：`http://127.0.0.1:18081/`
+- Operation：`http://127.0.0.1:18082/`
+
 完整容器独立栈可直接启动 Go app + MySQL + Redis：
 
 ```bash

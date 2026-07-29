@@ -7,8 +7,11 @@ param(
     [ValidateRange(1, 65535)][int]$DashboardPort = 18080,
     [ValidateRange(1, 65535)][int]$SidebarPort = 18081,
     [ValidateRange(1, 65535)][int]$OperationPort = 18082,
+    [ValidateRange(1, 65535)][int]$MySQLPort = 13316,
+    [ValidateRange(1, 65535)][int]$RedisPort = 26389,
     [string]$AdminPhone = '13800000000',
-    [string]$AdminPassword = 'MochatLocal@123'
+    [string]$AdminPassword = 'MochatLocal@123',
+    [string]$DockerCommand = 'docker'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,17 +52,25 @@ function Invoke-Docker {
         return ''
     }
 
-    $output = & docker @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        if ($Capture) {
+            $output = & $DockerCommand @Arguments 2>&1
+        } else {
+            & $DockerCommand @Arguments
+            $output = $null
+        }
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
     if ($exitCode -ne 0) {
-        $details = $output | Out-String
+        $details = if ($null -eq $output) { '' } else { $output | Out-String }
         throw "Docker 命令执行失败（退出码 $exitCode）：`n$details"
     }
     if ($Capture) {
         return ($output | Out-String).Trim()
-    }
-    if ($null -ne $output) {
-        $output | ForEach-Object { Write-Host $_ }
     }
     return ''
 }
@@ -170,6 +181,8 @@ if ([string]::IsNullOrWhiteSpace($AdminPhone) -or [string]::IsNullOrWhiteSpace($
 $env:MOCHAT_GO_PORT = [string]$DashboardPort
 $env:MOCHAT_SIDEBAR_PORT = [string]$SidebarPort
 $env:MOCHAT_OPERATION_PORT = [string]$OperationPort
+$env:MOCHAT_MYSQL_PORT = [string]$MySQLPort
+$env:MOCHAT_REDIS_PORT = [string]$RedisPort
 $env:MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD = '1'
 if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SIMPLE_JWT_SECRET)) {
     $env:MOCHAT_SIMPLE_JWT_SECRET = 'mochat-go-docker-desktop-local-secret'
@@ -178,9 +191,10 @@ if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SIMPLE_JWT_SECRET)) {
 try {
     Write-Host "MoChat Go Docker Desktop 快速部署" -ForegroundColor Cyan
     Write-Host "Compose 项目：$ProjectName"
+    Write-Host "基础设施端口：MySQL：$MySQLPort；Redis：$RedisPort"
 
     if (-not $DryRun) {
-        if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
+        if ($null -eq (Get-Command $DockerCommand -ErrorAction SilentlyContinue)) {
             throw '未找到 docker 命令，请先安装并启动 Docker Desktop'
         }
         Invoke-Docker -Arguments @('info') | Out-Null
@@ -202,6 +216,10 @@ try {
     Wait-ComposeService -Service 'redis' -TimeoutSeconds 180
     Wait-ComposeService -Service 'app' -TimeoutSeconds 300
 
+    Invoke-Compose -Arguments @(
+        'exec', '-T', 'app',
+        'mochat-migrate', '-action', 'baseline', '-project-root', '/app'
+    )
     Invoke-Compose -Arguments @(
         'exec', '-T', 'app',
         'mochat-migrate', '-action', 'up', '-project-root', '/app'
