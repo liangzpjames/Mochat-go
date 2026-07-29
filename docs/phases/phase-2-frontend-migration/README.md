@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-实施已开始；page metadata 基线已建立，尚未建立可计算的任务完成比例。
+实施中。权威进度见 [Phase 2 进度报告](audit/phase2-progress.csv)：当前 9/135 个页面完成 React 切换（6.7%），仍有 126 个 legacy 页面。任何单一批次候选清零都不得表述为 Phase 2 完成。
 
 ## 实施前状态
 
@@ -30,11 +30,14 @@
 - 单人开发模式已删除 owner 元数据。
 - 135 条页面已完成风险与批次基线，当前 [未基线化页面清单](audit/unassigned-pages.csv) 为空。
 - Dashboard Batch 2 首批候选见 [候选顺序](audit/dashboard-batch2-candidates.csv)。
+- Dashboard Batch 2 首批 8 个页面已完成 React 路由切换；这只是阶段范围的一部分。
 
 ## 未完成与阻塞
 
 - 部分 legacy 资产的许可证或来源未确认。
 - 真实企微、微信开放平台及租户数据不足以验收复杂页面。
+- Dashboard 仍有 95 个 legacy 页面，Sidebar 仍有 18 个，Operation 仍有 13 个。
+- 已切换页面尚需按单路由门禁补齐 Playwright、桌面/移动视觉证据、独立回滚记录和页面级动态导入。
 
 ## 验收与证据
 
@@ -42,4 +45,4 @@
 
 ## 下一阶段入口
 
-从 Dashboard Batch 2 候选报告第 1 条路由开始，逐路由通过交付门禁后切换 manifest。
+先补齐现有 React 路由的完整证据和动态导入门禁，再按 Dashboard Batch 3、Dashboard Batch 4、Sidebar、Operation 顺序逐路由迁移；最终以三个应用 manifest 中 legacy 为零并完成 legacy 退出验收为准。
