@@ -1,313 +1,435 @@
-# Phase 3 Yuanhu Business Foundation Implementation Plan
+# Phase 3 圆弧业务基础实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **供智能体执行：** 必须使用 `subagent-driven-development`（推荐）或 `executing-plans` 技能，按任务逐项实施。本计划使用复选框跟踪进度。
 
-**Goal:** Build the first production-shaped Phase 3 vertical slice: customer master data, leads, opportunities, ownership/collaboration, and the contracts used by marketing and reporting.
+**目标：** 完成 Phase 3 第一个具备生产形态的垂直业务闭环：客户主数据、线索、商机、负责人/协作人，以及营销和报表后续依赖的稳定契约。
 
-**Architecture:** Extend the existing tenant-aware Go service with a focused SCRM domain instead of adding another application framework. React Dashboard pages consume versioned typed APIs through the existing API client and query cache. Domain events feed later reporting, risk, and AI modules without coupling the first slice to those implementations.
+**架构：** 在现有多租户 Go 服务内扩展边界清晰的 SCRM 领域，不引入另一套应用框架。React Dashboard 通过现有 API Client 和查询缓存调用带版本的类型化接口。领域事件为后续报表、风险和 AI 模块提供输入，但第一阶段不依赖这些模块的实现。
 
-**Tech Stack:** Go 1.26, MySQL/MariaDB, Redis, React 19, TypeScript, Ant Design, TanStack Query, Vitest, Playwright, Docker Compose.
+**技术栈：** Go 1.26、MySQL/MariaDB、Redis、React 19、TypeScript、Ant Design、TanStack Query、Vitest、Playwright、Docker Compose。
 
-## Global Constraints
+## 全局约束
 
-- Every record is tenant scoped; corp-scoped records additionally require authorized corp access.
-- Data permissions support owner, collaborator, department, descendant departments, and tenant-wide scopes.
-- Mutating endpoints require optimistic version checks and stable idempotency keys where retries are possible.
-- No AI feature is introduced in this slice.
-- No live message, group-send, purchase, or destructive third-party action is used in automated tests.
-- Existing Phase 2 routes remain stable while real pages replace generic migrated-page loaders.
+- 每条记录必须包含租户范围；企业级记录还必须通过当前用户的企业访问校验。
+- 数据权限必须支持本人、协作人、部门、下级部门和全租户范围。
+- 可变资源使用乐观版本控制；可能重试的写操作使用稳定幂等键。
+- 本阶段不实现 AI 功能。
+- 自动化测试不得发送真实消息、执行真实群发、购买或触发有破坏性的第三方操作。
+- 在真实页面替换统一承接页期间，Phase 2 已有 URL 和路由行为必须保持稳定。
 
 ---
 
-### Task 1: Freeze the SCRM vocabulary and contracts
+### 任务 1：固定 SCRM 领域词汇和接口契约
 
-**Files:**
-- Create: `docs/phases/phase-3-yuanhu-benchmark/scrm-domain-contract.md`
-- Create: `docs/phases/phase-3-yuanhu-benchmark/scrm-api-contract.yaml`
-- Test: `scripts/check_phase3_scrm_contract.mjs`
+**文件：**
 
-**Interfaces:**
-- Produces: canonical `Lead`, `ContactProfile`, `CustomerAssignment`, `Opportunity`, `OpportunityStage`, and `FollowUp` schemas.
-- Produces: state transitions and error codes consumed by all later tasks.
+- 新建：`docs/phases/phase-3-yuanhu-benchmark/scrm-domain-contract.md`
+- 新建：`docs/phases/phase-3-yuanhu-benchmark/scrm-api-contract.yaml`
+- 测试：`scripts/check_phase3_scrm_contract.mjs`
 
-- [ ] **Step 1: Write a failing contract checker**
+**接口：**
 
-Create a Node test that requires every mutable resource to define `tenantId`, `version`, `createdAt`, `updatedAt`, permission rules, and allowed transitions.
+- 产出规范化的 `Lead`、`ContactProfile`、`CustomerAssignment`、`Opportunity`、`OpportunityStage` 和 `FollowUp` 模型。
+- 产出后续任务共同依赖的状态转换规则和错误码。
 
-- [ ] **Step 2: Run the checker**
+- [ ] **步骤 1：编写失败的契约检查**
 
-Run: `node scripts/check_phase3_scrm_contract.mjs`
+创建 Node 检查脚本，要求所有可变资源定义 `tenantId`、`version`、`createdAt`、`updatedAt`、权限规则和允许的状态转换。
 
-Expected: FAIL because both contract documents are absent.
+- [ ] **步骤 2：确认检查失败**
 
-- [ ] **Step 3: Write the domain and API contracts**
+执行：
 
-Define:
+```bash
+node scripts/check_phase3_scrm_contract.mjs
+```
 
-- lead states: `new`, `qualified`, `converted`, `discarded`;
-- assignment states: `owned`, `collaborating`, `public_pool`;
-- opportunity states: configurable stage plus terminal `won` and `lost`;
-- immutable follow-up events;
-- `409` for version conflicts, `403` for data-scope denial, and `422` for invalid transitions.
+预期：失败，因为两个契约文件尚不存在。
 
-- [ ] **Step 4: Verify the contract**
+- [ ] **步骤 3：编写领域和 API 契约**
 
-Run: `node scripts/check_phase3_scrm_contract.mjs`
+明确以下规则：
 
-Expected: PASS with all resources and transitions reported.
+- 线索状态：`new`、`qualified`、`converted`、`discarded`；
+- 客户分配状态：`owned`、`collaborating`、`public_pool`；
+- 商机使用可配置阶段，并包含终态 `won` 和 `lost`；
+- 跟进记录为不可变事件；
+- 版本冲突返回 `409`，数据权限拒绝返回 `403`，非法状态转换返回 `422`。
 
-- [ ] **Step 5: Commit**
+- [ ] **步骤 4：验证契约**
+
+执行：
+
+```bash
+node scripts/check_phase3_scrm_contract.mjs
+```
+
+预期：通过，并输出全部资源和状态转换。
+
+- [ ] **步骤 5：提交**
 
 ```bash
 git add docs/phases/phase-3-yuanhu-benchmark scripts/check_phase3_scrm_contract.mjs
 git commit -m "docs: define phase3 SCRM contracts"
 ```
 
-### Task 2: Add tenant-scoped SCRM persistence
+### 任务 2：增加租户隔离的 SCRM 持久层
 
-**Files:**
-- Create: `deploy/standalone/migrations/0090_scrm_customer_lifecycle.up.sql`
-- Create: `deploy/standalone/migrations/0090_scrm_customer_lifecycle.down.sql`
-- Create: `internal/store/scrm.go`
-- Create: `internal/store/scrm_test.go`
+**文件：**
 
-**Interfaces:**
-- Consumes: Task 1 resource and transition definitions.
-- Produces: `SCRMStore` methods for leads, assignments, opportunities, stages, and follow-ups.
+- 新建：`deploy/standalone/migrations/0090_scrm_customer_lifecycle.up.sql`
+- 新建：`deploy/standalone/migrations/0090_scrm_customer_lifecycle.down.sql`
+- 新建：`internal/store/scrm.go`
+- 新建：`internal/store/scrm_test.go`
 
-- [ ] **Step 1: Write store tests**
+**接口：**
 
-Cover tenant isolation, duplicate external keys, optimistic versions, concurrent public-pool claims, collaborator visibility, stage transitions, and immutable follow-ups.
+- 输入：任务 1 定义的资源和状态转换。
+- 产出：用于线索、分配关系、商机、阶段和跟进记录的 `SCRMStore` 方法。
 
-- [ ] **Step 2: Run focused tests**
+- [ ] **步骤 1：编写 Store 测试**
 
-Run: `go test ./internal/store -run 'TestSCRM'`
+覆盖：
 
-Expected: FAIL because the migration and store are absent.
+- 租户隔离；
+- 外部业务键重复；
+- 乐观版本冲突；
+- 公海并发领取；
+- 协作人可见范围；
+- 商机阶段转换；
+- 跟进记录不可变。
 
-- [ ] **Step 3: Add migration and store**
+- [ ] **步骤 2：确认测试失败**
 
-Use explicit `tenant_id`, nullable `corp_id`, integer `version`, soft-delete columns, unique tenant-scoped business keys, and indexes for owner, stage, state, next follow-up, and updated time.
+执行：
 
-- [ ] **Step 4: Re-run focused tests**
+```bash
+go test ./internal/store -run 'TestSCRM'
+```
 
-Run: `go test ./internal/store -run 'TestSCRM'`
+预期：失败，因为迁移和 Store 尚不存在。
 
-Expected: PASS.
+- [ ] **步骤 3：实现迁移和 Store**
 
-- [ ] **Step 5: Verify migration lifecycle**
+数据库表必须使用：
 
-Run the repository migration apply, checksum, rollback, and replay checks against the standalone database.
+- 显式 `tenant_id`；
+- 可空 `corp_id`；
+- 整数 `version`；
+- 软删除字段；
+- 租户范围内唯一业务键；
+- 负责人、阶段、状态、下次跟进时间和更新时间索引。
 
-Expected: migration 0090 applies, rolls back, and reapplies without drift.
+- [ ] **步骤 4：验证 Store 测试**
 
-- [ ] **Step 6: Commit**
+执行：
+
+```bash
+go test ./internal/store -run 'TestSCRM'
+```
+
+预期：通过。
+
+- [ ] **步骤 5：验证迁移生命周期**
+
+使用仓库现有迁移工具，对 standalone 数据库执行 apply、checksum、rollback 和 replay。
+
+预期：0090 迁移可应用、可回滚、可重新应用，且无校验漂移。
+
+- [ ] **步骤 6：提交**
 
 ```bash
 git add deploy/standalone/migrations/0090_scrm_customer_lifecycle.* internal/store/scrm*
 git commit -m "feat: add SCRM customer lifecycle persistence"
 ```
 
-### Task 3: Implement authorization and SCRM APIs
+### 任务 3：实现数据权限和 SCRM API
 
-**Files:**
-- Create: `internal/dashboard/scrm.go`
-- Create: `internal/dashboard/scrm_test.go`
-- Modify: `cmd/mochat-go/main.go`
-- Modify: `internal/server/routes.go`
+**文件：**
 
-**Interfaces:**
-- Consumes: `SCRMStore`.
-- Produces: `/dashboard/scrm/leads`, `/contacts`, `/assignments`, `/opportunities`, `/stages`, and `/followUps`.
+- 新建：`internal/dashboard/scrm.go`
+- 新建：`internal/dashboard/scrm_test.go`
+- 修改：`cmd/mochat-go/main.go`
+- 修改：`internal/server/routes.go`
 
-- [ ] **Step 1: Write failing handler tests**
+**接口：**
 
-Test list filters, pagination, create/update transitions, owner transfer, collaborator changes, atomic public-pool claim, permission denial, idempotent retry, and version conflict.
+- 输入：`SCRMStore`。
+- 产出：`/dashboard/scrm/leads`、`/contacts`、`/assignments`、`/opportunities`、`/stages` 和 `/followUps`。
 
-- [ ] **Step 2: Run focused tests**
+- [ ] **步骤 1：编写失败的 Handler 测试**
 
-Run: `go test ./internal/dashboard -run 'TestSCRM'`
+覆盖：
 
-Expected: FAIL because the handler is absent.
+- 列表筛选和分页；
+- 创建和状态转换；
+- 负责人转移；
+- 协作人变更；
+- 公海原子领取；
+- 权限拒绝；
+- 幂等重试；
+- 版本冲突。
 
-- [ ] **Step 3: Implement handlers and route registration**
+- [ ] **步骤 2：确认 Handler 测试失败**
 
-Reuse the current user resolver, corp authorizer, tenant context, JSON envelope, and audit conventions. Never trust tenant, owner, or permission scope supplied only by the client.
+执行：
 
-- [ ] **Step 4: Re-run focused tests**
+```bash
+go test ./internal/dashboard -run 'TestSCRM'
+```
 
-Run: `go test ./internal/dashboard -run 'TestSCRM'`
+预期：失败，因为 Handler 尚不存在。
 
-Expected: PASS.
+- [ ] **步骤 3：实现 Handler 和路由注册**
 
-- [ ] **Step 5: Run frontend/API inventory**
+复用现有用户解析器、企业授权器、租户上下文、JSON 响应结构和审计规范。不得信任只由客户端提供的租户、负责人或数据权限范围。
 
-Run: `pnpm refresh:audit`
+- [ ] **步骤 4：验证 Handler 测试**
 
-Expected: the new endpoints are present without unexplained gaps.
+执行：
 
-- [ ] **Step 6: Commit**
+```bash
+go test ./internal/dashboard -run 'TestSCRM'
+```
+
+预期：通过。
+
+- [ ] **步骤 5：刷新前端/API 清单**
+
+执行：
+
+```bash
+pnpm refresh:audit
+```
+
+预期：新接口进入审计清单，且不存在无法解释的缺口。
+
+- [ ] **步骤 6：提交**
 
 ```bash
 git add internal/dashboard/scrm* internal/server/routes.go cmd/mochat-go/main.go docs/phases/phase-1-frontend-foundation/audit
 git commit -m "feat: expose tenant-scoped SCRM APIs"
 ```
 
-### Task 4: Build the Contact and Lead React pages
+### 任务 4：实现联系人和线索 React 页面
 
-**Files:**
-- Create: `web/apps/dashboard/src/features/scrm/scrm-api.ts`
-- Create: `web/apps/dashboard/src/features/scrm/scrm-api.test.ts`
-- Create: `web/apps/dashboard/src/features/scrm/contact-page.tsx`
-- Create: `web/apps/dashboard/src/features/scrm/contact-page.test.tsx`
-- Create: `web/apps/dashboard/src/features/scrm/lead-page.tsx`
-- Create: `web/apps/dashboard/src/features/scrm/lead-page.test.tsx`
-- Modify: `web/apps/dashboard/src/main.tsx`
-- Modify: `web/apps/dashboard/src/pages/dashboard-page-loaders.ts`
+**文件：**
 
-**Interfaces:**
-- Consumes: Task 3 APIs.
-- Produces: real React implementations for contact and lead routes.
+- 新建：`web/apps/dashboard/src/features/scrm/scrm-api.ts`
+- 新建：`web/apps/dashboard/src/features/scrm/scrm-api.test.ts`
+- 新建：`web/apps/dashboard/src/features/scrm/contact-page.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/contact-page.test.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/lead-page.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/lead-page.test.tsx`
+- 修改：`web/apps/dashboard/src/main.tsx`
+- 修改：`web/apps/dashboard/src/pages/dashboard-page-loaders.ts`
 
-- [ ] **Step 1: Write API and component tests**
+**接口：**
 
-Cover source/status/tag/keyword filters, pagination, add, owner transfer, collaborator update, abandon, public-pool move, batch tag updates, loading, empty, forbidden, conflict, and retry states.
+- 输入：任务 3 的 API。
+- 产出：联系人和线索路由的真实 React 实现。
 
-- [ ] **Step 2: Run tests**
+- [ ] **步骤 1：编写 API 和组件测试**
 
-Run: `pnpm --filter @mochat/dashboard test -- src/features/scrm`
+覆盖：
 
-Expected: FAIL because the feature is absent.
+- 来源、状态、标签和关键词筛选；
+- 分页；
+- 新增；
+- 负责人转移；
+- 协作人更新；
+- 放弃；
+- 转入公海；
+- 批量标签更新；
+- 加载、空数据、禁止访问、版本冲突和重试状态。
 
-- [ ] **Step 3: Implement typed API and pages**
+- [ ] **步骤 2：确认测试失败**
 
-Use existing Dashboard access context, corp provider, TanStack Query keys containing tenant/corp/filter state, Ant Design accessible controls, and conflict refresh prompts.
+执行：
 
-- [ ] **Step 4: Replace generic route loaders**
+```bash
+pnpm --filter @mochat/dashboard test -- src/features/scrm
+```
 
-Wire the real pages in `main.tsx`; preserve current URLs and query parameters.
+预期：失败，因为功能尚不存在。
 
-- [ ] **Step 5: Re-run tests**
+- [ ] **步骤 3：实现类型化 API 和页面**
 
-Run: `pnpm --filter @mochat/dashboard test -- src/features/scrm`
+使用现有 Dashboard 权限上下文、企业 Provider、TanStack Query 和 Ant Design。查询键必须包含租户、企业和筛选条件；冲突状态必须提供刷新提示。
 
-Expected: PASS.
+- [ ] **步骤 4：替换统一承接页**
 
-- [ ] **Step 6: Commit**
+在 `main.tsx` 中接入真实页面，移除对应通用 loader，同时保留现有 URL 和查询参数。
+
+- [ ] **步骤 5：验证测试**
+
+执行：
+
+```bash
+pnpm --filter @mochat/dashboard test -- src/features/scrm
+```
+
+预期：通过。
+
+- [ ] **步骤 6：提交**
 
 ```bash
 git add web/apps/dashboard/src/features/scrm web/apps/dashboard/src/main.tsx web/apps/dashboard/src/pages/dashboard-page-loaders.ts
 git commit -m "feat: add SCRM lead and contact pages"
 ```
 
-### Task 5: Build Opportunity and Follow-up workflows
+### 任务 5：实现商机与跟进流程
 
-**Files:**
-- Create: `web/apps/dashboard/src/features/scrm/opportunity-page.tsx`
-- Create: `web/apps/dashboard/src/features/scrm/opportunity-page.test.tsx`
-- Create: `web/apps/dashboard/src/features/scrm/follow-up-timeline.tsx`
-- Create: `web/apps/dashboard/src/features/scrm/follow-up-timeline.test.tsx`
-- Modify: `web/apps/dashboard/src/features/scrm/scrm-api.ts`
+**文件：**
 
-**Interfaces:**
-- Consumes: opportunities, stages, and follow-up APIs.
-- Produces: opportunity list/editor and immutable customer timeline.
+- 新建：`web/apps/dashboard/src/features/scrm/opportunity-page.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/opportunity-page.test.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/follow-up-timeline.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/follow-up-timeline.test.tsx`
+- 修改：`web/apps/dashboard/src/features/scrm/scrm-api.ts`
 
-- [ ] **Step 1: Write failing workflow tests**
+**接口：**
 
-Cover stage/date/owner filters, expected amount and close date validation, stage transition, won/lost terminal rules, owner transfer, collaborator visibility, and chronological follow-up rendering.
+- 输入：商机、阶段和跟进 API。
+- 产出：商机列表/编辑器以及不可变的客户跟进时间线。
 
-- [ ] **Step 2: Run focused tests**
+- [ ] **步骤 1：编写失败的流程测试**
 
-Run: `pnpm --filter @mochat/dashboard test -- src/features/scrm/opportunity-page.test.tsx src/features/scrm/follow-up-timeline.test.tsx`
+覆盖：
 
-Expected: FAIL.
+- 阶段、日期和负责人筛选；
+- 预计金额和预计成交时间校验；
+- 阶段转换；
+- `won`/`lost` 终态规则；
+- 负责人转移；
+- 协作人可见性；
+- 跟进记录按时间顺序展示。
 
-- [ ] **Step 3: Implement opportunity and timeline UI**
+- [ ] **步骤 2：确认测试失败**
 
-Render current stage and transition controls separately; require explicit reasons for `lost`; display author, event time, next follow-up, and source for each follow-up event.
+执行：
 
-- [ ] **Step 4: Re-run focused tests**
+```bash
+pnpm --filter @mochat/dashboard test -- src/features/scrm/opportunity-page.test.tsx src/features/scrm/follow-up-timeline.test.tsx
+```
 
-Run the command from Step 2.
+预期：失败。
 
-Expected: PASS.
+- [ ] **步骤 3：实现商机和时间线 UI**
 
-- [ ] **Step 5: Commit**
+当前阶段和阶段转换操作必须分开展示；进入 `lost` 时必须填写原因。每条跟进记录展示作者、事件时间、下次跟进时间和来源。
+
+- [ ] **步骤 4：验证流程测试**
+
+再次执行步骤 2 的命令。
+
+预期：通过。
+
+- [ ] **步骤 5：提交**
 
 ```bash
 git add web/apps/dashboard/src/features/scrm
 git commit -m "feat: add opportunity and follow-up workflows"
 ```
 
-### Task 6: Add business events and first reporting slice
+### 任务 6：增加业务事件和第一批报表
 
-**Files:**
-- Create: `internal/dashboard/scrm_metrics.go`
-- Create: `internal/dashboard/scrm_metrics_test.go`
-- Create: `web/apps/dashboard/src/features/scrm/scrm-report-page.tsx`
-- Create: `web/apps/dashboard/src/features/scrm/scrm-report-page.test.tsx`
-- Create: `docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md`
+**文件：**
 
-**Interfaces:**
-- Consumes: immutable SCRM lifecycle events.
-- Produces: lead-to-contact and opportunity funnel metrics with documented definitions.
+- 新建：`internal/dashboard/scrm_metrics.go`
+- 新建：`internal/dashboard/scrm_metrics_test.go`
+- 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.test.tsx`
+- 新建：`docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md`
 
-- [ ] **Step 1: Write metric definition and failing tests**
+**接口：**
 
-Define denominator, event time, tenant timezone, deduplication, and late-event treatment for lead count, qualified count, conversion count, open opportunity amount, won amount, and stage conversion.
+- 输入：不可变 SCRM 生命周期事件。
+- 产出：线索到联系人、联系人到商机的漏斗指标，以及明确的指标定义。
 
-- [ ] **Step 2: Run tests**
+- [ ] **步骤 1：编写指标定义和失败测试**
 
-Run: `go test ./internal/dashboard -run 'TestSCRMMetrics'`
+为以下指标定义分母、事件时间、租户时区、去重规则和迟到事件处理：
 
-Expected: FAIL.
+- 线索数；
+- 有效线索数；
+- 线索转化数；
+- 进行中商机金额；
+- 成交金额；
+- 阶段转化率。
 
-- [ ] **Step 3: Implement aggregate API**
+- [ ] **步骤 2：确认测试失败**
 
-Support date range, corp, department, owner, source, and stage filters; return summary, trend, distribution, and paged detail references.
+执行：
 
-- [ ] **Step 4: Implement and test the report page**
+```bash
+go test ./internal/dashboard -run 'TestSCRMMetrics'
+```
 
-Run: `pnpm --filter @mochat/dashboard test -- src/features/scrm/scrm-report-page.test.tsx`
+预期：失败。
 
-Expected: PASS after summary, trend, distribution, and detail states are implemented.
+- [ ] **步骤 3：实现聚合 API**
 
-- [ ] **Step 5: Commit**
+支持日期范围、企业、部门、负责人、来源和阶段筛选；返回汇总、趋势、分布以及可分页的明细引用。
+
+- [ ] **步骤 4：实现并测试报表页面**
+
+执行：
+
+```bash
+pnpm --filter @mochat/dashboard test -- src/features/scrm/scrm-report-page.test.tsx
+```
+
+预期：完成汇总、趋势、分布和明细状态后通过。
+
+- [ ] **步骤 5：提交**
 
 ```bash
 git add internal/dashboard/scrm_metrics* web/apps/dashboard/src/features/scrm/scrm-report-page* docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md
 git commit -m "feat: add SCRM funnel reporting"
 ```
 
-### Task 7: End-to-end evidence and release gate
+### 任务 7：端到端证据和发布门禁
 
-**Files:**
-- Create: `web/e2e/tests/phase3-scrm.spec.ts`
-- Create: `docs/phases/phase-3-yuanhu-benchmark/acceptance.md`
-- Modify: `package.json`
+**文件：**
 
-**Interfaces:**
-- Consumes: all prior Phase 3 tasks.
-- Produces: deterministic SCRM acceptance evidence and a release decision.
+- 新建：`web/e2e/tests/phase3-scrm.spec.ts`
+- 新建：`docs/phases/phase-3-yuanhu-benchmark/acceptance.md`
+- 修改：`package.json`
 
-- [ ] **Step 1: Write failing Playwright scenarios**
+**接口：**
 
-Cover lead creation and conversion, contact ownership/collaboration, public-pool claim race, opportunity stage progression, follow-up timeline, permission denial, conflict refresh, and funnel report updates.
+- 输入：前六项任务的全部能力。
+- 产出：可重复执行的 SCRM 验收证据和明确发布结论。
 
-- [ ] **Step 2: Run Playwright**
+- [ ] **步骤 1：编写失败的 Playwright 场景**
 
-Run: `pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts`
+覆盖：
 
-Expected: FAIL before fixtures and UI are complete.
+- 创建并转化线索；
+- 联系人负责人和协作人；
+- 公海并发领取；
+- 商机阶段推进；
+- 跟进时间线；
+- 权限拒绝；
+- 版本冲突刷新；
+- 漏斗报表更新。
 
-- [ ] **Step 3: Add deterministic tenant fixtures**
+- [ ] **步骤 2：确认 Playwright 失败**
 
-Use isolated tenant/corp/user IDs and mock only external WeCom boundaries; exercise the real Go API and database for SCRM behavior.
+执行：
 
-- [ ] **Step 4: Re-run all Phase 3 gates**
+```bash
+pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
+```
 
-Run:
+预期：在 fixture 和 UI 完成前失败。
+
+- [ ] **步骤 3：增加确定性租户 Fixture**
+
+使用隔离的租户、企业和用户 ID。仅模拟外部企业微信边界；SCRM 行为必须经过真实 Go API 和数据库。
+
+- [ ] **步骤 4：执行全部 Phase 3 门禁**
 
 ```bash
 go test ./internal/store ./internal/dashboard ./internal/frontend
@@ -318,13 +440,13 @@ pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
 docker compose -f deploy/standalone/docker-compose.yml --profile app up -d --build
 ```
 
-Expected: all commands exit 0; application, MySQL, and Redis report healthy.
+预期：全部命令退出码为 0；应用、MySQL 和 Redis 均为 healthy。
 
-- [ ] **Step 5: Record acceptance**
+- [ ] **步骤 5：记录验收结果**
 
-Document scenario, role, fixture, expected result, actual result, screenshot/trace, and unresolved real-WeCom validation debt.
+记录场景、角色、Fixture、预期结果、实际结果、截图/Trace，以及尚未完成的真实企业微信验证债务。
 
-- [ ] **Step 6: Commit**
+- [ ] **步骤 6：提交**
 
 ```bash
 git add web/e2e/tests/phase3-scrm.spec.ts docs/phases/phase-3-yuanhu-benchmark/acceptance.md package.json
