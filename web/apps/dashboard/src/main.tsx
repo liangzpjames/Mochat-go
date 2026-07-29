@@ -37,6 +37,9 @@ const EmployeePage = lazy(async () => ({ default: (await import('./features/empl
 const DepartmentPage = lazy(async () => ({ default: (await import('./features/department/department-page')).DepartmentPage }));
 const ContactFieldPage = lazy(async () => ({ default: (await import('./features/contact-field/contact-field-page')).ContactFieldPage }));
 const RolePage = lazy(async () => ({ default: (await import('./features/role/role-page')).RolePage }));
+const RolePermissionPage = lazy(async () => ({
+  default: (await import('./features/role/role-permission-page')).RolePermissionPage,
+}));
 const MenuAdminPage = lazy(async () => ({ default: (await import('./features/menu-admin/menu-admin-page')).MenuAdminPage }));
 const UserAdminPage = lazy(async () => ({ default: (await import('./features/user-admin/user-admin-page')).UserAdminPage }));
 const ContactTagPage = lazy(async () => ({ default: (await import('./features/contact-tag/contact-tag-page')).ContactTagPage }));
@@ -124,6 +127,12 @@ const router = createDashboardRouter({
     '/contactField/index': page(<ContactFieldPage api={contactFieldApi} />),
     '/role/index': page(<RolePage api={roleApi}
       navigate={(path) => void routerRef.current?.navigate(path)} />),
+    '/role/permissionShow': page(
+      <RolePermissionPage
+        api={roleApi}
+        navigate={(path) => void routerRef.current?.navigate(path)}
+      />,
+    ),
     '/menu/index': page(<MenuAdminPage api={menuAdminApi} />),
     '/user/index': page(<UserAdminPage api={userAdminApi} />),
     '/workContactTag/index': page(<ContactTagPage api={contactTagApi} />),
