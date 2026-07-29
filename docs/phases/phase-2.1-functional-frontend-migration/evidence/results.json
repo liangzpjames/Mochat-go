@@ -1,0 +1,33 @@
+{
+  "phase": "2.1",
+  "date": "2026-07-29",
+  "baseUrl": "http://127.0.0.1:18180",
+  "result": "passed",
+  "applications": {
+    "dashboard": {
+      "routes": 61,
+      "opened": 61,
+      "specializedPages": 10,
+      "result": "passed"
+    },
+    "sidebar": {
+      "routes": 12,
+      "opened": 12,
+      "viewport": "390x844",
+      "primaryActionsClicked": 12,
+      "result": "passed"
+    },
+    "operation": {
+      "routes": 10,
+      "opened": 10,
+      "viewport": "390x844",
+      "primaryActionsClicked": 10,
+      "result": "passed"
+    },
+    "saasAdmin": {
+      "routesChecked": ["/saas-admin/"],
+      "actions": ["切换客户租户", "刷新当前数据"],
+      "result": "passed"
+    }
+  }
+}
