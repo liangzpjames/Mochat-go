@@ -28,7 +28,9 @@ import { createRoleApi } from './features/role/role-api';
 import { createMenuAdminApi } from './features/menu-admin/menu-admin-api';
 import { createUserAdminApi } from './features/user-admin/user-admin-api';
 import { createContactTagApi } from './features/contact-tag/contact-tag-api';
-import { dashboardPageLoaders } from './pages/dashboard-page-loaders';
+import { createBusinessWorkbenchApi } from './features/business-workbench/business-workbench-api';
+import { BusinessWorkbenchPage } from './features/business-workbench/business-workbench-page';
+import { businessRouteCatalog } from './features/business-workbench/catalog';
 import './styles/index.css';
 
 const CorpPage = lazy(async () => ({ default: (await import('./features/corp/corp-page')).CorpPage }));
@@ -44,16 +46,6 @@ const MenuAdminPage = lazy(async () => ({ default: (await import('./features/men
 const UserAdminPage = lazy(async () => ({ default: (await import('./features/user-admin/user-admin-page')).UserAdminPage }));
 const ContactTagPage = lazy(async () => ({ default: (await import('./features/contact-tag/contact-tag-page')).ContactTagPage }));
 const page = (content: ReactNode) => <Suspense fallback={null}>{content}</Suspense>;
-const migratedPages = Object.fromEntries(
-  migrationRoutesJson.map((route) => {
-    const loader = dashboardPageLoaders[route.path];
-    if (loader === undefined) {
-      throw new Error(`Missing Dashboard page loader for ${route.path}`);
-    }
-    const Component = lazy(loader);
-    return [route.path, page(<Component />)];
-  }),
-);
 
 const rootElement = document.getElementById('root');
 if (rootElement === null) {
@@ -83,6 +75,19 @@ const roleApi = createRoleApi(apiClient);
 const menuAdminApi = createMenuAdminApi(apiClient);
 const userAdminApi = createUserAdminApi(apiClient);
 const contactTagApi = createContactTagApi(apiClient);
+const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
+const migratedPages = Object.fromEntries(
+  Object.entries(businessRouteCatalog).map(([path, config]) => [
+    path,
+    page(
+      <BusinessWorkbenchPage
+        config={config}
+        api={businessWorkbenchApi}
+        navigate={(target) => void routerRef.current?.navigate(target)}
+      />,
+    ),
+  ]),
+);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',

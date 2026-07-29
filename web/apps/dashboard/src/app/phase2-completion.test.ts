@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
 import migrationRoutes from '../migration-routes.json';
-import { dashboardPageLoaders } from '../pages/dashboard-page-loaders';
+import {
+  businessRouteCatalog,
+  specializedDashboardRoutes,
+} from '../features/business-workbench/catalog';
 
 describe('Phase 2 Dashboard route completion', () => {
   it.each(migrationRoutes)('$path is switched to React', (route) => {
     expect(route.target).toBe('react');
   });
 
-  it.each(migrationRoutes)('$path has a page-level dynamic import', (route) => {
-    expect(dashboardPageLoaders[route.path]).toEqual(expect.any(Function));
+  it.each(migrationRoutes)('$path has an explicit functional implementation', (route) => {
+    expect(
+      specializedDashboardRoutes.has(route.path) ||
+      businessRouteCatalog[route.path] !== undefined,
+    ).toBe(true);
   });
 
   it('does not retain legacy routes', () => {
