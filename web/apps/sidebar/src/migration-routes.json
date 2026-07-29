@@ -1,0 +1,14 @@
+[
+  {"path":"/","target":"react","auth":true,"corpContext":false,"permission":null},
+  {"path":"/auth","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/codeAuth","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/contact","target":"react","auth":true,"corpContext":false,"permission":null},
+  {"path":"/contact/editDetail","target":"react","auth":true,"corpContext":false,"permission":null},
+  {"path":"/contact/remark","target":"react","auth":true,"corpContext":false,"permission":null},
+  {"path":"/contact/settingTag","target":"react","auth":true,"corpContext":false,"permission":null},
+  {"path":"/contactBatchAdd","target":"react","auth":true,"corpContext":false,"permission":null},
+  {"path":"/contactSop","target":"react","auth":true,"corpContext":false,"permission":null},
+  {"path":"/login","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/medium","target":"react","auth":true,"corpContext":false,"permission":null},
+  {"path":"/roomSop","target":"react","auth":true,"corpContext":false,"permission":null}
+]

@@ -1,0 +1,12 @@
+[
+  {"path":"/","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/explain","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/lottery","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/roomClockIn","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/roomFission","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/fissionSpeed","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/roomInfinitePull","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/shopCode","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/workFission","target":"react","auth":false,"corpContext":false,"permission":null},
+  {"path":"/speed","target":"react","auth":false,"corpContext":false,"permission":null}
+]

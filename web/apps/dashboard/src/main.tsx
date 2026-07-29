@@ -1,15 +1,14 @@
 import { createRoot } from 'react-dom/client';
+import { lazy, Suspense, type ReactNode } from 'react';
 
 import { createAuthStore } from '@mochat/auth';
 import { createApiClient } from '@mochat/api-client';
 import {
   parseRouteManifest,
-  resolveRoute,
 } from '@mochat/routing';
 
 import migrationRoutesJson from './migration-routes.json';
 import { createAccessLoader } from './app/access-loader';
-import { createLegacyRouteLoader } from './app/legacy-route-loader';
 import { createDashboardQueryClient, DashboardProviders } from './app/providers';
 import { createDashboardRouter } from './app/router';
 import { authenticate } from './features/auth/auth-api';
@@ -18,11 +17,35 @@ import {
   loadCorps,
 } from './features/corp/corp-api';
 import { createCorpAdminApi } from './features/corp/corp-admin-api';
-import { CorpPage } from './features/corp/corp-page';
 import { CorpProvider } from './features/corp/corp-provider';
 import { loadMenu } from './features/navigation/menu-api';
 import { buildMenuAccess } from './features/navigation/menu-tree';
+import { createPasswordApi } from './features/password/password-api';
+import { createEmployeeApi } from './features/employee/employee-api';
+import { createDepartmentApi } from './features/department/department-api';
+import { createContactFieldApi } from './features/contact-field/contact-field-api';
+import { createRoleApi } from './features/role/role-api';
+import { createMenuAdminApi } from './features/menu-admin/menu-admin-api';
+import { createUserAdminApi } from './features/user-admin/user-admin-api';
+import { createContactTagApi } from './features/contact-tag/contact-tag-api';
+import { createBusinessWorkbenchApi } from './features/business-workbench/business-workbench-api';
+import { BusinessWorkbenchPage } from './features/business-workbench/business-workbench-page';
+import { businessRouteCatalog } from './features/business-workbench/catalog';
 import './styles/index.css';
+
+const CorpPage = lazy(async () => ({ default: (await import('./features/corp/corp-page')).CorpPage }));
+const PasswordPage = lazy(async () => ({ default: (await import('./features/password/password-page')).PasswordPage }));
+const EmployeePage = lazy(async () => ({ default: (await import('./features/employee/employee-page')).EmployeePage }));
+const DepartmentPage = lazy(async () => ({ default: (await import('./features/department/department-page')).DepartmentPage }));
+const ContactFieldPage = lazy(async () => ({ default: (await import('./features/contact-field/contact-field-page')).ContactFieldPage }));
+const RolePage = lazy(async () => ({ default: (await import('./features/role/role-page')).RolePage }));
+const RolePermissionPage = lazy(async () => ({
+  default: (await import('./features/role/role-permission-page')).RolePermissionPage,
+}));
+const MenuAdminPage = lazy(async () => ({ default: (await import('./features/menu-admin/menu-admin-page')).MenuAdminPage }));
+const UserAdminPage = lazy(async () => ({ default: (await import('./features/user-admin/user-admin-page')).UserAdminPage }));
+const ContactTagPage = lazy(async () => ({ default: (await import('./features/contact-tag/contact-tag-page')).ContactTagPage }));
+const page = (content: ReactNode) => <Suspense fallback={null}>{content}</Suspense>;
 
 const rootElement = document.getElementById('root');
 if (rootElement === null) {
@@ -44,6 +67,27 @@ const loginClient = createApiClient({
 });
 const queryClient = createDashboardQueryClient();
 const corpAdminApi = createCorpAdminApi(apiClient);
+const passwordApi = createPasswordApi(apiClient);
+const employeeApi = createEmployeeApi(apiClient);
+const departmentApi = createDepartmentApi(apiClient);
+const contactFieldApi = createContactFieldApi(apiClient);
+const roleApi = createRoleApi(apiClient);
+const menuAdminApi = createMenuAdminApi(apiClient);
+const userAdminApi = createUserAdminApi(apiClient);
+const contactTagApi = createContactTagApi(apiClient);
+const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
+const migratedPages = Object.fromEntries(
+  Object.entries(businessRouteCatalog).map(([path, config]) => [
+    path,
+    page(
+      <BusinessWorkbenchPage
+        config={config}
+        api={businessWorkbenchApi}
+        navigate={(target) => void routerRef.current?.navigate(target)}
+      />,
+    ),
+  ]),
+);
 const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
@@ -56,17 +100,7 @@ const loadAccess = createAccessLoader({
   loadCorps: () => loadCorps(apiClient),
   loadMenu: () => loadMenu(apiClient),
 });
-const accessLoader = async ({ request }: { request: Request }) => {
-  const access = await loadAccess({ request });
-  const route = resolveRoute(new URL(request.url).pathname, migrationManifest);
-  if (route?.target === 'legacy' && !('state' in access)) {
-    await createLegacyRouteLoader({
-      allowedRoutes: access.allowedRoutes,
-      manifest: migrationManifest,
-    })({ request });
-  }
-  return access;
-};
+const accessLoader = ({ request }: { request: Request }) => loadAccess({ request });
 const routerRef: { current?: ReturnType<typeof createDashboardRouter> } = {};
 const router = createDashboardRouter({
   accessLoader,
@@ -74,7 +108,39 @@ const router = createDashboardRouter({
   getSession: () => authStore.getSession(),
   loadInitialData: () => Promise.resolve(),
   reactPages: {
-    '/corp/index': <CorpPage api={corpAdminApi} />,
+    ...migratedPages,
+    '/corp/index': page(<CorpPage api={corpAdminApi} />),
+    '/passwordUpdate/index': (
+      page(<PasswordPage
+        api={passwordApi}
+        onUpdated={() => {
+          authStore.clearSession();
+          void routerRef.current?.navigate('/login');
+        }}
+      />)
+    ),
+    '/workEmployee/index': page(<EmployeePage api={employeeApi} />),
+    '/department/index': (
+      page(<DepartmentPage
+        api={{
+          ...departmentApi,
+          conditions: () => employeeApi.conditions(),
+          sync: () => employeeApi.sync(),
+        }}
+      />)
+    ),
+    '/contactField/index': page(<ContactFieldPage api={contactFieldApi} />),
+    '/role/index': page(<RolePage api={roleApi}
+      navigate={(path) => void routerRef.current?.navigate(path)} />),
+    '/role/permissionShow': page(
+      <RolePermissionPage
+        api={roleApi}
+        navigate={(path) => void routerRef.current?.navigate(path)}
+      />,
+    ),
+    '/menu/index': page(<MenuAdminPage api={menuAdminApi} />),
+    '/user/index': page(<UserAdminPage api={userAdminApi} />),
+    '/workContactTag/index': page(<ContactTagPage api={contactTagApi} />),
   },
   renderAccess: (access, children) => (
     <CorpProvider

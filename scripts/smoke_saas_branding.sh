@@ -176,7 +176,7 @@ env -u GOROOT \
   MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY=1 \
   MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY="$IDENTITY_KEY" \
   MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY_ID=branding-smoke \
-  MOCHAT_DASHBOARD_DIST="$PWD/web/dashboard/dist" \
+  MOCHAT_DASHBOARD_DIST="$PWD/web/apps/dashboard/dist" \
   "$GO_BIN" >"$GO_LOG" 2>&1 &
 GO_PID="$!"
 wait_url "http://$GO_ADDR/readyz" 200

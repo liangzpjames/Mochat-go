@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RouterProvider } from 'react-router';
 
@@ -25,6 +26,7 @@ function renderDashboard(options: {
   accessLoader?: (args: { request: Request }) => Promise<
     AccessContext | CorpSelection
   >;
+  reactPages?: Readonly<Record<string, ReactNode>>;
 }) {
   const queryClient = createDashboardQueryClient();
   const router = createDashboardRouter({
@@ -39,6 +41,7 @@ function renderDashboard(options: {
     ...(options.accessLoader === undefined
       ? {}
       : { accessLoader: options.accessLoader }),
+    ...(options.reactPages === undefined ? {} : { reactPages: options.reactPages }),
   });
 
   return render(
@@ -110,6 +113,30 @@ describe('Dashboard shell', () => {
     renderDashboard({ session: true, initialPath: '/not-registered' });
 
     expect(await screen.findByRole('heading', { name: '页面不存在' })).toBeTruthy();
+  });
+
+  it('renders the migrated password page at its existing route', async () => {
+    renderDashboard({
+      session: true,
+      initialPath: '/passwordUpdate/index',
+      reactPages: {
+        '/passwordUpdate/index': <h1>修改密码</h1>,
+      },
+    });
+
+    expect(await screen.findByRole('heading', { name: '修改密码' })).toBeTruthy();
+  });
+
+  it('renders the migrated employee page at its existing route', async () => {
+    renderDashboard({
+      session: true,
+      initialPath: '/workEmployee/index',
+      reactPages: {
+        '/workEmployee/index': <h1>企业成员</h1>,
+      },
+    });
+
+    expect(await screen.findByRole('heading', { name: '企业成员' })).toBeTruthy();
   });
 
   it('renders the route error boundary when initial data loading fails', async () => {

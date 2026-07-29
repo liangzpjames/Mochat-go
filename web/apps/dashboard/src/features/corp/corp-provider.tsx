@@ -122,8 +122,8 @@ export function CorpProvider({
   }
 
   return (
-    <div>
-      <div aria-label="企业选择">
+    <div className="dashboard-corp-frame">
+      <div aria-label="企业选择" className="dashboard-corp-switcher">
         {corps.map((corp) => (
           <button
             disabled={

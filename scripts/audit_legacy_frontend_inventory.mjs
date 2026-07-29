@@ -5,6 +5,10 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 
 const sourceCommit = '3dcd216c188df34f2c3ed489b8e8b9473e635488';
 const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
+const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
+const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'risk', 'batch'];
+const unassignedPageFile = 'docs/phases/phase-2-frontend-migration/audit/unassigned-pages.csv';
+const dashboardBatch2CandidateFile = 'docs/phases/phase-2-frontend-migration/audit/dashboard-batch2-candidates.csv';
 const contractEvidenceFile = 'api-contract-evidence.csv';
 const contractGapFile = 'api-contract-gaps.csv';
 const contractEvidenceColumns = ['app', 'method', 'path', 'legacy_declarations', 'go_route_evidence', 'php_handler', 'client_consumers', 'response_evidence', 'scope_evidence'];
@@ -12,13 +16,34 @@ const contractGapColumns = ['app', 'method', 'path', 'dimension', 'reason', 'evi
 const applications = ['dashboard', 'sidebar', 'operation'];
 const generatedArtifactsCache = new Map();
 const specifications = {
-  'pages.csv': { columns: ['app', 'source_file', 'route', 'status', 'owner', 'risk', 'batch'], key: (row) => `${row.app}:${row.source_file}:${row.route}`, sourceColumns: ['source_file'] },
+  'pages.csv': { columns: ['app', 'source_file', 'route', 'status', 'risk', 'batch'], key: (row) => `${row.app}:${row.source_file}:${row.route}`, sourceColumns: ['source_file'] },
   'routes.csv': { columns: ['app', 'path', 'name', 'source_file', 'auth', 'corp_context', 'permission', 'render_target'], key: (row) => `${row.app}:${row.path}`, sourceColumns: ['source_file'] },
   'apis.csv': { columns: ['app', 'method', 'path', 'source_file', 'request_fields', 'response_fields', 'auth', 'corp_scope', 'go_evidence'], key: (row) => `${row.app}:${row.method}:${row.path}`, sourceColumns: ['source_file'] },
   'permissions.csv': { columns: ['app', 'route', 'menu_link_url', 'actions', 'source_file'], key: (row) => `${row.app}:${row.route}:${row.menu_link_url}`, sourceColumns: ['source_file'] },
   'assets.csv': { columns: ['app', 'source_file', 'kind', 'license_status', 'used_by'], key: (row) => `${row.app}:${row.source_file}`, sourceColumns: ['source_file'] },
   'dependencies.csv': { columns: ['app', 'package', 'legacy_range', 'replacement', 'decision', 'risk'], key: (row) => `${row.app}:${row.package}`, sourceColumns: [] },
 };
+const unassignedPageColumns = [...specifications['pages.csv'].columns, 'blocking_fields'];
+const dashboardBatch2CandidateColumns = ['order', 'route', 'source_file', 'risk', 'status', 'api_contract_count', 'go_evidence_count'];
+const dashboardBatch2Routes = new Set([
+  '/contactField/index',
+  '/department/index',
+  '/menu/index',
+  '/passwordUpdate/index',
+  '/role/index',
+  '/user/index',
+  '/workContactTag/index',
+  '/workEmployee/index',
+]);
+const dashboardBatch3Prefixes = [
+  '/channelCode/',
+  '/corpData/',
+  '/greeting/',
+  '/mediumGroup/',
+  '/radar/',
+  '/statistics/',
+];
+const blockedExternalPrefixes = ['/officialAccount/'];
 
 function normalize(file) { return file.replaceAll('\\', '/'); }
 function rootFile(root, file) { return resolve(root, file); }
@@ -198,7 +223,10 @@ function parseCsv(content) {
   return rows.filter((values) => values.some((value) => value.trim()));
 }
 function csvCell(value) { return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value; }
-function csvWithColumns(columns, rows) { return `${columns.join(',')}\n${rows.map((row) => columns.map((column) => csvCell(row[column] ?? '')).join(',')).join('\n')}\n`; }
+function csvWithColumns(columns, rows) {
+  const body = rows.map((row) => columns.map((column) => csvCell(row[column] ?? '')).join(',')).join('\n');
+  return `${columns.join(',')}\n${body ? `${body}\n` : ''}`;
+}
 function csv(file, rows) { return csvWithColumns(specifications[file].columns, rows); }
 function splitReferences(value) { return value.split(';').map((item) => item.trim()).filter((item) => item && item !== '-'); }
 function extensionKind(file) { return extname(file).slice(1) || 'file'; }
@@ -926,7 +954,7 @@ function generatedArtifacts(root) {
   const remainingContractGaps = contractGaps.filter((gap) => !verifiedCorpContracts.has(`${gap.app}:${gap.method}:${gap.path}`));
   contractGaps.splice(0, contractGaps.length, ...remainingContractGaps);
   const inventory = {
-    'pages.csv': found.pages.map((item) => ({ ...item, route: item.route ?? '-', status: 'legacy', owner: 'unassigned', risk: 'medium', batch: 'unassigned' })),
+    'pages.csv': found.pages.map((item) => ({ ...item, route: item.route ?? '-', status: 'legacy', risk: 'unassigned', batch: 'unassigned' })),
     'routes.csv': found.routes.map((item) => ({ ...item, ...clientSemantics(item.app), auth: routeAuth(item.app, item.path), corp_context: clientSemantics(item.app).corp, permission: actionEvidence(root, item.path, item.component), render_target: clientSemantics(item.app).target })),
     'apis.csv': apis,
     'permissions.csv': found.permissions.map((item) => ({ ...item, menu_link_url: item.route, actions: actionEvidence(root, item.route, item.component) })),
@@ -940,6 +968,120 @@ function generatedArtifacts(root) {
   return artifacts;
 }
 function generatedInventory(root) { return generatedArtifacts(root).inventory; }
+
+function readPageMetadataOverrides(root, pages, errors) {
+  if (!fileExists(root, pageMetadataOverrideFile)) {
+    errors.push('frontend-audit: page-metadata-overrides.csv:1: file is required');
+    return new Map();
+  }
+  const rows = parseCsv(readFileSync(rootFile(root, pageMetadataOverrideFile), 'utf8'));
+  const header = rows.shift() ?? [];
+  if (header.join(',') !== pageMetadataOverrideColumns.join(',')) {
+    errors.push(`frontend-audit: page-metadata-overrides.csv:1: columns must be ${pageMetadataOverrideColumns.join(',')}`);
+    return new Map();
+  }
+  const discovered = new Set(pages.map(specifications['pages.csv'].key));
+  const overrides = new Map();
+  rows.forEach((values, index) => {
+    const rowNumber = index + 2;
+    const row = Object.fromEntries(pageMetadataOverrideColumns.map((column, position) => [column, (values[position] ?? '').trim()]));
+    if (values.length !== pageMetadataOverrideColumns.length) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: expected ${pageMetadataOverrideColumns.length} columns`);
+    for (const column of pageMetadataOverrideColumns) if (!row[column]) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: ${column} is required`);
+    const key = specifications['pages.csv'].key(row);
+    if (overrides.has(key)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: duplicate key ${key}`);
+    if (!discovered.has(key)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: override does not match a discovered page`);
+    if (!['legacy', 'candidate', 'react', 'blocked'].includes(row.status)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: status must be legacy, candidate, react, or blocked`);
+    if (!['low', 'medium', 'high', 'critical'].includes(row.risk)) errors.push(`frontend-audit: page-metadata-overrides.csv:${rowNumber}: risk must be low, medium, high, or critical`);
+    overrides.set(key, { status: row.status, risk: row.risk, batch: row.batch });
+  });
+  return overrides;
+}
+
+function mergePageMetadata(pages, overrides) {
+  return pages.map((page) => ({
+    ...page,
+    ...(overrides.get(specifications['pages.csv'].key(page)) ?? {}),
+  }));
+}
+
+function unassignedPages(pages) {
+  return pages
+    .filter((page) => page.risk === 'unassigned' || page.batch === 'unassigned')
+    .map((page) => ({
+      ...page,
+      blocking_fields: [
+        page.risk === 'unassigned' ? 'risk' : '',
+        page.batch === 'unassigned' ? 'batch' : '',
+      ].filter(Boolean).join(';'),
+    }));
+}
+
+function pageClassificationRoute(page) {
+  if (page.route !== '-') return page.route;
+  const feature = /^web\/legacy\/dashboard\/src\/views\/([^/]+)\//.exec(page.source_file)?.[1];
+  return feature ? `/${feature}/` : page.route;
+}
+
+function recommendedPageMetadata(page) {
+  if (page.app === 'sidebar') return { status: 'legacy', risk: 'high', batch: 'sidebar' };
+  if (page.app === 'operation') return { status: 'legacy', risk: 'high', batch: 'operation' };
+  const route = pageClassificationRoute(page);
+  if (blockedExternalPrefixes.some((prefix) => route.startsWith(prefix))) {
+    return { status: 'legacy', risk: 'critical', batch: 'blocked-external' };
+  }
+  if (dashboardBatch2Routes.has(route)) {
+    return { status: 'legacy', risk: 'medium', batch: 'dashboard-batch2' };
+  }
+  if (dashboardBatch3Prefixes.some((prefix) => route.startsWith(prefix))) {
+    return { status: 'legacy', risk: 'high', batch: 'dashboard-batch3' };
+  }
+  return { status: 'legacy', risk: 'high', batch: 'dashboard-batch4' };
+}
+
+function dashboardBatch2Candidates(pages, contractEvidence) {
+  const riskOrder = { low: 0, medium: 1, high: 2, critical: 3 };
+  return pages
+    .filter((page) => page.app === 'dashboard'
+      && page.status === 'legacy'
+      && page.batch === 'dashboard-batch2'
+      && !['-', '*', '/', '/404', '/login'].includes(page.route))
+    .map((page) => {
+      const contracts = contractEvidence.filter((evidence) => evidence.app === 'dashboard'
+        && splitReferences(evidence.client_consumers).includes(page.source_file));
+      return {
+        route: page.route,
+        source_file: page.source_file,
+        risk: page.risk,
+        status: page.status,
+        api_contract_count: String(contracts.length),
+        go_evidence_count: String(contracts.filter((evidence) => evidence.go_route_evidence !== '-').length),
+      };
+    })
+    .sort((left, right) => (riskOrder[left.risk] ?? 99) - (riskOrder[right.risk] ?? 99)
+      || (Number(left.api_contract_count) - Number(left.go_evidence_count)) - (Number(right.api_contract_count) - Number(right.go_evidence_count))
+      || Number(left.api_contract_count) - Number(right.api_contract_count)
+      || left.route.localeCompare(right.route))
+    .map((row, index) => ({ order: String(index + 1), ...row }));
+}
+
+function initializePageMetadata(root) {
+  const pages = generatedArtifacts(root).inventory['pages.csv'];
+  const errors = [];
+  const overrides = readPageMetadataOverrides(root, pages, errors);
+  if (errors.length) throw new Error(errors.join('\n'));
+  const existingRows = parseCsv(readFileSync(rootFile(root, pageMetadataOverrideFile), 'utf8')).slice(1);
+  const existing = existingRows.map((values) => Object.fromEntries(
+    pageMetadataOverrideColumns.map((column, index) => [column, values[index] ?? '']),
+  ));
+  const additions = pages
+    .filter((page) => !overrides.has(specifications['pages.csv'].key(page)))
+    .map((page) => ({ ...page, ...recommendedPageMetadata(page) }))
+    .sort((left, right) => specifications['pages.csv'].key(left).localeCompare(specifications['pages.csv'].key(right)));
+  writeFileSync(
+    rootFile(root, pageMetadataOverrideFile),
+    csvWithColumns(pageMetadataOverrideColumns, [...existing, ...additions]),
+  );
+}
 
 function readInventory(root, errors) {
   const result = {};
@@ -1024,6 +1166,17 @@ function compareCoverage(inventory, generated, errors) {
     for (const key of [...actual].sort()) if (!expected.has(key)) errors.push(`frontend-audit: ${file}:1: inventory ${labels[file]} is not discovered: ${key}`);
   }
 }
+function comparePageMetadata(inventory, expected, errors) {
+  const specification = specifications['pages.csv'];
+  const actualByKey = new Map((inventory['pages.csv'] ?? []).map((row) => [specification.key(row), row]));
+  for (const expectedRow of expected) {
+    const actual = actualByKey.get(specification.key(expectedRow));
+    if (!actual) continue;
+    for (const column of ['status', 'risk', 'batch']) {
+      if (actual[column] !== expectedRow[column]) errors.push(`frontend-audit: pages.csv:${actual.rowNumber}: ${column} must match page metadata ${expectedRow[column]}`);
+    }
+  }
+}
 function compareDerivedEvidence(inventory, generated, errors) {
   const apiSpecification = specifications['apis.csv']; const expectedApis = new Map((generated['apis.csv'] ?? []).map((row) => [apiSpecification.key(row), row]));
   for (const api of inventory['apis.csv'] ?? []) {
@@ -1075,9 +1228,24 @@ function validateGoTestReference(root, value, label, errors, contract) {
 
 function audit(root) {
   const errors = []; const inventory = readInventory(root, errors); const artifacts = generatedArtifacts(root); const generated = artifacts.inventory;
+  const pageMetadataOverrides = readPageMetadataOverrides(root, generated['pages.csv'], errors);
+  const expectedPages = mergePageMetadata(generated['pages.csv'], pageMetadataOverrides);
   const contractEvidence = readContractRows(root, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   const contractGaps = readContractRows(root, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
-  validateManifest(root, errors); compareCoverage(inventory, generated, errors); compareDerivedEvidence(inventory, generated, errors);
+  validateManifest(root, errors); compareCoverage(inventory, generated, errors); comparePageMetadata(inventory, expectedPages, errors); compareDerivedEvidence(inventory, generated, errors);
+  const expectedUnassignedPages = csvWithColumns(unassignedPageColumns, unassignedPages(expectedPages));
+  if (!fileExists(root, unassignedPageFile)
+    || readFileSync(rootFile(root, unassignedPageFile), 'utf8').replaceAll('\r\n', '\n') !== expectedUnassignedPages) {
+    errors.push('frontend-audit: unassigned-pages.csv: report is stale; run npm run refresh:audit');
+  }
+  const expectedDashboardBatch2Candidates = csvWithColumns(
+    dashboardBatch2CandidateColumns,
+    dashboardBatch2Candidates(expectedPages, artifacts.contractEvidence),
+  );
+  if (!fileExists(root, dashboardBatch2CandidateFile)
+    || readFileSync(rootFile(root, dashboardBatch2CandidateFile), 'utf8').replaceAll('\r\n', '\n') !== expectedDashboardBatch2Candidates) {
+    errors.push('frontend-audit: dashboard-batch2-candidates.csv: report is stale; run npm run refresh:audit');
+  }
   compareContractRows(contractEvidence, artifacts.contractEvidence, contractEvidenceFile, contractEvidenceColumns, (row) => `${row.app}:${row.method}:${row.path}`, errors);
   compareContractRows(contractGaps, artifacts.contractGaps, contractGapFile, contractGapColumns, (row) => `${row.app}:${row.method}:${row.path}:${row.dimension}`, errors);
   for (const api of inventory['apis.csv'] ?? []) {
@@ -1123,8 +1291,21 @@ function audit(root) {
 }
 
 function refresh(root) {
-  const artifacts = generatedArtifacts(root); const inventory = artifacts.inventory; mkdirSync(rootFile(root, auditDirectory), { recursive: true } );
+  const artifacts = generatedArtifacts(root); const errors = [];
+  const pageMetadataOverrides = readPageMetadataOverrides(root, artifacts.inventory['pages.csv'], errors);
+  if (errors.length) throw new Error(errors.join('\n'));
+  const inventory = {
+    ...artifacts.inventory,
+    'pages.csv': mergePageMetadata(artifacts.inventory['pages.csv'], pageMetadataOverrides),
+  };
+  mkdirSync(rootFile(root, auditDirectory), { recursive: true } );
+  mkdirSync(dirname(rootFile(root, unassignedPageFile)), { recursive: true });
   for (const [file, rows] of Object.entries(inventory)) writeFileSync(rootFile(root, `${auditDirectory}/${file}`), csv(file, rows));
+  writeFileSync(rootFile(root, unassignedPageFile), csvWithColumns(unassignedPageColumns, unassignedPages(inventory['pages.csv'])));
+  writeFileSync(
+    rootFile(root, dashboardBatch2CandidateFile),
+    csvWithColumns(dashboardBatch2CandidateColumns, dashboardBatch2Candidates(inventory['pages.csv'], artifacts.contractEvidence)),
+  );
   writeFileSync(rootFile(root, `${auditDirectory}/${contractEvidenceFile}`), csvWithColumns(contractEvidenceColumns, artifacts.contractEvidence));
   writeFileSync(rootFile(root, `${auditDirectory}/${contractGapFile}`), csvWithColumns(contractGapColumns, artifacts.contractGaps));
   const sources = applications.flatMap((app) => walk(root, `web/legacy/${app}`)).sort();
@@ -1132,6 +1313,13 @@ function refresh(root) {
 }
 
 const argumentsList = process.argv.slice(2); const rootIndex = argumentsList.indexOf('--root'); const root = rootIndex === -1 ? process.cwd() : resolve(argumentsList[rootIndex + 1] ?? '');
+if (argumentsList.includes('--initialize-page-metadata')) initializePageMetadata(root);
 if (argumentsList.includes('--refresh')) refresh(root);
-if (!argumentsList.includes('--check')) { console.error('frontend-audit: usage: node scripts/audit_legacy_frontend_inventory.mjs --check [--refresh] [--root <path>]'); process.exitCode = 1; }
-else { const { errors, inventory } = audit(root); if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; } else console.log(`frontend-audit: ok (${inventory['pages.csv'].length} pages, ${inventory['routes.csv'].length} routes, ${inventory['apis.csv'].length} apis)`); }
+if (!argumentsList.includes('--check')) {
+  if (argumentsList.includes('--initialize-page-metadata')) console.log('frontend-audit: page metadata initialized');
+  else { console.error('frontend-audit: usage: node scripts/audit_legacy_frontend_inventory.mjs --check [--refresh] [--initialize-page-metadata] [--root <path>]'); process.exitCode = 1; }
+} else {
+  const { errors, inventory } = audit(root);
+  if (errors.length) { console.error(errors.join('\n')); process.exitCode = 1; }
+  else console.log(`frontend-audit: ok (${inventory['pages.csv'].length} pages, ${inventory['routes.csv'].length} routes, ${inventory['apis.csv'].length} apis)`);
+}

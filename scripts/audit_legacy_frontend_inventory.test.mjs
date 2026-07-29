@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -9,8 +9,14 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const auditScript = join(repositoryRoot, 'scripts', 'audit_legacy_frontend_inventory.mjs');
+const pageMetadataOverrideFile = 'docs/phases/phase-2-frontend-migration/audit/page-metadata-overrides.csv';
+const pageMetadataOverrideColumns = ['app', 'source_file', 'route', 'status', 'risk', 'batch'];
+const unassignedPageFile = 'docs/phases/phase-2-frontend-migration/audit/unassigned-pages.csv';
+const unassignedPageColumns = [...pageMetadataOverrideColumns, 'blocking_fields'];
+const dashboardBatch2CandidateFile = 'docs/phases/phase-2-frontend-migration/audit/dashboard-batch2-candidates.csv';
+const dashboardBatch2CandidateColumns = ['order', 'route', 'source_file', 'risk', 'status', 'api_contract_count', 'go_evidence_count'];
 const columns = {
-  'pages.csv': 'app,source_file,route,status,owner,risk,batch',
+  'pages.csv': 'app,source_file,route,status,risk,batch',
   'routes.csv': 'app,path,name,source_file,auth,corp_context,permission,render_target',
   'apis.csv': 'app,method,path,source_file,request_fields,response_fields,auth,corp_scope,go_evidence',
   'permissions.csv': 'app,route,menu_link_url,actions,source_file',
@@ -63,12 +69,19 @@ export default { created () { example({ id: 1 }) } }
     readFileSync(join(repositoryRoot, 'internal/dashboard/corp_admin_test.go'), 'utf8'),
   );
   const auditDirectory = 'docs/phases/phase-1-frontend-foundation/audit';
-  write(root, `${auditDirectory}/pages.csv`, `${columns['pages.csv']}\ndashboard,${view},-,legacy,frontend,low,1\ndashboard,${router},/example,legacy,frontend,low,1\n`);
+  write(root, `${auditDirectory}/pages.csv`, `${columns['pages.csv']}\ndashboard,${view},-,legacy,low,1\ndashboard,${router},/example,legacy,low,1\n`);
   write(root, `${auditDirectory}/routes.csv`, `${columns['routes.csv']}\ndashboard,/example,example,${router},required,required,*,spa\n`);
   write(root, `${auditDirectory}/apis.csv`, `${columns['apis.csv']}\ndashboard,GET,/api/example,${api},params:id,id,required,corp,-\n`);
   write(root, `${auditDirectory}/permissions.csv`, `${columns['permissions.csv']}\ndashboard,/example,/example,view,${router}\n`);
   write(root, `${auditDirectory}/assets.csv`, `${columns['assets.csv']}\ndashboard,${asset},svg,verified,${view}\n`);
   write(root, `${auditDirectory}/dependencies.csv`, `${columns['dependencies.csv']}\ndashboard,vue,^2.6.10,react,replace,medium\n`);
+  write(
+    root,
+    pageMetadataOverrideFile,
+    `${pageMetadataOverrideColumns.join(',')}\ndashboard,${view},/example,candidate,low,phase2-batch2\n`,
+  );
+  write(root, unassignedPageFile, `${unassignedPageColumns.join(',')}\n`);
+  write(root, dashboardBatch2CandidateFile, `${dashboardBatch2CandidateColumns.join(',')}\n`);
   writeManifest(root);
   return root;
 }
@@ -83,7 +96,11 @@ function runAudit(root) {
 }
 
 function runRefresh(root) {
-  return execFileSync(process.execPath, [auditScript, '--refresh', '--check', '--root', root], { encoding: 'utf8' });
+  return execFileSync(process.execPath, [auditScript, '--refresh', '--check', '--root', root], { encoding: 'utf8', stdio: 'pipe' });
+}
+
+function runInitialize(root) {
+  return execFileSync(process.execPath, [auditScript, '--initialize-page-metadata', '--root', root], { encoding: 'utf8', stdio: 'pipe' });
 }
 
 function replace(root, relativePath, from, to) {
@@ -110,6 +127,300 @@ function setCsvCell(root, relativePath, keyColumn, keyValue, column, value) {
   row[columnIndex] = value;
   writeFileSync(file, `${lines.map((values) => values.join(',')).join('\n')}\n`);
 }
+
+test('page metadata override requires the canonical schema', () => {
+  const root = createFixture();
+  try {
+    replace(root, pageMetadataOverrideFile, pageMetadataOverrideColumns.join(','), 'app,source_file,route,status,batch');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:1: columns must be app,source_file,route,status,risk,batch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata override rejects duplicate page keys', () => {
+  const root = createFixture();
+  try {
+    const file = join(root, pageMetadataOverrideFile);
+    const content = readFileSync(file, 'utf8');
+    writeFileSync(file, `${content}${content.trim().split(/\r?\n/)[1]}\n`);
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:3: duplicate key dashboard:web\/legacy\/dashboard\/src\/views\/example\/index\.vue:\/example/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata override rejects stale page keys', () => {
+  const root = createFixture();
+  try {
+    replace(root, pageMetadataOverrideFile, '/example,candidate', '/missing,candidate');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:2: override does not match a discovered page/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata override rejects unsupported risk levels', () => {
+  const root = createFixture();
+  try {
+    replace(root, pageMetadataOverrideFile, ',low,phase2-batch2', ',urgent,phase2-batch2');
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: page-metadata-overrides\.csv:2: risk must be low, medium, high, or critical/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata override survives refresh while discovered facts still update', () => {
+  const root = createFixture();
+  try {
+    const overridePath = join(root, pageMetadataOverrideFile);
+    const before = readFileSync(overridePath, 'utf8');
+
+    runRefresh(root);
+
+    let page = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/pages.csv')
+      .find((row) => row.source_file.includes('/views/example/'));
+    assert.deepEqual(
+      { status: page.status, risk: page.risk, batch: page.batch },
+      { status: 'candidate', risk: 'low', batch: 'phase2-batch2' },
+    );
+    assert.equal(readFileSync(overridePath, 'utf8'), before);
+
+    replace(root, 'web/legacy/dashboard/src/router/asyncRouter.js', "path: '/example'", "path: '/renamed'");
+    writeManifest(root);
+    assert.throws(
+      () => runRefresh(root),
+      /frontend-audit: page-metadata-overrides\.csv:2: override does not match a discovered page/,
+    );
+
+    replace(root, pageMetadataOverrideFile, '/example,candidate', '/renamed,candidate');
+    const updatedOverride = readFileSync(overridePath, 'utf8');
+    runRefresh(root);
+
+    page = csvObjects(root, 'docs/phases/phase-1-frontend-foundation/audit/pages.csv')
+      .find((row) => row.source_file.includes('/views/example/'));
+    assert.equal(page.route, '/renamed');
+    assert.deepEqual(
+      { status: page.status, risk: page.risk, batch: page.batch },
+      { status: 'candidate', risk: 'low', batch: 'phase2-batch2' },
+    );
+    assert.equal(readFileSync(overridePath, 'utf8'), updatedOverride);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('unassigned page report is deterministic and lists blocking fields', () => {
+  const root = createFixture();
+  try {
+    const unassignedView = 'web/legacy/dashboard/src/views/unassigned/index.vue';
+    write(root, unassignedView, '<template><main>unassigned</main></template>\n');
+    writeManifest(root);
+
+    runRefresh(root);
+
+    assert.equal(existsSync(join(root, unassignedPageFile)), true);
+    const rows = csvObjects(root, unassignedPageFile);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].source_file, unassignedView);
+    assert.equal(rows[0].blocking_fields, 'risk;batch');
+    const before = readFileSync(join(root, unassignedPageFile), 'utf8');
+    runRefresh(root);
+    assert.equal(readFileSync(join(root, unassignedPageFile), 'utf8'), before);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('audit rejects a stale unassigned page report', () => {
+  const root = createFixture();
+  try {
+    replace(root, unassignedPageFile, unassignedPageColumns.join(','), `${unassignedPageColumns.join(',')}\ndashboard,stale,-,legacy,unassigned,unassigned,risk;batch`);
+    const result = runAudit(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /frontend-audit: unassigned-pages\.csv: report is stale; run npm run refresh:audit/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('empty unassigned page report contains only one header line', () => {
+  const root = createFixture();
+  try {
+    runRefresh(root);
+    assert.equal(
+      readFileSync(join(root, unassignedPageFile), 'utf8'),
+      `${unassignedPageColumns.join(',')}\n`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page schemas do not contain owner', () => {
+  const root = createFixture();
+  try {
+    for (const file of [
+      'docs/phases/phase-1-frontend-foundation/audit/pages.csv',
+      pageMetadataOverrideFile,
+      unassignedPageFile,
+    ]) {
+      const header = readFileSync(join(root, file), 'utf8').split(/\r?\n/, 1)[0].split(',');
+      assert.equal(header.includes('owner'), false, `${file} must not contain owner`);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('recommends conservative page metadata by route and application', () => {
+  const recommendations = [
+    ['/contactField/index', 'medium', 'dashboard-batch2'],
+    ['/department/index', 'medium', 'dashboard-batch2'],
+    ['/menu/index', 'medium', 'dashboard-batch2'],
+    ['/passwordUpdate/index', 'medium', 'dashboard-batch2'],
+    ['/role/index', 'medium', 'dashboard-batch2'],
+    ['/user/index', 'medium', 'dashboard-batch2'],
+    ['/workContactTag/index', 'medium', 'dashboard-batch2'],
+    ['/workEmployee/index', 'medium', 'dashboard-batch2'],
+    ['/channelCode/index', 'high', 'dashboard-batch3'],
+    ['/statistics/contact', 'high', 'dashboard-batch3'],
+    ['/autoTag/dayPartCreate', 'high', 'dashboard-batch4'],
+    ['/contactTransfer/workIndex', 'high', 'dashboard-batch4'],
+    ['/officialAccount/index', 'critical', 'blocked-external'],
+  ];
+  for (const [route, risk, batch] of recommendations) {
+    const root = createFixture();
+    try {
+      replace(root, 'web/legacy/dashboard/src/router/asyncRouter.js', '/example', route);
+      write(root, pageMetadataOverrideFile, `${pageMetadataOverrideColumns.join(',')}\n`);
+      writeManifest(root);
+      runInitialize(root);
+      const row = csvObjects(root, pageMetadataOverrideFile)
+        .find((candidate) => candidate.app === 'dashboard' && candidate.route === route);
+      assert.ok(row, `missing recommendation for ${route}`);
+      assert.equal(row.risk, risk, route);
+      assert.equal(row.batch, batch, route);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const root = createFixture();
+  try {
+    write(root, 'web/legacy/sidebar/src/views/contact/index.vue', '<template><main>sidebar</main></template>\n');
+    write(root, 'web/legacy/operation/src/views/index/index.vue', '<template><main>operation</main></template>\n');
+    write(root, pageMetadataOverrideFile, `${pageMetadataOverrideColumns.join(',')}\n`);
+    writeManifest(root);
+    runInitialize(root);
+    const rows = csvObjects(root, pageMetadataOverrideFile);
+    const sidebar = rows.find((row) => row.app === 'sidebar');
+    const operation = rows.find((row) => row.app === 'operation');
+    assert.deepEqual({ risk: sidebar.risk, batch: sidebar.batch }, { risk: 'high', batch: 'sidebar' });
+    assert.deepEqual({ risk: operation.risk, batch: operation.batch }, { risk: 'high', batch: 'operation' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('page metadata initialization appends missing decisions without overwriting existing rows', () => {
+  const root = createFixture();
+  try {
+    const existing = readFileSync(join(root, pageMetadataOverrideFile), 'utf8').split(/\r?\n/)[1];
+    write(root, 'web/legacy/dashboard/src/views/department/index.vue', '<template><main>department</main></template>\n');
+    write(
+      root,
+      'web/legacy/dashboard/src/router/department.js',
+      "export const routes = [{ path: '/department/index', component: () => import('@/views/department/index') }];\n",
+    );
+    writeManifest(root);
+
+    runInitialize(root);
+    const first = readFileSync(join(root, pageMetadataOverrideFile), 'utf8');
+    runInitialize(root);
+    const second = readFileSync(join(root, pageMetadataOverrideFile), 'utf8');
+
+    assert.equal(second, first);
+    const lines = first.trim().split(/\r?\n/);
+    assert.equal(lines[1], existing);
+    const department = csvObjects(root, pageMetadataOverrideFile)
+      .find((row) => row.route === '/department/index');
+    assert.deepEqual(
+      { status: department.status, risk: department.risk, batch: department.batch },
+      { status: 'legacy', risk: 'medium', batch: 'dashboard-batch2' },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Dashboard Batch 2 candidate report is ordered and excludes non-candidates', () => {
+  const root = createFixture();
+  try {
+    write(root, 'web/legacy/dashboard/src/views/department/index.vue', '<template><main>department</main></template>\n');
+    write(root, 'web/legacy/dashboard/src/views/role/index.vue', `<template><main>role</main></template>
+<script>
+import { example } from '@/api/example'
+export default { created () { example({ id: 1 }) } }
+</script>
+`);
+    write(
+      root,
+      'web/legacy/dashboard/src/router/batch2.js',
+      `export const routes = [
+  { path: '/role/index', component: () => import('@/views/role/index') },
+  { path: '/department/index', component: () => import('@/views/department/index') }
+];\n`,
+    );
+    writeManifest(root);
+
+    runInitialize(root);
+    replace(
+      root,
+      pageMetadataOverrideFile,
+      'dashboard,web/legacy/dashboard/src/views/department/index.vue,/department/index,legacy,medium,dashboard-batch2',
+      'dashboard,web/legacy/dashboard/src/views/department/index.vue,/department/index,react,medium,dashboard-batch2',
+    );
+    runRefresh(root);
+
+    const reportPath = join(root, dashboardBatch2CandidateFile);
+    assert.equal(existsSync(reportPath), true);
+    const rows = csvObjects(root, dashboardBatch2CandidateFile);
+    assert.deepEqual(
+      rows.map((row) => ({
+        order: row.order,
+        route: row.route,
+        source_file: row.source_file,
+        risk: row.risk,
+        status: row.status,
+        api_contract_count: row.api_contract_count,
+        go_evidence_count: row.go_evidence_count,
+      })),
+      [
+        {
+          order: '1',
+          route: '/role/index',
+          source_file: 'web/legacy/dashboard/src/views/role/index.vue',
+          risk: 'medium',
+          status: 'legacy',
+          api_contract_count: '1',
+          go_evidence_count: '0',
+        },
+      ],
+    );
+    assert.equal(rows.some((row) => ['-', '*', '/', '/404', '/login'].includes(row.route)), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function expectAuditFailure(mutate, expected) {
   const root = createFixture();

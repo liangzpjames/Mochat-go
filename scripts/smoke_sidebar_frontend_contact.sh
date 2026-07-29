@@ -112,8 +112,8 @@ if ! NODE_PATH="$PLAYWRIGHT_NODE_PATH${NODE_PATH:+:$NODE_PATH}" node -e 'require
   echo "Node Playwright module is not available; set PLAYWRIGHT_NODE_PATH or install playwright" >&2
   exit 1
 fi
-if [ ! -f web/sidebar/dist/index.html ]; then
-  echo "sidebar dist not found: web/sidebar/dist" >&2
+if [ ! -f web/apps/sidebar/dist/index.html ]; then
+  echo "sidebar dist not found: web/apps/sidebar/dist" >&2
   exit 1
 fi
 

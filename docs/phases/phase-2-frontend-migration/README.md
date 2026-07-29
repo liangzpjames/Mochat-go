@@ -1,43 +1,31 @@
 # Phase 2：前端逐页迁移
 
-## 阶段状态
+## 状态
 
-设计完成，实施未开始；尚未建立可计算的任务完成比例。
+路由迁移范围已完成：审计清单中的 135/135 个页面均由 React 路由承接，Dashboard、Sidebar、Operation 的 manifest 中不再包含 legacy target。
 
-## 实施前状态
+这里的“完成”特指可由仓库确定性验证的路由、渲染、静态挂载、构建和发布链路，不代表未知真实业务数据与第三方集成已经完成等价性验收。后者记录在[真实业务验收债务](real-business-validation-debt.md)，后续可直接按文档追加场景和结果。
 
-- Dashboard manifest 共 61 条路由。
-- React 业务页面只有 `/corp/index`。
-- 60 条 Dashboard 路由仍使用 legacy。
-- Sidebar 和 Operation 尚未迁移。
-- React Shell 已提供授权导航和 SaaS Admin 入口。
-- SaaS Admin 已作为独立产物进入 Docker 发布链路。
-- 审计中还有 134 条页面未分配 owner、risk 和 batch。
+## 已纳入验收的范围
 
-## 阶段目标
+- Dashboard 61 条业务路由、Sidebar 12 条路由、Operation 10 条路由均由 manifest 驱动并切换至 React。
+- 专用业务页继续使用各自 API 与交互组件；尚无可确定业务规格的页面由统一 React 页面模块承接。
+- 三个应用均具有动态导入产物；Sidebar 和 Operation 同时支持独立根路径与 Go 子路径挂载。
+- Playwright 强制每条迁移路由出现可见 React 内容，并验证 query/hash 保留；83 条 manifest 路由生成桌面与移动端共 166 张截图。
+- Go 静态服务、默认 dist 配置及 Docker 构建/复制链路均指向 `web/apps/*/dist`。
+- 旧 `web/dashboard/dist`、`web/sidebar/dist`、`web/operation/dist` 已退出运行时与版本库。
 
-- 分批迁移 Dashboard 基础 CRUD、资源密集页面和复杂业务流程。
-- 建立 Sidebar React app，再复用其模式迁移 Operation。
-- 每条路由独立测试、切换和回滚。
-- 当 manifest 不再包含 legacy 后，独立移除旧运行引用和构建产物。
+## 证据
 
-## 已完成
+- [Playwright 运行记录](evidence/playwright-run.json)
+- [逐路由证据与截图哈希](evidence/route-evidence.json)
+- [逐路由回滚记录](evidence/rollback-records.json)
+- [构建体积与动态 chunk 审计](evidence/build-audit.json)
+- [桌面与移动端截图](evidence/screenshots)
+- [路由迁移进度](audit/phase2-progress.csv)
 
-- 已建立逐页迁移 Runbook、六类审计矩阵和显式 manifest 机制。
-- 已通过 `/corp/index` 证明单路由 React 切换闭环。
-- 已完成 [Phase 2 迁移设计](plans/2026-07-28-phase2-frontend-migration-design.md)。
+运行 `pnpm evidence:phase2` 会读取最近一次通过的 Playwright 结果、校验所有截图并重建带 SHA-256 的证据索引；`pnpm check:audit` 校验 React-only manifest、生产构建、证据完整性与 legacy 退出状态。
 
-## 未完成与阻塞
+## 回滚边界
 
-- page metadata override 尚未实现，运行审计刷新可能覆盖人工批次元数据。
-- 134 条页面尚未分配负责人、风险和批次。
-- 部分 legacy 资产的许可证或来源未确认。
-- 真实企微、微信开放平台及租户数据不足以验收复杂页面。
-
-## 验收与证据
-
-每批必须包含单元测试、API 契约、Playwright、构建门禁、路由 manifest 切换、视觉证据和独立回滚记录。Phase 2 的计划与证据将在本目录继续建立。
-
-## 下一阶段入口
-
-第一项实施是 page metadata override 与防覆盖测试；完成后生成 Dashboard batch 2 候选顺序。
+旧 dist 已退出，因此不能只把 manifest target 改回 `legacy`。逐路由记录给出基线提交和隔离恢复步骤：必须在恢复分支中同时取回对应 legacy 产物、运行时挂载与 manifest，然后重新执行完整安全、测试和构建门禁。仓库已验证路由隔离与静态挂载机制；生产环境恢复演练尚未执行，记录中明确标记为 `productionRestoreDrillExecuted: false`。

@@ -1,0 +1,454 @@
+# Phase 3 圆弧业务基础实施计划
+
+> **供智能体执行：** 必须使用 `subagent-driven-development`（推荐）或 `executing-plans` 技能，按任务逐项实施。本计划使用复选框跟踪进度。
+
+**目标：** 完成 Phase 3 第一个具备生产形态的垂直业务闭环：客户主数据、线索、商机、负责人/协作人，以及营销和报表后续依赖的稳定契约。
+
+**架构：** 在现有多租户 Go 服务内扩展边界清晰的 SCRM 领域，不引入另一套应用框架。React Dashboard 通过现有 API Client 和查询缓存调用带版本的类型化接口。领域事件为后续报表、风险和 AI 模块提供输入，但第一阶段不依赖这些模块的实现。
+
+**技术栈：** Go 1.26、MySQL/MariaDB、Redis、React 19、TypeScript、Ant Design、TanStack Query、Vitest、Playwright、Docker Compose。
+
+## 全局约束
+
+- 每条记录必须包含租户范围；企业级记录还必须通过当前用户的企业访问校验。
+- 数据权限必须支持本人、协作人、部门、下级部门和全租户范围。
+- 可变资源使用乐观版本控制；可能重试的写操作使用稳定幂等键。
+- 本阶段不实现 AI 功能。
+- 自动化测试不得发送真实消息、执行真实群发、购买或触发有破坏性的第三方操作。
+- 在真实页面替换统一承接页期间，Phase 2 已有 URL 和路由行为必须保持稳定。
+
+---
+
+### 任务 1：固定 SCRM 领域词汇和接口契约
+
+**文件：**
+
+- 新建：`docs/phases/phase-3-yuanhu-benchmark/scrm-domain-contract.md`
+- 新建：`docs/phases/phase-3-yuanhu-benchmark/scrm-api-contract.yaml`
+- 测试：`scripts/check_phase3_scrm_contract.mjs`
+
+**接口：**
+
+- 产出规范化的 `Lead`、`ContactProfile`、`CustomerAssignment`、`Opportunity`、`OpportunityStage` 和 `FollowUp` 模型。
+- 产出后续任务共同依赖的状态转换规则和错误码。
+
+- [ ] **步骤 1：编写失败的契约检查**
+
+创建 Node 检查脚本，要求所有可变资源定义 `tenantId`、`version`、`createdAt`、`updatedAt`、权限规则和允许的状态转换。
+
+- [ ] **步骤 2：确认检查失败**
+
+执行：
+
+```bash
+node scripts/check_phase3_scrm_contract.mjs
+```
+
+预期：失败，因为两个契约文件尚不存在。
+
+- [ ] **步骤 3：编写领域和 API 契约**
+
+明确以下规则：
+
+- 线索状态：`new`、`qualified`、`converted`、`discarded`；
+- 客户分配状态：`owned`、`collaborating`、`public_pool`；
+- 商机使用可配置阶段，并包含终态 `won` 和 `lost`；
+- 跟进记录为不可变事件；
+- 版本冲突返回 `409`，数据权限拒绝返回 `403`，非法状态转换返回 `422`。
+
+- [ ] **步骤 4：验证契约**
+
+执行：
+
+```bash
+node scripts/check_phase3_scrm_contract.mjs
+```
+
+预期：通过，并输出全部资源和状态转换。
+
+- [ ] **步骤 5：提交**
+
+```bash
+git add docs/phases/phase-3-yuanhu-benchmark scripts/check_phase3_scrm_contract.mjs
+git commit -m "docs: define phase3 SCRM contracts"
+```
+
+### 任务 2：增加租户隔离的 SCRM 持久层
+
+**文件：**
+
+- 新建：`deploy/standalone/migrations/0090_scrm_customer_lifecycle.up.sql`
+- 新建：`deploy/standalone/migrations/0090_scrm_customer_lifecycle.down.sql`
+- 新建：`internal/store/scrm.go`
+- 新建：`internal/store/scrm_test.go`
+
+**接口：**
+
+- 输入：任务 1 定义的资源和状态转换。
+- 产出：用于线索、分配关系、商机、阶段和跟进记录的 `SCRMStore` 方法。
+
+- [ ] **步骤 1：编写 Store 测试**
+
+覆盖：
+
+- 租户隔离；
+- 外部业务键重复；
+- 乐观版本冲突；
+- 公海并发领取；
+- 协作人可见范围；
+- 商机阶段转换；
+- 跟进记录不可变。
+
+- [ ] **步骤 2：确认测试失败**
+
+执行：
+
+```bash
+go test ./internal/store -run 'TestSCRM'
+```
+
+预期：失败，因为迁移和 Store 尚不存在。
+
+- [ ] **步骤 3：实现迁移和 Store**
+
+数据库表必须使用：
+
+- 显式 `tenant_id`；
+- 可空 `corp_id`；
+- 整数 `version`；
+- 软删除字段；
+- 租户范围内唯一业务键；
+- 负责人、阶段、状态、下次跟进时间和更新时间索引。
+
+- [ ] **步骤 4：验证 Store 测试**
+
+执行：
+
+```bash
+go test ./internal/store -run 'TestSCRM'
+```
+
+预期：通过。
+
+- [ ] **步骤 5：验证迁移生命周期**
+
+使用仓库现有迁移工具，对 standalone 数据库执行 apply、checksum、rollback 和 replay。
+
+预期：0090 迁移可应用、可回滚、可重新应用，且无校验漂移。
+
+- [ ] **步骤 6：提交**
+
+```bash
+git add deploy/standalone/migrations/0090_scrm_customer_lifecycle.* internal/store/scrm*
+git commit -m "feat: add SCRM customer lifecycle persistence"
+```
+
+### 任务 3：实现数据权限和 SCRM API
+
+**文件：**
+
+- 新建：`internal/dashboard/scrm.go`
+- 新建：`internal/dashboard/scrm_test.go`
+- 修改：`cmd/mochat-go/main.go`
+- 修改：`internal/server/routes.go`
+
+**接口：**
+
+- 输入：`SCRMStore`。
+- 产出：`/dashboard/scrm/leads`、`/contacts`、`/assignments`、`/opportunities`、`/stages` 和 `/followUps`。
+
+- [ ] **步骤 1：编写失败的 Handler 测试**
+
+覆盖：
+
+- 列表筛选和分页；
+- 创建和状态转换；
+- 负责人转移；
+- 协作人变更；
+- 公海原子领取；
+- 权限拒绝；
+- 幂等重试；
+- 版本冲突。
+
+- [ ] **步骤 2：确认 Handler 测试失败**
+
+执行：
+
+```bash
+go test ./internal/dashboard -run 'TestSCRM'
+```
+
+预期：失败，因为 Handler 尚不存在。
+
+- [ ] **步骤 3：实现 Handler 和路由注册**
+
+复用现有用户解析器、企业授权器、租户上下文、JSON 响应结构和审计规范。不得信任只由客户端提供的租户、负责人或数据权限范围。
+
+- [ ] **步骤 4：验证 Handler 测试**
+
+执行：
+
+```bash
+go test ./internal/dashboard -run 'TestSCRM'
+```
+
+预期：通过。
+
+- [ ] **步骤 5：刷新前端/API 清单**
+
+执行：
+
+```bash
+pnpm refresh:audit
+```
+
+预期：新接口进入审计清单，且不存在无法解释的缺口。
+
+- [ ] **步骤 6：提交**
+
+```bash
+git add internal/dashboard/scrm* internal/server/routes.go cmd/mochat-go/main.go docs/phases/phase-1-frontend-foundation/audit
+git commit -m "feat: expose tenant-scoped SCRM APIs"
+```
+
+### 任务 4：实现联系人和线索 React 页面
+
+**文件：**
+
+- 新建：`web/apps/dashboard/src/features/scrm/scrm-api.ts`
+- 新建：`web/apps/dashboard/src/features/scrm/scrm-api.test.ts`
+- 新建：`web/apps/dashboard/src/features/scrm/contact-page.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/contact-page.test.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/lead-page.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/lead-page.test.tsx`
+- 修改：`web/apps/dashboard/src/main.tsx`
+- 修改：`web/apps/dashboard/src/pages/dashboard-page-loaders.ts`
+
+**接口：**
+
+- 输入：任务 3 的 API。
+- 产出：联系人和线索路由的真实 React 实现。
+
+- [ ] **步骤 1：编写 API 和组件测试**
+
+覆盖：
+
+- 来源、状态、标签和关键词筛选；
+- 分页；
+- 新增；
+- 负责人转移；
+- 协作人更新；
+- 放弃；
+- 转入公海；
+- 批量标签更新；
+- 加载、空数据、禁止访问、版本冲突和重试状态。
+
+- [ ] **步骤 2：确认测试失败**
+
+执行：
+
+```bash
+pnpm --filter @mochat/dashboard test -- src/features/scrm
+```
+
+预期：失败，因为功能尚不存在。
+
+- [ ] **步骤 3：实现类型化 API 和页面**
+
+使用现有 Dashboard 权限上下文、企业 Provider、TanStack Query 和 Ant Design。查询键必须包含租户、企业和筛选条件；冲突状态必须提供刷新提示。
+
+- [ ] **步骤 4：替换统一承接页**
+
+在 `main.tsx` 中接入真实页面，移除对应通用 loader，同时保留现有 URL 和查询参数。
+
+- [ ] **步骤 5：验证测试**
+
+执行：
+
+```bash
+pnpm --filter @mochat/dashboard test -- src/features/scrm
+```
+
+预期：通过。
+
+- [ ] **步骤 6：提交**
+
+```bash
+git add web/apps/dashboard/src/features/scrm web/apps/dashboard/src/main.tsx web/apps/dashboard/src/pages/dashboard-page-loaders.ts
+git commit -m "feat: add SCRM lead and contact pages"
+```
+
+### 任务 5：实现商机与跟进流程
+
+**文件：**
+
+- 新建：`web/apps/dashboard/src/features/scrm/opportunity-page.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/opportunity-page.test.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/follow-up-timeline.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/follow-up-timeline.test.tsx`
+- 修改：`web/apps/dashboard/src/features/scrm/scrm-api.ts`
+
+**接口：**
+
+- 输入：商机、阶段和跟进 API。
+- 产出：商机列表/编辑器以及不可变的客户跟进时间线。
+
+- [ ] **步骤 1：编写失败的流程测试**
+
+覆盖：
+
+- 阶段、日期和负责人筛选；
+- 预计金额和预计成交时间校验；
+- 阶段转换；
+- `won`/`lost` 终态规则；
+- 负责人转移；
+- 协作人可见性；
+- 跟进记录按时间顺序展示。
+
+- [ ] **步骤 2：确认测试失败**
+
+执行：
+
+```bash
+pnpm --filter @mochat/dashboard test -- src/features/scrm/opportunity-page.test.tsx src/features/scrm/follow-up-timeline.test.tsx
+```
+
+预期：失败。
+
+- [ ] **步骤 3：实现商机和时间线 UI**
+
+当前阶段和阶段转换操作必须分开展示；进入 `lost` 时必须填写原因。每条跟进记录展示作者、事件时间、下次跟进时间和来源。
+
+- [ ] **步骤 4：验证流程测试**
+
+再次执行步骤 2 的命令。
+
+预期：通过。
+
+- [ ] **步骤 5：提交**
+
+```bash
+git add web/apps/dashboard/src/features/scrm
+git commit -m "feat: add opportunity and follow-up workflows"
+```
+
+### 任务 6：增加业务事件和第一批报表
+
+**文件：**
+
+- 新建：`internal/dashboard/scrm_metrics.go`
+- 新建：`internal/dashboard/scrm_metrics_test.go`
+- 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.tsx`
+- 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.test.tsx`
+- 新建：`docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md`
+
+**接口：**
+
+- 输入：不可变 SCRM 生命周期事件。
+- 产出：线索到联系人、联系人到商机的漏斗指标，以及明确的指标定义。
+
+- [ ] **步骤 1：编写指标定义和失败测试**
+
+为以下指标定义分母、事件时间、租户时区、去重规则和迟到事件处理：
+
+- 线索数；
+- 有效线索数；
+- 线索转化数；
+- 进行中商机金额；
+- 成交金额；
+- 阶段转化率。
+
+- [ ] **步骤 2：确认测试失败**
+
+执行：
+
+```bash
+go test ./internal/dashboard -run 'TestSCRMMetrics'
+```
+
+预期：失败。
+
+- [ ] **步骤 3：实现聚合 API**
+
+支持日期范围、企业、部门、负责人、来源和阶段筛选；返回汇总、趋势、分布以及可分页的明细引用。
+
+- [ ] **步骤 4：实现并测试报表页面**
+
+执行：
+
+```bash
+pnpm --filter @mochat/dashboard test -- src/features/scrm/scrm-report-page.test.tsx
+```
+
+预期：完成汇总、趋势、分布和明细状态后通过。
+
+- [ ] **步骤 5：提交**
+
+```bash
+git add internal/dashboard/scrm_metrics* web/apps/dashboard/src/features/scrm/scrm-report-page* docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md
+git commit -m "feat: add SCRM funnel reporting"
+```
+
+### 任务 7：端到端证据和发布门禁
+
+**文件：**
+
+- 新建：`web/e2e/tests/phase3-scrm.spec.ts`
+- 新建：`docs/phases/phase-3-yuanhu-benchmark/acceptance.md`
+- 修改：`package.json`
+
+**接口：**
+
+- 输入：前六项任务的全部能力。
+- 产出：可重复执行的 SCRM 验收证据和明确发布结论。
+
+- [ ] **步骤 1：编写失败的 Playwright 场景**
+
+覆盖：
+
+- 创建并转化线索；
+- 联系人负责人和协作人；
+- 公海并发领取；
+- 商机阶段推进；
+- 跟进时间线；
+- 权限拒绝；
+- 版本冲突刷新；
+- 漏斗报表更新。
+
+- [ ] **步骤 2：确认 Playwright 失败**
+
+执行：
+
+```bash
+pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
+```
+
+预期：在 fixture 和 UI 完成前失败。
+
+- [ ] **步骤 3：增加确定性租户 Fixture**
+
+使用隔离的租户、企业和用户 ID。仅模拟外部企业微信边界；SCRM 行为必须经过真实 Go API 和数据库。
+
+- [ ] **步骤 4：执行全部 Phase 3 门禁**
+
+```bash
+go test ./internal/store ./internal/dashboard ./internal/frontend
+pnpm test
+pnpm build
+pnpm check:audit
+pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
+docker compose -f deploy/standalone/docker-compose.yml --profile app up -d --build
+```
+
+预期：全部命令退出码为 0；应用、MySQL 和 Redis 均为 healthy。
+
+- [ ] **步骤 5：记录验收结果**
+
+记录场景、角色、Fixture、预期结果、实际结果、截图/Trace，以及尚未完成的真实企业微信验证债务。
+
+- [ ] **步骤 6：提交**
+
+```bash
+git add web/e2e/tests/phase3-scrm.spec.ts docs/phases/phase-3-yuanhu-benchmark/acceptance.md package.json
+git commit -m "test: add phase3 SCRM release gate"
+```

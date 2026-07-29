@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -324,7 +325,7 @@ func TestWorkFissionStoreCreatesActivityBundle(t *testing.T) {
 	if len(client.contactWayUsers) != 1 || client.contactWayUsers[0] != "wx-21" || !client.contactWaySkipVerify {
 		t.Fatalf("contact way users=%v skip=%v", client.contactWayUsers, client.contactWaySkipVerify)
 	}
-	if len(client.uploadPaths) != 3 || client.uploadPaths[0] != "/tmp/mochat-go-test/welcome/cover.png" {
+	if len(client.uploadPaths) != 3 || client.uploadPaths[0] != filepath.Join("/tmp/mochat-go-test", "welcome/cover.png") {
 		t.Fatalf("uploads=%#v", client.uploadPaths)
 	}
 }

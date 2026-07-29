@@ -1,0 +1,40 @@
+{
+  "dashboard": {
+    "entryAssets": [
+      "index-Cst54ywK.js",
+      "rolldown-runtime-Bh1tDfsg.js",
+      "jsx-runtime-CMOwcL9i.js",
+      "CheckOutlined-B6MWcEeO.js",
+      "typography-KcGn22Jz.js",
+      "access-context-DbVX4WZa.js",
+      "QueryClientProvider-Cr3-6qCN.js",
+      "style-CyFL8DtQ.js",
+      "useModal-ubYT6fll.js",
+      "index-B-D8Gv0J.css"
+    ],
+    "totalBytes": 1328443,
+    "dynamicPageChunks": [
+      "migrated-dashboard-page-vBpMCMTj.js"
+    ]
+  },
+  "sidebar": {
+    "entryAssets": [
+      "index-DFFEhKrm.js",
+      "index-lgQbcPgp.css"
+    ],
+    "totalBytes": 287391,
+    "dynamicPageChunks": [
+      "page-2x-HxnJ1.js"
+    ]
+  },
+  "operation": {
+    "entryAssets": [
+      "index-BO81FiIq.js",
+      "index-CvVVka6_.css"
+    ],
+    "totalBytes": 287297,
+    "dynamicPageChunks": [
+      "page-Dk5-lFjn.js"
+    ]
+  }
+}

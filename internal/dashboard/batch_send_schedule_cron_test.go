@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -43,7 +44,7 @@ func TestContactBatchSendScheduleCronSubmitsDueBatches(t *testing.T) {
 	if store.credentialCorpID != 7 {
 		t.Fatalf("credential corp id = %d", store.credentialCorpID)
 	}
-	if client.uploadPath != "/tmp/mochat-go-test/image/a.jpg" || len(client.submits) != 1 {
+	if client.uploadPath != filepath.Join("/tmp/mochat-go-test", "image/a.jpg") || len(client.submits) != 1 {
 		t.Fatalf("upload=%q submits=%#v", client.uploadPath, client.submits)
 	}
 	submit := client.submits[0]

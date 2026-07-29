@@ -146,13 +146,10 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.DashboardDist != "./web/apps/dashboard/dist" {
 		t.Fatalf("DashboardDist = %q", cfg.DashboardDist)
 	}
-	if cfg.LegacyDashboardDist != "./web/dashboard/dist" {
-		t.Fatalf("LegacyDashboardDist = %q", cfg.LegacyDashboardDist)
-	}
 	if cfg.SaaSAdminDist != "./web/apps/saas-admin/dist" {
 		t.Fatalf("SaaSAdminDist = %q", cfg.SaaSAdminDist)
 	}
-	if cfg.SidebarDist != "./web/sidebar/dist" || cfg.OperationDist != "./web/operation/dist" {
+	if cfg.SidebarDist != "./web/apps/sidebar/dist" || cfg.OperationDist != "./web/apps/operation/dist" {
 		t.Fatalf("frontend dists = sidebar %q operation %q", cfg.SidebarDist, cfg.OperationDist)
 	}
 	if cfg.SidebarFrontendAddr != "" || cfg.OperationFrontendAddr != "" {
@@ -272,13 +269,10 @@ func TestStandaloneDefaultsDoNotDependOnMoChatSourceOrPHP(t *testing.T) {
 	if cfg.DashboardDist != "./web/apps/dashboard/dist" {
 		t.Fatalf("DashboardDist = %q", cfg.DashboardDist)
 	}
-	if cfg.LegacyDashboardDist != "./web/dashboard/dist" {
-		t.Fatalf("LegacyDashboardDist = %q", cfg.LegacyDashboardDist)
-	}
 	if cfg.SaaSAdminDist != "./web/apps/saas-admin/dist" {
 		t.Fatalf("SaaSAdminDist = %q", cfg.SaaSAdminDist)
 	}
-	if cfg.SidebarDist != "./web/sidebar/dist" || cfg.OperationDist != "./web/operation/dist" {
+	if cfg.SidebarDist != "./web/apps/sidebar/dist" || cfg.OperationDist != "./web/apps/operation/dist" {
 		t.Fatalf("frontend dists = sidebar %q operation %q", cfg.SidebarDist, cfg.OperationDist)
 	}
 	if cfg.SidebarFrontendAddr != "" || cfg.OperationFrontendAddr != "" {
@@ -2551,9 +2545,6 @@ func TestJWTAndRedisOverrides(t *testing.T) {
 	}
 	if cfg.DashboardDist != "./tmp-dashboard-dist" {
 		t.Fatalf("dashboard dist = %q", cfg.DashboardDist)
-	}
-	if cfg.LegacyDashboardDist != "./tmp-legacy-dashboard-dist" {
-		t.Fatalf("legacy dashboard dist = %q", cfg.LegacyDashboardDist)
 	}
 	if cfg.SaaSAdminDist != "./tmp-saas-admin-dist" {
 		t.Fatalf("saas admin dist = %q", cfg.SaaSAdminDist)

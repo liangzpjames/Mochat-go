@@ -6,7 +6,13 @@
     "node": ">=22.12 <25"
   },
   "scripts": {
-    "check:audit": "node scripts/audit_legacy_frontend_inventory.mjs --check",
+    "check:audit": "node scripts/audit_legacy_frontend_inventory.mjs --check && node scripts/audit_phase2_frontend_completion.mjs",
+    "evidence:phase2": "node scripts/generate_phase2_evidence.mjs",
+    "refresh:audit": "node scripts/audit_legacy_frontend_inventory.mjs --refresh --check",
+    "check:phase2-progress": "node scripts/check_phase2_frontend_progress.mjs",
+    "check:phase2.1": "node scripts/check_phase2_1_frontend_completion.mjs",
+    "refresh:phase2-progress": "node scripts/check_phase2_frontend_progress.mjs --refresh",
+    "initialize:page-metadata": "node scripts/audit_legacy_frontend_inventory.mjs --initialize-page-metadata",
     "check:deps": "node scripts/check_frontend_dependency_policy.mjs",
     "docs:check": "node scripts/check_documentation_structure.mjs",
     "lint": "pnpm -r --if-present lint",
