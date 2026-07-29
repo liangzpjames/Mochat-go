@@ -141,8 +141,23 @@ body {
   padding: 9px 11px;
 }
 
+.dashboard-corp-frame {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.dashboard-corp-switcher {
+  background: #fff;
+  border-bottom: 1px solid #e8e8e8;
+  padding: 2px 8px;
+}
+
 .dashboard-shell {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .dashboard-header {
@@ -185,12 +200,16 @@ body {
 .dashboard-body {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
-  min-height: calc(100vh - 64px);
+  height: calc(100% - 64px);
+  min-height: 0;
 }
 
 .dashboard-sidebar {
   background: #fff;
   border-right: 1px solid #e8e8e8;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px 16px;
 }
 
@@ -234,6 +253,8 @@ body {
 
 .dashboard-content {
   min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 24px;
 }
 
@@ -267,10 +288,29 @@ body {
 
   .dashboard-body {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: calc(100vh - 64px);
   }
 
   .dashboard-sidebar {
     border-bottom: 1px solid #e8e8e8;
     border-right: 0;
+    overflow: visible;
+  }
+
+  .dashboard-content {
+    overflow: visible;
+  }
+
+  .dashboard-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .dashboard-corp-frame {
+    display: block;
+    height: auto;
+    overflow: visible;
   }
 }
