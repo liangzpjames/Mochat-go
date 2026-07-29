@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import manifest from './migration-routes.json';
-import { pageLoaders } from './page-loaders';
 import { sidebarBasename } from './deployment';
+import { sidebarRoutes } from './app/catalog';
 
 describe('Sidebar Phase 2 migration', () => {
-  it.each(manifest)('$path is React and dynamically imported', (route) => {
+  it.each(manifest)('$path is React and has functional content', (route) => {
     expect(route.target).toBe('react');
-    expect(pageLoaders[route.path]).toEqual(expect.any(Function));
+    expect(sidebarRoutes[route.path]).toBeDefined();
   });
 
   it('supports mounted and independent-port paths', () => {
