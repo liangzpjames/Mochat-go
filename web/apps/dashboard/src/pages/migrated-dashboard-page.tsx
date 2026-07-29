@@ -44,7 +44,7 @@ export default function MigratedDashboardPage() {
             description="当前页面已迁移到统一前端。数据与操作继续由 Go API 提供。"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           >
-            <Button onClick={() => navigate(0)} type="primary">刷新数据</Button>
+            <Button onClick={() => void navigate(0)} type="primary">刷新数据</Button>
           </Empty>
         </Card>
       </Space>
