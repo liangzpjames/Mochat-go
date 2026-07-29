@@ -24,6 +24,13 @@ export type RolePageResult<T> = {
   list: T[];
   page: { page: number; perPage: number; total: number; totalPage: number };
 };
+export type PermissionNode = {
+  id: number;
+  name: string;
+  checked: '1' | '2' | '3';
+  children: PermissionNode[];
+  isPageMenu?: number;
+};
 
 type ApiClient = { request(input: RequestInfo | URL, init?: RequestInit): Promise<unknown> };
 const jsonRequest = (method: string, body: unknown): RequestInit => ({
@@ -47,6 +54,9 @@ export function createRoleApi(client: ApiClient) {
       });
       return client.request(`/role/showEmployee?${query.toString()}`) as Promise<RolePageResult<RoleMember>>;
     },
+    permissions(roleId: number): Promise<PermissionNode[]> {
+      return client.request(`/role/permissionShow?roleId=${roleId}`) as Promise<PermissionNode[]>;
+    },
     async create(input: RoleWrite) {
       await client.request('/role/store', jsonRequest('POST', input));
     },
@@ -61,6 +71,9 @@ export function createRoleApi(client: ApiClient) {
     },
     async remove(roleId: number) {
       await client.request('/role/destroy', jsonRequest('DELETE', { roleId }));
+    },
+    async savePermissions(roleId: number, menuIds: number[]) {
+      await client.request('/role/permissionStore', jsonRequest('POST', { roleId, menuIds }));
     },
   };
 }

@@ -13,6 +13,8 @@ describe('role api', () => {
     expect(request).toHaveBeenLastCalledWith('/role/show?roleId=7');
     await api.members({ roleId: 7, page: 3, perPage: 10 });
     expect(request).toHaveBeenLastCalledWith('/role/showEmployee?roleId=7&page=3&perPage=10');
+    await api.permissions(7);
+    expect(request).toHaveBeenLastCalledWith('/role/permissionShow?roleId=7');
   });
 
   it('uses the audited write contracts including copy', async () => {
@@ -39,6 +41,10 @@ describe('role api', () => {
     await api.remove(7);
     expect(request).toHaveBeenLastCalledWith('/role/destroy', expect.objectContaining({
       method: 'DELETE', body: JSON.stringify({ roleId: 7 }),
+    }));
+    await api.savePermissions(7, [1, 3, 8]);
+    expect(request).toHaveBeenLastCalledWith('/role/permissionStore', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ roleId: 7, menuIds: [1, 3, 8] }),
     }));
   });
 });
