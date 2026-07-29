@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -225,7 +226,7 @@ func TestRoomTagPullStoreCreatesActivityAndSendsMessage(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	if client.uploadPath != "/tmp/mochat-go-test/image/local.jpg" || len(client.messages) != 1 {
+	if client.uploadPath != filepath.Join("/tmp/mochat-go-test", "image/local.jpg") || len(client.messages) != 1 {
 		t.Fatalf("client upload=%s messages=%#v", client.uploadPath, client.messages)
 	}
 	if client.messages[0].Sender != "wx-user-21" || client.messages[0].ExternalUserIDs[0] != "external-31" || client.messages[0].ImagePicURL != "https://wecom.example/room.png" {

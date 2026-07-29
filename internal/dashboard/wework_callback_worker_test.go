@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"log"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -662,7 +663,7 @@ func TestWeWorkCallbackWorkerSendsFissionCustomerPush(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Process error = %v", err)
 	}
-	if client.uploadedImagePath != "/tmp/mochat-fission-push/push/image.png" {
+	if client.uploadedImagePath != filepath.Join("/tmp/mochat-fission-push", "push/image.png") {
 		t.Fatalf("uploaded image path = %q", client.uploadedImagePath)
 	}
 	payload := client.contactBatchSendPayload

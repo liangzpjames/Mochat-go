@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -92,7 +93,7 @@ func TestRoomMessageBatchSendStoreCreatesTasksAndSubmitsWeCom(t *testing.T) {
 	if store.created.CorpID != 7 || store.created.UserID != 1 || store.created.BatchTitle != "Go 客户群群发" || len(store.created.EmployeeIDs) != 1 {
 		t.Fatalf("created=%#v", store.created)
 	}
-	if client.uploadPath != "/tmp/mochat-go-test/image/a.jpg" || len(client.submits) != 1 {
+	if client.uploadPath != filepath.Join("/tmp/mochat-go-test", "image/a.jpg") || len(client.submits) != 1 {
 		t.Fatalf("uploads=%#v submits=%#v", client.uploadPaths, client.submits)
 	}
 	submit := client.submits[0]

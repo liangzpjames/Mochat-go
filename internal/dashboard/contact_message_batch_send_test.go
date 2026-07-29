@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -115,7 +116,7 @@ func TestContactMessageBatchSendStoreCreatesTasksAndSubmitsWeCom(t *testing.T) {
 	if store.created.CorpID != 7 || store.created.UserID != 1 || len(store.created.EmployeeIDs) != 1 || store.created.FilterParams.Gender == nil || *store.created.FilterParams.Gender != 1 {
 		t.Fatalf("created=%#v", store.created)
 	}
-	if client.uploadPath != "/tmp/mochat-go-test/image/a.jpg" || len(client.uploadPaths) != 1 || len(client.submits) != 1 {
+	if client.uploadPath != filepath.Join("/tmp/mochat-go-test", "image/a.jpg") || len(client.uploadPaths) != 1 || len(client.submits) != 1 {
 		t.Fatalf("uploads=%#v submits=%#v", client.uploadPaths, client.submits)
 	}
 	submit := client.submits[0]
@@ -153,7 +154,7 @@ func TestContactMessageBatchSendStoreUploadsMiniProgramCoverBeforeSubmit(t *test
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if len(client.uploadPaths) != 1 || client.uploadPaths[0] != "/tmp/mochat-go-test/image/mini.jpg" {
+	if len(client.uploadPaths) != 1 || client.uploadPaths[0] != filepath.Join("/tmp/mochat-go-test", "image/mini.jpg") {
 		t.Fatalf("upload paths=%#v", client.uploadPaths)
 	}
 	if len(client.submits) != 1 || client.submits[0].Content[0].PicMediaID != "media-mini-cover" {

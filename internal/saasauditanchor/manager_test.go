@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -286,7 +287,7 @@ func TestManagerCreateVerifyAndDetectArtifactTampering(t *testing.T) {
 		t.Fatalf("unexpected create result: %+v", created)
 	}
 	artifactPath := filepath.Join(root, store.checkpoints[0].ArtifactName)
-	if info, err := os.Stat(artifactPath); err != nil || info.Mode().Perm() != 0600 {
+	if info, err := os.Stat(artifactPath); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatalf("artifact mode or stat: info=%v err=%v", info, err)
 	}
 	verified, err := manager.Verify(context.Background(), VerifyOptions{Limit: 10, Source: TriggerManual})
