@@ -9394,6 +9394,9 @@ func (s *MySQLStore) ProvisionSaaSAdminTenant(ctx context.Context, provision das
 		tenantID = int(id)
 	}
 
+	if err := ensureSaaSAdminTenantDefaultCorpTx(ctx, tx, tenantID, provision.TenantName); err != nil {
+		return dashboard.SaaSAdminTenantProvisionResult{}, err
+	}
 	if err := ensureSaaSAdminPhoneAvailableTx(ctx, tx, provision.AdminPhone, tenantID); err != nil {
 		return dashboard.SaaSAdminTenantProvisionResult{}, err
 	}
@@ -9554,6 +9557,34 @@ func (s *MySQLStore) ProvisionSaaSAdminTenant(ctx context.Context, provision das
 	}
 	result.MetricsRefreshed = refresh.MetricsRefreshed
 	return result, nil
+}
+
+func saasTenantDefaultCorpValues(tenantID int, tenantName string) (string, string) {
+	return strings.TrimSpace(tenantName) + "演示企业", fmt.Sprintf("fake_tenant_%d", tenantID)
+}
+
+func ensureSaaSAdminTenantDefaultCorpTx(ctx context.Context, tx *sql.Tx, tenantID int, tenantName string) error {
+	var corpID int
+	err := tx.QueryRowContext(ctx, `
+		SELECT id
+		FROM mc_corp
+		WHERE tenant_id = ? AND deleted_at IS NULL
+		ORDER BY id ASC
+		LIMIT 1
+	`, tenantID).Scan(&corpID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	name, wxCorpID := saasTenantDefaultCorpValues(tenantID, tenantName)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO mc_corp
+			(name, wx_corpid, social_code, employee_secret, event_callback, contact_secret, token, encoding_aes_key, tenant_id, created_at, updated_at, deleted_at)
+		VALUES (?, ?, '', '', '', '', '', '', ?, NOW(), NOW(), NULL)
+	`, name, wxCorpID, tenantID)
+	return err
 }
 
 func ensureSaaSAdminPhoneAvailableTx(ctx context.Context, tx *sql.Tx, phone string, tenantID int) error {

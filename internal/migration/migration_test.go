@@ -82,9 +82,9 @@ func TestStandaloneComposeFreshInitMountsLatestMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantMount := "./migrations/0098_scrm_lead_foundation.up.sql:/docker-entrypoint-initdb.d/098-scrm-lead-foundation.sql:ro"
-	if latest.Version != "0098_scrm_lead_foundation" {
-		t.Fatalf("latest migration = %q, want 0098_scrm_lead_foundation", latest.Version)
+	wantMount := "./migrations/0099_saas_tenant_default_corp.up.sql:/docker-entrypoint-initdb.d/099-saas-tenant-default-corp.sql:ro"
+	if latest.Version != "0099_saas_tenant_default_corp" {
+		t.Fatalf("latest migration = %q, want 0099_saas_tenant_default_corp", latest.Version)
 	}
 	if !strings.Contains(string(composeBody), wantMount) {
 		t.Fatalf("standalone fresh init does not mount latest migration %q", wantMount)

@@ -168,6 +168,25 @@ function Wait-HttpEndpoint {
     throw "$Name 访问检查超时：$Url；最后错误：$lastError"
 }
 
+function Test-MigrationLedgerExists {
+    Write-Host '迁移策略：仅在迁移账本不存在时执行 baseline；已有数据库直接执行增量迁移。'
+    if ($DryRun) {
+        Write-Host '[预览] 将在运行时检查 mochat_go_schema_migrations。'
+        return $false
+    }
+
+    $database = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_DATABASE)) { 'mochat' } else { $env:MOCHAT_MYSQL_DATABASE }
+    $user = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_USER)) { 'mochat' } else { $env:MOCHAT_MYSQL_USER }
+    $password = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_PASSWORD)) { 'mochat_pass' } else { $env:MOCHAT_MYSQL_PASSWORD }
+    $query = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$database' AND table_name = 'mochat_go_schema_migrations'"
+    $output = Invoke-Compose -Arguments @(
+        'exec', '-T', 'mysql',
+        'mariadb', '--batch', '--skip-column-names',
+        "-u$user", "-p$password", '-e', $query
+    ) -Capture -Secrets @($password)
+    return $output.Trim() -eq '1'
+}
+
 if (-not (Test-Path -LiteralPath $composeFile)) {
     throw "找不到 Compose 文件：$composeFile"
 }
@@ -222,10 +241,14 @@ try {
     Wait-ComposeService -Service 'redis' -TimeoutSeconds 180
     Wait-ComposeService -Service 'app' -TimeoutSeconds 300
 
-    Invoke-Compose -Arguments @(
-        'exec', '-T', 'app',
-        'mochat-migrate', '-action', 'baseline', '-project-root', '/app'
-    )
+    if (Test-MigrationLedgerExists) {
+        Write-Host '检测到迁移账本，跳过 baseline。'
+    } else {
+        Invoke-Compose -Arguments @(
+            'exec', '-T', 'app',
+            'mochat-migrate', '-action', 'baseline', '-project-root', '/app'
+        )
+    }
     Invoke-Compose -Arguments @(
         'exec', '-T', 'app',
         'mochat-migrate', '-action', 'up', '-project-root', '/app'

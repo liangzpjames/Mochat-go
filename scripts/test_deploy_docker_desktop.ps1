@@ -57,7 +57,7 @@ if ($LASTEXITCODE -ne 0) {
 Assert-Matches $defaultOutput '--project-name mochat-go-desktop' '默认项目名不固定'
 Assert-Matches $defaultOutput 'down --remove-orphans' '默认部署未替换旧项目'
 Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' '缺少强制重建参数'
-Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action baseline -project-root /app' '未在迁移前记录数据库基线'
+Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '未声明安全的条件基线策略'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
 Assert-Matches $defaultOutput 'exec -T app mochat-bootstrap -phone 13800000000' '未执行管理员初始化'
 Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/security/login' '未检查 SaaS 身份登录入口'
@@ -93,6 +93,11 @@ if "%8"=="ps" if "%9"=="-q" (
   echo fake-container-id
   exit /b 0
 )
+echo %* | findstr /c:"information_schema.tables" >nul
+if not errorlevel 1 (
+  echo 1
+  exit /b 0
+)
 echo docker progress 1>&2
 exit /b 0
 '@ | Set-Content -LiteralPath $fakeDocker -Encoding Ascii
@@ -114,6 +119,9 @@ exit /b 0
     Assert-Matches $fakeOutput 'identity=1' '启用 SaaS Admin 时未启用身份安全登录'
     Assert-Matches $fakeOutput 'identity_key=set' '启用身份安全登录时未配置本地加密密钥'
     Assert-Matches $fakeOutput 'prefill_phone=13800000000' 'SaaS 身份登录页未使用部署管理员账号'
+    if ($fakeOutput -match 'mochat-migrate -action baseline') {
+        throw '已有迁移账本时仍执行 baseline，会跳过新的增量迁移'
+    }
 } finally {
     Remove-Item -LiteralPath $fakeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
