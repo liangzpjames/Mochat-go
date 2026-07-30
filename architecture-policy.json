@@ -1,0 +1,14 @@
+{
+  "productionModules": ["scrm"],
+  "protectedFiles": [
+    {"path": "internal/dashboard/saas_admin_page.go", "maxBytes": 860906},
+    {"path": "internal/dashboard/saas_admin.go", "maxBytes": 696324},
+    {"path": "internal/store/mysql.go", "maxBytes": 840395},
+    {"path": "cmd/mochat-go/main.go", "maxBytes": 206017}
+  ],
+  "forbiddenNewFiles": [
+    "internal/dashboard/scrm*.go",
+    "internal/store/scrm*.go"
+  ],
+  "exceptions": []
+}

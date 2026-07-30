@@ -1,0 +1,8 @@
+{
+  "productionModules": ["scrm"],
+  "protectedFiles": [
+    {"path": "internal\\dashboard\\page.go", "maxBytes": 1}
+  ],
+  "forbiddenNewFiles": [],
+  "exceptions": []
+}
