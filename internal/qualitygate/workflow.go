@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -327,7 +328,10 @@ func strictlyIncreasing(values []int) bool {
 }
 
 type shellStatement struct {
-	candidates []string
+	source         *syntax.Stmt
+	candidates     []string
+	errexitEnabled bool
+	inFinalRoot    bool
 }
 
 func containsExecutableCommandsInOrder(contents string, expected []string) bool {
@@ -347,7 +351,8 @@ func containsExecutableCommandsInOrder(contents string, expected []string) bool 
 			statement := statements[position]
 			position++
 			for _, candidate := range statement.candidates {
-				if candidate == canonical {
+				if candidate == canonical &&
+					(statement.errexitEnabled || statement.inFinalRoot) {
 					found = true
 					break
 				}
@@ -538,9 +543,18 @@ func shellStatementTerminates(statement *syntax.Stmt) bool {
 	if !ok || len(call.Args) == 0 {
 		return false
 	}
-	switch call.Args[0].Lit() {
+	commandIndex := 0
+	if call.Args[0].Lit() == "builtin" || call.Args[0].Lit() == "command" {
+		if len(call.Args) < 2 {
+			return false
+		}
+		commandIndex = 1
+	}
+	switch call.Args[commandIndex].Lit() {
 	case "exit", "return":
 		return true
+	case "exec":
+		return execCommandIndex(call.Args[commandIndex:]) >= 0
 	default:
 		return false
 	}
@@ -595,13 +609,113 @@ func parseShell(contents string) (*syntax.File, error) {
 
 func safeTopLevelShellStatements(file *syntax.File) []shellStatement {
 	statements := make([]shellStatement, 0, len(file.Stmts))
-	for _, statement := range file.Stmts {
+	errexitEnabled := true
+	for rootIndex, statement := range file.Stmts {
 		safe, ok := safeSerialShellStatements(statement)
-		if ok {
-			statements = append(statements, safe...)
+		if !ok {
+			if enabled, changed := shellStatementErrexitChange(statement); changed {
+				errexitEnabled = enabled
+			} else if shellStatementMayDisableErrexit(statement) {
+				errexitEnabled = false
+			}
+			if shellStatementMayTerminateSuccessfully(statement) {
+				return statements
+			}
+			continue
+		}
+		for _, shell := range safe {
+			shell.errexitEnabled = errexitEnabled
+			shell.inFinalRoot = rootIndex == len(file.Stmts)-1
+			statements = append(statements, shell)
+			if enabled, changed := shellStatementErrexitChange(shell.source); changed {
+				errexitEnabled = enabled
+			}
+			if shellStatementTerminates(shell.source) {
+				return statements
+			}
 		}
 	}
 	return statements
+}
+
+func shellStatementMayDisableErrexit(statement *syntax.Stmt) bool {
+	disabled := false
+	syntax.Walk(statement, func(node syntax.Node) bool {
+		if disabled || node == nil {
+			return !disabled
+		}
+		switch node.(type) {
+		case *syntax.FuncDecl, *syntax.Subshell, *syntax.CmdSubst, *syntax.ProcSubst:
+			return false
+		}
+		nested, ok := node.(*syntax.Stmt)
+		if !ok {
+			return true
+		}
+		enabled, changed := shellStatementErrexitChange(nested)
+		if changed && !enabled {
+			disabled = true
+			return false
+		}
+		return true
+	})
+	return disabled
+}
+
+func shellStatementMayTerminateSuccessfully(statement *syntax.Stmt) bool {
+	terminates := false
+	syntax.Walk(statement, func(node syntax.Node) bool {
+		if terminates || node == nil {
+			return !terminates
+		}
+		switch node.(type) {
+		case *syntax.FuncDecl, *syntax.Subshell, *syntax.CmdSubst, *syntax.ProcSubst:
+			return false
+		}
+		nested, ok := node.(*syntax.Stmt)
+		if !ok {
+			return true
+		}
+		if shellStatementCanTerminateSuccessfully(nested) {
+			terminates = true
+			return false
+		}
+		return true
+	})
+	return terminates
+}
+
+func shellStatementCanTerminateSuccessfully(statement *syntax.Stmt) bool {
+	if statement == nil ||
+		statement.Background ||
+		statement.Coprocess ||
+		statement.Disown {
+		return false
+	}
+	call, ok := statement.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return false
+	}
+	commandIndex := 0
+	if call.Args[0].Lit() == "builtin" || call.Args[0].Lit() == "command" {
+		if len(call.Args) < 2 {
+			return false
+		}
+		commandIndex = 1
+	}
+	switch call.Args[commandIndex].Lit() {
+	case "exec":
+		return execCommandIndex(call.Args[commandIndex:]) >= 0
+	case "exit", "return":
+		statusIndex := commandIndex + 1
+		if statusIndex >= len(call.Args) {
+			return true
+		}
+		status, err := strconv.Atoi(call.Args[statusIndex].Lit())
+		return err != nil || status%256 == 0
+	default:
+		return false
+	}
 }
 
 func safeSerialShellStatements(statement *syntax.Stmt) ([]shellStatement, bool) {
@@ -651,10 +765,98 @@ func shellStatementFromCall(statement *syntax.Stmt, call *syntax.CallExpr) (shel
 	if stripped := stripEnvCommand(statement, call); stripped != nil {
 		candidates = append(candidates, printShellNode(stripped))
 	}
+	if stripped := stripExecCommand(statement, call); stripped != nil {
+		candidates = append(candidates, printShellNode(stripped))
+		strippedCall := stripped.Cmd.(*syntax.CallExpr)
+		if strippedEnv := stripEnvCommand(stripped, strippedCall); strippedEnv != nil {
+			candidates = append(candidates, printShellNode(strippedEnv))
+		}
+	}
 	candidates = uniqueStrings(candidates)
 	return shellStatement{
+		source:     statement,
 		candidates: candidates,
 	}, len(candidates) != 0
+}
+
+func shellStatementErrexitChange(statement *syntax.Stmt) (bool, bool) {
+	if statement == nil {
+		return false, false
+	}
+	call, ok := statement.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return false, false
+	}
+	index := 0
+	if call.Args[0].Lit() == "builtin" || call.Args[0].Lit() == "command" {
+		index++
+	}
+	if index >= len(call.Args) || call.Args[index].Lit() != "set" {
+		return false, false
+	}
+	index++
+
+	enabled := false
+	changed := false
+	for index < len(call.Args) {
+		option := call.Args[index].Lit()
+		switch {
+		case option == "-o" || option == "+o":
+			if index+1 < len(call.Args) && call.Args[index+1].Lit() == "errexit" {
+				enabled = option == "-o"
+				changed = true
+				index += 2
+				continue
+			}
+		case strings.HasPrefix(option, "-") && strings.Contains(option[1:], "e"):
+			enabled = true
+			changed = true
+		case strings.HasPrefix(option, "+") && strings.Contains(option[1:], "e"):
+			enabled = false
+			changed = true
+		}
+		index++
+	}
+	return enabled, changed
+}
+
+func stripExecCommand(statement *syntax.Stmt, call *syntax.CallExpr) *syntax.Stmt {
+	index := execCommandIndex(call.Args)
+	if index < 0 {
+		return nil
+	}
+	clone := cloneStatementWithCall(statement, call)
+	cloneCall := clone.Cmd.(*syntax.CallExpr)
+	cloneCall.Assigns = nil
+	cloneCall.Args = append([]*syntax.Word(nil), call.Args[index:]...)
+	return clone
+}
+
+func execCommandIndex(arguments []*syntax.Word) int {
+	if len(arguments) < 2 || arguments[0].Lit() != "exec" {
+		return -1
+	}
+	index := 1
+	for index < len(arguments) {
+		option := arguments[index].Lit()
+		switch {
+		case option == "--":
+			index++
+			if index < len(arguments) {
+				return index
+			}
+			return -1
+		case option == "-a":
+			index += 2
+		case option == "-c" || option == "-l":
+			index++
+		case strings.HasPrefix(option, "-"):
+			index++
+		default:
+			return index
+		}
+	}
+	return -1
 }
 
 func stripEnvCommand(statement *syntax.Stmt, call *syntax.CallExpr) *syntax.Stmt {

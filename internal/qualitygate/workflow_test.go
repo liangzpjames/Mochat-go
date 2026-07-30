@@ -182,6 +182,44 @@ func TestValidateWorkflowRejectsUnsafeRequiredCommandControlFlow(t *testing.T) {
 			replacement: "        run: |\n" +
 				"          go test ./...; exit 0\n",
 		},
+		{
+			name: "errexit disabled with successful override",
+			replacement: "        run: |\n" +
+				"          set +e\n" +
+				"          go test ./...\n" +
+				"          exit 0\n",
+		},
+		{
+			name: "semicolon errexit disable with successful override",
+			replacement: "        run: |\n" +
+				"          set +e;\n" +
+				"          go test ./...\n" +
+				"          true\n",
+		},
+		{
+			name:        "semicolon exit before command",
+			replacement: "        run: exit 0; go test ./...\n",
+		},
+		{
+			name: "successful exit in compound before command",
+			replacement: "        run: |\n" +
+				"          if true; then\n" +
+				"            exit 0\n" +
+				"          fi\n" +
+				"          go test ./...\n",
+		},
+		{
+			name:        "exit before safe serial command",
+			replacement: "        run: exit 0 && go test ./...\n",
+		},
+		{
+			name:        "return before safe serial command",
+			replacement: "        run: return 0 && go test ./...\n",
+		},
+		{
+			name:        "exec before safe serial command",
+			replacement: "        run: exec true && go test ./...\n",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := writeWorkflow(t, strings.Replace(workflow, original, tc.replacement, 1))
@@ -291,11 +329,32 @@ func TestExecutableCommandRecognitionAllowsOnlyRealCommands(t *testing.T) {
 		"exact":             {script: expected, want: true},
 		"assignment prefix": {script: "CGO_ENABLED=1 " + expected, want: true},
 		"env prefix":        {script: "env CGO_ENABLED=1 " + expected, want: true},
+		"exec required":     {script: "exec " + expected, want: true},
 		"safe serial and":   {script: "true && " + expected + " && true", want: true},
-		"comment":           {script: "# " + expected, want: false},
-		"echo":              {script: `echo "go test ./..."`, want: false},
-		"printf":            {script: `printf '%s\n' 'go test ./...'`, want: false},
-		"dead if branch":    {script: "if false; then\n  " + expected + "\nfi", want: false},
+		"disabled errexit final command": {
+			script: "set +e\n" + expected,
+			want:   true,
+		},
+		"restored errexit": {
+			script: "set +e\nset -e\n" + expected,
+			want:   true,
+		},
+		"restored named errexit": {
+			script: "set +o errexit\nset -o errexit\n" + expected,
+			want:   true,
+		},
+		"terminator in uncalled function": {
+			script: "dead_gate() {\n  exit 0\n}\n" + expected,
+			want:   true,
+		},
+		"terminator in subshell": {
+			script: "(exit 0)\n" + expected,
+			want:   true,
+		},
+		"comment":        {script: "# " + expected, want: false},
+		"echo":           {script: `echo "go test ./..."`, want: false},
+		"printf":         {script: `printf '%s\n' 'go test ./...'`, want: false},
+		"dead if branch": {script: "if false; then\n  " + expected + "\nfi", want: false},
 		"dead case branch": {
 			script: "case never in\n  match) " + expected + " ;;\nesac",
 			want:   false,
@@ -304,6 +363,49 @@ func TestExecutableCommandRecognitionAllowsOnlyRealCommands(t *testing.T) {
 		"or true":           {script: expected + " || true", want: false},
 		"negated":           {script: "! " + expected, want: false},
 		"forced exit zero":  {script: expected + "; exit 0", want: false},
+		"disabled errexit successful override": {
+			script: "set +e\n" + expected + "\nexit 0",
+			want:   false,
+		},
+		"disabled errexit trailing success": {
+			script: "set +e\n" + expected + "\ntrue",
+			want:   false,
+		},
+		"semicolon disables errexit": {
+			script: "set +e;\n" + expected + "\ntrue",
+			want:   false,
+		},
+		"builtin disables errexit": {
+			script: "builtin set +e\n" + expected + "\ntrue",
+			want:   false,
+		},
+		"command disables named errexit": {
+			script: "command set +o errexit\n" + expected + "\nexit 0",
+			want:   false,
+		},
+		"exit before command":   {script: "exit 0 && " + expected, want: false},
+		"return before command": {script: "return 0 && " + expected, want: false},
+		"exec before command":   {script: "exec true && " + expected, want: false},
+		"exit before following command": {
+			script: "exit 0\n" + expected,
+			want:   false,
+		},
+		"return before following command": {
+			script: "return 0\n" + expected,
+			want:   false,
+		},
+		"exec before following command": {
+			script: "exec true\n" + expected,
+			want:   false,
+		},
+		"semicolon exit before command": {
+			script: "exit 0; " + expected,
+			want:   false,
+		},
+		"successful exit in compound before command": {
+			script: "if true; then\n  exit 0\nfi\n" + expected,
+			want:   false,
+		},
 		"heredoc": {
 			script: "cat <<'INERT'\n" + expected + "\nINERT\n",
 			want:   false,
