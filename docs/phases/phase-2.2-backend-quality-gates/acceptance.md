@@ -205,6 +205,7 @@ EXACT_TREE_SCHEMA_SMOKE_EXIT_CODE=0
 - 下一条 migration 为连续且无冲突的 `0099_scrm_customer_lifecycle`；
 - legacy `internal/store/scrm*`、`internal/dashboard/scrm*` 路径为零；
 - 持久化接口明确为 `ports` repositories、`adapters/mysql` implementations，由 application service 编排；
+- Task 2 明确同步修改并提交 `scripts/smoke_schema_migrate.sh`，把 future latest/count 推进到 0099/99，覆盖 0099 apply/checksum/rollback/replay，并保留 0098 历史语义；
 - Task 6 明确修改并提交 `transport/http/routes.go`，且要求模块级 metrics route registration test；
 - 每个后端任务包含 architecture CLI；
 - Task 7 显式包含 race、require MySQL integration 和 migration smoke。
@@ -224,5 +225,5 @@ EXACT_TREE_SCHEMA_SMOKE_EXIT_CODE=0
 - [x] migration apply/checksum/rollback/replay；
 - [x] pilot 默认 false；
 - [x] legacy `/healthz` 与代表性 migrated routes；
-- [x] Phase 3 0099、分层路径、Task 6 route test 和 Task 7 完整门禁；
+- [x] Phase 3 0099、同步 lifecycle smoke、分层路径、Task 6 route test 和 Task 7 完整门禁；
 - [x] `.superpowers/` scratch 被忽略，`git status --short` 为空。

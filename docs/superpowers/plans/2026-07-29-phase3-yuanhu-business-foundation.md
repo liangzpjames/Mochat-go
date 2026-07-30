@@ -85,6 +85,7 @@ git commit -m "docs: define phase3 SCRM contracts"
 - 新建：`internal/modules/scrm/ports/customer_lifecycle_repository.go`
 - 新建：`internal/modules/scrm/adapters/mysql/customer_lifecycle_repository.go`
 - 新建：`internal/modules/scrm/adapters/mysql/customer_lifecycle_repository_test.go`
+- 修改：`scripts/smoke_schema_migrate.sh`
 
 **接口：**
 
@@ -124,6 +125,14 @@ go test ./internal/modules/scrm/domain ./internal/modules/scrm/adapters/mysql -r
 - 租户范围内唯一业务键；
 - 负责人、阶段、状态、下次跟进时间和更新时间索引。
 
+同步修订 `scripts/smoke_schema_migrate.sh`：
+
+- 将 latest migration 和 migration 总数断言从 `0098`/`98` 推进到 `0099`/`99`；
+- 在空库 apply、checksum、status、baseline、rollback 和 replay 路径中加入 `0099_scrm_customer_lifecycle`；
+- 保留 `0098_scrm_lead_foundation` 的历史 apply/checksum/schema 断言，不得重编号、删除或把 0098 的历史语义改写成 0099；
+- rollback latest 时必须证明 0099 的 customer lifecycle 变更被撤销，同时 0098 的 lead foundation 表、migration 记录和 checksum 仍保留；
+- replay/reapply 后必须证明 0099 恢复为 latest applied，migration 总数回到 99，且重复 apply 不重放。
+
 - [ ] **步骤 4：验证 repository 测试**
 
 执行：
@@ -137,14 +146,18 @@ go run ./cmd/mochat-architecture -root .
 
 - [ ] **步骤 5：验证迁移生命周期**
 
-使用仓库现有迁移工具，对 standalone 数据库执行 apply、checksum、rollback 和 replay。
+执行任务 2 同步修订后的完整 lifecycle smoke：
 
-预期：0099 migration 可应用、可回滚、可重新应用，且无校验漂移。
+```bash
+bash ./scripts/smoke_schema_migrate.sh
+```
+
+预期：命令退出码为 0；空库 apply 的 latest/count 为 0099/99；0098 和 0099 均有 64 位 checksum；rollback latest 仅撤销 0099 并保留 0098 历史状态；replay/reapply 恢复 0099/99；重复 apply 不重放且无 checksum 漂移。
 
 - [ ] **步骤 6：提交**
 
 ```bash
-git add deploy/standalone/migrations/0099_scrm_customer_lifecycle.* internal/modules/scrm/domain/customer_lifecycle* internal/modules/scrm/ports/customer_lifecycle_repository.go internal/modules/scrm/adapters/mysql/customer_lifecycle_repository*
+git add deploy/standalone/migrations/0099_scrm_customer_lifecycle.* internal/modules/scrm/domain/customer_lifecycle* internal/modules/scrm/ports/customer_lifecycle_repository.go internal/modules/scrm/adapters/mysql/customer_lifecycle_repository* scripts/smoke_schema_migrate.sh
 git commit -m "feat: add SCRM customer lifecycle persistence"
 ```
 
@@ -466,7 +479,7 @@ go run ./cmd/mochat-architecture -root .
 go test ./internal/architecture/... ./internal/app/modules/... ./internal/modules/... ./internal/frontend
 go test -race ./internal/modules/...
 MOCHAT_REQUIRE_MYSQL_INTEGRATION=1 go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql
-./scripts/smoke_schema_migrate.sh
+bash ./scripts/smoke_schema_migrate.sh
 pnpm test
 pnpm build
 pnpm check:audit
@@ -474,7 +487,7 @@ pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
 docker compose -f deploy/standalone/docker-compose.yml --profile app up -d --build
 ```
 
-预期：全部命令退出码为 0；应用、MySQL 和 Redis 均为 healthy。MySQL integration 必须使用真实数据库且禁止 skip；本地没有已迁移 DSN 时，使用 `.github/workflows/mysql57-amd64.yml` 的 SCRM MySQL integration atomic step 提供 MySQL 5.7、设置 require 变量并执行该命令。Migration smoke 以 Linux checkout/CI 为权威执行面。
+预期：全部命令退出码为 0；应用、MySQL 和 Redis 均为 healthy。MySQL integration 必须使用真实数据库且禁止 skip；本地没有已迁移 DSN 时，使用 `.github/workflows/mysql57-amd64.yml` 的 SCRM MySQL integration atomic step 提供 MySQL 5.7、设置 require 变量并执行该命令。Migration smoke 以 Linux checkout/CI 为权威执行面，并且必须使用任务 2 修订后的 lifecycle：latest/count 为 0099/99，0099 完成 apply/checksum/rollback/replay，同时保留 0098 的历史 migration、checksum 和 schema 语义。
 
 - [ ] **步骤 5：记录验收结果**
 
