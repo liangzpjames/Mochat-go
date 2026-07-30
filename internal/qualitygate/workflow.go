@@ -42,9 +42,10 @@ var requiredTriggerPaths = []string{
 var environmentAssignmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
 type workflowDocument struct {
-	On   workflowTriggers       `yaml:"on"`
-	Jobs map[string]workflowJob `yaml:"jobs"`
-	Env  map[string]string      `yaml:"env"`
+	On       workflowTriggers       `yaml:"on"`
+	Jobs     map[string]workflowJob `yaml:"jobs"`
+	Env      map[string]string      `yaml:"env"`
+	Defaults workflowDefaults       `yaml:"defaults"`
 }
 
 type workflowTriggers struct {
@@ -57,15 +58,34 @@ type workflowTrigger struct {
 }
 
 type workflowJob struct {
-	Steps []workflowStep    `yaml:"steps"`
-	Env   map[string]string `yaml:"env"`
+	RunsOn          string            `yaml:"runs-on"`
+	If              yaml.Node         `yaml:"if"`
+	ContinueOnError yaml.Node         `yaml:"continue-on-error"`
+	Needs           yaml.Node         `yaml:"needs"`
+	Container       yaml.Node         `yaml:"container"`
+	Defaults        workflowDefaults  `yaml:"defaults"`
+	Steps           []workflowStep    `yaml:"steps"`
+	Env             map[string]string `yaml:"env"`
 }
 
 type workflowStep struct {
-	Name string            `yaml:"name"`
-	Uses string            `yaml:"uses"`
-	Run  string            `yaml:"run"`
-	Env  map[string]string `yaml:"env"`
+	Name             string            `yaml:"name"`
+	Uses             string            `yaml:"uses"`
+	Run              string            `yaml:"run"`
+	If               yaml.Node         `yaml:"if"`
+	ContinueOnError  yaml.Node         `yaml:"continue-on-error"`
+	Shell            yaml.Node         `yaml:"shell"`
+	WorkingDirectory yaml.Node         `yaml:"working-directory"`
+	Env              map[string]string `yaml:"env"`
+}
+
+type workflowDefaults struct {
+	Run workflowRunDefaults `yaml:"run"`
+}
+
+type workflowRunDefaults struct {
+	Shell            yaml.Node `yaml:"shell"`
+	WorkingDirectory yaml.Node `yaml:"working-directory"`
 }
 
 type requiredStep struct {
@@ -80,6 +100,19 @@ var requiredSteps = []requiredStep{
 	{name: "Go vet", command: "go vet ./..."},
 	{name: "Migration 0098 lifecycle gate", command: "bash ./scripts/smoke_schema_migrate.sh"},
 	{name: "SCRM MySQL integration gate", command: "go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql"},
+}
+
+var requiredStepEnvironments = map[string]map[string]string{
+	"Migration 0098 lifecycle gate": {
+		"MOCHAT_STACK_PROJECT": "mochat-go-schema-migrate-ci",
+		"MOCHAT_MYSQL_PORT":    "13331",
+	},
+	"SCRM MySQL integration gate": {
+		"MOCHAT_STACK_PROJECT":             "mochat-go-scrm-integration",
+		"MOCHAT_MYSQL57_PORT":              "13333",
+		"MOCHAT_MYSQL_DSN":                 "mochat:mochat_pass@tcp(127.0.0.1:13333)/mochat?parseTime=true&loc=UTC",
+		"MOCHAT_REQUIRE_MYSQL_INTEGRATION": "1",
+	},
 }
 
 // Validate checks the workflow and every repository file that owns part of the
@@ -121,6 +154,21 @@ func validateWorkflow(path string) []string {
 	}
 
 	failures := make([]string, 0)
+	if !supportedWorkflowShell(document.Defaults.Run.Shell) {
+		failures = append(
+			failures,
+			"workflow defaults.run.shell must provide supported bash errexit semantics",
+		)
+	}
+	if !repositoryRootWorkingDirectory(document.Defaults.Run.WorkingDirectory) {
+		failures = append(
+			failures,
+			"workflow defaults.run.working-directory must stay at repository root",
+		)
+	}
+	if len(document.Env) != 0 {
+		failures = append(failures, "workflow must not set environment overrides")
+	}
 	for name, paths := range map[string][]string{
 		"push":         document.On.Push.Paths,
 		"pull_request": document.On.PullRequest.Paths,
@@ -140,6 +188,46 @@ func validateWorkflow(path string) []string {
 	if !exists {
 		failures = append(failures, "workflow missing exact job: "+workflowJobID)
 		return failures
+	}
+
+	if job.RunsOn != "ubuntu-22.04" {
+		failures = append(
+			failures,
+			"workflow job "+workflowJobID+" must use supported runner ubuntu-22.04",
+		)
+	}
+	if !yamlBooleanOrAbsent(job.If, true) {
+		failures = append(failures, "workflow job "+workflowJobID+" must be unconditional")
+	}
+	if !yamlBooleanOrAbsent(job.ContinueOnError, false) {
+		failures = append(failures, "workflow job "+workflowJobID+" must not continue on error")
+	}
+	if job.Needs.Kind != 0 {
+		failures = append(
+			failures,
+			"workflow job "+workflowJobID+" must not depend on prerequisite jobs",
+		)
+	}
+	if job.Container.Kind != 0 {
+		failures = append(failures, "workflow job "+workflowJobID+" must not use a container")
+	}
+	if len(job.Env) != 0 {
+		failures = append(
+			failures,
+			"workflow job "+workflowJobID+" must not set environment overrides",
+		)
+	}
+	if !supportedWorkflowShell(job.Defaults.Run.Shell) {
+		failures = append(
+			failures,
+			"workflow job "+workflowJobID+" defaults.run.shell must provide supported bash errexit semantics",
+		)
+	}
+	if !repositoryRootWorkingDirectory(job.Defaults.Run.WorkingDirectory) {
+		failures = append(
+			failures,
+			"workflow job "+workflowJobID+" defaults.run.working-directory must stay at repository root",
+		)
 	}
 
 	stepByName := make(map[string]workflowStep, len(job.Steps))
@@ -174,6 +262,30 @@ func validateWorkflow(path string) []string {
 			failures = append(
 				failures,
 				fmt.Sprintf("%s step does not own command: %s", required.name, required.command),
+			)
+		}
+		if !yamlBooleanOrAbsent(step.If, true) {
+			failures = append(failures, required.name+" step must be unconditional")
+		}
+		if !yamlBooleanOrAbsent(step.ContinueOnError, false) {
+			failures = append(failures, required.name+" step must not continue on error")
+		}
+		if !supportedWorkflowShell(step.Shell) {
+			failures = append(
+				failures,
+				required.name+" step shell must provide supported bash errexit semantics",
+			)
+		}
+		if !repositoryRootWorkingDirectory(step.WorkingDirectory) {
+			failures = append(
+				failures,
+				required.name+" step working-directory must stay at repository root",
+			)
+		}
+		if !environmentMatches(step.Env, requiredStepEnvironments[required.name]) {
+			failures = append(
+				failures,
+				required.name+" step environment must exactly match the required allowlist",
 			)
 		}
 	}
@@ -321,6 +433,56 @@ func validatePhase3Plan(contents string) []string {
 func strictlyIncreasing(values []int) bool {
 	for index := 1; index < len(values); index++ {
 		if values[index-1] >= values[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func yamlBooleanOrAbsent(node yaml.Node, expected bool) bool {
+	if node.Kind == 0 {
+		return true
+	}
+	return node.Kind == yaml.ScalarNode &&
+		node.Tag == "!!bool" &&
+		node.Value == strconv.FormatBool(expected)
+}
+
+func supportedWorkflowShell(node yaml.Node) bool {
+	if node.Kind == 0 {
+		return true
+	}
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
+		return false
+	}
+	switch node.Value {
+	case "bash",
+		"bash -e {0}",
+		"bash -eo pipefail {0}",
+		"bash -e -o pipefail {0}",
+		"bash --noprofile --norc -eo pipefail {0}",
+		"bash --noprofile --norc -e -o pipefail {0}":
+		return true
+	default:
+		return false
+	}
+}
+
+func repositoryRootWorkingDirectory(node yaml.Node) bool {
+	if node.Kind == 0 {
+		return true
+	}
+	return node.Kind == yaml.ScalarNode &&
+		node.Tag == "!!str" &&
+		node.Value == "."
+}
+
+func environmentMatches(actual, expected map[string]string) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for name, expectedValue := range expected {
+		if actual[name] != expectedValue {
 			return false
 		}
 	}

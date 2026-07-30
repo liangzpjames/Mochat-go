@@ -232,6 +232,352 @@ func TestValidateWorkflowRejectsUnsafeRequiredCommandControlFlow(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowRejectsRequiredStepDisableControls(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	const original = "      - name: Go tests\n" +
+		"        run: go test ./...\n"
+	if !strings.Contains(workflow, original) {
+		t.Fatalf("workflow fixture no longer contains Go tests step")
+	}
+
+	for _, tc := range []struct {
+		name        string
+		replacement string
+		failure     string
+	}{
+		{
+			name: "literal false condition",
+			replacement: "      - name: Go tests\n" +
+				"        if: false\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step must be unconditional",
+		},
+		{
+			name: "expression condition",
+			replacement: "      - name: Go tests\n" +
+				"        if: ${{ github.event_name == 'push' }}\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step must be unconditional",
+		},
+		{
+			name: "quoted true condition",
+			replacement: "      - name: Go tests\n" +
+				"        if: \"true\"\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step must be unconditional",
+		},
+		{
+			name: "continue on error",
+			replacement: "      - name: Go tests\n" +
+				"        continue-on-error: true\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step must not continue on error",
+		},
+		{
+			name: "continue on error expression",
+			replacement: "      - name: Go tests\n" +
+				"        continue-on-error: ${{ matrix.allow_failure }}\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step must not continue on error",
+		},
+		{
+			name: "quoted continue on error false",
+			replacement: "      - name: Go tests\n" +
+				"        continue-on-error: \"false\"\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step must not continue on error",
+		},
+		{
+			name: "unsafe custom shell",
+			replacement: "      - name: Go tests\n" +
+				"        shell: bash {0}\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step shell must provide supported bash errexit semantics",
+		},
+		{
+			name: "shell expression",
+			replacement: "      - name: Go tests\n" +
+				"        shell: ${{ matrix.shell }}\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step shell must provide supported bash errexit semantics",
+		},
+		{
+			name: "non scalar shell",
+			replacement: "      - name: Go tests\n" +
+				"        shell: [bash]\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step shell must provide supported bash errexit semantics",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeWorkflow(t, strings.Replace(workflow, original, tc.replacement, 1))
+			assertFailureContains(t, validateWorkflow(path), tc.failure)
+		})
+	}
+}
+
+func TestValidateWorkflowRejectsJobAndDefaultShellBypasses(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	for _, tc := range []struct {
+		name        string
+		original    string
+		replacement string
+		failure     string
+	}{
+		{
+			name:        "workflow defaults shell",
+			original:    "jobs:",
+			replacement: "defaults:\n  run:\n    shell: bash {0}\n\njobs:",
+			failure:     "workflow defaults.run.shell must provide supported bash errexit semantics",
+		},
+		{
+			name:     "job defaults shell",
+			original: "    timeout-minutes: 45",
+			replacement: "    timeout-minutes: 45\n" +
+				"    defaults:\n" +
+				"      run:\n" +
+				"        shell: bash {0}\n",
+			failure: "workflow job mysql57-amd64 defaults.run.shell must provide supported bash errexit semantics",
+		},
+		{
+			name:     "job false condition",
+			original: "    timeout-minutes: 45",
+			replacement: "    timeout-minutes: 45\n" +
+				"    if: false\n",
+			failure: "workflow job mysql57-amd64 must be unconditional",
+		},
+		{
+			name:     "job continue on error expression",
+			original: "    timeout-minutes: 45",
+			replacement: "    timeout-minutes: 45\n" +
+				"    continue-on-error: ${{ matrix.allow_failure }}\n",
+			failure: "workflow job mysql57-amd64 must not continue on error",
+		},
+		{
+			name:        "unsupported runner",
+			original:    "    runs-on: ubuntu-22.04",
+			replacement: "    runs-on: windows-latest",
+			failure:     "workflow job mysql57-amd64 must use supported runner ubuntu-22.04",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(workflow, tc.original) {
+				t.Fatalf("workflow fixture no longer contains %q", tc.original)
+			}
+			path := writeWorkflow(t, strings.Replace(workflow, tc.original, tc.replacement, 1))
+			assertFailureContains(t, validateWorkflow(path), tc.failure)
+		})
+	}
+}
+
+func TestValidateWorkflowRejectsInheritedExecutionContextBypasses(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	for _, tc := range []struct {
+		name    string
+		mutate  func(*testing.T, string) string
+		failure string
+	}{
+		{
+			name: "workflow default working directory",
+			mutate: func(t *testing.T, workflow string) string {
+				return replaceWorkflowFixture(
+					t,
+					workflow,
+					"jobs:",
+					"defaults:\n  run:\n    working-directory: nested\n\njobs:",
+				)
+			},
+			failure: "workflow defaults.run.working-directory must stay at repository root",
+		},
+		{
+			name: "job default working directory",
+			mutate: func(t *testing.T, workflow string) string {
+				return replaceWorkflowFixture(
+					t,
+					workflow,
+					"    timeout-minutes: 45",
+					"    timeout-minutes: 45\n"+
+						"    defaults:\n"+
+						"      run:\n"+
+						"        working-directory: nested\n",
+				)
+			},
+			failure: "workflow job mysql57-amd64 defaults.run.working-directory must stay at repository root",
+		},
+		{
+			name: "step working directory expression",
+			mutate: func(t *testing.T, workflow string) string {
+				return replaceWorkflowFixture(
+					t,
+					workflow,
+					"      - name: Go tests\n        run: go test ./...\n",
+					"      - name: Go tests\n"+
+						"        working-directory: ${{ matrix.directory }}\n"+
+						"        run: go test ./...\n",
+				)
+			},
+			failure: "Go tests step working-directory must stay at repository root",
+		},
+		{
+			name: "job container",
+			mutate: func(t *testing.T, workflow string) string {
+				return replaceWorkflowFixture(
+					t,
+					workflow,
+					"    timeout-minutes: 45",
+					"    timeout-minutes: 45\n"+
+						"    container: ubuntu:24.04\n",
+				)
+			},
+			failure: "workflow job mysql57-amd64 must not use a container",
+		},
+		{
+			name: "skipped prerequisite",
+			mutate: func(t *testing.T, workflow string) string {
+				workflow = replaceWorkflowFixture(
+					t,
+					workflow,
+					"jobs:",
+					"jobs:\n"+
+						"  skipped-prerequisite:\n"+
+						"    runs-on: ubuntu-22.04\n"+
+						"    if: false\n"+
+						"    steps:\n"+
+						"      - run: true\n",
+				)
+				return replaceWorkflowFixture(
+					t,
+					workflow,
+					"    timeout-minutes: 45",
+					"    timeout-minutes: 45\n"+
+						"    needs: skipped-prerequisite\n",
+				)
+			},
+			failure: "workflow job mysql57-amd64 must not depend on prerequisite jobs",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeWorkflow(t, tc.mutate(t, workflow))
+			assertFailureContains(t, validateWorkflow(path), tc.failure)
+		})
+	}
+}
+
+func TestValidateWorkflowRejectsEnvironmentOverrides(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	for _, tc := range []struct {
+		name        string
+		original    string
+		replacement string
+		failure     string
+	}{
+		{
+			name:        "workflow GOFLAGS",
+			original:    "jobs:",
+			replacement: "env:\n  GOFLAGS: -run=^$\n\njobs:",
+			failure:     "workflow must not set environment overrides",
+		},
+		{
+			name:     "job PATH",
+			original: "    timeout-minutes: 45",
+			replacement: "    timeout-minutes: 45\n" +
+				"    env:\n" +
+				"      PATH: ./fake-bin\n",
+			failure: "workflow job mysql57-amd64 must not set environment overrides",
+		},
+		{
+			name: "Go tests GOFLAGS",
+			original: "      - name: Go tests\n" +
+				"        run: go test ./...\n",
+			replacement: "      - name: Go tests\n" +
+				"        env:\n" +
+				"          GOFLAGS: -run=^$\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step environment must exactly match the required allowlist",
+		},
+		{
+			name: "Go tests BASH_ENV expression",
+			original: "      - name: Go tests\n" +
+				"        run: go test ./...\n",
+			replacement: "      - name: Go tests\n" +
+				"        env:\n" +
+				"          BASH_ENV: ${{ matrix.bootstrap }}\n" +
+				"        run: go test ./...\n",
+			failure: "Go tests step environment must exactly match the required allowlist",
+		},
+		{
+			name: "lifecycle extra environment",
+			original: "        env:\n" +
+				"          MOCHAT_STACK_PROJECT: mochat-go-schema-migrate-ci\n" +
+				"          MOCHAT_MYSQL_PORT: \"13331\"\n",
+			replacement: "        env:\n" +
+				"          MOCHAT_STACK_PROJECT: mochat-go-schema-migrate-ci\n" +
+				"          MOCHAT_MYSQL_PORT: \"13331\"\n" +
+				"          BASH_ENV: ./disable-errexit.sh\n",
+			failure: "Migration 0098 lifecycle gate step environment must exactly match the required allowlist",
+		},
+		{
+			name: "integration extra environment",
+			original: "          MOCHAT_REQUIRE_MYSQL_INTEGRATION: \"1\"\n" +
+				"        run: |\n",
+			replacement: "          MOCHAT_REQUIRE_MYSQL_INTEGRATION: \"1\"\n" +
+				"          GOFLAGS: -run=^$\n" +
+				"        run: |\n",
+			failure: "SCRM MySQL integration gate step environment must exactly match the required allowlist",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeWorkflow(
+				t,
+				replaceWorkflowFixture(t, workflow, tc.original, tc.replacement),
+			)
+			assertFailureContains(t, validateWorkflow(path), tc.failure)
+		})
+	}
+}
+
+func TestValidateWorkflowAllowsExplicitSafeExecutionControls(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	workflow = strings.Replace(
+		workflow,
+		"jobs:",
+		"defaults:\n"+
+			"  run:\n"+
+			"    shell: bash\n"+
+			"    working-directory: .\n\n"+
+			"jobs:",
+		1,
+	)
+	workflow = strings.Replace(
+		workflow,
+		"    timeout-minutes: 45",
+		"    timeout-minutes: 45\n"+
+			"    if: true\n"+
+			"    continue-on-error: false\n"+
+			"    defaults:\n"+
+			"      run:\n"+
+			"        shell: bash\n"+
+			"        working-directory: .\n",
+		1,
+	)
+	workflow = strings.Replace(
+		workflow,
+		"      - name: Go tests\n        run: go test ./...\n",
+		"      - name: Go tests\n"+
+			"        if: true\n"+
+			"        continue-on-error: false\n"+
+			"        shell: bash\n"+
+			"        working-directory: .\n"+
+			"        run: go test ./...\n",
+		1,
+	)
+
+	path := writeWorkflow(t, workflow)
+	if failures := validateWorkflow(path); len(failures) != 0 {
+		t.Fatalf("explicit safe execution controls failed validation: %v", failures)
+	}
+}
+
 func TestValidateWorkflowRejectsLifecycleCommandInDeadBranch(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
 	const original = "        run: bash ./scripts/smoke_schema_migrate.sh\n"
@@ -489,6 +835,14 @@ func writeWorkflow(t *testing.T, contents string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func replaceWorkflowFixture(t *testing.T, workflow, original, replacement string) string {
+	t.Helper()
+	if !strings.Contains(workflow, original) {
+		t.Fatalf("workflow fixture no longer contains %q", original)
+	}
+	return strings.Replace(workflow, original, replacement, 1)
 }
 
 func assertFailureContains(t *testing.T, failures []string, want string) {
