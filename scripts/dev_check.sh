@@ -3,7 +3,7 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 COMMAND="${1:-quick}"
-GO_IMAGE="${MOCHAT_GO_DEV_IMAGE:-golang:1.26-alpine}"
+GO_IMAGE="${MOCHAT_GO_DEV_IMAGE:-golang:1.26-bookworm}"
 IMAGE_TAG="${MOCHAT_GO_IMAGE_TAG:-mochat-go:phase0}"
 
 usage() {
@@ -47,11 +47,14 @@ case "$COMMAND" in
     require_docker
     run_go '
       set -eu
+      go run ./cmd/mochat-architecture -root .
+      go test ./internal/app/modules/... ./internal/modules/...
+      go test -race ./internal/modules/...
+      go test ./...
+      go vet ./...
       sh scripts/audit_architecture_boundaries.sh
       sh scripts/test_audit_architecture_boundaries.sh
       sh scripts/test_dev_check.sh
-      go test ./...
-      go vet ./...
       go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance
     '
     ;;

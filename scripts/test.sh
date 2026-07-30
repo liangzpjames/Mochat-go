@@ -5,6 +5,12 @@ set -eu
 # is not forced, so tests intentionally clear it.
 unset GOROOT
 
+go run ./cmd/mochat-architecture -root .
+go test ./internal/app/modules/... ./internal/modules/...
+go test -race ./internal/modules/...
+go test ./...
+go vet ./...
+
 ./scripts/audit_standalone_independence.sh
 ./scripts/audit_architecture_boundaries.sh
 ./scripts/test_audit_architecture_boundaries.sh
@@ -20,6 +26,4 @@ unset GOROOT
 ./scripts/audit_saas_storage_reclaim_coverage.sh
 ./scripts/smoke_production_evidence_gate.sh
 ./scripts/frontend_check.sh quick
-go test ./...
-go vet ./...
 go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance
