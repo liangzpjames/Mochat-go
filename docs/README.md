@@ -8,6 +8,9 @@
 - [Phase 0：Go 工程底座](phases/phase-0-go-foundation/README.md)
 - [Phase 1：前端统一底座](phases/phase-1-frontend-foundation/README.md)
 - [Phase 2：前端逐页迁移](phases/phase-2-frontend-migration/README.md)
+- [Phase 2.1：功能前端迁移](phases/phase-2.1-functional-frontend-migration/README.md)
+- [Phase 2.2：后端模块化与质量门禁](phases/phase-2.2-backend-quality-gates/README.md)
+- [Phase 3：圆弧 AI 功能对标准备](phases/phase-3-yuanhu-benchmark/README.md)
 
 ## 其他资料
 
