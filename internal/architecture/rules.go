@@ -135,10 +135,15 @@ func hasWildcard(path string) bool {
 }
 
 func normalizePath(path string) string {
+	return normalizePortablePath(path)
+}
+
+func normalizePortablePath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""
 	}
+	path = strings.ReplaceAll(path, "\\", "/")
 	path = filepath.ToSlash(filepath.Clean(path))
 	return strings.TrimPrefix(path, "./")
 }

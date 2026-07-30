@@ -64,6 +64,18 @@ func TestLoadPolicyNormalizesPaths(t *testing.T) {
 	}
 }
 
+func TestNormalizePathTreatsWindowsSeparatorsAsSlashes(t *testing.T) {
+	if got, want := normalizePath(`internal\dashboard\page.go`), "internal/dashboard/page.go"; got != want {
+		t.Fatalf("normalized path = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizePortablePathTreatsWindowsSeparatorsAsSlashes(t *testing.T) {
+	if got, want := normalizePortablePath(`internal\dashboard\page.go`), "internal/dashboard/page.go"; got != want {
+		t.Fatalf("normalized path = %q, want %q", got, want)
+	}
+}
+
 func TestLoadPolicyRejectsBlankPaths(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policy.json")
 	contents := []byte(`{
