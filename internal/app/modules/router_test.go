@@ -72,6 +72,23 @@ func TestRouterRejectsInvalidRoute(t *testing.T) {
 	}
 }
 
+func TestRouterRejectsTypedNilHandlers(t *testing.T) {
+	var (
+		pointerHandler *typedNilHandler
+		function       http.HandlerFunc
+	)
+	for name, handler := range map[string]http.Handler{
+		"pointer":      pointerHandler,
+		"handler func": function,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := NewRouter().Handle(http.MethodGet, "/api/example", handler); err == nil {
+				t.Fatal("typed-nil handler was accepted")
+			}
+		})
+	}
+}
+
 func TestRouterAllowsConcurrentReadsAfterRegistration(t *testing.T) {
 	router := NewRouter()
 	if err := router.Handle(http.MethodGet, "/api/example", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})); err != nil {
@@ -88,6 +105,12 @@ func TestRouterAllowsConcurrentReadsAfterRegistration(t *testing.T) {
 		})
 	}
 	group.Wait()
+}
+
+type typedNilHandler struct{}
+
+func (*typedNilHandler) ServeHTTP(http.ResponseWriter, *http.Request) {
+	panic("typed-nil handler must never be dispatched")
 }
 
 func TestRouterServeHTTPReturnsJSONNotFoundForUnmatchedRoute(t *testing.T) {

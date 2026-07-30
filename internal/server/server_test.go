@@ -75,6 +75,48 @@ func TestUnmatchedModuleRouteKeepsLegacyHealthRoute(t *testing.T) {
 	}
 }
 
+func TestWithModuleRouterRejectsTypedNilRouter(t *testing.T) {
+	var router *fixedModuleRouter
+	server, err := New(config.Config{}, WithModuleRouter(router))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.moduleRouter != nil {
+		t.Fatal("typed-nil module router was retained")
+	}
+}
+
+func TestModuleRouterTypedNilHandlerFallsBackSafely(t *testing.T) {
+	var handler *panicHandler
+	server, err := New(config.Config{}, WithModuleRouter(&fixedModuleRouter{
+		handler: handler,
+		matched: true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
+type fixedModuleRouter struct {
+	handler http.Handler
+	matched bool
+}
+
+func (r *fixedModuleRouter) Match(*http.Request) (http.Handler, bool) {
+	return r.handler, r.matched
+}
+
+type panicHandler struct{}
+
+func (*panicHandler) ServeHTTP(http.ResponseWriter, *http.Request) {
+	panic("typed-nil handler must never be dispatched")
+}
+
 func TestUnknownRouteFallsBackToPHP(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/dashboard/user/loginShow" {

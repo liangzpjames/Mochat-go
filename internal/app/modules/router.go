@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"jiyi/mochat-go/internal/nilcheck"
 )
 
 var ErrDuplicateRoute = errors.New("duplicate route")
@@ -36,7 +38,7 @@ func (r *Router) Handle(method, pattern string, handler http.Handler) error {
 	if pattern == "" || !strings.HasPrefix(pattern, "/") || strings.Contains(pattern, "?") {
 		return errors.New("route pattern must be an absolute path without a query string")
 	}
-	if handler == nil {
+	if nilcheck.IsNil(handler) {
 		return errors.New("route handler is required")
 	}
 

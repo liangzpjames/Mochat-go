@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/config"
+	"jiyi/mochat-go/internal/nilcheck"
 	"jiyi/mochat-go/internal/taskrunner"
 )
 
@@ -644,6 +645,10 @@ type Option func(*Server)
 
 func WithModuleRouter(router ModuleRouter) Option {
 	return func(server *Server) {
+		if nilcheck.IsNil(router) {
+			server.moduleRouter = nil
+			return
+		}
 		server.moduleRouter = router
 	}
 }
@@ -3998,10 +4003,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.ServeHTTP(w, normalized)
 		return
 	}
-	if s.moduleRouter != nil {
+	if !nilcheck.IsNil(s.moduleRouter) {
 		if handler, ok := s.moduleRouter.Match(r); ok {
-			handler.ServeHTTP(w, r)
-			return
+			if !nilcheck.IsNil(handler) {
+				handler.ServeHTTP(w, r)
+				return
+			}
 		}
 	}
 
