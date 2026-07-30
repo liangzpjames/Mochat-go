@@ -13,10 +13,8 @@ import (
 	"testing"
 	"time"
 
-	appmodules "jiyi/mochat-go/internal/app/modules"
 	"jiyi/mochat-go/internal/modules/scrm/application"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
-	"jiyi/mochat-go/internal/modules/scrm/ports"
 )
 
 func TestCreateLeadReturnsCreatedAndUsesPrincipalTenant(t *testing.T) {
@@ -203,7 +201,7 @@ func TestListLeadsUsesPrincipalTenantAndReturnsOnlyServiceResults(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &fakeLeadService{listPage: ports.LeadPage{
+	service := &fakeLeadService{listPage: application.LeadPage{
 		Items:      []domain.Lead{included},
 		NextCursor: "next-41",
 	}}
@@ -308,22 +306,34 @@ func TestListLeadsMapsMalformedRepositoryCursorToBadRequest(t *testing.T) {
 }
 
 func TestRegisterRoutesRegistersOnlyPostAndGetForLeads(t *testing.T) {
-	router := appmodules.NewRouter()
+	router := &recordingRegistrar{}
 	handler := NewLeadHandler(&fakeLeadService{}, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
 	if err := RegisterRoutes(router, handler); err != nil {
 		t.Fatal(err)
 	}
 
 	for _, method := range []string{nethttp.MethodPost, nethttp.MethodGet} {
-		if _, ok := router.Match(httptest.NewRequest(method, LeadsPath, nil)); !ok {
+		if _, ok := router.routes[method+" "+LeadsPath]; !ok {
 			t.Fatalf("%s route was not registered", method)
 		}
 	}
 	for _, method := range []string{nethttp.MethodPut, nethttp.MethodPatch, nethttp.MethodDelete} {
-		if _, ok := router.Match(httptest.NewRequest(method, LeadsPath, nil)); ok {
+		if _, ok := router.routes[method+" "+LeadsPath]; ok {
 			t.Fatalf("%s route must not be registered", method)
 		}
 	}
+}
+
+type recordingRegistrar struct {
+	routes map[string]nethttp.Handler
+}
+
+func (r *recordingRegistrar) Handle(method, pattern string, handler nethttp.Handler) error {
+	if r.routes == nil {
+		r.routes = make(map[string]nethttp.Handler)
+	}
+	r.routes[method+" "+pattern] = handler
+	return nil
 }
 
 type leadJSON struct {

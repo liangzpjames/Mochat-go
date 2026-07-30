@@ -1,5 +1,6 @@
 {
   "productionModules": ["scrm"],
+  "exampleModules": ["example"],
   "protectedFiles": [
     {"path": "internal\\dashboard\\page.go", "maxBytes": 1}
   ],

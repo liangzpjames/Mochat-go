@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -43,6 +44,11 @@ func Audit(root string, policy Policy, now time.Time) ([]Violation, error) {
 			if !os.IsNotExist(err) {
 				return nil, err
 			}
+			findings = append(findings, finding{Violation: Violation{
+				RuleID: RuleProtectedFileMissing,
+				Path:   limit.Path,
+				Detail: "protected file is missing",
+			}})
 			continue
 		}
 		size := int64(len(bytes.ReplaceAll(contents, []byte("\r\n"), []byte("\n"))))
@@ -55,8 +61,14 @@ func Audit(root string, policy Policy, now time.Time) ([]Violation, error) {
 		}
 	}
 
+	moduleFindings, err := reconcileModules(root, policy)
+	if err != nil {
+		return nil, err
+	}
+	findings = append(findings, moduleFindings...)
+
 	auditRootIncludesTestdata := pathContainsSegment(root, "testdata")
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -169,6 +181,8 @@ func dependencyFindings(path, currentModule string, currentLayer layer, imported
 		add(RuleAdaptersDependency)
 	case layerTransport:
 		add(RuleTransportDependency)
+	case layerModule:
+		add(RuleModuleDependency)
 	}
 	return findings
 }
@@ -177,20 +191,144 @@ func forbiddenByLayer(currentLayer layer, currentModule, imported, importedModul
 	if isLegacyImport(imported) {
 		return false
 	}
+	return !allowedByLayer(currentLayer, currentModule, imported, importedModule, importedLayer)
+}
+
+func allowedByLayer(currentLayer layer, currentModule, imported, importedModule string, importedLayer layer) bool {
+	if isStandardLibrary(imported) {
+		return standardLibraryAllowed(currentLayer, imported)
+	}
+
+	if importedModule != "" {
+		if importedModule != currentModule {
+			return false
+		}
+		switch currentLayer {
+		case layerDomain:
+			return importedLayer == layerDomain
+		case layerPorts:
+			return importedLayer == layerDomain
+		case layerApplication:
+			return importedLayer == layerDomain || importedLayer == layerPorts
+		case layerAdapters:
+			return importedLayer == layerDomain || importedLayer == layerPorts
+		case layerTransport:
+			return importedLayer == layerApplication || importedLayer == layerDomain
+		case layerModule:
+			return true
+		default:
+			return false
+		}
+	}
+
+	if sharedContractAllowed(currentLayer, imported) {
+		return true
+	}
+	if strings.HasPrefix(imported, "jiyi/mochat-go/") || imported == "jiyi/mochat-go" {
+		return false
+	}
+
+	// Only adapters bind third-party implementations. Inward-facing layers and
+	// composition modules stay restricted to standard, owned, and named contracts.
+	return currentLayer == layerAdapters
+}
+
+func standardLibraryAllowed(currentLayer layer, imported string) bool {
 	switch currentLayer {
 	case layerDomain:
-		return imported == "database/sql" || imported == "net/http" || importedLayer == layerApplication || importedLayer == layerAdapters || importedLayer == layerTransport
+		return imported != "database/sql" && imported != "net/http"
 	case layerPorts:
-		return imported == "database/sql" || imported == "net/http" || importedLayer == layerApplication || importedLayer == layerAdapters || importedLayer == layerTransport
+		return imported != "database/sql" && imported != "net/http"
 	case layerApplication:
-		return imported == "database/sql" || imported == "net/http" || importedLayer == layerAdapters || importedLayer == layerTransport
-	case layerAdapters:
-		return importedLayer == layerTransport
+		return imported != "database/sql" && imported != "net/http"
 	case layerTransport:
-		return imported == "database/sql" || importedLayer == layerAdapters
+		return imported != "database/sql"
+	case layerAdapters, layerModule:
+		return true
 	default:
 		return false
 	}
+}
+
+func isStandardLibrary(imported string) bool {
+	if imported == "C" {
+		return true
+	}
+	pkg, err := build.Default.Import(imported, "", build.FindOnly)
+	return err == nil && pkg.Goroot
+}
+
+func sharedContractAllowed(currentLayer layer, imported string) bool {
+	var allowed []string
+	switch currentLayer {
+	case layerAdapters:
+		allowed = []string{
+			"jiyi/mochat-go/internal/mysqlconn",
+			"jiyi/mochat-go/internal/outboundhttp",
+		}
+	case layerTransport:
+		allowed = []string{
+			"jiyi/mochat-go/internal/session",
+		}
+	case layerModule:
+		allowed = []string{
+			"jiyi/mochat-go/internal/app/modules",
+		}
+	}
+	for _, packagePath := range allowed {
+		if imported == packagePath || strings.HasPrefix(imported, packagePath+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func reconcileModules(root string, policy Policy) ([]finding, error) {
+	moduleRoot := filepath.Join(root, "internal", "modules")
+	entries, err := os.ReadDir(moduleRoot)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	actual := make(map[string]struct{})
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				actual[entry.Name()] = struct{}{}
+			}
+		}
+	}
+
+	registered := make(map[string]string, len(policy.ProductionModules)+len(policy.ExampleModules))
+	for _, module := range policy.ProductionModules {
+		registered[module] = "production"
+	}
+	for _, module := range policy.ExampleModules {
+		registered[module] = "example"
+	}
+
+	findings := make([]finding, 0)
+	for module := range actual {
+		if _, exists := registered[module]; exists {
+			continue
+		}
+		findings = append(findings, finding{Violation: Violation{
+			RuleID: RuleModuleRegistration,
+			Path:   "internal/modules/" + module,
+			Detail: "module directory is not registered as production or example",
+		}})
+	}
+	for module, kind := range registered {
+		if _, exists := actual[module]; exists {
+			continue
+		}
+		findings = append(findings, finding{Violation: Violation{
+			RuleID: RuleModuleRegistration,
+			Path:   "internal/modules/" + module,
+			Detail: kind + " module declared in policy is missing",
+		}})
+	}
+	return findings, nil
 }
 
 func classify(path string) (string, layer) {

@@ -16,10 +16,13 @@ const (
 	RuleApplicationDependency = "ARCH-APPLICATION-DEPENDENCY"
 	RuleAdaptersDependency    = "ARCH-ADAPTERS-DEPENDENCY"
 	RuleTransportDependency   = "ARCH-TRANSPORT-DEPENDENCY"
+	RuleModuleDependency      = "ARCH-MODULE-DEPENDENCY"
 	RuleLegacyDependency      = "ARCH-LEGACY-DEPENDENCY"
 	RuleCrossModulePrivate    = "ARCH-CROSS-MODULE-PRIVATE"
 	RuleForbiddenLegacyFile   = "ARCH-FORBIDDEN-LEGACY-FILE"
 	RuleProtectedFileSize     = "ARCH-PROTECTED-FILE-SIZE"
+	RuleProtectedFileMissing  = "ARCH-PROTECTED-FILE-MISSING"
+	RuleModuleRegistration    = "ARCH-MODULE-REGISTRATION"
 	RuleExceptionExpired      = "ARCH-EXCEPTION-EXPIRED"
 )
 
@@ -39,6 +42,7 @@ type SizeLimit struct {
 // Policy describes repository architecture constraints.
 type Policy struct {
 	ProductionModules []string    `json:"productionModules"`
+	ExampleModules    []string    `json:"exampleModules"`
 	ProtectedFiles    []SizeLimit `json:"protectedFiles"`
 	ForbiddenNewFiles []string    `json:"forbiddenNewFiles"`
 	Exceptions        []Exception `json:"exceptions"`
@@ -96,12 +100,12 @@ func (e Exception) Valid() bool {
 }
 
 func (p *Policy) normalizeAndValidate() error {
-	for index, module := range p.ProductionModules {
-		module = strings.TrimSpace(module)
-		if module == "" || strings.ContainsAny(module, `/\\`) {
-			return fmt.Errorf("productionModules[%d] is invalid", index)
-		}
-		p.ProductionModules[index] = module
+	registeredModules := make(map[string]string, len(p.ProductionModules)+len(p.ExampleModules))
+	if err := normalizeModuleList("productionModules", p.ProductionModules, registeredModules); err != nil {
+		return err
+	}
+	if err := normalizeModuleList("exampleModules", p.ExampleModules, registeredModules); err != nil {
+		return err
 	}
 	for index := range p.ProtectedFiles {
 		limit := &p.ProtectedFiles[index]
@@ -126,6 +130,21 @@ func (p *Policy) normalizeAndValidate() error {
 		if !exception.Valid() {
 			return fmt.Errorf("exceptions[%d] is invalid", index)
 		}
+	}
+	return nil
+}
+
+func normalizeModuleList(label string, modules []string, registered map[string]string) error {
+	for index, module := range modules {
+		module = strings.TrimSpace(module)
+		if module == "" || strings.ContainsAny(module, `/\\`) {
+			return fmt.Errorf("%s[%d] is invalid", label, index)
+		}
+		if previous, exists := registered[module]; exists {
+			return fmt.Errorf("%s[%d] duplicates module %q already registered in %s", label, index, module, previous)
+		}
+		registered[module] = label
+		modules[index] = module
 	}
 	return nil
 }

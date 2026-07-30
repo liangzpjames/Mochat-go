@@ -18,6 +18,12 @@ func TestAuditRejectsInvalidDependencies(t *testing.T) {
 		{"module imports dashboard", "testdata/module-imports-dashboard", "ARCH-LEGACY-DEPENDENCY"},
 		{"module imports another adapter", "testdata/cross-module-adapter", "ARCH-CROSS-MODULE-PRIVATE"},
 		{"legacy SCRM file", "testdata/legacy-scrm", "ARCH-FORBIDDEN-LEGACY-FILE"},
+		{"domain imports own ports", "testdata/domain-imports-own-ports", "ARCH-DOMAIN-DEPENDENCY"},
+		{"domain imports internal infrastructure", "testdata/domain-imports-authjwt", "ARCH-DOMAIN-DEPENDENCY"},
+		{"application imports internal infrastructure", "testdata/application-imports-mysqlconn", "ARCH-APPLICATION-DEPENDENCY"},
+		{"application imports another module domain and ports", "testdata/application-imports-other-module", "ARCH-APPLICATION-DEPENDENCY"},
+		{"domain imports third party", "testdata/domain-imports-third-party", "ARCH-DOMAIN-DEPENDENCY"},
+		{"domain imports dotless third party", "testdata/domain-imports-dotless-third-party", "ARCH-DOMAIN-DEPENDENCY"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -30,6 +36,30 @@ func TestAuditRejectsInvalidDependencies(t *testing.T) {
 				t.Fatalf("violations = %#v, want %s", violations, tc.ruleID)
 			}
 		})
+	}
+}
+
+func TestAuditAllowsOnlyExactPublicContractException(t *testing.T) {
+	policy := testPolicy()
+	policy.Exceptions = []Exception{{
+		RuleID:    RuleApplicationDependency,
+		Path:      "internal/modules/alpha/application/bad.go",
+		Import:    "jiyi/mochat-go/internal/modules/beta/domain",
+		Reason:    "temporary versioned public contract",
+		Owner:     "backend",
+		CreatedOn: "2026-07-30",
+		ExpiresOn: "2026-08-15",
+		Cleanup:   "replace with an alpha-owned port",
+	}}
+	violations, err := Audit("testdata/application-imports-other-module", policy, time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsImportViolation(violations, RuleApplicationDependency, "jiyi/mochat-go/internal/modules/beta/domain") {
+		t.Fatalf("exact public-contract exception was not applied: %#v", violations)
+	}
+	if !containsImportViolation(violations, RuleApplicationDependency, "jiyi/mochat-go/internal/modules/beta/ports") {
+		t.Fatalf("exception leaked beyond its exact import: %#v", violations)
 	}
 }
 
@@ -51,6 +81,83 @@ func TestAuditRejectsExpiredException(t *testing.T) {
 	}
 	if !containsRule(violations, "ARCH-EXCEPTION-EXPIRED") {
 		t.Fatalf("violations = %#v", violations)
+	}
+}
+
+func TestAuditRejectsMissingProtectedFile(t *testing.T) {
+	const protectedPath = "internal/dashboard/page.go"
+	violations, err := Audit(t.TempDir(), Policy{
+		ProtectedFiles: []SizeLimit{{Path: protectedPath, MaxBytes: 1}},
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertViolation(t, violations, RuleProtectedFileMissing, protectedPath, "protected file is missing")
+}
+
+func TestAuditReconcilesModuleDirectoriesWithPolicy(t *testing.T) {
+	const root = "testdata/module-registration"
+	t.Run("unregistered directory", func(t *testing.T) {
+		violations, err := Audit(root, Policy{
+			ProductionModules: []string{"registered"},
+		}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertViolation(
+			t,
+			violations,
+			RuleModuleRegistration,
+			"internal/modules/unregistered",
+			"module directory is not registered as production or example",
+		)
+	})
+
+	t.Run("declared production directory missing", func(t *testing.T) {
+		violations, err := Audit(root, Policy{
+			ProductionModules: []string{"registered", "missing"},
+			ExampleModules:    []string{"unregistered"},
+		}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertViolation(
+			t,
+			violations,
+			RuleModuleRegistration,
+			"internal/modules/missing",
+			"production module declared in policy is missing",
+		)
+	})
+
+	t.Run("explicit example directory", func(t *testing.T) {
+		violations, err := Audit(root, Policy{
+			ProductionModules: []string{"registered"},
+			ExampleModules:    []string{"unregistered"},
+		}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if containsRule(violations, RuleModuleRegistration) {
+			t.Fatalf("violations = %#v", violations)
+		}
+	})
+}
+
+func TestLoadPolicyRejectsModuleRegisteredTwice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.json")
+	contents := []byte(`{
+  "productionModules": ["scrm"],
+  "exampleModules": ["scrm"],
+  "protectedFiles": [],
+  "forbiddenNewFiles": [],
+  "exceptions": []
+}`)
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadPolicy(path); err == nil {
+		t.Fatal("LoadPolicy accepted a module classified as both production and example")
 	}
 }
 
@@ -186,4 +293,24 @@ func containsRule(violations []Violation, ruleID string) bool {
 		}
 	}
 	return false
+}
+
+func containsImportViolation(violations []Violation, ruleID, imported string) bool {
+	want := `imports "` + imported + `"`
+	for _, violation := range violations {
+		if violation.RuleID == ruleID && violation.Detail == want {
+			return true
+		}
+	}
+	return false
+}
+
+func assertViolation(t *testing.T, violations []Violation, ruleID, path, detail string) {
+	t.Helper()
+	for _, violation := range violations {
+		if violation.RuleID == ruleID && violation.Path == path && violation.Detail == detail {
+			return
+		}
+	}
+	t.Fatalf("violations = %#v, want %s %s %q", violations, ruleID, path, detail)
 }

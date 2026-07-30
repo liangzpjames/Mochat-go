@@ -1,5 +1,6 @@
 {
   "productionModules": ["scrm"],
+  "exampleModules": ["example"],
   "protectedFiles": [
     {"path": "internal/dashboard/saas_admin_page.go", "maxBytes": 860906},
     {"path": "internal/dashboard/saas_admin.go", "maxBytes": 696324},
