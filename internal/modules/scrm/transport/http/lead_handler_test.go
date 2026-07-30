@@ -229,6 +229,31 @@ func TestListLeadsRejectsMalformedCursorAndPageSize(t *testing.T) {
 	}
 }
 
+func TestListLeadsRejectsMalformedRawQueryBeforeCallingService(t *testing.T) {
+	for _, rawQuery := range []string{
+		"cursor=%ZZ",
+		"cursor=valid;pageSize=3",
+		"pageSize=%ZZ",
+	} {
+		t.Run(rawQuery, func(t *testing.T) {
+			service := &fakeLeadService{}
+			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+			request := httptest.NewRequest(nethttp.MethodGet, LeadsPath, nil)
+			request.URL.RawQuery = rawQuery
+			response := httptest.NewRecorder()
+
+			handler.List(response, request)
+
+			if response.Code != nethttp.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body)
+			}
+			if service.listCalls != 0 {
+				t.Fatalf("service list calls = %d, want 0", service.listCalls)
+			}
+		})
+	}
+}
+
 func TestListLeadsMapsRepositoryUnavailable(t *testing.T) {
 	service := &fakeLeadService{listErr: application.ErrUnavailable}
 	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})

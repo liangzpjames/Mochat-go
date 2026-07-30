@@ -66,6 +66,15 @@ base64, invalid JSON, and missing cursor fields.
    was undefined.
 8. Cursor GREEN:
    adapter, application, and transport packages passed after sentinel mapping.
+9. Raw-query RED:
+   `go test ./internal/modules/scrm/transport/http -run TestListLeadsRejectsMalformedRawQueryBeforeCallingService -count=1`
+   proved that `%ZZ`, an unescaped semicolon, and malformed `pageSize` were
+   silently discarded by `r.URL.Query()`; all three cases incorrectly returned
+   `200` and reached the service.
+10. Raw-query GREEN:
+    the focused transport tests passed after explicitly parsing
+    `r.URL.RawQuery` with `url.ParseQuery` and returning `400` on any parse error
+    before calling the service.
 
 ## Review
 

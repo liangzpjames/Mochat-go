@@ -76,7 +76,12 @@ func (h *LeadHandler) List(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 
-	query, err := parseListQuery(r.URL.Query(), principal.TenantID)
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeError(w, nethttp.StatusBadRequest, "invalid list query")
+		return
+	}
+	query, err := parseListQuery(values, principal.TenantID)
 	if err != nil {
 		writeError(w, nethttp.StatusBadRequest, "invalid list query")
 		return
