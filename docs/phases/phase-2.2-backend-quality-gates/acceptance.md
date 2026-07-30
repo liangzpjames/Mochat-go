@@ -5,10 +5,10 @@
 - 验收日期：2026-07-30
 - 分支：`phase2.2-backend-quality-gates`
 - 修复基线：`45cc401cdecd9477593bec9444461c901cd42af1`
-- 被验证源码提交：`10642c3693d82a68e28156f694f4ab84f167aa31`
-- 被验证 Git tree：`24795225a1920a764856a32034da4e615cd48abb`
-- 原始 Git archive SHA-256：`d30137a94d22752fe7db011af9c9678adae4b84a6ca0565ee7f03cf0aaa6cc30`
-- 原始 Git archive 大小：`41000960` bytes
+- 被验证源码提交：`a70302d8f6fb266c4b2b394d36a3650b8d117599`
+- 被验证 Git tree：`b9e2595c37be064085fb4820949f1eb2f953102f`
+- 原始 Git archive SHA-256：`7f657b64fe0c2dbb9ff6ea2e6923901418dc1ef0d3e0dba65ea7ee67fa61eb70`
+- 原始 Git archive 大小：`41011200` bytes
 - Phase 3 backend ready: **yes**
 
 最终审查及追加复审指出的 finding 均已通过 TDD 修复。架构规则、fail-closed 治理、CI 生命周期、执行路径感知的 Bash AST 门禁、Phase 3 真实数据库计划、typed-nil 防御，以及全量、race、真实 MySQL 5.7、migration lifecycle 都有重新执行的通过证据。
@@ -24,8 +24,9 @@
 | `39b79fc` | 禁止包族按路径边界覆盖子包；Bash AST 拒绝 echo/comment/printf/heredoc 惰性门禁文本。 |
 | `035a05d` | Bash AST 仅认可根层独立命令或安全 `&&` 串联；拒绝死分支、失败掩码和不可达 cleanup。 |
 | `10642c3` | 跟踪 errexit 与根层副作用；拒绝成功覆盖、前置终止及分号/compound 可达性旁路。 |
+| `a70302d` | 结构化约束 workflow 执行语义；拒绝条件跳过、容错、非 errexit shell、非根目录、容器、前置依赖和环境改写旁路。 |
 
-提交范围：`45cc401..10642c3`。
+提交范围：`45cc401..a70302d`。
 
 ## 架构门禁
 
@@ -54,6 +55,10 @@ PASS
 - workflow 明确包含并约束 architecture、race、full test、vet、migration lifecycle、strict integration 的相对顺序。
 - lifecycle step 使用隔离 compose project/port，并执行权威 `scripts/smoke_schema_migrate.sh`。
 - contract 使用 `go.yaml.in/yaml/v3` 真实解析 YAML，选择唯一的 `mysql57-amd64` job，拒绝重复 step name。
+- required job 必须在 `ubuntu-22.04` host 直接运行，不得使用 `needs`、job container、条件跳过、`continue-on-error` 或 job 环境覆盖。
+- workflow/job `defaults.run` 与 required step 的 shell 必须保留受支持的 Bash errexit 语义，working directory 必须留在仓库根；`bash {0}`、表达式、未知 YAML 类型和非根目录均 fail-closed。
+- required step 只接受缺省或字面量 `if: true`、缺省或字面量 `continue-on-error: false`；普通 Go gate 环境必须为空，lifecycle/integration 环境必须精确匹配现有 allowlist，`GOFLAGS`、`PATH`、`BASH_ENV` 等额外覆盖会失败。
+- `timeout-minutes` 与 `strategy.fail-fast` 只会使运行失败、取消或改变矩阵调度，不能把失败 gate 转为成功，因此不额外限制。
 - workflow、lifecycle 和开发脚本使用 `mvdan.cc/sh/v3` Bash AST 识别真实 executable statements、env/assignment 前缀、命令顺序和 cleanup 函数归属；必需命令仅可位于文件根层的独立调用或纯 `&&` 串联中。
 - `if false`、dead `case`、未调用函数、`|| true`、`! cmd`、`cmd; exit 0` 均不能充当门禁证据；cleanup 只认可唯一根层函数定义中的可达执行路径，嵌套未调用函数也会失败。
 - contract 跟踪 `set +e`/`set -e` 状态与根层语句副作用；`set +e; go test; exit 0`、前置 `exit`/`return`/`exec`、分号和 compound 成功终止都不能绕过 required command。
@@ -67,7 +72,7 @@ PASS
 
 ```text
 $ docker run --rm -v "${PWD}:/src" -w /src golang:1.26-bookworm \
-    sh ./scripts/test_backend_quality_gate_contract.sh
+    sh -c 'go run ./internal/qualitygate/cmd/backendqualitycontract .'
 backend quality gate workflow contract passed
 
 $ ruby YAML parser .github/workflows/mysql57-amd64.yml
@@ -83,7 +88,7 @@ $ ruby YAML parser .github/workflows/mysql57-amd64.yml
 
 ## 全量 Go 门禁
 
-以下命令在源码提交 `10642c3` 上重新执行，退出码均为 0：
+以下命令在源码提交 `a70302d` 上重新执行，退出码均为 0：
 
 ```text
 go test ./... -count=1
@@ -129,7 +134,7 @@ finally cleanup 执行 `docker compose down -v --remove-orphans`，容器、网�
 
 ## Migration apply/checksum/rollback/replay
 
-`10642c3` 仅修改 `internal/qualitygate` 及其测试；数据库、migration、compose 与 lifecycle 脚本均未变化。因此上述真实数据库与下列 lifecycle 权威执行证据继续绑定其最近一次精确执行源码 `035a05d`，而本轮新源码另有全量 test/vet/build、Linux contract/race 与 archive identity 证据。
+`a70302d` 仅修改 `internal/qualitygate` 及其测试；数据库、migration、compose 与 lifecycle 脚本均未变化。因此上述真实数据库与下列 lifecycle 权威执行证据继续绑定其最近一次精确执行源码 `035a05d`，而本轮新源码另有全量 test/vet/build、Linux contract/race 与 archive identity 证据。
 
 Windows checkout 可能受全局 `core.autocrlf=true` 影响，因此权威 lifecycle 输入来自：
 
@@ -166,7 +171,7 @@ archive 解压到 Docker named volume；runner 使用 Docker daemon 实际 mount
 - Windows 原生 race 受本机 CGO 工具链限制；Linux amd64 容器是权威 race 执行面。
 - Windows bind mount 下直接执行 shell 脚本可能受 CRLF 影响；本次没有把失败的 `scripts/test_dev_check.sh` 本地尝试声明为通过。
 - lifecycle 的普通 archive、daemon 不可见 bind path、`bash -lc` PATH 和 Alpine `apk add` 网络卡住等尝试均不计作通过证据；最终使用已缓存 Debian Go/Python/Bash 镜像、静态 Docker CLI/Compose 工具卷和独立 socket port probe 成功，所有临时资源已清理。
-- 后续终审发现禁止包族子路径、惰性 shell 文本、控制流/失败掩码、errexit 成功覆盖和前置终止旁路；`10642c3` 已按 RED→GREEN 修复，最终独立复审 Critical、Important、Minor 均无。
+- 后续终审发现禁止包族子路径、惰性 shell 文本、控制流/失败掩码、errexit 成功覆盖、前置终止与 workflow 执行上下文旁路；`a70302d` 已按真实 workflow 变异完成 RED→GREEN，三轮独立复审最终为 Critical 0、Important 0、Minor 0。
 
 ## 验收清单
 
@@ -177,6 +182,7 @@ archive 解压到 Docker named volume；runner 使用 Docker daemon 实际 mount
 - [x] Bash AST 拒绝 comment/echo/printf/heredoc 惰性证据；
 - [x] Bash AST 拒绝 dead branch、未调用函数、失败掩码和不可达 cleanup；
 - [x] Bash AST 拒绝 errexit 成功覆盖、前置终止及分号/compound 副作用旁路；
+- [x] workflow job/step 条件、容错、runner、shell、defaults、working-directory、container、needs 与环境执行语义 fail-closed；
 - [x] Phase 3 真实 MySQL integration 计划约束；
 - [x] typed-nil handler/router 防御；
 - [x] 聚焦、全量、vet、build；

@@ -2,9 +2,9 @@
 
 ## 状态
 
-已完成（最终修复源码：`10642c3`）。
+已完成（最终修复源码：`a70302d`）。
 
-最终审查发现的架构 allowlist、fail-closed 治理、CI lifecycle、Phase 3 真实数据库计划和 typed-nil 防御缺口均已通过 TDD 修复。全量 test/vet/build、Linux race、真实 MySQL 5.7 strict integration 与精确 Git archive 的 migration apply/checksum/rollback/replay 已重新执行通过。完整证据见 [Phase 2.2 后端验收](./acceptance.md)。Phase 3 后端可以开始，但必须遵守修订后的 `internal/modules/scrm` 分层路径与正式 API 契约流程。
+最终审查发现的架构 allowlist、fail-closed 治理、CI lifecycle、workflow 执行语义、Phase 3 真实数据库计划和 typed-nil 防御缺口均已通过 TDD 修复。全量 test/vet/build、Linux contract/race、真实 MySQL 5.7 strict integration 与精确 Git archive 的 migration apply/checksum/rollback/replay 已重新执行通过。完整证据见 [Phase 2.2 后端验收](./acceptance.md)。Phase 3 后端可以开始，但必须遵守修订后的 `internal/modules/scrm` 分层路径与正式 API 契约流程。
 
 ## 目标
 
@@ -40,6 +40,7 @@ Phase 2.2 验收通过前，不开始 Phase 3 正式后端功能开发。紧急�
 - 架构审计按 layer 显式 allowlist，并对 protected file 与 module registration fail-closed；
 - 禁止依赖使用 exact-or-subpackage 路径边界，`database/sql/driver`、`net/http/httptest` 等子包不能绕过；
 - CI 强制 architecture、race、full test、vet、migration lifecycle 与 strict integration；Bash AST 只认可根层独立命令或安全 `&&` 串联，并拒绝 dead branch、失败掩码、未调用函数、不可达 cleanup、errexit 成功覆盖与前置终止；
+- workflow contract 对 required job/step 的条件、容错、runner、shell/defaults、working-directory、container、needs 和环境 allowlist fail-closed，拒绝 `bash {0}`、表达式与可跳过/改写 gate 的执行上下文；
 - Phase 3 新 MySQL persistence 必须有 tagged、uncached、require-mode integration；
 - Router/Server 拒绝或安全处理 typed-nil HTTP 边界；
 - 被验证源码提交、tree、archive 哈希和真实数据库证据记录在验收文档。
