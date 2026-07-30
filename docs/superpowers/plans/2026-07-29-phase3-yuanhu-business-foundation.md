@@ -16,6 +16,7 @@
 - 本阶段不实现 AI 功能。
 - 自动化测试不得发送真实消息、执行真实群发、购买或触发有破坏性的第三方操作。
 - 在真实页面替换统一承接页期间，Phase 2 已有 URL 和路由行为必须保持稳定。
+- Phase 2.2 的 `GET/POST /api/phase2-2/scrm/leads` 是默认关闭的架构与装配 pilot 验证面，不是 Phase 3 正式 API 契约。Phase 3 的资源、路径、请求/响应和兼容性要求以任务 1 产出的契约及任务 3 的正式实现为准，不得把 pilot 路由当作必须延续的产品接口。
 
 ---
 
@@ -79,8 +80,11 @@ git commit -m "docs: define phase3 SCRM contracts"
 
 - 新建：`deploy/standalone/migrations/0090_scrm_customer_lifecycle.up.sql`
 - 新建：`deploy/standalone/migrations/0090_scrm_customer_lifecycle.down.sql`
-- 新建：`internal/store/scrm.go`
-- 新建：`internal/store/scrm_test.go`
+- 新建：`internal/modules/scrm/domain/customer_lifecycle.go`
+- 新建：`internal/modules/scrm/domain/customer_lifecycle_test.go`
+- 新建：`internal/modules/scrm/ports/customer_lifecycle_repository.go`
+- 新建：`internal/modules/scrm/adapters/mysql/customer_lifecycle_repository.go`
+- 新建：`internal/modules/scrm/adapters/mysql/customer_lifecycle_repository_test.go`
 
 **接口：**
 
@@ -104,7 +108,7 @@ git commit -m "docs: define phase3 SCRM contracts"
 执行：
 
 ```bash
-go test ./internal/store -run 'TestSCRM'
+go test ./internal/modules/scrm/domain ./internal/modules/scrm/adapters/mysql -run 'TestSCRM'
 ```
 
 预期：失败，因为迁移和 Store 尚不存在。
@@ -125,10 +129,11 @@ go test ./internal/store -run 'TestSCRM'
 执行：
 
 ```bash
-go test ./internal/store -run 'TestSCRM'
+go test ./internal/modules/scrm/domain ./internal/modules/scrm/adapters/mysql -run 'TestSCRM'
+go run ./cmd/mochat-architecture -root .
 ```
 
-预期：通过。
+预期：测试和架构边界检查均通过。
 
 - [ ] **步骤 5：验证迁移生命周期**
 
@@ -139,7 +144,7 @@ go test ./internal/store -run 'TestSCRM'
 - [ ] **步骤 6：提交**
 
 ```bash
-git add deploy/standalone/migrations/0090_scrm_customer_lifecycle.* internal/store/scrm*
+git add deploy/standalone/migrations/0090_scrm_customer_lifecycle.* internal/modules/scrm/domain/customer_lifecycle* internal/modules/scrm/ports/customer_lifecycle_repository.go internal/modules/scrm/adapters/mysql/customer_lifecycle_repository*
 git commit -m "feat: add SCRM customer lifecycle persistence"
 ```
 
@@ -147,10 +152,12 @@ git commit -m "feat: add SCRM customer lifecycle persistence"
 
 **文件：**
 
-- 新建：`internal/dashboard/scrm.go`
-- 新建：`internal/dashboard/scrm_test.go`
-- 修改：`cmd/mochat-go/main.go`
-- 修改：`internal/server/routes.go`
+- 新建：`internal/modules/scrm/application/customer_lifecycle_service.go`
+- 新建：`internal/modules/scrm/application/customer_lifecycle_service_test.go`
+- 新建：`internal/modules/scrm/transport/http/customer_lifecycle_handler.go`
+- 新建：`internal/modules/scrm/transport/http/customer_lifecycle_handler_test.go`
+- 修改：`internal/modules/scrm/module.go`
+- 修改：`internal/modules/scrm/transport/http/routes.go`
 
 **接口：**
 
@@ -175,7 +182,7 @@ git commit -m "feat: add SCRM customer lifecycle persistence"
 执行：
 
 ```bash
-go test ./internal/dashboard -run 'TestSCRM'
+go test ./internal/modules/scrm/application ./internal/modules/scrm/transport/http -run 'TestSCRM'
 ```
 
 预期：失败，因为 Handler 尚不存在。
@@ -189,10 +196,11 @@ go test ./internal/dashboard -run 'TestSCRM'
 执行：
 
 ```bash
-go test ./internal/dashboard -run 'TestSCRM'
+go test ./internal/modules/scrm/application ./internal/modules/scrm/transport/http -run 'TestSCRM'
+go run ./cmd/mochat-architecture -root .
 ```
 
-预期：通过。
+预期：测试和架构边界检查均通过。
 
 - [ ] **步骤 5：刷新前端/API 清单**
 
@@ -207,7 +215,7 @@ pnpm refresh:audit
 - [ ] **步骤 6：提交**
 
 ```bash
-git add internal/dashboard/scrm* internal/server/routes.go cmd/mochat-go/main.go docs/phases/phase-1-frontend-foundation/audit
+git add internal/modules/scrm/application/customer_lifecycle_service* internal/modules/scrm/transport/http/customer_lifecycle_handler* internal/modules/scrm/transport/http/routes.go internal/modules/scrm/module.go docs/phases/phase-1-frontend-foundation/audit
 git commit -m "feat: expose tenant-scoped SCRM APIs"
 ```
 
@@ -336,8 +344,15 @@ git commit -m "feat: add opportunity and follow-up workflows"
 
 **文件：**
 
-- 新建：`internal/dashboard/scrm_metrics.go`
-- 新建：`internal/dashboard/scrm_metrics_test.go`
+- 新建：`internal/modules/scrm/domain/metrics.go`
+- 新建：`internal/modules/scrm/application/metrics_service.go`
+- 新建：`internal/modules/scrm/application/metrics_service_test.go`
+- 新建：`internal/modules/scrm/ports/metrics_repository.go`
+- 新建：`internal/modules/scrm/adapters/mysql/metrics_repository.go`
+- 新建：`internal/modules/scrm/adapters/mysql/metrics_repository_test.go`
+- 新建：`internal/modules/scrm/transport/http/metrics_handler.go`
+- 新建：`internal/modules/scrm/transport/http/metrics_handler_test.go`
+- 修改：`internal/modules/scrm/module.go`
 - 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.tsx`
 - 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.test.tsx`
 - 新建：`docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md`
@@ -363,7 +378,7 @@ git commit -m "feat: add opportunity and follow-up workflows"
 执行：
 
 ```bash
-go test ./internal/dashboard -run 'TestSCRMMetrics'
+go test ./internal/modules/scrm/application ./internal/modules/scrm/adapters/mysql ./internal/modules/scrm/transport/http -run 'TestSCRMMetrics'
 ```
 
 预期：失败。
@@ -372,7 +387,18 @@ go test ./internal/dashboard -run 'TestSCRMMetrics'
 
 支持日期范围、企业、部门、负责人、来源和阶段筛选；返回汇总、趋势、分布以及可分页的明细引用。
 
-- [ ] **步骤 4：实现并测试报表页面**
+- [ ] **步骤 4：验证后端测试与架构边界**
+
+执行：
+
+```bash
+go test ./internal/modules/scrm/application ./internal/modules/scrm/adapters/mysql ./internal/modules/scrm/transport/http -run 'TestSCRMMetrics'
+go run ./cmd/mochat-architecture -root .
+```
+
+预期：测试和架构边界检查均通过。
+
+- [ ] **步骤 5：实现并测试报表页面**
 
 执行：
 
@@ -382,10 +408,10 @@ pnpm --filter @mochat/dashboard test -- src/features/scrm/scrm-report-page.test.
 
 预期：完成汇总、趋势、分布和明细状态后通过。
 
-- [ ] **步骤 5：提交**
+- [ ] **步骤 6：提交**
 
 ```bash
-git add internal/dashboard/scrm_metrics* web/apps/dashboard/src/features/scrm/scrm-report-page* docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md
+git add internal/modules/scrm/domain/metrics.go internal/modules/scrm/application/metrics_service* internal/modules/scrm/ports/metrics_repository.go internal/modules/scrm/adapters/mysql/metrics_repository* internal/modules/scrm/transport/http/metrics_handler* internal/modules/scrm/module.go web/apps/dashboard/src/features/scrm/scrm-report-page* docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md
 git commit -m "feat: add SCRM funnel reporting"
 ```
 
@@ -432,7 +458,8 @@ pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
 - [ ] **步骤 4：执行全部 Phase 3 门禁**
 
 ```bash
-go test ./internal/store ./internal/dashboard ./internal/frontend
+go run ./cmd/mochat-architecture -root .
+go test ./internal/architecture/... ./internal/app/modules/... ./internal/modules/... ./internal/frontend
 pnpm test
 pnpm build
 pnpm check:audit
