@@ -55,3 +55,9 @@ export async function authenticate(
     expiresAt: now + result.expire * 1_000,
   };
 }
+
+export async function logout(client: ApiClient): Promise<void> {
+  await client.request('/user/logout', {
+    method: 'PUT',
+  });
+}

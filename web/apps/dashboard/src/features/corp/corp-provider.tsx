@@ -8,6 +8,7 @@ import {
 } from 'react';
 
 import type { CorpOption } from './corp-api';
+import { useDashboardSessionActions } from '../auth/session-actions';
 
 export type CorpProviderProps = {
   bindCorp: (corpId: string) => Promise<void>;
@@ -32,6 +33,7 @@ export function CorpProvider({
   persistCorpId,
   queryClient,
 }: CorpProviderProps) {
+  const sessionActions = useDashboardSessionActions();
   const [corps, setCorps] = useState<readonly CorpOption[] | null>(
     initialCorps ?? null,
   );
@@ -118,7 +120,28 @@ export function CorpProvider({
     return <div>正在加载企业…</div>;
   }
   if (corps.length === 0) {
-    return <div>暂无可用企业</div>;
+    return (
+      <main className="dashboard-empty-corp">
+        <section className="dashboard-empty-corp-card">
+          <span className="dashboard-empty-corp-mark" aria-hidden="true">企</span>
+          <h1>暂无可用企业</h1>
+          <p>当前账号还未分配企业权限，请联系管理员完成授权后重新登录。</p>
+          {sessionActions.userId !== null && (
+            <span className="dashboard-empty-corp-account">
+              当前账号：{sessionActions.userId}
+            </span>
+          )}
+          <button
+            className="dashboard-logout-button dashboard-logout-button-primary"
+            disabled={sessionActions.isLoggingOut}
+            onClick={() => void sessionActions.logout()}
+            type="button"
+          >
+            {sessionActions.isLoggingOut ? '正在退出…' : '退出登录'}
+          </button>
+        </section>
+      </main>
+    );
   }
 
   return (

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { authenticate } from './auth-api';
+import { authenticate, logout } from './auth-api';
 
 describe('authenticate', () => {
   it('posts only the audited login fields and maps the token lifetime', async () => {
@@ -27,6 +27,18 @@ describe('authenticate', () => {
       userId: '7',
       corpId: null,
       expiresAt: 3_601_000,
+    });
+  });
+});
+
+describe('logout', () => {
+  it('invalidates the authenticated server session', async () => {
+    const request = vi.fn(() => Promise.resolve({}));
+
+    await logout({ request });
+
+    expect(request).toHaveBeenCalledWith('/user/logout', {
+      method: 'PUT',
     });
   });
 });

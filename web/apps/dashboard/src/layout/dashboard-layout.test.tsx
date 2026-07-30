@@ -1,5 +1,11 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RouterProvider } from 'react-router';
@@ -10,6 +16,7 @@ import type {
   AccessContext,
   CorpSelection,
 } from '../app/access-loader';
+import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 
 afterEach(cleanup);
 
@@ -26,6 +33,7 @@ function renderDashboard(options: {
   accessLoader?: (args: { request: Request }) => Promise<
     AccessContext | CorpSelection
   >;
+  onLogout?: () => Promise<void>;
   reactPages?: Readonly<Record<string, ReactNode>>;
 }) {
   const queryClient = createDashboardQueryClient();
@@ -45,9 +53,14 @@ function renderDashboard(options: {
   });
 
   return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <DashboardSessionActionsProvider
+      onLogout={options.onLogout ?? (() => Promise.resolve())}
+      userId={options.session ? '7' : null}
+    >
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </DashboardSessionActionsProvider>,
   );
 }
 
@@ -64,11 +77,15 @@ describe('Dashboard shell', () => {
   });
 
   it('renders the header, sidebar, and content for a valid session', async () => {
-    renderDashboard({ session: true });
+    const onLogout = vi.fn(() => Promise.resolve());
+    renderDashboard({ session: true, onLogout });
 
     expect(await screen.findByRole('banner')).toBeTruthy();
     expect(screen.getByRole('navigation', { name: '主菜单' })).toBeTruthy();
     expect(screen.getByRole('main')).toBeTruthy();
+    expect(screen.getByText('账号 7')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
+    await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
   });
 
   it('renders authorized menu routes and the SaaS Admin entry', async () => {

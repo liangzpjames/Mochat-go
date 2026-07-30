@@ -11,7 +11,14 @@ import migrationRoutesJson from './migration-routes.json';
 import { createAccessLoader } from './app/access-loader';
 import { createDashboardQueryClient, DashboardProviders } from './app/providers';
 import { createDashboardRouter } from './app/router';
-import { authenticate } from './features/auth/auth-api';
+import {
+  authenticate,
+  logout as invalidateServerSession,
+} from './features/auth/auth-api';
+import {
+  createLogoutAction,
+  DashboardSessionActionsProvider,
+} from './features/auth/session-actions';
 import {
   bindCorp,
   loadCorps,
@@ -102,6 +109,14 @@ const loadAccess = createAccessLoader({
 });
 const accessLoader = ({ request }: { request: Request }) => loadAccess({ request });
 const routerRef: { current?: ReturnType<typeof createDashboardRouter> } = {};
+const performLogout = createLogoutAction({
+  clearQueries: () => queryClient.clear(),
+  clearSession: () => authStore.clearSession(),
+  invalidateServerSession: () => invalidateServerSession(apiClient),
+  navigateToLogin: () => {
+    void routerRef.current?.navigate('/login');
+  },
+});
 const router = createDashboardRouter({
   accessLoader,
   authenticate: (input) => authenticate(loginClient, input),
@@ -143,26 +158,31 @@ const router = createDashboardRouter({
     '/workContactTag/index': page(<ContactTagPage api={contactTagApi} />),
   },
   renderAccess: (access, children) => (
-    <CorpProvider
-      bindCorp={(corpId) => bindCorp(apiClient, corpId)}
-      initialCorpId={authStore.getSession()?.corpId ?? null}
-      {...('state' in access ? { initialCorps: access.corps } : {})}
-      loadCorps={() => loadCorps(apiClient)}
-      loadMenuAccess={async () => {
-        const access = buildMenuAccess(await loadMenu(apiClient), knownRoutes);
-        return { firstRoute: access.routes.values().next().value ?? '/' };
-      }}
-      navigate={(path) => void routerRef.current?.navigate(path)}
-      persistCorpId={(corpId) => {
-        const session = authStore.getSession();
-        if (session !== null) {
-          authStore.setSession({ ...session, corpId });
-        }
-      }}
-      queryClient={queryClient}
+    <DashboardSessionActionsProvider
+      onLogout={performLogout}
+      userId={authStore.getSession()?.userId ?? null}
     >
-      {children}
-    </CorpProvider>
+      <CorpProvider
+        bindCorp={(corpId) => bindCorp(apiClient, corpId)}
+        initialCorpId={authStore.getSession()?.corpId ?? null}
+        {...('state' in access ? { initialCorps: access.corps } : {})}
+        loadCorps={() => loadCorps(apiClient)}
+        loadMenuAccess={async () => {
+          const access = buildMenuAccess(await loadMenu(apiClient), knownRoutes);
+          return { firstRoute: access.routes.values().next().value ?? '/' };
+        }}
+        navigate={(path) => void routerRef.current?.navigate(path)}
+        persistCorpId={(corpId) => {
+          const session = authStore.getSession();
+          if (session !== null) {
+            authStore.setSession({ ...session, corpId });
+          }
+        }}
+        queryClient={queryClient}
+      >
+        {children}
+      </CorpProvider>
+    </DashboardSessionActionsProvider>
   ),
   setSession: (session) => authStore.setSession(session),
 });

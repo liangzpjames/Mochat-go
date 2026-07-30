@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router';
 
 import { useOptionalDashboardAccess } from '../app/access-context';
+import { useDashboardSessionActions } from '../features/auth/session-actions';
 import type { MenuNode } from '../features/navigation/menu-tree';
 
 type NavigationItem = {
@@ -33,6 +34,7 @@ function authorizedNavigation(
 
 export function DashboardLayout() {
   const access = useOptionalDashboardAccess();
+  const sessionActions = useDashboardSessionActions();
   const navigation = access === null
     ? []
     : authorizedNavigation(access.menu, access.allowedRoutes);
@@ -45,6 +47,19 @@ export function DashboardLayout() {
         <a className="dashboard-admin-link" href="/saas-admin/">
           SaaS 管理后台
         </a>
+        <div className="dashboard-account-actions">
+          {sessionActions.userId !== null && (
+            <span>账号 {sessionActions.userId}</span>
+          )}
+          <button
+            className="dashboard-logout-button"
+            disabled={sessionActions.isLoggingOut}
+            onClick={() => void sessionActions.logout()}
+            type="button"
+          >
+            {sessionActions.isLoggingOut ? '正在退出…' : '退出登录'}
+          </button>
+        </div>
       </header>
       <div className="dashboard-body">
         <nav aria-label="主菜单" className="dashboard-sidebar">

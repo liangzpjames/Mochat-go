@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CorpProvider } from './corp-provider';
 import type { CorpOption } from './corp-api';
+import { DashboardSessionActionsProvider } from '../auth/session-actions';
 
 const authorized: CorpOption = {
   id: '3',
@@ -22,6 +23,7 @@ afterEach(cleanup);
 function renderProvider(
   corps: CorpOption[],
   overrides: Partial<Parameters<typeof CorpProvider>[0]> = {},
+  onLogout: () => Promise<void> = () => Promise.resolve(),
 ) {
   const queryClient = new QueryClient();
   const props: Parameters<typeof CorpProvider>[0] = {
@@ -37,15 +39,27 @@ function renderProvider(
     queryClient,
     ...overrides,
   };
-  render(<CorpProvider {...props} />);
+  render(
+    <DashboardSessionActionsProvider
+      onLogout={onLogout}
+      userId="7"
+    >
+      <CorpProvider {...props} />
+    </DashboardSessionActionsProvider>,
+  );
   return props;
 }
 
 describe('CorpProvider', () => {
   it('shows an empty state when the user has no enterprises', async () => {
-    renderProvider([]);
+    const onLogout = vi.fn(() => Promise.resolve());
+    renderProvider([], {}, onLogout);
 
-    expect(await screen.findByText('暂无可用企业')).not.toBeNull();
+    expect(await screen.findByRole('heading', { name: '暂无可用企业' }))
+      .not.toBeNull();
+    expect(screen.getByText('当前账号：7')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
+    await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
   });
 
   it('automatically selects one authorized enterprise', async () => {
