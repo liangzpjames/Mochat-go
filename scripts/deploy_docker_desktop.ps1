@@ -184,6 +184,12 @@ $env:MOCHAT_OPERATION_PORT = [string]$OperationPort
 $env:MOCHAT_MYSQL_PORT = [string]$MySQLPort
 $env:MOCHAT_REDIS_PORT = [string]$RedisPort
 $env:MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD = '1'
+$env:MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY = '1'
+$env:MOCHAT_GO_LOGIN_PREFILL_PHONE = $AdminPhone
+$env:MOCHAT_GO_LOGIN_PREFILL_PASSWORD = $AdminPassword
+if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY)) {
+    $env:MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY = '8d7b6a59483726150f1e2d3c4b5a69788d7b6a59483726150f1e2d3c4b5a6978'
+}
 if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SIMPLE_JWT_SECRET)) {
     $env:MOCHAT_SIMPLE_JWT_SECRET = 'mochat-go-docker-desktop-local-secret'
 }
@@ -239,6 +245,7 @@ try {
     Wait-HttpEndpoint -Name '应用就绪状态' -Url "http://127.0.0.1:$DashboardPort/readyz"
     Wait-HttpEndpoint -Name 'Dashboard' -Url $dashboardUrl
     Wait-HttpEndpoint -Name 'SaaS Admin' -Url $saasAdminUrl
+    Wait-HttpEndpoint -Name 'SaaS 身份登录' -Url "http://127.0.0.1:$DashboardPort/security/login"
     Wait-HttpEndpoint -Name 'Sidebar' -Url $sidebarUrl
     Wait-HttpEndpoint -Name 'Operation' -Url $operationUrl
 

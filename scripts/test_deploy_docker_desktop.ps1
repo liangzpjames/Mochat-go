@@ -60,6 +60,7 @@ Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' 
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action baseline -project-root /app' '未在迁移前记录数据库基线'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
 Assert-Matches $defaultOutput 'exec -T app mochat-bootstrap -phone 13800000000' '未执行管理员初始化'
+Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/security/login' '未检查 SaaS 身份登录入口'
 Assert-Matches $resetOutput 'down --volumes --remove-orphans' 'ResetData 未删除项目数据卷'
 Assert-Matches $portOutput 'MySQL：23316' '未应用 MySQL 端口参数'
 Assert-Matches $portOutput 'Redis：36389' '未应用 Redis 端口参数'
@@ -78,6 +79,12 @@ try {
 @'
 @echo off
 setlocal
+if "%1"=="info" (
+  echo identity=%MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY% 1>&2
+  if defined MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY echo identity_key=set 1>&2
+  echo prefill_phone=%MOCHAT_GO_LOGIN_PREFILL_PHONE% 1>&2
+  exit /b 0
+)
 if "%1"=="inspect" (
   echo running^|healthy
   exit /b 0
@@ -104,6 +111,9 @@ exit /b 0
         throw "Docker 向标准错误输出正常进度时，部署被错误中止：`n$fakeOutput"
     }
     Assert-Matches $fakeOutput '部署完成' '正常的 Docker 标准错误进度导致部署失败'
+    Assert-Matches $fakeOutput 'identity=1' '启用 SaaS Admin 时未启用身份安全登录'
+    Assert-Matches $fakeOutput 'identity_key=set' '启用身份安全登录时未配置本地加密密钥'
+    Assert-Matches $fakeOutput 'prefill_phone=13800000000' 'SaaS 身份登录页未使用部署管理员账号'
 } finally {
     Remove-Item -LiteralPath $fakeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
