@@ -107,6 +107,13 @@ func Audit(root string, policy Policy, now time.Time) ([]Violation, error) {
 		}
 		currentModule, currentLayer := classify(relativePath)
 		if currentLayer == layerUnknown {
+			if currentModule != "" {
+				findings = append(findings, finding{Violation: Violation{
+					RuleID: RuleModuleDependency,
+					Path:   relativePath,
+					Detail: "module source must live in domain, ports, application, adapters, transport, or the module root",
+				}})
+			}
 			return nil
 		}
 		for _, importSpec := range file.Imports {
@@ -215,7 +222,7 @@ func allowedByLayer(currentLayer layer, currentModule, imported, importedModule 
 		case layerTransport:
 			return importedLayer == layerApplication || importedLayer == layerDomain
 		case layerModule:
-			return true
+			return importedLayer != layerUnknown
 		default:
 			return false
 		}
@@ -341,7 +348,7 @@ func classify(path string) (string, layer) {
 		if module == "" {
 			return "", layerUnknown
 		}
-		if index+3 == len(parts) {
+		if index+3 == len(parts) || index+4 == len(parts) {
 			return module, layerModule
 		}
 		switch parts[index+3] {
@@ -356,7 +363,7 @@ func classify(path string) (string, layer) {
 		case "transport":
 			return module, layerTransport
 		default:
-			return module, layerModule
+			return module, layerUnknown
 		}
 	}
 	return "", layerUnknown
@@ -386,7 +393,7 @@ func classifyModuleImport(imported string) (string, layer) {
 	case "transport":
 		return parts[0], layerTransport
 	default:
-		return parts[0], layerModule
+		return parts[0], layerUnknown
 	}
 }
 

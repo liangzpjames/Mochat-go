@@ -24,6 +24,10 @@ func TestAuditRejectsInvalidDependencies(t *testing.T) {
 		{"application imports another module domain and ports", "testdata/application-imports-other-module", "ARCH-APPLICATION-DEPENDENCY"},
 		{"domain imports third party", "testdata/domain-imports-third-party", "ARCH-DOMAIN-DEPENDENCY"},
 		{"domain imports dotless third party", "testdata/domain-imports-dotless-third-party", "ARCH-DOMAIN-DEPENDENCY"},
+		{"adapter imports transport", "testdata/adapter-imports-transport", "ARCH-ADAPTERS-DEPENDENCY"},
+		{"transport imports adapter", "testdata/transport-imports-adapter", "ARCH-TRANSPORT-DEPENDENCY"},
+		{"module composition imports third party", "testdata/module-imports-third-party", "ARCH-MODULE-DEPENDENCY"},
+		{"unknown module layer imports adapter", "testdata/unknown-module-layer", "ARCH-MODULE-DEPENDENCY"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
