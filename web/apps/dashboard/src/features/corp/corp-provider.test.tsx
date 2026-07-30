@@ -37,6 +37,7 @@ function renderProvider(
     navigate: vi.fn(),
     persistCorpId: vi.fn(),
     queryClient,
+    refreshAccess: vi.fn(),
     ...overrides,
   };
   render(
@@ -67,6 +68,7 @@ describe('CorpProvider', () => {
 
     await waitFor(() => expect(props.bindCorp).toHaveBeenCalledWith('3'));
     expect(props.persistCorpId).toHaveBeenCalledWith('3');
+    expect(props.refreshAccess).toHaveBeenCalledOnce();
     expect(props.navigate).toHaveBeenCalledWith('/workContact/index');
   });
 
@@ -119,13 +121,21 @@ describe('CorpProvider', () => {
           return Promise.resolve({ firstRoute: '/new/home' });
         }),
         navigate: vi.fn(() => order.push('navigate')),
+        refreshAccess: vi.fn(() => order.push('refresh')),
       },
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '新企业' }));
     await waitFor(() => expect(props.navigate).toHaveBeenCalledWith('/new/home'));
 
-    expect(order).toEqual(['cancel', 'persist', 'remove', 'menu', 'navigate']);
+    expect(order).toEqual([
+      'cancel',
+      'persist',
+      'remove',
+      'menu',
+      'navigate',
+      'refresh',
+    ]);
     expect(cancelQueries).toHaveBeenCalledWith({
       queryKey: ['corp', '3'],
     });

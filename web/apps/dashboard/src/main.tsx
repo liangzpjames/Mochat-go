@@ -179,6 +179,7 @@ const router = createDashboardRouter({
           }
         }}
         queryClient={queryClient}
+        refreshAccess={() => routerRef.current?.revalidate()}
       >
         {children}
       </CorpProvider>

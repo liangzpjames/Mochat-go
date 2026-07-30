@@ -20,6 +20,7 @@ export type CorpProviderProps = {
   navigate: (route: string) => void;
   persistCorpId: (corpId: string) => void;
   queryClient: QueryClient;
+  refreshAccess: () => void;
 };
 
 export function CorpProvider({
@@ -32,6 +33,7 @@ export function CorpProvider({
   navigate,
   persistCorpId,
   queryClient,
+  refreshAccess,
 }: CorpProviderProps) {
   const sessionActions = useDashboardSessionActions();
   const [corps, setCorps] = useState<readonly CorpOption[] | null>(
@@ -61,6 +63,7 @@ export function CorpProvider({
       }
       const menu = await loadMenuAccess(nextCorpId);
       navigate(menu.firstRoute);
+      refreshAccess();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '企业切换失败');
     } finally {
@@ -74,6 +77,7 @@ export function CorpProvider({
     navigate,
     persistCorpId,
     queryClient,
+    refreshAccess,
   ]);
 
   useEffect(() => {
