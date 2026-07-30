@@ -5,10 +5,10 @@
 - 验收日期：2026-07-30
 - 分支：`phase2.2-backend-quality-gates`
 - 修复基线：`45cc401cdecd9477593bec9444461c901cd42af1`
-- 被验证源码提交：`7f243043d7599d0e7e2e811d9d5a976cc2620984`
-- 被验证 Git tree：`b3846dc5bb6ff86f4b20aedcd44e58696ef0727f`
-- 原始 Git archive SHA-256：`9efc7a5a6f97e1cc3df50f17c121c8aaaa5d8b6a1990f0852a5cf4705bc9e5a2`
-- 原始 Git archive 大小：`40960000` bytes
+- 被验证源码提交：`39b79fc4d15e8b86835ef516f8fc5916d55acac2`
+- 被验证 Git tree：`ee5d391505902e4de93b4330d0a19e13dec497d5`
+- 原始 Git archive SHA-256：`d4fe8db5e181e35621770ec606d5e1cf53543b73eabc29486b2a84870b911cd1`
+- 原始 Git archive 大小：`40980480` bytes
 - Phase 3 backend ready: **yes**
 
 最终审查指出的四个 Important finding 和一个 Minor finding 均已通过 TDD 修复。架构规则、fail-closed 治理、CI 生命周期、Phase 3 真实数据库计划、typed-nil 防御，以及全量、race、真实 MySQL 5.7、migration lifecycle 都有重新执行的通过证据。
@@ -21,13 +21,15 @@
 | `920ebf0` | CI 强制 vet、完整 migration lifecycle、strict integration 和可靠 contract；Phase 3 计划绑定真实 MySQL。 |
 | `60aeea1` | Router/Server 统一拒绝或安全处理 typed-nil HTTP 边界。 |
 | `7f24304` | 未知模块子目录 fail-closed；使用真实 YAML loader 将门禁绑定到唯一 job；计划变更触发 CI。 |
+| `39b79fc` | 禁止包族按路径边界覆盖子包；Bash AST 拒绝 echo/comment/printf/heredoc 惰性门禁文本。 |
 
-提交范围：`45cc401..7f24304`。
+提交范围：`45cc401..39b79fc`。
 
 ## 架构门禁
 
 - domain、ports、application、adapters、transport、module 使用显式 allowlist。
 - 标准库归属由 `go/build` 和 GOROOT 判定；`acme/sdk` 等无点第三方路径不会被误判。
+- `database/sql`、`net/http` 等禁止包族采用 exact-or-subpackage 边界；`database/sql/driver` 和 `net/http/httptest` 明确失败，而 `database/sqlx`、`jiyi/mochat-governance` 不会被错误前缀匹配。
 - 共享基础设施只允许精确公共契约；精确例外不会扩散到相邻包。
 - 负向 fixture 覆盖 domain→own ports、domain/application→内部基础设施、application→跨模块 domain/ports、domain→第三方库。
 - 未知模块子目录不会继承 composition 权限；仅模块根文件可使用 module layer，adapter、transport、module composition 也有直接负向 fixture。
@@ -49,7 +51,8 @@ PASS
 - push 与 pull request path filters 覆盖 composition root、开发检查和 lifecycle 脚本。
 - workflow 明确包含并约束 architecture、race、full test、vet、migration lifecycle、strict integration 的相对顺序。
 - lifecycle step 使用隔离 compose project/port，并执行权威 `scripts/smoke_schema_migrate.sh`。
-- contract 使用 `go.yaml.in/yaml/v3` 真实解析 YAML，选择唯一的 `mysql57-amd64` job，拒绝重复 step name，并只在该 job 内检查 gate 顺序和命令归属。
+- contract 使用 `go.yaml.in/yaml/v3` 真实解析 YAML，选择唯一的 `mysql57-amd64` job，拒绝重复 step name。
+- workflow、lifecycle 和开发脚本使用 `mvdan.cc/sh/v3` Bash AST 识别真实 executable statements、env/assignment 前缀、命令顺序和 cleanup 函数归属；comment、echo、printf、heredoc 数据不能充当门禁证据。
 - Phase 3 计划路径同时存在于 push、pull request filters 与 contract required paths，计划单独修改也会触发门禁。
 - `scripts/test.sh` 与 `scripts/dev_check.sh` 构建六个命令入口，包括 `mochat-architecture`。
 - Phase 3 Task 2 明确 tagged integration 文件、三类真实 MySQL 场景、strict uncached 命令和禁止 require-mode skip；Task 7 包含全量 test/vet/build。
@@ -74,7 +77,7 @@ $ ruby YAML parser .github/workflows/mysql57-amd64.yml
 
 ## 全量 Go 门禁
 
-以下命令在源码提交 `7f24304` 上重新执行，退出码均为 0：
+以下命令在源码提交 `39b79fc` 上重新执行，退出码均为 0：
 
 ```text
 go test ./... -count=1
@@ -97,7 +100,7 @@ docker run --rm \
 
 ## 真实 MySQL 5.7 strict integration
 
-- compose project：`mochat-go-final-review-integration`
+- compose project：`mochat-go-terminal-inert-integration`
 - host port：`13333`
 - 数据库：MySQL 5.7
 - migration：0001–0098 已 apply；0098 row 存在且 checksum 长度为 64
@@ -123,19 +126,19 @@ finally cleanup 执行 `docker compose down -v --remove-orphans`，容器、网�
 Windows checkout 可能受全局 `core.autocrlf=true` 影响，因此权威 lifecycle 输入来自：
 
 ```powershell
-git -c core.autocrlf=false archive --format=tar 7f243043d7599d0e7e2e811d9d5a976cc2620984
+git -c core.autocrlf=false archive --format=tar 39b79fc4d15e8b86835ef516f8fc5916d55acac2
 ```
 
 该原始 archive 的 SHA-256 和大小分别为：
 
 ```text
-9efc7a5a6f97e1cc3df50f17c121c8aaaa5d8b6a1990f0852a5cf4705bc9e5a2
-40960000 bytes
+d4fe8db5e181e35621770ec606d5e1cf53543b73eabc29486b2a84870b911cd1
+40980480 bytes
 ```
 
 archive 解压到 Docker named volume；runner 使用 Docker daemon 实际 mountpoint，避免 Windows client bind path 与 Linux daemon path 不一致。
 
-- compose project：`mochat-go-final-review-lifecycle`
+- compose project：`mochat-go-terminal-inert-lifecycle`
 - host port：`13331`
 - 权威命令：`bash ./scripts/smoke_schema_migrate.sh`
 - 关键输出：`schema migration smoke passed`
@@ -154,14 +157,16 @@ archive 解压到 Docker named volume；runner 使用 Docker daemon 实际 mount
 
 - Windows 原生 race 受本机 CGO 工具链限制；Linux amd64 容器是权威 race 执行面。
 - Windows bind mount 下直接执行 shell 脚本可能受 CRLF 影响；本次没有把失败的 `scripts/test_dev_check.sh` 本地尝试声明为通过。
-- lifecycle 的首次普通 archive、daemon 不可见 bind path 和一次 `bash -lc` PATH 尝试均不计作通过证据；最终成功路径如上，并已清理所有临时资源。
-- 独立最终代码审查初审指出未知模块子目录、跨 job 文本解析和计划 path filter 三项 Important；`7f24304` 修复后复审结果为 Critical/Important/Minor 均无。
+- lifecycle 的普通 archive、daemon 不可见 bind path、`bash -lc` PATH 和 Alpine `apk add` 网络卡住等尝试均不计作通过证据；最终使用已缓存 Debian Go/Python/Bash 镜像、静态 Docker CLI/Compose 工具卷和独立 socket port probe 成功，所有临时资源已清理。
+- 后续终审发现禁止包族子路径和惰性 shell 文本两项 Important；`39b79fc` 已按 RED→GREEN 修复并完成全部权威复验。
 
 ## 验收清单
 
 - [x] 架构逐层 allowlist 和精确例外；
+- [x] 禁止包族 exact-or-subpackage 边界；
 - [x] protected file 与 module registration fail-closed；
 - [x] 结构化 CI contract、vet、完整 lifecycle 和六命令 build；
+- [x] Bash AST 拒绝 comment/echo/printf/heredoc 惰性证据；
 - [x] Phase 3 真实 MySQL integration 计划约束；
 - [x] typed-nil handler/router 防御；
 - [x] 聚焦、全量、vet、build；
