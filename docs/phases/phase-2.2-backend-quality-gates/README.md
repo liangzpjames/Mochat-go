@@ -2,9 +2,9 @@
 
 ## 状态
 
-实施中。
+已完成。
 
-后端功能门禁已通过原生命令或计划允许的 Linux Docker 等价验证；完整记录见 [Phase 2.2 后端验收](./acceptance.md)。当前仅剩工作树清洁度阻塞：既有 `.superpowers/sdd/*` 协调报告不在本任务提交范围内，尚未取得提交后空的 `git status --short`，因此不得标记为已完成或宣告 Phase 3 后端就绪。
+后端功能门禁已在 Windows 开发环境及 Linux 权威执行面完成验证，真实 MySQL 5.7 integration 由 require 模式禁止 silent skip，精确 Git tree 的 race 与 migration smoke 均通过。完整证据见 [Phase 2.2 后端验收](./acceptance.md)。Phase 3 后端可以开始，但必须遵守修订后的 `internal/modules/scrm` 分层路径与正式 API 契约流程。
 
 ## 目标
 
