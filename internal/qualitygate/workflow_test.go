@@ -1128,7 +1128,7 @@ func readRepositoryFile(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(contents)
+	return strings.ReplaceAll(string(contents), "\r\n", "\n")
 }
 
 func writeWorkflow(t *testing.T, contents string) string {
