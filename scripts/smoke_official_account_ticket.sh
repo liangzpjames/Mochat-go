@@ -340,7 +340,7 @@ DSN="mochat:mochat_pass@tcp(127.0.0.1:$MYSQL_PORT)/mochat_official_account_ticke
 "$MIGRATE_BIN" -dsn "$DSN" -project-root "$PWD" -action apply >"$WORK_DIR/migrate.out"
 grep -q $'0007_wechat_component_tickets\tapplied_now' "$WORK_DIR/migrate.out"
 grep -q $'0068_wechat_open_credential_encryption\tapplied_now' "$WORK_DIR/migrate.out"
-test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "97"
+test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "98"
 
 "$BOOTSTRAP_BIN" \
   -dsn "$DSN" \

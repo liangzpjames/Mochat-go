@@ -321,6 +321,7 @@ services:
       - ./migrations/0095_saas_tenant_domain_create_guard.up.sql:/docker-entrypoint-initdb.d/095-saas-tenant-domain-create-guard.sql:ro
       - ./migrations/0096_saas_tenant_enable_approval_guard.up.sql:/docker-entrypoint-initdb.d/096-saas-tenant-enable-approval-guard.sql:ro
       - ./migrations/0097_saas_release_evidence_action_tracking.up.sql:/docker-entrypoint-initdb.d/097-saas-release-evidence-action-tracking.sql:ro
+      - ./migrations/0098_scrm_lead_foundation.up.sql:/docker-entrypoint-initdb.d/098-scrm-lead-foundation.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u\"$${MARIADB_USER}\" -p\"$${MARIADB_PASSWORD}\""]
       interval: 5s

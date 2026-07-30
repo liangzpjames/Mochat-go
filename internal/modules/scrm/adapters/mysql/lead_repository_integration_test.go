@@ -17,36 +17,66 @@ import (
 	"jiyi/mochat-go/internal/mysqlconn"
 )
 
+var integrationNamespaceSequence atomic.Int64
+
+type integrationNamespace struct {
+	tenantID      int64
+	otherTenantID int64
+	prefix        string
+}
+
+func newIntegrationNamespace() integrationNamespace {
+	sequence := integrationNamespaceSequence.Add(1)
+	tenantID := int64(7_000_000_000_000_000) + int64(os.Getpid())*1_000_000 + sequence*2
+	return integrationNamespace{
+		tenantID:      tenantID,
+		otherTenantID: tenantID + 1,
+		prefix:        fmt.Sprintf("%d-%d", os.Getpid(), sequence),
+	}
+}
+
+func (n integrationNamespace) id(suffix string) string {
+	return n.prefix + "-" + suffix
+}
+
+func (n integrationNamespace) key(suffix string) string {
+	return n.prefix + "-" + suffix
+}
+
 func TestLeadRepositoryTenantIsolation(t *testing.T) {
-	repository, db := integrationRepository(t)
+	repository, db, namespace := integrationRepository(t)
 	ctx := context.Background()
 	createdAt := time.Date(2026, time.July, 30, 8, 0, 0, 0, time.UTC)
+	businessKey := namespace.key("shared")
+	firstID := namespace.id("tenant-1")
+	secondID := namespace.id("tenant-2")
 
-	mustCreateLead(t, repository, newTestLead(t, "tenant-1-lead", 101, "shared-key", "Tenant One", createdAt))
-	mustCreateLead(t, repository, newTestLead(t, "tenant-2-lead", 202, "shared-key", "Tenant Two", createdAt))
+	mustCreateLead(t, repository, newTestLead(t, firstID, namespace.tenantID, businessKey, "Tenant One", createdAt))
+	mustCreateLead(t, repository, newTestLead(t, secondID, namespace.otherTenantID, businessKey, "Tenant Two", createdAt))
 
-	page, err := repository.List(ctx, ports.ListLeadsFilter{TenantID: 101, Limit: 10})
+	page, err := repository.List(ctx, ports.ListLeadsFilter{TenantID: namespace.tenantID, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Items) != 1 || page.Items[0].TenantID != 101 || page.Items[0].ID != "tenant-1-lead" {
+	if len(page.Items) != 1 || page.Items[0].TenantID != namespace.tenantID || page.Items[0].ID != firstID {
 		t.Fatalf("tenant-scoped page = %#v", page.Items)
 	}
 
-	assertTenantBusinessKeyCount(t, db, 101, "shared-key", 1)
-	assertTenantBusinessKeyCount(t, db, 202, "shared-key", 1)
+	assertTenantBusinessKeyCount(t, db, namespace.tenantID, businessKey, 1)
+	assertTenantBusinessKeyCount(t, db, namespace.otherTenantID, businessKey, 1)
 }
 
 func TestLeadRepositoryCreateOrGetIsIdempotent(t *testing.T) {
-	repository, db := integrationRepository(t)
+	repository, db, namespace := integrationRepository(t)
 	createdAt := time.Date(2026, time.July, 30, 8, 0, 0, 0, time.UTC)
-	original := newTestLead(t, "lead-original", 101, "request-1", "Original", createdAt)
+	businessKey := namespace.key("request")
+	original := newTestLead(t, namespace.id("original"), namespace.tenantID, businessKey, "Original", createdAt)
 
 	first, firstCreated, err := repository.CreateOrGet(context.Background(), original)
 	if err != nil {
 		t.Fatal(err)
 	}
-	retry := newTestLead(t, "lead-retry", 101, "request-1", "Retry", createdAt.Add(time.Minute))
+	retry := newTestLead(t, namespace.id("retry"), namespace.tenantID, businessKey, "Retry", createdAt.Add(time.Minute))
 	second, secondCreated, err := repository.CreateOrGet(context.Background(), retry)
 	if err != nil {
 		t.Fatal(err)
@@ -55,26 +85,27 @@ func TestLeadRepositoryCreateOrGetIsIdempotent(t *testing.T) {
 	if !firstCreated || secondCreated {
 		t.Fatalf("created flags = %v, %v; want true, false", firstCreated, secondCreated)
 	}
-	if first.ID != "lead-original" || second.ID != first.ID || second.Name.String() != "Original" {
+	if first.ID != original.ID || second.ID != first.ID || second.Name.String() != "Original" {
 		t.Fatalf("persisted leads = %#v, %#v", first, second)
 	}
-	assertTenantBusinessKeyCount(t, db, 101, "request-1", 1)
+	assertTenantBusinessKeyCount(t, db, namespace.tenantID, businessKey, 1)
 }
 
 func TestLeadRepositoryAllowsSameBusinessKeyAcrossTenants(t *testing.T) {
-	repository, db := integrationRepository(t)
+	repository, db, namespace := integrationRepository(t)
 	createdAt := time.Date(2026, time.July, 30, 8, 0, 0, 0, time.UTC)
+	businessKey := namespace.key("shared")
 
 	first, firstCreated, err := repository.CreateOrGet(
 		context.Background(),
-		newTestLead(t, "lead-tenant-1", 101, "shared-key", "Tenant One", createdAt),
+		newTestLead(t, namespace.id("tenant-1"), namespace.tenantID, businessKey, "Tenant One", createdAt),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	second, secondCreated, err := repository.CreateOrGet(
 		context.Background(),
-		newTestLead(t, "lead-tenant-2", 202, "shared-key", "Tenant Two", createdAt),
+		newTestLead(t, namespace.id("tenant-2"), namespace.otherTenantID, businessKey, "Tenant Two", createdAt),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -83,70 +114,69 @@ func TestLeadRepositoryAllowsSameBusinessKeyAcrossTenants(t *testing.T) {
 	if !firstCreated || !secondCreated || first.ID == second.ID {
 		t.Fatalf("results = (%#v, %v), (%#v, %v)", first, firstCreated, second, secondCreated)
 	}
-	assertTenantBusinessKeyCount(t, db, 101, "shared-key", 1)
-	assertTenantBusinessKeyCount(t, db, 202, "shared-key", 1)
+	assertTenantBusinessKeyCount(t, db, namespace.tenantID, businessKey, 1)
+	assertTenantBusinessKeyCount(t, db, namespace.otherTenantID, businessKey, 1)
 }
 
 func TestLeadRepositoryListUsesStableCreatedAtAndIDOrder(t *testing.T) {
-	repository, _ := integrationRepository(t)
+	repository, _, namespace := integrationRepository(t)
 	base := time.Date(2026, time.July, 30, 8, 0, 0, 123456000, time.UTC)
+	idA := namespace.id("lead-a")
+	idB := namespace.id("lead-b")
+	idC := namespace.id("lead-c")
 	for _, lead := range []domain.Lead{
-		newTestLead(t, "lead-a", 101, "key-a", "A", base),
-		newTestLead(t, "lead-c", 101, "key-c", "C", base.Add(time.Second)),
-		newTestLead(t, "lead-b", 101, "key-b", "B", base),
+		newTestLead(t, idA, namespace.tenantID, namespace.key("key-a"), "A", base),
+		newTestLead(t, idC, namespace.tenantID, namespace.key("key-c"), "C", base.Add(time.Second)),
+		newTestLead(t, idB, namespace.tenantID, namespace.key("key-b"), "B", base),
 	} {
 		mustCreateLead(t, repository, lead)
 	}
 
-	first, err := repository.List(context.Background(), ports.ListLeadsFilter{TenantID: 101, Limit: 2})
+	first, err := repository.List(context.Background(), ports.ListLeadsFilter{TenantID: namespace.tenantID, Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := leadIDs(first.Items); fmt.Sprint(got) != "[lead-c lead-b]" {
-		t.Fatalf("first page IDs = %v", got)
-	}
+	assertLeadIDs(t, first.Items, idC, idB)
 	if first.NextCursor == "" {
 		t.Fatal("first page cursor is empty")
 	}
 
 	second, err := repository.List(context.Background(), ports.ListLeadsFilter{
-		TenantID: 101,
+		TenantID: namespace.tenantID,
 		Cursor:   first.NextCursor,
 		Limit:    2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := leadIDs(second.Items); fmt.Sprint(got) != "[lead-a]" {
-		t.Fatalf("second page IDs = %v", got)
-	}
+	assertLeadIDs(t, second.Items, idA)
 	if second.NextCursor != "" {
 		t.Fatalf("second page cursor = %q, want empty", second.NextCursor)
 	}
 }
 
 func TestLeadRepositoryListIncludesMaximumMySQLTimestampOnFirstPage(t *testing.T) {
-	repository, _ := integrationRepository(t)
+	repository, _, namespace := integrationRepository(t)
 	maximumMySQLTimestamp := time.Date(9999, time.December, 31, 23, 59, 59, 999999000, time.UTC)
+	id := namespace.id("maximum-time")
 	mustCreateLead(
 		t,
 		repository,
-		newTestLead(t, "maximum-time", 101, "maximum-time", "Maximum Time", maximumMySQLTimestamp),
+		newTestLead(t, id, namespace.tenantID, namespace.key("maximum-time"), "Maximum Time", maximumMySQLTimestamp),
 	)
 
-	page, err := repository.List(context.Background(), ports.ListLeadsFilter{TenantID: 101, Limit: 1})
+	page, err := repository.List(context.Background(), ports.ListLeadsFilter{TenantID: namespace.tenantID, Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := leadIDs(page.Items); fmt.Sprint(got) != "[maximum-time]" {
-		t.Fatalf("first page IDs = %v", got)
-	}
+	assertLeadIDs(t, page.Items, id)
 }
 
 func TestLeadRepositoryConcurrentCreateProducesOneRow(t *testing.T) {
-	repository, db := integrationRepository(t)
+	repository, db, namespace := integrationRepository(t)
 	const calls = 10
 	createdAt := time.Date(2026, time.July, 30, 8, 0, 0, 0, time.UTC)
+	businessKey := namespace.key("concurrent")
 
 	start := make(chan struct{})
 	ids := make(chan string, calls)
@@ -155,7 +185,14 @@ func TestLeadRepositoryConcurrentCreateProducesOneRow(t *testing.T) {
 	var wait sync.WaitGroup
 	leads := make([]domain.Lead, calls)
 	for i := 0; i < calls; i++ {
-		leads[i] = newTestLead(t, fmt.Sprintf("concurrent-%02d", i), 101, "concurrent-key", "Concurrent", createdAt)
+		leads[i] = newTestLead(
+			t,
+			namespace.id(fmt.Sprintf("concurrent-%02d", i)),
+			namespace.tenantID,
+			businessKey,
+			"Concurrent",
+			createdAt,
+		)
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
@@ -191,10 +228,61 @@ func TestLeadRepositoryConcurrentCreateProducesOneRow(t *testing.T) {
 			t.Fatalf("returned ID = %q, want %q", id, persistedID)
 		}
 	}
-	assertTenantBusinessKeyCount(t, db, 101, "concurrent-key", 1)
+	assertTenantBusinessKeyCount(t, db, namespace.tenantID, businessKey, 1)
 }
 
-func integrationRepository(t *testing.T) (*LeadRepository, *sql.DB) {
+func TestIntegrationRepositoryPreservesOtherRowsAndCleansOwnTenant(t *testing.T) {
+	dsn := os.Getenv("MOCHAT_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("MOCHAT_MYSQL_DSN is required for MySQL integration tests")
+	}
+	db, err := mysqlconn.Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sentinelNamespace := newIntegrationNamespace()
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(
+			context.Background(),
+			"DELETE FROM mochat_go_scrm_leads WHERE tenant_id IN (?, ?)",
+			sentinelNamespace.tenantID,
+			sentinelNamespace.otherTenantID,
+		)
+		_ = db.Close()
+	})
+	repository, err := NewLeadRepository(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sentinelID := sentinelNamespace.id("sentinel")
+	sentinelKey := sentinelNamespace.key("sentinel")
+	mustCreateLead(
+		t,
+		repository,
+		newTestLead(t, sentinelID, sentinelNamespace.tenantID, sentinelKey, "Sentinel", time.Now().UTC()),
+	)
+
+	var ownedTenant int64
+	var ownedKey string
+	t.Run("scoped fixture", func(t *testing.T) {
+		scopedRepository, _, namespace := integrationRepository(t)
+		ownedTenant = namespace.tenantID
+		ownedKey = namespace.key("owned")
+		mustCreateLead(
+			t,
+			scopedRepository,
+			newTestLead(t, namespace.id("owned"), ownedTenant, ownedKey, "Owned", time.Now().UTC()),
+		)
+	})
+
+	sentinelCount := tenantBusinessKeyCount(t, db, sentinelNamespace.tenantID, sentinelKey)
+	ownedCount := tenantBusinessKeyCount(t, db, ownedTenant, ownedKey)
+	if sentinelCount != 1 || ownedCount != 0 {
+		t.Fatalf("post-fixture counts = sentinel:%d owned:%d, want sentinel:1 owned:0", sentinelCount, ownedCount)
+	}
+}
+
+func integrationRepository(t *testing.T) (*LeadRepository, *sql.DB, integrationNamespace) {
 	t.Helper()
 	dsn := os.Getenv("MOCHAT_MYSQL_DSN")
 	if dsn == "" {
@@ -204,20 +292,26 @@ func integrationRepository(t *testing.T) (*LeadRepository, *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	namespace := newIntegrationNamespace()
 	t.Cleanup(func() {
+		if _, err := db.ExecContext(
+			context.Background(),
+			"DELETE FROM mochat_go_scrm_leads WHERE tenant_id IN (?, ?)",
+			namespace.tenantID,
+			namespace.otherTenantID,
+		); err != nil {
+			t.Errorf("clean integration tenant namespace: %v", err)
+		}
 		_ = db.Close()
 	})
 	if err := db.PingContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(context.Background(), "DELETE FROM mochat_go_scrm_leads"); err != nil {
-		t.Fatalf("clean leads table: %v", err)
-	}
 	repository, err := NewLeadRepository(db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return repository, db
+	return repository, db, namespace
 }
 
 func newTestLead(t *testing.T, id string, tenantID int64, businessKey, name string, createdAt time.Time) domain.Lead {
@@ -240,6 +334,14 @@ func mustCreateLead(t *testing.T, repository *LeadRepository, lead domain.Lead) 
 
 func assertTenantBusinessKeyCount(t *testing.T, db *sql.DB, tenantID int64, businessKey string, want int) {
 	t.Helper()
+	got := tenantBusinessKeyCount(t, db, tenantID, businessKey)
+	if got != want {
+		t.Fatalf("row count for tenant=%d business_key=%q = %d, want %d", tenantID, businessKey, got, want)
+	}
+}
+
+func tenantBusinessKeyCount(t *testing.T, db *sql.DB, tenantID int64, businessKey string) int {
+	t.Helper()
 	var got int
 	err := db.QueryRowContext(
 		context.Background(),
@@ -250,8 +352,19 @@ func assertTenantBusinessKeyCount(t *testing.T, db *sql.DB, tenantID int64, busi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != want {
-		t.Fatalf("row count for tenant=%d business_key=%q = %d, want %d", tenantID, businessKey, got, want)
+	return got
+}
+
+func assertLeadIDs(t *testing.T, leads []domain.Lead, want ...string) {
+	t.Helper()
+	got := leadIDs(leads)
+	if len(got) != len(want) {
+		t.Fatalf("lead IDs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("lead IDs = %v, want %v", got, want)
+		}
 	}
 }
 

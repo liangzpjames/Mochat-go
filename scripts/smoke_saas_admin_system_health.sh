@@ -175,7 +175,7 @@ grep -q $'0089_saas_invoice_issue_approval_guard\tapplied_now' "$WORK_DIR/migrat
 grep -q $'0090_saas_payment_order_create_approval_guard\tapplied_now' "$WORK_DIR/migrate.out"
 grep -q $'0091_saas_payment_settlement_close_guard\tapplied_now' "$WORK_DIR/migrate.out"
 grep -q $'0092_saas_payment_settlement_reopen_guard\tapplied_now' "$WORK_DIR/migrate.out"
-test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "97"
+test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "98"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_admin_role_permissions WHERE permission_code = 'platform.system.read'")" = "3"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_admin_role_permissions WHERE permission_code = 'platform.system.manage'")" = "1"
 

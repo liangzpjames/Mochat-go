@@ -235,7 +235,7 @@ grep -q $'0092_saas_payment_settlement_reopen_guard\tbaselined' "$WORK_DIR/migra
 grep -q $'0093_saas_payment_settlement_resolve_guard\tbaselined' "$WORK_DIR/migrate-baseline.out"
 grep -q $'0094_saas_tenant_domain_command_guard\tbaselined' "$WORK_DIR/migrate-baseline.out"
 grep -q $'0096_saas_tenant_enable_approval_guard\tbaselined' "$WORK_DIR/migrate-baseline.out"
-grep -q $'0097_saas_release_evidence_action_tracking\tbaselined' "$WORK_DIR/migrate-baseline.out"
+grep -q $'0098_scrm_lead_foundation\tbaselined' "$WORK_DIR/migrate-baseline.out"
 
 compose exec -T app sh -c 'command -v mysqldump >/dev/null && command -v mysql >/dev/null'
 
@@ -409,7 +409,7 @@ curl -sS -f \
   -H "Content-Type: application/json" \
   -d '{"action":"create"}' \
   "http://127.0.0.1:$GO_PORT/dashboard/saasAdmin/backupRun" >"$WORK_DIR/backup-create.json"
-test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_backup_runs WHERE status = 'succeeded' AND encrypted = 1 AND verification_status = 'passed' AND migration_version = '0097_saas_release_evidence_action_tracking' AND migration_count = 97")" = "1"
+test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_backup_runs WHERE status = 'succeeded' AND encrypted = 1 AND verification_status = 'passed' AND migration_version = '0098_scrm_lead_foundation' AND migration_count = 98")" = "1"
 
 curl -sS -f \
   -H "Authorization: Bearer $TOKEN" \
@@ -526,8 +526,8 @@ assert backup_create["code"] == 201, backup_create
 assert backup_create["data"]["run"]["status"] == "succeeded", backup_create
 assert backup_create["data"]["run"]["encrypted"] is True, backup_create
 assert backup_create["data"]["run"]["verificationStatus"] == "passed", backup_create
-assert backup_create["data"]["run"]["migrationVersion"] == "0097_saas_release_evidence_action_tracking", backup_create
-assert backup_create["data"]["run"]["migrationCount"] == 97, backup_create
+assert backup_create["data"]["run"]["migrationVersion"] == "0098_scrm_lead_foundation", backup_create
+assert backup_create["data"]["run"]["migrationCount"] == 98, backup_create
 assert audit_integrity_verify["code"] == 200, audit_integrity_verify
 assert audit_integrity_verify["data"]["scannedChains"] == 1, audit_integrity_verify
 assert audit_integrity_verify["data"]["healthyChains"] == 1, audit_integrity_verify

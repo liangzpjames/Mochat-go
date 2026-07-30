@@ -136,7 +136,7 @@ grep -q '0052_saas_compliance_lifecycle' "$WORK_DIR/migrate.out"
 grep -q '0064_saas_audit_anchor_remote_immutability' "$WORK_DIR/migrate.out"
 grep -q '0067_wecom_credential_encryption' "$WORK_DIR/migrate.out"
 grep -q '0068_wechat_open_credential_encryption' "$WORK_DIR/migrate.out"
-test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_schema_migrations")" = "97"
+test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_schema_migrations")" = "98"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_admin_roles WHERE is_system = 1 AND status = 1")" = "6"
 test "$(mysql_scalar "SELECT COUNT(DISTINCT permission_code) FROM mochat_go_saas_admin_role_permissions")" = "31"
 

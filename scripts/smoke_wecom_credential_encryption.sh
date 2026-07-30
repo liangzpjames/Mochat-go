@@ -181,7 +181,7 @@ env -u GOROOT go build -o "$GO_BIN" ./cmd/mochat-go
 DSN="mochat:mochat_pass@tcp(127.0.0.1:$MYSQL_PORT)/mochat?parseTime=true&loc=Local"
 "$MIGRATE_BIN" -dsn "$DSN" -project-root "$PWD" -action baseline >"$WORK_DIR/migrate-baseline.out"
 grep -q $'0068_wechat_open_credential_encryption\tbaselined' "$WORK_DIR/migrate-baseline.out"
-test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "97"
+test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "98"
 test "$(mysql_scalar "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'mochat' AND table_name = 'mc_corp' AND column_name IN ('wecom_credentials_ciphertext', 'wecom_credentials_key_id')")" = "2"
 test "$(mysql_scalar "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'mochat' AND table_name = 'mc_work_agent' AND column_name IN ('wecom_credentials_ciphertext', 'wecom_credentials_key_id')")" = "2"
 

@@ -72,6 +72,25 @@ func TestDefaultMigrationsDiscoversIncrementalFiles(t *testing.T) {
 	}
 }
 
+func TestStandaloneComposeFreshInitMountsLatestMigration(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	migrations := DefaultMigrations(projectRoot)
+	latest := migrations[len(migrations)-1]
+	composePath := filepath.Join(projectRoot, "deploy", "standalone", "docker-compose.yml")
+	composeBody, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantMount := "./migrations/0098_scrm_lead_foundation.up.sql:/docker-entrypoint-initdb.d/098-scrm-lead-foundation.sql:ro"
+	if latest.Version != "0098_scrm_lead_foundation" {
+		t.Fatalf("latest migration = %q, want 0098_scrm_lead_foundation", latest.Version)
+	}
+	if !strings.Contains(string(composeBody), wantMount) {
+		t.Fatalf("standalone fresh init does not mount latest migration %q", wantMount)
+	}
+}
+
 func TestLegacyCombinedInitialChecksums(t *testing.T) {
 	root := t.TempDir()
 	schemaPath := filepath.Join(root, "mochat.sql")

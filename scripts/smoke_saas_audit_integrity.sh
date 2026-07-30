@@ -191,7 +191,7 @@ DSN="mochat:mochat_pass@tcp(127.0.0.1:$MYSQL_PORT)/$DATABASE?parseTime=true&loc=
 "$MIGRATE_BIN" -dsn "$DSN" -project-root "$PWD" -action apply >"$WORK_DIR/migrate.out"
 grep -q $'0064_saas_audit_anchor_remote_immutability\tapplied_now' "$WORK_DIR/migrate.out"
 grep -q $'0068_wechat_open_credential_encryption\tapplied_now' "$WORK_DIR/migrate.out"
-test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "97"
+test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "98"
 test "$(mysql_scalar "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DATABASE' AND table_name = 'mochat_go_saas_admin_audit_anchor_checkpoints'")" = "1"
 test "$(mysql_scalar "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = '$DATABASE' AND table_name = 'mochat_go_saas_admin_audit_anchor_checkpoints' AND column_name IN ('remote_status', 'remote_object_key', 'remote_version_id', 'remote_retention_mode', 'remote_retain_until')")" = "5"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_admin_role_permissions WHERE permission_code = 'platform.audit.manage'")" = "1"

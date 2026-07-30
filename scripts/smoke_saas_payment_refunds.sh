@@ -227,7 +227,7 @@ grep -q $'0047_saas_admin_approval_governance\tapplied_now' "$WORK_DIR/migrate.o
 grep -q $'0049_saas_service_accounts\tapplied_now' "$WORK_DIR/migrate.out"
 grep -q $'0064_saas_audit_anchor_remote_immutability\tapplied_now' "$WORK_DIR/migrate.out"
 grep -q $'0068_wechat_open_credential_encryption\tapplied_now' "$WORK_DIR/migrate.out"
-test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_schema_migrations")" = "97"
+test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_schema_migrations")" = "98"
 test "$(mysql_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = '$DATABASE' AND TABLE_NAME = 'mochat_go_saas_payment_refunds' AND INDEX_NAME = 'uni_mochat_go_saas_payment_refunds_idempotency'")" = "2"
 test "$(mysql_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = '$DATABASE' AND TABLE_NAME = 'mochat_go_saas_payment_orders' AND INDEX_NAME = 'idx_mochat_go_saas_payment_orders_refund'")" = "4"
 

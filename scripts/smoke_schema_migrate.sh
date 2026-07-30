@@ -1187,7 +1187,6 @@ grep -q $'0002_smoke_rollback\trolled_back' "$WORK_DIR/rollback.out"
 test "$(mysql_scalar mochat_migrate_check "SHOW TABLES LIKE 'mochat_go_migration_smoke'")" = ""
 test "$(mysql_scalar mochat_migrate_check "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = '0002_smoke_rollback'")" = "0"
 
-mysql_root mochat < deploy/standalone/migrations/0098_scrm_lead_foundation.up.sql
 test "$(mysql_scalar mochat "SHOW TABLES LIKE 'mochat_go_scrm_leads'")" = "mochat_go_scrm_leads"
 
 "$MIGRATE_BIN" -dsn "$BASELINE_DSN" -project-root "$PWD" -action baseline >"$WORK_DIR/baseline.out"

@@ -240,8 +240,8 @@ grep -q $'0092_saas_payment_settlement_reopen_guard\tapplied_now' "$WORK_DIR/mig
 grep -q $'0093_saas_payment_settlement_resolve_guard\tapplied_now' "$WORK_DIR/migrate.out"
 grep -q $'0094_saas_tenant_domain_command_guard\tapplied_now' "$WORK_DIR/migrate.out"
 grep -q $'0096_saas_tenant_enable_approval_guard\tapplied_now' "$WORK_DIR/migrate.out"
-grep -q $'0097_saas_release_evidence_action_tracking\tapplied_now' "$WORK_DIR/migrate.out"
-test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "97"
+grep -q $'0098_scrm_lead_foundation\tapplied_now' "$WORK_DIR/migrate.out"
+test "$(mysql_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "98"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_admin_role_permissions WHERE permission_code = 'platform.backups.read'")" = "3"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_admin_role_permissions WHERE permission_code = 'platform.backups.manage'")" = "1"
 
@@ -369,7 +369,7 @@ jq -e --argjson run_id "$OLD_KEY_RUN_ID" 'any(.data.runs[]; .id == $run_id and .
 mysql_root "$DATABASE" -e "UPDATE mochat_go_saas_backup_runs SET finished_at = NOW(), verified_at = NOW(), replicated_at = NOW(), replica_verified_at = NOW() WHERE id = $OLD_KEY_RUN_ID"
 
 api_write POST "$OPERATOR_TOKEN" '/dashboard/saasAdmin/backupRun' '{"action":"create"}' "$WORK_DIR/manual-create.json" 201
-jq -e '.data.run.status == "succeeded" and .data.run.encrypted == true and .data.run.encryptionKeyId == "backup-smoke-q3" and .data.run.encryptionKeyReady == true and .data.run.verificationStatus == "passed" and .data.run.replicaStatus == "succeeded" and .data.run.replicaProvider == "s3" and .data.run.replicaBucket == "mochat-backup-smoke" and (.data.run.replicaObjectKey | length) > 0 and .data.run.replicaSha256 == .data.run.sha256 and .data.run.replicaSizeBytes == .data.run.sizeBytes and .data.run.migrationVersion == "0097_saas_release_evidence_action_tracking" and .data.run.migrationCount == 97 and (.data.run.sha256 | length) == 64 and .data.run.sizeBytes > 0' "$WORK_DIR/manual-create.json" >/dev/null
+jq -e '.data.run.status == "succeeded" and .data.run.encrypted == true and .data.run.encryptionKeyId == "backup-smoke-q3" and .data.run.encryptionKeyReady == true and .data.run.verificationStatus == "passed" and .data.run.replicaStatus == "succeeded" and .data.run.replicaProvider == "s3" and .data.run.replicaBucket == "mochat-backup-smoke" and (.data.run.replicaObjectKey | length) > 0 and .data.run.replicaSha256 == .data.run.sha256 and .data.run.replicaSizeBytes == .data.run.sizeBytes and .data.run.migrationVersion == "0098_scrm_lead_foundation" and .data.run.migrationCount == 98 and (.data.run.sha256 | length) == 64 and .data.run.sizeBytes > 0' "$WORK_DIR/manual-create.json" >/dev/null
 MANUAL_RUN_ID="$(jq -er '.data.run.id' "$WORK_DIR/manual-create.json")"
 MANUAL_ARTIFACT_NAME="$(jq -er '.data.run.artifactName' "$WORK_DIR/manual-create.json")"
 MANUAL_OBJECT_KEY="$(jq -er '.data.run.replicaObjectKey' "$WORK_DIR/manual-create.json")"
@@ -408,7 +408,7 @@ jq -e '.data.run.verificationStatus == "passed" and .data.run.replicaStatus == "
 
 SOURCE_TABLE_COUNT="$(mysql_scalar "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$DATABASE'")"
 api_write POST "$OPERATOR_TOKEN" '/dashboard/saasAdmin/restoreDrill' "{\"backupRunId\":$MANUAL_RUN_ID}" "$WORK_DIR/restore-success.json"
-jq -e '.data.drill.status == "succeeded" and .data.drill.actualMigrationVersion == "0097_saas_release_evidence_action_tracking" and .data.drill.actualMigrationCount == 97 and .data.drill.checks.passed == true and .data.drill.targetLifecycle == "ephemeral" and .data.drill.targetCleanupStatus == "succeeded" and .data.drill.checks.targetCleanupPassed == true and (.data.drill.targetCleanedAt | length) > 0 and (.data.drill.targetFingerprint | length) == 64' "$WORK_DIR/restore-success.json" >/dev/null
+jq -e '.data.drill.status == "succeeded" and .data.drill.actualMigrationVersion == "0098_scrm_lead_foundation" and .data.drill.actualMigrationCount == 98 and .data.drill.checks.passed == true and .data.drill.targetLifecycle == "ephemeral" and .data.drill.targetCleanupStatus == "succeeded" and .data.drill.checks.targetCleanupPassed == true and (.data.drill.targetCleanedAt | length) > 0 and (.data.drill.targetFingerprint | length) == 64' "$WORK_DIR/restore-success.json" >/dev/null
 AUTO_RESTORE_DATABASE="$(jq -er '.data.drill.targetDatabase' "$WORK_DIR/restore-success.json")"
 test "$(mysql_scalar "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '$AUTO_RESTORE_DATABASE'")" = "0"
 
@@ -431,7 +431,7 @@ env -u GOROOT \
 grep -q $'status\tsucceeded' "$WORK_DIR/preconfigured-restore.out"
 grep -q $'target_lifecycle\tpreconfigured' "$WORK_DIR/preconfigured-restore.out"
 grep -q $'target_cleanup_status\tnot_required' "$WORK_DIR/preconfigured-restore.out"
-test "$(restore_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "97"
+test "$(restore_scalar 'SELECT COUNT(*) FROM mochat_go_schema_migrations')" = "98"
 test "$(restore_scalar "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$RESTORE_DATABASE'")" = "$SOURCE_TABLE_COUNT"
 test "$(restore_scalar "SELECT COUNT(*) FROM mc_user WHERE name = '$PLAINTEXT_MARKER'")" = "1"
 
