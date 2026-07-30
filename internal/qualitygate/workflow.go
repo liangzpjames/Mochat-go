@@ -3,6 +3,7 @@ package qualitygate
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,6 +41,9 @@ var requiredTriggerPaths = []string{
 }
 
 var environmentAssignmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+var githubRunnerStatePattern = regexp.MustCompile(
+	`(?i)(?:\bGITHUB_(?:ENV|PATH)\b|github\s*(?:\.\s*(?:env|path)\b|\[\s*['"](?:env|path)['"]\s*\]))`,
+)
 
 type workflowDocument struct {
 	On       workflowTriggers       `yaml:"on"`
@@ -113,6 +117,19 @@ var requiredStepEnvironments = map[string]map[string]string{
 		"MOCHAT_MYSQL_DSN":                 "mochat:mochat_pass@tcp(127.0.0.1:13333)/mochat?parseTime=true&loc=UTC",
 		"MOCHAT_REQUIRE_MYSQL_INTEGRATION": "1",
 	},
+}
+
+var approvedNonRequiredRunSteps = map[string]string{
+	"Install frontend dependencies":           "pnpm install --frozen-lockfile",
+	"Frontend quick gate":                     "./scripts/frontend_check.sh quick",
+	"Frontend build gate":                     "./scripts/frontend_check.sh build",
+	"Architecture wrapper compatibility test": "sh ./scripts/test_audit_architecture_boundaries.sh",
+	"Backend quality gate workflow contract":  "sh ./scripts/test_backend_quality_gate_contract.sh",
+	"Docker info":                             "docker info",
+	"Architecture boundaries":                 "./scripts/audit_architecture_boundaries.sh\n./scripts/test_audit_architecture_boundaries.sh\n",
+	"Run MySQL 5.7 amd64 gate":                "mkdir -p docs/phases/phase-pre0-standalone/evidence/ci\nenv -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log\ngrep -q \"mysql57 amd64 CI gate passed\" docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log\n",
+	"Install Playwright Chromium":             "pnpm --filter @mochat/e2e exec playwright install --with-deps chromium",
+	"Frontend browser gate":                   "./scripts/frontend_check.sh e2e",
 }
 
 // Validate checks the workflow and every repository file that owns part of the
@@ -229,6 +246,51 @@ func validateWorkflow(path string) []string {
 			"workflow job "+workflowJobID+" defaults.run.working-directory must stay at repository root",
 		)
 	}
+	for position, step := range job.Steps {
+		if step.Run == "" {
+			continue
+		}
+		name := step.Name
+		if name == "" {
+			name = fmt.Sprintf("#%d", position+1)
+		}
+		required := requiredWorkflowStep(step.Name)
+		if !required && !approvedRunFingerprint(step.Name, step.Run) {
+			failures = append(
+				failures,
+				"workflow job "+workflowJobID+" step "+name+
+					" must match its approved run fingerprint",
+			)
+		}
+		if !supportedWorkflowShell(step.Shell) {
+			if required {
+				failures = append(
+					failures,
+					step.Name+" step shell must provide supported bash errexit semantics",
+				)
+			} else {
+				failures = append(
+					failures,
+					"workflow job "+workflowJobID+" step "+name+
+						" shell must provide supported bash errexit semantics",
+				)
+			}
+		}
+		if !required && len(step.Env) != 0 {
+			failures = append(
+				failures,
+				"workflow job "+workflowJobID+" step "+name+
+					" must not set environment overrides",
+			)
+		}
+		if writesGitHubRunnerEnvironmentState(step.Run) {
+			failures = append(
+				failures,
+				"workflow job "+workflowJobID+" step "+name+
+					" must not write GitHub runner environment state",
+			)
+		}
+	}
 
 	stepByName := make(map[string]workflowStep, len(job.Steps))
 	positionByName := make(map[string]int, len(job.Steps))
@@ -269,12 +331,6 @@ func validateWorkflow(path string) []string {
 		}
 		if !yamlBooleanOrAbsent(step.ContinueOnError, false) {
 			failures = append(failures, required.name+" step must not continue on error")
-		}
-		if !supportedWorkflowShell(step.Shell) {
-			failures = append(
-				failures,
-				required.name+" step shell must provide supported bash errexit semantics",
-			)
 		}
 		if !repositoryRootWorkingDirectory(step.WorkingDirectory) {
 			failures = append(
@@ -487,6 +543,381 @@ func environmentMatches(actual, expected map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func approvedRunFingerprint(name, contents string) bool {
+	approved, exists := approvedNonRequiredRunSteps[name]
+	if !exists {
+		return false
+	}
+	return sha256.Sum256([]byte(contents)) == sha256.Sum256([]byte(approved))
+}
+
+func requiredWorkflowStep(name string) bool {
+	for _, required := range requiredSteps {
+		if required.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func writesGitHubRunnerEnvironmentState(contents string) bool {
+	return writesGitHubRunnerEnvironmentStateDepth(contents, 0)
+}
+
+func writesGitHubRunnerEnvironmentStateDepth(contents string, depth int) bool {
+	file, err := parseShell(contents)
+	if err != nil {
+		return githubRunnerStatePattern.MatchString(contents)
+	}
+
+	aliases := runnerStateAliases(file)
+	writesState := false
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if writesState || node == nil {
+			return !writesState
+		}
+		switch typed := node.(type) {
+		case *syntax.Redirect:
+			if outputRedirect(typed.Op) &&
+				shellWordReferencesRunnerState(typed.Word, aliases) {
+				writesState = true
+				return false
+			}
+		case *syntax.CallExpr:
+			if shellCallMayWriteRunnerState(typed, aliases, depth) {
+				writesState = true
+				return false
+			}
+		}
+		return true
+	})
+	return writesState
+}
+
+func runnerStateAliases(file *syntax.File) map[string]struct{} {
+	aliases := make(map[string]struct{})
+	knownValues := make(map[string]string)
+	for pass := 0; pass < 64; pass++ {
+		changed := false
+		syntax.Walk(file, func(node syntax.Node) bool {
+			assignment, ok := node.(*syntax.Assign)
+			if !ok || assignment.Name == nil {
+				return true
+			}
+			name := assignment.Name.Value
+			if assignment.Value != nil {
+				if value, known := staticShellWordValue(assignment.Value, knownValues); known {
+					if assignment.Append {
+						base, exists := knownValues[name]
+						if !exists {
+							return true
+						}
+						value = base + value
+					}
+					if knownValues[name] != value {
+						knownValues[name] = value
+						changed = true
+					}
+					if githubRunnerStatePattern.MatchString(value) {
+						if _, exists := aliases[name]; !exists {
+							aliases[name] = struct{}{}
+							changed = true
+						}
+					}
+				}
+			}
+			valueReferencesState := assignment.Value != nil &&
+				shellWordReferencesRunnerState(assignment.Value, aliases)
+			arrayReferencesState := assignment.Array != nil &&
+				shellNodeReferencesRunnerState(assignment.Array, aliases)
+			if valueReferencesState || arrayReferencesState {
+				if _, exists := aliases[name]; !exists {
+					aliases[name] = struct{}{}
+					changed = true
+				}
+			}
+			return true
+		})
+		if !changed {
+			return aliases
+		}
+	}
+	return aliases
+}
+
+func staticShellWordValue(word *syntax.Word, knownValues map[string]string) (string, bool) {
+	if word == nil {
+		return "", false
+	}
+	return staticShellWordPartsValue(word.Parts, knownValues)
+}
+
+func staticShellWordPartsValue(
+	parts []syntax.WordPart,
+	knownValues map[string]string,
+) (string, bool) {
+	var value strings.Builder
+	for _, part := range parts {
+		switch typed := part.(type) {
+		case *syntax.Lit:
+			value.WriteString(typed.Value)
+		case *syntax.SglQuoted:
+			value.WriteString(typed.Value)
+		case *syntax.DblQuoted:
+			nested, known := staticShellWordPartsValue(typed.Parts, knownValues)
+			if !known {
+				return "", false
+			}
+			value.WriteString(nested)
+		case *syntax.ParamExp:
+			if !simpleShellParameterExpansion(typed) {
+				return "", false
+			}
+			known, exists := knownValues[typed.Param.Value]
+			if !exists {
+				return "", false
+			}
+			value.WriteString(known)
+		default:
+			return "", false
+		}
+	}
+	return value.String(), true
+}
+
+func simpleShellParameterExpansion(parameter *syntax.ParamExp) bool {
+	return parameter != nil &&
+		parameter.Param != nil &&
+		parameter.Flags == nil &&
+		!parameter.Excl &&
+		!parameter.Length &&
+		!parameter.Width &&
+		!parameter.IsSet &&
+		parameter.NestedParam == nil &&
+		parameter.Index == nil &&
+		len(parameter.Modifiers) == 0 &&
+		parameter.Slice == nil &&
+		parameter.Repl == nil &&
+		parameter.Names == 0 &&
+		parameter.Exp == nil
+}
+
+func shellWordReferencesRunnerState(word *syntax.Word, aliases map[string]struct{}) bool {
+	if word == nil {
+		return false
+	}
+	return shellNodeReferencesRunnerState(word, aliases)
+}
+
+func shellNodeReferencesRunnerState(node syntax.Node, aliases map[string]struct{}) bool {
+	if node == nil {
+		return false
+	}
+	referencesState := false
+	syntax.Walk(node, func(nested syntax.Node) bool {
+		if referencesState || nested == nil {
+			return !referencesState
+		}
+		switch typed := nested.(type) {
+		case *syntax.ParamExp:
+			if typed.Param != nil {
+				if githubRunnerStatePattern.MatchString(typed.Param.Value) {
+					referencesState = true
+					return false
+				}
+				if _, exists := aliases[typed.Param.Value]; exists {
+					referencesState = true
+					return false
+				}
+			}
+		case *syntax.Lit:
+			referencesState = githubRunnerStatePattern.MatchString(typed.Value)
+		}
+		return !referencesState
+	})
+	return referencesState
+}
+
+func outputRedirect(operator syntax.RedirOperator) bool {
+	switch operator {
+	case syntax.RdrOut,
+		syntax.AppOut,
+		syntax.RdrInOut,
+		syntax.DplOut,
+		syntax.RdrClob,
+		syntax.AppClob,
+		syntax.RdrAll,
+		syntax.RdrAllClob,
+		syntax.AppAll,
+		syntax.AppAllClob:
+		return true
+	default:
+		return false
+	}
+}
+
+func shellCallMayWriteRunnerState(
+	call *syntax.CallExpr,
+	aliases map[string]struct{},
+	depth int,
+) bool {
+	if len(call.Args) == 0 {
+		return false
+	}
+	if nestedShellMayWriteRunnerState(call, depth) {
+		return true
+	}
+	referencesState := false
+	for _, argument := range call.Args {
+		if shellWordReferencesRunnerState(argument, aliases) {
+			referencesState = true
+			break
+		}
+	}
+	if !referencesState {
+		for _, assignment := range call.Assigns {
+			if assignment.Value != nil &&
+				shellWordReferencesRunnerState(assignment.Value, aliases) {
+				referencesState = true
+				break
+			}
+		}
+	}
+	if !referencesState {
+		return false
+	}
+
+	switch shellCallCommandName(call.Args) {
+	case "printf":
+		for _, argument := range call.Args {
+			if argument.Lit() == "-v" {
+				return true
+			}
+		}
+		return false
+	case "echo", "printenv", "cat", "grep", "test", "stat", "ls",
+		"readlink", "realpath", "dirname", "basename", "wc", "head", "tail",
+		"cmp", "diff", "sha256sum":
+		return false
+	default:
+		return true
+	}
+}
+
+func shellCallCommandName(arguments []*syntax.Word) string {
+	name, _ := shellCallCommand(arguments)
+	return name
+}
+
+func shellCallCommand(arguments []*syntax.Word) (string, int) {
+	index := 0
+	for index < len(arguments) {
+		switch arguments[index].Lit() {
+		case "builtin":
+			index++
+		case "command":
+			index++
+			for index < len(arguments) {
+				option := arguments[index].Lit()
+				if option == "--" {
+					index++
+					break
+				}
+				if option != "-p" && option != "-v" && option != "-V" {
+					break
+				}
+				index++
+			}
+		case "env":
+			index++
+			for index < len(arguments) {
+				option := arguments[index].Lit()
+				switch {
+				case option == "--":
+					index++
+					break
+				case option == "-u" || option == "--unset":
+					index += 2
+					continue
+				case strings.HasPrefix(option, "--unset="),
+					option == "-i",
+					option == "--ignore-environment",
+					environmentAssignmentPattern.MatchString(option):
+					index++
+					continue
+				}
+				break
+			}
+		default:
+			return arguments[index].Lit(), index
+		}
+	}
+	return "", -1
+}
+
+func nestedShellMayWriteRunnerState(call *syntax.CallExpr, depth int) bool {
+	name, commandIndex := shellCallCommand(call.Args)
+	if commandIndex < 0 {
+		return false
+	}
+	switch name {
+	case "bash", "sh", "dash", "ksh", "zsh":
+		payloadIndex := shellCommandPayloadIndex(call.Args, commandIndex+1, "-c")
+		if payloadIndex < 0 {
+			return false
+		}
+		if depth >= 8 || payloadIndex >= len(call.Args) {
+			return true
+		}
+		payload, literal := literalShellWord(call.Args[payloadIndex])
+		return !literal || writesGitHubRunnerEnvironmentStateDepth(payload, depth+1)
+	case "eval":
+		if depth >= 8 || commandIndex+1 >= len(call.Args) {
+			return true
+		}
+		payload := make([]string, 0, len(call.Args)-commandIndex-1)
+		for _, argument := range call.Args[commandIndex+1:] {
+			literal, known := literalShellWord(argument)
+			if !known {
+				return true
+			}
+			payload = append(payload, literal)
+		}
+		return writesGitHubRunnerEnvironmentStateDepth(strings.Join(payload, " "), depth+1)
+	case "python", "python3":
+		return shellCommandPayloadIndex(call.Args, commandIndex+1, "-c") >= 0
+	case "node", "ruby", "perl":
+		return shellCommandPayloadIndex(call.Args, commandIndex+1, "-e") >= 0
+	case "pwsh", "powershell":
+		for _, argument := range call.Args[commandIndex+1:] {
+			switch strings.ToLower(argument.Lit()) {
+			case "-command", "-encodedcommand", "-c":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func shellCommandPayloadIndex(
+	arguments []*syntax.Word,
+	start int,
+	shortOption string,
+) int {
+	for index := start; index < len(arguments); index++ {
+		option := arguments[index].Lit()
+		if option == shortOption {
+			return index + 1
+		}
+		if strings.HasPrefix(option, "-") &&
+			!strings.HasPrefix(option, "--") &&
+			strings.Contains(option[1:], strings.TrimPrefix(shortOption, "-")) {
+			return index + 1
+		}
+	}
+	return -1
 }
 
 type shellStatement struct {

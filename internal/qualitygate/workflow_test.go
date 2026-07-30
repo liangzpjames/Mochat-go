@@ -536,6 +536,309 @@ func TestValidateWorkflowRejectsEnvironmentOverrides(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowRejectsPersistentRunnerStateWrites(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	const goTests = "      - name: Go tests\n" +
+		"        run: go test ./...\n"
+
+	for _, tc := range []struct {
+		name      string
+		stepName  string
+		injection string
+	}{
+		{
+			name:     "GOFLAGS through GITHUB_ENV",
+			stepName: "Poison GOFLAGS",
+			injection: "      - name: Poison GOFLAGS\n" +
+				"        run: echo 'GOFLAGS=-run=^$' >> \"$GITHUB_ENV\"\n\n",
+		},
+		{
+			name:     "fake go through braced GITHUB_PATH",
+			stepName: "Poison Go PATH",
+			injection: "      - name: Poison Go PATH\n" +
+				"        run: |\n" +
+				"          mkdir -p fake-bin\n" +
+				"          printf '#!/bin/sh\\nexit 0\\n' > fake-bin/go\n" +
+				"          chmod +x fake-bin/go\n" +
+				"          echo \"$PWD/fake-bin\" >> \"${GITHUB_PATH}\"\n\n",
+		},
+		{
+			name:     "BASH_ENV through GitHub expression",
+			stepName: "Poison Bash startup",
+			injection: "      - name: Poison Bash startup\n" +
+				"        run: |\n" +
+				"          printf 'go() { :; }\\n' > .fake-bash-env\n" +
+				"          printf 'BASH_ENV=%s/.fake-bash-env\\n' \"$PWD\" >> \"${{ github.env }}\"\n\n",
+		},
+		{
+			name:     "indirect GITHUB_ENV assignment",
+			stepName: "Poison through env alias",
+			injection: "      - name: Poison through env alias\n" +
+				"        run: |\n" +
+				"          runner_state=\"$GITHUB_ENV\"\n" +
+				"          echo 'GOFLAGS=-run=^$' >> \"$runner_state\"\n\n",
+		},
+		{
+			name:     "indirect GITHUB_PATH through tee",
+			stepName: "Poison through path alias",
+			injection: "      - name: Poison through path alias\n" +
+				"        run: |\n" +
+				"          path_state=\"${GITHUB_PATH}\"\n" +
+				"          printf '%s\\n' \"$PWD/fake-bin\" | tee -a \"$path_state\"\n\n",
+		},
+		{
+			name:     "constructed GITHUB_ENV name",
+			stepName: "Poison through constructed name",
+			injection: "      - name: Poison through constructed name\n" +
+				"        run: |\n" +
+				"          suffix=ENV\n" +
+				"          declare -n runner_state=GITHUB_$suffix\n" +
+				"          printf 'GOFLAGS=-run=^$\\n' >> \"$runner_state\"\n\n",
+		},
+		{
+			name:     "append constructed GITHUB_ENV name",
+			stepName: "Poison through appended name",
+			injection: "      - name: Poison through appended name\n" +
+				"        run: |\n" +
+				"          state_name=GITHUB_\n" +
+				"          state_name+=ENV\n" +
+				"          declare -n runner_state=$state_name\n" +
+				"          printf 'GOFLAGS=-run=^$\\n' >> \"$runner_state\"\n\n",
+		},
+		{
+			name:     "nested shell constructed GITHUB_ENV name",
+			stepName: "Poison through nested shell",
+			injection: "      - name: Poison through nested shell\n" +
+				"        run: |\n" +
+				"          bash -c 'state_name=GITHUB_; state_name+=ENV; declare -n state=$state_name; printf \"GOFLAGS=-run=^$\\\\n\" >> \"$state\"'\n\n",
+		},
+		{
+			name:     "bracket GitHub env expression",
+			stepName: "Poison through bracket expression",
+			injection: "      - name: Poison through bracket expression\n" +
+				"        run: echo 'GOFLAGS=-run=^$' >> \"${{ github['env'] }}\"\n\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeWorkflow(
+				t,
+				replaceWorkflowFixture(t, workflow, goTests, tc.injection+goTests),
+			)
+			assertFailureContains(
+				t,
+				validateWorkflow(path),
+				"workflow job mysql57-amd64 step "+tc.stepName+
+					" must not write GitHub runner environment state",
+			)
+		})
+	}
+}
+
+func TestValidateWorkflowRejectsPersistentRunnerStateContextBypasses(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	const goTests = "      - name: Go tests\n" +
+		"        run: go test ./...\n"
+
+	for _, tc := range []struct {
+		name      string
+		injection string
+		failure   string
+	}{
+		{
+			name: "Python constructed state name",
+			injection: "      - name: Python runner poison\n" +
+				"        shell: python\n" +
+				"        run: |\n" +
+				"          import os\n" +
+				"          key = \"GITHUB_\" + \"ENV\"\n" +
+				"          with open(os.environ[key], \"a\") as state:\n" +
+				"              state.write(\"GOFLAGS=-run=^$\\\\n\")\n\n",
+			failure: "workflow job mysql57-amd64 step Python runner poison shell must provide supported bash errexit semantics",
+		},
+		{
+			name: "PowerShell constructed state name",
+			injection: "      - name: PowerShell runner poison\n" +
+				"        shell: pwsh\n" +
+				"        run: |\n" +
+				"          $key = 'GITHUB_' + 'PATH'\n" +
+				"          Add-Content -Path (Get-Item \"Env:$key\").Value -Value \"$PWD/fake-bin\"\n\n",
+			failure: "workflow job mysql57-amd64 step PowerShell runner poison shell must provide supported bash errexit semantics",
+		},
+		{
+			name: "state path through step env",
+			injection: "      - name: Step env runner poison\n" +
+				"        env:\n" +
+				"          STATE_FILE: ${{ github.env }}\n" +
+				"        run: echo 'GOFLAGS=-run=^$' >> \"$STATE_FILE\"\n\n",
+			failure: "workflow job mysql57-amd64 step Step env runner poison must not set environment overrides",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeWorkflow(
+				t,
+				replaceWorkflowFixture(t, workflow, goTests, tc.injection+goTests),
+			)
+			assertFailureContains(t, validateWorkflow(path), tc.failure)
+		})
+	}
+}
+
+func TestValidateWorkflowRejectsUnapprovedRunSteps(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	const goTests = "      - name: Go tests\n" +
+		"        run: go test ./...\n"
+
+	for _, tc := range []struct {
+		name     string
+		workflow string
+		stepName string
+	}{
+		{
+			name: "inserted harmless run step",
+			workflow: replaceWorkflowFixture(
+				t,
+				workflow,
+				goTests,
+				"      - name: Unapproved helper\n"+
+					"        run: echo harmless\n\n"+
+					goTests,
+			),
+			stepName: "Unapproved helper",
+		},
+		{
+			name: "timeout wrapped nested shell",
+			workflow: replaceWorkflowFixture(
+				t,
+				workflow,
+				goTests,
+				"      - name: Wrapped runner poison\n"+
+					"        run: timeout 10 bash -c 'n=GITHUB_; n+=ENV; declare -n f=$n; printf \"GOFLAGS=-run=^$\\\\n\" >> \"$f\"'\n\n"+
+					goTests,
+			),
+			stepName: "Wrapped runner poison",
+		},
+		{
+			name: "stdin fed nested shell",
+			workflow: replaceWorkflowFixture(
+				t,
+				workflow,
+				goTests,
+				"      - name: Stdin runner poison\n"+
+					"        run: bash <<< 'n=GITHUB_; n+=ENV; declare -n f=$n; printf \"GOFLAGS=-run=^$\\\\n\" >> \"$f\"'\n\n"+
+					goTests,
+			),
+			stepName: "Stdin runner poison",
+		},
+		{
+			name: "approved name with changed command",
+			workflow: replaceWorkflowFixture(
+				t,
+				workflow,
+				"      - name: Docker info\n"+
+					"        run: docker info\n",
+				"      - name: Docker info\n"+
+					"        run: |\n"+
+					"          docker info\n"+
+					"          true\n",
+			),
+			stepName: "Docker info",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeWorkflow(t, tc.workflow)
+			assertFailureContains(
+				t,
+				validateWorkflow(path),
+				"workflow job mysql57-amd64 step "+tc.stepName+
+					" must match its approved run fingerprint",
+			)
+		})
+	}
+}
+
+func TestWritesGitHubRunnerEnvironmentState(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		script string
+		want   bool
+	}{
+		{
+			name:   "direct unquoted append",
+			script: `echo "GOFLAGS=-run=^$" >>$GITHUB_ENV`,
+			want:   true,
+		},
+		{
+			name:   "parameter modifier overwrite",
+			script: `echo "$PWD/fake-bin" >"${GITHUB_PATH:?missing}"`,
+			want:   true,
+		},
+		{
+			name: "command substitution alias",
+			script: "state=\"$(printenv GITHUB_ENV)\"\n" +
+				"printf '%s\\n' poison | command tee -a \"$state\"",
+			want: true,
+		},
+		{
+			name: "printf variable alias",
+			script: "printf -v state '%s' \"$GITHUB_ENV\"\n" +
+				"echo poison >> \"$state\"",
+			want: true,
+		},
+		{
+			name: "array alias",
+			script: "state=(\"$GITHUB_PATH\")\n" +
+				"echo \"$PWD/fake-bin\" >> \"${state[0]}\"",
+			want: true,
+		},
+		{
+			name:   "nested shell writer",
+			script: `bash -c 'echo "BASH_ENV=/tmp/poison" >> "$GITHUB_ENV"'`,
+			want:   true,
+		},
+		{
+			name:   "GitHub context expression",
+			script: `echo "GOFLAGS=-run=^$" >> "${{ github.env }}"`,
+			want:   true,
+		},
+		{
+			name:   "GitHub bracket context expression",
+			script: `echo "GOFLAGS=-run=^$" >> "${{ github['env'] }}"`,
+			want:   true,
+		},
+		{
+			name:   "single quoted literal filename",
+			script: `printf x > '$GITHUB_ENV'`,
+			want:   false,
+		},
+		{
+			name:   "harmless direct read",
+			script: `printf '%s\n' "$GITHUB_ENV"`,
+			want:   false,
+		},
+		{
+			name:   "harmless read redirected elsewhere",
+			script: `printf '%s\n' "$GITHUB_PATH" > debug.txt`,
+			want:   false,
+		},
+		{
+			name:   "alias without writer",
+			script: `state="$GITHUB_ENV"`,
+			want:   false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := writesGitHubRunnerEnvironmentState(tc.script); got != tc.want {
+				t.Fatalf(
+					"writesGitHubRunnerEnvironmentState(%q) = %t, want %t",
+					tc.script,
+					got,
+					tc.want,
+				)
+			}
+		})
+	}
+}
+
 func TestValidateWorkflowAllowsExplicitSafeExecutionControls(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
 	workflow = strings.Replace(
