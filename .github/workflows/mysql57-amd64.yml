@@ -11,6 +11,7 @@ on:
       - "cmd/mochat-frontend-e2e/**"
       - "deploy/mysql57/**"
       - "deploy/standalone/**"
+      - "migrations/**"
       - "go.mod"
       - "go.sum"
       - "internal/**"
@@ -28,6 +29,7 @@ on:
       - "scripts/audit_architecture_boundaries.sh"
       - "scripts/architecture-size-baseline.txt"
       - "scripts/test_audit_architecture_boundaries.sh"
+      - "scripts/test_backend_quality_gate_contract.sh"
       - "scripts/lint_mysql57_schema.sh"
       - "scripts/smoke_mysql57_schema_migrate.sh"
       - "scripts/standalone_acceptance.sh"
@@ -40,6 +42,7 @@ on:
       - "cmd/mochat-frontend-e2e/**"
       - "deploy/mysql57/**"
       - "deploy/standalone/**"
+      - "migrations/**"
       - "go.mod"
       - "go.sum"
       - "internal/**"
@@ -57,6 +60,7 @@ on:
       - "scripts/audit_architecture_boundaries.sh"
       - "scripts/architecture-size-baseline.txt"
       - "scripts/test_audit_architecture_boundaries.sh"
+      - "scripts/test_backend_quality_gate_contract.sh"
       - "scripts/lint_mysql57_schema.sh"
       - "scripts/smoke_mysql57_schema_migrate.sh"
       - "scripts/standalone_acceptance.sh"
@@ -109,6 +113,9 @@ jobs:
       - name: Architecture wrapper compatibility test
         run: sh ./scripts/test_audit_architecture_boundaries.sh
 
+      - name: Backend quality gate workflow contract
+        run: sh ./scripts/test_backend_quality_gate_contract.sh
+
       - name: Go module race gate
         run: go test -race ./internal/modules/...
 
@@ -124,29 +131,48 @@ jobs:
           ./scripts/test_audit_architecture_boundaries.sh
 
       - name: Run MySQL 5.7 amd64 gate
-        env:
-          KEEP_STACK: "1"
         run: |
           mkdir -p docs/phases/phase-pre0-standalone/evidence/ci
           env -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log
           grep -q "mysql57 amd64 CI gate passed" docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log
 
-      - name: Verify SCRM MySQL migration
+      - name: SCRM MySQL integration gate
+        env:
+          MOCHAT_STACK_PROJECT: mochat-go-scrm-integration
+          MOCHAT_MYSQL57_PORT: "13333"
+          MOCHAT_MYSQL_DSN: "mochat:mochat_pass@tcp(127.0.0.1:13333)/mochat?parseTime=true&loc=UTC"
         run: |
+          cleanup() {
+            docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml down -v --remove-orphans
+          }
+          trap cleanup EXIT
+
+          docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml up -d mysql57
+          container_id="$(
+            docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml ps -q mysql57
+          )"
+          deadline=$((SECONDS + 240))
+          status=""
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "$container_id" 2>/dev/null || true)"
+            if [ "$status" = "healthy" ]; then
+              break
+            fi
+            if [ "$status" = "unhealthy" ]; then
+              docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml logs --tail=160 mysql57
+              exit 1
+            fi
+            sleep 2
+          done
+          test "$status" = "healthy"
+
+          go run ./cmd/mochat-migrate -dsn "$MOCHAT_MYSQL_DSN" -project-root . -action apply
           test "$(
-            docker compose -p mochat-go-mysql57-schema-check -f deploy/mysql57/docker-compose.yml \
+            docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml \
               exec -T mysql57 mysql -umochat -pmochat_pass -N -B mochat \
               -e "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = '0098_scrm_lead_foundation'"
           )" = "1"
-
-      - name: SCRM MySQL integration gate
-        env:
-          MOCHAT_MYSQL_DSN: "mochat:mochat_pass@tcp(127.0.0.1:13332)/mochat?parseTime=true&loc=UTC"
-        run: go test -tags=integration ./internal/modules/scrm/adapters/mysql
-
-      - name: Cleanup MySQL 5.7 integration stack
-        if: always()
-        run: docker compose -p mochat-go-mysql57-schema-check -f deploy/mysql57/docker-compose.yml down -v --remove-orphans
+          go test -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql
 
       - name: Install Playwright Chromium
         run: pnpm --filter @mochat/e2e exec playwright install --with-deps chromium

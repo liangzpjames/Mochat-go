@@ -54,6 +54,7 @@ case "$COMMAND" in
       go vet ./...
       sh scripts/audit_architecture_boundaries.sh
       sh scripts/test_audit_architecture_boundaries.sh
+      sh scripts/test_backend_quality_gate_contract.sh
       sh scripts/test_dev_check.sh
       go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance
     '
