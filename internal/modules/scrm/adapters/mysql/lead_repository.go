@@ -197,14 +197,14 @@ type leadCursor struct {
 func decodeLeadCursor(encoded string) (leadCursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
-		return leadCursor{}, fmt.Errorf("decode lead cursor: %w", err)
+		return leadCursor{}, fmt.Errorf("%w: decode base64: %v", ports.ErrInvalidCursor, err)
 	}
 	var cursor leadCursor
 	if err := json.Unmarshal(raw, &cursor); err != nil {
-		return leadCursor{}, fmt.Errorf("decode lead cursor: %w", err)
+		return leadCursor{}, fmt.Errorf("%w: decode JSON: %v", ports.ErrInvalidCursor, err)
 	}
 	if cursor.CreatedAt.IsZero() || cursor.ID == "" {
-		return leadCursor{}, errors.New("decode lead cursor: timestamp and ID are required")
+		return leadCursor{}, fmt.Errorf("%w: timestamp and ID are required", ports.ErrInvalidCursor)
 	}
 	cursor.CreatedAt = cursor.CreatedAt.UTC()
 	return cursor, nil

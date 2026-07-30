@@ -2,9 +2,12 @@ package ports
 
 import (
 	"context"
+	"errors"
 
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 )
+
+var ErrInvalidCursor = errors.New("invalid cursor")
 
 type LeadRepository interface {
 	// CreateOrGet resolves lead identity strictly by (TenantID, BusinessKey).

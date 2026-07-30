@@ -10,6 +10,39 @@ import (
 	"jiyi/mochat-go/internal/modules/scrm/ports"
 )
 
+func TestCreateLeadReturnsCreatedResultWithUTCServerTimestamps(t *testing.T) {
+	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.FixedZone("CST", 8*60*60))
+	repository := &fakeLeadRepository{}
+	service, err := NewService(repository, fixedClock{now: now}, fixedIDGenerator{id: "generated-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.CreateLead(context.Background(), CreateLeadCommand{
+		TenantID:    9,
+		BusinessKey: "request-1",
+		Name:        "Ada",
+		Source:      domain.LeadSourceManual,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !result.Created {
+		t.Fatal("Created = false, want true")
+	}
+	if result.Lead.ID != "generated-1" {
+		t.Fatalf("lead ID = %q", result.Lead.ID)
+	}
+	wantUTC := now.UTC()
+	if !result.Lead.CreatedAt.Equal(wantUTC) || result.Lead.CreatedAt.Location() != time.UTC {
+		t.Fatalf("CreatedAt = %v, want UTC %v", result.Lead.CreatedAt, wantUTC)
+	}
+	if !result.Lead.UpdatedAt.Equal(wantUTC) || result.Lead.UpdatedAt.Location() != time.UTC {
+		t.Fatalf("UpdatedAt = %v, want UTC %v", result.Lead.UpdatedAt, wantUTC)
+	}
+}
+
 func TestCreateLeadUsesServerInputsAndReturnsExistingOnRetry(t *testing.T) {
 	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	existing, err := domain.NewLead("persisted-1", 9, "request-1", "Existing", domain.LeadSourceImport, now.Add(-time.Hour))
@@ -22,7 +55,7 @@ func TestCreateLeadUsesServerInputsAndReturnsExistingOnRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	view, err := service.CreateLead(context.Background(), CreateLeadCommand{
+	result, err := service.CreateLead(context.Background(), CreateLeadCommand{
 		TenantID:    9,
 		BusinessKey: "request-1",
 		Name:        "Ada",
@@ -35,8 +68,14 @@ func TestCreateLeadUsesServerInputsAndReturnsExistingOnRetry(t *testing.T) {
 	if repository.createdLead.ID != "generated-1" || !repository.createdLead.CreatedAt.Equal(now) || !repository.createdLead.UpdatedAt.Equal(now) {
 		t.Fatalf("server-generated lead = %#v", repository.createdLead)
 	}
-	if view.ID != existing.ID || view.Name != existing.Name.String() || view.Source != existing.Source {
-		t.Fatalf("view = %#v, want existing lead %#v", view, existing)
+	if result.Created {
+		t.Fatal("Created = true, want false")
+	}
+	if result.Lead.ID != existing.ID || result.Lead.Name != existing.Name.String() || result.Lead.Source != existing.Source {
+		t.Fatalf("view = %#v, want existing lead %#v", result.Lead, existing)
+	}
+	if !result.Lead.CreatedAt.Equal(existing.CreatedAt) || !result.Lead.UpdatedAt.Equal(existing.UpdatedAt) {
+		t.Fatalf("timestamps = (%v, %v), want (%v, %v)", result.Lead.CreatedAt, result.Lead.UpdatedAt, existing.CreatedAt, existing.UpdatedAt)
 	}
 }
 
@@ -144,6 +183,22 @@ func TestListLeadsRejectsNegativeCursorAndPageSize(t *testing.T) {
 		if !errors.Is(err, ErrInvalidArgument) {
 			t.Fatalf("error = %v, want ErrInvalidArgument", err)
 		}
+	}
+}
+
+func TestListLeadsMapsRepositoryInvalidCursorToInvalidArgument(t *testing.T) {
+	service, err := NewService(
+		&fakeLeadRepository{listErr: ports.ErrInvalidCursor},
+		fixedClock{},
+		fixedIDGenerator{id: "generated-1"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = service.ListLeads(context.Background(), ListLeadsQuery{TenantID: 42, Cursor: "bogus"})
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("error = %v, want ErrInvalidArgument", err)
 	}
 }
 

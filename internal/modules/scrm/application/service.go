@@ -63,26 +63,33 @@ type LeadView struct {
 	Source      domain.LeadSource
 	Status      domain.LeadStatus
 	Version     int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
-func (s Service) CreateLead(ctx context.Context, command CreateLeadCommand) (LeadView, error) {
+type CreateLeadResult struct {
+	Lead    LeadView
+	Created bool
+}
+
+func (s Service) CreateLead(ctx context.Context, command CreateLeadCommand) (CreateLeadResult, error) {
 	if _, err := domain.NewLead("", command.TenantID, command.BusinessKey, command.Name, command.Source, time.Time{}); err != nil {
-		return LeadView{}, fmt.Errorf("%w: %w", ErrInvalidArgument, err)
+		return CreateLeadResult{}, fmt.Errorf("%w: %w", ErrInvalidArgument, err)
 	}
 
 	id, err := s.idGenerator.NewID()
 	if err != nil {
-		return LeadView{}, fmt.Errorf("%w: generate lead ID: %v", ErrUnavailable, err)
+		return CreateLeadResult{}, fmt.Errorf("%w: generate lead ID: %v", ErrUnavailable, err)
 	}
 	lead, err := domain.NewLead(id, command.TenantID, command.BusinessKey, command.Name, command.Source, s.clock.Now())
 	if err != nil {
-		return LeadView{}, fmt.Errorf("%w: %w", ErrInvalidArgument, err)
+		return CreateLeadResult{}, fmt.Errorf("%w: %w", ErrInvalidArgument, err)
 	}
-	persisted, _, err := s.repository.CreateOrGet(ctx, lead)
+	persisted, created, err := s.repository.CreateOrGet(ctx, lead)
 	if err != nil {
-		return LeadView{}, fmt.Errorf("%w: create lead: %v", ErrUnavailable, err)
+		return CreateLeadResult{}, fmt.Errorf("%w: create lead: %v", ErrUnavailable, err)
 	}
-	return leadView(persisted), nil
+	return CreateLeadResult{Lead: leadView(persisted), Created: created}, nil
 }
 
 type ListLeadsQuery struct {
@@ -118,6 +125,9 @@ func (s Service) ListLeads(ctx context.Context, query ListLeadsQuery) (LeadPage,
 		Limit:    limit,
 	})
 	if err != nil {
+		if errors.Is(err, ports.ErrInvalidCursor) {
+			return LeadPage{}, fmt.Errorf("%w: list leads: %v", ErrInvalidArgument, err)
+		}
 		return LeadPage{}, fmt.Errorf("%w: list leads: %v", ErrUnavailable, err)
 	}
 	return page, nil
@@ -132,5 +142,7 @@ func leadView(lead domain.Lead) LeadView {
 		Source:      lead.Source,
 		Status:      lead.Status,
 		Version:     lead.Version,
+		CreatedAt:   lead.CreatedAt.UTC(),
+		UpdatedAt:   lead.UpdatedAt.UTC(),
 	}
 }
