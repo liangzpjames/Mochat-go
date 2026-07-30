@@ -141,6 +141,7 @@ jobs:
           MOCHAT_STACK_PROJECT: mochat-go-scrm-integration
           MOCHAT_MYSQL57_PORT: "13333"
           MOCHAT_MYSQL_DSN: "mochat:mochat_pass@tcp(127.0.0.1:13333)/mochat?parseTime=true&loc=UTC"
+          MOCHAT_REQUIRE_MYSQL_INTEGRATION: "1"
         run: |
           cleanup() {
             docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml down -v --remove-orphans
@@ -172,7 +173,7 @@ jobs:
               exec -T mysql57 mysql -umochat -pmochat_pass -N -B mochat \
               -e "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = '0098_scrm_lead_foundation'"
           )" = "1"
-          go test -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql
+          go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql
 
       - name: Install Playwright Chromium
         run: pnpm --filter @mochat/e2e exec playwright install --with-deps chromium

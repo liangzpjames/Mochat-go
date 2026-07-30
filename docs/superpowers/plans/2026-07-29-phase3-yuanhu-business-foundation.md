@@ -78,8 +78,8 @@ git commit -m "docs: define phase3 SCRM contracts"
 
 **文件：**
 
-- 新建：`deploy/standalone/migrations/0090_scrm_customer_lifecycle.up.sql`
-- 新建：`deploy/standalone/migrations/0090_scrm_customer_lifecycle.down.sql`
+- 新建：`deploy/standalone/migrations/0099_scrm_customer_lifecycle.up.sql`
+- 新建：`deploy/standalone/migrations/0099_scrm_customer_lifecycle.down.sql`
 - 新建：`internal/modules/scrm/domain/customer_lifecycle.go`
 - 新建：`internal/modules/scrm/domain/customer_lifecycle_test.go`
 - 新建：`internal/modules/scrm/ports/customer_lifecycle_repository.go`
@@ -89,9 +89,9 @@ git commit -m "docs: define phase3 SCRM contracts"
 **接口：**
 
 - 输入：任务 1 定义的资源和状态转换。
-- 产出：用于线索、分配关系、商机、阶段和跟进记录的 `SCRMStore` 方法。
+- 产出：`ports` 中面向线索、分配关系、商机、阶段和跟进记录的 repository 接口，以及 `adapters/mysql` 中对应的 MySQL repository 实现。
 
-- [ ] **步骤 1：编写 Store 测试**
+- [ ] **步骤 1：编写 repository 测试**
 
 覆盖：
 
@@ -111,9 +111,9 @@ git commit -m "docs: define phase3 SCRM contracts"
 go test ./internal/modules/scrm/domain ./internal/modules/scrm/adapters/mysql -run 'TestSCRM'
 ```
 
-预期：失败，因为迁移和 Store 尚不存在。
+预期：失败，因为 0099 migration、repository ports 和 MySQL adapters 尚不存在。
 
-- [ ] **步骤 3：实现迁移和 Store**
+- [ ] **步骤 3：实现 migration、repository ports 和 MySQL adapters**
 
 数据库表必须使用：
 
@@ -124,7 +124,7 @@ go test ./internal/modules/scrm/domain ./internal/modules/scrm/adapters/mysql -r
 - 租户范围内唯一业务键；
 - 负责人、阶段、状态、下次跟进时间和更新时间索引。
 
-- [ ] **步骤 4：验证 Store 测试**
+- [ ] **步骤 4：验证 repository 测试**
 
 执行：
 
@@ -139,12 +139,12 @@ go run ./cmd/mochat-architecture -root .
 
 使用仓库现有迁移工具，对 standalone 数据库执行 apply、checksum、rollback 和 replay。
 
-预期：0090 迁移可应用、可回滚、可重新应用，且无校验漂移。
+预期：0099 migration 可应用、可回滚、可重新应用，且无校验漂移。
 
 - [ ] **步骤 6：提交**
 
 ```bash
-git add deploy/standalone/migrations/0090_scrm_customer_lifecycle.* internal/modules/scrm/domain/customer_lifecycle* internal/modules/scrm/ports/customer_lifecycle_repository.go internal/modules/scrm/adapters/mysql/customer_lifecycle_repository*
+git add deploy/standalone/migrations/0099_scrm_customer_lifecycle.* internal/modules/scrm/domain/customer_lifecycle* internal/modules/scrm/ports/customer_lifecycle_repository.go internal/modules/scrm/adapters/mysql/customer_lifecycle_repository*
 git commit -m "feat: add SCRM customer lifecycle persistence"
 ```
 
@@ -161,8 +161,8 @@ git commit -m "feat: add SCRM customer lifecycle persistence"
 
 **接口：**
 
-- 输入：`SCRMStore`。
-- 产出：`/dashboard/scrm/leads`、`/contacts`、`/assignments`、`/opportunities`、`/stages` 和 `/followUps`。
+- 输入：任务 2 定义的 repository ports，由 application service 编排数据权限、幂等和状态转换。
+- 产出：application service，以及由 `transport/http` 暴露的 `/dashboard/scrm/leads`、`/contacts`、`/assignments`、`/opportunities`、`/stages` 和 `/followUps`。
 
 - [ ] **步骤 1：编写失败的 Handler 测试**
 
@@ -353,6 +353,8 @@ git commit -m "feat: add opportunity and follow-up workflows"
 - 新建：`internal/modules/scrm/transport/http/metrics_handler.go`
 - 新建：`internal/modules/scrm/transport/http/metrics_handler_test.go`
 - 修改：`internal/modules/scrm/module.go`
+- 修改：`internal/modules/scrm/module_test.go`
+- 修改：`internal/modules/scrm/transport/http/routes.go`
 - 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.tsx`
 - 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.test.tsx`
 - 新建：`docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md`
@@ -373,12 +375,14 @@ git commit -m "feat: add opportunity and follow-up workflows"
 - 成交金额；
 - 阶段转化率。
 
+同时编写模块级路由注册测试，断言 `module.go` 通过 `transport/http/routes.go` 注册 metrics endpoints，且方法、路径和 handler 均与指标契约一致。
+
 - [ ] **步骤 2：确认测试失败**
 
 执行：
 
 ```bash
-go test ./internal/modules/scrm/application ./internal/modules/scrm/adapters/mysql ./internal/modules/scrm/transport/http -run 'TestSCRMMetrics'
+go test ./internal/modules/scrm ./internal/modules/scrm/application ./internal/modules/scrm/adapters/mysql ./internal/modules/scrm/transport/http -run 'TestSCRMMetrics|TestModuleRegistersSCRMMetricsRoutes'
 ```
 
 预期：失败。
@@ -392,7 +396,7 @@ go test ./internal/modules/scrm/application ./internal/modules/scrm/adapters/mys
 执行：
 
 ```bash
-go test ./internal/modules/scrm/application ./internal/modules/scrm/adapters/mysql ./internal/modules/scrm/transport/http -run 'TestSCRMMetrics'
+go test ./internal/modules/scrm ./internal/modules/scrm/application ./internal/modules/scrm/adapters/mysql ./internal/modules/scrm/transport/http -run 'TestSCRMMetrics|TestModuleRegistersSCRMMetricsRoutes'
 go run ./cmd/mochat-architecture -root .
 ```
 
@@ -411,7 +415,7 @@ pnpm --filter @mochat/dashboard test -- src/features/scrm/scrm-report-page.test.
 - [ ] **步骤 6：提交**
 
 ```bash
-git add internal/modules/scrm/domain/metrics.go internal/modules/scrm/application/metrics_service* internal/modules/scrm/ports/metrics_repository.go internal/modules/scrm/adapters/mysql/metrics_repository* internal/modules/scrm/transport/http/metrics_handler* internal/modules/scrm/module.go web/apps/dashboard/src/features/scrm/scrm-report-page* docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md
+git add internal/modules/scrm/domain/metrics.go internal/modules/scrm/application/metrics_service* internal/modules/scrm/ports/metrics_repository.go internal/modules/scrm/adapters/mysql/metrics_repository* internal/modules/scrm/transport/http/metrics_handler* internal/modules/scrm/transport/http/routes.go internal/modules/scrm/module.go internal/modules/scrm/module_test.go web/apps/dashboard/src/features/scrm/scrm-report-page* docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md
 git commit -m "feat: add SCRM funnel reporting"
 ```
 
@@ -460,6 +464,9 @@ pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
 ```bash
 go run ./cmd/mochat-architecture -root .
 go test ./internal/architecture/... ./internal/app/modules/... ./internal/modules/... ./internal/frontend
+go test -race ./internal/modules/...
+MOCHAT_REQUIRE_MYSQL_INTEGRATION=1 go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql
+./scripts/smoke_schema_migrate.sh
 pnpm test
 pnpm build
 pnpm check:audit
@@ -467,7 +474,7 @@ pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
 docker compose -f deploy/standalone/docker-compose.yml --profile app up -d --build
 ```
 
-预期：全部命令退出码为 0；应用、MySQL 和 Redis 均为 healthy。
+预期：全部命令退出码为 0；应用、MySQL 和 Redis 均为 healthy。MySQL integration 必须使用真实数据库且禁止 skip；本地没有已迁移 DSN 时，使用 `.github/workflows/mysql57-amd64.yml` 的 SCRM MySQL integration atomic step 提供 MySQL 5.7、设置 require 变量并执行该命令。Migration smoke 以 Linux checkout/CI 为权威执行面。
 
 - [ ] **步骤 5：记录验收结果**
 

@@ -5,6 +5,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -41,6 +42,31 @@ func (n integrationNamespace) id(suffix string) string {
 
 func (n integrationNamespace) key(suffix string) string {
 	return n.prefix + "-" + suffix
+}
+
+func resolveMySQLIntegrationDSN(dsn string, required bool) (string, error) {
+	if dsn != "" {
+		return dsn, nil
+	}
+	if required {
+		return "", errors.New("MOCHAT_MYSQL_DSN is required when MOCHAT_REQUIRE_MYSQL_INTEGRATION=1")
+	}
+	return "", nil
+}
+
+func mysqlIntegrationDSN(t *testing.T) string {
+	t.Helper()
+	dsn, err := resolveMySQLIntegrationDSN(
+		os.Getenv("MOCHAT_MYSQL_DSN"),
+		os.Getenv("MOCHAT_REQUIRE_MYSQL_INTEGRATION") == "1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dsn == "" {
+		t.Skip("MOCHAT_MYSQL_DSN is required for MySQL integration tests")
+	}
+	return dsn
 }
 
 func TestLeadRepositoryTenantIsolation(t *testing.T) {
@@ -232,10 +258,7 @@ func TestLeadRepositoryConcurrentCreateProducesOneRow(t *testing.T) {
 }
 
 func TestIntegrationRepositoryPreservesOtherRowsAndCleansOwnTenant(t *testing.T) {
-	dsn := os.Getenv("MOCHAT_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("MOCHAT_MYSQL_DSN is required for MySQL integration tests")
-	}
+	dsn := mysqlIntegrationDSN(t)
 	db, err := mysqlconn.Open(dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -284,10 +307,7 @@ func TestIntegrationRepositoryPreservesOtherRowsAndCleansOwnTenant(t *testing.T)
 
 func integrationRepository(t *testing.T) (*LeadRepository, *sql.DB, integrationNamespace) {
 	t.Helper()
-	dsn := os.Getenv("MOCHAT_MYSQL_DSN")
-	if dsn == "" {
-		t.Skip("MOCHAT_MYSQL_DSN is required for MySQL integration tests")
-	}
+	dsn := mysqlIntegrationDSN(t)
 	db, err := mysqlconn.Open(dsn)
 	if err != nil {
 		t.Fatal(err)

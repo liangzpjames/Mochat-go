@@ -20,6 +20,7 @@ web/e2e/test-results/
 
 # Local test, browser, and runtime artifacts
 .playwright-cli/
+.superpowers/
 .tmp-*/
 .worktrees/
 output/

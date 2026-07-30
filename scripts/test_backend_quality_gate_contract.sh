@@ -47,8 +47,11 @@ require_workflow_literal \
   "version = '0098_scrm_lead_foundation'" \
   "migration 0098 readiness assertion"
 require_workflow_literal \
-  'go test -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql' \
-  "uncached SCRM MySQL integration command"
+  'MOCHAT_REQUIRE_MYSQL_INTEGRATION: "1"' \
+  "required SCRM MySQL integration mode"
+require_workflow_literal \
+  'go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql' \
+  "verbose uncached SCRM MySQL integration command"
 require_workflow_literal \
   'docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml down -v --remove-orphans' \
   "dedicated SCRM integration database cleanup"
