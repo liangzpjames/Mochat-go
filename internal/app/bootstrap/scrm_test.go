@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	appmodules "jiyi/mochat-go/internal/app/modules"
+	"jiyi/mochat-go/internal/authjwt"
 	"jiyi/mochat-go/internal/dashboard"
 	transporthttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
 )
@@ -96,6 +98,56 @@ func TestSCRMPrincipalResolverIgnoresClaimedTenantHeader(t *testing.T) {
 	}
 }
 
+func TestSCRMPrincipalResolverClassifiesCredentialFailuresAsUnauthorized(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		userIDs dashboard.UserIDResolver
+		users   SCRMUserStore
+	}{
+		{name: "revoked token", userIDs: fixedUserIDResolver{err: authjwt.ErrTokenBlacklisted}, users: fixedSCRMUserStore{}},
+		{name: "user not found", userIDs: fixedUserIDResolver{userID: 7}, users: fixedSCRMUserStore{}},
+		{name: "tenant not found", userIDs: fixedUserIDResolver{userID: 7}, users: fixedSCRMUserStore{user: dashboard.User{ID: 7}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver, err := NewSCRMPrincipalResolver(tc.userIDs, tc.users)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = resolver.Resolve(httptest.NewRequest(http.MethodGet, transporthttp.LeadsPath, nil))
+			if !errors.Is(err, transporthttp.ErrPrincipalUnauthorized) {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestSCRMPrincipalResolverClassifiesBackendFailuresAsUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		userIDs dashboard.UserIDResolver
+		users   SCRMUserStore
+	}{
+		{name: "Redis blacklist", userIDs: fixedUserIDResolver{err: authjwt.ErrBackendUnavailable}, users: fixedSCRMUserStore{}},
+		{name: "session backend", userIDs: fixedUserIDResolver{err: errors.New("session database unavailable")}, users: fixedSCRMUserStore{}},
+		{name: "MySQL user lookup", userIDs: fixedUserIDResolver{userID: 7}, users: fixedSCRMUserStore{err: errors.New("mysql unavailable")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver, err := NewSCRMPrincipalResolver(tc.userIDs, tc.users)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = resolver.Resolve(httptest.NewRequest(http.MethodGet, transporthttp.LeadsPath, nil))
+			if !errors.Is(err, transporthttp.ErrPrincipalUnavailable) {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			detail := strings.ToLower(err.Error())
+			if strings.Contains(detail, "redis") || strings.Contains(detail, "session") || strings.Contains(detail, "mysql") {
+				t.Fatalf("Resolve() leaked backend detail: %v", err)
+			}
+		})
+	}
+}
+
 func TestNewSCRMPrincipalResolverRejectsNilDependencies(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -168,17 +220,22 @@ func (r fixedPrincipalResolver) Resolve(*http.Request) (transporthttp.Principal,
 
 type fixedUserIDResolver struct {
 	userID int
+	err    error
 }
 
 func (r fixedUserIDResolver) UserID(*http.Request) (int, error) {
-	return r.userID, nil
+	return r.userID, r.err
 }
 
 type fixedSCRMUserStore struct {
 	user dashboard.User
+	err  error
 }
 
 func (s fixedSCRMUserStore) UserByID(_ context.Context, userID int) (dashboard.User, bool, error) {
+	if s.err != nil {
+		return dashboard.User{}, false, s.err
+	}
 	if userID != s.user.ID {
 		return dashboard.User{}, false, nil
 	}

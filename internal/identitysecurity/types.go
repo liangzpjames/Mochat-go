@@ -57,10 +57,15 @@ const (
 )
 
 var (
-	ErrSessionNotFound = errors.New("identity session not found")
-	ErrSessionRevoked  = errors.New("identity session revoked")
-	ErrSessionExpired  = errors.New("identity session expired")
+	ErrSessionNotFound = invalidSessionError("identity session not found")
+	ErrSessionRevoked  = invalidSessionError("identity session revoked")
+	ErrSessionExpired  = invalidSessionError("identity session expired")
 )
+
+type invalidSessionError string
+
+func (e invalidSessionError) Error() string      { return string(e) }
+func (invalidSessionError) InvalidSession() bool { return true }
 
 type Error struct {
 	Status  int

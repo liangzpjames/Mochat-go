@@ -57,3 +57,38 @@ resolution.
   `internal/store`, `internal/server`, or `internal/config`.
 - Existing unrelated untracked `.superpowers/sdd` files were not modified or
   staged.
+
+## Review Fix RED/GREEN
+
+### RED
+
+- `go test ./internal/config -run Phase22`
+  - The enabled pilot incorrectly accepted missing MySQL/JWT configuration,
+    `MOCHAT_GO_DEV_AUTH_HEADER=true`, and
+    `MOCHAT_GO_SKIP_JWT_BLACKLIST=true`.
+- `go test ./internal/authjwt ./internal/identitysecurity ./internal/app/bootstrap ./internal/modules/scrm/transport/http`
+  - `ErrBackendUnavailable`, `ErrPrincipalUnauthorized`, and
+    `ErrPrincipalUnavailable` were undefined.
+  - Persistent identity session errors had no invalid-credential
+    classification.
+  - Transport had no 503 mapping for principal backend failures.
+
+### GREEN
+
+- The pilot now participates in the existing `mysqlBacked` and
+  `dashboardStateChanging` paths, requiring production MySQL, JWT, and Redis
+  configuration and rejecting development-header or skipped-blacklist auth.
+- Auth failures are classified without backend details:
+  - missing, invalid, expired, or revoked credentials and missing user/tenant
+    map to 401;
+  - Redis blacklist, persistent-session, and MySQL user lookup failures map
+    to 503.
+- Review-fix verification:
+  - `go test ./internal/config -run Phase22` - pass.
+  - `go test ./internal/app/bootstrap -run SCRM` - pass.
+  - `go test ./internal/modules/scrm/transport/http` - pass.
+  - `go test ./cmd/mochat-go -run SCRMModuleRouter` - pass.
+  - `go test ./internal/modules/scrm/...` - pass.
+  - `go test ./...` - pass.
+  - `go vet ./...` - pass.
+  - `go run ./cmd/mochat-architecture -root .` - pass.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	appmodules "jiyi/mochat-go/internal/app/modules"
+	"jiyi/mochat-go/internal/authjwt"
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/modules/scrm"
 	transporthttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
@@ -59,20 +60,44 @@ func NewSCRMPrincipalResolver(userIDs dashboard.UserIDResolver, users SCRMUserSt
 
 func (r scrmPrincipalResolver) Resolve(request *http.Request) (transporthttp.Principal, error) {
 	if request == nil {
-		return transporthttp.Principal{}, errors.New("SCRM request is required")
+		return transporthttp.Principal{}, transporthttp.ErrPrincipalUnauthorized
 	}
 	userID, err := r.userIDs.UserID(request)
-	if err != nil || userID <= 0 {
-		return transporthttp.Principal{}, errors.New("SCRM authentication failed")
+	if err != nil {
+		if isSCRMCredentialError(err) {
+			return transporthttp.Principal{}, transporthttp.ErrPrincipalUnauthorized
+		}
+		return transporthttp.Principal{}, transporthttp.ErrPrincipalUnavailable
+	}
+	if userID <= 0 {
+		return transporthttp.Principal{}, transporthttp.ErrPrincipalUnauthorized
 	}
 	user, found, err := r.users.UserByID(request.Context(), userID)
 	if err != nil {
-		return transporthttp.Principal{}, fmt.Errorf("resolve SCRM tenant: %w", err)
+		return transporthttp.Principal{}, transporthttp.ErrPrincipalUnavailable
 	}
 	if !found || user.TenantID <= 0 {
-		return transporthttp.Principal{}, errors.New("SCRM authenticated user has no tenant")
+		return transporthttp.Principal{}, transporthttp.ErrPrincipalUnauthorized
 	}
 	return transporthttp.Principal{UserID: int64(userID), TenantID: int64(user.TenantID)}, nil
+}
+
+func isSCRMCredentialError(err error) bool {
+	for _, target := range []error{
+		dashboard.ErrUnauthorized,
+		authjwt.ErrUnauthorized,
+		authjwt.ErrInvalidToken,
+		authjwt.ErrInvalidSignature,
+		authjwt.ErrTokenExpired,
+		authjwt.ErrTokenNotActive,
+		authjwt.ErrTokenBlacklisted,
+		authjwt.ErrSessionInvalid,
+	} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }
 
 type scrmClock struct{}

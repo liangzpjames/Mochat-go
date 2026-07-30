@@ -187,11 +187,87 @@ func TestMakeTokenRoundTripsThroughParser(t *testing.T) {
 	}
 }
 
+func TestParserClassifiesBlacklistBackendFailureAsUnavailable(t *testing.T) {
+	token := testToken(t, "secret", map[string]any{
+		"uid": 9,
+		"exp": time.Now().Add(time.Hour).Unix(),
+	}, false)
+	parser := Parser{
+		Secret:    "secret",
+		Blacklist: errorBlacklist{err: errors.New("redis password leaked")},
+	}
+
+	_, err := parser.Parse(context.Background(), token)
+	if !errors.Is(err, ErrBackendUnavailable) {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "redis") ||
+		strings.Contains(strings.ToLower(err.Error()), "password") {
+		t.Fatalf("Parse() leaked backend detail: %v", err)
+	}
+}
+
+func TestParserDistinguishesInvalidSessionFromBackendFailure(t *testing.T) {
+	now := time.Now()
+	token := testToken(t, "secret", map[string]any{
+		"uid": 9,
+		"jti": "session-9",
+		"iat": now.Add(-time.Minute).Unix(),
+		"exp": now.Add(time.Hour).Unix(),
+	}, false)
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "invalid session", err: invalidSessionTestError{}, want: ErrSessionInvalid},
+		{name: "backend failure", err: errors.New("mysql DSN leaked"), want: ErrBackendUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := Parser{
+				Secret:        "secret",
+				SkipBlacklist: true,
+				Sessions:      errorSessionChecker{err: tc.err},
+			}
+			_, err := parser.Parse(context.Background(), token)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Parse() error = %v, want %v", err, tc.want)
+			}
+			if strings.Contains(strings.ToLower(err.Error()), "mysql") ||
+				strings.Contains(strings.ToLower(err.Error()), "dsn") {
+				t.Fatalf("Parse() leaked backend detail: %v", err)
+			}
+		})
+	}
+}
+
 type staticBlacklist string
 
 func (b staticBlacklist) JWTBlacklisted(_ context.Context, key string) (bool, error) {
 	return string(b) == key, nil
 }
+
+type errorBlacklist struct {
+	err error
+}
+
+func (b errorBlacklist) JWTBlacklisted(context.Context, string) (bool, error) {
+	return false, b.err
+}
+
+type errorSessionChecker struct {
+	err error
+}
+
+func (c errorSessionChecker) ValidateJWTSession(context.Context, string, int, time.Time, time.Time) error {
+	return c.err
+}
+
+type invalidSessionTestError struct{}
+
+func (invalidSessionTestError) Error() string        { return "invalid session" }
+func (invalidSessionTestError) InvalidSession() bool { return true }
 
 func testToken(t *testing.T, secret string, payload map[string]any, php2y bool) string {
 	t.Helper()

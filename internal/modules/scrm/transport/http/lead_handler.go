@@ -111,6 +111,10 @@ func (h *LeadHandler) resolvePrincipal(w nethttp.ResponseWriter, r *nethttp.Requ
 		return Principal{}, false
 	}
 	principal, err := h.principal.Resolve(r)
+	if errors.Is(err, ErrPrincipalUnavailable) {
+		writeError(w, nethttp.StatusServiceUnavailable, "authentication service unavailable")
+		return Principal{}, false
+	}
 	if err != nil || principal.UserID <= 0 || principal.TenantID <= 0 {
 		writeError(w, nethttp.StatusUnauthorized, "authentication required")
 		return Principal{}, false

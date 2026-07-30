@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	nethttp "net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,6 +143,34 @@ func TestHandlersRejectMissingOrInvalidPrincipal(t *testing.T) {
 				t.Fatalf("service calls = create %d, list %d", service.createCalls, service.listCalls)
 			}
 		})
+	}
+}
+
+func TestHandlersMapPrincipalBackendUnavailableToServiceUnavailable(t *testing.T) {
+	service := &fakeLeadService{}
+	handler := NewLeadHandler(service, fakePrincipalResolver{
+		err: fmt.Errorf("%w: redis password and mysql DSN", ErrPrincipalUnavailable),
+	})
+	for _, request := range []*nethttp.Request{
+		httptest.NewRequest(nethttp.MethodPost, LeadsPath, strings.NewReader(`{}`)),
+		httptest.NewRequest(nethttp.MethodGet, LeadsPath, nil),
+	} {
+		response := httptest.NewRecorder()
+		if request.Method == nethttp.MethodPost {
+			handler.Create(response, request)
+		} else {
+			handler.List(response, request)
+		}
+		if response.Code != nethttp.StatusServiceUnavailable {
+			t.Fatalf("%s status = %d, body = %s", request.Method, response.Code, response.Body)
+		}
+		body := strings.ToLower(response.Body.String())
+		if strings.Contains(body, "redis") || strings.Contains(body, "mysql") || strings.Contains(body, "dsn") {
+			t.Fatalf("%s response leaked backend detail: %s", request.Method, response.Body)
+		}
+	}
+	if service.createCalls != 0 || service.listCalls != 0 {
+		t.Fatalf("service calls = create %d, list %d", service.createCalls, service.listCalls)
 	}
 }
 

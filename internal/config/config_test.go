@@ -173,6 +173,7 @@ func TestPhase22SCRMPilotDisabledByDefault(t *testing.T) {
 func TestPhase22SCRMPilotCanBeEnabled(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "true")
+	setPhase22SCRMProductionDependencies(t)
 
 	cfg, err := FromEnv()
 	if err != nil {
@@ -181,6 +182,66 @@ func TestPhase22SCRMPilotCanBeEnabled(t *testing.T) {
 	if !cfg.EnablePhase22SCRMPilot {
 		t.Fatal("EnablePhase22SCRMPilot = false")
 	}
+}
+
+func TestPhase22SCRMPilotRequiresProductionStateChangingDependencies(t *testing.T) {
+	t.Run("MySQL", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "true")
+
+		_, err := FromEnv()
+		requireErrorContains(t, err, "MOCHAT_MYSQL_DSN")
+	})
+
+	t.Run("JWT", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "true")
+		t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+
+		_, err := FromEnv()
+		requireErrorContains(t, err, "SIMPLE_JWT_SECRET")
+	})
+
+	t.Run("production dependencies", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "true")
+		setPhase22SCRMProductionDependencies(t)
+
+		cfg, err := FromEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.RedisAddr != "127.0.0.1:6379" {
+			t.Fatalf("RedisAddr = %q", cfg.RedisAddr)
+		}
+	})
+}
+
+func TestPhase22SCRMPilotRejectsDevAuthHeader(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "true")
+	setPhase22SCRMProductionDependencies(t)
+	t.Setenv("MOCHAT_GO_DEV_AUTH_HEADER", "true")
+
+	_, err := FromEnv()
+	requireErrorContains(t, err, "state-changing migrated routes require PHP JWT auth")
+}
+
+func TestPhase22SCRMPilotRejectsSkippedJWTBlacklist(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "true")
+	setPhase22SCRMProductionDependencies(t)
+	t.Setenv("MOCHAT_GO_SKIP_JWT_BLACKLIST", "true")
+
+	_, err := FromEnv()
+	requireErrorContains(t, err, "state-changing migrated routes cannot skip JWT blacklist checks")
+}
+
+func setPhase22SCRMProductionDependencies(t *testing.T) {
+	t.Helper()
+	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "secret")
+	t.Setenv("MOCHAT_REDIS_ADDR", "127.0.0.1:6379")
 }
 
 func TestFromEnvRuntimeRole(t *testing.T) {

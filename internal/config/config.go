@@ -1914,7 +1914,7 @@ func FromEnv() (Config, error) {
 	if cfg.EnableSaaSPaymentSettlementSyncCron && !settlementBridgeConfigured {
 		return Config{}, fmt.Errorf("payment settlement bridge URL and providers are required when payment settlement sync cron is enabled")
 	}
-	mysqlBacked := cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSAdminDashboard || cfg.EnableSaaSBillingPortal || cfg.EnableSaaSIdentitySecurity || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentWebhook || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron || cfg.MigrateAuth || cfg.MigrateLoginShow ||
+	mysqlBacked := cfg.EnablePhase22SCRMPilot || cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSAdminDashboard || cfg.EnableSaaSBillingPortal || cfg.EnableSaaSIdentitySecurity || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentWebhook || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron || cfg.MigrateAuth || cfg.MigrateLoginShow ||
 		cfg.MigrateUserIndex || cfg.MigrateUserShow || cfg.MigrateUserStore || cfg.MigrateUserUpdate || cfg.MigrateUserStatusUpdate || cfg.MigrateUserPasswordReset || cfg.MigrateUserPasswordUpdate ||
 		cfg.MigratePermissionByUser ||
 		cfg.MigrateCorpSelect || cfg.MigrateCorpBind ||
@@ -1981,7 +1981,7 @@ func FromEnv() (Config, error) {
 		cfg.MigrateRolePermission || cfg.MigrateRoleShowEmployee ||
 		cfg.MigrateMenuIconIndex || cfg.MigrateMenuSelect ||
 		cfg.MigrateMenuIndex || cfg.MigrateMenuShow
-	dashboardStateChanging := cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSBillingPortal || cfg.MigrateLogout || cfg.MigrateUserStore || cfg.MigrateUserUpdate || cfg.MigrateUserStatusUpdate || cfg.MigrateUserPasswordReset || cfg.MigrateUserPasswordUpdate ||
+	dashboardStateChanging := cfg.EnablePhase22SCRMPilot || cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSBillingPortal || cfg.MigrateLogout || cfg.MigrateUserStore || cfg.MigrateUserUpdate || cfg.MigrateUserStatusUpdate || cfg.MigrateUserPasswordReset || cfg.MigrateUserPasswordUpdate ||
 		cfg.MigrateCommonUpload || cfg.MigrateCommonUploadFile ||
 		cfg.MigrateCorpBind || cfg.MigrateCorpStore || cfg.MigrateCorpUpdate ||
 		cfg.MigrateWorkTagGroupStore || cfg.MigrateWorkTagGroupUpdate || cfg.MigrateWorkTagGroupDestroy ||

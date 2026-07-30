@@ -19,14 +19,15 @@ import (
 )
 
 var (
-	ErrMissingSecret    = errors.New("jwt secret is required")
-	ErrInvalidToken     = errors.New("invalid token")
-	ErrInvalidSignature = errors.New("invalid signature")
-	ErrTokenExpired     = errors.New("token expired")
-	ErrTokenNotActive   = errors.New("token not active")
-	ErrTokenBlacklisted = errors.New("token blacklisted")
-	ErrSessionInvalid   = errors.New("token session invalid")
-	ErrUnauthorized     = errors.New("unauthorized")
+	ErrMissingSecret      = errors.New("jwt secret is required")
+	ErrInvalidToken       = errors.New("invalid token")
+	ErrInvalidSignature   = errors.New("invalid signature")
+	ErrTokenExpired       = errors.New("token expired")
+	ErrTokenNotActive     = errors.New("token not active")
+	ErrTokenBlacklisted   = errors.New("token blacklisted")
+	ErrSessionInvalid     = errors.New("token session invalid")
+	ErrUnauthorized       = errors.New("unauthorized")
+	ErrBackendUnavailable = errors.New("authentication backend unavailable")
 )
 
 type BlacklistChecker interface {
@@ -124,12 +125,12 @@ func (p Parser) Parse(ctx context.Context, token string) (map[string]any, error)
 
 	if !p.SkipBlacklist {
 		if p.Blacklist == nil {
-			return nil, fmt.Errorf("jwt blacklist checker is required")
+			return nil, ErrBackendUnavailable
 		}
 		key := BlacklistKey(p.Prefix, payload, token)
 		blacklisted, err := p.Blacklist.JWTBlacklisted(ctx, key)
 		if err != nil {
-			return nil, err
+			return nil, ErrBackendUnavailable
 		}
 		if blacklisted {
 			return nil, ErrTokenBlacklisted
@@ -145,7 +146,13 @@ func (p Parser) Parse(ctx context.Context, token string) (map[string]any, error)
 			return nil, ErrSessionInvalid
 		}
 		if err := p.Sessions.ValidateJWTSession(ctx, jti, userID, time.Unix(iat, 0), time.Unix(exp, 0)); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrSessionInvalid, err)
+			var invalid interface {
+				InvalidSession() bool
+			}
+			if errors.As(err, &invalid) && invalid.InvalidSession() {
+				return nil, ErrSessionInvalid
+			}
+			return nil, ErrBackendUnavailable
 		}
 	}
 
