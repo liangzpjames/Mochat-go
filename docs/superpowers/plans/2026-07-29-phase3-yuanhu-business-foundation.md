@@ -85,12 +85,21 @@ git commit -m "docs: define phase3 SCRM contracts"
 - 新建：`internal/modules/scrm/ports/customer_lifecycle_repository.go`
 - 新建：`internal/modules/scrm/adapters/mysql/customer_lifecycle_repository.go`
 - 新建：`internal/modules/scrm/adapters/mysql/customer_lifecycle_repository_test.go`
+- 新建：`internal/modules/scrm/adapters/mysql/customer_lifecycle_repository_integration_test.go`
 - 修改：`scripts/smoke_schema_migrate.sh`
 
 **接口：**
 
 - 输入：任务 1 定义的资源和状态转换。
 - 产出：`ports` 中面向线索、分配关系、商机、阶段和跟进记录的 repository 接口，以及 `adapters/mysql` 中对应的 MySQL repository 实现。
+
+**MySQL integration contract：**
+
+- `customer_lifecycle_repository_integration_test.go` 必须以 `//go:build integration` build constraint 隔离真实数据库场景；
+- `TestSCRMCustomerLifecycleTenantIsolationIntegration` 使用两个确定性租户验证任何 repository 查询、更新和关联读取都不会跨租户；
+- `TestSCRMCustomerLifecycleOptimisticLockIntegration` 使用真实 `version` 条件更新验证 stale writer 被拒绝且不会覆盖已提交状态；
+- `TestSCRMCustomerLifecyclePublicPoolConcurrentClaimIntegration` 使用多个并发连接竞争同一公海资源，验证恰好一个领取成功且 owner/version 最终一致；
+- 三个场景不得 mock SQL、不得在 `MOCHAT_REQUIRE_MYSQL_INTEGRATION=1` 时 skip，并使用独立 fixture/cleanup。
 
 - [ ] **步骤 1：编写 repository 测试**
 
@@ -110,6 +119,7 @@ git commit -m "docs: define phase3 SCRM contracts"
 
 ```bash
 go test ./internal/modules/scrm/domain ./internal/modules/scrm/adapters/mysql -run 'TestSCRM'
+MOCHAT_REQUIRE_MYSQL_INTEGRATION=1 go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql -run 'TestSCRMCustomerLifecycle(TenantIsolation|OptimisticLock|PublicPoolConcurrentClaim)Integration'
 ```
 
 预期：失败，因为 0099 migration、repository ports 和 MySQL adapters 尚不存在。
@@ -139,6 +149,7 @@ go test ./internal/modules/scrm/domain ./internal/modules/scrm/adapters/mysql -r
 
 ```bash
 go test ./internal/modules/scrm/domain ./internal/modules/scrm/adapters/mysql -run 'TestSCRM'
+MOCHAT_REQUIRE_MYSQL_INTEGRATION=1 go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql -run 'TestSCRMCustomerLifecycle(TenantIsolation|OptimisticLock|PublicPoolConcurrentClaim)Integration'
 go run ./cmd/mochat-architecture -root .
 ```
 
@@ -478,6 +489,9 @@ pnpm --filter @mochat/e2e test:e2e -- phase3-scrm.spec.ts
 go run ./cmd/mochat-architecture -root .
 go test ./internal/architecture/... ./internal/app/modules/... ./internal/modules/... ./internal/frontend
 go test -race ./internal/modules/...
+go test ./...
+go vet ./...
+go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance ./cmd/mochat-architecture
 MOCHAT_REQUIRE_MYSQL_INTEGRATION=1 go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql
 bash ./scripts/smoke_schema_migrate.sh
 pnpm test

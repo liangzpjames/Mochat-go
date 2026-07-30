@@ -27,4 +27,4 @@ go vet ./...
 ./scripts/audit_saas_storage_reclaim_coverage.sh
 ./scripts/smoke_production_evidence_gate.sh
 ./scripts/frontend_check.sh quick
-go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance
+go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance ./cmd/mochat-architecture
