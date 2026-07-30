@@ -206,7 +206,6 @@ func validateWorkflow(path string) []string {
 	}
 	integrationCleanup := `docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml down -v --remove-orphans`
 	integrationMarkers := []string{
-		integrationCleanup,
 		"trap cleanup EXIT",
 		`docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml up -d mysql57`,
 	}
@@ -271,7 +270,6 @@ func validateLifecycle(contents string) []string {
 
 	cleanupCommand := "compose down -v --remove-orphans >/dev/null 2>&1"
 	cleanupMarkers := []string{
-		cleanupCommand,
 		"trap cleanup EXIT INT TERM",
 		"compose up -d mysql",
 	}
@@ -329,7 +327,6 @@ func strictlyIncreasing(values []int) bool {
 }
 
 type shellStatement struct {
-	position   uint
 	candidates []string
 }
 
@@ -338,7 +335,7 @@ func containsExecutableCommandsInOrder(contents string, expected []string) bool 
 	if err != nil {
 		return false
 	}
-	statements := shellStatements(file)
+	statements := safeTopLevelShellStatements(file)
 	position := 0
 	for _, command := range expected {
 		canonical, ok := canonicalShellCommand(command)
@@ -375,26 +372,178 @@ func shellFunctionExecutes(contents, functionName, expected string) bool {
 	if !ok {
 		return false
 	}
-	matched := false
-	syntax.Walk(file, func(node syntax.Node) bool {
-		if matched || node == nil {
-			return !matched
-		}
-		function, ok := node.(*syntax.FuncDecl)
+	var matched *syntax.FuncDecl
+	for _, statement := range file.Stmts {
+		function, ok := statement.Cmd.(*syntax.FuncDecl)
 		if !ok || function.Name == nil || function.Name.Value != functionName {
+			continue
+		}
+		if matched != nil ||
+			statement.Semicolon.IsValid() ||
+			statement.Negated ||
+			statement.Background ||
+			statement.Coprocess ||
+			statement.Disown {
+			return false
+		}
+		matched = function
+	}
+	return matched != nil && functionStatementExecutes(matched.Body, canonical)
+}
+
+func functionStatementExecutes(statement *syntax.Stmt, canonical string) bool {
+	if statement == nil ||
+		statement.Semicolon.IsValid() ||
+		statement.Negated ||
+		statement.Background ||
+		statement.Coprocess ||
+		statement.Disown {
+		return false
+	}
+
+	switch command := statement.Cmd.(type) {
+	case *syntax.CallExpr:
+		shell, ok := shellStatementFromCall(statement, command)
+		if !ok {
+			return false
+		}
+		return stringSliceContains(shell.candidates, canonical)
+	case *syntax.Block:
+		return functionStatementsExecute(command.Stmts, canonical)
+	case *syntax.IfClause:
+		return functionIfClauseExecutes(command, canonical)
+	case *syntax.BinaryCmd:
+		if functionStatementExecutes(command.X, canonical) {
 			return true
 		}
-		for _, statement := range shellStatements(function.Body) {
-			for _, candidate := range statement.candidates {
-				if candidate == canonical {
-					matched = true
-					return false
-				}
-			}
+		truth, known := staticShellStatementTruth(command.X)
+		switch command.Op {
+		case syntax.AndStmt:
+			return known && truth && functionStatementExecutes(command.Y, canonical)
+		case syntax.OrStmt:
+			return known && !truth && functionStatementExecutes(command.Y, canonical)
+		default:
+			return false
 		}
+	default:
 		return false
-	})
-	return matched
+	}
+}
+
+func functionStatementsExecute(statements []*syntax.Stmt, canonical string) bool {
+	for _, statement := range statements {
+		if functionStatementExecutes(statement, canonical) {
+			return true
+		}
+		if shellStatementTerminates(statement) {
+			return false
+		}
+	}
+	return false
+}
+
+func functionIfClauseExecutes(clause *syntax.IfClause, canonical string) bool {
+	if clause == nil {
+		return false
+	}
+	if len(clause.Cond) == 0 {
+		return functionStatementsExecute(clause.Then, canonical)
+	}
+	if truth, known := staticShellStatementsTruth(clause.Cond); known {
+		if truth {
+			return functionStatementsExecute(clause.Then, canonical)
+		}
+		return functionIfClauseExecutes(clause.Else, canonical)
+	}
+	return functionStatementsExecute(clause.Then, canonical) ||
+		functionIfClauseExecutes(clause.Else, canonical)
+}
+
+func staticShellStatementsTruth(statements []*syntax.Stmt) (bool, bool) {
+	if len(statements) != 1 {
+		return false, false
+	}
+	return staticShellStatementTruth(statements[0])
+}
+
+func staticShellStatementTruth(statement *syntax.Stmt) (bool, bool) {
+	if statement == nil ||
+		statement.Background ||
+		statement.Coprocess ||
+		statement.Disown {
+		return false, false
+	}
+
+	var truth bool
+	switch command := statement.Cmd.(type) {
+	case *syntax.CallExpr:
+		if len(command.Args) != 1 || len(command.Assigns) != 0 {
+			return false, false
+		}
+		switch command.Args[0].Lit() {
+		case "true", ":":
+			truth = true
+		case "false":
+			truth = false
+		default:
+			return false, false
+		}
+	case *syntax.BinaryCmd:
+		left, leftKnown := staticShellStatementTruth(command.X)
+		if !leftKnown {
+			return false, false
+		}
+		switch command.Op {
+		case syntax.AndStmt:
+			if !left {
+				truth = false
+				break
+			}
+			right, rightKnown := staticShellStatementTruth(command.Y)
+			if !rightKnown {
+				return false, false
+			}
+			truth = right
+		case syntax.OrStmt:
+			if left {
+				truth = true
+				break
+			}
+			right, rightKnown := staticShellStatementTruth(command.Y)
+			if !rightKnown {
+				return false, false
+			}
+			truth = right
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
+	if statement.Negated {
+		truth = !truth
+	}
+	return truth, true
+}
+
+func shellStatementTerminates(statement *syntax.Stmt) bool {
+	if statement == nil ||
+		statement.Negated ||
+		statement.Background ||
+		statement.Coprocess ||
+		statement.Disown {
+		return false
+	}
+	call, ok := statement.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return false
+	}
+	switch call.Args[0].Lit() {
+	case "exit", "return":
+		return true
+	default:
+		return false
+	}
 }
 
 func literalCommandArguments(contents, commandName string) []string {
@@ -444,41 +593,68 @@ func parseShell(contents string) (*syntax.File, error) {
 	return parser.Parse(strings.NewReader(contents), "")
 }
 
-func shellStatements(node syntax.Node) []shellStatement {
-	statements := make([]shellStatement, 0)
-	syntax.Walk(node, func(node syntax.Node) bool {
-		if node == nil {
-			return true
+func safeTopLevelShellStatements(file *syntax.File) []shellStatement {
+	statements := make([]shellStatement, 0, len(file.Stmts))
+	for _, statement := range file.Stmts {
+		safe, ok := safeSerialShellStatements(statement)
+		if ok {
+			statements = append(statements, safe...)
 		}
-		statement, ok := node.(*syntax.Stmt)
-		if !ok {
-			return true
-		}
-		call, ok := statement.Cmd.(*syntax.CallExpr)
-		if !ok || len(call.Args) == 0 {
-			return true
-		}
-		candidates := []string{printShellNode(statement)}
-
-		if len(call.Assigns) != 0 {
-			withoutAssignments := cloneStatementWithCall(statement, call)
-			withoutAssignmentsCall := withoutAssignments.Cmd.(*syntax.CallExpr)
-			withoutAssignmentsCall.Assigns = nil
-			candidates = append(candidates, printShellNode(withoutAssignments))
-		}
-		if stripped := stripEnvCommand(statement, call); stripped != nil {
-			candidates = append(candidates, printShellNode(stripped))
-		}
-		statements = append(statements, shellStatement{
-			position:   statement.Pos().Offset(),
-			candidates: uniqueStrings(candidates),
-		})
-		return true
-	})
-	sort.SliceStable(statements, func(left, right int) bool {
-		return statements[left].position < statements[right].position
-	})
+	}
 	return statements
+}
+
+func safeSerialShellStatements(statement *syntax.Stmt) ([]shellStatement, bool) {
+	if statement == nil ||
+		statement.Semicolon.IsValid() ||
+		statement.Negated ||
+		statement.Background ||
+		statement.Coprocess ||
+		statement.Disown {
+		return nil, false
+	}
+
+	switch command := statement.Cmd.(type) {
+	case *syntax.CallExpr:
+		shell, ok := shellStatementFromCall(statement, command)
+		if !ok {
+			return nil, false
+		}
+		return []shellStatement{shell}, true
+	case *syntax.BinaryCmd:
+		if command.Op != syntax.AndStmt {
+			return nil, false
+		}
+		left, leftOK := safeSerialShellStatements(command.X)
+		right, rightOK := safeSerialShellStatements(command.Y)
+		if !leftOK || !rightOK {
+			return nil, false
+		}
+		return append(left, right...), true
+	default:
+		return nil, false
+	}
+}
+
+func shellStatementFromCall(statement *syntax.Stmt, call *syntax.CallExpr) (shellStatement, bool) {
+	if len(call.Args) == 0 {
+		return shellStatement{}, false
+	}
+	candidates := []string{printShellNode(statement)}
+
+	if len(call.Assigns) != 0 {
+		withoutAssignments := cloneStatementWithCall(statement, call)
+		withoutAssignmentsCall := withoutAssignments.Cmd.(*syntax.CallExpr)
+		withoutAssignmentsCall.Assigns = nil
+		candidates = append(candidates, printShellNode(withoutAssignments))
+	}
+	if stripped := stripEnvCommand(statement, call); stripped != nil {
+		candidates = append(candidates, printShellNode(stripped))
+	}
+	candidates = uniqueStrings(candidates)
+	return shellStatement{
+		candidates: candidates,
+	}, len(candidates) != 0
 }
 
 func stripEnvCommand(statement *syntax.Stmt, call *syntax.CallExpr) *syntax.Stmt {
@@ -526,8 +702,8 @@ func canonicalShellCommand(command string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	statements := shellStatements(file)
-	if len(statements) == 0 {
+	statements := safeTopLevelShellStatements(file)
+	if len(statements) != 1 {
 		return "", false
 	}
 	return statements[0].candidates[0], true
@@ -556,4 +732,13 @@ func uniqueStrings(values []string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+func stringSliceContains(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
