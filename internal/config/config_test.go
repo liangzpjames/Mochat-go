@@ -157,6 +157,32 @@ func TestFromEnvDefaults(t *testing.T) {
 	}
 }
 
+func TestPhase22SCRMPilotDisabledByDefault(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnablePhase22SCRMPilot {
+		t.Fatal("EnablePhase22SCRMPilot = true")
+	}
+}
+
+func TestPhase22SCRMPilotCanBeEnabled(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "true")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.EnablePhase22SCRMPilot {
+		t.Fatal("EnablePhase22SCRMPilot = false")
+	}
+}
+
 func TestFromEnvRuntimeRole(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_GO_RUNTIME_ROLE", "api")
@@ -3193,6 +3219,7 @@ func clearEnv(t *testing.T) {
 		"MOCHAT_GO_ADDR",
 		"MOCHAT_GO_STANDALONE",
 		"MOCHAT_GO_ENABLE_ALL_MIGRATED_ROUTES",
+		"MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT",
 		"MOCHAT_GO_ENABLE_FRONTEND_SERVERS",
 		"MOCHAT_PHP_UPSTREAM",
 		"MOCHAT_API_BASE_URL",

@@ -150,31 +150,6 @@ func main() {
 			clientIPStatus.TrustProxyHeaders, clientIPStatus.TrustedProxyCIDRCount)
 	}
 
-	buildUserResolver := func(routeName string) (dashboard.UserIDResolver, dashboard.LoginCache) {
-		if cfg.DevAuthHeader {
-			log.Printf("%s auth resolver: development header X-Mochat-Go-User-ID", routeName)
-			return dashboard.HeaderUserIDResolver{}, nil
-		}
-		if cfg.SkipJWTBlacklist {
-			log.Printf("%s auth resolver: PHP simple-jwt compatible parser without Redis blacklist checks", routeName)
-			return authjwt.Parser{
-				Secret:        cfg.SimpleJWTSecret,
-				Prefix:        cfg.SimpleJWTPrefix,
-				SkipBlacklist: true,
-				Sessions:      identitySessionChecker,
-			}, nil
-		}
-		redisStore := getRedisStore()
-		log.Printf("%s auth resolver: PHP simple-jwt compatible parser", routeName)
-		return authjwt.Parser{
-			Secret:        cfg.SimpleJWTSecret,
-			Prefix:        cfg.SimpleJWTPrefix,
-			Blacklist:     redisStore,
-			SkipBlacklist: cfg.SkipJWTBlacklist,
-			Sessions:      identitySessionChecker,
-		}, redisStore
-	}
-
 	if cfg.EnableSaaSIdentitySecurity {
 		identityManager, err = identitysecurity.NewManager(getMySQLStore(), identitysecurity.Config{
 			EncryptionKey: cfg.SaaSIdentityEncryptionKey, EncryptionKeys: cfg.SaaSIdentityEncryptionKeys,
@@ -190,6 +165,7 @@ func main() {
 		log.Printf("SaaS identity security enabled: session_enforced=%t mfa_key_id=%s mfa_key_count=%d trusted_proxy_headers=%t trusted_proxy_cidrs=%d",
 			status.SessionEnforced, status.MFAEncryptionKeyID, status.MFAEncryptionKeys, status.TrustedProxyHeaders, status.TrustedProxyCIDRCount)
 	}
+	buildUserResolver := newUserResolverBuilder(cfg, identitySessionChecker, getRedisStore)
 
 	buildSidebarEmployeeResolver := func(routeName string) dashboard.UserIDResolver {
 		if cfg.DevAuthHeader {
@@ -3195,6 +3171,11 @@ func main() {
 		return
 	}
 
+	moduleRouter, err := newSCRMModuleRouter(cfg, getMySQLStore, buildUserResolver)
+	if err != nil {
+		log.Fatal(err)
+	}
+	options = append(options, compatserver.WithModuleRouter(moduleRouter))
 	handler, err := compatserver.New(cfg, options...)
 	if err != nil {
 		log.Fatalf("build server: %v", err)
