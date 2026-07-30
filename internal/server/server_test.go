@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"jiyi/mochat-go/internal/app/modules"
 	"jiyi/mochat-go/internal/config"
 	"jiyi/mochat-go/internal/taskrunner"
 )
@@ -41,6 +42,36 @@ func TestHeadRootDoesNotWriteBody(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("HEAD body length = %d, want 0", rec.Body.Len())
+	}
+}
+
+func TestModuleRouterRunsBeforeLegacyFallback(t *testing.T) {
+	router := modules.NewRouter()
+	if err := router.Handle(http.MethodGet, "/api/phase2-2/ping", http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) },
+	)); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(config.Config{}, WithModuleRouter(router))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/phase2-2/ping", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestUnmatchedModuleRouteKeepsLegacyHealthRoute(t *testing.T) {
+	server, err := New(config.Config{}, WithModuleRouter(modules.NewRouter()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
 	}
 }
 

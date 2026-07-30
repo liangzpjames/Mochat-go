@@ -24,6 +24,7 @@ type Server struct {
 	cfg                                             config.Config
 	startedAt                                       time.Time
 	proxy                                           http.Handler
+	moduleRouter                                    ModuleRouter
 	auth                                            http.Handler
 	authMFA                                         http.Handler
 	identitySelf                                    http.Handler
@@ -635,7 +636,17 @@ var migratedRoutes = []string{
 	"GET /compat/routes",
 }
 
+type ModuleRouter interface {
+	Match(*http.Request) (http.Handler, bool)
+}
+
 type Option func(*Server)
+
+func WithModuleRouter(router ModuleRouter) Option {
+	return func(server *Server) {
+		server.moduleRouter = router
+	}
+}
 
 func WithLoginShowHandler(handler http.Handler) Option {
 	return func(server *Server) {
@@ -3986,6 +3997,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		normalized.URL.RawPath = ""
 		s.ServeHTTP(w, normalized)
 		return
+	}
+	if s.moduleRouter != nil {
+		if handler, ok := s.moduleRouter.Match(r); ok {
+			handler.ServeHTTP(w, r)
+			return
+		}
 	}
 
 	switch {
