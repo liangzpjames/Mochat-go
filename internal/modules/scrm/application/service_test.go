@@ -56,6 +56,34 @@ func TestCreateLeadRejectsMissingTenant(t *testing.T) {
 	}
 }
 
+func TestCreateLeadValidatesCommandBeforeGeneratingID(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		command CreateLeadCommand
+	}{
+		{name: "tenant", command: CreateLeadCommand{BusinessKey: "request-1", Name: "Ada", Source: domain.LeadSourceManual}},
+		{name: "business key", command: CreateLeadCommand{TenantID: 1, Name: "Ada", Source: domain.LeadSourceManual}},
+		{name: "name", command: CreateLeadCommand{TenantID: 1, BusinessKey: "request-1", Source: domain.LeadSourceManual}},
+		{name: "source", command: CreateLeadCommand{TenantID: 1, BusinessKey: "request-1", Name: "Ada", Source: domain.LeadSource("api")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			idGenerator := &countingIDGenerator{err: errors.New("ID generator unavailable")}
+			service, err := NewService(&fakeLeadRepository{}, fixedClock{}, idGenerator)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = service.CreateLead(context.Background(), tc.command)
+			if !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("error = %v, want ErrInvalidArgument", err)
+			}
+			if idGenerator.calls != 0 {
+				t.Fatalf("ID generator calls = %d, want 0", idGenerator.calls)
+			}
+		})
+	}
+}
+
 func TestListLeadsAlwaysScopesRepositoryByTenant(t *testing.T) {
 	repository := &fakeLeadRepository{}
 	service, err := NewService(repository, fixedClock{}, fixedIDGenerator{id: "generated-1"})
@@ -139,6 +167,26 @@ func TestNewServiceRejectsNilDependencies(t *testing.T) {
 	}
 }
 
+func TestNewServiceRejectsTypedNilDependencies(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		repository  ports.LeadRepository
+		clock       ports.Clock
+		idGenerator ports.IDGenerator
+	}{
+		{name: "repository", repository: (*fakeLeadRepository)(nil), clock: fixedClock{}, idGenerator: fixedIDGenerator{}},
+		{name: "clock", repository: &fakeLeadRepository{}, clock: (*fixedClock)(nil), idGenerator: fixedIDGenerator{}},
+		{name: "id generator", repository: &fakeLeadRepository{}, clock: fixedClock{}, idGenerator: (*fixedIDGenerator)(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewService(tc.repository, tc.clock, tc.idGenerator)
+			if !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("error = %v, want ErrInvalidArgument", err)
+			}
+		})
+	}
+}
+
 type fakeLeadRepository struct {
 	createdLead  domain.Lead
 	createResult domain.Lead
@@ -179,4 +227,14 @@ type fixedIDGenerator struct {
 
 func (g fixedIDGenerator) NewID() (string, error) {
 	return g.id, g.err
+}
+
+type countingIDGenerator struct {
+	calls int
+	err   error
+}
+
+func (g *countingIDGenerator) NewID() (string, error) {
+	g.calls++
+	return "", g.err
 }

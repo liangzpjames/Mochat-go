@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
+	"time"
 
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	"jiyi/mochat-go/internal/modules/scrm/ports"
@@ -27,10 +29,23 @@ type Service struct {
 }
 
 func NewService(repository ports.LeadRepository, clock ports.Clock, idGenerator ports.IDGenerator) (Service, error) {
-	if repository == nil || clock == nil || idGenerator == nil {
+	if isNilDependency(repository) || isNilDependency(clock) || isNilDependency(idGenerator) {
 		return Service{}, fmt.Errorf("%w: service dependencies are required", ErrInvalidArgument)
 	}
 	return Service{repository: repository, clock: clock, idGenerator: idGenerator}, nil
+}
+
+func isNilDependency(dependency any) bool {
+	if dependency == nil {
+		return true
+	}
+	value := reflect.ValueOf(dependency)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 type CreateLeadCommand struct {
@@ -51,8 +66,8 @@ type LeadView struct {
 }
 
 func (s Service) CreateLead(ctx context.Context, command CreateLeadCommand) (LeadView, error) {
-	if command.TenantID <= 0 {
-		return LeadView{}, fmt.Errorf("%w: tenant ID is required", ErrInvalidArgument)
+	if _, err := domain.NewLead("", command.TenantID, command.BusinessKey, command.Name, command.Source, time.Time{}); err != nil {
+		return LeadView{}, fmt.Errorf("%w: %w", ErrInvalidArgument, err)
 	}
 
 	id, err := s.idGenerator.NewID()

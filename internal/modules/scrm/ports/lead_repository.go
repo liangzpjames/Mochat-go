@@ -7,6 +7,9 @@ import (
 )
 
 type LeadRepository interface {
+	// CreateOrGet resolves lead identity strictly by (TenantID, BusinessKey).
+	// Duplicate or concurrent calls must create at most one lead and return the
+	// existing lead. created is true only for the call that actually inserted it.
 	CreateOrGet(context.Context, domain.Lead) (lead domain.Lead, created bool, err error)
 	List(context.Context, ListLeadsFilter) (LeadPage, error)
 }
