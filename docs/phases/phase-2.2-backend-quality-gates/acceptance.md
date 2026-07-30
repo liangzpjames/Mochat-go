@@ -5,10 +5,10 @@
 - 验收日期：2026-07-30
 - 分支：`phase2.2-backend-quality-gates`
 - 修复基线：`45cc401cdecd9477593bec9444461c901cd42af1`
-- 被验证源码提交：`035a05d3ac83cb6582d9ff5c35bc223fd2fc203a`
-- 被验证 Git tree：`f5caa7bfa6d081cdaa851de581acda406ea7d305`
-- 原始 Git archive SHA-256：`a5d9c72f0da84581f3fe44d7f16a98f11e909da66b5856038764e9fe0fe931d3`
-- 原始 Git archive 大小：`40990720` bytes
+- 被验证源码提交：`10642c3693d82a68e28156f694f4ab84f167aa31`
+- 被验证 Git tree：`24795225a1920a764856a32034da4e615cd48abb`
+- 原始 Git archive SHA-256：`d30137a94d22752fe7db011af9c9678adae4b84a6ca0565ee7f03cf0aaa6cc30`
+- 原始 Git archive 大小：`41000960` bytes
 - Phase 3 backend ready: **yes**
 
 最终审查及追加复审指出的 finding 均已通过 TDD 修复。架构规则、fail-closed 治理、CI 生命周期、执行路径感知的 Bash AST 门禁、Phase 3 真实数据库计划、typed-nil 防御，以及全量、race、真实 MySQL 5.7、migration lifecycle 都有重新执行的通过证据。
@@ -23,8 +23,9 @@
 | `7f24304` | 未知模块子目录 fail-closed；使用真实 YAML loader 将门禁绑定到唯一 job；计划变更触发 CI。 |
 | `39b79fc` | 禁止包族按路径边界覆盖子包；Bash AST 拒绝 echo/comment/printf/heredoc 惰性门禁文本。 |
 | `035a05d` | Bash AST 仅认可根层独立命令或安全 `&&` 串联；拒绝死分支、失败掩码和不可达 cleanup。 |
+| `10642c3` | 跟踪 errexit 与根层副作用；拒绝成功覆盖、前置终止及分号/compound 可达性旁路。 |
 
-提交范围：`45cc401..035a05d`。
+提交范围：`45cc401..10642c3`。
 
 ## 架构门禁
 
@@ -55,6 +56,8 @@ PASS
 - contract 使用 `go.yaml.in/yaml/v3` 真实解析 YAML，选择唯一的 `mysql57-amd64` job，拒绝重复 step name。
 - workflow、lifecycle 和开发脚本使用 `mvdan.cc/sh/v3` Bash AST 识别真实 executable statements、env/assignment 前缀、命令顺序和 cleanup 函数归属；必需命令仅可位于文件根层的独立调用或纯 `&&` 串联中。
 - `if false`、dead `case`、未调用函数、`|| true`、`! cmd`、`cmd; exit 0` 均不能充当门禁证据；cleanup 只认可唯一根层函数定义中的可达执行路径，嵌套未调用函数也会失败。
+- contract 跟踪 `set +e`/`set -e` 状态与根层语句副作用；`set +e; go test; exit 0`、前置 `exit`/`return`/`exec`、分号和 compound 成功终止都不能绕过 required command。
+- 合法的 assignment/`env` 前缀、恢复 `set -e`、最终状态由 required command 决定以及 `exec <required-command>` 仍保持通过。
 - comment、echo、printf、heredoc 数据不能充当门禁证据；真实 workflow 与 `env`/assignment 前缀仍保持通过。
 - Phase 3 计划路径同时存在于 push、pull request filters 与 contract required paths，计划单独修改也会触发门禁。
 - `scripts/test.sh` 与 `scripts/dev_check.sh` 构建六个命令入口，包括 `mochat-architecture`。
@@ -80,7 +83,7 @@ $ ruby YAML parser .github/workflows/mysql57-amd64.yml
 
 ## 全量 Go 门禁
 
-以下命令在源码提交 `035a05d` 上重新执行，退出码均为 0：
+以下命令在源码提交 `10642c3` 上重新执行，退出码均为 0：
 
 ```text
 go test ./... -count=1
@@ -126,6 +129,8 @@ finally cleanup 执行 `docker compose down -v --remove-orphans`，容器、网�
 
 ## Migration apply/checksum/rollback/replay
 
+`10642c3` 仅修改 `internal/qualitygate` 及其测试；数据库、migration、compose 与 lifecycle 脚本均未变化。因此上述真实数据库与下列 lifecycle 权威执行证据继续绑定其最近一次精确执行源码 `035a05d`，而本轮新源码另有全量 test/vet/build、Linux contract/race 与 archive identity 证据。
+
 Windows checkout 可能受全局 `core.autocrlf=true` 影响，因此权威 lifecycle 输入来自：
 
 ```powershell
@@ -161,7 +166,7 @@ archive 解压到 Docker named volume；runner 使用 Docker daemon 实际 mount
 - Windows 原生 race 受本机 CGO 工具链限制；Linux amd64 容器是权威 race 执行面。
 - Windows bind mount 下直接执行 shell 脚本可能受 CRLF 影响；本次没有把失败的 `scripts/test_dev_check.sh` 本地尝试声明为通过。
 - lifecycle 的普通 archive、daemon 不可见 bind path、`bash -lc` PATH 和 Alpine `apk add` 网络卡住等尝试均不计作通过证据；最终使用已缓存 Debian Go/Python/Bash 镜像、静态 Docker CLI/Compose 工具卷和独立 socket port probe 成功，所有临时资源已清理。
-- 后续终审发现禁止包族子路径、惰性 shell 文本和控制流/失败掩码旁路；`035a05d` 已按 RED→GREEN 修复，并在 cleanup 嵌套函数复审后完成全部权威复验。
+- 后续终审发现禁止包族子路径、惰性 shell 文本、控制流/失败掩码、errexit 成功覆盖和前置终止旁路；`10642c3` 已按 RED→GREEN 修复，最终独立复审 Critical、Important、Minor 均无。
 
 ## 验收清单
 
@@ -171,6 +176,7 @@ archive 解压到 Docker named volume；runner 使用 Docker daemon 实际 mount
 - [x] 结构化 CI contract、vet、完整 lifecycle 和六命令 build；
 - [x] Bash AST 拒绝 comment/echo/printf/heredoc 惰性证据；
 - [x] Bash AST 拒绝 dead branch、未调用函数、失败掩码和不可达 cleanup；
+- [x] Bash AST 拒绝 errexit 成功覆盖、前置终止及分号/compound 副作用旁路；
 - [x] Phase 3 真实 MySQL integration 计划约束；
 - [x] typed-nil handler/router 防御；
 - [x] 聚焦、全量、vet、build；
