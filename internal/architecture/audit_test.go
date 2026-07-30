@@ -14,7 +14,9 @@ func TestAuditRejectsInvalidDependencies(t *testing.T) {
 		ruleID string
 	}{
 		{"domain imports SQL", "testdata/domain-imports-sql", "ARCH-DOMAIN-DEPENDENCY"},
+		{"domain imports SQL driver", "testdata/domain-imports-sql-driver", "ARCH-DOMAIN-DEPENDENCY"},
 		{"application imports adapter", "testdata/application-imports-adapter", "ARCH-APPLICATION-DEPENDENCY"},
+		{"application imports HTTP test package", "testdata/application-imports-http-subpackage", "ARCH-APPLICATION-DEPENDENCY"},
 		{"module imports dashboard", "testdata/module-imports-dashboard", "ARCH-LEGACY-DEPENDENCY"},
 		{"module imports another adapter", "testdata/cross-module-adapter", "ARCH-CROSS-MODULE-PRIVATE"},
 		{"legacy SCRM file", "testdata/legacy-scrm", "ARCH-FORBIDDEN-LEGACY-FILE"},
@@ -64,6 +66,25 @@ func TestAuditAllowsOnlyExactPublicContractException(t *testing.T) {
 	}
 	if !containsImportViolation(violations, RuleApplicationDependency, "jiyi/mochat-go/internal/modules/beta/ports") {
 		t.Fatalf("exception leaked beyond its exact import: %#v", violations)
+	}
+}
+
+func TestPackageFamilyRequiresPathSegmentBoundary(t *testing.T) {
+	for name, tc := range map[string]struct {
+		imported string
+		root     string
+		want     bool
+	}{
+		"exact":              {imported: "database/sql", root: "database/sql", want: true},
+		"subpackage":         {imported: "database/sql/driver", root: "database/sql", want: true},
+		"similar package":    {imported: "database/sqlx", root: "database/sql", want: false},
+		"similar repository": {imported: "jiyi/mochat-governance/internal/store", root: "jiyi/mochat-go", want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := isPackageFamily(tc.imported, tc.root); got != tc.want {
+				t.Fatalf("isPackageFamily(%q, %q) = %t, want %t", tc.imported, tc.root, got, tc.want)
+			}
+		})
 	}
 }
 

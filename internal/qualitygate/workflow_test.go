@@ -87,6 +87,104 @@ jobs:
 	}
 }
 
+func TestValidateWorkflowRejectsRequiredCommandAsInertText(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	cases := []struct {
+		name        string
+		original    string
+		replacement string
+		step        string
+		command     string
+	}{
+		{
+			name:        "echoed full test",
+			original:    "        run: go test ./...\n",
+			replacement: "        run: echo \"go test ./...\"\n",
+			step:        "Go tests",
+			command:     "go test ./...",
+		},
+		{
+			name:        "commented lifecycle",
+			original:    "        run: bash ./scripts/smoke_schema_migrate.sh\n",
+			replacement: "        run: |\n          # bash ./scripts/smoke_schema_migrate.sh\n",
+			step:        "Migration 0098 lifecycle gate",
+			command:     "bash ./scripts/smoke_schema_migrate.sh",
+		},
+		{
+			name:     "integration command in heredoc data",
+			original: "          go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql\n",
+			replacement: "          cat <<'INERT_COMMAND'\n" +
+				"          go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql\n" +
+				"          INERT_COMMAND\n",
+			step:    "SCRM MySQL integration gate",
+			command: "go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(workflow, tc.original) {
+				t.Fatalf("workflow fixture no longer contains %q", tc.original)
+			}
+			path := writeWorkflow(t, strings.Replace(workflow, tc.original, tc.replacement, 1))
+			assertFailureContains(
+				t,
+				validateWorkflow(path),
+				tc.step+" step does not own command: "+tc.command,
+			)
+		})
+	}
+}
+
+func TestValidateLifecycleRejectsCommentedCriticalCommand(t *testing.T) {
+	lifecycle := readRepositoryFile(t, "scripts/smoke_schema_migrate.sh")
+	command := `"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/apply.out"`
+	if !strings.Contains(lifecycle, command) {
+		t.Fatalf("lifecycle fixture no longer contains %q", command)
+	}
+
+	failures := validateLifecycle(strings.Replace(lifecycle, command, "# "+command, 1))
+	assertFailureContains(
+		t,
+		failures,
+		"authoritative lifecycle script must execute 0098 apply/checksum/rollback/replay in order",
+	)
+}
+
+func TestExecutableCommandRecognitionAllowsOnlyRealCommands(t *testing.T) {
+	const expected = "go test ./..."
+	for name, tc := range map[string]struct {
+		script string
+		want   bool
+	}{
+		"exact":             {script: expected, want: true},
+		"assignment prefix": {script: "CGO_ENABLED=1 " + expected, want: true},
+		"env prefix":        {script: "env CGO_ENABLED=1 " + expected, want: true},
+		"comment":           {script: "# " + expected, want: false},
+		"echo":              {script: `echo "go test ./..."`, want: false},
+		"printf":            {script: `printf '%s\n' 'go test ./...'`, want: false},
+		"heredoc": {
+			script: "cat <<'INERT'\n" + expected + "\nINERT\n",
+			want:   false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := containsExecutableCommandsInOrder(tc.script, []string{expected}); got != tc.want {
+				t.Fatalf("containsExecutableCommandsInOrder(%q) = %t, want %t", tc.script, got, tc.want)
+			}
+		})
+	}
+}
+
+func readRepositoryFile(t *testing.T, path string) string {
+	t.Helper()
+	contents, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
+}
+
 func writeWorkflow(t *testing.T, contents string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "workflow.yml")

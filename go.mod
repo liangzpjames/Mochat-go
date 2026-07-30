@@ -8,6 +8,7 @@ require (
 	github.com/redis/go-redis/v9 v9.21.0
 	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/crypto v0.53.0
+	mvdan.cc/sh/v3 v3.13.1
 )
 
 require (

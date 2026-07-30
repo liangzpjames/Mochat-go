@@ -231,7 +231,7 @@ func allowedByLayer(currentLayer layer, currentModule, imported, importedModule 
 	if sharedContractAllowed(currentLayer, imported) {
 		return true
 	}
-	if strings.HasPrefix(imported, "jiyi/mochat-go/") || imported == "jiyi/mochat-go" {
+	if isPackageFamily(imported, "jiyi/mochat-go") {
 		return false
 	}
 
@@ -243,13 +243,13 @@ func allowedByLayer(currentLayer layer, currentModule, imported, importedModule 
 func standardLibraryAllowed(currentLayer layer, imported string) bool {
 	switch currentLayer {
 	case layerDomain:
-		return imported != "database/sql" && imported != "net/http"
+		return !isPackageFamily(imported, "database/sql") && !isPackageFamily(imported, "net/http")
 	case layerPorts:
-		return imported != "database/sql" && imported != "net/http"
+		return !isPackageFamily(imported, "database/sql") && !isPackageFamily(imported, "net/http")
 	case layerApplication:
-		return imported != "database/sql" && imported != "net/http"
+		return !isPackageFamily(imported, "database/sql") && !isPackageFamily(imported, "net/http")
 	case layerTransport:
-		return imported != "database/sql"
+		return !isPackageFamily(imported, "database/sql")
 	case layerAdapters, layerModule:
 		return true
 	default:
@@ -283,7 +283,7 @@ func sharedContractAllowed(currentLayer layer, imported string) bool {
 		}
 	}
 	for _, packagePath := range allowed {
-		if imported == packagePath || strings.HasPrefix(imported, packagePath+"/") {
+		if isPackageFamily(imported, packagePath) {
 			return true
 		}
 	}
@@ -404,11 +404,15 @@ func isLegacyImport(imported string) bool {
 		"jiyi/mochat-go/internal/server",
 		"jiyi/mochat-go/internal/config",
 	} {
-		if imported == packagePath || strings.HasPrefix(imported, packagePath+"/") {
+		if isPackageFamily(imported, packagePath) {
 			return true
 		}
 	}
 	return false
+}
+
+func isPackageFamily(imported, root string) bool {
+	return imported == root || strings.HasPrefix(imported, root+"/")
 }
 
 func importPath(spec *ast.ImportSpec) (string, error) {
