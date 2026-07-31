@@ -140,6 +140,20 @@ describe('createAccessLoader', () => {
     expect(result).not.toHaveProperty('state');
   });
 
+  it('allows documented benchmark routes even when legacy menu permissions use different paths', async () => {
+    const loader = createAccessLoader(deps({
+      loadMenu: vi.fn(() => Promise.resolve([])),
+      knownRoutes: new Set(['/benchmark/demo']),
+      benchmarkRoutes: new Set(['/benchmark/demo']),
+    }));
+
+    await expect(loader({
+      request: new Request('https://app.test/benchmark/demo'),
+    })).resolves.toMatchObject({
+      allowedRoutes: new Set(['/benchmark/demo']),
+    });
+  });
+
   it('returns 403 for a known route without permission and 404 for an unknown route', async () => {
     const loader = createAccessLoader(deps());
 

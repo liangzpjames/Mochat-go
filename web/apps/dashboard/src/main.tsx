@@ -117,6 +117,7 @@ const loadAccess = createAccessLoader({
   clearSession: () => authStore.clearSession(),
   getSession: () => authStore.getSession(),
   knownRoutes,
+  benchmarkRoutes: new Set(benchmarkManifest.pages.map((page) => page.path)),
   loadCorps: () => loadCorps(apiClient),
   loadMenu: () => loadMenu(apiClient),
 });

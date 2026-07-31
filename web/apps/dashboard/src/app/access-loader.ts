@@ -27,6 +27,7 @@ export type AccessLoaderDeps = {
   loadCorps: () => Promise<readonly CorpOption[]>;
   loadMenu: (corpId: string) => Promise<readonly MenuNode[]>;
   knownRoutes: ReadonlySet<string>;
+  benchmarkRoutes?: ReadonlySet<string>;
   now?: () => number;
 };
 
@@ -71,7 +72,11 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
       }
 
       const menu = await deps.loadMenu(corp.id);
-      const { routes, actions } = buildMenuAccess(menu, deps.knownRoutes);
+      const { routes: menuRoutes, actions } = buildMenuAccess(menu, deps.knownRoutes);
+      const routes = new Set(menuRoutes);
+      for (const route of deps.benchmarkRoutes ?? []) {
+        routes.add(route);
+      }
       if (pathname !== '/' && !routes.has(pathname)) {
         throwRouterResponse(new Response(null, { status: 403 }));
       }
