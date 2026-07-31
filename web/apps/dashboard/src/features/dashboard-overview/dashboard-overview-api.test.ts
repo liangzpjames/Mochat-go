@@ -32,4 +32,18 @@ describe('createDashboardOverviewApi', () => {
       '/corpData/index?corpId=corp+7&from=2026-07-01&to=2026-07-31',
     );
   });
+
+  it('rejects an incompatible legacy response instead of crashing the page', async () => {
+    const request = vi.fn(() => Promise.resolve({
+      weChatContactNum: 137,
+      updateTime: '2026-07-31 09:30:00',
+    }));
+    const api = createDashboardOverviewApi({ request });
+
+    await expect(api.load({
+      corpId: '7',
+      from: '2026-07-01',
+      to: '2026-07-31',
+    })).rejects.toThrow('数据概览接口尚未启用');
+  });
 });

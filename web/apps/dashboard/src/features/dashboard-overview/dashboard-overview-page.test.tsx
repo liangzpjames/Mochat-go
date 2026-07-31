@@ -9,6 +9,7 @@ import type {
   DashboardOverview,
   DashboardOverviewApi,
 } from './dashboard-overview-api';
+import { createDashboardOverviewApi } from './dashboard-overview-api';
 import { DashboardOverviewPage } from './dashboard-overview-page';
 
 const access: AccessContext = {
@@ -95,6 +96,20 @@ describe('DashboardOverviewPage', () => {
     expect(screen.queryByText('137')).toBeNull();
   });
 
+  it('removes previously loaded statistics when refresh loses corp authorization', async () => {
+    const load = vi.fn()
+      .mockResolvedValueOnce(overview)
+      .mockRejectedValueOnce(new ApiError('forbidden', 'forbidden', { status: 403 }));
+    renderPage({ load });
+    expect(await screen.findByText('137')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+
+    expect(await screen.findByText('无权访问当前企业数据')).not.toBeNull();
+    expect(screen.queryByText('137')).toBeNull();
+    expect(screen.queryByLabelText('新增客户 12')).toBeNull();
+  });
+
   it('shows a retryable error state', async () => {
     const load = vi.fn()
       .mockRejectedValueOnce(new Error('网络异常'))
@@ -105,6 +120,18 @@ describe('DashboardOverviewPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(await screen.findByText('真实客户总数')).not.toBeNull();
     expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('turns a legacy fallback-route response into a controlled error state', async () => {
+    const request = vi.fn(() => Promise.resolve({
+      weChatContactNum: 137,
+      updateTime: '2026-07-31 09:30:00',
+    }));
+    renderPage(createDashboardOverviewApi({ request }));
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toContain('数据概览接口尚未启用');
+    expect(screen.queryByText('137')).toBeNull();
   });
 
   it('applies a new date range and refreshes through the injected API', async () => {
@@ -129,5 +156,22 @@ describe('DashboardOverviewPage', () => {
     await waitFor(() => expect(refresh.hasAttribute('disabled')).toBe(false));
     fireEvent.click(refresh);
     await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+  });
+
+  it('rejects a range longer than the backend 31-day window', async () => {
+    const load = vi.fn(() => Promise.resolve(overview));
+    renderPage({ load });
+    await screen.findByText('真实客户总数');
+
+    fireEvent.change(screen.getByLabelText('开始日期'), {
+      target: { value: '2026-06-01' },
+    });
+    fireEvent.change(screen.getByLabelText('结束日期'), {
+      target: { value: '2026-07-31' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+
+    expect(await screen.findByText('日期范围最多为 31 天')).not.toBeNull();
+    expect(load).toHaveBeenCalledTimes(1);
   });
 });

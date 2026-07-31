@@ -26,6 +26,12 @@ function defaultRange(): OverviewRange {
   return { from: localDateText(from), to: localDateText(to) };
 }
 
+function calendarDaySpan(range: OverviewRange): number {
+  const from = Date.parse(`${range.from}T00:00:00Z`);
+  const to = Date.parse(`${range.to}T00:00:00Z`);
+  return (to - from) / (24 * 60 * 60 * 1000);
+}
+
 function trendMaximum(points: readonly DashboardOverviewTrendPoint[]): number {
   return Math.max(
     1,
@@ -100,13 +106,18 @@ export function DashboardOverviewPage({
       setRangeError('请选择有效的日期范围');
       return;
     }
+    if (calendarDaySpan(draftRange) > 30) {
+      setRangeError('日期范围最多为 31 天');
+      return;
+    }
     setRangeError(null);
     setRange(draftRange);
   }
 
   const forbidden = query.error instanceof ApiError
     && query.error.kind === 'forbidden';
-  const empty = query.data !== undefined
+  const empty = !query.isError
+    && query.data !== undefined
     && query.data.cards.length === 0
     && query.data.trend.length === 0;
 
@@ -177,7 +188,7 @@ export function DashboardOverviewPage({
           <p>调整日期范围后重新查询。</p>
         </div>
       )}
-      {query.data !== undefined && !empty && (
+      {query.data !== undefined && !query.isError && !empty && (
         <>
           <div className="dashboard-overview-cards">
             {query.data.cards.map((card) => (
