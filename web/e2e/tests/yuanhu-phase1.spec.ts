@@ -12,6 +12,8 @@ test('MoChat benchmark shell shows collapsed navigation and branded header', asy
 
   await page.goto('/');
   await expect(page.getByRole('link', { name: 'MoChat AI' })).toBeVisible();
+  await expect(page).toHaveURL(/\/index$/);
+  await expect(page.getByRole('link', { name: '数据概览' })).toBeVisible();
   await expect(page.getByRole('button', { name: /会话/ })).toBeVisible();
   await expect(page.getByRole('link', { name: '全局消息' })).toHaveCount(0);
   await page.getByRole('button', { name: /会话/ }).click();
