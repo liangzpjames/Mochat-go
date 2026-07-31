@@ -7,8 +7,8 @@ describe('ScrmApi', () => {
     const api = createScrmApi({ request });
     await api.listPublicPool({ corpId: 7 });
     await api.claimFromPublicPool({ corpId: 7, contactId: 'c1', version: 2, idempotencyKey: 'claim-1' });
-    expect(request.mock.calls[0]?.[0]).toBe('/dashboard/scrm/assignments?corpId=7&pageSize=20');
-    expect(request.mock.calls[1]?.[0]).toBe('/dashboard/scrm/assignments/claim');
+    expect(request.mock.calls[0]?.[0]).toBe('/scrm/assignments?corpId=7&pageSize=20');
+    expect(request.mock.calls[1]?.[0]).toBe('/scrm/assignments/claim');
     expect(request.mock.calls[1]?.[1]).toMatchObject({ method: 'POST', headers: expect.objectContaining({ 'Idempotency-Key': 'claim-1' }) });
   });
 });

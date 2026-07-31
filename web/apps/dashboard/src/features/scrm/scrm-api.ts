@@ -31,31 +31,31 @@ export function createScrmApi(client: Client): ScrmApi {
     async listPublicPool(input) {
       const query = new URLSearchParams({ corpId: String(input.corpId), pageSize: String(input.pageSize ?? 20) });
       if (input.cursor) query.set('cursor', input.cursor);
-      return client.request(`/dashboard/scrm/assignments?${query.toString()}`) as Promise<AssignmentPage>;
+      return client.request(`/scrm/assignments?${query.toString()}`) as Promise<AssignmentPage>;
     },
     async updateAssignment(input) {
-      return client.request('/dashboard/scrm/assignments', { ...json(input, input.idempotencyKey), method: 'PUT' }) as Promise<Assignment>;
+      return client.request('/scrm/assignments', { ...json(input, input.idempotencyKey), method: 'PUT' }) as Promise<Assignment>;
     },
     async releaseToPublicPool(input) {
-      return client.request('/dashboard/scrm/assignments/release', json(input, input.idempotencyKey)) as Promise<Assignment>;
+      return client.request('/scrm/assignments/release', json(input, input.idempotencyKey)) as Promise<Assignment>;
     },
     async claimFromPublicPool(input) {
-      return client.request('/dashboard/scrm/assignments/claim', json(input, input.idempotencyKey)) as Promise<Assignment>;
+      return client.request('/scrm/assignments/claim', json(input, input.idempotencyKey)) as Promise<Assignment>;
     },
     async listOpportunities(input) {
       const query = new URLSearchParams({ corpId: String(input.corpId), pageSize: String(input.pageSize ?? 20) });
       if (input.stage) query.set('stage', input.stage);
       if (input.ownerId !== undefined) query.set('ownerId', String(input.ownerId));
       if (input.cursor) query.set('cursor', input.cursor);
-      return client.request(`/dashboard/scrm/opportunities?${query.toString()}`) as Promise<OpportunityPage>;
+      return client.request(`/scrm/opportunities?${query.toString()}`) as Promise<OpportunityPage>;
     },
-    async createOpportunity(input) { return client.request('/dashboard/scrm/opportunities', json(input, input.idempotencyKey)) as Promise<Opportunity>; },
-    async changeOpportunityStage(input) { return client.request(`/dashboard/scrm/opportunities/${input.opportunityId}/stage`, json(input, input.idempotencyKey)) as Promise<Opportunity>; },
-    async listFollowUps(input) { return client.request(`/dashboard/scrm/contacts/${input.contactId}/follow-ups?corpId=${input.corpId}`) as Promise<FollowUpPage>; },
-    async appendFollowUp(input) { return client.request(`/dashboard/scrm/contacts/${input.contactId}/follow-ups`, json(input, input.idempotencyKey)) as Promise<FollowUpRecord>; },
-    async listTags(input) { return client.request(`/dashboard/scrm/tags?corpId=${input.corpId}`) as Promise<TagPage>; },
-    async createTag(input) { return client.request('/dashboard/scrm/tags', json(input, input.idempotencyKey)) as Promise<Tag>; },
-    async renameTag(input) { return client.request(`/dashboard/scrm/tags/${input.tagId}`, { ...json(input, input.idempotencyKey), method: 'PUT' }) as Promise<Tag>; },
-    async bindTags(input) { await client.request(`/dashboard/scrm/tags/${input.tagId}/contacts`, json(input, input.idempotencyKey)); },
+    async createOpportunity(input) { return client.request('/scrm/opportunities', json(input, input.idempotencyKey)) as Promise<Opportunity>; },
+    async changeOpportunityStage(input) { return client.request(`/scrm/opportunities/${input.opportunityId}/stage`, json(input, input.idempotencyKey)) as Promise<Opportunity>; },
+    async listFollowUps(input) { return client.request(`/scrm/contacts/${input.contactId}/follow-ups?corpId=${input.corpId}`) as Promise<FollowUpPage>; },
+    async appendFollowUp(input) { return client.request(`/scrm/contacts/${input.contactId}/follow-ups`, json(input, input.idempotencyKey)) as Promise<FollowUpRecord>; },
+    async listTags(input) { return client.request(`/scrm/tags?corpId=${input.corpId}`) as Promise<TagPage>; },
+    async createTag(input) { return client.request('/scrm/tags', json(input, input.idempotencyKey)) as Promise<Tag>; },
+    async renameTag(input) { return client.request(`/scrm/tags/${input.tagId}`, { ...json(input, input.idempotencyKey), method: 'PUT' }) as Promise<Tag>; },
+    async bindTags(input) { await client.request(`/scrm/tags/${input.tagId}/contacts`, json(input, input.idempotencyKey)); },
   };
 }
