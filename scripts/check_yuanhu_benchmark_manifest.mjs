@@ -60,6 +60,9 @@ export function validateManifest(manifest) {
     if (pagePaths.has(page.path)) errors.push(`duplicate page path: ${page.path}`);
     pagePaths.add(page.path);
     if (!allowedLevels.has(page.level)) errors.push(`${label} has invalid level: ${page.level}`);
+    if (page.path === '/index' && page.groupId !== null) {
+      errors.push('index page must have groupId: null');
+    }
     if (page.path !== '/index' && !groupIds.has(page.groupId)) {
       errors.push(`${label} references missing group: ${page.groupId}`);
     }

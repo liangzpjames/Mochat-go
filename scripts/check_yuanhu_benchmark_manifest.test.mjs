@@ -24,7 +24,7 @@ test('the Yuanhu manifest records the eight observed navigation groups and index
   const manifest = await loadManifest();
 
   assert.deepEqual(manifest.groups.map((group) => group.id), expectedGroups);
-  assert.ok(manifest.pages.some((page) => page.path === '/index'));
+  assert.deepEqual(manifest.pages.find((page) => page.path === '/index')?.groupId, null);
 });
 
 test('the Yuanhu manifest uses unique paths and valid implementation levels', async () => {
@@ -43,4 +43,12 @@ test('the manifest validator rejects duplicate routes', async () => {
   duplicate.pages.push({ ...duplicate.pages[0] });
 
   assert.throws(() => validateManifest(duplicate), /duplicate page path: \/index/);
+});
+
+test('the manifest validator rejects an index page assigned to a navigation group', async () => {
+  const manifest = await loadManifest();
+  const invalidIndexGroup = structuredClone(manifest);
+  invalidIndexGroup.pages.find((page) => page.path === '/index').groupId = 'conversation';
+
+  assert.throws(() => validateManifest(invalidIndexGroup), /index page must have groupId: null/);
 });
