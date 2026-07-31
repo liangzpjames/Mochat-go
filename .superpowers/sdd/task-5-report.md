@@ -4,7 +4,10 @@
 
 Implemented and verified.
 
-Implementation commit: `fca32bd` (`feat: add real dashboard overview`)
+Implementation commits:
+
+- `fca32bd` (`feat: add real dashboard overview`)
+- `a7798e7` (`fix: harden dashboard overview states`)
 
 ## Delivered
 
@@ -38,6 +41,12 @@ Implementation commit: `fca32bd` (`feat: add real dashboard overview`)
   - the backend update timestamp.
 - Registered `/index` through the P0 page registry and the authenticated API
   client in `main.tsx`.
+- Validated the response shape at the API boundary. A legacy PHP fallback
+  response is converted to a controlled error state instead of reaching
+  `cards.length` and crashing.
+- Suppressed cached cards and trend values whenever a refresh enters an error or
+  forbidden state, so revoked corp access cannot leave stale statistics visible.
+- Mirrored the backend's inclusive 31-day range limit in the page filter.
 - Added no production mock or fixture data.
 
 `internal/server/server.go` did not require a production change because it
@@ -141,6 +150,22 @@ query string reaches the migrated handler unchanged.
    promise-returning `refreshAccess` callback in touched `main.tsx`. Both were
    corrected; the fresh lint run exited successfully with no findings.
 
+10. Review RED:
+
+    A read-only independent review found that React Query could retain successful
+    data after a failed refresh, and that a legacy PHP response lacked the new
+    arrays. New tests proved both defects:
+
+    - success followed by a `403` still rendered the old `137` card;
+    - the legacy payload resolved instead of being rejected.
+
+11. Review GREEN:
+
+    The page now renders data only when `query.isError` is false, the API adapter
+    validates the complete overview shape, and the fallback-route integration
+    test reaches a controlled alert. The page also rejects ranges longer than
+    31 inclusive days before making a request.
+
 ## Final Verification
 
 - `go test ./internal/... -count=1`
@@ -151,12 +176,12 @@ query string reaches the migrated handler unchanged.
   - Migrated route dispatch preserves `corpId`, `from`, and `to`.
 - `pnpm --filter @mochat/dashboard test -- src/features/dashboard-overview`
   - Exit `0`.
-  - `41` test files passed; `265` tests passed.
+  - `41` test files passed; `269` tests passed.
   - The repository script currently forwards the extra `--`, so this command
-    runs the full dashboard suite, including the six focused overview tests.
+    runs the full dashboard suite, including the ten focused overview tests.
 - `pnpm exec vitest run src/features/dashboard-overview`
   - Exit `0`.
-  - `2` test files passed; `6` tests passed.
+  - `2` test files passed; `10` tests passed.
 - `pnpm --filter @mochat/dashboard build`
   - Exit `0`.
   - TypeScript passed and Vite built `1660` modules.
@@ -172,17 +197,23 @@ query string reaches the migrated handler unchanged.
 - Every new backend query is corp scoped and the requested corp is rejected
   before store access when it differs from authenticated context.
 - Frontend tests prove request serialization, response-derived card/trend
-  values, refresh, empty, forbidden, loading, and retry behavior.
+  values, refresh, empty, forbidden, loading, retry, success-to-403 revocation,
+  legacy response handling, and the 31-day filter boundary.
 - Existing legacy summary fields and `/corpData/lineChat` compatibility are
   retained.
 - No unrelated task report was changed.
 
 ## Remaining Concerns
 
-- The deployed Go dashboard must keep `MOCHAT_GO_MIGRATE_CORP_DATA_INDEX`
-  enabled (normally covered by `MOCHAT_GO_ENABLE_ALL_MIGRATED_ROUTES`) so the
-  React P0 route receives the extended Go response instead of a legacy PHP
-  response.
+- The deployed Go dashboard should keep `MOCHAT_GO_MIGRATE_CORP_DATA_INDEX`
+  enabled (normally covered by `MOCHAT_GO_ENABLE_ALL_MIGRATED_ROUTES`). When it
+  is disabled, the page now shows a controlled "overview API not enabled" error
+  rather than crashing or fabricating data.
 - Date grouping follows the process-local project timezone and MySQL `DATE`
   semantics. Deployment should keep the Go process and MySQL session timezone
   aligned, as required by the existing corp-day aggregation jobs.
+- The store package has no SQL row-mocking harness. Its unit contract therefore
+  verifies corp/date arguments, inclusive `BETWEEN`, ascending order, and the
+  31-row cap; row scanning and empty result behavior continue to be covered by
+  the existing MySQL implementation path rather than a synthetic query-result
+  fixture.
