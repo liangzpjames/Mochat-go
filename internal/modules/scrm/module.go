@@ -23,6 +23,7 @@ type Dependencies struct {
 type Module struct {
 	leads             *transporthttp.LeadHandler
 	customerLifecycle *transporthttp.CustomerLifecycleHandler
+	opportunities     application.OpportunityService
 }
 
 func New(dependencies Dependencies) (*Module, error) {
@@ -57,7 +58,19 @@ func New(dependencies Dependencies) (*Module, error) {
 		return nil, fmt.Errorf("create SCRM customer lifecycle service: %w", err)
 	}
 	assignmentHandler := transporthttp.NewCustomerLifecycleHandler(assignmentService, dependencies.PrincipalResolver)
-	return &Module{leads: handler, customerLifecycle: assignmentHandler}, nil
+	opportunityRepository, err := mysql.NewOpportunityRepository(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM opportunity repository: %w", err)
+	}
+	tagRepository, err := mysql.NewTagRepository(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM tag repository: %w", err)
+	}
+	opportunityService, err := application.NewOpportunityService(opportunityRepository, tagRepository)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM opportunity service: %w", err)
+	}
+	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService}, nil
 }
 
 func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
