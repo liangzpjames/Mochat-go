@@ -88,6 +88,28 @@ describe('Dashboard shell', () => {
     await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
   });
 
+  it('opens data overview as the default route and exposes it as a top-level menu item', async () => {
+    renderDashboard({
+      session: true,
+      accessLoader: async () => ({
+        session: {
+          token: 'Bearer test',
+          userId: '7',
+          corpId: '12',
+          expiresAt: null,
+        },
+        corp: { id: '12', name: '测试企业', authorized: true },
+        menu: [],
+        allowedRoutes: new Set(['/index']),
+        allowedActions: new Set(),
+      }),
+      reactPages: { '/index': <h1>鏁版嵁姒傝</h1> },
+    });
+
+    expect(await screen.findByRole('heading', { name: '鏁版嵁姒傝' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: '数据概览' }).getAttribute('href')).toBe('/index');
+  });
+
   it('renders the SaaS Admin entry after access is loaded', async () => {
     renderDashboard({
       session: true,

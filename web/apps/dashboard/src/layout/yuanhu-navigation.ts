@@ -29,6 +29,22 @@ export type YuanhuNavigationGroupResult = YuanhuNavigationGroup & {
   items: readonly YuanhuNavigationItem[];
 };
 
+export function buildYuanhuTopLevelNavigation(
+  access: YuanhuNavigationAccess | null,
+  manifest: YuanhuManifest,
+): readonly YuanhuNavigationItem[] {
+  if (access === null) {
+    return [];
+  }
+  return manifest.pages
+    .filter((page) => page.groupId === null && access.allowedRoutes.has(page.path))
+    .map((page) => ({
+      title: page.title,
+      path: page.path,
+      activePath: page.path === access.pathname ? page.path : null,
+    }));
+}
+
 export function buildYuanhuNavigation(
   access: YuanhuNavigationAccess | null,
   manifest: YuanhuManifest,

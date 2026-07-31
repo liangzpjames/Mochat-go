@@ -6,6 +6,7 @@ import yuanhuManifestJson from '../benchmark/manifest.json';
 import { useDashboardSessionActions } from '../features/auth/session-actions';
 import {
   buildYuanhuNavigation,
+  buildYuanhuTopLevelNavigation,
   type YuanhuManifest,
 } from './yuanhu-navigation';
 
@@ -22,10 +23,18 @@ export function DashboardLayout() {
     },
     yuanhuManifest,
   );
+  const topLevelNavigation = buildYuanhuTopLevelNavigation(
+    access === null ? null : {
+      allowedRoutes: access.allowedRoutes,
+      pathname: location.pathname,
+    },
+    yuanhuManifest,
+  );
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const hasPages = navigation.some((group) => group.items.length > 0);
+  const hasPages = topLevelNavigation.length > 0
+    || navigation.some((group) => group.items.length > 0);
 
   function toggleGroup(groupId: string) {
     setExpandedGroups((current) => {
@@ -73,6 +82,18 @@ export function DashboardLayout() {
             <p className="dashboard-menu-empty">暂无可访问功能</p>
           ) : (
             <ul className="dashboard-menu-list">
+              {topLevelNavigation.map((item) => (
+                <li key={item.path}>
+                  <NavLink
+                    className={item.activePath === null
+                      ? 'dashboard-menu-link dashboard-menu-top-level'
+                      : 'dashboard-menu-link dashboard-menu-link-active dashboard-menu-top-level'}
+                    to={item.path}
+                  >
+                    {item.title}
+                  </NavLink>
+                </li>
+              ))}
               {navigation.map((group) => {
                 const expanded = expandedGroups.has(group.id);
                 return (

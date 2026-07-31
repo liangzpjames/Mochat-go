@@ -125,7 +125,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps) {
       errorElement: <DashboardRouteError />,
       HydrateFallback: DashboardHydrateFallback,
       children: [
-        { index: true, element: <DashboardHomePage /> },
+        { index: true, element: <Navigate replace to="/index" /> },
         ...reactRoutes,
         { path: '*', element: <NotFoundPage /> },
       ],

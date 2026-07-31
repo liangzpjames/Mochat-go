@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildYuanhuNavigation, type YuanhuManifest } from './yuanhu-navigation';
+import {
+  buildYuanhuNavigation,
+  buildYuanhuTopLevelNavigation,
+  type YuanhuManifest,
+} from './yuanhu-navigation';
 
 const manifest: YuanhuManifest = {
   groups: [
@@ -39,5 +43,14 @@ describe('buildYuanhuNavigation', () => {
 
   it('returns a stable empty tree when access is unavailable', () => {
     expect(buildYuanhuNavigation(null, manifest)).toEqual([]);
+  });
+
+  it('returns authorized ungrouped pages as top-level navigation items', () => {
+    expect(buildYuanhuTopLevelNavigation({
+      allowedRoutes: new Set(['/index']),
+      pathname: '/index',
+    }, manifest)).toEqual([
+      { title: '数据概览', path: '/index', activePath: '/index' },
+    ]);
   });
 });
