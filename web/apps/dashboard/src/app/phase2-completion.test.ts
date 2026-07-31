@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import migrationRoutes from '../migration-routes.json';
+import { benchmarkManifest } from '../benchmark/benchmark-manifest';
+import { createPageRegistry } from '../benchmark/page-registry';
 import {
   businessRouteCatalog,
   specializedDashboardRoutes,
@@ -20,5 +22,17 @@ describe('Phase 2 Dashboard route completion', () => {
 
   it('does not retain legacy routes', () => {
     expect(migrationRoutes.filter((route) => route.target === 'legacy')).toEqual([]);
+  });
+
+  it('registers every Yuanhu manifest page', () => {
+    const registry = createPageRegistry({
+      manifest: benchmarkManifest,
+      p0Pages: {},
+      p1Pages: {},
+    });
+
+    expect(Object.keys(registry).sort()).toEqual(
+      benchmarkManifest.pages.map((page) => page.path).sort(),
+    );
   });
 });

@@ -8,6 +8,8 @@ import {
 } from '@mochat/routing';
 
 import migrationRoutesJson from './migration-routes.json';
+import { benchmarkManifest } from './benchmark/benchmark-manifest';
+import { createPageRegistry } from './benchmark/page-registry';
 import { createAccessLoader } from './app/access-loader';
 import { createDashboardQueryClient, DashboardProviders } from './app/providers';
 import { createDashboardRouter } from './app/router';
@@ -99,6 +101,7 @@ const migrationManifest = parseRouteManifest(migrationRoutesJson);
 const knownRoutes = new Set([
   '/',
   ...migrationManifest.map((route) => route.path),
+  ...benchmarkManifest.pages.map((page) => page.path),
 ]);
 const loadAccess = createAccessLoader({
   clearSession: () => authStore.clearSession(),
@@ -124,6 +127,11 @@ const router = createDashboardRouter({
   loadInitialData: () => Promise.resolve(),
   reactPages: {
     ...migratedPages,
+    ...createPageRegistry({
+      manifest: benchmarkManifest,
+      p0Pages: {},
+      p1Pages: {},
+    }),
     '/corp/index': page(<CorpPage api={corpAdminApi} />),
     '/passwordUpdate/index': (
       page(<PasswordPage

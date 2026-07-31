@@ -14,11 +14,9 @@ import {
 
 import type { AccessContext, CorpSelection } from './access-loader';
 import { DashboardAccessProvider } from './access-context';
-import migrationRoutesJson from '../migration-routes.json';
 import { DashboardLayout } from '../layout/dashboard-layout';
 import { NotFoundPage } from '../pages/not-found-page';
 import { RoutedLoginPage } from '../features/auth/login-page';
-import { parseRouteManifest } from '@mochat/routing';
 import { AppErrorPage } from '../pages/app-error-page';
 import { ForbiddenPage } from '../pages/forbidden-page';
 
@@ -93,13 +91,10 @@ function DashboardAccessShell({ renderAccess }: {
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps) {
-  const manifest = parseRouteManifest(migrationRoutesJson);
-  const reactRoutes = manifest
-    .filter((route) => route.target === 'react')
-    .flatMap((route) => {
-      const element = deps.reactPages?.[route.path];
-      return element === undefined ? [] : [{ path: route.path, element }];
-    });
+  const reactRoutes = Object.entries(deps.reactPages ?? {}).map(([path, element]) => ({
+    path,
+    element,
+  }));
   const routes = [
     {
       path: '/login',
