@@ -71,6 +71,14 @@ describe('createPageRegistry', () => {
     );
   });
 
+  it('registers the documented P1 employee conversation demo by default', () => {
+    const pages = createPageRegistry({ manifest: benchmarkManifest, p0Pages: {}, p1Pages: {} });
+
+    render(<MemoryRouter>{pages['/chat/v2-staff']}</MemoryRouter>);
+    expect(screen.getByRole('heading', { name: '员工会话' })).toBeTruthy();
+    expect(screen.getByText('稳定演示 fixture，仅用于界面预览；不连接 API，也不会保存数据。')).toBeTruthy();
+  });
+
   it('renders a manifest P2 route instead of the 404 page', async () => {
     renderDashboardRoute('/chat/trajectory');
 
