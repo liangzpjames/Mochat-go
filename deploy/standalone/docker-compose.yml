@@ -5,6 +5,9 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: "${MOCHAT_NPM_REGISTRY:-https://registry.npmmirror.com}"
+        GOPROXY: "${MOCHAT_GOPROXY:-https://goproxy.cn,direct}"
     environment:
       TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
       MOCHAT_GO_RUNTIME_ROLE: "${MOCHAT_GO_RUNTIME_ROLE:-all}"

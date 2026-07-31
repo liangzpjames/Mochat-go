@@ -1,18 +1,27 @@
 FROM node:24-alpine AS frontend-build
 
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+ENV COREPACK_NPM_REGISTRY=${NPM_REGISTRY}
+
 WORKDIR /src
 
-RUN corepack enable
+RUN corepack enable \
+	&& corepack prepare pnpm@11.17.0 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web ./web
-RUN pnpm install --frozen-lockfile \
+COPY docs/benchmark/yuanhu/manifest.json ./docs/benchmark/yuanhu/manifest.json
+RUN pnpm config set registry "${NPM_REGISTRY}" \
+	&& pnpm install --frozen-lockfile \
 	&& pnpm --filter @mochat/dashboard build \
 	&& pnpm --filter @mochat/sidebar build \
 	&& pnpm --filter @mochat/operation build \
 	&& pnpm --filter @mochat/saas-admin build
 
 FROM golang:1.26-alpine AS build
+
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
 
 WORKDIR /src
 
