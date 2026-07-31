@@ -1,56 +1,58 @@
-import { NavLink, Outlet } from 'react-router';
+import { useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router';
 
 import { useOptionalDashboardAccess } from '../app/access-context';
+import yuanhuManifestJson from '../../../../../docs/benchmark/yuanhu/manifest.json';
 import { useDashboardSessionActions } from '../features/auth/session-actions';
-import type { MenuNode } from '../features/navigation/menu-tree';
+import {
+  buildYuanhuNavigation,
+  type YuanhuManifest,
+} from './yuanhu-navigation';
 
-type NavigationItem = {
-  name: string;
-  path: string;
-};
-
-function authorizedNavigation(
-  nodes: readonly MenuNode[],
-  allowedRoutes: ReadonlySet<string>,
-): NavigationItem[] {
-  const items: NavigationItem[] = [];
-  const seen = new Set<string>();
-  const visit = (menu: readonly MenuNode[]) => {
-    for (const node of menu) {
-      if (
-        node.linkUrl !== null
-        && allowedRoutes.has(node.linkUrl)
-        && !seen.has(node.linkUrl)
-      ) {
-        seen.add(node.linkUrl);
-        items.push({ name: node.name, path: node.linkUrl });
-      }
-      visit(node.children);
-    }
-  };
-  visit(nodes);
-  return items;
-}
+const yuanhuManifest = yuanhuManifestJson as YuanhuManifest;
 
 export function DashboardLayout() {
   const access = useOptionalDashboardAccess();
+  const location = useLocation();
   const sessionActions = useDashboardSessionActions();
-  const navigation = access === null
-    ? []
-    : authorizedNavigation(access.menu, access.allowedRoutes);
+  const navigation = buildYuanhuNavigation(
+    access === null ? null : {
+      allowedRoutes: access.allowedRoutes,
+      pathname: location.pathname,
+    },
+    yuanhuManifest,
+  );
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
+    () => new Set(navigation.map((group) => group.id)),
+  );
+  const hasPages = navigation.some((group) => group.items.length > 0);
+
+  function toggleGroup(groupId: string) {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  }
 
   return (
     <div className="dashboard-shell">
       <header className="dashboard-header">
-        <NavLink className="dashboard-brand" to="/">MoChat</NavLink>
-        <span className="dashboard-product-name">企业管理后台</span>
-        <a className="dashboard-admin-link" href="/saas-admin/">
-          SaaS 管理后台
-        </a>
+        <NavLink className="dashboard-brand" to="/">圆弧 AI</NavLink>
+        <span className="dashboard-product-name">企业智能运营平台</span>
+        <label className="dashboard-search">
+          <span className="sr-only">搜索功能</span>
+          <input aria-label="搜索功能" placeholder="搜索功能" type="search" />
+        </label>
+        <a className="dashboard-task-link" href="#tasks">任务中心</a>
+        <a className="dashboard-admin-link" href="/saas-admin/">SaaS 管理后台</a>
         <div className="dashboard-account-actions">
-          {sessionActions.userId !== null && (
-            <span>账号 {sessionActions.userId}</span>
-          )}
+          {access !== null && <span className="dashboard-corp-badge">{access.corp.name}</span>}
+          {sessionActions.userId !== null && <span>账号 {sessionActions.userId}</span>}
           <button
             className="dashboard-logout-button"
             disabled={sessionActions.isLoggingOut}
@@ -63,28 +65,48 @@ export function DashboardLayout() {
       </header>
       <div className="dashboard-body">
         <nav aria-label="主菜单" className="dashboard-sidebar">
-          <h2>功能导航</h2>
-          {access !== null && (
-            <p className="dashboard-corp-name">{access.corp.name}</p>
-          )}
-          {navigation.length === 0
-            ? <p className="dashboard-menu-empty">权限菜单暂无可用页面</p>
-            : (
-              <ul className="dashboard-menu-list">
-                {navigation.map((item) => (
-                  <li key={item.path}>
-                    <NavLink
-                      className={({ isActive }) => isActive
-                        ? 'dashboard-menu-link dashboard-menu-link-active'
-                        : 'dashboard-menu-link'}
-                      to={item.path}
+          <div className="dashboard-sidebar-heading">
+            <span>工作台</span>
+            <span className="dashboard-sidebar-caption">全部功能</span>
+          </div>
+          {access === null || !hasPages ? (
+            <p className="dashboard-menu-empty">暂无可访问功能</p>
+          ) : (
+            <ul className="dashboard-menu-list">
+              {navigation.map((group) => {
+                const expanded = expandedGroups.has(group.id);
+                return (
+                  <li className="dashboard-menu-group" key={group.id}>
+                    <button
+                      aria-expanded={expanded}
+                      className="dashboard-menu-group-toggle"
+                      onClick={() => toggleGroup(group.id)}
+                      type="button"
                     >
-                      {item.name}
-                    </NavLink>
+                      <span>{group.title}</span>
+                      <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+                    </button>
+                    {expanded && group.items.length > 0 && (
+                      <ul className="dashboard-menu-group-items">
+                        {group.items.map((item) => (
+                          <li key={item.path}>
+                            <NavLink
+                              className={item.activePath === null
+                                ? 'dashboard-menu-link'
+                                : 'dashboard-menu-link dashboard-menu-link-active'}
+                              to={item.path}
+                            >
+                              {item.title}
+                            </NavLink>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </li>
-                ))}
-              </ul>
-            )}
+                );
+              })}
+            </ul>
+          )}
         </nav>
         <main className="dashboard-content">
           <Outlet />

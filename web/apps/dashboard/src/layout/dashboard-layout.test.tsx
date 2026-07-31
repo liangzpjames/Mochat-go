@@ -88,7 +88,7 @@ describe('Dashboard shell', () => {
     await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
   });
 
-  it('renders authorized menu routes and the SaaS Admin entry', async () => {
+  it('renders the SaaS Admin entry after access is loaded', async () => {
     renderDashboard({
       session: true,
       accessLoader: () => Promise.resolve({
@@ -117,13 +117,50 @@ describe('Dashboard shell', () => {
       }),
     });
 
+    await screen.findByRole('banner');
+    /* legacy navigation assertion superseded by the manifest-driven shell
     expect(
       (await screen.findByRole('link', { name: '客户列表' })).getAttribute('href'),
-    ).toBe('/workContact/index');
+    ).toBe('/workContact/index'); */
     expect(
       screen.getByRole('link', { name: 'SaaS 管理后台' }).getAttribute('href'),
     ).toBe('/saas-admin/');
     expect(screen.queryByText('菜单将在权限加载后显示')).toBeNull();
+  });
+
+  it('renders the manifest-driven groups, current route, search, and logout controls', async () => {
+    renderDashboard({
+      session: true,
+      initialPath: '/chat/v2-all',
+      accessLoader: () => Promise.resolve({
+        session: { token: 'Bearer test', userId: '7', corpId: '12', expiresAt: null },
+        corp: { id: '12', name: '测试企业', authorized: true },
+        menu: [],
+        allowedRoutes: new Set(['/chat/v2-all']),
+        allowedActions: new Set(),
+      }),
+    });
+
+    expect(await screen.findByRole('navigation', { name: '主菜单' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /会话|风险预警|AI 洞察|营销工具|SCRM|数据报表|AI 设置|企业设置/ })).toHaveLength(8);
+    expect(screen.getByRole('link', { name: '全局消息' }).getAttribute('href')).toBe('/chat/v2-all');
+    expect(screen.getByRole('searchbox', { name: '搜索功能' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '退出登录' })).toBeTruthy();
+  });
+
+  it('renders one empty state when no manifest page is authorized', async () => {
+    renderDashboard({
+      session: true,
+      accessLoader: () => Promise.resolve({
+        session: { token: 'Bearer test', userId: '7', corpId: '12', expiresAt: null },
+        corp: { id: '12', name: '测试企业', authorized: true },
+        menu: [],
+        allowedRoutes: new Set(),
+        allowedActions: new Set(),
+      }),
+    });
+
+    expect(await screen.findByText('暂无可访问功能')).toBeTruthy();
   });
 
   it('renders the React 404 page for an unknown route', async () => {
