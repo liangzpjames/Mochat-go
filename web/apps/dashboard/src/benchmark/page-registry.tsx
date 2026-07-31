@@ -18,19 +18,24 @@ import {
 } from './demo-fixtures';
 import { DemoPage } from './demo-page';
 import { PlaceholderPage } from './placeholder-page';
+import type { SensitiveWordApi } from '../features/sensitive-word/sensitive-word-api';
+import { SensitiveWordPage } from '../features/sensitive-word/sensitive-word-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
 export function createBenchmarkP0Pages({
   dashboardOverviewApi,
   conversationGlobalApi,
+  sensitiveWordApi,
 }: {
   dashboardOverviewApi: DashboardOverviewApi;
   conversationGlobalApi: ConversationGlobalApi;
+  sensitiveWordApi?: SensitiveWordApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
+    ...(sensitiveWordApi === undefined ? {} : { '/ai-insight/v2/sensitive-word': <SensitiveWordPage api={sensitiveWordApi} /> }),
   };
 }
 
