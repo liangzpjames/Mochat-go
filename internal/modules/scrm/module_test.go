@@ -62,6 +62,8 @@ func TestRegisterRoutesInstallsExactlyPostAndGetLeads(t *testing.T) {
 	want := []registeredRoute{
 		{method: nethttp.MethodPost, pattern: transporthttp.LeadsPath},
 		{method: nethttp.MethodGet, pattern: transporthttp.LeadsPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.FormalLeadsPath},
+		{method: nethttp.MethodGet, pattern: transporthttp.FormalLeadsPath},
 	}
 	if len(registrar.routes) != len(want) {
 		t.Fatalf("routes = %#v, want %#v", registrar.routes, want)
