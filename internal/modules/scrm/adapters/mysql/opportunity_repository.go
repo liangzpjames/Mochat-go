@@ -21,7 +21,7 @@ func NewOpportunityRepository(db *sql.DB) (*OpportunityRepository, error) {
 }
 
 func (r *OpportunityRepository) ListOpportunities(ctx context.Context, filter ports.OpportunityFilter) ([]ports.Opportunity, error) {
-	query := `SELECT id,contact_id,stage,status,lost_reason,owner_id,version,amount,start_date,end_date FROM mochat_go_scrm_opportunities WHERE tenant_id=? AND corp_id=? AND deleted_at IS NULL`
+	query := `SELECT id,contact_id,stage_id,status,lost_reason,version,amount,start_date,end_date FROM mochat_go_scrm_opportunities WHERE tenant_id=? AND corp_id=? AND deleted_at IS NULL`
 	args := []any{filter.TenantID, filter.CorpID}
 	if filter.Stage != "" {
 		query += " AND stage_id=?"
@@ -40,7 +40,7 @@ func (r *OpportunityRepository) ListOpportunities(ctx context.Context, filter po
 	items := []ports.Opportunity{}
 	for rows.Next() {
 		var item ports.Opportunity
-		if err := rows.Scan(&item.ID, &item.ContactID, &item.Stage, &item.Status, &item.LostReason, &item.OwnerID, &item.Version, &item.Amount, &item.StartDate, &item.EndDate); err != nil {
+		if err := rows.Scan(&item.ID, &item.ContactID, &item.Stage, &item.Status, &item.LostReason, &item.Version, &item.Amount, &item.StartDate, &item.EndDate); err != nil {
 			return nil, err
 		}
 		item.TenantID, item.CorpID = filter.TenantID, filter.CorpID
@@ -80,7 +80,7 @@ func (r *OpportunityRepository) ChangeOpportunityStage(ctx context.Context, c po
 
 func (r *OpportunityRepository) getOpportunity(ctx context.Context, tenant, corp int64, id string) (ports.Opportunity, error) {
 	var i ports.Opportunity
-	err := r.db.QueryRowContext(ctx, `SELECT id,contact_id,stage_id,status,lost_reason,owner_id,version,amount,start_date,end_date FROM mochat_go_scrm_opportunities WHERE tenant_id=? AND corp_id=? AND id=?`, tenant, corp, id).Scan(&i.ID, &i.ContactID, &i.Stage, &i.Status, &i.LostReason, &i.OwnerID, &i.Version, &i.Amount, &i.StartDate, &i.EndDate)
+	err := r.db.QueryRowContext(ctx, `SELECT id,contact_id,stage_id,status,lost_reason,version,amount,start_date,end_date FROM mochat_go_scrm_opportunities WHERE tenant_id=? AND corp_id=? AND id=?`, tenant, corp, id).Scan(&i.ID, &i.ContactID, &i.Stage, &i.Status, &i.LostReason, &i.Version, &i.Amount, &i.StartDate, &i.EndDate)
 	i.TenantID, i.CorpID = tenant, corp
 	return i, err
 }

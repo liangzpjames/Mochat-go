@@ -13,10 +13,10 @@ export function createLeadApi(client: Client): LeadApi {
       const query = new URLSearchParams();
       if (input.cursor) query.set('cursor', input.cursor);
       query.set('pageSize', String(input.pageSize ?? 20));
-      return client.request(`/dashboard/scrm/leads?${query.toString()}`) as Promise<LeadPage>;
+      return client.request(`/scrm/leads?${query.toString()}`) as Promise<LeadPage>;
     },
     async create(input) {
-      return client.request('/dashboard/scrm/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }) as Promise<Lead>;
+      return client.request('/scrm/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }) as Promise<Lead>;
     },
   };
 }

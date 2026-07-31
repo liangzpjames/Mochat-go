@@ -8,7 +8,7 @@ describe('LeadApi', () => {
     const api = createLeadApi({ request });
 
     await expect(api.list({ pageSize: 20 })).resolves.toEqual({ items: [{ id: 'lead-1', name: '客户甲', status: 'new' }], nextCursor: '' });
-    expect(request).toHaveBeenCalledWith('/dashboard/scrm/leads?pageSize=20');
+    expect(request).toHaveBeenCalledWith('/scrm/leads?pageSize=20');
   });
 
   it('creates a lead with an explicit business key and source', async () => {
@@ -17,6 +17,6 @@ describe('LeadApi', () => {
 
     await api.create({ businessKey: 'wx:customer-1', name: '客户甲', source: 'wecom' });
 
-    expect(request).toHaveBeenCalledWith('/dashboard/scrm/leads', expect.objectContaining({ method: 'POST' }));
+    expect(request).toHaveBeenCalledWith('/scrm/leads', expect.objectContaining({ method: 'POST' }));
   });
 });

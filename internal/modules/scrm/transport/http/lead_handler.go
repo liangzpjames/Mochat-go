@@ -200,6 +200,15 @@ func writeError(w nethttp.ResponseWriter, status int, message string) {
 }
 
 func writeJSON(w nethttp.ResponseWriter, status int, body any) {
+	if status >= 200 && status < 300 {
+		if value, ok := body.(map[string]any); ok {
+			if data, hasData := value["data"]; hasData {
+				if _, hasCode := value["code"]; !hasCode {
+					body = map[string]any{"code": status, "msg": "success", "data": data}
+				}
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)

@@ -82,9 +82,9 @@ func TestStandaloneComposeFreshInitMountsLatestMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantMount := "./migrations/0103_phase3_2_query_indexes.up.sql:/docker-entrypoint-initdb.d/103-phase3-2-query-indexes.sql:ro"
-	if latest.Version != "0103_phase3_2_query_indexes" {
-		t.Fatalf("latest migration = %q, want 0103_phase3_2_query_indexes", latest.Version)
+	wantMount := "./migrations/0104_scrm_opportunity_owner.up.sql:/docker-entrypoint-initdb.d/104-scrm-opportunity-owner.sql:ro"
+	if latest.Version != "0104_scrm_opportunity_owner" {
+		t.Fatalf("latest migration = %q, want 0104_scrm_opportunity_owner", latest.Version)
 	}
 	if !strings.Contains(string(composeBody), wantMount) {
 		t.Fatalf("standalone fresh init does not mount latest migration %q", wantMount)
