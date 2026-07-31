@@ -13,8 +13,8 @@ func TestCorpDataTrendQueryScopesCorpAndInclusiveDateRange(t *testing.T) {
 	if !strings.Contains(normalized, "WHERE corp_id = ?") {
 		t.Fatalf("query is not corp scoped: %s", normalized)
 	}
-	if !strings.Contains(normalized, "DATE(date) BETWEEN ? AND ?") {
-		t.Fatalf("query is not date scoped: %s", normalized)
+	if !strings.Contains(normalized, "date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)") {
+		t.Fatalf("query is not sargable and inclusive: %s", normalized)
 	}
 	if !strings.Contains(normalized, "ORDER BY date ASC LIMIT 31") {
 		t.Fatalf("query does not preserve deterministic ordering/window: %s", normalized)

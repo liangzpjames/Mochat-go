@@ -2243,7 +2243,7 @@ func corpDataTrendQuery(corpID int, from string, to string) (string, []any) {
 	return `
 		SELECT id, add_contact_num, add_into_room_num, loss_contact_num, quit_room_num, date
 		FROM mc_corp_day_data
-		WHERE corp_id = ? AND DATE(date) BETWEEN ? AND ?
+		WHERE corp_id = ? AND date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
 		ORDER BY date ASC
 		LIMIT 31
 	`, []any{corpID, from, to}
