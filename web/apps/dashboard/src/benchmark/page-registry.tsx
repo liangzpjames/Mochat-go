@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import type { BenchmarkManifest } from './benchmark-manifest';
 import type { DashboardOverviewApi } from '../features/dashboard-overview/dashboard-overview-api';
 import { DashboardOverviewPage } from '../features/dashboard-overview/dashboard-overview-page';
+import type { ConversationGlobalApi } from '../features/conversation-global/conversation-global-api';
+import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
 import {
   channelCodeDemo,
   contactDemo,
@@ -21,11 +23,14 @@ export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
 export function createBenchmarkP0Pages({
   dashboardOverviewApi,
+  conversationGlobalApi,
 }: {
   dashboardOverviewApi: DashboardOverviewApi;
+  conversationGlobalApi: ConversationGlobalApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
+    '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
   };
 }
 

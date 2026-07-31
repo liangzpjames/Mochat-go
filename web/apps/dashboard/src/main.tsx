@@ -44,6 +44,7 @@ import { createBusinessWorkbenchApi } from './features/business-workbench/busine
 import { BusinessWorkbenchPage } from './features/business-workbench/business-workbench-page';
 import { businessRouteCatalog } from './features/business-workbench/catalog';
 import { createDashboardOverviewApi } from './features/dashboard-overview/dashboard-overview-api';
+import { createConversationGlobalApi } from './features/conversation-global/conversation-global-api';
 import './styles/index.css';
 
 const CorpPage = lazy(async () => ({ default: (await import('./features/corp/corp-page')).CorpPage }));
@@ -90,6 +91,10 @@ const userAdminApi = createUserAdminApi(apiClient);
 const contactTagApi = createContactTagApi(apiClient);
 const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
 const dashboardOverviewApi = createDashboardOverviewApi(apiClient);
+const conversationGlobalApi = createConversationGlobalApi(
+  apiClient,
+  () => authStore.getSession()?.corpId ?? null,
+);
 const migratedPages = Object.fromEntries(
   Object.entries(businessRouteCatalog).map(([path, config]) => [
     path,
@@ -134,7 +139,7 @@ const router = createDashboardRouter({
     ...migratedPages,
     ...createPageRegistry({
       manifest: benchmarkManifest,
-      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi }),
+      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi }),
       p1Pages: {},
     }),
     '/corp/index': page(<CorpPage api={corpAdminApi} />),

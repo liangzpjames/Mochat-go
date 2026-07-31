@@ -4088,6 +4088,7 @@ func TestAutoTagDashboardHandlersAreRouted(t *testing.T) {
 		{method: http.MethodGet, path: "/dashboard/workMessage/fromUsers", body: "go work message from users", route: "GET /dashboard/workMessage/fromUsers"},
 		{method: http.MethodGet, path: "/dashboard/workMessage/toUsers", body: "go work message to users", route: "GET /dashboard/workMessage/toUsers"},
 		{method: http.MethodGet, path: "/dashboard/workMessage/index", body: "go work message index", route: "GET /dashboard/workMessage/index"},
+		{method: http.MethodGet, path: "/dashboard/workMessage/detail", body: "go work message index", route: "GET /dashboard/workMessage/detail"},
 		{method: http.MethodPost, path: "/dashboard/workMessageConfig/corpStore", body: "go work message config corp store", route: "POST /dashboard/workMessageConfig/corpStore"},
 		{method: http.MethodGet, path: "/dashboard/workMessageConfig/corpShow", body: "go work message config corp show", route: "GET /dashboard/workMessageConfig/corpShow"},
 		{method: http.MethodGet, path: "/dashboard/workMessageConfig/corpIndex", body: "go work message config corp index", route: "GET /dashboard/workMessageConfig/corpIndex"},

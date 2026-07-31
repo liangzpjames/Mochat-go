@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -171,6 +172,260 @@ func TestWorkMessageIndexReturnsMessageList(t *testing.T) {
 	}
 }
 
+func TestWorkMessageGlobalSearchReturnsExplicitPageAndForwardsAllFilters(t *testing.T) {
+	store := &fakeAutoTagStore{
+		user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1},
+		toUserPage: WorkMessageToUserPage{
+			Page:      2,
+			PerPage:   20,
+			Total:     1,
+			TotalPage: 1,
+			Items: []WorkMessageToUser{{
+				WorkEmployeeID: 9,
+				ToUserType:     1,
+				ToUserID:       31,
+				Name:           "星河科技",
+				Content:        "请确认报价",
+				MsgDataTime:    "2026-07-05 11:00:00",
+			}},
+		},
+	}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&corpId=7&keyword=报价&employeeId=9&customerId=31&from=2026-07-01&to=2026-07-31&page=2&pageSize=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			List     []map[string]any `json:"list"`
+			Total    int              `json:"total"`
+			Page     int              `json:"page"`
+			PageSize int              `json:"pageSize"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.Total != 1 || envelope.Data.Page != 2 || envelope.Data.PageSize != 20 {
+		t.Fatalf("page = %#v", envelope.Data)
+	}
+	if len(envelope.Data.List) != 1 || envelope.Data.List[0]["id"] != "9:1:31" {
+		t.Fatalf("list = %#v", envelope.Data.List)
+	}
+	assertStructField(t, store.lastToUserFilter, "Keyword", "报价")
+	assertStructField(t, store.lastToUserFilter, "ToUserID", 31)
+	assertStructField(t, store.lastToUserFilter, "DateTimeStart", "2026-07-01 00:00:00")
+	assertStructField(t, store.lastToUserFilter, "DateTimeEnd", "2026-07-31 23:59:59")
+}
+
+func TestWorkMessageGlobalSearchRejectsCrossCorpRequestBeforeStorage(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&corpId=99&page=1&pageSize=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.toUserCalls != 0 {
+		t.Fatalf("storage calls = %d", store.toUserCalls)
+	}
+}
+
+func TestWorkMessageGlobalSearchSupportsRoomFilterAndEmptyResults(t *testing.T) {
+	store := &fakeAutoTagStore{
+		user:       User{ID: 1, TenantID: 10, IsSuperAdmin: 1},
+		toUserPage: WorkMessageToUserPage{Page: 1, PerPage: 20, Items: []WorkMessageToUser{}},
+	}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&corpId=7&roomId=44&page=1&pageSize=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastToUserFilter.ToUserType != 2 {
+		t.Fatalf("target type = %d", store.lastToUserFilter.ToUserType)
+	}
+	assertStructField(t, store.lastToUserFilter, "ToUserID", 44)
+	var envelope struct {
+		Data struct {
+			List  []any `json:"list"`
+			Total int   `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.List == nil || len(envelope.Data.List) != 0 || envelope.Data.Total != 0 {
+		t.Fatalf("data = %#v", envelope.Data)
+	}
+}
+
+func TestWorkMessageGlobalSearchCapsPageSize(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&corpId=7&page=1&pageSize=1000000", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastToUserFilter.PerPage != 100 {
+		t.Fatalf("per page = %d", store.lastToUserFilter.PerPage)
+	}
+}
+
+func TestWorkMessageGlobalSearchRejectsMalformedNumericFilters(t *testing.T) {
+	for _, query := range []string{
+		"employeeId=abc",
+		"customerId=-1",
+		"roomId=0",
+		"page=abc",
+		"pageSize=-20",
+	} {
+		t.Run(query, func(t *testing.T) {
+			store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
+			handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+			req := httptest.NewRequest(http.MethodGet,
+				"/dashboard/workMessage/toUsers?view=global&corpId=7&"+query, nil)
+			req.Header.Set("X-Mochat-Go-User-ID", "1")
+			rec := httptest.NewRecorder()
+
+			handler.WorkMessageToUsers(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+			}
+			if store.toUserCalls != 0 {
+				t.Fatalf("storage calls = %d", store.toUserCalls)
+			}
+		})
+	}
+}
+
+func TestWorkMessageGlobalSearchAppliesEmployeeDataPermission(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10}}
+	authorizer := &recordingAuthorizer{
+		accessSet: true,
+		access: AccessContext{
+			CorpID:          7,
+			WorkEmployeeID:  9,
+			DataPermission:  DataPermissionDepartment,
+			DeptEmployeeIDs: []int{9, 10},
+		},
+	}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&corpId=7&page=1&pageSize=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	assertStructField(t, store.lastToUserFilter, "RestrictEmployeeIDs", true)
+	assertStructField(t, store.lastToUserFilter, "EmployeeIDs", []int{9, 10})
+}
+
+func TestWorkMessageGlobalDetailReturnsConversationMessages(t *testing.T) {
+	store := &fakeAutoTagStore{
+		user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1},
+		messagePage: WorkMessagePage{
+			Page: 1, PerPage: 200, Total: 1,
+			Items: []WorkMessageItem{{
+				ID: 17, Name: "张三", ContentRaw: `{"content":"你好"}`,
+				MsgDataTime: "2026-07-05 11:00:00",
+			}},
+		},
+	}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/detail?corpId=7&id=9%3A1%3A31", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageIndex(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			ID           string           `json:"id"`
+			MessageTotal int              `json:"messageTotal"`
+			Truncated    bool             `json:"truncated"`
+			Window       string           `json:"window"`
+			Messages     []map[string]any `json:"messages"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.ID != "9:1:31" || len(envelope.Data.Messages) != 1 {
+		t.Fatalf("detail = %#v", envelope.Data)
+	}
+	if envelope.Data.MessageTotal != 1 || envelope.Data.Truncated || envelope.Data.Window != "latest" {
+		t.Fatalf("window = %#v", envelope.Data)
+	}
+	if envelope.Data.Messages[0]["id"] != "message:17" {
+		t.Fatalf("message = %#v", envelope.Data.Messages[0])
+	}
+	if store.lastMessageFilter.WorkEmployeeID != 9 || store.lastMessageFilter.ToUserType != 1 || store.lastMessageFilter.ToUserID != 31 {
+		t.Fatalf("filter = %#v", store.lastMessageFilter)
+	}
+}
+
+func TestWorkMessageGlobalDetailReturnsNotFoundWithoutCrossCorpData(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/detail?corpId=7&id=9%3A1%3A999", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageIndex(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastMessageFilter.CorpID != 7 {
+		t.Fatalf("filter = %#v", store.lastMessageFilter)
+	}
+}
+
+func assertStructField(t *testing.T, value any, name string, want any) {
+	t.Helper()
+	field := reflect.ValueOf(value).FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("%T is missing field %s", value, name)
+	}
+	got := field.Interface()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s = %#v, want %#v", name, got, want)
+	}
+}
+
 func TestWorkMessageConfigStepCreateReturnsCorpConfig(t *testing.T) {
 	store := &fakeAutoTagStore{
 		user: User{ID: 1, IsSuperAdmin: 1},
@@ -218,6 +473,8 @@ type fakeAutoTagStore struct {
 	messagePage       WorkMessagePage
 	lastMessageFilter WorkMessageFilter
 	toUserPage        WorkMessageToUserPage
+	lastToUserFilter  WorkMessageUserFilter
+	toUserCalls       int
 	config            WorkMessageConfigItem
 	configFound       bool
 }
@@ -281,7 +538,9 @@ func (s *fakeAutoTagStore) WorkMessageFromUsers(context.Context, int, string, in
 	return []WorkMessageFromUser{{ID: 99, Name: "张三"}}, nil
 }
 
-func (s *fakeAutoTagStore) WorkMessageToUsers(context.Context, WorkMessageUserFilter) (WorkMessageToUserPage, error) {
+func (s *fakeAutoTagStore) WorkMessageToUsers(_ context.Context, filter WorkMessageUserFilter) (WorkMessageToUserPage, error) {
+	s.lastToUserFilter = filter
+	s.toUserCalls++
 	return s.toUserPage, nil
 }
 

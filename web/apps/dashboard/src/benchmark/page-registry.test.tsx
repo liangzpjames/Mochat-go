@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, RouterProvider } from 'react-router';
 
 import { benchmarkManifest } from './benchmark-manifest';
-import { createPageRegistry } from './page-registry';
+import { createBenchmarkP0Pages, createPageRegistry } from './page-registry';
 import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
+import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -43,6 +44,18 @@ function renderDashboardRoute(path: string) {
 }
 
 describe('createPageRegistry', () => {
+  it('registers the real global conversation P0 page', () => {
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }) },
+      conversationGlobalApi: {
+        search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
+        detail: () => Promise.reject(new Error('not loaded')),
+      },
+    });
+
+    expect((pages['/chat/v2-all'] as { type?: unknown }).type).toBe(ConversationGlobalPage);
+  });
+
   it('prefers P0 implementations over P1 implementations at the same path', () => {
     const pages = createPageRegistry({
       manifest,

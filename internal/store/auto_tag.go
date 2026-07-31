@@ -1772,26 +1772,21 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	filter.Page = positivePage(filter.Page)
 	filter.PerPage = positivePerPage(filter.PerPage, 15)
 	sourceSQL, sourceArgs := workMessageUnionSQL(filter.CorpID)
-	where := []string{"work_employee_id = ?"}
-	args := append([]any{}, sourceArgs...)
-	args = append(args, filter.WorkEmployeeID)
-	if filter.ToUserType >= 0 {
-		where = append(where, "to_user_type = ?")
-		args = append(args, filter.ToUserType)
-	}
+	whereSQL, filterArgs := workMessageUserWhere(filter)
+	args := append(append([]any{}, sourceArgs...), filterArgs...)
 	if strings.TrimSpace(filter.Name) != "" {
-		where = append(where, "target_name LIKE ?")
+		whereSQL += " AND target_name LIKE ?"
 		args = append(args, "%"+strings.TrimSpace(filter.Name)+"%")
 	}
-	whereSQL := strings.Join(where, " AND ")
 	var total int
+	groupColumns, groupKey := workMessageConversationGrouping()
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM (
-			SELECT to_user_type, to_user_id, MAX(id) AS last_id
+			SELECT `+groupColumns+`, MAX(id) AS last_id
 			FROM (`+sourceSQL+`) wm
 			WHERE `+whereSQL+`
-			GROUP BY to_user_type, to_user_id
+			GROUP BY `+groupColumns+`
 		) x
 	`, args...).Scan(&total); err != nil {
 		return dashboard.WorkMessageToUserPage{}, err
@@ -1803,18 +1798,20 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	offset := (filter.Page - 1) * filter.PerPage
 	queryArgs := append(append([]any{}, args...), filter.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT work_employee_id, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time
+		SELECT work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time
 		FROM (
 			SELECT wm.*,
-			       @rn := IF(@grp = CONCAT(wm.to_user_type, ':', wm.to_user_id), @rn + 1, 1) AS rn,
-			       @grp := CONCAT(wm.to_user_type, ':', wm.to_user_id) AS grp
+			       @rn := IF(@grp = `+groupKey+`, @rn + 1, 1) AS rn,
+			       @grp := `+groupKey+` AS grp
 			FROM (`+sourceSQL+`) wm
 			CROSS JOIN (SELECT @rn := 0, @grp := '') vars
 			WHERE `+whereSQL+`
-			ORDER BY wm.to_user_type, wm.to_user_id, wm.msg_data_time DESC, wm.id DESC
+			ORDER BY wm.work_employee_id, wm.to_user_type, wm.to_user_id,
+			         wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC
 		) ranked
 		WHERE rn = 1
-		ORDER BY msg_data_time DESC, to_user_id DESC
+		ORDER BY msg_data_time DESC, seq DESC, table_index DESC, id DESC,
+		         work_employee_id DESC, to_user_type DESC, to_user_id DESC
 		LIMIT ? OFFSET ?
 	`, queryArgs...)
 	if err != nil {
@@ -1875,13 +1872,15 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	if filter.PerPage > 0 {
 		totalPage = (total + filter.PerPage - 1) / filter.PerPage
 	}
-	offset := (filter.Page - 1) * filter.PerPage
+	orderSQL, offset, reverse := workMessagePageWindow(filter)
 	queryArgs := append(append([]any{}, args...), filter.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, action, sender_name, sender_avatar, is_current_user, msg_type, content_raw, msg_data_time
+		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id,
+		       target_name, target_avatar, action, sender_name, sender_avatar, is_current_user,
+		       msg_type, content_raw, msg_data_time
 		FROM (`+sourceSQL+`) wm
 		WHERE `+whereSQL+`
-		ORDER BY msg_data_time ASC, id ASC
+		ORDER BY `+orderSQL+`
 		LIMIT ? OFFSET ?
 	`, queryArgs...)
 	if err != nil {
@@ -1898,6 +1897,9 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	}
 	if err := rows.Err(); err != nil {
 		return dashboard.WorkMessagePage{}, err
+	}
+	if reverse {
+		reverseWorkMessageItems(items)
 	}
 	return dashboard.WorkMessagePage{Items: items, Total: total, TotalPage: totalPage, Page: filter.Page, PerPage: filter.PerPage}, nil
 }
@@ -2180,6 +2182,9 @@ func workMessageUnionSQL(corpID int) (string, []any) {
 		selects = append(selects, `
 			SELECT
 				wm.id,
+				`+strconv.Itoa(index)+` AS table_index,
+				COALESCE(wm.seq, 0) AS seq,
+				COALESCE(wm.msgid, '') AS msgid,
 				COALESCE(wm.corp_id, 0) AS corp_id,
 				COALESCE(wm.work_employee_id, 0) AS work_employee_id,
 				COALESCE(wm.to_user_type, 0) AS to_user_type,
@@ -2189,8 +2194,17 @@ func workMessageUnionSQL(corpID int) (string, []any) {
 				COALESCE(CAST(wm.content AS CHAR), '') AS content_raw,
 				COALESCE(wm.content_text, '') AS content_text,
 				wm.msg_data_time,
-				COALESCE(sender.name, '') AS sender_name,
-				COALESCE(sender.avatar, '') AS sender_avatar,
+				COALESCE(sender.name, '') AS employee_name,
+				COALESCE(sender.avatar, '') AS employee_avatar,
+				CASE
+					WHEN COALESCE(wm.sender_type, 0) = 0 THEN COALESCE(sender.name, '')
+					WHEN COALESCE(wm.to_user_type, 0) = 2 THEN '群成员'
+					ELSE COALESCE(target_employee.name, target_contact.name, target_room.name, '')
+				END AS sender_name,
+				CASE
+					WHEN COALESCE(wm.sender_type, 0) = 0 THEN COALESCE(sender.avatar, '')
+					ELSE COALESCE(target_employee.avatar, target_contact.avatar, '')
+				END AS sender_avatar,
 				CASE WHEN COALESCE(wm.sender_type, 0) = 0 THEN 1 ELSE 0 END AS is_current_user,
 				COALESCE(target_employee.name, target_contact.name, target_room.name, '') AS target_name,
 				COALESCE(target_employee.alias, '', '') AS target_alias,
@@ -2210,11 +2224,13 @@ func workMessageUnionSQL(corpID int) (string, []any) {
 func scanWorkMessageToUserRow(rows *sql.Rows) (dashboard.WorkMessageToUser, error) {
 	var item dashboard.WorkMessageToUser
 	var msgDataTime sql.NullTime
-	var name, alias, avatar, content sql.NullString
-	err := rows.Scan(&item.WorkEmployeeID, &item.ToUserType, &item.ToUserID, &name, &alias, &avatar, &content, &msgDataTime)
+	var employeeName, employeeAvatar, name, alias, avatar, content sql.NullString
+	err := rows.Scan(&item.WorkEmployeeID, &employeeName, &employeeAvatar, &item.ToUserType, &item.ToUserID, &name, &alias, &avatar, &content, &msgDataTime)
 	if err != nil {
 		return dashboard.WorkMessageToUser{}, err
 	}
+	item.EmployeeName = nullString(employeeName)
+	item.EmployeeAvatar = nullString(employeeAvatar)
 	item.Name = nullString(name)
 	item.Alias = nullString(alias)
 	item.Avatar = nullString(avatar)
@@ -2226,16 +2242,84 @@ func scanWorkMessageToUserRow(rows *sql.Rows) (dashboard.WorkMessageToUser, erro
 func scanWorkMessageRow(rows *sql.Rows) (dashboard.WorkMessageItem, error) {
 	var item dashboard.WorkMessageItem
 	var msgDataTime sql.NullTime
-	var name, avatar, content sql.NullString
-	err := rows.Scan(&item.ID, &item.Action, &name, &avatar, &item.IsCurrentUser, &item.Type, &content, &msgDataTime)
+	var employeeName, employeeAvatar, targetName, targetAvatar, name, avatar, content sql.NullString
+	err := rows.Scan(&item.ID, &item.TableIndex, &item.Seq, &item.MsgID,
+		&item.WorkEmployeeID, &employeeName, &employeeAvatar,
+		&item.ToUserType, &item.ToUserID, &targetName, &targetAvatar,
+		&item.Action, &name, &avatar, &item.IsCurrentUser, &item.Type, &content, &msgDataTime)
 	if err != nil {
 		return dashboard.WorkMessageItem{}, err
 	}
+	item.EmployeeName = nullString(employeeName)
+	item.EmployeeAvatar = nullString(employeeAvatar)
+	item.TargetName = nullString(targetName)
+	item.TargetAvatar = nullString(targetAvatar)
 	item.Name = nullString(name)
 	item.Avatar = nullString(avatar)
 	item.ContentRaw = nullString(content)
 	item.MsgDataTime = formatTime(msgDataTime)
 	return item, nil
+}
+
+func workMessageUserWhere(filter dashboard.WorkMessageUserFilter) (string, []any) {
+	if filter.RestrictEmployeeIDs && len(uniquePositiveInts(filter.EmployeeIDs)) == 0 {
+		return "1 = 0", nil
+	}
+	where := make([]string, 0, 8)
+	args := make([]any, 0, 12)
+	if !filter.AllowAllEmployees || filter.WorkEmployeeID > 0 {
+		where = append(where, "work_employee_id = ?")
+		args = append(args, filter.WorkEmployeeID)
+	}
+	if filter.ToUserType >= 0 {
+		where = append(where, "to_user_type = ?")
+		args = append(args, filter.ToUserType)
+	}
+	if filter.ToUserID > 0 {
+		where = append(where, "to_user_id = ?")
+		args = append(args, filter.ToUserID)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		where = append(where, "(employee_name LIKE ? OR sender_name LIKE ? OR target_name LIKE ? OR content_text LIKE ?)")
+		like := "%" + keyword + "%"
+		args = append(args, like, like, like, like)
+	}
+	if filter.DateTimeStart != "" {
+		where = append(where, "msg_data_time >= ?")
+		args = append(args, filter.DateTimeStart)
+	}
+	if filter.DateTimeEnd != "" {
+		where = append(where, "msg_data_time <= ?")
+		args = append(args, filter.DateTimeEnd)
+	}
+	if filter.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(filter.EmployeeIDs)
+		where = append(where, "work_employee_id IN ("+placeholders(len(ids))+")")
+		args = append(args, intsToAny(ids)...)
+	}
+	if len(where) == 0 {
+		return "1 = 1", args
+	}
+	return strings.Join(where, " AND "), args
+}
+
+func workMessageConversationGrouping() (string, string) {
+	return "work_employee_id, to_user_type, to_user_id",
+		"CONCAT(wm.work_employee_id, ':', wm.to_user_type, ':', wm.to_user_id)"
+}
+
+func workMessagePageWindow(filter dashboard.WorkMessageFilter) (string, int, bool) {
+	if filter.Latest {
+		return "msg_data_time DESC, seq DESC, table_index DESC, id DESC", 0, true
+	}
+	return "msg_data_time ASC, seq ASC, table_index ASC, id ASC",
+		(filter.Page - 1) * filter.PerPage, false
+}
+
+func reverseWorkMessageItems(items []dashboard.WorkMessageItem) {
+	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
+		items[left], items[right] = items[right], items[left]
+	}
 }
 
 func workMessageConfigSelect() string {

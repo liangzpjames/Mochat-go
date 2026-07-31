@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type AutoTagFilter struct {
@@ -143,16 +144,25 @@ type AutoTagContactTimeTaskResult struct {
 }
 
 type WorkMessageUserFilter struct {
-	CorpID         int
-	WorkEmployeeID int
-	ToUserType     int
-	Name           string
-	Page           int
-	PerPage        int
+	CorpID              int
+	WorkEmployeeID      int
+	ToUserType          int
+	ToUserID            int
+	Name                string
+	Keyword             string
+	DateTimeStart       string
+	DateTimeEnd         string
+	AllowAllEmployees   bool
+	RestrictEmployeeIDs bool
+	EmployeeIDs         []int
+	Page                int
+	PerPage             int
 }
 
 type WorkMessageToUser struct {
 	WorkEmployeeID int
+	EmployeeName   string
+	EmployeeAvatar string
 	ToUserType     int
 	ToUserID       int
 	Name           string
@@ -181,17 +191,28 @@ type WorkMessageFilter struct {
 	DateTimeEnd    string
 	Page           int
 	PerPage        int
+	Latest         bool
 }
 
 type WorkMessageItem struct {
-	ID            int
-	Action        int
-	Name          string
-	Avatar        string
-	IsCurrentUser int
-	Type          int
-	ContentRaw    string
-	MsgDataTime   string
+	ID             int
+	TableIndex     int
+	Seq            int64
+	MsgID          string
+	WorkEmployeeID int
+	EmployeeName   string
+	EmployeeAvatar string
+	ToUserType     int
+	ToUserID       int
+	TargetName     string
+	TargetAvatar   string
+	Action         int
+	Name           string
+	Avatar         string
+	IsCurrentUser  int
+	Type           int
+	ContentRaw     string
+	MsgDataTime    string
 }
 
 type WorkMessagePage struct {
@@ -474,7 +495,7 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/toUsers#get")
+	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/toUsers#get")
 	if !ok {
 		return
 	}
@@ -482,21 +503,46 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	page, err := h.store.WorkMessageToUsers(r.Context(), WorkMessageUserFilter{
+	global := r.URL.Query().Get("view") == "global"
+	if global && !workMessageRequestedCorpAllowed(w, r, corpID) {
+		return
+	}
+	filter := WorkMessageUserFilter{
 		CorpID:         corpID,
 		WorkEmployeeID: positiveQueryInt(r, "workEmployeeId", 0),
 		ToUserType:     autoTagQueryInt(r, 0, "toUsertype", "toUserType", "to_user_type"),
 		Name:           sopQueryName(r),
 		Page:           positiveQueryInt(r, "page", 1),
 		PerPage:        positiveQueryInt(r, "perPage", 15),
-	})
+	}
+	if global {
+		var valid bool
+		filter, valid = workMessageGlobalFilter(w, r, corpID, access)
+		if !valid {
+			return
+		}
+	}
+	page, err := h.store.WorkMessageToUsers(r.Context(), filter)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
 	list := make([]map[string]any, 0, len(page.Items))
 	for _, item := range page.Items {
-		list = append(list, workMessageToUserPayload(item))
+		if global {
+			list = append(list, workMessageGlobalConversationPayload(item))
+		} else {
+			list = append(list, workMessageToUserPayload(item))
+		}
+	}
+	if global {
+		writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
+			"list":     list,
+			"total":    page.Total,
+			"page":     page.Page,
+			"pageSize": page.PerPage,
+		})
+		return
 	}
 	payload := contactBatchAddPagination(r, page.Page, page.PerPage, page.Total, list)
 	payload["list"] = list
@@ -509,12 +555,16 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/index#get")
+	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/index#get")
 	if !ok {
 		return
 	}
 	corpID, ok := selectedCorpID(w, loginInfo)
 	if !ok {
+		return
+	}
+	if r.URL.Path == "/dashboard/workMessage/detail" {
+		h.workMessageGlobalDetail(w, r, corpID, access)
 		return
 	}
 	page, err := h.store.WorkMessagePage(r.Context(), WorkMessageFilter{
@@ -541,6 +591,236 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 	payload["list"] = list
 	payload["page"] = map[string]any{"perPage": page.PerPage, "total": page.Total, "totalPage": page.TotalPage}
 	writeEnvelope(w, http.StatusOK, 200, "success", payload)
+}
+
+func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.Request, corpID int, access AccessContext) {
+	if !workMessageRequestedCorpAllowed(w, r, corpID) {
+		return
+	}
+	employeeID, toUserType, toUserID, ok := parseWorkMessageConversationID(r.URL.Query().Get("id"))
+	if !ok {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid conversation id", nil)
+		return
+	}
+	if access.DataPermission != DataPermissionAll && !containsInt(access.DeptEmployeeIDs, employeeID) {
+		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "conversation not found", nil)
+		return
+	}
+	page, err := h.store.WorkMessagePage(r.Context(), WorkMessageFilter{
+		CorpID:         corpID,
+		WorkEmployeeID: employeeID,
+		ToUserType:     toUserType,
+		ToUserID:       toUserID,
+		Page:           1,
+		PerPage:        200,
+		Latest:         true,
+	})
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if page.Total == 0 || len(page.Items) == 0 {
+		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "conversation not found", nil)
+		return
+	}
+	first := page.Items[0]
+	messages := make([]map[string]any, 0, len(page.Items))
+	for _, item := range page.Items {
+		payload := workMessagePayload(item)
+		messages = append(messages, map[string]any{
+			"id":           workMessageStableMessageID(item),
+			"senderName":   item.Name,
+			"senderAvatar": item.Avatar,
+			"direction":    workMessageDirection(item.IsCurrentUser),
+			"type":         item.Type,
+			"content":      payload["content"],
+			"sentAt":       item.MsgDataTime,
+		})
+	}
+	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
+		"id":           workMessageConversationID(employeeID, toUserType, toUserID),
+		"employeeId":   employeeID,
+		"employeeName": first.EmployeeName,
+		"targetType":   workMessageTargetType(toUserType),
+		"targetId":     toUserID,
+		"targetName":   first.TargetName,
+		"messageTotal": page.Total,
+		"truncated":    page.Total > len(page.Items),
+		"window":       "latest",
+		"messages":     messages,
+	})
+}
+
+func workMessageStableMessageID(item WorkMessageItem) string {
+	if strings.TrimSpace(item.MsgID) != "" {
+		return "msg:" + item.MsgID
+	}
+	if item.Seq > 0 {
+		return fmt.Sprintf("seq:%d", item.Seq)
+	}
+	if item.TableIndex > 0 {
+		return fmt.Sprintf("table:%d:%d", item.TableIndex, item.ID)
+	}
+	return fmt.Sprintf("message:%d", item.ID)
+}
+
+func workMessageGlobalFilter(w http.ResponseWriter, r *http.Request, corpID int, access AccessContext) (WorkMessageUserFilter, bool) {
+	employeeID, ok := workMessageStrictPositiveQueryInt(w, r, "employeeId", 0)
+	if !ok {
+		return WorkMessageUserFilter{}, false
+	}
+	customerID, ok := workMessageStrictPositiveQueryInt(w, r, "customerId", 0)
+	if !ok {
+		return WorkMessageUserFilter{}, false
+	}
+	roomID, ok := workMessageStrictPositiveQueryInt(w, r, "roomId", 0)
+	if !ok {
+		return WorkMessageUserFilter{}, false
+	}
+	page, ok := workMessageStrictPositiveQueryInt(w, r, "page", 1)
+	if !ok {
+		return WorkMessageUserFilter{}, false
+	}
+	pageSize, ok := workMessageStrictPositiveQueryInt(w, r, "pageSize", 20)
+	if !ok {
+		return WorkMessageUserFilter{}, false
+	}
+	if customerID > 0 && roomID > 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "customerId and roomId cannot be combined", nil)
+		return WorkMessageUserFilter{}, false
+	}
+	start, end, ok := workMessageGlobalDateRange(w, r)
+	if !ok {
+		return WorkMessageUserFilter{}, false
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	filter := WorkMessageUserFilter{
+		CorpID:            corpID,
+		WorkEmployeeID:    employeeID,
+		ToUserType:        -1,
+		Keyword:           strings.TrimSpace(r.URL.Query().Get("keyword")),
+		DateTimeStart:     start,
+		DateTimeEnd:       end,
+		AllowAllEmployees: true,
+		Page:              page,
+		PerPage:           pageSize,
+	}
+	if customerID > 0 {
+		filter.ToUserType = 1
+		filter.ToUserID = customerID
+	}
+	if roomID > 0 {
+		filter.ToUserType = 2
+		filter.ToUserID = roomID
+	}
+	if access.DataPermission != DataPermissionAll {
+		filter.RestrictEmployeeIDs = true
+		filter.EmployeeIDs = append([]int{}, access.DeptEmployeeIDs...)
+	}
+	return filter, true
+}
+
+func workMessageStrictPositiveQueryInt(w http.ResponseWriter, r *http.Request, name string, fallback int) (int, bool) {
+	query := r.URL.Query()
+	if !query.Has(name) {
+		return fallback, true
+	}
+	raw := strings.TrimSpace(query.Get(name))
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid "+name, nil)
+		return 0, false
+	}
+	return value, true
+}
+
+func workMessageGlobalDateRange(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+	from := strings.TrimSpace(r.URL.Query().Get("from"))
+	to := strings.TrimSpace(r.URL.Query().Get("to"))
+	if from == "" && to == "" {
+		return "", "", true
+	}
+	if from == "" || to == "" {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "from and to are required together", nil)
+		return "", "", false
+	}
+	fromDate, fromErr := time.Parse("2006-01-02", from)
+	toDate, toErr := time.Parse("2006-01-02", to)
+	if fromErr != nil || toErr != nil || fromDate.After(toDate) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid date range", nil)
+		return "", "", false
+	}
+	return from + " 00:00:00", to + " 23:59:59", true
+}
+
+func workMessageRequestedCorpAllowed(w http.ResponseWriter, r *http.Request, corpID int) bool {
+	raw := strings.TrimSpace(r.URL.Query().Get("corpId"))
+	requested, err := strconv.Atoi(raw)
+	if raw == "" || err != nil || requested <= 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid corpId", nil)
+		return false
+	}
+	if requested != corpID {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "forbidden", nil)
+		return false
+	}
+	return true
+}
+
+func parseWorkMessageConversationID(raw string) (int, int, int, bool) {
+	parts := strings.Split(raw, ":")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	employeeID, employeeErr := strconv.Atoi(parts[0])
+	toUserType, typeErr := strconv.Atoi(parts[1])
+	toUserID, targetErr := strconv.Atoi(parts[2])
+	if employeeErr != nil || typeErr != nil || targetErr != nil ||
+		employeeID <= 0 || toUserType < 0 || toUserType > 2 || toUserID <= 0 {
+		return 0, 0, 0, false
+	}
+	return employeeID, toUserType, toUserID, true
+}
+
+func workMessageConversationID(employeeID int, toUserType int, toUserID int) string {
+	return fmt.Sprintf("%d:%d:%d", employeeID, toUserType, toUserID)
+}
+
+func workMessageTargetType(value int) string {
+	switch value {
+	case 0:
+		return "employee"
+	case 1:
+		return "customer"
+	case 2:
+		return "room"
+	default:
+		return "unknown"
+	}
+}
+
+func workMessageDirection(isCurrentUser int) string {
+	if isCurrentUser == 1 {
+		return "outbound"
+	}
+	return "inbound"
+}
+
+func workMessageGlobalConversationPayload(item WorkMessageToUser) map[string]any {
+	return map[string]any{
+		"id":             workMessageConversationID(item.WorkEmployeeID, item.ToUserType, item.ToUserID),
+		"employeeId":     item.WorkEmployeeID,
+		"employeeName":   item.EmployeeName,
+		"employeeAvatar": item.EmployeeAvatar,
+		"targetType":     workMessageTargetType(item.ToUserType),
+		"targetId":       item.ToUserID,
+		"targetName":     item.Name,
+		"targetAvatar":   item.Avatar,
+		"lastMessage":    item.Content,
+		"sentAt":         item.MsgDataTime,
+	}
 }
 
 func (h *AutoTagHandler) WorkMessageConfigCorpIndex(w http.ResponseWriter, r *http.Request) {

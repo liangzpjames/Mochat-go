@@ -4625,7 +4625,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageFromUsers.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/toUsers" && r.Method == http.MethodGet && s.workMessageToUsers != nil:
 		s.workMessageToUsers.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/workMessage/index" && r.Method == http.MethodGet && s.workMessageIndex != nil:
+	case (r.URL.Path == "/dashboard/workMessage/index" || r.URL.Path == "/dashboard/workMessage/detail") && r.Method == http.MethodGet && s.workMessageIndex != nil:
 		s.workMessageIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessageConfig/corpStore" && r.Method == http.MethodPost && s.workMessageConfigCorpStore != nil:
 		s.workMessageConfigCorpStore.ServeHTTP(w, r)
@@ -6266,7 +6266,7 @@ func (s *Server) migratedRoutes() []string {
 		routes = append(routes, "GET /dashboard/workMessage/toUsers")
 	}
 	if s.workMessageIndex != nil {
-		routes = append(routes, "GET /dashboard/workMessage/index")
+		routes = append(routes, "GET /dashboard/workMessage/index", "GET /dashboard/workMessage/detail")
 	}
 	if s.workMessageConfigCorpStore != nil {
 		routes = append(routes, "POST /dashboard/workMessageConfig/corpStore")
