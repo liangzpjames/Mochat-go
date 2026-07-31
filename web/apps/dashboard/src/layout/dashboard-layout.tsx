@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 
 import { useOptionalDashboardAccess } from '../app/access-context';
-import yuanhuManifestJson from '../../../../../docs/benchmark/yuanhu/manifest.json';
+import yuanhuManifestJson from '../benchmark/manifest.json';
 import { useDashboardSessionActions } from '../features/auth/session-actions';
 import {
   buildYuanhuNavigation,

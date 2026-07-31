@@ -71,7 +71,7 @@ export function validateManifest(manifest) {
   if (errors.length > 0) throw new Error(errors.join('\n'));
 }
 
-export async function readManifest(manifestUrl = new URL('../docs/benchmark/yuanhu/manifest.json', import.meta.url)) {
+export async function readManifest(manifestUrl = new URL('../web/apps/dashboard/src/benchmark/manifest.json', import.meta.url)) {
   return JSON.parse(await readFile(manifestUrl, 'utf8'));
 }
 

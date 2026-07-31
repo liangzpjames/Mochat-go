@@ -10,7 +10,6 @@ RUN corepack enable \
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web ./web
-COPY docs/benchmark/yuanhu/manifest.json ./docs/benchmark/yuanhu/manifest.json
 RUN pnpm config set registry "${NPM_REGISTRY}" \
 	&& pnpm install --frozen-lockfile \
 	&& pnpm --filter @mochat/dashboard build \

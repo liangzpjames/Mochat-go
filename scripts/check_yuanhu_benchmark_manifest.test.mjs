@@ -4,7 +4,7 @@ import { test } from 'node:test';
 
 import { validateManifest } from './check_yuanhu_benchmark_manifest.mjs';
 
-const manifestPath = new URL('../docs/benchmark/yuanhu/manifest.json', import.meta.url);
+const manifestPath = new URL('../web/apps/dashboard/src/benchmark/manifest.json', import.meta.url);
 const expectedGroups = [
   'conversation',
   'risk-warning',

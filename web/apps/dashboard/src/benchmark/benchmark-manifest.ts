@@ -1,4 +1,4 @@
-import yuanhuManifestJson from '../../../../../docs/benchmark/yuanhu/manifest.json';
+import yuanhuManifestJson from './manifest.json';
 
 export type BenchmarkPageLevel = 'P0' | 'P1' | 'P2';
 

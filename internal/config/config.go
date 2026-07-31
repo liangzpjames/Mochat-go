@@ -1065,7 +1065,10 @@ func FromEnv() (Config, error) {
 	defaultSidebarFrontendAddr := ""
 	defaultOperationFrontendAddr := ""
 	defaultSourceRoot := "../mochat"
-	defaultManifestPath := "../docs/migration/compat_manifest.json"
+	// The compatibility manifest is embedded in the Go server binary. Keep the
+	// default independent from the source-tree docs directory so production
+	// images do not need to ship docs just to serve route metadata.
+	defaultManifestPath := ""
 	enableFrontendServers := envBool("MOCHAT_GO_ENABLE_FRONTEND_SERVERS")
 	if standalone {
 		defaultPHPUpstream = ""
