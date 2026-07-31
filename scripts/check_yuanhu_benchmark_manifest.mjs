@@ -13,6 +13,11 @@ const requiredGroupIds = [
   'company-settings',
 ];
 const requiredPageFields = ['path', 'title', 'groupId', 'level', 'status', 'screenshotVersion'];
+const allowedImplementations = new Set(['placeholder', 'demo', 'legacy-adapter', 'native']);
+const allowedBackends = new Set(['missing', 'partial', 'ready']);
+const allowedAcceptances = new Set(['not-started', 'unit-passed', 'integration-passed', 'e2e-passed']);
+const allowedPhases = new Set(['3.1', '3.2', '3.3', '3.4', '3.5', '3.6']);
+const allowedRisks = new Set(['low', 'medium', 'high']);
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -65,6 +70,16 @@ export function validateManifest(manifest) {
     }
     if (page.path !== '/index' && !groupIds.has(page.groupId)) {
       errors.push(`${label} references missing group: ${page.groupId}`);
+    }
+    if (!allowedImplementations.has(page.implementation)) errors.push(`${label} has invalid implementation: ${page.implementation}`);
+    if (!allowedBackends.has(page.backend)) errors.push(`${label} has invalid backend: ${page.backend}`);
+    if (!allowedAcceptances.has(page.acceptance)) errors.push(`${label} has invalid acceptance: ${page.acceptance}`);
+    if (!allowedPhases.has(page.phase)) errors.push(`${label} has invalid phase: ${page.phase}`);
+    if (!isNonEmptyString(page.owner)) errors.push(`${label} missing owner`);
+    if (!allowedRisks.has(page.risk)) errors.push(`${label} has invalid risk: ${page.risk}`);
+    if (!Array.isArray(page.legacyRoutes)) errors.push(`${label} legacyRoutes must be an array`);
+    if (!page.evidence || !isNonEmptyString(page.evidence.spec) || !isNonEmptyString(page.evidence.acceptance)) {
+      errors.push(`${label} missing evidence paths`);
     }
   }
   if (!pagePaths.has('/index')) errors.push('missing required page: /index');

@@ -52,3 +52,31 @@ test('the manifest validator rejects an index page assigned to a navigation grou
 
   assert.throws(() => validateManifest(invalidIndexGroup), /index page must have groupId: null/);
 });
+
+test('the manifest records Phase 3.2 governance fields for every page', async () => {
+  const manifest = await loadManifest();
+
+  for (const page of manifest.pages) {
+    assert.match(page.implementation, /^(placeholder|demo|legacy-adapter|native)$/);
+    assert.match(page.backend, /^(missing|partial|ready)$/);
+    assert.match(page.acceptance, /^(not-started|unit-passed|integration-passed|e2e-passed)$/);
+    assert.match(page.phase, /^3\.[1-6]$/);
+    assert.match(page.owner, /^[-a-z]+$/);
+    assert.match(page.risk, /^(low|medium|high)$/);
+    assert.ok(Array.isArray(page.legacyRoutes));
+    assert.match(page.evidence.spec, /^docs\//);
+    assert.match(page.evidence.acceptance, /^docs\//);
+  }
+});
+
+test('the Phase 3.2 gate rejects demo pages marked as complete', async () => {
+  const { validatePhase32Manifest } = await import('./check_phase3_2_dashboard_completion.mjs');
+  const manifest = await loadManifest();
+  const invalid = structuredClone(manifest);
+  const page = invalid.pages.find((candidate) => candidate.path === '/customer/contact');
+  page.implementation = 'demo';
+  page.backend = 'ready';
+  page.acceptance = 'e2e-passed';
+
+  assert.throws(() => validatePhase32Manifest(invalid), /completed page must be native or legacy-adapter/);
+});
