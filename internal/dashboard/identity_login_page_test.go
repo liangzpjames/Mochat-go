@@ -41,8 +41,8 @@ func TestIdentityLoginPageIncludesPasswordMFAAndFrontendTokenCompatibility(t *te
 		`id="mfa-form"`,
 		`fetch('/dashboard/user/auth'`,
 		`fetch('/dashboard/user/authMFA'`,
-		`localStorage.setItem('ACCESS_TOKEN', JSON.stringify(authorization))`,
 		`localStorage.setItem('mochat_go_saas_admin_token', authorization)`,
+		`MOCHAT_SAAS_ADMIN_TOKEN=`,
 		`SameSite=Lax`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {

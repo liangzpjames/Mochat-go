@@ -23,7 +23,7 @@ export function DashboardLayout() {
     yuanhuManifest,
   );
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
-    () => new Set(navigation.map((group) => group.id)),
+    () => new Set(),
   );
   const hasPages = navigation.some((group) => group.items.length > 0);
 
@@ -42,7 +42,7 @@ export function DashboardLayout() {
   return (
     <div className="dashboard-shell">
       <header className="dashboard-header">
-        <NavLink className="dashboard-brand" to="/">圆弧 AI</NavLink>
+        <NavLink className="dashboard-brand" to="/">MoChat AI</NavLink>
         <span className="dashboard-product-name">企业智能运营平台</span>
         <label className="dashboard-search">
           <span className="sr-only">搜索功能</span>

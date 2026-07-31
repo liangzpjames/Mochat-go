@@ -22,7 +22,6 @@ export class ApiError extends Error {
 export function readStoredToken(): string {
   const values = [
     localStorage.getItem('mochat_go_saas_admin_token'),
-    localStorage.getItem('ACCESS_TOKEN'),
   ]
   for (const value of values) {
     if (!value) continue
@@ -40,8 +39,7 @@ export function readStoredToken(): string {
 
 export function clearStoredToken() {
   localStorage.removeItem('mochat_go_saas_admin_token')
-  localStorage.removeItem('ACCESS_TOKEN')
-  document.cookie = 'ACCESS_TOKEN=; Path=/; Max-Age=0; SameSite=Lax'
+  document.cookie = 'MOCHAT_SAAS_ADMIN_TOKEN=; Path=/saas-admin; Max-Age=0; SameSite=Lax'
 }
 
 export function loginURL() {

@@ -29,7 +29,7 @@ test('multiple enterprises require selection and switching binds the choice', as
   await page.getByRole('button', { name: '企业乙' }).click();
   await expect(page).toHaveURL(/\/corp\/index$/);
   await expect.poll(() => page.evaluate(() => {
-    const value = localStorage.getItem('corpId');
+    const value = localStorage.getItem('mochat_dashboard_corp_id');
     if (value === null) return null;
     const parsed: unknown = JSON.parse(value);
     return typeof parsed === 'string' ? parsed : null;
@@ -42,7 +42,7 @@ test('401 clears the session and returns to login', async ({ page }) => {
   await page.goto('/corp/index');
 
   await expect(page).toHaveURL(/\/login/);
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('ACCESS_TOKEN'))).toBeNull();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).toBeNull();
 });
 
 test('403 remains inside the React error boundary', async ({ page }) => {

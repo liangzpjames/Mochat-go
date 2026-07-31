@@ -142,7 +142,10 @@ describe('Dashboard shell', () => {
     });
 
     expect(await screen.findByRole('navigation', { name: '主菜单' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'MoChat AI' })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /会话|风险预警|AI 洞察|营销工具|SCRM|数据报表|AI 设置|企业设置/ })).toHaveLength(8);
+    expect(screen.queryByRole('link', { name: '全局消息' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /会话/ }));
     expect(screen.getByRole('link', { name: '全局消息' }).getAttribute('href')).toBe('/chat/v2-all');
     expect(screen.getByRole('searchbox', { name: '搜索功能' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '退出登录' })).toBeTruthy();

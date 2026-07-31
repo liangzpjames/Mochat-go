@@ -138,10 +138,10 @@ export async function mockDashboardBackend(
 
 export async function seedSession(page: Page, corpId: string | null = '7') {
   await page.addInitScript(({ token, selectedCorp }) => {
-    localStorage.setItem('ACCESS_TOKEN', JSON.stringify(token));
-    localStorage.setItem('userId', JSON.stringify('1'));
-    localStorage.setItem('corpId', JSON.stringify(selectedCorp));
-    localStorage.setItem('expiresAt', JSON.stringify(Date.now() + 3_600_000));
+    localStorage.setItem('mochat_dashboard_token', JSON.stringify(token));
+    localStorage.setItem('mochat_dashboard_user_id', JSON.stringify('1'));
+    localStorage.setItem('mochat_dashboard_corp_id', JSON.stringify(selectedCorp));
+    localStorage.setItem('mochat_dashboard_expires_at', JSON.stringify(Date.now() + 3_600_000));
   }, { token: `Bearer ${jwt}`, selectedCorp: corpId });
 }
 

@@ -28,7 +28,7 @@ const session: Session = {
 
 describe('createAuthStore', () => {
   it('uses the audited legacy Dashboard token key', () => {
-    expect(SESSION_STORAGE_KEYS.token).toBe('ACCESS_TOKEN');
+    expect(SESSION_STORAGE_KEYS.token).toBe('mochat_dashboard_token');
   });
 
   it('writes and reads a session through the supplied storage adapter', () => {

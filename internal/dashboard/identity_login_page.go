@@ -220,10 +220,9 @@ const identityLoginPageHTML = `<!doctype html>
     const secure = location.protocol === 'https:' ? '; Secure' : '';
 	const authorization = 'Bearer ' + token;
 	try {
-	  localStorage.setItem('ACCESS_TOKEN', JSON.stringify(authorization));
 	  localStorage.setItem('mochat_go_saas_admin_token', authorization);
 	} catch (_) {}
-	document.cookie = 'ACCESS_TOKEN=' + encodeURIComponent(authorization) + '; Path=/; Max-Age=' + Math.floor(seconds) + '; SameSite=Lax' + secure;
+	document.cookie = 'MOCHAT_SAAS_ADMIN_TOKEN=' + encodeURIComponent(authorization) + '; Path=/saas-admin; Max-Age=' + Math.floor(seconds) + '; SameSite=Lax' + secure;
     const requested = new URLSearchParams(location.search).get('redirect') || '/';
     let target = '/';
     try {

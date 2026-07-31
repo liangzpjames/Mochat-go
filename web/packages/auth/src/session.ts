@@ -12,10 +12,10 @@ export interface StorageAdapter {
 }
 
 export const SESSION_STORAGE_KEYS = {
-  token: 'ACCESS_TOKEN',
-  userId: 'userId',
-  corpId: 'corpId',
-  expiresAt: 'expiresAt',
+  token: 'mochat_dashboard_token',
+  userId: 'mochat_dashboard_user_id',
+  corpId: 'mochat_dashboard_corp_id',
+  expiresAt: 'mochat_dashboard_expires_at',
 } as const;
 
 export const browserStorageAdapter: StorageAdapter = {
