@@ -124,3 +124,16 @@ func TestRouterServeHTTPReturnsJSONNotFoundForUnmatchedRoute(t *testing.T) {
 		t.Fatalf("content type = %q", got)
 	}
 }
+
+func TestRouterMatchesBraceParameterRoute(t *testing.T) {
+	router := NewRouter()
+	called := false
+	if err := router.Handle(http.MethodGet, "/dashboard/scrm/contacts/{contactId}/follow-ups", http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/scrm/contacts/c1/follow-ups", nil))
+	if !called || recorder.Code != http.StatusOK {
+		t.Fatalf("called=%v status=%d", called, recorder.Code)
+	}
+}

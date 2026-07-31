@@ -56,11 +56,39 @@ func (r *Router) Match(req *http.Request) (http.Handler, bool) {
 	if req == nil || req.URL == nil {
 		return nil, false
 	}
-	key := routeKey{method: strings.ToUpper(req.Method), path: req.URL.Path}
+	method := strings.ToUpper(req.Method)
 	r.mu.RLock()
-	handler, ok := r.routes[key]
+	handler, ok := r.routes[routeKey{method: method, path: req.URL.Path}]
+	if ok {
+		r.mu.RUnlock()
+		return handler, true
+	}
+	for key, candidate := range r.routes {
+		if key.method == method && routePatternMatches(key.path, req.URL.Path) {
+			r.mu.RUnlock()
+			return candidate, true
+		}
+	}
 	r.mu.RUnlock()
-	return handler, ok
+	return nil, false
+}
+
+func routePatternMatches(pattern, actual string) bool {
+	patternParts := strings.Split(strings.Trim(pattern, "/"), "/")
+	actualParts := strings.Split(strings.Trim(actual, "/"), "/")
+	if len(patternParts) != len(actualParts) {
+		return false
+	}
+	for i := range patternParts {
+		part := patternParts[i]
+		if strings.HasPrefix(part, ":") || (strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}")) {
+			continue
+		}
+		if part != actualParts[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
