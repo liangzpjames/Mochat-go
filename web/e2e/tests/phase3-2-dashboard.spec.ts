@@ -9,6 +9,7 @@ test.describe('Phase 3.2 SCRM real pages', () => {
     await page.route('**/dashboard/scrm/opportunities*', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 200, msg: 'success', data: { items: [{ id: 'o1', contactId: 'c1', stage: 'proposal', amount: 100, startDate: '2026-08-01', endDate: '2026-08-02', ownerId: 1, status: 'open', version: 1 }], nextCursor: '' } }) }));
     await page.route('**/dashboard/scrm/assignments*', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 200, msg: 'success', data: { items: [{ id: 'a1', contactId: 'c1', ownerId: null, collaboratorIds: [], status: 'public_pool', version: 1 }], nextCursor: '' } }) }));
     await page.route('**/dashboard/scrm/tags*', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 200, msg: 'success', data: { items: [{ id: 't1', name: '重点', version: 1 }], nextCursor: '' } }) }));
+    await page.route('**/dashboard/workContact/index*', async (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 200, msg: 'success', data: { list: [{ id: 'c1', name: '张三', phone: '13800000000' }] } }) }));
   });
 
   test('renders the opportunity page from the registered route', async ({ page }) => {
@@ -23,5 +24,11 @@ test.describe('Phase 3.2 SCRM real pages', () => {
     await page.goto('/customer/tags');
     await expect(page.getByRole('heading', { name: '客户标签' })).toBeVisible();
     await expect(page.getByText('重点')).toBeVisible();
+  });
+
+  test('renders contacts through the scoped legacy adapter', async ({ page }) => {
+    await page.goto('/customer/contact');
+    await expect(page.getByRole('heading', { name: '联系人' })).toBeVisible();
+    await expect(page.getByText('张三')).toBeVisible();
   });
 });
