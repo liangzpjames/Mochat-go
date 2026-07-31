@@ -29,11 +29,18 @@ func TestCorpDataIndexReturnsSummary(t *testing.T) {
 			LastMonthLossContactNum:   2,
 			UpdateTime:                "2026-07-02 12:00:00",
 		},
+		points: []CorpDataPoint{
+			{ID: 1, AddContactNum: 2, AddIntoRoomNum: 3, LossContactNum: 1, QuitRoomNum: 0, Date: "2026-07-01 00:00:00"},
+		},
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
 	handler.now = func() time.Time { return time.Date(2026, 7, 2, 12, 0, 0, 0, time.Local) }
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/dashboard/corpData/index?corpId=5&from=2026-07-01&to=2026-07-02",
+		nil,
+	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -44,10 +51,38 @@ func TestCorpDataIndexReturnsSummary(t *testing.T) {
 	if store.lastSummaryCorpID != 5 {
 		t.Fatalf("corpID = %d", store.lastSummaryCorpID)
 	}
+	if got := store.lastSummaryTime.Format("2006-01-02"); got != "2026-07-02" {
+		t.Fatalf("summary date = %s", got)
+	}
+	if got := store.lastLineFrom.Format("2006-01-02"); got != "2026-07-01" {
+		t.Fatalf("line from = %s", got)
+	}
+	if got := store.lastLineTo.Format("2006-01-02"); got != "2026-07-02" {
+		t.Fatalf("line to = %s", got)
+	}
 	body := decodeBody(t, rec.Body.Bytes())
 	data := body["data"].(map[string]any)
 	if int(data["weChatContactNum"].(float64)) != 10 || int(data["addFriendsNum"].(float64)) != 20 || data["updateTime"] != "2026-07-02 12:00:00" {
 		t.Fatalf("data = %#v", data)
+	}
+	cards := data["cards"].([]any)
+	if len(cards) != 4 {
+		t.Fatalf("cards = %#v", cards)
+	}
+	firstCard := cards[0].(map[string]any)
+	if firstCard["key"] != "contacts" || int(firstCard["value"].(float64)) != 10 {
+		t.Fatalf("first card = %#v", firstCard)
+	}
+	trend := data["trend"].([]any)
+	if len(trend) != 1 {
+		t.Fatalf("trend = %#v", trend)
+	}
+	point := trend[0].(map[string]any)
+	if point["date"] != "2026-07-01" || int(point["addContactNum"].(float64)) != 2 {
+		t.Fatalf("trend point = %#v", point)
+	}
+	if data["updatedAt"] != "2026-07-02 12:00:00" {
+		t.Fatalf("updatedAt = %#v", data["updatedAt"])
 	}
 }
 
@@ -61,7 +96,11 @@ func TestCorpDataLineChatReturnsPoints(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/lineChat", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/dashboard/corpData/lineChat?corpId=5&from=2026-07-01&to=2026-07-02",
+		nil,
+	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.LineChat(rec, req)
@@ -71,6 +110,12 @@ func TestCorpDataLineChatReturnsPoints(t *testing.T) {
 	}
 	if store.lastLineCorpID != 5 {
 		t.Fatalf("corpID = %d", store.lastLineCorpID)
+	}
+	if got := store.lastLineFrom.Format("2006-01-02"); got != "2026-07-01" {
+		t.Fatalf("from = %s", got)
+	}
+	if got := store.lastLineTo.Format("2006-01-02"); got != "2026-07-02" {
+		t.Fatalf("to = %s", got)
 	}
 	body := decodeBody(t, rec.Body.Bytes())
 	data := body["data"].([]any)
@@ -122,6 +167,83 @@ func TestCorpDataIndexIgnoresCrossTenantCachedCorp(t *testing.T) {
 	}
 }
 
+func TestCorpDataIndexRejectsRequestedCorpOutsideSelectedScope(t *testing.T) {
+	store := &fakeCorpDataStore{
+		users:           map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		corpIDsByTenant: []int{5},
+	}
+	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/dashboard/corpData/index?corpId=99&from=2026-07-01&to=2026-07-02",
+		nil,
+	)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Index(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastSummaryCorpID != 0 || store.lastLineCorpID != 0 {
+		t.Fatalf("store queried for summary=%d line=%d", store.lastSummaryCorpID, store.lastLineCorpID)
+	}
+}
+
+func TestCorpDataIndexRejectsInvalidDateRange(t *testing.T) {
+	store := &fakeCorpDataStore{
+		users:           map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		corpIDsByTenant: []int{5},
+	}
+	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/dashboard/corpData/index?corpId=5&from=2026-07-03&to=2026-07-02",
+		nil,
+	)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Index(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastSummaryCorpID != 0 || store.lastLineCorpID != 0 {
+		t.Fatalf("store queried for summary=%d line=%d", store.lastSummaryCorpID, store.lastLineCorpID)
+	}
+}
+
+func TestCorpDataIndexReturnsEmptyArraysForEmptyCorpData(t *testing.T) {
+	store := &fakeCorpDataStore{
+		users:           map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		corpIDsByTenant: []int{5},
+	}
+	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/dashboard/corpData/index?corpId=5&from=2026-07-01&to=2026-07-02",
+		nil,
+	)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Index(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec.Body.Bytes())
+	data := body["data"].(map[string]any)
+	if cards := data["cards"].([]any); len(cards) != 0 {
+		t.Fatalf("cards = %#v", cards)
+	}
+	if trend := data["trend"].([]any); len(trend) != 0 {
+		t.Fatalf("trend = %#v", trend)
+	}
+}
+
 type fakeCorpDataStore struct {
 	users             map[int]User
 	corpIDsByTenant   []int
@@ -131,7 +253,10 @@ type fakeCorpDataStore struct {
 	summary           CorpDataSummary
 	points            []CorpDataPoint
 	lastSummaryCorpID int
+	lastSummaryTime   time.Time
 	lastLineCorpID    int
+	lastLineFrom      time.Time
+	lastLineTo        time.Time
 }
 
 func (s *fakeCorpDataStore) UserByID(_ context.Context, userID int) (User, bool, error) {
@@ -163,10 +288,13 @@ func (s *fakeCorpDataStore) CorpIDsByUser(_ context.Context, userID int) ([]int,
 
 func (s *fakeCorpDataStore) CorpDataSummary(_ context.Context, corpID int, now time.Time) (CorpDataSummary, error) {
 	s.lastSummaryCorpID = corpID
+	s.lastSummaryTime = now
 	return s.summary, nil
 }
 
-func (s *fakeCorpDataStore) CorpDataLineChat(_ context.Context, corpID int, now time.Time) ([]CorpDataPoint, error) {
+func (s *fakeCorpDataStore) CorpDataLineChat(_ context.Context, corpID int, from time.Time, to time.Time) ([]CorpDataPoint, error) {
 	s.lastLineCorpID = corpID
+	s.lastLineFrom = from
+	s.lastLineTo = to
 	return s.points, nil
 }

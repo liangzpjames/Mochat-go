@@ -2676,7 +2676,7 @@ func TestCorpDataRoutesUseMigratedHandlersWhenConfigured(t *testing.T) {
 		ProxyTimeout: time.Second,
 	},
 		WithCorpDataIndexHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("go corp data index"))
+			_, _ = w.Write([]byte(r.URL.RequestURI()))
 		})),
 		WithCorpDataLineChatHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("go corp data line"))
@@ -2690,7 +2690,10 @@ func TestCorpDataRoutesUseMigratedHandlersWhenConfigured(t *testing.T) {
 		path string
 		body string
 	}{
-		{path: "/dashboard/corpData/index", body: "go corp data index"},
+		{
+			path: "/dashboard/corpData/index?corpId=5&from=2026-07-01&to=2026-07-31",
+			body: "/dashboard/corpData/index?corpId=5&from=2026-07-01&to=2026-07-31",
+		},
 		{path: "/dashboard/corpData/lineChat", body: "go corp data line"},
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)

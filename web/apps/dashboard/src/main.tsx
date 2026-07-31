@@ -9,7 +9,10 @@ import {
 
 import migrationRoutesJson from './migration-routes.json';
 import { benchmarkManifest } from './benchmark/benchmark-manifest';
-import { createPageRegistry } from './benchmark/page-registry';
+import {
+  createBenchmarkP0Pages,
+  createPageRegistry,
+} from './benchmark/page-registry';
 import { createAccessLoader } from './app/access-loader';
 import { createDashboardQueryClient, DashboardProviders } from './app/providers';
 import { createDashboardRouter } from './app/router';
@@ -40,6 +43,7 @@ import { createContactTagApi } from './features/contact-tag/contact-tag-api';
 import { createBusinessWorkbenchApi } from './features/business-workbench/business-workbench-api';
 import { BusinessWorkbenchPage } from './features/business-workbench/business-workbench-page';
 import { businessRouteCatalog } from './features/business-workbench/catalog';
+import { createDashboardOverviewApi } from './features/dashboard-overview/dashboard-overview-api';
 import './styles/index.css';
 
 const CorpPage = lazy(async () => ({ default: (await import('./features/corp/corp-page')).CorpPage }));
@@ -85,6 +89,7 @@ const menuAdminApi = createMenuAdminApi(apiClient);
 const userAdminApi = createUserAdminApi(apiClient);
 const contactTagApi = createContactTagApi(apiClient);
 const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
+const dashboardOverviewApi = createDashboardOverviewApi(apiClient);
 const migratedPages = Object.fromEntries(
   Object.entries(businessRouteCatalog).map(([path, config]) => [
     path,
@@ -129,7 +134,7 @@ const router = createDashboardRouter({
     ...migratedPages,
     ...createPageRegistry({
       manifest: benchmarkManifest,
-      p0Pages: {},
+      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi }),
       p1Pages: {},
     }),
     '/corp/index': page(<CorpPage api={corpAdminApi} />),
@@ -187,7 +192,9 @@ const router = createDashboardRouter({
           }
         }}
         queryClient={queryClient}
-        refreshAccess={() => routerRef.current?.revalidate()}
+        refreshAccess={() => {
+          void routerRef.current?.revalidate();
+        }}
       >
         {children}
       </CorpProvider>

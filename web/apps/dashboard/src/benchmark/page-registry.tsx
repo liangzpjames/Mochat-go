@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 
 import type { BenchmarkManifest } from './benchmark-manifest';
+import type { DashboardOverviewApi } from '../features/dashboard-overview/dashboard-overview-api';
+import { DashboardOverviewPage } from '../features/dashboard-overview/dashboard-overview-page';
 import {
   channelCodeDemo,
   contactDemo,
@@ -16,6 +18,16 @@ import { DemoPage } from './demo-page';
 import { PlaceholderPage } from './placeholder-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
+
+export function createBenchmarkP0Pages({
+  dashboardOverviewApi,
+}: {
+  dashboardOverviewApi: DashboardOverviewApi;
+}): PageRegistry {
+  return {
+    '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
+  };
+}
 
 const benchmarkP1Pages: PageRegistry = {
   '/chat/v2-staff': <DemoPage config={staffConversationDemo} />,

@@ -2218,21 +2218,9 @@ func (s *MySQLStore) CorpDataSummary(ctx context.Context, corpID int, now time.T
 	}, nil
 }
 
-func (s *MySQLStore) CorpDataLineChat(ctx context.Context, corpID int, now time.Time) ([]dashboard.CorpDataPoint, error) {
-	dates := make([]string, 0, 32)
-	args := []any{corpID}
-	for i := 0; i <= 31; i++ {
-		dates = append(dates, now.AddDate(0, 0, -i).Format("2006-01-02"))
-		args = append(args, dates[i])
-	}
-
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, add_contact_num, add_into_room_num, loss_contact_num, quit_room_num, date
-		FROM mc_corp_day_data
-		WHERE corp_id = ? AND DATE(date) IN (`+placeholders(len(dates))+`)
-		ORDER BY date ASC
-		LIMIT 31
-	`, args...)
+func (s *MySQLStore) CorpDataLineChat(ctx context.Context, corpID int, from time.Time, to time.Time) ([]dashboard.CorpDataPoint, error) {
+	query, args := corpDataTrendQuery(corpID, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2249,6 +2237,16 @@ func (s *MySQLStore) CorpDataLineChat(ctx context.Context, corpID int, now time.
 		points = append(points, point)
 	}
 	return points, rows.Err()
+}
+
+func corpDataTrendQuery(corpID int, from string, to string) (string, []any) {
+	return `
+		SELECT id, add_contact_num, add_into_room_num, loss_contact_num, quit_room_num, date
+		FROM mc_corp_day_data
+		WHERE corp_id = ? AND DATE(date) BETWEEN ? AND ?
+		ORDER BY date ASC
+		LIMIT 31
+	`, []any{corpID, from, to}
 }
 
 func (s *MySQLStore) RefreshCorpDayData(ctx context.Context, corpID int, now time.Time) (dashboard.CorpDataCronResult, error) {
