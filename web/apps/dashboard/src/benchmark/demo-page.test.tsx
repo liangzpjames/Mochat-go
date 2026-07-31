@@ -51,4 +51,11 @@ describe('DemoPage', () => {
 
     expect(screen.queryByText(/已保存|已持久化|保存成功/)).toBeNull();
   });
+
+  it('labels unobserved interactions and fields as demo-only', () => {
+    render(<DemoPage config={staffConversationDemo} />);
+
+    expect(screen.getByText('未观测交互，仅演示')).toBeTruthy();
+    expect(screen.getAllByText('未观测字段，仅演示')).toHaveLength(3);
+  });
 });

@@ -22,12 +22,14 @@ export function DemoPage({ config }: { config: DemoPageConfig }) {
         <div>
           <p className="benchmark-demo-breadcrumb">工作台 / 演示页面</p>
           <h1>{config.title}</h1>
+          <p>{config.evidence}</p>
           <p>稳定演示 fixture，仅用于界面预览；不连接 API，也不会保存数据。</p>
         </div>
         <span className="benchmark-demo-badge">演示数据</span>
       </header>
 
       <div className="benchmark-demo-toolbar">
+        <p className="benchmark-demo-unobserved">未观测交互，仅演示：{config.unobserved.interactions.join('、')}</p>
         <label>
           <span className="sr-only">{config.searchLabel}</span>
           <input
@@ -46,12 +48,12 @@ export function DemoPage({ config }: { config: DemoPageConfig }) {
 
       <div className="benchmark-demo-table-wrap">
         <table className="benchmark-demo-table">
-          <thead><tr>{config.columns.map((column) => <th key={column.key}>{column.title}</th>)}<th>操作</th></tr></thead>
+          <thead><tr>{config.columns.map((column) => <th key={column.key}>{column.title}<small>未观测字段，仅演示</small></th>)}<th>操作<small>未观测交互，仅演示</small></th></tr></thead>
           <tbody>
             {pageRows.map((row) => (
               <tr key={row.id}>
                 <td>{row.name}</td>
-                <td><span className={`benchmark-demo-status benchmark-demo-status-${row.status}`}>{row.status}</span></td>
+                <td><span className={`benchmark-demo-status benchmark-demo-status-${row.status}`}>{row.status}</span><small className="benchmark-demo-unobserved">未观测状态，仅演示</small></td>
                 <td>{row.updatedAt}</td>
                 <td><button type="button" onClick={() => setDetail(row)} aria-label={`查看${row.name}详情`}>查看详情</button></td>
               </tr>

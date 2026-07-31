@@ -71,12 +71,22 @@ describe('createPageRegistry', () => {
     );
   });
 
-  it('registers the documented P1 employee conversation demo by default', () => {
+  it.each([
+    ['/chat/v2-staff', '员工会话'],
+    ['/chat/v2-customer', '客户会话'],
+    ['/chat/v2-group', '群聊会话'],
+    ['/ai-insight/v2/risk', '风险行为'],
+    ['/ai-insight/v2/timeout', '超时预警'],
+    ['/ai-insight/session-analysis', '会话分析'],
+    ['/acquisition/v2-channel-code', '渠道活码'],
+    ['/customer/contact', '联系人'],
+    ['/customer/group', '客户群'],
+  ])('registers and renders the documented P1 demo route %s', (path, title) => {
     const pages = createPageRegistry({ manifest: benchmarkManifest, p0Pages: {}, p1Pages: {} });
 
-    render(<MemoryRouter>{pages['/chat/v2-staff']}</MemoryRouter>);
-    expect(screen.getByRole('heading', { name: '员工会话' })).toBeTruthy();
-    expect(screen.getByText('稳定演示 fixture，仅用于界面预览；不连接 API，也不会保存数据。')).toBeTruthy();
+    render(<MemoryRouter>{pages[path]}</MemoryRouter>);
+    expect(screen.getByRole('heading', { name: title })).toBeTruthy();
+    expect(screen.getByText('未观测交互，仅演示')).toBeTruthy();
   });
 
   it('renders a manifest P2 route instead of the 404 page', async () => {

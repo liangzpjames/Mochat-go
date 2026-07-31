@@ -519,12 +519,14 @@ body {
 .benchmark-demo-badge, .benchmark-demo-status { border-radius: 999px; display: inline-block; font-size: .78rem; font-weight: 650; padding: 5px 10px; white-space: nowrap; }
 .benchmark-demo-badge { background: #eef1ff; color: #536bf4; }
 .benchmark-demo-toolbar { align-items: center; display: flex; gap: 16px; justify-content: space-between; padding: 16px 20px; }
+.benchmark-demo-unobserved { color: #9a6a17; font-size: .78rem; margin: 0; }
 .benchmark-demo-toolbar input { background: #f7f8fc; border: 1px solid #e5e9f1; border-radius: 8px; font: inherit; min-width: 260px; outline: none; padding: 9px 12px; }
 .benchmark-demo-toolbar input:focus { background: #fff; border-color: #7187ff; }
 .benchmark-demo-count { color: #8991a1; font-size: .85rem; }
 .benchmark-demo-table-wrap { overflow: hidden; }
 .benchmark-demo-table { border-collapse: collapse; width: 100%; }
 .benchmark-demo-table th { background: #fafbfe; color: #737b8c; font-size: .82rem; font-weight: 650; text-align: left; }
+.benchmark-demo-table th small { color: #9a6a17; display: block; font-size: .7rem; font-weight: 500; margin-top: 3px; }
 .benchmark-demo-table td, .benchmark-demo-table th { border-bottom: 1px solid #f0f2f6; padding: 14px 20px; }
 .benchmark-demo-table td { color: #40485a; font-size: .9rem; }
 .benchmark-demo-table tbody tr:hover { background: #fafbff; }
@@ -532,6 +534,7 @@ body {
 .benchmark-demo-status-正常 { background: #edf9f0; color: #389e5a; }
 .benchmark-demo-status-待跟进 { background: #fff7e6; color: #d48806; }
 .benchmark-demo-status-预警 { background: #fff1f0; color: #cf4c4c; }
+.benchmark-demo-table td .benchmark-demo-unobserved { display: block; margin-top: 4px; }
 .benchmark-demo-empty { color: #8991a1; margin: 0; padding: 56px 20px; text-align: center; }
 .benchmark-demo-pagination { display: flex; gap: 8px; justify-content: flex-end; }
 .benchmark-demo-pagination button { border: 1px solid #e3e7f0; border-radius: 7px; min-width: 32px; padding: 5px 8px; }
