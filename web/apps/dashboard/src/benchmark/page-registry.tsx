@@ -26,6 +26,8 @@ import type { ScrmApi } from '../features/scrm/scrm-api';
 import { PublicPoolPage } from '../features/scrm/public-pool-page';
 import { OpportunityPage } from '../features/scrm/opportunity-page';
 import { TagPage } from '../features/scrm/tag-page';
+import type { ContactApi } from '../features/scrm/contact-api';
+import { ContactPage } from '../features/scrm/contact-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -35,12 +37,14 @@ export function createBenchmarkP0Pages({
   sensitiveWordApi,
   leadApi,
   scrmApi,
+  contactApi,
 }: {
   dashboardOverviewApi: DashboardOverviewApi;
   conversationGlobalApi: ConversationGlobalApi;
   sensitiveWordApi?: SensitiveWordApi;
   leadApi?: LeadApi;
   scrmApi?: ScrmApi;
+  contactApi?: ContactApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
@@ -52,6 +56,7 @@ export function createBenchmarkP0Pages({
       '/customer/opportunity': <OpportunityPage api={scrmApi} />,
       '/customer/tags': <TagPage api={scrmApi} />,
     }),
+    ...(contactApi === undefined ? {} : { '/customer/contact': <ContactPage api={contactApi} /> }),
   };
 }
 

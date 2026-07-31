@@ -48,6 +48,7 @@ import { createConversationGlobalApi } from './features/conversation-global/conv
 import { createSensitiveWordApi } from './features/sensitive-word/sensitive-word-api';
 import { createLeadApi } from './features/scrm/lead-api';
 import { createScrmApi } from './features/scrm/scrm-api';
+import { createContactApi } from './features/scrm/contact-api';
 import './styles/index.css';
 
 const CorpPage = lazy(async () => ({ default: (await import('./features/corp/corp-page')).CorpPage }));
@@ -101,6 +102,7 @@ const conversationGlobalApi = createConversationGlobalApi(
 const sensitiveWordApi = createSensitiveWordApi(apiClient);
 const leadApi = createLeadApi(apiClient);
 const scrmApi = createScrmApi(apiClient);
+const contactApi = createContactApi(apiClient);
 const migratedPages = Object.fromEntries(
   Object.entries(businessRouteCatalog).map(([path, config]) => [
     path,
@@ -146,7 +148,7 @@ const router = createDashboardRouter({
     ...migratedPages,
     ...createPageRegistry({
       manifest: benchmarkManifest,
-      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi }),
+      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi }),
       p1Pages: {},
     }),
     '/corp/index': page(<CorpPage api={corpAdminApi} />),
