@@ -46,8 +46,20 @@ func RegisterOpportunityRoutes(registrar RouteRegistrar, handler *OpportunityHan
 	if err := registrar.Handle(nethttp.MethodPost, OpportunitiesPath+"/{id}/stage", nethttp.HandlerFunc(handler.Stage)); err != nil {
 		return err
 	}
+	if err := registrar.Handle(nethttp.MethodGet, FollowUpsPath, nethttp.HandlerFunc(handler.ListFollowUps)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodPost, FollowUpsPath, nethttp.HandlerFunc(handler.AppendFollowUp)); err != nil {
+		return err
+	}
 	if err := registrar.Handle(nethttp.MethodGet, TagsPath, nethttp.HandlerFunc(handler.ListTags)); err != nil {
 		return err
 	}
-	return registrar.Handle(nethttp.MethodPost, TagsPath, nethttp.HandlerFunc(handler.CreateTag))
+	if err := registrar.Handle(nethttp.MethodPost, TagsPath, nethttp.HandlerFunc(handler.CreateTag)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodPut, TagsPath+"/{id}", nethttp.HandlerFunc(handler.RenameTag)); err != nil {
+		return err
+	}
+	return registrar.Handle(nethttp.MethodPost, TagsPath+"/{id}/contacts", nethttp.HandlerFunc(handler.BindTags))
 }

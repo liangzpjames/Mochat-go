@@ -13,6 +13,7 @@ import (
 
 const OpportunitiesPath = "/dashboard/scrm/opportunities"
 const TagsPath = "/dashboard/scrm/tags"
+const FollowUpsPath = "/dashboard/scrm/contacts/{contactId}/follow-ups"
 
 type OpportunityService interface {
 	ListOpportunities(context.Context, ports.OpportunityFilter) ([]ports.Opportunity, error)
@@ -119,6 +120,92 @@ func (h *OpportunityHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"data": item})
+}
+
+func (h *OpportunityHandler) ListFollowUps(w http.ResponseWriter, r *http.Request) {
+	p, err := h.principal.Resolve(r)
+	if err != nil {
+		writeError(w, 401, "authentication required")
+		return
+	}
+	items, err := h.service.ListFollowUps(r.Context(), p.TenantID, queryInt(r, "corpId"), pathValue(r, "contacts", "follow-ups"))
+	if err != nil {
+		writeSCRMError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": items, "nextCursor": ""}})
+}
+
+func (h *OpportunityHandler) AppendFollowUp(w http.ResponseWriter, r *http.Request) {
+	p, err := h.principal.Resolve(r)
+	if err != nil {
+		writeError(w, 401, "authentication required")
+		return
+	}
+	var q struct {
+		CorpID  int64  `json:"corpId"`
+		Content string `json:"content"`
+	}
+	if decodeRequestJSON(w, r, &q) != nil {
+		return
+	}
+	item, err := h.service.AppendFollowUp(r.Context(), ports.AppendFollowUpCommand{TenantID: p.TenantID, CorpID: q.CorpID, ContactID: pathValue(r, "contacts", "follow-ups"), Content: q.Content, CreatedBy: p.UserID, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	if err != nil {
+		writeSCRMError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"data": item})
+}
+
+func (h *OpportunityHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
+	p, err := h.principal.Resolve(r)
+	if err != nil {
+		writeError(w, 401, "authentication required")
+		return
+	}
+	var q struct {
+		CorpID  int64  `json:"corpId"`
+		Name    string `json:"name"`
+		Version int64  `json:"version"`
+	}
+	if decodeRequestJSON(w, r, &q) != nil {
+		return
+	}
+	item, err := h.service.RenameTag(r.Context(), p.TenantID, q.CorpID, pathValue(r, "tags", ""), q.Name, q.Version, r.Header.Get("Idempotency-Key"))
+	if err != nil {
+		writeSCRMError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"data": item})
+}
+
+func (h *OpportunityHandler) BindTags(w http.ResponseWriter, r *http.Request) {
+	p, err := h.principal.Resolve(r)
+	if err != nil {
+		writeError(w, 401, "authentication required")
+		return
+	}
+	var q struct {
+		CorpID     int64    `json:"corpId"`
+		ContactIDs []string `json:"contactIds"`
+	}
+	if decodeRequestJSON(w, r, &q) != nil {
+		return
+	}
+	if err := h.service.BindTags(r.Context(), p.TenantID, q.CorpID, pathValue(r, "tags", ""), q.ContactIDs, r.Header.Get("Idempotency-Key")); err != nil {
+		writeSCRMError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"data": map[string]any{"ok": true}})
+}
+
+func pathValue(r *http.Request, left, right string) string {
+	value := strings.TrimPrefix(r.URL.Path, "/dashboard/scrm/")
+	value = strings.TrimPrefix(value, left+"/")
+	if right != "" {
+		value = strings.TrimSuffix(value, "/"+right)
+	}
+	return value
 }
 
 func queryInt(r *http.Request, key string) int64 {

@@ -71,8 +71,12 @@ func TestRegisterRoutesInstallsAllSCRMRoutes(t *testing.T) {
 		{method: nethttp.MethodGet, pattern: transporthttp.OpportunitiesPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.OpportunitiesPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.OpportunitiesPath + "/{id}/stage"},
+		{method: nethttp.MethodGet, pattern: transporthttp.FollowUpsPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.FollowUpsPath},
 		{method: nethttp.MethodGet, pattern: transporthttp.TagsPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.TagsPath},
+		{method: nethttp.MethodPut, pattern: transporthttp.TagsPath + "/{id}"},
+		{method: nethttp.MethodPost, pattern: transporthttp.TagsPath + "/{id}/contacts"},
 	}
 	if len(registrar.routes) != len(want) {
 		t.Fatalf("routes = %#v, want %#v", registrar.routes, want)
