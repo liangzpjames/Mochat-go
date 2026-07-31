@@ -35,3 +35,19 @@ func RegisterCustomerLifecycleRoutes(registrar RouteRegistrar, handler *Customer
 	}
 	return registrar.Handle(nethttp.MethodPost, AssignmentClaimPath, nethttp.HandlerFunc(handler.ClaimFromPublicPool))
 }
+
+func RegisterOpportunityRoutes(registrar RouteRegistrar, handler *OpportunityHandler) error {
+	if err := registrar.Handle(nethttp.MethodGet, OpportunitiesPath, nethttp.HandlerFunc(handler.List)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodPost, OpportunitiesPath, nethttp.HandlerFunc(handler.Create)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodPost, OpportunitiesPath+"/{id}/stage", nethttp.HandlerFunc(handler.Stage)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodGet, TagsPath, nethttp.HandlerFunc(handler.ListTags)); err != nil {
+		return err
+	}
+	return registrar.Handle(nethttp.MethodPost, TagsPath, nethttp.HandlerFunc(handler.CreateTag))
+}

@@ -48,7 +48,7 @@ func TestNewAssemblesRepositoryServiceAndHTTPHandler(t *testing.T) {
 	}
 }
 
-func TestRegisterRoutesInstallsExactlyPostAndGetLeads(t *testing.T) {
+func TestRegisterRoutesInstallsAllSCRMRoutes(t *testing.T) {
 	module, err := New(validDependencies(t))
 	if err != nil {
 		t.Fatal(err)
@@ -68,6 +68,11 @@ func TestRegisterRoutesInstallsExactlyPostAndGetLeads(t *testing.T) {
 		{method: nethttp.MethodPut, pattern: transporthttp.AssignmentsPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.AssignmentReleasePath},
 		{method: nethttp.MethodPost, pattern: transporthttp.AssignmentClaimPath},
+		{method: nethttp.MethodGet, pattern: transporthttp.OpportunitiesPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.OpportunitiesPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.OpportunitiesPath + "/{id}/stage"},
+		{method: nethttp.MethodGet, pattern: transporthttp.TagsPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.TagsPath},
 	}
 	if len(registrar.routes) != len(want) {
 		t.Fatalf("routes = %#v, want %#v", registrar.routes, want)
