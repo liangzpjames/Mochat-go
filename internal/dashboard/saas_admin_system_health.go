@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0099_saas_tenant_default_corp"
-	SaaSAdminExpectedMigrationCount   = 99
+	SaaSAdminExpectedMigrationVersion = "0100_scrm_customer_lifecycle"
+	SaaSAdminExpectedMigrationCount   = 100
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"
