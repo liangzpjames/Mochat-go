@@ -45,6 +45,9 @@ func (s OpportunityService) ChangeOpportunityStage(ctx context.Context, command 
 	if command.ToStage != domain.OpportunityStageProposal && command.ToStage != domain.OpportunityStatusWon && command.ToStage != domain.OpportunityStatusLost {
 		return ports.Opportunity{}, fmt.Errorf("%w: invalid opportunity stage", ErrInvalidArgument)
 	}
+	if command.ToStage == domain.OpportunityStatusLost && strings.TrimSpace(command.Reason) == "" {
+		return ports.Opportunity{}, fmt.Errorf("%w: lost opportunity requires a reason", ErrInvalidArgument)
+	}
 	return s.repository.ChangeOpportunityStage(ctx, command)
 }
 

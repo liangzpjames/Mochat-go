@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"jiyi/mochat-go/internal/modules/scrm/application"
 	"jiyi/mochat-go/internal/modules/scrm/ports"
@@ -32,6 +33,41 @@ type OpportunityHandler struct {
 	principal PrincipalResolver
 }
 
+type opportunityJSON struct {
+	ID         string  `json:"id"`
+	ContactID  string  `json:"contactId"`
+	Stage      string  `json:"stage"`
+	Status     string  `json:"status"`
+	LostReason string  `json:"lostReason,omitempty"`
+	OwnerID    int64   `json:"ownerId"`
+	Amount     float64 `json:"amount"`
+	StartDate  string  `json:"startDate"`
+	EndDate    string  `json:"endDate"`
+	Version    int64   `json:"version"`
+}
+type followUpJSON struct {
+	ID        string `json:"id"`
+	ContactID string `json:"contactId"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+	CreatedBy int64  `json:"createdBy"`
+}
+type tagJSON struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version int64  `json:"version"`
+}
+
+func opportunityView(item ports.Opportunity) opportunityJSON {
+	return opportunityJSON{ID: item.ID, ContactID: item.ContactID, Stage: item.Stage, Status: item.Status, LostReason: item.LostReason, OwnerID: item.OwnerID, Amount: item.Amount, StartDate: item.StartDate.Format("2006-01-02"), EndDate: item.EndDate.Format("2006-01-02"), Version: item.Version}
+}
+func followUpView(item ports.FollowUpRecord) followUpJSON {
+	return followUpJSON{ID: item.ID, ContactID: item.ContactID, Content: item.Content, CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339), CreatedBy: item.CreatedBy}
+}
+func tagView(item ports.Tag) tagJSON {
+	return tagJSON{ID: item.ID, Name: item.Name, Version: item.Version}
+}
+
 func NewOpportunityHandler(service OpportunityService, principal PrincipalResolver) *OpportunityHandler {
 	return &OpportunityHandler{service: service, principal: principal}
 }
@@ -47,7 +83,11 @@ func (h *OpportunityHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": items}})
+	views := make([]opportunityJSON, 0, len(items))
+	for _, item := range items {
+		views = append(views, opportunityView(item))
+	}
+	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": views}})
 }
 func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 	p, err := h.principal.Resolve(r)
@@ -59,14 +99,14 @@ func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if decodeRequestJSON(w, r, &q) != nil {
 		return
 	}
-	q.TenantID, q.CorpID = p.TenantID, queryInt(r, "corpId")
+	q.TenantID, q.CorpID = p.TenantID, q.CorpID
 	q.IdempotencyKey = r.Header.Get("Idempotency-Key")
 	item, err := h.service.CreateOpportunity(r.Context(), q)
 	if err != nil {
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": item})
+	writeJSON(w, 200, map[string]any{"data": opportunityView(item)})
 }
 func (h *OpportunityHandler) Stage(w http.ResponseWriter, r *http.Request) {
 	p, err := h.principal.Resolve(r)
@@ -78,7 +118,7 @@ func (h *OpportunityHandler) Stage(w http.ResponseWriter, r *http.Request) {
 	if decodeRequestJSON(w, r, &q) != nil {
 		return
 	}
-	q.TenantID, q.CorpID = p.TenantID, queryInt(r, "corpId")
+	q.TenantID = p.TenantID
 	q.OpportunityID = strings.TrimPrefix(r.URL.Path, OpportunitiesPath+"/")
 	q.OpportunityID = strings.TrimSuffix(q.OpportunityID, "/stage")
 	q.IdempotencyKey = r.Header.Get("Idempotency-Key")
@@ -87,7 +127,7 @@ func (h *OpportunityHandler) Stage(w http.ResponseWriter, r *http.Request) {
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": item})
+	writeJSON(w, 200, map[string]any{"data": opportunityView(item)})
 }
 func (h *OpportunityHandler) ListTags(w http.ResponseWriter, r *http.Request) {
 	p, err := h.principal.Resolve(r)
@@ -100,7 +140,11 @@ func (h *OpportunityHandler) ListTags(w http.ResponseWriter, r *http.Request) {
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": items}})
+	views := make([]tagJSON, 0, len(items))
+	for _, item := range items {
+		views = append(views, tagView(item))
+	}
+	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": views}})
 }
 func (h *OpportunityHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	p, err := h.principal.Resolve(r)
@@ -109,17 +153,18 @@ func (h *OpportunityHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var q struct {
-		Name string `json:"name"`
+		CorpID int64  `json:"corpId"`
+		Name   string `json:"name"`
 	}
 	if decodeRequestJSON(w, r, &q) != nil {
 		return
 	}
-	item, err := h.service.CreateTag(r.Context(), p.TenantID, queryInt(r, "corpId"), q.Name, r.Header.Get("Idempotency-Key"))
+	item, err := h.service.CreateTag(r.Context(), p.TenantID, q.CorpID, q.Name, r.Header.Get("Idempotency-Key"))
 	if err != nil {
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": item})
+	writeJSON(w, 200, map[string]any{"data": tagView(item)})
 }
 
 func (h *OpportunityHandler) ListFollowUps(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +178,11 @@ func (h *OpportunityHandler) ListFollowUps(w http.ResponseWriter, r *http.Reques
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": items, "nextCursor": ""}})
+	views := make([]followUpJSON, 0, len(items))
+	for _, item := range items {
+		views = append(views, followUpView(item))
+	}
+	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": views, "nextCursor": ""}})
 }
 
 func (h *OpportunityHandler) AppendFollowUp(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +203,7 @@ func (h *OpportunityHandler) AppendFollowUp(w http.ResponseWriter, r *http.Reque
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": item})
+	writeJSON(w, 200, map[string]any{"data": followUpView(item)})
 }
 
 func (h *OpportunityHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
@@ -176,7 +225,7 @@ func (h *OpportunityHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"data": item})
+	writeJSON(w, 200, map[string]any{"data": tagView(item)})
 }
 
 func (h *OpportunityHandler) BindTags(w http.ResponseWriter, r *http.Request) {
@@ -214,6 +263,10 @@ func queryInt(r *http.Request, key string) int64 {
 	return n
 }
 func writeSCRMError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ports.ErrAssignmentConflict) {
+		writeError(w, http.StatusConflict, "resource version conflict")
+		return
+	}
 	if errors.Is(err, application.ErrInvalidArgument) {
 		writeError(w, 422, "invalid request")
 		return

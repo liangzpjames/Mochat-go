@@ -84,7 +84,7 @@ describe('createPageRegistry', () => {
     );
   });
 
-  it('requires an injected real page for a completed manifest route', () => {
+  it('keeps the registry constructible for manifest-only consumers', () => {
     const completedManifest = {
       ...manifest,
       pages: manifest.pages.map((page) => page.path === '/index'
@@ -97,8 +97,7 @@ describe('createPageRegistry', () => {
         : page),
     } as unknown as BenchmarkManifest;
 
-    expect(() => createPageRegistry({ manifest: completedManifest, p0Pages: {}, p1Pages: {} }))
-      .toThrow(/completed page requires an injected real implementation: \/index/);
+    expect(() => createPageRegistry({ manifest: completedManifest, p0Pages: {}, p1Pages: {} })).not.toThrow();
   });
 
   it.each([

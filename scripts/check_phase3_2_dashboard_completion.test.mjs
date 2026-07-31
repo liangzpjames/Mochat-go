@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { validatePhase32Manifest } from './check_phase3_2_dashboard_completion.mjs';
+import { validateFinalPhase32Manifest, validatePhase32Manifest } from './check_phase3_2_dashboard_completion.mjs';
 
 test('Phase 3.2 requires exactly the eight target routes', () => {
   const manifest = {
@@ -28,4 +28,9 @@ test('Phase 3.2 requires exactly the eight target routes', () => {
   };
 
   assert.doesNotThrow(() => validatePhase32Manifest(manifest));
+});
+
+test('final Phase 3.2 gate rejects a route without browser acceptance', () => {
+  const manifest = { pages: [{ path: '/index', implementation: 'native', backend: 'ready', acceptance: 'unit-passed', evidence: { spec: 'a', acceptance: 'b' } }] };
+  assert.throws(() => validateFinalPhase32Manifest(manifest), /missing Phase 3\.2 route/);
 });

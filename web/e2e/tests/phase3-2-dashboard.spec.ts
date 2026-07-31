@@ -31,4 +31,25 @@ test.describe('Phase 3.2 SCRM real pages', () => {
     await expect(page.getByRole('heading', { name: '联系人' })).toBeVisible();
     await expect(page.getByText('张三')).toBeVisible();
   });
+
+  test('captures the eight Phase 3.2 route acceptance evidence at 1440x1000', async ({ page }) => {
+    test.setTimeout(60_000);
+    const routes = [
+      ['/index', 'index'],
+      ['/chat/v2-all', 'chat-v2-all'],
+      ['/ai-insight/v2/sensitive-word', 'sensitive-word'],
+      ['/customer/clue/default', 'customer-clue-default'],
+      ['/customer/contact', 'customer-contact'],
+      ['/customer/opportunity', 'customer-opportunity'],
+      ['/customer/public-sea', 'customer-public-sea'],
+      ['/customer/tags', 'customer-tags'],
+    ] as const;
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    for (const [route, name] of routes) {
+      await page.goto(route);
+      await expect(page).toHaveURL(new RegExp(`${route.replaceAll('/', '\\/')}$`));
+      await expect(page.locator('body')).toBeVisible();
+      await page.screenshot({ path: `../../docs/phase/phase-3.2-dashboard-completion/evidence/${name}.png`, fullPage: false });
+    }
+  });
 });
