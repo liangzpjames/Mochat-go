@@ -43,7 +43,7 @@ func TestNewAssemblesRepositoryServiceAndHTTPHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if module == nil || module.leads == nil {
+	if module == nil || module.leads == nil || module.customerLifecycle == nil {
 		t.Fatalf("module = %#v", module)
 	}
 }
@@ -64,6 +64,10 @@ func TestRegisterRoutesInstallsExactlyPostAndGetLeads(t *testing.T) {
 		{method: nethttp.MethodGet, pattern: transporthttp.LeadsPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.FormalLeadsPath},
 		{method: nethttp.MethodGet, pattern: transporthttp.FormalLeadsPath},
+		{method: nethttp.MethodGet, pattern: transporthttp.AssignmentsPath},
+		{method: nethttp.MethodPut, pattern: transporthttp.AssignmentsPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.AssignmentReleasePath},
+		{method: nethttp.MethodPost, pattern: transporthttp.AssignmentClaimPath},
 	}
 	if len(registrar.routes) != len(want) {
 		t.Fatalf("routes = %#v, want %#v", registrar.routes, want)

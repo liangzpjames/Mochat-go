@@ -21,7 +21,8 @@ type Dependencies struct {
 }
 
 type Module struct {
-	leads *transporthttp.LeadHandler
+	leads             *transporthttp.LeadHandler
+	customerLifecycle *transporthttp.CustomerLifecycleHandler
 }
 
 func New(dependencies Dependencies) (*Module, error) {
@@ -47,7 +48,16 @@ func New(dependencies Dependencies) (*Module, error) {
 		return nil, fmt.Errorf("create SCRM application service: %w", err)
 	}
 	handler := transporthttp.NewLeadHandler(service, dependencies.PrincipalResolver)
-	return &Module{leads: handler}, nil
+	assignmentRepository, err := mysql.NewCustomerLifecycleRepository(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM assignment repository: %w", err)
+	}
+	assignmentService, err := application.NewCustomerLifecycleService(assignmentRepository)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM customer lifecycle service: %w", err)
+	}
+	assignmentHandler := transporthttp.NewCustomerLifecycleHandler(assignmentService, dependencies.PrincipalResolver)
+	return &Module{leads: handler, customerLifecycle: assignmentHandler}, nil
 }
 
 func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
@@ -57,7 +67,10 @@ func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
 	if isNil(registrar) {
 		return errors.New("route registrar is required")
 	}
-	return transporthttp.RegisterRoutes(registrar, m.leads)
+	if err := transporthttp.RegisterRoutes(registrar, m.leads); err != nil {
+		return err
+	}
+	return transporthttp.RegisterCustomerLifecycleRoutes(registrar, m.customerLifecycle)
 }
 
 func isNil(value any) bool {

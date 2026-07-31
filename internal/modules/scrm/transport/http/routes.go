@@ -4,6 +4,8 @@ import nethttp "net/http"
 
 const LeadsPath = "/api/phase2-2/scrm/leads"
 const FormalLeadsPath = "/dashboard/scrm/leads"
+const AssignmentReleasePath = AssignmentsPath + "/release"
+const AssignmentClaimPath = AssignmentsPath + "/claim"
 
 type RouteRegistrar interface {
 	Handle(method, pattern string, handler nethttp.Handler) error
@@ -19,4 +21,17 @@ func RegisterRoutes(registrar RouteRegistrar, handler *LeadHandler) error {
 		}
 	}
 	return nil
+}
+
+func RegisterCustomerLifecycleRoutes(registrar RouteRegistrar, handler *CustomerLifecycleHandler) error {
+	if err := registrar.Handle(nethttp.MethodGet, AssignmentsPath, nethttp.HandlerFunc(handler.ListPublicPool)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodPut, AssignmentsPath, nethttp.HandlerFunc(handler.UpdateAssignment)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodPost, AssignmentReleasePath, nethttp.HandlerFunc(handler.ReleaseToPublicPool)); err != nil {
+		return err
+	}
+	return registrar.Handle(nethttp.MethodPost, AssignmentClaimPath, nethttp.HandlerFunc(handler.ClaimFromPublicPool))
 }

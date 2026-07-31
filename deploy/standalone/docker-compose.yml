@@ -328,6 +328,7 @@ services:
       - ./migrations/0098_scrm_lead_foundation.up.sql:/docker-entrypoint-initdb.d/098-scrm-lead-foundation.sql:ro
       - ./migrations/0099_saas_tenant_default_corp.up.sql:/docker-entrypoint-initdb.d/099-saas-tenant-default-corp.sql:ro
       - ./migrations/0100_scrm_customer_lifecycle.up.sql:/docker-entrypoint-initdb.d/100-scrm-customer-lifecycle.sql:ro
+      - ./migrations/0101_scrm_assignment_collaborators.up.sql:/docker-entrypoint-initdb.d/101-scrm-assignment-collaborators.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u\"$${MARIADB_USER}\" -p\"$${MARIADB_PASSWORD}\""]
       interval: 5s

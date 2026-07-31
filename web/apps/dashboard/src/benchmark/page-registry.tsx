@@ -22,6 +22,8 @@ import type { SensitiveWordApi } from '../features/sensitive-word/sensitive-word
 import { SensitiveWordPage } from '../features/sensitive-word/sensitive-word-page';
 import type { LeadApi } from '../features/scrm/lead-api';
 import { LeadPage } from '../features/scrm/lead-page';
+import type { ScrmApi } from '../features/scrm/scrm-api';
+import { PublicPoolPage } from '../features/scrm/public-pool-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -30,17 +32,20 @@ export function createBenchmarkP0Pages({
   conversationGlobalApi,
   sensitiveWordApi,
   leadApi,
+  scrmApi,
 }: {
   dashboardOverviewApi: DashboardOverviewApi;
   conversationGlobalApi: ConversationGlobalApi;
   sensitiveWordApi?: SensitiveWordApi;
   leadApi?: LeadApi;
+  scrmApi?: ScrmApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
     ...(sensitiveWordApi === undefined ? {} : { '/ai-insight/v2/sensitive-word': <SensitiveWordPage api={sensitiveWordApi} /> }),
     ...(leadApi === undefined ? {} : { '/customer/clue/default': <LeadPage api={leadApi} /> }),
+    ...(scrmApi === undefined ? {} : { '/customer/public-sea': <PublicPoolPage api={scrmApi} /> }),
   };
 }
 
