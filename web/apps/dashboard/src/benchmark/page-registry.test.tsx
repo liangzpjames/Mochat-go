@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, RouterProvider } from 'react-router';
 
-import { benchmarkManifest } from './benchmark-manifest';
+import { benchmarkManifest, type BenchmarkManifest } from './benchmark-manifest';
 import { createBenchmarkP0Pages, createPageRegistry } from './page-registry';
 import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
@@ -82,6 +82,23 @@ describe('createPageRegistry', () => {
     expect(Object.keys(pages).sort()).toEqual(
       manifest.pages.map((page) => page.path).sort(),
     );
+  });
+
+  it('requires an injected real page for a completed manifest route', () => {
+    const completedManifest = {
+      ...manifest,
+      pages: manifest.pages.map((page) => page.path === '/index'
+        ? {
+          ...page,
+          implementation: 'native',
+          backend: 'ready',
+          acceptance: 'e2e-passed',
+        }
+        : page),
+    } as unknown as BenchmarkManifest;
+
+    expect(() => createPageRegistry({ manifest: completedManifest, p0Pages: {}, p1Pages: {} }))
+      .toThrow(/completed page requires an injected real implementation: \/index/);
   });
 
   it.each([

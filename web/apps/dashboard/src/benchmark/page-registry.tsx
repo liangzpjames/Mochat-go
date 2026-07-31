@@ -56,8 +56,7 @@ export function createPageRegistry({
   p1Pages: PageRegistry;
 }): PageRegistry {
   const groupTitles = new Map(manifest.groups.map((group) => [group.id, group.title]));
-
-  return Object.fromEntries(manifest.pages.map((page) => [
+  const pages = Object.fromEntries(manifest.pages.map((page) => [
     page.path,
     p0Pages[page.path]
       ?? p1Pages[page.path]
@@ -69,4 +68,14 @@ export function createPageRegistry({
           : { groupTitle: groupTitles.get(page.groupId) ?? '工作台' })}
       />,
   ]));
+
+  for (const page of manifest.pages) {
+    const isCompleted = page.backend === 'ready' && page.acceptance === 'e2e-passed';
+    const hasInjectedPage = p0Pages[page.path] !== undefined || p1Pages[page.path] !== undefined;
+    if (isCompleted && !hasInjectedPage) {
+      throw new Error(`completed page requires an injected real implementation: ${page.path}`);
+    }
+  }
+
+  return pages;
 }
