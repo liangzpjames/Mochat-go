@@ -1,0 +1,13 @@
+{
+  "pagePath": "/index",
+  "screenshotVersion": "unobserved",
+  "states": [
+    { "id": "entry", "observation": "observed", "note": "已确认数据概览入口存在；未记录深层页面状态。" },
+    { "id": "loading", "observation": "unobserved", "note": "未观察。" },
+    { "id": "empty", "observation": "unobserved", "note": "未观察。" },
+    { "id": "filtered-empty", "observation": "unobserved", "note": "未观察。" },
+    { "id": "forbidden", "observation": "unobserved", "note": "未观察。" },
+    { "id": "service-error", "observation": "unobserved", "note": "未观察。" },
+    { "id": "session-expired", "observation": "unobserved", "note": "未观察。" }
+  ]
+}

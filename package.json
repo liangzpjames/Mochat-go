@@ -7,6 +7,7 @@
   },
   "scripts": {
     "check:audit": "node scripts/audit_legacy_frontend_inventory.mjs --check && node scripts/audit_phase2_frontend_completion.mjs",
+    "check:yuanhu-benchmark": "node scripts/check_yuanhu_benchmark_manifest.mjs",
     "evidence:phase2": "node scripts/generate_phase2_evidence.mjs",
     "refresh:audit": "node scripts/audit_legacy_frontend_inventory.mjs --refresh --check",
     "check:phase2-progress": "node scripts/check_phase2_frontend_progress.mjs",
