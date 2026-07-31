@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Assignment, ScrmApi } from './scrm-api';
 
-export function AssignmentEditor({ assignment, corpId, api, canEdit = true, onSaved }: { assignment: Assignment; corpId: number; api: ScrmApi; canEdit?: boolean; onSaved?: (assignment: Assignment) => void }) {
+export function AssignmentEditor({ assignment, corpId, api, canEdit = true, onSaved }: { assignment: Assignment; corpId: number; api: Pick<ScrmApi, 'updateAssignment'>; canEdit?: boolean; onSaved?: (assignment: Assignment) => void }) {
   const [ownerId, setOwnerId] = useState(assignment.ownerId === null ? '' : String(assignment.ownerId));
   const [collaborators, setCollaborators] = useState(assignment.collaboratorIds.join(','));
   const [conflict, setConflict] = useState(false);

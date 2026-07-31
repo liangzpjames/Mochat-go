@@ -2,6 +2,33 @@ package domain
 
 import "testing"
 
+func TestOpportunityValidationCoversAmountDateAndTerminalRules(t *testing.T) {
+	if err := ValidateOpportunityInput(-1, "2026-08-02", "2026-08-01"); err == nil {
+		t.Fatal("negative amount and reversed dates should be rejected")
+	}
+	if err := ValidateOpportunityInput(100, "2026-08-02", "2026-08-01"); err == nil {
+		t.Fatal("end date before start date should be rejected")
+	}
+	if err := ValidateOpportunityTransition(OpportunityStatusWon, OpportunityStageProposal, ""); err == nil {
+		t.Fatal("won opportunity must be terminal")
+	}
+}
+
+func TestFollowUpContentAndChronology(t *testing.T) {
+	if err := ValidateFollowUp("  "); err == nil {
+		t.Fatal("blank follow-up should be rejected")
+	}
+	if err := ValidateFollowUpChronology("2026-08-02T10:00:00Z", "2026-08-01T10:00:00Z"); err == nil {
+		t.Fatal("follow-up timestamps must not move backwards")
+	}
+}
+
+func TestTagNameValidation(t *testing.T) {
+	if err := ValidateTagName("  "); err == nil {
+		t.Fatal("blank tag name should be rejected")
+	}
+}
+
 func TestCustomerLifecycleTransitions(t *testing.T) {
 
 	if !CanTransitionLead(LeadStatusNew, LeadStatusQualified) {

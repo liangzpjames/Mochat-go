@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -87,6 +88,53 @@ func ValidateOpportunityTransition(from, to, reason string) error {
 	}
 	if to == OpportunityStatusLost && reason == "" {
 		return fmt.Errorf("lost opportunity requires a reason")
+	}
+	return nil
+}
+
+func ValidateOpportunityInput(amount float64, startDate, endDate string) error {
+	if amount < 0 {
+		return fmt.Errorf("opportunity amount must be non-negative")
+	}
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return fmt.Errorf("invalid opportunity start date: %w", err)
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return fmt.Errorf("invalid opportunity end date: %w", err)
+	}
+	if end.Before(start) {
+		return fmt.Errorf("opportunity end date must not precede start date")
+	}
+	return nil
+}
+
+func ValidateFollowUp(content string) error {
+	if strings.TrimSpace(content) == "" {
+		return fmt.Errorf("follow-up content is required")
+	}
+	return nil
+}
+
+func ValidateFollowUpChronology(previous, next string) error {
+	previousAt, err := time.Parse(time.RFC3339, previous)
+	if err != nil {
+		return fmt.Errorf("invalid previous follow-up time: %w", err)
+	}
+	nextAt, err := time.Parse(time.RFC3339, next)
+	if err != nil {
+		return fmt.Errorf("invalid next follow-up time: %w", err)
+	}
+	if nextAt.Before(previousAt) {
+		return fmt.Errorf("follow-up timestamps must be chronological")
+	}
+	return nil
+}
+
+func ValidateTagName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("tag name is required")
 	}
 	return nil
 }

@@ -3,7 +3,7 @@ import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
 import type { ScrmApi } from './scrm-api';
 
-export function PublicPoolPage({ api }: { api: ScrmApi }) {
+export function PublicPoolPage({ api }: { api: Pick<ScrmApi, 'listPublicPool' | 'claimFromPublicPool'> }) {
   const access = useDashboardAccess();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ['scrm-public-pool', access.corp.id], queryFn: () => api.listPublicPool({ corpId: Number(access.corp.id), pageSize: 20 }) });

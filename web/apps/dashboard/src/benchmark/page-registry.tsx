@@ -24,6 +24,8 @@ import type { LeadApi } from '../features/scrm/lead-api';
 import { LeadPage } from '../features/scrm/lead-page';
 import type { ScrmApi } from '../features/scrm/scrm-api';
 import { PublicPoolPage } from '../features/scrm/public-pool-page';
+import { OpportunityPage } from '../features/scrm/opportunity-page';
+import { TagPage } from '../features/scrm/tag-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -45,7 +47,11 @@ export function createBenchmarkP0Pages({
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
     ...(sensitiveWordApi === undefined ? {} : { '/ai-insight/v2/sensitive-word': <SensitiveWordPage api={sensitiveWordApi} /> }),
     ...(leadApi === undefined ? {} : { '/customer/clue/default': <LeadPage api={leadApi} /> }),
-    ...(scrmApi === undefined ? {} : { '/customer/public-sea': <PublicPoolPage api={scrmApi} /> }),
+    ...(scrmApi === undefined ? {} : {
+      '/customer/public-sea': <PublicPoolPage api={scrmApi} />,
+      '/customer/opportunity': <OpportunityPage api={scrmApi} />,
+      '/customer/tags': <TagPage api={scrmApi} />,
+    }),
   };
 }
 
