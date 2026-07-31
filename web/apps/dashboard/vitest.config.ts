@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     clearMocks: true,
     environment: 'jsdom',
+    fileParallelism: false,
     restoreMocks: true,
   },
 });
