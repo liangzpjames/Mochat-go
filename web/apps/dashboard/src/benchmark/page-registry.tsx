@@ -20,6 +20,8 @@ import { DemoPage } from './demo-page';
 import { PlaceholderPage } from './placeholder-page';
 import type { SensitiveWordApi } from '../features/sensitive-word/sensitive-word-api';
 import { SensitiveWordPage } from '../features/sensitive-word/sensitive-word-page';
+import type { LeadApi } from '../features/scrm/lead-api';
+import { LeadPage } from '../features/scrm/lead-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -27,15 +29,18 @@ export function createBenchmarkP0Pages({
   dashboardOverviewApi,
   conversationGlobalApi,
   sensitiveWordApi,
+  leadApi,
 }: {
   dashboardOverviewApi: DashboardOverviewApi;
   conversationGlobalApi: ConversationGlobalApi;
   sensitiveWordApi?: SensitiveWordApi;
+  leadApi?: LeadApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
     ...(sensitiveWordApi === undefined ? {} : { '/ai-insight/v2/sensitive-word': <SensitiveWordPage api={sensitiveWordApi} /> }),
+    ...(leadApi === undefined ? {} : { '/customer/clue/default': <LeadPage api={leadApi} /> }),
   };
 }
 
