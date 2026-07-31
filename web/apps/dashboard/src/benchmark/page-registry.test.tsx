@@ -1,8 +1,11 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
-import { MemoryRouter } from 'react-router';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { MemoryRouter, RouterProvider } from 'react-router';
 
+import { benchmarkManifest } from './benchmark-manifest';
 import { createPageRegistry } from './page-registry';
+import { createDashboardRouter } from '../app/router';
+import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -12,6 +15,32 @@ const manifest = {
     { path: '/chat/export', title: '会话导出', groupId: 'conversation', level: 'P2' },
   ],
 } as const;
+
+afterEach(cleanup);
+
+function renderDashboardRoute(path: string) {
+  const router = createDashboardRouter({
+    getSession: () => ({
+      token: 'Bearer test',
+      userId: '7',
+      corpId: '12',
+      expiresAt: null,
+    }),
+    initialEntries: [path],
+    loadInitialData: () => Promise.resolve(),
+    reactPages: createPageRegistry({
+      manifest: benchmarkManifest,
+      p0Pages: {},
+      p1Pages: {},
+    }),
+  });
+
+  return render(
+    <DashboardSessionActionsProvider onLogout={() => Promise.resolve()} userId="7">
+      <RouterProvider router={router} />
+    </DashboardSessionActionsProvider>,
+  );
+}
 
 describe('createPageRegistry', () => {
   it('prefers P0 implementations over P1 implementations at the same path', () => {
@@ -40,5 +69,18 @@ describe('createPageRegistry', () => {
     expect(Object.keys(pages).sort()).toEqual(
       manifest.pages.map((page) => page.path).sort(),
     );
+  });
+
+  it('renders a manifest P2 route instead of the 404 page', async () => {
+    renderDashboardRoute('/chat/trajectory');
+
+    expect(await screen.findByRole('heading', { name: '会话轨迹' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '页面不存在' })).toBeNull();
+  });
+
+  it('keeps unknown routes on the NotFound page', async () => {
+    renderDashboardRoute('/not-registered');
+
+    expect(await screen.findByRole('heading', { name: '页面不存在' })).toBeTruthy();
   });
 });
