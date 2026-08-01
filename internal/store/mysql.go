@@ -2132,65 +2132,54 @@ func (s *MySQLStore) CreateCorp(ctx context.Context, values dashboard.CorpCreate
 	return int(id), err
 }
 
-func (s *MySQLStore) CorpDataSummary(ctx context.Context, corpID int, now time.Time) (dashboard.CorpDataSummary, error) {
-	today, err := s.corpDayCountersByDate(ctx, corpID, now.Format("2006-01-02"))
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
+func (s *MySQLStore) CorpDataSummary(ctx context.Context, scope dashboard.CorpDataScope, now time.Time) (dashboard.CorpDataSummary, error) {
+	if scope.TenantID <= 0 || scope.CorpID <= 0 {
+		return dashboard.CorpDataSummary{}, fmt.Errorf("tenant id and corp id must be positive")
 	}
-	yesterday, err := s.corpDayCountersByDate(ctx, corpID, now.AddDate(0, 0, -1).Format("2006-01-02"))
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-
+	dayBegin := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	monthBegin := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-	monthEnd := monthBegin.AddDate(0, 1, -1)
-	month, err := s.corpDaySumsBetween(ctx, corpID, monthBegin.Format("2006-01-02"), monthEnd.Format("2006-01-02"))
+	lastMonthBegin := monthBegin.AddDate(0, -1, 0)
+
+	today, err := s.corpDataCountersBetween(ctx, scope, dayBegin, dayBegin.AddDate(0, 0, 1))
 	if err != nil {
 		return dashboard.CorpDataSummary{}, err
 	}
-	lastMonthBegin := monthBegin.AddDate(0, -1, 0)
-	lastMonthEnd := monthBegin.AddDate(0, 0, -1)
-	lastMonth, err := s.corpDaySumsBetween(ctx, corpID, lastMonthBegin.Format("2006-01-02"), lastMonthEnd.Format("2006-01-02"))
+	yesterday, err := s.corpDataCountersBetween(ctx, scope, dayBegin.AddDate(0, 0, -1), dayBegin)
+	if err != nil {
+		return dashboard.CorpDataSummary{}, err
+	}
+	month, err := s.corpDataCountersBetween(ctx, scope, monthBegin, monthBegin.AddDate(0, 1, 0))
+	if err != nil {
+		return dashboard.CorpDataSummary{}, err
+	}
+	lastMonth, err := s.corpDataCountersBetween(ctx, scope, lastMonthBegin, monthBegin)
 	if err != nil {
 		return dashboard.CorpDataSummary{}, err
 	}
 
-	totalContact, err := s.countScalar(ctx, `
-		SELECT COUNT(*)
-		FROM mc_work_contact_employee
-		WHERE corp_id = ? AND status = 1 AND deleted_at IS NULL
-	`, corpID)
+	totalContact, err := s.corpDataMetricCount(ctx, corpDataMetricContacts, scope, time.Time{}, time.Time{})
 	if err != nil {
 		return dashboard.CorpDataSummary{}, err
 	}
-	totalRooms, err := s.countScalar(ctx, `
-		SELECT COUNT(*)
-		FROM mc_work_room
-		WHERE corp_id = ? AND deleted_at IS NULL
-	`, corpID)
+	totalRooms, err := s.corpDataMetricCount(ctx, corpDataMetricRooms, scope, time.Time{}, time.Time{})
 	if err != nil {
 		return dashboard.CorpDataSummary{}, err
 	}
-	totalMembers, err := s.countScalar(ctx, `
-		SELECT COUNT(*)
-		FROM mc_work_contact_room
-		WHERE status = 1
-		  AND room_id IN (SELECT id FROM mc_work_room WHERE corp_id = ? AND deleted_at IS NULL)
-	`, corpID)
+	totalMembers, err := s.corpDataMetricCount(ctx, corpDataMetricRoomMembers, scope, time.Time{}, time.Time{})
 	if err != nil {
 		return dashboard.CorpDataSummary{}, err
 	}
-	totalEmployees, err := s.countScalar(ctx, `
-		SELECT COUNT(*)
-		FROM mc_work_employee
-		WHERE corp_id = ? AND status = 1 AND deleted_at IS NULL
-	`, corpID)
+	totalEmployees, err := s.corpDataMetricCount(ctx, corpDataMetricEmployees, scope, time.Time{}, time.Time{})
 	if err != nil {
 		return dashboard.CorpDataSummary{}, err
 	}
-	updateTime, err := s.corpDataUpdateTime(ctx, corpID)
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
+
+	updateTime := ""
+	if !scope.EmployeeScopeRestricted || len(scope.EmployeeIDs) > 0 {
+		updateTime, err = s.corpDataUpdateTime(ctx, scope)
+		if err != nil {
+			return dashboard.CorpDataSummary{}, err
+		}
 	}
 
 	return dashboard.CorpDataSummary{
@@ -2218,8 +2207,11 @@ func (s *MySQLStore) CorpDataSummary(ctx context.Context, corpID int, now time.T
 	}, nil
 }
 
-func (s *MySQLStore) CorpDataLineChat(ctx context.Context, corpID int, from time.Time, to time.Time) ([]dashboard.CorpDataPoint, error) {
-	query, args := corpDataTrendQuery(corpID, from.Format("2006-01-02"), to.Format("2006-01-02"))
+func (s *MySQLStore) CorpDataLineChat(ctx context.Context, scope dashboard.CorpDataScope, from time.Time, to time.Time) ([]dashboard.CorpDataPoint, error) {
+	if scope.TenantID <= 0 || scope.CorpID <= 0 {
+		return nil, fmt.Errorf("tenant id and corp id must be positive")
+	}
+	query, args := corpDataTrendQuery(scope, from, to.AddDate(0, 0, 1))
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -2229,24 +2221,234 @@ func (s *MySQLStore) CorpDataLineChat(ctx context.Context, corpID int, from time
 	points := make([]dashboard.CorpDataPoint, 0)
 	for rows.Next() {
 		var point dashboard.CorpDataPoint
-		var date sql.NullTime
+		var date string
 		if err := rows.Scan(&point.ID, &point.AddContactNum, &point.AddIntoRoomNum, &point.LossContactNum, &point.QuitRoomNum, &date); err != nil {
 			return nil, err
 		}
-		point.Date = formatTime(date)
+		point.Date = date
 		points = append(points, point)
 	}
 	return points, rows.Err()
 }
 
-func corpDataTrendQuery(corpID int, from string, to string) (string, []any) {
+type corpDataMetric int
+
+const (
+	corpDataMetricContacts corpDataMetric = iota
+	corpDataMetricRooms
+	corpDataMetricRoomMembers
+	corpDataMetricEmployees
+	corpDataMetricAddContacts
+	corpDataMetricAddRooms
+	corpDataMetricAddIntoRooms
+	corpDataMetricLossContacts
+	corpDataMetricQuitRooms
+)
+
+type corpDataMetricSource struct {
+	fromWhere          string
+	args               []any
+	idExpression       string
+	timeExpression     string
+	employeeExpression string
+}
+
+func corpDataMetricSourceFor(metric corpDataMetric, scope dashboard.CorpDataScope) corpDataMetricSource {
+	var source corpDataMetricSource
+	switch metric {
+	case corpDataMetricContacts, corpDataMetricAddContacts:
+		source = corpDataMetricSource{
+			fromWhere: `
+				FROM mc_work_contact_employee AS contact_employee
+				INNER JOIN mc_corp AS scoped_corp
+					ON scoped_corp.id = contact_employee.corp_id
+					AND scoped_corp.tenant_id = ?
+					AND scoped_corp.deleted_at IS NULL
+				WHERE contact_employee.corp_id = ?`,
+			args: []any{scope.TenantID, scope.CorpID}, idExpression: "contact_employee.id",
+			employeeExpression: "contact_employee.employee_id", timeExpression: "contact_employee.create_time",
+		}
+		if metric == corpDataMetricContacts {
+			source.fromWhere += " AND contact_employee.status = 1 AND contact_employee.deleted_at IS NULL"
+		} else {
+			source.fromWhere += " AND contact_employee.deleted_at IS NULL"
+		}
+	case corpDataMetricLossContacts:
+		source = corpDataMetricSource{
+			fromWhere: `
+				FROM mc_work_contact_employee AS contact_employee
+				INNER JOIN mc_corp AS scoped_corp
+					ON scoped_corp.id = contact_employee.corp_id
+					AND scoped_corp.tenant_id = ?
+					AND scoped_corp.deleted_at IS NULL
+				WHERE contact_employee.corp_id = ? AND contact_employee.status IN (2, 3)`,
+			args: []any{scope.TenantID, scope.CorpID}, idExpression: "contact_employee.id",
+			employeeExpression: "contact_employee.employee_id", timeExpression: "contact_employee.deleted_at",
+		}
+	case corpDataMetricRooms, corpDataMetricAddRooms:
+		source = corpDataMetricSource{
+			fromWhere: `
+				FROM mc_work_room AS room
+				INNER JOIN mc_corp AS scoped_corp
+					ON scoped_corp.id = room.corp_id
+					AND scoped_corp.tenant_id = ?
+					AND scoped_corp.deleted_at IS NULL
+				WHERE room.corp_id = ? AND room.deleted_at IS NULL`,
+			args: []any{scope.TenantID, scope.CorpID}, idExpression: "room.id",
+			employeeExpression: "room.owner_id", timeExpression: "room.created_at",
+		}
+	case corpDataMetricRoomMembers, corpDataMetricAddIntoRooms, corpDataMetricQuitRooms:
+		source = corpDataMetricSource{
+			fromWhere: `
+				FROM mc_work_contact_room AS contact_room
+				INNER JOIN mc_work_room AS room
+					ON room.id = contact_room.room_id AND room.deleted_at IS NULL
+				INNER JOIN mc_corp AS scoped_corp
+					ON scoped_corp.id = room.corp_id
+					AND scoped_corp.tenant_id = ?
+					AND scoped_corp.deleted_at IS NULL
+				WHERE room.corp_id = ? AND contact_room.deleted_at IS NULL`,
+			args: []any{scope.TenantID, scope.CorpID}, idExpression: "contact_room.id", employeeExpression: "room.owner_id",
+		}
+		switch metric {
+		case corpDataMetricRoomMembers:
+			source.fromWhere += " AND contact_room.status = 1"
+		case corpDataMetricAddIntoRooms:
+			source.fromWhere += " AND contact_room.status = 1"
+			source.timeExpression = "contact_room.join_time"
+		case corpDataMetricQuitRooms:
+			source.fromWhere += " AND contact_room.status = 2 AND contact_room.out_time != ''"
+			source.timeExpression = "STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s')"
+		}
+	case corpDataMetricEmployees:
+		source = corpDataMetricSource{
+			fromWhere: `
+				FROM mc_work_employee AS employee
+				INNER JOIN mc_corp AS scoped_corp
+					ON scoped_corp.id = employee.corp_id
+					AND scoped_corp.tenant_id = ?
+					AND scoped_corp.deleted_at IS NULL
+				WHERE employee.corp_id = ? AND employee.status = 1 AND employee.deleted_at IS NULL`,
+			args: []any{scope.TenantID, scope.CorpID}, idExpression: "employee.id", employeeExpression: "employee.id",
+		}
+	}
+	filter, filterArgs := corpDataEmployeeScopeSQL(scope, source.employeeExpression)
+	source.fromWhere += filter
+	source.args = append(source.args, filterArgs...)
+	return source
+}
+
+func corpDataEmployeeScopeSQL(scope dashboard.CorpDataScope, employeeExpression string) (string, []any) {
+	employeeIDs := uniquePositiveInts(scope.EmployeeIDs)
+	departmentIDs := uniquePositiveInts(scope.DepartmentIDs)
+	if scope.EmployeeScopeRestricted && len(employeeIDs) == 0 {
+		return " AND 1 = 0", nil
+	}
+	if len(employeeIDs) == 0 && len(departmentIDs) == 0 {
+		return "", nil
+	}
+	query := ` AND EXISTS (
+		SELECT 1
+		FROM mc_work_employee AS scoped_employee
+		WHERE scoped_employee.id = ` + employeeExpression + `
+		  AND scoped_employee.corp_id = ?
+		  AND scoped_employee.deleted_at IS NULL`
+	args := []any{scope.CorpID}
+	if len(employeeIDs) > 0 {
+		query += " AND scoped_employee.id IN (" + placeholders(len(employeeIDs)) + ")"
+		for _, employeeID := range employeeIDs {
+			args = append(args, employeeID)
+		}
+	}
+	if len(departmentIDs) > 0 {
+		query += ` AND EXISTS (
+			SELECT 1
+			FROM mc_work_employee_department AS employee_department
+			INNER JOIN mc_work_department AS department
+				ON department.id = employee_department.department_id
+				AND department.corp_id = ?
+				AND department.deleted_at IS NULL
+			WHERE employee_department.employee_id = scoped_employee.id
+			  AND employee_department.deleted_at IS NULL
+			  AND department.id IN (` + placeholders(len(departmentIDs)) + `)
+		)`
+		args = append(args, scope.CorpID)
+		for _, departmentID := range departmentIDs {
+			args = append(args, departmentID)
+		}
+	}
+	return query + ")", args
+}
+
+func corpDataMetricCountQuery(metric corpDataMetric, scope dashboard.CorpDataScope, from time.Time, to time.Time) (string, []any) {
+	source := corpDataMetricSourceFor(metric, scope)
+	query := "SELECT COUNT(*) " + source.fromWhere
+	args := append([]any{}, source.args...)
+	if !from.IsZero() && !to.IsZero() && source.timeExpression != "" {
+		query += " AND " + source.timeExpression + " >= FROM_UNIXTIME(?) AND " + source.timeExpression + " < FROM_UNIXTIME(?)"
+		args = append(args, from.Unix(), to.Unix())
+	}
+	return query, args
+}
+
+func (s *MySQLStore) corpDataMetricCount(ctx context.Context, metric corpDataMetric, scope dashboard.CorpDataScope, from time.Time, to time.Time) (int, error) {
+	query, args := corpDataMetricCountQuery(metric, scope, from, to)
+	return s.countScalar(ctx, query, args...)
+}
+
+func (s *MySQLStore) corpDataCountersBetween(ctx context.Context, scope dashboard.CorpDataScope, from time.Time, to time.Time) (corpDayCounters, error) {
+	metrics := []corpDataMetric{corpDataMetricAddContacts, corpDataMetricAddRooms, corpDataMetricAddIntoRooms, corpDataMetricLossContacts, corpDataMetricQuitRooms}
+	values := make([]int, len(metrics))
+	for index, metric := range metrics {
+		value, err := s.corpDataMetricCount(ctx, metric, scope, from, to)
+		if err != nil {
+			return corpDayCounters{}, err
+		}
+		values[index] = value
+	}
+	return corpDayCounters{AddContactNum: values[0], AddRoomNum: values[1], AddIntoRoomNum: values[2], LossContactNum: values[3], QuitRoomNum: values[4]}, nil
+}
+
+func corpDataTrendQuery(scope dashboard.CorpDataScope, from time.Time, to time.Time) (string, []any) {
+	type trendMetric struct {
+		metric corpDataMetric
+		values [4]int
+	}
+	metrics := []trendMetric{
+		{metric: corpDataMetricAddContacts, values: [4]int{1, 0, 0, 0}},
+		{metric: corpDataMetricAddIntoRooms, values: [4]int{0, 1, 0, 0}},
+		{metric: corpDataMetricLossContacts, values: [4]int{0, 0, 1, 0}},
+		{metric: corpDataMetricQuitRooms, values: [4]int{0, 0, 0, 1}},
+	}
+	parts := make([]string, 0, len(metrics))
+	args := make([]any, 0)
+	for _, item := range metrics {
+		source := corpDataMetricSourceFor(item.metric, scope)
+		part := fmt.Sprintf(`
+			SELECT %s AS event_id, %d AS add_contact_num, %d AS add_into_room_num,
+				%d AS loss_contact_num, %d AS quit_room_num,
+				DATE_FORMAT(CONVERT_TZ(%s, @@session.time_zone, ?), '%%Y-%%m-%%d') AS date
+			%s
+			AND %s >= FROM_UNIXTIME(?) AND %s < FROM_UNIXTIME(?)`,
+			source.idExpression, item.values[0], item.values[1], item.values[2], item.values[3],
+			source.timeExpression, source.fromWhere, source.timeExpression, source.timeExpression)
+		parts = append(parts, part)
+		args = append(args, from.Format("-07:00"))
+		args = append(args, source.args...)
+		args = append(args, from.Unix(), to.Unix())
+	}
 	return `
-		SELECT id, add_contact_num, add_into_room_num, loss_contact_num, quit_room_num, date
-		FROM mc_corp_day_data
-		WHERE corp_id = ? AND date >= ? AND date < DATE_ADD(?, INTERVAL 1 DAY)
+		SELECT MIN(event_id) AS id,
+			SUM(add_contact_num) AS add_contact_num,
+			SUM(add_into_room_num) AS add_into_room_num,
+			SUM(loss_contact_num) AS loss_contact_num,
+			SUM(quit_room_num) AS quit_room_num,
+			date
+		FROM (` + strings.Join(parts, " UNION ALL ") + `) AS corp_events
+		GROUP BY date
 		ORDER BY date ASC
 		LIMIT 31
-	`, []any{corpID, from, to}
+	`, args
 }
 
 func (s *MySQLStore) RefreshCorpDayData(ctx context.Context, corpID int, now time.Time) (dashboard.CorpDataCronResult, error) {
@@ -21545,51 +21747,18 @@ type corpDayCounters struct {
 	QuitRoomNum    int
 }
 
-func (s *MySQLStore) corpDayCountersByDate(ctx context.Context, corpID int, date string) (corpDayCounters, error) {
+func (s *MySQLStore) corpDataUpdateTime(ctx context.Context, scope dashboard.CorpDataScope) (string, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT add_contact_num, add_into_room_num, loss_contact_num, quit_room_num
-		FROM mc_corp_day_data
-		WHERE corp_id = ? AND DATE(date) = ?
+		SELECT update_time.last_update_time
+		FROM mc_work_update_time AS update_time
+		INNER JOIN mc_corp AS scoped_corp
+			ON scoped_corp.id = update_time.corp_id
+			AND scoped_corp.tenant_id = ?
+			AND scoped_corp.deleted_at IS NULL
+		WHERE update_time.corp_id = ? AND update_time.type = 6
+		ORDER BY update_time.id DESC
 		LIMIT 1
-	`, corpID, date)
-
-	var counters corpDayCounters
-	err := row.Scan(&counters.AddContactNum, &counters.AddIntoRoomNum, &counters.LossContactNum, &counters.QuitRoomNum)
-	if err == sql.ErrNoRows {
-		return corpDayCounters{}, nil
-	}
-	if err != nil {
-		return corpDayCounters{}, err
-	}
-	return counters, nil
-}
-
-func (s *MySQLStore) corpDaySumsBetween(ctx context.Context, corpID int, startDate string, endDate string) (corpDayCounters, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT
-			COALESCE(SUM(add_contact_num), 0),
-			COALESCE(SUM(add_room_num), 0),
-			COALESCE(SUM(add_into_room_num), 0),
-			COALESCE(SUM(loss_contact_num), 0)
-		FROM mc_corp_day_data
-		WHERE corp_id = ? AND DATE(date) > ? AND DATE(date) < ?
-	`, corpID, startDate, endDate)
-
-	var counters corpDayCounters
-	if err := row.Scan(&counters.AddContactNum, &counters.AddRoomNum, &counters.AddIntoRoomNum, &counters.LossContactNum); err != nil {
-		return corpDayCounters{}, err
-	}
-	return counters, nil
-}
-
-func (s *MySQLStore) corpDataUpdateTime(ctx context.Context, corpID int) (string, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT last_update_time
-		FROM mc_work_update_time
-		WHERE corp_id = ? AND type = 6
-		ORDER BY id DESC
-		LIMIT 1
-	`, corpID)
+	`, scope.TenantID, scope.CorpID)
 
 	var lastUpdateTime sql.NullTime
 	err := row.Scan(&lastUpdateTime)

@@ -18,6 +18,9 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.ListenAddr != ":8080" {
 		t.Fatalf("ListenAddr = %q", cfg.ListenAddr)
 	}
+	if cfg.Timezone != "Asia/Shanghai" {
+		t.Fatalf("Timezone = %q", cfg.Timezone)
+	}
 	if cfg.RuntimeRole != appruntime.RoleAll {
 		t.Fatalf("RuntimeRole = %q, want %q", cfg.RuntimeRole, appruntime.RoleAll)
 	}
@@ -154,6 +157,17 @@ func TestFromEnvDefaults(t *testing.T) {
 	}
 	if cfg.SidebarFrontendAddr != "" || cfg.OperationFrontendAddr != "" {
 		t.Fatalf("frontend addrs = sidebar %q operation %q", cfg.SidebarFrontendAddr, cfg.OperationFrontendAddr)
+	}
+}
+
+func TestFromEnvRejectsInvalidTimezone(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_TIMEZONE", "Mars/Olympus")
+
+	_, err := FromEnv()
+
+	if err == nil || !strings.Contains(err.Error(), "MOCHAT_TIMEZONE") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -3277,6 +3291,7 @@ func TestInvalidNumericEnv(t *testing.T) {
 func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
+		"MOCHAT_TIMEZONE",
 		"MOCHAT_GO_ADDR",
 		"MOCHAT_GO_STANDALONE",
 		"MOCHAT_GO_ENABLE_ALL_MIGRATED_ROUTES",

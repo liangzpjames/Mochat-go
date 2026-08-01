@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+const (
+	corpDataMaxPage     = 1_000_000
+	corpDataMaxPageSize = 100
+)
+
 type CorpDataSummary struct {
 	WeChatContactNum          int
 	WeChatRoomNum             int
@@ -66,6 +71,14 @@ type CorpDataOverviewQuery struct {
 	PageSize      int
 }
 
+type CorpDataScope struct {
+	TenantID                int
+	CorpID                  int
+	EmployeeIDs             []int
+	DepartmentIDs           []int
+	EmployeeScopeRestricted bool
+}
+
 type CorpDataAccessAuthorizer interface {
 	Resolve(ctx context.Context, userID int, permissionKey string, corpID int, workEmployeeID int) (AccessContext, error)
 }
@@ -74,8 +87,8 @@ type CorpDataStore interface {
 	UserByID(ctx context.Context, userID int) (User, bool, error)
 	EmployeeIDByUserCorp(ctx context.Context, userID int, corpID int) (int, error)
 	FirstEmployeeByUser(ctx context.Context, userID int) (corpID int, employeeID int, ok bool, err error)
-	CorpDataSummary(ctx context.Context, corpID int, now time.Time) (CorpDataSummary, error)
-	CorpDataLineChat(ctx context.Context, corpID int, from time.Time, to time.Time) ([]CorpDataPoint, error)
+	CorpDataSummary(ctx context.Context, scope CorpDataScope, now time.Time) (CorpDataSummary, error)
+	CorpDataLineChat(ctx context.Context, scope CorpDataScope, from time.Time, to time.Time) ([]CorpDataPoint, error)
 }
 
 type CorpDataHandler struct {
@@ -84,12 +97,20 @@ type CorpDataHandler struct {
 	resolver   UserIDResolver
 	authorizer CorpDataAccessAuthorizer
 	now        func() time.Time
+	location   *time.Location
 }
 
 func NewCorpDataHandler(store CorpDataStore, cache LoginCache, resolver UserIDResolver, authorizer ...CorpDataAccessAuthorizer) *CorpDataHandler {
-	h := &CorpDataHandler{store: store, cache: cache, resolver: resolver}
+	h := &CorpDataHandler{store: store, cache: cache, resolver: resolver, location: time.FixedZone("Asia/Shanghai", 8*60*60)}
 	if len(authorizer) > 0 {
 		h.authorizer = authorizer[0]
+	}
+	return h
+}
+
+func (h *CorpDataHandler) WithLocation(location *time.Location) *CorpDataHandler {
+	if location != nil {
+		h.location = location
 	}
 	return h
 }
@@ -99,17 +120,17 @@ func (h *CorpDataHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	corpID, query, ok := h.resolveOverviewRequest(w, r)
+	scope, query, ok := h.resolveOverviewRequest(w, r)
 	if !ok {
 		return
 	}
 
-	summary, err := h.store.CorpDataSummary(r.Context(), corpID, query.EndDate)
+	summary, err := h.store.CorpDataSummary(r.Context(), scope, query.EndDate)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
-	points, err := h.store.CorpDataLineChat(r.Context(), corpID, query.StartDate, query.EndDate)
+	points, err := h.store.CorpDataLineChat(r.Context(), scope, query.StartDate, query.EndDate)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -122,12 +143,12 @@ func (h *CorpDataHandler) LineChat(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	corpID, query, ok := h.resolveOverviewRequest(w, r)
+	scope, query, ok := h.resolveOverviewRequest(w, r)
 	if !ok {
 		return
 	}
 
-	data, err := h.store.CorpDataLineChat(r.Context(), corpID, query.StartDate, query.EndDate)
+	data, err := h.store.CorpDataLineChat(r.Context(), scope, query.StartDate, query.EndDate)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -135,43 +156,51 @@ func (h *CorpDataHandler) LineChat(w http.ResponseWriter, r *http.Request) {
 	writeEnvelope(w, http.StatusOK, 200, "success", corpDataPage(data, query).Points)
 }
 
-func (h *CorpDataHandler) resolveOverviewRequest(w http.ResponseWriter, r *http.Request) (int, CorpDataOverviewQuery, bool) {
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+func (h *CorpDataHandler) resolveOverviewRequest(w http.ResponseWriter, r *http.Request) (CorpDataScope, CorpDataOverviewQuery, bool) {
+	userID, user, loginInfo, ok := h.resolveAccess(w, r)
 	if !ok {
-		return 0, CorpDataOverviewQuery{}, false
+		return CorpDataScope{}, CorpDataOverviewQuery{}, false
 	}
 	if len(loginInfo.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
-		return 0, CorpDataOverviewQuery{}, false
+		return CorpDataScope{}, CorpDataOverviewQuery{}, false
 	}
 	corpID := loginInfo.CorpIDs[0]
 	if requested := r.URL.Query().Get("corpId"); requested != "" {
 		requestedCorpID, err := strconv.Atoi(requested)
 		if err != nil || requestedCorpID <= 0 {
 			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid corpId", nil)
-			return 0, CorpDataOverviewQuery{}, false
+			return CorpDataScope{}, CorpDataOverviewQuery{}, false
 		}
 		if requestedCorpID != corpID {
 			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "forbidden", nil)
-			return 0, CorpDataOverviewQuery{}, false
+			return CorpDataScope{}, CorpDataOverviewQuery{}, false
 		}
 	}
 	query, err := corpDataOverviewQuery(r, h.currentTime())
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
-		return 0, CorpDataOverviewQuery{}, false
+		return CorpDataScope{}, CorpDataOverviewQuery{}, false
+	}
+	scope := CorpDataScope{
+		TenantID:      user.TenantID,
+		CorpID:        corpID,
+		EmployeeIDs:   append([]int{}, query.EmployeeIDs...),
+		DepartmentIDs: append([]int{}, query.DepartmentIDs...),
 	}
 	if h.authorizer != nil {
 		access, err := h.authorizer.Resolve(r.Context(), userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID)
 		if err != nil {
 			writeAccessError(w, err)
-			return 0, CorpDataOverviewQuery{}, false
+			return CorpDataScope{}, CorpDataOverviewQuery{}, false
 		}
 		if access.DataPermission != DataPermissionAll {
 			query.EmployeeIDs = corpDataScopedEmployeeIDs(query.EmployeeIDs, access.DeptEmployeeIDs)
+			scope.EmployeeScopeRestricted = true
+			scope.EmployeeIDs = append([]int{}, query.EmployeeIDs...)
 		}
 	}
-	return corpID, query, true
+	return scope, query, true
 }
 
 func corpDataScopedEmployeeIDs(requested []int, allowed []int) []int {
@@ -233,8 +262,11 @@ func corpDataOverviewQuery(r *http.Request, now time.Time) (CorpDataOverviewQuer
 	if err != nil {
 		return CorpDataOverviewQuery{}, err
 	}
-	if pageSize > 100 {
-		pageSize = 100
+	if pageSize > corpDataMaxPageSize {
+		pageSize = corpDataMaxPageSize
+	}
+	if page > corpDataMaxPage {
+		return CorpDataOverviewQuery{}, &corpDataInputError{"invalid page"}
 	}
 	return CorpDataOverviewQuery{StartDate: from, EndDate: to, EmployeeIDs: employeeIDs, DepartmentIDs: departmentIDs, Period: period, Page: page, PageSize: pageSize}, nil
 }
@@ -265,12 +297,6 @@ func corpDataPositiveInt(raw string, name string) (int, error) {
 	return value, nil
 }
 
-func corpDataDateRange(r *http.Request, now time.Time) (time.Time, time.Time, error) {
-	fromText := r.URL.Query().Get("from")
-	toText := r.URL.Query().Get("to")
-	return corpDataDateRangeValues(fromText, toText, now)
-}
-
 func corpDataDateRangeValues(fromText string, toText string, now time.Time) (time.Time, time.Time, error) {
 	if fromText == "" && toText == "" {
 		to := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -290,7 +316,7 @@ func corpDataDateRangeValues(fromText string, toText string, now time.Time) (tim
 	if from.After(to) {
 		return time.Time{}, time.Time{}, &corpDataInputError{"from must not be after to"}
 	}
-	if to.Sub(from) > 30*24*time.Hour {
+	if to.After(from.AddDate(0, 0, 30)) {
 		return time.Time{}, time.Time{}, &corpDataInputError{"date range must not exceed 31 days"}
 	}
 	return from, to, nil
@@ -306,6 +332,9 @@ type corpDataPagedPoints struct {
 func corpDataPage(points []CorpDataPoint, query CorpDataOverviewQuery) corpDataPagedPoints {
 	aggregated := corpDataAggregatePeriod(points, query.Period)
 	total := len(aggregated)
+	if query.Page <= 0 || query.PageSize <= 0 || query.Page-1 > int(^uint(0)>>1)/query.PageSize {
+		return corpDataPagedPoints{Points: []CorpDataPoint{}, Total: total, Page: query.Page, PageSize: query.PageSize}
+	}
 	start := (query.Page - 1) * query.PageSize
 	if start >= total {
 		return corpDataPagedPoints{Points: []CorpDataPoint{}, Total: total, Page: query.Page, PageSize: query.PageSize}
@@ -400,10 +429,16 @@ func (h *CorpDataHandler) resolveAccess(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *CorpDataHandler) currentTime() time.Time {
+	var now time.Time
 	if h.now != nil {
-		return h.now()
+		now = h.now()
+	} else {
+		now = time.Now()
 	}
-	return time.Now()
+	if h.location != nil {
+		return now.In(h.location)
+	}
+	return now
 }
 
 func corpDataSummaryPayload(data CorpDataSummary) map[string]any {

@@ -36,6 +36,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	applicationLocation, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		log.Fatalf("load application timezone: %v", err)
+	}
 	log.Printf("runtime mode: role=%s standalone=%t all_migrated_routes_default=%t php_fallback_enabled=%t", cfg.RuntimeRole, cfg.Standalone, cfg.EnableAllMigratedRoutes, strings.TrimSpace(cfg.PHPUpstream) != "")
 	alertCredentialManager, err := saasalertcredentials.NewManager(saasalertcredentials.Config{
 		EncryptionKey:       cfg.SaaSAlertCredentialEncryptionKey,
@@ -450,7 +454,7 @@ func main() {
 	if cfg.MigrateCorpDataIndex || cfg.MigrateCorpDataLineChat {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("corpData")
-		corpData := dashboard.NewCorpDataHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		corpData := dashboard.NewCorpDataHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore)).WithLocation(applicationLocation)
 		externalTenant := dashboard.NewExternalTenantHandler(mysqlStore, resolver, cfg.SaaSPlatformAdminTenantID)
 		if cfg.MigrateCorpDataIndex {
 			options = append(options, compatserver.WithCorpDataIndexHandler(http.HandlerFunc(corpData.Index)))

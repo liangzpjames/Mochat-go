@@ -43,7 +43,11 @@ const overview: DashboardOverview = {
   total: 1,
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 function LocationProbe() {
   const location = useLocation();
@@ -70,6 +74,29 @@ function renderPage(
 }
 
 describe('DashboardOverviewPage', () => {
+  it('builds the default range in the explicit enterprise timezone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-01T16:30:00Z'));
+    vi.stubEnv('TZ', 'UTC');
+    const load = vi.fn(() => Promise.resolve(overview));
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={['/index']}>
+        <QueryClientProvider client={queryClient}>
+          <DashboardAccessProvider value={access}>
+            <DashboardOverviewPage api={{ load, exportCsv: vi.fn(() => Promise.resolve(new Blob())) }} />
+          </DashboardAccessProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('真实客户总数');
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({
+      startDate: '2026-07-03',
+      endDate: '2026-08-02',
+    }));
+  });
   it('shows loading, then renders cards and trend values from the API response', async () => {
     let resolve: ((value: DashboardOverview) => void) | undefined;
     const load = vi.fn(() => new Promise<DashboardOverview>((accept) => {

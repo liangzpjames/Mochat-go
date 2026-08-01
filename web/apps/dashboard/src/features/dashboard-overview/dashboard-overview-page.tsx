@@ -16,18 +16,27 @@ type OverviewRange = { from: string; to: string };
 type FilterDraft = OverviewRange & { employeeIds: string; departmentIds: string; period: 'day' | 'week' | 'month' };
 
 const defaultPageSize = 20;
+const enterpriseTimeZone = 'Asia/Shanghai';
 
-function localDateText(value: Date): string {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const date = String(value.getDate()).padStart(2, '0');
+function enterpriseDateText(value: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: enterpriseTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const year = values.year ?? '';
+  const month = values.month ?? '';
+  const date = values.day ?? '';
   return `${year}-${month}-${date}`;
 }
 
 function defaultRange(): OverviewRange {
-  const to = new Date();
-  const from = new Date(to.getFullYear(), to.getMonth(), to.getDate() - 30);
-  return { from: localDateText(from), to: localDateText(to) };
+  const to = enterpriseDateText(new Date());
+  const from = new Date(`${to}T00:00:00+08:00`);
+  from.setUTCDate(from.getUTCDate() - 30);
+  return { from: enterpriseDateText(from), to };
 }
 
 function positiveInteger(value: string | null, fallback: number): number {

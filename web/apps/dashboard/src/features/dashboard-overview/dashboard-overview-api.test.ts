@@ -54,7 +54,7 @@ describe('createDashboardOverviewApi', () => {
       period: 'week',
       page: 2,
       pageSize: 20,
-    } as never);
+    });
 
     expect(request).toHaveBeenCalledWith(
       '/corpData/index?corpId=7&startDate=2026-07-01&endDate=2026-07-31&employeeIds=9&employeeIds=12&departmentIds=3&departmentIds=8&period=week&page=2&pageSize=20',
