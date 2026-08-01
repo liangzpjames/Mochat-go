@@ -23,7 +23,7 @@ const access: AccessContext = {
 
 const page: ConversationPage = {
   list: [{
-    id: '9:1:31',
+    id: 'msg:archive-31',
     employeeId: 9,
     employeeName: '张三',
     employeeAvatar: '',
@@ -40,7 +40,7 @@ const page: ConversationPage = {
 };
 
 const detail: ConversationDetail = {
-  id: '9:1:31',
+  id: 'msg:archive-31',
   employeeId: 9,
   employeeName: '张三',
   targetType: 'customer',
@@ -87,19 +87,17 @@ describe('ConversationGlobalPage', () => {
   it('restores filters from the URL, renders real results, and paginates in the URL', async () => {
     const search = vi.fn(() => Promise.resolve(page));
     const { container } = renderPage({ search, detail: vi.fn() },
-      '/chat/v2-all?keyword=%E6%8A%A5%E4%BB%B7&employeeId=9&customerId=31&from=2026-07-01&to=2026-07-31&page=2&pageSize=20');
+      '/chat/v2-all?keyword=%E6%8A%A5%E4%BB%B7&conversationType=customer&employeeIds=9&employeeIds=12&startAt=2026-07-01&endAt=2026-07-31&page=2&pageSize=20');
 
     expect(await screen.findByText('星河科技')).not.toBeNull();
     expect(screen.getByDisplayValue('报价')).not.toBeNull();
     expect(screen.getByText('请确认报价')).not.toBeNull();
     expect(search).toHaveBeenCalledWith({
-      corpId: '7',
       keyword: '报价',
-      employeeId: '9',
-      customerId: '31',
-      roomId: '',
-      from: '2026-07-01',
-      to: '2026-07-31',
+      conversationType: 'customer',
+      employeeIds: ['9', '12'],
+      startAt: '2026-07-01',
+      endAt: '2026-07-31',
       page: 2,
       pageSize: 20,
     });
@@ -119,14 +117,29 @@ describe('ConversationGlobalPage', () => {
     await screen.findByText('星河科技');
 
     fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '续约' } });
-    fireEvent.change(screen.getByLabelText('员工 ID'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('会话对象类型'), { target: { value: 'room' } });
+    fireEvent.change(screen.getByLabelText('员工 ID'), { target: { value: '12,15' } });
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
     await waitFor(() => {
       const url = screen.getByLabelText('当前地址').textContent ?? '';
       expect(url).toContain('keyword=%E7%BB%AD%E7%BA%A6');
-      expect(url).toContain('employeeId=12');
+      expect(url).toContain('conversationType=room');
+      expect(url).toContain('employeeIds=12');
+      expect(url).toContain('employeeIds=15');
       expect(url).toContain('page=1');
+    });
+  });
+
+  it('resets every persisted filter and pagination value', async () => {
+    renderPage({ search: vi.fn(() => Promise.resolve({ ...page, page: 4 })), detail: vi.fn() },
+      '/chat/v2-all?keyword=%E6%8A%A5%E4%BB%B7&conversationType=room&employeeIds=9&startAt=2026-07-01&endAt=2026-07-31&page=4&pageSize=50');
+    await screen.findByText('星河科技');
+
+    fireEvent.click(screen.getByRole('button', { name: '重置' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('当前地址').textContent).toBe('/chat/v2-all?page=1&pageSize=20');
     });
   });
 
@@ -194,6 +207,17 @@ describe('ConversationGlobalPage', () => {
     expect(await screen.findByText('无权查看当前企业会话')).not.toBeNull();
   });
 
+  it('distinguishes archive authorization from RBAC forbidden', async () => {
+    renderPage({
+      search: vi.fn(() => Promise.reject(
+        new ApiError('forbidden', 'archive not authorized', { status: 403, code: 40301 }),
+      )),
+      detail: vi.fn(),
+    });
+
+    expect(await screen.findByText('当前企业未开通会话内容存档')).not.toBeNull();
+  });
+
   it('shows a dedicated non-retryable state when a conversation no longer exists', async () => {
     renderPage({
       search: vi.fn(() => Promise.resolve({ ...page, page: 1 })),
@@ -223,5 +247,53 @@ describe('ConversationGlobalPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看会话' }));
 
     expect(await screen.findByText('当前显示最近 200 条，共 550 条消息')).not.toBeNull();
+  });
+
+  it('shows the honest group participant identity limitation', async () => {
+    const roomPage: ConversationPage = {
+      ...page,
+      page: 1,
+      list: page.list.map((item) => ({
+        ...item,
+        targetType: 'room',
+        targetName: '客户群',
+      })),
+    };
+    renderPage({
+      search: vi.fn(() => Promise.resolve(roomPage)),
+      detail: vi.fn(),
+    }, '/chat/v2-all?conversationType=room&page=1&pageSize=20');
+
+    expect(await screen.findByText('群聊入站消息暂无法识别具体群成员，详情中统一显示“群成员”。')).not.toBeNull();
+  });
+
+  it('shows a non-retryable forbidden state when detail permission is revoked', async () => {
+    renderPage({
+      search: vi.fn(() => Promise.resolve({ ...page, page: 1 })),
+      detail: vi.fn(() => Promise.reject(
+        new ApiError('forbidden', 'forbidden', { status: 403 }),
+      )),
+    });
+    await screen.findByText('星河科技');
+
+    fireEvent.click(screen.getByRole('button', { name: '查看会话' }));
+
+    expect(await screen.findByText('无权读取会话详情')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '重试详情' })).toBeNull();
+  });
+
+  it('keeps the archive authorization state consistent for detail requests', async () => {
+    renderPage({
+      search: vi.fn(() => Promise.resolve({ ...page, page: 1 })),
+      detail: vi.fn(() => Promise.reject(
+        new ApiError('forbidden', 'archive not authorized', { status: 403, code: 40301 }),
+      )),
+    });
+    await screen.findByText('星河科技');
+
+    fireEvent.click(screen.getByRole('button', { name: '查看会话' }));
+
+    expect(await screen.findByText('当前企业未开通会话内容存档')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '重试详情' })).toBeNull();
   });
 });

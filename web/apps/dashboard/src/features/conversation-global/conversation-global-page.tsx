@@ -14,10 +14,13 @@ import type {
   ConversationTargetType,
 } from './conversation-global-api';
 
-type FilterDraft = Pick<
-  ConversationSearch,
-  'keyword' | 'employeeId' | 'customerId' | 'roomId' | 'from' | 'to'
->;
+type FilterDraft = {
+  keyword: string;
+  conversationType: ConversationSearch['conversationType'];
+  employeeIds: string;
+  startAt: string;
+  endAt: string;
+};
 
 const defaultPageSize = 20;
 
@@ -27,14 +30,29 @@ function positiveInteger(value: string | null, fallback: number): number {
 }
 
 function filtersFromSearch(search: URLSearchParams): FilterDraft {
+  const rawConversationType = search.get('conversationType');
+  const conversationType = rawConversationType === 'employee'
+    || rawConversationType === 'customer'
+    || rawConversationType === 'room'
+    ? rawConversationType
+    : '';
   return {
     keyword: search.get('keyword') ?? '',
-    employeeId: search.get('employeeId') ?? '',
-    customerId: search.get('customerId') ?? '',
-    roomId: search.get('roomId') ?? '',
-    from: search.get('from') ?? '',
-    to: search.get('to') ?? '',
+    conversationType,
+    employeeIds: search.getAll('employeeIds').join(','),
+    startAt: search.get('startAt') ?? '',
+    endAt: search.get('endAt') ?? '',
   };
+}
+
+function employeeIDsFromDraft(value: string): string[] {
+  return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
+function isArchiveUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError
+    && error.status === 403
+    && error.code === 40301;
 }
 
 function targetTypeLabel(type: ConversationTargetType): string {
@@ -75,18 +93,20 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
   }, [searchText]);
 
   const input = useMemo<ConversationSearch>(() => ({
-    corpId: access.corp.id,
-    ...currentFilters,
+    keyword: currentFilters.keyword,
+    conversationType: currentFilters.conversationType,
+    employeeIds: employeeIDsFromDraft(currentFilters.employeeIds),
+    startAt: currentFilters.startAt,
+    endAt: currentFilters.endAt,
     page,
     pageSize,
   }), [
     access.corp.id,
-    currentFilters.customerId,
-    currentFilters.employeeId,
-    currentFilters.from,
+    currentFilters.conversationType,
+    currentFilters.employeeIds,
+    currentFilters.endAt,
     currentFilters.keyword,
-    currentFilters.roomId,
-    currentFilters.to,
+    currentFilters.startAt,
     page,
     pageSize,
   ]);
@@ -97,11 +117,10 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
       access.corp.id,
       'conversation-global',
       input.keyword,
-      input.employeeId,
-      input.customerId,
-      input.roomId,
-      input.from,
-      input.to,
+      input.conversationType,
+      input.employeeIds,
+      input.startAt,
+      input.endAt,
       input.page,
       input.pageSize,
     ],
@@ -116,39 +135,54 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if ((draft.from === '') !== (draft.to === '')) {
+    if ((draft.startAt === '') !== (draft.endAt === '')) {
       setFilterError('开始日期和结束日期需要同时填写');
       return;
     }
-    if (draft.from !== '' && draft.from > draft.to) {
+    if (draft.startAt !== '' && draft.startAt > draft.endAt) {
       setFilterError('开始日期不能晚于结束日期');
       return;
     }
-    if (draft.customerId.trim() !== '' && draft.roomId.trim() !== '') {
-      setFilterError('客户和群聊筛选不能同时使用');
+    const employeeIds = employeeIDsFromDraft(draft.employeeIds);
+    if (employeeIds.some((employeeId) => !/^\d+$/.test(employeeId) || Number(employeeId) <= 0)) {
+      setFilterError('员工 ID 必须是逗号分隔的正整数');
       return;
     }
     setFilterError(null);
-    setSearchParams(updateSearch(searchParams, {
+    const next = updateSearch(searchParams, {
       keyword: draft.keyword,
-      employeeId: draft.employeeId,
-      customerId: draft.customerId,
-      roomId: draft.roomId,
-      from: draft.from,
-      to: draft.to,
+      conversationType: draft.conversationType,
+      startAt: draft.startAt,
+      endAt: draft.endAt,
       page: 1,
       pageSize,
-    }));
+    });
+    next.delete('employeeIds');
+    employeeIds.forEach((employeeId) => next.append('employeeIds', employeeId));
+    setSearchParams(next);
+  }
+
+  function resetFilters() {
+    setFilterError(null);
+    setSearchParams(new URLSearchParams({ page: '1', pageSize: String(defaultPageSize) }));
   }
 
   function changePage(nextPage: number) {
     setSearchParams(updateSearch(searchParams, { page: nextPage, pageSize }));
   }
 
+  const archiveUnauthorized = isArchiveUnauthorized(listQuery.error);
   const forbidden = listQuery.error instanceof ApiError
-    && listQuery.error.kind === 'forbidden';
+    && listQuery.error.kind === 'forbidden'
+    && !archiveUnauthorized;
   const detailNotFound = detailQuery.error instanceof ApiError
     && detailQuery.error.status === 404;
+  const detailForbidden = detailQuery.error instanceof ApiError
+    && detailQuery.error.status === 403
+    && !isArchiveUnauthorized(detailQuery.error);
+  const detailArchiveUnauthorized = isArchiveUnauthorized(detailQuery.error);
+  const showRoomLimitation = currentFilters.conversationType === 'room'
+    || listQuery.data?.list.some((item) => item.targetType === 'room') === true;
   const totalPages = Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / pageSize));
 
   return (
@@ -172,56 +206,69 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
           />
         </label>
         <label>
+          <span>会话对象类型</span>
+          <select
+            aria-label="会话对象类型"
+            onChange={(event) => setDraft((value) => ({
+              ...value,
+              conversationType: event.target.value as ConversationSearch['conversationType'],
+            }))}
+            value={draft.conversationType}
+          >
+            <option value="">全部</option>
+            <option value="employee">员工</option>
+            <option value="customer">客户</option>
+            <option value="room">群聊</option>
+          </select>
+        </label>
+        <label>
           <span>员工 ID</span>
           <input
             aria-label="员工 ID"
             inputMode="numeric"
-            onChange={(event) => setDraft((value) => ({ ...value, employeeId: event.target.value }))}
-            value={draft.employeeId}
-          />
-        </label>
-        <label>
-          <span>客户 ID</span>
-          <input
-            aria-label="客户 ID"
-            inputMode="numeric"
-            onChange={(event) => setDraft((value) => ({ ...value, customerId: event.target.value }))}
-            value={draft.customerId}
-          />
-        </label>
-        <label>
-          <span>群聊 ID</span>
-          <input
-            aria-label="群聊 ID"
-            inputMode="numeric"
-            onChange={(event) => setDraft((value) => ({ ...value, roomId: event.target.value }))}
-            value={draft.roomId}
+            onChange={(event) => setDraft((value) => ({ ...value, employeeIds: event.target.value }))}
+            placeholder="多个 ID 用逗号分隔"
+            value={draft.employeeIds}
           />
         </label>
         <label>
           <span>开始日期</span>
           <input
             aria-label="开始日期"
-            onChange={(event) => setDraft((value) => ({ ...value, from: event.target.value }))}
+            onChange={(event) => setDraft((value) => ({ ...value, startAt: event.target.value }))}
             type="date"
-            value={draft.from}
+            value={draft.startAt}
           />
         </label>
         <label>
           <span>结束日期</span>
           <input
             aria-label="结束日期"
-            onChange={(event) => setDraft((value) => ({ ...value, to: event.target.value }))}
+            onChange={(event) => setDraft((value) => ({ ...value, endAt: event.target.value }))}
             type="date"
-            value={draft.to}
+            value={draft.endAt}
           />
         </label>
         <button type="submit">查询</button>
+        <button onClick={resetFilters} type="button">重置</button>
       </form>
 
       {filterError !== null && <p className="conversation-global-inline-error" role="alert">{filterError}</p>}
 
+      {showRoomLimitation && (
+        <p className="conversation-global-capability-note" role="note">
+          群聊入站消息暂无法识别具体群成员，详情中统一显示“群成员”。
+        </p>
+      )}
+
       {listQuery.isPending && <PageState state="loading" title="正在加载全局消息" />}
+      {archiveUnauthorized && (
+        <PageState
+          description="请先在企业微信完成会话内容存档授权并启用归档同步。"
+          state="forbidden"
+          title="当前企业未开通会话内容存档"
+        />
+      )}
       {forbidden && (
         <PageState
           description="请联系管理员开通会话存档和数据范围权限。"
@@ -229,7 +276,7 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
           title="无权查看当前企业会话"
         />
       )}
-      {listQuery.isError && !forbidden && (
+      {listQuery.isError && !forbidden && !archiveUnauthorized && (
         <PageState
           description={listQuery.error instanceof Error ? listQuery.error.message : '请稍后重试'}
           onRetry={() => void listQuery.refetch()}
@@ -322,7 +369,21 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
                 title="会话不存在或已无权访问"
               />
             )}
-            {detailQuery.isError && !detailNotFound && (
+            {detailForbidden && (
+              <PageState
+                description="当前账号的会话读取权限已失效。"
+                state="forbidden"
+                title="无权读取会话详情"
+              />
+            )}
+            {detailArchiveUnauthorized && (
+              <PageState
+                description="请先在企业微信完成会话内容存档授权并启用归档同步。"
+                state="forbidden"
+                title="当前企业未开通会话内容存档"
+              />
+            )}
+            {detailQuery.isError && !detailNotFound && !detailForbidden && !detailArchiveUnauthorized && (
               <PageState
                 description={detailQuery.error instanceof Error ? detailQuery.error.message : '详情加载失败'}
                 onRetry={() => void detailQuery.refetch()}

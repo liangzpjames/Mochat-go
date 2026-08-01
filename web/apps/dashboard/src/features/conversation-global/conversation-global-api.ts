@@ -1,13 +1,11 @@
 export type ConversationTargetType = 'employee' | 'customer' | 'room';
 
 export type ConversationSearch = {
-  corpId: string;
   keyword: string;
-  employeeId: string;
-  customerId: string;
-  roomId: string;
-  from: string;
-  to: string;
+  conversationType: '' | ConversationTargetType;
+  employeeIds: readonly string[];
+  startAt: string;
+  endAt: string;
   page: number;
   pageSize: number;
 };
@@ -184,32 +182,33 @@ function appendNonBlank(query: URLSearchParams, key: string, value: string) {
   }
 }
 
+function appendAllNonBlank(query: URLSearchParams, key: string, values: readonly string[]) {
+  values.forEach((value) => {
+    if (value.trim() !== '') {
+      query.append(key, value.trim());
+    }
+  });
+}
+
 export function createConversationGlobalApi(
   client: ApiClient,
-  getCorpId: () => string | null,
 ): ConversationGlobalApi {
   return {
     async search(input) {
       const query = new URLSearchParams({
         view: 'global',
-        corpId: input.corpId,
       });
       appendNonBlank(query, 'keyword', input.keyword);
-      appendNonBlank(query, 'employeeId', input.employeeId);
-      appendNonBlank(query, 'customerId', input.customerId);
-      appendNonBlank(query, 'roomId', input.roomId);
-      appendNonBlank(query, 'from', input.from);
-      appendNonBlank(query, 'to', input.to);
+      appendNonBlank(query, 'conversationType', input.conversationType);
+      appendAllNonBlank(query, 'employeeIds', input.employeeIds);
+      appendNonBlank(query, 'startAt', input.startAt);
+      appendNonBlank(query, 'endAt', input.endAt);
       query.set('page', String(input.page));
       query.set('pageSize', String(input.pageSize));
       return parsePage(await client.request(`/workMessage/toUsers?${query.toString()}`));
     },
     async detail(id) {
-      const corpId = getCorpId();
-      if (corpId === null || corpId.trim() === '') {
-        throw new Error('请先选择企业');
-      }
-      const query = new URLSearchParams({ corpId, id });
+      const query = new URLSearchParams({ id });
       return parseDetail(await client.request(`/workMessage/detail?${query.toString()}`));
     },
   };
