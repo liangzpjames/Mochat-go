@@ -330,7 +330,7 @@ type corpDataPagedPoints struct {
 }
 
 func corpDataPage(points []CorpDataPoint, query CorpDataOverviewQuery) corpDataPagedPoints {
-	aggregated := corpDataAggregatePeriod(points, query.Period)
+	aggregated := AggregateCorpDataPeriod(points, query.Period)
 	total := len(aggregated)
 	if query.Page <= 0 || query.PageSize <= 0 || query.Page-1 > int(^uint(0)>>1)/query.PageSize {
 		return corpDataPagedPoints{Points: []CorpDataPoint{}, Total: total, Page: query.Page, PageSize: query.PageSize}
@@ -346,7 +346,7 @@ func corpDataPage(points []CorpDataPoint, query CorpDataOverviewQuery) corpDataP
 	return corpDataPagedPoints{Points: aggregated[start:end], Total: total, Page: query.Page, PageSize: query.PageSize}
 }
 
-func corpDataAggregatePeriod(points []CorpDataPoint, period string) []CorpDataPoint {
+func AggregateCorpDataPeriod(points []CorpDataPoint, period string) []CorpDataPoint {
 	if period == "day" {
 		return append([]CorpDataPoint{}, points...)
 	}

@@ -538,6 +538,9 @@ func FromEnv() (Config, error) {
 	}
 	standalone := envBool("MOCHAT_GO_STANDALONE")
 	timezone := envOrDefault("MOCHAT_TIMEZONE", "Asia/Shanghai")
+	if timezone != "Asia/Shanghai" {
+		return Config{}, fmt.Errorf("MOCHAT_TIMEZONE currently supports only Asia/Shanghai")
+	}
 	if _, err := time.LoadLocation(timezone); err != nil {
 		return Config{}, fmt.Errorf("MOCHAT_TIMEZONE: %w", err)
 	}

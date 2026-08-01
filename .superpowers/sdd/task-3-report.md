@@ -62,3 +62,48 @@
 - Dashboard 全量 single-fork Vitest 的唯一失败是 `src/pages/access-pages.test.tsx` 读取到前序非 Task 3 测试遗留 DOM；曾用 cleanup 验证 328/328 可通过，但按任务边界已撤销并排除相关测试文件修改。
 - 额外运行 `go test ./internal/dashboard -count=1` 时发现既有 `TestSaaSAdminCustomerSuccessRenewalTasksCreatesTasksFromQueue` 对续费时间硬编码为午夜，但生产结果保留当前时分秒；该失败与 CorpData 变更无关，CorpData 聚焦测试通过，本次未扩大范围修改 SaaS Admin 合同。
 - Windows 环境没有 WSL `/bin/bash`，现有 Bash 集成脚本无法直接执行；已用等价 PowerShell 启动并清理命名隔离 MariaDB 栈，真实 SQL 集成测试通过。
+
+## 第二轮阻断修复追加（2026-08-01）
+
+状态：DONE_WITH_CONCERNS
+
+### 已修复
+
+- `RBACResolver` 继续在 `AccessContext.PermissionKey` 中保留带 HTTP method 的审计键，但在查询 `mc_rbac_menu.link_url` 前统一移除 `#get/#post` 后缀；`/dashboard/corpData/index#get` 因此按真实种子菜单 `/dashboard/corpData/index` 授权。新增 resolver 测试让 fake 只接受真实种子键，避免再次因忽略入参而误绿。
+- 时区合同明确收敛为仅支持 `Asia/Shanghai`：`MOCHAT_TIMEZONE` 即使是合法 IANA 值，只要不是 `Asia/Shanghai` 也会被配置层拒绝；前端既有默认日期计算继续固定使用同一时区。趋势 SQL 不再从范围起点推导 offset，而是使用产品固定 `+08:00`；`America/New_York` 用例验证 Store 不会带入 DST offset。
+- `CorpDataSummary` 从约 25 条串行标量 SQL 合并为 4 条资源域条件聚合 SQL：联系人、群、群成员、员工各 1 条；`CorpDataLineChat` 保持 1 条趋势 SQL。因此 `/dashboard/corpData/index` 每次请求固定执行 5 条业务查询。`TestCorpDataSummaryQueryPlanUsesAtMostFourScopedResourceQueries` 同时断言 summary 恰好 4 条、整个 index 不超过 5 条，并逐条检查 tenant/corp、员工、部门和受限最新时间条件。
+- `updatedAt` 不再读取企业级、无员工维度的 `mc_work_update_time`；4 条资源域聚合在最终员工/部门 scope 内计算各自 `MAX`，应用层取受限结果集合的最新时间，并显式转换为 `+08:00`。
+- MariaDB 集成测试会创建带唯一 `task3_corp_data_*` 名称的两个真实 tenant/corp、三名员工、三个部门、重复员工部门关系、联系人关系、群、群成员、日统计噪声和企业级未来更新时间，并在 `t.Cleanup` 中按依赖逆序删除所有命名数据。测试断言跨租户隔离、RBAC 空集零数据、员工筛选、部门筛选、重复关系不重复计数、月聚合、`Asia/Shanghai` 午夜边界和受限 `updatedAt`；不再只验证 SQL 可执行。
+- 原有 page 安全、tenant/corp 校验、请求员工与 RBAC 员工范围交集、部门 scope、分页和 CSV 同范围逻辑保持不变。
+
+### TDD 证据
+
+- RED：真实菜单 resolver 测试先返回 `permission denied`，证明 `#get` 与种子 `link_url` 不一致；合法 DST 时区配置测试先得到 `err=nil`。
+- RED：查询计划测试先因缺少 `corpDataSummaryQuerySpecs` 无法编译；真实 MariaDB 首次运行的指标断言正确，但 `updatedAt` 返回数据库 session 时间 `2026-08-02 01:00:00`，而产品时区期望 `2026-08-02 09:00:00`。
+- RED：DST Store 合同测试先观察到趋势参数 `-05:00`；实现固定产品时区后改为 `+08:00`。
+- GREEN：实现菜单键规范化、配置拒绝、4 条 summary 条件聚合、受限最新时间与固定趋势时区后，聚焦单测和真实 MariaDB 结果断言均通过。
+
+### 查询数代码证据
+
+- `internal/store/mysql.go` 的 `corpDataSummaryQuerySpecs` 只返回 `corpDataSummaryContactsQuery`、`corpDataSummaryRoomsQuery`、`corpDataSummaryRoomMembersQuery`、`corpDataSummaryEmployeesQuery` 四项；`CorpDataSummary` 仅遍历该四项。
+- 同文件 `CorpDataLineChat` 仅调用一次 `corpDataTrendQuery` 并执行一次 `QueryContext`。Handler 的 `Index` 顺序调用一次 summary 和一次 trend，因此总数为 `4 + 1 = 5`，不再存在旧的四个时间窗口乘五项指标的串行循环。
+- `internal/store/corp_data_test.go` 的 `TestCorpDataSummaryQueryPlanUsesAtMostFourScopedResourceQueries` 固定断言 summary 查询数为 4、index 查询数上限为 5。
+
+### Fresh 验证
+
+- `go test ./internal/dashboard -run 'CorpData|RBACResolver|PermissionKey' -count=1`：通过。
+- `go test ./internal/store -run 'CorpData' -count=1`：通过；查询数上限测试通过。
+- `go test ./internal/config -run 'Timezone|FromEnvDefaults' -count=1`：通过。
+- `node scripts/check_phase3_2_mysql_integration.mjs`：通过；隔离 MariaDB 中 `internal/modules/scrm/adapters/mysql` 与 `internal/store` 均通过，容器和数据卷已清理。
+- `go test ./internal/server -count=1`：通过。
+- Dashboard Task 3 聚焦 Vitest：2 个文件、15/15 通过。
+- `pnpm --filter @mochat/dashboard typecheck`：通过。
+- `pnpm --filter @mochat/dashboard build`：通过。
+- `go vet ./internal/dashboard ./internal/store ./internal/config ./internal/server ./cmd/mochat-go`：通过。
+- `git diff --check`：通过，仅有工作区既有 CRLF 转换提示。
+- 本轮按要求未重跑已知受污染的 Dashboard 全量串行测试；保留上一轮 Task 3 相关 15/15、全量 327/328 的控制证据。
+
+### 关注点
+
+- 本轮未执行浏览器验收，也未新增或伪造浏览器证据；真实浏览器矩阵仍由 Task 11 完成。
+- Dashboard 全量串行测试的既有非 Task 3 DOM cleanup 污染未纳入本提交。

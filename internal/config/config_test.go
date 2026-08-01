@@ -171,6 +171,17 @@ func TestFromEnvRejectsInvalidTimezone(t *testing.T) {
 	}
 }
 
+func TestFromEnvRejectsValidTimezoneOutsideSupportedDashboardContract(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_TIMEZONE", "America/New_York")
+
+	_, err := FromEnv()
+
+	if err == nil || !strings.Contains(err.Error(), "Asia/Shanghai") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestPhase22SCRMPilotDisabledByDefault(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "")

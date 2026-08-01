@@ -414,7 +414,7 @@ func TestCorpDataAggregatePeriodGroupsCalendarMonths(t *testing.T) {
 		{Date: "2026-08-31 23:59:59", AddContactNum: 5},
 	}
 
-	got := corpDataAggregatePeriod(points, "month")
+	got := AggregateCorpDataPeriod(points, "month")
 
 	want := []CorpDataPoint{{Date: "2026-07", AddContactNum: 2}, {Date: "2026-08", AddContactNum: 8}}
 	if !reflect.DeepEqual(got, want) {

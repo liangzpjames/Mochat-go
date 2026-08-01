@@ -2136,75 +2136,205 @@ func (s *MySQLStore) CorpDataSummary(ctx context.Context, scope dashboard.CorpDa
 	if scope.TenantID <= 0 || scope.CorpID <= 0 {
 		return dashboard.CorpDataSummary{}, fmt.Errorf("tenant id and corp id must be positive")
 	}
-	dayBegin := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	monthBegin := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-	lastMonthBegin := monthBegin.AddDate(0, -1, 0)
 
-	today, err := s.corpDataCountersBetween(ctx, scope, dayBegin, dayBegin.AddDate(0, 0, 1))
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-	yesterday, err := s.corpDataCountersBetween(ctx, scope, dayBegin.AddDate(0, 0, -1), dayBegin)
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-	month, err := s.corpDataCountersBetween(ctx, scope, monthBegin, monthBegin.AddDate(0, 1, 0))
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-	lastMonth, err := s.corpDataCountersBetween(ctx, scope, lastMonthBegin, monthBegin)
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-
-	totalContact, err := s.corpDataMetricCount(ctx, corpDataMetricContacts, scope, time.Time{}, time.Time{})
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-	totalRooms, err := s.corpDataMetricCount(ctx, corpDataMetricRooms, scope, time.Time{}, time.Time{})
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-	totalMembers, err := s.corpDataMetricCount(ctx, corpDataMetricRoomMembers, scope, time.Time{}, time.Time{})
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-	totalEmployees, err := s.corpDataMetricCount(ctx, corpDataMetricEmployees, scope, time.Time{}, time.Time{})
-	if err != nil {
-		return dashboard.CorpDataSummary{}, err
-	}
-
-	updateTime := ""
-	if !scope.EmployeeScopeRestricted || len(scope.EmployeeIDs) > 0 {
-		updateTime, err = s.corpDataUpdateTime(ctx, scope)
-		if err != nil {
+	var summary dashboard.CorpDataSummary
+	var latestUpdate time.Time
+	for _, spec := range corpDataSummaryQuerySpecs(scope, now) {
+		var row corpDataSummaryRow
+		if err := s.db.QueryRowContext(ctx, spec.query, spec.args...).Scan(
+			&row.WeChatContactNum, &row.WeChatRoomNum, &row.RoomMemberNum, &row.CorpMemberNum,
+			&row.AddContactNum, &row.LastAddContactNum, &row.AddIntoRoomNum, &row.LastAddIntoRoomNum,
+			&row.LossContactNum, &row.LastLossContactNum, &row.QuitRoomNum, &row.LastQuitRoomNum,
+			&row.AddFriendsNum, &row.LastAddFriendsNum, &row.MonthAddRoomNum, &row.LastMonthAddRoomNum,
+			&row.MonthAddRoomMemberNum, &row.LastMonthAddRoomMemberNum,
+			&row.MonthLossContactNum, &row.LastMonthLossContactNum, &row.UpdateTime,
+		); err != nil {
 			return dashboard.CorpDataSummary{}, err
 		}
+		mergeCorpDataSummary(&summary, row)
+		if row.UpdateTime.Valid && row.UpdateTime.Time.After(latestUpdate) {
+			latestUpdate = row.UpdateTime.Time
+		}
 	}
+	if !latestUpdate.IsZero() {
+		summary.UpdateTime = latestUpdate.In(now.Location()).Format("2006-01-02 15:04:05")
+	}
+	return summary, nil
+}
 
-	return dashboard.CorpDataSummary{
-		WeChatContactNum:          totalContact,
-		WeChatRoomNum:             totalRooms,
-		RoomMemberNum:             totalMembers,
-		CorpMemberNum:             totalEmployees,
-		AddContactNum:             today.AddContactNum,
-		LastAddContactNum:         yesterday.AddContactNum,
-		AddIntoRoomNum:            today.AddIntoRoomNum,
-		LastAddIntoRoomNum:        yesterday.AddIntoRoomNum,
-		LossContactNum:            today.LossContactNum,
-		LastLossContactNum:        yesterday.LossContactNum,
-		QuitRoomNum:               today.QuitRoomNum,
-		LastQuitRoomNum:           yesterday.QuitRoomNum,
-		AddFriendsNum:             month.AddContactNum,
-		LastAddFriendsNum:         lastMonth.AddContactNum,
-		MonthAddRoomNum:           month.AddRoomNum,
-		LastMonthAddRoomNum:       lastMonth.AddRoomNum,
-		MonthAddRoomMemberNum:     month.AddIntoRoomNum,
-		LastMonthAddRoomMemberNum: lastMonth.AddIntoRoomNum,
-		MonthLossContactNum:       month.LossContactNum,
-		LastMonthLossContactNum:   lastMonth.LossContactNum,
-		UpdateTime:                updateTime,
-	}, nil
+type corpDataSummaryQuerySpec struct {
+	domain string
+	query  string
+	args   []any
+}
+
+const corpDataTimezoneOffset = "+08:00"
+
+type corpDataSummaryRow struct {
+	WeChatContactNum          int
+	WeChatRoomNum             int
+	RoomMemberNum             int
+	CorpMemberNum             int
+	AddContactNum             int
+	LastAddContactNum         int
+	AddIntoRoomNum            int
+	LastAddIntoRoomNum        int
+	LossContactNum            int
+	LastLossContactNum        int
+	QuitRoomNum               int
+	LastQuitRoomNum           int
+	AddFriendsNum             int
+	LastAddFriendsNum         int
+	MonthAddRoomNum           int
+	LastMonthAddRoomNum       int
+	MonthAddRoomMemberNum     int
+	LastMonthAddRoomMemberNum int
+	MonthLossContactNum       int
+	LastMonthLossContactNum   int
+	UpdateTime                sql.NullTime
+}
+
+func corpDataSummaryQuerySpecs(scope dashboard.CorpDataScope, now time.Time) []corpDataSummaryQuerySpec {
+	dayBegin := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	monthBegin := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	bounds := []any{
+		dayBegin.AddDate(0, 0, -1).Unix(), dayBegin.Unix(), dayBegin.AddDate(0, 0, 1).Unix(),
+		monthBegin.AddDate(0, -1, 0).Unix(), monthBegin.Unix(), monthBegin.AddDate(0, 1, 0).Unix(),
+	}
+	return []corpDataSummaryQuerySpec{
+		corpDataSummaryContactsQuery(scope, bounds),
+		corpDataSummaryRoomsQuery(scope, bounds),
+		corpDataSummaryRoomMembersQuery(scope, bounds),
+		corpDataSummaryEmployeesQuery(scope, bounds),
+	}
+}
+
+func corpDataSummaryBoundsSQL() string {
+	return `FROM (
+		SELECT FROM_UNIXTIME(?) AS yesterday_start,
+			FROM_UNIXTIME(?) AS today_start,
+			FROM_UNIXTIME(?) AS tomorrow_start,
+			FROM_UNIXTIME(?) AS last_month_start,
+			FROM_UNIXTIME(?) AS month_start,
+			FROM_UNIXTIME(?) AS next_month_start
+	) AS bounds`
+}
+
+func corpDataSummarySelect(expressions []string, updateExpression string) string {
+	return "SELECT " + strings.Join(expressions, ",\n") + ",\nMAX(CONVERT_TZ(" + updateExpression + ", @@session.time_zone, '" + corpDataTimezoneOffset + "')) AS update_time\n"
+}
+
+func corpDataZeroSummaryExpressions() []string {
+	expressions := make([]string, 20)
+	for index := range expressions {
+		expressions[index] = "0"
+	}
+	return expressions
+}
+
+func corpDataConditionalCount(condition string) string {
+	return "COUNT(CASE WHEN " + condition + " THEN 1 END)"
+}
+
+func corpDataSummaryContactsQuery(scope dashboard.CorpDataScope, bounds []any) corpDataSummaryQuerySpec {
+	expressions := corpDataZeroSummaryExpressions()
+	expressions[0] = corpDataConditionalCount("contact_employee.status = 1 AND contact_employee.deleted_at IS NULL")
+	expressions[4] = corpDataConditionalCount("contact_employee.deleted_at IS NULL AND contact_employee.create_time >= bounds.today_start AND contact_employee.create_time < bounds.tomorrow_start")
+	expressions[5] = corpDataConditionalCount("contact_employee.deleted_at IS NULL AND contact_employee.create_time >= bounds.yesterday_start AND contact_employee.create_time < bounds.today_start")
+	expressions[8] = corpDataConditionalCount("contact_employee.status IN (2, 3) AND contact_employee.deleted_at >= bounds.today_start AND contact_employee.deleted_at < bounds.tomorrow_start")
+	expressions[9] = corpDataConditionalCount("contact_employee.status IN (2, 3) AND contact_employee.deleted_at >= bounds.yesterday_start AND contact_employee.deleted_at < bounds.today_start")
+	expressions[12] = corpDataConditionalCount("contact_employee.deleted_at IS NULL AND contact_employee.create_time >= bounds.month_start AND contact_employee.create_time < bounds.next_month_start")
+	expressions[13] = corpDataConditionalCount("contact_employee.deleted_at IS NULL AND contact_employee.create_time >= bounds.last_month_start AND contact_employee.create_time < bounds.month_start")
+	expressions[18] = corpDataConditionalCount("contact_employee.status IN (2, 3) AND contact_employee.deleted_at >= bounds.month_start AND contact_employee.deleted_at < bounds.next_month_start")
+	expressions[19] = corpDataConditionalCount("contact_employee.status IN (2, 3) AND contact_employee.deleted_at >= bounds.last_month_start AND contact_employee.deleted_at < bounds.month_start")
+	filter, filterArgs := corpDataEmployeeScopeSQL(scope, "contact_employee.employee_id")
+	query := corpDataSummarySelect(expressions, "GREATEST(contact_employee.create_time, COALESCE(contact_employee.updated_at, contact_employee.create_time), COALESCE(contact_employee.deleted_at, contact_employee.create_time))") + corpDataSummaryBoundsSQL() + `
+	CROSS JOIN mc_work_contact_employee AS contact_employee
+	INNER JOIN mc_corp AS scoped_corp
+		ON scoped_corp.id = contact_employee.corp_id
+		AND scoped_corp.tenant_id = ?
+		AND scoped_corp.deleted_at IS NULL
+	WHERE contact_employee.corp_id = ?` + filter
+	args := append(append(append([]any{}, bounds...), scope.TenantID, scope.CorpID), filterArgs...)
+	return corpDataSummaryQuerySpec{domain: "contacts", query: query, args: args}
+}
+
+func corpDataSummaryRoomsQuery(scope dashboard.CorpDataScope, bounds []any) corpDataSummaryQuerySpec {
+	expressions := corpDataZeroSummaryExpressions()
+	expressions[1] = "COUNT(*)"
+	expressions[14] = corpDataConditionalCount("room.created_at >= bounds.month_start AND room.created_at < bounds.next_month_start")
+	expressions[15] = corpDataConditionalCount("room.created_at >= bounds.last_month_start AND room.created_at < bounds.month_start")
+	filter, filterArgs := corpDataEmployeeScopeSQL(scope, "room.owner_id")
+	query := corpDataSummarySelect(expressions, "COALESCE(room.updated_at, room.created_at)") + corpDataSummaryBoundsSQL() + `
+	CROSS JOIN mc_work_room AS room
+	INNER JOIN mc_corp AS scoped_corp
+		ON scoped_corp.id = room.corp_id
+		AND scoped_corp.tenant_id = ?
+		AND scoped_corp.deleted_at IS NULL
+	WHERE room.corp_id = ? AND room.deleted_at IS NULL` + filter
+	args := append(append(append([]any{}, bounds...), scope.TenantID, scope.CorpID), filterArgs...)
+	return corpDataSummaryQuerySpec{domain: "rooms", query: query, args: args}
+}
+
+func corpDataSummaryRoomMembersQuery(scope dashboard.CorpDataScope, bounds []any) corpDataSummaryQuerySpec {
+	expressions := corpDataZeroSummaryExpressions()
+	expressions[2] = corpDataConditionalCount("contact_room.status = 1")
+	expressions[6] = corpDataConditionalCount("contact_room.status = 1 AND contact_room.join_time >= bounds.today_start AND contact_room.join_time < bounds.tomorrow_start")
+	expressions[7] = corpDataConditionalCount("contact_room.status = 1 AND contact_room.join_time >= bounds.yesterday_start AND contact_room.join_time < bounds.today_start")
+	expressions[10] = corpDataConditionalCount("contact_room.status = 2 AND contact_room.out_time != '' AND STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s') >= bounds.today_start AND STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s') < bounds.tomorrow_start")
+	expressions[11] = corpDataConditionalCount("contact_room.status = 2 AND contact_room.out_time != '' AND STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s') >= bounds.yesterday_start AND STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s') < bounds.today_start")
+	expressions[16] = corpDataConditionalCount("contact_room.status = 1 AND contact_room.join_time >= bounds.month_start AND contact_room.join_time < bounds.next_month_start")
+	expressions[17] = corpDataConditionalCount("contact_room.status = 1 AND contact_room.join_time >= bounds.last_month_start AND contact_room.join_time < bounds.month_start")
+	filter, filterArgs := corpDataEmployeeScopeSQL(scope, "room.owner_id")
+	query := corpDataSummarySelect(expressions, "GREATEST(contact_room.join_time, COALESCE(contact_room.updated_at, contact_room.join_time), COALESCE(STR_TO_DATE(NULLIF(contact_room.out_time, ''), '%Y-%m-%d %H:%i:%s'), contact_room.join_time))") + corpDataSummaryBoundsSQL() + `
+	CROSS JOIN mc_work_contact_room AS contact_room
+	INNER JOIN mc_work_room AS room
+		ON room.id = contact_room.room_id AND room.deleted_at IS NULL
+	INNER JOIN mc_corp AS scoped_corp
+		ON scoped_corp.id = room.corp_id
+		AND scoped_corp.tenant_id = ?
+		AND scoped_corp.deleted_at IS NULL
+	WHERE room.corp_id = ? AND contact_room.deleted_at IS NULL` + filter
+	args := append(append(append([]any{}, bounds...), scope.TenantID, scope.CorpID), filterArgs...)
+	return corpDataSummaryQuerySpec{domain: "room_members", query: query, args: args}
+}
+
+func corpDataSummaryEmployeesQuery(scope dashboard.CorpDataScope, bounds []any) corpDataSummaryQuerySpec {
+	expressions := corpDataZeroSummaryExpressions()
+	expressions[3] = "COUNT(*)"
+	filter, filterArgs := corpDataEmployeeScopeSQL(scope, "employee.id")
+	query := corpDataSummarySelect(expressions, "COALESCE(employee.updated_at, employee.created_at)") + corpDataSummaryBoundsSQL() + `
+	CROSS JOIN mc_work_employee AS employee
+	INNER JOIN mc_corp AS scoped_corp
+		ON scoped_corp.id = employee.corp_id
+		AND scoped_corp.tenant_id = ?
+		AND scoped_corp.deleted_at IS NULL
+	WHERE employee.corp_id = ? AND employee.status = 1 AND employee.deleted_at IS NULL` + filter
+	args := append(append(append([]any{}, bounds...), scope.TenantID, scope.CorpID), filterArgs...)
+	return corpDataSummaryQuerySpec{domain: "employees", query: query, args: args}
+}
+
+func mergeCorpDataSummary(summary *dashboard.CorpDataSummary, row corpDataSummaryRow) {
+	summary.WeChatContactNum += row.WeChatContactNum
+	summary.WeChatRoomNum += row.WeChatRoomNum
+	summary.RoomMemberNum += row.RoomMemberNum
+	summary.CorpMemberNum += row.CorpMemberNum
+	summary.AddContactNum += row.AddContactNum
+	summary.LastAddContactNum += row.LastAddContactNum
+	summary.AddIntoRoomNum += row.AddIntoRoomNum
+	summary.LastAddIntoRoomNum += row.LastAddIntoRoomNum
+	summary.LossContactNum += row.LossContactNum
+	summary.LastLossContactNum += row.LastLossContactNum
+	summary.QuitRoomNum += row.QuitRoomNum
+	summary.LastQuitRoomNum += row.LastQuitRoomNum
+	summary.AddFriendsNum += row.AddFriendsNum
+	summary.LastAddFriendsNum += row.LastAddFriendsNum
+	summary.MonthAddRoomNum += row.MonthAddRoomNum
+	summary.LastMonthAddRoomNum += row.LastMonthAddRoomNum
+	summary.MonthAddRoomMemberNum += row.MonthAddRoomMemberNum
+	summary.LastMonthAddRoomMemberNum += row.LastMonthAddRoomMemberNum
+	summary.MonthLossContactNum += row.MonthLossContactNum
+	summary.LastMonthLossContactNum += row.LastMonthLossContactNum
 }
 
 func (s *MySQLStore) CorpDataLineChat(ctx context.Context, scope dashboard.CorpDataScope, from time.Time, to time.Time) ([]dashboard.CorpDataPoint, error) {
@@ -2391,24 +2521,6 @@ func corpDataMetricCountQuery(metric corpDataMetric, scope dashboard.CorpDataSco
 	return query, args
 }
 
-func (s *MySQLStore) corpDataMetricCount(ctx context.Context, metric corpDataMetric, scope dashboard.CorpDataScope, from time.Time, to time.Time) (int, error) {
-	query, args := corpDataMetricCountQuery(metric, scope, from, to)
-	return s.countScalar(ctx, query, args...)
-}
-
-func (s *MySQLStore) corpDataCountersBetween(ctx context.Context, scope dashboard.CorpDataScope, from time.Time, to time.Time) (corpDayCounters, error) {
-	metrics := []corpDataMetric{corpDataMetricAddContacts, corpDataMetricAddRooms, corpDataMetricAddIntoRooms, corpDataMetricLossContacts, corpDataMetricQuitRooms}
-	values := make([]int, len(metrics))
-	for index, metric := range metrics {
-		value, err := s.corpDataMetricCount(ctx, metric, scope, from, to)
-		if err != nil {
-			return corpDayCounters{}, err
-		}
-		values[index] = value
-	}
-	return corpDayCounters{AddContactNum: values[0], AddRoomNum: values[1], AddIntoRoomNum: values[2], LossContactNum: values[3], QuitRoomNum: values[4]}, nil
-}
-
 func corpDataTrendQuery(scope dashboard.CorpDataScope, from time.Time, to time.Time) (string, []any) {
 	type trendMetric struct {
 		metric corpDataMetric
@@ -2433,7 +2545,7 @@ func corpDataTrendQuery(scope dashboard.CorpDataScope, from time.Time, to time.T
 			source.idExpression, item.values[0], item.values[1], item.values[2], item.values[3],
 			source.timeExpression, source.fromWhere, source.timeExpression, source.timeExpression)
 		parts = append(parts, part)
-		args = append(args, from.Format("-07:00"))
+		args = append(args, corpDataTimezoneOffset)
 		args = append(args, source.args...)
 		args = append(args, from.Unix(), to.Unix())
 	}
@@ -21737,38 +21849,6 @@ func (s *MySQLStore) queryMenus(ctx context.Context, query string, args ...any) 
 		return nil, err
 	}
 	return menus, nil
-}
-
-type corpDayCounters struct {
-	AddContactNum  int
-	AddRoomNum     int
-	AddIntoRoomNum int
-	LossContactNum int
-	QuitRoomNum    int
-}
-
-func (s *MySQLStore) corpDataUpdateTime(ctx context.Context, scope dashboard.CorpDataScope) (string, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT update_time.last_update_time
-		FROM mc_work_update_time AS update_time
-		INNER JOIN mc_corp AS scoped_corp
-			ON scoped_corp.id = update_time.corp_id
-			AND scoped_corp.tenant_id = ?
-			AND scoped_corp.deleted_at IS NULL
-		WHERE update_time.corp_id = ? AND update_time.type = 6
-		ORDER BY update_time.id DESC
-		LIMIT 1
-	`, scope.TenantID, scope.CorpID)
-
-	var lastUpdateTime sql.NullTime
-	err := row.Scan(&lastUpdateTime)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return formatTime(lastUpdateTime), nil
 }
 
 func (s *MySQLStore) countScalar(ctx context.Context, query string, args ...any) (int, error) {
