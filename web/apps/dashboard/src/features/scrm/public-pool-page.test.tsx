@@ -88,6 +88,52 @@ describe('PublicPoolPage', () => {
     expect(await screen.findByText('批量领取完成：1 成功，1 失败（CONFLICT）。')).toBeTruthy();
   });
 
+  it('retries a failed claim with the exact saved command', async () => {
+    const claim = vi.fn()
+      .mockRejectedValueOnce(new ApiError('server', 'temporary', { status: 503 }))
+      .mockResolvedValueOnce({ ...item, ownerId: 42, status: 'owned', version: 4 });
+    view(api({ claimFromPublicPool: claim }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /Ada/ }));
+    const retry = await screen.findByRole('button', { name: '重试原操作' });
+    fireEvent.click(retry);
+
+    const command = { corpId: 7, contactId: 'c1', userId: 42, version: 3, idempotencyKey: 'claim-c1-3-42' };
+    await waitFor(() => expect(claim).toHaveBeenCalledTimes(2));
+    expect(claim).toHaveBeenNthCalledWith(1, command);
+    expect(claim).toHaveBeenNthCalledWith(2, command);
+  });
+
+  it('retries failed batch and move mutations with their complete saved parameters', async () => {
+    const batch = vi.fn()
+      .mockRejectedValueOnce(new ApiError('server', 'temporary', { status: 503 }))
+      .mockResolvedValueOnce({ results: [{ id: 'c1', status: 'succeeded', errorCode: '' }] });
+    const batchView = view(api({ batchClaimFromPublicPool: batch }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 Ada' }));
+    fireEvent.click(screen.getByRole('button', { name: '批量领取' }));
+    fireEvent.click(await screen.findByRole('button', { name: '重试原操作' }));
+    const batchCommand = { corpId: 7, userId: 42, targets: [{ contactId: 'c1', version: 3, idempotencyKey: 'batch-claim-c1-3-42' }] };
+    await waitFor(() => expect(batch).toHaveBeenCalledTimes(2));
+    expect(batch).toHaveBeenNthCalledWith(1, batchCommand);
+    expect(batch).toHaveBeenNthCalledWith(2, batchCommand);
+    batchView.unmount();
+
+    const move = vi.fn()
+      .mockRejectedValueOnce(new ApiError('server', 'temporary', { status: 503 }))
+      .mockResolvedValueOnce(item);
+    view(api({ releaseToPublicPool: move }));
+    await screen.findByText('Ada');
+    fireEvent.change(screen.getByLabelText('操作联系人 ID'), { target: { value: 'contact-owned' } });
+    fireEvent.change(screen.getByLabelText('操作版本'), { target: { value: '8' } });
+    fireEvent.change(screen.getByLabelText('操作入海原因'), { target: { value: '超时未跟进' } });
+    fireEvent.click(screen.getByRole('button', { name: '退回公海' }));
+    fireEvent.click(await screen.findByRole('button', { name: '重试原操作' }));
+    const moveCommand = { corpId: 7, contactId: 'contact-owned', version: 8, action: 'return', reason: '超时未跟进', idempotencyKey: 'pool-return-contact-owned-8-42' };
+    await waitFor(() => expect(move).toHaveBeenCalledTimes(2));
+    expect(move).toHaveBeenNthCalledWith(1, moveCommand);
+    expect(move).toHaveBeenNthCalledWith(2, moveCommand);
+  });
+
   it('supports entering, returning and reclaiming with a persisted reason', async () => {
     const release = vi.fn().mockResolvedValue(item);
     const value = api({ releaseToPublicPool: release });
@@ -121,5 +167,8 @@ describe('PublicPoolPage', () => {
     const conflict = view(api({ claimFromPublicPool: vi.fn().mockRejectedValue(new ApiError('validation', 'conflict', { status: 409 })) }));
     fireEvent.click(await screen.findByRole('button', { name: '领取 Ada' }));
     await waitFor(() => expect(conflict.container.querySelector('.page-state-conflict')).not.toBeNull());
+    const refresh = screen.getByRole('button', { name: '刷新数据' });
+    fireEvent.click(refresh);
+    await waitFor(() => expect(conflict.container.querySelector('.page-state-conflict')).toBeNull());
   });
 });

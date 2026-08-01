@@ -17,7 +17,6 @@ import (
 func TestPublicPoolMariaDBFiltersHistoryIsolationAndAtomicClaims(t *testing.T) {
 	_, db, namespace := integrationRepository(t)
 	ensureSCRMIdempotencyTable(t, db)
-	ensurePublicPoolParitySchema(t, db)
 	repository, err := NewCustomerLifecycleRepository(db)
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +27,7 @@ func TestPublicPoolMariaDBFiltersHistoryIsolationAndAtomicClaims(t *testing.T) {
 	otherCorpID := insertParityCorp(t, db, namespace.tenantID, namespace.id("pool-other-corp"))
 	ownerID := insertParityEmployee(t, db, corpID, namespace.id("pool-owner"), 1, false)
 	otherOwnerID := insertParityEmployee(t, db, otherCorpID, namespace.id("pool-other-owner"), 1, false)
-	contactID, staleID, ownedID, hiddenID := namespace.id("pool-contact"), namespace.id("pool-stale"), namespace.id("pool-owned"), namespace.id("pool-hidden")
+	contactID, staleID, ownedID, nonPublicID, hiddenID, replayID := namespace.id("pool-contact"), namespace.id("pool-stale"), namespace.id("pool-owned"), namespace.id("pool-non-public"), namespace.id("pool-hidden"), namespace.id("pool-replay")
 	tagID := namespace.id("pool-tag")
 	cleanup := func() {
 		for _, statement := range []string{
@@ -46,19 +45,23 @@ func TestPublicPoolMariaDBFiltersHistoryIsolationAndAtomicClaims(t *testing.T) {
 	cleanup()
 	t.Cleanup(cleanup)
 	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_contacts(id,tenant_id,corp_id,name,phone,source,business_type,region,version,created_at,updated_at) VALUES
-		(?,?,?,?,?,'wecom','retail','Shanghai',1,?,?),(?,?,?,?,?,'manual','service','Beijing',1,?,?),(?,?,?,?,?,'wecom','retail','Shanghai',1,?,?),(?,?,?,?,?,'wecom','retail','Shanghai',1,?,?)`,
+		(?,?,?,?,?,'wecom','retail','Shanghai',1,?,?),(?,?,?,?,?,'manual','service','Beijing',1,?,?),(?,?,?,?,?,'wecom','retail','Shanghai',1,?,?),(?,?,?,?,?,'manual','service','Guangzhou',1,?,?),(?,?,?,?,?,'wecom','retail','Shanghai',1,?,?),(?,?,?,?,?,'manual','service','Shenzhen',1,?,?)`,
 		contactID, namespace.tenantID, corpID, "Ada", "13800000000", now, now,
 		staleID, namespace.tenantID, corpID, "Grace", "13900000000", now, now,
 		ownedID, namespace.tenantID, corpID, "Owned", "13700000000", now, now,
-		hiddenID, namespace.tenantID, otherCorpID, "Hidden", "13600000000", now, now); err != nil {
+		nonPublicID, namespace.tenantID, corpID, "Non Public", "13400000000", now, now,
+		hiddenID, namespace.tenantID, otherCorpID, "Hidden", "13600000000", now, now,
+		replayID, namespace.tenantID, corpID, "Replay", "13500000000", now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_assignments(id,tenant_id,corp_id,contact_id,owner_id,status,version,created_at,updated_at) VALUES
-		(?,?,?,?,NULL,'public_pool',3,?,?),(?,?,?,?,NULL,'public_pool',5,?,?),(?,?,?,?,?,'owned',2,?,?),(?,?,?,?,NULL,'public_pool',1,?,?)`,
+		(?,?,?,?,NULL,'public_pool',3,?,?),(?,?,?,?,NULL,'public_pool',5,?,?),(?,?,?,?,?,'owned',2,?,?),(?,?,?,?,?,'owned',6,?,?),(?,?,?,?,NULL,'public_pool',1,?,?),(?,?,?,?,NULL,'public_pool',7,?,?)`,
 		namespace.id("pool-assignment"), namespace.tenantID, corpID, contactID, now, now,
 		namespace.id("pool-stale-assignment"), namespace.tenantID, corpID, staleID, now, now,
 		namespace.id("pool-owned-assignment"), namespace.tenantID, corpID, ownedID, ownerID, now, now,
-		namespace.id("pool-hidden-assignment"), namespace.tenantID, otherCorpID, hiddenID, now, now); err != nil {
+		namespace.id("pool-non-public-assignment"), namespace.tenantID, corpID, nonPublicID, ownerID, now, now,
+		namespace.id("pool-hidden-assignment"), namespace.tenantID, otherCorpID, hiddenID, now, now,
+		namespace.id("pool-replay-assignment"), namespace.tenantID, corpID, replayID, now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_assignment_history(id,tenant_id,corp_id,contact_id,action,previous_owner_id,new_owner_id,actor_id,reason,assignment_version,created_at) VALUES
@@ -102,6 +105,37 @@ func TestPublicPoolMariaDBFiltersHistoryIsolationAndAtomicClaims(t *testing.T) {
 	if _, err := repository.ClaimFromPublicPool(ctx, ports.ClaimPublicPoolCommand{TenantID: namespace.tenantID, CorpID: corpID, ContactID: staleID, UserID: otherOwnerID, Version: 5, IdempotencyKey: namespace.key("cross-owner")}); !errors.Is(err, ports.ErrAssignmentForbidden) {
 		t.Fatalf("cross-corp owner err=%v", err)
 	}
+	for name, command := range map[string]ports.ClaimPublicPoolCommand{
+		"missing contact": {TenantID: namespace.tenantID, CorpID: corpID, ContactID: namespace.id("missing"), UserID: ownerID, Version: 1, IdempotencyKey: namespace.key("missing")},
+		"cross corp":      {TenantID: namespace.tenantID, CorpID: corpID, ContactID: hiddenID, UserID: ownerID, Version: 1, IdempotencyKey: namespace.key("cross-corp")},
+		"not public pool": {TenantID: namespace.tenantID, CorpID: corpID, ContactID: nonPublicID, UserID: ownerID, Version: 6, IdempotencyKey: namespace.key("not-public")},
+	} {
+		if _, err := repository.ClaimFromPublicPool(ctx, command); !errors.Is(err, ports.ErrAssignmentNotFound) {
+			t.Fatalf("%s err=%v, want assignment not found", name, err)
+		}
+	}
+	if _, err := repository.ClaimFromPublicPool(ctx, ports.ClaimPublicPoolCommand{TenantID: namespace.tenantID, CorpID: corpID, ContactID: staleID, UserID: ownerID, Version: 4, IdempotencyKey: namespace.key("stale-version")}); !errors.Is(err, ports.ErrAssignmentConflict) {
+		t.Fatalf("stale version err=%v, want conflict", err)
+	}
+
+	replayCommand := ports.ClaimPublicPoolCommand{TenantID: namespace.tenantID, CorpID: corpID, ContactID: replayID, UserID: ownerID, Version: 7, IdempotencyKey: namespace.key("claim-replay")}
+	firstReplay, err := repository.ClaimFromPublicPool(ctx, replayCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondReplay, err := repository.ClaimFromPublicPool(ctx, replayCommand)
+	if err != nil || secondReplay.ID != firstReplay.ID || secondReplay.Version != firstReplay.Version || secondReplay.OwnerID == nil || *secondReplay.OwnerID != ownerID {
+		t.Fatalf("same-key replay first=%#v second=%#v err=%v", firstReplay, secondReplay, err)
+	}
+	replayConflict := replayCommand
+	replayConflict.Version = 8
+	if _, err := repository.ClaimFromPublicPool(ctx, replayConflict); !errors.Is(err, ports.ErrAssignmentConflict) {
+		t.Fatalf("same-key different-request err=%v, want conflict", err)
+	}
+	var replayHistoryCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_scrm_assignment_history WHERE tenant_id=? AND corp_id=? AND contact_id=? AND action='claim'`, namespace.tenantID, corpID, replayID).Scan(&replayHistoryCount); err != nil || replayHistoryCount != 1 {
+		t.Fatalf("replay history count=%d err=%v", replayHistoryCount, err)
+	}
 
 	const contenders = 8
 	errs := make(chan error, contenders)
@@ -132,28 +166,5 @@ func TestPublicPoolMariaDBFiltersHistoryIsolationAndAtomicClaims(t *testing.T) {
 	var persistedOwner sql.NullInt64
 	if err := db.QueryRow(`SELECT owner_id FROM mochat_go_scrm_assignments WHERE tenant_id=? AND corp_id=? AND contact_id=?`, namespace.tenantID, corpID, contactID).Scan(&persistedOwner); err != nil || !persistedOwner.Valid || persistedOwner.Int64 != ownerID {
 		t.Fatalf("persisted owner=%#v err=%v", persistedOwner, err)
-	}
-}
-
-func ensurePublicPoolParitySchema(t *testing.T, db *sql.DB) {
-	t.Helper()
-	for column, definition := range map[string]string{"source": "varchar(32) NOT NULL DEFAULT ''", "business_type": "varchar(64) NOT NULL DEFAULT ''", "region": "varchar(128) NOT NULL DEFAULT ''"} {
-		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mochat_go_scrm_contacts' AND column_name=?`, column).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		if count == 0 {
-			if _, err := db.Exec("ALTER TABLE mochat_go_scrm_contacts ADD COLUMN `" + column + "` " + definition); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS mochat_go_scrm_assignment_history (
-		id varchar(64) NOT NULL, tenant_id bigint unsigned NOT NULL, corp_id bigint unsigned NOT NULL, contact_id varchar(36) NOT NULL,
-		action varchar(32) NOT NULL, previous_owner_id bigint unsigned NULL, new_owner_id bigint unsigned NULL, actor_id bigint unsigned NOT NULL,
-		reason varchar(500) NOT NULL DEFAULT '', assignment_version bigint unsigned NOT NULL, created_at datetime(6) NOT NULL,
-		PRIMARY KEY(id), KEY idx_scrm_pool_history_contact(tenant_id,corp_id,contact_id,created_at,id)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`); err != nil {
-		t.Fatal(err)
 	}
 }

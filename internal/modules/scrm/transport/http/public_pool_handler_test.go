@@ -50,6 +50,18 @@ func TestPublicPoolHandlerRequiresClaimUserToMatchPrincipalAndPassesCompleteComm
 	}
 }
 
+func TestPublicPoolHandlerMapsUnavailableClaimTargetToNotFound(t *testing.T) {
+	service := &publicPoolServiceFake{claimErr: application.ErrNotFound}
+	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 42, TenantID: 7}}, &contactAuthorizerFake{})
+	req := httptest.NewRequest(http.MethodPost, AssignmentClaimPath, strings.NewReader(`{"corpId":9,"contactId":"hidden","userId":42,"version":3}`))
+	req.Header.Set("Idempotency-Key", "claim-hidden")
+	res := httptest.NewRecorder()
+	handler.ClaimFromPublicPool(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestPublicPoolHandlerReturnsPerItemBatchResults(t *testing.T) {
 	service := &publicPoolServiceFake{batch: []application.PublicPoolMutationResult{{ID: "c1", Status: "succeeded"}, {ID: "c2", Status: "failed", ErrorCode: "CONFLICT"}}}
 	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 42, TenantID: 7}}, &contactAuthorizerFake{})
@@ -84,6 +96,7 @@ type publicPoolServiceFake struct {
 	move         ports.MoveToPublicPoolCommand
 	batchCommand application.BatchClaimPublicPoolCommand
 	batch        []application.PublicPoolMutationResult
+	claimErr     error
 }
 
 func (s *publicPoolServiceFake) ListContacts(context.Context, application.ListContactsQuery) (ports.ContactPage, error) {
@@ -105,7 +118,7 @@ func (s *publicPoolServiceFake) MoveToPublicPool(_ context.Context, command port
 }
 func (s *publicPoolServiceFake) ClaimFromPublicPool(_ context.Context, command ports.ClaimPublicPoolCommand) (domain.CustomerAssignment, error) {
 	s.claim = command
-	return domain.CustomerAssignment{ContactID: command.ContactID, OwnerID: &command.UserID, Version: command.Version + 1}, nil
+	return domain.CustomerAssignment{ContactID: command.ContactID, OwnerID: &command.UserID, Version: command.Version + 1}, s.claimErr
 }
 func (s *publicPoolServiceFake) BatchClaimFromPublicPool(_ context.Context, command application.BatchClaimPublicPoolCommand) ([]application.PublicPoolMutationResult, error) {
 	s.batchCommand = command

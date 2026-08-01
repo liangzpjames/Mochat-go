@@ -400,6 +400,22 @@ func (r *CustomerLifecycleRepository) ClaimFromPublicPool(ctx context.Context, c
 	if err := employeesInScopeTx(ctx, tx, command.TenantID, command.CorpID, []int64{command.UserID}); err != nil {
 		return domain.CustomerAssignment{}, err
 	}
+	var currentStatus string
+	var currentVersion int64
+	var currentOwner sql.NullInt64
+	err = tx.QueryRowContext(ctx, `SELECT status,version,owner_id FROM mochat_go_scrm_assignments WHERE tenant_id=? AND corp_id=? AND contact_id=? AND deleted_at IS NULL`, command.TenantID, command.CorpID, command.ContactID).Scan(&currentStatus, &currentVersion, &currentOwner)
+	if err == sql.ErrNoRows {
+		return domain.CustomerAssignment{}, ports.ErrAssignmentNotFound
+	}
+	if err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	if currentStatus != domain.AssignmentPublicPool || currentOwner.Valid {
+		return domain.CustomerAssignment{}, ports.ErrAssignmentNotFound
+	}
+	if currentVersion != command.Version {
+		return domain.CustomerAssignment{}, ports.ErrAssignmentConflict
+	}
 	now := time.Now().UTC()
 	result, err := tx.ExecContext(ctx, `UPDATE mochat_go_scrm_assignments SET owner_id=?,status=?,version=version+1,updated_at=? WHERE tenant_id=? AND corp_id=? AND contact_id=? AND version=? AND status=? AND owner_id IS NULL AND deleted_at IS NULL`, command.UserID, domain.AssignmentOwned, now, command.TenantID, command.CorpID, command.ContactID, command.Version, domain.AssignmentPublicPool)
 	if err != nil {
