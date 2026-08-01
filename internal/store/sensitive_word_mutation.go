@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,13 +26,12 @@ type sensitiveWordState struct {
 }
 
 func (s *MySQLStore) SensitiveWordMutationReplay(ctx context.Context, mutation dashboard.SensitiveWordMutation) (dashboard.SensitiveWordMutationResult, bool, error) {
+	mutation = normalizeSensitiveWordMutation(mutation)
 	return sensitiveWordIdempotentResult(ctx, s.db.QueryRowContext, mutation)
 }
 
 func (s *MySQLStore) MutateSensitiveWords(ctx context.Context, mutation dashboard.SensitiveWordMutation) (dashboard.SensitiveWordMutationResult, error) {
-	mutation.Action = strings.TrimSpace(mutation.Action)
-	mutation.Version = strings.TrimSpace(mutation.Version)
-	mutation.IdempotencyKey = strings.TrimSpace(mutation.IdempotencyKey)
+	mutation = normalizeSensitiveWordMutation(mutation)
 	if mutation.TenantID <= 0 || mutation.CorpID <= 0 || mutation.ActorUserID <= 0 || mutation.Version == "" || mutation.IdempotencyKey == "" {
 		return dashboard.SensitiveWordMutationResult{}, sensitiveWordOperationError(http.StatusBadRequest, "敏感词操作参数不完整")
 	}
@@ -42,6 +42,9 @@ func (s *MySQLStore) MutateSensitiveWords(ctx context.Context, mutation dashboar
 	}
 	defer tx.Rollback()
 
+	if err := sensitiveWordLockTenantTx(ctx, tx, mutation.TenantID, mutation.CorpID); err != nil {
+		return dashboard.SensitiveWordMutationResult{}, err
+	}
 	if previous, found, err := sensitiveWordIdempotentResultTx(ctx, tx, mutation); err != nil {
 		return dashboard.SensitiveWordMutationResult{}, err
 	} else if found {
@@ -60,6 +63,9 @@ func (s *MySQLStore) MutateSensitiveWords(ctx context.Context, mutation dashboar
 	case dashboard.SensitiveWordMutationCreateWords:
 		if mutation.Version != "0" || mutation.GroupID <= 0 || len(mutation.Names) == 0 {
 			return dashboard.SensitiveWordMutationResult{}, sensitiveWordOperationError(http.StatusBadRequest, "新增敏感词参数错误")
+		}
+		if err := sensitiveWordEnforceCreateQuotaTx(ctx, tx, mutation.TenantID, int64(len(mutation.Names))); err != nil {
+			return dashboard.SensitiveWordMutationResult{}, err
 		}
 		if _, err := sensitiveWordGroupStateTx(ctx, tx, mutation.CorpID, mutation.GroupID, true); err != nil {
 			return dashboard.SensitiveWordMutationResult{}, err
@@ -146,7 +152,10 @@ func (s *MySQLStore) MutateSensitiveWords(ctx context.Context, mutation dashboar
 				return dashboard.SensitiveWordMutationResult{}, err
 			}
 		}
-		state.UpdatedAt = time.Now().UTC()
+		state, err = sensitiveWordStateAfterMutationTx(ctx, tx, mutation.CorpID, state.ID)
+		if err != nil {
+			return dashboard.SensitiveWordMutationResult{}, err
+		}
 		result.Version = sensitiveWordVersion(state)
 		after = sensitiveWordStatePayload(state, result.Version)
 		if mutation.Action == dashboard.SensitiveWordMutationDeleteWord {
@@ -169,8 +178,10 @@ func (s *MySQLStore) MutateSensitiveWords(ctx context.Context, mutation dashboar
 		if _, err := tx.ExecContext(ctx, `UPDATE mc_sensitive_word_group SET name = ?, updated_at = NOW() WHERE id = ? AND corp_id = ? AND deleted_at IS NULL`, strings.TrimSpace(mutation.Name), state.ID, mutation.CorpID); err != nil {
 			return dashboard.SensitiveWordMutationResult{}, err
 		}
-		state.Name = strings.TrimSpace(mutation.Name)
-		state.UpdatedAt = time.Now().UTC()
+		state, err = sensitiveWordGroupStateTx(ctx, tx, mutation.CorpID, mutation.GroupID, true)
+		if err != nil {
+			return dashboard.SensitiveWordMutationResult{}, err
+		}
 		result.Version = sensitiveWordGroupVersion(state)
 		after = map[string]any{"id": state.ID, "name": state.Name, "version": result.Version}
 		targetType, targetID, targetName = "sensitive_word_group", strconv.Itoa(state.ID), state.Name
@@ -179,6 +190,7 @@ func (s *MySQLStore) MutateSensitiveWords(ctx context.Context, mutation dashboar
 		return dashboard.SensitiveWordMutationResult{}, sensitiveWordOperationError(http.StatusBadRequest, "未知敏感词操作")
 	}
 
+	after["requestFingerprint"] = sensitiveWordMutationFingerprint(mutation)
 	beforeJSON, _ := json.Marshal(before)
 	afterJSON, _ := json.Marshal(after)
 	if _, err := insertSaaSAdminOperationLogTx(ctx, tx, dashboard.SaaSAdminOperationLog{
@@ -213,10 +225,59 @@ func sensitiveWordIdempotentResult(ctx context.Context, queryRow func(context.Co
 		return dashboard.SensitiveWordMutationResult{}, false, err
 	}
 	var payload struct {
-		Version string `json:"version"`
+		Version            string `json:"version"`
+		RequestFingerprint string `json:"requestFingerprint"`
 	}
-	_ = json.Unmarshal([]byte(raw.String), &payload)
+	if err := json.Unmarshal([]byte(raw.String), &payload); err != nil {
+		return dashboard.SensitiveWordMutationResult{}, false, err
+	}
+	if payload.RequestFingerprint == "" || payload.RequestFingerprint != sensitiveWordMutationFingerprint(mutation) {
+		return dashboard.SensitiveWordMutationResult{}, false, dashboard.NewSensitiveWordConflict("幂等键已用于不同的敏感词请求")
+	}
 	return dashboard.SensitiveWordMutationResult{Version: payload.Version}, true, nil
+}
+
+func normalizeSensitiveWordMutation(mutation dashboard.SensitiveWordMutation) dashboard.SensitiveWordMutation {
+	mutation.Action = strings.TrimSpace(mutation.Action)
+	mutation.Version = strings.TrimSpace(mutation.Version)
+	mutation.IdempotencyKey = strings.TrimSpace(mutation.IdempotencyKey)
+	mutation.Name = strings.TrimSpace(mutation.Name)
+	seen := make(map[string]struct{}, len(mutation.Names))
+	names := make([]string, 0, len(mutation.Names))
+	for _, raw := range mutation.Names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	mutation.Names = names
+	return mutation
+}
+
+func sensitiveWordMutationFingerprint(mutation dashboard.SensitiveWordMutation) string {
+	names := append([]string(nil), mutation.Names...)
+	sort.Strings(names)
+	payload := struct {
+		Action  string   `json:"action"`
+		CorpID  int      `json:"corpId"`
+		WordID  int      `json:"wordId"`
+		GroupID int      `json:"groupId"`
+		Status  int      `json:"status"`
+		Name    string   `json:"name"`
+		Names   []string `json:"names"`
+		Version string   `json:"version"`
+	}{
+		Action: mutation.Action, CorpID: mutation.CorpID, WordID: mutation.WordID, GroupID: mutation.GroupID,
+		Status: mutation.Status, Name: mutation.Name, Names: names, Version: mutation.Version,
+	}
+	encoded, _ := json.Marshal(payload)
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 func sensitiveWordAuditRemark(mutation dashboard.SensitiveWordMutation) string {
@@ -234,6 +295,113 @@ func sensitiveWordStateTx(ctx context.Context, tx *sql.Tx, corpID, wordID int, f
 		return sensitiveWordState{}, sensitiveWordOperationError(http.StatusNotFound, "敏感词不存在")
 	}
 	return state, err
+}
+
+func sensitiveWordStateAfterMutationTx(ctx context.Context, tx *sql.Tx, corpID, wordID int) (sensitiveWordState, error) {
+	var state sensitiveWordState
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, group_id, name, status, COALESCE(updated_at, created_at, NOW())
+		FROM mc_sensitive_word
+		WHERE id = ? AND corp_id = ?
+		FOR UPDATE
+	`, wordID, corpID).Scan(&state.ID, &state.GroupID, &state.Name, &state.Status, &state.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sensitiveWordState{}, sensitiveWordOperationError(http.StatusNotFound, "敏感词不存在")
+	}
+	return state, err
+}
+
+func sensitiveWordLockTenantTx(ctx context.Context, tx *sql.Tx, tenantID, corpID int) error {
+	var actualTenantID int
+	err := tx.QueryRowContext(ctx, `
+		SELECT tenant_id
+		FROM mc_corp
+		WHERE id = ? AND deleted_at IS NULL
+		LIMIT 1
+		FOR UPDATE
+	`, corpID).Scan(&actualTenantID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sensitiveWordOperationError(http.StatusNotFound, "企业不存在")
+	}
+	if err != nil {
+		return err
+	}
+	if actualTenantID != tenantID {
+		return sensitiveWordOperationError(http.StatusForbidden, "企业不属于当前租户")
+	}
+	var lockedTenantID int
+	err = tx.QueryRowContext(ctx, `
+		SELECT id
+		FROM mc_tenant
+		WHERE id = ? AND deleted_at IS NULL
+		FOR UPDATE
+	`, tenantID).Scan(&lockedTenantID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sensitiveWordOperationError(http.StatusForbidden, "租户不存在或不可用")
+	}
+	return err
+}
+
+func sensitiveWordEnforceCreateQuotaTx(ctx context.Context, tx *sql.Tx, tenantID int, additional int64) error {
+	if additional <= 0 {
+		return nil
+	}
+	var current int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mc_sensitive_word word
+		JOIN mc_corp corp ON corp.id = word.corp_id
+		WHERE corp.tenant_id = ? AND corp.deleted_at IS NULL AND word.deleted_at IS NULL
+	`, tenantID).Scan(&current); err != nil {
+		return err
+	}
+	limit, err := sensitiveWordQuotaLimitTx(ctx, tx, tenantID)
+	if err != nil {
+		return err
+	}
+	status := dashboard.SaaSQuotaStatus{
+		Metric: dashboard.SaaSMetricSensitiveWords, TenantID: tenantID,
+		Current: current, Limit: limit, Additional: additional,
+	}
+	if status.Exceeded() {
+		return dashboard.NewSaaSQuotaExceededError(status)
+	}
+	return nil
+}
+
+func sensitiveWordQuotaLimitTx(ctx context.Context, tx *sql.Tx, tenantID int) (int64, error) {
+	var rawLimits sql.NullString
+	var packageLimit int64
+	err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(CAST(tp.limits_json AS CHAR), ''), COALESCE(pkg.sensitive_words, 0)
+		FROM mochat_go_saas_tenant_packages tp
+		LEFT JOIN mochat_go_saas_packages pkg ON pkg.code = tp.package_code AND pkg.deleted_at IS NULL
+		WHERE tp.tenant_id = ? AND tp.status = 1 AND tp.deleted_at IS NULL
+		LIMIT 1
+	`, tenantID).Scan(&rawLimits, &packageLimit)
+	if err == nil {
+		if raw := strings.TrimSpace(rawLimits.String); raw != "" && raw != "null" {
+			limits := saasUsageLimitSnapshot{SensitiveWords: packageLimit}
+			if json.Unmarshal([]byte(raw), &limits) == nil {
+				return limits.SensitiveWords, nil
+			}
+		}
+		return packageLimit, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	var counterLimit int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT limit_value
+		FROM mochat_go_saas_usage_counters
+		WHERE tenant_id = ? AND metric = ? AND period_key = 'lifetime' AND deleted_at IS NULL
+		LIMIT 1
+	`, tenantID, dashboard.SaaSMetricSensitiveWords).Scan(&counterLimit)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return counterLimit, err
 }
 
 func sensitiveWordGroupStateTx(ctx context.Context, tx *sql.Tx, corpID, groupID int, forUpdate bool) (sensitiveWordState, error) {
