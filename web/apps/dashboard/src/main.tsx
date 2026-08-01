@@ -95,10 +95,7 @@ const userAdminApi = createUserAdminApi(apiClient);
 const contactTagApi = createContactTagApi(apiClient);
 const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
 const dashboardOverviewApi = createDashboardOverviewApi(apiClient);
-const conversationGlobalApi = createConversationGlobalApi(
-  apiClient,
-  () => authStore.getSession()?.corpId ?? null,
-);
+const conversationGlobalApi = createConversationGlobalApi(apiClient);
 const sensitiveWordApi = createSensitiveWordApi(apiClient);
 const leadApi = createLeadApi(apiClient);
 const scrmApi = createScrmApi(apiClient);

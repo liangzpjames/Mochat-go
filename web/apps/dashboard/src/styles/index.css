@@ -831,10 +831,12 @@ body {
 .conversation-global-header p:last-child { color: #737b8c; margin: 0; }
 .conversation-global-filters { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(100px, 1fr)) repeat(2, minmax(132px, 1fr)) auto; padding: 18px 20px; }
 .conversation-global-filters label { color: #737b8c; display: grid; font-size: .78rem; gap: 6px; }
-.conversation-global-filters input { background: #f7f8fc; border: 1px solid #e3e7f0; border-radius: 8px; color: #40485a; font: inherit; min-width: 0; outline: none; padding: 9px 10px; width: 100%; }
-.conversation-global-filters input:focus { background: #fff; border-color: #7187ff; box-shadow: 0 0 0 3px rgb(83 107 244 / 10%); }
+.conversation-global-filters input, .conversation-global-filters select { background: #f7f8fc; border: 1px solid #e3e7f0; border-radius: 8px; color: #40485a; font: inherit; min-width: 0; outline: none; padding: 9px 10px; width: 100%; }
+.conversation-global-filters input:focus, .conversation-global-filters select:focus { background: #fff; border-color: #7187ff; box-shadow: 0 0 0 3px rgb(83 107 244 / 10%); }
 .conversation-global-filters > button, .conversation-global-state button { background: #536bf4; border: 1px solid #536bf4; border-radius: 8px; color: #fff; cursor: pointer; font: inherit; padding: 9px 16px; }
+.conversation-global-filters > button[type="button"] { background: #fff; color: #536bf4; }
 .conversation-global-inline-error { color: #c53e3e; margin: -6px 4px 0; }
+.conversation-global-capability-note { background: #fff8e8; border: 1px solid #f5dfad; border-radius: 10px; color: #8a631b; margin: -4px 0 0; padding: 11px 14px; }
 .conversation-global-table-wrap { overflow-x: auto; }
 .conversation-global-results table { border-collapse: collapse; min-width: 900px; width: 100%; }
 .conversation-global-results th { background: #fafbfe; color: #737b8c; font-size: .82rem; font-weight: 650; text-align: left; }

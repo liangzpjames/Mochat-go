@@ -1771,12 +1771,12 @@ func (s *MySQLStore) WorkMessageFromUsers(ctx context.Context, corpID int, name 
 func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.WorkMessageUserFilter) (dashboard.WorkMessageToUserPage, error) {
 	filter.Page = positivePage(filter.Page)
 	filter.PerPage = positivePerPage(filter.PerPage, 15)
-	sourceSQL, sourceArgs := workMessageUnionSQL(filter.CorpID)
+	sourceSQL, sourceArgs := workMessageFilteredUnionSQL(filter)
 	whereSQL, filterArgs := workMessageUserWhere(filter)
 	args := append(append([]any{}, sourceArgs...), filterArgs...)
 	if strings.TrimSpace(filter.Name) != "" {
-		whereSQL += " AND target_name LIKE ?"
-		args = append(args, "%"+strings.TrimSpace(filter.Name)+"%")
+		whereSQL += ` AND target_name LIKE ? ESCAPE '\\'`
+		args = append(args, workMessageLikePattern(filter.Name))
 	}
 	var total int
 	groupColumns, groupKey := workMessageConversationGrouping()
@@ -1798,7 +1798,7 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	offset := (filter.Page - 1) * filter.PerPage
 	queryArgs := append(append([]any{}, args...), filter.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time
+		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time
 		FROM (
 			SELECT wm.*,
 			       @rn := IF(@grp = `+groupKey+`, @rn + 1, 1) AS rn,
@@ -1830,6 +1830,55 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 		return dashboard.WorkMessageToUserPage{}, err
 	}
 	return dashboard.WorkMessageToUserPage{Items: items, Total: total, TotalPage: totalPage, Page: filter.Page, PerPage: filter.PerPage}, nil
+}
+
+func (s *MySQLStore) WorkMessageArchiveAuthorized(ctx context.Context, tenantID int, corpID int) (bool, error) {
+	var allowed bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM mc_corp
+			WHERE id = ?
+			  AND tenant_id = ?
+			  AND chat_status = 1
+			  AND deleted_at IS NULL
+		)
+	`, corpID, tenantID).Scan(&allowed)
+	return allowed, err
+}
+
+func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboard.WorkMessageArchiveFilter) (dashboard.WorkMessageItem, bool, error) {
+	if filter.RestrictEmployeeIDs && len(uniquePositiveInts(filter.EmployeeIDs)) == 0 {
+		return dashboard.WorkMessageItem{}, false, nil
+	}
+	sourceSQL, sourceArgs, idWhere, idArgs, ok := workMessageArchiveSource(filter.CorpID, filter.ArchiveMessageID)
+	if !ok {
+		return dashboard.WorkMessageItem{}, false, nil
+	}
+	where := []string{idWhere}
+	args := append(append([]any{}, sourceArgs...), idArgs...)
+	if filter.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(filter.EmployeeIDs)
+		where = append(where, "work_employee_id IN ("+placeholders(len(ids))+")")
+		args = append(args, intsToAny(ids)...)
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id,
+		       target_name, target_avatar, action, sender_name, sender_avatar, is_current_user,
+		       msg_type, content_raw, msg_data_time
+		FROM (`+sourceSQL+`) wm
+		WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY msg_data_time DESC, seq DESC, table_index DESC, id DESC
+		LIMIT 1
+	`, args...)
+	item, err := scanWorkMessage(row)
+	if err == sql.ErrNoRows {
+		return dashboard.WorkMessageItem{}, false, nil
+	}
+	if err != nil {
+		return dashboard.WorkMessageItem{}, false, err
+	}
+	return item, true, nil
 }
 
 func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkMessageFilter) (dashboard.WorkMessagePage, error) {
@@ -2178,54 +2227,80 @@ func workMessageUnionSQL(corpID int) (string, []any) {
 	selects := make([]string, 0, 10)
 	args := make([]any, 0, 10)
 	for index := 1; index <= 10; index++ {
-		table := fmt.Sprintf("mc_work_message_%d", index)
-		selects = append(selects, `
-			SELECT
-				wm.id,
-				`+strconv.Itoa(index)+` AS table_index,
-				COALESCE(wm.seq, 0) AS seq,
-				COALESCE(wm.msgid, '') AS msgid,
-				COALESCE(wm.corp_id, 0) AS corp_id,
-				COALESCE(wm.work_employee_id, 0) AS work_employee_id,
-				COALESCE(wm.to_user_type, 0) AS to_user_type,
-				COALESCE(wm.to_user_id, 0) AS to_user_id,
-				COALESCE(wm.action, 0) AS action,
-				COALESCE(wm.msg_type, wm.type, 100) AS msg_type,
-				COALESCE(CAST(wm.content AS CHAR), '') AS content_raw,
-				COALESCE(wm.content_text, '') AS content_text,
-				wm.msg_data_time,
-				COALESCE(sender.name, '') AS employee_name,
-				COALESCE(sender.avatar, '') AS employee_avatar,
-				CASE
-					WHEN COALESCE(wm.sender_type, 0) = 0 THEN COALESCE(sender.name, '')
-					WHEN COALESCE(wm.to_user_type, 0) = 2 THEN '群成员'
-					ELSE COALESCE(target_employee.name, target_contact.name, target_room.name, '')
-				END AS sender_name,
-				CASE
-					WHEN COALESCE(wm.sender_type, 0) = 0 THEN COALESCE(sender.avatar, '')
-					ELSE COALESCE(target_employee.avatar, target_contact.avatar, '')
-				END AS sender_avatar,
-				CASE WHEN COALESCE(wm.sender_type, 0) = 0 THEN 1 ELSE 0 END AS is_current_user,
-				COALESCE(target_employee.name, target_contact.name, target_room.name, '') AS target_name,
-				COALESCE(target_employee.alias, '', '') AS target_alias,
-				COALESCE(target_employee.avatar, target_contact.avatar, '') AS target_avatar
-			FROM `+table+` wm
-			LEFT JOIN mc_work_employee sender ON sender.id = wm.work_employee_id AND sender.deleted_at IS NULL
-			LEFT JOIN mc_work_employee target_employee ON wm.to_user_type = 0 AND target_employee.id = wm.to_user_id AND target_employee.deleted_at IS NULL
-			LEFT JOIN mc_work_contact target_contact ON wm.to_user_type = 1 AND target_contact.id = wm.to_user_id AND target_contact.deleted_at IS NULL
-			LEFT JOIN mc_work_room target_room ON wm.to_user_type = 2 AND target_room.id = wm.to_user_id AND target_room.deleted_at IS NULL
-			WHERE wm.corp_id = ? AND wm.deleted_at IS NULL
-		`)
+		selects = append(selects, workMessageTableSQL(corpID, index))
 		args = append(args, corpID)
 	}
 	return strings.Join(selects, " UNION ALL "), args
+}
+
+func workMessageFilteredUnionSQL(filter dashboard.WorkMessageUserFilter) (string, []any) {
+	where, filterArgs := workMessageUserBaseWhere(filter, "wm.")
+	selects := make([]string, 0, dashboard.WorkMessageArchiveMessageTableCount)
+	args := make([]any, 0, dashboard.WorkMessageArchiveMessageTableCount*(len(filterArgs)+1))
+	for index := 1; index <= dashboard.WorkMessageArchiveMessageTableCount; index++ {
+		selects = append(selects, workMessageTableSQLWithWhere(filter.CorpID, index, where))
+		args = append(args, filter.CorpID)
+		args = append(args, filterArgs...)
+	}
+	return strings.Join(selects, " UNION ALL "), args
+}
+
+func workMessageTableSQL(_ int, index int) string {
+	return workMessageTableSQLWithWhere(0, index, "")
+}
+
+func workMessageTableSQLWithWhere(_ int, index int, where string) string {
+	table := fmt.Sprintf("mc_work_message_%d", index)
+	extraWhere := ""
+	if strings.TrimSpace(where) != "" && strings.TrimSpace(where) != "1 = 1" {
+		extraWhere = " AND (" + where + ")"
+	}
+	return `
+		SELECT
+			wm.id,
+			` + strconv.Itoa(index) + ` AS table_index,
+			COALESCE(wm.seq, 0) AS seq,
+			COALESCE(wm.msgid, '') AS msgid,
+			COALESCE(wm.corp_id, 0) AS corp_id,
+			COALESCE(wm.work_employee_id, 0) AS work_employee_id,
+			COALESCE(wm.to_user_type, 0) AS to_user_type,
+			COALESCE(wm.to_user_id, 0) AS to_user_id,
+			COALESCE(wm.action, 0) AS action,
+			COALESCE(wm.msg_type, wm.type, 100) AS msg_type,
+			COALESCE(CAST(wm.content AS CHAR), '') AS content_raw,
+			COALESCE(wm.content_text, '') AS content_text,
+			wm.msg_data_time,
+			COALESCE(sender.name, '') AS employee_name,
+			COALESCE(sender.avatar, '') AS employee_avatar,
+			CASE
+				WHEN COALESCE(wm.sender_type, 0) = 0 THEN COALESCE(sender.name, '')
+				WHEN COALESCE(wm.to_user_type, 0) = 2 THEN '群成员'
+				ELSE COALESCE(target_employee.name, target_contact.name, target_room.name, '')
+			END AS sender_name,
+			CASE
+				WHEN COALESCE(wm.sender_type, 0) = 0 THEN COALESCE(sender.avatar, '')
+				ELSE COALESCE(target_employee.avatar, target_contact.avatar, '')
+			END AS sender_avatar,
+			CASE WHEN COALESCE(wm.sender_type, 0) = 0 THEN 1 ELSE 0 END AS is_current_user,
+			COALESCE(target_employee.name, target_contact.name, target_room.name, '') AS target_name,
+			COALESCE(target_employee.alias, '', '') AS target_alias,
+			COALESCE(target_employee.avatar, target_contact.avatar, '') AS target_avatar
+		FROM ` + table + ` wm
+		LEFT JOIN mc_work_employee sender ON sender.id = wm.work_employee_id AND sender.corp_id = wm.corp_id AND sender.deleted_at IS NULL
+		LEFT JOIN mc_work_employee target_employee ON wm.to_user_type = 0 AND target_employee.id = wm.to_user_id AND target_employee.corp_id = wm.corp_id AND target_employee.deleted_at IS NULL
+		LEFT JOIN mc_work_contact target_contact ON wm.to_user_type = 1 AND target_contact.id = wm.to_user_id AND target_contact.corp_id = wm.corp_id AND target_contact.deleted_at IS NULL
+		LEFT JOIN mc_work_room target_room ON wm.to_user_type = 2 AND target_room.id = wm.to_user_id AND target_room.corp_id = wm.corp_id AND target_room.deleted_at IS NULL
+		WHERE wm.corp_id = ? AND wm.deleted_at IS NULL` + extraWhere + `
+	`
 }
 
 func scanWorkMessageToUserRow(rows *sql.Rows) (dashboard.WorkMessageToUser, error) {
 	var item dashboard.WorkMessageToUser
 	var msgDataTime sql.NullTime
 	var employeeName, employeeAvatar, name, alias, avatar, content sql.NullString
-	err := rows.Scan(&item.WorkEmployeeID, &employeeName, &employeeAvatar, &item.ToUserType, &item.ToUserID, &name, &alias, &avatar, &content, &msgDataTime)
+	err := rows.Scan(&item.ID, &item.TableIndex, &item.Seq, &item.MsgID,
+		&item.WorkEmployeeID, &employeeName, &employeeAvatar, &item.ToUserType, &item.ToUserID,
+		&name, &alias, &avatar, &content, &msgDataTime)
 	if err != nil {
 		return dashboard.WorkMessageToUser{}, err
 	}
@@ -2240,10 +2315,14 @@ func scanWorkMessageToUserRow(rows *sql.Rows) (dashboard.WorkMessageToUser, erro
 }
 
 func scanWorkMessageRow(rows *sql.Rows) (dashboard.WorkMessageItem, error) {
+	return scanWorkMessage(rows)
+}
+
+func scanWorkMessage(scanner rowScanner) (dashboard.WorkMessageItem, error) {
 	var item dashboard.WorkMessageItem
 	var msgDataTime sql.NullTime
 	var employeeName, employeeAvatar, targetName, targetAvatar, name, avatar, content sql.NullString
-	err := rows.Scan(&item.ID, &item.TableIndex, &item.Seq, &item.MsgID,
+	err := scanner.Scan(&item.ID, &item.TableIndex, &item.Seq, &item.MsgID,
 		&item.WorkEmployeeID, &employeeName, &employeeAvatar,
 		&item.ToUserType, &item.ToUserID, &targetName, &targetAvatar,
 		&item.Action, &name, &avatar, &item.IsCurrentUser, &item.Type, &content, &msgDataTime)
@@ -2262,45 +2341,99 @@ func scanWorkMessageRow(rows *sql.Rows) (dashboard.WorkMessageItem, error) {
 }
 
 func workMessageUserWhere(filter dashboard.WorkMessageUserFilter) (string, []any) {
+	baseWhere, args := workMessageUserBaseWhere(filter, "")
+	if baseWhere == "1 = 0" {
+		return baseWhere, args
+	}
+	where := make([]string, 0, 2)
+	if baseWhere != "1 = 1" {
+		where = append(where, baseWhere)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		where = append(where, `(employee_name LIKE ? ESCAPE '\\' OR sender_name LIKE ? ESCAPE '\\' OR target_name LIKE ? ESCAPE '\\' OR content_text LIKE ? ESCAPE '\\')`)
+		like := workMessageLikePattern(keyword)
+		args = append(args, like, like, like, like)
+	}
+	if len(where) == 0 {
+		return "1 = 1", args
+	}
+	return strings.Join(where, " AND "), args
+}
+
+func workMessageUserBaseWhere(filter dashboard.WorkMessageUserFilter, prefix string) (string, []any) {
 	if filter.RestrictEmployeeIDs && len(uniquePositiveInts(filter.EmployeeIDs)) == 0 {
 		return "1 = 0", nil
 	}
-	where := make([]string, 0, 8)
-	args := make([]any, 0, 12)
+	column := func(name string) string { return prefix + name }
+	where := make([]string, 0, 7)
+	args := make([]any, 0, 8)
 	if !filter.AllowAllEmployees || filter.WorkEmployeeID > 0 {
-		where = append(where, "work_employee_id = ?")
+		where = append(where, column("work_employee_id")+" = ?")
 		args = append(args, filter.WorkEmployeeID)
 	}
 	if filter.ToUserType >= 0 {
-		where = append(where, "to_user_type = ?")
+		where = append(where, column("to_user_type")+" = ?")
 		args = append(args, filter.ToUserType)
 	}
 	if filter.ToUserID > 0 {
-		where = append(where, "to_user_id = ?")
+		where = append(where, column("to_user_id")+" = ?")
 		args = append(args, filter.ToUserID)
 	}
-	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
-		where = append(where, "(employee_name LIKE ? OR sender_name LIKE ? OR target_name LIKE ? OR content_text LIKE ?)")
-		like := "%" + keyword + "%"
-		args = append(args, like, like, like, like)
-	}
 	if filter.DateTimeStart != "" {
-		where = append(where, "msg_data_time >= ?")
+		where = append(where, column("msg_data_time")+" >= ?")
 		args = append(args, filter.DateTimeStart)
 	}
 	if filter.DateTimeEnd != "" {
-		where = append(where, "msg_data_time <= ?")
+		where = append(where, column("msg_data_time")+" < ?")
 		args = append(args, filter.DateTimeEnd)
 	}
 	if filter.RestrictEmployeeIDs {
 		ids := uniquePositiveInts(filter.EmployeeIDs)
-		where = append(where, "work_employee_id IN ("+placeholders(len(ids))+")")
+		where = append(where, column("work_employee_id")+" IN ("+placeholders(len(ids))+")")
 		args = append(args, intsToAny(ids)...)
 	}
 	if len(where) == 0 {
 		return "1 = 1", args
 	}
 	return strings.Join(where, " AND "), args
+}
+
+func workMessageLikePattern(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	value = strings.ReplaceAll(value, `_`, `\_`)
+	return "%" + value + "%"
+}
+
+func workMessageArchiveSource(corpID int, archiveMessageID string) (string, []any, string, []any, bool) {
+	archiveMessageID = strings.TrimSpace(archiveMessageID)
+	if strings.HasPrefix(archiveMessageID, "msg:") {
+		msgID := strings.TrimSpace(strings.TrimPrefix(archiveMessageID, "msg:"))
+		if msgID == "" {
+			return "", nil, "", nil, false
+		}
+		sourceSQL, sourceArgs := workMessageUnionSQL(corpID)
+		return sourceSQL, sourceArgs, "msgid = ?", []any{msgID}, true
+	}
+	if strings.HasPrefix(archiveMessageID, "seq:") {
+		seq, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(archiveMessageID, "seq:")), 10, 64)
+		if err != nil || seq <= 0 {
+			return "", nil, "", nil, false
+		}
+		sourceSQL, sourceArgs := workMessageUnionSQL(corpID)
+		return sourceSQL, sourceArgs, "seq = ?", []any{seq}, true
+	}
+	parts := strings.Split(archiveMessageID, ":")
+	if len(parts) != 3 || parts[0] != "table" {
+		return "", nil, "", nil, false
+	}
+	tableIndex, tableErr := strconv.Atoi(parts[1])
+	id, idErr := strconv.Atoi(parts[2])
+	if tableErr != nil || idErr != nil || tableIndex < 1 || tableIndex > 10 || id <= 0 {
+		return "", nil, "", nil, false
+	}
+	return workMessageTableSQL(corpID, tableIndex), []any{corpID}, "id = ?", []any{id}, true
 }
 
 func workMessageConversationGrouping() (string, string) {

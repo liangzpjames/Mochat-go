@@ -160,6 +160,10 @@ type WorkMessageUserFilter struct {
 }
 
 type WorkMessageToUser struct {
+	ID             int
+	TableIndex     int
+	Seq            int64
+	MsgID          string
 	WorkEmployeeID int
 	EmployeeName   string
 	EmployeeAvatar string
@@ -192,6 +196,13 @@ type WorkMessageFilter struct {
 	Page           int
 	PerPage        int
 	Latest         bool
+}
+
+type WorkMessageArchiveFilter struct {
+	CorpID              int
+	ArchiveMessageID    string
+	RestrictEmployeeIDs bool
+	EmployeeIDs         []int
 }
 
 type WorkMessageItem struct {
@@ -271,6 +282,8 @@ type AutoTagStore interface {
 	WorkMessageFromUsers(ctx context.Context, corpID int, name string, page int, perPage int) ([]WorkMessageFromUser, error)
 	WorkMessageToUsers(ctx context.Context, filter WorkMessageUserFilter) (WorkMessageToUserPage, error)
 	WorkMessagePage(ctx context.Context, filter WorkMessageFilter) (WorkMessagePage, error)
+	WorkMessageArchiveAuthorized(ctx context.Context, tenantID int, corpID int) (bool, error)
+	WorkMessageByArchiveID(ctx context.Context, filter WorkMessageArchiveFilter) (WorkMessageItem, bool, error)
 	WorkMessageConfigByCorp(ctx context.Context, corpID int) (WorkMessageConfigItem, bool, error)
 	WorkMessageConfigPage(ctx context.Context, corpID int, name string, page int, perPage int) (WorkMessageConfigPage, error)
 	UpsertWorkMessageCorpConfig(ctx context.Context, corpID int, values WorkMessageConfigItem) (int, error)
@@ -495,7 +508,7 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/toUsers#get")
+	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/toUsers#get")
 	if !ok {
 		return
 	}
@@ -504,7 +517,7 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	global := r.URL.Query().Get("view") == "global"
-	if global && !workMessageRequestedCorpAllowed(w, r, corpID) {
+	if global && !h.workMessageArchiveAllowed(w, r, user.TenantID, corpID) {
 		return
 	}
 	filter := WorkMessageUserFilter{
@@ -555,7 +568,7 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/index#get")
+	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/index#get")
 	if !ok {
 		return
 	}
@@ -564,7 +577,7 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if r.URL.Path == "/dashboard/workMessage/detail" {
-		h.workMessageGlobalDetail(w, r, corpID, access)
+		h.workMessageGlobalDetail(w, r, user.TenantID, corpID, access)
 		return
 	}
 	page, err := h.store.WorkMessagePage(r.Context(), WorkMessageFilter{
@@ -593,19 +606,26 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 	writeEnvelope(w, http.StatusOK, 200, "success", payload)
 }
 
-func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.Request, corpID int, access AccessContext) {
-	if !workMessageRequestedCorpAllowed(w, r, corpID) {
+func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.Request, tenantID int, corpID int, access AccessContext) {
+	if !h.workMessageArchiveAllowed(w, r, tenantID, corpID) {
 		return
 	}
-	employeeID, toUserType, toUserID, ok := parseWorkMessageConversationID(r.URL.Query().Get("id"))
-	if !ok {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid conversation id", nil)
+	archiveMessageID := strings.TrimSpace(r.URL.Query().Get("id"))
+	if archiveMessageID == "" {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid archive message id", nil)
 		return
 	}
-	if access.DataPermission != DataPermissionAll && !containsInt(access.DeptEmployeeIDs, employeeID) {
+	archiveFilter := workMessageArchiveFilter(corpID, archiveMessageID, access)
+	anchor, found, err := h.store.WorkMessageByArchiveID(r.Context(), archiveFilter)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !found || (archiveFilter.RestrictEmployeeIDs && !containsInt(archiveFilter.EmployeeIDs, anchor.WorkEmployeeID)) {
 		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "conversation not found", nil)
 		return
 	}
+	employeeID, toUserType, toUserID := anchor.WorkEmployeeID, anchor.ToUserType, anchor.ToUserID
 	page, err := h.store.WorkMessagePage(r.Context(), WorkMessageFilter{
 		CorpID:         corpID,
 		WorkEmployeeID: employeeID,
@@ -638,7 +658,7 @@ func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.
 		})
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
-		"id":           workMessageConversationID(employeeID, toUserType, toUserID),
+		"id":           archiveMessageID,
 		"employeeId":   employeeID,
 		"employeeName": first.EmployeeName,
 		"targetType":   workMessageTargetType(toUserType),
@@ -652,20 +672,11 @@ func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.
 }
 
 func workMessageStableMessageID(item WorkMessageItem) string {
-	if strings.TrimSpace(item.MsgID) != "" {
-		return "msg:" + item.MsgID
-	}
-	if item.Seq > 0 {
-		return fmt.Sprintf("seq:%d", item.Seq)
-	}
-	if item.TableIndex > 0 {
-		return fmt.Sprintf("table:%d:%d", item.TableIndex, item.ID)
-	}
-	return fmt.Sprintf("message:%d", item.ID)
+	return workMessageArchiveID(item.MsgID, item.Seq, item.TableIndex, item.ID)
 }
 
 func workMessageGlobalFilter(w http.ResponseWriter, r *http.Request, corpID int, access AccessContext) (WorkMessageUserFilter, bool) {
-	employeeID, ok := workMessageStrictPositiveQueryInt(w, r, "employeeId", 0)
+	requestedEmployeeIDs, ok := workMessageEmployeeIDs(w, r)
 	if !ok {
 		return WorkMessageUserFilter{}, false
 	}
@@ -698,7 +709,6 @@ func workMessageGlobalFilter(w http.ResponseWriter, r *http.Request, corpID int,
 	}
 	filter := WorkMessageUserFilter{
 		CorpID:            corpID,
-		WorkEmployeeID:    employeeID,
 		ToUserType:        -1,
 		Keyword:           strings.TrimSpace(r.URL.Query().Get("keyword")),
 		DateTimeStart:     start,
@@ -706,6 +716,19 @@ func workMessageGlobalFilter(w http.ResponseWriter, r *http.Request, corpID int,
 		AllowAllEmployees: true,
 		Page:              page,
 		PerPage:           pageSize,
+	}
+	conversationType := strings.TrimSpace(r.URL.Query().Get("conversationType"))
+	switch conversationType {
+	case "":
+	case "employee":
+		filter.ToUserType = 0
+	case "customer":
+		filter.ToUserType = 1
+	case "room":
+		filter.ToUserType = 2
+	default:
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid conversationType", nil)
+		return WorkMessageUserFilter{}, false
 	}
 	if customerID > 0 {
 		filter.ToUserType = 1
@@ -715,11 +738,109 @@ func workMessageGlobalFilter(w http.ResponseWriter, r *http.Request, corpID int,
 		filter.ToUserType = 2
 		filter.ToUserID = roomID
 	}
-	if access.DataPermission != DataPermissionAll {
+	if access.DataPermission == DataPermissionAll {
+		if len(requestedEmployeeIDs) > 0 {
+			filter.RestrictEmployeeIDs = true
+			filter.EmployeeIDs = requestedEmployeeIDs
+		}
+	} else {
 		filter.RestrictEmployeeIDs = true
-		filter.EmployeeIDs = append([]int{}, access.DeptEmployeeIDs...)
+		allowed := workMessageUniquePositiveInts(access.DeptEmployeeIDs)
+		if len(requestedEmployeeIDs) == 0 {
+			filter.EmployeeIDs = allowed
+		} else {
+			filter.EmployeeIDs = workMessageEmployeeIntersection(requestedEmployeeIDs, allowed)
+		}
 	}
 	return filter, true
+}
+
+func (h *AutoTagHandler) workMessageArchiveAllowed(w http.ResponseWriter, r *http.Request, tenantID int, corpID int) bool {
+	allowed, err := h.store.WorkMessageArchiveAuthorized(r.Context(), tenantID, corpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return false
+	}
+	if !allowed {
+		writeEnvelope(w, http.StatusForbidden, 40301, "archive not authorized", nil)
+		return false
+	}
+	return true
+}
+
+func workMessageArchiveFilter(corpID int, archiveMessageID string, access AccessContext) WorkMessageArchiveFilter {
+	filter := WorkMessageArchiveFilter{CorpID: corpID, ArchiveMessageID: archiveMessageID}
+	if access.DataPermission != DataPermissionAll {
+		filter.RestrictEmployeeIDs = true
+		filter.EmployeeIDs = workMessageUniquePositiveInts(access.DeptEmployeeIDs)
+	}
+	return filter
+}
+
+func workMessageArchiveID(msgID string, seq int64, tableIndex int, id int) string {
+	if strings.TrimSpace(msgID) != "" {
+		return "msg:" + msgID
+	}
+	if seq > 0 {
+		return fmt.Sprintf("seq:%d", seq)
+	}
+	if tableIndex > 0 && id > 0 {
+		return fmt.Sprintf("table:%d:%d", tableIndex, id)
+	}
+	return ""
+}
+
+func workMessageEmployeeIDs(w http.ResponseWriter, r *http.Request) ([]int, bool) {
+	rawValues := append([]string{}, r.URL.Query()["employeeIds"]...)
+	if len(rawValues) == 0 && r.URL.Query().Has("employeeId") {
+		rawValues = append(rawValues, r.URL.Query().Get("employeeId"))
+	}
+	ids := make([]int, 0, len(rawValues))
+	for _, rawValue := range rawValues {
+		for _, raw := range strings.Split(rawValue, ",") {
+			raw = strings.TrimSpace(raw)
+			if raw == "" {
+				continue
+			}
+			value, err := strconv.Atoi(raw)
+			if err != nil || value <= 0 {
+				writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid employeeIds", nil)
+				return nil, false
+			}
+			ids = append(ids, value)
+		}
+	}
+	return workMessageUniquePositiveInts(ids), true
+}
+
+func workMessageUniquePositiveInts(values []int) []int {
+	result := make([]int, 0, len(values))
+	seen := make(map[int]struct{}, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func workMessageEmployeeIntersection(requested []int, allowed []int) []int {
+	allowedSet := make(map[int]struct{}, len(allowed))
+	for _, value := range allowed {
+		allowedSet[value] = struct{}{}
+	}
+	result := make([]int, 0, len(requested))
+	for _, value := range requested {
+		if _, ok := allowedSet[value]; ok {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func workMessageStrictPositiveQueryInt(w http.ResponseWriter, r *http.Request, name string, fallback int) (int, bool) {
@@ -737,13 +858,19 @@ func workMessageStrictPositiveQueryInt(w http.ResponseWriter, r *http.Request, n
 }
 
 func workMessageGlobalDateRange(w http.ResponseWriter, r *http.Request) (string, string, bool) {
-	from := strings.TrimSpace(r.URL.Query().Get("from"))
-	to := strings.TrimSpace(r.URL.Query().Get("to"))
+	from := strings.TrimSpace(r.URL.Query().Get("startAt"))
+	to := strings.TrimSpace(r.URL.Query().Get("endAt"))
+	if from == "" {
+		from = strings.TrimSpace(r.URL.Query().Get("from"))
+	}
+	if to == "" {
+		to = strings.TrimSpace(r.URL.Query().Get("to"))
+	}
 	if from == "" && to == "" {
 		return "", "", true
 	}
 	if from == "" || to == "" {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "from and to are required together", nil)
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "startAt and endAt are required together", nil)
 		return "", "", false
 	}
 	fromDate, fromErr := time.Parse("2006-01-02", from)
@@ -752,21 +879,7 @@ func workMessageGlobalDateRange(w http.ResponseWriter, r *http.Request) (string,
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid date range", nil)
 		return "", "", false
 	}
-	return from + " 00:00:00", to + " 23:59:59", true
-}
-
-func workMessageRequestedCorpAllowed(w http.ResponseWriter, r *http.Request, corpID int) bool {
-	raw := strings.TrimSpace(r.URL.Query().Get("corpId"))
-	requested, err := strconv.Atoi(raw)
-	if raw == "" || err != nil || requested <= 0 {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid corpId", nil)
-		return false
-	}
-	if requested != corpID {
-		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "forbidden", nil)
-		return false
-	}
-	return true
+	return fromDate.Format("2006-01-02") + " 00:00:00", toDate.AddDate(0, 0, 1).Format("2006-01-02") + " 00:00:00", true
 }
 
 func parseWorkMessageConversationID(raw string) (int, int, int, bool) {
@@ -810,7 +923,7 @@ func workMessageDirection(isCurrentUser int) string {
 
 func workMessageGlobalConversationPayload(item WorkMessageToUser) map[string]any {
 	return map[string]any{
-		"id":             workMessageConversationID(item.WorkEmployeeID, item.ToUserType, item.ToUserID),
+		"id":             workMessageArchiveID(item.MsgID, item.Seq, item.TableIndex, item.ID),
 		"employeeId":     item.WorkEmployeeID,
 		"employeeName":   item.EmployeeName,
 		"employeeAvatar": item.EmployeeAvatar,
