@@ -49,6 +49,10 @@ describe('Dashboard independent scroll layout', () => {
     expect(stylesheet).toContain('.dashboard-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }');
   });
 
+  it('does not let overview-specific filters override the shared 12px gap', () => {
+    expect(declarationBlock('.dashboard-overview-filters')).not.toContain('gap: 10px');
+  });
+
   it('uses the shared surface treatment for PageState', () => {
     expect(declarationBlock('.page-state')).toContain('border-radius: 12px');
     expect(declarationBlock('.page-state-retry')).toContain('border-radius: 8px');

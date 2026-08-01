@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
-import { PageState } from '../../components/page-state/page-state';
+import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { SensitiveWordApi } from './sensitive-word-api';
 
 export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
@@ -17,7 +17,8 @@ export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
   const canAdd = access.allowedActions.has('/ai-insight/v2/sensitive-word@add');
 
   if (words.isPending || groups.isPending) return <PageState state="loading" />;
-  if (words.isError || groups.isError) return <PageState state="error" onRetry={() => { void words.refetch(); void groups.refetch(); }} />;
+  if (words.isError || groups.isError) return <PageState state={pageStateForError(words.error ?? groups.error)} onRetry={() => { void words.refetch(); void groups.refetch(); }} />;
+  if (words.data.items.length === 0) return <PageState state="empty" />;
 
   return (
     <section className="sensitive-word-page">

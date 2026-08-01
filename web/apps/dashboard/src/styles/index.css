@@ -759,7 +759,7 @@ body {
 .dashboard-overview-eyebrow { color: #536bf4 !important; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .dashboard-overview-header h1 { color: #293042; font-size: 1.55rem; margin: 5px 0 8px; }
 .dashboard-overview-header p { color: #737b8c; margin: 0; }
-.dashboard-overview-filters { align-items: flex-end; display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.dashboard-overview-filters { align-items: flex-end; display: flex; flex-wrap: wrap; justify-content: flex-end; }
 .dashboard-overview-filters label { color: #737b8c; display: grid; font-size: .78rem; gap: 6px; }
 .dashboard-overview-filters input { background: #f7f8fc; border: 1px solid #e3e7f0; border-radius: 8px; color: #40485a; font: inherit; padding: 8px 10px; }
 .dashboard-overview-filters button, .dashboard-overview-state button { background: #536bf4; border: 1px solid #536bf4; border-radius: 8px; color: #fff; cursor: pointer; font: inherit; padding: 9px 15px; }

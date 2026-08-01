@@ -9,6 +9,23 @@ export type PageStateKind =
   | 'invalid-transition'
   | 'error';
 
+type ErrorWithStatus = { status: number };
+
+function hasNumericStatus(error: unknown): error is ErrorWithStatus {
+  return typeof error === 'object'
+    && error !== null
+    && 'status' in error
+    && typeof error.status === 'number';
+}
+
+export function pageStateForError(error: unknown): PageStateKind {
+  if (hasNumericStatus(error)) {
+    if (error.status === 403) return 'forbidden';
+    if (error.status === 409) return 'conflict';
+  }
+  return 'error';
+}
+
 const stateCopy: Record<PageStateKind, { title: string; description: string }> = {
   loading: { title: '正在加载', description: '请稍候，正在读取最新数据。' },
   empty: { title: '暂无数据', description: '当前条件下还没有可展示的记录。' },

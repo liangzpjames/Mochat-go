@@ -19,6 +19,26 @@
 - `pnpm --filter @mochat/dashboard build` 通过。
 - `git diff --check` 通过。
 
+## 第二轮审查修复
+
+- 在 `PageState` 作用域新增最小的类型安全状态解析：仅当未知错误对象具有数值 `status` 时读取该字段，将 `403` 映射为 `forbidden`、`409` 映射为 `conflict`，其余错误保持 `error`。未修改 API 请求或后端。
+- 敏感词、联系人、线索、商机、公海和标签六页：成功返回空列表统一改为 `PageState state="empty"`；`403` 查询失败统一改为 `PageState state="forbidden"`，既有查询重试保留。
+- 商机赢单与公海领取的 `409` 冲突改由 `PageState state="conflict"` 呈现，仍显示原业务文案“机会状态冲突，请刷新后重试”和“领取冲突，请刷新后重试。”。
+- 移除 overview 专用 `.dashboard-overview-filters` 的 `gap: 10px`，避免其覆盖共享 `.dashboard-filter-bar` 的 12px 间距。
+
+## 第二轮 TDD 与验证
+
+- RED：先补共享状态解析、六页 empty/403、商机/公海 409 和 CSS 级联测试；聚焦 Vitest 按预期失败，暴露空表、通用错误、普通冲突告警、缺少解析器及 `gap: 10px` 覆盖。
+- GREEN：最小实现后，聚焦命令通过：8 个测试文件、31 项测试。
+- `pnpm --filter @mochat/dashboard typecheck` 通过。
+- `pnpm --filter @mochat/dashboard test` 通过：55 个测试文件、323 项测试，耗时 121.14 秒。
+- `pnpm --filter @mochat/dashboard build` 通过。
+- `git diff --check` 通过。
+
+## 第二轮提交范围
+
+仅提交本轮 Dashboard 源码、测试和本报告；未暂存或提交 acceptance 文档及 Phase 3.2 计划文档的既有修改。
+
 ## 提交范围
 
 仅包含 Task 2 的 Dashboard 源码、测试和本报告；未包含 acceptance 文档或 Phase 3.2 计划文档的既有未提交修改。

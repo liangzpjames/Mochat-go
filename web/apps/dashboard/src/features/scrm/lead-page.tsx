@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
-import { PageState } from '../../components/page-state/page-state';
+import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { LeadApi } from './lead-api';
 
 export function LeadPage({ api }: { api: LeadApi }) {
@@ -15,7 +15,8 @@ export function LeadPage({ api }: { api: LeadApi }) {
   const canAdd = access.allowedActions.has('/customer/clue/default@add');
 
   if (leads.isPending) return <PageState state="loading" />;
-  if (leads.isError) return <PageState state="error" onRetry={() => void leads.refetch()} />;
+  if (leads.isError) return <PageState state={pageStateForError(leads.error)} onRetry={() => void leads.refetch()} />;
+  if (leads.data.items.length === 0) return <PageState state="empty" />;
   return (
     <section className="scrm-lead-page">
       <header className="dashboard-page-header"><h1>线索池</h1><p>管理企业微信来源的客户线索，并在确认后进入联系人生命周期。</p></header>

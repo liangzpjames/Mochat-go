@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { PageState } from './page-state';
+import { pageStateForError, PageState } from './page-state';
 
 describe('PageState', () => {
   afterEach(cleanup);
@@ -43,5 +43,11 @@ describe('PageState', () => {
 
     expect(screen.getByText('业务特有提示')).toBeTruthy();
     expect(screen.queryByText('加载失败')).toBeNull();
+  });
+
+  it('maps typed and status-shaped HTTP errors to PageState access and conflict states', () => {
+    expect(pageStateForError({ status: 403 })).toBe('forbidden');
+    expect(pageStateForError({ status: 409 })).toBe('conflict');
+    expect(pageStateForError(new Error('offline'))).toBe('error');
   });
 });
