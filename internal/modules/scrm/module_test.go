@@ -85,12 +85,12 @@ func TestRegisterRoutesInstallsAllSCRMRoutes(t *testing.T) {
 		{method: nethttp.MethodGet, pattern: transporthttp.TagsPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.TagsPath},
 		{method: nethttp.MethodPut, pattern: transporthttp.TagsPath + "/{id}"},
-		{method: nethttp.MethodPost, pattern: transporthttp.TagsPath + "/{id}/contacts"},
 		{method: nethttp.MethodGet, pattern: transporthttp.TagGroupsPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.TagGroupsPath},
 		{method: nethttp.MethodPut, pattern: transporthttp.TagGroupsPath + "/{id}"},
 		{method: nethttp.MethodPost, pattern: transporthttp.TagsPath + "/{id}/move"},
 		{method: nethttp.MethodPut, pattern: transporthttp.TagsPath + "/{id}/contacts"},
+		{method: nethttp.MethodGet, pattern: transporthttp.TagsPath + "/{id}/delete-preview"},
 		{method: nethttp.MethodDelete, pattern: transporthttp.TagsPath + "/{id}"},
 	}
 	if len(registrar.routes) != len(want) {
