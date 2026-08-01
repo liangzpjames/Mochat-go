@@ -27,6 +27,8 @@
 
 - `0106_scrm_lead_parity.up.sql` 仅在历史 lead 的 tenant 可唯一映射到一个有效 corp 时回填，零个或多个有效企业会明确 `SIGNAL` 失败，不再写入 `corp_id=0` 后静默隐藏。
 - `0106_scrm_lead_parity.down.sql` 在 DDL 前检查跨 corp 的 `(tenant_id,business_key)` 冲突；存在不可逆冲突时明确 `SIGNAL`，避免中途半回滚。SCRM 线索表来自 0098 增量迁移，因此未把该表重复写入 standalone base schema。
+- 仓库发布证据（2026-08-01 复核）：执行 `git branch -r --contains 34d6489` 与 `git tag --contains 34d6489` 均无输出，说明包含旧版 0106 的 `34d6489` 不在任何远端分支或标签中；当前 Phase3.2 分支仅在本地、尚未集成。
+- 部署前置条件：Phase3.2 首次部署必须以 `f63f55e` 中的修正版 0106 为准，禁止单独部署 `34d6489`。若存在绕过仓库发布流程、由外部环境手工执行旧版 0106 SQL 的情况（不受上述分支/标签证据覆盖），必须先进行人工迁移协调和数据状态核验，不得直接继续自动迁移。
 - 按用户要求未提交本机 `docker-compose` 修改；部署环境必须在启动新代码前执行迁移 runner。
 - 本地数据库的 0001 历史 checksum 与当前仓库不一致，导致 runner 无法自动 apply；本轮仅为隔离集成测试手工应用 0106。此环境问题不属于代码失败。
 
