@@ -62,7 +62,7 @@ func New(dependencies Dependencies) (*Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM customer lifecycle service: %w", err)
 	}
-	assignmentHandler := transporthttp.NewCustomerLifecycleHandler(assignmentService, dependencies.PrincipalResolver)
+	assignmentHandler := transporthttp.NewCustomerLifecycleHandler(assignmentService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
 	opportunityRepository, err := mysql.NewOpportunityRepository(dependencies.DB)
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM opportunity repository: %w", err)
@@ -75,7 +75,7 @@ func New(dependencies Dependencies) (*Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM opportunity service: %w", err)
 	}
-	opportunityHTTP := transporthttp.NewOpportunityHandler(opportunityService, dependencies.PrincipalResolver)
+	opportunityHTTP := transporthttp.NewOpportunityHandler(opportunityService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
 	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP}, nil
 }
 

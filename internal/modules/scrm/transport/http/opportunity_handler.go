@@ -29,8 +29,9 @@ type OpportunityService interface {
 }
 
 type OpportunityHandler struct {
-	service   OpportunityService
-	principal PrincipalResolver
+	service    OpportunityService
+	principal  PrincipalResolver
+	authorizer LeadAuthorizer
 }
 
 type opportunityJSON struct {
@@ -68,8 +69,12 @@ func tagView(item ports.Tag) tagJSON {
 	return tagJSON{ID: item.ID, Name: item.Name, Version: item.Version}
 }
 
-func NewOpportunityHandler(service OpportunityService, principal PrincipalResolver) *OpportunityHandler {
-	return &OpportunityHandler{service: service, principal: principal}
+func NewOpportunityHandler(service OpportunityService, principal PrincipalResolver, authorizer ...LeadAuthorizer) *OpportunityHandler {
+	h := &OpportunityHandler{service: service, principal: principal}
+	if len(authorizer) > 0 {
+		h.authorizer = authorizer[0]
+	}
+	return h
 }
 
 func (h *OpportunityHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +106,9 @@ func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	q.TenantID, q.CorpID = p.TenantID, q.CorpID
 	q.IdempotencyKey = r.Header.Get("Idempotency-Key")
+	if !h.authorize(w, r, p, q.CorpID, contactPermissionEdit) {
+		return
+	}
 	item, err := h.service.CreateOpportunity(r.Context(), q)
 	if err != nil {
 		writeSCRMError(w, err)
@@ -173,7 +181,11 @@ func (h *OpportunityHandler) ListFollowUps(w http.ResponseWriter, r *http.Reques
 		writeError(w, 401, "authentication required")
 		return
 	}
-	items, err := h.service.ListFollowUps(r.Context(), p.TenantID, queryInt(r, "corpId"), pathValue(r, "contacts", "follow-ups"))
+	corpID := queryInt(r, "corpId")
+	if !h.authorize(w, r, p, corpID, contactPermissionView) {
+		return
+	}
+	items, err := h.service.ListFollowUps(r.Context(), p.TenantID, corpID, pathValue(r, "contacts", "follow-ups"))
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -196,6 +208,9 @@ func (h *OpportunityHandler) AppendFollowUp(w http.ResponseWriter, r *http.Reque
 		Content string `json:"content"`
 	}
 	if decodeRequestJSON(w, r, &q) != nil {
+		return
+	}
+	if !h.authorize(w, r, p, q.CorpID, contactPermissionEdit) {
 		return
 	}
 	item, err := h.service.AppendFollowUp(r.Context(), ports.AppendFollowUpCommand{TenantID: p.TenantID, CorpID: q.CorpID, ContactID: pathValue(r, "contacts", "follow-ups"), Content: q.Content, CreatedBy: p.UserID, IdempotencyKey: r.Header.Get("Idempotency-Key")})
@@ -241,11 +256,34 @@ func (h *OpportunityHandler) BindTags(w http.ResponseWriter, r *http.Request) {
 	if decodeRequestJSON(w, r, &q) != nil {
 		return
 	}
+	if !h.authorize(w, r, p, q.CorpID, contactPermissionEdit) {
+		return
+	}
 	if err := h.service.BindTags(r.Context(), p.TenantID, q.CorpID, pathValue(r, "tags", ""), q.ContactIDs, r.Header.Get("Idempotency-Key")); err != nil {
 		writeSCRMError(w, err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"data": map[string]any{"ok": true}})
+}
+
+func (h *OpportunityHandler) authorize(w http.ResponseWriter, r *http.Request, p Principal, corpID int64, permission string) bool {
+	if h.authorizer == nil {
+		return true
+	}
+	if corpID <= 0 {
+		writeError(w, http.StatusUnprocessableEntity, "corpId is required")
+		return false
+	}
+	err := h.authorizer.Authorize(r.Context(), p, corpID, permission)
+	if errors.Is(err, ErrLeadForbidden) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "authorization unavailable")
+		return false
+	}
+	return true
 }
 
 func pathValue(r *http.Request, left, right string) string {

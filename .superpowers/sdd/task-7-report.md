@@ -1,73 +1,38 @@
-# Task 7 report: mandatory local and CI quality gates
+# Phase 3.2 Task 7 实施报告
 
-## Status
+## 状态
 
-Implemented and verified.
+联系人生命周期功能已按 Task7 范围收敛；浏览器证据按约定延后到 Task11，全量回归留控制器执行。
 
-## Changes
+## 完成内容
 
-- Replaced `scripts/audit_architecture_boundaries.sh` with a compatibility wrapper around `go run ./cmd/mochat-architecture -root .`.
-- Reworked the wrapper self-test to prove:
-  - a temporary invalid module tree exits non-zero with the stable `ARCH-DOMAIN-DEPENDENCY` rule ID;
-  - the real repository produces `architecture boundaries passed`;
-  - the compatibility script delegates to the Go CLI with the fixed arguments.
-- Added the mandatory architecture, module, race, full test, and vet sequence to `scripts/dev_check.sh quick` and `scripts/test.sh` without removing existing audits, frontend checks, or builds.
-- Changed the default developer Go image from Alpine to Bookworm because the race detector requires CGO and a C compiler.
-- Added named CI architecture and race gates.
-- Runs the SCRM integration gate in a dedicated MySQL 5.7 Compose project, explicitly verifies migration `0098_scrm_lead_foundation`, and cleans the project with a shell `EXIT` trap.
-- Set the integration DSN to `loc=UTC`; `loc=Local` overflows the protected MySQL maximum-timestamp test in UTC+8 by converting year 9999 to year 10000.
-- Added the backend declaration and verification PR template.
+- `/customer/contact` 改为真实 SCRM API，支持关键词、负责人、标签、分配状态、游标分页，并将筛选、分页和当前详情同步到 URL。
+- 联系人详情统一聚合资料、负责人/协作人、标签、企微好友、商机摘要和按创建时间只读展示的跟进时间线。
+- 页面提供负责人/协作人编辑、标签关联、追加跟进、进入公海和创建商机入口；加载、空数据、403、404、409 和重试使用统一 `PageState`。
+- 新增联系人列表与详情路由；所有查询强制使用认证 tenant 与请求 corp，RBAC 在列表、详情和联系人生命周期动作前执行。
+- MariaDB 查询按 tenant/corp 隔离；负责人和协作人必须属于当前 tenant/corp 的有效员工；分配操作保留 version 与持久化幂等键合同。
+- 新增可逆 `0107_scrm_contact_lifecycle_idempotency` 迁移。
 
-## TDD evidence
+## TDD 证据
 
-- RED: the new wrapper test exited 1 against the old shell implementation with `architecture audit did not delegate to the Go CLI`.
-- GREEN: the same Linux container test printed `architecture boundary wrapper self-test passed`.
-- RED: the gate contract check reported both local scripts missing the ordered core commands, all three named CI gates missing, migration 0098 unverified, and the PR template missing.
-- GREEN: the same contract check printed `Task 7 gate contract passed`.
-- RED: `golang:1.26-alpine` failed `go test -race ./internal/modules/...` with `-race requires cgo`.
-- GREEN: `golang:1.26-bookworm` passed the module race suite.
-- RED: the real migrated MySQL integration run failed at the maximum timestamp with year 10000 when the DSN used `loc=Local`.
-- GREEN: the same migrated MySQL 5.7 integration suite passed with `loc=UTC`.
+- RED：应用层联系人组合筛选与聚合详情测试最初因类型和方法不存在而编译失败。
+- GREEN：新增类型化 repository/service 后，两项测试通过。
+- RED：HTTP 联系人路由、RBAC、403/404 合同测试最初因路由和处理方法不存在而编译失败。
+- GREEN：新增列表/详情处理器与鉴权后测试通过。
+- RED：前端 URL 恢复、详情和生命周期交互测试最初因页面仍是简单两列表格而失败。
+- GREEN：实现详情闭环后，4 个目标测试文件共 7 项测试通过。
 
-## Verification
+## 已执行验证
 
-- Linux Docker shell parsing for the modified shell entry points.
-- Windows and Linux `go run ./cmd/mochat-architecture -root .`.
-- Linux Docker:
-  - `go test ./internal/app/modules/... ./internal/modules/...`
-  - `go test -race ./internal/modules/...`
-  - `go test ./...`
-  - `go vet ./...`
-  - wrapper self-test
-  - command builds
-- MySQL 5.7 Compose database:
-  - migration apply completed;
-  - migration 0098 row count was exactly 1;
-  - an uncached `go test -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql` passed.
-- Workflow YAML parsed successfully and the enforced order is architecture, race, MySQL migration smoke, then the atomic SCRM database/migration/integration lifecycle.
-- Local quick paths contain no tagged integration command.
+- `go test ./internal/modules/scrm/... -run 'TestCustomerLifecycleService|TestContactHandler|TestRegisterRoutesInstallsAllSCRMRoutes' -count=1`
+- `go test -tags integration ./internal/modules/scrm/adapters/mysql -run '^TestContactLifecycleMariaDBIsolationCombinedFilterAndAggregateDetail$' -count=1 -v`
+- `pnpm exec vitest run src/features/scrm/contact-api.test.ts src/features/scrm/contact-page.test.tsx src/features/scrm/assignment-editor.test.tsx src/features/scrm/follow-up-timeline.test.tsx`
+- `pnpm --filter @mochat/dashboard typecheck`
+- `go test ./internal/migration -run 'TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes|TestContactLifecycleIdempotencyMigrationIsReversible' -count=1`
+- `git diff --check`
 
-## Notes
+## 风险与后续
 
-- The first clean Linux full-test run was interrupted by a `proxy.golang.org` 403 for `github.com/klauspost/compress@v1.18.6`. Re-running with `GOPROXY=https://goproxy.cn,direct` fetched the dependency and the full suite passed; no repository proxy setting was changed.
-
-## Review follow-up
-
-- Added `scripts/test_backend_quality_gate_contract.sh` and wired it into developer quick checks, `scripts/test.sh`, and CI.
-- RED evidence against commit `10ef337` covered:
-  - zero `migrations/**` path filters instead of one under both `push` and `pull_request`;
-  - retained `KEEP_STACK`;
-  - missing failure-safe integration cleanup and dedicated database startup;
-  - missing explicit migration apply;
-  - missing uncached integration command;
-  - missing local and CI contract-test hooks.
-- Removed `KEEP_STACK=1` from the existing MySQL smoke gate, restoring its own cleanup trap on success and failure.
-- Added `migrations/**` and the contract-test script to both workflow path filters.
-- Replaced the cross-step retained database with one atomic SCRM integration step:
-  - registers cleanup before starting Compose;
-  - uses a dedicated project and port;
-  - waits for the MySQL health check;
-  - applies all migrations and asserts 0098;
-  - runs `go test -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql`;
-  - removes the container, volume, and network on every exit path.
-- Runtime verification executed the exact YAML `run` block twice against fresh MySQL 5.7 databases. Both attempts passed, and each left zero Compose containers, proving cleanup and retry behavior.
+- 未执行 Dashboard、Go 全量测试和完整 build；按用户要求由控制器统一复跑。
+- 浏览器真实登录态的 URL 刷新恢复及“追加跟进 → 创建商机 → 进入公海”证据延后 Task11。
+- Task8、Task9、Task10 仍会分别深化商机、公海和标签页面合同；本任务只实现联系人详情中的必要入口。

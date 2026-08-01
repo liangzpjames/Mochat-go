@@ -36,6 +36,12 @@ func RegisterRoutes(registrar RouteRegistrar, handler *LeadHandler) error {
 }
 
 func RegisterCustomerLifecycleRoutes(registrar RouteRegistrar, handler *CustomerLifecycleHandler) error {
+	if err := registrar.Handle(nethttp.MethodGet, ContactsPath, nethttp.HandlerFunc(handler.ListContacts)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodGet, ContactsPath+"/{id}", nethttp.HandlerFunc(handler.GetContact)); err != nil {
+		return err
+	}
 	if err := registrar.Handle(nethttp.MethodGet, AssignmentsPath, nethttp.HandlerFunc(handler.ListPublicPool)); err != nil {
 		return err
 	}
