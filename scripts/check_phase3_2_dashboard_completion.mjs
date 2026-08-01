@@ -260,7 +260,7 @@ export function validateCompletedPageSources(manifest, source = readFileSync(new
   }
   const errors = new Set();
   for (const page of manifest?.pages ?? []) {
-    if (!phase32TargetRoutes.includes(page.path) || page.backend !== 'ready' || page.acceptance !== 'e2e-passed') continue;
+    if (!phase32TargetRoutes.includes(page.path) || page.backend !== 'ready' || !nonBrowserAcceptances.has(page.acceptance)) continue;
     const registrations = pageRegistrationBlocks(source, page.path);
     if (registrations.length === 0) {
       errors.add(`completed page missing frontend registration: ${page.path}`);
@@ -362,6 +362,7 @@ export function validateNonBrowserPhase32Manifest(manifest, functionMatrixMarkdo
   const pagesByPath = new Map((manifest?.pages ?? []).map((page) => [page.path, page]));
   const errors = [
     ...validatePhase32E2ECoverage(e2eSource),
+    ...validateCompletedPageSources(manifest),
     ...unclosedMatrixItems(functionMatrixMarkdown).map((item) => `Phase 3.2 unclosed function matrix item: ${item}`),
   ];
   const incomplete = phase32TargetRoutes.filter((path) => {

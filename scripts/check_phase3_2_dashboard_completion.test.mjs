@@ -304,11 +304,8 @@ test('final gate requires a function matrix instead of accepting its default emp
   );
 });
 
-test('completed-page source gate rejects actual target registrations backed by DemoPage', () => {
-  assert.throws(
-    () => validateFinalPhase32Manifest(completeManifest(), functionMatrix()),
-    /completed page frontend registration uses DemoPage: \/customer\/contact/,
-  );
+test('completed-page source gate accepts the actual eight real registrations', () => {
+  assert.doesNotThrow(() => validateCompletedPageSources(completeManifest()));
 });
 
 test('completed-page source scan rejects PlaceholderPage and demo-fixtures for target routes', () => {

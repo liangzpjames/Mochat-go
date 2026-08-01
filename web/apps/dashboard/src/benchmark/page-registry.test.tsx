@@ -111,7 +111,6 @@ describe('createPageRegistry', () => {
     ['/ai-insight/v2/timeout', '超时预警'],
     ['/ai-insight/session-analysis', '会话分析'],
     ['/acquisition/v2-channel-code', '渠道活码'],
-    ['/customer/contact', '联系人'],
     ['/customer/group', '客户群'],
   ])('registers and renders the documented P1 demo route %s', (path, title) => {
     const pages = createPageRegistry({ manifest: benchmarkManifest, p0Pages: {}, p1Pages: {} });

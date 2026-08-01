@@ -7,7 +7,6 @@ import type { ConversationGlobalApi } from '../features/conversation-global/conv
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
 import {
   channelCodeDemo,
-  contactDemo,
   customerConversationDemo,
   customerGroupDemo,
   groupConversationDemo,
@@ -68,7 +67,6 @@ const benchmarkP1Pages: PageRegistry = {
   '/ai-insight/v2/timeout': <DemoPage config={timeoutWarningDemo} />,
   '/ai-insight/session-analysis': <DemoPage config={sessionAnalysisDemo} />,
   '/acquisition/v2-channel-code': <DemoPage config={channelCodeDemo} />,
-  '/customer/contact': <DemoPage config={contactDemo} />,
   '/customer/group': <DemoPage config={customerGroupDemo} />,
 };
 
