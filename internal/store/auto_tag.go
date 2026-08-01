@@ -2413,16 +2413,21 @@ func workMessageArchiveSource(corpID int, archiveMessageID string) (string, []an
 		if msgID == "" {
 			return "", nil, "", nil, false
 		}
-		sourceSQL, sourceArgs := workMessageUnionSQL(corpID)
-		return sourceSQL, sourceArgs, "msgid = ?", []any{msgID}, true
+		selects := make([]string, 0, dashboard.WorkMessageArchiveMessageTableCount)
+		args := make([]any, 0, dashboard.WorkMessageArchiveMessageTableCount*2)
+		for tableIndex := 1; tableIndex <= dashboard.WorkMessageArchiveMessageTableCount; tableIndex++ {
+			selects = append(selects, workMessageTableSQLWithWhere(corpID, tableIndex, "wm.msgid = ?"))
+			args = append(args, corpID, msgID)
+		}
+		return strings.Join(selects, " UNION ALL "), args, "1 = 1", nil, true
 	}
 	if strings.HasPrefix(archiveMessageID, "seq:") {
 		seq, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(archiveMessageID, "seq:")), 10, 64)
 		if err != nil || seq <= 0 {
 			return "", nil, "", nil, false
 		}
-		sourceSQL, sourceArgs := workMessageUnionSQL(corpID)
-		return sourceSQL, sourceArgs, "seq = ?", []any{seq}, true
+		tableIndex := int((seq-1)%dashboard.WorkMessageArchiveMessageTableCount) + 1
+		return workMessageTableSQLWithWhere(corpID, tableIndex, "wm.seq = ?"), []any{corpID, seq}, "1 = 1", nil, true
 	}
 	parts := strings.Split(archiveMessageID, ":")
 	if len(parts) != 3 || parts[0] != "table" {
@@ -2433,7 +2438,7 @@ func workMessageArchiveSource(corpID int, archiveMessageID string) (string, []an
 	if tableErr != nil || idErr != nil || tableIndex < 1 || tableIndex > 10 || id <= 0 {
 		return "", nil, "", nil, false
 	}
-	return workMessageTableSQL(corpID, tableIndex), []any{corpID}, "id = ?", []any{id}, true
+	return workMessageTableSQLWithWhere(corpID, tableIndex, "wm.id = ?"), []any{corpID, id}, "1 = 1", nil, true
 }
 
 func workMessageConversationGrouping() (string, string) {

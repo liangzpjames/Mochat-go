@@ -443,6 +443,55 @@ func TestWorkMessageGlobalSearchReturnsArchiveUnauthorized(t *testing.T) {
 	}
 }
 
+func TestWorkMessageGlobalListAndDetailUseSameRBACPermissionKey(t *testing.T) {
+	const expectedPermissionKey = "/dashboard/workMessage/toUsers#get"
+	for _, tc := range []struct {
+		name string
+		url  string
+		call func(*AutoTagHandler, http.ResponseWriter, *http.Request)
+	}{
+		{
+			name: "list",
+			url:  "/dashboard/workMessage/toUsers?view=global&page=1&pageSize=20",
+			call: (*AutoTagHandler).WorkMessageToUsers,
+		},
+		{
+			name: "detail",
+			url:  "/dashboard/workMessage/detail?id=msg%3Aarchive-31",
+			call: (*AutoTagHandler).WorkMessageIndex,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeAutoTagStore{
+				user: User{ID: 1, TenantID: 10},
+				archiveMessage: WorkMessageItem{
+					ID: 17, TableIndex: 1, MsgID: "archive-31", WorkEmployeeID: 9, ToUserType: 1, ToUserID: 31,
+				},
+				archiveMessageFound: true,
+				messagePage: WorkMessagePage{Page: 1, PerPage: 200, Total: 1, Items: []WorkMessageItem{{
+					ID: 17, TableIndex: 1, MsgID: "archive-31", WorkEmployeeID: 9, ToUserType: 1, ToUserID: 31,
+				}}},
+			}
+			authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{
+				CorpID: 7, WorkEmployeeID: 9, DataPermission: DataPermissionAll,
+			}}
+			handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
+			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			req.Header.Set("X-Mochat-Go-User-ID", "1")
+			rec := httptest.NewRecorder()
+
+			tc.call(handler, rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if authorizer.permissionKey != expectedPermissionKey {
+				t.Fatalf("permission key = %q, want %q", authorizer.permissionKey, expectedPermissionKey)
+			}
+		})
+	}
+}
+
 func TestWorkMessageGlobalDetailReturnsConversationMessages(t *testing.T) {
 	store := &fakeAutoTagStore{
 		user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1},

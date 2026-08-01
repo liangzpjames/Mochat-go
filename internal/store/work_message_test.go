@@ -176,6 +176,31 @@ func TestWorkMessageFilteredUnionPushesIndexableScopeIntoEveryShard(t *testing.T
 	}
 }
 
+func TestWorkMessageArchiveSourcePushesIdentifiersIntoShardQueries(t *testing.T) {
+	query, args, where, whereArgs, ok := workMessageArchiveSource(7, "msg:archive-42")
+	if !ok || strings.Count(query, "wm.msgid = ?") != 10 || where != "1 = 1" || len(whereArgs) != 0 {
+		t.Fatalf("message source ok=%v where=%q query=%q", ok, where, query)
+	}
+	if len(args) != 20 {
+		t.Fatalf("message args = %#v", args)
+	}
+	for shard := 0; shard < 10; shard++ {
+		if !reflect.DeepEqual(args[shard*2:(shard+1)*2], []any{7, "archive-42"}) {
+			t.Fatalf("message shard %d args = %#v", shard+1, args[shard*2:(shard+1)*2])
+		}
+	}
+
+	query, args, where, whereArgs, ok = workMessageArchiveSource(7, "seq:102")
+	if !ok || !strings.Contains(query, "FROM mc_work_message_2 wm") || strings.Contains(query, "UNION ALL") || !reflect.DeepEqual(args, []any{7, int64(102)}) || where != "1 = 1" || len(whereArgs) != 0 {
+		t.Fatalf("seq source ok=%v args=%#v where=%q query=%q", ok, args, where, query)
+	}
+
+	query, args, where, whereArgs, ok = workMessageArchiveSource(7, "table:3:99")
+	if !ok || !strings.Contains(query, "FROM mc_work_message_3 wm") || !strings.Contains(query, "wm.id = ?") || !reflect.DeepEqual(args, []any{7, 99}) || where != "1 = 1" || len(whereArgs) != 0 {
+		t.Fatalf("table source ok=%v args=%#v where=%q query=%q", ok, args, where, query)
+	}
+}
+
 func TestWorkMessageConversationGroupingKeepsEmployeesSeparate(t *testing.T) {
 	columns, key := workMessageConversationGrouping()
 
@@ -278,10 +303,14 @@ func seedWorkMessageIntegrationFixture(t *testing.T, db *sql.DB) *workMessageInt
 
 	for tableIndex := 1; tableIndex <= 10; tableIndex++ {
 		for index := 0; index < 128; index++ {
-			f.addMessage(t, db, tableIndex, f.corpB,
+			f.addMessage(t, db, tableIndex, f.corpA,
 				fmt.Sprintf("%s-noise-%d-%d", prefix, tableIndex, index),
-				int64(10000+tableIndex*1000+index), f.employeeB1, index%3, 900000+index,
+				int64(10000+tableIndex*1000+index), f.employeeA1, 1, 501,
 				"执行计划噪声", "2026-06-01 00:00:00")
+			f.addMessage(t, db, tableIndex, f.corpB,
+				fmt.Sprintf("%s-foreign-noise-%d-%d", prefix, tableIndex, index),
+				int64(20000+tableIndex*1000+index), f.employeeB1, 1, 501,
+				"执行计划跨企业噪声", "2026-07-02 09:00:00")
 		}
 		if _, err := db.Exec("ANALYZE TABLE mc_work_message_" + strconv.Itoa(tableIndex)); err != nil {
 			t.Fatalf("analyze message table %d: %v", tableIndex, err)
@@ -392,6 +421,7 @@ func assertWorkMessageArchiveLookup(t *testing.T, ctx context.Context, store *My
 
 func assertWorkMessageExplainPlans(t *testing.T, db *sql.DB, f *workMessageIntegrationFixture) {
 	t.Helper()
+	assertWorkMessageRequiredIndexes(t, db)
 	filter := dashboard.WorkMessageUserFilter{
 		CorpID:            f.corpA,
 		AllowAllEmployees: true, ToUserType: 1, Keyword: "报价_100%",
@@ -404,12 +434,71 @@ func assertWorkMessageExplainPlans(t *testing.T, db *sql.DB, f *workMessageInteg
 	if err != nil {
 		t.Fatalf("EXPLAIN work message list: %v", err)
 	}
+	assertWorkMessageExplainRows(t, rows, "list")
+
+	sourceSQL, sourceArgs, idWhere, idArgs, ok := workMessageArchiveSource(f.corpA, "msg:task4-a1-quote")
+	if !ok {
+		t.Fatal("archive source rejected valid message ID")
+	}
+	rows, err = db.Query("EXPLAIN SELECT * FROM ("+sourceSQL+") wm WHERE "+idWhere, append(sourceArgs, idArgs...)...)
+	if err != nil {
+		t.Fatalf("EXPLAIN work message detail: %v", err)
+	}
+	assertWorkMessageExplainRows(t, rows, "detail")
+}
+
+func assertWorkMessageRequiredIndexes(t *testing.T, db *sql.DB) {
+	t.Helper()
+	requiredPrefixes := []string{"corp_id,work_employee_id", "corp_id,msgid", "corp_id,seq"}
+	for tableIndex := 1; tableIndex <= dashboard.WorkMessageArchiveMessageTableCount; tableIndex++ {
+		table := "mc_work_message_" + strconv.Itoa(tableIndex)
+		rows, err := db.Query(`
+			SELECT index_name, GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',')
+			FROM information_schema.statistics
+			WHERE table_schema = DATABASE() AND table_name = ?
+			GROUP BY index_name
+		`, table)
+		if err != nil {
+			t.Fatalf("read indexes for %s: %v", table, err)
+		}
+		indexColumns := make([]string, 0)
+		for rows.Next() {
+			var name string
+			var columns string
+			if err := rows.Scan(&name, &columns); err != nil {
+				rows.Close()
+				t.Fatalf("scan indexes for %s: %v", table, err)
+			}
+			indexColumns = append(indexColumns, columns)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			t.Fatalf("iterate indexes for %s: %v", table, err)
+		}
+		rows.Close()
+		for _, prefix := range requiredPrefixes {
+			found := false
+			for _, columns := range indexColumns {
+				if columns == prefix || strings.HasPrefix(columns, prefix+",") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%s is missing required index prefix %q; indexes=%v", table, prefix, indexColumns)
+			}
+		}
+	}
+}
+
+func assertWorkMessageExplainRows(t *testing.T, rows *sql.Rows, planName string) {
+	t.Helper()
 	defer rows.Close()
 	columns, err := rows.Columns()
 	if err != nil {
 		t.Fatal(err)
 	}
-	tableColumn, typeColumn, keyColumn := -1, -1, -1
+	tableColumn, typeColumn, keyColumn, rowsColumn := -1, -1, -1, -1
 	for index, name := range columns {
 		switch strings.ToLower(name) {
 		case "table":
@@ -418,9 +507,11 @@ func assertWorkMessageExplainPlans(t *testing.T, db *sql.DB, f *workMessageInteg
 			typeColumn = index
 		case "key":
 			keyColumn = index
+		case "rows":
+			rowsColumn = index
 		}
 	}
-	if tableColumn < 0 || typeColumn < 0 || keyColumn < 0 {
+	if tableColumn < 0 || typeColumn < 0 || keyColumn < 0 || rowsColumn < 0 {
 		t.Fatalf("unexpected EXPLAIN columns: %v", columns)
 	}
 	messagePlanRows := 0
@@ -436,13 +527,18 @@ func assertWorkMessageExplainPlans(t *testing.T, db *sql.DB, f *workMessageInteg
 		table := string(values[tableColumn])
 		accessType := string(values[typeColumn])
 		key := string(values[keyColumn])
+		estimatedRows, parseErr := strconv.Atoi(string(values[rowsColumn]))
 		if table != "wm" {
 			continue
 		}
+		if parseErr != nil {
+			t.Fatalf("EXPLAIN %s has invalid row estimate %q", planName, string(values[rowsColumn]))
+		}
 		messagePlanRows++
-		t.Logf("EXPLAIN message source=%d type=%s key=%s", messagePlanRows, accessType, key)
-		if strings.EqualFold(accessType, "ALL") || key == "" {
-			t.Fatalf("unbounded message scan table=%s type=%s key=%s", table, accessType, key)
+		t.Logf("EXPLAIN %s source=%d type=%s key=%s rows=%d", planName, messagePlanRows, accessType, key, estimatedRows)
+		usesFullScan := strings.EqualFold(accessType, "ALL")
+		if estimatedRows > 512 || (!usesFullScan && key == "") {
+			t.Fatalf("unacceptable message scan plan=%s source=%d type=%s key=%s rows=%d", planName, messagePlanRows, accessType, key, estimatedRows)
 		}
 	}
 	if err := rows.Err(); err != nil {

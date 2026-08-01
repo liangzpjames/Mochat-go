@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const workMessageConversationPermissionKey = "/dashboard/workMessage/toUsers#get"
+
 type AutoTagFilter struct {
 	CorpID  int
 	Type    int
@@ -508,7 +510,7 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/toUsers#get")
+	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, workMessageConversationPermissionKey)
 	if !ok {
 		return
 	}
@@ -568,7 +570,7 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/index#get")
+	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, workMessageConversationPermissionKey)
 	if !ok {
 		return
 	}
