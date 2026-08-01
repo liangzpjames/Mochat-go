@@ -449,7 +449,12 @@ func assertWorkMessageExplainPlans(t *testing.T, db *sql.DB, f *workMessageInteg
 
 func assertWorkMessageRequiredIndexes(t *testing.T, db *sql.DB) {
 	t.Helper()
-	requiredPrefixes := []string{"corp_id,work_employee_id", "corp_id,msgid", "corp_id,seq"}
+	requiredPrefixes := []string{
+		"corp_id,work_employee_id",
+		"corp_id,msgid",
+		"corp_id,seq",
+		"corp_id,work_employee_id,deleted_at,to_user_type,msg_data_time,to_user_id,seq",
+	}
 	for tableIndex := 1; tableIndex <= dashboard.WorkMessageArchiveMessageTableCount; tableIndex++ {
 		table := "mc_work_message_" + strconv.Itoa(tableIndex)
 		rows, err := db.Query(`
@@ -536,9 +541,18 @@ func assertWorkMessageExplainRows(t *testing.T, rows *sql.Rows, planName string)
 		}
 		messagePlanRows++
 		t.Logf("EXPLAIN %s source=%d type=%s key=%s rows=%d", planName, messagePlanRows, accessType, key, estimatedRows)
-		usesFullScan := strings.EqualFold(accessType, "ALL")
-		if estimatedRows > 512 || (!usesFullScan && key == "") {
+		if estimatedRows > 512 {
 			t.Fatalf("unacceptable message scan plan=%s source=%d type=%s key=%s rows=%d", planName, messagePlanRows, accessType, key, estimatedRows)
+		}
+		switch planName {
+		case "list":
+			if !strings.EqualFold(accessType, "range") || !strings.HasSuffix(key, "_global_search") {
+				t.Fatalf("list query missed global search index source=%d type=%s key=%s rows=%d", messagePlanRows, accessType, key, estimatedRows)
+			}
+		case "detail":
+			if !strings.EqualFold(accessType, "ref") || !strings.HasSuffix(key, "_corp_msgid") {
+				t.Fatalf("detail query missed stable lookup index source=%d type=%s key=%s rows=%d", messagePlanRows, accessType, key, estimatedRows)
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

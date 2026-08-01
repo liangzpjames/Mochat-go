@@ -337,8 +337,10 @@ func legacyCombinedInitialChecksums(schemaPath, seedPath string) []string {
 		schemaBody + "\n\n" + seedBody,
 		schemaBody + "\n" + seedBody,
 	}
+	const preWorkMessageGlobalIndexSchemaChecksum = "b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9"
 	seen := map[string]bool{}
-	checksums := make([]string, 0, len(variants))
+	checksums := []string{preWorkMessageGlobalIndexSchemaChecksum}
+	seen[preWorkMessageGlobalIndexSchemaChecksum] = true
 	for _, variant := range variants {
 		checksum := checksumBytes([]byte(variant))
 		if seen[checksum] {
