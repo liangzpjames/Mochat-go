@@ -1,0 +1,10 @@
+ALTER TABLE mc_work_message_1 DROP INDEX idx_mc_work_message_1_global_search;
+ALTER TABLE mc_work_message_2 DROP INDEX idx_mc_work_message_2_global_search;
+ALTER TABLE mc_work_message_3 DROP INDEX idx_mc_work_message_3_global_search;
+ALTER TABLE mc_work_message_4 DROP INDEX idx_mc_work_message_4_global_search;
+ALTER TABLE mc_work_message_5 DROP INDEX idx_mc_work_message_5_global_search;
+ALTER TABLE mc_work_message_6 DROP INDEX idx_mc_work_message_6_global_search;
+ALTER TABLE mc_work_message_7 DROP INDEX idx_mc_work_message_7_global_search;
+ALTER TABLE mc_work_message_8 DROP INDEX idx_mc_work_message_8_global_search;
+ALTER TABLE mc_work_message_9 DROP INDEX idx_mc_work_message_9_global_search;
+ALTER TABLE mc_work_message_10 DROP INDEX idx_mc_work_message_10_global_search;

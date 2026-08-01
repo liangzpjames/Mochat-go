@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +73,7 @@ func TestDefaultMigrationsDiscoversIncrementalFiles(t *testing.T) {
 	}
 }
 
-func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
+func TestStandaloneComposeFreshInitUsesSchemaForLatestIndexes(t *testing.T) {
 	projectRoot := filepath.Join("..", "..")
 	migrations := DefaultMigrations(projectRoot)
 	latest := migrations[len(migrations)-1]
@@ -82,11 +83,61 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0105_corp_data_realtime_indexes" {
-		t.Fatalf("latest migration = %q, want 0105_corp_data_realtime_indexes", latest.Version)
+	if latest.Version != "0106_work_message_global_search_indexes" {
+		t.Fatalf("latest migration = %q, want 0106_work_message_global_search_indexes", latest.Version)
 	}
-	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
-		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
+	for _, mount := range []string{
+		"./migrations/0105_corp_data_realtime_indexes.up.sql:",
+		"./migrations/0106_work_message_global_search_indexes.up.sql:",
+	} {
+		if strings.Contains(string(composeBody), mount) {
+			t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
+		}
+	}
+}
+
+func TestWorkMessageGlobalIndexMigrationMatchesStandaloneSchema(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	read := func(path ...string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(append([]string{projectRoot}, path...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+
+	up := read("deploy", "standalone", "migrations", "0106_work_message_global_search_indexes.up.sql")
+	down := read("deploy", "standalone", "migrations", "0106_work_message_global_search_indexes.down.sql")
+	schema := read("deploy", "standalone", "schema", "mochat.sql")
+	published := read("deploy", "standalone", "migrations", "0014_auto_tag.up.sql")
+	if strings.Contains(published, "global_search") {
+		t.Fatal("published migration 0014 must not be modified")
+	}
+	for tableIndex := 1; tableIndex <= 10; tableIndex++ {
+		index := fmt.Sprintf("idx_mc_work_message_%d_global_search", tableIndex)
+		if !strings.Contains(up, index) {
+			t.Errorf("up migration missing %s", index)
+		}
+		if !strings.Contains(down, "DROP INDEX "+index) {
+			t.Errorf("down migration missing %s", index)
+		}
+		if !strings.Contains(schema, index) {
+			t.Errorf("standalone schema missing %s", index)
+		}
+	}
+	if got := strings.Count(up, "information_schema.statistics"); got != 10 {
+		t.Fatalf("up migration idempotence guards = %d, want 10", got)
+	}
+	for _, fragment := range []string{
+		"table_schema = DATABASE()",
+		"(corp_id, work_employee_id, deleted_at, to_user_type, msg_data_time, to_user_id, seq)",
+		"PREPARE work_message_index_stmt",
+		"DEALLOCATE PREPARE work_message_index_stmt",
+	} {
+		if !strings.Contains(up, fragment) {
+			t.Fatalf("up migration missing fragment %q", fragment)
+		}
 	}
 }
 
@@ -160,5 +211,13 @@ func TestLegacyCombinedInitialChecksums(t *testing.T) {
 	}
 	if checksumMatches("other", "current-checksum", aliases) {
 		t.Fatalf("unexpected checksum accepted")
+	}
+}
+
+func TestDefaultMigrationsAcceptsPreGlobalMessageSchemaChecksum(t *testing.T) {
+	migrations := DefaultMigrations(filepath.Join("..", ".."))
+	const previousChecksum = "b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9"
+	if !checksumMatches(previousChecksum, "different-current-checksum", migrations[0].ChecksumAliases) {
+		t.Fatalf("pre-0106 standalone schema checksum is not accepted: %#v", migrations[0].ChecksumAliases)
 	}
 }
