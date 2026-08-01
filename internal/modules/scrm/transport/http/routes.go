@@ -4,6 +4,9 @@ import nethttp "net/http"
 
 const LeadsPath = "/api/phase2-2/scrm/leads"
 const FormalLeadsPath = "/dashboard/scrm/leads"
+const LeadAssignmentsPath = FormalLeadsPath + "/assignments"
+const LeadTransitionPath = FormalLeadsPath + "/transition"
+const LeadDuplicatesPath = FormalLeadsPath + "/duplicates"
 const AssignmentReleasePath = AssignmentsPath + "/release"
 const AssignmentClaimPath = AssignmentsPath + "/claim"
 
@@ -19,6 +22,15 @@ func RegisterRoutes(registrar RouteRegistrar, handler *LeadHandler) error {
 		if err := registrar.Handle(nethttp.MethodGet, path, nethttp.HandlerFunc(handler.List)); err != nil {
 			return err
 		}
+	}
+	if err := registrar.Handle(nethttp.MethodPost, LeadAssignmentsPath, nethttp.HandlerFunc(handler.Assign)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodPost, LeadTransitionPath, nethttp.HandlerFunc(handler.Transition)); err != nil {
+		return err
+	}
+	if err := registrar.Handle(nethttp.MethodGet, LeadDuplicatesPath, nethttp.HandlerFunc(handler.Duplicates)); err != nil {
+		return err
 	}
 	return nil
 }

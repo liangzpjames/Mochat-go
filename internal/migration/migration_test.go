@@ -82,11 +82,35 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0105_corp_data_realtime_indexes" {
-		t.Fatalf("latest migration = %q, want 0105_corp_data_realtime_indexes", latest.Version)
+	if latest.Version != "0106_scrm_lead_parity" {
+		t.Fatalf("latest migration = %q, want 0106_scrm_lead_parity", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
+	}
+}
+
+func TestLeadParityMigrationMatchesStandaloneSchema(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	read := func(path ...string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(append([]string{projectRoot}, path...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	up := read("deploy", "standalone", "migrations", "0106_scrm_lead_parity.up.sql")
+	down := read("deploy", "standalone", "migrations", "0106_scrm_lead_parity.down.sql")
+	for _, fragment := range []string{"`corp_id`", "`phone`", "`owner_id`", "`converted_contact_id`", "`discard_reason`", "uk_scrm_leads_scope_phone", "idx_scrm_leads_combined_filter"} {
+		if !strings.Contains(up, fragment) {
+			t.Errorf("up migration missing %s", fragment)
+		}
+	}
+	for _, fragment := range []string{"DROP INDEX `uk_scrm_leads_scope_phone`", "DROP COLUMN `corp_id`"} {
+		if !strings.Contains(down, fragment) {
+			t.Errorf("down migration missing %s", fragment)
+		}
 	}
 }
 

@@ -77,3 +77,63 @@ func TestNewLeadInitializesStableFields(t *testing.T) {
 		t.Fatalf("timestamps must use UTC locations: %s/%s", lead.CreatedAt.Location(), lead.UpdatedAt.Location())
 	}
 }
+
+func TestLeadStatusTransitionsFollowTheLeadPoolContract(t *testing.T) {
+	now := time.Date(2026, time.August, 1, 1, 2, 3, 0, time.UTC)
+	lead, err := NewLead("lead-1", 7, "request-1", "Ada", LeadSourceManual, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := lead.TransitionTo(LeadStatusQualified, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if lead.Status != LeadStatusQualified || lead.Version != 2 {
+		t.Fatalf("qualified lead = %#v", lead)
+	}
+	if err := lead.TransitionTo(LeadStatusConverted, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if lead.Status != LeadStatusConverted || lead.Version != 3 {
+		t.Fatalf("converted lead = %#v", lead)
+	}
+}
+
+func TestLeadStatusTransitionsRejectIllegalOrTerminalChanges(t *testing.T) {
+	now := time.Date(2026, time.August, 1, 1, 2, 3, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		from LeadStatus
+		to   LeadStatus
+	}{
+		{name: "new directly to converted", from: LeadStatusNew, to: LeadStatusConverted},
+		{name: "qualified back to new", from: LeadStatusQualified, to: LeadStatusNew},
+		{name: "converted is terminal", from: LeadStatusConverted, to: LeadStatusDiscarded},
+		{name: "discarded is terminal", from: LeadStatusDiscarded, to: LeadStatusQualified},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lead, err := NewLead("lead-1", 7, "request-1", "Ada", LeadSourceManual, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lead.Status = tc.from
+			if err := lead.TransitionTo(tc.to, now.Add(time.Minute)); !errors.Is(err, ErrInvalidLeadTransition) {
+				t.Fatalf("TransitionTo(%q) error = %v, want ErrInvalidLeadTransition", tc.to, err)
+			}
+		})
+	}
+}
+
+func TestLeadCanBeDiscardedFromNewOrQualified(t *testing.T) {
+	now := time.Date(2026, time.August, 1, 1, 2, 3, 0, time.UTC)
+	for _, from := range []LeadStatus{LeadStatusNew, LeadStatusQualified} {
+		lead, err := NewLead("lead-1", 7, "request-1", "Ada", LeadSourceManual, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lead.Status = from
+		if err := lead.TransitionTo(LeadStatusDiscarded, now.Add(time.Minute)); err != nil {
+			t.Fatalf("from %q: %v", from, err)
+		}
+	}
+}

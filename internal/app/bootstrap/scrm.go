@@ -21,6 +21,7 @@ import (
 type SCRMDependencies struct {
 	DB                *sql.DB
 	PrincipalResolver transporthttp.PrincipalResolver
+	LeadAuthorizer    transporthttp.LeadAuthorizer
 }
 
 func RegisterSCRM(router *appmodules.Router, enabled bool, dependencies SCRMDependencies) error {
@@ -32,11 +33,52 @@ func RegisterSCRM(router *appmodules.Router, enabled bool, dependencies SCRMDepe
 		Clock:             scrmClock{},
 		IDGenerator:       scrmIDGenerator{},
 		PrincipalResolver: dependencies.PrincipalResolver,
+		LeadAuthorizer:    dependencies.LeadAuthorizer,
 	})
 	if err != nil {
 		return err
 	}
 	return module.RegisterRoutes(router)
+}
+
+type SCRMLeadAccessStore interface {
+	CorpDetailByID(context.Context, int) (dashboard.CorpDetail, bool, error)
+	EmployeeIDByUserCorp(context.Context, int, int) (int, error)
+}
+type SCRMAccessResolver interface {
+	Resolve(context.Context, int, string, int, int) (dashboard.AccessContext, error)
+}
+type scrmLeadAuthorizer struct {
+	store    SCRMLeadAccessStore
+	resolver SCRMAccessResolver
+}
+
+func NewSCRMLeadAuthorizer(store SCRMLeadAccessStore, resolver SCRMAccessResolver) (transporthttp.LeadAuthorizer, error) {
+	if isNilSCRMDependency(store) || isNilSCRMDependency(resolver) {
+		return nil, errors.New("SCRM lead access dependencies are required")
+	}
+	return &scrmLeadAuthorizer{store: store, resolver: resolver}, nil
+}
+func (a *scrmLeadAuthorizer) Authorize(ctx context.Context, principal transporthttp.Principal, corpID int64, permission string) error {
+	corp, found, err := a.store.CorpDetailByID(ctx, int(corpID))
+	if err != nil {
+		return errors.New("lead authorization unavailable")
+	}
+	if !found || corp.TenantID != int(principal.TenantID) {
+		return transporthttp.ErrLeadForbidden
+	}
+	employeeID, err := a.store.EmployeeIDByUserCorp(ctx, int(principal.UserID), int(corpID))
+	if err != nil {
+		return errors.New("lead authorization unavailable")
+	}
+	_, err = a.resolver.Resolve(ctx, int(principal.UserID), permission, int(corpID), employeeID)
+	if errors.Is(err, dashboard.ErrPermissionDenied) || errors.Is(err, dashboard.ErrUnauthorized) {
+		return transporthttp.ErrLeadForbidden
+	}
+	if err != nil {
+		return errors.New("lead authorization unavailable")
+	}
+	return nil
 }
 
 type SCRMUserStore interface {

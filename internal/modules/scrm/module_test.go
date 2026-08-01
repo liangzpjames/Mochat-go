@@ -1,6 +1,7 @@
 package scrm
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	nethttp "net/http"
@@ -17,18 +18,20 @@ func TestNewRejectsEachNilDependency(t *testing.T) {
 	clock := moduleClock{}
 	idGenerator := moduleIDGenerator{}
 	principal := modulePrincipalResolver{}
+	authorizer := moduleLeadAuthorizer{}
 
 	for _, tc := range []struct {
 		name         string
 		dependencies Dependencies
 	}{
-		{name: "database", dependencies: Dependencies{Clock: clock, IDGenerator: idGenerator, PrincipalResolver: principal}},
-		{name: "clock", dependencies: Dependencies{DB: db, IDGenerator: idGenerator, PrincipalResolver: principal}},
-		{name: "ID generator", dependencies: Dependencies{DB: db, Clock: clock, PrincipalResolver: principal}},
-		{name: "principal resolver", dependencies: Dependencies{DB: db, Clock: clock, IDGenerator: idGenerator}},
-		{name: "typed nil clock", dependencies: Dependencies{DB: db, Clock: (*moduleClock)(nil), IDGenerator: idGenerator, PrincipalResolver: principal}},
-		{name: "typed nil ID generator", dependencies: Dependencies{DB: db, Clock: clock, IDGenerator: (*moduleIDGenerator)(nil), PrincipalResolver: principal}},
-		{name: "typed nil principal resolver", dependencies: Dependencies{DB: db, Clock: clock, IDGenerator: idGenerator, PrincipalResolver: (*modulePrincipalResolver)(nil)}},
+		{name: "database", dependencies: Dependencies{Clock: clock, IDGenerator: idGenerator, PrincipalResolver: principal, LeadAuthorizer: authorizer}},
+		{name: "clock", dependencies: Dependencies{DB: db, IDGenerator: idGenerator, PrincipalResolver: principal, LeadAuthorizer: authorizer}},
+		{name: "ID generator", dependencies: Dependencies{DB: db, Clock: clock, PrincipalResolver: principal, LeadAuthorizer: authorizer}},
+		{name: "principal resolver", dependencies: Dependencies{DB: db, Clock: clock, IDGenerator: idGenerator, LeadAuthorizer: authorizer}},
+		{name: "authorizer", dependencies: Dependencies{DB: db, Clock: clock, IDGenerator: idGenerator, PrincipalResolver: principal}},
+		{name: "typed nil clock", dependencies: Dependencies{DB: db, Clock: (*moduleClock)(nil), IDGenerator: idGenerator, PrincipalResolver: principal, LeadAuthorizer: authorizer}},
+		{name: "typed nil ID generator", dependencies: Dependencies{DB: db, Clock: clock, IDGenerator: (*moduleIDGenerator)(nil), PrincipalResolver: principal, LeadAuthorizer: authorizer}},
+		{name: "typed nil principal resolver", dependencies: Dependencies{DB: db, Clock: clock, IDGenerator: idGenerator, PrincipalResolver: (*modulePrincipalResolver)(nil), LeadAuthorizer: authorizer}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := New(tc.dependencies); err == nil {
@@ -64,6 +67,9 @@ func TestRegisterRoutesInstallsAllSCRMRoutes(t *testing.T) {
 		{method: nethttp.MethodGet, pattern: transporthttp.LeadsPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.FormalLeadsPath},
 		{method: nethttp.MethodGet, pattern: transporthttp.FormalLeadsPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.LeadAssignmentsPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.LeadTransitionPath},
+		{method: nethttp.MethodGet, pattern: transporthttp.LeadDuplicatesPath},
 		{method: nethttp.MethodGet, pattern: transporthttp.AssignmentsPath},
 		{method: nethttp.MethodPut, pattern: transporthttp.AssignmentsPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.AssignmentReleasePath},
@@ -117,6 +123,7 @@ func validDependencies(t *testing.T) Dependencies {
 		Clock:             moduleClock{},
 		IDGenerator:       moduleIDGenerator{},
 		PrincipalResolver: modulePrincipalResolver{},
+		LeadAuthorizer:    moduleLeadAuthorizer{},
 	}
 }
 
@@ -146,6 +153,12 @@ type modulePrincipalResolver struct{}
 
 func (modulePrincipalResolver) Resolve(*nethttp.Request) (transporthttp.Principal, error) {
 	return transporthttp.Principal{UserID: 1, TenantID: 1}, nil
+}
+
+type moduleLeadAuthorizer struct{}
+
+func (moduleLeadAuthorizer) Authorize(context.Context, transporthttp.Principal, int64, string) error {
+	return nil
 }
 
 type registeredRoute struct {

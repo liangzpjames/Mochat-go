@@ -18,6 +18,7 @@ type Dependencies struct {
 	Clock             ports.Clock
 	IDGenerator       ports.IDGenerator
 	PrincipalResolver transporthttp.PrincipalResolver
+	LeadAuthorizer    transporthttp.LeadAuthorizer
 }
 
 type Module struct {
@@ -40,6 +41,9 @@ func New(dependencies Dependencies) (*Module, error) {
 	if isNil(dependencies.PrincipalResolver) {
 		return nil, errors.New("SCRM principal resolver is required")
 	}
+	if isNil(dependencies.LeadAuthorizer) {
+		return nil, errors.New("SCRM lead authorizer is required")
+	}
 
 	repository, err := mysql.NewLeadRepository(dependencies.DB)
 	if err != nil {
@@ -49,7 +53,7 @@ func New(dependencies Dependencies) (*Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM application service: %w", err)
 	}
-	handler := transporthttp.NewLeadHandler(service, dependencies.PrincipalResolver)
+	handler := transporthttp.NewLeadHandler(service, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
 	assignmentRepository, err := mysql.NewCustomerLifecycleRepository(dependencies.DB)
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM assignment repository: %w", err)

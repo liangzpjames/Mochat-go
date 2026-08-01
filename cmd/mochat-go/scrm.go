@@ -66,6 +66,11 @@ func newSCRMModuleRouter(
 		}
 		dependencies.DB = mysqlStore.DB()
 		dependencies.PrincipalResolver = principalResolver
+		leadAuthorizer, err := appbootstrap.NewSCRMLeadAuthorizer(mysqlStore, dashboard.NewRBACResolver(mysqlStore))
+		if err != nil {
+			return nil, fmt.Errorf("build SCRM lead authorizer: %w", err)
+		}
+		dependencies.LeadAuthorizer = leadAuthorizer
 	}
 	if err := appbootstrap.RegisterSCRM(router, cfg.EnablePhase22SCRMPilot, dependencies); err != nil {
 		return nil, fmt.Errorf("register SCRM pilot module: %w", err)

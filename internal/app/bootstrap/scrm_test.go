@@ -31,14 +31,16 @@ func TestRegisterSCRMDisabledAcceptsNilDependenciesAndInstallsNoRoute(t *testing
 func TestRegisterSCRMEnabledRejectsNilDatabaseOrPrincipalResolver(t *testing.T) {
 	db := bootstrapTestDB(t)
 	resolver := fixedPrincipalResolver{principal: transporthttp.Principal{UserID: 7, TenantID: 42}}
+	authorizer := fixedLeadAuthorizer{}
 
 	for _, tc := range []struct {
 		name string
 		deps SCRMDependencies
 	}{
-		{name: "database", deps: SCRMDependencies{PrincipalResolver: resolver}},
-		{name: "principal resolver", deps: SCRMDependencies{DB: db}},
-		{name: "typed nil principal resolver", deps: SCRMDependencies{DB: db, PrincipalResolver: (*fixedPrincipalResolver)(nil)}},
+		{name: "database", deps: SCRMDependencies{PrincipalResolver: resolver, LeadAuthorizer: authorizer}},
+		{name: "principal resolver", deps: SCRMDependencies{DB: db, LeadAuthorizer: authorizer}},
+		{name: "lead authorizer", deps: SCRMDependencies{DB: db, PrincipalResolver: resolver}},
+		{name: "typed nil principal resolver", deps: SCRMDependencies{DB: db, PrincipalResolver: (*fixedPrincipalResolver)(nil), LeadAuthorizer: authorizer}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := RegisterSCRM(appmodules.NewRouter(), true, tc.deps); err == nil {
@@ -53,6 +55,7 @@ func TestRegisterSCRMEnabledInstallsBothRoutes(t *testing.T) {
 	deps := SCRMDependencies{
 		DB:                bootstrapTestDB(t),
 		PrincipalResolver: fixedPrincipalResolver{principal: transporthttp.Principal{UserID: 7, TenantID: 42}},
+		LeadAuthorizer:    fixedLeadAuthorizer{},
 	}
 
 	if err := RegisterSCRM(router, true, deps); err != nil {
@@ -68,6 +71,7 @@ func TestRegisterSCRMDuplicateRegistrationFailsStartup(t *testing.T) {
 	deps := SCRMDependencies{
 		DB:                bootstrapTestDB(t),
 		PrincipalResolver: fixedPrincipalResolver{principal: transporthttp.Principal{UserID: 7, TenantID: 42}},
+		LeadAuthorizer:    fixedLeadAuthorizer{},
 	}
 	if err := RegisterSCRM(router, true, deps); err != nil {
 		t.Fatal(err)
@@ -184,6 +188,24 @@ func TestSCRMIDGeneratorProducesUUIDV4CompatibleIDs(t *testing.T) {
 	}
 }
 
+func TestSCRMLeadAuthorizerRejectsCrossTenantCorpAndRBACDenial(t *testing.T) {
+	store := &fakeSCRMLeadAccessStore{corps: map[int]dashboard.CorpDetail{8: {ID: 8, TenantID: 42}}}
+	resolver := &fakeSCRMAccessResolver{}
+	authorizer, err := NewSCRMLeadAuthorizer(store, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal := transporthttp.Principal{UserID: 7, TenantID: 41}
+	if err := authorizer.Authorize(context.Background(), principal, 8, "/customer/clue/default#get"); !errors.Is(err, transporthttp.ErrLeadForbidden) {
+		t.Fatalf("cross-tenant error=%v", err)
+	}
+	store.corps[8] = dashboard.CorpDetail{ID: 8, TenantID: 41}
+	resolver.err = dashboard.ErrPermissionDenied
+	if err := authorizer.Authorize(context.Background(), principal, 8, "/customer/clue/default#get"); !errors.Is(err, transporthttp.ErrLeadForbidden) {
+		t.Fatalf("RBAC error=%v", err)
+	}
+}
+
 func assertSCRMRouteInstalled(t *testing.T, router *appmodules.Router, method string) {
 	t.Helper()
 	request := httptest.NewRequest(method, transporthttp.LeadsPath, nil)
@@ -230,6 +252,27 @@ func (r fixedUserIDResolver) UserID(*http.Request) (int, error) {
 type fixedSCRMUserStore struct {
 	user dashboard.User
 	err  error
+}
+type fixedLeadAuthorizer struct{}
+
+func (fixedLeadAuthorizer) Authorize(context.Context, transporthttp.Principal, int64, string) error {
+	return nil
+}
+
+type fakeSCRMLeadAccessStore struct{ corps map[int]dashboard.CorpDetail }
+
+func (s *fakeSCRMLeadAccessStore) CorpDetailByID(_ context.Context, id int) (dashboard.CorpDetail, bool, error) {
+	corp, ok := s.corps[id]
+	return corp, ok, nil
+}
+func (s *fakeSCRMLeadAccessStore) EmployeeIDByUserCorp(context.Context, int, int) (int, error) {
+	return 3, nil
+}
+
+type fakeSCRMAccessResolver struct{ err error }
+
+func (r *fakeSCRMAccessResolver) Resolve(context.Context, int, string, int, int) (dashboard.AccessContext, error) {
+	return dashboard.AccessContext{}, r.err
 }
 
 func (s fixedSCRMUserStore) UserByID(_ context.Context, userID int) (dashboard.User, bool, error) {

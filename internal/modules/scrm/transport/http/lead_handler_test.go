@@ -214,7 +214,7 @@ func TestListLeadsUsesPrincipalTenantAndReturnsOnlyServiceResults(t *testing.T) 
 	if response.Code != nethttp.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body)
 	}
-	if service.listQuery != (application.ListLeadsQuery{TenantID: 41, Cursor: cursor, PageSize: 3}) {
+	if service.listQuery.TenantID != 41 || service.listQuery.Cursor != cursor || service.listQuery.PageSize != 3 {
 		t.Fatalf("query = %#v", service.listQuery)
 	}
 	assertResponseDoesNotExposeTenant(t, response.Body.Bytes())
@@ -384,4 +384,14 @@ func (s *fakeLeadService) ListLeads(_ context.Context, query application.ListLea
 	s.listCalls++
 	s.listQuery = query
 	return s.listPage, s.listErr
+}
+
+func (s *fakeLeadService) AssignLeads(context.Context, application.AssignLeadsCommand) ([]application.LeadMutationResult, error) {
+	return nil, nil
+}
+func (s *fakeLeadService) TransitionLead(context.Context, application.TransitionLeadCommand) (application.LeadView, error) {
+	return application.LeadView{}, nil
+}
+func (s *fakeLeadService) FindDuplicateLeads(context.Context, int64, int64, string, string) ([]application.LeadView, error) {
+	return nil, nil
 }
