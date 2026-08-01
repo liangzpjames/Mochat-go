@@ -60,7 +60,7 @@ describe('DashboardOverviewPage', () => {
     const load = vi.fn(() => new Promise<DashboardOverview>((accept) => {
       resolve = accept;
     }));
-    renderPage({ load });
+    const { container } = renderPage({ load });
 
     expect(screen.getByRole('status').textContent).toContain('正在加载数据概览');
     resolve?.(overview);
@@ -71,6 +71,10 @@ describe('DashboardOverviewPage', () => {
     expect(screen.getByLabelText('新增客户 12')).not.toBeNull();
     expect(screen.getByText(/2026-07-31 09:30:00/)).not.toBeNull();
     expect(load).toHaveBeenCalledWith({ corpId: '7', ...range });
+    expect(container.querySelector('.dashboard-page-header')).not.toBeNull();
+    expect(container.querySelector('.dashboard-filter-bar')).not.toBeNull();
+    expect(container.querySelector('.dashboard-stat-grid')).not.toBeNull();
+    expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
   });
 
   it('shows an empty state for a successful empty response', async () => {
@@ -114,9 +118,9 @@ describe('DashboardOverviewPage', () => {
     const load = vi.fn()
       .mockRejectedValueOnce(new Error('网络异常'))
       .mockResolvedValueOnce(overview);
-    renderPage({ load });
+    const { container } = renderPage({ load });
 
-    expect((await screen.findByRole('alert')).textContent).toContain('网络异常');
+    await waitFor(() => expect(container.querySelector('.page-state-error')).not.toBeNull());
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(await screen.findByText('真实客户总数')).not.toBeNull();
     expect(load).toHaveBeenCalledTimes(2);
@@ -129,8 +133,7 @@ describe('DashboardOverviewPage', () => {
     }));
     renderPage(createDashboardOverviewApi({ request }));
 
-    expect((await screen.findByRole('alert')).textContent)
-      .toContain('数据概览接口尚未启用');
+    expect(await screen.findByText('数据概览接口尚未启用')).not.toBeNull();
     expect(screen.queryByText('137')).toBeNull();
   });
 

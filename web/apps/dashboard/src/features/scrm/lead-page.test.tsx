@@ -20,4 +20,21 @@ describe('LeadPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '新增线索' }));
     await waitFor(() => expect(api.create).toHaveBeenCalledWith({ businessKey: 'wx:customer-1', name: '客户甲', source: 'wecom' }));
   });
+
+  it('uses shared filters and retries the PageState query failure', async () => {
+    const api = {
+      list: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ items: [], nextCursor: '' }),
+      create: vi.fn(),
+    };
+    const { container } = render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><LeadPage api={api} /></QueryClientProvider>);
+
+    await waitFor(() => expect(container.querySelector('.page-state-error')).not.toBeNull());
+    fireEvent.click(container.querySelector('.page-state-retry')!);
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+
+    expect(container.querySelector('.dashboard-page-header')).not.toBeNull();
+    expect(container.querySelector('.dashboard-filter-bar')).not.toBeNull();
+    expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
+    expect(container.querySelector('.dashboard-table-scroll')).not.toBeNull();
+  });
 });

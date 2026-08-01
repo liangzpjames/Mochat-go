@@ -38,4 +38,25 @@ describe('SensitiveWordPage', () => {
 
     await waitFor(() => expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ names: ['报价'] })));
   });
+
+  it('uses shared filters and retries both PageState data sources', async () => {
+    const api = {
+      list: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ items: [], total: 0, page: 1, perPage: 10 }),
+      groups: vi.fn().mockResolvedValue([{ id: 2, name: '默认' }]),
+      create: vi.fn(),
+      setEnabled: vi.fn(), move: vi.fn(), remove: vi.fn(), createGroup: vi.fn(), renameGroup: vi.fn(),
+      matches: vi.fn(), matchDetail: vi.fn(),
+    };
+    const { container } = renderPage(api);
+
+    await waitFor(() => expect(container.querySelector('.page-state-error')).not.toBeNull());
+    fireEvent.click(container.querySelector('.page-state-retry')!);
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.groups).toHaveBeenCalledTimes(2));
+
+    expect(container.querySelector('.dashboard-page-header')).not.toBeNull();
+    expect(container.querySelector('.dashboard-filter-bar')).not.toBeNull();
+    expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
+    expect(container.querySelector('.dashboard-table-scroll')).not.toBeNull();
+  });
 });

@@ -86,7 +86,7 @@ function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-all') {
 describe('ConversationGlobalPage', () => {
   it('restores filters from the URL, renders real results, and paginates in the URL', async () => {
     const search = vi.fn(() => Promise.resolve(page));
-    renderPage({ search, detail: vi.fn() },
+    const { container } = renderPage({ search, detail: vi.fn() },
       '/chat/v2-all?keyword=%E6%8A%A5%E4%BB%B7&employeeId=9&customerId=31&from=2026-07-01&to=2026-07-31&page=2&pageSize=20');
 
     expect(await screen.findByText('星河科技')).not.toBeNull();
@@ -103,6 +103,11 @@ describe('ConversationGlobalPage', () => {
       page: 2,
       pageSize: 20,
     });
+    expect(container.querySelector('.dashboard-page-header')).not.toBeNull();
+    expect(container.querySelector('.dashboard-filter-bar')).not.toBeNull();
+    expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
+    expect(container.querySelector('.dashboard-table-scroll')).not.toBeNull();
+    expect(container.querySelector('.dashboard-table-actions')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('page=3'));
@@ -151,9 +156,9 @@ describe('ConversationGlobalPage', () => {
     const search = vi.fn()
       .mockRejectedValueOnce(new Error('网络异常'))
       .mockResolvedValueOnce({ list: [], total: 0, page: 1, pageSize: 20 });
-    renderPage({ search, detail: vi.fn() });
+    const { container } = renderPage({ search, detail: vi.fn() });
 
-    expect((await screen.findByRole('alert')).textContent).toContain('网络异常');
+    await waitFor(() => expect(container.querySelector('.page-state-error')).not.toBeNull());
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(await screen.findByText('当前筛选条件下暂无会话')).not.toBeNull();
   });
@@ -169,7 +174,7 @@ describe('ConversationGlobalPage', () => {
     await screen.findByText('星河科技');
 
     fireEvent.click(screen.getByRole('button', { name: '查看会话' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('详情加载失败');
+    expect(await screen.findByText('详情加载失败')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '重试详情' }));
 
     expect(await screen.findByRole('dialog', { name: '会话详情' })).not.toBeNull();

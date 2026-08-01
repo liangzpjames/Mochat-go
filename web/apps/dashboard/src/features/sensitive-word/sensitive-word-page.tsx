@@ -21,18 +21,18 @@ export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
 
   return (
     <section className="sensitive-word-page">
-      <header>
+      <header className="dashboard-page-header">
         <h1>敏感词库</h1>
         <p>管理当前企业的敏感词、分组和命中记录。</p>
       </header>
-      <div className="sensitive-word-toolbar">
+      <div className="sensitive-word-toolbar dashboard-filter-bar">
         <label>敏感词名称<input aria-label="敏感词名称" placeholder="输入敏感词" value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label>敏感词分组<select aria-label="敏感词分组" value={groupId} onChange={(event) => setGroupId(Number(event.target.value))}><option value={0}>全部分组</option>{groups.data.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
         <label>搜索敏感词<input aria-label="搜索敏感词" placeholder="搜索" value={keywords} onChange={(event) => setKeywords(event.target.value)} /></label>
         {canAdd && <button type="button" disabled={name.trim() === '' || groupId === 0 || create.isPending} onClick={() => create.mutate()}>新增敏感词</button>}
       </div>
         {create.isError && <p role="alert">保存失败，请刷新后重试。</p>}
-        <table><thead><tr><th>敏感词</th><th>分组</th><th>状态</th></tr></thead><tbody>{words.data.items.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.groupName}</td><td>{item.status === 1 ? '启用' : '停用'}</td></tr>)}</tbody></table>
+        <div className="dashboard-data-card"><div className="dashboard-table-scroll"><table><thead><tr><th>敏感词</th><th>分组</th><th>状态</th></tr></thead><tbody>{words.data.items.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.groupName}</td><td>{item.status === 1 ? '启用' : '停用'}</td></tr>)}</tbody></table></div></div>
     </section>
   );
 }

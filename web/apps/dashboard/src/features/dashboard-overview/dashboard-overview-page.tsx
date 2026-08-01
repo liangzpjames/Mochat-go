@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { PageState } from '../../components/page-state/page-state';
 import type {
   DashboardOverviewApi,
   DashboardOverviewTrendPoint,
@@ -123,13 +124,13 @@ export function DashboardOverviewPage({
 
   return (
     <section className="dashboard-overview-page">
-      <header className="dashboard-overview-header">
+      <header className="dashboard-overview-header dashboard-page-header dashboard-data-card">
         <div>
           <p className="dashboard-overview-eyebrow">数据中心</p>
           <h1>数据概览</h1>
           <p>查看当前企业的客户、群聊与成员变化。</p>
         </div>
-        <div className="dashboard-overview-filters">
+        <div className="dashboard-overview-filters dashboard-filter-bar">
           <label>
             <span>开始日期</span>
             <input
@@ -166,39 +167,41 @@ export function DashboardOverviewPage({
       </header>
 
       {rangeError !== null && <p className="dashboard-overview-inline-error" role="alert">{rangeError}</p>}
-      {query.isPending && (
-        <div className="dashboard-overview-state" role="status">正在加载数据概览…</div>
-      )}
+      {query.isPending && <PageState state="loading" title="正在加载数据概览" />}
       {forbidden && (
-        <div className="dashboard-overview-state dashboard-overview-state-error">
-          <h2>无权访问当前企业数据</h2>
-          <p>请切换到已授权企业，或联系管理员开通权限。</p>
-        </div>
+        <PageState
+          description="请切换到已授权企业，或联系管理员开通权限。"
+          state="forbidden"
+          title="无权访问当前企业数据"
+        />
       )}
       {query.isError && !forbidden && (
-        <div className="dashboard-overview-state dashboard-overview-state-error" role="alert">
-          <h2>数据加载失败</h2>
-          <p>{query.error instanceof Error ? query.error.message : '请稍后重试'}</p>
-          <button onClick={() => void query.refetch()} type="button">重试</button>
-        </div>
+        <PageState
+          description={query.error instanceof Error ? query.error.message : '请稍后重试'}
+          onRetry={() => void query.refetch()}
+          retryLabel="重试"
+          state="error"
+          title="数据加载失败"
+        />
       )}
       {empty && (
-        <div className="dashboard-overview-state">
-          <h2>当前日期范围暂无数据</h2>
-          <p>调整日期范围后重新查询。</p>
-        </div>
+        <PageState
+          description="调整日期范围后重新查询。"
+          state="empty"
+          title="当前日期范围暂无数据"
+        />
       )}
       {query.data !== undefined && !query.isError && !empty && (
         <>
-          <div className="dashboard-overview-cards">
+          <div className="dashboard-overview-cards dashboard-stat-grid">
             {query.data.cards.map((card) => (
-              <article className="dashboard-overview-card" key={card.key}>
+              <article className="dashboard-overview-card dashboard-data-card" key={card.key}>
                 <span>{card.label}</span>
                 <strong>{card.value.toLocaleString('zh-CN')}</strong>
               </article>
             ))}
           </div>
-          <article className="dashboard-overview-trend">
+          <article className="dashboard-overview-trend dashboard-data-card">
             <header>
               <div>
                 <h2>企业数据趋势</h2>

@@ -18,4 +18,21 @@ describe('TagPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '绑定到联系人' }));
     await waitFor(() => expect(bind).toHaveBeenCalledWith({ corpId: 7, tagId: 't1', contactIds: ['c1'], idempotencyKey: expect.any(String) }));
   });
+
+  it('uses shared actions and retries the PageState query failure', async () => {
+    const api = {
+      listTags: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ items: [], nextCursor: '' }),
+      createTag: vi.fn(),
+      bindTags: vi.fn(),
+    };
+    const { container } = render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><TagPage api={api} /></QueryClientProvider>);
+
+    await waitFor(() => expect(container.querySelector('.page-state-error')).not.toBeNull());
+    fireEvent.click(container.querySelector('.page-state-retry')!);
+    await waitFor(() => expect(api.listTags).toHaveBeenCalledTimes(2));
+
+    expect(container.querySelector('.dashboard-page-header')).not.toBeNull();
+    expect(container.querySelector('.dashboard-table-actions')).not.toBeNull();
+    expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
+  });
 });

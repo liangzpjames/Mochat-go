@@ -5,6 +5,7 @@ import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { PageState } from '../../components/page-state/page-state';
 import { updateSearch } from '../../shared/query-state';
 import type {
   ConversationGlobalApi,
@@ -152,7 +153,7 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
 
   return (
     <section className="conversation-global-page">
-      <header className="conversation-global-header">
+      <header className="conversation-global-header dashboard-page-header dashboard-data-card">
         <div>
           <p className="conversation-global-eyebrow">会话存档</p>
           <h1>全局消息</h1>
@@ -160,7 +161,7 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
         </div>
       </header>
 
-      <form className="conversation-global-filters" onSubmit={applyFilters}>
+      <form className="conversation-global-filters dashboard-filter-bar" onSubmit={applyFilters}>
         <label>
           <span>关键词</span>
           <input
@@ -220,38 +221,42 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
 
       {filterError !== null && <p className="conversation-global-inline-error" role="alert">{filterError}</p>}
 
-      {listQuery.isPending && (
-        <div className="conversation-global-state" role="status">正在加载全局消息…</div>
-      )}
+      {listQuery.isPending && <PageState state="loading" title="正在加载全局消息" />}
       {forbidden && (
-        <div className="conversation-global-state conversation-global-error">
-          <h2>无权查看当前企业会话</h2>
-          <p>请联系管理员开通会话存档和数据范围权限。</p>
-        </div>
+        <PageState
+          description="请联系管理员开通会话存档和数据范围权限。"
+          state="forbidden"
+          title="无权查看当前企业会话"
+        />
       )}
       {listQuery.isError && !forbidden && (
-        <div className="conversation-global-state conversation-global-error" role="alert">
-          <h2>全局消息加载失败</h2>
-          <p>{listQuery.error instanceof Error ? listQuery.error.message : '请稍后重试'}</p>
-          <button onClick={() => void listQuery.refetch()} type="button">重试</button>
-        </div>
+        <PageState
+          description={listQuery.error instanceof Error ? listQuery.error.message : '请稍后重试'}
+          onRetry={() => void listQuery.refetch()}
+          retryLabel="重试"
+          state="error"
+          title="全局消息加载失败"
+        />
       )}
       {listQuery.data?.list.length === 0 && listQuery.data.total > 0 && (
-        <div className="conversation-global-state">
-          <h2>当前页暂无会话</h2>
-          <p>该页码已超出当前结果范围。</p>
-          <button onClick={() => changePage(1)} type="button">返回第一页</button>
-        </div>
+        <PageState
+          description="该页码已超出当前结果范围。"
+          onRetry={() => changePage(1)}
+          retryLabel="返回第一页"
+          state="empty"
+          title="当前页暂无会话"
+        />
       )}
       {listQuery.data?.list.length === 0 && listQuery.data.total === 0 && (
-        <div className="conversation-global-state">
-          <h2>当前筛选条件下暂无会话</h2>
-          <p>清除部分筛选条件后重新查询。</p>
-        </div>
+        <PageState
+          description="清除部分筛选条件后重新查询。"
+          state="empty"
+          title="当前筛选条件下暂无会话"
+        />
       )}
       {listQuery.data !== undefined && listQuery.data.list.length > 0 && (
-        <div className="conversation-global-results">
-          <div className="conversation-global-table-wrap">
+        <div className="conversation-global-results dashboard-data-card">
+          <div className="conversation-global-table-wrap dashboard-table-scroll">
             <table>
               <thead>
                 <tr>
@@ -279,7 +284,7 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
               </tbody>
             </table>
           </div>
-          <footer className="conversation-global-pagination">
+          <footer className="conversation-global-pagination dashboard-table-actions">
             <span>共 {listQuery.data.total} 条，第 {page}/{totalPages} 页</span>
             <div>
               <button disabled={page <= 1} onClick={() => changePage(page - 1)} type="button">上一页</button>
@@ -309,17 +314,22 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
               </div>
               <button onClick={() => setSelectedID(null)} type="button">关闭</button>
             </header>
-            {detailQuery.isPending && <p role="status">正在加载会话详情…</p>}
+            {detailQuery.isPending && <PageState state="loading" title="正在加载会话详情" />}
             {detailNotFound && (
-              <div className="conversation-global-detail-error" role="alert">
-                <p>会话不存在或已无权访问</p>
-              </div>
+              <PageState
+                description="会话不存在或已无权访问。"
+                state="not-found"
+                title="会话不存在或已无权访问"
+              />
             )}
             {detailQuery.isError && !detailNotFound && (
-              <div className="conversation-global-detail-error" role="alert">
-                <p>{detailQuery.error instanceof Error ? detailQuery.error.message : '详情加载失败'}</p>
-                <button onClick={() => void detailQuery.refetch()} type="button">重试详情</button>
-              </div>
+              <PageState
+                description={detailQuery.error instanceof Error ? detailQuery.error.message : '详情加载失败'}
+                onRetry={() => void detailQuery.refetch()}
+                retryLabel="重试详情"
+                state="error"
+                title="会话详情加载失败"
+              />
             )}
             {detailQuery.data !== undefined && (
               <>

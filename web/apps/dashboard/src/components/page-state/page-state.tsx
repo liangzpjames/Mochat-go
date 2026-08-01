@@ -22,10 +22,16 @@ const stateCopy: Record<PageStateKind, { title: string; description: string }> =
 export function PageState({
   state,
   onRetry,
+  title,
+  description,
+  retryLabel = '重新加载',
   children,
 }: {
   state: PageStateKind;
   onRetry?: () => void;
+  title?: ReactNode;
+  description?: ReactNode;
+  retryLabel?: string;
   children?: ReactNode;
 }) {
   if (children !== undefined) return <>{children}</>;
@@ -38,10 +44,10 @@ export function PageState({
       className={`page-state page-state-${state}`}
       role="status"
     >
-      <h2>{copy.title}</h2>
-      <p>{copy.description}</p>
+      <h2>{title ?? copy.title}</h2>
+      <p>{description ?? copy.description}</p>
       {onRetry !== undefined && state !== 'loading' && (
-        <button className="page-state-retry" type="button" onClick={onRetry}>重新加载</button>
+        <button className="page-state-retry" type="button" onClick={onRetry}>{retryLabel}</button>
       )}
     </section>
   );

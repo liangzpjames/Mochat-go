@@ -37,4 +37,11 @@ describe('PageState', () => {
     rerender(<PageState state="conflict" onRetry={() => undefined} />);
     expect(screen.getByRole('button', { name: '重新加载' }).className).toContain('page-state-retry');
   });
+
+  it('keeps the existing children escape hatch for specialized state content', () => {
+    render(<PageState state="error"><p>业务特有提示</p></PageState>);
+
+    expect(screen.getByText('业务特有提示')).toBeTruthy();
+    expect(screen.queryByText('加载失败')).toBeNull();
+  });
 });
