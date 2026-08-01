@@ -199,7 +199,19 @@ func (r *LeadRepository) FindDuplicates(ctx context.Context, filter ports.Duplic
 }
 
 func (r *LeadRepository) Assign(ctx context.Context, command ports.AssignLeadCommand) (domain.Lead, error) {
-	return r.mutateLead(ctx, command.TenantID, command.CorpID, command.LeadID, command.Version, func(lead *domain.Lead) error {
+	return r.mutateLead(ctx, command.TenantID, command.CorpID, command.LeadID, command.Version, func(tx *sql.Tx) error {
+		var employeeID int64
+		err := tx.QueryRowContext(ctx, `
+			SELECT e.id
+			FROM mc_work_employee e
+			INNER JOIN mc_corp c ON c.id = e.corp_id
+			WHERE e.id = ? AND e.corp_id = ? AND e.status = 1 AND e.deleted_at IS NULL
+			  AND c.tenant_id = ? AND c.deleted_at IS NULL`, command.OwnerID, command.CorpID, command.TenantID).Scan(&employeeID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ports.ErrLeadOwnerOutOfScope
+		}
+		return err
+	}, func(lead *domain.Lead) error {
 		if lead.Status == domain.LeadStatusNew {
 			if err := lead.TransitionTo(domain.LeadStatusQualified, command.UpdatedAt); err != nil {
 				return err
@@ -216,7 +228,7 @@ func (r *LeadRepository) Assign(ctx context.Context, command ports.AssignLeadCom
 }
 
 func (r *LeadRepository) Transition(ctx context.Context, command ports.TransitionLeadCommand) (domain.Lead, error) {
-	return r.mutateLead(ctx, command.TenantID, command.CorpID, command.LeadID, command.Version, func(lead *domain.Lead) error {
+	return r.mutateLead(ctx, command.TenantID, command.CorpID, command.LeadID, command.Version, nil, func(lead *domain.Lead) error {
 		if err := lead.TransitionTo(command.ToStatus, command.UpdatedAt); err != nil {
 			return err
 		}
@@ -230,12 +242,17 @@ func (r *LeadRepository) Transition(ctx context.Context, command ports.Transitio
 	})
 }
 
-func (r *LeadRepository) mutateLead(ctx context.Context, tenantID, corpID int64, leadID string, version int64, apply func(*domain.Lead) error) (domain.Lead, error) {
+func (r *LeadRepository) mutateLead(ctx context.Context, tenantID, corpID int64, leadID string, version int64, before func(*sql.Tx) error, apply func(*domain.Lead) error) (domain.Lead, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.Lead{}, err
 	}
 	defer tx.Rollback()
+	if before != nil {
+		if err := before(tx); err != nil {
+			return domain.Lead{}, err
+		}
+	}
 	lead, err := scanLead(tx.QueryRowContext(ctx, `SELECT `+leadColumns+` FROM `+leadTable+` WHERE tenant_id=? AND corp_id=? AND id=? FOR UPDATE`, tenantID, corpID, leadID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Lead{}, ports.ErrLeadNotFound

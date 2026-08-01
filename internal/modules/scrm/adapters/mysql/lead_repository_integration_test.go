@@ -28,7 +28,7 @@ type integrationNamespace struct {
 
 func newIntegrationNamespace() integrationNamespace {
 	sequence := integrationNamespaceSequence.Add(1)
-	tenantID := int64(7_000_000_000_000_000) + int64(os.Getpid())*1_000_000 + sequence*2
+	tenantID := int64(1_000_000_000) + int64(os.Getpid()%100_000)*1_000 + sequence*2
 	return integrationNamespace{
 		tenantID:      tenantID,
 		otherTenantID: tenantID + 1,

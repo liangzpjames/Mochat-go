@@ -11,9 +11,10 @@ import (
 var ErrInvalidCursor = errors.New("invalid cursor")
 
 var (
-	ErrLeadNotFound  = errors.New("lead not found")
-	ErrLeadConflict  = errors.New("lead version conflict")
-	ErrDuplicateLead = errors.New("duplicate lead")
+	ErrLeadNotFound        = errors.New("lead not found")
+	ErrLeadConflict        = errors.New("lead version conflict")
+	ErrDuplicateLead       = errors.New("duplicate lead")
+	ErrLeadOwnerOutOfScope = errors.New("lead owner is not an active employee in tenant and corp scope")
 )
 
 type LeadRepository interface {

@@ -102,12 +102,12 @@ func TestLeadParityMigrationMatchesStandaloneSchema(t *testing.T) {
 	}
 	up := read("deploy", "standalone", "migrations", "0106_scrm_lead_parity.up.sql")
 	down := read("deploy", "standalone", "migrations", "0106_scrm_lead_parity.down.sql")
-	for _, fragment := range []string{"`corp_id`", "`phone`", "`owner_id`", "`converted_contact_id`", "`discard_reason`", "uk_scrm_leads_scope_phone", "idx_scrm_leads_combined_filter"} {
+	for _, fragment := range []string{"cannot uniquely map historical leads", "HAVING COUNT(c.`id`) <> 1", "UPDATE `mochat_go_scrm_leads`", "`corp_id`", "`phone`", "`owner_id`", "`converted_contact_id`", "`discard_reason`", "uk_scrm_leads_scope_phone", "idx_scrm_leads_combined_filter"} {
 		if !strings.Contains(up, fragment) {
 			t.Errorf("up migration missing %s", fragment)
 		}
 	}
-	for _, fragment := range []string{"DROP INDEX `uk_scrm_leads_scope_phone`", "DROP COLUMN `corp_id`"} {
+	for _, fragment := range []string{"cross-corp business_key conflict", "HAVING COUNT(DISTINCT `corp_id`) > 1", "DROP INDEX `uk_scrm_leads_scope_phone`", "DROP COLUMN `corp_id`"} {
 		if !strings.Contains(down, fragment) {
 			t.Errorf("down migration missing %s", fragment)
 		}

@@ -251,6 +251,8 @@ func leadErrorCode(err error) string {
 		return "NOT_FOUND"
 	case errors.Is(err, ports.ErrLeadConflict):
 		return "CONFLICT"
+	case errors.Is(err, ports.ErrLeadOwnerOutOfScope):
+		return "OWNER_OUT_OF_SCOPE"
 	case errors.Is(err, domain.ErrInvalidLeadTransition):
 		return "INVALID_TRANSITION"
 	default:

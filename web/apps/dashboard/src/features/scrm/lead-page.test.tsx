@@ -1,6 +1,7 @@
 import { ApiError } from '@mochat/api-client';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { LeadApi } from './lead-api';
@@ -11,7 +12,12 @@ afterEach(cleanup);
 
 const lead = { id: 'lead-0', businessKey: 'wx:existing', name: '已有线索', phone: '13800000000', source: 'wecom' as const, status: 'new' as const, ownerId: null, convertedContactId: '', discardReason: '', version: 1 };
 function api(overrides: Partial<LeadApi> = {}): LeadApi { return { list: vi.fn().mockResolvedValue({ items: [lead], nextCursor: '' }), create: vi.fn().mockResolvedValue(lead), findDuplicates: vi.fn().mockResolvedValue({ items: [] }), assign: vi.fn().mockResolvedValue({ results: [] }), transition: vi.fn().mockResolvedValue({ ...lead, status: 'qualified', version: 2 }), ...overrides }; }
-function view(value: LeadApi) { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><LeadPage api={value} /></QueryClientProvider>); }
+function RouterProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return <><output aria-label="当前地址">{location.pathname}{location.search}</output><button type="button" onClick={() => navigate(-1)}>浏览器后退</button><button type="button" onClick={() => navigate(1)}>浏览器前进</button></>;
+}
+function view(value: LeadApi, entry = '/scrm/lead/index') { return render(<MemoryRouter initialEntries={[entry]}><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><LeadPage api={value} /><RouterProbe /></QueryClientProvider></MemoryRouter>); }
 
 describe('LeadPage', () => {
   it('checks duplicates and creates a corp-scoped lead', async () => {
@@ -35,6 +41,35 @@ describe('LeadPage', () => {
     await waitFor(() => expect(value.list).toHaveBeenLastCalledWith(expect.objectContaining({ corpId: 7, keyword: 'Ada', statuses: ['qualified'], sources: ['manual'], ownerIds: [12] })));
     fireEvent.click(screen.getByRole('button', { name: '重置' }));
     await waitFor(() => expect(value.list).toHaveBeenLastCalledWith({ corpId: 7, pageSize: 20 }));
+  });
+
+  it('restores filters and cursor from the URL, then reset clears persisted state', async () => {
+    const value = api();
+    view(value, '/scrm/lead/index?keyword=Ada&status=qualified&source=manual&ownerId=12&cursor=next-page');
+    await waitFor(() => expect(value.list).toHaveBeenLastCalledWith({ corpId: 7, keyword: 'Ada', statuses: ['qualified'], sources: ['manual'], ownerIds: [12], cursor: 'next-page', pageSize: 20 }));
+    expect((screen.getByRole('textbox', { name: '搜索线索' }) as HTMLInputElement).value).toBe('Ada');
+    expect((screen.getByRole('combobox', { name: '线索状态' }) as HTMLSelectElement).value).toBe('qualified');
+    fireEvent.click(screen.getByRole('button', { name: '重置' }));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toBe('/scrm/lead/index'));
+    await waitFor(() => expect(value.list).toHaveBeenLastCalledWith({ corpId: 7, pageSize: 20 }));
+  });
+
+  it('writes filters and pagination to URL and follows browser back-forward', async () => {
+    const value = api({ list: vi.fn().mockResolvedValue({ items: [lead], nextCursor: 'page-2' }) });
+    view(value);
+    await screen.findByText('已有线索');
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索线索' }), { target: { value: 'North' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('keyword=North'));
+    fireEvent.click(await screen.findByRole('button', { name: '下一页' }));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('cursor=page-2'));
+    await waitFor(() => expect(value.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: 'North', cursor: 'page-2' })));
+
+    fireEvent.click(screen.getByRole('button', { name: '浏览器后退' }));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toBe('/scrm/lead/index?keyword=North'));
+    await waitFor(() => expect(value.list).toHaveBeenLastCalledWith({ corpId: 7, keyword: 'North', pageSize: 20 }));
+    fireEvent.click(screen.getByRole('button', { name: '浏览器前进' }));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('cursor=page-2'));
   });
 
   it('reports per-target partial failures for batch assignment', async () => {

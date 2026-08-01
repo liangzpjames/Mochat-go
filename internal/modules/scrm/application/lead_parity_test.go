@@ -48,17 +48,17 @@ func TestCreateLeadRequiresCorpAndMapsDuplicatePhone(t *testing.T) {
 }
 
 func TestAssignLeadsReturnsOneResultPerTargetAndAllowsPartialFailure(t *testing.T) {
-	repository := &parityLeadRepository{assignErrors: map[string]error{"missing": ports.ErrLeadNotFound, "stale": ports.ErrLeadConflict}}
+	repository := &parityLeadRepository{assignErrors: map[string]error{"missing": ports.ErrLeadNotFound, "stale": ports.ErrLeadConflict, "foreign-owner": ports.ErrLeadOwnerOutOfScope}}
 	service, err := NewService(repository, fixedClock{now: time.Now()}, fixedIDGenerator{id: "lead-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	results, err := service.AssignLeads(context.Background(), AssignLeadsCommand{TenantID: 9, CorpID: 7, OwnerID: 12, Targets: []LeadMutationTarget{{ID: "ok", Version: 1}, {ID: "missing", Version: 1}, {ID: "stale", Version: 1}}})
+	results, err := service.AssignLeads(context.Background(), AssignLeadsCommand{TenantID: 9, CorpID: 7, OwnerID: 12, Targets: []LeadMutationTarget{{ID: "ok", Version: 1}, {ID: "missing", Version: 1}, {ID: "stale", Version: 1}, {ID: "foreign-owner", Version: 1}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 3 {
+	if len(results) != 4 {
 		t.Fatalf("results = %#v", results)
 	}
 	if results[0].ID != "ok" || results[0].Status != "succeeded" || results[0].ErrorCode != "" {
@@ -69,6 +69,9 @@ func TestAssignLeadsReturnsOneResultPerTargetAndAllowsPartialFailure(t *testing.
 	}
 	if results[2].ID != "stale" || results[2].Status != "failed" || results[2].ErrorCode != "CONFLICT" {
 		t.Fatalf("stale = %#v", results[2])
+	}
+	if results[3].ID != "foreign-owner" || results[3].Status != "failed" || results[3].ErrorCode != "OWNER_OUT_OF_SCOPE" {
+		t.Fatalf("foreign owner = %#v", results[3])
 	}
 }
 
