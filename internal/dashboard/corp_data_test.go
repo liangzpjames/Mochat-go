@@ -38,7 +38,7 @@ func TestCorpDataIndexReturnsSummary(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/dashboard/corpData/index?corpId=5&from=2026-07-01&to=2026-07-02",
+		"/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
 		nil,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
@@ -98,7 +98,7 @@ func TestCorpDataLineChatReturnsPoints(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/dashboard/corpData/lineChat?corpId=5&from=2026-07-01&to=2026-07-02",
+		"/dashboard/corpData/lineChat?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
 		nil,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
@@ -131,13 +131,33 @@ func TestCorpDataIndexRequiresSelectedCorp(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache(""), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index", nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCorpDataIndexRequiresCompleteOverviewQuery(t *testing.T) {
+	store := &fakeCorpDataStore{
+		users:           map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		corpIDsByTenant: []int{5},
+	}
+	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Index(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastSummaryCorpID != 0 || store.lastLineCorpID != 0 {
+		t.Fatalf("store queried for summary=%d line=%d", store.lastSummaryCorpID, store.lastLineCorpID)
 	}
 }
 
@@ -154,7 +174,7 @@ func TestCorpDataIndexIgnoresCrossTenantCachedCorp(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("99-0"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index", nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -176,7 +196,7 @@ func TestCorpDataIndexRejectsRequestedCorpOutsideSelectedScope(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/dashboard/corpData/index?corpId=99&from=2026-07-01&to=2026-07-02",
+		"/dashboard/corpData/index?corpId=99&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
 		nil,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
@@ -200,7 +220,7 @@ func TestCorpDataIndexRejectsInvalidDateRange(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/dashboard/corpData/index?corpId=5&from=2026-07-03&to=2026-07-02",
+		"/dashboard/corpData/index?corpId=5&startDate=2026-07-03&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
 		nil,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
@@ -224,7 +244,7 @@ func TestCorpDataIndexReturnsEmptyArraysForEmptyCorpData(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/dashboard/corpData/index?corpId=5&from=2026-07-01&to=2026-07-02",
+		"/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
 		nil,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
@@ -241,6 +261,38 @@ func TestCorpDataIndexReturnsEmptyArraysForEmptyCorpData(t *testing.T) {
 	}
 	if trend := data["trend"].([]any); len(trend) != 0 {
 		t.Fatalf("trend = %#v", trend)
+	}
+}
+
+func TestCorpDataIndexGroupsWeeklyTrendAndReturnsPaginationMetadata(t *testing.T) {
+	store := &fakeCorpDataStore{
+		users:           map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		corpIDsByTenant: []int{5},
+		points: []CorpDataPoint{
+			{AddContactNum: 2, AddIntoRoomNum: 1, LossContactNum: 1, Date: "2026-07-06 00:00:00"},
+			{AddContactNum: 3, AddIntoRoomNum: 2, LossContactNum: 1, Date: "2026-07-08 00:00:00"},
+		},
+	}
+	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-31&employeeIds=&departmentIds=&period=week&page=1&pageSize=1", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Index(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	data := decodeBody(t, rec.Body.Bytes())["data"].(map[string]any)
+	if int(data["total"].(float64)) != 1 || int(data["page"].(float64)) != 1 || int(data["pageSize"].(float64)) != 1 {
+		t.Fatalf("pagination = %#v", data)
+	}
+	trend := data["trend"].([]any)
+	if len(trend) != 1 {
+		t.Fatalf("trend = %#v", trend)
+	}
+	point := trend[0].(map[string]any)
+	if point["date"] != "2026-07-06" || int(point["addContactNum"].(float64)) != 5 || int(point["addIntoRoomNum"].(float64)) != 3 {
+		t.Fatalf("weekly point = %#v", point)
 	}
 }
 

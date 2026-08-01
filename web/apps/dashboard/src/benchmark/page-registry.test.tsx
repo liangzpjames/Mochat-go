@@ -46,7 +46,10 @@ function renderDashboardRoute(path: string) {
 describe('createPageRegistry', () => {
   it('registers the real global conversation P0 page', () => {
     const pages = createBenchmarkP0Pages({
-      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }) },
+      dashboardOverviewApi: {
+        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        exportCsv: () => Promise.resolve(new Blob()),
+      },
       conversationGlobalApi: {
         search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
         detail: () => Promise.reject(new Error('not loaded')),

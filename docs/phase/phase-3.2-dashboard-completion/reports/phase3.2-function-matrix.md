@@ -6,7 +6,7 @@
 
 | page | referenceFeature | decision | decisionReason | alternativeEntry | decisionVerification | mochatEntry | frontend | api | permission | persistence | tests | evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| /index | 关键经营指标与趋势 | 已对应 | - | - | - | 数据概览 | 待 Task 2：概览指标组件 | 待 Task 3：概览统计接口 | 待 Task 3：概览读取权限 | 待 Task 3：统计聚合数据 | 待 Task 10：概览交互测试 | 待 Task 11：浏览器验收证据 |
+| /index | 关键经营指标与趋势 | 已对应 | - | - | - | 数据概览 | web/apps/dashboard/src/features/dashboard-overview/dashboard-overview-page.tsx | internal/dashboard/corp_data.go | internal/dashboard/corp_data.go（认证企业、RBAC 数据范围交集） | internal/store/mysql.go（企业日汇总） | internal/dashboard/corp_data_test.go | 待 Task 11：浏览器验收证据（本任务无可用本地登录凭据） |
 | /chat/v2-all | 会话列表检索与详情 | 已对应 | - | - | - | 全局消息 | 待 Task 2：会话列表与详情抽屉 | 待 Task 3：会话检索接口 | 待 Task 3：会话读取权限 | 待 Task 3：会话与消息数据 | 待 Task 10：会话交互测试 | 待 Task 11：浏览器验收证据 |
 | /ai-insight/v2/sensitive-word | 敏感词规则列表与维护 | 已对应 | - | - | - | 敏感词 | 待 Task 2：敏感词规则管理 | 待 Task 3：敏感词规则接口 | 待 Task 3：风险配置权限 | 待 Task 3：敏感词规则数据 | 待 Task 10：敏感词交互测试 | 待 Task 11：浏览器验收证据 |
 | /customer/clue/default | 线索列表检索与分配 | 已对应 | - | - | - | 线索池 | 待 Task 4：线索列表与分配操作 | 待 Task 5：线索检索与分配接口 | 待 Task 5：线索读取与分配权限 | 待 Task 5：线索数据 | 待 Task 10：线索交互测试 | 待 Task 11：浏览器验收证据 |

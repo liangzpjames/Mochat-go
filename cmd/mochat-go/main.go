@@ -450,7 +450,7 @@ func main() {
 	if cfg.MigrateCorpDataIndex || cfg.MigrateCorpDataLineChat {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("corpData")
-		corpData := dashboard.NewCorpDataHandler(mysqlStore, loginCache, resolver)
+		corpData := dashboard.NewCorpDataHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		externalTenant := dashboard.NewExternalTenantHandler(mysqlStore, resolver, cfg.SaaSPlatformAdminTenantID)
 		if cfg.MigrateCorpDataIndex {
 			options = append(options, compatserver.WithCorpDataIndexHandler(http.HandlerFunc(corpData.Index)))
