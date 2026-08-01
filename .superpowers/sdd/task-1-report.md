@@ -1,75 +1,36 @@
-# Task 1 report: Yuanhu benchmark manifest
+# Phase 3.2 Task 1 完成报告
 
-## Status
+## 实现内容
 
-Completed. The repository now has a versioned Yuanhu benchmark manifest, an index-page observation archive, a non-mutating checker, focused Node tests, and a root pnpm command.
+- 新增八个指定页面的原子功能矩阵，列出 `page`、`referenceFeature`、`decision`、`mochatEntry`、`frontend`、`api`、`permission`、`persistence`、`tests`、`evidence`。
+- 新增 `validateFunctionMatrix(markdown)`：校验必需列、允许结论、必填执行字段和八页覆盖，并返回全部精确原因。
+- 完成门禁会将矩阵与 manifest 交叉校验：`e2e-passed` 页面不得含 fixture 或待完成字段；完整阶段门禁会逐项拒绝未闭合功能。
+- 将八个目标页面的 `acceptance` 从过早的 `e2e-passed` 降为 `unit-passed`，保留 `backend: ready`。
 
-## Commit
+## RED / GREEN 记录
 
-- `25528bf25550568520bdf11d77f875492cbdd24f` — `docs: add yuanhu benchmark manifest`
+- RED：`node --test scripts/check_phase3_2_dashboard_completion.test.mjs`
+  - 关键输出：`SyntaxError: ... does not provide an export named 'validateFunctionMatrix'`，退出码 `1`。
+- GREEN：`node --test scripts/check_phase3_2_dashboard_completion.test.mjs`
+  - 关键输出：`# pass 6`、`# fail 0`，退出码 `0`。
+- 阶段门禁：`node scripts/check_phase3_2_dashboard_completion.mjs`
+  - 关键输出：`Phase 3.2 unclosed function matrix items (48)`，退出码 `1`；八页各列出 frontend、api、permission、persistence、tests、evidence 六项待闭合内容，符合当前阶段必须失败的预期。
 
-## Files changed
+## 变更文件
 
-- `docs/benchmark/yuanhu/manifest.json`
-- `docs/benchmark/yuanhu/pages/index/spec.md`
-- `docs/benchmark/yuanhu/pages/index/states.json`
-- `scripts/check_yuanhu_benchmark_manifest.mjs`
-- `scripts/check_yuanhu_benchmark_manifest.test.mjs`
-- `package.json`
+- `docs/phase/phase-3.2-dashboard-completion/reports/phase3.2-function-matrix.md`
+- `scripts/check_phase3_2_dashboard_completion.mjs`
+- `scripts/check_phase3_2_dashboard_completion.test.mjs`
+- `web/apps/dashboard/src/benchmark/manifest.json`
+- `.superpowers/sdd/task-1-report.md`（本报告，用户明确要求的交付物）
 
-## Commands and results
+## 自审
 
-1. `node --test scripts/check_yuanhu_benchmark_manifest.test.mjs`
-   - Initial RED result: failed with `ERR_MODULE_NOT_FOUND` because `check_yuanhu_benchmark_manifest.mjs` did not yet exist.
-   - Final GREEN result: 3 tests passed, 0 failed.
-2. `pnpm check:yuanhu-benchmark`
-   - Passed: `Yuanhu benchmark manifest passed (53 pages).`
-3. `node -e "..."`
-   - Confirmed 8 groups and 53 pages: P0 3, P1 9, P2 41.
-4. `git diff --check`
-   - Passed with no whitespace errors.
+- 矩阵仅覆盖八个指定路由，不把其他页面纳入 Phase 3.2。
+- 门禁单测覆盖缺列、非法结论、空证据、缺少七个目标页面和 e2e 页面仍使用 fixture。
+- 完整门禁不会把未验证能力当作阶段完成；当前未闭合字段使用 `待 Task N` 明示并可被机器识别。
+- 未暂存或修改工作树中已有的视觉相关改动。
 
-## Concerns
+## 关注点
 
-- The observed feature matrix currently records 53 routes, while the task brief describes “about 56”. The manifest deliberately uses the repository’s complete observed matrix rather than inventing three unobserved routes.
-- No screenshot was recorded for this task. Every page uses `screenshotVersion: "unobserved"`; the index archive explicitly marks deep states as unobserved instead of inferring behavior.
-
-## Self-review
-
-- The manifest is the sole route, group, level, status, and screenshot-version source introduced by this task.
-- The checker rejects missing required groups, duplicate group IDs, duplicate page paths, missing required page fields, invalid levels, unresolved group references, and a missing `/index` route. It only reads and validates; it never changes the manifest.
-- Tests independently assert the eight required groups, the `/index` page, valid path/level records, and duplicate-route rejection.
-
-## Follow-up repair: require an ungrouped index page
-
-### Status
-
-Completed. `/index` is now required to use `groupId: null`, matching its role as the top-level data overview rather than an item in one of the eight navigation groups.
-
-### Commit
-
-- `d8de3df063e75bebed430634ea09703359848d76` — `fix: require ungrouped Yuanhu index page`
-
-### Files changed
-
-- `scripts/check_yuanhu_benchmark_manifest.mjs`
-- `scripts/check_yuanhu_benchmark_manifest.test.mjs`
-
-### TDD evidence and verification
-
-1. Added a regression test which clones the `/index` page and changes `groupId` to `conversation`.
-2. Ran `node --test scripts/check_yuanhu_benchmark_manifest.test.mjs` before the checker change.
-   - RED: 3 passed and the new fourth test failed with `Missing expected exception.`
-3. Added the minimal checker rule: an `/index` page with any `groupId` other than `null` produces `index page must have groupId: null`.
-4. Ran `node --test scripts/check_yuanhu_benchmark_manifest.test.mjs`.
-   - GREEN: 4 passed, 0 failed.
-5. Ran `pnpm check:yuanhu-benchmark`.
-   - Passed: `Yuanhu benchmark manifest passed (53 pages).`
-6. Ran `git diff --check`.
-   - Passed with no whitespace errors.
-
-### Follow-up self-review
-
-- The valid manifest still demonstrates the passing case because its `/index` record has `groupId: null`.
-- The regression test verifies the failing case by assigning `/index` to an actual navigation group.
-- The checker emits a dedicated error rather than silently treating `/index` as an ordinary grouped page.
+- 完整阶段门禁当前有意失败，直到后续任务逐项用真实实现、测试和浏览器证据替换全部 48 个待闭合字段；Task 11 才能恢复 `e2e-passed`。
