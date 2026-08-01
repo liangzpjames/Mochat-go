@@ -23,6 +23,26 @@ func TestContactLifecycleMariaDBIsolationCombinedFilterAndAggregateDetail(t *tes
 	corpID := insertParityCorp(t, db, namespace.tenantID, namespace.id("contact-corp"))
 	otherCorpID := insertParityCorp(t, db, namespace.tenantID, namespace.id("contact-other-corp"))
 	ownerID := insertParityEmployee(t, db, corpID, namespace.id("contact-owner"), 1, false)
+	legacyContactResult, err := db.Exec(`INSERT INTO mc_work_contact(corp_id,wx_external_userid,name,nick_name,unionid,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, corpID, namespace.id("external"), "Ada Contact", "Ada Contact", namespace.id("union"), now, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyContactID, err := legacyContactResult.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRelationResult, err := db.Exec(`INSERT INTO mc_work_contact_employee(employee_id,contact_id,add_way,corp_id,status,create_time,created_at,updated_at) VALUES(?,?,?,?,1,?,?,?)`, ownerID, legacyContactID, 1, corpID, now, now, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRelationID, err := legacyRelationResult.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM mc_work_contact_employee WHERE id=?", legacyRelationID)
+		_, _ = db.Exec("DELETE FROM mc_work_contact WHERE id=?", legacyContactID)
+	})
 	contactID := namespace.id("contact")
 	hiddenID := namespace.id("hidden")
 	tagID := namespace.id("tag")
@@ -73,6 +93,9 @@ func TestContactLifecycleMariaDBIsolationCombinedFilterAndAggregateDetail(t *tes
 	}
 	if detail.Assignment.Version != 4 || len(detail.Tags) != 1 || len(detail.Opportunities) != 1 || len(detail.FollowUps) != 1 {
 		t.Fatalf("detail=%#v", detail)
+	}
+	if detail.WeComFriendsAvailable || len(detail.WeComFriends) != 0 {
+		t.Fatalf("same-name legacy contact must not be guessed as linked: %#v", detail.WeComFriends)
 	}
 	if _, err := repository.GetContact(ctx, namespace.tenantID, corpID, hiddenID); !errors.Is(err, ports.ErrContactNotFound) {
 		t.Fatalf("cross-corp err=%v", err)

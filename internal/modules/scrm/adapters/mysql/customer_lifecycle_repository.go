@@ -114,9 +114,10 @@ func (r *CustomerLifecycleRepository) GetContact(ctx context.Context, tenantID, 
 	if err := r.loadContactTags(ctx, tenantID, corpID, contactID, &detail); err != nil {
 		return detail, err
 	}
-	if err := r.loadContactWeComFriends(ctx, corpID, detail.Name, &detail); err != nil {
-		return detail, err
-	}
+	// There is no durable identity relation from mochat_go_scrm_contacts to
+	// mc_work_contact. A display name is not an identity key, so do not guess.
+	detail.WeComFriends = []ports.WeComFriendSummary{}
+	detail.WeComFriendsAvailable = false
 	if err := r.loadContactOpportunities(ctx, tenantID, corpID, contactID, &detail); err != nil {
 		return detail, err
 	}
@@ -139,21 +140,6 @@ func (r *CustomerLifecycleRepository) loadContactTags(ctx context.Context, tenan
 		}
 		detail.Tags = append(detail.Tags, item)
 		detail.TagNames = append(detail.TagNames, item.Name)
-	}
-	return rows.Err()
-}
-func (r *CustomerLifecycleRepository) loadContactWeComFriends(ctx context.Context, corpID int64, name string, detail *ports.ContactDetail) error {
-	rows, err := r.db.QueryContext(ctx, `SELECT c.wx_external_userid,COALESCE(NULLIF(c.name,''),c.nick_name),ce.employee_id,ce.create_time FROM mc_work_contact c JOIN mc_work_contact_employee ce ON ce.contact_id=c.id AND ce.corp_id=c.corp_id AND ce.deleted_at IS NULL AND ce.status=1 WHERE c.corp_id=? AND c.deleted_at IS NULL AND (c.name=? OR c.nick_name=?) ORDER BY ce.create_time,ce.employee_id`, corpID, name, name)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item ports.WeComFriendSummary
-		if err := rows.Scan(&item.ExternalUserID, &item.Name, &item.EmployeeID, &item.AddedAt); err != nil {
-			return err
-		}
-		detail.WeComFriends = append(detail.WeComFriends, item)
 	}
 	return rows.Err()
 }

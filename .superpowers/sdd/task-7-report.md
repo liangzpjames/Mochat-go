@@ -30,9 +30,21 @@
 - `pnpm --filter @mochat/dashboard typecheck`
 - `go test ./internal/migration -run 'TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes|TestContactLifecycleIdempotencyMigrationIsReversible' -count=1`
 - `git diff --check`
+- 审查修复聚焦 Go：`go test ./internal/modules/scrm/transport/http ./internal/modules/scrm/application -run 'TestOpportunityHandler|TestCustomerLifecycle' -count=1`
+- 审查修复真实 MariaDB：`go test -tags=integration ./internal/modules/scrm/adapters/mysql -run 'TestOpportunityAndTagCommandsPersistFingerprintsAndRejectOrphans|TestContactLifecycleMariaDBIsolationCombinedFilterAndAggregateDetail' -count=1`
+- 审查修复前端：`assignment-editor.test.tsx`、`follow-up-timeline.test.tsx`、`contact-page.test.tsx`，3 files / 14 tests；另通过 Dashboard typecheck、SCRM `go vet` 和 `git diff --check`。
 
 ## 风险与后续
 
 - 未执行 Dashboard、Go 全量测试和完整 build；按用户要求由控制器统一复跑。
 - 浏览器真实登录态的 URL 刷新恢复及“追加跟进 → 创建商机 → 进入公海”证据延后 Task11。
 - Task8、Task9、Task10 仍会分别深化商机、公海和标签页面合同；本任务只实现联系人详情中的必要入口。
+
+## 审查修复
+
+- `OpportunityHandler` 的商机列表/阶段变更与标签列表/创建/改名均按目标页面动作执行 RBAC，并将认证 tenant 与获授权 corp 下推；同租户第二企业在进入服务前返回 403。
+- `mochat_go_scrm_contacts` 当前没有可与 `mc_work_contact` 对应的 `contact_id`、`unionid` 或 `external_userid`。详情聚合已删除姓名匹配，返回空好友列表及 `wecomFriendsAvailable=false`；真实 MariaDB 同名联系人测试证明不会串联。
+- 创建商机、推进阶段、追加跟进、创建/改名/绑定标签全部在事务中持久化请求指纹：同键同请求重放原结果，同键异请求返回 409。
+- 所有相关写操作先验证当前 tenant+corp 内的联系人、标签、商机、企业和负责人；跨企业或不存在资源返回 404（负责人越界为 403），事务回滚且不产生孤儿记录。
+- `assignment-editor` 与 `follow-up-timeline` 的 loading、403、404、409、通用错误和 retry 已统一使用 `PageState`，并新增失败与重试测试。
+- 控制器基线记录：Dashboard 全量 `56 files / 342 tests`；按收敛要求，本次不重复执行全量，交由控制器复跑。

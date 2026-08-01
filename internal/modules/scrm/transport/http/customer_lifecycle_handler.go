@@ -262,11 +262,12 @@ type contactSummaryJSON struct {
 }
 type contactDetailJSON struct {
 	contactSummaryJSON
-	Assignment    assignmentJSON                    `json:"assignment"`
-	Tags          []ports.ContactTagSummary         `json:"tags"`
-	WeComFriends  []ports.WeComFriendSummary        `json:"wecomFriends"`
-	Opportunities []ports.ContactOpportunitySummary `json:"opportunities"`
-	FollowUps     []followUpJSON                    `json:"followUps"`
+	Assignment            assignmentJSON                    `json:"assignment"`
+	Tags                  []ports.ContactTagSummary         `json:"tags"`
+	WeComFriends          []ports.WeComFriendSummary        `json:"wecomFriends"`
+	WeComFriendsAvailable bool                              `json:"wecomFriendsAvailable"`
+	Opportunities         []ports.ContactOpportunitySummary `json:"opportunities"`
+	FollowUps             []followUpJSON                    `json:"followUps"`
 }
 
 func contactSummaryView(item ports.ContactSummary) contactSummaryJSON {
@@ -277,7 +278,7 @@ func contactDetailView(item ports.ContactDetail) contactDetailJSON {
 	for _, f := range item.FollowUps {
 		followUps = append(followUps, followUpJSON{ID: f.ID, ContactID: item.ID, Content: f.Content, CreatedAt: f.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"), CreatedBy: f.CreatedBy})
 	}
-	return contactDetailJSON{contactSummaryJSON: contactSummaryView(item.ContactSummary), Assignment: assignmentViewJSON(item.Assignment), Tags: item.Tags, WeComFriends: item.WeComFriends, Opportunities: item.Opportunities, FollowUps: followUps}
+	return contactDetailJSON{contactSummaryJSON: contactSummaryView(item.ContactSummary), Assignment: assignmentViewJSON(item.Assignment), Tags: item.Tags, WeComFriends: item.WeComFriends, WeComFriendsAvailable: item.WeComFriendsAvailable, Opportunities: item.Opportunities, FollowUps: followUps}
 }
 
 func assignmentViewJSON(item domain.CustomerAssignment) assignmentJSON {

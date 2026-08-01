@@ -2,7 +2,13 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+var (
+	ErrOpportunityNotFound = errors.New("opportunity not found")
+	ErrTagNotFound         = errors.New("tag not found")
 )
 
 type Opportunity struct {

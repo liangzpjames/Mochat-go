@@ -16,6 +16,14 @@ const OpportunitiesPath = "/dashboard/scrm/opportunities"
 const TagsPath = "/dashboard/scrm/tags"
 const FollowUpsPath = "/dashboard/scrm/contacts/{contactId}/follow-ups"
 
+const (
+	opportunityPermissionView = "/customer/opportunity#get"
+	opportunityPermissionEdit = "/customer/opportunity@edit#post"
+	tagPermissionView         = "/customer/tags#get"
+	tagPermissionAdd          = "/customer/tags@add#post"
+	tagPermissionEdit         = "/customer/tags@edit#post"
+)
+
 type OpportunityService interface {
 	ListOpportunities(context.Context, ports.OpportunityFilter) ([]ports.Opportunity, error)
 	CreateOpportunity(context.Context, ports.CreateOpportunityCommand) (ports.Opportunity, error)
@@ -83,7 +91,11 @@ func (h *OpportunityHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "authentication required")
 		return
 	}
-	items, err := h.service.ListOpportunities(r.Context(), ports.OpportunityFilter{TenantID: p.TenantID, CorpID: queryInt(r, "corpId"), Stage: r.URL.Query().Get("stage")})
+	corpID := queryInt(r, "corpId")
+	if !h.authorize(w, r, p, corpID, opportunityPermissionView) {
+		return
+	}
+	items, err := h.service.ListOpportunities(r.Context(), ports.OpportunityFilter{TenantID: p.TenantID, CorpID: corpID, Stage: r.URL.Query().Get("stage")})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -104,7 +116,7 @@ func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if decodeRequestJSON(w, r, &q) != nil {
 		return
 	}
-	q.TenantID, q.CorpID = p.TenantID, q.CorpID
+	q.TenantID = p.TenantID
 	q.IdempotencyKey = r.Header.Get("Idempotency-Key")
 	if !h.authorize(w, r, p, q.CorpID, contactPermissionEdit) {
 		return
@@ -130,6 +142,9 @@ func (h *OpportunityHandler) Stage(w http.ResponseWriter, r *http.Request) {
 	q.OpportunityID = strings.TrimPrefix(r.URL.Path, OpportunitiesPath+"/")
 	q.OpportunityID = strings.TrimSuffix(q.OpportunityID, "/stage")
 	q.IdempotencyKey = r.Header.Get("Idempotency-Key")
+	if !h.authorize(w, r, p, q.CorpID, opportunityPermissionEdit) {
+		return
+	}
 	item, err := h.service.ChangeOpportunityStage(r.Context(), q)
 	if err != nil {
 		writeSCRMError(w, err)
@@ -143,7 +158,11 @@ func (h *OpportunityHandler) ListTags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "authentication required")
 		return
 	}
-	items, err := h.service.ListTags(r.Context(), p.TenantID, queryInt(r, "corpId"))
+	corpID := queryInt(r, "corpId")
+	if !h.authorize(w, r, p, corpID, tagPermissionView) {
+		return
+	}
+	items, err := h.service.ListTags(r.Context(), p.TenantID, corpID)
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -165,6 +184,9 @@ func (h *OpportunityHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		Name   string `json:"name"`
 	}
 	if decodeRequestJSON(w, r, &q) != nil {
+		return
+	}
+	if !h.authorize(w, r, p, q.CorpID, tagPermissionAdd) {
 		return
 	}
 	item, err := h.service.CreateTag(r.Context(), p.TenantID, q.CorpID, q.Name, r.Header.Get("Idempotency-Key"))
@@ -235,6 +257,9 @@ func (h *OpportunityHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
 	if decodeRequestJSON(w, r, &q) != nil {
 		return
 	}
+	if !h.authorize(w, r, p, q.CorpID, tagPermissionEdit) {
+		return
+	}
 	item, err := h.service.RenameTag(r.Context(), p.TenantID, q.CorpID, pathValue(r, "tags", ""), q.Name, q.Version, r.Header.Get("Idempotency-Key"))
 	if err != nil {
 		writeSCRMError(w, err)
@@ -301,12 +326,20 @@ func queryInt(r *http.Request, key string) int64 {
 	return n
 }
 func writeSCRMError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ports.ErrAssignmentForbidden) {
+		writeError(w, http.StatusForbidden, "resource is outside corp scope")
+		return
+	}
 	if errors.Is(err, ports.ErrAssignmentConflict) {
 		writeError(w, http.StatusConflict, "resource version conflict")
 		return
 	}
 	if errors.Is(err, application.ErrInvalidArgument) {
 		writeError(w, 422, "invalid request")
+		return
+	}
+	if errors.Is(err, ports.ErrContactNotFound) || errors.Is(err, ports.ErrTagNotFound) || errors.Is(err, ports.ErrOpportunityNotFound) {
+		writeError(w, http.StatusNotFound, "resource not found")
 		return
 	}
 	writeError(w, 503, "service unavailable")

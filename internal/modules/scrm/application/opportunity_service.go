@@ -84,7 +84,7 @@ func (s OpportunityService) CreateTag(ctx context.Context, tenantID, corpID int6
 	return s.tags.CreateTag(ctx, tenantID, corpID, name, key)
 }
 func (s OpportunityService) RenameTag(ctx context.Context, tenantID, corpID int64, id, name string, version int64, key string) (ports.Tag, error) {
-	if strings.TrimSpace(id) == "" || version <= 0 || strings.TrimSpace(key) == "" {
+	if tenantID <= 0 || corpID <= 0 || strings.TrimSpace(id) == "" || version <= 0 || strings.TrimSpace(key) == "" {
 		return ports.Tag{}, fmt.Errorf("%w: invalid tag", ErrInvalidArgument)
 	}
 	if err := domain.ValidateTagName(name); err != nil {
@@ -93,7 +93,7 @@ func (s OpportunityService) RenameTag(ctx context.Context, tenantID, corpID int6
 	return s.tags.RenameTag(ctx, tenantID, corpID, id, name, version, key)
 }
 func (s OpportunityService) BindTags(ctx context.Context, tenantID, corpID int64, id string, contacts []string, key string) error {
-	if strings.TrimSpace(id) == "" || len(contacts) == 0 || strings.TrimSpace(key) == "" {
+	if tenantID <= 0 || corpID <= 0 || strings.TrimSpace(id) == "" || len(contacts) == 0 || strings.TrimSpace(key) == "" {
 		return fmt.Errorf("%w: invalid tag binding", ErrInvalidArgument)
 	}
 	return s.tags.BindTags(ctx, tenantID, corpID, id, contacts, key)

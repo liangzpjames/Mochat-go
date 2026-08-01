@@ -41,11 +41,13 @@ type ContactFollowUpSummary struct {
 }
 type ContactDetail struct {
 	ContactSummary
-	Assignment    domain.CustomerAssignment
-	Tags          []ContactTagSummary
-	WeComFriends  []WeComFriendSummary
-	Opportunities []ContactOpportunitySummary
-	FollowUps     []ContactFollowUpSummary
+	Assignment   domain.CustomerAssignment
+	Tags         []ContactTagSummary
+	WeComFriends []WeComFriendSummary
+	// False until a durable contact_id, unionid, or external_userid relation exists.
+	WeComFriendsAvailable bool
+	Opportunities         []ContactOpportunitySummary
+	FollowUps             []ContactFollowUpSummary
 }
 type ContactPage struct {
 	Items      []ContactSummary

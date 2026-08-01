@@ -21,6 +21,7 @@ function hasNumericStatus(error: unknown): error is ErrorWithStatus {
 export function pageStateForError(error: unknown): PageStateKind {
   if (hasNumericStatus(error)) {
     if (error.status === 403) return 'forbidden';
+    if (error.status === 404) return 'not-found';
     if (error.status === 409) return 'conflict';
   }
   return 'error';

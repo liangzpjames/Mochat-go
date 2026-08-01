@@ -8,6 +8,7 @@ export type ContactDetail = ContactSummary & {
   assignment: Assignment;
   tags: { id: string; name: string }[];
   wecomFriends: { externalUserId: string; name: string; employeeId: number; addedAt: string }[];
+  wecomFriendsAvailable: boolean;
   opportunities: { id: string; stage: string; status: string; amount: number; version: number }[];
   followUps: { id: string; contactId: string; content: string; createdAt: string; createdBy: number }[];
 };
