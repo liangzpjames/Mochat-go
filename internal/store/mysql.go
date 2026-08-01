@@ -1407,7 +1407,8 @@ func (s *MySQLStore) SensitiveWordPage(ctx context.Context, filter dashboard.Sen
 			w.status,
 			COALESCE(stats.employee_num, 0),
 			COALESCE(stats.contact_num, 0),
-			w.created_at
+			w.created_at,
+			COALESCE(w.updated_at, w.created_at, NOW())
 		FROM mc_sensitive_word w
 		LEFT JOIN mc_sensitive_word_group g ON g.id = w.group_id AND g.deleted_at IS NULL
 		LEFT JOIN (
@@ -1432,10 +1433,12 @@ func (s *MySQLStore) SensitiveWordPage(ctx context.Context, filter dashboard.Sen
 	for rows.Next() {
 		var item dashboard.SensitiveWordItem
 		var createdAt sql.NullTime
-		if err := rows.Scan(&item.ID, &item.CorpID, &item.GroupID, &item.GroupName, &item.Name, &item.Status, &item.EmployeeNum, &item.ContactNum, &createdAt); err != nil {
+		var updatedAt time.Time
+		if err := rows.Scan(&item.ID, &item.CorpID, &item.GroupID, &item.GroupName, &item.Name, &item.Status, &item.EmployeeNum, &item.ContactNum, &createdAt, &updatedAt); err != nil {
 			return dashboard.SensitiveWordPage{}, err
 		}
 		item.CreatedAt = formatTime(createdAt)
+		item.Version = sensitiveWordVersion(sensitiveWordState{ID: item.ID, GroupID: item.GroupID, Name: item.Name, Status: item.Status, UpdatedAt: updatedAt})
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -1516,7 +1519,7 @@ func (s *MySQLStore) DeleteSensitiveWord(ctx context.Context, corpID int, wordID
 
 func (s *MySQLStore) SensitiveWordGroups(ctx context.Context, corpID int) ([]dashboard.SensitiveWordGroup, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name
+		SELECT id, name, COALESCE(updated_at, created_at, NOW())
 		FROM mc_sensitive_word_group
 		WHERE corp_id = ? AND deleted_at IS NULL
 		ORDER BY id ASC
@@ -1529,9 +1532,11 @@ func (s *MySQLStore) SensitiveWordGroups(ctx context.Context, corpID int) ([]das
 	groups := []dashboard.SensitiveWordGroup{}
 	for rows.Next() {
 		var group dashboard.SensitiveWordGroup
-		if err := rows.Scan(&group.ID, &group.Name); err != nil {
+		var updatedAt time.Time
+		if err := rows.Scan(&group.ID, &group.Name, &updatedAt); err != nil {
 			return nil, err
 		}
+		group.Version = sensitiveWordGroupVersion(sensitiveWordState{ID: group.ID, Name: group.Name, UpdatedAt: updatedAt})
 		groups = append(groups, group)
 	}
 	return groups, rows.Err()
@@ -1577,6 +1582,9 @@ func (s *MySQLStore) SensitiveWordsMonitorPage(ctx context.Context, filter dashb
 	}
 	if filter.PerPage <= 0 {
 		filter.PerPage = 10
+	}
+	if filter.PerPage > 100 {
+		filter.PerPage = 100
 	}
 	where := []string{"m.corp_id = ?", "m.deleted_at IS NULL"}
 	args := []any{filter.CorpID}
