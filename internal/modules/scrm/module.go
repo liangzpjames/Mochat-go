@@ -81,7 +81,7 @@ func New(dependencies Dependencies) (*Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM customer tag service: %w", err)
 	}
-	customerTagHTTP := transporthttp.NewCustomerTagHandler(customerTagService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer, opportunityService)
+	customerTagHTTP := transporthttp.NewCustomerTagHandler(customerTagService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
 	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP}, nil
 }
 

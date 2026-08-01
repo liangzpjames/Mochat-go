@@ -85,12 +85,12 @@ func RegisterCustomerTagRoutes(registrar RouteRegistrar, handler *CustomerTagHan
 		{nethttp.MethodGet, TagsPath, handler.ListCatalog},
 		{nethttp.MethodPost, TagsPath, handler.CreateTag},
 		{nethttp.MethodPut, TagsPath + "/{id}", handler.RenameTag},
-		{nethttp.MethodPost, TagsPath + "/{id}/contacts", handler.BindContacts},
 		{nethttp.MethodGet, TagGroupsPath, handler.ListCatalog},
 		{nethttp.MethodPost, TagGroupsPath, handler.CreateGroup},
 		{nethttp.MethodPut, TagGroupsPath + "/{id}", handler.RenameGroup},
 		{nethttp.MethodPost, TagsPath + "/{id}/move", handler.MoveTag},
 		{nethttp.MethodPut, TagsPath + "/{id}/contacts", handler.MaintainContacts},
+		{nethttp.MethodGet, TagsPath + "/{id}/delete-preview", handler.PreviewDeleteTag},
 		{nethttp.MethodDelete, TagsPath + "/{id}", handler.DeleteTag},
 	} {
 		if err := registrar.Handle(route.method, route.path, route.handler); err != nil {

@@ -1,7 +1,7 @@
 import { ApiError } from '@mochat/api-client';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useNavigate } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TagPage } from './tag-page';
 
@@ -24,14 +24,16 @@ function api(overrides: Record<string, unknown> = {}) {
     createTag: vi.fn().mockResolvedValue(catalog.tags[0]),
     renameTag: vi.fn().mockResolvedValue({ ...catalog.tags[0], name: '重点', version: 4 }),
     moveTag: vi.fn().mockResolvedValue({ ...catalog.tags[0], groupId: 'g2', version: 4 }),
+    previewDeleteTag: vi.fn().mockResolvedValue({ tagId: 't1', version: 4, affectedResourceCount: 5 }),
     deleteTag: vi.fn().mockResolvedValue({ affectedResourceCount: 2 }),
     maintainTagContacts: vi.fn().mockResolvedValue({ ...catalog.tags[0], usageCount: 2, version: 4 }),
     ...overrides,
   };
 }
 
-function view(value = api(), entry = '/customer/tags') {
-  return render(<MemoryRouter initialEntries={[entry]}><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><TagPage api={value} /></QueryClientProvider></MemoryRouter>);
+const HistoryControls = () => { const navigate = useNavigate(); return <><button type="button" onClick={() => navigate(-1)}>后退测试</button><button type="button" onClick={() => navigate(1)}>前进测试</button></>; };
+function view(value = api(), entry = '/customer/tags', client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })) {
+  return render(<MemoryRouter initialEntries={[entry]}><QueryClientProvider client={client}><TagPage api={value} /><HistoryControls /></QueryClientProvider></MemoryRouter>);
 }
 
 describe('TagPage', () => {
@@ -44,9 +46,30 @@ describe('TagPage', () => {
     await waitFor(() => expect(value.listTagCatalog).toHaveBeenLastCalledWith({ corpId: 7, groupId: undefined, keyword: undefined }));
   });
 
-  it('creates and renames groups, and creates renames and moves tags', async () => {
+  it('keeps the initial group selection aligned with the unfiltered query', async () => {
     const value = api();
     view(value);
+    await screen.findByText('普通');
+    expect((screen.getByLabelText('标签组筛选') as HTMLSelectElement).value).toBe('');
+    expect(value.listTagCatalog).toHaveBeenCalledWith({ corpId: 7 });
+  });
+
+  it('synchronizes keyword and group controls on browser back and forward', async () => {
+    view(api(), '/customer/tags?groupId=g1&keyword=VIP');
+    await screen.findByText('普通');
+    fireEvent.change(screen.getByLabelText('标签关键词'), { target: { value: '地域' } });
+    fireEvent.change(screen.getByLabelText('标签组筛选'), { target: { value: 'g2' } });
+    fireEvent.click(screen.getByRole('button', { name: '后退测试' }));
+    await waitFor(() => expect((screen.getByLabelText('标签关键词') as HTMLInputElement).value).toBe('VIP'));
+    expect((screen.getByLabelText('标签组筛选') as HTMLSelectElement).value).toBe('g1');
+    fireEvent.click(screen.getByRole('button', { name: '前进测试' }));
+    await waitFor(() => expect((screen.getByLabelText('标签关键词') as HTMLInputElement).value).toBe('地域'));
+    expect((screen.getByLabelText('标签组筛选') as HTMLSelectElement).value).toBe('g2');
+  });
+
+  it('creates and renames groups, and creates renames and moves tags', async () => {
+    const value = api();
+    view(value, '/customer/tags?groupId=g1');
     await screen.findByText('普通');
     fireEvent.change(screen.getByLabelText('新标签组'), { target: { value: '生命周期' } });
     fireEvent.click(screen.getByRole('button', { name: '新增标签组' }));
@@ -63,13 +86,17 @@ describe('TagPage', () => {
 
   it('binds and unbinds contacts in one batch and refreshes usage count', async () => {
     const value = api();
-    view(value);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const invalidation = vi.spyOn(client, 'invalidateQueries');
+    view(value, '/customer/tags', client);
     await screen.findByText('使用 2');
     fireEvent.change(screen.getByLabelText('绑定联系人'), { target: { value: 'c1,c2' } });
     fireEvent.change(screen.getByLabelText('解绑联系人'), { target: { value: 'c3' } });
     fireEvent.click(screen.getByRole('button', { name: '维护联系人 普通' }));
     await waitFor(() => expect(value.maintainTagContacts).toHaveBeenCalledWith(expect.objectContaining({ tagId: 't1', addContactIds: ['c1', 'c2'], removeContactIds: ['c3'], version: 3 })));
     expect(value.listTagCatalog).toHaveBeenCalledTimes(2);
+    expect(invalidation).toHaveBeenCalledWith({ queryKey: ['scrm-contacts', 7] });
+    expect(invalidation).toHaveBeenCalledWith({ queryKey: ['scrm-contact-detail', 7] });
   });
 
   it('confirms deletion with affectedResourceCount and deletes with version', async () => {
@@ -77,9 +104,10 @@ describe('TagPage', () => {
     view(value);
     await screen.findByText('普通');
     fireEvent.click(screen.getByRole('button', { name: '删除标签 普通' }));
-    expect(await screen.findByText('将影响 2 个联系人')).toBeTruthy();
+    await waitFor(() => expect(value.previewDeleteTag).toHaveBeenCalledWith({ corpId: 7, tagId: 't1' }));
+    expect(await screen.findByText('将影响 5 个联系人')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
-    await waitFor(() => expect(value.deleteTag).toHaveBeenCalledWith(expect.objectContaining({ tagId: 't1', version: 3, idempotencyKey: expect.any(String) })));
+    await waitFor(() => expect(value.deleteTag).toHaveBeenCalledWith(expect.objectContaining({ tagId: 't1', version: 4, idempotencyKey: expect.any(String) })));
   });
 
   it('uses PageState for query and mutation failures with retry', async () => {

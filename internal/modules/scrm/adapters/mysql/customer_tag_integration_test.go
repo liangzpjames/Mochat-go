@@ -6,8 +6,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -69,12 +71,40 @@ func TestCustomerTagMariaDBCatalogIsolationVersionsAndIdempotency(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	concurrentGroupName := namespace.id("并发组")
+	groupErrors := make(chan error, 2)
+	var groupWait sync.WaitGroup
+	for index := 0; index < 2; index++ {
+		groupWait.Add(1)
+		go func(index int) {
+			defer groupWait.Done()
+			_, createErr := repository.CreateGroup(ctx, ports.CreateTagGroupCommand{TenantID: namespace.tenantID, CorpID: corpID, Name: concurrentGroupName, IdempotencyKey: namespace.key(fmt.Sprintf("group-concurrent-%d", index))})
+			groupErrors <- createErr
+		}(index)
+	}
+	groupWait.Wait()
+	close(groupErrors)
+	assertOneConcurrentDuplicate(t, groupErrors)
 
 	tagCommand := ports.CreateCustomerTagCommand{TenantID: namespace.tenantID, CorpID: corpID, GroupID: group.ID, Name: namespace.id("VIP"), IdempotencyKey: namespace.key("tag-create")}
 	tag, err := repository.CreateCustomerTag(ctx, tagCommand)
 	if err != nil {
 		t.Fatal(err)
 	}
+	concurrentTagName := namespace.id("并发标签")
+	tagErrors := make(chan error, 2)
+	var tagWait sync.WaitGroup
+	for index := 0; index < 2; index++ {
+		tagWait.Add(1)
+		go func(index int) {
+			defer tagWait.Done()
+			_, createErr := repository.CreateCustomerTag(ctx, ports.CreateCustomerTagCommand{TenantID: namespace.tenantID, CorpID: corpID, GroupID: group.ID, Name: concurrentTagName, IdempotencyKey: namespace.key(fmt.Sprintf("tag-concurrent-%d", index))})
+			tagErrors <- createErr
+		}(index)
+	}
+	tagWait.Wait()
+	close(tagErrors)
+	assertOneConcurrentDuplicate(t, tagErrors)
 	duplicateTag := tagCommand
 	duplicateTag.IdempotencyKey = namespace.key("tag-duplicate")
 	if _, err := repository.CreateCustomerTag(ctx, duplicateTag); !errors.Is(err, ports.ErrDuplicateTagName) {
@@ -128,6 +158,24 @@ func TestCustomerTagMariaDBCatalogIsolationVersionsAndIdempotency(t *testing.T) 
 	}
 	if _, err := repository.DeleteCustomerTag(ctx, ports.DeleteCustomerTagCommand{TenantID: namespace.tenantID, CorpID: otherCorpID, TagID: tag.ID, Version: 2, IdempotencyKey: namespace.key("hidden-delete")}); !errors.Is(err, ports.ErrTagNotFound) {
 		t.Fatalf("cross-corp delete err=%v", err)
+	}
+}
+
+func assertOneConcurrentDuplicate(t *testing.T, errorsChannel <-chan error) {
+	t.Helper()
+	succeeded, duplicated := 0, 0
+	for err := range errorsChannel {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, ports.ErrDuplicateTagName):
+			duplicated++
+		default:
+			t.Fatalf("unexpected concurrent create error: %v", err)
+		}
+	}
+	if succeeded != 1 || duplicated != 1 {
+		t.Fatalf("concurrent create succeeded=%d duplicated=%d", succeeded, duplicated)
 	}
 }
 

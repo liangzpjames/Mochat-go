@@ -23,7 +23,12 @@ type ContactSummary struct {
 	UpdatedAt                         time.Time
 }
 
-type ContactTagSummary struct{ ID, Name string }
+type ContactTagSummary struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Version    int64  `json:"version"`
+	UsageCount int64  `json:"usageCount"`
+}
 type WeComFriendSummary struct {
 	ExternalUserID, Name string
 	EmployeeID           int64

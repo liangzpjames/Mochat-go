@@ -129,14 +129,14 @@ func (r *CustomerLifecycleRepository) GetContact(ctx context.Context, tenantID, 
 }
 
 func (r *CustomerLifecycleRepository) loadContactTags(ctx context.Context, tenantID, corpID int64, contactID string, detail *ports.ContactDetail) error {
-	rows, err := r.db.QueryContext(ctx, `SELECT t.id,t.name FROM mochat_go_scrm_contact_tags ct JOIN mochat_go_scrm_tags t ON t.tenant_id=ct.tenant_id AND t.corp_id=ct.corp_id AND t.id=ct.tag_id AND t.deleted_at IS NULL WHERE ct.tenant_id=? AND ct.corp_id=? AND ct.contact_id=? ORDER BY t.name,t.id`, tenantID, corpID, contactID)
+	rows, err := r.db.QueryContext(ctx, `SELECT t.id,t.name,t.version,(SELECT COUNT(*) FROM mochat_go_scrm_contact_tags usage_ct WHERE usage_ct.tenant_id=t.tenant_id AND usage_ct.corp_id=t.corp_id AND usage_ct.tag_id=t.id) FROM mochat_go_scrm_contact_tags ct JOIN mochat_go_scrm_tags t ON t.tenant_id=ct.tenant_id AND t.corp_id=ct.corp_id AND t.id=ct.tag_id AND t.deleted_at IS NULL WHERE ct.tenant_id=? AND ct.corp_id=? AND ct.contact_id=? ORDER BY t.name,t.id`, tenantID, corpID, contactID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var item ports.ContactTagSummary
-		if err := rows.Scan(&item.ID, &item.Name); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Version, &item.UsageCount); err != nil {
 			return err
 		}
 		detail.Tags = append(detail.Tags, item)

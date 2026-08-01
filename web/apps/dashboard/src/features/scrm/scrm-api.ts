@@ -38,8 +38,8 @@ export type ScrmApi = {
   renameTag(input: { corpId: number; tagId: string; name: string; version: number; idempotencyKey: string }): Promise<Tag>;
   moveTag?(input: { corpId: number; tagId: string; groupId: string; version: number; idempotencyKey: string }): Promise<Tag>;
   deleteTag?(input: { corpId: number; tagId: string; version: number; idempotencyKey: string }): Promise<{ affectedResourceCount: number }>;
+  previewDeleteTag?(input: { corpId: number; tagId: string }): Promise<{ tagId: string; version: number; affectedResourceCount: number }>;
   maintainTagContacts?(input: { corpId: number; tagId: string; addContactIds: string[]; removeContactIds: string[]; version: number; idempotencyKey: string }): Promise<Tag>;
-  bindTags(input: { corpId: number; tagId: string; contactIds: string[]; idempotencyKey: string }): Promise<void>;
 };
 
 const json = (body: unknown, idempotencyKey: string): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(body) });
@@ -101,7 +101,7 @@ export function createScrmApi(client: Client): ScrmApi {
     async renameTag(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}`, { ...json({ corpId: input.corpId, name: input.name, version: input.version }, input.idempotencyKey), method: 'PUT' }) as Promise<Tag>; },
     async moveTag(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/move`, json({ corpId: input.corpId, groupId: input.groupId, version: input.version }, input.idempotencyKey)) as Promise<Tag>; },
     async deleteTag(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}`, { ...json({ corpId: input.corpId, version: input.version }, input.idempotencyKey), method: 'DELETE' }) as Promise<{ affectedResourceCount: number }>; },
+    async previewDeleteTag(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/delete-preview?corpId=${input.corpId}`) as Promise<{ tagId: string; version: number; affectedResourceCount: number }>; },
     async maintainTagContacts(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/contacts`, { ...json({ corpId: input.corpId, addContactIds: input.addContactIds, removeContactIds: input.removeContactIds, version: input.version }, input.idempotencyKey), method: 'PUT' }) as Promise<Tag>; },
-    async bindTags(input) { await client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/contacts`, json({ corpId: input.corpId, contactIds: input.contactIds }, input.idempotencyKey)); },
   };
 }

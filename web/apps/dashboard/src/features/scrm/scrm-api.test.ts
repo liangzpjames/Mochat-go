@@ -55,6 +55,7 @@ describe('ScrmApi', () => {
     await api.createTag({ corpId: 7, groupId: 'g/1', name: 'VIP', idempotencyKey: 'tag-create' });
     await api.moveTag!({ corpId: 7, tagId: 't/1', groupId: 'g2', version: 2, idempotencyKey: 'tag-move' });
     await api.maintainTagContacts!({ corpId: 7, tagId: 't/1', addContactIds: ['c1'], removeContactIds: ['c2'], version: 3, idempotencyKey: 'tag-contacts' });
+    await api.previewDeleteTag!({ corpId: 7, tagId: 't/1' });
     await api.deleteTag!({ corpId: 7, tagId: 't/1', version: 4, idempotencyKey: 'tag-delete' });
     expect(request.mock.calls[0]?.[0]).toBe('/scrm/tags?corpId=7&groupId=g%2F1&keyword=VIP');
     expect(request.mock.calls[1]).toEqual(['/scrm/tag-groups', expect.objectContaining({ headers: expect.objectContaining({ 'Idempotency-Key': 'group-create' }) })]);
@@ -62,6 +63,7 @@ describe('ScrmApi', () => {
     expect(request.mock.calls[3]?.[1]).toMatchObject({ body: JSON.stringify({ corpId: 7, groupId: 'g/1', name: 'VIP' }) });
     expect(request.mock.calls[4]?.[0]).toBe('/scrm/tags/t%2F1/move');
     expect(request.mock.calls[5]?.[1]).toMatchObject({ method: 'PUT', body: JSON.stringify({ corpId: 7, addContactIds: ['c1'], removeContactIds: ['c2'], version: 3 }) });
-    expect(request.mock.calls[6]?.[1]).toMatchObject({ method: 'DELETE', body: JSON.stringify({ corpId: 7, version: 4 }) });
+    expect(request.mock.calls[6]?.[0]).toBe('/scrm/tags/t%2F1/delete-preview?corpId=7');
+    expect(request.mock.calls[7]?.[1]).toMatchObject({ method: 'DELETE', body: JSON.stringify({ corpId: 7, version: 4 }) });
   });
 });

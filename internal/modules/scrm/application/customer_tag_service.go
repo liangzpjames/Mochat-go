@@ -81,6 +81,15 @@ func (s CustomerTagService) DeleteTag(ctx context.Context, command ports.DeleteC
 	return item, mapCustomerTagError(err)
 }
 
+func (s CustomerTagService) PreviewDeleteTag(ctx context.Context, query ports.PreviewCustomerTagDeleteQuery) (ports.DeleteCustomerTagPreview, error) {
+	query.TagID = strings.TrimSpace(query.TagID)
+	if query.TenantID <= 0 || query.CorpID <= 0 || query.TagID == "" {
+		return ports.DeleteCustomerTagPreview{}, fmt.Errorf("%w: invalid tag delete preview", ErrInvalidArgument)
+	}
+	item, err := s.repository.PreviewDeleteCustomerTag(ctx, query)
+	return item, mapCustomerTagError(err)
+}
+
 func (s CustomerTagService) MaintainContacts(ctx context.Context, command ports.MaintainTagContactsCommand) (ports.CustomerTag, error) {
 	command.TagID, command.IdempotencyKey = strings.TrimSpace(command.TagID), strings.TrimSpace(command.IdempotencyKey)
 	command.AddContactIDs, command.RemoveContactIDs = normalizedStrings(command.AddContactIDs), normalizedStrings(command.RemoveContactIDs)

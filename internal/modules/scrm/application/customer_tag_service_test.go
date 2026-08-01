@@ -64,6 +64,9 @@ type customerTagRepositoryFake struct{}
 func (*customerTagRepositoryFake) ListTagCatalog(context.Context, ports.ListTagCatalogFilter) (ports.TagCatalog, error) {
 	return ports.TagCatalog{}, nil
 }
+func (*customerTagRepositoryFake) PreviewDeleteCustomerTag(_ context.Context, query ports.PreviewCustomerTagDeleteQuery) (ports.DeleteCustomerTagPreview, error) {
+	return ports.DeleteCustomerTagPreview{TagID: query.TagID, Version: 4, AffectedResourceCount: 2}, nil
+}
 func (*customerTagRepositoryFake) CreateGroup(_ context.Context, command ports.CreateTagGroupCommand) (ports.TagGroup, error) {
 	return ports.TagGroup{Name: command.Name}, nil
 }

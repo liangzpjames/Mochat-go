@@ -66,6 +66,17 @@ type DeleteCustomerTagResult struct {
 	AffectedResourceCount int64
 }
 
+type DeleteCustomerTagPreview struct {
+	TagID                 string
+	Version               int64
+	AffectedResourceCount int64
+}
+
+type PreviewCustomerTagDeleteQuery struct {
+	TenantID, CorpID int64
+	TagID            string
+}
+
 type MaintainTagContactsCommand struct {
 	TenantID, CorpID, Version       int64
 	TagID, IdempotencyKey           string
@@ -79,6 +90,7 @@ type CustomerTagRepository interface {
 	CreateCustomerTag(context.Context, CreateCustomerTagCommand) (CustomerTag, error)
 	RenameCustomerTag(context.Context, RenameCustomerTagCommand) (CustomerTag, error)
 	MoveCustomerTag(context.Context, MoveCustomerTagCommand) (CustomerTag, error)
+	PreviewDeleteCustomerTag(context.Context, PreviewCustomerTagDeleteQuery) (DeleteCustomerTagPreview, error)
 	DeleteCustomerTag(context.Context, DeleteCustomerTagCommand) (DeleteCustomerTagResult, error)
 	MaintainTagContacts(context.Context, MaintainTagContactsCommand) (CustomerTag, error)
 }

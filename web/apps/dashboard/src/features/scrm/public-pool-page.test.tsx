@@ -30,7 +30,7 @@ function api(overrides: Partial<ScrmApi> = {}): ScrmApi {
     claimFromPublicPool: vi.fn().mockResolvedValue({ ...item, ownerId: 42, status: 'owned', version: 4 }),
     batchClaimFromPublicPool: vi.fn().mockResolvedValue({ results: [] }),
     listOpportunities: vi.fn(), createOpportunity: vi.fn(), changeOpportunityStage: vi.fn(),
-    listFollowUps: vi.fn(), appendFollowUp: vi.fn(), listTags: vi.fn(), createTag: vi.fn(), renameTag: vi.fn(), bindTags: vi.fn(),
+    listFollowUps: vi.fn(), appendFollowUp: vi.fn(), listTags: vi.fn(), createTag: vi.fn(), renameTag: vi.fn(),
     ...overrides,
   };
 }

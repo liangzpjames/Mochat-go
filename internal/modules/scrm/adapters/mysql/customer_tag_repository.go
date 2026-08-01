@@ -9,12 +9,21 @@ import (
 	"strings"
 	"time"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"jiyi/mochat-go/internal/modules/scrm/ports"
 )
 
 func (r *TagRepository) ListTagCatalog(ctx context.Context, filter ports.ListTagCatalogFilter) (ports.TagCatalog, error) {
-	groups, err := r.db.QueryContext(ctx, `SELECT g.id,g.name,g.version,COUNT(t.id) FROM mochat_go_scrm_tag_groups g LEFT JOIN mochat_go_scrm_tags t ON t.tenant_id=g.tenant_id AND t.corp_id=g.corp_id AND t.group_id=g.id AND t.deleted_at IS NULL WHERE g.tenant_id=? AND g.corp_id=? AND g.deleted_at IS NULL GROUP BY g.id,g.name,g.version ORDER BY g.name,g.id`, filter.TenantID, filter.CorpID)
+	groupQuery := `SELECT g.id,g.name,g.version,COUNT(t.id) FROM mochat_go_scrm_tag_groups g LEFT JOIN mochat_go_scrm_tags t ON t.tenant_id=g.tenant_id AND t.corp_id=g.corp_id AND t.group_id=g.id AND t.deleted_at IS NULL WHERE g.tenant_id=? AND g.corp_id=? AND g.deleted_at IS NULL`
+	groupArgs := []any{filter.TenantID, filter.CorpID}
+	if filter.Keyword != "" {
+		groupQuery += ` AND (g.name LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM mochat_go_scrm_tags matched WHERE matched.tenant_id=g.tenant_id AND matched.corp_id=g.corp_id AND matched.group_id=g.id AND matched.deleted_at IS NULL AND matched.name LIKE ? ESCAPE '\\'))`
+		keyword := "%" + escapeLike(filter.Keyword) + "%"
+		groupArgs = append(groupArgs, keyword, keyword)
+	}
+	groupQuery += ` GROUP BY g.id,g.name,g.version ORDER BY g.name,g.id`
+	groups, err := r.db.QueryContext(ctx, groupQuery, groupArgs...)
 	if err != nil {
 		return ports.TagCatalog{}, err
 	}
@@ -31,15 +40,16 @@ func (r *TagRepository) ListTagCatalog(ctx context.Context, filter ports.ListTag
 		return ports.TagCatalog{}, err
 	}
 
-	query := `SELECT t.id,t.group_id,t.name,t.version,COUNT(ct.contact_id) FROM mochat_go_scrm_tags t LEFT JOIN mochat_go_scrm_contact_tags ct ON ct.tenant_id=t.tenant_id AND ct.corp_id=t.corp_id AND ct.tag_id=t.id WHERE t.tenant_id=? AND t.corp_id=? AND t.deleted_at IS NULL AND t.group_id IS NOT NULL`
+	query := `SELECT t.id,t.group_id,t.name,t.version,COUNT(ct.contact_id) FROM mochat_go_scrm_tags t JOIN mochat_go_scrm_tag_groups g ON g.tenant_id=t.tenant_id AND g.corp_id=t.corp_id AND g.id=t.group_id AND g.deleted_at IS NULL LEFT JOIN mochat_go_scrm_contact_tags ct ON ct.tenant_id=t.tenant_id AND ct.corp_id=t.corp_id AND ct.tag_id=t.id WHERE t.tenant_id=? AND t.corp_id=? AND t.deleted_at IS NULL AND t.group_id IS NOT NULL`
 	args := []any{filter.TenantID, filter.CorpID}
 	if filter.GroupID != "" {
 		query += ` AND t.group_id=?`
 		args = append(args, filter.GroupID)
 	}
 	if filter.Keyword != "" {
-		query += ` AND t.name LIKE ? ESCAPE '\\'`
-		args = append(args, "%"+escapeLike(filter.Keyword)+"%")
+		query += ` AND (t.name LIKE ? ESCAPE '\\' OR g.name LIKE ? ESCAPE '\\')`
+		keyword := "%" + escapeLike(filter.Keyword) + "%"
+		args = append(args, keyword, keyword)
 	}
 	query += ` GROUP BY t.id,t.group_id,t.name,t.version ORDER BY t.name,t.id`
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -77,7 +87,7 @@ func (r *TagRepository) CreateGroup(ctx context.Context, command ports.CreateTag
 		}
 		now := time.Now().UTC()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_tag_groups(id,tenant_id,corp_id,name,version,created_at,updated_at) VALUES(?,?,?,?,1,?,?)`, id, command.TenantID, command.CorpID, name, now, now); err != nil {
-			return ports.TagGroup{}, err
+			return ports.TagGroup{}, mapDuplicateTagName(err)
 		}
 	}
 	item, err := getTagGroupWith(ctx, tx, command.TenantID, command.CorpID, resourceID, false)
@@ -117,7 +127,7 @@ func (r *TagRepository) RenameGroup(ctx context.Context, command ports.RenameTag
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE mochat_go_scrm_tag_groups SET name=?,version=version+1,updated_at=? WHERE tenant_id=? AND corp_id=? AND id=? AND version=? AND deleted_at IS NULL`, name, time.Now().UTC(), command.TenantID, command.CorpID, command.GroupID, command.Version)
 		if err != nil {
-			return ports.TagGroup{}, err
+			return ports.TagGroup{}, mapDuplicateTagName(err)
 		}
 		if n, _ := result.RowsAffected(); n != 1 {
 			return ports.TagGroup{}, ports.ErrAssignmentConflict
@@ -157,7 +167,7 @@ func (r *TagRepository) CreateCustomerTag(ctx context.Context, command ports.Cre
 		}
 		now := time.Now().UTC()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_tags(id,tenant_id,corp_id,group_id,name,version,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)`, id, command.TenantID, command.CorpID, command.GroupID, name, now, now); err != nil {
-			return ports.CustomerTag{}, err
+			return ports.CustomerTag{}, mapDuplicateTagName(err)
 		}
 	}
 	item, err := getCustomerTagWith(ctx, tx, command.TenantID, command.CorpID, resourceID, false)
@@ -182,7 +192,7 @@ func (r *TagRepository) RenameCustomerTag(ctx context.Context, command ports.Ren
 				return err
 			}
 			_, err := tx.ExecContext(ctx, `UPDATE mochat_go_scrm_tags SET name=?,version=version+1,updated_at=? WHERE tenant_id=? AND corp_id=? AND id=?`, name, time.Now().UTC(), command.TenantID, command.CorpID, command.TagID)
-			return err
+			return mapDuplicateTagName(err)
 		})
 }
 
@@ -200,8 +210,16 @@ func (r *TagRepository) MoveCustomerTag(ctx context.Context, command ports.MoveC
 				return err
 			}
 			_, err := tx.ExecContext(ctx, `UPDATE mochat_go_scrm_tags SET group_id=?,version=version+1,updated_at=? WHERE tenant_id=? AND corp_id=? AND id=?`, command.GroupID, time.Now().UTC(), command.TenantID, command.CorpID, command.TagID)
-			return err
+			return mapDuplicateTagName(err)
 		})
+}
+
+func (r *TagRepository) PreviewDeleteCustomerTag(ctx context.Context, query ports.PreviewCustomerTagDeleteQuery) (ports.DeleteCustomerTagPreview, error) {
+	item, err := getCustomerTagWith(ctx, r.db, query.TenantID, query.CorpID, query.TagID, false)
+	if err != nil {
+		return ports.DeleteCustomerTagPreview{}, err
+	}
+	return ports.DeleteCustomerTagPreview{TagID: item.ID, Version: item.Version, AffectedResourceCount: item.UsageCount}, nil
 }
 
 func (r *TagRepository) MaintainTagContacts(ctx context.Context, command ports.MaintainTagContactsCommand) (ports.CustomerTag, error) {
@@ -377,6 +395,14 @@ func parseAffectedCount(resource string) int64 {
 	}
 	value, _ := strconv.ParseInt(parts[1], 10, 64)
 	return value
+}
+
+func mapDuplicateTagName(err error) error {
+	var mysqlError *mysqldriver.MySQLError
+	if errors.As(err, &mysqlError) && mysqlError.Number == 1062 {
+		return ports.ErrDuplicateTagName
+	}
+	return err
 }
 
 var _ ports.CustomerTagRepository = (*TagRepository)(nil)

@@ -20,27 +20,19 @@ type CustomerTagService interface {
 	CreateTag(context.Context, ports.CreateCustomerTagCommand) (ports.CustomerTag, error)
 	RenameTag(context.Context, ports.RenameCustomerTagCommand) (ports.CustomerTag, error)
 	MoveTag(context.Context, ports.MoveCustomerTagCommand) (ports.CustomerTag, error)
+	PreviewDeleteTag(context.Context, ports.PreviewCustomerTagDeleteQuery) (ports.DeleteCustomerTagPreview, error)
 	DeleteTag(context.Context, ports.DeleteCustomerTagCommand) (ports.DeleteCustomerTagResult, error)
 	MaintainContacts(context.Context, ports.MaintainTagContactsCommand) (ports.CustomerTag, error)
-}
-
-type legacyTagBinder interface {
-	BindTags(context.Context, int64, int64, string, []string, string) error
 }
 
 type CustomerTagHandler struct {
 	service    CustomerTagService
 	principal  PrincipalResolver
 	authorizer LeadAuthorizer
-	legacy     legacyTagBinder
 }
 
-func NewCustomerTagHandler(service CustomerTagService, principal PrincipalResolver, authorizer LeadAuthorizer, legacy ...legacyTagBinder) *CustomerTagHandler {
-	h := &CustomerTagHandler{service: service, principal: principal, authorizer: authorizer}
-	if len(legacy) > 0 {
-		h.legacy = legacy[0]
-	}
-	return h
+func NewCustomerTagHandler(service CustomerTagService, principal PrincipalResolver, authorizer LeadAuthorizer) *CustomerTagHandler {
+	return &CustomerTagHandler{service: service, principal: principal, authorizer: authorizer}
 }
 
 type tagGroupJSON struct {
@@ -222,27 +214,17 @@ func (h *CustomerTagHandler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
-func (h *CustomerTagHandler) BindContacts(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		CorpID     int64
-		ContactIDs []string
-	}
-	if decodeCustomerTagJSON(w, r, &body) != nil {
-		return
-	}
-	p, _, ok := h.readScope(w, r, body.CorpID, contactPermissionEdit)
+func (h *CustomerTagHandler) PreviewDeleteTag(w http.ResponseWriter, r *http.Request) {
+	p, corpID, ok := h.readScope(w, r, queryInt(r, "corpId"), tagPermissionDelete)
 	if !ok {
 		return
 	}
-	if h.legacy == nil {
-		writeError(w, http.StatusServiceUnavailable, "tag binding unavailable")
-		return
-	}
-	if err := h.legacy.BindTags(r.Context(), p.TenantID, body.CorpID, pathValue(r, "tags", "contacts"), body.ContactIDs, r.Header.Get("Idempotency-Key")); err != nil {
+	item, err := h.service.PreviewDeleteTag(r.Context(), ports.PreviewCustomerTagDeleteQuery{TenantID: p.TenantID, CorpID: corpID, TagID: pathValue(r, "tags", "delete-preview")})
+	if err != nil {
 		writeSCRMError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]bool{"ok": true}})
+	writeJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
 func (h *CustomerTagHandler) readScope(w http.ResponseWriter, r *http.Request, corpID int64, permission string) (Principal, int64, bool) {

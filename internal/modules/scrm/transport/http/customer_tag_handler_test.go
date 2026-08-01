@@ -22,6 +22,7 @@ func TestCustomerTagHandlerUsesScopedRBACAndCompletePayloads(t *testing.T) {
 		{"rename tag", http.MethodPut, TagsPath + "/t1", `{"corpId":22,"name":"重点","version":2}`, tagPermissionEdit, (*CustomerTagHandler).RenameTag},
 		{"move tag", http.MethodPost, TagsPath + "/t1/move", `{"corpId":22,"groupId":"g2","version":2}`, tagPermissionEdit, (*CustomerTagHandler).MoveTag},
 		{"maintain contacts", http.MethodPut, TagsPath + "/t1/contacts", `{"corpId":22,"addContactIds":["c1"],"removeContactIds":["c2"],"version":2}`, tagPermissionEdit, (*CustomerTagHandler).MaintainContacts},
+		{"delete preview", http.MethodGet, TagsPath + "/t1/delete-preview?corpId=22", "", tagPermissionDelete, (*CustomerTagHandler).PreviewDeleteTag},
 		{"delete tag", http.MethodDelete, TagsPath + "/t1", `{"corpId":22,"version":2}`, tagPermissionDelete, (*CustomerTagHandler).DeleteTag},
 	}
 	for _, test := range tests {
@@ -31,7 +32,9 @@ func TestCustomerTagHandlerUsesScopedRBACAndCompletePayloads(t *testing.T) {
 			handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}}, authorizer)
 			request := httptest.NewRequest(test.method, test.url, strings.NewReader(test.body))
 			request.Header.Set("Content-Type", "application/json")
-			request.Header.Set("Idempotency-Key", "request-1")
+			if test.name != "delete preview" {
+				request.Header.Set("Idempotency-Key", "request-1")
+			}
 			response := httptest.NewRecorder()
 			test.invoke(handler, response, request)
 			if response.Code != http.StatusOK {
@@ -43,7 +46,7 @@ func TestCustomerTagHandlerUsesScopedRBACAndCompletePayloads(t *testing.T) {
 			if test.name == "catalog" && (service.filter.GroupID != "g1" || service.filter.Keyword != "VIP") {
 				t.Fatalf("filter=%#v", service.filter)
 			}
-			if test.name != "catalog" && service.key != "request-1" {
+			if test.name != "catalog" && test.name != "delete preview" && service.key != "request-1" {
 				t.Fatalf("idempotency key=%q", service.key)
 			}
 		})
@@ -120,6 +123,10 @@ func (s *customerTagServiceFake) DeleteTag(_ context.Context, c ports.DeleteCust
 	s.calls++
 	s.key = c.IdempotencyKey
 	return ports.DeleteCustomerTagResult{AffectedResourceCount: 2}, s.err
+}
+func (s *customerTagServiceFake) PreviewDeleteTag(_ context.Context, query ports.PreviewCustomerTagDeleteQuery) (ports.DeleteCustomerTagPreview, error) {
+	s.calls++
+	return ports.DeleteCustomerTagPreview{TagID: query.TagID, Version: 3, AffectedResourceCount: 2}, s.err
 }
 func (s *customerTagServiceFake) MaintainContacts(_ context.Context, c ports.MaintainTagContactsCommand) (ports.CustomerTag, error) {
 	s.calls++

@@ -5,11 +5,17 @@ CREATE TABLE IF NOT EXISTS `mochat_go_scrm_tag_groups` (
   `name` varchar(100) NOT NULL,
   `version` bigint unsigned NOT NULL DEFAULT 1,
   `deleted_at` datetime(6) NULL,
+  `active_name` varchar(100) GENERATED ALWAYS AS (CASE WHEN `deleted_at` IS NULL THEN LOWER(TRIM(`name`)) ELSE NULL END) STORED,
   `created_at` datetime(6) NOT NULL,
   `updated_at` datetime(6) NOT NULL,
   PRIMARY KEY (`id`),
-  KEY `idx_scrm_tag_group_scope` (`tenant_id`,`corp_id`,`name`,`deleted_at`)
+  KEY `idx_scrm_tag_group_scope` (`tenant_id`,`corp_id`,`name`,`deleted_at`),
+  UNIQUE KEY `uk_scrm_tag_group_active_name` (`tenant_id`,`corp_id`,`active_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `mochat_go_scrm_tag_groups`
+  ADD COLUMN IF NOT EXISTS `active_name` varchar(100) GENERATED ALWAYS AS (CASE WHEN `deleted_at` IS NULL THEN LOWER(TRIM(`name`)) ELSE NULL END) STORED,
+  ADD UNIQUE INDEX IF NOT EXISTS `uk_scrm_tag_group_active_name` (`tenant_id`,`corp_id`,`active_name`);
 
 ALTER TABLE `mochat_go_scrm_tags`
   ADD COLUMN IF NOT EXISTS `group_id` varchar(36) NULL AFTER `corp_id`;
@@ -27,7 +33,9 @@ SET t.`group_id`=g.`id`
 WHERE t.`group_id` IS NULL;
 
 ALTER TABLE `mochat_go_scrm_tags`
-  ADD INDEX IF NOT EXISTS `idx_scrm_tag_catalog` (`tenant_id`,`corp_id`,`group_id`,`name`,`deleted_at`);
+  ADD COLUMN IF NOT EXISTS `active_group_name` varchar(100) GENERATED ALWAYS AS (CASE WHEN `deleted_at` IS NULL AND `group_id` IS NOT NULL THEN LOWER(TRIM(`name`)) ELSE NULL END) STORED,
+  ADD INDEX IF NOT EXISTS `idx_scrm_tag_catalog` (`tenant_id`,`corp_id`,`group_id`,`name`,`deleted_at`),
+  ADD UNIQUE INDEX IF NOT EXISTS `uk_scrm_tag_active_group_name` (`tenant_id`,`corp_id`,`group_id`,`active_group_name`);
 
 ALTER TABLE `mochat_go_scrm_contact_tags`
   ADD INDEX IF NOT EXISTS `idx_scrm_contact_tag_usage` (`tenant_id`,`corp_id`,`tag_id`,`contact_id`);
