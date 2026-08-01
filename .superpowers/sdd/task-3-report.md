@@ -107,3 +107,47 @@
 
 - 本轮未执行浏览器验收，也未新增或伪造浏览器证据；真实浏览器矩阵仍由 Task 11 完成。
 - Dashboard 全量串行测试的既有非 Task 3 DOM cleanup 污染未纳入本提交。
+
+## 第三轮性能阻断收尾（2026-08-01）
+
+状态：DONE
+
+### 已修复
+
+- 审计确认原最新迁移为 `0104_scrm_opportunity_owner`，新增不冲突的 `0105_corp_data_realtime_indexes` up/down；`0103_phase3_2_query_indexes` 保持原文和原语义不变。`0105` 为 `mc_work_contact_employee`、`mc_work_room`、`mc_work_contact_room`、`mc_work_employee`、`mc_work_employee_department` 增加 7 个企业、状态、软删除、日期和关联键复合索引。
+- `deploy/standalone/schema/mochat.sql` 已同步相同索引。up migration 通过 `information_schema.statistics` 缺失检查兼容已有 schema 和旧库升级，down 按逆依赖顺序删除索引；migration 合同测试同时校验最新编号、0103 不变、up/down 对称和 schema 索引一致。
+- 字段审计确认 `mc_work_contact_room.out_time` 是 `varchar(50)`，写路径使用 `YYYY-MM-DD HH:MM:SS`；同一退群更新原子写入 `status=2`、`out_time=DATE_FORMAT(NOW(), ...)` 和 `updated_at=NOW()`，且后续同步只加载 `status <> 2` 的成员，不会反复改写退群行。因此退群 summary/trend 改用现有可索引 `updated_at timestamp`，删除 `STR_TO_DATE(contact_room.out_time, ...)` 对事实列的函数包裹，并保留 `status=2`、非空 `out_time` 业务条件。
+- `MySQLStore` 提取仅含 `QueryRowContext`/`QueryContext` 的最小 `corpDataQueryExecutor`；生产构造函数仍把真实 `*sql.DB` 注入执行器。真实 MariaDB fixture 用 counting wrapper 包裹同一个 `*sql.DB`，直接调用生产 `CorpDataSummary` 和 `CorpDataLineChat`：summary 实测 `QueryRowContext=4, QueryContext=0`，trend 实测 `QueryRowContext=0, QueryContext=1`，不存在隐藏查询。
+- 真实 fixture 增加隔离的第三企业计划噪声并执行 `ANALYZE TABLE`，避免微型表导致优化器合理选择 `ALL`；噪声不改变既有 tenant/corp、RBAC、部门、时区和结果断言。
+
+### TDD 证据
+
+- RED：migration 合同先报告最新版本仍为 `0104` 且 `0105` 文件不存在；退群查询合同捕获 summary/trend 仍含 `STR_TO_DATE(contact_room.out_time, ...)`。
+- RED：fresh schema 与首次 `0105` 同时包含索引时，真实 MariaDB 返回 `ERROR 1061 Duplicate key name`；增加缺失检查后同一 up migration 可安全执行。
+- RED：真实 EXPLAIN 首先在仅 6 行的事实表上选择 `ALL`；加入跨企业计划噪声并刷新统计信息后，生产 SQL 使用 `ref/range/const`，目标事实表不再出现 `ALL`。
+- RED：production-path 预算测试先因 `MySQLStore` 没有可包装的 executor 而编译失败；加入最小 executor 后，真实调用计数断言转绿。
+
+### MariaDB EXPLAIN 与查询预算证据
+
+- summary contacts：`type=ref`，`key=idx_mc_wce_corp_status_deleted_employee`。
+- summary rooms：`type=ref`，`key=idx_mc_wr_corp_deleted_created_owner`。
+- summary room members：`type=ref`，`key=idx_mc_wcr_room_status_deleted_join`。
+- summary employees：受限员工主键定位，`type=const`，`key=PRIMARY`。
+- trend contacts：新增路径 `type=range` / `idx_mc_wce_corp_deleted_create_employee`，流失路径 `type=range` / `idx_mc_wce_corp_status_deleted_employee`。
+- trend room members：入群和退群路径均为 `type=ref` / `idx_mc_wcr_room_status_deleted_join`，并继续使用可索引的 `join_time`/`updated_at` 半开区间；目标事实表无 `ALL`。
+- production-path 实测预算：`CorpDataSummary` 4 次 `QueryRowContext`、0 次 `QueryContext`；`CorpDataLineChat` 0 次 `QueryRowContext`、1 次 `QueryContext`。
+
+### 提交范围
+
+- 仅纳入 `0105` up/down、standalone schema、migration 合同测试、CorpData Store 实现/测试和本报告。
+- 明确排除并恢复 `deploy/standalone/docker-compose.yml`、`internal/dashboard/saas_admin_system_health.go`、integration script 的临时环境改动；不纳入 acceptance、计划、前端测试或浏览器证据。
+
+### Fresh 验证
+
+- `go test ./internal/migration -count=1`：通过。
+- `go test ./internal/store -run 'CorpData' -count=1`：通过。
+- `go test ./internal/dashboard -run 'CorpData|RBACResolver|PermissionKey' -count=1`：通过。
+- `go test ./internal/server -count=1`：通过。
+- `go vet ./internal/migration ./internal/store ./internal/dashboard ./internal/server`：通过。
+- 隔离 MariaDB 10.6：真实执行 `0105 down → up`，索引数 `7 → 0 → 7`；随后 production-path 查询预算、结果断言和 EXPLAIN 全部通过。
+- `git diff --check`：通过，仅有工作区既有行尾转换提示。

@@ -84,6 +84,27 @@ func TestCorpDataTrendQueryUsesSupportedTimezoneInsteadOfRangeStartOffset(t *tes
 	}
 }
 
+func TestCorpDataQuitQueriesUseIndexedTimestampColumn(t *testing.T) {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := dashboard.CorpDataScope{TenantID: 11, CorpID: 7}
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, location)
+
+	summary := strings.Join(strings.Fields(corpDataSummaryRoomMembersQuery(scope, []any{1, 2, 3, 4, 5, 6}).query), " ")
+	trend, _ := corpDataTrendQuery(scope, now.AddDate(0, 0, -1), now.AddDate(0, 0, 1))
+	trend = strings.Join(strings.Fields(trend), " ")
+	for name, query := range map[string]string{"summary": summary, "trend": trend} {
+		if strings.Contains(query, "STR_TO_DATE(contact_room.out_time") {
+			t.Fatalf("%s query still wraps out_time in STR_TO_DATE: %s", name, query)
+		}
+		if !strings.Contains(query, "contact_room.updated_at") {
+			t.Fatalf("%s query does not use the indexed quit timestamp: %s", name, query)
+		}
+	}
+}
+
 func TestCorpDataMetricQueryScopesTenantCorpAndDepartment(t *testing.T) {
 	query, args := corpDataMetricCountQuery(corpDataMetricContacts, dashboard.CorpDataScope{
 		TenantID: 21, CorpID: 8, DepartmentIDs: []int{6},
@@ -152,7 +173,9 @@ func TestIntegrationCorpDataScopedQueriesExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture := seedCorpDataIntegrationFixture(t, db)
+	counter := &countingCorpDataQueryExecutor{db: db}
 	store := NewMySQLStore(db)
+	store.corpDataExecutor = counter
 	location, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		t.Fatal(err)
@@ -168,11 +191,21 @@ func TestIntegrationCorpDataScopedQueriesExecute(t *testing.T) {
 	emptyScope := dashboard.CorpDataScope{
 		TenantID: fixture.tenantA, CorpID: fixture.corpA, EmployeeScopeRestricted: true,
 	}
+	assertCorpDataExplainPlans(t, db, a1Scope, now)
 
+	summaryQueryRowsBefore := counter.queryRowCalls
+	summaryQueriesBefore := counter.queryCalls
 	allSummary, err := store.CorpDataSummary(context.Background(), allScope, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := counter.queryRowCalls - summaryQueryRowsBefore; got != 4 {
+		t.Fatalf("CorpDataSummary QueryRowContext calls = %d, want 4", got)
+	}
+	if got := counter.queryCalls - summaryQueriesBefore; got != 0 {
+		t.Fatalf("CorpDataSummary hidden QueryContext calls = %d, want 0", got)
+	}
+	t.Logf("QUERY_BUDGET CorpDataSummary QueryRowContext=%d QueryContext=%d", counter.queryRowCalls-summaryQueryRowsBefore, counter.queryCalls-summaryQueriesBefore)
 	assertCorpDataSummary(t, allSummary, dashboard.CorpDataSummary{
 		WeChatContactNum: 4, WeChatRoomNum: 2, RoomMemberNum: 2, CorpMemberNum: 2,
 		AddContactNum: 2, LastAddContactNum: 1, AddIntoRoomNum: 1, LastAddIntoRoomNum: 1,
@@ -230,10 +263,19 @@ func TestIntegrationCorpDataScopedQueriesExecute(t *testing.T) {
 
 	from := time.Date(2026, 7, 31, 0, 0, 0, 0, location)
 	to := time.Date(2026, 8, 2, 0, 0, 0, 0, location)
+	trendQueryRowsBefore := counter.queryRowCalls
+	trendQueriesBefore := counter.queryCalls
 	points, err := store.CorpDataLineChat(context.Background(), a1Scope, from, to)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := counter.queryCalls - trendQueriesBefore; got != 1 {
+		t.Fatalf("CorpDataLineChat QueryContext calls = %d, want 1", got)
+	}
+	if got := counter.queryRowCalls - trendQueryRowsBefore; got != 0 {
+		t.Fatalf("CorpDataLineChat hidden QueryRowContext calls = %d, want 0", got)
+	}
+	t.Logf("QUERY_BUDGET CorpDataLineChat QueryRowContext=%d QueryContext=%d", counter.queryRowCalls-trendQueryRowsBefore, counter.queryCalls-trendQueriesBefore)
 	assertCorpDataPoints(t, points, []dashboard.CorpDataPoint{
 		{Date: "2026-07-31", AddContactNum: 1},
 		{Date: "2026-08-01", AddContactNum: 1, AddIntoRoomNum: 1},
@@ -244,6 +286,79 @@ func TestIntegrationCorpDataScopedQueriesExecute(t *testing.T) {
 		{Date: "2026-07", AddContactNum: 1},
 		{Date: "2026-08", AddContactNum: 2, AddIntoRoomNum: 1, LossContactNum: 1, QuitRoomNum: 1},
 	})
+}
+
+type countingCorpDataQueryExecutor struct {
+	db            *sql.DB
+	queryRowCalls int
+	queryCalls    int
+}
+
+func (e *countingCorpDataQueryExecutor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	e.queryRowCalls++
+	return e.db.QueryRowContext(ctx, query, args...)
+}
+
+func (e *countingCorpDataQueryExecutor) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	e.queryCalls++
+	return e.db.QueryContext(ctx, query, args...)
+}
+
+func assertCorpDataExplainPlans(t *testing.T, db *sql.DB, scope dashboard.CorpDataScope, now time.Time) {
+	t.Helper()
+	type plan struct {
+		name    string
+		query   string
+		args    []any
+		targets []string
+	}
+	plans := make([]plan, 0, 5)
+	for _, spec := range corpDataSummaryQuerySpecs(scope, now) {
+		target := map[string]string{
+			"contacts": "contact_employee", "rooms": "room", "room_members": "contact_room", "employees": "employee",
+		}[spec.domain]
+		plans = append(plans, plan{name: "summary_" + spec.domain, query: spec.query, args: spec.args, targets: []string{target}})
+	}
+	trendQuery, trendArgs := corpDataTrendQuery(scope, now.AddDate(0, 0, -2), now.AddDate(0, 0, 1))
+	plans = append(plans, plan{
+		name: "trend", query: trendQuery, args: trendArgs,
+		targets: []string{"contact_employee", "contact_room"},
+	})
+
+	for _, item := range plans {
+		rows, err := db.Query("EXPLAIN "+item.query, item.args...)
+		if err != nil {
+			t.Fatalf("EXPLAIN %s: %v", item.name, err)
+		}
+		seen := make(map[string]bool, len(item.targets))
+		for rows.Next() {
+			var id sql.NullInt64
+			var selectType, table, accessType, possibleKeys, key, keyLen, ref, rowEstimate, extra sql.NullString
+			if err := rows.Scan(&id, &selectType, &table, &accessType, &possibleKeys, &key, &keyLen, &ref, &rowEstimate, &extra); err != nil {
+				rows.Close()
+				t.Fatalf("scan EXPLAIN %s: %v", item.name, err)
+			}
+			for _, target := range item.targets {
+				if table.String != target {
+					continue
+				}
+				seen[target] = true
+				t.Logf("EXPLAIN %s table=%s type=%s key=%s rows=%s extra=%s", item.name, table.String, accessType.String, key.String, rowEstimate.String, extra.String)
+				if strings.EqualFold(accessType.String, "ALL") {
+					rows.Close()
+					t.Fatalf("EXPLAIN %s performs ALL scan on %s (possible_keys=%q key=%q rows=%q extra=%q)", item.name, table.String, possibleKeys.String, key.String, rowEstimate.String, extra.String)
+				}
+			}
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatalf("close EXPLAIN %s: %v", item.name, err)
+		}
+		for _, target := range item.targets {
+			if !seen[target] {
+				t.Fatalf("EXPLAIN %s did not expose target fact table %s", item.name, target)
+			}
+		}
+	}
 }
 
 type corpDataIntegrationFixture struct {
@@ -296,6 +411,11 @@ func seedCorpDataIntegrationFixture(t *testing.T, db *sql.DB) *corpDataIntegrati
 	fixture.insert(t, db, "mc_corp_day_data", `INSERT INTO mc_corp_day_data (corp_id, add_contact_num, add_room_num, add_into_room_num, loss_contact_num, quit_room_num, date) VALUES (?, 999, 999, 999, 999, 999, '2026-08-02 00:00:00')`, fixture.corpA)
 	fixture.insert(t, db, "mc_corp_day_data", `INSERT INTO mc_corp_day_data (corp_id, add_contact_num, add_room_num, add_into_room_num, loss_contact_num, quit_room_num, date) VALUES (?, 777, 777, 777, 777, 777, '2026-08-02 00:00:00')`, fixture.corpB)
 	fixture.insert(t, db, "mc_work_update_time", `INSERT INTO mc_work_update_time (corp_id, type, last_update_time) VALUES (?, 6, '2026-08-31 00:00:00')`, fixture.corpA)
+	noiseCorp := fixture.insert(t, db, "mc_corp", `INSERT INTO mc_corp (name, wx_corpid, tenant_id, created_at, updated_at) VALUES (?, ?, ?, '2026-07-01 00:00:00', '2026-07-01 00:00:00')`, prefix+"_corp_plan_noise", prefix+"_wx_plan_noise", fixture.tenantB)
+	noiseDepartment := fixture.insert(t, db, "mc_work_department", `INSERT INTO mc_work_department (wx_department_id, corp_id, name, wx_parentid, created_at, updated_at) VALUES (301, ?, ?, 0, '2026-07-01 00:00:00', '2026-07-01 00:00:00')`, noiseCorp, prefix+"_department_plan_noise")
+	noiseEmployee := fixture.insert(t, db, "mc_work_employee", `INSERT INTO mc_work_employee (wx_user_id, corp_id, name, status, created_at, updated_at) VALUES (?, ?, ?, 1, '2026-07-01 00:00:00', '2026-07-01 00:00:00')`, prefix+"_employee_plan_noise", noiseCorp, prefix+"_employee_plan_noise")
+	noiseRoom := fixture.addRoom(t, db, prefix+"_room_plan_noise", noiseCorp, noiseEmployee, "2026-07-01 00:00:00")
+	fixture.addExplainPlanNoise(t, db, prefix, noiseCorp, noiseEmployee, noiseDepartment, noiseRoom)
 	return fixture
 }
 
@@ -313,6 +433,63 @@ func (f *corpDataIntegrationFixture) insert(t *testing.T, db *sql.DB, table stri
 	return int(id)
 }
 
+func (f *corpDataIntegrationFixture) addExplainPlanNoise(t *testing.T, db *sql.DB, prefix string, corpID int, employeeID int, departmentID int, roomID int) {
+	t.Helper()
+	const rowCount = 512
+	employees := make([][]any, 0, rowCount)
+	contacts := make([][]any, 0, rowCount)
+	rooms := make([][]any, 0, rowCount)
+	members := make([][]any, 0, rowCount)
+	departments := make([][]any, 0, rowCount)
+	for index := 0; index < rowCount; index++ {
+		name := fmt.Sprintf("%s_plan_noise_%03d", prefix, index)
+		employees = append(employees, []any{name, corpID, name, 1, "2026-07-01 00:00:00", "2026-07-01 00:00:00"})
+		contacts = append(contacts, []any{employeeID, 0, 0, corpID, 1, "2026-07-01 00:00:00", "2026-07-01 00:00:00", "2026-07-01 00:00:00"})
+		rooms = append(rooms, []any{corpID, name, name, employeeID, "", 0, "2026-07-01 00:00:00", "2026-07-01 00:00:00", "2026-07-01 00:00:00"})
+		members = append(members, []any{name, employeeID, roomID, 1, "2026-07-01 00:00:00", "", "2026-07-01 00:00:00", "2026-07-01 00:00:00"})
+		departments = append(departments, []any{employeeID, departmentID, "2026-07-01 00:00:00", "2026-07-01 00:00:00"})
+	}
+	f.insertRows(t, db, "mc_work_employee", "wx_user_id, corp_id, name, status, created_at, updated_at", 6, employees)
+	f.insertRows(t, db, "mc_work_contact_employee", "employee_id, contact_id, add_way, corp_id, status, create_time, created_at, updated_at", 8, contacts)
+	f.insertRows(t, db, "mc_work_room", "corp_id, wx_chat_id, name, owner_id, notice, status, create_time, created_at, updated_at", 9, rooms)
+	f.insertRows(t, db, "mc_work_contact_room", "wx_user_id, employee_id, room_id, status, join_time, out_time, created_at, updated_at", 8, members)
+	f.insertRows(t, db, "mc_work_employee_department", "employee_id, department_id, created_at, updated_at", 4, departments)
+	for _, table := range []string{"mc_work_contact_employee", "mc_work_room", "mc_work_contact_room", "mc_work_employee", "mc_work_employee_department"} {
+		if _, err := db.Exec("ANALYZE TABLE " + table); err != nil {
+			t.Fatalf("analyze %s: %v", table, err)
+		}
+	}
+}
+
+func (f *corpDataIntegrationFixture) insertRows(t *testing.T, db *sql.DB, table string, columns string, width int, rows [][]any) {
+	t.Helper()
+	rowPlaceholder := "(" + strings.TrimSuffix(strings.Repeat("?,", width), ",") + ")"
+	placeholders := make([]string, len(rows))
+	args := make([]any, 0, len(rows)*width)
+	for index, row := range rows {
+		if len(row) != width {
+			t.Fatalf("insert %s row %d width = %d, want %d", table, index, len(row), width)
+		}
+		placeholders[index] = rowPlaceholder
+		args = append(args, row...)
+	}
+	result, err := db.Exec("INSERT INTO "+table+" ("+columns+") VALUES "+strings.Join(placeholders, ","), args...)
+	if err != nil {
+		t.Fatalf("insert %s plan noise: %v", table, err)
+	}
+	firstID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("insert %s plan noise first id: %v", table, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		t.Fatalf("insert %s plan noise rows: %v", table, err)
+	}
+	for offset := int64(0); offset < affected; offset++ {
+		f.ids[table] = append(f.ids[table], int(firstID+offset))
+	}
+}
+
 func (f *corpDataIntegrationFixture) addContact(t *testing.T, db *sql.DB, name string, corpID int, employeeID int, createTime string, status int, deletedAt *string) {
 	t.Helper()
 	contactID := f.insert(t, db, "mc_work_contact", `INSERT INTO mc_work_contact (corp_id, wx_external_userid, name) VALUES (?, ?, ?)`, corpID, name, name)
@@ -326,7 +503,11 @@ func (f *corpDataIntegrationFixture) addRoom(t *testing.T, db *sql.DB, name stri
 
 func (f *corpDataIntegrationFixture) addRoomMember(t *testing.T, db *sql.DB, roomID int, employeeID int, status int, joinTime string, outTime string) {
 	t.Helper()
-	f.insert(t, db, "mc_work_contact_room", `INSERT INTO mc_work_contact_room (wx_user_id, employee_id, room_id, status, join_time, out_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, fmt.Sprintf("member_%d_%d", roomID, len(f.ids["mc_work_contact_room"])), employeeID, roomID, status, joinTime, outTime, joinTime, joinTime)
+	updatedAt := joinTime
+	if status == 2 && outTime != "" {
+		updatedAt = outTime
+	}
+	f.insert(t, db, "mc_work_contact_room", `INSERT INTO mc_work_contact_room (wx_user_id, employee_id, room_id, status, join_time, out_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, fmt.Sprintf("member_%d_%d", roomID, len(f.ids["mc_work_contact_room"])), employeeID, roomID, status, joinTime, outTime, joinTime, updatedAt)
 }
 
 func (f *corpDataIntegrationFixture) cleanup(t *testing.T, db *sql.DB) {

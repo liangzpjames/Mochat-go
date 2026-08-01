@@ -25,9 +25,15 @@ import (
 
 type MySQLStore struct {
 	db                         *sql.DB
+	corpDataExecutor           corpDataQueryExecutor
 	saasAlertCredentialCipher  *saasalertcredentials.Manager
 	weComCredentialCipher      *wecomcredentials.Manager
 	weChatOpenCredentialCipher *wechatopencredentials.Manager
+}
+
+type corpDataQueryExecutor interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 func isMySQLDuplicateKeyError(err error) bool {
@@ -93,7 +99,7 @@ type saasUsageLimitSnapshot struct {
 }
 
 func NewMySQLStore(db *sql.DB) *MySQLStore {
-	return &MySQLStore{db: db}
+	return &MySQLStore{db: db, corpDataExecutor: db}
 }
 
 func (s *MySQLStore) WithSaaSAlertCredentialCipher(cipher *saasalertcredentials.Manager) *MySQLStore {
@@ -2141,7 +2147,7 @@ func (s *MySQLStore) CorpDataSummary(ctx context.Context, scope dashboard.CorpDa
 	var latestUpdate time.Time
 	for _, spec := range corpDataSummaryQuerySpecs(scope, now) {
 		var row corpDataSummaryRow
-		if err := s.db.QueryRowContext(ctx, spec.query, spec.args...).Scan(
+		if err := s.corpDataExecutor.QueryRowContext(ctx, spec.query, spec.args...).Scan(
 			&row.WeChatContactNum, &row.WeChatRoomNum, &row.RoomMemberNum, &row.CorpMemberNum,
 			&row.AddContactNum, &row.LastAddContactNum, &row.AddIntoRoomNum, &row.LastAddIntoRoomNum,
 			&row.LossContactNum, &row.LastLossContactNum, &row.QuitRoomNum, &row.LastQuitRoomNum,
@@ -2281,12 +2287,12 @@ func corpDataSummaryRoomMembersQuery(scope dashboard.CorpDataScope, bounds []any
 	expressions[2] = corpDataConditionalCount("contact_room.status = 1")
 	expressions[6] = corpDataConditionalCount("contact_room.status = 1 AND contact_room.join_time >= bounds.today_start AND contact_room.join_time < bounds.tomorrow_start")
 	expressions[7] = corpDataConditionalCount("contact_room.status = 1 AND contact_room.join_time >= bounds.yesterday_start AND contact_room.join_time < bounds.today_start")
-	expressions[10] = corpDataConditionalCount("contact_room.status = 2 AND contact_room.out_time != '' AND STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s') >= bounds.today_start AND STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s') < bounds.tomorrow_start")
-	expressions[11] = corpDataConditionalCount("contact_room.status = 2 AND contact_room.out_time != '' AND STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s') >= bounds.yesterday_start AND STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s') < bounds.today_start")
+	expressions[10] = corpDataConditionalCount("contact_room.status = 2 AND contact_room.out_time != '' AND contact_room.updated_at >= bounds.today_start AND contact_room.updated_at < bounds.tomorrow_start")
+	expressions[11] = corpDataConditionalCount("contact_room.status = 2 AND contact_room.out_time != '' AND contact_room.updated_at >= bounds.yesterday_start AND contact_room.updated_at < bounds.today_start")
 	expressions[16] = corpDataConditionalCount("contact_room.status = 1 AND contact_room.join_time >= bounds.month_start AND contact_room.join_time < bounds.next_month_start")
 	expressions[17] = corpDataConditionalCount("contact_room.status = 1 AND contact_room.join_time >= bounds.last_month_start AND contact_room.join_time < bounds.month_start")
 	filter, filterArgs := corpDataEmployeeScopeSQL(scope, "room.owner_id")
-	query := corpDataSummarySelect(expressions, "GREATEST(contact_room.join_time, COALESCE(contact_room.updated_at, contact_room.join_time), COALESCE(STR_TO_DATE(NULLIF(contact_room.out_time, ''), '%Y-%m-%d %H:%i:%s'), contact_room.join_time))") + corpDataSummaryBoundsSQL() + `
+	query := corpDataSummarySelect(expressions, "GREATEST(contact_room.join_time, COALESCE(contact_room.updated_at, contact_room.join_time))") + corpDataSummaryBoundsSQL() + `
 	CROSS JOIN mc_work_contact_room AS contact_room
 	INNER JOIN mc_work_room AS room
 		ON room.id = contact_room.room_id AND room.deleted_at IS NULL
@@ -2342,7 +2348,7 @@ func (s *MySQLStore) CorpDataLineChat(ctx context.Context, scope dashboard.CorpD
 		return nil, fmt.Errorf("tenant id and corp id must be positive")
 	}
 	query, args := corpDataTrendQuery(scope, from, to.AddDate(0, 0, 1))
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.corpDataExecutor.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2447,8 +2453,8 @@ func corpDataMetricSourceFor(metric corpDataMetric, scope dashboard.CorpDataScop
 			source.fromWhere += " AND contact_room.status = 1"
 			source.timeExpression = "contact_room.join_time"
 		case corpDataMetricQuitRooms:
-			source.fromWhere += " AND contact_room.status = 2 AND contact_room.out_time != ''"
-			source.timeExpression = "STR_TO_DATE(contact_room.out_time, '%Y-%m-%d %H:%i:%s')"
+			source.fromWhere += " AND contact_room.status = 2 AND contact_room.out_time != '' AND contact_room.updated_at IS NOT NULL"
+			source.timeExpression = "contact_room.updated_at"
 		}
 	case corpDataMetricEmployees:
 		source = corpDataMetricSource{
