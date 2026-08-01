@@ -17,6 +17,17 @@ export const phase32TargetRoutes = [
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const completedImplementations = new Set(['native', 'legacy-adapter']);
 const requiredEvidenceKeys = ['spec', 'acceptance'];
+const nonBrowserAcceptances = new Set(['integration-passed', 'e2e-passed']);
+const expectedE2EClosures = new Map([
+  ['/index', 'query-export-refresh'],
+  ['/chat/v2-all', 'filter-detail-refresh'],
+  ['/ai-insight/v2/sensitive-word', 'create-word-refresh'],
+  ['/customer/clue/default', 'create-lead-refresh'],
+  ['/customer/contact', 'append-follow-up-refresh'],
+  ['/customer/opportunity', 'advance-stage-refresh'],
+  ['/customer/public-sea', 'claim-refresh'],
+  ['/customer/tags', 'create-tag-refresh'],
+]);
 const allowedDecisions = new Set(['\u5df2\u5bf9\u5e94', '\u5408\u7406\u5408\u5e76', '\u4e0d\u9002\u7528']);
 const functionMatrixColumns = [
   'page',
@@ -316,6 +327,65 @@ export function validatePhase32Manifest(manifest, functionMatrixMarkdown) {
   if (errors.length > 0) throw new Error(errors.join('\n'));
 }
 
+export function validatePhase32E2ECoverage(source) {
+  const errors = [];
+  const contracts = new Map();
+  const routeCounts = new Map();
+  const contractPattern = /\{\s*route:\s*['"]([^'"]+)['"]\s*,\s*closure:\s*['"]([^'"]+)['"]\s*\}/gu;
+  for (const match of String(source ?? '').matchAll(contractPattern)) {
+    const [, route, closure] = match;
+    routeCounts.set(route, (routeCounts.get(route) ?? 0) + 1);
+    contracts.set(route, closure);
+    if (!phase32TargetRoutes.includes(route)) errors.push(`unexpected Phase 3.2 e2e route: ${route}`);
+  }
+  for (const [route, count] of routeCounts) {
+    if (count > 1) errors.push(`duplicate Phase 3.2 e2e route: ${route}`);
+  }
+  for (const route of phase32TargetRoutes) {
+    if (!contracts.has(route)) {
+      errors.push(`missing Phase 3.2 e2e route: ${route}`);
+      continue;
+    }
+    const closure = contracts.get(route);
+    if (closure !== expectedE2EClosures.get(route)) {
+      errors.push(`invalid Phase 3.2 e2e closure: ${route} (received ${JSON.stringify(closure)})`);
+    }
+  }
+  return errors;
+}
+
+export function validateNonBrowserPhase32Manifest(manifest, functionMatrixMarkdown, e2eSource) {
+  if (typeof functionMatrixMarkdown !== 'string' || !functionMatrixMarkdown.trim()) {
+    throw new Error('missing required Phase 3.2 function matrix');
+  }
+  validatePhase32Manifest(manifest, functionMatrixMarkdown);
+  const pagesByPath = new Map((manifest?.pages ?? []).map((page) => [page.path, page]));
+  const errors = [
+    ...validatePhase32E2ECoverage(e2eSource),
+    ...unclosedMatrixItems(functionMatrixMarkdown).map((item) => `Phase 3.2 unclosed function matrix item: ${item}`),
+  ];
+  const incomplete = phase32TargetRoutes.filter((path) => {
+    const page = pagesByPath.get(path);
+    return page?.backend !== 'ready'
+      || !nonBrowserAcceptances.has(page?.acceptance)
+      || !completedImplementations.has(page?.implementation);
+  });
+  if (incomplete.length) {
+    errors.push(`Phase 3.2 non-browser incomplete routes (${phase32TargetRoutes.length - incomplete.length}/${phase32TargetRoutes.length}): ${incomplete.join(', ')}`);
+  }
+  for (const path of phase32TargetRoutes) {
+    const page = pagesByPath.get(path);
+    if (!nonBrowserAcceptances.has(page?.acceptance)) continue;
+    for (const key of requiredEvidenceKeys) {
+      const evidencePath = page?.evidence?.[key];
+      if (!isRepositoryFile(evidencePath)) {
+        errors.push(`Phase 3.2 non-browser evidence file does not exist: ${path} / ${key}: ${evidencePath ?? ''}`);
+      }
+    }
+  }
+  if (errors.length > 0) throw new Error(errors.join('\n'));
+}
+
 export function validateFinalPhase32Manifest(manifest, functionMatrixMarkdown) {
   if (typeof functionMatrixMarkdown !== 'string' || !functionMatrixMarkdown.trim()) {
     throw new Error('missing required Phase 3.2 function matrix');
@@ -345,6 +415,12 @@ export async function readFunctionMatrix(matrixUrl = new URL('../docs/phase/phas
 async function main() {
   const manifest = await readManifest();
   const functionMatrix = await readFunctionMatrix();
+  if (process.argv.includes('--non-browser')) {
+    const e2eSource = readFileSync(new URL('../web/e2e/tests/phase3-2-dashboard.spec.ts', import.meta.url), 'utf8');
+    validateNonBrowserPhase32Manifest(manifest, functionMatrix, e2eSource);
+    console.log(`8/8 Phase 3.2 routes passed the non-browser gate; browser acceptance remains separate.`);
+    return;
+  }
   validateFinalPhase32Manifest(manifest, functionMatrix);
   console.log(`8/8 Phase 3.2 routes complete.`);
 }

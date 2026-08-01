@@ -44,14 +44,14 @@
       "screenshotVersion": "unobserved",
       "implementation": "native",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.2",
       "owner": "dashboard",
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-index/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-index.json"
+        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -63,14 +63,14 @@
       "screenshotVersion": "unobserved",
       "implementation": "native",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.2",
       "owner": "dashboard",
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-v2-all/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-v2-all.json"
+        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -82,7 +82,7 @@
       "screenshotVersion": "unobserved",
       "implementation": "demo",
       "backend": "partial",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "medium",
@@ -272,14 +272,14 @@
       "screenshotVersion": "unobserved",
       "implementation": "legacy-adapter",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.2",
       "owner": "dashboard",
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-v2-sensitive-word/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-v2-sensitive-word.json"
+        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -291,7 +291,7 @@
       "screenshotVersion": "unobserved",
       "implementation": "demo",
       "backend": "partial",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "medium",
@@ -652,14 +652,14 @@
       "screenshotVersion": "unobserved",
       "implementation": "native",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.2",
       "owner": "dashboard",
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-clue-default/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-clue-default.json"
+        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -671,14 +671,14 @@
       "screenshotVersion": "unobserved",
       "implementation": "legacy-adapter",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.2",
       "owner": "dashboard",
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-contact/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-contact.json"
+        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -709,14 +709,14 @@
       "screenshotVersion": "unobserved",
       "implementation": "native",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.2",
       "owner": "dashboard",
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-opportunity/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-opportunity.json"
+        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -728,14 +728,14 @@
       "screenshotVersion": "unobserved",
       "implementation": "native",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.2",
       "owner": "dashboard",
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-public-sea/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-public-sea.json"
+        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -747,7 +747,7 @@
       "screenshotVersion": "unobserved",
       "implementation": "demo",
       "backend": "partial",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "medium",
@@ -766,14 +766,14 @@
       "screenshotVersion": "unobserved",
       "implementation": "native",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.2",
       "owner": "dashboard",
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-tags/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-tags.json"
+        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {

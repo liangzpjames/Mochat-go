@@ -8,8 +8,10 @@ import { fileURLToPath } from 'node:url';
 import {
   isRepositoryFile,
   validateCompletedPageSources,
+  validatePhase32E2ECoverage,
   validateFinalPhase32Manifest,
   validateFunctionMatrix,
+  validateNonBrowserPhase32Manifest,
   validatePhase32Manifest,
 } from './check_phase3_2_dashboard_completion.mjs';
 
@@ -72,6 +74,66 @@ function completeManifest(overrides = {}) {
     })),
   };
 }
+
+const phase32E2EContracts = [
+  ['/index', 'query-export-refresh'],
+  ['/chat/v2-all', 'filter-detail-refresh'],
+  ['/ai-insight/v2/sensitive-word', 'create-word-refresh'],
+  ['/customer/clue/default', 'create-lead-refresh'],
+  ['/customer/contact', 'append-follow-up-refresh'],
+  ['/customer/opportunity', 'advance-stage-refresh'],
+  ['/customer/public-sea', 'claim-refresh'],
+  ['/customer/tags', 'create-tag-refresh'],
+];
+
+function e2eContractSource(contracts = phase32E2EContracts) {
+  return `const phase32PageContracts = [\n${contracts.map(([route, closure]) => `  { route: '${route}', closure: '${closure}' },`).join('\n')}\n] as const;`;
+}
+
+test('Phase 3.2 e2e contract requires the exact eight routes and key closures', () => {
+  assert.deepEqual(validatePhase32E2ECoverage(e2eContractSource()), []);
+
+  const missingRoute = validatePhase32E2ECoverage(e2eContractSource(phase32E2EContracts.slice(0, -1)));
+  assert.ok(missingRoute.includes('missing Phase 3.2 e2e route: /customer/tags'));
+
+  const wrongClosure = validatePhase32E2ECoverage(e2eContractSource(
+    phase32E2EContracts.map(([route, closure]) => route === '/customer/contact'
+      ? [route, 'view-only']
+      : [route, closure]),
+  ));
+  assert.ok(wrongClosure.includes('invalid Phase 3.2 e2e closure: /customer/contact (received "view-only")'));
+
+  const extraRoute = validatePhase32E2ECoverage(`${e2eContractSource()}\n{ route: '/customer/extra', closure: 'view-only' }`);
+  assert.ok(extraRoute.includes('unexpected Phase 3.2 e2e route: /customer/extra'));
+});
+
+test('non-browser gate accepts integration evidence while final gate remains browser-blocked', () => {
+  const manifest = completeManifest(Object.fromEntries(
+    phase32Routes.map((path) => [path, { acceptance: 'integration-passed' }]),
+  ));
+
+  assert.doesNotThrow(() => validateNonBrowserPhase32Manifest(
+    manifest,
+    functionMatrix(),
+    e2eContractSource(),
+  ));
+  assert.throws(
+    () => validateFinalPhase32Manifest(manifest, functionMatrix()),
+    /Phase 3\.2 incomplete routes \(0\/8\)/,
+  );
+});
+
+test('non-browser gate rejects pages without integration evidence', () => {
+  const manifest = completeManifest(Object.fromEntries(
+    phase32Routes.map((path) => [path, { acceptance: 'integration-passed' }]),
+  ));
+  manifest.pages[0].acceptance = 'unit-passed';
+
+  assert.throws(
+    () => validateNonBrowserPhase32Manifest(manifest, functionMatrix(), e2eContractSource()),
+    /Phase 3\.2 non-browser incomplete routes \(7\/8\): \/index/,
+  );
+});
 
 test('function matrix reports a malformed Markdown row column count', () => {
   const markdown = [
