@@ -84,3 +84,18 @@
 - 目标 manifest 路由必须显式 `phase: "3.2"`；错误 phase 返回包含路径和实际 phase 的精确错误。
 - `validateCompletedPageSources` 按目标路由键提取完整注册表达式，再扫描 `DemoPage`、`PlaceholderPage` 和从 `demo-fixtures` 导入的标识符；不再要求路由键与引用处于同一行。
 - `isRepositoryFile` 仅接受仓库内相对普通文件，并在 `realpath` 解析后再次校验仓库边界和普通文件类型。
+
+## 第三轮审查边界修复
+
+### RED / GREEN 记录
+
+- RED：先新增“表头含额外列必须拒绝”和“合理合并/不适用的三类决策记录拒绝占位值”回归测试；修正测试夹具自身的未定义引用后，运行 `node --test scripts/check_phase3_2_dashboard_completion.test.mjs`，结果为 `# pass 17`、`# fail 2`、退出码 `1`，失败原因正是表头未被精确校验、决策记录占位值未被拒绝。
+- GREEN：在门禁脚本中按定义的 `functionMatrixColumns` 逐项比较表头列名和数量，并新增决策记录占位值判定，覆盖 `-`、`—`、`N/A`、`无`、`不适用`、`TODO`、`TBD`、`pending`、`待`；再次运行同一命令，结果为 `# pass 19`、`# fail 0`，退出码 `0`。
+- 完整门禁：运行 `node scripts/check_phase3_2_dashboard_completion.mjs`，退出码 `1`（预期），仍准确报告 `48` 个未闭合项；未将当前阶段失败门禁误判为成功。
+- 差异检查：运行 `git diff --check`，无输出、退出码 `0`。
+
+### 本轮变更
+
+- `scripts/check_phase3_2_dashboard_completion.mjs`：功能矩阵表头必须精确等于定义的 13 列；对“合理合并”和“不适用”的 `decisionReason`、`alternativeEntry`、`decisionVerification` 拒绝空值及占位值。
+- `scripts/check_phase3_2_dashboard_completion.test.mjs`：新增精确 13 列表头回归测试，并逐项覆盖两种决策、三个字段和全部占位值边界。
+- 未触碰既有视觉或计划修改；本轮仅更新上述两个脚本和本报告。

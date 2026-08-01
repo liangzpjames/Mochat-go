@@ -31,10 +31,11 @@ const matrixColumns = [
   'decisionVerification', 'mochatEntry', 'frontend', 'api', 'permission',
   'persistence', 'tests', 'evidence',
 ];
+const decisionRecordColumns = ['decisionReason', 'alternativeEntry', 'decisionVerification'];
 const matrixHeader = `| ${matrixColumns.join(' | ')} |`;
 const matrixDivider = `| ${matrixColumns.map(() => '---').join(' | ')} |`;
 
-function matrixRow(path, overrides = {}) {
+function matrixRow(path, overrides = {}, columns = matrixColumns) {
   const row = {
     page: path,
     referenceFeature: 'filter customers',
@@ -51,7 +52,7 @@ function matrixRow(path, overrides = {}) {
     evidence: 'scripts/check_phase3_2_dashboard_completion.mjs',
     ...overrides,
   };
-  return `| ${matrixColumns.map((column) => row[column]).join(' | ')} |`;
+  return `| ${columns.map((column) => row[column] ?? '').join(' | ')} |`;
 }
 
 function functionMatrix(rows = phase32Routes.map((path) => matrixRow(path))) {
@@ -84,6 +85,19 @@ test('function matrix reports a malformed Markdown row column count', () => {
   );
 });
 
+test('function matrix requires the exact 13-column header without extra columns', () => {
+  const extraColumns = [...matrixColumns, 'extraColumn'];
+  const errors = validateFunctionMatrix([
+    `| ${extraColumns.join(' | ')} |`,
+    `| ${extraColumns.map(() => '---').join(' | ')} |`,
+    ...phase32Routes.map((path) => matrixRow(path, {}, extraColumns)),
+  ].join('\n'));
+
+  assert.deepEqual(errors, [
+    `function matrix header must exactly match: ${matrixColumns.join(' | ')}`,
+  ]);
+});
+
 test('function matrix rejects illegal decisions and requires merge decision records', () => {
   const errors = validateFunctionMatrix(functionMatrix([
     matrixRow('/index', { decision: 'complete' }),
@@ -100,6 +114,41 @@ test('function matrix rejects illegal decisions and requires merge decision reco
   assert.ok(errors.includes('missing function matrix decisionReason: /chat/v2-all / filter customers'));
   assert.ok(errors.includes('missing function matrix alternativeEntry: /chat/v2-all / filter customers'));
   assert.ok(errors.includes('missing function matrix decisionVerification: /chat/v2-all / filter customers'));
+});
+
+test('function matrix rejects placeholder decision records for merge and not-applicable decisions', () => {
+  const placeholders = ['-', '—', 'N/A', '无', '不适用', 'TODO', 'TBD', 'pending', '待确认'];
+  const validDecisionRecords = {
+    decisionReason: 'reference feature is intentionally consolidated',
+    alternativeEntry: 'CustomerFilterPanel',
+    decisionVerification: 'scripts/check_phase3_2_dashboard_completion.test.mjs',
+  };
+  const rows = [];
+  const expectedErrors = [];
+
+  for (const [decisionIndex, decision] of [merged, notApplicable].entries()) {
+    for (const [placeholderIndex, placeholder] of placeholders.entries()) {
+      for (const [fieldIndex, field] of decisionRecordColumns.entries()) {
+        const page = phase32Routes[(decisionIndex * placeholders.length * decisionRecordColumns.length
+          + placeholderIndex * decisionRecordColumns.length + fieldIndex) % phase32Routes.length];
+        const referenceFeature = `${decisionIndex}-${placeholderIndex}-${fieldIndex}`;
+        rows.push(matrixRow(page, {
+          referenceFeature,
+          decision,
+          ...validDecisionRecords,
+          [field]: placeholder,
+        }));
+        expectedErrors.push(`${page} / ${referenceFeature}: ${field} is placeholder`);
+      }
+    }
+  }
+
+  const errors = validateFunctionMatrix(functionMatrix(rows));
+
+  assert.deepEqual(
+    errors.filter((error) => error.endsWith('is placeholder')),
+    expectedErrors,
+  );
 });
 
 test('function matrix rejects duplicate page and reference feature rows', () => {

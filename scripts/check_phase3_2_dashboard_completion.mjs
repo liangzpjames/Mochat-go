@@ -36,6 +36,7 @@ const functionMatrixColumns = [
 const requiredClosureColumns = ['mochatEntry', 'frontend', 'api', 'permission', 'persistence', 'tests', 'evidence'];
 const decisionRecordColumns = ['decisionReason', 'alternativeEntry', 'decisionVerification'];
 const pendingPattern = /(?:\b(?:todo|tbd|pending|unfinished|not[\s-]*started)\b|\u5f85|\u672a\u5b8c\u6210)/iu;
+const decisionRecordPlaceholderPattern = /^(?:-|—|n\/a|\u65e0|\u4e0d\u9002\u7528)$/iu;
 
 function tableCells(line) {
   return line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
@@ -81,6 +82,11 @@ function isPending(value) {
   return pendingPattern.test(value);
 }
 
+function isDecisionRecordPlaceholder(value) {
+  const normalizedValue = value.trim();
+  return decisionRecordPlaceholderPattern.test(normalizedValue) || isPending(normalizedValue);
+}
+
 function isFixture(value) {
   return /fixture/i.test(value);
 }
@@ -118,10 +124,15 @@ function unclosedMatrixItems(markdown) {
 export function validateFunctionMatrix(markdown) {
   if (typeof markdown !== 'string') return ['missing required Phase 3.2 function matrix'];
   const { columns, rows, errors: parseErrors } = parseFunctionMatrix(markdown);
-  const missingColumns = functionMatrixColumns.filter((column) => !columns.includes(column));
-  if (missingColumns.length > 0) return [...parseErrors, ...missingColumns.map((column) => `missing function matrix column: ${column}`)];
-
+  const hasExactHeader = columns.length === functionMatrixColumns.length
+    && columns.every((column, columnIndex) => column === functionMatrixColumns[columnIndex]);
   const errors = [...parseErrors];
+  if (!hasExactHeader) {
+    errors.push(`function matrix header must exactly match: ${functionMatrixColumns.join(' | ')}`);
+  }
+  const missingColumns = functionMatrixColumns.filter((column) => !columns.includes(column));
+  if (missingColumns.length > 0) return [...errors, ...missingColumns.map((column) => `missing function matrix column: ${column}`)];
+
   const seenFeatures = new Set();
   for (const row of rows) {
     const label = matrixLabel(row);
@@ -142,6 +153,7 @@ export function validateFunctionMatrix(markdown) {
     if (row.values.decision === '\u5408\u7406\u5408\u5e76' || row.values.decision === '\u4e0d\u9002\u7528') {
       for (const column of decisionRecordColumns) {
         if (!row.values[column]) errors.push(`missing function matrix ${column}: ${label}`);
+        else if (isDecisionRecordPlaceholder(row.values[column])) errors.push(`${label}: ${column} is placeholder`);
       }
     }
     for (const column of requiredClosureColumns) {
