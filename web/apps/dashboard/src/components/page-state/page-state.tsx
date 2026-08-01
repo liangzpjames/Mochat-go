@@ -32,11 +32,16 @@ export function PageState({
 
   const copy = stateCopy[state];
   return (
-    <section className={`page-state page-state-${state}`} role="status" aria-live="polite">
+    <section
+      aria-busy={state === 'loading'}
+      aria-live="polite"
+      className={`page-state page-state-${state}`}
+      role="status"
+    >
       <h2>{copy.title}</h2>
       <p>{copy.description}</p>
       {onRetry !== undefined && state !== 'loading' && (
-        <button type="button" onClick={onRetry}>重新加载</button>
+        <button className="page-state-retry" type="button" onClick={onRetry}>重新加载</button>
       )}
     </section>
   );

@@ -51,7 +51,10 @@ export function DashboardLayout() {
   return (
     <div className="dashboard-shell">
       <header className="dashboard-header">
-        <NavLink className="dashboard-brand" to="/">MoChat AI</NavLink>
+        <NavLink className="dashboard-brand" to="/">
+          <span aria-hidden="true" className="dashboard-brand-mark">M</span>
+          <span>MoChat AI</span>
+        </NavLink>
         <span className="dashboard-product-name">企业智能运营平台</span>
         <label className="dashboard-search">
           <span className="sr-only">搜索功能</span>
