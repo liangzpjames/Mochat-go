@@ -11,4 +11,14 @@ describe('ScrmApi', () => {
     expect(request.mock.calls[1]?.[0]).toBe('/scrm/assignments/claim');
     expect(request.mock.calls[1]?.[1]).toMatchObject({ method: 'POST', headers: expect.objectContaining({ 'Idempotency-Key': 'claim-1' }) });
   });
+
+  it('serializes opportunity filters and complete stage commands', async () => {
+    const request = vi.fn().mockResolvedValue({ data: { items: [], nextCursor: '' } });
+    const api = createScrmApi({ request });
+    await api.listOpportunities({ corpId: 7, stage: 'proposal', status: 'open', ownerId: 9, cursor: 'o9', pageSize: 25 });
+    await api.changeOpportunityStage({ corpId: 7, opportunityId: 'o1', stageId: 'lost', lostReason: '预算取消', version: 2, idempotencyKey: 'stage-1' });
+    expect(request.mock.calls[0]?.[0]).toBe('/scrm/opportunities?corpId=7&pageSize=25&stage=proposal&status=open&ownerId=9&cursor=o9');
+    expect(request.mock.calls[1]?.[0]).toBe('/scrm/opportunities/o1/stage');
+    expect(request.mock.calls[1]?.[1]).toMatchObject({ method: 'POST', headers: expect.objectContaining({ 'Idempotency-Key': 'stage-1' }), body: JSON.stringify({ corpId: 7, opportunityId: 'o1', stageId: 'lost', lostReason: '预算取消', version: 2, idempotencyKey: 'stage-1' }) });
+  });
 });

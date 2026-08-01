@@ -43,8 +43,14 @@ func TestCustomerLifecycleTransitions(t *testing.T) {
 }
 
 func TestLostOpportunityRequiresReason(t *testing.T) {
-	if err := ValidateOpportunityTransition(OpportunityStatusWon, OpportunityStatusLost, ""); err == nil {
+	if err := ValidateOpportunityTransition(OpportunityStageProposal, OpportunityStatusLost, ""); err == nil {
 		t.Fatal("lost opportunity should require a reason")
+	}
+	if err := ValidateOpportunityTransition(OpportunityStatusLost, OpportunityStageProposal, ""); err == nil {
+		t.Fatal("lost opportunity should be terminal")
+	}
+	if err := ValidateOpportunityTransition(OpportunityStageProposal, "negotiation", ""); err != nil {
+		t.Fatalf("open opportunity should advance to another stage: %v", err)
 	}
 }
 

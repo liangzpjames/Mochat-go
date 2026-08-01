@@ -23,8 +23,8 @@ func NewOpportunityRepository(db *sql.DB) (*OpportunityRepository, error) {
 	return &OpportunityRepository{db: db}, nil
 }
 
-func (r *OpportunityRepository) ListOpportunities(ctx context.Context, filter ports.OpportunityFilter) ([]ports.Opportunity, error) {
-	query := `SELECT id,contact_id,stage_id,status,lost_reason,version,amount,start_date,end_date FROM mochat_go_scrm_opportunities WHERE tenant_id=? AND corp_id=? AND deleted_at IS NULL`
+func (r *OpportunityRepository) ListOpportunities(ctx context.Context, filter ports.OpportunityFilter) (ports.OpportunityPage, error) {
+	query := `SELECT id,contact_id,stage_id,status,lost_reason,owner_id,version,amount,start_date,end_date FROM mochat_go_scrm_opportunities WHERE tenant_id=? AND corp_id=? AND deleted_at IS NULL`
 	args := []any{filter.TenantID, filter.CorpID}
 	if filter.Stage != "" {
 		query += " AND stage_id=?"
@@ -34,22 +34,46 @@ func (r *OpportunityRepository) ListOpportunities(ctx context.Context, filter po
 		query += " AND owner_id=?"
 		args = append(args, *filter.OwnerID)
 	}
-	query += " ORDER BY updated_at DESC, id DESC"
+	if filter.Status != "" {
+		query += " AND status=?"
+		args = append(args, filter.Status)
+	}
+	if filter.Cursor != "" {
+		query += " AND id<?"
+		args = append(args, filter.Cursor)
+	}
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	query += " ORDER BY id DESC LIMIT ?"
+	args = append(args, pageSize+1)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return ports.OpportunityPage{}, err
 	}
 	defer rows.Close()
 	items := []ports.Opportunity{}
 	for rows.Next() {
 		var item ports.Opportunity
-		if err := rows.Scan(&item.ID, &item.ContactID, &item.Stage, &item.Status, &item.LostReason, &item.Version, &item.Amount, &item.StartDate, &item.EndDate); err != nil {
-			return nil, err
+		if err := scanOpportunity(rows, &item); err != nil {
+			return ports.OpportunityPage{}, err
 		}
 		item.TenantID, item.CorpID = filter.TenantID, filter.CorpID
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return ports.OpportunityPage{}, err
+	}
+	page := ports.OpportunityPage{Items: items}
+	if len(page.Items) > pageSize {
+		page.Items = page.Items[:pageSize]
+		page.NextCursor = page.Items[len(page.Items)-1].ID
+	}
+	return page, nil
 }
 
 func (r *OpportunityRepository) CreateOpportunity(ctx context.Context, c ports.CreateOpportunityCommand) (ports.Opportunity, error) {
@@ -67,6 +91,9 @@ func (r *OpportunityRepository) CreateOpportunity(ctx context.Context, c ports.C
 	}
 	defer tx.Rollback()
 	if err := contactExistsTx(ctx, tx, c.TenantID, c.CorpID, c.ContactID); err != nil {
+		return ports.Opportunity{}, err
+	}
+	if err := opportunityStageExistsTx(ctx, tx, c.TenantID, c.CorpID, c.Stage); err != nil {
 		return ports.Opportunity{}, err
 	}
 	if c.OwnerID > 0 {
@@ -114,23 +141,38 @@ func (r *OpportunityRepository) ChangeOpportunityStage(ctx context.Context, c po
 		return ports.Opportunity{}, err
 	}
 	defer tx.Rollback()
-	if _, err := getOpportunityWith(ctx, tx, c.TenantID, c.CorpID, c.OpportunityID, true); err != nil {
+	current, err := getOpportunityWith(ctx, tx, c.TenantID, c.CorpID, c.OpportunityID, true)
+	if err != nil {
 		return ports.Opportunity{}, err
 	}
 	fingerprint := requestFingerprint(struct {
-		OpportunityID, ToStage, Reason string
-		Version                        int64
-	}{c.OpportunityID, c.ToStage, strings.TrimSpace(c.Reason), c.Version})
+		OpportunityID, StageID, LostReason string
+		Version                            int64
+	}{c.OpportunityID, strings.TrimSpace(c.StageID), strings.TrimSpace(c.LostReason), c.Version})
 	replayed, resourceID, err := claimIdempotency(ctx, tx, c.TenantID, c.CorpID, "opportunity.stage", c.IdempotencyKey, fingerprint, c.OpportunityID)
 	if err != nil {
 		return ports.Opportunity{}, err
 	}
 	if !replayed {
-		status := "open"
-		if c.ToStage == domain.OpportunityStatusWon || c.ToStage == domain.OpportunityStatusLost {
-			status = c.ToStage
+		from := current.Stage
+		if current.Status == domain.OpportunityStatusWon || current.Status == domain.OpportunityStatusLost {
+			from = current.Status
 		}
-		result, err := tx.ExecContext(ctx, `UPDATE mochat_go_scrm_opportunities SET stage_id=?,status=?,lost_reason=?,version=version+1,updated_at=? WHERE tenant_id=? AND corp_id=? AND id=? AND version=? AND deleted_at IS NULL AND status NOT IN ('won','lost')`, c.ToStage, status, strings.TrimSpace(c.Reason), time.Now().UTC(), c.TenantID, c.CorpID, c.OpportunityID, c.Version)
+		if err := domain.ValidateOpportunityTransition(from, c.StageID, c.LostReason); err != nil {
+			return ports.Opportunity{}, fmt.Errorf("%w: %v", ports.ErrInvalidOpportunityTransition, err)
+		}
+		if err := opportunityStageExistsTx(ctx, tx, c.TenantID, c.CorpID, c.StageID); err != nil {
+			return ports.Opportunity{}, err
+		}
+		status := "open"
+		if c.StageID == domain.OpportunityStatusWon || c.StageID == domain.OpportunityStatusLost {
+			status = c.StageID
+		}
+		lostReason := ""
+		if c.StageID == domain.OpportunityStatusLost {
+			lostReason = strings.TrimSpace(c.LostReason)
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE mochat_go_scrm_opportunities SET stage_id=?,status=?,lost_reason=?,version=version+1,updated_at=? WHERE tenant_id=? AND corp_id=? AND id=? AND version=? AND deleted_at IS NULL AND status NOT IN ('won','lost')`, strings.TrimSpace(c.StageID), status, lostReason, time.Now().UTC(), c.TenantID, c.CorpID, c.OpportunityID, c.Version)
 		if err != nil {
 			return ports.Opportunity{}, err
 		}
@@ -153,17 +195,50 @@ type rowQuerier interface {
 }
 
 func getOpportunityWith(ctx context.Context, query rowQuerier, tenant, corp int64, id string, lock bool) (ports.Opportunity, error) {
-	statement := `SELECT id,contact_id,stage_id,status,lost_reason,version,amount,start_date,end_date FROM mochat_go_scrm_opportunities WHERE tenant_id=? AND corp_id=? AND id=? AND deleted_at IS NULL`
+	statement := `SELECT id,contact_id,stage_id,status,lost_reason,owner_id,version,amount,start_date,end_date FROM mochat_go_scrm_opportunities WHERE tenant_id=? AND corp_id=? AND id=? AND deleted_at IS NULL`
 	if lock {
 		statement += " FOR UPDATE"
 	}
 	var item ports.Opportunity
-	err := query.QueryRowContext(ctx, statement, tenant, corp, id).Scan(&item.ID, &item.ContactID, &item.Stage, &item.Status, &item.LostReason, &item.Version, &item.Amount, &item.StartDate, &item.EndDate)
+	err := scanOpportunity(query.QueryRowContext(ctx, statement, tenant, corp, id), &item)
 	if errors.Is(err, sql.ErrNoRows) {
 		return item, ports.ErrOpportunityNotFound
 	}
 	item.TenantID, item.CorpID = tenant, corp
 	return item, err
+}
+
+type opportunityScanner interface{ Scan(...any) error }
+
+func scanOpportunity(scanner opportunityScanner, item *ports.Opportunity) error {
+	var owner sql.NullInt64
+	var startDate, endDate sql.NullTime
+	if err := scanner.Scan(&item.ID, &item.ContactID, &item.Stage, &item.Status, &item.LostReason, &owner, &item.Version, &item.Amount, &startDate, &endDate); err != nil {
+		return err
+	}
+	if owner.Valid {
+		item.OwnerID = owner.Int64
+	}
+	if startDate.Valid {
+		item.StartDate = startDate.Time
+	}
+	if endDate.Valid {
+		item.EndDate = endDate.Time
+	}
+	return nil
+}
+
+func opportunityStageExistsTx(ctx context.Context, tx *sql.Tx, tenant, corp int64, stage string) error {
+	stage = strings.TrimSpace(stage)
+	if stage == domain.OpportunityStageProposal || stage == domain.OpportunityStatusWon || stage == domain.OpportunityStatusLost {
+		return nil
+	}
+	var found string
+	err := tx.QueryRowContext(ctx, `SELECT id FROM mochat_go_scrm_stages WHERE tenant_id=? AND corp_id=? AND id=? AND deleted_at IS NULL`, tenant, corp, stage).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ports.ErrStageNotFound
+	}
+	return err
 }
 
 func (r *OpportunityRepository) ListFollowUps(ctx context.Context, tenant, corp int64, contact string) ([]ports.FollowUpRecord, error) {

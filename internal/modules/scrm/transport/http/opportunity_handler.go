@@ -25,7 +25,7 @@ const (
 )
 
 type OpportunityService interface {
-	ListOpportunities(context.Context, ports.OpportunityFilter) ([]ports.Opportunity, error)
+	ListOpportunities(context.Context, ports.OpportunityFilter) (ports.OpportunityPage, error)
 	CreateOpportunity(context.Context, ports.CreateOpportunityCommand) (ports.Opportunity, error)
 	ChangeOpportunityStage(context.Context, ports.ChangeOpportunityStageCommand) (ports.Opportunity, error)
 	ListFollowUps(context.Context, int64, int64, string) ([]ports.FollowUpRecord, error)
@@ -68,7 +68,14 @@ type tagJSON struct {
 }
 
 func opportunityView(item ports.Opportunity) opportunityJSON {
-	return opportunityJSON{ID: item.ID, ContactID: item.ContactID, Stage: item.Stage, Status: item.Status, LostReason: item.LostReason, OwnerID: item.OwnerID, Amount: item.Amount, StartDate: item.StartDate.Format("2006-01-02"), EndDate: item.EndDate.Format("2006-01-02"), Version: item.Version}
+	startDate, endDate := "", ""
+	if !item.StartDate.IsZero() {
+		startDate = item.StartDate.Format("2006-01-02")
+	}
+	if !item.EndDate.IsZero() {
+		endDate = item.EndDate.Format("2006-01-02")
+	}
+	return opportunityJSON{ID: item.ID, ContactID: item.ContactID, Stage: item.Stage, Status: item.Status, LostReason: item.LostReason, OwnerID: item.OwnerID, Amount: item.Amount, StartDate: startDate, EndDate: endDate, Version: item.Version}
 }
 func followUpView(item ports.FollowUpRecord) followUpJSON {
 	return followUpJSON{ID: item.ID, ContactID: item.ContactID, Content: item.Content, CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339), CreatedBy: item.CreatedBy}
@@ -95,16 +102,20 @@ func (h *OpportunityHandler) List(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r, p, corpID, opportunityPermissionView) {
 		return
 	}
-	items, err := h.service.ListOpportunities(r.Context(), ports.OpportunityFilter{TenantID: p.TenantID, CorpID: corpID, Stage: r.URL.Query().Get("stage")})
+	var ownerID *int64
+	if value := queryInt(r, "ownerId"); value > 0 {
+		ownerID = &value
+	}
+	page, err := h.service.ListOpportunities(r.Context(), ports.OpportunityFilter{TenantID: p.TenantID, CorpID: corpID, Stage: strings.TrimSpace(r.URL.Query().Get("stage")), Status: strings.TrimSpace(r.URL.Query().Get("status")), OwnerID: ownerID, Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")), PageSize: int(queryInt(r, "pageSize"))})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
 	}
-	views := make([]opportunityJSON, 0, len(items))
-	for _, item := range items {
+	views := make([]opportunityJSON, 0, len(page.Items))
+	for _, item := range page.Items {
 		views = append(views, opportunityView(item))
 	}
-	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": views}})
+	writeJSON(w, 200, map[string]any{"data": map[string]any{"items": views, "nextCursor": page.NextCursor}})
 }
 func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 	p, err := h.principal.Resolve(r)
@@ -118,7 +129,7 @@ func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	q.TenantID = p.TenantID
 	q.IdempotencyKey = r.Header.Get("Idempotency-Key")
-	if !h.authorize(w, r, p, q.CorpID, contactPermissionEdit) {
+	if !h.authorize(w, r, p, q.CorpID, opportunityPermissionEdit) {
 		return
 	}
 	item, err := h.service.CreateOpportunity(r.Context(), q)
@@ -232,7 +243,7 @@ func (h *OpportunityHandler) AppendFollowUp(w http.ResponseWriter, r *http.Reque
 	if decodeRequestJSON(w, r, &q) != nil {
 		return
 	}
-	if !h.authorize(w, r, p, q.CorpID, contactPermissionEdit) {
+	if !h.authorizeAny(w, r, p, q.CorpID, contactPermissionEdit, opportunityPermissionEdit) {
 		return
 	}
 	item, err := h.service.AppendFollowUp(r.Context(), ports.AppendFollowUpCommand{TenantID: p.TenantID, CorpID: q.CorpID, ContactID: pathValue(r, "contacts", "follow-ups"), Content: q.Content, CreatedBy: p.UserID, IdempotencyKey: r.Header.Get("Idempotency-Key")})
@@ -311,6 +322,28 @@ func (h *OpportunityHandler) authorize(w http.ResponseWriter, r *http.Request, p
 	return true
 }
 
+func (h *OpportunityHandler) authorizeAny(w http.ResponseWriter, r *http.Request, p Principal, corpID int64, permissions ...string) bool {
+	if h.authorizer == nil {
+		return true
+	}
+	if corpID <= 0 {
+		writeError(w, http.StatusUnprocessableEntity, "corpId is required")
+		return false
+	}
+	for _, permission := range permissions {
+		err := h.authorizer.Authorize(r.Context(), p, corpID, permission)
+		if err == nil {
+			return true
+		}
+		if !errors.Is(err, ErrLeadForbidden) {
+			writeError(w, http.StatusServiceUnavailable, "authorization unavailable")
+			return false
+		}
+	}
+	writeError(w, http.StatusForbidden, "forbidden")
+	return false
+}
+
 func pathValue(r *http.Request, left, right string) string {
 	value := strings.TrimPrefix(r.URL.Path, "/dashboard/scrm/")
 	value = strings.TrimPrefix(value, left+"/")
@@ -338,7 +371,11 @@ func writeSCRMError(w http.ResponseWriter, err error) {
 		writeError(w, 422, "invalid request")
 		return
 	}
-	if errors.Is(err, ports.ErrContactNotFound) || errors.Is(err, ports.ErrTagNotFound) || errors.Is(err, ports.ErrOpportunityNotFound) {
+	if errors.Is(err, ports.ErrInvalidOpportunityTransition) {
+		writeError(w, http.StatusUnprocessableEntity, "invalid opportunity transition")
+		return
+	}
+	if errors.Is(err, ports.ErrContactNotFound) || errors.Is(err, ports.ErrTagNotFound) || errors.Is(err, ports.ErrOpportunityNotFound) || errors.Is(err, ports.ErrStageNotFound) {
 		writeError(w, http.StatusNotFound, "resource not found")
 		return
 	}

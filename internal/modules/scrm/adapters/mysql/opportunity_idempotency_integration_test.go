@@ -22,11 +22,16 @@ func TestOpportunityAndTagCommandsPersistFingerprintsAndRejectOrphans(t *testing
 	contactID := namespace.id("command-contact")
 	secondContactID := namespace.id("command-second-contact")
 	otherContactID := namespace.id("command-other-contact")
+	negotiationStageID := namespace.id("negotiation")
+	otherStageID := namespace.id("other-stage")
 	now := time.Now().UTC()
 	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_contacts(id,tenant_id,corp_id,name,phone,version,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?),(?,?,?,?,?,1,?,?)`, contactID, namespace.tenantID, corpID, "Primary", "", now, now, otherContactID, namespace.tenantID, otherCorpID, "Other", "", now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_contacts(id,tenant_id,corp_id,name,phone,version,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)`, secondContactID, namespace.tenantID, corpID, "Second", "", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_stages(id,tenant_id,corp_id,name,sort_order,version,created_at,updated_at) VALUES(?,?,?,?,1,1,?,?),(?,?,?,?,2,1,?,?)`, negotiationStageID, namespace.tenantID, corpID, "谈判", now, now, otherStageID, namespace.tenantID, otherCorpID, "其他企业阶段", now, now); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -36,6 +41,7 @@ func TestOpportunityAndTagCommandsPersistFingerprintsAndRejectOrphans(t *testing
 			"DELETE FROM mochat_go_scrm_follow_ups WHERE tenant_id=?",
 			"DELETE FROM mochat_go_scrm_opportunities WHERE tenant_id=?",
 			"DELETE FROM mochat_go_scrm_tags WHERE tenant_id=?",
+			"DELETE FROM mochat_go_scrm_stages WHERE tenant_id=?",
 			"DELETE FROM mochat_go_scrm_contacts WHERE tenant_id=?",
 		} {
 			_, _ = db.Exec(statement, namespace.tenantID)
@@ -66,7 +72,7 @@ func TestOpportunityAndTagCommandsPersistFingerprintsAndRejectOrphans(t *testing
 		t.Fatalf("changed create request err=%v", err)
 	}
 
-	stage := ports.ChangeOpportunityStageCommand{TenantID: namespace.tenantID, CorpID: corpID, OpportunityID: created.ID, ToStage: "won", Version: 1, IdempotencyKey: namespace.key("stage")}
+	stage := ports.ChangeOpportunityStageCommand{TenantID: namespace.tenantID, CorpID: corpID, OpportunityID: created.ID, StageID: "won", Version: 1, IdempotencyKey: namespace.key("stage")}
 	staged, err := opportunities.ChangeOpportunityStage(ctx, stage)
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +82,8 @@ func TestOpportunityAndTagCommandsPersistFingerprintsAndRejectOrphans(t *testing
 		t.Fatalf("stage replay=%#v err=%v", stageReplay, err)
 	}
 	changedStage := stage
-	changedStage.ToStage = "lost"
-	changedStage.Reason = "changed"
+	changedStage.StageID = "lost"
+	changedStage.LostReason = "changed"
 	if _, err := opportunities.ChangeOpportunityStage(ctx, changedStage); !errors.Is(err, ports.ErrAssignmentConflict) {
 		t.Fatalf("changed stage request err=%v", err)
 	}
@@ -86,6 +92,13 @@ func TestOpportunityAndTagCommandsPersistFingerprintsAndRejectOrphans(t *testing
 	crossCorpStage.IdempotencyKey = namespace.key("stage-other-corp")
 	if _, err := opportunities.ChangeOpportunityStage(ctx, crossCorpStage); !errors.Is(err, ports.ErrOpportunityNotFound) {
 		t.Fatalf("cross-corp stage err=%v", err)
+	}
+	afterTerminal := stage
+	afterTerminal.StageID = negotiationStageID
+	afterTerminal.Version = staged.Version
+	afterTerminal.IdempotencyKey = namespace.key("stage-after-terminal")
+	if _, err := opportunities.ChangeOpportunityStage(ctx, afterTerminal); !errors.Is(err, ports.ErrInvalidOpportunityTransition) {
+		t.Fatalf("terminal stage change err=%v", err)
 	}
 
 	follow := ports.AppendFollowUpCommand{TenantID: namespace.tenantID, CorpID: corpID, ContactID: contactID, Content: "first", CreatedBy: 7, IdempotencyKey: namespace.key("follow")}
@@ -154,6 +167,12 @@ func TestOpportunityAndTagCommandsPersistFingerprintsAndRejectOrphans(t *testing
 	outOfScopeOwnerCreate.IdempotencyKey = namespace.key("other-owner-opportunity")
 	if _, err := opportunities.CreateOpportunity(ctx, outOfScopeOwnerCreate); !errors.Is(err, ports.ErrAssignmentForbidden) {
 		t.Fatalf("cross-corp owner opportunity err=%v", err)
+	}
+	outOfScopeStageCreate := create
+	outOfScopeStageCreate.Stage = otherStageID
+	outOfScopeStageCreate.IdempotencyKey = namespace.key("other-stage-opportunity")
+	if _, err := opportunities.CreateOpportunity(ctx, outOfScopeStageCreate); !errors.Is(err, ports.ErrStageNotFound) {
+		t.Fatalf("cross-corp stage opportunity err=%v", err)
 	}
 	missingFollow := follow
 	missingFollow.ContactID = otherContactID

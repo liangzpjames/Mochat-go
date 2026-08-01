@@ -1,6 +1,6 @@
 export type Assignment = { id: string; contactId: string; ownerId: number | null; collaboratorIds: number[]; status: string; version: number };
 export type AssignmentPage = { items: Assignment[]; nextCursor: string };
-export type Opportunity = { id: string; contactId: string; stage: string; amount: number; startDate: string; endDate: string; ownerId: number | null; status: string; version: number };
+export type Opportunity = { id: string; contactId: string; stage: string; amount: number; startDate: string; endDate: string; ownerId: number | null; status: string; lostReason: string; version: number };
 export type OpportunityPage = { items: Opportunity[]; nextCursor: string };
 export type FollowUpRecord = { id: string; contactId: string; content: string; createdAt: string; createdBy: number };
 export type FollowUpPage = { items: FollowUpRecord[]; nextCursor: string };
@@ -13,9 +13,9 @@ export type ScrmApi = {
   updateAssignment(input: { corpId: number; contactId: string; ownerId: number | null; collaboratorIds: number[]; version: number; idempotencyKey: string }): Promise<Assignment>;
   releaseToPublicPool(input: { corpId: number; contactId: string; version: number; idempotencyKey: string }): Promise<Assignment>;
   claimFromPublicPool(input: { corpId: number; contactId: string; version: number; idempotencyKey: string }): Promise<Assignment>;
-  listOpportunities(input: { corpId: number; stage?: string; ownerId?: number; cursor?: string; pageSize?: number }): Promise<OpportunityPage>;
+  listOpportunities(input: { corpId: number; stage?: string; status?: string; ownerId?: number; cursor?: string; pageSize?: number }): Promise<OpportunityPage>;
   createOpportunity(input: { corpId: number; contactId: string; stage: string; amount: number; startDate: string; endDate: string; ownerId: number | null; idempotencyKey: string }): Promise<Opportunity>;
-  changeOpportunityStage(input: { corpId: number; opportunityId: string; toStage: string; reason: string; version: number; idempotencyKey: string }): Promise<Opportunity>;
+  changeOpportunityStage(input: { corpId: number; opportunityId: string; stageId: string; lostReason: string; version: number; idempotencyKey: string }): Promise<Opportunity>;
   listFollowUps(input: { corpId: number; contactId: string }): Promise<FollowUpPage>;
   appendFollowUp(input: { corpId: number; contactId: string; content: string; idempotencyKey: string }): Promise<FollowUpRecord>;
   listTags(input: { corpId: number }): Promise<TagPage>;
@@ -45,6 +45,7 @@ export function createScrmApi(client: Client): ScrmApi {
     async listOpportunities(input) {
       const query = new URLSearchParams({ corpId: String(input.corpId), pageSize: String(input.pageSize ?? 20) });
       if (input.stage) query.set('stage', input.stage);
+      if (input.status) query.set('status', input.status);
       if (input.ownerId !== undefined) query.set('ownerId', String(input.ownerId));
       if (input.cursor) query.set('cursor', input.cursor);
       return client.request(`/scrm/opportunities?${query.toString()}`) as Promise<OpportunityPage>;

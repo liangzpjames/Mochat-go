@@ -76,24 +76,23 @@ func CanTransitionLead(from, to LeadStatus) bool {
 }
 
 func CanTransitionOpportunity(from, to string) bool {
-	if to == OpportunityStatusLost || to == OpportunityStatusWon {
-		return from != OpportunityStatusWon && from != OpportunityStatusLost
-	}
-	return from == OpportunityStageProposal
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	return from != "" && to != "" && from != OpportunityStatusWon && from != OpportunityStatusLost && from != to
 }
 
 func ValidateOpportunityTransition(from, to, reason string) error {
 	if !CanTransitionOpportunity(from, to) {
 		return fmt.Errorf("invalid opportunity transition: %s -> %s", from, to)
 	}
-	if to == OpportunityStatusLost && reason == "" {
+	if to == OpportunityStatusLost && strings.TrimSpace(reason) == "" {
 		return fmt.Errorf("lost opportunity requires a reason")
 	}
 	return nil
 }
 
 func ValidateOpportunityInput(amount float64, startDate, endDate string) error {
-	if amount < 0 {
+	if amount < 0 || amount != amount {
 		return fmt.Errorf("opportunity amount must be non-negative")
 	}
 	start, err := time.Parse("2006-01-02", startDate)

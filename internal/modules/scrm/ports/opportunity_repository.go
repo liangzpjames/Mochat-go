@@ -7,8 +7,10 @@ import (
 )
 
 var (
-	ErrOpportunityNotFound = errors.New("opportunity not found")
-	ErrTagNotFound         = errors.New("tag not found")
+	ErrOpportunityNotFound          = errors.New("opportunity not found")
+	ErrStageNotFound                = errors.New("opportunity stage not found")
+	ErrInvalidOpportunityTransition = errors.New("invalid opportunity transition")
+	ErrTagNotFound                  = errors.New("tag not found")
 )
 
 type Opportunity struct {
@@ -21,8 +23,15 @@ type Opportunity struct {
 
 type OpportunityFilter struct {
 	TenantID, CorpID int64
-	Stage            string
+	Stage, Status    string
 	OwnerID          *int64
+	Cursor           string
+	PageSize         int
+}
+
+type OpportunityPage struct {
+	Items      []Opportunity
+	NextCursor string
 }
 
 type CreateOpportunityCommand struct {
@@ -34,11 +43,13 @@ type CreateOpportunityCommand struct {
 }
 
 type ChangeOpportunityStageCommand struct {
-	TenantID, CorpID int64
-	OpportunityID    string
-	ToStage, Reason  string
-	Version          int64
-	IdempotencyKey   string
+	TenantID       int64  `json:"-"`
+	CorpID         int64  `json:"corpId"`
+	OpportunityID  string `json:"opportunityId"`
+	StageID        string `json:"stageId"`
+	Version        int64  `json:"version"`
+	LostReason     string `json:"lostReason"`
+	IdempotencyKey string `json:"-"`
 }
 
 type FollowUpRecord struct {
@@ -68,7 +79,7 @@ type TagRepository interface {
 }
 
 type OpportunityRepository interface {
-	ListOpportunities(context.Context, OpportunityFilter) ([]Opportunity, error)
+	ListOpportunities(context.Context, OpportunityFilter) (OpportunityPage, error)
 	CreateOpportunity(context.Context, CreateOpportunityCommand) (Opportunity, error)
 	ChangeOpportunityStage(context.Context, ChangeOpportunityStageCommand) (Opportunity, error)
 	ListFollowUps(context.Context, int64, int64, string) ([]FollowUpRecord, error)

@@ -21,15 +21,18 @@ func NewOpportunityService(repository ports.OpportunityRepository, tags ports.Ta
 	return OpportunityService{repository: repository, tags: tags}, nil
 }
 
-func (s OpportunityService) ListOpportunities(ctx context.Context, filter ports.OpportunityFilter) ([]ports.Opportunity, error) {
+func (s OpportunityService) ListOpportunities(ctx context.Context, filter ports.OpportunityFilter) (ports.OpportunityPage, error) {
 	if filter.TenantID <= 0 || filter.CorpID <= 0 {
-		return nil, fmt.Errorf("%w: invalid opportunity scope", ErrInvalidArgument)
+		return ports.OpportunityPage{}, fmt.Errorf("%w: invalid opportunity scope", ErrInvalidArgument)
+	}
+	if filter.Status != "" && filter.Status != "open" && filter.Status != domain.OpportunityStatusWon && filter.Status != domain.OpportunityStatusLost {
+		return ports.OpportunityPage{}, fmt.Errorf("%w: invalid opportunity status", ErrInvalidArgument)
 	}
 	return s.repository.ListOpportunities(ctx, filter)
 }
 
 func (s OpportunityService) CreateOpportunity(ctx context.Context, command ports.CreateOpportunityCommand) (ports.Opportunity, error) {
-	if command.TenantID <= 0 || command.CorpID <= 0 || strings.TrimSpace(command.ContactID) == "" || strings.TrimSpace(command.IdempotencyKey) == "" {
+	if command.TenantID <= 0 || command.CorpID <= 0 || strings.TrimSpace(command.ContactID) == "" || strings.TrimSpace(command.Stage) == "" || strings.TrimSpace(command.IdempotencyKey) == "" || command.Stage == domain.OpportunityStatusWon || command.Stage == domain.OpportunityStatusLost {
 		return ports.Opportunity{}, fmt.Errorf("%w: invalid opportunity", ErrInvalidArgument)
 	}
 	if err := domain.ValidateOpportunityInput(command.Amount, command.StartDate, command.EndDate); err != nil {
@@ -39,13 +42,10 @@ func (s OpportunityService) CreateOpportunity(ctx context.Context, command ports
 }
 
 func (s OpportunityService) ChangeOpportunityStage(ctx context.Context, command ports.ChangeOpportunityStageCommand) (ports.Opportunity, error) {
-	if command.TenantID <= 0 || command.CorpID <= 0 || strings.TrimSpace(command.OpportunityID) == "" || command.Version <= 0 || strings.TrimSpace(command.IdempotencyKey) == "" {
+	if command.TenantID <= 0 || command.CorpID <= 0 || strings.TrimSpace(command.OpportunityID) == "" || strings.TrimSpace(command.StageID) == "" || command.Version <= 0 || strings.TrimSpace(command.IdempotencyKey) == "" {
 		return ports.Opportunity{}, fmt.Errorf("%w: invalid opportunity transition", ErrInvalidArgument)
 	}
-	if command.ToStage != domain.OpportunityStageProposal && command.ToStage != domain.OpportunityStatusWon && command.ToStage != domain.OpportunityStatusLost {
-		return ports.Opportunity{}, fmt.Errorf("%w: invalid opportunity stage", ErrInvalidArgument)
-	}
-	if command.ToStage == domain.OpportunityStatusLost && strings.TrimSpace(command.Reason) == "" {
+	if command.StageID == domain.OpportunityStatusLost && strings.TrimSpace(command.LostReason) == "" {
 		return ports.Opportunity{}, fmt.Errorf("%w: lost opportunity requires a reason", ErrInvalidArgument)
 	}
 	return s.repository.ChangeOpportunityStage(ctx, command)
