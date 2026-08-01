@@ -1,4 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const phase32TargetRoutes = [
@@ -12,13 +14,17 @@ export const phase32TargetRoutes = [
   '/customer/tags',
 ];
 
+const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const completedImplementations = new Set(['native', 'legacy-adapter']);
 const requiredEvidenceKeys = ['spec', 'acceptance'];
-const allowedDecisions = new Set(['已对应', '合理合并', '不适用']);
+const allowedDecisions = new Set(['\u5df2\u5bf9\u5e94', '\u5408\u7406\u5408\u5e76', '\u4e0d\u9002\u7528']);
 const functionMatrixColumns = [
   'page',
   'referenceFeature',
   'decision',
+  'decisionReason',
+  'alternativeEntry',
+  'decisionVerification',
   'mochatEntry',
   'frontend',
   'api',
@@ -28,6 +34,8 @@ const functionMatrixColumns = [
   'evidence',
 ];
 const requiredClosureColumns = ['mochatEntry', 'frontend', 'api', 'permission', 'persistence', 'tests', 'evidence'];
+const decisionRecordColumns = ['decisionReason', 'alternativeEntry', 'decisionVerification'];
+const pendingPattern = /(?:\b(?:todo|tbd|pending|unfinished|not[\s-]*started)\b|\u5f85|\u672a\u5b8c\u6210)/iu;
 
 function tableCells(line) {
   return line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
@@ -43,67 +51,146 @@ function parseFunctionMatrix(markdown) {
     const cells = tableCells(line);
     return cells.includes('page') && cells.includes('referenceFeature') && cells.includes('decision');
   });
-
-  if (headerIndex === -1) return { columns: [], rows: [] };
+  if (headerIndex === -1) return { columns: [], rows: [], errors: [] };
 
   const columns = tableCells(lines[headerIndex]);
   const rows = [];
+  const errors = [];
   for (let index = headerIndex + 1; index < lines.length; index += 1) {
     const line = lines[index];
     if (!line.trim().startsWith('|')) {
-      if (rows.length > 0) break;
+      if (rows.length > 0 || errors.length > 0) break;
       continue;
     }
     if (isTableDivider(line)) continue;
     const cells = tableCells(line);
-    if (cells.length !== columns.length) continue;
-    rows.push(Object.fromEntries(columns.map((column, columnIndex) => [column, cells[columnIndex]])));
+    if (cells.length !== columns.length) {
+      errors.push(`function matrix row ${index + 1} has ${cells.length} columns; expected ${columns.length}`);
+      continue;
+    }
+    rows.push({ line: index + 1, values: Object.fromEntries(columns.map((column, columnIndex) => [column, cells[columnIndex]])) });
   }
-  return { columns, rows };
+  return { columns, rows, errors };
+}
+
+function matrixLabel(row) {
+  return `${row.values.page} / ${row.values.referenceFeature}`;
+}
+
+function isPending(value) {
+  return pendingPattern.test(value);
+}
+
+function isFixture(value) {
+  return /fixture/i.test(value);
+}
+
+function isRepositoryFile(value) {
+  if (!value || value.includes(';')) return false;
+  const absolutePath = resolve(repositoryRoot, value);
+  const pathFromRoot = relative(repositoryRoot, absolutePath);
+  return pathFromRoot !== '' && !pathFromRoot.startsWith('..') && !pathFromRoot.includes(':') && existsSync(absolutePath);
 }
 
 function unclosedMatrixItems(markdown) {
   const { columns, rows } = parseFunctionMatrix(markdown);
   if (functionMatrixColumns.some((column) => !columns.includes(column))) return [];
-
   return rows.flatMap((row) => requiredClosureColumns.flatMap((column) => {
-    const value = row[column] ?? '';
-    if (!value.trim()) return [`${row.page} / ${row.referenceFeature}: ${column} is empty`];
-    if (/fixture/i.test(value)) return [`${row.page} / ${row.referenceFeature}: ${column} uses fixture`];
-    if (/(^|[：:\s])待|pending|not-started/i.test(value)) return [`${row.page} / ${row.referenceFeature}: ${column} is pending`];
+    const value = row.values[column] ?? '';
+    if (!value.trim()) return [`${matrixLabel(row)}: ${column} is empty`];
+    if (isFixture(value)) return [`${matrixLabel(row)}: ${column} uses fixture`];
+    if (isPending(value)) return [`${matrixLabel(row)}: ${column} is pending`];
     return [];
   }));
 }
 
 export function validateFunctionMatrix(markdown) {
-  const { columns, rows } = parseFunctionMatrix(markdown);
+  if (typeof markdown !== 'string') return ['missing required Phase 3.2 function matrix'];
+  const { columns, rows, errors: parseErrors } = parseFunctionMatrix(markdown);
   const missingColumns = functionMatrixColumns.filter((column) => !columns.includes(column));
-  if (missingColumns.length > 0) return missingColumns.map((column) => `missing function matrix column: ${column}`);
+  if (missingColumns.length > 0) return [...parseErrors, ...missingColumns.map((column) => `missing function matrix column: ${column}`)];
 
-  const errors = [];
+  const errors = [...parseErrors];
+  const seenFeatures = new Set();
   for (const row of rows) {
-    const label = `${row.page} / ${row.referenceFeature}`;
-    if (!allowedDecisions.has(row.decision)) {
-      errors.push(`invalid function matrix decision: ${label}: ${row.decision}`);
-      continue;
+    const label = matrixLabel(row);
+    const featureKey = `${row.values.page}\u0000${row.values.referenceFeature}`;
+    if (seenFeatures.has(featureKey)) errors.push(`duplicate function matrix page and referenceFeature: ${label}`);
+    seenFeatures.add(featureKey);
+
+    if (!allowedDecisions.has(row.values.decision)) {
+      errors.push(`invalid function matrix decision: ${label}: ${row.values.decision}`);
     }
-    for (const column of ['page', 'referenceFeature', 'mochatEntry', 'frontend', 'api', 'permission', 'persistence', 'tests', 'evidence']) {
-      if (!row[column]) errors.push(`missing function matrix ${column}: ${label}`);
+    for (const column of ['page', 'referenceFeature', 'decision', ...requiredClosureColumns]) {
+      if (!row.values[column]) errors.push(`missing function matrix ${column}: ${label}`);
+    }
+    if (row.values.decision === '\u5408\u7406\u5408\u5e76' || row.values.decision === '\u4e0d\u9002\u7528') {
+      for (const column of decisionRecordColumns) {
+        if (!row.values[column]) errors.push(`missing function matrix ${column}: ${label}`);
+      }
+    }
+    for (const column of requiredClosureColumns) {
+      const value = row.values[column] ?? '';
+      if (isFixture(value)) errors.push(`${label}: ${column} uses fixture`);
+      if (isPending(value)) errors.push(`${label}: ${column} is pending`);
+    }
+    const isClosed = requiredClosureColumns.every((column) => {
+      const value = row.values[column] ?? '';
+      return value.trim() && !isFixture(value) && !isPending(value);
+    });
+    if (isClosed) {
+      for (const column of ['tests', 'evidence']) {
+        if (!isRepositoryFile(row.values[column])) {
+          errors.push(`${label}: ${column} file does not exist: ${row.values[column]}`);
+        }
+      }
     }
   }
 
   for (const path of phase32TargetRoutes) {
-    if (!rows.some((row) => row.page === path)) errors.push(`missing Phase 3.2 function matrix page: ${path}`);
+    if (!rows.some((row) => row.values.page === path)) errors.push(`missing Phase 3.2 function matrix page: ${path}`);
   }
   return errors;
 }
 
-export function validatePhase32Manifest(manifest, functionMatrixMarkdown = '') {
-  const pages = new Map((manifest?.pages ?? []).map((page) => [page.path, page]));
+export function validateCompletedPageSources(manifest, source = readFileSync(new URL('../web/apps/dashboard/src/benchmark/page-registry.tsx', import.meta.url), 'utf8')) {
+  const fixtureImport = source.match(/import\s*\{([\s\S]*?)\}\s*from\s*['"]\.\/demo-fixtures['"]/);
+  const fixtureSymbols = new Set((fixtureImport?.[1].match(/[A-Za-z_$][\w$]*/g) ?? []));
   const errors = [];
+  for (const page of manifest?.pages ?? []) {
+    if (!phase32TargetRoutes.includes(page.path) || page.backend !== 'ready' || page.acceptance !== 'e2e-passed') continue;
+    const registrations = source.split(/\r?\n/).filter((line) => line.includes(`'${page.path}'`) || line.includes(`\"${page.path}\"`));
+    if (registrations.length === 0) {
+      errors.push(`completed page missing frontend registration: ${page.path}`);
+      continue;
+    }
+    for (const registration of registrations) {
+      if (/\bDemoPage\b/.test(registration)) errors.push(`completed page frontend registration uses DemoPage: ${page.path}`);
+      if (/\bPlaceholderPage\b/.test(registration)) errors.push(`completed page frontend registration uses PlaceholderPage: ${page.path}`);
+      if ([...fixtureSymbols].some((symbol) => new RegExp(`\\b${symbol}\\b`).test(registration))) {
+        errors.push(`completed page frontend registration uses demo-fixtures: ${page.path}`);
+      }
+    }
+  }
+  return errors;
+}
+
+export function validatePhase32Manifest(manifest, functionMatrixMarkdown) {
+  const pages = manifest?.pages ?? [];
+  const pagesByPath = new Map(pages.map((page) => [page.path, page]));
+  const errors = [];
+  const phasePages = pages.filter((page) => page?.phase === '3.2');
+  const phaseRouteCounts = new Map();
+  for (const page of phasePages) phaseRouteCounts.set(page.path, (phaseRouteCounts.get(page.path) ?? 0) + 1);
+  for (const page of phasePages) {
+    if (!phase32TargetRoutes.includes(page.path)) errors.push(`unexpected Phase 3.2 route: ${page.path}`);
+  }
+  for (const [path, count] of phaseRouteCounts) {
+    if (count > 1) errors.push(`duplicate Phase 3.2 route: ${path}`);
+  }
 
   for (const path of phase32TargetRoutes) {
-    const page = pages.get(path);
+    const page = pagesByPath.get(path);
     if (!page) {
       errors.push(`missing Phase 3.2 route: ${path}`);
       continue;
@@ -117,7 +204,7 @@ export function validatePhase32Manifest(manifest, functionMatrixMarkdown = '') {
     }
   }
 
-  if (functionMatrixMarkdown) {
+  if (functionMatrixMarkdown !== undefined) {
     errors.push(...validateFunctionMatrix(functionMatrixMarkdown));
     const unclosedByPage = new Map();
     for (const item of unclosedMatrixItems(functionMatrixMarkdown)) {
@@ -127,27 +214,30 @@ export function validatePhase32Manifest(manifest, functionMatrixMarkdown = '') {
       unclosedByPage.set(path, existing);
     }
     for (const path of phase32TargetRoutes) {
-      if (pages.get(path)?.acceptance === 'e2e-passed') {
-        for (const item of unclosedByPage.get(path) ?? []) {
-          errors.push(`e2e-passed page has unclosed function matrix items: ${item}`);
-        }
+      if (pagesByPath.get(path)?.acceptance === 'e2e-passed') {
+        for (const item of unclosedByPage.get(path) ?? []) errors.push(`e2e-passed page has unclosed function matrix items: ${item}`);
       }
     }
   }
-
   if (errors.length > 0) throw new Error(errors.join('\n'));
 }
 
-export function validateFinalPhase32Manifest(manifest, functionMatrixMarkdown = '') {
+export function validateFinalPhase32Manifest(manifest, functionMatrixMarkdown) {
+  if (typeof functionMatrixMarkdown !== 'string' || !functionMatrixMarkdown.trim()) {
+    throw new Error('missing required Phase 3.2 function matrix');
+  }
   validatePhase32Manifest(manifest, functionMatrixMarkdown);
-  const pages = new Map((manifest?.pages ?? []).map((page) => [page.path, page]));
-  const unclosed = unclosedMatrixItems(functionMatrixMarkdown);
-  if (unclosed.length) throw new Error(`Phase 3.2 unclosed function matrix items (${unclosed.length}): ${unclosed.join(', ')}`);
+  const pagesByPath = new Map((manifest?.pages ?? []).map((page) => [page.path, page]));
+  const errors = [
+    ...validateCompletedPageSources(manifest),
+    ...unclosedMatrixItems(functionMatrixMarkdown).map((item) => `Phase 3.2 unclosed function matrix item: ${item}`),
+  ];
   const incomplete = phase32TargetRoutes.filter((path) => {
-    const page = pages.get(path);
+    const page = pagesByPath.get(path);
     return page?.backend !== 'ready' || page?.acceptance !== 'e2e-passed' || !completedImplementations.has(page?.implementation);
   });
-  if (incomplete.length) throw new Error(`Phase 3.2 incomplete routes (${phase32TargetRoutes.length - incomplete.length}/${phase32TargetRoutes.length}): ${incomplete.join(', ')}`);
+  if (incomplete.length) errors.push(`Phase 3.2 incomplete routes (${phase32TargetRoutes.length - incomplete.length}/${phase32TargetRoutes.length}): ${incomplete.join(', ')}`);
+  if (errors.length > 0) throw new Error(errors.join('\n'));
 }
 
 export async function readManifest(manifestUrl = new URL('../web/apps/dashboard/src/benchmark/manifest.json', import.meta.url)) {
