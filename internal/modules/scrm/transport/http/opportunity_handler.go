@@ -424,11 +424,15 @@ func writeSCRMError(w http.ResponseWriter, err error) {
 		writeError(w, 422, "invalid request")
 		return
 	}
+	if errors.Is(err, ports.ErrDuplicateTagName) {
+		writeError(w, http.StatusUnprocessableEntity, "duplicate tag name")
+		return
+	}
 	if errors.Is(err, ports.ErrInvalidOpportunityTransition) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid opportunity transition")
 		return
 	}
-	if errors.Is(err, ports.ErrContactNotFound) || errors.Is(err, ports.ErrTagNotFound) || errors.Is(err, ports.ErrOpportunityNotFound) || errors.Is(err, ports.ErrStageNotFound) {
+	if errors.Is(err, application.ErrNotFound) || errors.Is(err, ports.ErrContactNotFound) || errors.Is(err, ports.ErrTagNotFound) || errors.Is(err, ports.ErrTagGroupNotFound) || errors.Is(err, ports.ErrOpportunityNotFound) || errors.Is(err, ports.ErrStageNotFound) {
 		writeError(w, http.StatusNotFound, "resource not found")
 		return
 	}

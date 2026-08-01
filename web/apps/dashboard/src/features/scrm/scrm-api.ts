@@ -13,8 +13,10 @@ export type Opportunity = { id: string; contactId: string; stage: string; amount
 export type OpportunityPage = { items: Opportunity[]; nextCursor: string };
 export type FollowUpRecord = { id: string; contactId: string; content: string; createdAt: string; createdBy: number };
 export type FollowUpPage = { items: FollowUpRecord[]; nextCursor: string };
-export type Tag = { id: string; name: string; version: number };
+export type TagGroup = { id: string; name: string; version: number; tagCount: number };
+export type Tag = { id: string; groupId: string; name: string; version: number; usageCount: number };
 export type TagPage = { items: Tag[]; nextCursor: string };
+export type TagCatalog = { groups: TagGroup[]; tags: Tag[] };
 type Client = { request<T = unknown>(input: RequestInfo | URL, init?: RequestInit): Promise<T> };
 
 export type ScrmApi = {
@@ -29,8 +31,14 @@ export type ScrmApi = {
   listFollowUps(input: { corpId: number; contactId: string }): Promise<FollowUpPage>;
   appendFollowUp(input: { corpId: number; contactId: string; content: string; idempotencyKey: string }): Promise<FollowUpRecord>;
   listTags(input: { corpId: number }): Promise<TagPage>;
-  createTag(input: { corpId: number; name: string; idempotencyKey: string }): Promise<Tag>;
+  listTagCatalog?(input: { corpId: number; groupId?: string; keyword?: string }): Promise<TagCatalog>;
+  createTagGroup?(input: { corpId: number; name: string; idempotencyKey: string }): Promise<TagGroup>;
+  renameTagGroup?(input: { corpId: number; groupId: string; name: string; version: number; idempotencyKey: string }): Promise<TagGroup>;
+  createTag(input: { corpId: number; groupId: string; name: string; idempotencyKey: string }): Promise<Tag>;
   renameTag(input: { corpId: number; tagId: string; name: string; version: number; idempotencyKey: string }): Promise<Tag>;
+  moveTag?(input: { corpId: number; tagId: string; groupId: string; version: number; idempotencyKey: string }): Promise<Tag>;
+  deleteTag?(input: { corpId: number; tagId: string; version: number; idempotencyKey: string }): Promise<{ affectedResourceCount: number }>;
+  maintainTagContacts?(input: { corpId: number; tagId: string; addContactIds: string[]; removeContactIds: string[]; version: number; idempotencyKey: string }): Promise<Tag>;
   bindTags(input: { corpId: number; tagId: string; contactIds: string[]; idempotencyKey: string }): Promise<void>;
 };
 
@@ -81,8 +89,19 @@ export function createScrmApi(client: Client): ScrmApi {
       return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups`, json(body, input.idempotencyKey)) as Promise<FollowUpRecord>;
     },
     async listTags(input) { return client.request(`/scrm/tags?corpId=${input.corpId}`) as Promise<TagPage>; },
-    async createTag(input) { return client.request('/scrm/tags', json(input, input.idempotencyKey)) as Promise<Tag>; },
-    async renameTag(input) { return client.request(`/scrm/tags/${input.tagId}`, { ...json(input, input.idempotencyKey), method: 'PUT' }) as Promise<Tag>; },
-    async bindTags(input) { await client.request(`/scrm/tags/${input.tagId}/contacts`, json(input, input.idempotencyKey)); },
+    async listTagCatalog(input) {
+      const query = new URLSearchParams({ corpId: String(input.corpId) });
+      if (input.groupId) query.set('groupId', input.groupId);
+      if (input.keyword?.trim()) query.set('keyword', input.keyword.trim());
+      return client.request(`/scrm/tags?${query.toString()}`) as Promise<TagCatalog>;
+    },
+    async createTagGroup(input) { return client.request('/scrm/tag-groups', json({ corpId: input.corpId, name: input.name }, input.idempotencyKey)) as Promise<TagGroup>; },
+    async renameTagGroup(input) { return client.request(`/scrm/tag-groups/${encodeURIComponent(input.groupId)}`, { ...json({ corpId: input.corpId, name: input.name, version: input.version }, input.idempotencyKey), method: 'PUT' }) as Promise<TagGroup>; },
+    async createTag(input) { return client.request('/scrm/tags', json({ corpId: input.corpId, groupId: input.groupId, name: input.name }, input.idempotencyKey)) as Promise<Tag>; },
+    async renameTag(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}`, { ...json({ corpId: input.corpId, name: input.name, version: input.version }, input.idempotencyKey), method: 'PUT' }) as Promise<Tag>; },
+    async moveTag(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/move`, json({ corpId: input.corpId, groupId: input.groupId, version: input.version }, input.idempotencyKey)) as Promise<Tag>; },
+    async deleteTag(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}`, { ...json({ corpId: input.corpId, version: input.version }, input.idempotencyKey), method: 'DELETE' }) as Promise<{ affectedResourceCount: number }>; },
+    async maintainTagContacts(input) { return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/contacts`, { ...json({ corpId: input.corpId, addContactIds: input.addContactIds, removeContactIds: input.removeContactIds, version: input.version }, input.idempotencyKey), method: 'PUT' }) as Promise<Tag>; },
+    async bindTags(input) { await client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/contacts`, json({ corpId: input.corpId, contactIds: input.contactIds }, input.idempotencyKey)); },
   };
 }

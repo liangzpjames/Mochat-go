@@ -74,14 +74,28 @@ func RegisterOpportunityRoutes(registrar RouteRegistrar, handler *OpportunityHan
 	if err := registrar.Handle(nethttp.MethodPost, FollowUpsPath, nethttp.HandlerFunc(handler.AppendFollowUp)); err != nil {
 		return err
 	}
-	if err := registrar.Handle(nethttp.MethodGet, TagsPath, nethttp.HandlerFunc(handler.ListTags)); err != nil {
-		return err
+	return nil
+}
+
+func RegisterCustomerTagRoutes(registrar RouteRegistrar, handler *CustomerTagHandler) error {
+	for _, route := range []struct {
+		method, path string
+		handler      nethttp.HandlerFunc
+	}{
+		{nethttp.MethodGet, TagsPath, handler.ListCatalog},
+		{nethttp.MethodPost, TagsPath, handler.CreateTag},
+		{nethttp.MethodPut, TagsPath + "/{id}", handler.RenameTag},
+		{nethttp.MethodPost, TagsPath + "/{id}/contacts", handler.BindContacts},
+		{nethttp.MethodGet, TagGroupsPath, handler.ListCatalog},
+		{nethttp.MethodPost, TagGroupsPath, handler.CreateGroup},
+		{nethttp.MethodPut, TagGroupsPath + "/{id}", handler.RenameGroup},
+		{nethttp.MethodPost, TagsPath + "/{id}/move", handler.MoveTag},
+		{nethttp.MethodPut, TagsPath + "/{id}/contacts", handler.MaintainContacts},
+		{nethttp.MethodDelete, TagsPath + "/{id}", handler.DeleteTag},
+	} {
+		if err := registrar.Handle(route.method, route.path, route.handler); err != nil {
+			return err
+		}
 	}
-	if err := registrar.Handle(nethttp.MethodPost, TagsPath, nethttp.HandlerFunc(handler.CreateTag)); err != nil {
-		return err
-	}
-	if err := registrar.Handle(nethttp.MethodPut, TagsPath+"/{id}", nethttp.HandlerFunc(handler.RenameTag)); err != nil {
-		return err
-	}
-	return registrar.Handle(nethttp.MethodPost, TagsPath+"/{id}/contacts", nethttp.HandlerFunc(handler.BindTags))
+	return nil
 }

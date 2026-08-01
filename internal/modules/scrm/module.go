@@ -26,6 +26,7 @@ type Module struct {
 	customerLifecycle *transporthttp.CustomerLifecycleHandler
 	opportunities     application.OpportunityService
 	opportunityHTTP   *transporthttp.OpportunityHandler
+	customerTagHTTP   *transporthttp.CustomerTagHandler
 }
 
 func New(dependencies Dependencies) (*Module, error) {
@@ -76,7 +77,12 @@ func New(dependencies Dependencies) (*Module, error) {
 		return nil, fmt.Errorf("create SCRM opportunity service: %w", err)
 	}
 	opportunityHTTP := transporthttp.NewOpportunityHandler(opportunityService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
-	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP}, nil
+	customerTagService, err := application.NewCustomerTagService(tagRepository)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM customer tag service: %w", err)
+	}
+	customerTagHTTP := transporthttp.NewCustomerTagHandler(customerTagService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer, opportunityService)
+	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP}, nil
 }
 
 func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
@@ -92,7 +98,10 @@ func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
 	if err := transporthttp.RegisterCustomerLifecycleRoutes(registrar, m.customerLifecycle); err != nil {
 		return err
 	}
-	return transporthttp.RegisterOpportunityRoutes(registrar, m.opportunityHTTP)
+	if err := transporthttp.RegisterOpportunityRoutes(registrar, m.opportunityHTTP); err != nil {
+		return err
+	}
+	return transporthttp.RegisterCustomerTagRoutes(registrar, m.customerTagHTTP)
 }
 
 func isNil(value any) bool {

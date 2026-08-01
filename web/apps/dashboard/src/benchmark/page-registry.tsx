@@ -25,7 +25,7 @@ import { LeadPage } from '../features/scrm/lead-page';
 import type { ScrmApi } from '../features/scrm/scrm-api';
 import { PublicPoolPage } from '../features/scrm/public-pool-page';
 import { OpportunityPage } from '../features/scrm/opportunity-page';
-import { TagPage } from '../features/scrm/tag-page';
+import { TagPage, type CustomerTagApi } from '../features/scrm/tag-page';
 import type { ContactApi } from '../features/scrm/contact-api';
 import { ContactPage } from '../features/scrm/contact-page';
 
@@ -54,7 +54,7 @@ export function createBenchmarkP0Pages({
     ...(scrmApi === undefined ? {} : {
       '/customer/public-sea': <PublicPoolPage api={scrmApi} />,
       '/customer/opportunity': <OpportunityPage api={scrmApi} />,
-      '/customer/tags': <TagPage api={scrmApi} />,
+      '/customer/tags': <TagPage api={scrmApi as CustomerTagApi} />,
     }),
     ...(contactApi === undefined ? {} : { '/customer/contact': <ContactPage api={contactApi} /> }),
   };

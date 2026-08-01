@@ -82,11 +82,33 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0108_scrm_public_pool_parity" {
-		t.Fatalf("latest migration = %q, want 0108_scrm_public_pool_parity", latest.Version)
+	if latest.Version != "0109_scrm_customer_tag_parity" {
+		t.Fatalf("latest migration = %q, want 0109_scrm_customer_tag_parity", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
+	}
+}
+
+func TestCustomerTagParityMigrationIsReversible(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	up, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0109_scrm_customer_tag_parity.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0109_scrm_customer_tag_parity.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"mochat_go_scrm_tag_groups", "group_id", "idx_scrm_tag_catalog", "idx_scrm_contact_tag_usage", "默认分组"} {
+		if !strings.Contains(string(up), fragment) {
+			t.Errorf("up migration missing %q", fragment)
+		}
+	}
+	for _, fragment := range []string{"DROP TABLE IF EXISTS `mochat_go_scrm_tag_groups`", "DROP COLUMN IF EXISTS `group_id`", "DROP INDEX IF EXISTS `idx_scrm_contact_tag_usage`"} {
+		if !strings.Contains(string(down), fragment) {
+			t.Errorf("down migration missing %q", fragment)
+		}
 	}
 }
 
@@ -116,10 +138,22 @@ func TestPublicPoolParityMigrationIsReversibleAndSynced(t *testing.T) {
 
 func TestContactLifecycleIdempotencyMigrationIsReversible(t *testing.T) {
 	projectRoot := filepath.Join("..", "..")
-	up, err := os.ReadFile(filepath.Join(projectRoot,"deploy","standalone","migrations","0107_scrm_contact_lifecycle_idempotency.up.sql")); if err!=nil{t.Fatal(err)}
-	down, err := os.ReadFile(filepath.Join(projectRoot,"deploy","standalone","migrations","0107_scrm_contact_lifecycle_idempotency.down.sql")); if err!=nil{t.Fatal(err)}
-	for _, fragment := range []string{"mochat_go_scrm_idempotency_keys","request_fingerprint","PRIMARY KEY (`tenant_id`,`corp_id`,`action`,`idempotency_key`)"} { if !strings.Contains(string(up),fragment){t.Errorf("up migration missing %s",fragment)} }
-	if !strings.Contains(string(down),"DROP TABLE IF EXISTS `mochat_go_scrm_idempotency_keys`"){t.Fatal("down migration does not remove idempotency table")}
+	up, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0107_scrm_contact_lifecycle_idempotency.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0107_scrm_contact_lifecycle_idempotency.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"mochat_go_scrm_idempotency_keys", "request_fingerprint", "PRIMARY KEY (`tenant_id`,`corp_id`,`action`,`idempotency_key`)"} {
+		if !strings.Contains(string(up), fragment) {
+			t.Errorf("up migration missing %s", fragment)
+		}
+	}
+	if !strings.Contains(string(down), "DROP TABLE IF EXISTS `mochat_go_scrm_idempotency_keys`") {
+		t.Fatal("down migration does not remove idempotency table")
+	}
 }
 
 func TestLeadParityMigrationMatchesStandaloneSchema(t *testing.T) {
