@@ -41,8 +41,8 @@
 - 列表 `/workMessage/toUsers` 与详情 `/workMessage/detail` 统一使用 `/dashboard/workMessage/toUsers#get` RBAC key，并有精确回归证明两条请求链路一致；普通 403、存档未授权 40301 与越权/不存在 404 仍分别保留。
 - 未开通会话存档返回 `40301`，普通 RBAC 拒绝返回 403，不存在或越权详情统一返回 404；列表和详情均不会跨租户、跨企业泄露数据。
 - 十张 `mc_work_message_*` 表继续使用固定表名和参数化值组成 `UNION ALL`；关键词中的 `%`、`_`、反斜杠按字面量转义，避免把用户输入扩展为通配模式。
-- 真实 MariaDB fixture 覆盖双租户、三企业、存档开关、员工范围、空范围、对象类型、关键词、时间边界、分页和三种归档 ID 查询。性能门禁逐表验证既有 `corp_employee`、`corp_msgid`、`corp_seq` 索引列前缀，并要求列表/详情 EXPLAIN 每个分支估算行数不超过 512；非 `ALL` 计划必须实际使用索引。
-- 未保留 0106 索引迁移：实测新增复合索引存在时，优化器仍可能选择既有索引；小型 fixture 上选择 257 行 `ALL` 也是合理成本决策。生产查询已把企业、员工、类型、时间和归档 ID 谓词下推到分表，现有必要索引齐全，没有证据证明新增迁移必要。
+- 真实 MariaDB fixture 覆盖双租户、三企业、存档开关、员工范围、空范围、对象类型、关键词、时间边界、分页和三种归档 ID 查询。fixture 同时加入同企业同员工的历史噪声及跨企业同时间噪声，避免小表执行计划产生误判。
+- 新增合法迁移 `0106_work_message_global_search_indexes`，为十张归档分表建立 `(corp_id, work_employee_id, deleted_at, to_user_type, msg_data_time, to_user_id, seq)` 复合索引，并在 standalone schema 显式同步十张分表及旧 schema checksum 兼容别名；未修改任何已发布迁移。真实 MariaDB EXPLAIN 门禁要求十个列表分支均以 `range` 命中各自 `global_search` 索引，十个详情分支均以 `ref` 命中 `corp_msgid` 索引，本次均估算读取 1 行。
 - `main.tsx` 的单参数 API 构造接线是 Task 4A 合同所需；`styles/index.css` 仅补齐对象类型选择、重置按钮和群聊能力提示样式，两者均保留。`access-context.test.tsx` 换行噪音已清除。
 - 功能矩阵 `/chat/v2-all` 已更新前端、API、权限、持久化和自动化测试证据；浏览器证据仍留给 Task 11，未伪造。
 
@@ -51,6 +51,7 @@
 - `go test -count=1 ./internal/dashboard -run 'WorkMessage|workMessage'`：通过。
 - `go test -count=1 ./internal/store -run 'WorkMessage|workMessage'`：通过。
 - `go test -count=1 ./internal/migration ./internal/server`：通过。
+- 强制真实库 fixture（`MOCHAT_REQUIRE_MYSQL_INTEGRATION=1`）：通过；权限、筛选、分页、详情和十表列表/详情 EXPLAIN 全部通过。
 - `node scripts/check_phase3_2_mysql_integration.mjs`：通过；隔离 MariaDB 中 SCRM MySQL 与 store 集成包均通过，容器和数据卷已清理。
 - `pnpm --filter @mochat/dashboard exec vitest run src/features/conversation-global/conversation-global-api.test.ts src/features/conversation-global/conversation-global-page.test.tsx`：2 个文件、17/17 通过。
 - `pnpm --filter @mochat/dashboard typecheck`：通过。
@@ -61,5 +62,5 @@
 
 ## 已知失败与遗留风险
 
-- 一次扩大范围的 Go 联跑暴露三个非 Task 4 失败：Dashboard 系统健康测试仍期望迁移数 104、续费任务使用当前时间导致快照漂移、共享桌面数据库统计信息令 Task 3 的 CorpData EXPLAIN 选择 `ALL`。Task 4 聚焦包、server、migration 和隔离 MariaDB 均已通过。
+- Dashboard 全量 Go 联跑仅剩一个非 Task 4 失败：`TestSaaSAdminCustomerSuccessRenewalTasksCreatesTasksFromQueue` 使用当前秒值生成续费快照，导致期望值漂移。新增 0106 后的系统健康迁移版本/数量断言已同步并通过；Task 4 聚焦包、store、server、migration、真实与隔离 MariaDB 均已通过。
 - 未执行浏览器验收；当前没有可用本地登录凭据，浏览器搜索、重置、分页、详情和错误态证据仍由 Task 11 补齐。
