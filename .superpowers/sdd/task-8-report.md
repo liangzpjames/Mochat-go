@@ -36,3 +36,18 @@ Task8 商机功能已按 `f25e4b0` 基线收敛；浏览器真实登录态证据
 - 按控制器要求未运行 Dashboard/Go 全量回归；由控制器统一执行。
 - 浏览器创建、推进、跟进、赢单/输单和刷新证据延后 Task11，不伪造登录态证据。
 - 商机阶段目前使用既有阶段 ID 输入；后续若增加阶段配置下拉，应复用企业阶段数据源，不放宽服务端归属校验。
+
+## P1 HTTP 合同修复
+
+- 商机阶段 handler 改用独立 HTTP DTO，明确接收 `corpId`、`opportunityId`、`stageId`、`version`、`lostReason`、`idempotencyKey`；资源 ID 以 path 为主，body 重复提供时必须一致，否则返回 422。
+- 阶段和跟进幂等键兼容 `Idempotency-Key` header 或 body `idempotencyKey`；两处同时提供时必须一致，缺失或冲突返回 422。
+- 跟进 DTO 不接收 `contactId`，联系人 ID 只从 path 读取；两个前端 API 均只发送 `corpId/content`，避免重复资源字段。
+- 商机 handler 的严格 JSON 解码失败统一返回明确 JSON 400，unknown field、尾随 JSON、畸形 JSON 不再产生空 200。
+- 新增 handler 级真实前端 payload 测试，覆盖普通阶段推进、won、lost/lostReason、follow-up、path/body 冲突、幂等键缺失/冲突及 unknown field。
+
+### P1 聚焦验证
+
+- `go test ./internal/modules/scrm/application ./internal/modules/scrm/domain ./internal/modules/scrm/transport/http -run "Opportunity|FollowUp" -count=1`：通过。
+- `pnpm --filter @mochat/dashboard exec vitest run src/features/scrm/scrm-api.test.ts src/features/scrm/contact-api.test.ts`：2 files / 6 tests 通过。
+- `pnpm --filter @mochat/dashboard typecheck`：通过。
+- 未重复运行真实 MariaDB 集成测试；P1 未修改应用服务、repository、迁移或持久化合同，沿用 Task8 已通过的 MariaDB 证据。

@@ -51,9 +51,15 @@ export function createScrmApi(client: Client): ScrmApi {
       return client.request(`/scrm/opportunities?${query.toString()}`) as Promise<OpportunityPage>;
     },
     async createOpportunity(input) { return client.request('/scrm/opportunities', json(input, input.idempotencyKey)) as Promise<Opportunity>; },
-    async changeOpportunityStage(input) { return client.request(`/scrm/opportunities/${input.opportunityId}/stage`, json(input, input.idempotencyKey)) as Promise<Opportunity>; },
+    async changeOpportunityStage(input) {
+      const body = { corpId: input.corpId, stageId: input.stageId, lostReason: input.lostReason, version: input.version };
+      return client.request(`/scrm/opportunities/${encodeURIComponent(input.opportunityId)}/stage`, json(body, input.idempotencyKey)) as Promise<Opportunity>;
+    },
     async listFollowUps(input) { return client.request(`/scrm/contacts/${input.contactId}/follow-ups?corpId=${input.corpId}`) as Promise<FollowUpPage>; },
-    async appendFollowUp(input) { return client.request(`/scrm/contacts/${input.contactId}/follow-ups`, json(input, input.idempotencyKey)) as Promise<FollowUpRecord>; },
+    async appendFollowUp(input) {
+      const body = { corpId: input.corpId, content: input.content };
+      return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups`, json(body, input.idempotencyKey)) as Promise<FollowUpRecord>;
+    },
     async listTags(input) { return client.request(`/scrm/tags?corpId=${input.corpId}`) as Promise<TagPage>; },
     async createTag(input) { return client.request('/scrm/tags', json(input, input.idempotencyKey)) as Promise<Tag>; },
     async renameTag(input) { return client.request(`/scrm/tags/${input.tagId}`, { ...json(input, input.idempotencyKey), method: 'PUT' }) as Promise<Tag>; },

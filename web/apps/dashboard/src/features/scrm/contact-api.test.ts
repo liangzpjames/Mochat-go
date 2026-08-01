@@ -17,4 +17,15 @@ describe('contact api', () => {
     await api.releaseToPublicPool({ corpId: 7, contactId: 'c1', version: 3, idempotencyKey: 'release-c1-3' });
     expect(request).toHaveBeenCalledWith('/scrm/assignments/release', expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'Idempotency-Key': 'release-c1-3' }) }));
   });
+
+  it('sends the minimal follow-up payload', async () => {
+    const request = vi.fn().mockResolvedValue({});
+    const api = createContactApi({ request });
+    await api.appendFollowUp({ corpId: 7, contactId: 'c/1', content: 'sent proposal', idempotencyKey: 'follow-1' });
+    expect(request).toHaveBeenCalledWith('/scrm/contacts/c%2F1/follow-ups', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ 'Idempotency-Key': 'follow-1' }),
+      body: JSON.stringify({ corpId: 7, content: 'sent proposal' }),
+    }));
+  });
 });

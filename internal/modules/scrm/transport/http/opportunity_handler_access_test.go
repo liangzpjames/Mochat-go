@@ -80,10 +80,11 @@ func TestOpportunityHandlerRejectsSameTenantSecondCorpBeforeRepository(t *testin
 }
 
 type opportunityServiceFake struct {
-	calls        int
-	filter       ports.OpportunityFilter
-	stageCommand ports.ChangeOpportunityStageCommand
-	err          error
+	calls         int
+	filter        ports.OpportunityFilter
+	stageCommand  ports.ChangeOpportunityStageCommand
+	followCommand ports.AppendFollowUpCommand
+	err           error
 }
 
 func (s *opportunityServiceFake) ListOpportunities(_ context.Context, filter ports.OpportunityFilter) (ports.OpportunityPage, error) {
@@ -163,8 +164,9 @@ func (s *opportunityServiceFake) ListFollowUps(context.Context, int64, int64, st
 	s.calls++
 	return nil, nil
 }
-func (s *opportunityServiceFake) AppendFollowUp(context.Context, ports.AppendFollowUpCommand) (ports.FollowUpRecord, error) {
+func (s *opportunityServiceFake) AppendFollowUp(_ context.Context, command ports.AppendFollowUpCommand) (ports.FollowUpRecord, error) {
 	s.calls++
+	s.followCommand = command
 	return ports.FollowUpRecord{}, nil
 }
 func (s *opportunityServiceFake) ListTags(context.Context, int64, int64) ([]ports.Tag, error) {

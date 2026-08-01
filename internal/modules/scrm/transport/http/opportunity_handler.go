@@ -61,6 +61,19 @@ type followUpJSON struct {
 	CreatedAt string `json:"createdAt"`
 	CreatedBy int64  `json:"createdBy"`
 }
+type changeOpportunityStageRequest struct {
+	CorpID         int64  `json:"corpId"`
+	OpportunityID  string `json:"opportunityId,omitempty"`
+	StageID        string `json:"stageId"`
+	Version        int64  `json:"version"`
+	LostReason     string `json:"lostReason,omitempty"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+}
+type appendFollowUpRequest struct {
+	CorpID         int64  `json:"corpId"`
+	Content        string `json:"content"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+}
 type tagJSON struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -124,7 +137,7 @@ func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var q ports.CreateOpportunityCommand
-	if decodeRequestJSON(w, r, &q) != nil {
+	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
 	q.TenantID = p.TenantID
@@ -145,18 +158,31 @@ func (h *OpportunityHandler) Stage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "authentication required")
 		return
 	}
-	var q ports.ChangeOpportunityStageCommand
-	if decodeRequestJSON(w, r, &q) != nil {
+	var q changeOpportunityStageRequest
+	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
-	q.TenantID = p.TenantID
-	q.OpportunityID = strings.TrimPrefix(r.URL.Path, OpportunitiesPath+"/")
-	q.OpportunityID = strings.TrimSuffix(q.OpportunityID, "/stage")
-	q.IdempotencyKey = r.Header.Get("Idempotency-Key")
 	if !h.authorize(w, r, p, q.CorpID, opportunityPermissionEdit) {
 		return
 	}
-	item, err := h.service.ChangeOpportunityStage(r.Context(), q)
+	opportunityID := pathValue(r, "opportunities", "stage")
+	if bodyID := strings.TrimSpace(q.OpportunityID); bodyID != "" && bodyID != opportunityID {
+		writeError(w, http.StatusUnprocessableEntity, "opportunityId must match path")
+		return
+	}
+	idempotencyKey, ok := resolveOpportunityIdempotencyKey(w, r, q.IdempotencyKey)
+	if !ok {
+		return
+	}
+	item, err := h.service.ChangeOpportunityStage(r.Context(), ports.ChangeOpportunityStageCommand{
+		TenantID:       p.TenantID,
+		CorpID:         q.CorpID,
+		OpportunityID:  opportunityID,
+		StageID:        q.StageID,
+		Version:        q.Version,
+		LostReason:     q.LostReason,
+		IdempotencyKey: idempotencyKey,
+	})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -194,7 +220,7 @@ func (h *OpportunityHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 		CorpID int64  `json:"corpId"`
 		Name   string `json:"name"`
 	}
-	if decodeRequestJSON(w, r, &q) != nil {
+	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
 	if !h.authorize(w, r, p, q.CorpID, tagPermissionAdd) {
@@ -236,17 +262,18 @@ func (h *OpportunityHandler) AppendFollowUp(w http.ResponseWriter, r *http.Reque
 		writeError(w, 401, "authentication required")
 		return
 	}
-	var q struct {
-		CorpID  int64  `json:"corpId"`
-		Content string `json:"content"`
-	}
-	if decodeRequestJSON(w, r, &q) != nil {
+	var q appendFollowUpRequest
+	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
 	if !h.authorizeAny(w, r, p, q.CorpID, contactPermissionEdit, opportunityPermissionEdit) {
 		return
 	}
-	item, err := h.service.AppendFollowUp(r.Context(), ports.AppendFollowUpCommand{TenantID: p.TenantID, CorpID: q.CorpID, ContactID: pathValue(r, "contacts", "follow-ups"), Content: q.Content, CreatedBy: p.UserID, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	idempotencyKey, ok := resolveOpportunityIdempotencyKey(w, r, q.IdempotencyKey)
+	if !ok {
+		return
+	}
+	item, err := h.service.AppendFollowUp(r.Context(), ports.AppendFollowUpCommand{TenantID: p.TenantID, CorpID: q.CorpID, ContactID: pathValue(r, "contacts", "follow-ups"), Content: q.Content, CreatedBy: p.UserID, IdempotencyKey: idempotencyKey})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -265,7 +292,7 @@ func (h *OpportunityHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
 		Name    string `json:"name"`
 		Version int64  `json:"version"`
 	}
-	if decodeRequestJSON(w, r, &q) != nil {
+	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
 	if !h.authorize(w, r, p, q.CorpID, tagPermissionEdit) {
@@ -289,7 +316,7 @@ func (h *OpportunityHandler) BindTags(w http.ResponseWriter, r *http.Request) {
 		CorpID     int64    `json:"corpId"`
 		ContactIDs []string `json:"contactIds"`
 	}
-	if decodeRequestJSON(w, r, &q) != nil {
+	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
 	if !h.authorize(w, r, p, q.CorpID, contactPermissionEdit) {
@@ -358,6 +385,32 @@ func queryInt(r *http.Request, key string) int64 {
 	_, _ = fmt.Sscan(r.URL.Query().Get(key), &n)
 	return n
 }
+
+func decodeOpportunityRequestJSON(w http.ResponseWriter, r *http.Request, destination any) error {
+	if err := decodeRequestJSON(w, r, destination); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request JSON")
+		return err
+	}
+	return nil
+}
+
+func resolveOpportunityIdempotencyKey(w http.ResponseWriter, r *http.Request, bodyKey string) (string, bool) {
+	bodyKey = strings.TrimSpace(bodyKey)
+	headerKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if bodyKey != "" && headerKey != "" && bodyKey != headerKey {
+		writeError(w, http.StatusUnprocessableEntity, "idempotencyKey must match Idempotency-Key header")
+		return "", false
+	}
+	if bodyKey != "" {
+		return bodyKey, true
+	}
+	if headerKey != "" {
+		return headerKey, true
+	}
+	writeError(w, http.StatusUnprocessableEntity, "idempotencyKey is required")
+	return "", false
+}
+
 func writeSCRMError(w http.ResponseWriter, err error) {
 	if errors.Is(err, ports.ErrAssignmentForbidden) {
 		writeError(w, http.StatusForbidden, "resource is outside corp scope")

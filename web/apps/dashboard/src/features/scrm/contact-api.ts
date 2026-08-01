@@ -40,7 +40,10 @@ export function createContactApi(client: Client): ContactApi {
     async getContact(input) { return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}?corpId=${input.corpId}`) as Promise<ContactDetail>; },
     async updateAssignment(input) { return client.request('/scrm/assignments', json(input, input.idempotencyKey, 'PUT')) as Promise<Assignment>; },
     async bindTags(input) { await client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/contacts`, json(input, input.idempotencyKey)); },
-    async appendFollowUp(input) { return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups`, json(input, input.idempotencyKey)) as Promise<ContactDetail['followUps'][number]>; },
+    async appendFollowUp(input) {
+      const body = { corpId: input.corpId, content: input.content };
+      return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups`, json(body, input.idempotencyKey)) as Promise<ContactDetail['followUps'][number]>;
+    },
     async listFollowUps(input) { return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups?corpId=${input.corpId}`) as Promise<{ items: ContactDetail['followUps']; nextCursor: string }>; },
     async releaseToPublicPool(input) { return client.request('/scrm/assignments/release', json(input, input.idempotencyKey)) as Promise<Assignment>; },
     async createOpportunity(input) { return client.request('/scrm/opportunities', json(input, input.idempotencyKey)) as Promise<ContactDetail['opportunities'][number]>; },
