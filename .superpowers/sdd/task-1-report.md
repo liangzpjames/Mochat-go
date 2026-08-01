@@ -65,3 +65,22 @@
 
 - `node --test scripts/check_phase3_2_dashboard_completion.test.mjs`
   - 结果：`# pass 13`、`# fail 0`、退出码 `0`；补回八页缺失与 fixture 闭合字段回归覆盖。
+
+## 第二轮审查问题修复
+
+### RED / GREEN 记录
+
+- RED：先为矩阵额外路由、目标页 phase、跨行注册扫描和仓库文件路径约束增加回归测试，再运行 `node --test scripts/check_phase3_2_dashboard_completion.test.mjs`。
+  - 初始结果：退出码 `1`，`isRepositoryFile` 尚未导出。
+  - 导出并完成其余最小实现前的结果：`# pass 15`、`# fail 2`、退出码 `1`；剩余失败为目标页错误 phase 未被拒绝，以及当前 Windows 会话不允许创建文件符号链接（`EPERM`）。路径解析回归测试改用 Windows junction，以等价地覆盖重解析后留在仓库内和逃逸到仓库外的情形。
+- GREEN：`node --test scripts/check_phase3_2_dashboard_completion.test.mjs`
+  - 结果：`# pass 17`、`# fail 0`、退出码 `0`。
+- 完整门禁：`node scripts/check_phase3_2_dashboard_completion.mjs`
+  - 结果：退出码 `1`（预期），八个目标页各有 frontend、api、permission、persistence、tests、evidence 六项待完成，共 `48` 个缺口。
+
+### 本轮变更
+
+- `validateFunctionMatrix` 拒绝不在八个 `phase32TargetRoutes` 中的任何矩阵行。
+- 目标 manifest 路由必须显式 `phase: "3.2"`；错误 phase 返回包含路径和实际 phase 的精确错误。
+- `validateCompletedPageSources` 按目标路由键提取完整注册表达式，再扫描 `DemoPage`、`PlaceholderPage` 和从 `demo-fixtures` 导入的标识符；不再要求路由键与引用处于同一行。
+- `isRepositoryFile` 仅接受仓库内相对普通文件，并在 `realpath` 解析后再次校验仓库边界和普通文件类型。

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
+  isRepositoryFile,
   validateCompletedPageSources,
   validateFinalPhase32Manifest,
   validateFunctionMatrix,
@@ -125,6 +130,15 @@ test('function matrix rejects fixture-backed closure fields', () => {
   assert.ok(errors.includes('/index / filter customers: frontend uses fixture'));
 });
 
+test('function matrix rejects rows outside the eight Phase 3.2 target routes', () => {
+  const errors = validateFunctionMatrix(functionMatrix([
+    ...phase32Routes.map((path) => matrixRow(path)),
+    matrixRow('/customer/not-a-phase32-page'),
+  ]));
+
+  assert.ok(errors.includes('unexpected Phase 3.2 function matrix page: /customer/not-a-phase32-page'));
+});
+
 test('function matrix treats TODO, TBD, unfinished, and not started values as unclosed', () => {
   const errors = validateFunctionMatrix(functionMatrix([
     matrixRow('/index', { frontend: 'TODO: implement overview' }),
@@ -163,6 +177,15 @@ test('manifest rejects extra and duplicate Phase 3.2 routes', () => {
   );
 });
 
+test('manifest requires every target route to explicitly declare phase 3.2', () => {
+  const manifest = completeManifest({ '/index': { phase: '3.1' } });
+
+  assert.throws(
+    () => validatePhase32Manifest(manifest, functionMatrix()),
+    /Phase 3\.2 target route must have phase "3\.2": \/index \(received "3\.1"\)/,
+  );
+});
+
 test('final gate requires a function matrix instead of accepting its default empty value', () => {
   assert.throws(
     () => validateFinalPhase32Manifest(completeManifest()),
@@ -190,6 +213,63 @@ test('completed-page source scan rejects PlaceholderPage and demo-fixtures for t
   const errors = validateCompletedPageSources(manifest, source);
   assert.ok(errors.includes('completed page frontend registration uses PlaceholderPage: /index'));
   assert.ok(errors.includes('completed page frontend registration uses demo-fixtures: /ai-insight/v2/sensitive-word'));
+});
+
+test('completed-page source scan finds forbidden references in multiline target route registrations', () => {
+  const manifest = completeManifest();
+  const source = `
+    import {
+      sensitiveWordDemo,
+    } from './demo-fixtures';
+    const pages = {
+      '/index': (
+        <DemoPage
+          title="overview"
+        />
+      ),
+      '/chat/v2-all': (
+        <PlaceholderPage
+          title="chat"
+        />
+      ),
+      '/ai-insight/v2/sensitive-word': (
+        <SensitiveWordPage
+          config={
+            sensitiveWordDemo
+          }
+        />
+      ),
+    };
+  `;
+
+  const errors = validateCompletedPageSources(manifest, source);
+  assert.ok(errors.includes('completed page frontend registration uses DemoPage: /index'));
+  assert.ok(errors.includes('completed page frontend registration uses PlaceholderPage: /chat/v2-all'));
+  assert.ok(errors.includes('completed page frontend registration uses demo-fixtures: /ai-insight/v2/sensitive-word'));
+});
+
+test('repository evidence paths must be relative ordinary files and resolve symlinks inside the repository', (t) => {
+  const linkStem = `phase32-is-repository-file-${process.pid}`;
+  const internalLink = join('scripts', `${linkStem}-internal`);
+  const externalLink = join('scripts', `${linkStem}-external`);
+  const externalDirectory = mkdtempSync(join(tmpdir(), 'phase32-is-repository-file-'));
+  const externalFile = join(externalDirectory, 'outside.mjs');
+
+  writeFileSync(externalFile, 'export {};\n');
+  t.after(() => {
+    rmSync(internalLink, { recursive: true, force: true });
+    rmSync(externalLink, { recursive: true, force: true });
+    rmSync(externalDirectory, { recursive: true, force: true });
+  });
+  symlinkSync(join(process.cwd(), 'scripts'), internalLink, 'junction');
+  symlinkSync(externalDirectory, externalLink, 'junction');
+
+  assert.equal(isRepositoryFile('scripts/check_phase3_2_dashboard_completion.test.mjs'), true);
+  assert.equal(isRepositoryFile('scripts'), false);
+  assert.equal(isRepositoryFile(fileURLToPath(import.meta.url)), false);
+  assert.equal(isRepositoryFile('../package.json'), false);
+  assert.equal(isRepositoryFile(join(internalLink, 'check_phase3_2_dashboard_completion.test.mjs')), true);
+  assert.equal(isRepositoryFile(join(externalLink, basename(externalFile))), false);
 });
 
 test('final gate reports a unit-passed page as the missing browser acceptance after all eight routes are present', () => {

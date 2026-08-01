@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { realpathSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const phase32TargetRoutes = [
@@ -85,11 +85,22 @@ function isFixture(value) {
   return /fixture/i.test(value);
 }
 
-function isRepositoryFile(value) {
-  if (!value || value.includes(';')) return false;
+export function isRepositoryFile(value) {
+  if (typeof value !== 'string' || !value || value.includes(';') || isAbsolute(value)) return false;
   const absolutePath = resolve(repositoryRoot, value);
   const pathFromRoot = relative(repositoryRoot, absolutePath);
-  return pathFromRoot !== '' && !pathFromRoot.startsWith('..') && !pathFromRoot.includes(':') && existsSync(absolutePath);
+  if (!pathFromRoot || pathFromRoot.startsWith('..') || isAbsolute(pathFromRoot)) return false;
+
+  try {
+    const resolvedPath = realpathSync(absolutePath);
+    const resolvedPathFromRoot = relative(repositoryRoot, resolvedPath);
+    return Boolean(resolvedPathFromRoot)
+      && !resolvedPathFromRoot.startsWith('..')
+      && !isAbsolute(resolvedPathFromRoot)
+      && statSync(resolvedPath).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function unclosedMatrixItems(markdown) {
@@ -117,6 +128,10 @@ export function validateFunctionMatrix(markdown) {
     const featureKey = `${row.values.page}\u0000${row.values.referenceFeature}`;
     if (seenFeatures.has(featureKey)) errors.push(`duplicate function matrix page and referenceFeature: ${label}`);
     seenFeatures.add(featureKey);
+
+    if (!phase32TargetRoutes.includes(row.values.page)) {
+      errors.push(`unexpected Phase 3.2 function matrix page: ${row.values.page}`);
+    }
 
     if (!allowedDecisions.has(row.values.decision)) {
       errors.push(`invalid function matrix decision: ${label}: ${row.values.decision}`);
@@ -153,26 +168,90 @@ export function validateFunctionMatrix(markdown) {
   return errors;
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function registrationExpressionEnd(source, expressionStart) {
+  const openToClose = new Map([['(', ')'], ['[', ']'], ['{', '}']]);
+  const closers = [];
+  let quote = null;
+  let escaped = false;
+  for (let index = expressionStart; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '/' && nextCharacter === '/') {
+      const newline = source.indexOf('\n', index + 2);
+      index = newline === -1 ? source.length : newline;
+      continue;
+    }
+    if (character === '/' && nextCharacter === '*') {
+      const commentEnd = source.indexOf('*/', index + 2);
+      index = commentEnd === -1 ? source.length : commentEnd + 1;
+      continue;
+    }
+    if (character === '\'' || character === '"' || character === '`') {
+      quote = character;
+      continue;
+    }
+    if (openToClose.has(character)) {
+      closers.push(openToClose.get(character));
+      continue;
+    }
+    if (character === closers.at(-1)) {
+      closers.pop();
+      continue;
+    }
+    if (closers.length === 0 && (character === ',' || character === '}')) return index;
+  }
+  return source.length;
+}
+
+function pageRegistrationBlocks(source, path) {
+  const routePattern = new RegExp(`(['"])${escapeRegExp(path)}\\1\\s*:`, 'g');
+  const blocks = [];
+  for (const match of source.matchAll(routePattern)) {
+    const expressionStart = match.index + match[0].length;
+    blocks.push(source.slice(match.index, registrationExpressionEnd(source, expressionStart)));
+  }
+  return blocks;
+}
+
 export function validateCompletedPageSources(manifest, source = readFileSync(new URL('../web/apps/dashboard/src/benchmark/page-registry.tsx', import.meta.url), 'utf8')) {
-  const fixtureImport = source.match(/import\s*\{([\s\S]*?)\}\s*from\s*['"]\.\/demo-fixtures['"]/);
-  const fixtureSymbols = new Set((fixtureImport?.[1].match(/[A-Za-z_$][\w$]*/g) ?? []));
-  const errors = [];
+  const fixtureSymbols = new Set();
+  for (const fixtureImport of source.matchAll(/import\s+([^;]*?)\s+from\s*['"]\.\/demo-fixtures['"]/g)) {
+    const bindings = fixtureImport[1];
+    const namedBindings = bindings.match(/\{([\s\S]*?)\}/)?.[1] ?? '';
+    for (const binding of namedBindings.split(',')) {
+      const localName = binding.trim().replace(/^type\s+/, '').split(/\s+as\s+/).at(-1)?.trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(localName ?? '')) fixtureSymbols.add(localName);
+    }
+    const namespaceName = bindings.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/)?.[1];
+    if (namespaceName) fixtureSymbols.add(namespaceName);
+  }
+  const errors = new Set();
   for (const page of manifest?.pages ?? []) {
     if (!phase32TargetRoutes.includes(page.path) || page.backend !== 'ready' || page.acceptance !== 'e2e-passed') continue;
-    const registrations = source.split(/\r?\n/).filter((line) => line.includes(`'${page.path}'`) || line.includes(`\"${page.path}\"`));
+    const registrations = pageRegistrationBlocks(source, page.path);
     if (registrations.length === 0) {
-      errors.push(`completed page missing frontend registration: ${page.path}`);
+      errors.add(`completed page missing frontend registration: ${page.path}`);
       continue;
     }
     for (const registration of registrations) {
-      if (/\bDemoPage\b/.test(registration)) errors.push(`completed page frontend registration uses DemoPage: ${page.path}`);
-      if (/\bPlaceholderPage\b/.test(registration)) errors.push(`completed page frontend registration uses PlaceholderPage: ${page.path}`);
+      if (/\bDemoPage\b/.test(registration)) errors.add(`completed page frontend registration uses DemoPage: ${page.path}`);
+      if (/\bPlaceholderPage\b/.test(registration)) errors.add(`completed page frontend registration uses PlaceholderPage: ${page.path}`);
       if ([...fixtureSymbols].some((symbol) => new RegExp(`\\b${symbol}\\b`).test(registration))) {
-        errors.push(`completed page frontend registration uses demo-fixtures: ${page.path}`);
+        errors.add(`completed page frontend registration uses demo-fixtures: ${page.path}`);
       }
     }
   }
-  return errors;
+  return [...errors];
 }
 
 export function validatePhase32Manifest(manifest, functionMatrixMarkdown) {
@@ -194,6 +273,9 @@ export function validatePhase32Manifest(manifest, functionMatrixMarkdown) {
     if (!page) {
       errors.push(`missing Phase 3.2 route: ${path}`);
       continue;
+    }
+    if (page.phase !== '3.2') {
+      errors.push(`Phase 3.2 target route must have phase "3.2": ${path} (received ${JSON.stringify(page.phase)})`);
     }
     const isComplete = page.backend === 'ready' && page.acceptance === 'e2e-passed';
     if (isComplete && !completedImplementations.has(page.implementation)) {
