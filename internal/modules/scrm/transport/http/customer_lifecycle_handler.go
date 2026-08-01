@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"jiyi/mochat-go/internal/modules/scrm/application"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
@@ -26,8 +27,9 @@ type CustomerLifecycleService interface {
 	GetContact(context.Context, int64, int64, string) (ports.ContactDetail, error)
 	ListPublicPool(context.Context, application.ListPublicPoolQuery) (ports.AssignmentPage, error)
 	UpdateAssignment(context.Context, ports.UpdateAssignmentCommand) (domain.CustomerAssignment, error)
-	ReleaseToPublicPool(context.Context, int64, int64, string, int64, string) (domain.CustomerAssignment, error)
-	ClaimFromPublicPool(context.Context, int64, int64, string, int64, int64, string) (domain.CustomerAssignment, error)
+	MoveToPublicPool(context.Context, ports.MoveToPublicPoolCommand) (domain.CustomerAssignment, error)
+	ClaimFromPublicPool(context.Context, ports.ClaimPublicPoolCommand) (domain.CustomerAssignment, error)
+	BatchClaimFromPublicPool(context.Context, application.BatchClaimPublicPoolCommand) ([]application.PublicPoolMutationResult, error)
 }
 
 type CustomerLifecycleHandler struct {
@@ -124,8 +126,21 @@ func (h *CustomerLifecycleHandler) ListPublicPool(w http.ResponseWriter, r *http
 	if !h.authorize(w, r, principal, corpID, contactPermissionView) {
 		return
 	}
-	pageSize, _ := strconv.Atoi(values.Get("pageSize"))
-	page, err := h.service.ListPublicPool(r.Context(), application.ListPublicPoolQuery{TenantID: principal.TenantID, CorpID: corpID, Cursor: values.Get("cursor"), PageSize: pageSize})
+	pageSize, err := parseOptionalNonNegativeInt(values.Get("pageSize"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pageSize")
+		return
+	}
+	previousOwnerIDs, err := parsePositiveInt64List(values["previousOwnerId"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid previousOwnerId")
+		return
+	}
+	page, err := h.service.ListPublicPool(r.Context(), application.ListPublicPoolQuery{
+		TenantID: principal.TenantID, CorpID: corpID, Keyword: values.Get("keyword"), Sources: values["source"],
+		BusinessTypes: values["businessType"], TagIDs: values["tagId"], Regions: values["region"],
+		Reasons: values["reason"], PreviousOwnerIDs: previousOwnerIDs, Cursor: values.Get("cursor"), PageSize: pageSize,
+	})
 	if err != nil {
 		writeCustomerLifecycleError(w, err)
 		return
@@ -165,13 +180,32 @@ func (h *CustomerLifecycleHandler) UpdateAssignment(w http.ResponseWriter, r *ht
 }
 
 func (h *CustomerLifecycleHandler) ReleaseToPublicPool(w http.ResponseWriter, r *http.Request) {
-	h.transition(w, r, false)
+	principal, ok := h.resolvePrincipal(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		CorpID    int64  `json:"corpId"`
+		ContactID string `json:"contactId"`
+		Version   int64  `json:"version"`
+		Action    string `json:"action"`
+		Reason    string `json:"reason"`
+	}
+	if err := decodeRequestJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request JSON")
+		return
+	}
+	if !h.authorize(w, r, principal, req.CorpID, contactPermissionEdit) {
+		return
+	}
+	item, err := h.service.MoveToPublicPool(r.Context(), ports.MoveToPublicPoolCommand{TenantID: principal.TenantID, CorpID: req.CorpID, ContactID: req.ContactID, ActorID: principal.UserID, Version: req.Version, Action: req.Action, Reason: req.Reason, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	if err != nil {
+		writeCustomerLifecycleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": assignmentViewJSON(item)})
 }
 func (h *CustomerLifecycleHandler) ClaimFromPublicPool(w http.ResponseWriter, r *http.Request) {
-	h.transition(w, r, true)
-}
-
-func (h *CustomerLifecycleHandler) transition(w http.ResponseWriter, r *http.Request, claim bool) {
 	principal, ok := h.resolvePrincipal(w, r)
 	if !ok {
 		return
@@ -189,18 +223,45 @@ func (h *CustomerLifecycleHandler) transition(w http.ResponseWriter, r *http.Req
 	if !h.authorize(w, r, principal, req.CorpID, contactPermissionEdit) {
 		return
 	}
-	var item domain.CustomerAssignment
-	var err error
-	if claim {
-		item, err = h.service.ClaimFromPublicPool(r.Context(), principal.TenantID, req.CorpID, req.ContactID, principal.UserID, req.Version, r.Header.Get("Idempotency-Key"))
-	} else {
-		item, err = h.service.ReleaseToPublicPool(r.Context(), principal.TenantID, req.CorpID, req.ContactID, req.Version, r.Header.Get("Idempotency-Key"))
+	if req.UserID != principal.UserID {
+		writeError(w, http.StatusForbidden, "claim user is outside principal scope")
+		return
 	}
+	item, err := h.service.ClaimFromPublicPool(r.Context(), ports.ClaimPublicPoolCommand{TenantID: principal.TenantID, CorpID: req.CorpID, ContactID: req.ContactID, UserID: req.UserID, Version: req.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeCustomerLifecycleError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": assignmentViewJSON(item)})
+}
+
+func (h *CustomerLifecycleHandler) BatchClaimFromPublicPool(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.resolvePrincipal(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		CorpID  int64                               `json:"corpId"`
+		UserID  int64                               `json:"userId"`
+		Targets []application.PublicPoolClaimTarget `json:"targets"`
+	}
+	if err := decodeRequestJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request JSON")
+		return
+	}
+	if !h.authorize(w, r, principal, req.CorpID, contactPermissionEdit) {
+		return
+	}
+	if req.UserID != principal.UserID {
+		writeError(w, http.StatusForbidden, "claim user is outside principal scope")
+		return
+	}
+	results, err := h.service.BatchClaimFromPublicPool(r.Context(), application.BatchClaimPublicPoolCommand{TenantID: principal.TenantID, CorpID: req.CorpID, UserID: req.UserID, Targets: req.Targets})
+	if err != nil {
+		writeCustomerLifecycleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"results": results}})
 }
 
 func (h *CustomerLifecycleHandler) authorize(w http.ResponseWriter, r *http.Request, principal Principal, corpID int64, permission string) bool {
@@ -241,12 +302,22 @@ func (h *CustomerLifecycleHandler) resolvePrincipal(w http.ResponseWriter, r *ht
 }
 
 type assignmentJSON struct {
-	ID              string  `json:"id"`
-	ContactID       string  `json:"contactId"`
-	OwnerID         *int64  `json:"ownerId"`
-	CollaboratorIDs []int64 `json:"collaboratorIds"`
-	Status          string  `json:"status"`
-	Version         int64   `json:"version"`
+	ID              string   `json:"id"`
+	ContactID       string   `json:"contactId"`
+	OwnerID         *int64   `json:"ownerId"`
+	CollaboratorIDs []int64  `json:"collaboratorIds"`
+	Status          string   `json:"status"`
+	Version         int64    `json:"version"`
+	ContactName     string   `json:"contactName"`
+	Source          string   `json:"source"`
+	BusinessType    string   `json:"businessType"`
+	TagNames        []string `json:"tagNames"`
+	Region          string   `json:"region"`
+	RecycleCount    int64    `json:"recycleCount"`
+	PoolAction      string   `json:"poolAction"`
+	PoolReason      string   `json:"poolReason"`
+	PreviousOwnerID *int64   `json:"previousOwnerId"`
+	LastFollowUpAt  string   `json:"lastFollowUpAt"`
 }
 
 type contactSummaryJSON struct {
@@ -282,7 +353,11 @@ func contactDetailView(item ports.ContactDetail) contactDetailJSON {
 }
 
 func assignmentViewJSON(item domain.CustomerAssignment) assignmentJSON {
-	return assignmentJSON{ID: item.ID, ContactID: item.ContactID, OwnerID: item.OwnerID, CollaboratorIDs: item.CollaboratorIDs, Status: item.Status, Version: item.Version}
+	lastFollowUpAt := ""
+	if item.LastFollowUpAt != nil {
+		lastFollowUpAt = item.LastFollowUpAt.UTC().Format(time.RFC3339)
+	}
+	return assignmentJSON{ID: item.ID, ContactID: item.ContactID, OwnerID: item.OwnerID, CollaboratorIDs: item.CollaboratorIDs, Status: item.Status, Version: item.Version, ContactName: item.ContactName, Source: item.Source, BusinessType: item.BusinessType, TagNames: item.TagNames, Region: item.Region, RecycleCount: item.RecycleCount, PoolAction: item.PoolAction, PoolReason: item.PoolReason, PreviousOwnerID: item.PreviousOwnerID, LastFollowUpAt: lastFollowUpAt}
 }
 func parsePositiveInt64(raw string) (int64, error) {
 	value, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)

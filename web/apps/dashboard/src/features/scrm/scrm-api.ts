@@ -1,5 +1,14 @@
+export type PublicPoolAction = 'enter' | 'return' | 'reclaim';
 export type Assignment = { id: string; contactId: string; ownerId: number | null; collaboratorIds: number[]; status: string; version: number };
-export type AssignmentPage = { items: Assignment[]; nextCursor: string };
+export type PublicPoolAssignment = Assignment & {
+  contactName: string;
+  source: string; businessType: string; tagNames: string[]; region: string; recycleCount: number; poolAction: string;
+  poolReason: string; previousOwnerId: number | null; lastFollowUpAt: string;
+};
+export type AssignmentPage = { items: PublicPoolAssignment[]; nextCursor: string };
+export type PublicPoolListInput = { corpId: number; keyword?: string; sources?: string[]; businessTypes?: string[]; tagIds?: string[]; regions?: string[]; reasons?: string[]; previousOwnerIds?: number[]; cursor?: string; pageSize?: number };
+export type PublicPoolClaimTarget = { contactId: string; version: number; idempotencyKey: string };
+export type PublicPoolMutationResult = { id: string; status: 'succeeded' | 'failed'; errorCode: string; assignment?: Assignment };
 export type Opportunity = { id: string; contactId: string; stage: string; amount: number; startDate: string; endDate: string; ownerId: number | null; status: string; lostReason: string; version: number };
 export type OpportunityPage = { items: Opportunity[]; nextCursor: string };
 export type FollowUpRecord = { id: string; contactId: string; content: string; createdAt: string; createdBy: number };
@@ -9,10 +18,11 @@ export type TagPage = { items: Tag[]; nextCursor: string };
 type Client = { request<T = unknown>(input: RequestInfo | URL, init?: RequestInit): Promise<T> };
 
 export type ScrmApi = {
-  listPublicPool(input: { corpId: number; cursor?: string; pageSize?: number }): Promise<AssignmentPage>;
+  listPublicPool(input: PublicPoolListInput): Promise<AssignmentPage>;
   updateAssignment(input: { corpId: number; contactId: string; ownerId: number | null; collaboratorIds: number[]; version: number; idempotencyKey: string }): Promise<Assignment>;
-  releaseToPublicPool(input: { corpId: number; contactId: string; version: number; idempotencyKey: string }): Promise<Assignment>;
-  claimFromPublicPool(input: { corpId: number; contactId: string; version: number; idempotencyKey: string }): Promise<Assignment>;
+  releaseToPublicPool(input: { corpId: number; contactId: string; version: number; action: PublicPoolAction; reason: string; idempotencyKey: string }): Promise<Assignment>;
+  claimFromPublicPool(input: { corpId: number; contactId: string; userId: number; version: number; idempotencyKey: string }): Promise<Assignment>;
+  batchClaimFromPublicPool(input: { corpId: number; userId: number; targets: PublicPoolClaimTarget[] }): Promise<{ results: PublicPoolMutationResult[] }>;
   listOpportunities(input: { corpId: number; stage?: string; status?: string; ownerId?: number; cursor?: string; pageSize?: number }): Promise<OpportunityPage>;
   createOpportunity(input: { corpId: number; contactId: string; stage: string; amount: number; startDate: string; endDate: string; ownerId: number | null; idempotencyKey: string }): Promise<Opportunity>;
   changeOpportunityStage(input: { corpId: number; opportunityId: string; stageId: string; lostReason: string; version: number; idempotencyKey: string }): Promise<Opportunity>;
@@ -30,6 +40,13 @@ export function createScrmApi(client: Client): ScrmApi {
   return {
     async listPublicPool(input) {
       const query = new URLSearchParams({ corpId: String(input.corpId), pageSize: String(input.pageSize ?? 20) });
+      if (input.keyword?.trim()) query.set('keyword', input.keyword.trim());
+      input.sources?.forEach((value) => query.append('source', value));
+      input.businessTypes?.forEach((value) => query.append('businessType', value));
+      input.tagIds?.forEach((value) => query.append('tagId', value));
+      input.regions?.forEach((value) => query.append('region', value));
+      input.reasons?.forEach((value) => query.append('reason', value));
+      input.previousOwnerIds?.forEach((value) => query.append('previousOwnerId', String(value)));
       if (input.cursor) query.set('cursor', input.cursor);
       return client.request(`/scrm/assignments?${query.toString()}`) as Promise<AssignmentPage>;
     },
@@ -37,11 +54,14 @@ export function createScrmApi(client: Client): ScrmApi {
       return client.request('/scrm/assignments', { ...json(input, input.idempotencyKey), method: 'PUT' }) as Promise<Assignment>;
     },
     async releaseToPublicPool(input) {
-      return client.request('/scrm/assignments/release', json(input, input.idempotencyKey)) as Promise<Assignment>;
+      const body = { corpId: input.corpId, contactId: input.contactId, version: input.version, action: input.action, reason: input.reason };
+      return client.request('/scrm/assignments/release', json(body, input.idempotencyKey)) as Promise<Assignment>;
     },
     async claimFromPublicPool(input) {
-      return client.request('/scrm/assignments/claim', json(input, input.idempotencyKey)) as Promise<Assignment>;
+      const body = { corpId: input.corpId, contactId: input.contactId, userId: input.userId, version: input.version };
+      return client.request('/scrm/assignments/claim', json(body, input.idempotencyKey)) as Promise<Assignment>;
     },
+    async batchClaimFromPublicPool(input) { return client.request('/scrm/assignments/claim/batch', json(input, `batch-${input.userId}`)) as Promise<{ results: PublicPoolMutationResult[] }>; },
     async listOpportunities(input) {
       const query = new URLSearchParams({ corpId: String(input.corpId), pageSize: String(input.pageSize ?? 20) });
       if (input.stage) query.set('stage', input.stage);

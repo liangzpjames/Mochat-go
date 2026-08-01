@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	"jiyi/mochat-go/internal/modules/scrm/ports"
 )
@@ -190,20 +191,70 @@ func (r *CustomerLifecycleRepository) ListPublicPool(ctx context.Context, filter
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, contact_id, owner_id, status, version, updated_at
-		FROM mochat_go_scrm_assignments WHERE tenant_id=? AND corp_id=? AND status=? AND deleted_at IS NULL
-		ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`, filter.TenantID, filter.CorpID, domain.AssignmentPublicPool, limit+1, offset)
+	where := []string{"a.tenant_id=?", "a.corp_id=?", "a.status=?", "a.owner_id IS NULL", "a.deleted_at IS NULL", "c.deleted_at IS NULL"}
+	args := []any{filter.TenantID, filter.CorpID, domain.AssignmentPublicPool}
+	if filter.Keyword != "" {
+		like := "%" + escapeLike(filter.Keyword) + "%"
+		where = append(where, `(c.name LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\')`)
+		args = append(args, like, like)
+	}
+	appendStrings := func(column string, values []string) {
+		if len(values) == 0 {
+			return
+		}
+		where = append(where, column+" IN ("+sqlPlaceholders(len(values))+")")
+		for _, value := range values {
+			args = append(args, value)
+		}
+	}
+	appendStrings("c.source", filter.Sources)
+	appendStrings("c.business_type", filter.BusinessTypes)
+	appendStrings("c.region", filter.Regions)
+	appendStrings("latest.reason", filter.Reasons)
+	if len(filter.PreviousOwnerIDs) > 0 {
+		where = append(where, "latest.previous_owner_id IN ("+sqlPlaceholders(len(filter.PreviousOwnerIDs))+")")
+		for _, ownerID := range filter.PreviousOwnerIDs {
+			args = append(args, ownerID)
+		}
+	}
+	if len(filter.TagIDs) > 0 {
+		where = append(where, `EXISTS (SELECT 1 FROM mochat_go_scrm_contact_tags wanted WHERE wanted.tenant_id=a.tenant_id AND wanted.corp_id=a.corp_id AND wanted.contact_id=a.contact_id AND wanted.tag_id IN (`+sqlPlaceholders(len(filter.TagIDs))+`))`)
+		for _, tagID := range filter.TagIDs {
+			args = append(args, tagID)
+		}
+	}
+	args = append(args, limit+1, offset)
+	rows, err := r.db.QueryContext(ctx, `SELECT a.id,a.contact_id,a.owner_id,a.status,a.version,a.updated_at,
+		c.name,c.source,c.business_type,c.region,
+		COALESCE((SELECT GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR '\x1f') FROM mochat_go_scrm_contact_tags ct JOIN mochat_go_scrm_tags t ON t.tenant_id=ct.tenant_id AND t.corp_id=ct.corp_id AND t.id=ct.tag_id AND t.deleted_at IS NULL WHERE ct.tenant_id=a.tenant_id AND ct.corp_id=a.corp_id AND ct.contact_id=a.contact_id),''),
+		COALESCE((SELECT COUNT(*) FROM mochat_go_scrm_assignment_history history_count WHERE history_count.tenant_id=a.tenant_id AND history_count.corp_id=a.corp_id AND history_count.contact_id=a.contact_id AND history_count.action IN ('enter','return','reclaim')),0),
+		COALESCE(latest.action,''),COALESCE(latest.reason,''),latest.previous_owner_id,
+		(SELECT MAX(f.created_at) FROM mochat_go_scrm_follow_ups f WHERE f.tenant_id=a.tenant_id AND f.corp_id=a.corp_id AND f.contact_id=a.contact_id)
+		FROM mochat_go_scrm_assignments a
+		JOIN mochat_go_scrm_contacts c ON c.tenant_id=a.tenant_id AND c.corp_id=a.corp_id AND c.id=a.contact_id
+		LEFT JOIN mochat_go_scrm_assignment_history latest ON latest.id=(SELECT h.id FROM mochat_go_scrm_assignment_history h WHERE h.tenant_id=a.tenant_id AND h.corp_id=a.corp_id AND h.contact_id=a.contact_id AND h.action IN ('enter','return','reclaim') ORDER BY h.created_at DESC,h.id DESC LIMIT 1)
+		WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY a.updated_at DESC,a.id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return ports.AssignmentPage{}, err
 	}
 	defer rows.Close()
-	items := make([]domain.CustomerAssignment, 0, limit)
+	items := make([]domain.CustomerAssignment, 0, limit+1)
 	for rows.Next() {
 		var item domain.CustomerAssignment
-		if err := rows.Scan(&item.ID, &item.ContactID, &item.OwnerID, &item.Status, &item.Version, &item.UpdatedAt); err != nil {
+		var tags string
+		var lastFollowUp sql.NullTime
+		if err := rows.Scan(&item.ID, &item.ContactID, &item.OwnerID, &item.Status, &item.Version, &item.UpdatedAt, &item.ContactName, &item.Source, &item.BusinessType, &item.Region, &tags, &item.RecycleCount, &item.PoolAction, &item.PoolReason, &item.PreviousOwnerID, &lastFollowUp); err != nil {
 			return ports.AssignmentPage{}, err
 		}
 		item.TenantID, item.CorpID = filter.TenantID, filter.CorpID
+		if tags != "" {
+			item.TagNames = strings.Split(tags, "\x1f")
+		}
+		if lastFollowUp.Valid {
+			value := lastFollowUp.Time
+			item.LastFollowUpAt = &value
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -274,15 +325,7 @@ func (r *CustomerLifecycleRepository) UpdateAssignment(ctx context.Context, comm
 	return assignment, nil
 }
 
-func (r *CustomerLifecycleRepository) ReleaseToPublicPool(ctx context.Context, tenantID, corpID int64, contactID string, version int64, key string) (domain.CustomerAssignment, error) {
-	return r.transition(ctx, tenantID, corpID, contactID, version, key, "assignment.release", `status<>?`, domain.AssignmentPublicPool, domain.AssignmentPublicPool, nil)
-}
-
-func (r *CustomerLifecycleRepository) ClaimFromPublicPool(ctx context.Context, tenantID, corpID int64, contactID string, userID, version int64, key string) (domain.CustomerAssignment, error) {
-	return r.transition(ctx, tenantID, corpID, contactID, version, key, "assignment.claim", `status=? AND owner_id IS NULL`, domain.AssignmentPublicPool, domain.AssignmentOwned, userID)
-}
-
-func (r *CustomerLifecycleRepository) transition(ctx context.Context, tenantID, corpID int64, contactID string, version int64, key, action, extra, expectedStatus, status string, owner any) (domain.CustomerAssignment, error) {
+func (r *CustomerLifecycleRepository) MoveToPublicPool(ctx context.Context, command ports.MoveToPublicPoolCommand) (domain.CustomerAssignment, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.CustomerAssignment{}, err
@@ -290,40 +333,103 @@ func (r *CustomerLifecycleRepository) transition(ctx context.Context, tenantID, 
 	defer tx.Rollback()
 	fingerprint := requestFingerprint(struct {
 		ContactID string
+		ActorID   int64
 		Version   int64
-		Owner     any
-	}{contactID, version, owner})
-	replayed, _, err := claimIdempotency(ctx, tx, tenantID, corpID, action, key, fingerprint, contactID)
+		Action    string
+		Reason    string
+	}{command.ContactID, command.ActorID, command.Version, command.Action, command.Reason})
+	replayed, _, err := claimIdempotency(ctx, tx, command.TenantID, command.CorpID, "assignment.pool."+command.Action, command.IdempotencyKey, fingerprint, command.ContactID)
 	if err != nil {
 		return domain.CustomerAssignment{}, err
 	}
 	if replayed {
-		return loadAssignmentTx(ctx, tx, tenantID, corpID, contactID)
+		return loadAssignmentTx(ctx, tx, command.TenantID, command.CorpID, command.ContactID)
 	}
-	if value, ok := owner.(int64); ok {
-		if err := employeesInScopeTx(ctx, tx, tenantID, corpID, []int64{value}); err != nil {
-			return domain.CustomerAssignment{}, err
-		}
+	if err := employeesInScopeTx(ctx, tx, command.TenantID, command.CorpID, []int64{command.ActorID}); err != nil {
+		return domain.CustomerAssignment{}, err
 	}
-	args := []any{owner, status, time.Now().UTC(), tenantID, corpID, contactID, version}
-	query := `UPDATE mochat_go_scrm_assignments SET owner_id=?, status=?, version=version+1, updated_at=? WHERE tenant_id=? AND corp_id=? AND contact_id=? AND version=? AND deleted_at IS NULL AND ` + extra
-	if extra == `status=? AND owner_id IS NULL` || extra == `status<>?` {
-		args = append(args, expectedStatus)
+	current, err := loadAssignmentForUpdate(ctx, tx, command.TenantID, command.CorpID, command.ContactID)
+	if err != nil {
+		return domain.CustomerAssignment{}, err
 	}
-	result, err := tx.ExecContext(ctx, query, args...)
+	if current.Version != command.Version || current.Status == domain.AssignmentPublicPool {
+		return domain.CustomerAssignment{}, ports.ErrAssignmentConflict
+	}
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `UPDATE mochat_go_scrm_assignments SET owner_id=NULL,status=?,version=version+1,updated_at=? WHERE tenant_id=? AND corp_id=? AND contact_id=? AND version=? AND status<>? AND deleted_at IS NULL`, domain.AssignmentPublicPool, now, command.TenantID, command.CorpID, command.ContactID, command.Version, domain.AssignmentPublicPool)
 	if err != nil {
 		return domain.CustomerAssignment{}, err
 	}
 	if affected, _ := result.RowsAffected(); affected != 1 {
 		return domain.CustomerAssignment{}, ports.ErrAssignmentConflict
 	}
-	item, err := loadAssignmentTx(ctx, tx, tenantID, corpID, contactID)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mochat_go_scrm_assignment_collaborators WHERE tenant_id=? AND corp_id=? AND assignment_id=?`, command.TenantID, command.CorpID, current.ID); err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_assignment_history(id,tenant_id,corp_id,contact_id,action,previous_owner_id,new_owner_id,actor_id,reason,assignment_version,created_at) VALUES(?,?,?,?,?,?,NULL,?,?,?,?)`, uuid.NewString(), command.TenantID, command.CorpID, command.ContactID, command.Action, current.OwnerID, command.ActorID, command.Reason, command.Version+1, now); err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	item, err := loadAssignmentTx(ctx, tx, command.TenantID, command.CorpID, command.ContactID)
 	if err != nil {
 		return item, err
 	}
 	if err := tx.Commit(); err != nil {
 		return domain.CustomerAssignment{}, err
 	}
+	return item, nil
+}
+
+func (r *CustomerLifecycleRepository) ClaimFromPublicPool(ctx context.Context, command ports.ClaimPublicPoolCommand) (domain.CustomerAssignment, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	defer tx.Rollback()
+	fingerprint := requestFingerprint(struct {
+		ContactID string
+		UserID    int64
+		Version   int64
+	}{command.ContactID, command.UserID, command.Version})
+	replayed, _, err := claimIdempotency(ctx, tx, command.TenantID, command.CorpID, "assignment.claim", command.IdempotencyKey, fingerprint, command.ContactID)
+	if err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	if replayed {
+		return loadAssignmentTx(ctx, tx, command.TenantID, command.CorpID, command.ContactID)
+	}
+	if err := employeesInScopeTx(ctx, tx, command.TenantID, command.CorpID, []int64{command.UserID}); err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `UPDATE mochat_go_scrm_assignments SET owner_id=?,status=?,version=version+1,updated_at=? WHERE tenant_id=? AND corp_id=? AND contact_id=? AND version=? AND status=? AND owner_id IS NULL AND deleted_at IS NULL`, command.UserID, domain.AssignmentOwned, now, command.TenantID, command.CorpID, command.ContactID, command.Version, domain.AssignmentPublicPool)
+	if err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return domain.CustomerAssignment{}, ports.ErrAssignmentConflict
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_assignment_history(id,tenant_id,corp_id,contact_id,action,previous_owner_id,new_owner_id,actor_id,reason,assignment_version,created_at) VALUES(?,?,?,?, 'claim',NULL,?,?, '',?,?)`, uuid.NewString(), command.TenantID, command.CorpID, command.ContactID, command.UserID, command.UserID, command.Version+1, now); err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	item, err := loadAssignmentTx(ctx, tx, command.TenantID, command.CorpID, command.ContactID)
+	if err != nil {
+		return item, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.CustomerAssignment{}, err
+	}
+	return item, nil
+}
+
+func loadAssignmentForUpdate(ctx context.Context, tx *sql.Tx, tenantID, corpID int64, contactID string) (domain.CustomerAssignment, error) {
+	var item domain.CustomerAssignment
+	if err := tx.QueryRowContext(ctx, `SELECT id,contact_id,owner_id,status,version,updated_at FROM mochat_go_scrm_assignments WHERE tenant_id=? AND corp_id=? AND contact_id=? AND deleted_at IS NULL FOR UPDATE`, tenantID, corpID, contactID).Scan(&item.ID, &item.ContactID, &item.OwnerID, &item.Status, &item.Version, &item.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return item, ports.ErrAssignmentNotFound
+		}
+		return item, err
+	}
+	item.TenantID, item.CorpID = tenantID, corpID
 	return item, nil
 }
 

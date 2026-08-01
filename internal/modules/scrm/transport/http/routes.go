@@ -9,6 +9,7 @@ const LeadTransitionPath = FormalLeadsPath + "/transition"
 const LeadDuplicatesPath = FormalLeadsPath + "/duplicates"
 const AssignmentReleasePath = AssignmentsPath + "/release"
 const AssignmentClaimPath = AssignmentsPath + "/claim"
+const AssignmentBatchClaimPath = AssignmentClaimPath + "/batch"
 
 type RouteRegistrar interface {
 	Handle(method, pattern string, handler nethttp.Handler) error
@@ -51,7 +52,10 @@ func RegisterCustomerLifecycleRoutes(registrar RouteRegistrar, handler *Customer
 	if err := registrar.Handle(nethttp.MethodPost, AssignmentReleasePath, nethttp.HandlerFunc(handler.ReleaseToPublicPool)); err != nil {
 		return err
 	}
-	return registrar.Handle(nethttp.MethodPost, AssignmentClaimPath, nethttp.HandlerFunc(handler.ClaimFromPublicPool))
+	if err := registrar.Handle(nethttp.MethodPost, AssignmentClaimPath, nethttp.HandlerFunc(handler.ClaimFromPublicPool)); err != nil {
+		return err
+	}
+	return registrar.Handle(nethttp.MethodPost, AssignmentBatchClaimPath, nethttp.HandlerFunc(handler.BatchClaimFromPublicPool))
 }
 
 func RegisterOpportunityRoutes(registrar RouteRegistrar, handler *OpportunityHandler) error {

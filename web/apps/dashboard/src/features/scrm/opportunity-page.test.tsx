@@ -27,7 +27,7 @@ function apiWith(overrides: Partial<ScrmApi> = {}): ScrmApi {
     changeOpportunityStage: vi.fn().mockResolvedValue({ ...openOpportunity, status: 'won', stage: 'won', version: 3 }),
     appendFollowUp: vi.fn().mockResolvedValue({ id: 'f1', contactId: 'c1', content: '已发送方案', createdAt: '2026-08-01T00:00:00Z', createdBy: 3 }),
     listFollowUps: vi.fn().mockResolvedValue({ items: [], nextCursor: '' }),
-    listPublicPool: vi.fn(), updateAssignment: vi.fn(), releaseToPublicPool: vi.fn(), claimFromPublicPool: vi.fn(),
+    listPublicPool: vi.fn(), updateAssignment: vi.fn(), releaseToPublicPool: vi.fn(), claimFromPublicPool: vi.fn(), batchClaimFromPublicPool: vi.fn(),
     listTags: vi.fn(), createTag: vi.fn(), renameTag: vi.fn(), bindTags: vi.fn(),
     ...overrides,
   };

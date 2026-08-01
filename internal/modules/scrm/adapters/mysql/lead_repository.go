@@ -267,7 +267,7 @@ func (r *LeadRepository) mutateLead(ctx context.Context, tenantID, corpID int64,
 		return domain.Lead{}, err
 	}
 	if lead.Status == domain.LeadStatusConverted {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_contacts (id,tenant_id,corp_id,name,phone,version,created_at,updated_at) VALUES (?,?,?,?,?,1,?,?)`, lead.ID, lead.TenantID, lead.CorpID, lead.Name.String(), lead.Phone, lead.UpdatedAt, lead.UpdatedAt); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_contacts (id,tenant_id,corp_id,name,phone,source,version,created_at,updated_at) VALUES (?,?,?,?,?,?,1,?,?)`, lead.ID, lead.TenantID, lead.CorpID, lead.Name.String(), lead.Phone, lead.Source, lead.UpdatedAt, lead.UpdatedAt); err != nil {
 			return domain.Lead{}, err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_assignments (id,tenant_id,corp_id,contact_id,owner_id,status,version,created_at,updated_at) VALUES (?,?,?,?,?,?,1,?,?)`, lead.ID, lead.TenantID, lead.CorpID, lead.ID, lead.OwnerID, assignmentStatus(lead.OwnerID), lead.UpdatedAt, lead.UpdatedAt); err != nil {

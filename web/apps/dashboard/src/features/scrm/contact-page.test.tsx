@@ -31,8 +31,9 @@ describe('ContactPage', () => {
     fireEvent.change(screen.getByLabelText('联系人标签 ID'), { target: { value: 'important' } });
     fireEvent.click(screen.getByRole('button', { name: '添加标签' }));
     await waitFor(() => expect(api.bindTags).toHaveBeenCalledWith(expect.objectContaining({ corpId: 7, contactIds: ['c1'], tagId: 'important', idempotencyKey: expect.any(String) })));
+    fireEvent.change(screen.getByLabelText('联系人入海原因'), { target: { value: '长期未跟进' } });
     fireEvent.click(screen.getByRole('button', { name: '进入公海' }));
-    await waitFor(() => expect(api.releaseToPublicPool).toHaveBeenCalledWith({ corpId: 7, contactId: 'c1', version: 4, idempotencyKey: 'release-c1-4' }));
+    await waitFor(() => expect(api.releaseToPublicPool).toHaveBeenCalledWith({ corpId: 7, contactId: 'c1', version: 4, action: 'enter', reason: '长期未跟进', idempotencyKey: 'pool-enter-c1-4' }));
   });
 
   it('renders empty, forbidden, conflict and retry states with PageState', async () => {

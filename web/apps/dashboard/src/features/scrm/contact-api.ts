@@ -22,7 +22,7 @@ export type ContactApi = {
   bindTags(input: { corpId: number; tagId: string; contactIds: string[]; idempotencyKey: string }): Promise<void>;
   appendFollowUp(input: { corpId: number; contactId: string; content: string; idempotencyKey: string }): Promise<ContactDetail['followUps'][number]>;
   listFollowUps(input: { corpId: number; contactId: string }): Promise<{ items: ContactDetail['followUps']; nextCursor: string }>;
-  releaseToPublicPool(input: { corpId: number; contactId: string; version: number; idempotencyKey: string }): Promise<Assignment>;
+  releaseToPublicPool(input: { corpId: number; contactId: string; version: number; action: 'enter' | 'return' | 'reclaim'; reason: string; idempotencyKey: string }): Promise<Assignment>;
   createOpportunity(input: { corpId: number; contactId: string; stage: string; amount: number; startDate: string; endDate: string; ownerId: number | null; idempotencyKey: string }): Promise<ContactDetail['opportunities'][number]>;
 };
 
@@ -45,7 +45,10 @@ export function createContactApi(client: Client): ContactApi {
       return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups`, json(body, input.idempotencyKey)) as Promise<ContactDetail['followUps'][number]>;
     },
     async listFollowUps(input) { return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups?corpId=${input.corpId}`) as Promise<{ items: ContactDetail['followUps']; nextCursor: string }>; },
-    async releaseToPublicPool(input) { return client.request('/scrm/assignments/release', json(input, input.idempotencyKey)) as Promise<Assignment>; },
+    async releaseToPublicPool(input) {
+      const body = { corpId: input.corpId, contactId: input.contactId, version: input.version, action: input.action, reason: input.reason };
+      return client.request('/scrm/assignments/release', json(body, input.idempotencyKey)) as Promise<Assignment>;
+    },
     async createOpportunity(input) { return client.request('/scrm/opportunities', json(input, input.idempotencyKey)) as Promise<ContactDetail['opportunities'][number]>; },
   };
 }

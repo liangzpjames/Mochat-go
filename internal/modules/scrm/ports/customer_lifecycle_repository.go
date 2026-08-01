@@ -70,10 +70,37 @@ type AssignmentPage struct {
 }
 
 type ListPublicPoolFilter struct {
-	TenantID int64
-	CorpID   int64
-	Cursor   string
-	Limit    int
+	TenantID         int64
+	CorpID           int64
+	Keyword          string
+	Sources          []string
+	BusinessTypes    []string
+	TagIDs           []string
+	Regions          []string
+	Reasons          []string
+	PreviousOwnerIDs []int64
+	Cursor           string
+	Limit            int
+}
+
+type ClaimPublicPoolCommand struct {
+	TenantID       int64
+	CorpID         int64
+	ContactID      string
+	UserID         int64
+	Version        int64
+	IdempotencyKey string
+}
+
+type MoveToPublicPoolCommand struct {
+	TenantID       int64
+	CorpID         int64
+	ContactID      string
+	ActorID        int64
+	Version        int64
+	Action         string
+	Reason         string
+	IdempotencyKey string
 }
 
 type UpdateAssignmentCommand struct {
@@ -91,6 +118,6 @@ type AssignmentRepository interface {
 	GetContact(context.Context, int64, int64, string) (ContactDetail, error)
 	ListPublicPool(context.Context, ListPublicPoolFilter) (AssignmentPage, error)
 	UpdateAssignment(context.Context, UpdateAssignmentCommand) (domain.CustomerAssignment, error)
-	ReleaseToPublicPool(context.Context, int64, int64, string, int64, string) (domain.CustomerAssignment, error)
-	ClaimFromPublicPool(context.Context, int64, int64, string, int64, int64, string) (domain.CustomerAssignment, error)
+	MoveToPublicPool(context.Context, MoveToPublicPoolCommand) (domain.CustomerAssignment, error)
+	ClaimFromPublicPool(context.Context, ClaimPublicPoolCommand) (domain.CustomerAssignment, error)
 }

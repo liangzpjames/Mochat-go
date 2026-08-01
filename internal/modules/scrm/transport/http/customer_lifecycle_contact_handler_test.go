@@ -68,11 +68,14 @@ func (s *contactLifecycleServiceFake) ListPublicPool(context.Context, applicatio
 func (s *contactLifecycleServiceFake) UpdateAssignment(context.Context, ports.UpdateAssignmentCommand) (domain.CustomerAssignment, error) {
 	return domain.CustomerAssignment{}, nil
 }
-func (s *contactLifecycleServiceFake) ReleaseToPublicPool(context.Context, int64, int64, string, int64, string) (domain.CustomerAssignment, error) {
+func (s *contactLifecycleServiceFake) MoveToPublicPool(context.Context, ports.MoveToPublicPoolCommand) (domain.CustomerAssignment, error) {
 	return domain.CustomerAssignment{}, nil
 }
-func (s *contactLifecycleServiceFake) ClaimFromPublicPool(context.Context, int64, int64, string, int64, int64, string) (domain.CustomerAssignment, error) {
+func (s *contactLifecycleServiceFake) ClaimFromPublicPool(context.Context, ports.ClaimPublicPoolCommand) (domain.CustomerAssignment, error) {
 	return domain.CustomerAssignment{}, nil
+}
+func (s *contactLifecycleServiceFake) BatchClaimFromPublicPool(context.Context, application.BatchClaimPublicPoolCommand) ([]application.PublicPoolMutationResult, error) {
+	return nil, nil
 }
 
 type contactAuthorizerFake struct {

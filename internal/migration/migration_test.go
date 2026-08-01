@@ -82,11 +82,35 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0107_scrm_contact_lifecycle_idempotency" {
-		t.Fatalf("latest migration = %q, want 0107_scrm_contact_lifecycle_idempotency", latest.Version)
+	if latest.Version != "0108_scrm_public_pool_parity" {
+		t.Fatalf("latest migration = %q, want 0108_scrm_public_pool_parity", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
+	}
+}
+
+func TestPublicPoolParityMigrationIsReversibleAndSynced(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	read := func(path ...string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(append([]string{projectRoot}, path...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	up := read("deploy", "standalone", "migrations", "0108_scrm_public_pool_parity.up.sql")
+	down := read("deploy", "standalone", "migrations", "0108_scrm_public_pool_parity.down.sql")
+	for _, fragment := range []string{"`source`", "`business_type`", "`region`", "mochat_go_scrm_assignment_history", "previous_owner_id", "actor_id", "reason", "idx_scrm_pool_history_contact"} {
+		if !strings.Contains(up, fragment) {
+			t.Errorf("public-pool migration missing %q", fragment)
+		}
+	}
+	for _, fragment := range []string{"DROP TABLE IF EXISTS `mochat_go_scrm_assignment_history`", "DROP COLUMN `region`", "DROP COLUMN `business_type`", "DROP COLUMN `source`"} {
+		if !strings.Contains(down, fragment) {
+			t.Errorf("down migration missing %q", fragment)
+		}
 	}
 }
 

@@ -22,10 +22,17 @@ func NewCustomerLifecycleService(assignments ports.AssignmentRepository) (Custom
 }
 
 type ListPublicPoolQuery struct {
-	TenantID int64
-	CorpID   int64
-	Cursor   string
-	PageSize int
+	TenantID         int64
+	CorpID           int64
+	Keyword          string
+	Sources          []string
+	BusinessTypes    []string
+	TagIDs           []string
+	Regions          []string
+	Reasons          []string
+	PreviousOwnerIDs []int64
+	Cursor           string
+	PageSize         int
 }
 
 type ListContactsQuery struct {
@@ -100,7 +107,18 @@ func (s CustomerLifecycleService) ListPublicPool(ctx context.Context, query List
 	if limit > maximumPageSize {
 		limit = maximumPageSize
 	}
-	page, err := s.assignments.ListPublicPool(ctx, ports.ListPublicPoolFilter{TenantID: query.TenantID, CorpID: query.CorpID, Cursor: query.Cursor, Limit: limit})
+	for _, ownerID := range query.PreviousOwnerIDs {
+		if ownerID <= 0 {
+			return ports.AssignmentPage{}, fmt.Errorf("%w: invalid previous owner", ErrInvalidArgument)
+		}
+	}
+	page, err := s.assignments.ListPublicPool(ctx, ports.ListPublicPoolFilter{
+		TenantID: query.TenantID, CorpID: query.CorpID, Keyword: strings.TrimSpace(query.Keyword),
+		Sources: trimPublicPoolFilters(query.Sources), BusinessTypes: trimPublicPoolFilters(query.BusinessTypes),
+		TagIDs: trimPublicPoolFilters(query.TagIDs), Regions: trimPublicPoolFilters(query.Regions),
+		Reasons: trimPublicPoolFilters(query.Reasons), PreviousOwnerIDs: append([]int64(nil), query.PreviousOwnerIDs...),
+		Cursor: query.Cursor, Limit: limit,
+	})
 	if err != nil {
 		return ports.AssignmentPage{}, mapAssignmentError(err)
 	}
@@ -118,26 +136,101 @@ func (s CustomerLifecycleService) UpdateAssignment(ctx context.Context, command 
 	return assignment, nil
 }
 
-func (s CustomerLifecycleService) ReleaseToPublicPool(ctx context.Context, tenantID, corpID int64, contactID string, version int64, idempotencyKey string) (domain.CustomerAssignment, error) {
-	if tenantID <= 0 || corpID <= 0 || strings.TrimSpace(contactID) == "" || version <= 0 || strings.TrimSpace(idempotencyKey) == "" {
-		return domain.CustomerAssignment{}, fmt.Errorf("%w: invalid public pool release", ErrInvalidArgument)
+func (s CustomerLifecycleService) MoveToPublicPool(ctx context.Context, command ports.MoveToPublicPoolCommand) (domain.CustomerAssignment, error) {
+	command.ContactID = strings.TrimSpace(command.ContactID)
+	command.Reason = strings.TrimSpace(command.Reason)
+	command.IdempotencyKey = strings.TrimSpace(command.IdempotencyKey)
+	if command.TenantID <= 0 || command.CorpID <= 0 || command.ContactID == "" || command.ActorID <= 0 || command.Version <= 0 || command.Reason == "" || command.IdempotencyKey == "" || domain.ValidatePublicPoolAction(command.Action) != nil {
+		return domain.CustomerAssignment{}, fmt.Errorf("%w: invalid public pool move", ErrInvalidArgument)
 	}
-	assignment, err := s.assignments.ReleaseToPublicPool(ctx, tenantID, corpID, contactID, version, idempotencyKey)
+	assignment, err := s.assignments.MoveToPublicPool(ctx, command)
 	if err != nil {
 		return domain.CustomerAssignment{}, mapAssignmentError(err)
 	}
 	return assignment, nil
 }
 
-func (s CustomerLifecycleService) ClaimFromPublicPool(ctx context.Context, tenantID, corpID int64, contactID string, userID, version int64, idempotencyKey string) (domain.CustomerAssignment, error) {
-	if tenantID <= 0 || corpID <= 0 || strings.TrimSpace(contactID) == "" || userID <= 0 || version <= 0 || strings.TrimSpace(idempotencyKey) == "" {
+func (s CustomerLifecycleService) ClaimFromPublicPool(ctx context.Context, command ports.ClaimPublicPoolCommand) (domain.CustomerAssignment, error) {
+	command.ContactID = strings.TrimSpace(command.ContactID)
+	command.IdempotencyKey = strings.TrimSpace(command.IdempotencyKey)
+	if command.TenantID <= 0 || command.CorpID <= 0 || command.ContactID == "" || command.UserID <= 0 || command.Version <= 0 || command.IdempotencyKey == "" {
 		return domain.CustomerAssignment{}, fmt.Errorf("%w: invalid public pool claim", ErrInvalidArgument)
 	}
-	assignment, err := s.assignments.ClaimFromPublicPool(ctx, tenantID, corpID, contactID, userID, version, idempotencyKey)
+	assignment, err := s.assignments.ClaimFromPublicPool(ctx, command)
 	if err != nil {
 		return domain.CustomerAssignment{}, mapAssignmentError(err)
 	}
 	return assignment, nil
+}
+
+type PublicPoolClaimTarget struct {
+	ContactID      string `json:"contactId"`
+	Version        int64  `json:"version"`
+	IdempotencyKey string `json:"idempotencyKey"`
+}
+
+type BatchClaimPublicPoolCommand struct {
+	TenantID int64
+	CorpID   int64
+	UserID   int64
+	Targets  []PublicPoolClaimTarget
+}
+
+type PublicPoolMutationResult struct {
+	ID         string                     `json:"id"`
+	Status     string                     `json:"status"`
+	ErrorCode  string                     `json:"errorCode"`
+	Assignment *domain.CustomerAssignment `json:"assignment,omitempty"`
+}
+
+func (s CustomerLifecycleService) BatchClaimFromPublicPool(ctx context.Context, command BatchClaimPublicPoolCommand) ([]PublicPoolMutationResult, error) {
+	if command.TenantID <= 0 || command.CorpID <= 0 || command.UserID <= 0 || len(command.Targets) == 0 || len(command.Targets) > 100 {
+		return nil, fmt.Errorf("%w: invalid public pool batch claim", ErrInvalidArgument)
+	}
+	results := make([]PublicPoolMutationResult, 0, len(command.Targets))
+	for _, target := range command.Targets {
+		contactID := strings.TrimSpace(target.ContactID)
+		result := PublicPoolMutationResult{ID: contactID, Status: "failed"}
+		if contactID == "" || target.Version <= 0 || strings.TrimSpace(target.IdempotencyKey) == "" {
+			result.ErrorCode = "VALIDATION_ERROR"
+			results = append(results, result)
+			continue
+		}
+		assignment, err := s.ClaimFromPublicPool(ctx, ports.ClaimPublicPoolCommand{TenantID: command.TenantID, CorpID: command.CorpID, ContactID: contactID, UserID: command.UserID, Version: target.Version, IdempotencyKey: target.IdempotencyKey})
+		if err != nil {
+			result.ErrorCode = publicPoolErrorCode(err)
+			results = append(results, result)
+			continue
+		}
+		result.Status, result.Assignment = "succeeded", &assignment
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func publicPoolErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ports.ErrAssignmentConflict):
+		return "CONFLICT"
+	case errors.Is(err, ports.ErrAssignmentForbidden):
+		return "FORBIDDEN"
+	case errors.Is(err, ErrNotFound):
+		return "NOT_FOUND"
+	case errors.Is(err, ErrInvalidArgument):
+		return "VALIDATION_ERROR"
+	default:
+		return "UNAVAILABLE"
+	}
+}
+
+func trimPublicPoolFilters(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func mapAssignmentError(err error) error {

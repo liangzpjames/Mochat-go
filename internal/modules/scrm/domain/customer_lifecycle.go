@@ -15,6 +15,10 @@ const (
 	AssignmentCollaborating = "collaborating"
 	AssignmentPublicPool    = "public_pool"
 
+	PublicPoolActionEnter   = "enter"
+	PublicPoolActionReturn  = "return"
+	PublicPoolActionReclaim = "reclaim"
+
 	OpportunityStageProposal = "proposal"
 	OpportunityStatusWon     = "won"
 	OpportunityStatusLost    = "lost"
@@ -42,6 +46,25 @@ type CustomerAssignment struct {
 	Status          string
 	Version         int64
 	UpdatedAt       time.Time
+	ContactName     string
+	Source          string
+	BusinessType    string
+	TagNames        []string
+	Region          string
+	RecycleCount    int64
+	PoolAction      string
+	PoolReason      string
+	PreviousOwnerID *int64
+	LastFollowUpAt  *time.Time
+}
+
+func ValidatePublicPoolAction(action string) error {
+	switch action {
+	case PublicPoolActionEnter, PublicPoolActionReturn, PublicPoolActionReclaim:
+		return nil
+	default:
+		return fmt.Errorf("invalid public pool action: %s", action)
+	}
 }
 
 func ValidateAssignmentStatus(status string) error {

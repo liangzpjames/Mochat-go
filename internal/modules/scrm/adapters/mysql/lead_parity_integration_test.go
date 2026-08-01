@@ -129,14 +129,15 @@ func TestLeadParityMariaDBConversionPersistsContactAndAssignment(t *testing.T) {
 		t.Fatalf("converted=%#v", converted)
 	}
 	var contacts, assignments int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mochat_go_scrm_contacts WHERE tenant_id=? AND corp_id=? AND id=?", namespace.tenantID, corpID, lead.ID).Scan(&contacts); err != nil {
+	var contactSource string
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(MAX(source),'') FROM mochat_go_scrm_contacts WHERE tenant_id=? AND corp_id=? AND id=?", namespace.tenantID, corpID, lead.ID).Scan(&contacts, &contactSource); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mochat_go_scrm_assignments WHERE tenant_id=? AND corp_id=? AND contact_id=? AND owner_id=?", namespace.tenantID, corpID, lead.ID, ownerID).Scan(&assignments); err != nil {
 		t.Fatal(err)
 	}
-	if contacts != 1 || assignments != 1 {
-		t.Fatalf("contacts=%d assignments=%d", contacts, assignments)
+	if contacts != 1 || assignments != 1 || contactSource != string(domain.LeadSourceManual) {
+		t.Fatalf("contacts=%d assignments=%d source=%q", contacts, assignments, contactSource)
 	}
 }
 

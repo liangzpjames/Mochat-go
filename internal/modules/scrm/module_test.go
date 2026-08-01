@@ -76,6 +76,7 @@ func TestRegisterRoutesInstallsAllSCRMRoutes(t *testing.T) {
 		{method: nethttp.MethodPut, pattern: transporthttp.AssignmentsPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.AssignmentReleasePath},
 		{method: nethttp.MethodPost, pattern: transporthttp.AssignmentClaimPath},
+		{method: nethttp.MethodPost, pattern: transporthttp.AssignmentBatchClaimPath},
 		{method: nethttp.MethodGet, pattern: transporthttp.OpportunitiesPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.OpportunitiesPath},
 		{method: nethttp.MethodPost, pattern: transporthttp.OpportunitiesPath + "/{id}/stage"},

@@ -14,8 +14,8 @@ describe('contact api', () => {
   it('sends versioned idempotent lifecycle mutations', async () => {
     const request = vi.fn().mockResolvedValue({});
     const api = createContactApi({ request });
-    await api.releaseToPublicPool({ corpId: 7, contactId: 'c1', version: 3, idempotencyKey: 'release-c1-3' });
-    expect(request).toHaveBeenCalledWith('/scrm/assignments/release', expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'Idempotency-Key': 'release-c1-3' }) }));
+    await api.releaseToPublicPool({ corpId: 7, contactId: 'c1', version: 3, action: 'enter', reason: '长期未跟进', idempotencyKey: 'release-c1-3' });
+    expect(request).toHaveBeenCalledWith('/scrm/assignments/release', expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'Idempotency-Key': 'release-c1-3' }), body: JSON.stringify({ corpId: 7, contactId: 'c1', version: 3, action: 'enter', reason: '长期未跟进' }) }));
   });
 
   it('sends the minimal follow-up payload', async () => {
