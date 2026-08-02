@@ -15,10 +15,26 @@ export type DashboardOverviewTrendPoint = {
 export type DashboardOverview = {
   cards: readonly DashboardOverviewCard[];
   trend: readonly DashboardOverviewTrendPoint[];
+  summary?: DashboardOverviewSummary;
   updatedAt: string;
   page?: number;
   pageSize?: number;
   total?: number;
+};
+
+export type DashboardOverviewSummary = {
+  weChatContactNum: number;
+  weChatRoomNum: number;
+  roomMemberNum: number;
+  corpMemberNum: number;
+  addContactNum: number;
+  lastAddContactNum: number;
+  addIntoRoomNum: number;
+  lastAddIntoRoomNum: number;
+  lossContactNum: number;
+  lastLossContactNum: number;
+  quitRoomNum: number;
+  lastQuitRoomNum: number;
 };
 
 export type DashboardOverviewQuery = {
@@ -49,6 +65,16 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+const summaryKeys = [
+  'weChatContactNum', 'weChatRoomNum', 'roomMemberNum', 'corpMemberNum',
+  'addContactNum', 'lastAddContactNum', 'addIntoRoomNum', 'lastAddIntoRoomNum',
+  'lossContactNum', 'lastLossContactNum', 'quitRoomNum', 'lastQuitRoomNum',
+] as const satisfies readonly (keyof DashboardOverviewSummary)[];
+
+function parseSummary(value: Record<string, unknown>): DashboardOverviewSummary {
+  return Object.fromEntries(summaryKeys.map((key) => [key, isFiniteNumber(value[key]) ? value[key] : 0])) as DashboardOverviewSummary;
+}
+
 function parseDashboardOverview(value: unknown): DashboardOverview {
   if (!isRecord(value) || !Array.isArray(value.cards) || !Array.isArray(value.trend)
     || typeof value.updatedAt !== 'string') {
@@ -72,7 +98,7 @@ function parseDashboardOverview(value: unknown): DashboardOverview {
   const page = isFiniteNumber(value.page) ? value.page : 1;
   const pageSize = isFiniteNumber(value.pageSize) ? value.pageSize : trend.length;
   const total = isFiniteNumber(value.total) ? value.total : trend.length;
-  return { cards, trend, updatedAt: value.updatedAt, page, pageSize, total };
+  return { cards, trend, summary: parseSummary(value), updatedAt: value.updatedAt, page, pageSize, total };
 }
 
 function serializeQuery(input: DashboardOverviewQuery): string {

@@ -18,6 +18,10 @@ describe('createDashboardOverviewApi', () => {
         },
       ],
       updatedAt: '2026-07-31 09:30:00',
+      addContactNum: 12,
+      lastAddContactNum: 9,
+      lossContactNum: 2,
+      corpMemberNum: 18,
       page: 1,
       pageSize: 20,
       total: 1,
@@ -34,7 +38,17 @@ describe('createDashboardOverviewApi', () => {
       period: 'day',
       page: 1,
       pageSize: 20,
-    })).resolves.toEqual(response);
+    })).resolves.toEqual(expect.objectContaining({
+      cards: response.cards,
+      trend: response.trend,
+      updatedAt: response.updatedAt,
+      summary: expect.objectContaining({
+        addContactNum: 12,
+        lastAddContactNum: 9,
+        lossContactNum: 2,
+        corpMemberNum: 18,
+      }),
+    }));
 
     expect(request).toHaveBeenCalledWith(
       '/corpData/index?corpId=corp+7&startDate=2026-07-01&endDate=2026-07-31&employeeIds=&departmentIds=&period=day&page=1&pageSize=20',

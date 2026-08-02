@@ -38,6 +38,20 @@ const overview: DashboardOverview = {
     },
   ],
   updatedAt: '2026-07-31 09:30:00',
+  summary: {
+    weChatContactNum: 137,
+    weChatRoomNum: 29,
+    roomMemberNum: 86,
+    corpMemberNum: 18,
+    addContactNum: 12,
+    lastAddContactNum: 9,
+    addIntoRoomNum: 8,
+    lastAddIntoRoomNum: 6,
+    lossContactNum: 2,
+    lastLossContactNum: 3,
+    quitRoomNum: 1,
+    lastQuitRoomNum: 1,
+  },
   page: 1,
   pageSize: 20,
   total: 1,
@@ -128,7 +142,7 @@ describe('DashboardOverviewPage', () => {
     expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
   });
 
-  it('shows an empty state for a successful empty response', async () => {
+  it('keeps the complete business dashboard visible for a successful empty response', async () => {
     renderPage({
       load: vi.fn(() => Promise.resolve({
         cards: [],
@@ -137,7 +151,13 @@ describe('DashboardOverviewPage', () => {
       })),
     });
 
-    expect(await screen.findByText('当前日期范围暂无数据')).not.toBeNull();
+    expect(await screen.findByRole('heading', { name: 'AI 洞察' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '数据概览' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '会话数据' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '质检数据' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '员工会话数据排行' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '员工会话轨迹一览' })).not.toBeNull();
+    expect(screen.getAllByText('暂无数据').length).toBeGreaterThan(0);
   });
 
   it('shows a dedicated forbidden state without stale statistics', async () => {
