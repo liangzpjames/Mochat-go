@@ -171,6 +171,11 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
     setSearchParams(updateSearch(searchParams, { page: nextPage, pageSize }));
   }
 
+  function changeConversationType(conversationType: ConversationSearch['conversationType']) {
+    setFilterError(null);
+    setSearchParams(updateSearch(searchParams, { conversationType, page: 1, pageSize }));
+  }
+
   const archiveUnauthorized = isArchiveUnauthorized(listQuery.error);
   const forbidden = listQuery.error instanceof ApiError
     && listQuery.error.kind === 'forbidden'
@@ -193,7 +198,53 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
           <h1>全局消息</h1>
           <p>查询当前企业内有权限查看的员工、客户与群聊会话。</p>
         </div>
+        <button
+          aria-label="刷新消息"
+          disabled={listQuery.isFetching}
+          onClick={() => void listQuery.refetch()}
+          type="button"
+        >
+          {listQuery.isFetching && !listQuery.isPending ? '刷新中…' : '刷新消息'}
+        </button>
       </header>
+
+      {listQuery.data !== undefined && (
+        <section aria-label="查询概览" className="conversation-global-overview">
+          <article>
+            <span>会话总量</span>
+            <strong>{listQuery.data.total}</strong>
+            <small>符合当前筛选条件</small>
+          </article>
+          <article>
+            <span>当前页会话</span>
+            <strong>{listQuery.data.list.length}</strong>
+            <small>第 {page} / {totalPages} 页</small>
+          </article>
+          <article>
+            <span>当前范围</span>
+            <strong>{currentFilters.conversationType === '' ? '全部' : targetTypeLabel(currentFilters.conversationType)}</strong>
+            <small>员工、客户与群聊归档</small>
+          </article>
+        </section>
+      )}
+
+      <nav aria-label="会话类型快捷筛选" className="conversation-global-type-tabs">
+        {([
+          ['', '全部会话'],
+          ['employee', '员工会话'],
+          ['customer', '客户会话'],
+          ['room', '群聊会话'],
+        ] as const).map(([value, label]) => (
+          <button
+            aria-pressed={currentFilters.conversationType === value}
+            key={value || 'all'}
+            onClick={() => changeConversationType(value)}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
 
       <form className="conversation-global-filters dashboard-filter-bar" onSubmit={applyFilters}>
         <label>

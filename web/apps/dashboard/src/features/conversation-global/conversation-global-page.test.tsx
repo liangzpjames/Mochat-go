@@ -84,6 +84,38 @@ function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-all') {
 }
 
 describe('ConversationGlobalPage', () => {
+  it('shows honest query summaries and switches conversation type from quick filters', async () => {
+    const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
+    const { container } = renderPage({ search, detail: vi.fn() }, '/chat/v2-all?page=1&pageSize=20');
+
+    expect((await screen.findByRole('region', { name: '查询概览' })).textContent).toContain('61');
+    expect(screen.getByText('会话总量')).not.toBeNull();
+    expect(screen.getByText('当前页会话')).not.toBeNull();
+    expect(container.querySelector('.conversation-global-overview')).not.toBeNull();
+    expect(container.querySelector('.conversation-global-type-tabs')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '客户会话' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('当前地址').textContent).toContain('conversationType=customer');
+      expect(screen.getByLabelText('当前地址').textContent).toContain('page=1');
+    });
+  });
+
+  it('refreshes the current query without changing its URL filters', async () => {
+    const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
+    renderPage(
+      { search, detail: vi.fn() },
+      '/chat/v2-all?keyword=%E6%8A%A5%E4%BB%B7&page=1&pageSize=20',
+    );
+    await screen.findByText('星河科技');
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新消息' }));
+
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText('当前地址').textContent).toContain('keyword=');
+  });
+
   it('restores filters from the URL, renders real results, and paginates in the URL', async () => {
     const search = vi.fn(() => Promise.resolve(page));
     const { container } = renderPage({ search, detail: vi.fn() },
