@@ -7,6 +7,7 @@ import { createBenchmarkP0Pages, createPageRegistry } from './page-registry';
 import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
+import { Phase33OperationsPage } from '../features/phase33/phase33-operations-page';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -57,6 +58,21 @@ describe('createPageRegistry', () => {
     });
 
     expect((pages['/chat/v2-all'] as { type?: unknown }).type).toBe(ConversationGlobalPage);
+  });
+
+  it.each([
+    '/chat/file-audio',
+    '/chat/resign-staff',
+    '/chat/refuse-archive',
+    '/customer/inheritance',
+  ])('registers the Task 1 native operation page for %s', (path) => {
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }), exportCsv: () => Promise.resolve(new Blob()) },
+      conversationGlobalApi: { search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }), detail: () => Promise.reject(new Error('not loaded')) },
+      businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
+    });
+
+    expect((pages[path] as { type?: unknown }).type).toBe(Phase33OperationsPage);
   });
 
   it('prefers P0 implementations over P1 implementations at the same path', () => {
