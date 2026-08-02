@@ -982,6 +982,19 @@ body {
 .conversation-trajectory-event header span { color: #536bf4; font-size: .74rem; }
 .conversation-trajectory-event time { color: #9299a8; font-size: .72rem; margin-left: auto; }
 .conversation-trajectory-event p { color: #4a5264; line-height: 1.55; margin: 8px 0 0; overflow-wrap: anywhere; }
+.conversation-export-page { display: grid; gap: 16px; margin: 0 auto; max-width: 1320px; }
+.conversation-export-filter { align-items: end; display: grid; gap: 10px; grid-template-columns: auto minmax(220px, 1fr) auto auto; padding: 16px 20px; }
+.conversation-export-filter label { color: #737b8c; font-size: .8rem; }
+.conversation-export-filter input { background: #f7f8fc; border: 1px solid #dfe4ee; border-radius: 8px; font: inherit; padding: 9px 10px; }
+.conversation-export-filter button { background: #536bf4; border: 1px solid #536bf4; border-radius: 8px; color: #fff; cursor: pointer; font: inherit; padding: 9px 14px; white-space: nowrap; }
+.conversation-export-filter button:disabled { cursor: not-allowed; opacity: .5; }
+.conversation-export-results { overflow: hidden; }
+.conversation-export-results > header { align-items: center; border-bottom: 1px solid #edf0f6; display: flex; justify-content: space-between; padding: 17px 20px; }
+.conversation-export-results > header span { color: #9299a8; font-size: .78rem; }
+.conversation-export-results table { border-collapse: collapse; min-width: 760px; width: 100%; }
+.conversation-export-results th, .conversation-export-results td { border-bottom: 1px solid #f0f2f6; padding: 13px 18px; text-align: left; }
+.conversation-export-results th { background: #fafbfe; color: #737b8c; font-size: .78rem; }
+.conversation-export-results td { color: #4a5264; font-size: .84rem; }
 .sensitive-word-page { display: grid; gap: 16px; margin: 0 auto; max-width: 1320px; }
 .sensitive-word-header { background: linear-gradient(135deg, #fff 0%, #fff8f6 100%); overflow: hidden; padding: 25px 28px; position: relative; }
 .sensitive-word-header::after { background: radial-gradient(circle, rgb(241 104 88 / 13%) 0%, transparent 68%); content: ''; height: 190px; pointer-events: none; position: absolute; right: -45px; top: -80px; width: 190px; }
