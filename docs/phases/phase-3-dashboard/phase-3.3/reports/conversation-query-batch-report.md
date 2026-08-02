@@ -1,55 +1,47 @@
-# Phase 3.3 批次 1：会话检索基础实施报告
+# Phase 3.3 首个页面：员工会话改造记录
 
-## 范围
+## 本轮范围
 
-本批次完成三个会话菜单的真实查询页面接入：
+本轮只实现 `/chat/v2-staff`，用于确认页面结构和交互方向。客户会话、群聊会话及其他 Phase 3.3 菜单暂不继续，等待页面审核后再展开。
 
-| 路由 | 页面 | 实现方式 |
-| --- | --- | --- |
-| `/chat/v2-staff` | 员工会话 | 复用会话存档查询底座，固定 `conversationType=employee` |
-| `/chat/v2-customer` | 客户会话 | 复用会话存档查询底座，固定 `conversationType=customer` |
-| `/chat/v2-group` | 群聊会话 | 复用会话存档查询底座，固定 `conversationType=room` |
+## 设计修正
 
-## 实现内容
+对比圆弧页面后，员工会话的正确语义不是将会话类型固定为“员工”，而是先选择员工，再查看该员工关联的客户、客户群和同事会话。因此页面采用三栏结构：
 
-- 扩展 `ConversationGlobalPage`，支持 `fixedConversationType`，共享现有筛选、分页、详情抽屉、授权错误、刷新恢复和空/异常状态。
-- 在 `createBenchmarkP0Pages` 中为三条 Phase 3.3 路由注入真实页面，避免继续落到 `DemoPage`。
-- 固定页面隐藏跨类型快捷筛选，并在查询时强制服务端收到对应类型，客户端 URL 不能覆盖菜单范围。
-- 保留会话存档未开通 `40301` 与普通 RBAC `403` 的不同反馈。
+1. 左栏：企业员工搜索、员工列表和当前选中状态。
+2. 中栏：按员工查询会话，支持全部、客户、客户群、同事筛选和分页。
+3. 右栏：查看选中会话的消息详情，并保留“暂无会话”“暂无详情”“加载失败”等状态。
 
-## 复用边界
+## 已实现功能
 
-本批次复用以下既有后端入口：
+- 新增员工列表接口适配：`/workMessage/fromUsers?page=1&perPage=100&name=...`。
+- 员工选择会真实传递 `employeeIds` 到 `/workMessage/toUsers?view=global`。
+- 会话筛选默认使用全部类型，不再错误地传递 `conversationType=employee`。
+- 使用 `/workMessage/detail?id=...` 加载右侧消息详情。
+- 员工、会话、详情三层查询均支持加载、空数据、错误和刷新状态。
+- 查询状态保存在 URL 中，刷新页面后可以保留员工、会话类型、页码和选中会话。
+- 保留存档权限和后端数据范围，不新增写入或导出动作。
 
-- `/workMessage/toUsers?view=global`；
-- `/workMessage/detail`；
-- `WorkMessageToUsers`、`WorkMessageByArchiveID`；
-- `WorkMessageArchiveAuthorized` 的企业存档授权判断。
-
-本批次没有把旧接口直接暴露给三个页面以外的功能，也没有新增 migration。轨迹、媒体、导出、风险事件和规则配置不属于本批次，继续保持未完成状态。
-
-## 验证证据
+## 验证结果
 
 ```text
-pnpm exec vitest run
-  56 test files passed
-  382 tests passed
+pnpm exec vitest run src/features/conversation-global/employee-conversation-page.test.tsx
+  2 tests passed
+
+pnpm exec vitest run src/features/conversation-global/conversation-global-api.test.ts src/benchmark/page-registry.test.tsx
+  20 tests passed
 
 pnpm exec tsc --noEmit -p tsconfig.json
   passed
-
-go test ./...
-  passed
 ```
 
-TDD 验证包含：
+## 待审核事项
 
-1. 先添加固定会话类型测试并确认失败；
-2. 实现页面固定类型和注册注入；
-3. 运行会话页面与 registry 测试，33 项通过；
-4. 运行 Dashboard 全量测试和类型检查，382 项通过；
-5. 运行 Go 全量回归，全部通过。
+请重点确认以下方向：
 
-## 当前状态限制
+- 三栏布局是否符合系统使用习惯；
+- 左侧员工选择、中间会话列表、右侧消息详情的层级是否清晰；
+- “全部 / 客户 / 客户群 / 同事”筛选是否足够，是否需要补充内部群；
+- 页面密度、颜色和状态提示是否需要继续向圆弧页面靠拢。
 
-本批次代码已具备自动化查询合同，但尚未执行真实登录态浏览器验收，也未将 manifest 中三页的 `implementation/backend/acceptance` 提升为完成状态。必须在具备有效会话存档授权、测试企业和浏览器证据后再更新 manifest。
+本轮不更新 benchmark manifest 的完成状态，也不推进其他 Phase 3.3 页面。

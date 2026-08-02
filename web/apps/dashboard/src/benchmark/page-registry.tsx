@@ -5,6 +5,7 @@ import type { DashboardOverviewApi } from '../features/dashboard-overview/dashbo
 import { DashboardOverviewPage } from '../features/dashboard-overview/dashboard-overview-page';
 import type { ConversationGlobalApi } from '../features/conversation-global/conversation-global-api';
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
+import { EmployeeConversationPage } from '../features/conversation-global/employee-conversation-page';
 import {
   channelCodeDemo,
   customerConversationDemo,
@@ -48,9 +49,7 @@ export function createBenchmarkP0Pages({
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
-    '/chat/v2-staff': <ConversationGlobalPage api={conversationGlobalApi} fixedConversationType="employee" />,
-    '/chat/v2-customer': <ConversationGlobalPage api={conversationGlobalApi} fixedConversationType="customer" />,
-    '/chat/v2-group': <ConversationGlobalPage api={conversationGlobalApi} fixedConversationType="room" />,
+    '/chat/v2-staff': <EmployeeConversationPage api={conversationGlobalApi} />,
     ...(sensitiveWordApi === undefined ? {} : { '/ai-insight/v2/sensitive-word': <SensitiveWordPage api={sensitiveWordApi} /> }),
     ...(leadApi === undefined ? {} : { '/customer/clue/default': <LeadPage api={leadApi} /> }),
     ...(scrmApi === undefined ? {} : {

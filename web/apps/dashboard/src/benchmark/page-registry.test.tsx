@@ -7,6 +7,7 @@ import { createBenchmarkP0Pages, createPageRegistry } from './page-registry';
 import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
+import { EmployeeConversationPage } from '../features/conversation-global/employee-conversation-page';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -53,16 +54,18 @@ describe('createPageRegistry', () => {
       conversationGlobalApi: {
         search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
         detail: () => Promise.reject(new Error('not loaded')),
+        employees: () => Promise.resolve([]),
       },
     });
 
     expect((pages['/chat/v2-all'] as { type?: unknown }).type).toBe(ConversationGlobalPage);
   });
 
-  it('registers scoped employee, customer, and room conversation pages', () => {
+  it('registers the employee conversation page', () => {
     const conversationGlobalApi = {
       search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
       detail: () => Promise.reject(new Error('not loaded')),
+      employees: () => Promise.resolve([]),
     };
     const pages = createBenchmarkP0Pages({
       dashboardOverviewApi: {
@@ -72,14 +75,7 @@ describe('createPageRegistry', () => {
       conversationGlobalApi,
     });
 
-    expect((pages['/chat/v2-staff'] as { type?: unknown; props?: { fixedConversationType?: string } }).type)
-      .toBe(ConversationGlobalPage);
-    expect((pages['/chat/v2-staff'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
-      .toBe('employee');
-    expect((pages['/chat/v2-customer'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
-      .toBe('customer');
-    expect((pages['/chat/v2-group'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
-      .toBe('room');
+    expect((pages['/chat/v2-staff'] as { type?: unknown }).type).toBe(EmployeeConversationPage);
   });
 
   it('prefers P0 implementations over P1 implementations at the same path', () => {
