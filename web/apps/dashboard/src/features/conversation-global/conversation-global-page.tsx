@@ -29,7 +29,10 @@ function positiveInteger(value: string | null, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function filtersFromSearch(search: URLSearchParams): FilterDraft {
+function filtersFromSearch(
+  search: URLSearchParams,
+  fixedConversationType: ConversationTargetType | undefined,
+): FilterDraft {
   const rawConversationType = search.get('conversationType');
   const conversationType = rawConversationType === 'employee'
     || rawConversationType === 'customer'
@@ -38,7 +41,7 @@ function filtersFromSearch(search: URLSearchParams): FilterDraft {
     : '';
   return {
     keyword: search.get('keyword') ?? '',
-    conversationType,
+    conversationType: fixedConversationType ?? conversationType,
     employeeIds: search.getAll('employeeIds').join(','),
     startAt: search.get('startAt') ?? '',
     endAt: search.get('endAt') ?? '',
@@ -74,10 +77,16 @@ function messageText(message: ConversationMessage): string {
   return JSON.stringify(message.content);
 }
 
-export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) {
+export function ConversationGlobalPage({
+  api,
+  fixedConversationType,
+}: {
+  api: ConversationGlobalApi;
+  fixedConversationType?: ConversationTargetType;
+}) {
   const access = useDashboardAccess();
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentFilters = filtersFromSearch(searchParams);
+  const currentFilters = filtersFromSearch(searchParams, fixedConversationType);
   const [draft, setDraft] = useState<FilterDraft>(currentFilters);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [selectedID, setSelectedID] = useState<string | null>(null);
@@ -89,8 +98,8 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
   const searchText = searchParams.toString();
 
   useEffect(() => {
-    setDraft(filtersFromSearch(new URLSearchParams(searchText)));
-  }, [searchText]);
+    setDraft(filtersFromSearch(new URLSearchParams(searchText), fixedConversationType));
+  }, [fixedConversationType, searchText]);
 
   const input = useMemo<ConversationSearch>(() => ({
     keyword: currentFilters.keyword,
@@ -151,7 +160,7 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
     setFilterError(null);
     const next = updateSearch(searchParams, {
       keyword: draft.keyword,
-      conversationType: draft.conversationType,
+      conversationType: fixedConversationType ?? draft.conversationType,
       startAt: draft.startAt,
       endAt: draft.endAt,
       page: 1,
@@ -189,14 +198,19 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
   const showRoomLimitation = currentFilters.conversationType === 'room'
     || listQuery.data?.list.some((item) => item.targetType === 'room') === true;
   const totalPages = Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / pageSize));
+  const pageTitle = fixedConversationType === undefined
+    ? '全局消息'
+    : `${targetTypeLabel(fixedConversationType)}会话`;
 
   return (
     <section className="conversation-global-page">
       <header className="conversation-global-header dashboard-page-header dashboard-data-card">
         <div>
           <p className="conversation-global-eyebrow">会话存档</p>
-          <h1>全局消息</h1>
-          <p>查询当前企业内有权限查看的员工、客户与群聊会话。</p>
+          <h1>{pageTitle}</h1>
+          <p>{fixedConversationType === undefined
+            ? '查询当前企业内有权限查看的员工、客户与群聊会话。'
+            : `查询当前企业内有权限查看的${targetTypeLabel(fixedConversationType)}会话。`}</p>
         </div>
         <button
           aria-label="刷新消息"
@@ -228,23 +242,25 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
         </section>
       )}
 
-      <nav aria-label="会话类型快捷筛选" className="conversation-global-type-tabs">
-        {([
-          ['', '全部会话'],
-          ['employee', '员工会话'],
-          ['customer', '客户会话'],
-          ['room', '群聊会话'],
-        ] as const).map(([value, label]) => (
-          <button
-            aria-pressed={currentFilters.conversationType === value}
-            key={value || 'all'}
-            onClick={() => changeConversationType(value)}
-            type="button"
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      {fixedConversationType === undefined && (
+        <nav aria-label="会话类型快捷筛选" className="conversation-global-type-tabs">
+          {([
+            ['', '全部会话'],
+            ['employee', '员工会话'],
+            ['customer', '客户会话'],
+            ['room', '群聊会话'],
+          ] as const).map(([value, label]) => (
+            <button
+              aria-pressed={currentFilters.conversationType === value}
+              key={value || 'all'}
+              onClick={() => changeConversationType(value)}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <form className="conversation-global-filters dashboard-filter-bar" onSubmit={applyFilters}>
         <label>
@@ -264,7 +280,8 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
               ...value,
               conversationType: event.target.value as ConversationSearch['conversationType'],
             }))}
-            value={draft.conversationType}
+            value={fixedConversationType ?? draft.conversationType}
+            disabled={fixedConversationType !== undefined}
           >
             <option value="">全部</option>
             <option value="employee">员工</option>

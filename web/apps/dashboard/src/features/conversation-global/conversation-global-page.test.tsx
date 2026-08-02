@@ -67,7 +67,11 @@ function LocationProbe() {
   return <output aria-label="当前地址">{location.pathname}{location.search}</output>;
 }
 
-function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-all') {
+function renderPage(
+  api: ConversationGlobalApi,
+  entry = '/chat/v2-all',
+  fixedConversationType?: 'employee' | 'customer' | 'room',
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -75,7 +79,10 @@ function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-all') {
     <MemoryRouter initialEntries={[entry]}>
       <QueryClientProvider client={queryClient}>
         <DashboardAccessProvider value={access}>
-          <ConversationGlobalPage api={api} />
+          <ConversationGlobalPage
+            api={api}
+            {...(fixedConversationType === undefined ? {} : { fixedConversationType })}
+          />
           <LocationProbe />
         </DashboardAccessProvider>
       </QueryClientProvider>
@@ -84,6 +91,17 @@ function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-all') {
 }
 
 describe('ConversationGlobalPage', () => {
+  it('locks a scoped page to its menu conversation type', async () => {
+    const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
+    renderPage({ search, detail: vi.fn() }, '/chat/v2-staff?page=1&pageSize=20', 'employee');
+
+    await screen.findByText('星河科技');
+
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ conversationType: 'employee' }));
+    expect(screen.getByRole('heading', { name: '员工会话' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '客户会话' })).toBeNull();
+  });
+
   it('shows honest query summaries and switches conversation type from quick filters', async () => {
     const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
     const { container } = renderPage({ search, detail: vi.fn() }, '/chat/v2-all?page=1&pageSize=20');
