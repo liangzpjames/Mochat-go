@@ -12,6 +12,14 @@ function node(
 }
 
 describe('buildMenuAccess', () => {
+  it('maps the legacy system-home menu endpoint to the overview page route', () => {
+    const tree = [node('top', null, [node('section', null, [
+      node('系统首页', '/dashboard/corpData/index'),
+    ])])];
+
+    expect([...buildMenuAccess(tree, new Set(['/index'])).routes]).toEqual(['/index']);
+  });
+
   it('registers third-level pages as routes and deeper entries as actions', () => {
     const tree = [
       node('top', null, [

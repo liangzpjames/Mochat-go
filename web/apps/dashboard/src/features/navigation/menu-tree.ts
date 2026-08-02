@@ -13,6 +13,14 @@ function isInternalPath(value: string | null): value is string {
     && !value.startsWith('//');
 }
 
+function canonicalPagePath(value: string | null): string | null {
+  if (value === '/dashboard/corpData/index' || value === '/corpData/index') {
+    return '/index';
+  }
+
+  return value;
+}
+
 export function buildMenuAccess(
   nodes: readonly MenuNode[],
   registeredRoutes?: ReadonlySet<string>,
@@ -25,12 +33,13 @@ export function buildMenuAccess(
 
   const visit = (items: readonly MenuNode[], depth: number) => {
     for (const item of items) {
-      if (item.linkType === 1 && isInternalPath(item.linkUrl)) {
+      const pagePath = canonicalPagePath(item.linkUrl);
+      if (item.linkType === 1 && isInternalPath(pagePath)) {
         const isRegisteredPage = depth === 3
-          ? registeredRoutes === undefined || registeredRoutes.has(item.linkUrl)
-          : depth >= 4 && registeredRoutes?.has(item.linkUrl) === true;
+          ? registeredRoutes === undefined || registeredRoutes.has(pagePath)
+          : depth >= 4 && registeredRoutes?.has(pagePath) === true;
         if (isRegisteredPage) {
-          routes.add(item.linkUrl);
+          routes.add(pagePath);
         }
       }
       if (depth >= 4 && item.linkUrl?.startsWith('/')) {

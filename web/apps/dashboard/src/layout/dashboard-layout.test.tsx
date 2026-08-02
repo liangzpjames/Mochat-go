@@ -110,6 +110,16 @@ describe('Dashboard shell', () => {
     expect(screen.getByRole('link', { name: '数据概览' }).getAttribute('href')).toBe('/index');
   });
 
+  it('redirects the legacy corpData browser route to data overview', async () => {
+    renderDashboard({
+      session: true,
+      initialPath: '/corpData/index',
+      reactPages: { '/index': <h1>数据概览内容</h1> },
+    });
+
+    expect(await screen.findByRole('heading', { name: '数据概览内容' })).not.toBeNull();
+  });
+
   it('renders the SaaS Admin entry after access is loaded', async () => {
     renderDashboard({
       session: true,
