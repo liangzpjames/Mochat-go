@@ -48,4 +48,39 @@ describe('ContactPage', () => {
     const conflict = wrap(<ContactPage api={api} />); fireEvent.click(await screen.findByRole('button', { name: '查看张三' }));
     await waitFor(() => expect(conflict.container.querySelector('.page-state-conflict')).not.toBeNull());
   });
+
+  it('opens contact detail as an accessible drawer and restores focus on Escape', async () => {
+    const api = { listContacts: vi.fn().mockResolvedValue({ items: [contact], nextCursor: '' }), getContact: vi.fn().mockResolvedValue(detail), listTagCatalog: vi.fn().mockResolvedValue({ groups: [], tags: [] }), listFollowUps: vi.fn().mockResolvedValue({ items: [], nextCursor: '' }) } as any;
+    wrap(<ContactPage api={api} />);
+    const trigger = await screen.findByRole('button', { name: '查看张三' });
+    trigger.focus(); fireEvent.click(trigger);
+    const drawer = await screen.findByRole('dialog', { name: '联系人详情' });
+    expect(drawer.getAttribute('aria-modal')).toBe('true');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '关闭联系人详情' }));
+    const trapEvent = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    document.dispatchEvent(trapEvent);
+    expect(trapEvent.defaultPrevented).toBe(true);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '联系人详情' })).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('refreshes the current contact filters from the list toolbar', async () => {
+    const api = { listContacts: vi.fn().mockResolvedValue({ items: [contact], nextCursor: '' }) } as any;
+    wrap(<ContactPage api={api} />, ['/customer/contact?status=owned']);
+    await screen.findByText('张三');
+    fireEvent.click(screen.getByRole('button', { name: '刷新联系人' }));
+    await waitFor(() => expect(api.listContacts).toHaveBeenCalledTimes(2));
+    expect(api.listContacts).toHaveBeenLastCalledWith(expect.objectContaining({ statuses: ['owned'] }));
+  });
+
+  it('retries a failed detail request without closing the drawer', async () => {
+    const getContact = vi.fn().mockRejectedValueOnce(new ApiError('server', '暂不可用', { status: 500 })).mockResolvedValue(detail);
+    const api = { listContacts: vi.fn().mockResolvedValue({ items: [contact], nextCursor: '' }), getContact, listTagCatalog: vi.fn().mockResolvedValue({ groups: [], tags: [] }), listFollowUps: vi.fn().mockResolvedValue({ items: [], nextCursor: '' }) } as any;
+    wrap(<ContactPage api={api} />); fireEvent.click(await screen.findByRole('button', { name: '查看张三' }));
+    fireEvent.click(await screen.findByRole('button', { name: '重新加载' }));
+    await waitFor(() => expect(getContact).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('客户资料')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '联系人详情' })).toBeTruthy();
+  });
 });

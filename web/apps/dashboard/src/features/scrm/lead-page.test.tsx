@@ -91,4 +91,13 @@ describe('LeadPage', () => {
     const emptyView = view(api({ list: vi.fn().mockResolvedValue({ items: [], nextCursor: '' }) })); await waitFor(() => expect(emptyView.container.querySelector('.page-state-empty')).not.toBeNull()); expect(emptyView.container.querySelector('.dashboard-page-header')).not.toBeNull(); emptyView.unmount();
     const forbiddenView = view(api({ list: vi.fn().mockRejectedValue(new ApiError('forbidden', '无权限', { status: 403 })) })); await waitFor(() => expect(forbiddenView.container.querySelector('.page-state-forbidden')).not.toBeNull());
   });
+
+  it('shows a real result summary and refreshes the current filtered list', async () => {
+    const value = api(); view(value, '/customer/clue/default?keyword=North');
+    expect(await screen.findByText('已有线索')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '线索数据概览' }).textContent).toContain('当前结果');
+    fireEvent.click(screen.getByRole('button', { name: '刷新线索' }));
+    await waitFor(() => expect(value.list).toHaveBeenCalledTimes(2));
+    expect(value.list).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: 'North' }));
+  });
 });
