@@ -90,6 +90,19 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 	}
 }
 
+func TestStandaloneComposeEnablesSCRMRoutesByDefault(t *testing.T) {
+	composePath := filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml")
+	composeBody, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := `MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT: "${MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT:-1}"`
+	if !strings.Contains(string(composeBody), want) {
+		t.Fatalf("standalone compose must enable SCRM routes by default; missing %q", want)
+	}
+}
+
 func TestCustomerTagParityMigrationIsReversible(t *testing.T) {
 	projectRoot := filepath.Join("..", "..")
 	up, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0109_scrm_customer_tag_parity.up.sql"))
