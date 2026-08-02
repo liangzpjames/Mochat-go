@@ -46,6 +46,16 @@ function view(value: ScrmApi, entry = '/customer/public-sea') {
 }
 
 describe('PublicPoolPage', () => {
+  it('renders the unified SCRM header, overview and refresh toolbar', async () => {
+    const value = api();
+    view(value);
+    await screen.findByText('Ada');
+    expect(screen.getByText('SCRM · 客户流转')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '公海数据概览' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '刷新公海' }));
+    await waitFor(() => expect(value.listPublicPool).toHaveBeenCalledTimes(2));
+  });
+
   it('restores all filters from URL and renders auditable pool history', async () => {
     const value = api();
     view(value, '/customer/public-sea?keyword=Ada&source=wecom&businessType=retail&tagId=tag-1&region=Shanghai&reason=expired&previousOwnerId=18&cursor=20');

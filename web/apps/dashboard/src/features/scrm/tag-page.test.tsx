@@ -37,6 +37,17 @@ function view(value = api(), entry = '/customer/tags', client = new QueryClient(
 }
 
 describe('TagPage', () => {
+  it('renders enterprise tag navigation and refreshes the catalog', async () => {
+    const value = api();
+    view(value);
+    await screen.findByText('普通');
+    expect(screen.getByText('SCRM · 客户分类')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '企业标签' }).getAttribute('aria-selected')).toBe('true');
+    expect((screen.getByRole('tab', { name: '系统标签' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '刷新标签' }));
+    await waitFor(() => expect(value.listTagCatalog).toHaveBeenCalledTimes(2));
+  });
+
   it('restores group and keyword filters from URL and can reset them', async () => {
     const value = api();
     view(value, '/customer/tags?groupId=g1&keyword=%E6%99%AE%E9%80%9A');

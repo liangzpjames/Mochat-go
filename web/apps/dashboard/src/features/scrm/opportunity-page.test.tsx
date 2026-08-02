@@ -34,6 +34,16 @@ function apiWith(overrides: Partial<ScrmApi> = {}): ScrmApi {
 }
 
 describe('OpportunityPage', () => {
+  it('renders the unified SCRM header, overview and refresh toolbar', async () => {
+    const value = apiWith();
+    renderPage(value);
+    await screen.findByText('c1');
+    expect(screen.getByText('SCRM · 销售协同')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '商机数据概览' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '刷新商机' }));
+    await waitFor(() => expect(value.listOpportunities).toHaveBeenCalledTimes(2));
+  });
+
   it('restores combined filters and cursor from URL, then clears cursor on a new search', async () => {
     const api = apiWith();
     renderPage(api, '/customer/opportunity?stage=proposal&status=open&ownerId=9&cursor=o9');
