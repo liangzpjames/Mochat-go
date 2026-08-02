@@ -11,14 +11,14 @@
 
 | 路由 | unit | integration | build | browser |
 | --- | --- | --- | --- | --- |
-| `/index` | `internal/dashboard/corp_data_test.go` | `.superpowers/sdd/task-3-report.md` | Task 3 报告中的 Dashboard typecheck/build | blocked：无有效真实登录凭据 |
-| `/chat/v2-all` | `internal/dashboard/auto_tag_dashboard_test.go` | `.superpowers/sdd/task-4-report.md` | Task 4 报告中的 Dashboard typecheck/build | blocked：无有效真实登录凭据 |
-| `/ai-insight/v2/sensitive-word` | `internal/dashboard/sensitive_word_test.go` | `.superpowers/sdd/task-5-report.md` | Task 5 报告中的 Dashboard typecheck | blocked：无有效真实登录凭据 |
-| `/customer/clue/default` | `web/apps/dashboard/src/features/scrm/lead-page.test.tsx` | `.superpowers/sdd/task-6-report.md` | Task 6 报告中的 Dashboard typecheck | blocked：无有效真实登录凭据 |
-| `/customer/contact` | `web/apps/dashboard/src/features/scrm/contact-page.test.tsx` | `.superpowers/sdd/task-7-report.md` | Task 7 报告中的 Dashboard typecheck | blocked：无有效真实登录凭据 |
-| `/customer/opportunity` | `web/apps/dashboard/src/features/scrm/opportunity-page.test.tsx` | `.superpowers/sdd/task-8-report.md` | Task 8 报告中的 Dashboard typecheck | blocked：无有效真实登录凭据 |
-| `/customer/public-sea` | `web/apps/dashboard/src/features/scrm/public-pool-page.test.tsx` | `.superpowers/sdd/task-9-report.md` | Task 9 报告中的 Dashboard typecheck | blocked：无有效真实登录凭据 |
-| `/customer/tags` | `web/apps/dashboard/src/features/scrm/tag-page.test.tsx` | `.superpowers/sdd/task-10-report.md` | Task 10 报告中的 Dashboard typecheck/build | blocked：无有效真实登录凭据 |
+| `/index` | `internal/dashboard/corp_data_test.go` | `task-3-report.md` | Task 3 报告中的 Dashboard typecheck/build | 待用户本地浏览器验收 |
+| `/chat/v2-all` | `internal/dashboard/auto_tag_dashboard_test.go` | `task-4-report.md` | Task 4 报告中的 Dashboard typecheck/build | 待用户本地浏览器验收 |
+| `/ai-insight/v2/sensitive-word` | `internal/dashboard/sensitive_word_test.go` | `task-5-report.md` | Task 5 报告中的 Dashboard typecheck | 待用户本地浏览器验收 |
+| `/customer/clue/default` | `web/apps/dashboard/src/features/scrm/lead-page.test.tsx` | `task-6-report.md` | Task 6 报告中的 Dashboard typecheck | 待用户本地浏览器验收 |
+| `/customer/contact` | `web/apps/dashboard/src/features/scrm/contact-page.test.tsx` | `task-7-report.md` | Task 7 报告中的 Dashboard typecheck | 待用户本地浏览器验收 |
+| `/customer/opportunity` | `web/apps/dashboard/src/features/scrm/opportunity-page.test.tsx` | `task-8-report.md` | Task 8 报告中的 Dashboard typecheck | 待用户本地浏览器验收 |
+| `/customer/public-sea` | `web/apps/dashboard/src/features/scrm/public-pool-page.test.tsx` | `task-9-report.md` | Task 9 报告中的 Dashboard typecheck | 待用户本地浏览器验收 |
+| `/customer/tags` | `web/apps/dashboard/src/features/scrm/tag-page.test.tsx` | `task-10-report.md` | Task 10 报告中的 Dashboard typecheck/build | 待用户本地浏览器验收 |
 
 ## Task11 变更
 

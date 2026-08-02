@@ -6,7 +6,7 @@ Phase 3.2 仅验收以下八个路由：`/index`、`/chat/v2-all`、`/ai-insight
 
 ## 当前结论
 
-- 八页代码、代表性单元测试、后端集成测试和 Dashboard 构建证据已在 Task 3～10 报告及 `.superpowers/sdd/task-11-report.md` 汇总。
+- 八页代码、代表性单元测试、后端集成测试和 Dashboard 构建证据已在 Task 3～10 报告及 `../reports/tasks/task-11-report.md` 汇总。
 - `manifest.json` 的八页状态统一为 `integration-passed`，截图状态保持 `unobserved`。
 - Playwright 规范已覆盖固定八页的关键合同：查询/详情、导出、创建、阶段推进、跟进、领取和标签维护，并在 mock 后端中验证刷新后再次读取。
 - 该 Playwright 规范使用合成会话和 mock API，只用于代码合同回归，不属于真实登录态浏览器验收，也不产生正式截图证据。

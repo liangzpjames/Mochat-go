@@ -22,7 +22,7 @@
 - `scripts/check_phase3_2_dashboard_completion.mjs`
 - `scripts/check_phase3_2_dashboard_completion.test.mjs`
 - `web/apps/dashboard/src/benchmark/manifest.json`
-- `.superpowers/sdd/task-1-report.md`（本报告，用户明确要求的交付物）
+- `docs/phase/phase-3.2-dashboard-completion/reports/tasks/task-1-report.md`（本报告，已归档到阶段文档目录）
 
 ## 自审
 
