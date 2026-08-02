@@ -204,7 +204,7 @@ AI 页面只有在接入真实模型或正式规则引擎并产生可追溯结�
 每个阶段使用独立目录：
 
 ```text
-docs/phase/<phase-name>/
+docs/phases/phase-3-dashboard/phase-3.x/
   design/
   plans/
   acceptance/

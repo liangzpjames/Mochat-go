@@ -49,7 +49,7 @@
 ### Task 3：部署并浏览器验收
 
 **Files:**
-- Modify: `docs/phase/phase-3.2-dashboard-completion/reports/tasks/task-4-report.md`
+- Modify: `docs/phases/phase-3-dashboard/phase-3.2/reports/tasks/task-4-report.md`
 
 **Interfaces:**
 - Consumes: 通过构建的 Dashboard 产物。

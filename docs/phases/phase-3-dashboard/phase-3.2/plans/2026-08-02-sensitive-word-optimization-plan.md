@@ -50,7 +50,7 @@
 ### Task 3：部署与验收
 
 **Files:**
-- Modify: `docs/phase/phase-3.2-dashboard-completion/reports/tasks/task-5-report.md`
+- Modify: `docs/phases/phase-3-dashboard/phase-3.2/reports/tasks/task-5-report.md`
 
 **Interfaces:**
 - Consumes: 通过生产构建的 Dashboard。

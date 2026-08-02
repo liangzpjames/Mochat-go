@@ -51,8 +51,8 @@
 ### Task 3: 回归、浏览器验收与部署
 
 **Files:**
-- Modify: `docs/phase/phase-3.2-dashboard-completion/reports/tasks/task-6-report.md`
-- Modify: `docs/phase/phase-3.2-dashboard-completion/reports/tasks/task-7-report.md`
+- Modify: `docs/phases/phase-3-dashboard/phase-3.2/reports/tasks/task-6-report.md`
+- Modify: `docs/phases/phase-3-dashboard/phase-3.2/reports/tasks/task-7-report.md`
 
 - [ ] **Step 1: 运行全量验证**：执行 Dashboard 全量 Vitest、typecheck、build 和 `git diff --check`。
 - [ ] **Step 2: 浏览器对照**：在圆弧与本地分别检查线索池和联系人，验证菜单选中、空/错误状态、筛选、工具栏和详情抽屉。

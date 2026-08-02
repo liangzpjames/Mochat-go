@@ -2,7 +2,7 @@
 
 ## 验收范围
 
-Phase 3.2 仅验收以下八个路由：`/index`、`/chat/v2-all`、`/ai-insight/v2/sensitive-word`、`/customer/clue/default`、`/customer/contact`、`/customer/opportunity`、`/customer/public-sea`、`/customer/tags`。页面功能对应关系见 `docs/phase/phase-3.2-dashboard-completion/reports/phase3.2-function-matrix.md`。
+Phase 3.2 仅验收以下八个路由：`/index`、`/chat/v2-all`、`/ai-insight/v2/sensitive-word`、`/customer/clue/default`、`/customer/contact`、`/customer/opportunity`、`/customer/public-sea`、`/customer/tags`。页面功能对应关系见 `docs/phases/phase-3-dashboard/phase-3.2/reports/phase3.2-function-matrix.md`。
 
 ## 当前结论
 
@@ -34,7 +34,7 @@ Task11 本轮仅执行上述短命令与静态检查；耗时的 Dashboard/Go �
 - 真实 API 写入后刷新读取；
 - Phase 3.2 Playwright browser/e2e 最终验收。
 
-仓库中既有 `docs/phase/phase-3.2-dashboard-completion/evidence/*.png` 不作为本次真实登录证据引用。获得有效本地管理员凭据后，应重新执行浏览器验收、生成截图并人工复核溢出、遮挡、错位、乱码和视觉一致性；只有届时才能把 manifest 从 `integration-passed` 更新为 `e2e-passed`。
+仓库中既有 `docs/phases/phase-3-dashboard/phase-3.2/evidence/*.png` 不作为本次真实登录证据引用。获得有效本地管理员凭据后，应重新执行浏览器验收、生成截图并人工复核溢出、遮挡、错位、乱码和视觉一致性；只有届时才能把 manifest 从 `integration-passed` 更新为 `e2e-passed`。
 
 ## 合并与不适用项
 

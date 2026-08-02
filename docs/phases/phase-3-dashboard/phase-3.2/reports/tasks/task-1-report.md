@@ -18,11 +18,11 @@
 
 ## 变更文件
 
-- `docs/phase/phase-3.2-dashboard-completion/reports/phase3.2-function-matrix.md`
+- `docs/phases/phase-3-dashboard/phase-3.2/reports/phase3.2-function-matrix.md`
 - `scripts/check_phase3_2_dashboard_completion.mjs`
 - `scripts/check_phase3_2_dashboard_completion.test.mjs`
 - `web/apps/dashboard/src/benchmark/manifest.json`
-- `docs/phase/phase-3.2-dashboard-completion/reports/tasks/task-1-report.md`（本报告，已归档到阶段文档目录）
+- `docs/phases/phase-3-dashboard/phase-3.2/reports/tasks/task-1-report.md`（本报告，已归档到阶段文档目录）
 
 ## 自审
 

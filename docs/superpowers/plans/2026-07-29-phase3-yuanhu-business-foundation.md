@@ -24,8 +24,8 @@
 
 **文件：**
 
-- 新建：`docs/phases/phase-3-yuanhu-benchmark/scrm-domain-contract.md`
-- 新建：`docs/phases/phase-3-yuanhu-benchmark/scrm-api-contract.yaml`
+- 新建：`docs/phases/phase-3-dashboard/benchmark/scrm-domain-contract.md`
+- 新建：`docs/phases/phase-3-dashboard/benchmark/scrm-api-contract.yaml`
 - 测试：`scripts/check_phase3_scrm_contract.mjs`
 
 **接口：**
@@ -70,7 +70,7 @@ node scripts/check_phase3_scrm_contract.mjs
 - [ ] **步骤 5：提交**
 
 ```bash
-git add docs/phases/phase-3-yuanhu-benchmark scripts/check_phase3_scrm_contract.mjs
+git add docs/phases/phase-3-dashboard/benchmark scripts/check_phase3_scrm_contract.mjs
 git commit -m "docs: define phase3 SCRM contracts"
 ```
 
@@ -381,7 +381,7 @@ git commit -m "feat: add opportunity and follow-up workflows"
 - 修改：`internal/modules/scrm/transport/http/routes.go`
 - 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.tsx`
 - 新建：`web/apps/dashboard/src/features/scrm/scrm-report-page.test.tsx`
-- 新建：`docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md`
+- 新建：`docs/phases/phase-3-dashboard/benchmark/metric-dictionary.md`
 
 **接口：**
 
@@ -439,7 +439,7 @@ pnpm --filter @mochat/dashboard test -- src/features/scrm/scrm-report-page.test.
 - [ ] **步骤 6：提交**
 
 ```bash
-git add internal/modules/scrm/domain/metrics.go internal/modules/scrm/application/metrics_service* internal/modules/scrm/ports/metrics_repository.go internal/modules/scrm/adapters/mysql/metrics_repository* internal/modules/scrm/transport/http/metrics_handler* internal/modules/scrm/transport/http/routes.go internal/modules/scrm/module.go internal/modules/scrm/module_test.go web/apps/dashboard/src/features/scrm/scrm-report-page* docs/phases/phase-3-yuanhu-benchmark/metric-dictionary.md
+git add internal/modules/scrm/domain/metrics.go internal/modules/scrm/application/metrics_service* internal/modules/scrm/ports/metrics_repository.go internal/modules/scrm/adapters/mysql/metrics_repository* internal/modules/scrm/transport/http/metrics_handler* internal/modules/scrm/transport/http/routes.go internal/modules/scrm/module.go internal/modules/scrm/module_test.go web/apps/dashboard/src/features/scrm/scrm-report-page* docs/phases/phase-3-dashboard/benchmark/metric-dictionary.md
 git commit -m "feat: add SCRM funnel reporting"
 ```
 
@@ -448,7 +448,7 @@ git commit -m "feat: add SCRM funnel reporting"
 **文件：**
 
 - 新建：`web/e2e/tests/phase3-scrm.spec.ts`
-- 新建：`docs/phases/phase-3-yuanhu-benchmark/acceptance.md`
+- 新建：`docs/phases/phase-3-dashboard/benchmark/acceptance.md`
 - 修改：`package.json`
 
 **接口：**
@@ -510,6 +510,6 @@ docker compose -f deploy/standalone/docker-compose.yml --profile app up -d --bui
 - [ ] **步骤 6：提交**
 
 ```bash
-git add web/e2e/tests/phase3-scrm.spec.ts docs/phases/phase-3-yuanhu-benchmark/acceptance.md package.json
+git add web/e2e/tests/phase3-scrm.spec.ts docs/phases/phase-3-dashboard/benchmark/acceptance.md package.json
 git commit -m "test: add phase3 SCRM release gate"
 ```

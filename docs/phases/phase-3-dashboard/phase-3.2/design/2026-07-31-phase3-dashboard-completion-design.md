@@ -2,7 +2,7 @@
 
 日期：2026-07-31
 
-上位约束：`docs/phase/phase-3-dashboard/PHASE3_CONSTRAINTS.zh-CN.md`
+上位约束：`docs/phases/phase-3-dashboard/reference/PHASE3_CONSTRAINTS.zh-CN.md`
 
 本设计必须遵守 Phase 3 主要约束。两者冲突时，以 Phase 3 主要约束为准；本文件只定义 Phase 3.2 的范围、架构和阶段验收。
 

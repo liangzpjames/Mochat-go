@@ -50,8 +50,8 @@
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -69,8 +69,8 @@
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -88,8 +88,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-v2-staff/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-v2-staff.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-v2-staff/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-v2-staff.json"
       }
     },
     {
@@ -107,8 +107,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-v2-customer/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-v2-customer.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-v2-customer/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-v2-customer.json"
       }
     },
     {
@@ -126,8 +126,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-v2-group/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-v2-group.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-v2-group/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-v2-group.json"
       }
     },
     {
@@ -145,8 +145,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-trajectory/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-trajectory.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-trajectory/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-trajectory.json"
       }
     },
     {
@@ -164,8 +164,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-export/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-export.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-export/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-export.json"
       }
     },
     {
@@ -183,8 +183,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-file-audio/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-file-audio.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-file-audio/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-file-audio.json"
       }
     },
     {
@@ -202,8 +202,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-resign-staff/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-resign-staff.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-resign-staff/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-resign-staff.json"
       }
     },
     {
@@ -221,8 +221,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-chat-refuse-archive/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-chat-refuse-archive.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-refuse-archive/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-refuse-archive.json"
       }
     },
     {
@@ -240,8 +240,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-inheritance/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-inheritance.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-customer-inheritance/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-customer-inheritance.json"
       }
     },
     {
@@ -259,8 +259,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-v2-risk/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-v2-risk.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-risk/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-risk.json"
       }
     },
     {
@@ -278,8 +278,8 @@
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -297,8 +297,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-v2-timeout/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-v2-timeout.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-timeout/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-timeout.json"
       }
     },
     {
@@ -316,8 +316,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-v2-customer-loss/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-v2-customer-loss.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-customer-loss/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-customer-loss.json"
       }
     },
     {
@@ -335,8 +335,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-v2-message-intercept/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-v2-message-intercept.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-message-intercept/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-message-intercept.json"
       }
     },
     {
@@ -354,8 +354,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-v2-keyword-library/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-v2-keyword-library.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-keyword-library/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-keyword-library.json"
       }
     },
     {
@@ -373,8 +373,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-v2-silent-customer/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-v2-silent-customer.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-silent-customer/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-silent-customer.json"
       }
     },
     {
@@ -392,8 +392,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-session-analysis/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-session-analysis.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-session-analysis/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-session-analysis.json"
       }
     },
     {
@@ -411,8 +411,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-smart-analysis/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-smart-analysis.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-smart-analysis/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-smart-analysis.json"
       }
     },
     {
@@ -430,8 +430,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-emotion/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-emotion.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-emotion/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-emotion.json"
       }
     },
     {
@@ -449,8 +449,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-employee-score/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-employee-score.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-employee-score/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-employee-score.json"
       }
     },
     {
@@ -468,8 +468,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-insight-communication-keyword/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-insight-communication-keyword.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-communication-keyword/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-communication-keyword.json"
       }
     },
     {
@@ -487,8 +487,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-v2-channel-code/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-v2-channel-code.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-v2-channel-code/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-v2-channel-code.json"
       }
     },
     {
@@ -506,8 +506,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-group-code/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-group-code.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-group-code/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-group-code.json"
       }
     },
     {
@@ -525,8 +525,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-redirect-link/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-redirect-link.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-redirect-link/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-redirect-link.json"
       }
     },
     {
@@ -544,8 +544,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-wechat-customer-service/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-wechat-customer-service.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-wechat-customer-service/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-wechat-customer-service.json"
       }
     },
     {
@@ -563,8 +563,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-live-code-short-chain/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-live-code-short-chain.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-live-code-short-chain/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-live-code-short-chain.json"
       }
     },
     {
@@ -582,8 +582,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-group-template/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-group-template.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-group-template/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-group-template.json"
       }
     },
     {
@@ -601,8 +601,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-precise-group-send/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-precise-group-send.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-precise-group-send/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-precise-group-send.json"
       }
     },
     {
@@ -620,8 +620,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-friends-circle/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-friends-circle.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-friends-circle/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-friends-circle.json"
       }
     },
     {
@@ -639,8 +639,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-acquisition-material-management/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-acquisition-material-management.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-material-management/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-material-management.json"
       }
     },
     {
@@ -658,8 +658,8 @@
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -677,8 +677,8 @@
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -696,8 +696,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-friends/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-friends.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-customer-friends/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-customer-friends.json"
       }
     },
     {
@@ -715,8 +715,8 @@
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -734,8 +734,8 @@
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -753,8 +753,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-group/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-group.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-customer-group/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-customer-group.json"
       }
     },
     {
@@ -772,8 +772,8 @@
       "risk": "high",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/design/2026-07-31-phase3-dashboard-completion-design.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/design/2026-07-31-phase3-dashboard-completion-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/acceptance/PHASE3.2_ACCEPTANCE.zh-CN.md"
       }
     },
     {
@@ -791,8 +791,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-order/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-order.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-customer-order/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-customer-order.json"
       }
     },
     {
@@ -810,8 +810,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-customer-settings/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-customer-settings.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-customer-settings/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-customer-settings.json"
       }
     },
     {
@@ -829,8 +829,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-data-customer/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-data-customer.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-data-customer/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-data-customer.json"
       }
     },
     {
@@ -848,8 +848,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-data-employee/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-data-employee.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-data-employee/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-data-employee.json"
       }
     },
     {
@@ -867,8 +867,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-data-conversion/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-data-conversion.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-data-conversion/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-data-conversion.json"
       }
     },
     {
@@ -886,8 +886,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-data-behavior/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-data-behavior.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-data-behavior/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-data-behavior.json"
       }
     },
     {
@@ -905,8 +905,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-data-report/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-data-report.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-data-report/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-data-report.json"
       }
     },
     {
@@ -924,8 +924,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-setting-ai-knowledge-base/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-setting-ai-knowledge-base.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-setting-ai-knowledge-base/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-setting-ai-knowledge-base.json"
       }
     },
     {
@@ -943,8 +943,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-ai-setting-agent/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-ai-setting-agent.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-setting-agent/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-setting-agent.json"
       }
     },
     {
@@ -962,8 +962,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-company-setting-website/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-company-setting-website.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-company-setting-website/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-company-setting-website.json"
       }
     },
     {
@@ -981,8 +981,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-company-setting-staff/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-company-setting-staff.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-company-setting-staff/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-company-setting-staff.json"
       }
     },
     {
@@ -1000,8 +1000,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-setting-role/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-setting-role.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-setting-role/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-setting-role.json"
       }
     },
     {
@@ -1019,8 +1019,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-setting-additional/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-setting-additional.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-setting-additional/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-setting-additional.json"
       }
     },
     {
@@ -1038,8 +1038,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phase/phase-3.2-dashboard-completion/pages-setting-authorization/spec.md",
-        "acceptance": "docs/phase/phase-3.2-dashboard-completion/evidence-setting-authorization.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-setting-authorization/spec.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-setting-authorization.json"
       }
     }
   ]

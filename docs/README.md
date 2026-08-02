@@ -10,7 +10,7 @@
 - [Phase 2：前端逐页迁移](phases/phase-2-frontend-migration/README.md)
 - [Phase 2.1：功能前端迁移](phases/phase-2.1-functional-frontend-migration/README.md)
 - [Phase 2.2：后端模块化与质量门禁](phases/phase-2.2-backend-quality-gates/README.md)
-- [Phase 3：圆弧 AI 功能对标准备](phases/phase-3-yuanhu-benchmark/README.md)
+- [Phase 3：Dashboard 与圆弧 AI 功能对标](phases/phase-3-dashboard/README.md)
 
 ## 其他资料
 

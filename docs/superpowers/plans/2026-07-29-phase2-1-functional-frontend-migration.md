@@ -304,7 +304,7 @@ fake 平台必须断言媒体上传、消息模板、联系我方式和消息发
 - 新建：`docs/phases/phase-2.1-functional-frontend-migration/evidence/README.md`
 - 新建：`docs/phases/phase-2.1-functional-frontend-migration/evidence/results.json`
 - 修改：功能矩阵。
-- 修改：`docs/phases/phase-3-yuanhu-benchmark/README.md`
+- 修改：`docs/phases/phase-3-dashboard/benchmark/README.md`
 
 - [ ] **步骤 1：先写验收运行器失败测试**
 

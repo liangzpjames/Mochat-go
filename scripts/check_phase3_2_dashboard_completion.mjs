@@ -409,7 +409,7 @@ export async function readManifest(manifestUrl = new URL('../web/apps/dashboard/
   return JSON.parse(await readFile(manifestUrl, 'utf8'));
 }
 
-export async function readFunctionMatrix(matrixUrl = new URL('../docs/phase/phase-3.2-dashboard-completion/reports/phase3.2-function-matrix.md', import.meta.url)) {
+export async function readFunctionMatrix(matrixUrl = new URL('../docs/phases/phase-3-dashboard/phase-3.2/reports/phase3.2-function-matrix.md', import.meta.url)) {
   return readFile(matrixUrl, 'utf8');
 }
 
