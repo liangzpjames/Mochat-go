@@ -19,3 +19,10 @@
 | `/ai-insight/v2/message-intercept` | 风险预警 | 发送前检测→解释→审计 | 发送链路、规则引擎 | 策略维护/决定查看 | 拦截决定、规则版本、审计 | 极高 | 待批次5 |
 | `/ai-insight/v2/keyword-library` | 风险预警 | 词条→规则→版本发布 | 规则引擎 | 词库维护/发布权限 | 版本化词库、发布审计 | 高 | 待批次5 |
 | `/ai-insight/v2/silent-customer` | 风险预警 | 沉默窗口→筛选→唤醒 | 客户时间线、任务中心 | 客户读取与分派权限 | 计算快照、任务、跟进 | 高 | 待批次4 |
+
+## Phase 3.3 当前验收标记
+
+- 已接入 native 页面：会话运营四页、风险预警六页；
+- 已有真实读取接口：`/chat/resign-staff`、`/customer/inheritance`、`/ai-insight/v2/customer-loss`；
+- provider 未接入但已具备明确状态页：`/chat/file-audio`、`/chat/refuse-archive`、`/ai-insight/v2/risk`、`/ai-insight/v2/timeout`、`/ai-insight/v2/message-intercept`、`/ai-insight/v2/keyword-library`、`/ai-insight/v2/silent-customer`；
+- 详细命令、截图和数据卷检查见 `acceptance/remaining-pages-acceptance.zh-CN.md`。
