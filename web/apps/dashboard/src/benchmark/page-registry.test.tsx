@@ -8,6 +8,7 @@ import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
 import { EmployeeConversationPage } from '../features/conversation-global/employee-conversation-page';
+import { ConversationTrajectoryPage } from '../features/conversation-global/conversation-trajectory-page';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -97,6 +98,21 @@ describe('createPageRegistry', () => {
       .toBe('customer');
     expect((pages['/chat/v2-group'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
       .toBe('room');
+  });
+
+  it('registers the conversation trajectory page', () => {
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: {
+        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        exportCsv: () => Promise.resolve(new Blob()),
+      },
+      conversationGlobalApi: {
+        search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
+        detail: () => Promise.reject(new Error('not loaded')),
+      },
+    });
+
+    expect((pages['/chat/trajectory'] as { type?: unknown }).type).toBe(ConversationTrajectoryPage);
   });
 
   it('prefers P0 implementations over P1 implementations at the same path', () => {
