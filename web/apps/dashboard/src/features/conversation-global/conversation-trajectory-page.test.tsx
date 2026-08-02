@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '@mochat/api-client';
 
 import { DashboardAccessProvider } from '../../app/access-context';
 import type { AccessContext } from '../../app/access-loader';
@@ -56,5 +57,15 @@ describe('ConversationTrajectoryPage', () => {
     expect(screen.getAllByText('请确认报价').length).toBeGreaterThanOrEqual(1);
     expect(detail).toHaveBeenCalledWith(conversation.id);
     expect(screen.getByRole('heading', { name: '会话轨迹' })).toBeTruthy();
+  });
+
+  it('shows the archive authorization state instead of a generic left-pane failure', async () => {
+    renderPage({
+      search: () => Promise.reject(new ApiError('forbidden', 'archive not authorized', { status: 403, code: 40301 })),
+      detail: vi.fn(),
+    });
+
+    expect(await screen.findByRole('heading', { name: '当前企业未开通会话内容存档' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '加载失败' })).toBeNull();
   });
 });

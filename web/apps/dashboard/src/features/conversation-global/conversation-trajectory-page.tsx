@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { ApiError } from '@mochat/api-client';
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
@@ -15,6 +16,10 @@ function messageText(message: ConversationMessage): string {
 
 function targetLabel(type: ConversationTargetType): string {
   return type === 'customer' ? '客户' : type === 'room' ? '群聊' : '同事';
+}
+
+function isArchiveUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403 && error.code === 40301;
 }
 
 export function ConversationTrajectoryPage({ api }: { api: ConversationGlobalApi }) {
@@ -35,6 +40,7 @@ export function ConversationTrajectoryPage({ api }: { api: ConversationGlobalApi
     enabled: selectedId !== null,
     retry: false,
   });
+  const archiveUnauthorized = isArchiveUnauthorized(query.error);
 
   function applySearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,7 +62,8 @@ export function ConversationTrajectoryPage({ api }: { api: ConversationGlobalApi
         <section className="conversation-trajectory-list dashboard-data-card" aria-label="轨迹会话列表">
           <header><strong>会话列表</strong><span>{query.data?.total ?? 0} 条结果</span></header>
           {query.isPending && <PageState state="loading" />}
-          {query.error && <PageState state="error" onRetry={() => void query.refetch()} />}
+          {archiveUnauthorized && <PageState state="forbidden" title="当前企业未开通会话内容存档" description="请先在企业微信完成会话内容存档授权并启用归档同步。" />}
+          {query.error && !archiveUnauthorized && <PageState state="error" onRetry={() => void query.refetch()} />}
           {!query.isPending && !query.error && query.data?.list.length === 0 && <PageState state="empty" />}
           <div>{query.data?.list.map((item) => <button className={item.id === selectedId ? 'is-selected' : ''} key={item.id} onClick={() => setSearchParams(updateSearch(searchParams, { conversationId: item.id }))} type="button"><strong>{item.targetName}</strong><span>{targetLabel(item.targetType)} · {item.employeeName}</span><p>{item.lastMessage || '暂无消息'}</p><time>{item.sentAt}</time></button>)}</div>
         </section>
