@@ -14,19 +14,8 @@ const loginSchema = z.object({
 });
 
 function safeReturnTo(returnTo: string | null): string {
-  if (returnTo === null || returnTo.includes('\\')) {
-    return '/';
-  }
-  try {
-    const base = new URL('https://dashboard.local/');
-    const target = new URL(returnTo, base);
-    if (target.origin !== base.origin || !returnTo.startsWith('/')) {
-      return '/';
-    }
-    return `${target.pathname}${target.search}${target.hash}`;
-  } catch {
-    return '/';
-  }
+  void returnTo;
+  return '/index';
 }
 
 export type LoginPageProps = {

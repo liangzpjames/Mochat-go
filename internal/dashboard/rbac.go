@@ -61,6 +61,11 @@ func PermissionKeyFromRequest(r *http.Request) string {
 	return PermissionKey(r.URL.Path, r.Method)
 }
 
+func menuLinkURLFromPermissionKey(permissionKey string) string {
+	linkURL, _, _ := strings.Cut(permissionKey, "#")
+	return linkURL
+}
+
 func requestWithPermissionPath(r *http.Request, path string) *http.Request {
 	if r.URL.Path == path {
 		return r
@@ -108,7 +113,7 @@ func (r *RBACResolver) Resolve(
 		return AccessContext{}, ErrPermissionDenied
 	}
 
-	menu, ok, err := r.store.MenuByLinkURL(ctx, permissionKey)
+	menu, ok, err := r.store.MenuByLinkURL(ctx, menuLinkURLFromPermissionKey(permissionKey))
 	if err != nil {
 		return AccessContext{}, err
 	}

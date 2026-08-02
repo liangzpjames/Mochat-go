@@ -26,6 +26,7 @@ type SensitiveWordItem struct {
 	EmployeeNum int
 	ContactNum  int
 	CreatedAt   string
+	Version     string
 }
 
 type SensitiveWordPage struct {
@@ -36,8 +37,48 @@ type SensitiveWordPage struct {
 }
 
 type SensitiveWordGroup struct {
-	ID   int
-	Name string
+	ID      int
+	Name    string
+	Version string
+}
+
+const (
+	SensitiveWordMutationCreateWords = "create_words"
+	SensitiveWordMutationSetStatus   = "set_status"
+	SensitiveWordMutationMoveWord    = "move_word"
+	SensitiveWordMutationDeleteWord  = "delete_word"
+	SensitiveWordMutationCreateGroup = "create_group"
+	SensitiveWordMutationRenameGroup = "rename_group"
+)
+
+type SensitiveWordMutation struct {
+	Action         string
+	TenantID       int
+	CorpID         int
+	ActorUserID    int
+	WordID         int
+	GroupID        int
+	Status         int
+	Name           string
+	Names          []string
+	Version        string
+	IdempotencyKey string
+}
+
+type SensitiveWordMutationResult struct {
+	Version    string
+	Idempotent bool
+}
+
+type SensitiveWordOperationError struct {
+	Status  int
+	Message string
+}
+
+func (e *SensitiveWordOperationError) Error() string { return e.Message }
+
+func NewSensitiveWordConflict(message string) error {
+	return &SensitiveWordOperationError{Status: http.StatusConflict, Message: message}
 }
 
 type SensitiveWordsMonitorFilter struct {
@@ -81,13 +122,9 @@ type SensitiveWordStore interface {
 	EmployeeIDByUserCorp(ctx context.Context, userID int, corpID int) (int, error)
 	FirstEmployeeByUser(ctx context.Context, userID int) (corpID int, employeeID int, ok bool, err error)
 	SensitiveWordPage(ctx context.Context, filter SensitiveWordFilter) (SensitiveWordPage, error)
-	CreateSensitiveWords(ctx context.Context, corpID int, groupID int, names []string) error
-	UpdateSensitiveWordStatus(ctx context.Context, corpID int, wordID int, status int) (bool, error)
-	MoveSensitiveWord(ctx context.Context, corpID int, wordID int, groupID int) (bool, error)
-	DeleteSensitiveWord(ctx context.Context, corpID int, wordID int) (bool, error)
+	SensitiveWordMutationReplay(ctx context.Context, mutation SensitiveWordMutation) (SensitiveWordMutationResult, bool, error)
+	MutateSensitiveWords(ctx context.Context, mutation SensitiveWordMutation) (SensitiveWordMutationResult, error)
 	SensitiveWordGroups(ctx context.Context, corpID int) ([]SensitiveWordGroup, error)
-	CreateSensitiveWordGroups(ctx context.Context, corpID int, names []string) error
-	UpdateSensitiveWordGroup(ctx context.Context, corpID int, groupID int, name string) (bool, error)
 	SensitiveWordsMonitorPage(ctx context.Context, filter SensitiveWordsMonitorFilter) (SensitiveWordsMonitorPage, error)
 	SensitiveWordsMonitorMessages(ctx context.Context, corpID int, monitorID int) ([]SensitiveWordsMonitorMessage, bool, error)
 }
@@ -153,81 +190,93 @@ func (h *SensitiveWordHandler) Index(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SensitiveWordHandler) Store(w http.ResponseWriter, r *http.Request) {
-	h.writeWordMutation(w, r, http.MethodPost, "/dashboard/sensitiveWord/store#post", func(ctx context.Context, user User, corpID int, params map[string]any) error {
+	h.writeWordMutation(w, r, http.MethodPost, "/dashboard/sensitiveWord/store#post", func(ctx context.Context, user User, corpID int, params map[string]any, version string, idempotencyKey string) (SensitiveWordMutationResult, error) {
 		groupID, _, err := intParam(params, "groupId")
 		if err != nil || groupID <= 0 {
-			return badRequestError("groupId required")
+			return SensitiveWordMutationResult{}, badRequestError("groupId required")
 		}
 		names := splitSensitiveNames(stringParam(params, "name"))
 		if len(names) == 0 {
-			return badRequestError("name required")
+			return SensitiveWordMutationResult{}, badRequestError("name required")
+		}
+		mutation := SensitiveWordMutation{
+			Action: SensitiveWordMutationCreateWords, TenantID: user.TenantID, CorpID: corpID, ActorUserID: user.ID,
+			GroupID: groupID, Names: names, Version: version, IdempotencyKey: idempotencyKey,
+		}
+		if replay, found, err := h.store.SensitiveWordMutationReplay(ctx, mutation); err != nil {
+			return SensitiveWordMutationResult{}, err
+		} else if found {
+			return replay, nil
 		}
 		if err := requireSaaSQuota(ctx, h.store, user.TenantID, SaaSMetricSensitiveWords, int64(len(names))); err != nil {
-			return err
+			return SensitiveWordMutationResult{}, err
 		}
-		if err := h.store.CreateSensitiveWords(ctx, corpID, groupID, names); err != nil {
-			return err
+		result, err := h.store.MutateSensitiveWords(ctx, mutation)
+		if err != nil {
+			return SensitiveWordMutationResult{}, err
 		}
-		return refreshSaaSUsageCounter(ctx, h.store, user.TenantID, SaaSMetricSensitiveWords)
+		if err := refreshSaaSUsageCounter(ctx, h.store, user.TenantID, SaaSMetricSensitiveWords); err != nil {
+			return SensitiveWordMutationResult{}, err
+		}
+		return result, nil
 	})
 }
 
 func (h *SensitiveWordHandler) Destroy(w http.ResponseWriter, r *http.Request) {
-	h.writeWordMutation(w, r, http.MethodDelete, "/dashboard/sensitiveWord/destroy#delete", func(ctx context.Context, user User, corpID int, params map[string]any) error {
+	h.writeWordMutation(w, r, http.MethodDelete, "/dashboard/sensitiveWord/destroy#delete", func(ctx context.Context, user User, corpID int, params map[string]any, version string, idempotencyKey string) (SensitiveWordMutationResult, error) {
 		wordID, _, err := firstPositiveIntParam(params, "sensitiveWordId", "id")
 		if err != nil || wordID <= 0 {
-			return badRequestError("sensitiveWordId required")
+			return SensitiveWordMutationResult{}, badRequestError("sensitiveWordId required")
 		}
-		found, err := h.store.DeleteSensitiveWord(ctx, corpID, wordID)
+		confirmed, found, err := boolParam(params, "confirmed")
+		if err != nil || !found || !confirmed {
+			return SensitiveWordMutationResult{}, badRequestError("delete confirmation required")
+		}
+		result, err := h.store.MutateSensitiveWords(ctx, SensitiveWordMutation{
+			Action: SensitiveWordMutationDeleteWord, TenantID: user.TenantID, CorpID: corpID, ActorUserID: user.ID,
+			WordID: wordID, Version: version, IdempotencyKey: idempotencyKey,
+		})
 		if err != nil {
-			return err
+			return SensitiveWordMutationResult{}, err
 		}
-		if !found {
-			return badRequestError("sensitiveWordId not found")
+		if err := refreshSaaSUsageCounter(ctx, h.store, user.TenantID, SaaSMetricSensitiveWords); err != nil {
+			return SensitiveWordMutationResult{}, err
 		}
-		return refreshSaaSUsageCounter(ctx, h.store, user.TenantID, SaaSMetricSensitiveWords)
+		return result, nil
 	})
 }
 
 func (h *SensitiveWordHandler) StatusUpdate(w http.ResponseWriter, r *http.Request) {
-	h.writeWordMutation(w, r, http.MethodPut, "/dashboard/sensitiveWord/statusUpdate#put", func(ctx context.Context, _ User, corpID int, params map[string]any) error {
+	h.writeWordMutation(w, r, http.MethodPut, "/dashboard/sensitiveWord/statusUpdate#put", func(ctx context.Context, user User, corpID int, params map[string]any, version string, idempotencyKey string) (SensitiveWordMutationResult, error) {
 		wordID, _, err := firstPositiveIntParam(params, "sensitiveWordId", "id")
 		if err != nil || wordID <= 0 {
-			return badRequestError("sensitiveWordId required")
+			return SensitiveWordMutationResult{}, badRequestError("sensitiveWordId required")
 		}
 		status, _, err := intParam(params, "status")
 		if err != nil || (status != 1 && status != 2) {
-			return badRequestError("status must be 1 or 2")
+			return SensitiveWordMutationResult{}, badRequestError("status must be 1 or 2")
 		}
-		found, err := h.store.UpdateSensitiveWordStatus(ctx, corpID, wordID, status)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return badRequestError("sensitiveWordId not found")
-		}
-		return nil
+		return h.store.MutateSensitiveWords(ctx, SensitiveWordMutation{
+			Action: SensitiveWordMutationSetStatus, TenantID: user.TenantID, CorpID: corpID, ActorUserID: user.ID,
+			WordID: wordID, Status: status, Version: version, IdempotencyKey: idempotencyKey,
+		})
 	})
 }
 
 func (h *SensitiveWordHandler) Move(w http.ResponseWriter, r *http.Request) {
-	h.writeWordMutation(w, r, http.MethodPut, "/dashboard/sensitiveWord/move#put", func(ctx context.Context, _ User, corpID int, params map[string]any) error {
+	h.writeWordMutation(w, r, http.MethodPut, "/dashboard/sensitiveWord/move#put", func(ctx context.Context, user User, corpID int, params map[string]any, version string, idempotencyKey string) (SensitiveWordMutationResult, error) {
 		wordID, _, err := firstPositiveIntParam(params, "sensitiveWordId", "id")
 		if err != nil || wordID <= 0 {
-			return badRequestError("sensitiveWordId required")
+			return SensitiveWordMutationResult{}, badRequestError("sensitiveWordId required")
 		}
 		groupID, _, err := intParam(params, "groupId")
 		if err != nil || groupID <= 0 {
-			return badRequestError("groupId required")
+			return SensitiveWordMutationResult{}, badRequestError("groupId required")
 		}
-		found, err := h.store.MoveSensitiveWord(ctx, corpID, wordID, groupID)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return badRequestError("sensitiveWordId not found")
-		}
-		return nil
+		return h.store.MutateSensitiveWords(ctx, SensitiveWordMutation{
+			Action: SensitiveWordMutationMoveWord, TenantID: user.TenantID, CorpID: corpID, ActorUserID: user.ID,
+			WordID: wordID, GroupID: groupID, Version: version, IdempotencyKey: idempotencyKey,
+		})
 	})
 }
 
@@ -251,39 +300,38 @@ func (h *SensitiveWordHandler) GroupSelect(w http.ResponseWriter, r *http.Reques
 	}
 	payload := make([]map[string]any, 0, len(groups))
 	for _, group := range groups {
-		payload = append(payload, map[string]any{"groupId": group.ID, "name": group.Name})
+		payload = append(payload, map[string]any{"groupId": group.ID, "name": group.Name, "version": group.Version})
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", payload)
 }
 
 func (h *SensitiveWordHandler) GroupStore(w http.ResponseWriter, r *http.Request) {
-	h.writeWordMutation(w, r, http.MethodPost, "/dashboard/sensitiveWordGroup/store#post", func(ctx context.Context, _ User, corpID int, params map[string]any) error {
+	h.writeWordMutation(w, r, http.MethodPost, "/dashboard/sensitiveWordGroup/store#post", func(ctx context.Context, user User, corpID int, params map[string]any, version string, idempotencyKey string) (SensitiveWordMutationResult, error) {
 		names := splitSensitiveNames(stringParam(params, "name"))
 		if len(names) == 0 {
-			return badRequestError("name required")
+			return SensitiveWordMutationResult{}, badRequestError("name required")
 		}
-		return h.store.CreateSensitiveWordGroups(ctx, corpID, names)
+		return h.store.MutateSensitiveWords(ctx, SensitiveWordMutation{
+			Action: SensitiveWordMutationCreateGroup, TenantID: user.TenantID, CorpID: corpID, ActorUserID: user.ID,
+			Names: names, Version: version, IdempotencyKey: idempotencyKey,
+		})
 	})
 }
 
 func (h *SensitiveWordHandler) GroupUpdate(w http.ResponseWriter, r *http.Request) {
-	h.writeWordMutation(w, r, http.MethodPut, "/dashboard/sensitiveWordGroup/update#put", func(ctx context.Context, _ User, corpID int, params map[string]any) error {
+	h.writeWordMutation(w, r, http.MethodPut, "/dashboard/sensitiveWordGroup/update#put", func(ctx context.Context, user User, corpID int, params map[string]any, version string, idempotencyKey string) (SensitiveWordMutationResult, error) {
 		groupID, _, err := firstPositiveIntParam(params, "groupId", "id")
 		if err != nil || groupID <= 0 {
-			return badRequestError("groupId required")
+			return SensitiveWordMutationResult{}, badRequestError("groupId required")
 		}
 		name := strings.TrimSpace(stringParam(params, "name"))
 		if name == "" {
-			return badRequestError("name required")
+			return SensitiveWordMutationResult{}, badRequestError("name required")
 		}
-		found, err := h.store.UpdateSensitiveWordGroup(ctx, corpID, groupID, name)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return badRequestError("groupId not found")
-		}
-		return nil
+		return h.store.MutateSensitiveWords(ctx, SensitiveWordMutation{
+			Action: SensitiveWordMutationRenameGroup, TenantID: user.TenantID, CorpID: corpID, ActorUserID: user.ID,
+			GroupID: groupID, Name: name, Version: version, IdempotencyKey: idempotencyKey,
+		})
 	})
 }
 
@@ -348,7 +396,7 @@ func (h *SensitiveWordHandler) MonitorShow(w http.ResponseWriter, r *http.Reques
 	}
 	messages, found, err := h.store.SensitiveWordsMonitorMessages(r.Context(), corpID, monitorID)
 	if err != nil {
-		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "扫描结果暂时无法连接，请稍后重试", nil)
 		return
 	}
 	if !found {
@@ -368,7 +416,7 @@ func (h *SensitiveWordHandler) MonitorShow(w http.ResponseWriter, r *http.Reques
 	writeEnvelope(w, http.StatusOK, 200, "success", payload)
 }
 
-func (h *SensitiveWordHandler) writeWordMutation(w http.ResponseWriter, r *http.Request, method string, permissionKey string, action func(context.Context, User, int, map[string]any) error) {
+func (h *SensitiveWordHandler) writeWordMutation(w http.ResponseWriter, r *http.Request, method string, permissionKey string, action func(context.Context, User, int, map[string]any, string, string) (SensitiveWordMutationResult, error)) {
 	if r.Method != method {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
@@ -386,7 +434,18 @@ func (h *SensitiveWordHandler) writeWordMutation(w http.ResponseWriter, r *http.
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	if err := action(r.Context(), user, corpID, params); err != nil {
+	version := strings.TrimSpace(stringParam(params, "version"))
+	idempotencyKey := strings.TrimSpace(stringParam(params, "idempotencyKey"))
+	if version == "" {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "version required", nil)
+		return
+	}
+	if idempotencyKey == "" || len(idempotencyKey) > 128 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "idempotencyKey required", nil)
+		return
+	}
+	result, err := action(r.Context(), user, corpID, params, version, idempotencyKey)
+	if err != nil {
 		if isBadRequestError(err) {
 			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
 			return
@@ -394,10 +453,15 @@ func (h *SensitiveWordHandler) writeWordMutation(w http.ResponseWriter, r *http.
 		if writeSaaSQuotaError(w, err) {
 			return
 		}
+		var operationErr *SensitiveWordOperationError
+		if errors.As(err, &operationErr) {
+			writeEnvelope(w, operationErr.Status, operationErr.Status, operationErr.Message, nil)
+			return
+		}
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
-	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{"version": result.Version, "idempotent": result.Idempotent})
 }
 
 func (h *SensitiveWordHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, LoginCorpInfo, AccessContext, bool) {
@@ -475,6 +539,7 @@ func sensitiveWordPayload(item SensitiveWordItem) map[string]any {
 		"contactNum":      item.ContactNum,
 		"createdAt":       item.CreatedAt,
 		"status":          item.Status,
+		"version":         item.Version,
 	}
 }
 

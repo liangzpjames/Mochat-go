@@ -18,10 +18,15 @@ type Dependencies struct {
 	Clock             ports.Clock
 	IDGenerator       ports.IDGenerator
 	PrincipalResolver transporthttp.PrincipalResolver
+	LeadAuthorizer    transporthttp.LeadAuthorizer
 }
 
 type Module struct {
-	leads *transporthttp.LeadHandler
+	leads             *transporthttp.LeadHandler
+	customerLifecycle *transporthttp.CustomerLifecycleHandler
+	opportunities     application.OpportunityService
+	opportunityHTTP   *transporthttp.OpportunityHandler
+	customerTagHTTP   *transporthttp.CustomerTagHandler
 }
 
 func New(dependencies Dependencies) (*Module, error) {
@@ -37,6 +42,9 @@ func New(dependencies Dependencies) (*Module, error) {
 	if isNil(dependencies.PrincipalResolver) {
 		return nil, errors.New("SCRM principal resolver is required")
 	}
+	if isNil(dependencies.LeadAuthorizer) {
+		return nil, errors.New("SCRM lead authorizer is required")
+	}
 
 	repository, err := mysql.NewLeadRepository(dependencies.DB)
 	if err != nil {
@@ -46,8 +54,35 @@ func New(dependencies Dependencies) (*Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM application service: %w", err)
 	}
-	handler := transporthttp.NewLeadHandler(service, dependencies.PrincipalResolver)
-	return &Module{leads: handler}, nil
+	handler := transporthttp.NewLeadHandler(service, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
+	assignmentRepository, err := mysql.NewCustomerLifecycleRepository(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM assignment repository: %w", err)
+	}
+	assignmentService, err := application.NewCustomerLifecycleService(assignmentRepository)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM customer lifecycle service: %w", err)
+	}
+	assignmentHandler := transporthttp.NewCustomerLifecycleHandler(assignmentService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
+	opportunityRepository, err := mysql.NewOpportunityRepository(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM opportunity repository: %w", err)
+	}
+	tagRepository, err := mysql.NewTagRepository(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM tag repository: %w", err)
+	}
+	opportunityService, err := application.NewOpportunityService(opportunityRepository, tagRepository)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM opportunity service: %w", err)
+	}
+	opportunityHTTP := transporthttp.NewOpportunityHandler(opportunityService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
+	customerTagService, err := application.NewCustomerTagService(tagRepository)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM customer tag service: %w", err)
+	}
+	customerTagHTTP := transporthttp.NewCustomerTagHandler(customerTagService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
+	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP}, nil
 }
 
 func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
@@ -57,7 +92,16 @@ func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
 	if isNil(registrar) {
 		return errors.New("route registrar is required")
 	}
-	return transporthttp.RegisterRoutes(registrar, m.leads)
+	if err := transporthttp.RegisterRoutes(registrar, m.leads); err != nil {
+		return err
+	}
+	if err := transporthttp.RegisterCustomerLifecycleRoutes(registrar, m.customerLifecycle); err != nil {
+		return err
+	}
+	if err := transporthttp.RegisterOpportunityRoutes(registrar, m.opportunityHTTP); err != nil {
+		return err
+	}
+	return transporthttp.RegisterCustomerTagRoutes(registrar, m.customerTagHTTP)
 }
 
 func isNil(value any) bool {

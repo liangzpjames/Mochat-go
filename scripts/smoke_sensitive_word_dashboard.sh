@@ -25,6 +25,7 @@ ROOM_ID="${MOCHAT_SMOKE_ROOM_ID:-918281}"
 WORK_CONTACT_ID="${MOCHAT_SMOKE_WORK_CONTACT_ID:-918282}"
 EMPLOYEE_MONITOR_ID="${MOCHAT_SMOKE_EMPLOYEE_MONITOR_ID:-918283}"
 CONTACT_MONITOR_ID="${MOCHAT_SMOKE_CONTACT_MONITOR_ID:-918284}"
+IDEMPOTENCY_PREFIX="sensitive-smoke-$(date +%s)-$$"
 
 compose() {
   MOCHAT_MYSQL_PORT="$MYSQL_PORT" MOCHAT_REDIS_PORT="$REDIS_PORT" docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
@@ -113,6 +114,27 @@ import sys
 payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 if payload.get("code") != 200:
     raise SystemExit(json.dumps(payload, ensure_ascii=False))
+PY
+}
+
+api_expect_code() {
+  local method="$1"
+  local path="$2"
+  local body="$3"
+  local expected="$4"
+  local out="$5"
+  curl -sS -X "$method" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$body" \
+    "http://$GO_ADDR$path" >"$out"
+  python3 - "$out" "$expected" <<'PY'
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert int(payload.get("code", 0)) == int(sys.argv[2]), payload
 PY
 }
 
@@ -210,13 +232,25 @@ PY
 
 api_json POST "/dashboard/corp/bind" "{\"corpId\":$CORP_ID}" "$WORK_DIR/corp-bind.json"
 
-api_json POST "/dashboard/sensitiveWordGroup/store" "{\"name\":\"敏感词分组A，敏感词分组B\"}" "$WORK_DIR/group-store.json"
+GROUP_CREATE_BODY="{\"name\":\"敏感词分组A，敏感词分组B\",\"version\":\"0\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-group-create\"}"
+api_json POST "/dashboard/sensitiveWordGroup/store" "$GROUP_CREATE_BODY" "$WORK_DIR/group-store.json"
+api_json POST "/dashboard/sensitiveWordGroup/store" "$GROUP_CREATE_BODY" "$WORK_DIR/group-store-replay.json"
 GROUP_A_ID="$(mysql_scalar "SELECT id FROM mc_sensitive_word_group WHERE corp_id = $CORP_ID AND name = '敏感词分组A' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1")"
 GROUP_B_ID="$(mysql_scalar "SELECT id FROM mc_sensitive_word_group WHERE corp_id = $CORP_ID AND name = '敏感词分组B' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1")"
 test -n "$GROUP_A_ID"
 test -n "$GROUP_B_ID"
+test "$(mysql_scalar "SELECT COUNT(*) FROM mc_sensitive_word_group WHERE corp_id = $CORP_ID AND deleted_at IS NULL")" = "2"
 
-api_json PUT "/dashboard/sensitiveWordGroup/update" "{\"groupId\":$GROUP_B_ID,\"name\":\"敏感词分组B更新\"}" "$WORK_DIR/group-update.json"
+api_json GET "/dashboard/sensitiveWordGroup/select" "" "$WORK_DIR/group-select-before-update.json"
+GROUP_B_VERSION="$(python3 - "$WORK_DIR/group-select-before-update.json" "$GROUP_B_ID" <<'PY'
+import json, pathlib, sys
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+target = int(sys.argv[2])
+print(next(row["version"] for row in payload["data"] if int(row["groupId"]) == target))
+PY
+)"
+test -n "$GROUP_B_VERSION"
+api_json PUT "/dashboard/sensitiveWordGroup/update" "{\"groupId\":$GROUP_B_ID,\"name\":\"敏感词分组B更新\",\"version\":\"$GROUP_B_VERSION\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-group-rename\"}" "$WORK_DIR/group-update.json"
 test "$(mysql_scalar "SELECT name FROM mc_sensitive_word_group WHERE id = $GROUP_B_ID")" = "敏感词分组B更新"
 
 api_json GET "/dashboard/sensitiveWordGroup/select" "" "$WORK_DIR/group-select.json"
@@ -233,7 +267,7 @@ assert groups[group_a] == "敏感词分组A", groups
 assert groups[group_b] == "敏感词分组B更新", groups
 PY
 
-api_json POST "/dashboard/sensitiveWord/store" "{\"groupId\":$GROUP_A_ID,\"name\":\"敏感词A，敏感词B、敏感词A\\n敏感词C\"}" "$WORK_DIR/word-store.json"
+api_json POST "/dashboard/sensitiveWord/store" "{\"groupId\":$GROUP_A_ID,\"name\":\"敏感词A，敏感词B、敏感词A\\n敏感词C\",\"version\":\"0\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-word-create\"}" "$WORK_DIR/word-store.json"
 WORD_A_ID="$(mysql_scalar "SELECT id FROM mc_sensitive_word WHERE corp_id = $CORP_ID AND name = '敏感词A' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1")"
 WORD_B_ID="$(mysql_scalar "SELECT id FROM mc_sensitive_word WHERE corp_id = $CORP_ID AND name = '敏感词B' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1")"
 WORD_C_ID="$(mysql_scalar "SELECT id FROM mc_sensitive_word WHERE corp_id = $CORP_ID AND name = '敏感词C' AND deleted_at IS NULL ORDER BY id DESC LIMIT 1")"
@@ -243,11 +277,23 @@ test -n "$WORD_C_ID"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mc_sensitive_word WHERE corp_id = $CORP_ID AND deleted_at IS NULL")" = "3"
 test "$(mysql_scalar "SELECT used_value FROM mochat_go_saas_usage_counters WHERE tenant_id = 1 AND metric = 'sensitive_words' AND deleted_at IS NULL")" = "3"
 
-api_json PUT "/dashboard/sensitiveWord/statusUpdate" "{\"sensitiveWordId\":$WORD_C_ID,\"status\":2}" "$WORK_DIR/word-status.json"
+api_json GET "/dashboard/sensitiveWord/index?groupId=$GROUP_A_ID&page=1&perPage=10" "" "$WORK_DIR/word-index-before-mutations.json"
+read -r WORD_A_VERSION WORD_B_VERSION WORD_C_VERSION < <(python3 - "$WORK_DIR/word-index-before-mutations.json" "$WORD_A_ID" "$WORD_B_ID" "$WORD_C_ID" <<'PY'
+import json, pathlib, sys
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+versions = {int(row["sensitiveWordId"]): row["version"] for row in payload["data"]["list"]}
+print(*(versions[int(item)] for item in sys.argv[2:]))
+PY
+)
+test -n "$WORD_A_VERSION"
+test -n "$WORD_B_VERSION"
+test -n "$WORD_C_VERSION"
+api_json PUT "/dashboard/sensitiveWord/statusUpdate" "{\"sensitiveWordId\":$WORD_C_ID,\"status\":2,\"version\":\"$WORD_C_VERSION\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-word-status\"}" "$WORK_DIR/word-status.json"
 test "$(mysql_scalar "SELECT status FROM mc_sensitive_word WHERE id = $WORD_C_ID")" = "2"
 
-api_json PUT "/dashboard/sensitiveWord/move" "{\"sensitiveWordId\":$WORD_B_ID,\"groupId\":$GROUP_B_ID}" "$WORK_DIR/word-move.json"
+api_json PUT "/dashboard/sensitiveWord/move" "{\"sensitiveWordId\":$WORD_B_ID,\"groupId\":$GROUP_B_ID,\"version\":\"$WORD_B_VERSION\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-word-move\"}" "$WORK_DIR/word-move.json"
 test "$(mysql_scalar "SELECT group_id FROM mc_sensitive_word WHERE id = $WORD_B_ID")" = "$GROUP_B_ID"
+api_expect_code PUT "/dashboard/sensitiveWord/move" "{\"sensitiveWordId\":$WORD_B_ID,\"groupId\":$GROUP_A_ID,\"version\":\"$WORD_B_VERSION\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-word-move-stale\"}" 409 "$WORK_DIR/word-move-conflict.json"
 
 compose exec -T mysql mariadb -umochat -pmochat_pass mochat <<SQL
 SET NAMES utf8mb4;
@@ -338,14 +384,30 @@ assert messages[0]["sender"] == "敏感词员工", messages
 assert messages[0]["msgContent"]["content"] == "员工提到敏感词A", messages
 PY
 
-api_json DELETE "/dashboard/sensitiveWord/destroy" "{\"sensitiveWordId\":$WORD_C_ID}" "$WORK_DIR/word-destroy-c.json"
+read -r WORD_A_VERSION WORD_C_VERSION < <(python3 - "$WORK_DIR/word-index-a.json" "$WORD_A_ID" "$WORD_C_ID" <<'PY'
+import json, pathlib, sys
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+versions = {int(row["sensitiveWordId"]): row["version"] for row in payload["data"]["list"]}
+print(*(versions[int(item)] for item in sys.argv[2:]))
+PY
+)
+WORD_B_VERSION="$(python3 - "$WORK_DIR/word-index-b.json" "$WORD_B_ID" <<'PY'
+import json, pathlib, sys
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+target = int(sys.argv[2])
+print(next(row["version"] for row in payload["data"]["list"] if int(row["sensitiveWordId"]) == target))
+PY
+)"
+
+api_json DELETE "/dashboard/sensitiveWord/destroy" "{\"sensitiveWordId\":$WORD_C_ID,\"version\":\"$WORD_C_VERSION\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-word-delete-c\",\"confirmed\":true}" "$WORK_DIR/word-destroy-c.json"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mc_sensitive_word WHERE id = $WORD_C_ID AND deleted_at IS NOT NULL")" = "1"
 test "$(mysql_scalar "SELECT used_value FROM mochat_go_saas_usage_counters WHERE tenant_id = 1 AND metric = 'sensitive_words' AND deleted_at IS NULL")" = "2"
 
-api_json DELETE "/dashboard/sensitiveWord/destroy" "{\"sensitiveWordId\":$WORD_A_ID}" "$WORK_DIR/word-destroy-a.json"
-api_json DELETE "/dashboard/sensitiveWord/destroy" "{\"sensitiveWordId\":$WORD_B_ID}" "$WORK_DIR/word-destroy-b.json"
+api_json DELETE "/dashboard/sensitiveWord/destroy" "{\"sensitiveWordId\":$WORD_A_ID,\"version\":\"$WORD_A_VERSION\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-word-delete-a\",\"confirmed\":true}" "$WORK_DIR/word-destroy-a.json"
+api_json DELETE "/dashboard/sensitiveWord/destroy" "{\"sensitiveWordId\":$WORD_B_ID,\"version\":\"$WORD_B_VERSION\",\"idempotencyKey\":\"$IDEMPOTENCY_PREFIX-word-delete-b\",\"confirmed\":true}" "$WORK_DIR/word-destroy-b.json"
 test "$(mysql_scalar "SELECT COUNT(*) FROM mc_sensitive_word WHERE id IN ($WORD_A_ID, $WORD_B_ID) AND deleted_at IS NOT NULL")" = "2"
 test "$(mysql_scalar "SELECT used_value FROM mochat_go_saas_usage_counters WHERE tenant_id = 1 AND metric = 'sensitive_words' AND deleted_at IS NULL")" = "0"
+test "$(mysql_scalar "SELECT COUNT(*) FROM mochat_go_saas_admin_operation_logs WHERE tenant_id = 1 AND action LIKE 'sensitive_word.%' AND remark LIKE '%idempotencyKey=$IDEMPOTENCY_PREFIX-%' AND deleted_at IS NULL")" = "8"
 
 grep -q "go migrated route enabled: GET /dashboard/sensitiveWords/page" "$GO_LOG"
 grep -q "go migrated route enabled: GET /dashboard/sensitiveWord/index" "$GO_LOG"

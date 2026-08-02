@@ -1,0 +1,33 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createContactApi } from './contact-api';
+
+describe('contact api', () => {
+  it('serializes combined filters and detail scope', async () => {
+    const request = vi.fn().mockResolvedValue({ items: [], nextCursor: '' });
+    const api = createContactApi({ request });
+    await api.listContacts({ corpId: 7, keyword: ' Ada ', ownerIds: [11], tagIds: ['vip'], statuses: ['owned'], cursor: '20', pageSize: 30 });
+    expect(request.mock.calls[0]![0]).toBe('/scrm/contacts?corpId=7&pageSize=30&keyword=Ada&ownerId=11&tagId=vip&status=owned&cursor=20');
+    await api.getContact({ corpId: 7, contactId: 'c/1' });
+    expect(request.mock.calls[1]![0]).toBe('/scrm/contacts/c%2F1?corpId=7');
+  });
+
+  it('sends versioned idempotent lifecycle mutations', async () => {
+    const request = vi.fn().mockResolvedValue({});
+    const api = createContactApi({ request });
+    await api.releaseToPublicPool({ corpId: 7, contactId: 'c1', version: 3, action: 'enter', reason: '长期未跟进', idempotencyKey: 'release-c1-3' });
+    expect(request).toHaveBeenCalledWith('/scrm/assignments/release', expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'Idempotency-Key': 'release-c1-3' }), body: JSON.stringify({ corpId: 7, contactId: 'c1', version: 3, action: 'enter', reason: '长期未跟进' }) }));
+    await api.maintainTagContacts({ corpId: 7, tagId: 'vip', addContactIds: ['c1'], removeContactIds: [], version: 6, idempotencyKey: 'tag-add-c1-6' });
+    expect(request).toHaveBeenLastCalledWith('/scrm/tags/vip/contacts', expect.objectContaining({ method: 'PUT', headers: expect.objectContaining({ 'Idempotency-Key': 'tag-add-c1-6' }), body: JSON.stringify({ corpId: 7, addContactIds: ['c1'], removeContactIds: [], version: 6 }) }));
+  });
+
+  it('sends the minimal follow-up payload', async () => {
+    const request = vi.fn().mockResolvedValue({});
+    const api = createContactApi({ request });
+    await api.appendFollowUp({ corpId: 7, contactId: 'c/1', content: 'sent proposal', idempotencyKey: 'follow-1' });
+    expect(request).toHaveBeenCalledWith('/scrm/contacts/c%2F1/follow-ups', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ 'Idempotency-Key': 'follow-1' }),
+      body: JSON.stringify({ corpId: 7, content: 'sent proposal' }),
+    }));
+  });
+});

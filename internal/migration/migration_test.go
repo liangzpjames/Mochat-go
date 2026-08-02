@@ -72,7 +72,7 @@ func TestDefaultMigrationsDiscoversIncrementalFiles(t *testing.T) {
 	}
 }
 
-func TestStandaloneComposeFreshInitMountsLatestMigration(t *testing.T) {
+func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 	projectRoot := filepath.Join("..", "..")
 	migrations := DefaultMigrations(projectRoot)
 	latest := migrations[len(migrations)-1]
@@ -82,12 +82,163 @@ func TestStandaloneComposeFreshInitMountsLatestMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantMount := "./migrations/0099_saas_tenant_default_corp.up.sql:/docker-entrypoint-initdb.d/099-saas-tenant-default-corp.sql:ro"
-	if latest.Version != "0099_saas_tenant_default_corp" {
-		t.Fatalf("latest migration = %q, want 0099_saas_tenant_default_corp", latest.Version)
+	if latest.Version != "0109_scrm_customer_tag_parity" {
+		t.Fatalf("latest migration = %q, want 0109_scrm_customer_tag_parity", latest.Version)
 	}
-	if !strings.Contains(string(composeBody), wantMount) {
-		t.Fatalf("standalone fresh init does not mount latest migration %q", wantMount)
+	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
+		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
+	}
+}
+
+func TestStandaloneComposeEnablesSCRMRoutesByDefault(t *testing.T) {
+	composePath := filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml")
+	composeBody, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := `MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT: "${MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT:-1}"`
+	if !strings.Contains(string(composeBody), want) {
+		t.Fatalf("standalone compose must enable SCRM routes by default; missing %q", want)
+	}
+}
+
+func TestCustomerTagParityMigrationIsReversible(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	up, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0109_scrm_customer_tag_parity.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0109_scrm_customer_tag_parity.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"mochat_go_scrm_tag_groups", "group_id", "idx_scrm_tag_catalog", "idx_scrm_contact_tag_usage", "默认分组"} {
+		if !strings.Contains(string(up), fragment) {
+			t.Errorf("up migration missing %q", fragment)
+		}
+	}
+	for _, fragment := range []string{"DROP TABLE IF EXISTS `mochat_go_scrm_tag_groups`", "DROP COLUMN IF EXISTS `group_id`", "DROP INDEX IF EXISTS `idx_scrm_contact_tag_usage`"} {
+		if !strings.Contains(string(down), fragment) {
+			t.Errorf("down migration missing %q", fragment)
+		}
+	}
+}
+
+func TestPublicPoolParityMigrationIsReversibleAndSynced(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	read := func(path ...string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(append([]string{projectRoot}, path...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	up := read("deploy", "standalone", "migrations", "0108_scrm_public_pool_parity.up.sql")
+	down := read("deploy", "standalone", "migrations", "0108_scrm_public_pool_parity.down.sql")
+	for _, fragment := range []string{"`source`", "`business_type`", "`region`", "mochat_go_scrm_assignment_history", "previous_owner_id", "actor_id", "reason", "idx_scrm_pool_history_contact"} {
+		if !strings.Contains(up, fragment) {
+			t.Errorf("public-pool migration missing %q", fragment)
+		}
+	}
+	for _, fragment := range []string{"DROP TABLE IF EXISTS `mochat_go_scrm_assignment_history`", "DROP COLUMN `region`", "DROP COLUMN `business_type`", "DROP COLUMN `source`"} {
+		if !strings.Contains(down, fragment) {
+			t.Errorf("down migration missing %q", fragment)
+		}
+	}
+}
+
+func TestContactLifecycleIdempotencyMigrationIsReversible(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	up, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0107_scrm_contact_lifecycle_idempotency.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0107_scrm_contact_lifecycle_idempotency.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"mochat_go_scrm_idempotency_keys", "request_fingerprint", "PRIMARY KEY (`tenant_id`,`corp_id`,`action`,`idempotency_key`)"} {
+		if !strings.Contains(string(up), fragment) {
+			t.Errorf("up migration missing %s", fragment)
+		}
+	}
+	if !strings.Contains(string(down), "DROP TABLE IF EXISTS `mochat_go_scrm_idempotency_keys`") {
+		t.Fatal("down migration does not remove idempotency table")
+	}
+}
+
+func TestLeadParityMigrationMatchesStandaloneSchema(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	read := func(path ...string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(append([]string{projectRoot}, path...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	up := read("deploy", "standalone", "migrations", "0106_scrm_lead_parity.up.sql")
+	down := read("deploy", "standalone", "migrations", "0106_scrm_lead_parity.down.sql")
+	for _, fragment := range []string{"cannot uniquely map historical leads", "HAVING COUNT(c.`id`) <> 1", "UPDATE `mochat_go_scrm_leads`", "`corp_id`", "`phone`", "`owner_id`", "`converted_contact_id`", "`discard_reason`", "uk_scrm_leads_scope_phone", "idx_scrm_leads_combined_filter"} {
+		if !strings.Contains(up, fragment) {
+			t.Errorf("up migration missing %s", fragment)
+		}
+	}
+	for _, fragment := range []string{"cross-corp business_key conflict", "HAVING COUNT(DISTINCT `corp_id`) > 1", "DROP INDEX `uk_scrm_leads_scope_phone`", "DROP COLUMN `corp_id`"} {
+		if !strings.Contains(down, fragment) {
+			t.Errorf("down migration missing %s", fragment)
+		}
+	}
+}
+
+func TestCorpDataRealtimeIndexMigrationMatchesStandaloneSchema(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	read := func(path ...string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join(append([]string{projectRoot}, path...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+
+	up := read("deploy", "standalone", "migrations", "0105_corp_data_realtime_indexes.up.sql")
+	down := read("deploy", "standalone", "migrations", "0105_corp_data_realtime_indexes.down.sql")
+	schema := read("deploy", "standalone", "schema", "mochat.sql")
+	legacy := strings.TrimSpace(read("deploy", "standalone", "migrations", "0103_phase3_2_query_indexes.up.sql"))
+	if legacy != "ALTER TABLE mc_corp_day_data\n  ADD INDEX idx_mc_corp_day_data_corp_date (corp_id, date);" {
+		t.Fatalf("0103 semantics changed: %q", legacy)
+	}
+
+	indexes := []string{
+		"idx_mc_wce_corp_deleted_create_employee",
+		"idx_mc_wce_corp_status_deleted_employee",
+		"idx_mc_wr_corp_deleted_created_owner",
+		"idx_mc_wcr_room_status_deleted_join",
+		"idx_mc_wcr_room_status_deleted_updated",
+		"idx_mc_we_corp_status_deleted",
+		"idx_mc_wed_employee_deleted_department",
+	}
+	for _, index := range indexes {
+		if !strings.Contains(up, index) {
+			t.Errorf("up migration missing %s", index)
+		}
+		if !strings.Contains(down, "DROP INDEX "+index) {
+			t.Errorf("down migration missing %s", index)
+		}
+		if !strings.Contains(schema, index) {
+			t.Errorf("standalone schema missing %s", index)
+		}
+	}
+	if got := strings.Count(up, "information_schema.statistics"); got != len(indexes) {
+		t.Fatalf("up migration idempotence guards = %d, want %d", got, len(indexes))
+	}
+	for _, fragment := range []string{"table_schema = DATABASE()", "PREPARE corp_data_index_stmt", "DEALLOCATE PREPARE corp_data_index_stmt"} {
+		if !strings.Contains(up, fragment) {
+			t.Fatalf("up migration missing fresh-schema idempotence fragment %q", fragment)
+		}
 	}
 }
 

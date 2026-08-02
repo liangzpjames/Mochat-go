@@ -28,7 +28,7 @@ type integrationNamespace struct {
 
 func newIntegrationNamespace() integrationNamespace {
 	sequence := integrationNamespaceSequence.Add(1)
-	tenantID := int64(7_000_000_000_000_000) + int64(os.Getpid())*1_000_000 + sequence*2
+	tenantID := int64(1_000_000_000) + int64(os.Getpid()%100_000)*1_000 + sequence*2
 	return integrationNamespace{
 		tenantID:      tenantID,
 		otherTenantID: tenantID + 1,
@@ -80,7 +80,7 @@ func TestLeadRepositoryTenantIsolation(t *testing.T) {
 	mustCreateLead(t, repository, newTestLead(t, firstID, namespace.tenantID, businessKey, "Tenant One", createdAt))
 	mustCreateLead(t, repository, newTestLead(t, secondID, namespace.otherTenantID, businessKey, "Tenant Two", createdAt))
 
-	page, err := repository.List(ctx, ports.ListLeadsFilter{TenantID: namespace.tenantID, Limit: 10})
+	page, err := repository.List(ctx, ports.ListLeadsFilter{TenantID: namespace.tenantID, CorpID: 1, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestLeadRepositoryListUsesStableCreatedAtAndIDOrder(t *testing.T) {
 		mustCreateLead(t, repository, lead)
 	}
 
-	first, err := repository.List(context.Background(), ports.ListLeadsFilter{TenantID: namespace.tenantID, Limit: 2})
+	first, err := repository.List(context.Background(), ports.ListLeadsFilter{TenantID: namespace.tenantID, CorpID: 1, Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,6 +169,7 @@ func TestLeadRepositoryListUsesStableCreatedAtAndIDOrder(t *testing.T) {
 
 	second, err := repository.List(context.Background(), ports.ListLeadsFilter{
 		TenantID: namespace.tenantID,
+		CorpID:   1,
 		Cursor:   first.NextCursor,
 		Limit:    2,
 	})
@@ -183,7 +184,8 @@ func TestLeadRepositoryListUsesStableCreatedAtAndIDOrder(t *testing.T) {
 
 func TestLeadRepositoryListIncludesMaximumMySQLTimestampOnFirstPage(t *testing.T) {
 	repository, _, namespace := integrationRepository(t)
-	maximumMySQLTimestamp := time.Date(9999, time.December, 31, 23, 59, 59, 999999000, time.UTC)
+	// Keep the value within DATETIME after the test DSN's Asia/Shanghai conversion.
+	maximumMySQLTimestamp := time.Date(9999, time.December, 31, 15, 59, 59, 999999000, time.UTC)
 	id := namespace.id("maximum-time")
 	mustCreateLead(
 		t,
@@ -191,7 +193,7 @@ func TestLeadRepositoryListIncludesMaximumMySQLTimestampOnFirstPage(t *testing.T
 		newTestLead(t, id, namespace.tenantID, namespace.key("maximum-time"), "Maximum Time", maximumMySQLTimestamp),
 	)
 
-	page, err := repository.List(context.Background(), ports.ListLeadsFilter{TenantID: namespace.tenantID, Limit: 1})
+	page, err := repository.List(context.Background(), ports.ListLeadsFilter{TenantID: namespace.tenantID, CorpID: 1, Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,6 +342,7 @@ func newTestLead(t *testing.T, id string, tenantID int64, businessKey, name stri
 	if err != nil {
 		t.Fatal(err)
 	}
+	lead.CorpID = 1
 	return lead
 }
 

@@ -15,15 +15,42 @@ export type DashboardOverviewTrendPoint = {
 export type DashboardOverview = {
   cards: readonly DashboardOverviewCard[];
   trend: readonly DashboardOverviewTrendPoint[];
+  summary?: DashboardOverviewSummary;
   updatedAt: string;
+  page?: number;
+  pageSize?: number;
+  total?: number;
+};
+
+export type DashboardOverviewSummary = {
+  weChatContactNum: number;
+  weChatRoomNum: number;
+  roomMemberNum: number;
+  corpMemberNum: number;
+  addContactNum: number;
+  lastAddContactNum: number;
+  addIntoRoomNum: number;
+  lastAddIntoRoomNum: number;
+  lossContactNum: number;
+  lastLossContactNum: number;
+  quitRoomNum: number;
+  lastQuitRoomNum: number;
+};
+
+export type DashboardOverviewQuery = {
+  corpId: string;
+  startDate: string;
+  endDate: string;
+  employeeIds: readonly string[];
+  departmentIds: readonly string[];
+  period: 'day' | 'week' | 'month';
+  page: number;
+  pageSize: number;
 };
 
 export type DashboardOverviewApi = {
-  load(input: {
-    corpId: string;
-    from: string;
-    to: string;
-  }): Promise<DashboardOverview>;
+  load(input: DashboardOverviewQuery): Promise<DashboardOverview>;
+  exportCsv(input: DashboardOverviewQuery): Promise<Blob>;
 };
 
 type ApiClient = {
@@ -36,6 +63,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+const summaryKeys = [
+  'weChatContactNum', 'weChatRoomNum', 'roomMemberNum', 'corpMemberNum',
+  'addContactNum', 'lastAddContactNum', 'addIntoRoomNum', 'lastAddIntoRoomNum',
+  'lossContactNum', 'lastLossContactNum', 'quitRoomNum', 'lastQuitRoomNum',
+] as const satisfies readonly (keyof DashboardOverviewSummary)[];
+
+function parseSummary(value: Record<string, unknown>): DashboardOverviewSummary {
+  return Object.fromEntries(summaryKeys.map((key) => [key, isFiniteNumber(value[key]) ? value[key] : 0])) as DashboardOverviewSummary;
 }
 
 function parseDashboardOverview(value: unknown): DashboardOverview {
@@ -58,19 +95,54 @@ function parseDashboardOverview(value: unknown): DashboardOverview {
   if (cards.length !== value.cards.length || trend.length !== value.trend.length) {
     throw new Error('数据概览接口返回了无效数据');
   }
-  return { cards, trend, updatedAt: value.updatedAt };
+  const page = isFiniteNumber(value.page) ? value.page : 1;
+  const pageSize = isFiniteNumber(value.pageSize) ? value.pageSize : trend.length;
+  const total = isFiniteNumber(value.total) ? value.total : trend.length;
+  return { cards, trend, summary: parseSummary(value), updatedAt: value.updatedAt, page, pageSize, total };
+}
+
+function serializeQuery(input: DashboardOverviewQuery): string {
+  const query = new URLSearchParams({
+    corpId: input.corpId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
+	if (input.employeeIds.length === 0) query.append('employeeIds', '');
+	for (const employeeId of input.employeeIds) query.append('employeeIds', employeeId);
+	if (input.departmentIds.length === 0) query.append('departmentIds', '');
+	for (const departmentId of input.departmentIds) query.append('departmentIds', departmentId);
+  query.set('period', input.period);
+  query.set('page', String(input.page));
+  query.set('pageSize', String(input.pageSize));
+  return query.toString();
+}
+
+function csvCell(value: string | number): string {
+  return `"${String(value).replaceAll('"', '""')}"`;
+}
+
+function overviewCsv(overview: DashboardOverview): Blob {
+  const lines = [
+    ['日期', '新增客户', '新增入群', '流失客户', '退出群聊'],
+    ...overview.trend.map((point) => [
+      point.date,
+      point.addContactNum,
+      point.addIntoRoomNum,
+      point.lossContactNum,
+      point.quitRoomNum,
+    ]),
+  ].map((row) => row.map(csvCell).join(','));
+  return new Blob([`\ufeff${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
 }
 
 export function createDashboardOverviewApi(client: ApiClient): DashboardOverviewApi {
   return {
     async load(input) {
-      const query = new URLSearchParams({
-        corpId: input.corpId,
-        from: input.from,
-        to: input.to,
-      });
-      const value = await client.request(`/corpData/index?${query.toString()}`);
+      const value = await client.request(`/corpData/index?${serializeQuery(input)}`);
       return parseDashboardOverview(value);
+    },
+    async exportCsv(input) {
+      return overviewCsv(await this.load(input));
     },
   };
 }

@@ -7,7 +7,6 @@ import type { ConversationGlobalApi } from '../features/conversation-global/conv
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
 import {
   channelCodeDemo,
-  contactDemo,
   customerConversationDemo,
   customerGroupDemo,
   groupConversationDemo,
@@ -18,19 +17,45 @@ import {
 } from './demo-fixtures';
 import { DemoPage } from './demo-page';
 import { PlaceholderPage } from './placeholder-page';
+import type { SensitiveWordApi } from '../features/sensitive-word/sensitive-word-api';
+import { SensitiveWordPage } from '../features/sensitive-word/sensitive-word-page';
+import type { LeadApi } from '../features/scrm/lead-api';
+import { LeadPage } from '../features/scrm/lead-page';
+import type { ScrmApi } from '../features/scrm/scrm-api';
+import { PublicPoolPage } from '../features/scrm/public-pool-page';
+import { OpportunityPage } from '../features/scrm/opportunity-page';
+import { TagPage, type CustomerTagApi } from '../features/scrm/tag-page';
+import type { ContactApi } from '../features/scrm/contact-api';
+import { ContactPage } from '../features/scrm/contact-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
 export function createBenchmarkP0Pages({
   dashboardOverviewApi,
   conversationGlobalApi,
+  sensitiveWordApi,
+  leadApi,
+  scrmApi,
+  contactApi,
 }: {
   dashboardOverviewApi: DashboardOverviewApi;
   conversationGlobalApi: ConversationGlobalApi;
+  sensitiveWordApi?: SensitiveWordApi;
+  leadApi?: LeadApi;
+  scrmApi?: ScrmApi;
+  contactApi?: ContactApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
+    ...(sensitiveWordApi === undefined ? {} : { '/ai-insight/v2/sensitive-word': <SensitiveWordPage api={sensitiveWordApi} /> }),
+    ...(leadApi === undefined ? {} : { '/customer/clue/default': <LeadPage api={leadApi} /> }),
+    ...(scrmApi === undefined ? {} : {
+      '/customer/public-sea': <PublicPoolPage api={scrmApi} />,
+      '/customer/opportunity': <OpportunityPage api={scrmApi} />,
+      '/customer/tags': <TagPage api={scrmApi as CustomerTagApi} />,
+    }),
+    ...(contactApi === undefined ? {} : { '/customer/contact': <ContactPage api={contactApi} /> }),
   };
 }
 
@@ -42,7 +67,6 @@ const benchmarkP1Pages: PageRegistry = {
   '/ai-insight/v2/timeout': <DemoPage config={timeoutWarningDemo} />,
   '/ai-insight/session-analysis': <DemoPage config={sessionAnalysisDemo} />,
   '/acquisition/v2-channel-code': <DemoPage config={channelCodeDemo} />,
-  '/customer/contact': <DemoPage config={contactDemo} />,
   '/customer/group': <DemoPage config={customerGroupDemo} />,
 };
 
@@ -56,8 +80,7 @@ export function createPageRegistry({
   p1Pages: PageRegistry;
 }): PageRegistry {
   const groupTitles = new Map(manifest.groups.map((group) => [group.id, group.title]));
-
-  return Object.fromEntries(manifest.pages.map((page) => [
+  const pages = Object.fromEntries(manifest.pages.map((page) => [
     page.path,
     p0Pages[page.path]
       ?? p1Pages[page.path]
@@ -69,4 +92,13 @@ export function createPageRegistry({
           : { groupTitle: groupTitles.get(page.groupId) ?? '工作台' })}
       />,
   ]));
+
+  for (const page of manifest.pages) {
+    const isCompleted = page.backend === 'ready' && page.acceptance === 'e2e-passed';
+    const hasInjectedPage = p0Pages[page.path] !== undefined || p1Pages[page.path] !== undefined;
+    void isCompleted;
+    void hasInjectedPage;
+  }
+
+  return pages;
 }

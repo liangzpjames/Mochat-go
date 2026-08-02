@@ -126,6 +126,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps) {
       HydrateFallback: DashboardHydrateFallback,
       children: [
         { index: true, element: <Navigate replace to="/index" /> },
+        { path: 'corpData/index', element: <Navigate replace to="/index" /> },
         ...reactRoutes,
         { path: '*', element: <NotFoundPage /> },
       ],

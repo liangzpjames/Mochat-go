@@ -6252,6 +6252,9 @@ func TestSaaSAdminCustomerSuccessAssignRequiresPlatformAdminAndOwner(t *testing.
 }
 
 func TestSaaSAdminCustomerSuccessRenewalTasksCreatesTasksFromQueue(t *testing.T) {
+	renewalBase := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	renewalBaseText := renewalBase.Format("2006-01-02 15:04:05")
+	renewalExpiresText := renewalBase.AddDate(0, 6, 0).Format("2006-01-02 15:04:05")
 	store := &fakeSaaSAdminStore{
 		users: map[int]User{
 			1: {ID: 1, TenantID: 1, IsSuperAdmin: 1},
@@ -6271,7 +6274,7 @@ func TestSaaSAdminCustomerSuccessRenewalTasksCreatesTasksFromQueue(t *testing.T)
 					PackageCode:     "growth",
 					PackageName:     "成长版",
 					PackageStatus:   1,
-					ExpiresAt:       "2026-08-01 00:00:00",
+					ExpiresAt:       renewalBaseText,
 					OpenAlertCount:  1,
 					MaxUsageMetric:  SaaSMetricUsers,
 					MaxUsageCurrent: 12,
@@ -6345,10 +6348,10 @@ func TestSaaSAdminCustomerSuccessRenewalTasksCreatesTasksFromQueue(t *testing.T)
 		store.lastTaskCreate.Remark != "队列续费任务" {
 		t.Fatalf("task create = %+v", store.lastTaskCreate)
 	}
-	if !strings.Contains(store.lastTaskCreate.RequestJSON, `"expiresAt":"2027-02-01 00:00:00"`) ||
+	if !strings.Contains(store.lastTaskCreate.RequestJSON, `"expiresAt":"`+renewalExpiresText+`"`) ||
 		!strings.Contains(store.lastTaskCreate.RequestJSON, `"amountCents":19900`) ||
 		!strings.Contains(store.lastTaskCreate.RequestJSON, `"externalOrderNo":"CS-12"`) ||
-		!strings.Contains(store.lastTaskCreate.PreviewJSON, `"previousExpiresAt":"2026-08-01 00:00:00"`) {
+		!strings.Contains(store.lastTaskCreate.PreviewJSON, `"previousExpiresAt":"`+renewalBaseText+`"`) {
 		t.Fatalf("task json request=%s preview=%s", store.lastTaskCreate.RequestJSON, store.lastTaskCreate.PreviewJSON)
 	}
 	operation := store.lastRecordedOperationLog

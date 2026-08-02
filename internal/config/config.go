@@ -29,6 +29,7 @@ const (
 type Config struct {
 	RuntimeRole                                        appruntime.Role
 	ListenAddr                                         string
+	Timezone                                           string
 	Standalone                                         bool
 	EnableAllMigratedRoutes                            bool
 	EnablePhase22SCRMPilot                             bool
@@ -536,6 +537,13 @@ func FromEnv() (Config, error) {
 		return Config{}, err
 	}
 	standalone := envBool("MOCHAT_GO_STANDALONE")
+	timezone := envOrDefault("MOCHAT_TIMEZONE", "Asia/Shanghai")
+	if timezone != "Asia/Shanghai" {
+		return Config{}, fmt.Errorf("MOCHAT_TIMEZONE currently supports only Asia/Shanghai")
+	}
+	if _, err := time.LoadLocation(timezone); err != nil {
+		return Config{}, fmt.Errorf("MOCHAT_TIMEZONE: %w", err)
+	}
 	redisDB, err := envInt("MOCHAT_REDIS_DB", "REDIS_DB", 0)
 	if err != nil {
 		return Config{}, err
@@ -1193,6 +1201,7 @@ func FromEnv() (Config, error) {
 	cfg := Config{
 		RuntimeRole:                                        runtimeRole,
 		ListenAddr:                                         listenAddr,
+		Timezone:                                           timezone,
 		Standalone:                                         standalone,
 		EnableAllMigratedRoutes:                            enableAllMigratedRoutes,
 		EnablePhase22SCRMPilot:                             envBool("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT"),

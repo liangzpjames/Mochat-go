@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 
 import { useOptionalDashboardAccess } from '../app/access-context';
@@ -30,11 +30,27 @@ export function DashboardLayout() {
     },
     yuanhuManifest,
   );
+  const activeGroupIds = navigation
+    .filter((group) => group.items.some((item) => item.activePath !== null))
+    .map((group) => group.id);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
-    () => new Set(),
+    () => new Set(activeGroupIds),
   );
+  const previousPathname = useRef(location.pathname);
   const hasPages = topLevelNavigation.length > 0
     || navigation.some((group) => group.items.length > 0);
+
+  useEffect(() => {
+    if (previousPathname.current === location.pathname) {
+      return;
+    }
+    previousPathname.current = location.pathname;
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      activeGroupIds.forEach((groupId) => next.add(groupId));
+      return next;
+    });
+  }, [location.pathname]);
 
   function toggleGroup(groupId: string) {
     setExpandedGroups((current) => {
@@ -51,7 +67,10 @@ export function DashboardLayout() {
   return (
     <div className="dashboard-shell">
       <header className="dashboard-header">
-        <NavLink className="dashboard-brand" to="/">MoChat AI</NavLink>
+        <NavLink className="dashboard-brand" to="/">
+          <span aria-hidden="true" className="dashboard-brand-mark">M</span>
+          <span>MoChat AI</span>
+        </NavLink>
         <span className="dashboard-product-name">企业智能运营平台</span>
         <label className="dashboard-search">
           <span className="sr-only">搜索功能</span>

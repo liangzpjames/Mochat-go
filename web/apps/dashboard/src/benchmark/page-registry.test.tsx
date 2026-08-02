@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryRouter, RouterProvider } from 'react-router';
 
-import { benchmarkManifest } from './benchmark-manifest';
+import { benchmarkManifest, type BenchmarkManifest } from './benchmark-manifest';
 import { createBenchmarkP0Pages, createPageRegistry } from './page-registry';
 import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
@@ -46,7 +46,10 @@ function renderDashboardRoute(path: string) {
 describe('createPageRegistry', () => {
   it('registers the real global conversation P0 page', () => {
     const pages = createBenchmarkP0Pages({
-      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }) },
+      dashboardOverviewApi: {
+        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        exportCsv: () => Promise.resolve(new Blob()),
+      },
       conversationGlobalApi: {
         search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
         detail: () => Promise.reject(new Error('not loaded')),
@@ -84,6 +87,22 @@ describe('createPageRegistry', () => {
     );
   });
 
+  it('keeps the registry constructible for manifest-only consumers', () => {
+    const completedManifest = {
+      ...manifest,
+      pages: manifest.pages.map((page) => page.path === '/index'
+        ? {
+          ...page,
+          implementation: 'native',
+          backend: 'ready',
+          acceptance: 'e2e-passed',
+        }
+        : page),
+    } as unknown as BenchmarkManifest;
+
+    expect(() => createPageRegistry({ manifest: completedManifest, p0Pages: {}, p1Pages: {} })).not.toThrow();
+  });
+
   it.each([
     ['/chat/v2-staff', '员工会话'],
     ['/chat/v2-customer', '客户会话'],
@@ -92,7 +111,6 @@ describe('createPageRegistry', () => {
     ['/ai-insight/v2/timeout', '超时预警'],
     ['/ai-insight/session-analysis', '会话分析'],
     ['/acquisition/v2-channel-code', '渠道活码'],
-    ['/customer/contact', '联系人'],
     ['/customer/group', '客户群'],
   ])('registers and renders the documented P1 demo route %s', (path, title) => {
     const pages = createPageRegistry({ manifest: benchmarkManifest, p0Pages: {}, p1Pages: {} });

@@ -77,7 +77,7 @@ describe('LoginPage', () => {
     expect(screen.queryByText('secret')).toBeNull();
   });
 
-  it('stores the session and returns to a safe same-origin path', async () => {
+  it('stores the session and opens data overview instead of a stale same-origin path', async () => {
     const props = renderLogin({
       returnTo: '/workContact/index?tab=active#top',
     });
@@ -85,17 +85,15 @@ describe('LoginPage', () => {
     submitCredentials();
 
     await waitFor(() => expect(props.setSession).toHaveBeenCalledWith(session));
-    expect(props.navigate).toHaveBeenCalledWith(
-      '/workContact/index?tab=active#top',
-    );
+    expect(props.navigate).toHaveBeenCalledWith('/index');
   });
 
-  it('rejects an external return target and goes to the dashboard root', async () => {
+  it('rejects an external return target and opens data overview', async () => {
     const props = renderLogin({ returnTo: 'https://evil.example/steal' });
 
     submitCredentials();
 
-    await waitFor(() => expect(props.navigate).toHaveBeenCalledWith('/'));
+    await waitFor(() => expect(props.navigate).toHaveBeenCalledWith('/index'));
   });
 
   it('rejects a backslash network-path return target', async () => {
@@ -103,7 +101,7 @@ describe('LoginPage', () => {
 
     submitCredentials();
 
-    await waitFor(() => expect(props.navigate).toHaveBeenCalledWith('/'));
+    await waitFor(() => expect(props.navigate).toHaveBeenCalledWith('/index'));
   });
 
   it('disables duplicate submission while authentication is pending', async () => {

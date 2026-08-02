@@ -864,7 +864,9 @@ CREATE TABLE IF NOT EXISTS `mc_work_contact_employee` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_wce_corp_deleted_create_employee` (`corp_id`,`deleted_at`,`create_time`,`employee_id`),
+  KEY `idx_mc_wce_corp_status_deleted_employee` (`corp_id`,`status`,`deleted_at`,`employee_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通讯录 - 客户 中间表';
 
 -- ----------------------------
@@ -885,7 +887,9 @@ CREATE TABLE IF NOT EXISTS `mc_work_contact_room` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_wcr_room_status_deleted_join` (`room_id`,`deleted_at`,`status`,`join_time`),
+  KEY `idx_mc_wcr_room_status_deleted_updated` (`room_id`,`deleted_at`,`status`,`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户 - 客户群 关联表';
 
 -- ----------------------------
@@ -984,7 +988,8 @@ CREATE TABLE IF NOT EXISTS `mc_work_employee` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_we_corp_status_deleted` (`corp_id`,`status`,`deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='企业通讯录';
 
 -- ----------------------------
@@ -999,7 +1004,8 @@ CREATE TABLE IF NOT EXISTS `mc_work_employee_department` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_wed_employee_deleted_department` (`employee_id`,`deleted_at`,`department_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='(通讯录 - 通讯录部门)中间表';
 
 -- ----------------------------
@@ -1199,7 +1205,8 @@ CREATE TABLE IF NOT EXISTS `mc_work_room` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_mc_wr_corp_deleted_created_owner` (`corp_id`,`deleted_at`,`created_at`,`owner_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户群表';
 
 -- ----------------------------

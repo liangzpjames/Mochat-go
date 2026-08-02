@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createDashboardOverviewApi } from './dashboard-overview-api';
+import { createDashboardOverviewApi, type DashboardOverviewApi } from './dashboard-overview-api';
 
 describe('createDashboardOverviewApi', () => {
   it('serializes the corp and local-calendar date range and returns real response values', async () => {
@@ -18,18 +18,83 @@ describe('createDashboardOverviewApi', () => {
         },
       ],
       updatedAt: '2026-07-31 09:30:00',
+      addContactNum: 12,
+      lastAddContactNum: 9,
+      lossContactNum: 2,
+      corpMemberNum: 18,
+      page: 1,
+      pageSize: 20,
+      total: 1,
     };
     const request = vi.fn(() => Promise.resolve(response));
     const api = createDashboardOverviewApi({ request });
 
     await expect(api.load({
       corpId: 'corp 7',
-      from: '2026-07-01',
-      to: '2026-07-31',
-    })).resolves.toEqual(response);
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+      employeeIds: [],
+      departmentIds: [],
+      period: 'day',
+      page: 1,
+      pageSize: 20,
+    })).resolves.toEqual(expect.objectContaining({
+      cards: response.cards,
+      trend: response.trend,
+      updatedAt: response.updatedAt,
+      summary: expect.objectContaining({
+        addContactNum: 12,
+        lastAddContactNum: 9,
+        lossContactNum: 2,
+        corpMemberNum: 18,
+      }),
+    }));
 
     expect(request).toHaveBeenCalledWith(
-      '/corpData/index?corpId=corp+7&from=2026-07-01&to=2026-07-31',
+      '/corpData/index?corpId=corp+7&startDate=2026-07-01&endDate=2026-07-31&employeeIds=&departmentIds=&period=day&page=1&pageSize=20',
+    );
+  });
+
+  it('serializes the complete overview query, including filter arrays and pagination', async () => {
+    const request = vi.fn(() => Promise.resolve({ cards: [], trend: [], updatedAt: '' }));
+    const api = createDashboardOverviewApi({ request });
+
+    await api.load({
+      corpId: '7',
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+      employeeIds: ['9', '12'],
+      departmentIds: ['3', '8'],
+      period: 'week',
+      page: 2,
+      pageSize: 20,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      '/corpData/index?corpId=7&startDate=2026-07-01&endDate=2026-07-31&employeeIds=9&employeeIds=12&departmentIds=3&departmentIds=8&period=week&page=2&pageSize=20',
+    );
+  });
+
+  it('exports with precisely the same serialized query as the loaded overview', async () => {
+    const request = vi.fn(() => Promise.resolve({ cards: [], trend: [], updatedAt: '' }));
+    const api = createDashboardOverviewApi({ request }) as DashboardOverviewApi & {
+      exportCsv(input: unknown): Promise<Blob>;
+    };
+    const input = {
+      corpId: '7',
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+      employeeIds: ['9'],
+      departmentIds: ['3'],
+      period: 'month',
+      page: 1,
+      pageSize: 10,
+    };
+
+    await api.exportCsv(input);
+
+    expect(request).toHaveBeenCalledWith(
+      '/corpData/index?corpId=7&startDate=2026-07-01&endDate=2026-07-31&employeeIds=9&departmentIds=3&period=month&page=1&pageSize=10',
     );
   });
 
@@ -42,8 +107,13 @@ describe('createDashboardOverviewApi', () => {
 
     await expect(api.load({
       corpId: '7',
-      from: '2026-07-01',
-      to: '2026-07-31',
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+      employeeIds: [],
+      departmentIds: [],
+      period: 'day',
+      page: 1,
+      pageSize: 20,
     })).rejects.toThrow('数据概览接口尚未启用');
   });
 });

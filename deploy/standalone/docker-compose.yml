@@ -13,6 +13,7 @@ services:
       MOCHAT_GO_RUNTIME_ROLE: "${MOCHAT_GO_RUNTIME_ROLE:-all}"
       MOCHAT_GO_STANDALONE: "1"
       MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "1"
+      MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT: "${MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT:-1}"
       MOCHAT_GO_ADDR: "0.0.0.0:8080"
       MOCHAT_MYSQL_DSN: "${MOCHAT_MYSQL_USER:-mochat}:${MOCHAT_MYSQL_PASSWORD:-mochat_pass}@tcp(mysql:3306)/${MOCHAT_MYSQL_DATABASE:-mochat}?parseTime=true&loc=Local"
       MOCHAT_REDIS_ADDR: "redis:6379"
@@ -326,6 +327,11 @@ services:
       - ./migrations/0097_saas_release_evidence_action_tracking.up.sql:/docker-entrypoint-initdb.d/097-saas-release-evidence-action-tracking.sql:ro
       - ./migrations/0098_scrm_lead_foundation.up.sql:/docker-entrypoint-initdb.d/098-scrm-lead-foundation.sql:ro
       - ./migrations/0099_saas_tenant_default_corp.up.sql:/docker-entrypoint-initdb.d/099-saas-tenant-default-corp.sql:ro
+      - ./migrations/0100_scrm_customer_lifecycle.up.sql:/docker-entrypoint-initdb.d/100-scrm-customer-lifecycle.sql:ro
+      - ./migrations/0101_scrm_assignment_collaborators.up.sql:/docker-entrypoint-initdb.d/101-scrm-assignment-collaborators.sql:ro
+      - ./migrations/0102_scrm_opportunity_fields.up.sql:/docker-entrypoint-initdb.d/102-scrm-opportunity-fields.sql:ro
+      - ./migrations/0103_phase3_2_query_indexes.up.sql:/docker-entrypoint-initdb.d/103-phase3-2-query-indexes.sql:ro
+      - ./migrations/0104_scrm_opportunity_owner.up.sql:/docker-entrypoint-initdb.d/104-scrm-opportunity-owner.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u\"$${MARIADB_USER}\" -p\"$${MARIADB_PASSWORD}\""]
       interval: 5s

@@ -48,6 +48,29 @@ func TestRBACResolverDeniesMissingMenu(t *testing.T) {
 	}
 }
 
+func TestRBACResolverLooksUpSeedMenuLinkWithoutHTTPMethodSuffix(t *testing.T) {
+	store := &fakeRBACStore{
+		user:                User{ID: 1, TenantID: 9},
+		roles:               []Role{{ID: 8}},
+		menu:                Menu{ID: 219, LinkURL: "/dashboard/corpData/index", DataPermission: DataPermissionSelf},
+		menuOK:              true,
+		roleMenu:            []RoleMenu{{RoleID: 8, MenuID: 219}},
+		expectedMenuLinkURL: "/dashboard/corpData/index",
+	}
+	resolver := NewRBACResolver(store)
+
+	access, err := resolver.Resolve(context.Background(), 1, "/dashboard/corpData/index#get", 2, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.menuLinkURL != "/dashboard/corpData/index" {
+		t.Fatalf("menu lookup key = %q", store.menuLinkURL)
+	}
+	if access.PermissionKey != "/dashboard/corpData/index#get" {
+		t.Fatalf("access permission key = %q", access.PermissionKey)
+	}
+}
+
 func TestRBACResolverDeniesRoleWithoutMenu(t *testing.T) {
 	store := &fakeRBACStore{
 		user:     User{ID: 1, TenantID: 9},
@@ -151,13 +174,15 @@ func TestRBACResolverFallsBackToSelfWhenDepartmentIsEmpty(t *testing.T) {
 }
 
 type fakeRBACStore struct {
-	user           User
-	roles          []Role
-	rolesCalled    bool
-	menu           Menu
-	menuOK         bool
-	roleMenu       []RoleMenu
-	deptEmployeeID []int
+	user                User
+	roles               []Role
+	rolesCalled         bool
+	menu                Menu
+	menuOK              bool
+	roleMenu            []RoleMenu
+	deptEmployeeID      []int
+	menuLinkURL         string
+	expectedMenuLinkURL string
 }
 
 func (s *fakeRBACStore) UserByID(context.Context, int) (User, bool, error) {
@@ -169,7 +194,11 @@ func (s *fakeRBACStore) RolesByUserTenant(context.Context, int, int) ([]Role, er
 	return s.roles, nil
 }
 
-func (s *fakeRBACStore) MenuByLinkURL(context.Context, string) (Menu, bool, error) {
+func (s *fakeRBACStore) MenuByLinkURL(_ context.Context, linkURL string) (Menu, bool, error) {
+	s.menuLinkURL = linkURL
+	if s.expectedMenuLinkURL != "" && linkURL != s.expectedMenuLinkURL {
+		return Menu{}, false, nil
+	}
 	return s.menu, s.menuOK, nil
 }
 

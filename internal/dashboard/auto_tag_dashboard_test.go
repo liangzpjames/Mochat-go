@@ -181,6 +181,9 @@ func TestWorkMessageGlobalSearchReturnsExplicitPageAndForwardsAllFilters(t *test
 			Total:     1,
 			TotalPage: 1,
 			Items: []WorkMessageToUser{{
+				ID:             17,
+				TableIndex:     1,
+				MsgID:          "archive-31",
 				WorkEmployeeID: 9,
 				ToUserType:     1,
 				ToUserID:       31,
@@ -215,16 +218,16 @@ func TestWorkMessageGlobalSearchReturnsExplicitPageAndForwardsAllFilters(t *test
 	if envelope.Data.Total != 1 || envelope.Data.Page != 2 || envelope.Data.PageSize != 20 {
 		t.Fatalf("page = %#v", envelope.Data)
 	}
-	if len(envelope.Data.List) != 1 || envelope.Data.List[0]["id"] != "9:1:31" {
+	if len(envelope.Data.List) != 1 || envelope.Data.List[0]["id"] != "msg:archive-31" {
 		t.Fatalf("list = %#v", envelope.Data.List)
 	}
 	assertStructField(t, store.lastToUserFilter, "Keyword", "报价")
 	assertStructField(t, store.lastToUserFilter, "ToUserID", 31)
 	assertStructField(t, store.lastToUserFilter, "DateTimeStart", "2026-07-01 00:00:00")
-	assertStructField(t, store.lastToUserFilter, "DateTimeEnd", "2026-07-31 23:59:59")
+	assertStructField(t, store.lastToUserFilter, "DateTimeEnd", "2026-08-01 00:00:00")
 }
 
-func TestWorkMessageGlobalSearchRejectsCrossCorpRequestBeforeStorage(t *testing.T) {
+func TestWorkMessageGlobalSearchIgnoresClientCorpScope(t *testing.T) {
 	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
 	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodGet,
@@ -234,11 +237,11 @@ func TestWorkMessageGlobalSearchRejectsCrossCorpRequestBeforeStorage(t *testing.
 
 	handler.WorkMessageToUsers(rec, req)
 
-	if rec.Code != http.StatusForbidden {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	if store.toUserCalls != 0 {
-		t.Fatalf("storage calls = %d", store.toUserCalls)
+	if store.toUserCalls != 1 || store.lastToUserFilter.CorpID != 7 {
+		t.Fatalf("storage calls = %d, filter=%#v", store.toUserCalls, store.lastToUserFilter)
 	}
 }
 
@@ -348,20 +351,165 @@ func TestWorkMessageGlobalSearchAppliesEmployeeDataPermission(t *testing.T) {
 	assertStructField(t, store.lastToUserFilter, "EmployeeIDs", []int{9, 10})
 }
 
+func TestWorkMessageGlobalSearchIntersectsRequestedEmployeesAndUsesExclusiveEndBoundary(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10}}
+	authorizer := &recordingAuthorizer{
+		accessSet: true,
+		access: AccessContext{
+			CorpID:          7,
+			WorkEmployeeID:  9,
+			DataPermission:  DataPermissionDepartment,
+			DeptEmployeeIDs: []int{9, 10},
+		},
+	}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&keyword=报价&conversationType=customer&employeeIds=9&employeeIds=999&startAt=2026-07-01&endAt=2026-07-31&page=2&pageSize=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	assertStructField(t, store.lastToUserFilter, "ToUserType", 1)
+	assertStructField(t, store.lastToUserFilter, "EmployeeIDs", []int{9})
+	assertStructField(t, store.lastToUserFilter, "RestrictEmployeeIDs", true)
+	assertStructField(t, store.lastToUserFilter, "DateTimeStart", "2026-07-01 00:00:00")
+	assertStructField(t, store.lastToUserFilter, "DateTimeEnd", "2026-08-01 00:00:00")
+	if store.archiveTenantID != 10 || store.archiveCorpID != 7 {
+		t.Fatalf("archive scope tenant=%d corp=%d", store.archiveTenantID, store.archiveCorpID)
+	}
+}
+
+func TestWorkMessageGlobalSearchReturnsZeroForEmptyEmployeeIntersection(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10}}
+	authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{
+		CorpID: 7, WorkEmployeeID: 9, DataPermission: DataPermissionDepartment, DeptEmployeeIDs: []int{9},
+	}}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&employeeIds=999&page=1&pageSize=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	assertStructField(t, store.lastToUserFilter, "RestrictEmployeeIDs", true)
+	assertStructField(t, store.lastToUserFilter, "EmployeeIDs", []int{})
+}
+
+func TestWorkMessageGlobalSearchRejectsInvalidConversationType(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&conversationType=channel&page=1&pageSize=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	if rec.Code != http.StatusBadRequest || store.toUserCalls != 0 {
+		t.Fatalf("status=%d calls=%d body=%s", rec.Code, store.toUserCalls, rec.Body.String())
+	}
+}
+
+func TestWorkMessageGlobalSearchReturnsArchiveUnauthorized(t *testing.T) {
+	store := &fakeAutoTagStore{
+		user:                    User{ID: 1, TenantID: 10, IsSuperAdmin: 1},
+		archiveAuthorizationSet: true,
+		archiveAuthorized:       false,
+	}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dashboard/workMessage/toUsers?view=global&page=1&pageSize=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageToUsers(rec, req)
+
+	var envelope struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusForbidden || envelope.Code != 40301 || store.toUserCalls != 0 {
+		t.Fatalf("status=%d code=%d calls=%d body=%s", rec.Code, envelope.Code, store.toUserCalls, rec.Body.String())
+	}
+}
+
+func TestWorkMessageGlobalListAndDetailUseSameRBACPermissionKey(t *testing.T) {
+	const expectedPermissionKey = "/dashboard/workMessage/toUsers#get"
+	for _, tc := range []struct {
+		name string
+		url  string
+		call func(*AutoTagHandler, http.ResponseWriter, *http.Request)
+	}{
+		{
+			name: "list",
+			url:  "/dashboard/workMessage/toUsers?view=global&page=1&pageSize=20",
+			call: (*AutoTagHandler).WorkMessageToUsers,
+		},
+		{
+			name: "detail",
+			url:  "/dashboard/workMessage/detail?id=msg%3Aarchive-31",
+			call: (*AutoTagHandler).WorkMessageIndex,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeAutoTagStore{
+				user: User{ID: 1, TenantID: 10},
+				archiveMessage: WorkMessageItem{
+					ID: 17, TableIndex: 1, MsgID: "archive-31", WorkEmployeeID: 9, ToUserType: 1, ToUserID: 31,
+				},
+				archiveMessageFound: true,
+				messagePage: WorkMessagePage{Page: 1, PerPage: 200, Total: 1, Items: []WorkMessageItem{{
+					ID: 17, TableIndex: 1, MsgID: "archive-31", WorkEmployeeID: 9, ToUserType: 1, ToUserID: 31,
+				}}},
+			}
+			authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{
+				CorpID: 7, WorkEmployeeID: 9, DataPermission: DataPermissionAll,
+			}}
+			handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
+			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			req.Header.Set("X-Mochat-Go-User-ID", "1")
+			rec := httptest.NewRecorder()
+
+			tc.call(handler, rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if authorizer.permissionKey != expectedPermissionKey {
+				t.Fatalf("permission key = %q, want %q", authorizer.permissionKey, expectedPermissionKey)
+			}
+		})
+	}
+}
+
 func TestWorkMessageGlobalDetailReturnsConversationMessages(t *testing.T) {
 	store := &fakeAutoTagStore{
 		user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1},
+		archiveMessage: WorkMessageItem{
+			ID: 17, TableIndex: 1, MsgID: "archive-31", WorkEmployeeID: 9, ToUserType: 1, ToUserID: 31,
+		},
+		archiveMessageFound: true,
 		messagePage: WorkMessagePage{
 			Page: 1, PerPage: 200, Total: 1,
 			Items: []WorkMessageItem{{
-				ID: 17, Name: "张三", ContentRaw: `{"content":"你好"}`,
+				ID: 17, TableIndex: 1, Name: "张三", ContentRaw: `{"content":"你好"}`,
 				MsgDataTime: "2026-07-05 11:00:00",
 			}},
 		},
 	}
 	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodGet,
-		"/dashboard/workMessage/detail?corpId=7&id=9%3A1%3A31", nil)
+		"/dashboard/workMessage/detail?id=msg%3Aarchive-31", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -382,13 +530,13 @@ func TestWorkMessageGlobalDetailReturnsConversationMessages(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Data.ID != "9:1:31" || len(envelope.Data.Messages) != 1 {
+	if envelope.Data.ID != "msg:archive-31" || len(envelope.Data.Messages) != 1 {
 		t.Fatalf("detail = %#v", envelope.Data)
 	}
 	if envelope.Data.MessageTotal != 1 || envelope.Data.Truncated || envelope.Data.Window != "latest" {
 		t.Fatalf("window = %#v", envelope.Data)
 	}
-	if envelope.Data.Messages[0]["id"] != "message:17" {
+	if envelope.Data.Messages[0]["id"] != "table:1:17" {
 		t.Fatalf("message = %#v", envelope.Data.Messages[0])
 	}
 	if store.lastMessageFilter.WorkEmployeeID != 9 || store.lastMessageFilter.ToUserType != 1 || store.lastMessageFilter.ToUserID != 31 {
@@ -400,7 +548,7 @@ func TestWorkMessageGlobalDetailReturnsNotFoundWithoutCrossCorpData(t *testing.T
 	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
 	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodGet,
-		"/dashboard/workMessage/detail?corpId=7&id=9%3A1%3A999", nil)
+		"/dashboard/workMessage/detail?id=msg%3Amissing", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -409,8 +557,66 @@ func TestWorkMessageGlobalDetailReturnsNotFoundWithoutCrossCorpData(t *testing.T
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	if store.lastMessageFilter.CorpID != 7 {
-		t.Fatalf("filter = %#v", store.lastMessageFilter)
+	if store.lastArchiveFilter.CorpID != 7 {
+		t.Fatalf("filter = %#v", store.lastArchiveFilter)
+	}
+}
+
+func TestWorkMessageGlobalDetailUsesSameEmployeeScopeAndReturnsNotFound(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10}}
+	authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{
+		CorpID: 7, WorkEmployeeID: 9, DataPermission: DataPermissionDepartment, DeptEmployeeIDs: []int{9, 10},
+	}}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/detail?id=msg%3Arestricted", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageIndex(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if !store.lastArchiveFilter.RestrictEmployeeIDs || !reflect.DeepEqual(store.lastArchiveFilter.EmployeeIDs, []int{9, 10}) {
+		t.Fatalf("archive filter = %#v", store.lastArchiveFilter)
+	}
+}
+
+func TestWorkMessageGlobalDetailReturnsArchiveUnauthorized(t *testing.T) {
+	store := &fakeAutoTagStore{
+		user:                    User{ID: 1, TenantID: 10, IsSuperAdmin: 1},
+		archiveAuthorizationSet: true, archiveAuthorized: false,
+	}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/detail?id=msg%3Aarchive-31", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageIndex(rec, req)
+
+	var envelope struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusForbidden || envelope.Code != 40301 || store.archiveLookupCalls != 0 {
+		t.Fatalf("status=%d code=%d lookupCalls=%d body=%s", rec.Code, envelope.Code, store.archiveLookupCalls, rec.Body.String())
+	}
+}
+
+func TestWorkMessageGlobalDetailReturnsRBACForbiddenBeforeArchiveAccess(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10}}
+	authorizer := &recordingAuthorizer{err: ErrPermissionDenied}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/detail?id=msg%3Aarchive-31", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.WorkMessageIndex(rec, req)
+
+	if rec.Code != http.StatusForbidden || store.archiveAuthorizationCalls != 0 || store.archiveLookupCalls != 0 {
+		t.Fatalf("status=%d authorizationCalls=%d lookupCalls=%d body=%s", rec.Code, store.archiveAuthorizationCalls, store.archiveLookupCalls, rec.Body.String())
 	}
 }
 
@@ -462,21 +668,30 @@ func TestWorkMessageConfigStepCreateReturnsCorpConfig(t *testing.T) {
 }
 
 type fakeAutoTagStore struct {
-	user              User
-	page              AutoTagPage
-	item              AutoTagItem
-	stats             AutoTagStatistics
-	recordPage        AutoTagRecordPage
-	created           AutoTagWrite
-	createID          int
-	lastFilter        AutoTagFilter
-	messagePage       WorkMessagePage
-	lastMessageFilter WorkMessageFilter
-	toUserPage        WorkMessageToUserPage
-	lastToUserFilter  WorkMessageUserFilter
-	toUserCalls       int
-	config            WorkMessageConfigItem
-	configFound       bool
+	user                      User
+	page                      AutoTagPage
+	item                      AutoTagItem
+	stats                     AutoTagStatistics
+	recordPage                AutoTagRecordPage
+	created                   AutoTagWrite
+	createID                  int
+	lastFilter                AutoTagFilter
+	messagePage               WorkMessagePage
+	lastMessageFilter         WorkMessageFilter
+	toUserPage                WorkMessageToUserPage
+	lastToUserFilter          WorkMessageUserFilter
+	toUserCalls               int
+	config                    WorkMessageConfigItem
+	configFound               bool
+	archiveAuthorizationSet   bool
+	archiveAuthorized         bool
+	archiveTenantID           int
+	archiveCorpID             int
+	archiveMessage            WorkMessageItem
+	archiveMessageFound       bool
+	lastArchiveFilter         WorkMessageArchiveFilter
+	archiveAuthorizationCalls int
+	archiveLookupCalls        int
 }
 
 func (s *fakeAutoTagStore) UserByID(_ context.Context, userID int) (User, bool, error) {
@@ -547,6 +762,22 @@ func (s *fakeAutoTagStore) WorkMessageToUsers(_ context.Context, filter WorkMess
 func (s *fakeAutoTagStore) WorkMessagePage(_ context.Context, filter WorkMessageFilter) (WorkMessagePage, error) {
 	s.lastMessageFilter = filter
 	return s.messagePage, nil
+}
+
+func (s *fakeAutoTagStore) WorkMessageArchiveAuthorized(_ context.Context, tenantID int, corpID int) (bool, error) {
+	s.archiveAuthorizationCalls++
+	s.archiveTenantID = tenantID
+	s.archiveCorpID = corpID
+	if !s.archiveAuthorizationSet {
+		return true, nil
+	}
+	return s.archiveAuthorized, nil
+}
+
+func (s *fakeAutoTagStore) WorkMessageByArchiveID(_ context.Context, filter WorkMessageArchiveFilter) (WorkMessageItem, bool, error) {
+	s.archiveLookupCalls++
+	s.lastArchiveFilter = filter
+	return s.archiveMessage, s.archiveMessageFound, nil
 }
 
 func (s *fakeAutoTagStore) WorkMessageConfigByCorp(context.Context, int) (WorkMessageConfigItem, bool, error) {

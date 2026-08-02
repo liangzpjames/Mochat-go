@@ -1,6 +1,7 @@
 import { ApiError } from '@mochat/api-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../app/access-context';
@@ -37,43 +38,111 @@ const overview: DashboardOverview = {
     },
   ],
   updatedAt: '2026-07-31 09:30:00',
+  summary: {
+    weChatContactNum: 137,
+    weChatRoomNum: 29,
+    roomMemberNum: 86,
+    corpMemberNum: 18,
+    addContactNum: 12,
+    lastAddContactNum: 9,
+    addIntoRoomNum: 8,
+    lastAddIntoRoomNum: 6,
+    lossContactNum: 2,
+    lastLossContactNum: 3,
+    quitRoomNum: 1,
+    lastQuitRoomNum: 1,
+  },
+  page: 1,
+  pageSize: 20,
+  total: 1,
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
-function renderPage(api: DashboardOverviewApi) {
+function LocationProbe() {
+  const location = useLocation();
+  return <output aria-label="当前地址">{location.pathname}{location.search}</output>;
+}
+
+function renderPage(
+  api: Pick<DashboardOverviewApi, 'load'> & Partial<Pick<DashboardOverviewApi, 'exportCsv'>>,
+  entry = '/index',
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <DashboardAccessProvider value={access}>
-        <DashboardOverviewPage api={api} initialRange={range} />
-      </DashboardAccessProvider>
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={[entry]}>
+      <QueryClientProvider client={queryClient}>
+        <DashboardAccessProvider value={access}>
+          <DashboardOverviewPage api={{ exportCsv: vi.fn(() => Promise.resolve(new Blob())), ...api }} initialRange={range} />
+          <LocationProbe />
+        </DashboardAccessProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
 describe('DashboardOverviewPage', () => {
+  it('builds the default range in the explicit enterprise timezone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-01T16:30:00Z'));
+    vi.stubEnv('TZ', 'UTC');
+    const load = vi.fn(() => Promise.resolve(overview));
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={['/index']}>
+        <QueryClientProvider client={queryClient}>
+          <DashboardAccessProvider value={access}>
+            <DashboardOverviewPage api={{ load, exportCsv: vi.fn(() => Promise.resolve(new Blob())) }} />
+          </DashboardAccessProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('真实客户总数');
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({
+      startDate: '2026-07-03',
+      endDate: '2026-08-02',
+    }));
+  });
   it('shows loading, then renders cards and trend values from the API response', async () => {
     let resolve: ((value: DashboardOverview) => void) | undefined;
     const load = vi.fn(() => new Promise<DashboardOverview>((accept) => {
       resolve = accept;
     }));
-    renderPage({ load });
+    const { container } = renderPage({ load });
 
-    expect(screen.getByRole('status').textContent).toContain('正在加载数据概览');
+    expect(screen.getAllByRole('status')[0]?.textContent).toContain('正在加载数据概览');
     resolve?.(overview);
 
     expect(await screen.findByText('真实客户总数')).not.toBeNull();
     expect(screen.getByText('137')).not.toBeNull();
-    expect(screen.getByText('2026-07-30')).not.toBeNull();
+    expect(screen.getAllByText('2026-07-30')).not.toHaveLength(0);
     expect(screen.getByLabelText('新增客户 12')).not.toBeNull();
     expect(screen.getByText(/2026-07-31 09:30:00/)).not.toBeNull();
-    expect(load).toHaveBeenCalledWith({ corpId: '7', ...range });
+    expect(load).toHaveBeenCalledWith({
+      corpId: '7',
+      startDate: range.from,
+      endDate: range.to,
+      employeeIds: [],
+      departmentIds: [],
+      period: 'day',
+      page: 1,
+      pageSize: 20,
+    });
+    expect(container.querySelector('.dashboard-page-header')).not.toBeNull();
+    expect(container.querySelector('.dashboard-filter-bar')).not.toBeNull();
+    expect(container.querySelector('.dashboard-stat-grid')).not.toBeNull();
+    expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
   });
 
-  it('shows an empty state for a successful empty response', async () => {
+  it('keeps the complete business dashboard visible for a successful empty response', async () => {
     renderPage({
       load: vi.fn(() => Promise.resolve({
         cards: [],
@@ -82,7 +151,13 @@ describe('DashboardOverviewPage', () => {
       })),
     });
 
-    expect(await screen.findByText('当前日期范围暂无数据')).not.toBeNull();
+    expect(await screen.findByRole('heading', { name: 'AI 洞察' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '数据概览' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '会话数据' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '质检数据' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '员工会话数据排行' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '员工会话轨迹一览' })).not.toBeNull();
+    expect(screen.getAllByText('暂无数据').length).toBeGreaterThan(0);
   });
 
   it('shows a dedicated forbidden state without stale statistics', async () => {
@@ -114,9 +189,9 @@ describe('DashboardOverviewPage', () => {
     const load = vi.fn()
       .mockRejectedValueOnce(new Error('网络异常'))
       .mockResolvedValueOnce(overview);
-    renderPage({ load });
+    const { container } = renderPage({ load });
 
-    expect((await screen.findByRole('alert')).textContent).toContain('网络异常');
+    await waitFor(() => expect(container.querySelector('.page-state-error')).not.toBeNull());
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(await screen.findByText('真实客户总数')).not.toBeNull();
     expect(load).toHaveBeenCalledTimes(2);
@@ -129,8 +204,7 @@ describe('DashboardOverviewPage', () => {
     }));
     renderPage(createDashboardOverviewApi({ request }));
 
-    expect((await screen.findByRole('alert')).textContent)
-      .toContain('数据概览接口尚未启用');
+    expect(await screen.findByText('数据概览接口尚未启用')).not.toBeNull();
     expect(screen.queryByText('137')).toBeNull();
   });
 
@@ -149,13 +223,49 @@ describe('DashboardOverviewPage', () => {
 
     await waitFor(() => expect(load).toHaveBeenLastCalledWith({
       corpId: '7',
-      from: '2026-07-08',
-      to: '2026-07-20',
+      startDate: '2026-07-08',
+      endDate: '2026-07-20',
+      employeeIds: [],
+      departmentIds: [],
+      period: 'day',
+      page: 1,
+      pageSize: 20,
     }));
     const refresh = screen.getByRole('button', { name: '刷新' });
     await waitFor(() => expect(refresh.hasAttribute('disabled')).toBe(false));
     fireEvent.click(refresh);
     await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+  });
+
+  it('restores complete filters from the URL, changes the trend period, and paginates', async () => {
+    const load = vi.fn(() => Promise.resolve({ ...overview, total: 41 }));
+    renderPage({ load, exportCsv: vi.fn(() => Promise.resolve(new Blob())) },
+      '/index?startDate=2026-07-01&endDate=2026-07-31&employeeIds=9&employeeIds=12&departmentIds=3&period=week&page=2&pageSize=20');
+
+    await screen.findByText('真实客户总数');
+    expect(load).toHaveBeenCalledWith({
+      corpId: '7', startDate: '2026-07-01', endDate: '2026-07-31',
+      employeeIds: ['9', '12'], departmentIds: ['3'], period: 'week', page: 2, pageSize: 20,
+    });
+    expect(screen.getByDisplayValue('9,12')).not.toBeNull();
+    expect((screen.getByLabelText('趋势周期') as HTMLSelectElement).value).toBe('week');
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('page=3'));
+  });
+
+  it('shows an export error without altering the active scoped query', async () => {
+    const exportCsv = vi.fn(() => Promise.reject(new Error('导出失败')));
+    renderPage({ load: vi.fn(() => Promise.resolve(overview)), exportCsv },
+      '/index?startDate=2026-07-01&endDate=2026-07-31&employeeIds=9&departmentIds=3&period=month&page=1&pageSize=20');
+    await screen.findByText('真实客户总数');
+
+    fireEvent.click(screen.getByRole('button', { name: '导出 CSV' }));
+    expect(await screen.findByText('导出失败')).not.toBeNull();
+    expect(exportCsv).toHaveBeenCalledWith({
+      corpId: '7', startDate: '2026-07-01', endDate: '2026-07-31',
+      employeeIds: ['9'], departmentIds: ['3'], period: 'month', page: 1, pageSize: 20,
+    });
   });
 
   it('rejects a range longer than the backend 31-day window', async () => {

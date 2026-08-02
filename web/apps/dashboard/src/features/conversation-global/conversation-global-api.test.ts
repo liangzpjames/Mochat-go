@@ -6,7 +6,7 @@ describe('createConversationGlobalApi', () => {
   it('serializes current-corp search filters and parses the explicit page contract', async () => {
     const response = {
       list: [{
-        id: '9:1:31',
+        id: 'msg:archive-31',
         employeeId: 9,
         employeeName: '张三',
         employeeAvatar: '',
@@ -22,28 +22,26 @@ describe('createConversationGlobalApi', () => {
       pageSize: 20,
     };
     const request = vi.fn<() => Promise<unknown>>(() => Promise.resolve(response));
-    const api = createConversationGlobalApi({ request }, () => '7');
+    const api = createConversationGlobalApi({ request });
 
     await expect(api.search({
-      corpId: '7',
       keyword: '报价',
-      employeeId: '9',
-      customerId: '31',
-      roomId: '',
-      from: '2026-07-01',
-      to: '2026-07-31',
+      conversationType: 'customer',
+      employeeIds: ['9', '12'],
+      startAt: '2026-07-01',
+      endAt: '2026-07-31',
       page: 2,
       pageSize: 20,
     })).resolves.toEqual(response);
 
     expect(request).toHaveBeenCalledWith(
-      '/workMessage/toUsers?view=global&corpId=7&keyword=%E6%8A%A5%E4%BB%B7&employeeId=9&customerId=31&from=2026-07-01&to=2026-07-31&page=2&pageSize=20',
+      '/workMessage/toUsers?view=global&keyword=%E6%8A%A5%E4%BB%B7&conversationType=customer&employeeIds=9&employeeIds=12&startAt=2026-07-01&endAt=2026-07-31&page=2&pageSize=20',
     );
   });
 
-  it('loads detail with the active corp and rejects incompatible responses', async () => {
+  it('loads detail by a real archive message id without client-owned scope', async () => {
     const response = {
-      id: '9:1:31',
+      id: 'msg:archive-31',
       employeeId: 9,
       employeeName: '张三',
       targetType: 'customer',
@@ -63,57 +61,33 @@ describe('createConversationGlobalApi', () => {
       }],
     };
     const request = vi.fn<() => Promise<unknown>>(() => Promise.resolve(response));
-    const api = createConversationGlobalApi({ request }, () => '7');
+    const api = createConversationGlobalApi({ request });
 
-    await expect(api.detail('9:1:31')).resolves.toEqual(response);
+    await expect(api.detail('msg:archive-31')).resolves.toEqual(response);
     expect(request).toHaveBeenCalledWith(
-      '/workMessage/detail?corpId=7&id=9%3A1%3A31',
+      '/workMessage/detail?id=msg%3Aarchive-31',
     );
 
-    request.mockResolvedValueOnce({ id: '9:1:31', messages: 'invalid' });
-    await expect(api.detail('9:1:31')).rejects.toThrow('会话详情接口返回了无效数据');
+    request.mockResolvedValueOnce({ id: 'msg:archive-31', messages: 'invalid' });
+    await expect(api.detail('msg:archive-31')).rejects.toThrow('会话详情接口返回了无效数据');
   });
 
-  it('requires current enterprise context for detail', async () => {
-    const request = vi.fn();
-    const api = createConversationGlobalApi({ request }, () => null);
+  it('omits blank optional filters while preserving explicit pagination', async () => {
+    const request = vi.fn<() => Promise<unknown>>(() => Promise.resolve({
+      list: [], total: 0, page: 1, pageSize: 100,
+    }));
+    const api = createConversationGlobalApi({ request });
 
-    await expect(api.detail('9:1:31')).rejects.toThrow('请先选择企业');
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it('uses the current enterprise after a corp switch instead of the previous search corp', async () => {
-    let corpId = '7';
-    const request = vi.fn<() => Promise<unknown>>()
-      .mockResolvedValueOnce({ list: [], total: 0, page: 1, pageSize: 20 })
-      .mockResolvedValueOnce({
-        id: '9:1:31',
-        employeeId: 9,
-        employeeName: '张三',
-        targetType: 'customer',
-        targetId: 31,
-        targetName: '星河科技',
-        messageTotal: 0,
-        truncated: false,
-        window: 'latest',
-        messages: [],
-      });
-    const api = createConversationGlobalApi({ request }, () => corpId);
     await api.search({
-      corpId: '7',
       keyword: '',
-      employeeId: '',
-      customerId: '',
-      roomId: '',
-      from: '',
-      to: '',
+      conversationType: '',
+      employeeIds: [],
+      startAt: '',
+      endAt: '',
       page: 1,
-      pageSize: 20,
+      pageSize: 100,
     });
 
-    corpId = '8';
-    await api.detail('9:1:31');
-
-    expect(request).toHaveBeenLastCalledWith('/workMessage/detail?corpId=8&id=9%3A1%3A31');
+    expect(request).toHaveBeenCalledWith('/workMessage/toUsers?view=global&page=1&pageSize=100');
   });
 });

@@ -5,6 +5,7 @@ import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { PageState } from '../../components/page-state/page-state';
 import { updateSearch } from '../../shared/query-state';
 import type {
   ConversationGlobalApi,
@@ -13,10 +14,13 @@ import type {
   ConversationTargetType,
 } from './conversation-global-api';
 
-type FilterDraft = Pick<
-  ConversationSearch,
-  'keyword' | 'employeeId' | 'customerId' | 'roomId' | 'from' | 'to'
->;
+type FilterDraft = {
+  keyword: string;
+  conversationType: ConversationSearch['conversationType'];
+  employeeIds: string;
+  startAt: string;
+  endAt: string;
+};
 
 const defaultPageSize = 20;
 
@@ -26,14 +30,29 @@ function positiveInteger(value: string | null, fallback: number): number {
 }
 
 function filtersFromSearch(search: URLSearchParams): FilterDraft {
+  const rawConversationType = search.get('conversationType');
+  const conversationType = rawConversationType === 'employee'
+    || rawConversationType === 'customer'
+    || rawConversationType === 'room'
+    ? rawConversationType
+    : '';
   return {
     keyword: search.get('keyword') ?? '',
-    employeeId: search.get('employeeId') ?? '',
-    customerId: search.get('customerId') ?? '',
-    roomId: search.get('roomId') ?? '',
-    from: search.get('from') ?? '',
-    to: search.get('to') ?? '',
+    conversationType,
+    employeeIds: search.getAll('employeeIds').join(','),
+    startAt: search.get('startAt') ?? '',
+    endAt: search.get('endAt') ?? '',
   };
+}
+
+function employeeIDsFromDraft(value: string): string[] {
+  return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
+function isArchiveUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError
+    && error.status === 403
+    && error.code === 40301;
 }
 
 function targetTypeLabel(type: ConversationTargetType): string {
@@ -74,18 +93,20 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
   }, [searchText]);
 
   const input = useMemo<ConversationSearch>(() => ({
-    corpId: access.corp.id,
-    ...currentFilters,
+    keyword: currentFilters.keyword,
+    conversationType: currentFilters.conversationType,
+    employeeIds: employeeIDsFromDraft(currentFilters.employeeIds),
+    startAt: currentFilters.startAt,
+    endAt: currentFilters.endAt,
     page,
     pageSize,
   }), [
     access.corp.id,
-    currentFilters.customerId,
-    currentFilters.employeeId,
-    currentFilters.from,
+    currentFilters.conversationType,
+    currentFilters.employeeIds,
+    currentFilters.endAt,
     currentFilters.keyword,
-    currentFilters.roomId,
-    currentFilters.to,
+    currentFilters.startAt,
     page,
     pageSize,
   ]);
@@ -96,11 +117,10 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
       access.corp.id,
       'conversation-global',
       input.keyword,
-      input.employeeId,
-      input.customerId,
-      input.roomId,
-      input.from,
-      input.to,
+      input.conversationType,
+      input.employeeIds,
+      input.startAt,
+      input.endAt,
       input.page,
       input.pageSize,
     ],
@@ -115,52 +135,118 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if ((draft.from === '') !== (draft.to === '')) {
+    if ((draft.startAt === '') !== (draft.endAt === '')) {
       setFilterError('开始日期和结束日期需要同时填写');
       return;
     }
-    if (draft.from !== '' && draft.from > draft.to) {
+    if (draft.startAt !== '' && draft.startAt > draft.endAt) {
       setFilterError('开始日期不能晚于结束日期');
       return;
     }
-    if (draft.customerId.trim() !== '' && draft.roomId.trim() !== '') {
-      setFilterError('客户和群聊筛选不能同时使用');
+    const employeeIds = employeeIDsFromDraft(draft.employeeIds);
+    if (employeeIds.some((employeeId) => !/^\d+$/.test(employeeId) || Number(employeeId) <= 0)) {
+      setFilterError('员工 ID 必须是逗号分隔的正整数');
       return;
     }
     setFilterError(null);
-    setSearchParams(updateSearch(searchParams, {
+    const next = updateSearch(searchParams, {
       keyword: draft.keyword,
-      employeeId: draft.employeeId,
-      customerId: draft.customerId,
-      roomId: draft.roomId,
-      from: draft.from,
-      to: draft.to,
+      conversationType: draft.conversationType,
+      startAt: draft.startAt,
+      endAt: draft.endAt,
       page: 1,
       pageSize,
-    }));
+    });
+    next.delete('employeeIds');
+    employeeIds.forEach((employeeId) => next.append('employeeIds', employeeId));
+    setSearchParams(next);
+  }
+
+  function resetFilters() {
+    setFilterError(null);
+    setSearchParams(new URLSearchParams({ page: '1', pageSize: String(defaultPageSize) }));
   }
 
   function changePage(nextPage: number) {
     setSearchParams(updateSearch(searchParams, { page: nextPage, pageSize }));
   }
 
+  function changeConversationType(conversationType: ConversationSearch['conversationType']) {
+    setFilterError(null);
+    setSearchParams(updateSearch(searchParams, { conversationType, page: 1, pageSize }));
+  }
+
+  const archiveUnauthorized = isArchiveUnauthorized(listQuery.error);
   const forbidden = listQuery.error instanceof ApiError
-    && listQuery.error.kind === 'forbidden';
+    && listQuery.error.kind === 'forbidden'
+    && !archiveUnauthorized;
   const detailNotFound = detailQuery.error instanceof ApiError
     && detailQuery.error.status === 404;
+  const detailForbidden = detailQuery.error instanceof ApiError
+    && detailQuery.error.status === 403
+    && !isArchiveUnauthorized(detailQuery.error);
+  const detailArchiveUnauthorized = isArchiveUnauthorized(detailQuery.error);
+  const showRoomLimitation = currentFilters.conversationType === 'room'
+    || listQuery.data?.list.some((item) => item.targetType === 'room') === true;
   const totalPages = Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / pageSize));
 
   return (
     <section className="conversation-global-page">
-      <header className="conversation-global-header">
+      <header className="conversation-global-header dashboard-page-header dashboard-data-card">
         <div>
           <p className="conversation-global-eyebrow">会话存档</p>
           <h1>全局消息</h1>
           <p>查询当前企业内有权限查看的员工、客户与群聊会话。</p>
         </div>
+        <button
+          aria-label="刷新消息"
+          disabled={listQuery.isFetching}
+          onClick={() => void listQuery.refetch()}
+          type="button"
+        >
+          {listQuery.isFetching && !listQuery.isPending ? '刷新中…' : '刷新消息'}
+        </button>
       </header>
 
-      <form className="conversation-global-filters" onSubmit={applyFilters}>
+      {listQuery.data !== undefined && (
+        <section aria-label="查询概览" className="conversation-global-overview">
+          <article>
+            <span>会话总量</span>
+            <strong>{listQuery.data.total}</strong>
+            <small>符合当前筛选条件</small>
+          </article>
+          <article>
+            <span>当前页会话</span>
+            <strong>{listQuery.data.list.length}</strong>
+            <small>第 {page} / {totalPages} 页</small>
+          </article>
+          <article>
+            <span>当前范围</span>
+            <strong>{currentFilters.conversationType === '' ? '全部' : targetTypeLabel(currentFilters.conversationType)}</strong>
+            <small>员工、客户与群聊归档</small>
+          </article>
+        </section>
+      )}
+
+      <nav aria-label="会话类型快捷筛选" className="conversation-global-type-tabs">
+        {([
+          ['', '全部会话'],
+          ['employee', '员工会话'],
+          ['customer', '客户会话'],
+          ['room', '群聊会话'],
+        ] as const).map(([value, label]) => (
+          <button
+            aria-pressed={currentFilters.conversationType === value}
+            key={value || 'all'}
+            onClick={() => changeConversationType(value)}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <form className="conversation-global-filters dashboard-filter-bar" onSubmit={applyFilters}>
         <label>
           <span>关键词</span>
           <input
@@ -171,87 +257,104 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
           />
         </label>
         <label>
+          <span>会话对象类型</span>
+          <select
+            aria-label="会话对象类型"
+            onChange={(event) => setDraft((value) => ({
+              ...value,
+              conversationType: event.target.value as ConversationSearch['conversationType'],
+            }))}
+            value={draft.conversationType}
+          >
+            <option value="">全部</option>
+            <option value="employee">员工</option>
+            <option value="customer">客户</option>
+            <option value="room">群聊</option>
+          </select>
+        </label>
+        <label>
           <span>员工 ID</span>
           <input
             aria-label="员工 ID"
             inputMode="numeric"
-            onChange={(event) => setDraft((value) => ({ ...value, employeeId: event.target.value }))}
-            value={draft.employeeId}
-          />
-        </label>
-        <label>
-          <span>客户 ID</span>
-          <input
-            aria-label="客户 ID"
-            inputMode="numeric"
-            onChange={(event) => setDraft((value) => ({ ...value, customerId: event.target.value }))}
-            value={draft.customerId}
-          />
-        </label>
-        <label>
-          <span>群聊 ID</span>
-          <input
-            aria-label="群聊 ID"
-            inputMode="numeric"
-            onChange={(event) => setDraft((value) => ({ ...value, roomId: event.target.value }))}
-            value={draft.roomId}
+            onChange={(event) => setDraft((value) => ({ ...value, employeeIds: event.target.value }))}
+            placeholder="多个 ID 用逗号分隔"
+            value={draft.employeeIds}
           />
         </label>
         <label>
           <span>开始日期</span>
           <input
             aria-label="开始日期"
-            onChange={(event) => setDraft((value) => ({ ...value, from: event.target.value }))}
+            onChange={(event) => setDraft((value) => ({ ...value, startAt: event.target.value }))}
             type="date"
-            value={draft.from}
+            value={draft.startAt}
           />
         </label>
         <label>
           <span>结束日期</span>
           <input
             aria-label="结束日期"
-            onChange={(event) => setDraft((value) => ({ ...value, to: event.target.value }))}
+            onChange={(event) => setDraft((value) => ({ ...value, endAt: event.target.value }))}
             type="date"
-            value={draft.to}
+            value={draft.endAt}
           />
         </label>
         <button type="submit">查询</button>
+        <button onClick={resetFilters} type="button">重置</button>
       </form>
 
       {filterError !== null && <p className="conversation-global-inline-error" role="alert">{filterError}</p>}
 
-      {listQuery.isPending && (
-        <div className="conversation-global-state" role="status">正在加载全局消息…</div>
+      {showRoomLimitation && (
+        <p className="conversation-global-capability-note" role="note">
+          群聊入站消息暂无法识别具体群成员，详情中统一显示“群成员”。
+        </p>
+      )}
+
+      {listQuery.isPending && <PageState state="loading" title="正在加载全局消息" />}
+      {archiveUnauthorized && (
+        <PageState
+          description="请先在企业微信完成会话内容存档授权并启用归档同步。"
+          state="forbidden"
+          title="当前企业未开通会话内容存档"
+        />
       )}
       {forbidden && (
-        <div className="conversation-global-state conversation-global-error">
-          <h2>无权查看当前企业会话</h2>
-          <p>请联系管理员开通会话存档和数据范围权限。</p>
-        </div>
+        <PageState
+          description="请联系管理员开通会话存档和数据范围权限。"
+          state="forbidden"
+          title="无权查看当前企业会话"
+        />
       )}
-      {listQuery.isError && !forbidden && (
-        <div className="conversation-global-state conversation-global-error" role="alert">
-          <h2>全局消息加载失败</h2>
-          <p>{listQuery.error instanceof Error ? listQuery.error.message : '请稍后重试'}</p>
-          <button onClick={() => void listQuery.refetch()} type="button">重试</button>
-        </div>
+      {listQuery.isError && !forbidden && !archiveUnauthorized && (
+        <PageState
+          description={listQuery.error instanceof Error ? listQuery.error.message : '请稍后重试'}
+          onRetry={() => void listQuery.refetch()}
+          retryLabel="重试"
+          state="error"
+          title="全局消息加载失败"
+        />
       )}
       {listQuery.data?.list.length === 0 && listQuery.data.total > 0 && (
-        <div className="conversation-global-state">
-          <h2>当前页暂无会话</h2>
-          <p>该页码已超出当前结果范围。</p>
-          <button onClick={() => changePage(1)} type="button">返回第一页</button>
-        </div>
+        <PageState
+          description="该页码已超出当前结果范围。"
+          onRetry={() => changePage(1)}
+          retryLabel="返回第一页"
+          state="empty"
+          title="当前页暂无会话"
+        />
       )}
       {listQuery.data?.list.length === 0 && listQuery.data.total === 0 && (
-        <div className="conversation-global-state">
-          <h2>当前筛选条件下暂无会话</h2>
-          <p>清除部分筛选条件后重新查询。</p>
-        </div>
+        <PageState
+          description="清除部分筛选条件后重新查询。"
+          state="empty"
+          title="当前筛选条件下暂无会话"
+        />
       )}
       {listQuery.data !== undefined && listQuery.data.list.length > 0 && (
-        <div className="conversation-global-results">
-          <div className="conversation-global-table-wrap">
+        <div className="conversation-global-results dashboard-data-card">
+          <div className="conversation-global-table-wrap dashboard-table-scroll">
             <table>
               <thead>
                 <tr>
@@ -279,7 +382,7 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
               </tbody>
             </table>
           </div>
-          <footer className="conversation-global-pagination">
+          <footer className="conversation-global-pagination dashboard-table-actions">
             <span>共 {listQuery.data.total} 条，第 {page}/{totalPages} 页</span>
             <div>
               <button disabled={page <= 1} onClick={() => changePage(page - 1)} type="button">上一页</button>
@@ -309,17 +412,36 @@ export function ConversationGlobalPage({ api }: { api: ConversationGlobalApi }) 
               </div>
               <button onClick={() => setSelectedID(null)} type="button">关闭</button>
             </header>
-            {detailQuery.isPending && <p role="status">正在加载会话详情…</p>}
+            {detailQuery.isPending && <PageState state="loading" title="正在加载会话详情" />}
             {detailNotFound && (
-              <div className="conversation-global-detail-error" role="alert">
-                <p>会话不存在或已无权访问</p>
-              </div>
+              <PageState
+                description="会话不存在或已无权访问。"
+                state="not-found"
+                title="会话不存在或已无权访问"
+              />
             )}
-            {detailQuery.isError && !detailNotFound && (
-              <div className="conversation-global-detail-error" role="alert">
-                <p>{detailQuery.error instanceof Error ? detailQuery.error.message : '详情加载失败'}</p>
-                <button onClick={() => void detailQuery.refetch()} type="button">重试详情</button>
-              </div>
+            {detailForbidden && (
+              <PageState
+                description="当前账号的会话读取权限已失效。"
+                state="forbidden"
+                title="无权读取会话详情"
+              />
+            )}
+            {detailArchiveUnauthorized && (
+              <PageState
+                description="请先在企业微信完成会话内容存档授权并启用归档同步。"
+                state="forbidden"
+                title="当前企业未开通会话内容存档"
+              />
+            )}
+            {detailQuery.isError && !detailNotFound && !detailForbidden && !detailArchiveUnauthorized && (
+              <PageState
+                description={detailQuery.error instanceof Error ? detailQuery.error.message : '详情加载失败'}
+                onRetry={() => void detailQuery.refetch()}
+                retryLabel="重试详情"
+                state="error"
+                title="会话详情加载失败"
+              />
             )}
             {detailQuery.data !== undefined && (
               <>

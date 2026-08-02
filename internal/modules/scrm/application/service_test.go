@@ -267,6 +267,16 @@ func (r *fakeLeadRepository) List(_ context.Context, filter ports.ListLeadsFilte
 	return r.listPage, r.listErr
 }
 
+func (r *fakeLeadRepository) FindDuplicates(context.Context, ports.DuplicateLeadFilter) ([]domain.Lead, error) {
+	return nil, nil
+}
+func (r *fakeLeadRepository) Assign(context.Context, ports.AssignLeadCommand) (domain.Lead, error) {
+	return domain.Lead{}, nil
+}
+func (r *fakeLeadRepository) Transition(context.Context, ports.TransitionLeadCommand) (domain.Lead, error) {
+	return domain.Lead{}, nil
+}
+
 type fixedClock struct {
 	now time.Time
 }

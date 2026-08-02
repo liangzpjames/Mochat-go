@@ -6,7 +6,7 @@ const stylesheet = readFileSync('src/styles/index.css', 'utf8');
 
 function declarationBlock(selector: string): string {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = stylesheet.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
+  const match = stylesheet.match(new RegExp(`(?:^|\\n)\\s*${escapedSelector}\\s*\\{([^}]*)\\}`));
 
   expect(match, `missing ${selector} rule`).not.toBeNull();
   return match?.[1] ?? '';
@@ -28,5 +28,33 @@ describe('Dashboard independent scroll layout', () => {
     expect(declarationBlock('.benchmark-placeholder-page')).toContain('border-radius: 16px');
     expect(declarationBlock('.benchmark-placeholder-breadcrumb')).toContain('color: #7a8294');
     expect(declarationBlock('.benchmark-placeholder-status')).toContain('border-radius: 999px');
+  });
+
+  it('provides the Yuanhu-inspired application chrome and page surfaces', () => {
+    expect(declarationBlock('.dashboard-header')).toContain('position: sticky');
+    expect(declarationBlock('.dashboard-header')).toContain('z-index: 20');
+    expect(declarationBlock('.dashboard-sidebar')).toContain('box-shadow: 4px 0 18px');
+    expect(declarationBlock('.dashboard-content > .ant-card')).toContain('border-radius: 12px');
+    expect(declarationBlock('.dashboard-content > .ant-card')).toContain('box-shadow: 0 4px 18px');
+  });
+
+  it('defines reusable page surfaces with spacing, responsive wrapping, and table overflow', () => {
+    expect(declarationBlock('.dashboard-page-header')).toContain('flex-wrap: wrap');
+    expect(declarationBlock('.dashboard-filter-bar')).toContain('gap: 12px');
+    expect(declarationBlock('.dashboard-stat-grid')).toContain('repeat(4, minmax(0, 1fr))');
+    expect(declarationBlock('.dashboard-data-card')).toContain('border-radius: 12px');
+    expect(declarationBlock('.dashboard-table-actions')).toContain('flex-wrap: wrap');
+    expect(declarationBlock('.dashboard-table-scroll')).toContain('overflow-x: auto');
+    expect(stylesheet).toContain('.dashboard-filter-bar { flex-direction: column; }');
+    expect(stylesheet).toContain('.dashboard-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }');
+  });
+
+  it('does not let overview-specific filters override the shared 12px gap', () => {
+    expect(declarationBlock('.dashboard-overview-filters')).not.toContain('gap: 10px');
+  });
+
+  it('uses the shared surface treatment for PageState', () => {
+    expect(declarationBlock('.page-state')).toContain('border-radius: 12px');
+    expect(declarationBlock('.page-state-retry')).toContain('border-radius: 8px');
   });
 });
