@@ -50,6 +50,40 @@ function renderPage(api: SensitiveWordApi) {
 }
 
 describe('SensitiveWordPage', () => {
+  it('shows honest record summaries, refreshes and paginates without losing filters', async () => {
+	const matches = vi.fn().mockResolvedValue({
+	  items: [{ id: 9, sensitiveWordName: '报价', source: 2, sourceText: '员工', triggerName: '小王', triggerScenario: '客户群', triggerTime: '2026-07-01 10:00:00' }],
+	  total: 25, page: 1, perPage: 10,
+	});
+	const { container } = renderPage(apiFixture({ matches }));
+
+	expect((await screen.findByRole('region', { name: '记录概览' })).textContent).toContain('25');
+	expect(screen.getByText('命中记录总数')).toBeTruthy();
+	expect(screen.getByText('当前页记录')).toBeTruthy();
+	expect(container.querySelector('.sensitive-word-record-toolbar')).not.toBeNull();
+
+	fireEvent.click(screen.getByRole('button', { name: '刷新记录' }));
+	await waitFor(() => expect(matches).toHaveBeenCalledTimes(2));
+	fireEvent.change(screen.getByRole('textbox', { name: '员工 ID' }), { target: { value: '3,5' } });
+	fireEvent.click(screen.getByRole('button', { name: '查询记录' }));
+	await waitFor(() => expect(matches).toHaveBeenLastCalledWith(expect.objectContaining({ employeeIds: [3, 5], page: 1 })));
+	fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+	await waitFor(() => expect(matches).toHaveBeenLastCalledWith(expect.objectContaining({ employeeIds: [3, 5], page: 2 })));
+  });
+
+  it('opens a structured match detail drawer and closes it', async () => {
+	renderPage(apiFixture());
+	await screen.findByText('报价');
+
+	fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+
+	const dialog = await screen.findByRole('dialog', { name: '命中详情' });
+	expect(dialog.textContent).toContain('报价不可外发');
+	expect(dialog.querySelector('pre')).toBeNull();
+	fireEvent.click(screen.getByRole('button', { name: '关闭详情' }));
+	expect(screen.queryByRole('dialog', { name: '命中详情' })).toBeNull();
+  });
+
   it('uses fixed record/config partitions and applies record filters', async () => {
 	const api = apiFixture();
 	renderPage(api);
