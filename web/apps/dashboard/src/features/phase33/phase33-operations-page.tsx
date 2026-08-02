@@ -61,13 +61,25 @@ function rowsFrom(payload: unknown): OperationRecord[] {
 function display(value: unknown): string {
   if (value === null || value === undefined || value === '') return '--';
   if (Array.isArray(value)) return value.map(display).join('、');
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value) ?? '--';
+    } catch {
+      return '--';
+    }
+  }
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return value.toString();
+  }
+  return '--';
 }
 
 function recordKey(row: OperationRecord, index: number): string {
   const value = row.contactId ?? row.id ?? row.roomId ?? index;
-  return typeof value === 'string' || typeof value === 'number' ? String(value) : String(index);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return value.toString();
+  return index.toString();
 }
 
 export function Phase33OperationsPage({
@@ -90,6 +102,16 @@ export function Phase33OperationsPage({
   });
   const rows = useMemo(() => rowsFrom(query.data), [query.data]);
   const columns = useMemo(() => Object.keys(rows[0] ?? {}).slice(0, 6), [rows]);
+  const can = (action: string) =>
+    access.allowedActions.size === 0 || access.allowedActions.has(`${config.path}@${action}`);
+  const refresh = (): void => {
+    void query.refetch();
+  };
+  const enterHandoff = (): void => {
+    if (config.handoffPath !== undefined) {
+      void navigate(config.handoffPath);
+    }
+  };
 
   return (
     <section className="phase33-operations-page">
@@ -99,7 +121,7 @@ export function Phase33OperationsPage({
           <h1>{config.title}</h1>
           <p>{config.description}</p>
         </div>
-        {enabled && <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>刷新</button>}
+        {enabled && can('refresh') && <button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button>}
       </header>
       {!enabled ? (
         <div className="dashboard-data-card phase33-operations-unavailable">
@@ -114,21 +136,21 @@ export function Phase33OperationsPage({
           <div className="dashboard-filter-bar phase33-operations-filters">
             <label>客户名称<input aria-label="客户名称" value={draftName} onChange={(event) => setDraftName(event.target.value)} /></label>
             <div className="dashboard-table-actions">
-              <button type="button" onClick={() => { setSelected(null); setContactName(draftName.trim()); }}>查询</button>
-              <button type="button" onClick={() => { setDraftName(''); setContactName(''); setSelected(null); }}>重置</button>
+              {can('search') && <button type="button" onClick={() => { setSelected(null); setContactName(draftName.trim()); }}>查询</button>}
+              {can('reset') && <button type="button" onClick={() => { setDraftName(''); setContactName(''); setSelected(null); }}>重置</button>}
             </div>
           </div>
           <div className="dashboard-data-card phase33-operations-results">
             <div className="dashboard-card-heading"><div><h2>结果列表</h2><p>仅展示当前企业权限范围内由后端返回的记录。</p></div></div>
-            {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={() => void query.refetch()} /> : rows.length === 0 ? <PageState state="empty" /> : (
-              <div className="dashboard-table-scroll"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}<th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}>{columns.map((column) => <td key={column}>{display(row[column])}</td>)}<td><button type="button" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>
+            {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} {...(can('refresh') ? { onRetry: refresh } : {})} /> : rows.length === 0 ? <PageState state="empty" /> : (
+              <div className="dashboard-table-scroll"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}<th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}>{columns.map((column) => <td key={column}>{display(row[column])}</td>)}<td>{can('detail') && <button type="button" onClick={() => setSelected(row)}>详情</button>}</td></tr>)}</tbody></table></div>
             )}
           </div>
           {selected !== null && (
             <aside className="phase33-operations-detail dashboard-data-card" aria-label="记录详情">
               <div className="dashboard-card-heading"><div><h2>记录详情</h2><p>详情来自当前列表记录，不额外构造媒体或存档数据。</p></div><button type="button" onClick={() => setSelected(null)}>关闭</button></div>
               <dl>{Object.entries(selected).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{display(value)}</dd></div>)}</dl>
-              {config.handoffPath && <button type="button" onClick={() => navigate(config.handoffPath!)}>进入交接操作</button>}
+              {config.handoffPath && can('handoff') && <button type="button" onClick={enterHandoff}>进入交接操作</button>}
             </aside>
           )}
         </>
