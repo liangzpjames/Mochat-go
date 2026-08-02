@@ -207,7 +207,7 @@ func TestCorpDataRealtimeIndexMigrationMatchesStandaloneSchema(t *testing.T) {
 	up := read("deploy", "standalone", "migrations", "0105_corp_data_realtime_indexes.up.sql")
 	down := read("deploy", "standalone", "migrations", "0105_corp_data_realtime_indexes.down.sql")
 	schema := read("deploy", "standalone", "schema", "mochat.sql")
-	legacy := strings.TrimSpace(read("deploy", "standalone", "migrations", "0103_phase3_2_query_indexes.up.sql"))
+	legacy := strings.ReplaceAll(strings.TrimSpace(read("deploy", "standalone", "migrations", "0103_phase3_2_query_indexes.up.sql")), "\r\n", "\n")
 	if legacy != "ALTER TABLE mc_corp_day_data\n  ADD INDEX idx_mc_corp_day_data_corp_date (corp_id, date);" {
 		t.Fatalf("0103 semantics changed: %q", legacy)
 	}
