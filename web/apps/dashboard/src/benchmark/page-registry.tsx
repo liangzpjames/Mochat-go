@@ -30,6 +30,8 @@ import { OpportunityPage } from '../features/scrm/opportunity-page';
 import { TagPage, type CustomerTagApi } from '../features/scrm/tag-page';
 import type { ContactApi } from '../features/scrm/contact-api';
 import { ContactPage } from '../features/scrm/contact-page';
+import { Phase33OperationsPage, phase33OperationConfigs } from '../features/phase33/phase33-operations-page';
+import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -40,6 +42,7 @@ export function createBenchmarkP0Pages({
   leadApi,
   scrmApi,
   contactApi,
+  businessWorkbenchApi,
 }: {
   dashboardOverviewApi: DashboardOverviewApi;
   conversationGlobalApi: ConversationGlobalApi;
@@ -47,6 +50,7 @@ export function createBenchmarkP0Pages({
   leadApi?: LeadApi;
   scrmApi?: ScrmApi;
   contactApi?: ContactApi;
+  businessWorkbenchApi?: BusinessWorkbenchApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
@@ -64,6 +68,12 @@ export function createBenchmarkP0Pages({
       '/customer/tags': <TagPage api={scrmApi as CustomerTagApi} />,
     }),
     ...(contactApi === undefined ? {} : { '/customer/contact': <ContactPage api={contactApi} /> }),
+    ...(businessWorkbenchApi === undefined ? {} : Object.fromEntries(
+      Object.entries(phase33OperationConfigs).map(([path, config]) => [
+        path,
+        <Phase33OperationsPage key={path} api={businessWorkbenchApi} config={config} />,
+      ]),
+    )),
   };
 }
 

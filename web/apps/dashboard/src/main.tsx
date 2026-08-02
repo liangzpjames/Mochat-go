@@ -145,7 +145,7 @@ const router = createDashboardRouter({
     ...migratedPages,
     ...createPageRegistry({
       manifest: benchmarkManifest,
-      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi }),
+      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi, businessWorkbenchApi }),
       p1Pages: {},
     }),
     '/corp/index': page(<CorpPage api={corpAdminApi} />),
