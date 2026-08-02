@@ -73,3 +73,12 @@ pnpm exec tsc --noEmit -p tsconfig.json
 - 将当前查询结果导出为 CSV 文件，字段包括会话对象、员工、会话类型、最近消息和时间；
 - 页面明确说明当前实现范围，不伪造异步导出任务、永久下载链接或媒体导出能力；
 - 后续补齐导出任务接口、provider 能力和审计要求后，再升级为异步任务中心模式。
+
+## 会话运营剩余页面
+
+- `/chat/resign-staff`：读取 `/contactTransfer/info`，保留进入真实交接流程的入口；
+- `/customer/inheritance`：读取 `/contactTransfer/unassignedList`，保留进入真实客户交接流程的入口；
+- `/chat/file-audio`：当前没有独立媒体 provider，页面明确展示未接入状态，不提供虚构文件或下载链接；
+- `/chat/refuse-archive`：当前没有独立拒绝存档 provider，页面明确展示未接入状态，不提供虚构记录。
+
+四个页面均复用企业权限上下文，并覆盖加载、空数据、服务异常和刷新状态。
