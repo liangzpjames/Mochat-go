@@ -2,7 +2,7 @@
 
 ## 本轮范围
 
-本轮只实现 `/chat/v2-staff`，用于确认页面结构和交互方向。客户会话、群聊会话及其他 Phase 3.3 菜单暂不继续，等待页面审核后再展开。
+本轮先实现 `/chat/v2-staff`，用于确认页面结构和交互方向；在该页面审核通过后，继续接入 `/chat/v2-customer` 和 `/chat/v2-group`。其他 Phase 3.3 菜单仍暂不展开。
 
 ## 设计修正
 
@@ -45,3 +45,12 @@ pnpm exec tsc --noEmit -p tsconfig.json
 - 页面密度、颜色和状态提示是否需要继续向圆弧页面靠拢。
 
 本轮不更新 benchmark manifest 的完成状态，也不推进其他 Phase 3.3 页面。
+
+## 批次 1 扩展
+
+员工会话页面审核通过后，已将同一真实查询组件接入客户会话和群聊会话：
+
+- `/chat/v2-customer` 固定传递 `conversationType=customer`；
+- `/chat/v2-group` 固定传递 `conversationType=room`；
+- 两个页面继续复用筛选、分页、详情、权限错误和刷新状态；
+- 本扩展不新增数据库表、不改变数据卷，也不更新 manifest 完成状态。

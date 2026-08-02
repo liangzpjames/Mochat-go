@@ -78,6 +78,27 @@ describe('createPageRegistry', () => {
     expect((pages['/chat/v2-staff'] as { type?: unknown }).type).toBe(EmployeeConversationPage);
   });
 
+  it('registers customer and room pages with fixed conversation scopes', () => {
+    const conversationGlobalApi = {
+      search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
+      detail: () => Promise.reject(new Error('not loaded')),
+    };
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: {
+        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        exportCsv: () => Promise.resolve(new Blob()),
+      },
+      conversationGlobalApi,
+    });
+
+    expect((pages['/chat/v2-customer'] as { type?: unknown; props?: { fixedConversationType?: string } }).type)
+      .toBe(ConversationGlobalPage);
+    expect((pages['/chat/v2-customer'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
+      .toBe('customer');
+    expect((pages['/chat/v2-group'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
+      .toBe('room');
+  });
+
   it('prefers P0 implementations over P1 implementations at the same path', () => {
     const pages = createPageRegistry({
       manifest,

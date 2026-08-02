@@ -50,6 +50,8 @@ export function createBenchmarkP0Pages({
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
     '/chat/v2-staff': <EmployeeConversationPage api={conversationGlobalApi} />,
+    '/chat/v2-customer': <ConversationGlobalPage api={conversationGlobalApi} fixedConversationType="customer" />,
+    '/chat/v2-group': <ConversationGlobalPage api={conversationGlobalApi} fixedConversationType="room" />,
     ...(sensitiveWordApi === undefined ? {} : { '/ai-insight/v2/sensitive-word': <SensitiveWordPage api={sensitiveWordApi} /> }),
     ...(leadApi === undefined ? {} : { '/customer/clue/default': <LeadPage api={leadApi} /> }),
     ...(scrmApi === undefined ? {} : {
