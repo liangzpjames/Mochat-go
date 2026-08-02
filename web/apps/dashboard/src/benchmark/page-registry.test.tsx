@@ -10,6 +10,7 @@ import { ConversationGlobalPage } from '../features/conversation-global/conversa
 import { EmployeeConversationPage } from '../features/conversation-global/employee-conversation-page';
 import { ConversationTrajectoryPage } from '../features/conversation-global/conversation-trajectory-page';
 import { ConversationExportPage } from '../features/conversation-global/conversation-export-page';
+import { RiskWarningPage } from '../features/phase33/risk-warning-pages';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -131,6 +132,32 @@ describe('createPageRegistry', () => {
     expect((pages['/chat/export'] as { type?: unknown }).type).toBe(ConversationExportPage);
   });
 
+  it('registers all six risk warning routes as native pages when the workbench API is available', () => {
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: {
+        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        exportCsv: () => Promise.resolve(new Blob()),
+      },
+      conversationGlobalApi: {
+        search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
+        detail: () => Promise.reject(new Error('not loaded')),
+        employees: () => Promise.resolve([]),
+      },
+      businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
+    });
+
+    for (const path of [
+      '/ai-insight/v2/risk',
+      '/ai-insight/v2/timeout',
+      '/ai-insight/v2/customer-loss',
+      '/ai-insight/v2/message-intercept',
+      '/ai-insight/v2/keyword-library',
+      '/ai-insight/v2/silent-customer',
+    ]) {
+      expect((pages[path] as { type?: unknown }).type).toBe(RiskWarningPage);
+    }
+  });
+
   it('prefers P0 implementations over P1 implementations at the same path', () => {
     const pages = createPageRegistry({
       manifest,
@@ -179,8 +206,6 @@ describe('createPageRegistry', () => {
     ['/chat/v2-staff', '员工会话'],
     ['/chat/v2-customer', '客户会话'],
     ['/chat/v2-group', '群聊会话'],
-    ['/ai-insight/v2/risk', '风险行为'],
-    ['/ai-insight/v2/timeout', '超时预警'],
     ['/ai-insight/session-analysis', '会话分析'],
     ['/acquisition/v2-channel-code', '渠道活码'],
     ['/customer/group', '客户群'],

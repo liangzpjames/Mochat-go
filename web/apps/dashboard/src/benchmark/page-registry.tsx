@@ -13,10 +13,8 @@ import {
   customerConversationDemo,
   customerGroupDemo,
   groupConversationDemo,
-  riskBehaviorDemo,
   sessionAnalysisDemo,
   staffConversationDemo,
-  timeoutWarningDemo,
 } from './demo-fixtures';
 import { DemoPage } from './demo-page';
 import { PlaceholderPage } from './placeholder-page';
@@ -31,6 +29,7 @@ import { TagPage, type CustomerTagApi } from '../features/scrm/tag-page';
 import type { ContactApi } from '../features/scrm/contact-api';
 import { ContactPage } from '../features/scrm/contact-page';
 import { Phase33OperationsPage, phase33OperationConfigs } from '../features/phase33/phase33-operations-page';
+import { RiskWarningPage, riskWarningConfigs } from '../features/phase33/risk-warning-pages';
 import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
@@ -74,6 +73,12 @@ export function createBenchmarkP0Pages({
         <Phase33OperationsPage key={path} api={businessWorkbenchApi} config={config} />,
       ]),
     )),
+    ...(businessWorkbenchApi === undefined ? {} : Object.fromEntries(
+      Object.entries(riskWarningConfigs).map(([path, config]) => [
+        path,
+        <RiskWarningPage key={path} api={businessWorkbenchApi} config={config} />,
+      ]),
+    )),
   };
 }
 
@@ -81,8 +86,6 @@ const benchmarkP1Pages: PageRegistry = {
   '/chat/v2-staff': <DemoPage config={staffConversationDemo} />,
   '/chat/v2-customer': <DemoPage config={customerConversationDemo} />,
   '/chat/v2-group': <DemoPage config={groupConversationDemo} />,
-  '/ai-insight/v2/risk': <DemoPage config={riskBehaviorDemo} />,
-  '/ai-insight/v2/timeout': <DemoPage config={timeoutWarningDemo} />,
   '/ai-insight/session-analysis': <DemoPage config={sessionAnalysisDemo} />,
   '/acquisition/v2-channel-code': <DemoPage config={channelCodeDemo} />,
   '/customer/group': <DemoPage config={customerGroupDemo} />,
