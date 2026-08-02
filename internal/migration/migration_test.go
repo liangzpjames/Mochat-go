@@ -103,6 +103,19 @@ func TestStandaloneComposeEnablesSCRMRoutesByDefault(t *testing.T) {
 	}
 }
 
+func TestStandaloneComposeEnablesSaaSAdminByDefault(t *testing.T) {
+	composePath := filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml")
+	composeBody, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := `MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD: "${MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD:-1}"`
+	if !strings.Contains(string(composeBody), want) {
+		t.Fatalf("standalone compose must enable SaaS Admin by default; missing %q", want)
+	}
+}
+
 func TestCustomerTagParityMigrationIsReversible(t *testing.T) {
 	projectRoot := filepath.Join("..", "..")
 	up, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0109_scrm_customer_tag_parity.up.sql"))
