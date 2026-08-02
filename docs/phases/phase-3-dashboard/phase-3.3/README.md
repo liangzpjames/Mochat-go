@@ -47,6 +47,7 @@ Phase 3.3 沿用 Phase 3 已确定的业务域拆分，完成会话与风险预�
 - `plans/2026-08-02-phase3.3-session-risk-warning-plan.md`：按业务批次拆分的实施计划。
 - `acceptance/PHASE3.3_ACCEPTANCE.zh-CN.md`：阶段验收入口、命令和阻塞条件。
 - `reports/phase3.3-function-matrix.md`：15 个页面的功能、依赖、权限、持久化和证据矩阵。
+- `reports/conversation-query-batch-report.md`：批次 1 三个会话查询页面的实施与验证记录。
 - `reports/reuse-audit.md`：旧 Dashboard 能力、API、数据表和复用边界的审计规则与记录入口。
 - `evidence/`：真实测试、浏览器验收和截图证据；未产生证据前不得标记阶段完成。
 
