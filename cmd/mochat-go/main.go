@@ -1633,6 +1633,7 @@ func main() {
 		resolver, loginCache := buildUserResolver("autoTagDashboard")
 		autoTag := dashboard.NewAutoTagHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		riskBehavior := dashboard.NewRiskBehaviorHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		timeoutWarning := dashboard.NewTimeoutWarningHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		if cfg.EnableMarkTagsWorker {
 			autoTag.WithMarkTagsQueue(getRedisStore())
 		}
@@ -1656,6 +1657,17 @@ func main() {
 			compatserver.WithRiskBehaviorRuleDeleteHandler(http.HandlerFunc(riskBehavior.DeleteRule)),
 			compatserver.WithRiskBehaviorRecordsAuditHandler(http.HandlerFunc(riskBehavior.AuditRecords)),
 			compatserver.WithRiskBehaviorEvaluateHandler(http.HandlerFunc(riskBehavior.Evaluate)),
+			compatserver.WithTimeoutWarningRulesHandler(http.HandlerFunc(timeoutWarning.Rules)),
+			compatserver.WithTimeoutWarningRecordsHandler(http.HandlerFunc(timeoutWarning.Records)),
+			compatserver.WithTimeoutWarningRuleCreateHandler(http.HandlerFunc(timeoutWarning.CreateRule)),
+			compatserver.WithTimeoutWarningRuleUpdateHandler(http.HandlerFunc(timeoutWarning.UpdateRule)),
+			compatserver.WithTimeoutWarningRuleStatusHandler(http.HandlerFunc(timeoutWarning.RuleStatus)),
+			compatserver.WithTimeoutWarningRuleDeleteHandler(http.HandlerFunc(timeoutWarning.DeleteRule)),
+			compatserver.WithTimeoutWarningRecordsAuditHandler(http.HandlerFunc(timeoutWarning.AuditRecords)),
+			compatserver.WithTimeoutWarningRecordsAssignHandler(http.HandlerFunc(timeoutWarning.AssignRecords)),
+			compatserver.WithTimeoutWarningSettingsHandler(http.HandlerFunc(timeoutWarning.Settings)),
+			compatserver.WithTimeoutWarningSettingsUpdateHandler(http.HandlerFunc(timeoutWarning.SaveSettings)),
+			compatserver.WithTimeoutWarningEvaluateHandler(http.HandlerFunc(timeoutWarning.Evaluate)),
 			compatserver.WithWorkMessageIndexHandler(http.HandlerFunc(autoTag.WorkMessageIndex)),
 			compatserver.WithWorkMessageConfigCorpStoreHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpStore)),
 			compatserver.WithWorkMessageConfigCorpShowHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpShow)),

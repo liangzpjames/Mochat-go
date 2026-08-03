@@ -323,6 +323,17 @@ type Server struct {
 	riskBehaviorRuleDelete                          http.Handler
 	riskBehaviorRecordsAudit                        http.Handler
 	riskBehaviorEvaluate                            http.Handler
+	timeoutWarningRules                             http.Handler
+	timeoutWarningRecords                           http.Handler
+	timeoutWarningRuleCreate                        http.Handler
+	timeoutWarningRuleUpdate                        http.Handler
+	timeoutWarningRuleStatus                        http.Handler
+	timeoutWarningRuleDelete                        http.Handler
+	timeoutWarningRecordsAudit                      http.Handler
+	timeoutWarningRecordsAssign                     http.Handler
+	timeoutWarningSettings                          http.Handler
+	timeoutWarningSettingsUpdate                    http.Handler
+	timeoutWarningEvaluate                          http.Handler
 	workMessageIndex                                http.Handler
 	workMessageConfigCorpStore                      http.Handler
 	workMessageConfigCorpShow                       http.Handler
@@ -2436,6 +2447,39 @@ func WithRiskBehaviorRecordsAuditHandler(handler http.Handler) Option {
 }
 func WithRiskBehaviorEvaluateHandler(handler http.Handler) Option {
 	return func(server *Server) { server.riskBehaviorEvaluate = handler }
+}
+func WithTimeoutWarningRulesHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRules = handler }
+}
+func WithTimeoutWarningRecordsHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRecords = handler }
+}
+func WithTimeoutWarningRuleCreateHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRuleCreate = handler }
+}
+func WithTimeoutWarningRuleUpdateHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRuleUpdate = handler }
+}
+func WithTimeoutWarningRuleStatusHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRuleStatus = handler }
+}
+func WithTimeoutWarningRuleDeleteHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRuleDelete = handler }
+}
+func WithTimeoutWarningRecordsAuditHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRecordsAudit = handler }
+}
+func WithTimeoutWarningRecordsAssignHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRecordsAssign = handler }
+}
+func WithTimeoutWarningSettingsHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningSettings = handler }
+}
+func WithTimeoutWarningSettingsUpdateHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningSettingsUpdate = handler }
+}
+func WithTimeoutWarningEvaluateHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningEvaluate = handler }
 }
 
 func WithWorkMessageIndexHandler(handler http.Handler) Option {
@@ -4674,6 +4718,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.riskBehaviorRecordsAudit.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/evaluate" && r.Method == http.MethodPost && s.riskBehaviorEvaluate != nil:
 		s.riskBehaviorEvaluate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules" && r.Method == http.MethodGet && s.timeoutWarningRules != nil:
+		s.timeoutWarningRules.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/records" && r.Method == http.MethodGet && s.timeoutWarningRecords != nil:
+		s.timeoutWarningRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules" && r.Method == http.MethodPost && s.timeoutWarningRuleCreate != nil:
+		s.timeoutWarningRuleCreate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules" && r.Method == http.MethodPut && s.timeoutWarningRuleUpdate != nil:
+		s.timeoutWarningRuleUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules/status" && r.Method == http.MethodPut && s.timeoutWarningRuleStatus != nil:
+		s.timeoutWarningRuleStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules" && r.Method == http.MethodDelete && s.timeoutWarningRuleDelete != nil:
+		s.timeoutWarningRuleDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/records/audit" && r.Method == http.MethodPost && s.timeoutWarningRecordsAudit != nil:
+		s.timeoutWarningRecordsAudit.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/records/assign" && r.Method == http.MethodPut && s.timeoutWarningRecordsAssign != nil:
+		s.timeoutWarningRecordsAssign.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/settings" && r.Method == http.MethodGet && s.timeoutWarningSettings != nil:
+		s.timeoutWarningSettings.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/settings" && r.Method == http.MethodPut && s.timeoutWarningSettingsUpdate != nil:
+		s.timeoutWarningSettingsUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/evaluate" && r.Method == http.MethodPost && s.timeoutWarningEvaluate != nil:
+		s.timeoutWarningEvaluate.ServeHTTP(w, r)
 	case (r.URL.Path == "/dashboard/workMessage/index" || r.URL.Path == "/dashboard/workMessage/detail") && r.Method == http.MethodGet && s.workMessageIndex != nil:
 		s.workMessageIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessageConfig/corpStore" && r.Method == http.MethodPost && s.workMessageConfigCorpStore != nil:
