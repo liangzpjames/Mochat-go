@@ -1,0 +1,12 @@
+import { QueryClient,QueryClientProvider } from '@tanstack/react-query';
+import { render,screen,waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
+import type { ReactNode } from 'react';
+import { expect,it,vi } from 'vitest';
+import { DashboardAccessProvider } from '../../app/access-context';
+import type { AccessContext } from '../../app/access-loader';
+import { KeywordLibraryPage,MessageInterceptPage } from './message-intercept-pages';
+const access:AccessContext={session:{token:'t',userId:'1',corpId:'7',expiresAt:null},corp:{id:'7',name:'企业',authorized:true},menu:[],allowedRoutes:new Set(),allowedActions:new Set()};
+const wrap=(node:ReactNode)=><MemoryRouter><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><DashboardAccessProvider value={access}>{node}</DashboardAccessProvider></QueryClientProvider></MemoryRouter>;
+it('loads keyword libraries without provider placeholder',async()=>{const read=vi.fn().mockResolvedValue({items:[]});render(wrap(<KeywordLibraryPage api={{read,write:vi.fn()}}/>));await waitFor(()=>expect(read).toHaveBeenCalled());expect(screen.getByRole('heading',{name:'关键词库'})).toBeTruthy();expect(screen.queryByText('数据提供方未接入')).toBeNull()});
+it('loads intercept records and exposes rule tab',async()=>{const read=vi.fn().mockResolvedValue({items:[]});render(wrap(<MessageInterceptPage api={{read,write:vi.fn()}}/>));await waitFor(()=>expect(read).toHaveBeenCalledWith('/message-intercept/records',{page:1,perPage:50}));expect(screen.getByRole('button',{name:'拦截规则'})).toBeTruthy();expect(screen.queryByText('数据提供方未接入')).toBeNull()});

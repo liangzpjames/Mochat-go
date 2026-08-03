@@ -1632,6 +1632,10 @@ func main() {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("autoTagDashboard")
 		autoTag := dashboard.NewAutoTagHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		riskBehavior := dashboard.NewRiskBehaviorHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		timeoutWarning := dashboard.NewTimeoutWarningHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		messageIntercept := dashboard.NewMessageInterceptHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		phase33Closure := dashboard.NewPhase33ClosureHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		if cfg.EnableMarkTagsWorker {
 			autoTag.WithMarkTagsQueue(getRedisStore())
 		}
@@ -1647,6 +1651,51 @@ func main() {
 			compatserver.WithAutoTagShowContactTimeHandler(http.HandlerFunc(autoTag.ShowContactTime)),
 			compatserver.WithWorkMessageFromUsersHandler(http.HandlerFunc(autoTag.WorkMessageFromUsers)),
 			compatserver.WithWorkMessageToUsersHandler(http.HandlerFunc(autoTag.WorkMessageToUsers)),
+			compatserver.WithRiskBehaviorRulesHandler(http.HandlerFunc(riskBehavior.Rules)),
+			compatserver.WithRiskBehaviorRecordsHandler(http.HandlerFunc(riskBehavior.Records)),
+			compatserver.WithRiskBehaviorRuleCreateHandler(http.HandlerFunc(riskBehavior.CreateRule)),
+			compatserver.WithRiskBehaviorRuleUpdateHandler(http.HandlerFunc(riskBehavior.UpdateRule)),
+			compatserver.WithRiskBehaviorRuleStatusHandler(http.HandlerFunc(riskBehavior.RuleStatus)),
+			compatserver.WithRiskBehaviorRuleDeleteHandler(http.HandlerFunc(riskBehavior.DeleteRule)),
+			compatserver.WithRiskBehaviorRecordsAuditHandler(http.HandlerFunc(riskBehavior.AuditRecords)),
+			compatserver.WithRiskBehaviorEvaluateHandler(http.HandlerFunc(riskBehavior.Evaluate)),
+			compatserver.WithTimeoutWarningRulesHandler(http.HandlerFunc(timeoutWarning.Rules)),
+			compatserver.WithTimeoutWarningRecordsHandler(http.HandlerFunc(timeoutWarning.Records)),
+			compatserver.WithTimeoutWarningRuleCreateHandler(http.HandlerFunc(timeoutWarning.CreateRule)),
+			compatserver.WithTimeoutWarningRuleUpdateHandler(http.HandlerFunc(timeoutWarning.UpdateRule)),
+			compatserver.WithTimeoutWarningRuleStatusHandler(http.HandlerFunc(timeoutWarning.RuleStatus)),
+			compatserver.WithTimeoutWarningRuleDeleteHandler(http.HandlerFunc(timeoutWarning.DeleteRule)),
+			compatserver.WithTimeoutWarningRecordsAuditHandler(http.HandlerFunc(timeoutWarning.AuditRecords)),
+			compatserver.WithTimeoutWarningRecordsAssignHandler(http.HandlerFunc(timeoutWarning.AssignRecords)),
+			compatserver.WithTimeoutWarningSettingsHandler(http.HandlerFunc(timeoutWarning.Settings)),
+			compatserver.WithTimeoutWarningSettingsUpdateHandler(http.HandlerFunc(timeoutWarning.SaveSettings)),
+			compatserver.WithTimeoutWarningEvaluateHandler(http.HandlerFunc(timeoutWarning.Evaluate)),
+			compatserver.WithKeywordLibrariesHandler(http.HandlerFunc(messageIntercept.Libraries)),
+			compatserver.WithKeywordLibrarySaveHandler(http.HandlerFunc(messageIntercept.SaveLibrary)),
+			compatserver.WithKeywordLibraryStatusHandler(http.HandlerFunc(messageIntercept.LibraryStatus)),
+			compatserver.WithKeywordLibraryDeleteHandler(http.HandlerFunc(messageIntercept.DeleteLibrary)),
+			compatserver.WithKeywordLibraryPublishHandler(http.HandlerFunc(messageIntercept.PublishLibrary)),
+			compatserver.WithKeywordEntriesHandler(http.HandlerFunc(messageIntercept.Entries)),
+			compatserver.WithKeywordEntrySaveHandler(http.HandlerFunc(messageIntercept.SaveEntry)),
+			compatserver.WithKeywordEntryStatusHandler(http.HandlerFunc(messageIntercept.EntryStatus)),
+			compatserver.WithKeywordEntryDeleteHandler(http.HandlerFunc(messageIntercept.DeleteEntry)),
+			compatserver.WithMessageInterceptRulesHandler(http.HandlerFunc(messageIntercept.Rules)),
+			compatserver.WithMessageInterceptRuleSaveHandler(http.HandlerFunc(messageIntercept.SaveRule)),
+			compatserver.WithMessageInterceptRuleStatusHandler(http.HandlerFunc(messageIntercept.RuleStatus)),
+			compatserver.WithMessageInterceptRuleDeleteHandler(http.HandlerFunc(messageIntercept.DeleteRule)),
+			compatserver.WithMessageInterceptRecordsHandler(http.HandlerFunc(messageIntercept.Records)),
+			compatserver.WithMessageInterceptEvaluateHandler(http.HandlerFunc(messageIntercept.Evaluate)),
+			compatserver.WithMessageInterceptAuditHandler(http.HandlerFunc(messageIntercept.Audit)),
+			compatserver.WithSilentCustomerRulesHandler(http.HandlerFunc(phase33Closure.SilentRules)),
+			compatserver.WithSilentCustomerRuleSaveHandler(http.HandlerFunc(phase33Closure.SaveSilentRule)),
+			compatserver.WithSilentCustomerRuleStatusHandler(http.HandlerFunc(phase33Closure.SilentRuleStatus)),
+			compatserver.WithSilentCustomerRuleDeleteHandler(http.HandlerFunc(phase33Closure.DeleteSilentRule)),
+			compatserver.WithSilentCustomerRecordsHandler(http.HandlerFunc(phase33Closure.SilentRecords)),
+			compatserver.WithSilentCustomerEvaluateHandler(http.HandlerFunc(phase33Closure.EvaluateSilent)),
+			compatserver.WithSilentCustomerActionHandler(http.HandlerFunc(phase33Closure.ActSilent)),
+			compatserver.WithRefuseArchiveRecordsHandler(http.HandlerFunc(phase33Closure.RefuseRecords)),
+			compatserver.WithRefuseArchiveSyncHandler(http.HandlerFunc(phase33Closure.SyncRefuse)),
+			compatserver.WithRefuseArchiveFollowUpHandler(http.HandlerFunc(phase33Closure.FollowRefuse)),
 			compatserver.WithWorkMessageIndexHandler(http.HandlerFunc(autoTag.WorkMessageIndex)),
 			compatserver.WithWorkMessageConfigCorpStoreHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpStore)),
 			compatserver.WithWorkMessageConfigCorpShowHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpShow)),

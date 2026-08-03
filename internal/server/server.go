@@ -315,6 +315,51 @@ type Server struct {
 	autoTagShowContactTime                          http.Handler
 	workMessageFromUsers                            http.Handler
 	workMessageToUsers                              http.Handler
+	riskBehaviorRules                               http.Handler
+	riskBehaviorRecords                             http.Handler
+	riskBehaviorRuleCreate                          http.Handler
+	riskBehaviorRuleUpdate                          http.Handler
+	riskBehaviorRuleStatus                          http.Handler
+	riskBehaviorRuleDelete                          http.Handler
+	riskBehaviorRecordsAudit                        http.Handler
+	riskBehaviorEvaluate                            http.Handler
+	timeoutWarningRules                             http.Handler
+	timeoutWarningRecords                           http.Handler
+	timeoutWarningRuleCreate                        http.Handler
+	timeoutWarningRuleUpdate                        http.Handler
+	timeoutWarningRuleStatus                        http.Handler
+	timeoutWarningRuleDelete                        http.Handler
+	timeoutWarningRecordsAudit                      http.Handler
+	timeoutWarningRecordsAssign                     http.Handler
+	timeoutWarningSettings                          http.Handler
+	timeoutWarningSettingsUpdate                    http.Handler
+	timeoutWarningEvaluate                          http.Handler
+	keywordLibraries                                http.Handler
+	keywordLibrarySave                              http.Handler
+	keywordLibraryStatus                            http.Handler
+	keywordLibraryDelete                            http.Handler
+	keywordLibraryPublish                           http.Handler
+	keywordEntries                                  http.Handler
+	keywordEntrySave                                http.Handler
+	keywordEntryStatus                              http.Handler
+	keywordEntryDelete                              http.Handler
+	messageInterceptRules                           http.Handler
+	messageInterceptRuleSave                        http.Handler
+	messageInterceptRuleStatus                      http.Handler
+	messageInterceptRuleDelete                      http.Handler
+	messageInterceptRecords                         http.Handler
+	messageInterceptEvaluate                        http.Handler
+	messageInterceptAudit                           http.Handler
+	silentCustomerRules                             http.Handler
+	silentCustomerRuleSave                          http.Handler
+	silentCustomerRuleStatus                        http.Handler
+	silentCustomerRuleDelete                        http.Handler
+	silentCustomerRecords                           http.Handler
+	silentCustomerEvaluate                          http.Handler
+	silentCustomerAction                            http.Handler
+	refuseArchiveRecords                            http.Handler
+	refuseArchiveSync                               http.Handler
+	refuseArchiveFollowUp                           http.Handler
 	workMessageIndex                                http.Handler
 	workMessageConfigCorpStore                      http.Handler
 	workMessageConfigCorpShow                       http.Handler
@@ -2403,6 +2448,142 @@ func WithWorkMessageToUsersHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.workMessageToUsers = handler
 	}
+}
+
+func WithRiskBehaviorRulesHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRules = handler }
+}
+func WithRiskBehaviorRecordsHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRecords = handler }
+}
+func WithRiskBehaviorRuleCreateHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRuleCreate = handler }
+}
+func WithRiskBehaviorRuleUpdateHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRuleUpdate = handler }
+}
+func WithRiskBehaviorRuleStatusHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRuleStatus = handler }
+}
+func WithRiskBehaviorRuleDeleteHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRuleDelete = handler }
+}
+func WithRiskBehaviorRecordsAuditHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRecordsAudit = handler }
+}
+func WithRiskBehaviorEvaluateHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorEvaluate = handler }
+}
+func WithTimeoutWarningRulesHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRules = handler }
+}
+func WithTimeoutWarningRecordsHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRecords = handler }
+}
+func WithTimeoutWarningRuleCreateHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRuleCreate = handler }
+}
+func WithTimeoutWarningRuleUpdateHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRuleUpdate = handler }
+}
+func WithTimeoutWarningRuleStatusHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRuleStatus = handler }
+}
+func WithTimeoutWarningRuleDeleteHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRuleDelete = handler }
+}
+func WithTimeoutWarningRecordsAuditHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRecordsAudit = handler }
+}
+func WithTimeoutWarningRecordsAssignHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningRecordsAssign = handler }
+}
+func WithTimeoutWarningSettingsHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningSettings = handler }
+}
+func WithTimeoutWarningSettingsUpdateHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningSettingsUpdate = handler }
+}
+func WithTimeoutWarningEvaluateHandler(handler http.Handler) Option {
+	return func(s *Server) { s.timeoutWarningEvaluate = handler }
+}
+func WithKeywordLibrariesHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibraries = h }
+}
+func WithKeywordLibrarySaveHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibrarySave = h }
+}
+func WithKeywordLibraryStatusHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibraryStatus = h }
+}
+func WithKeywordLibraryDeleteHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibraryDelete = h }
+}
+func WithKeywordLibraryPublishHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibraryPublish = h }
+}
+func WithKeywordEntriesHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordEntries = h }
+}
+func WithKeywordEntrySaveHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordEntrySave = h }
+}
+func WithKeywordEntryStatusHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordEntryStatus = h }
+}
+func WithKeywordEntryDeleteHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordEntryDelete = h }
+}
+func WithMessageInterceptRulesHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRules = h }
+}
+func WithMessageInterceptRuleSaveHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRuleSave = h }
+}
+func WithMessageInterceptRuleStatusHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRuleStatus = h }
+}
+func WithMessageInterceptRuleDeleteHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRuleDelete = h }
+}
+func WithMessageInterceptRecordsHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRecords = h }
+}
+func WithMessageInterceptEvaluateHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptEvaluate = h }
+}
+func WithMessageInterceptAuditHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptAudit = h }
+}
+func WithSilentCustomerRulesHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRules = h }
+}
+func WithSilentCustomerRuleSaveHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRuleSave = h }
+}
+func WithSilentCustomerRuleStatusHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRuleStatus = h }
+}
+func WithSilentCustomerRuleDeleteHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRuleDelete = h }
+}
+func WithSilentCustomerRecordsHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRecords = h }
+}
+func WithSilentCustomerEvaluateHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerEvaluate = h }
+}
+func WithSilentCustomerActionHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerAction = h }
+}
+func WithRefuseArchiveRecordsHandler(h http.Handler) Option {
+	return func(s *Server) { s.refuseArchiveRecords = h }
+}
+func WithRefuseArchiveSyncHandler(h http.Handler) Option {
+	return func(s *Server) { s.refuseArchiveSync = h }
+}
+func WithRefuseArchiveFollowUpHandler(h http.Handler) Option {
+	return func(s *Server) { s.refuseArchiveFollowUp = h }
 }
 
 func WithWorkMessageIndexHandler(handler http.Handler) Option {
@@ -4625,6 +4806,96 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageFromUsers.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/toUsers" && r.Method == http.MethodGet && s.workMessageToUsers != nil:
 		s.workMessageToUsers.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodGet && s.riskBehaviorRules != nil:
+		s.riskBehaviorRules.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/records" && r.Method == http.MethodGet && s.riskBehaviorRecords != nil:
+		s.riskBehaviorRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodPost && s.riskBehaviorRuleCreate != nil:
+		s.riskBehaviorRuleCreate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodPut && s.riskBehaviorRuleUpdate != nil:
+		s.riskBehaviorRuleUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules/status" && r.Method == http.MethodPut && s.riskBehaviorRuleStatus != nil:
+		s.riskBehaviorRuleStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodDelete && s.riskBehaviorRuleDelete != nil:
+		s.riskBehaviorRuleDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/records/audit" && r.Method == http.MethodPost && s.riskBehaviorRecordsAudit != nil:
+		s.riskBehaviorRecordsAudit.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/evaluate" && r.Method == http.MethodPost && s.riskBehaviorEvaluate != nil:
+		s.riskBehaviorEvaluate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules" && r.Method == http.MethodGet && s.timeoutWarningRules != nil:
+		s.timeoutWarningRules.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/records" && r.Method == http.MethodGet && s.timeoutWarningRecords != nil:
+		s.timeoutWarningRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules" && r.Method == http.MethodPost && s.timeoutWarningRuleCreate != nil:
+		s.timeoutWarningRuleCreate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules" && r.Method == http.MethodPut && s.timeoutWarningRuleUpdate != nil:
+		s.timeoutWarningRuleUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules/status" && r.Method == http.MethodPut && s.timeoutWarningRuleStatus != nil:
+		s.timeoutWarningRuleStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/rules" && r.Method == http.MethodDelete && s.timeoutWarningRuleDelete != nil:
+		s.timeoutWarningRuleDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/records/audit" && r.Method == http.MethodPost && s.timeoutWarningRecordsAudit != nil:
+		s.timeoutWarningRecordsAudit.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/records/assign" && r.Method == http.MethodPut && s.timeoutWarningRecordsAssign != nil:
+		s.timeoutWarningRecordsAssign.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/settings" && r.Method == http.MethodGet && s.timeoutWarningSettings != nil:
+		s.timeoutWarningSettings.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/settings" && r.Method == http.MethodPut && s.timeoutWarningSettingsUpdate != nil:
+		s.timeoutWarningSettingsUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/timeout-warning/evaluate" && r.Method == http.MethodPost && s.timeoutWarningEvaluate != nil:
+		s.timeoutWarningEvaluate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries" && r.Method == http.MethodGet && s.keywordLibraries != nil:
+		s.keywordLibraries.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.keywordLibrarySave != nil:
+		s.keywordLibrarySave.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries/status" && r.Method == http.MethodPut && s.keywordLibraryStatus != nil:
+		s.keywordLibraryStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries" && r.Method == http.MethodDelete && s.keywordLibraryDelete != nil:
+		s.keywordLibraryDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries/publish" && r.Method == http.MethodPost && s.keywordLibraryPublish != nil:
+		s.keywordLibraryPublish.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/entries" && r.Method == http.MethodGet && s.keywordEntries != nil:
+		s.keywordEntries.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/entries" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.keywordEntrySave != nil:
+		s.keywordEntrySave.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/entries/status" && r.Method == http.MethodPut && s.keywordEntryStatus != nil:
+		s.keywordEntryStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/entries" && r.Method == http.MethodDelete && s.keywordEntryDelete != nil:
+		s.keywordEntryDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/rules" && r.Method == http.MethodGet && s.messageInterceptRules != nil:
+		s.messageInterceptRules.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/rules" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.messageInterceptRuleSave != nil:
+		s.messageInterceptRuleSave.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/rules/status" && r.Method == http.MethodPut && s.messageInterceptRuleStatus != nil:
+		s.messageInterceptRuleStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/rules" && r.Method == http.MethodDelete && s.messageInterceptRuleDelete != nil:
+		s.messageInterceptRuleDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/records" && r.Method == http.MethodGet && s.messageInterceptRecords != nil:
+		s.messageInterceptRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/evaluate" && r.Method == http.MethodPost && s.messageInterceptEvaluate != nil:
+		s.messageInterceptEvaluate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/records/audit" && r.Method == http.MethodPost && s.messageInterceptAudit != nil:
+		s.messageInterceptAudit.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/rules" && r.Method == http.MethodGet && s.silentCustomerRules != nil:
+		s.silentCustomerRules.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/rules" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.silentCustomerRuleSave != nil:
+		s.silentCustomerRuleSave.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/rules/status" && r.Method == http.MethodPut && s.silentCustomerRuleStatus != nil:
+		s.silentCustomerRuleStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/rules" && r.Method == http.MethodDelete && s.silentCustomerRuleDelete != nil:
+		s.silentCustomerRuleDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/records" && r.Method == http.MethodGet && s.silentCustomerRecords != nil:
+		s.silentCustomerRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/evaluate" && r.Method == http.MethodPost && s.silentCustomerEvaluate != nil:
+		s.silentCustomerEvaluate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/records/action" && r.Method == http.MethodPost && s.silentCustomerAction != nil:
+		s.silentCustomerAction.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/refuse-archive/records" && r.Method == http.MethodGet && s.refuseArchiveRecords != nil:
+		s.refuseArchiveRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/refuse-archive/sync" && r.Method == http.MethodPost && s.refuseArchiveSync != nil:
+		s.refuseArchiveSync.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/refuse-archive/follow-up" && r.Method == http.MethodPost && s.refuseArchiveFollowUp != nil:
+		s.refuseArchiveFollowUp.ServeHTTP(w, r)
 	case (r.URL.Path == "/dashboard/workMessage/index" || r.URL.Path == "/dashboard/workMessage/detail") && r.Method == http.MethodGet && s.workMessageIndex != nil:
 		s.workMessageIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessageConfig/corpStore" && r.Method == http.MethodPost && s.workMessageConfigCorpStore != nil:

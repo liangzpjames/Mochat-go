@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0109_scrm_customer_tag_parity"
-	SaaSAdminExpectedMigrationCount   = 109
+	SaaSAdminExpectedMigrationVersion = "0113_silent_customer_refuse_archive_provider"
+	SaaSAdminExpectedMigrationCount   = 113
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

@@ -90,4 +90,16 @@ describe('createConversationGlobalApi', () => {
 
     expect(request).toHaveBeenCalledWith('/workMessage/toUsers?view=global&page=1&pageSize=100');
   });
+
+  it('loads employees for the staff conversation sidebar', async () => {
+    const request = vi.fn<() => Promise<unknown>>(() => Promise.resolve([
+      { id: 9, name: '张三', avatar: '' },
+    ]));
+    const api = createConversationGlobalApi({ request });
+
+    await expect(api.employees!({ keyword: '张' })).resolves.toEqual([
+      { id: 9, name: '张三', avatar: '' },
+    ]);
+    expect(request).toHaveBeenCalledWith('/workMessage/fromUsers?page=1&perPage=100&name=%E5%BC%A0');
+  });
 });

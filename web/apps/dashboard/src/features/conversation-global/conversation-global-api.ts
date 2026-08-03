@@ -56,6 +56,13 @@ export type ConversationDetail = {
 export type ConversationGlobalApi = {
   search(input: ConversationSearch): Promise<ConversationPage>;
   detail(id: string): Promise<ConversationDetail>;
+  employees?(input: { keyword: string }): Promise<readonly ConversationEmployee[]>;
+};
+
+export type ConversationEmployee = {
+  id: number;
+  name: string;
+  avatar: string;
 };
 
 type ApiClient = {
@@ -176,6 +183,22 @@ function parseDetail(value: unknown): ConversationDetail {
   };
 }
 
+function parseEmployees(value: unknown): readonly ConversationEmployee[] {
+  if (!Array.isArray(value)) {
+    throw new Error('员工列表接口返回了无效数据');
+  }
+  const employees = value.map((item) => {
+    if (!isRecord(item) || !isFiniteNumber(item.id) || typeof item.name !== 'string' || typeof item.avatar !== 'string') {
+      return null;
+    }
+    return { id: item.id, name: item.name, avatar: item.avatar };
+  });
+  if (employees.some((item) => item === null)) {
+    throw new Error('员工列表接口返回了无效数据');
+  }
+  return employees as ConversationEmployee[];
+}
+
 function appendNonBlank(query: URLSearchParams, key: string, value: string) {
   if (value.trim() !== '') {
     query.set(key, value.trim());
@@ -210,6 +233,11 @@ export function createConversationGlobalApi(
     async detail(id) {
       const query = new URLSearchParams({ id });
       return parseDetail(await client.request(`/workMessage/detail?${query.toString()}`));
+    },
+    async employees(input) {
+      const query = new URLSearchParams({ page: '1', perPage: '100' });
+      appendNonBlank(query, 'name', input.keyword);
+      return parseEmployees(await client.request(`/workMessage/fromUsers?${query.toString()}`));
     },
   };
 }
