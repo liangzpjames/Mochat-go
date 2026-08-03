@@ -30,6 +30,7 @@ import type { ContactApi } from '../features/scrm/contact-api';
 import { ContactPage } from '../features/scrm/contact-page';
 import { Phase33OperationsPage, phase33OperationConfigs } from '../features/phase33/phase33-operations-page';
 import { RiskWarningPage, riskWarningConfigs } from '../features/phase33/risk-warning-pages';
+import { CustomerLossPage } from '../features/phase33/customer-loss-page';
 import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
@@ -73,6 +74,7 @@ export function createBenchmarkP0Pages({
         <Phase33OperationsPage key={path} api={businessWorkbenchApi} config={config} />,
       ]),
     )),
+    ...(businessWorkbenchApi === undefined ? {} : { '/ai-insight/v2/customer-loss': <CustomerLossPage api={businessWorkbenchApi} /> }),
     ...(businessWorkbenchApi === undefined ? {} : Object.fromEntries(
       Object.entries(riskWarningConfigs).map(([path, config]) => [
         path,
