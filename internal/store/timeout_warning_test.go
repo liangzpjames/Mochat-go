@@ -1,6 +1,10 @@
 package store
 
-import "testing"
+import (
+	"testing"
+
+	"jiyi/mochat-go/internal/dashboard"
+)
 
 func TestNormalizeTimeoutPage(t *testing.T) {
 	page, perPage := normalizeTimeoutPage(0, 0)
@@ -10,6 +14,14 @@ func TestNormalizeTimeoutPage(t *testing.T) {
 	page, perPage = normalizeTimeoutPage(3, 101)
 	if page != 3 || perPage != 20 {
 		t.Fatalf("page=%d perPage=%d", page, perPage)
+	}
+}
+
+func TestTimeoutIntentTargetsExpandsExtraTargets(t *testing.T) {
+	rule := dashboard.TimeoutRule{NotifyTargets: []dashboard.TimeoutNotifyTarget{{TargetType: "employee", TargetID: 8}, {TargetType: "department", TargetID: 12}}}
+	targets := timeoutIntentTargets(dashboard.TimeoutNotifyExtra, 7, rule)
+	if len(targets) != 2 || targets[0].targetID != 8 || targets[1].targetType != "department" {
+		t.Fatalf("targets=%#v", targets)
 	}
 }
 

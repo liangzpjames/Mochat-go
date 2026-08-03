@@ -10,7 +10,7 @@ function rows(payload:unknown):Row[]{if(Array.isArray(payload))return payload.fi
 function str(v:unknown):string{return typeof v==='string'?v:typeof v==='number'||typeof v==='boolean'?String(v):v==null?'':JSON.stringify(v);}
 const labels:Record<string,string>={id:'ID',ruleName:'规则',conversationType:'会话类型',customerName:'客户',employeeName:'责任员工',triggerMessage:'触发消息',timeoutSeconds:'超时时长',riskLevel:'风险等级',auditStatus:'处置状态',aiSummary:'AI 摘要',occurredAt:'记录时间',name:'规则名称',monitorTarget:'监听对象',conversationScopes:'监听范围',triggerCount:'触发次数',status:'启用状态',createdAt:'创建时间'};
 const values:Record<string,string>={single:'单聊',group:'群聊',low:'低风险',medium:'中风险',high:'高风险',pending:'待处置',confirmed:'已确认',ignored:'已忽略',closed:'已关闭',enabled:'启用',disabled:'停用',all:'全部',employee:'员工',department:'部门',none:'不通知',owner:'通知责任员工',extra:'通知额外人员'};
-function show(v:unknown):string{const raw=str(v);return values[raw]??(raw||'--');}
+function show(v:unknown):string{if(Array.isArray(v))return v.map(show).join('、');const raw=str(v);return values[raw]??(raw||'--');}
 
 export function TimeoutWarningPage({api}:{api:BusinessWorkbenchApi}){
  const access=useDashboardAccess();const client=useQueryClient();const [tab,setTab]=useState<'records'|'rules'|'settings'>('records');

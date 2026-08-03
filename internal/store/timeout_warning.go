@@ -392,17 +392,38 @@ func (s *MySQLStore) EvaluateTimeoutMessage(ctx context.Context, e dashboard.Tim
 		recordID, _ := r.LastInsertId()
 		_, _ = s.db.ExecContext(ctx, `UPDATE mochat_go_timeout_rules SET trigger_count=trigger_count+1,updated_at=? WHERE id=? AND tenant_id=? AND corp_id=?`, time.Now(), v.RuleID, v.TenantID, v.CorpID)
 		strategy := timeoutStrategyByID(rules.Items, v.RuleID, v.StrategyID)
-		if strategy.NotifyType != dashboard.TimeoutNotifyNone {
-			targetType := "owner"
-			targetID := v.EmployeeID
-			if strategy.NotifyType == dashboard.TimeoutNotifyExtra {
-				targetType = "extra"
-				targetID = 0
-			}
-			_, _ = s.db.ExecContext(ctx, `INSERT IGNORE INTO mochat_go_timeout_notification_intents (record_id,strategy_id,tenant_id,corp_id,notify_type,target_type,target_id,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)`, recordID, v.StrategyID, v.TenantID, v.CorpID, strategy.NotifyType, targetType, targetID, "pending", time.Now())
+		for _, target := range timeoutIntentTargets(strategy.NotifyType, v.EmployeeID, timeoutRuleByID(rules.Items, v.RuleID)) {
+			_, _ = s.db.ExecContext(ctx, `INSERT IGNORE INTO mochat_go_timeout_notification_intents (record_id,strategy_id,tenant_id,corp_id,notify_type,target_type,target_id,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)`, recordID, v.StrategyID, v.TenantID, v.CorpID, strategy.NotifyType, target.targetType, target.targetID, "pending", time.Now())
 		}
 	}
 	return created, nil
+}
+
+type timeoutIntentTarget struct {
+	targetType string
+	targetID   int64
+}
+
+func timeoutIntentTargets(notifyType dashboard.TimeoutNotifyType, ownerID int64, rule dashboard.TimeoutRule) []timeoutIntentTarget {
+	if notifyType == dashboard.TimeoutNotifyOwner && ownerID > 0 {
+		return []timeoutIntentTarget{{targetType: "employee", targetID: ownerID}}
+	}
+	if notifyType != dashboard.TimeoutNotifyExtra {
+		return nil
+	}
+	targets := make([]timeoutIntentTarget, 0, len(rule.NotifyTargets))
+	for _, v := range rule.NotifyTargets {
+		targets = append(targets, timeoutIntentTarget{targetType: v.TargetType, targetID: v.TargetID})
+	}
+	return targets
+}
+func timeoutRuleByID(rules []dashboard.TimeoutRule, ruleID int64) dashboard.TimeoutRule {
+	for _, rule := range rules {
+		if rule.ID == ruleID {
+			return rule
+		}
+	}
+	return dashboard.TimeoutRule{}
 }
 func timeoutStrategyByID(rules []dashboard.TimeoutRule, ruleID, strategyID int64) dashboard.TimeoutStrategy {
 	for _, rule := range rules {
