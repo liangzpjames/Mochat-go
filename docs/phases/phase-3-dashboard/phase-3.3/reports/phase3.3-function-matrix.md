@@ -9,7 +9,7 @@
 | `/chat/v2-group` | 会话 | 群/时间筛选→群消息 | 会话存档、客户群 | 群与成员数据范围 | 群-消息归档索引 | 高 | 待批次1 |
 | `/chat/trajectory` | 会话 | 消息/事件时间线→来源下钻 | 三类会话、客户事件 | 时间线对象读取 | 不可变事件来源指针 | 高 | 待批次2 |
 | `/chat/export` | 会话 | 范围配置→异步任务→下载 | 会话查询、任务中心、对象存储 | 导出动作+范围授权 | 任务、审计、过期文件 | 高 | 待批次2 |
-| `/chat/file-audio` | 会话 | 媒体筛选→预览/下载→会话 | 会话媒体存储 | 媒体读取+二次校验 | 媒体索引、下载审计 | 高 | 待批次2 |
+| `/chat/file-audio` | 会话 | 媒体筛选→预览/下载→会话 | 会话媒体存储 | 媒体读取+二次校验 | 媒体索引、下载审计 | 高 | 未完成：缺少音频文件存储与读取 Provider |
 | `/chat/resign-staff` | 会话 | 离职员工→资产→交接 | 员工目录、会话存档 | 离职资产与交接动作 | 资产交接记录 | 高 | 待批次3 |
 | `/chat/refuse-archive` | 会话 | 拒绝名单→授权状态→跟进 | 存档授权 provider | 授权状态读取/维护 | 状态快照、审计 | 高 | Provider、跟进与审计页面已完成 |
 | `/customer/inheritance` | 会话 | 离职员工→接替人→结果 | 客户主数据、员工目录 | 客户继承动作 | 幂等交接命令、审计 | 高 | 待批次3 |
@@ -24,5 +24,5 @@
 
 - 已接入 native 页面：会话运营四页、风险预警六页；
 - 已有真实读取接口：`/chat/resign-staff`、`/customer/inheritance`、`/ai-insight/v2/customer-loss`；
-- provider 未接入但已具备明确状态页：`/chat/file-audio`、`/chat/refuse-archive`、`/ai-insight/v2/risk`、`/ai-insight/v2/timeout`、`/ai-insight/v2/message-intercept`、`/ai-insight/v2/keyword-library`、`/ai-insight/v2/silent-customer`；
+- provider 未接入但已具备明确状态页：`/chat/file-audio`；
 - 详细命令、截图和数据卷检查见 `acceptance/remaining-pages-acceptance.zh-CN.md`。
