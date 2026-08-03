@@ -334,6 +334,22 @@ type Server struct {
 	timeoutWarningSettings                          http.Handler
 	timeoutWarningSettingsUpdate                    http.Handler
 	timeoutWarningEvaluate                          http.Handler
+	keywordLibraries                                http.Handler
+	keywordLibrarySave                              http.Handler
+	keywordLibraryStatus                            http.Handler
+	keywordLibraryDelete                            http.Handler
+	keywordLibraryPublish                           http.Handler
+	keywordEntries                                  http.Handler
+	keywordEntrySave                                http.Handler
+	keywordEntryStatus                              http.Handler
+	keywordEntryDelete                              http.Handler
+	messageInterceptRules                           http.Handler
+	messageInterceptRuleSave                        http.Handler
+	messageInterceptRuleStatus                      http.Handler
+	messageInterceptRuleDelete                      http.Handler
+	messageInterceptRecords                         http.Handler
+	messageInterceptEvaluate                        http.Handler
+	messageInterceptAudit                           http.Handler
 	workMessageIndex                                http.Handler
 	workMessageConfigCorpStore                      http.Handler
 	workMessageConfigCorpShow                       http.Handler
@@ -2480,6 +2496,54 @@ func WithTimeoutWarningSettingsUpdateHandler(handler http.Handler) Option {
 }
 func WithTimeoutWarningEvaluateHandler(handler http.Handler) Option {
 	return func(s *Server) { s.timeoutWarningEvaluate = handler }
+}
+func WithKeywordLibrariesHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibraries = h }
+}
+func WithKeywordLibrarySaveHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibrarySave = h }
+}
+func WithKeywordLibraryStatusHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibraryStatus = h }
+}
+func WithKeywordLibraryDeleteHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibraryDelete = h }
+}
+func WithKeywordLibraryPublishHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordLibraryPublish = h }
+}
+func WithKeywordEntriesHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordEntries = h }
+}
+func WithKeywordEntrySaveHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordEntrySave = h }
+}
+func WithKeywordEntryStatusHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordEntryStatus = h }
+}
+func WithKeywordEntryDeleteHandler(h http.Handler) Option {
+	return func(s *Server) { s.keywordEntryDelete = h }
+}
+func WithMessageInterceptRulesHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRules = h }
+}
+func WithMessageInterceptRuleSaveHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRuleSave = h }
+}
+func WithMessageInterceptRuleStatusHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRuleStatus = h }
+}
+func WithMessageInterceptRuleDeleteHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRuleDelete = h }
+}
+func WithMessageInterceptRecordsHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptRecords = h }
+}
+func WithMessageInterceptEvaluateHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptEvaluate = h }
+}
+func WithMessageInterceptAuditHandler(h http.Handler) Option {
+	return func(s *Server) { s.messageInterceptAudit = h }
 }
 
 func WithWorkMessageIndexHandler(handler http.Handler) Option {
@@ -4740,6 +4804,38 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.timeoutWarningSettingsUpdate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/timeout-warning/evaluate" && r.Method == http.MethodPost && s.timeoutWarningEvaluate != nil:
 		s.timeoutWarningEvaluate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries" && r.Method == http.MethodGet && s.keywordLibraries != nil:
+		s.keywordLibraries.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.keywordLibrarySave != nil:
+		s.keywordLibrarySave.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries/status" && r.Method == http.MethodPut && s.keywordLibraryStatus != nil:
+		s.keywordLibraryStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries" && r.Method == http.MethodDelete && s.keywordLibraryDelete != nil:
+		s.keywordLibraryDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/libraries/publish" && r.Method == http.MethodPost && s.keywordLibraryPublish != nil:
+		s.keywordLibraryPublish.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/entries" && r.Method == http.MethodGet && s.keywordEntries != nil:
+		s.keywordEntries.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/entries" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.keywordEntrySave != nil:
+		s.keywordEntrySave.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/entries/status" && r.Method == http.MethodPut && s.keywordEntryStatus != nil:
+		s.keywordEntryStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/keyword-library/entries" && r.Method == http.MethodDelete && s.keywordEntryDelete != nil:
+		s.keywordEntryDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/rules" && r.Method == http.MethodGet && s.messageInterceptRules != nil:
+		s.messageInterceptRules.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/rules" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.messageInterceptRuleSave != nil:
+		s.messageInterceptRuleSave.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/rules/status" && r.Method == http.MethodPut && s.messageInterceptRuleStatus != nil:
+		s.messageInterceptRuleStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/rules" && r.Method == http.MethodDelete && s.messageInterceptRuleDelete != nil:
+		s.messageInterceptRuleDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/records" && r.Method == http.MethodGet && s.messageInterceptRecords != nil:
+		s.messageInterceptRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/evaluate" && r.Method == http.MethodPost && s.messageInterceptEvaluate != nil:
+		s.messageInterceptEvaluate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/message-intercept/records/audit" && r.Method == http.MethodPost && s.messageInterceptAudit != nil:
+		s.messageInterceptAudit.ServeHTTP(w, r)
 	case (r.URL.Path == "/dashboard/workMessage/index" || r.URL.Path == "/dashboard/workMessage/detail") && r.Method == http.MethodGet && s.workMessageIndex != nil:
 		s.workMessageIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessageConfig/corpStore" && r.Method == http.MethodPost && s.workMessageConfigCorpStore != nil:

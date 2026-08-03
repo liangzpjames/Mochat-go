@@ -1634,6 +1634,7 @@ func main() {
 		autoTag := dashboard.NewAutoTagHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		riskBehavior := dashboard.NewRiskBehaviorHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		timeoutWarning := dashboard.NewTimeoutWarningHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		messageIntercept := dashboard.NewMessageInterceptHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		if cfg.EnableMarkTagsWorker {
 			autoTag.WithMarkTagsQueue(getRedisStore())
 		}
@@ -1668,6 +1669,22 @@ func main() {
 			compatserver.WithTimeoutWarningSettingsHandler(http.HandlerFunc(timeoutWarning.Settings)),
 			compatserver.WithTimeoutWarningSettingsUpdateHandler(http.HandlerFunc(timeoutWarning.SaveSettings)),
 			compatserver.WithTimeoutWarningEvaluateHandler(http.HandlerFunc(timeoutWarning.Evaluate)),
+			compatserver.WithKeywordLibrariesHandler(http.HandlerFunc(messageIntercept.Libraries)),
+			compatserver.WithKeywordLibrarySaveHandler(http.HandlerFunc(messageIntercept.SaveLibrary)),
+			compatserver.WithKeywordLibraryStatusHandler(http.HandlerFunc(messageIntercept.LibraryStatus)),
+			compatserver.WithKeywordLibraryDeleteHandler(http.HandlerFunc(messageIntercept.DeleteLibrary)),
+			compatserver.WithKeywordLibraryPublishHandler(http.HandlerFunc(messageIntercept.PublishLibrary)),
+			compatserver.WithKeywordEntriesHandler(http.HandlerFunc(messageIntercept.Entries)),
+			compatserver.WithKeywordEntrySaveHandler(http.HandlerFunc(messageIntercept.SaveEntry)),
+			compatserver.WithKeywordEntryStatusHandler(http.HandlerFunc(messageIntercept.EntryStatus)),
+			compatserver.WithKeywordEntryDeleteHandler(http.HandlerFunc(messageIntercept.DeleteEntry)),
+			compatserver.WithMessageInterceptRulesHandler(http.HandlerFunc(messageIntercept.Rules)),
+			compatserver.WithMessageInterceptRuleSaveHandler(http.HandlerFunc(messageIntercept.SaveRule)),
+			compatserver.WithMessageInterceptRuleStatusHandler(http.HandlerFunc(messageIntercept.RuleStatus)),
+			compatserver.WithMessageInterceptRuleDeleteHandler(http.HandlerFunc(messageIntercept.DeleteRule)),
+			compatserver.WithMessageInterceptRecordsHandler(http.HandlerFunc(messageIntercept.Records)),
+			compatserver.WithMessageInterceptEvaluateHandler(http.HandlerFunc(messageIntercept.Evaluate)),
+			compatserver.WithMessageInterceptAuditHandler(http.HandlerFunc(messageIntercept.Audit)),
 			compatserver.WithWorkMessageIndexHandler(http.HandlerFunc(autoTag.WorkMessageIndex)),
 			compatserver.WithWorkMessageConfigCorpStoreHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpStore)),
 			compatserver.WithWorkMessageConfigCorpShowHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpShow)),
