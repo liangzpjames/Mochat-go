@@ -40,6 +40,10 @@ type RiskBehaviorProvider interface {
 	RiskRecordPage(context.Context, RiskRecordFilter) (RiskRecordPage, error)
 }
 
+type RiskTenantResolver interface {
+	TenantIDByCorpID(context.Context, int) (int, error)
+}
+
 type RiskRuleStatus string
 
 const (

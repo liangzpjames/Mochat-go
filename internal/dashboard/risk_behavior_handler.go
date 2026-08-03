@@ -45,7 +45,15 @@ func (h *RiskBehaviorHandler) resolve(w http.ResponseWriter, r *http.Request, pe
 			return 0, 0, false
 		}
 	}
-	return 0, corpID, true
+	tenantID := 0
+	if tenantResolver, ok := h.provider.(RiskTenantResolver); ok {
+		tenantID, err = tenantResolver.TenantIDByCorpID(r.Context(), corpID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return 0, 0, false
+		}
+	}
+	return tenantID, corpID, true
 }
 func (h *RiskBehaviorHandler) Rules(w http.ResponseWriter, r *http.Request) {
 	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#read")
