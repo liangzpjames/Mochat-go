@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0110_risk_behavior_provider"
-	SaaSAdminExpectedMigrationCount   = 110
+	SaaSAdminExpectedMigrationVersion = "0111_timeout_warning_provider"
+	SaaSAdminExpectedMigrationCount   = 111
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"
