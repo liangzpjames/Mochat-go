@@ -81,13 +81,13 @@ export function createBenchmarkP0Pages({
       '/customer/inheritance': <CustomerTransferPage api={businessWorkbenchApi} mode="inheritance" />,
       '/chat/resign-staff': <CustomerTransferPage api={businessWorkbenchApi} mode="resign" />,
     }),
-    ...(businessWorkbenchApi === undefined ? {} : { '/ai-insight/v2/risk': <RiskBehaviorPage api={businessWorkbenchApi} /> }),
     ...(businessWorkbenchApi === undefined ? {} : Object.fromEntries(
       Object.entries(riskWarningConfigs).map(([path, config]) => [
         path,
         <RiskWarningPage key={path} api={businessWorkbenchApi} config={config} />,
       ]),
     )),
+    ...(businessWorkbenchApi === undefined ? {} : { '/ai-insight/v2/risk': <RiskBehaviorPage api={businessWorkbenchApi} /> }),
   };
 }
 
