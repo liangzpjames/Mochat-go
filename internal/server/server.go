@@ -318,6 +318,11 @@ type Server struct {
 	riskBehaviorRules                               http.Handler
 	riskBehaviorRecords                             http.Handler
 	riskBehaviorRuleCreate                          http.Handler
+	riskBehaviorRuleUpdate                          http.Handler
+	riskBehaviorRuleStatus                          http.Handler
+	riskBehaviorRuleDelete                          http.Handler
+	riskBehaviorRecordsAudit                        http.Handler
+	riskBehaviorEvaluate                            http.Handler
 	workMessageIndex                                http.Handler
 	workMessageConfigCorpStore                      http.Handler
 	workMessageConfigCorpShow                       http.Handler
@@ -2416,6 +2421,21 @@ func WithRiskBehaviorRecordsHandler(handler http.Handler) Option {
 }
 func WithRiskBehaviorRuleCreateHandler(handler http.Handler) Option {
 	return func(server *Server) { server.riskBehaviorRuleCreate = handler }
+}
+func WithRiskBehaviorRuleUpdateHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRuleUpdate = handler }
+}
+func WithRiskBehaviorRuleStatusHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRuleStatus = handler }
+}
+func WithRiskBehaviorRuleDeleteHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRuleDelete = handler }
+}
+func WithRiskBehaviorRecordsAuditHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRecordsAudit = handler }
+}
+func WithRiskBehaviorEvaluateHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorEvaluate = handler }
 }
 
 func WithWorkMessageIndexHandler(handler http.Handler) Option {
@@ -4644,6 +4664,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.riskBehaviorRecords.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodPost && s.riskBehaviorRuleCreate != nil:
 		s.riskBehaviorRuleCreate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodPut && s.riskBehaviorRuleUpdate != nil:
+		s.riskBehaviorRuleUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules/status" && r.Method == http.MethodPut && s.riskBehaviorRuleStatus != nil:
+		s.riskBehaviorRuleStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodDelete && s.riskBehaviorRuleDelete != nil:
+		s.riskBehaviorRuleDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/records/audit" && r.Method == http.MethodPost && s.riskBehaviorRecordsAudit != nil:
+		s.riskBehaviorRecordsAudit.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/evaluate" && r.Method == http.MethodPost && s.riskBehaviorEvaluate != nil:
+		s.riskBehaviorEvaluate.ServeHTTP(w, r)
 	case (r.URL.Path == "/dashboard/workMessage/index" || r.URL.Path == "/dashboard/workMessage/detail") && r.Method == http.MethodGet && s.workMessageIndex != nil:
 		s.workMessageIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessageConfig/corpStore" && r.Method == http.MethodPost && s.workMessageConfigCorpStore != nil:

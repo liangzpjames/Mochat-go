@@ -10,9 +10,9 @@ export function createBusinessWorkbenchApi(client: ApiClient) {
       );
       return client.request(`${endpoint}?${query.toString()}`);
     },
-    async write(endpoint: string, values: Record<string, unknown>): Promise<void> {
+    async write(endpoint: string, values: Record<string, unknown>, method: 'POST' | 'PUT' | 'DELETE' = 'POST'): Promise<void> {
       await client.request(endpoint, {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values),
       });

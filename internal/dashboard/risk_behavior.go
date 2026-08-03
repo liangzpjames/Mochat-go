@@ -78,6 +78,13 @@ type RiskRule struct {
 
 type RiskRuleProviderWriter interface {
 	CreateRiskRule(context.Context, RiskRule) (int64, error)
+	UpdateRiskRule(context.Context, RiskRule) (bool, error)
+	SetRiskRuleStatus(context.Context, int, int64, RiskRuleStatus) (bool, error)
+	DeleteRiskRule(context.Context, int, int64) (bool, error)
+}
+
+type RiskRecordProviderWriter interface {
+	AuditRiskRecords(context.Context, int, int, int, []int64, string, string) (int64, error)
 }
 
 type RiskRecord struct {
