@@ -12,6 +12,7 @@ import { ConversationTrajectoryPage } from '../features/conversation-global/conv
 import { ConversationExportPage } from '../features/conversation-global/conversation-export-page';
 import { RiskWarningPage } from '../features/phase33/risk-warning-pages';
 import { RiskBehaviorPage } from '../features/phase33/risk-behavior-page';
+import { TimeoutWarningPage } from '../features/phase33/timeout-warning-page';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -155,7 +156,8 @@ describe('createPageRegistry', () => {
       '/ai-insight/v2/keyword-library',
       '/ai-insight/v2/silent-customer',
     ]) {
-      expect((pages[path] as { type?: unknown }).type).toBe(path === '/ai-insight/v2/risk' ? RiskBehaviorPage : RiskWarningPage);
+      const expected = path === '/ai-insight/v2/risk' ? RiskBehaviorPage : path === '/ai-insight/v2/timeout' ? TimeoutWarningPage : RiskWarningPage;
+      expect((pages[path] as { type?: unknown }).type).toBe(expected);
     }
   });
 

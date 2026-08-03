@@ -33,6 +33,7 @@ import { RiskWarningPage, riskWarningConfigs } from '../features/phase33/risk-wa
 import { CustomerLossPage } from '../features/phase33/customer-loss-page';
 import { CustomerTransferPage } from '../features/phase33/customer-transfer-page';
 import { RiskBehaviorPage } from '../features/phase33/risk-behavior-page';
+import { TimeoutWarningPage } from '../features/phase33/timeout-warning-page';
 import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
@@ -88,6 +89,7 @@ export function createBenchmarkP0Pages({
       ]),
     )),
     ...(businessWorkbenchApi === undefined ? {} : { '/ai-insight/v2/risk': <RiskBehaviorPage api={businessWorkbenchApi} /> }),
+    ...(businessWorkbenchApi === undefined ? {} : { '/ai-insight/v2/timeout': <TimeoutWarningPage api={businessWorkbenchApi} /> }),
   };
 }
 

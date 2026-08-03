@@ -43,7 +43,7 @@ describe('RiskWarningPage', () => {
   it('defines six native risk routes with only customer loss connected to a real provider', () => {
     expect(Object.keys(riskWarningConfigs).sort()).toEqual([...riskPaths].sort());
     expect(riskWarningConfigs['/ai-insight/v2/customer-loss'].readEndpoint).toBe('/workContact/lossContact');
-    for (const path of riskPaths.filter((path) => path !== '/ai-insight/v2/customer-loss')) {
+    for (const path of riskPaths.filter((path) => path !== '/ai-insight/v2/customer-loss' && path !== '/ai-insight/v2/timeout')) {
       expect(riskWarningConfigs[path].providerState).toBe('unavailable');
     }
   });
@@ -76,7 +76,7 @@ describe('RiskWarningPage', () => {
     await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
   });
 
-  it.each(riskPaths.filter((path) => path !== '/ai-insight/v2/customer-loss'))(
+  it.each(riskPaths.filter((path) => path !== '/ai-insight/v2/customer-loss' && path !== '/ai-insight/v2/timeout'))(
     'does not fabricate risk data when %s has no provider',
     (path) => {
       const read = vi.fn();
