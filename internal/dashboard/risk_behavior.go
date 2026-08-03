@@ -76,6 +76,10 @@ type RiskRule struct {
 	Strategies       []RiskRuleStrategy `json:"strategies"`
 }
 
+type RiskRuleProviderWriter interface {
+	CreateRiskRule(context.Context, RiskRule) (int64, error)
+}
+
 type RiskRecord struct {
 	ID               int64          `json:"id"`
 	TenantID         int64          `json:"tenantId"`

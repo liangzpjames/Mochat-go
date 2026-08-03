@@ -1650,6 +1650,7 @@ func main() {
 			compatserver.WithWorkMessageToUsersHandler(http.HandlerFunc(autoTag.WorkMessageToUsers)),
 			compatserver.WithRiskBehaviorRulesHandler(http.HandlerFunc(riskBehavior.Rules)),
 			compatserver.WithRiskBehaviorRecordsHandler(http.HandlerFunc(riskBehavior.Records)),
+			compatserver.WithRiskBehaviorRuleCreateHandler(http.HandlerFunc(riskBehavior.CreateRule)),
 			compatserver.WithWorkMessageIndexHandler(http.HandlerFunc(autoTag.WorkMessageIndex)),
 			compatserver.WithWorkMessageConfigCorpStoreHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpStore)),
 			compatserver.WithWorkMessageConfigCorpShowHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpShow)),

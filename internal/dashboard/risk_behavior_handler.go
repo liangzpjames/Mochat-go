@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -74,4 +75,29 @@ func (h *RiskBehaviorHandler) Records(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeEnvelope(w, http.StatusOK, 0, "ok", result)
+}
+
+func (h *RiskBehaviorHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
+	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#manage")
+	if !ok {
+		return
+	}
+	writer, ok := h.provider.(RiskRuleProviderWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "风险规则写入能力未启用", nil)
+		return
+	}
+	var rule RiskRule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "规则参数无效", nil)
+		return
+	}
+	rule.TenantID = int64(tenant)
+	rule.CorpID = int64(corp)
+	id, err := writer.CreateRiskRule(r.Context(), rule)
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	writeEnvelope(w, http.StatusOK, 0, "ok", map[string]any{"id": id})
 }

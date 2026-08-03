@@ -109,5 +109,34 @@ func (s *MySQLStore) RiskRecordPage(ctx context.Context, f dashboard.RiskRecordF
 	return dashboard.RiskRecordPage{Items: items, Total: total, Page: f.Page, PerPage: f.PerPage}, nil
 }
 
+func (s *MySQLStore) CreateRiskRule(ctx context.Context, rule dashboard.RiskRule) (int64, error) {
+	if err := dashboard.ValidateRiskRule(rule); err != nil {
+		return 0, err
+	}
+	if rule.TenantID <= 0 {
+		tenant, err := s.tenantIDByCorpID(ctx, int(rule.CorpID))
+		if err != nil {
+			return 0, err
+		}
+		rule.TenantID = int64(tenant)
+	}
+	now := time.Now()
+	whitelist, _ := json.Marshal(rule.Whitelist)
+	result, err := s.db.ExecContext(ctx, `INSERT INTO mochat_go_risk_rules (tenant_id,corp_id,name,status,subject,whitelist_json,ai_insight_enabled,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, rule.TenantID, rule.CorpID, strings.TrimSpace(rule.Name), rule.Status, rule.Subject, whitelist, rule.AIInsightEnabled, 0, 0, now, now)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	for _, strategy := range rule.Strategies {
+		if _, err = s.db.ExecContext(ctx, `INSERT INTO mochat_go_risk_rule_strategies (rule_id,behavior,pattern,notify_type,risk_level,created_at) VALUES (?,?,?,?,?,?)`, id, strings.TrimSpace(strategy.Behavior), strings.TrimSpace(strategy.Pattern), strategy.NotifyType, strategy.RiskLevel, now); err != nil {
+			return 0, err
+		}
+	}
+	return id, nil
+}
+
 var _ dashboard.RiskBehaviorProvider = (*MySQLStore)(nil)
 var _ = sql.ErrNoRows
