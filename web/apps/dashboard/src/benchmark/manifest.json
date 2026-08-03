@@ -479,16 +479,16 @@
       "level": "P1",
       "status": "documented",
       "screenshotVersion": "unobserved",
-      "implementation": "demo",
-      "backend": "partial",
+      "implementation": "native",
+      "backend": "ready",
       "acceptance": "unit-passed",
-      "phase": "3.1",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-v2-channel-code/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-v2-channel-code.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch1-acquisition-pages-report.md"
       }
     },
     {
@@ -498,16 +498,16 @@
       "level": "P2",
       "status": "documented",
       "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "implementation": "native",
+      "backend": "partial",
+      "acceptance": "unit-passed",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-group-code/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-group-code.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch1-acquisition-pages-report.md"
       }
     },
     {
@@ -555,16 +555,16 @@
       "level": "P2",
       "status": "documented",
       "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
+      "implementation": "native",
       "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "acceptance": "unit-passed",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-live-code-short-chain/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-live-code-short-chain.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch1-acquisition-pages-report.md"
       }
     },
     {

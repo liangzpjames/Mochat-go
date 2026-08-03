@@ -9,7 +9,6 @@ import { EmployeeConversationPage } from '../features/conversation-global/employ
 import { ConversationTrajectoryPage } from '../features/conversation-global/conversation-trajectory-page';
 import { ConversationExportPage } from '../features/conversation-global/conversation-export-page';
 import {
-  channelCodeDemo,
   customerConversationDemo,
   customerGroupDemo,
   groupConversationDemo,
@@ -37,6 +36,7 @@ import { TimeoutWarningPage } from '../features/phase33/timeout-warning-page';
 import { KeywordLibraryPage, MessageInterceptPage } from '../features/phase33/message-intercept-pages';
 import { RefuseArchivePage, SilentCustomerPage } from '../features/phase33/phase33-closure-pages';
 import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
+import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../features/phase34/acquisition-pages';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -97,6 +97,9 @@ export function createBenchmarkP0Pages({
       '/ai-insight/v2/keyword-library': <KeywordLibraryPage api={businessWorkbenchApi} />,
       '/ai-insight/v2/silent-customer': <SilentCustomerPage api={businessWorkbenchApi} />,
       '/chat/refuse-archive': <RefuseArchivePage api={businessWorkbenchApi} />,
+      '/acquisition/v2-channel-code': <ChannelCodePage api={businessWorkbenchApi} />,
+      '/acquisition/group-code': <GroupCodePage api={businessWorkbenchApi} />,
+      '/acquisition/live-code-short-chain': <LiveCodeShortChainPage api={businessWorkbenchApi} />,
     }),
   };
 }
@@ -106,7 +109,6 @@ const benchmarkP1Pages: PageRegistry = {
   '/chat/v2-customer': <DemoPage config={customerConversationDemo} />,
   '/chat/v2-group': <DemoPage config={groupConversationDemo} />,
   '/ai-insight/session-analysis': <DemoPage config={sessionAnalysisDemo} />,
-  '/acquisition/v2-channel-code': <DemoPage config={channelCodeDemo} />,
   '/customer/group': <DemoPage config={customerGroupDemo} />,
 };
 

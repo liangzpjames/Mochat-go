@@ -16,6 +16,7 @@ import { TimeoutWarningPage } from '../features/phase33/timeout-warning-page';
 import { KeywordLibraryPage, MessageInterceptPage } from '../features/phase33/message-intercept-pages';
 import { SilentCustomerPage } from '../features/phase33/phase33-closure-pages';
 import { Phase33OperationsPage } from '../features/phase33/phase33-operations-page';
+import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../features/phase34/acquisition-pages';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -178,6 +179,18 @@ describe('createPageRegistry', () => {
     }
   });
 
+  it('registers all three Phase 3.4 batch-one acquisition routes when the workbench API is available', () => {
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }), exportCsv: () => Promise.resolve(new Blob()) },
+      conversationGlobalApi: { search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }), detail: () => Promise.reject(new Error('not loaded')) },
+      businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
+    });
+
+    expect((pages['/acquisition/v2-channel-code'] as { type?: unknown }).type).toBe(ChannelCodePage);
+    expect((pages['/acquisition/group-code'] as { type?: unknown }).type).toBe(GroupCodePage);
+    expect((pages['/acquisition/live-code-short-chain'] as { type?: unknown }).type).toBe(LiveCodeShortChainPage);
+  });
+
   it('prefers P0 implementations over P1 implementations at the same path', () => {
     const pages = createPageRegistry({
       manifest,
@@ -227,7 +240,6 @@ describe('createPageRegistry', () => {
     ['/chat/v2-customer', '客户会话'],
     ['/chat/v2-group', '群聊会话'],
     ['/ai-insight/session-analysis', '会话分析'],
-    ['/acquisition/v2-channel-code', '渠道活码'],
     ['/customer/group', '客户群'],
   ])('registers and renders the documented P1 demo route %s', (path, title) => {
     const pages = createPageRegistry({ manifest: benchmarkManifest, p0Pages: {}, p1Pages: {} });
