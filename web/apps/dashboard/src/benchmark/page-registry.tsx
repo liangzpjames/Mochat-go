@@ -35,6 +35,7 @@ import { CustomerTransferPage } from '../features/phase33/customer-transfer-page
 import { RiskBehaviorPage } from '../features/phase33/risk-behavior-page';
 import { TimeoutWarningPage } from '../features/phase33/timeout-warning-page';
 import { KeywordLibraryPage, MessageInterceptPage } from '../features/phase33/message-intercept-pages';
+import { RefuseArchivePage, SilentCustomerPage } from '../features/phase33/phase33-closure-pages';
 import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
@@ -94,6 +95,8 @@ export function createBenchmarkP0Pages({
     ...(businessWorkbenchApi === undefined ? {} : {
       '/ai-insight/v2/message-intercept': <MessageInterceptPage api={businessWorkbenchApi} />,
       '/ai-insight/v2/keyword-library': <KeywordLibraryPage api={businessWorkbenchApi} />,
+      '/ai-insight/v2/silent-customer': <SilentCustomerPage api={businessWorkbenchApi} />,
+      '/chat/refuse-archive': <RefuseArchivePage api={businessWorkbenchApi} />,
     }),
   };
 }

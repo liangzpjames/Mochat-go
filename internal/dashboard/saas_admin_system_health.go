@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0112_message_intercept_keyword_library_provider"
-	SaaSAdminExpectedMigrationCount   = 112
+	SaaSAdminExpectedMigrationVersion = "0113_silent_customer_refuse_archive_provider"
+	SaaSAdminExpectedMigrationCount   = 113
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

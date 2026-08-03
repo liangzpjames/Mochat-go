@@ -350,6 +350,16 @@ type Server struct {
 	messageInterceptRecords                         http.Handler
 	messageInterceptEvaluate                        http.Handler
 	messageInterceptAudit                           http.Handler
+	silentCustomerRules                             http.Handler
+	silentCustomerRuleSave                          http.Handler
+	silentCustomerRuleStatus                        http.Handler
+	silentCustomerRuleDelete                        http.Handler
+	silentCustomerRecords                           http.Handler
+	silentCustomerEvaluate                          http.Handler
+	silentCustomerAction                            http.Handler
+	refuseArchiveRecords                            http.Handler
+	refuseArchiveSync                               http.Handler
+	refuseArchiveFollowUp                           http.Handler
 	workMessageIndex                                http.Handler
 	workMessageConfigCorpStore                      http.Handler
 	workMessageConfigCorpShow                       http.Handler
@@ -2544,6 +2554,36 @@ func WithMessageInterceptEvaluateHandler(h http.Handler) Option {
 }
 func WithMessageInterceptAuditHandler(h http.Handler) Option {
 	return func(s *Server) { s.messageInterceptAudit = h }
+}
+func WithSilentCustomerRulesHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRules = h }
+}
+func WithSilentCustomerRuleSaveHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRuleSave = h }
+}
+func WithSilentCustomerRuleStatusHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRuleStatus = h }
+}
+func WithSilentCustomerRuleDeleteHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRuleDelete = h }
+}
+func WithSilentCustomerRecordsHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerRecords = h }
+}
+func WithSilentCustomerEvaluateHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerEvaluate = h }
+}
+func WithSilentCustomerActionHandler(h http.Handler) Option {
+	return func(s *Server) { s.silentCustomerAction = h }
+}
+func WithRefuseArchiveRecordsHandler(h http.Handler) Option {
+	return func(s *Server) { s.refuseArchiveRecords = h }
+}
+func WithRefuseArchiveSyncHandler(h http.Handler) Option {
+	return func(s *Server) { s.refuseArchiveSync = h }
+}
+func WithRefuseArchiveFollowUpHandler(h http.Handler) Option {
+	return func(s *Server) { s.refuseArchiveFollowUp = h }
 }
 
 func WithWorkMessageIndexHandler(handler http.Handler) Option {
@@ -4836,6 +4876,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.messageInterceptEvaluate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/message-intercept/records/audit" && r.Method == http.MethodPost && s.messageInterceptAudit != nil:
 		s.messageInterceptAudit.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/rules" && r.Method == http.MethodGet && s.silentCustomerRules != nil:
+		s.silentCustomerRules.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/rules" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.silentCustomerRuleSave != nil:
+		s.silentCustomerRuleSave.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/rules/status" && r.Method == http.MethodPut && s.silentCustomerRuleStatus != nil:
+		s.silentCustomerRuleStatus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/rules" && r.Method == http.MethodDelete && s.silentCustomerRuleDelete != nil:
+		s.silentCustomerRuleDelete.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/records" && r.Method == http.MethodGet && s.silentCustomerRecords != nil:
+		s.silentCustomerRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/evaluate" && r.Method == http.MethodPost && s.silentCustomerEvaluate != nil:
+		s.silentCustomerEvaluate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/silent-customer/records/action" && r.Method == http.MethodPost && s.silentCustomerAction != nil:
+		s.silentCustomerAction.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/refuse-archive/records" && r.Method == http.MethodGet && s.refuseArchiveRecords != nil:
+		s.refuseArchiveRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/refuse-archive/sync" && r.Method == http.MethodPost && s.refuseArchiveSync != nil:
+		s.refuseArchiveSync.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/refuse-archive/follow-up" && r.Method == http.MethodPost && s.refuseArchiveFollowUp != nil:
+		s.refuseArchiveFollowUp.ServeHTTP(w, r)
 	case (r.URL.Path == "/dashboard/workMessage/index" || r.URL.Path == "/dashboard/workMessage/detail") && r.Method == http.MethodGet && s.workMessageIndex != nil:
 		s.workMessageIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessageConfig/corpStore" && r.Method == http.MethodPost && s.workMessageConfigCorpStore != nil:

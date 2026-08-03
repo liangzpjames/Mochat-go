@@ -1635,6 +1635,7 @@ func main() {
 		riskBehavior := dashboard.NewRiskBehaviorHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		timeoutWarning := dashboard.NewTimeoutWarningHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		messageIntercept := dashboard.NewMessageInterceptHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		phase33Closure := dashboard.NewPhase33ClosureHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		if cfg.EnableMarkTagsWorker {
 			autoTag.WithMarkTagsQueue(getRedisStore())
 		}
@@ -1685,6 +1686,16 @@ func main() {
 			compatserver.WithMessageInterceptRecordsHandler(http.HandlerFunc(messageIntercept.Records)),
 			compatserver.WithMessageInterceptEvaluateHandler(http.HandlerFunc(messageIntercept.Evaluate)),
 			compatserver.WithMessageInterceptAuditHandler(http.HandlerFunc(messageIntercept.Audit)),
+			compatserver.WithSilentCustomerRulesHandler(http.HandlerFunc(phase33Closure.SilentRules)),
+			compatserver.WithSilentCustomerRuleSaveHandler(http.HandlerFunc(phase33Closure.SaveSilentRule)),
+			compatserver.WithSilentCustomerRuleStatusHandler(http.HandlerFunc(phase33Closure.SilentRuleStatus)),
+			compatserver.WithSilentCustomerRuleDeleteHandler(http.HandlerFunc(phase33Closure.DeleteSilentRule)),
+			compatserver.WithSilentCustomerRecordsHandler(http.HandlerFunc(phase33Closure.SilentRecords)),
+			compatserver.WithSilentCustomerEvaluateHandler(http.HandlerFunc(phase33Closure.EvaluateSilent)),
+			compatserver.WithSilentCustomerActionHandler(http.HandlerFunc(phase33Closure.ActSilent)),
+			compatserver.WithRefuseArchiveRecordsHandler(http.HandlerFunc(phase33Closure.RefuseRecords)),
+			compatserver.WithRefuseArchiveSyncHandler(http.HandlerFunc(phase33Closure.SyncRefuse)),
+			compatserver.WithRefuseArchiveFollowUpHandler(http.HandlerFunc(phase33Closure.FollowRefuse)),
 			compatserver.WithWorkMessageIndexHandler(http.HandlerFunc(autoTag.WorkMessageIndex)),
 			compatserver.WithWorkMessageConfigCorpStoreHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpStore)),
 			compatserver.WithWorkMessageConfigCorpShowHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpShow)),
