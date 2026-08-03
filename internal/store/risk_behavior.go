@@ -16,8 +16,12 @@ func (s *MySQLStore) RiskRulePage(ctx context.Context, f dashboard.RiskRuleFilte
 	if f.PerPage < 1 || f.PerPage > 100 {
 		f.PerPage = 20
 	}
-	where := " WHERE tenant_id = ? AND corp_id = ?"
-	args := []any{f.TenantID, f.CorpID}
+	where := " WHERE corp_id = ?"
+	args := []any{f.CorpID}
+	if f.TenantID > 0 {
+		where = " WHERE tenant_id = ? AND corp_id = ?"
+		args = []any{f.TenantID, f.CorpID}
+	}
 	if strings.TrimSpace(f.Name) != "" {
 		where += " AND name LIKE ?"
 		args = append(args, "%"+strings.TrimSpace(f.Name)+"%")
@@ -56,8 +60,12 @@ func (s *MySQLStore) RiskRecordPage(ctx context.Context, f dashboard.RiskRecordF
 	if f.PerPage < 1 || f.PerPage > 100 {
 		f.PerPage = 20
 	}
-	where := " WHERE tenant_id = ? AND corp_id = ?"
-	args := []any{f.TenantID, f.CorpID}
+	where := " WHERE corp_id = ?"
+	args := []any{f.CorpID}
+	if f.TenantID > 0 {
+		where = " WHERE tenant_id = ? AND corp_id = ?"
+		args = []any{f.TenantID, f.CorpID}
+	}
 	if f.RiskLevel != "" {
 		where += " AND risk_level = ?"
 		args = append(args, f.RiskLevel)

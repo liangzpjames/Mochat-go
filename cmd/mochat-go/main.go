@@ -1632,6 +1632,7 @@ func main() {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("autoTagDashboard")
 		autoTag := dashboard.NewAutoTagHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		riskBehavior := dashboard.NewRiskBehaviorHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		if cfg.EnableMarkTagsWorker {
 			autoTag.WithMarkTagsQueue(getRedisStore())
 		}
@@ -1647,6 +1648,8 @@ func main() {
 			compatserver.WithAutoTagShowContactTimeHandler(http.HandlerFunc(autoTag.ShowContactTime)),
 			compatserver.WithWorkMessageFromUsersHandler(http.HandlerFunc(autoTag.WorkMessageFromUsers)),
 			compatserver.WithWorkMessageToUsersHandler(http.HandlerFunc(autoTag.WorkMessageToUsers)),
+			compatserver.WithRiskBehaviorRulesHandler(http.HandlerFunc(riskBehavior.Rules)),
+			compatserver.WithRiskBehaviorRecordsHandler(http.HandlerFunc(riskBehavior.Records)),
 			compatserver.WithWorkMessageIndexHandler(http.HandlerFunc(autoTag.WorkMessageIndex)),
 			compatserver.WithWorkMessageConfigCorpStoreHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpStore)),
 			compatserver.WithWorkMessageConfigCorpShowHandler(http.HandlerFunc(autoTag.WorkMessageConfigCorpShow)),

@@ -32,6 +32,7 @@ import { Phase33OperationsPage, phase33OperationConfigs } from '../features/phas
 import { RiskWarningPage, riskWarningConfigs } from '../features/phase33/risk-warning-pages';
 import { CustomerLossPage } from '../features/phase33/customer-loss-page';
 import { CustomerTransferPage } from '../features/phase33/customer-transfer-page';
+import { RiskBehaviorPage } from '../features/phase33/risk-behavior-page';
 import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
@@ -80,6 +81,7 @@ export function createBenchmarkP0Pages({
       '/customer/inheritance': <CustomerTransferPage api={businessWorkbenchApi} mode="inheritance" />,
       '/chat/resign-staff': <CustomerTransferPage api={businessWorkbenchApi} mode="resign" />,
     }),
+    ...(businessWorkbenchApi === undefined ? {} : { '/ai-insight/v2/risk': <RiskBehaviorPage api={businessWorkbenchApi} /> }),
     ...(businessWorkbenchApi === undefined ? {} : Object.fromEntries(
       Object.entries(riskWarningConfigs).map(([path, config]) => [
         path,

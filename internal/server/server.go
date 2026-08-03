@@ -315,6 +315,8 @@ type Server struct {
 	autoTagShowContactTime                          http.Handler
 	workMessageFromUsers                            http.Handler
 	workMessageToUsers                              http.Handler
+	riskBehaviorRules                               http.Handler
+	riskBehaviorRecords                             http.Handler
 	workMessageIndex                                http.Handler
 	workMessageConfigCorpStore                      http.Handler
 	workMessageConfigCorpShow                       http.Handler
@@ -2404,6 +2406,9 @@ func WithWorkMessageToUsersHandler(handler http.Handler) Option {
 		server.workMessageToUsers = handler
 	}
 }
+
+func WithRiskBehaviorRulesHandler(handler http.Handler) Option { return func(server *Server) { server.riskBehaviorRules = handler } }
+func WithRiskBehaviorRecordsHandler(handler http.Handler) Option { return func(server *Server) { server.riskBehaviorRecords = handler } }
 
 func WithWorkMessageIndexHandler(handler http.Handler) Option {
 	return func(server *Server) {
@@ -4625,6 +4630,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageFromUsers.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/toUsers" && r.Method == http.MethodGet && s.workMessageToUsers != nil:
 		s.workMessageToUsers.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodGet && s.riskBehaviorRules != nil:
+		s.riskBehaviorRules.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/records" && r.Method == http.MethodGet && s.riskBehaviorRecords != nil:
+		s.riskBehaviorRecords.ServeHTTP(w, r)
 	case (r.URL.Path == "/dashboard/workMessage/index" || r.URL.Path == "/dashboard/workMessage/detail") && r.Method == http.MethodGet && s.workMessageIndex != nil:
 		s.workMessageIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessageConfig/corpStore" && r.Method == http.MethodPost && s.workMessageConfigCorpStore != nil:
