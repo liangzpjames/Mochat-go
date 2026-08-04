@@ -84,6 +84,20 @@ describe('Phase 3.4 content-reach pages', () => {
     expect(screen.getByText('发布 Provider 未配置')).toBeTruthy();
   });
 
+  it('reuses a real material provider in the friends-circle composer', async () => {
+    const read = vi.fn().mockImplementation((endpoint: string) => endpoint === '/materialSelector/index'
+      ? Promise.resolve({ list: [{ id: 45, content: { title: '新品文案', content: '新品今天上线' } }] })
+      : Promise.resolve({ list: [] }));
+    view(<FriendsCirclePage api={{ read, write: vi.fn() }} />);
+
+    await screen.findByRole('heading', { name: '还没有朋友圈任务' });
+    fireEvent.click(screen.getByRole('button', { name: '添加朋友圈' }));
+    expect(await screen.findByRole('option', { name: '新品文案' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('引用素材'), { target: { value: '45' } });
+    expect(screen.getByLabelText('草稿内容')).toHaveProperty('value', '新品今天上线');
+    expect(read).toHaveBeenCalledWith('/materialSelector/index', { scene: 'friends_circle' });
+  });
+
   it('isolates friends-circle query cache when the selected corp changes', async () => {
     const read = vi.fn().mockResolvedValueOnce({ list: [{ id: 1, taskName: 'corp-seven-draft' }] }).mockResolvedValueOnce({ list: [{ id: 2, taskName: 'corp-eight-draft' }] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

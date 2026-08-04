@@ -1282,10 +1282,10 @@ body {
 .phase34-compose-form { display: grid; gap: 20px; }
 .phase34-compose-form label { color: #4f5768; display: grid; font-size: .8rem; font-weight: 600; gap: 8px; position: relative; }
 .phase34-compose-form label b { color: #e45b5b; }
-.phase34-compose-form input, .phase34-compose-form textarea { background: #fff; border: 1px solid #dfe4ee; border-radius: 9px; box-sizing: border-box; color: #394153; font: inherit; font-weight: 400; outline: none; padding: 10px 12px; resize: vertical; width: 100%; }
+.phase34-compose-form input, .phase34-compose-form textarea, .phase34-compose-form select { background: #fff; border: 1px solid #dfe4ee; border-radius: 9px; box-sizing: border-box; color: #394153; font: inherit; font-weight: 400; outline: none; padding: 10px 12px; resize: vertical; width: 100%; }
 .phase34-compose-form input { min-height: 42px; }
 .phase34-compose-form textarea { line-height: 1.7; min-height: 190px; }
-.phase34-compose-form input:focus, .phase34-compose-form textarea:focus { border-color: #7c8df2; box-shadow: 0 0 0 3px rgb(83 107 244 / 10%); }
+.phase34-compose-form input:focus, .phase34-compose-form textarea:focus, .phase34-compose-form select:focus { border-color: #7c8df2; box-shadow: 0 0 0 3px rgb(83 107 244 / 10%); }
 .phase34-compose-form label small { color: #a0a7b5; font-size: .7rem; font-weight: 400; justify-self: end; }
 .phase34-friends-form-error { background: #fff1f1; border-radius: 8px; color: #bb4545; font-size: .76rem; margin: 0; padding: 9px 11px; }
 .phase34-friends-drawer-footer { align-items: center; background: #fff; border-top: 1px solid #edf0f5; box-shadow: 0 -8px 18px rgb(32 43 68 / 4%); display: flex; justify-content: space-between; padding: 16px 24px; }

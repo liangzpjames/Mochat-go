@@ -73,10 +73,10 @@ describe('Phase 3.4 material management', () => {
     fireEvent.click(screen.getByRole('button', { name: '添加素材' }));
     fireEvent.change(screen.getByLabelText('素材名称'), { target: { value: '部门话术' } });
     fireEvent.change(screen.getByLabelText('素材正文'), { target: { value: '仅销售部可用' } });
-    expect(screen.getByRole('button', { name: '保存素材' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: '保存素材' }).hasAttribute('disabled')).toBe(true);
     await screen.findByRole('option', { name: '华东销售组' });
     fireEvent.change(screen.getByLabelText('所属部门'), { target: { value: '11' } });
-    await waitFor(() => expect(screen.getByRole('button', { name: '保存素材' }).disabled).toBe(false));
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存素材' }).hasAttribute('disabled')).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: '保存素材' }));
 
     await waitFor(() => expect(write).toHaveBeenCalledWith('/medium/store', expect.objectContaining({ scopeType: 'department', scopeId: 11 }), 'POST'));

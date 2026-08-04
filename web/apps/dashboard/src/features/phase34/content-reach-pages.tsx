@@ -128,6 +128,17 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
 }
 
 type FriendsCircleTab = 'task' | 'material';
+type SelectableMaterial = { id: number; title: string; content: string };
+
+function selectableMaterials(payload: unknown): SelectableMaterial[] {
+  return rowsFrom(payload).flatMap((row) => {
+    const id = Number(row.id);
+    if (!Number.isInteger(id) || id <= 0) return [];
+    const title = isRecord(row.content) ? primitive(row.content.title ?? row.content.name) : primitive(row.name);
+    const content = contentText(row.content);
+    return title === '--' || content === '--' ? [] : [{ id, title, content }];
+  });
+}
 
 function friendsStatus(value: unknown): { label: string; tone: string } {
   const status = primitive(value);
@@ -138,10 +149,11 @@ function friendsStatus(value: unknown): { label: string; tone: string } {
   return { label: status, tone: 'neutral' };
 }
 
-function FriendsCircleComposer({ tab, name, content, saving, error, onNameChange, onContentChange, onClose, onSave }: {
+function FriendsCircleComposer({ tab, name, content, materials, saving, error, onNameChange, onContentChange, onClose, onSave }: {
   tab: FriendsCircleTab;
   name: string;
   content: string;
+  materials: SelectableMaterial[];
   saving: boolean;
   error: string;
   onNameChange: (value: string) => void;
@@ -162,7 +174,7 @@ function FriendsCircleComposer({ tab, name, content, saving, error, onNameChange
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !savingRef.current) closeRef.current();
       if (event.key !== 'Tab' || !panelRef.current) return;
-      const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled])'));
+      const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled])'));
       if (focusable.length === 0) { event.preventDefault(); panelRef.current.focus(); return; }
       const first = focusable[0]!;
       const last = focusable[focusable.length - 1]!;
@@ -184,6 +196,7 @@ function FriendsCircleComposer({ tab, name, content, saving, error, onNameChange
         <div className="phase34-friends-drawer-body">
           <div className="phase34-friends-safety"><strong>仅保存草稿</strong><span>当前不会向企业微信发布任何内容。</span></div>
           <div className="phase34-compose-form">
+            {isTask && <label><span>引用素材</span><select aria-label="引用素材" disabled={saving} defaultValue="" onChange={(event) => { const material = materials.find((item) => item.id === Number(event.target.value)); if (material) onContentChange(material.content); }}><option value="">不引用，手动填写</option>{materials.map((material) => <option key={material.id} value={material.id}>{material.title}</option>)}</select><small>来自统一素材库，选择后仍可继续编辑。</small></label>}
             <label><span>{isTask ? '任务名称' : '素材名称'} <b>*</b></span><input ref={nameRef} aria-label="草稿名称" aria-describedby="friends-name-count" required disabled={saving} maxLength={80} placeholder={isTask ? '例如：秋季新品朋友圈' : '例如：新品上市文案'} value={name} onChange={(event) => onNameChange(event.target.value)} /><small id="friends-name-count">{name.length} / 80</small></label>
             <label><span>朋友圈内容 <b>*</b></span><textarea aria-label="草稿内容" aria-describedby="friends-content-count" required disabled={saving} maxLength={500} rows={9} placeholder="请输入准备发布的朋友圈文字内容…" value={content} onChange={(event) => onContentChange(event.target.value)} /><small id="friends-content-count">{content.length} / 500</small></label>
             {error && <p className="phase34-friends-form-error" role="alert">{error}</p>}
@@ -210,7 +223,13 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
     queryKey: ['phase34-friends-circle', access.corp.id, tab, filter],
     queryFn: () => api.read(endpoint, { ...(filter ? (tab === 'task' ? { taskName: filter } : { keyword: filter }) : {}), page: 1, perPage: 20 }),
   });
+  const selectorQuery = useQuery({
+    queryKey: ['phase34-material-selector', access.corp.id, 'friends_circle'],
+    queryFn: () => api.read('/materialSelector/index', { scene: 'friends_circle' }),
+    enabled: composerOpen && tab === 'task',
+  });
   const rows = useMemo(() => rowsFrom(query.data), [query.data]);
+  const materials = useMemo(() => selectableMaterials(selectorQuery.data), [selectorQuery.data]);
   const refresh = () => { void query.refetch(); };
   const applyFilter = () => {
     const next = draftFilter.trim();
@@ -259,7 +278,7 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
         <label>{tab === 'task' ? '任务名称' : '素材关键字'}<input aria-label={tab === 'task' ? '任务名称' : '素材关键字'} placeholder={tab === 'task' ? '搜索任务名称' : '搜索素材名称或内容'} value={draftFilter} onChange={(event) => setDraftFilter(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyFilter(); }} /></label><div className="dashboard-table-actions"><button type="button" onClick={applyFilter}>查询</button><button type="button" className="phase34-secondary-button" disabled={!draftFilter && !filter} onClick={() => { setDraftFilter(''); setFilter(''); }}>重置</button></div>
       </div>
       <div className="dashboard-data-card phase34-results-card phase34-friends-results"><div className="dashboard-card-heading"><div><h2>{tab === 'task' ? '朋友圈任务' : '朋友圈素材'}</h2><p>{tab === 'task' ? '管理待完善、待发布的朋友圈任务草稿。' : '管理可在朋友圈任务中复用的内容素材。'}</p></div><span>{rows.length} 条记录</span></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <div className="phase34-friends-empty"><div aria-hidden="true">◎</div><h3>{tab === 'task' ? '还没有朋友圈任务' : '还没有朋友圈素材'}</h3><p>{filter ? '没有找到符合当前关键字的记录，请调整后重试。' : '创建第一条草稿，开始沉淀朋友圈内容。'}</p>{!filter && <button type="button" onClick={openComposer}>立即创建</button>}</div> : <div className="dashboard-table-scroll"><table className="phase34-table phase34-friends-table"><thead><tr><th>{tab === 'task' ? '任务名称' : '素材名称'}</th><th>{tab === 'task' ? '发送方式' : '内容摘要'}</th><th>状态</th><th>{tab === 'task' ? '完成情况' : '素材类型'}</th><th>创建人 / 创建时间</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => { const status = friendsStatus(row.status); return <tr key={recordKey(row, index)}><td><strong>{primitive(tab === 'task' ? row.taskName : row.name)}</strong></td><td className="phase34-friends-summary">{tab === 'task' ? (row.sendWay === 'manual' ? '员工手动发送' : primitive(row.sendWay)) : contentText(row.content)}</td><td><span className={`phase34-friends-status phase34-friends-status-${status.tone}`}>{status.label}</span></td><td>{tab === 'task' ? `${primitive(row.completedTotal)} / ${primitive(row.targetTotal)}` : primitive(row.type)}</td><td><span>{primitive(row.creatorName)}</span><small>{primitive(row.createdAt)}</small></td><td><span className="phase34-muted-action">草稿管理</span></td></tr>; })}</tbody></table></div>}</div>
-      {composerOpen && <FriendsCircleComposer tab={tab} name={draftName} content={draftContent} saving={saving} error={saveError} onNameChange={setDraftName} onContentChange={setDraftContent} onClose={closeComposer} onSave={() => void saveDraft()} />}
+      {composerOpen && <FriendsCircleComposer tab={tab} name={draftName} content={draftContent} materials={materials} saving={saving} error={saveError} onNameChange={setDraftName} onContentChange={setDraftContent} onClose={closeComposer} onSave={() => void saveDraft()} />}
     </section>
   );
 }
