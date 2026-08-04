@@ -478,17 +478,17 @@
       "groupId": "marketing-tools",
       "level": "P1",
       "status": "documented",
-      "screenshotVersion": "unobserved",
+      "screenshotVersion": "2026-08-04",
       "implementation": "native",
       "backend": "ready",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch1-acquisition-pages-report.md"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
@@ -497,17 +497,17 @@
       "groupId": "marketing-tools",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
+      "screenshotVersion": "2026-08-04",
       "implementation": "native",
       "backend": "partial",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch1-acquisition-pages-report.md"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
@@ -518,15 +518,15 @@
       "status": "documented",
       "screenshotVersion": "2026-08-04",
       "implementation": "native",
-      "backend": "missing",
-      "acceptance": "unit-passed",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch2-conversion-pages-report.md"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
@@ -537,15 +537,15 @@
       "status": "documented",
       "screenshotVersion": "2026-08-04",
       "implementation": "native",
-      "backend": "missing",
-      "acceptance": "unit-passed",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch2-conversion-pages-report.md"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
@@ -554,17 +554,17 @@
       "groupId": "marketing-tools",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
+      "screenshotVersion": "2026-08-04",
       "implementation": "native",
-      "backend": "missing",
-      "acceptance": "unit-passed",
+      "backend": "ready",
+      "acceptance": "e2e-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch1-acquisition-pages-report.md"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
@@ -576,14 +576,14 @@
       "screenshotVersion": "2026-08-04",
       "implementation": "native",
       "backend": "partial",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch2-conversion-pages-report.md"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
@@ -595,14 +595,14 @@
       "screenshotVersion": "2026-08-04",
       "implementation": "native",
       "backend": "partial",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch3-content-reach-report.md"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
@@ -614,14 +614,14 @@
       "screenshotVersion": "2026-08-04",
       "implementation": "native",
       "backend": "partial",
-      "acceptance": "unit-passed",
+      "acceptance": "integration-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-04-friends-circle-provider-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/friends-circle-provider-report.md"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
@@ -630,17 +630,17 @@
       "groupId": "marketing-tools",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "screenshotVersion": "2026-08-04",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "e2e-passed",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-material-management/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-material-management.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-04-phase3.4-batch4-material-foundation-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/phase3.4-total-acceptance-report.md"
       }
     },
     {
