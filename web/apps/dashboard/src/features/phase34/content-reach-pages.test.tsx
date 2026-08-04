@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -41,6 +41,54 @@ describe('Phase 3.4 content-reach pages', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '群聊群发' }));
     await waitFor(() => expect(read).toHaveBeenLastCalledWith('/roomMessageBatchSend/index', expect.objectContaining({ page: 1, perPage: 20 })));
+  });
+
+  it('requires member IDs for customer sends and keeps external provider status explicit', async () => {
+    const read = vi.fn().mockResolvedValue({ list: [] });
+    const write = vi.fn().mockRejectedValue(new Error('客户群发 Provider 返回 422：员工无效'));
+    view(<PreciseGroupSendPage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无群发任务' });
+    expect(screen.getByText('本地任务 Provider 已连接 · 外部发送待配置')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
+    fireEvent.change(screen.getAllByLabelText('任务名称')[1]!, { target: { value: '客户空成员校验' } });
+    fireEvent.change(screen.getByLabelText('群发内容'), { target: { value: '客户触达内容' } });
+
+    const submit = screen.getByRole('button', { name: '保存并发送' });
+    expect(submit).toHaveProperty('disabled', true);
+    fireEvent.click(submit);
+    expect(write).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('发送成员ID'), { target: { value: '999999' } });
+    expect(submit).toHaveProperty('disabled', false);
+    fireEvent.click(submit);
+    expect((await screen.findByRole('alert')).textContent).toContain('客户群发 Provider 返回 422');
+  });
+
+  it('requires a real group owner ID for room sends and renders the room provider error in the drawer', async () => {
+    const read = vi.fn().mockResolvedValue({ list: [] });
+    const write = vi.fn().mockRejectedValue(new Error('群聊群发 Provider 返回 422：群主无效'));
+    view(<PreciseGroupSendPage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无群发任务' });
+    fireEvent.click(screen.getByRole('tab', { name: '群聊群发' }));
+    await screen.findByRole('heading', { name: '暂无群发任务' });
+    fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
+    fireEvent.change(screen.getAllByLabelText('任务名称')[1]!, { target: { value: '群聊空群主校验' } });
+    fireEvent.change(screen.getByLabelText('群发内容'), { target: { value: '群聊触达内容' } });
+
+    const submit = screen.getByRole('button', { name: '保存并发送' });
+    expect(screen.getByLabelText('群主ID')).toBeTruthy();
+    expect(submit).toHaveProperty('disabled', true);
+    fireEvent.change(screen.getByLabelText('群主ID'), { target: { value: '999999' } });
+    expect(submit).toHaveProperty('disabled', false);
+    fireEvent.click(submit);
+    expect((await screen.findByRole('alert')).textContent).toContain('群聊群发 Provider 返回 422');
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/roomMessageBatchSend/store',
+      { batchTitle: '群聊空群主校验', employeeIds: [999999], sendWay: 1, content: [{ msgType: 'text', content: '群聊触达内容' }] },
+      'POST',
+    ));
   });
 
   it('creates an immediate customer precise-send task through the real provider', async () => {
@@ -177,6 +225,36 @@ describe('Phase 3.4 content-reach pages', () => {
     expect(await screen.findByText('E_TIMEOUT')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '导出失败明细' }));
     await waitFor(() => expect(read).toHaveBeenCalledWith('/friendsCircle/exportData', { taskId: 21, status: 'failed' }));
+  });
+
+  it('keeps friends-circle actions inside their task rows and binds each action to its task ID', async () => {
+    const tasks = [
+      { id: 21, taskName: '草稿任务', sendWay: 'manual', status: 'draft', completedTotal: 0, targetTotal: 1, creatorName: '运营员', createdAt: '2026-08-04 14:00' },
+      { id: 22, taskName: '失败任务', sendWay: 'manual', status: 'failed', completedTotal: 0, targetTotal: 2, creatorName: '运营员', createdAt: '2026-08-04 14:05' },
+    ];
+    const read = vi.fn().mockImplementation((endpoint: string) => {
+      if (endpoint === '/friendsCircle/taskResultIndex') return Promise.resolve({ list: [] });
+      return Promise.resolve({ list: tasks });
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<FriendsCirclePage api={{ read, write }} />);
+
+    expect(await screen.findByText('草稿任务')).toBeTruthy();
+    const draftRow = screen.getByRole('row', { name: /草稿任务/ });
+    const failedRow = screen.getByRole('row', { name: /失败任务/ });
+    expect(within(draftRow).getByRole('button', { name: '查看进度' })).toBeTruthy();
+    expect(within(draftRow).getByRole('button', { name: '发起发布' })).toBeTruthy();
+    expect(within(failedRow).getByRole('button', { name: '查看进度' })).toBeTruthy();
+    expect(within(failedRow).queryByRole('button', { name: '发起发布' })).toBeNull();
+
+    fireEvent.click(within(failedRow).getByRole('button', { name: '查看进度' }));
+    expect(await screen.findByLabelText('朋友圈任务进度')).toBeTruthy();
+    await waitFor(() => expect(read).toHaveBeenCalledWith('/friendsCircle/taskResultIndex', expect.objectContaining({ taskId: 22 })));
+    fireEvent.click(screen.getByRole('button', { name: '关闭朋友圈任务进度' }));
+
+    fireEvent.click(within(draftRow).getByRole('button', { name: '发起发布' }));
+    await waitFor(() => expect(write).toHaveBeenCalledWith('/friendsCircle/publish', { taskId: 21 }, 'POST'));
+    expect(screen.queryAllByRole('button', { name: '查看进度' })).toHaveLength(2);
   });
 
   it('isolates friends-circle query cache when the selected corp changes', async () => {

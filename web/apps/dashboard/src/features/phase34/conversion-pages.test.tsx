@@ -144,6 +144,47 @@ describe('Phase 3.4 conversion pages', () => {
     expect(screen.getByLabelText('一键加群详情').textContent).toContain('4');
   });
 
+  it('requires a real employee ID before group-template submit and shows provider errors in the drawer', async () => {
+    const read = vi.fn().mockResolvedValue({ list: [] });
+    const write = vi.fn().mockRejectedValue(new Error('自动拉群 Provider 返回 422：成员 ID 无效'));
+    view(<GroupTemplatePage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无模板' });
+    fireEvent.click(screen.getByRole('button', { name: '新建加群模板' }));
+    expect(screen.getByText(/当前企业员工 Provider/)).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText('模板名称')[1]!, { target: { value: '空员工校验' } });
+    fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '欢迎加入' } });
+    fireEvent.change(screen.getByLabelText('标签ID'), { target: { value: '900001' } });
+
+    const submit = screen.getByRole('button', { name: '保存加群模板' });
+    expect(submit).toHaveProperty('disabled', true);
+    fireEvent.click(submit);
+    expect(write).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('使用成员ID'), { target: { value: '999999' } });
+    expect(submit).toHaveProperty('disabled', false);
+    fireEvent.click(submit);
+    expect((await screen.findByRole('alert')).textContent).toContain('自动拉群 Provider 返回 422');
+  });
+
+  it('explains malformed group-chat JSON and prevents an invalid template submit', async () => {
+    const read = vi.fn().mockResolvedValue({ list: [] });
+    const write = vi.fn();
+    view(<GroupTemplatePage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无模板' });
+    fireEvent.click(screen.getByRole('button', { name: '新建加群模板' }));
+    fireEvent.change(screen.getAllByLabelText('模板名称')[1]!, { target: { value: 'JSON 校验' } });
+    fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '欢迎加入' } });
+    fireEvent.change(screen.getByLabelText('使用成员ID'), { target: { value: '99' } });
+    fireEvent.change(screen.getByLabelText('标签ID'), { target: { value: '900001' } });
+    fireEvent.change(screen.getByLabelText('群聊配置JSON'), { target: { value: '{"roomId": 900001}' } });
+
+    expect((await screen.findByRole('alert')).textContent).toContain('JSON 数组');
+    expect(screen.getByRole('button', { name: '保存加群模板' })).toHaveProperty('disabled', true);
+    expect(write).not.toHaveBeenCalled();
+  });
+
   it('creates a one-click group template through the existing auto-pull provider', async () => {
     const read = vi.fn().mockResolvedValue({ list: [] });
     const write = vi.fn().mockResolvedValue(undefined);

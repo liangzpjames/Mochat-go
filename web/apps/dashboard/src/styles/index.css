@@ -1263,6 +1263,8 @@ body {
 .phase34-friends-table td:nth-child(5) { display: grid; gap: 3px; }
 .phase34-friends-table td:nth-child(5) small { color: #959cac; font-size: .72rem; }
 .phase34-friends-summary { color: #70798b !important; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phase34-friends-actions-cell { white-space: nowrap; }
+.phase34-friends-actions-cell .phase34-link-button + .phase34-link-button { margin-left: 4px; }
 .phase34-friends-status { border-radius: 999px; display: inline-flex; font-size: .72rem; font-weight: 650; padding: 4px 9px; }
 .phase34-friends-status-draft { background: #f0f1f5; color: #697184; }
 .phase34-friends-status-success { background: #eaf8f1; color: #27855b; }

@@ -266,6 +266,8 @@ function GroupTemplateCreateDrawer({
   onTagsChange,
   onRoomsChange,
   onVerifiedChange,
+  roomsError,
+  canSubmit,
   onClose,
   onSubmit,
 }: {
@@ -286,6 +288,8 @@ function GroupTemplateCreateDrawer({
   onTagsChange: (value: string) => void;
   onRoomsChange: (value: string) => void;
   onVerifiedChange: (value: string) => void;
+  roomsError: string;
+  canSubmit: boolean;
   onClose: () => void;
   onSubmit: () => void;
 }) {
@@ -295,16 +299,19 @@ function GroupTemplateCreateDrawer({
       <div className="phase34-detail-panel">
         <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 转化承接</p><h2>新建加群模板</h2></div><button type="button" aria-label="关闭加群模板" onClick={onClose}>关闭</button></div>
         <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-          <label>模板名称<input aria-label="模板名称" required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：新品加群" /></label>
-          <label>入群引导语<textarea aria-label="入群引导语" required value={leadingWords} onChange={(event) => onLeadingWordsChange(event.target.value)} placeholder="请输入扫码后的入群引导" rows={4} /></label>
+          <label><span>模板名称 <b aria-hidden="true">*</b></span><input aria-label="模板名称" required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：新品加群" /></label>
+          <label><span>入群引导语 <b aria-hidden="true">*</b></span><textarea aria-label="入群引导语" required value={leadingWords} onChange={(event) => onLeadingWordsChange(event.target.value)} placeholder="请输入扫码后的入群引导" rows={4} /></label>
           <MaterialSelector api={api} scene="group_template" value={materialID || null} disabled={saving} onChange={(item) => onMaterialChange(item?.id ?? 0, item?.preview)} />
-          <label>使用成员ID<input aria-label="使用成员ID" required value={employees} onChange={(event) => onEmployeesChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
-          <label>标签ID<input aria-label="标签ID" required value={tags} onChange={(event) => onTagsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+          <label><span>使用成员ID <b aria-hidden="true">*</b></span><input aria-label="使用成员ID" aria-describedby="group-template-employee-hint" required value={employees} onChange={(event) => onEmployeesChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+          <p id="group-template-employee-hint" className="phase34-field-hint">来源：当前企业员工 Provider 返回的企业微信成员 ID；没有真实成员记录时不要填写虚构 ID。</p>
+          <label><span>标签ID <b aria-hidden="true">*</b></span><input aria-label="标签ID" required value={tags} onChange={(event) => onTagsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
           <label>添加验证<select aria-label="添加验证" value={isVerified} onChange={(event) => onVerifiedChange(event.target.value)}><option value="2">无需验证</option><option value="1">需要验证</option></select></label>
-          <label>群聊配置JSON<textarea aria-label="群聊配置JSON" required value={rooms} onChange={(event) => onRoomsChange(event.target.value)} rows={4} /></label>
+          <label><span>群聊配置JSON <b aria-hidden="true">*</b></span><textarea aria-label="群聊配置JSON" aria-describedby="group-template-rooms-hint" required value={rooms} onChange={(event) => onRoomsChange(event.target.value)} rows={4} /></label>
+          <p id="group-template-rooms-hint" className="phase34-field-hint">当前接口要求 JSON 数组；每项是由自动拉群 Provider 识别的群聊配置对象，例如 {'[{"roomId": 123}]'}。</p>
+          {roomsError && <p role="alert" className="phase34-inline-error">{roomsError}</p>}
           <p className="phase34-field-hint">创建会调用现有自动拉群 Provider 生成企业微信二维码；外部失败会保留错误，不会显示假二维码。</p>
           {error && <p role="alert" className="phase34-inline-error">{error}</p>}
-          <div className="dashboard-table-actions"><button type="button" className="phase34-secondary-button" onClick={onClose}>取消</button><button type="submit" disabled={saving}>{saving ? '创建中…' : '保存加群模板'}</button></div>
+          <div className="dashboard-table-actions"><button type="button" className="phase34-secondary-button" onClick={onClose}>取消</button><button type="submit" disabled={saving || !canSubmit}>{saving ? '创建中…' : '保存加群模板'}</button></div>
         </form>
       </div>
     </aside>
@@ -313,6 +320,17 @@ function GroupTemplateCreateDrawer({
 
 function positiveIDs(value: string): number[] {
   return value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0);
+}
+
+function groupRoomsError(value: string): string {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return '群聊配置必须是 JSON 数组。';
+    if (parsed.some((item) => !isRecord(item))) return '群聊配置数组中的每项必须是 JSON 对象。';
+    return '';
+  } catch {
+    return '群聊配置必须是有效的 JSON 数组。';
+  }
 }
 
 export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
@@ -340,6 +358,10 @@ export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
   const can = (action: string) => !hasActionContract || access.allowedActions.has(`${path}@${action}`);
   const refresh = () => { void query.refetch(); };
   const openCreate = () => { setWriteError(''); setCreateOpen(true); };
+  const createRoomsError = groupRoomsError(createRooms);
+  const createEmployeeIDs = positiveIDs(createEmployees);
+  const createTagIDs = positiveIDs(createTags);
+  const canSubmitCreate = Boolean(createName.trim() && createLeadingWords.trim() && createEmployeeIDs.length > 0 && createTagIDs.length > 0 && !createRoomsError);
   const saveCreate = async () => {
     const employeeIDs = positiveIDs(createEmployees);
     const tagIDs = positiveIDs(createTags);
@@ -347,11 +369,9 @@ export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
       setWriteError('请填写名称、引导语、使用成员 ID 和标签 ID。');
       return;
     }
-    try {
-      const rooms = JSON.parse(createRooms) as unknown;
-      if (!Array.isArray(rooms)) throw new Error('rooms must be an array');
-    } catch {
-      setWriteError('群聊配置必须是 JSON 数组。');
+    const roomsError = groupRoomsError(createRooms);
+    if (roomsError) {
+      setWriteError(roomsError);
       return;
     }
     setSaving(true);
@@ -396,7 +416,7 @@ export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
         )}
       </div>
       {selected !== null && <Detail row={selected} onClose={() => setSelected(null)} />}
-      {createOpen && <GroupTemplateCreateDrawer api={api} name={createName} leadingWords={createLeadingWords} materialID={createMaterialID} employees={createEmployees} tags={createTags} rooms={createRooms} isVerified={createVerified} saving={saving} error={writeError} onNameChange={setCreateName} onLeadingWordsChange={setCreateLeadingWords} onMaterialChange={(id, preview) => { setCreateMaterialID(id); if (preview) setCreateLeadingWords(preview); }} onEmployeesChange={setCreateEmployees} onTagsChange={setCreateTags} onRoomsChange={setCreateRooms} onVerifiedChange={setCreateVerified} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
+      {createOpen && <GroupTemplateCreateDrawer api={api} name={createName} leadingWords={createLeadingWords} materialID={createMaterialID} employees={createEmployees} tags={createTags} rooms={createRooms} isVerified={createVerified} saving={saving} error={writeError} roomsError={createRoomsError} canSubmit={canSubmitCreate} onNameChange={setCreateName} onLeadingWordsChange={setCreateLeadingWords} onMaterialChange={(id, preview) => { setCreateMaterialID(id); if (preview) setCreateLeadingWords(preview); }} onEmployeesChange={setCreateEmployees} onTagsChange={setCreateTags} onRoomsChange={setCreateRooms} onVerifiedChange={setCreateVerified} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
     </section>
   );
 }
