@@ -61,6 +61,20 @@ func TestMediumIndexAppliesPersonalScopeFromSession(t *testing.T) {
 	}
 }
 
+func TestMediumIndexAppliesSidebarVisibilityQuery(t *testing.T) {
+	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, page: MediumPage{PerPage: 10}}
+	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/medium/index?scopeType=public&sidebarVisible=1", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Index(rec, req)
+
+	if rec.Code != http.StatusOK || store.lastFilter.SidebarVisible == nil || !*store.lastFilter.SidebarVisible {
+		t.Fatalf("status=%d filter=%#v body=%s", rec.Code, store.lastFilter, rec.Body.String())
+	}
+}
+
 func TestMediumStoreCreatesScopedTextMedium(t *testing.T) {
 	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, createID: 32}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")

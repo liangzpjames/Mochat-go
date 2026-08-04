@@ -63,6 +63,28 @@ describe('Phase 3.4 content-reach pages', () => {
     ));
   });
 
+  it('persists a selected material reference when creating a precise-send task', async () => {
+    const read = vi.fn().mockImplementation((endpoint: string) => endpoint === '/materialSelector/index'
+      ? Promise.resolve({ list: [{ id: 45, name: '群发话术', preview: '欢迎咨询' }] })
+      : Promise.resolve({ list: [] }));
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<PreciseGroupSendPage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无群发任务' });
+    fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
+    fireEvent.change(screen.getAllByLabelText('任务名称')[1]!, { target: { value: '引用素材群发' } });
+    fireEvent.change(screen.getByLabelText('发送成员ID'), { target: { value: '99' } });
+    await screen.findByRole('option', { name: '群发话术' });
+    fireEvent.change(screen.getByRole('combobox', { name: '引用素材' }), { target: { value: '45' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存并发送' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/contactMessageBatchSend/store',
+      expect.objectContaining({ mediumId: 45, content: [{ msgType: 'text', content: '欢迎咨询' }] }),
+      'POST',
+    ));
+  });
+
   it('shows execution data, details, and retries a failed precise-send query', async () => {
     const read = vi.fn().mockRejectedValueOnce(new Error('provider unavailable')).mockResolvedValueOnce({ list: [{ id: 8, content: [{ content: '恢复后的任务' }], sendTotal: 20, receivedTotal: 12 }] });
     view(<PreciseGroupSendPage api={{ read, write: vi.fn() }} />);
@@ -116,6 +138,26 @@ describe('Phase 3.4 content-reach pages', () => {
     fireEvent.change(screen.getByLabelText('引用素材'), { target: { value: '45' } });
     expect(screen.getByLabelText('草稿内容')).toHaveProperty('value', '新品今天上线');
     expect(read).toHaveBeenCalledWith('/materialSelector/index', { scene: 'friends_circle' });
+  });
+
+  it('persists the selected material ID in a friends-circle task draft', async () => {
+    const read = vi.fn().mockImplementation((endpoint: string) => endpoint === '/materialSelector/index'
+      ? Promise.resolve({ list: [{ id: 45, name: '朋友圈话术', preview: '本周新品已上线' }] })
+      : Promise.resolve({ list: [] }));
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<FriendsCirclePage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '还没有朋友圈任务' });
+    fireEvent.click(screen.getByRole('button', { name: '添加朋友圈' }));
+    await screen.findByRole('option', { name: '朋友圈话术' });
+    fireEvent.change(screen.getByRole('combobox', { name: '引用素材' }), { target: { value: '45' } });
+    fireEvent.change(screen.getByLabelText('草稿名称'), { target: { value: '引用素材朋友圈' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/friendsCircle/taskStore',
+      expect.objectContaining({ mediumId: 45, taskName: '引用素材朋友圈', content: '本周新品已上线', sendWay: 'manual' }),
+    ));
   });
 
   it('shows persistent publish failure, loads target failures, and exports scoped results', async () => {

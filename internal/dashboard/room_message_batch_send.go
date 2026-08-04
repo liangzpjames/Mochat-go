@@ -25,6 +25,7 @@ type RoomMessageBatchSendItem struct {
 	ID                int
 	CorpID            int
 	UserID            int
+	MediumID          int
 	UserName          string
 	EmployeeIDs       []int
 	BatchTitle        string
@@ -45,6 +46,7 @@ type RoomMessageBatchSendItem struct {
 type RoomMessageBatchSendWrite struct {
 	CorpID             int
 	UserID             int
+	MediumID           int
 	UserName           string
 	EmployeeIDs        []int
 	BatchTitle         string
@@ -596,6 +598,27 @@ func (h *RoomMessageBatchSendHandler) batchWriteFromParams(w http.ResponseWriter
 	if !ok {
 		return RoomMessageBatchSendWrite{}, false
 	}
+	mediumID, mediumPresent, mediumErr := intParam(params, "mediumId")
+	if mediumErr != nil || (mediumPresent && mediumID < 0) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "mediumId 必须为非负整数", nil)
+		return RoomMessageBatchSendWrite{}, false
+	}
+	if mediumID > 0 {
+		validator, configured := h.store.(mediumAvailabilityValidator)
+		if !configured {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "素材 Provider 未配置", nil)
+			return RoomMessageBatchSendWrite{}, false
+		}
+		available, err := validator.MediumAvailableToUser(ctx, corpID, userID, mediumID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return RoomMessageBatchSendWrite{}, false
+		}
+		if !available {
+			writeEnvelope(w, http.StatusConflict, http.StatusConflict, "素材不可用于当前企业或权限范围", nil)
+			return RoomMessageBatchSendWrite{}, false
+		}
+	}
 	definiteTime := strings.TrimSpace(stringParam(params, "definiteTime"))
 	if sendWay == 2 && definiteTime == "" {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "definiteTime 必填", nil)
@@ -614,6 +637,7 @@ func (h *RoomMessageBatchSendHandler) batchWriteFromParams(w http.ResponseWriter
 	return RoomMessageBatchSendWrite{
 		CorpID:             corpID,
 		UserID:             userID,
+		MediumID:           mediumID,
 		UserName:           userName,
 		EmployeeIDs:        employeeIDs,
 		BatchTitle:         batchTitle,
@@ -682,6 +706,7 @@ func (h *RoomMessageBatchSendHandler) prepareSendContent(w http.ResponseWriter, 
 func (h *RoomMessageBatchSendHandler) batchListPayload(item RoomMessageBatchSendItem) map[string]any {
 	return map[string]any{
 		"id":               item.ID,
+		"mediumId":         item.MediumID,
 		"batchTitle":       item.BatchTitle,
 		"sendWay":          item.SendWay,
 		"content":          h.contentPayload(item.Content),
@@ -699,6 +724,7 @@ func (h *RoomMessageBatchSendHandler) batchListPayload(item RoomMessageBatchSend
 func (h *RoomMessageBatchSendHandler) batchShowPayload(item RoomMessageBatchSendItem) map[string]any {
 	return map[string]any{
 		"id":                item.ID,
+		"mediumId":          item.MediumID,
 		"batchTitle":        item.BatchTitle,
 		"creator":           item.UserName,
 		"createdAt":         item.CreatedAt,

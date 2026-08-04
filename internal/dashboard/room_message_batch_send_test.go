@@ -80,7 +80,7 @@ func TestRoomMessageBatchSendStoreCreatesTasksAndSubmitsWeCom(t *testing.T) {
 	client := &fakeRoomMessageBatchSendClient{mediaID: "media-image", msgID: "msg-810002"}
 	handler := NewRoomMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "/tmp/mochat-go-test", client)
 
-	body := `{"batchTitle":"Go 客户群群发","employeeIds":[21],"content":[{"msgType":"text","content":"hello"},{"msgType":"image","pic_url":"image/a.jpg"}],"sendWay":1}`
+	body := `{"batchTitle":"Go 客户群群发","employeeIds":[21],"content":[{"msgType":"text","content":"hello"},{"msgType":"image","pic_url":"image/a.jpg"}],"mediumId":45,"sendWay":1}`
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomMessageBatchSend/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
@@ -90,7 +90,7 @@ func TestRoomMessageBatchSendStoreCreatesTasksAndSubmitsWeCom(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if store.created.CorpID != 7 || store.created.UserID != 1 || store.created.BatchTitle != "Go 客户群群发" || len(store.created.EmployeeIDs) != 1 {
+	if store.created.CorpID != 7 || store.created.UserID != 1 || store.created.MediumID != 45 || store.created.BatchTitle != "Go 客户群群发" || len(store.created.EmployeeIDs) != 1 {
 		t.Fatalf("created=%#v", store.created)
 	}
 	if client.uploadPath != filepath.Join("/tmp/mochat-go-test", "image/a.jpg") || len(client.submits) != 1 {
@@ -233,6 +233,10 @@ func (s *fakeRoomMessageBatchSendStore) UserByID(_ context.Context, userID int) 
 
 func (s *fakeRoomMessageBatchSendStore) EmployeeIDByUserCorp(_ context.Context, _ int, _ int) (int, error) {
 	return 99, nil
+}
+
+func (s *fakeRoomMessageBatchSendStore) MediumAvailableToUser(context.Context, int, int, int) (bool, error) {
+	return true, nil
 }
 
 func (s *fakeRoomMessageBatchSendStore) FirstEmployeeByUser(_ context.Context, _ int) (int, int, bool, error) {

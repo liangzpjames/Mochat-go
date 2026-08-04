@@ -189,7 +189,7 @@ func TestWorkRoomAutoPullStoreCreatesRecordAndQRCode(t *testing.T) {
 	authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 99}}
 	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "", client)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"qrcodeName":"新自动拉群","isVerified":2,"leadingWords":"欢迎","employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"qrcodeName":"新自动拉群","isVerified":2,"leadingWords":"欢迎","mediumId":45,"employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -201,7 +201,7 @@ func TestWorkRoomAutoPullStoreCreatesRecordAndQRCode(t *testing.T) {
 	if authorizer.permissionKey != "/dashboard/workRoomAutoPull/store#post" {
 		t.Fatalf("permission key = %q", authorizer.permissionKey)
 	}
-	if store.created.CorpID != 7 || store.created.QRCodeName != "新自动拉群" || store.created.Employees != `["1"]` || store.created.Tags != `["900001"]` {
+	if store.created.CorpID != 7 || store.created.QRCodeName != "新自动拉群" || store.created.MediumID != 45 || store.created.Employees != `["1"]` || store.created.Tags != `["900001"]` {
 		t.Fatalf("created = %#v", store.created)
 	}
 	if store.createOperationID != 99 {
@@ -373,6 +373,10 @@ func (s *fakeWorkRoomAutoPullStore) UserByID(_ context.Context, userID int) (Use
 
 func (s *fakeWorkRoomAutoPullStore) EmployeeIDByUserCorp(_ context.Context, _ int, _ int) (int, error) {
 	return 99, nil
+}
+
+func (s *fakeWorkRoomAutoPullStore) MediumAvailableToUser(context.Context, int, int, int) (bool, error) {
+	return true, nil
 }
 
 func (s *fakeWorkRoomAutoPullStore) FirstEmployeeByUser(_ context.Context, _ int) (int, int, bool, error) {

@@ -103,7 +103,7 @@ func TestContactMessageBatchSendStoreCreatesTasksAndSubmitsWeCom(t *testing.T) {
 	client := &fakeContactMessageBatchSendClient{mediaID: "media-image", msgID: "msg-800002"}
 	handler := NewContactMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "/tmp/mochat-go-test", client)
 
-	body := `{"employeeIds":[21],"filterParams":{"gender":1,"rooms":[11],"tags":[31],"excludeContacts":[41],"addTimeStart":"2026-07-01","addTimeEnd":"2026-07-02"},"content":[{"msgType":"text","content":"hello"},{"msgType":"image","pic_url":"image/a.jpg"}],"sendWay":1}`
+	body := `{"employeeIds":[21],"filterParams":{"gender":1,"rooms":[11],"tags":[31],"excludeContacts":[41],"addTimeStart":"2026-07-01","addTimeEnd":"2026-07-02"},"content":[{"msgType":"text","content":"hello"},{"msgType":"image","pic_url":"image/a.jpg"}],"mediumId":45,"sendWay":1}`
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactMessageBatchSend/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
@@ -113,7 +113,7 @@ func TestContactMessageBatchSendStoreCreatesTasksAndSubmitsWeCom(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if store.created.CorpID != 7 || store.created.UserID != 1 || len(store.created.EmployeeIDs) != 1 || store.created.FilterParams.Gender == nil || *store.created.FilterParams.Gender != 1 {
+	if store.created.CorpID != 7 || store.created.UserID != 1 || store.created.MediumID != 45 || len(store.created.EmployeeIDs) != 1 || store.created.FilterParams.Gender == nil || *store.created.FilterParams.Gender != 1 {
 		t.Fatalf("created=%#v", store.created)
 	}
 	if client.uploadPath != filepath.Join("/tmp/mochat-go-test", "image/a.jpg") || len(client.uploadPaths) != 1 || len(client.submits) != 1 {
@@ -295,6 +295,10 @@ func (s *fakeContactMessageBatchSendStore) UserByID(_ context.Context, userID in
 
 func (s *fakeContactMessageBatchSendStore) EmployeeIDByUserCorp(_ context.Context, _ int, _ int) (int, error) {
 	return 99, nil
+}
+
+func (s *fakeContactMessageBatchSendStore) MediumAvailableToUser(context.Context, int, int, int) (bool, error) {
+	return true, nil
 }
 
 func (s *fakeContactMessageBatchSendStore) FirstEmployeeByUser(_ context.Context, _ int) (int, int, bool, error) {

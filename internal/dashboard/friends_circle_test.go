@@ -39,11 +39,11 @@ func TestFriendsCircleStoresRealDraftsWithServerOwnedCorp(t *testing.T) {
 	store := &fakeFriendsCircleStore{users: map[int]User{1: {ID: 1}}, taskID: 11, materialID: 12}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/taskStore", strings.NewReader(`{"taskName":"夏日活动","sendWay":"manual","content":"欢迎参加","corpId":999}`))
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/taskStore", strings.NewReader(`{"taskName":"夏日活动","sendWay":"manual","content":"欢迎参加","mediumId":21,"corpId":999}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.TaskStore(rec, req)
-	if rec.Code != http.StatusOK || store.createdTask.CorpID != 7 || store.createdTask.UserID != 1 || store.createdTask.Status != "draft" {
+	if rec.Code != http.StatusOK || store.createdTask.CorpID != 7 || store.createdTask.UserID != 1 || store.createdTask.Status != "draft" || store.createdTask.MediumID != 21 {
 		t.Fatalf("status=%d task=%#v body=%s", rec.Code, store.createdTask, rec.Body.String())
 	}
 
@@ -53,6 +53,22 @@ func TestFriendsCircleStoresRealDraftsWithServerOwnedCorp(t *testing.T) {
 	handler.MaterialStore(rec, req)
 	if rec.Code != http.StatusOK || store.createdMaterial.CorpID != 7 || store.createdMaterial.Status != "available" {
 		t.Fatalf("status=%d material=%#v body=%s", rec.Code, store.createdMaterial, rec.Body.String())
+	}
+}
+
+func TestFriendsCircleRejectsUnavailableMaterial(t *testing.T) {
+	store := &fakeFriendsCircleStore{
+		users:              map[int]User{1: {ID: 1}},
+		mediumAvailableSet: true,
+		mediumAvailable:    false,
+	}
+	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/taskStore", strings.NewReader(`{"taskName":"夏日活动","sendWay":"manual","content":"欢迎参加","mediumId":21}`))
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.TaskStore(rec, req)
+	if rec.Code != http.StatusConflict || store.createdTask.TaskName != "" || !strings.Contains(rec.Body.String(), "素材不可用于当前企业或权限范围") {
+		t.Fatalf("status=%d task=%#v body=%s", rec.Code, store.createdTask, rec.Body.String())
 	}
 }
 
@@ -119,21 +135,23 @@ func TestFriendsCircleTaskResultIndexAndExportUseSelectedCorp(t *testing.T) {
 }
 
 type fakeFriendsCircleStore struct {
-	users           map[int]User
-	tasks           FriendsCircleTaskPage
-	materials       FriendsCircleMaterialPage
-	results         FriendsCircleTaskResultPage
-	taskFilter      FriendsCircleTaskFilter
-	materialFilter  FriendsCircleMaterialFilter
-	resultFilter    FriendsCircleTaskResultFilter
-	callback        FriendsCircleCallback
-	createdTask     FriendsCircleTaskWrite
-	createdMaterial FriendsCircleMaterialWrite
-	taskID          int
-	materialID      int
-	publishedTaskID int
-	failedTaskID    int
-	failedReason    string
+	users              map[int]User
+	tasks              FriendsCircleTaskPage
+	materials          FriendsCircleMaterialPage
+	results            FriendsCircleTaskResultPage
+	taskFilter         FriendsCircleTaskFilter
+	materialFilter     FriendsCircleMaterialFilter
+	resultFilter       FriendsCircleTaskResultFilter
+	callback           FriendsCircleCallback
+	createdTask        FriendsCircleTaskWrite
+	createdMaterial    FriendsCircleMaterialWrite
+	taskID             int
+	materialID         int
+	publishedTaskID    int
+	failedTaskID       int
+	failedReason       string
+	mediumAvailableSet bool
+	mediumAvailable    bool
 }
 
 func (s *fakeFriendsCircleStore) UserByID(_ context.Context, id int) (User, bool, error) {
@@ -145,6 +163,12 @@ func (s *fakeFriendsCircleStore) EmployeeIDByUserCorp(context.Context, int, int)
 }
 func (s *fakeFriendsCircleStore) FirstEmployeeByUser(context.Context, int) (int, int, bool, error) {
 	return 0, 0, false, nil
+}
+func (s *fakeFriendsCircleStore) MediumAvailableToUser(context.Context, int, int, int) (bool, error) {
+	if s.mediumAvailableSet {
+		return s.mediumAvailable, nil
+	}
+	return true, nil
 }
 func (s *fakeFriendsCircleStore) FriendsCircleTaskPage(_ context.Context, filter FriendsCircleTaskFilter) (FriendsCircleTaskPage, error) {
 	s.taskFilter = filter

@@ -135,4 +135,29 @@ describe('Phase 3.4 conversion pages', () => {
       'POST',
     ));
   });
+
+  it('persists a selected material reference for the one-click group template', async () => {
+    const read = vi.fn().mockImplementation((endpoint: string) => endpoint === '/materialSelector/index'
+      ? Promise.resolve({ list: [{ id: 45, name: '入群话术', preview: '欢迎加入' }] })
+      : Promise.resolve({ list: [] }));
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<GroupTemplatePage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无模板' });
+    fireEvent.click(screen.getByRole('button', { name: '新建加群模板' }));
+    fireEvent.change(screen.getAllByLabelText('模板名称')[1]!, { target: { value: '引用素材加群' } });
+    fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '手动内容' } });
+    await screen.findByRole('option', { name: '入群话术' });
+    fireEvent.change(screen.getByRole('combobox', { name: '引用素材' }), { target: { value: '45' } });
+    fireEvent.change(screen.getByLabelText('使用成员ID'), { target: { value: '99' } });
+    fireEvent.change(screen.getByLabelText('标签ID'), { target: { value: '900001' } });
+    fireEvent.change(screen.getByLabelText('群聊配置JSON'), { target: { value: '[{"roomId":900001,"maxNum":50}]' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存加群模板' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/workRoomAutoPull/store',
+      expect.objectContaining({ mediumId: 45, leadingWords: '欢迎加入' }),
+      'POST',
+    ));
+  });
 });

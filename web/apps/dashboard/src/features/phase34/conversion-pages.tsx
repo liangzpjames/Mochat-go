@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useDashboardAccess } from '../../app/access-context';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
+import { MaterialSelector } from './material-management/material-selector';
 
 type ConversionRecord = Record<string, unknown>;
 type Column = { key: string; title: string; aliases: string[] };
@@ -251,8 +252,10 @@ function Detail({ row, onClose }: { row: ConversionRecord; onClose: () => void }
 }
 
 function GroupTemplateCreateDrawer({
+  api,
   name,
   leadingWords,
+  materialID,
   employees,
   tags,
   rooms,
@@ -261,6 +264,7 @@ function GroupTemplateCreateDrawer({
   error,
   onNameChange,
   onLeadingWordsChange,
+  onMaterialChange,
   onEmployeesChange,
   onTagsChange,
   onRoomsChange,
@@ -268,8 +272,10 @@ function GroupTemplateCreateDrawer({
   onClose,
   onSubmit,
 }: {
+  api: BusinessWorkbenchApi;
   name: string;
   leadingWords: string;
+  materialID: number;
   employees: string;
   tags: string;
   rooms: string;
@@ -278,6 +284,7 @@ function GroupTemplateCreateDrawer({
   error: string;
   onNameChange: (value: string) => void;
   onLeadingWordsChange: (value: string) => void;
+  onMaterialChange: (value: number, preview?: string) => void;
   onEmployeesChange: (value: string) => void;
   onTagsChange: (value: string) => void;
   onRoomsChange: (value: string) => void;
@@ -293,6 +300,7 @@ function GroupTemplateCreateDrawer({
         <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
           <label>模板名称<input aria-label="模板名称" required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：新品加群" /></label>
           <label>入群引导语<textarea aria-label="入群引导语" required value={leadingWords} onChange={(event) => onLeadingWordsChange(event.target.value)} placeholder="请输入扫码后的入群引导" rows={4} /></label>
+          <MaterialSelector api={api} scene="group_template" value={materialID || null} disabled={saving} onChange={(item) => onMaterialChange(item?.id ?? 0, item?.preview)} />
           <label>使用成员ID<input aria-label="使用成员ID" required value={employees} onChange={(event) => onEmployeesChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
           <label>标签ID<input aria-label="标签ID" required value={tags} onChange={(event) => onTagsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
           <label>添加验证<select aria-label="添加验证" value={isVerified} onChange={(event) => onVerifiedChange(event.target.value)}><option value="2">无需验证</option><option value="1">需要验证</option></select></label>
@@ -319,6 +327,7 @@ export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createLeadingWords, setCreateLeadingWords] = useState('');
+  const [createMaterialID, setCreateMaterialID] = useState(0);
   const [createEmployees, setCreateEmployees] = useState('');
   const [createTags, setCreateTags] = useState('');
   const [createRooms, setCreateRooms] = useState('[]');
@@ -351,10 +360,11 @@ export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
     setSaving(true);
     setWriteError('');
     try {
-      await api.write('/workRoomAutoPull/store', { corpId: Number(access.corp.id), qrcodeName: createName.trim(), isVerified: Number(createVerified), leadingWords: createLeadingWords.trim(), employees: employeeIDs, tags: tagIDs, rooms: createRooms.trim() }, 'POST');
+      await api.write('/workRoomAutoPull/store', { corpId: Number(access.corp.id), qrcodeName: createName.trim(), isVerified: Number(createVerified), leadingWords: createLeadingWords.trim(), ...(createMaterialID > 0 ? { mediumId: createMaterialID } : {}), employees: employeeIDs, tags: tagIDs, rooms: createRooms.trim() }, 'POST');
       setCreateOpen(false);
       setCreateName('');
       setCreateLeadingWords('');
+      setCreateMaterialID(0);
       setCreateEmployees('');
       setCreateTags('');
       setCreateRooms('[]');
@@ -389,7 +399,7 @@ export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
         )}
       </div>
       {selected !== null && <Detail row={selected} onClose={() => setSelected(null)} />}
-      {createOpen && <GroupTemplateCreateDrawer name={createName} leadingWords={createLeadingWords} employees={createEmployees} tags={createTags} rooms={createRooms} isVerified={createVerified} saving={saving} error={writeError} onNameChange={setCreateName} onLeadingWordsChange={setCreateLeadingWords} onEmployeesChange={setCreateEmployees} onTagsChange={setCreateTags} onRoomsChange={setCreateRooms} onVerifiedChange={setCreateVerified} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
+      {createOpen && <GroupTemplateCreateDrawer api={api} name={createName} leadingWords={createLeadingWords} materialID={createMaterialID} employees={createEmployees} tags={createTags} rooms={createRooms} isVerified={createVerified} saving={saving} error={writeError} onNameChange={setCreateName} onLeadingWordsChange={setCreateLeadingWords} onMaterialChange={(id, preview) => { setCreateMaterialID(id); if (preview) setCreateLeadingWords(preview); }} onEmployeesChange={setCreateEmployees} onTagsChange={setCreateTags} onRoomsChange={setCreateRooms} onVerifiedChange={setCreateVerified} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
     </section>
   );
 }

@@ -33,6 +33,7 @@ type ContactMessageBatchSendItem struct {
 	ID                 int
 	CorpID             int
 	UserID             int
+	MediumID           int
 	UserName           string
 	EmployeeIDs        []int
 	FilterParams       ContactMessageBatchSendFilterParams
@@ -98,6 +99,7 @@ type ContactMessageBatchSendContactBase struct {
 type ContactMessageBatchSendWrite struct {
 	CorpID             int
 	UserID             int
+	MediumID           int
 	UserName           string
 	EmployeeIDs        []int
 	FilterParams       ContactMessageBatchSendFilterParams
@@ -713,6 +715,27 @@ func (h *ContactMessageBatchSendHandler) batchWriteFromParams(w http.ResponseWri
 	if !ok {
 		return ContactMessageBatchSendWrite{}, false
 	}
+	mediumID, mediumPresent, mediumErr := intParam(params, "mediumId")
+	if mediumErr != nil || (mediumPresent && mediumID < 0) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "mediumId 必须为非负整数", nil)
+		return ContactMessageBatchSendWrite{}, false
+	}
+	if mediumID > 0 {
+		validator, configured := h.store.(mediumAvailabilityValidator)
+		if !configured {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "素材 Provider 未配置", nil)
+			return ContactMessageBatchSendWrite{}, false
+		}
+		available, err := validator.MediumAvailableToUser(ctx, corpID, userID, mediumID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return ContactMessageBatchSendWrite{}, false
+		}
+		if !available {
+			writeEnvelope(w, http.StatusConflict, http.StatusConflict, "素材不可用于当前企业或权限范围", nil)
+			return ContactMessageBatchSendWrite{}, false
+		}
+	}
 	definiteTime := strings.TrimSpace(stringParam(params, "definiteTime"))
 	if sendWay == 2 && definiteTime == "" {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "definiteTime 必填", nil)
@@ -739,6 +762,7 @@ func (h *ContactMessageBatchSendHandler) batchWriteFromParams(w http.ResponseWri
 	return ContactMessageBatchSendWrite{
 		CorpID:             corpID,
 		UserID:             userID,
+		MediumID:           mediumID,
 		UserName:           userName,
 		EmployeeIDs:        uniquePositiveIntsLocal(employeeIDs),
 		FilterParams:       filterParams,
@@ -809,6 +833,7 @@ func (h *ContactMessageBatchSendHandler) prepareSendContent(w http.ResponseWrite
 func (h *ContactMessageBatchSendHandler) batchListPayload(item ContactMessageBatchSendItem) map[string]any {
 	return map[string]any{
 		"id":               item.ID,
+		"mediumId":         item.MediumID,
 		"sendWay":          item.SendWay,
 		"content":          h.contentPayload(item.Content),
 		"sendTime":         item.SendTime,
@@ -825,6 +850,7 @@ func (h *ContactMessageBatchSendHandler) batchListPayload(item ContactMessageBat
 func (h *ContactMessageBatchSendHandler) batchShowPayload(item ContactMessageBatchSendItem) map[string]any {
 	return map[string]any{
 		"id":                 item.ID,
+		"mediumId":           item.MediumID,
 		"creator":            item.UserName,
 		"createdAt":          item.CreatedAt,
 		"content":            h.contentPayload(item.Content),

@@ -42,6 +42,26 @@ func TestMaterialSelectorReturnsOnlyVisibleAvailableItems(t *testing.T) {
 	}
 }
 
+func TestMaterialSelectorUsesCurrentUserVisibleScopes(t *testing.T) {
+	store := &fakeMaterialFoundationStore{fakeMediumStore: fakeMediumStore{
+		users: map[int]User{1: {ID: 1, Name: "管理员"}},
+		page:  MediumPage{PerPage: 20},
+	}}
+	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/materialSelector/index?scene=friends_circle&scopeType=personal&scopeId=999", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.Selector(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastFilter.ScopeType != "" || store.lastFilter.ScopeID != 0 || !store.lastFilter.SelectorVisible || store.lastFilter.UserID != 1 {
+		t.Fatalf("selector visibility filter=%#v", store.lastFilter)
+	}
+}
+
 func TestMaterialBatchMoveIsAtomicWithinCorp(t *testing.T) {
 	store := &fakeMaterialFoundationStore{fakeMediumStore: fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}}}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")

@@ -20,6 +20,7 @@ type FriendsCircleTask struct {
 	TaskName        string `json:"taskName"`
 	SendWay         string `json:"sendWay"`
 	Content         string `json:"content"`
+	MediumID        int    `json:"mediumId"`
 	TargetEmployees string `json:"targetEmployees"`
 	Status          string `json:"status"`
 	CompletedTotal  int    `json:"completedTotal"`
@@ -122,6 +123,7 @@ type FriendsCircleTaskWrite struct {
 	TaskName        string
 	SendWay         string
 	Content         string
+	MediumID        int
 	TargetEmployees string
 	Status          string
 }
@@ -248,8 +250,29 @@ func (h *FriendsCircleHandler) TaskStore(w http.ResponseWriter, r *http.Request)
 		writeEnvelope(w, 400, 400, "taskName, content and valid sendWay are required", nil)
 		return
 	}
+	mediumID, mediumPresent, mediumErr := intParam(params, "mediumId")
+	if mediumErr != nil || (mediumPresent && mediumID < 0) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "mediumId 无效", nil)
+		return
+	}
+	if mediumID > 0 {
+		validator, configured := h.store.(mediumAvailabilityValidator)
+		if !configured {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "素材引用校验 Provider 未配置", nil)
+			return
+		}
+		available, err := validator.MediumAvailableToUser(r.Context(), corpID, userID, mediumID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return
+		}
+		if !available {
+			writeEnvelope(w, http.StatusConflict, http.StatusConflict, "素材不可用于当前企业或权限范围", nil)
+			return
+		}
+	}
 	target := mustJSON(params["targetEmployees"])
-	id, err := h.store.CreateFriendsCircleTask(r.Context(), FriendsCircleTaskWrite{CorpID: corpID, UserID: userID, CreatorName: user.Name, TaskName: name, SendWay: sendWay, Content: content, TargetEmployees: target, Status: "draft"})
+	id, err := h.store.CreateFriendsCircleTask(r.Context(), FriendsCircleTaskWrite{CorpID: corpID, UserID: userID, CreatorName: user.Name, TaskName: name, SendWay: sendWay, Content: content, MediumID: mediumID, TargetEmployees: target, Status: "draft"})
 	if err != nil || id <= 0 {
 		writeEnvelope(w, 500, 500, "create task failed", nil)
 		return

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDashboardAccess } from '../../app/access-context';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
+import { MaterialSelector } from './material-management/material-selector';
 
 type ReachRecord = Record<string, unknown>;
 type SendMode = 'contact' | 'room';
@@ -94,10 +95,12 @@ function positiveReachIDs(value: string): number[] {
 }
 
 function SendCreateDrawer({
+  api,
   mode,
   title,
   employeeIDs,
   content,
+  materialID,
   sendWay,
   definiteTime,
   saving,
@@ -105,15 +108,18 @@ function SendCreateDrawer({
   onTitleChange,
   onEmployeeIDsChange,
   onContentChange,
+  onMaterialChange,
   onSendWayChange,
   onDefiniteTimeChange,
   onClose,
   onSubmit,
 }: {
+  api: BusinessWorkbenchApi;
   mode: SendMode;
   title: string;
   employeeIDs: string;
   content: string;
+  materialID: number;
   sendWay: string;
   definiteTime: string;
   saving: boolean;
@@ -121,6 +127,7 @@ function SendCreateDrawer({
   onTitleChange: (value: string) => void;
   onEmployeeIDsChange: (value: string) => void;
   onContentChange: (value: string) => void;
+  onMaterialChange: (value: number) => void;
   onSendWayChange: (value: string) => void;
   onDefiniteTimeChange: (value: string) => void;
   onClose: () => void;
@@ -134,6 +141,7 @@ function SendCreateDrawer({
         <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
           <label>任务名称<input aria-label="任务名称" required value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="请输入任务名称" /></label>
           <label>{mode === 'contact' ? '发送成员ID' : '群主ID'}<input aria-label={mode === 'contact' ? '发送成员ID' : '群主ID'} required value={employeeIDs} onChange={(event) => onEmployeeIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+          <MaterialSelector api={api} scene="group_send" value={materialID || null} disabled={saving} onChange={(item) => { onMaterialChange(item?.id ?? 0); if (item) onContentChange(item.preview); }} />
           <label>群发内容<textarea aria-label="群发内容" required value={content} onChange={(event) => onContentChange(event.target.value)} placeholder="请输入文本内容" rows={6} /></label>
           <label>发送方式<select aria-label="发送方式" value={sendWay} onChange={(event) => onSendWayChange(event.target.value)}><option value="1">立即发送</option><option value="2">定时发送</option></select></label>
           {sendWay === '2' && <label>定时发送时间<input aria-label="定时发送时间" type="datetime-local" required value={definiteTime} onChange={(event) => onDefiniteTimeChange(event.target.value)} /></label>}
@@ -156,6 +164,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   const [createTitle, setCreateTitle] = useState('');
   const [createEmployeeIDs, setCreateEmployeeIDs] = useState('');
   const [createContent, setCreateContent] = useState('');
+  const [createMaterialID, setCreateMaterialID] = useState(0);
   const [createSendWay, setCreateSendWay] = useState('1');
   const [createDefiniteTime, setCreateDefiniteTime] = useState('');
   const [saving, setSaving] = useState(false);
@@ -175,6 +184,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
       return;
     }
     const body: Record<string, unknown> = { batchTitle: createTitle.trim(), employeeIds: ids, sendWay: Number(createSendWay), content: [{ msgType: 'text', content: createContent.trim() }] };
+    if (createMaterialID > 0) body.mediumId = createMaterialID;
     if (mode === 'contact') body.filterParams = {};
     if (createSendWay === '2') body.definiteTime = createDefiniteTime.replace('T', ' ') + ':00';
     setSaving(true);
@@ -185,6 +195,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
       setCreateTitle('');
       setCreateEmployeeIDs('');
       setCreateContent('');
+      setCreateMaterialID(0);
       setCreateSendWay('1');
       setCreateDefiniteTime('');
       await query.refetch();
@@ -216,23 +227,12 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
         )}
       </div>
       {selected !== null && <SendDetail row={selected} onClose={() => setSelected(null)} />}
-      {createOpen && <SendCreateDrawer mode={mode} title={createTitle} employeeIDs={createEmployeeIDs} content={createContent} sendWay={createSendWay} definiteTime={createDefiniteTime} saving={saving} error={writeError} onTitleChange={setCreateTitle} onEmployeeIDsChange={setCreateEmployeeIDs} onContentChange={setCreateContent} onSendWayChange={setCreateSendWay} onDefiniteTimeChange={setCreateDefiniteTime} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
+      {createOpen && <SendCreateDrawer api={api} mode={mode} title={createTitle} employeeIDs={createEmployeeIDs} content={createContent} materialID={createMaterialID} sendWay={createSendWay} definiteTime={createDefiniteTime} saving={saving} error={writeError} onTitleChange={setCreateTitle} onEmployeeIDsChange={setCreateEmployeeIDs} onContentChange={setCreateContent} onMaterialChange={setCreateMaterialID} onSendWayChange={setCreateSendWay} onDefiniteTimeChange={setCreateDefiniteTime} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
     </section>
   );
 }
 
 type FriendsCircleTab = 'task' | 'material';
-type SelectableMaterial = { id: number; title: string; content: string };
-
-function selectableMaterials(payload: unknown): SelectableMaterial[] {
-  return rowsFrom(payload).flatMap((row) => {
-    const id = Number(row.id);
-    if (!Number.isInteger(id) || id <= 0) return [];
-    const title = primitive(row.name ?? (isRecord(row.content) ? row.content.title ?? row.content.name : undefined));
-    const content = primitive(row.preview) !== '--' ? primitive(row.preview) : contentText(row.content);
-    return title === '--' || content === '--' ? [] : [{ id, title, content }];
-  });
-}
 
 function friendsStatus(value: unknown): { label: string; tone: string } {
   const status = primitive(value);
@@ -284,15 +284,17 @@ function FriendsCircleTaskProgress({ task, rows, loading, error, exporting, expo
   );
 }
 
-function FriendsCircleComposer({ tab, name, content, materials, saving, error, onNameChange, onContentChange, onClose, onSave }: {
+function FriendsCircleComposer({ api, tab, name, content, materialID, saving, error, onNameChange, onContentChange, onMaterialChange, onClose, onSave }: {
+  api: BusinessWorkbenchApi;
   tab: FriendsCircleTab;
   name: string;
   content: string;
-  materials: SelectableMaterial[];
+  materialID: number;
   saving: boolean;
   error: string;
   onNameChange: (value: string) => void;
   onContentChange: (value: string) => void;
+  onMaterialChange: (value: number, preview?: string) => void;
   onClose: () => void;
   onSave: () => void;
 }) {
@@ -331,7 +333,7 @@ function FriendsCircleComposer({ tab, name, content, materials, saving, error, o
         <div className="phase34-friends-drawer-body">
           <div className="phase34-friends-safety"><strong>仅保存草稿</strong><span>当前不会向企业微信发布任何内容。</span></div>
           <div className="phase34-compose-form">
-            {isTask && <label><span>引用素材</span><select aria-label="引用素材" disabled={saving} defaultValue="" onChange={(event) => { const material = materials.find((item) => item.id === Number(event.target.value)); if (material) onContentChange(material.content); }}><option value="">不引用，手动填写</option>{materials.map((material) => <option key={material.id} value={material.id}>{material.title}</option>)}</select><small>来自统一素材库，选择后仍可继续编辑。</small></label>}
+            {isTask && <MaterialSelector api={api} scene="friends_circle" value={materialID || null} disabled={saving} onChange={(item) => onMaterialChange(item?.id ?? 0, item?.preview)} />}
             <label><span>{isTask ? '任务名称' : '素材名称'} <b>*</b></span><input ref={nameRef} aria-label="草稿名称" aria-describedby="friends-name-count" required disabled={saving} maxLength={80} placeholder={isTask ? '例如：秋季新品朋友圈' : '例如：新品上市文案'} value={name} onChange={(event) => onNameChange(event.target.value)} /><small id="friends-name-count">{name.length} / 80</small></label>
             <label><span>朋友圈内容 <b>*</b></span><textarea aria-label="草稿内容" aria-describedby="friends-content-count" required disabled={saving} maxLength={500} rows={9} placeholder="请输入准备发布的朋友圈文字内容…" value={content} onChange={(event) => onContentChange(event.target.value)} /><small id="friends-content-count">{content.length} / 500</small></label>
             {error && <p className="phase34-friends-form-error" role="alert">{error}</p>}
@@ -351,6 +353,7 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
   const [composerOpen, setComposerOpen] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftContent, setDraftContent] = useState('');
+  const [draftMaterialID, setDraftMaterialID] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [publishError, setPublishError] = useState('');
@@ -362,24 +365,18 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
     queryKey: ['phase34-friends-circle', access.corp.id, tab, filter],
     queryFn: () => api.read(endpoint, { ...(filter ? (tab === 'task' ? { taskName: filter } : { keyword: filter }) : {}), page: 1, perPage: 20 }),
   });
-  const selectorQuery = useQuery({
-    queryKey: ['phase34-material-selector', access.corp.id, 'friends_circle'],
-    queryFn: () => api.read('/materialSelector/index', { scene: 'friends_circle' }),
-    enabled: composerOpen && tab === 'task',
-  });
   const resultQuery = useQuery({
     queryKey: ['phase34-friends-circle-results', access.corp.id, selectedTask?.id],
     queryFn: () => api.read('/friendsCircle/taskResultIndex', { taskId: Number(selectedTask?.id), status: 'failed', page: 1, perPage: 100 }),
     enabled: selectedTask !== null && Number(selectedTask.id) > 0,
   });
   const rows = useMemo(() => rowsFrom(query.data), [query.data]);
-  const materials = useMemo(() => selectableMaterials(selectorQuery.data), [selectorQuery.data]);
   const refresh = () => { void query.refetch(); };
   const applyFilter = () => {
     const next = draftFilter.trim();
     if (next === filter) void query.refetch(); else setFilter(next);
   };
-  const openComposer = () => { setDraftName(''); setDraftContent(''); setSaveError(''); setComposerOpen(true); };
+  const openComposer = () => { setDraftName(''); setDraftContent(''); setDraftMaterialID(0); setSaveError(''); setComposerOpen(true); };
   const publishTask = async (taskID: number) => {
     setPublishError('');
     try {
@@ -423,13 +420,14 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
     setSaveError('');
     try {
       if (tab === 'task') {
-        await api.write('/friendsCircle/taskStore', { taskName: draftName.trim(), content: draftContent.trim(), sendWay: 'manual' });
+        await api.write('/friendsCircle/taskStore', { taskName: draftName.trim(), content: draftContent.trim(), sendWay: 'manual', ...(draftMaterialID > 0 ? { mediumId: draftMaterialID } : {}) });
       } else {
         await api.write('/friendsCircle/materialStore', { name: draftName.trim(), type: 'text', content: { text: draftContent.trim() } });
       }
       setComposerOpen(false);
       setDraftName('');
       setDraftContent('');
+      setDraftMaterialID(0);
       await query.refetch();
     } catch {
       setSaveError('草稿保存失败，请稍后重试。');
@@ -448,7 +446,7 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
         <label>{tab === 'task' ? '任务名称' : '素材关键字'}<input aria-label={tab === 'task' ? '任务名称' : '素材关键字'} placeholder={tab === 'task' ? '搜索任务名称' : '搜索素材名称或内容'} value={draftFilter} onChange={(event) => setDraftFilter(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyFilter(); }} /></label><div className="dashboard-table-actions"><button type="button" onClick={applyFilter}>查询</button><button type="button" className="phase34-secondary-button" disabled={!draftFilter && !filter} onClick={() => { setDraftFilter(''); setFilter(''); }}>重置</button></div>
       </div>
       <div className="dashboard-data-card phase34-results-card phase34-friends-results"><div className="dashboard-card-heading"><div><h2>{tab === 'task' ? '朋友圈任务' : '朋友圈素材'}</h2><p>{tab === 'task' ? '管理待完善、待发布的朋友圈任务草稿。' : '管理可在朋友圈任务中复用的内容素材。'}</p></div><span>{rows.length} 条记录</span></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <div className="phase34-friends-empty"><div aria-hidden="true">◎</div><h3>{tab === 'task' ? '还没有朋友圈任务' : '还没有朋友圈素材'}</h3><p>{filter ? '没有找到符合当前关键字的记录，请调整后重试。' : '创建第一条草稿，开始沉淀朋友圈内容。'}</p>{!filter && <button type="button" onClick={openComposer}>立即创建</button>}</div> : <div className="dashboard-table-scroll"><table className="phase34-table phase34-friends-table"><thead><tr><th>{tab === 'task' ? '任务名称' : '素材名称'}</th><th>{tab === 'task' ? '发送方式' : '内容摘要'}</th><th>状态</th><th>{tab === 'task' ? '完成情况' : '素材类型'}</th><th>创建人 / 创建时间</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => { const status = friendsStatus(row.status); return <tr key={recordKey(row, index)}><td><strong>{primitive(tab === 'task' ? row.taskName : row.name)}</strong></td><td className="phase34-friends-summary">{tab === 'task' ? (row.sendWay === 'manual' ? '员工手动发送' : primitive(row.sendWay)) : contentText(row.content)}</td><td><span className={`phase34-friends-status phase34-friends-status-${status.tone}`}>{status.label}</span></td><td>{tab === 'task' ? `${primitive(row.completedTotal)} / ${primitive(row.targetTotal)}` : primitive(row.type)}</td><td><span>{primitive(row.creatorName)}</span><small>{primitive(row.createdAt)}</small></td><td><span className="phase34-muted-action">草稿管理</span></td></tr>; })}</tbody></table></div>}</div>
-      {composerOpen && <FriendsCircleComposer tab={tab} name={draftName} content={draftContent} materials={materials} saving={saving} error={saveError} onNameChange={setDraftName} onContentChange={setDraftContent} onClose={closeComposer} onSave={() => void saveDraft()} />}
+      {composerOpen && <FriendsCircleComposer api={api} tab={tab} name={draftName} content={draftContent} materialID={draftMaterialID} saving={saving} error={saveError} onNameChange={setDraftName} onContentChange={setDraftContent} onMaterialChange={(id, preview) => { setDraftMaterialID(id); if (preview) setDraftContent(preview); }} onClose={closeComposer} onSave={() => void saveDraft()} />}
       {selectedTask !== null && <FriendsCircleTaskProgress task={selectedTask} rows={rowsFrom(resultQuery.data)} loading={resultQuery.isPending} error={resultQuery.error} exporting={exporting} exportError={exportError} onExport={() => void exportResults()} onClose={() => setSelectedTask(null)} />}
     </section>
   );

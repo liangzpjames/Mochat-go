@@ -5094,7 +5094,7 @@ func (s *MySQLStore) FriendsCircleTaskPage(ctx context.Context, filter dashboard
 	if perPage <= 0 {
 		perPage = 20
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks`+where+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, perPage, (page-1)*perPage)...)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, task_name, send_way, content, medium_id, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks`+where+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, perPage, (page-1)*perPage)...)
 	if err != nil {
 		return dashboard.FriendsCircleTaskPage{}, err
 	}
@@ -5102,7 +5102,7 @@ func (s *MySQLStore) FriendsCircleTaskPage(ctx context.Context, filter dashboard
 	items := make([]dashboard.FriendsCircleTask, 0)
 	for rows.Next() {
 		var item dashboard.FriendsCircleTask
-		if err := rows.Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.PublishAttempts, &item.FailureReason, &item.LastCallbackAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.MediumID, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.PublishAttempts, &item.FailureReason, &item.LastCallbackAt); err != nil {
 			return dashboard.FriendsCircleTaskPage{}, err
 		}
 		items = append(items, item)
@@ -5492,7 +5492,7 @@ func (s *MySQLStore) DisablePhase34ShortLink(ctx context.Context, corpID int, id
 }
 
 func (s *MySQLStore) CreateFriendsCircleTask(ctx context.Context, value dashboard.FriendsCircleTaskWrite) (int, error) {
-	result, err := s.db.ExecContext(ctx, `INSERT INTO mc_friends_circle_tasks (corp_id, user_id, creator_name, task_name, send_way, content, target_employees, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, value.CorpID, value.UserID, value.CreatorName, value.TaskName, value.SendWay, value.Content, value.TargetEmployees, value.Status)
+	result, err := s.db.ExecContext(ctx, `INSERT INTO mc_friends_circle_tasks (corp_id, user_id, creator_name, task_name, send_way, content, medium_id, target_employees, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, value.CorpID, value.UserID, value.CreatorName, value.TaskName, value.SendWay, value.Content, value.MediumID, value.TargetEmployees, value.Status)
 	if err != nil {
 		return 0, err
 	}
@@ -5502,7 +5502,7 @@ func (s *MySQLStore) CreateFriendsCircleTask(ctx context.Context, value dashboar
 
 func (s *MySQLStore) FriendsCircleTaskByID(ctx context.Context, corpID int, taskID int) (dashboard.FriendsCircleTask, bool, error) {
 	var item dashboard.FriendsCircleTask
-	err := s.db.QueryRowContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks WHERE id = ? AND corp_id = ?`, taskID, corpID).Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.PublishAttempts, &item.FailureReason, &item.LastCallbackAt)
+	err := s.db.QueryRowContext(ctx, `SELECT id, task_name, send_way, content, medium_id, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks WHERE id = ? AND corp_id = ?`, taskID, corpID).Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.MediumID, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.PublishAttempts, &item.FailureReason, &item.LastCallbackAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.FriendsCircleTask{}, false, nil
 	}
@@ -5553,7 +5553,7 @@ func (s *MySQLStore) ApplyFriendsCircleCallback(ctx context.Context, callback da
 	defer func() { _ = tx.Rollback() }()
 
 	var task dashboard.FriendsCircleTask
-	err = tx.QueryRowContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks WHERE corp_id = ? AND external_task_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE`, callback.CorpID, callback.ExternalTaskID).Scan(&task.ID, &task.TaskName, &task.SendWay, &task.Content, &task.TargetEmployees, &task.Status, &task.CompletedTotal, &task.TargetTotal, &task.CreatorName, &task.CreatedAt, &task.StartAt, &task.EndAt, &task.ExternalTaskID, &task.PublishAttempts, &task.FailureReason, &task.LastCallbackAt)
+	err = tx.QueryRowContext(ctx, `SELECT id, task_name, send_way, content, medium_id, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks WHERE corp_id = ? AND external_task_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE`, callback.CorpID, callback.ExternalTaskID).Scan(&task.ID, &task.TaskName, &task.SendWay, &task.Content, &task.MediumID, &task.TargetEmployees, &task.Status, &task.CompletedTotal, &task.TargetTotal, &task.CreatorName, &task.CreatedAt, &task.StartAt, &task.EndAt, &task.ExternalTaskID, &task.PublishAttempts, &task.FailureReason, &task.LastCallbackAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.FriendsCircleTask{}, false, nil
 	}
@@ -6999,6 +6999,45 @@ func (s *MySQLStore) MediumByID(ctx context.Context, corpID int, mediumID int) (
 	return item, true, nil
 }
 
+func (s *MySQLStore) MediumAvailableToUser(ctx context.Context, corpID int, userID int, mediumID int) (bool, error) {
+	if corpID <= 0 || userID <= 0 || mediumID <= 0 {
+		return false, nil
+	}
+	employeeID, err := s.EmployeeIDByUserCorp(ctx, userID, corpID)
+	if err != nil {
+		return false, err
+	}
+	var foundID int
+	err = s.db.QueryRowContext(ctx, `
+		SELECT m.id
+		FROM mc_medium AS m
+		WHERE m.id = ?
+		  AND m.corp_id = ?
+		  AND m.is_sync = 1
+		  AND m.status = 'available'
+		  AND m.deleted_at IS NULL
+		  AND (
+			m.scope_type = 'public'
+			OR (m.scope_type = 'personal' AND m.scope_id = ?)
+			OR (m.scope_type = 'department' AND EXISTS (
+				SELECT 1
+				FROM mc_work_employee_department AS ed
+				WHERE ed.employee_id = ?
+				  AND ed.department_id = m.scope_id
+				  AND ed.deleted_at IS NULL
+			))
+		  )
+		LIMIT 1
+	`, mediumID, corpID, userID, employeeID).Scan(&foundID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return foundID == mediumID, nil
+}
+
 func (s *MySQLStore) CreateMedium(ctx context.Context, values dashboard.MediumWrite) (int, error) {
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO mc_medium (type, is_sync, content, corp_id, medium_group_id, user_id, user_name, scope_type, scope_id, sidebar_visible, status, created_at, updated_at)
@@ -7115,7 +7154,6 @@ func (s *MySQLStore) MaterialReferences(ctx context.Context, corpID int, ids []i
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	references := make([]dashboard.MaterialReference, 0)
 	for rows.Next() {
 		var id int
@@ -7128,7 +7166,80 @@ func (s *MySQLStore) MaterialReferences(ctx context.Context, corpID int, ids []i
 		}
 		references = append(references, dashboard.MaterialReference{SourceType: "greeting", SourceID: id, SourceName: name})
 	}
-	return references, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	taskRows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(task_name, '')
+		FROM mc_friends_circle_tasks
+		WHERE corp_id = ? AND medium_id IN (`+placeholders(len(ids))+`)
+		ORDER BY id
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	for taskRows.Next() {
+		var id int
+		var name string
+		if err := taskRows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(name) == "" {
+			name = "朋友圈任务"
+		}
+		references = append(references, dashboard.MaterialReference{SourceType: "friends_circle_task", SourceID: id, SourceName: name})
+	}
+	if err := taskRows.Err(); err != nil {
+		_ = taskRows.Close()
+		return nil, err
+	}
+	if err := taskRows.Close(); err != nil {
+		return nil, err
+	}
+	for _, source := range []struct {
+		table        string
+		nameColumn   string
+		sourceType   string
+		fallbackName string
+	}{
+		{table: "mc_work_room_auto_pull", nameColumn: "qrcode_name", sourceType: "work_room_auto_pull", fallbackName: "自动拉群模板"},
+		{table: "mc_contact_message_batch_send", nameColumn: "user_name", sourceType: "contact_message_batch_send", fallbackName: "客户群发任务"},
+		{table: "mc_room_message_batch_send", nameColumn: "batch_title", sourceType: "room_message_batch_send", fallbackName: "群聊群发任务"},
+	} {
+		sourceRows, err := s.db.QueryContext(ctx, `
+			SELECT id, COALESCE(`+source.nameColumn+`, '')
+			FROM `+source.table+`
+			WHERE corp_id = ? AND medium_id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL
+			ORDER BY id
+		`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for sourceRows.Next() {
+			var id int
+			var name string
+			if err := sourceRows.Scan(&id, &name); err != nil {
+				_ = sourceRows.Close()
+				return nil, err
+			}
+			if strings.TrimSpace(name) == "" {
+				name = source.fallbackName
+			}
+			references = append(references, dashboard.MaterialReference{SourceType: source.sourceType, SourceID: id, SourceName: name})
+		}
+		if err := sourceRows.Err(); err != nil {
+			_ = sourceRows.Close()
+			return nil, err
+		}
+		if err := sourceRows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return references, nil
 }
 
 func (s *MySQLStore) BatchUpdateMediumGroupID(ctx context.Context, corpID int, ids []int, groupID int) (bool, error) {
@@ -7195,6 +7306,18 @@ func (s *MySQLStore) BatchDeleteMedium(ctx context.Context, corpID int, ids []in
 	var references int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_greeting WHERE corp_id = ? AND medium_id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL`, checkArgs...).Scan(&references); err != nil {
 		return false, err
+	}
+	var taskReferences int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_friends_circle_tasks WHERE corp_id = ? AND medium_id IN (`+placeholders(len(ids))+`)`, checkArgs...).Scan(&taskReferences); err != nil {
+		return false, err
+	}
+	references += taskReferences
+	for _, table := range []string{"mc_work_room_auto_pull", "mc_contact_message_batch_send", "mc_room_message_batch_send"} {
+		var linked int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE corp_id = ? AND medium_id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL`, checkArgs...).Scan(&linked); err != nil {
+			return false, err
+		}
+		references += linked
 	}
 	if references > 0 {
 		return false, nil
@@ -7323,13 +7446,24 @@ func mediumWhere(filter dashboard.MediumFilter, alias string) ([]string, []any) 
 		where = append(where, prefix+"content LIKE ?")
 		args = append(args, "%"+filter.Search+"%")
 	}
-	if filter.ScopeType != "" {
-		where = append(where, prefix+"scope_type = ?")
-		args = append(args, filter.ScopeType)
-	}
-	if filter.ScopeID > 0 {
-		where = append(where, prefix+"scope_id = ?")
-		args = append(args, filter.ScopeID)
+	if filter.SelectorVisible {
+		where = append(where, "("+
+			prefix+"scope_type = 'public' OR "+
+			"("+prefix+"scope_type = 'personal' AND "+prefix+"scope_id = ?) OR "+
+			"("+prefix+"scope_type = 'department' AND EXISTS ("+
+			"SELECT 1 FROM mc_work_employee_department AS ed "+
+			"WHERE ed.employee_id = ? AND ed.department_id = "+prefix+"scope_id AND ed.deleted_at IS NULL"+
+			"))")
+		args = append(args, filter.UserID, filter.EmployeeID)
+	} else {
+		if filter.ScopeType != "" {
+			where = append(where, prefix+"scope_type = ?")
+			args = append(args, filter.ScopeType)
+		}
+		if filter.ScopeID > 0 {
+			where = append(where, prefix+"scope_id = ?")
+			args = append(args, filter.ScopeID)
+		}
 	}
 	if filter.Status != "" {
 		where = append(where, prefix+"status = ?")
@@ -16991,7 +17125,7 @@ func (s *MySQLStore) WorkRoomAutoPullPage(ctx context.Context, filter dashboard.
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, page.PerPage, (filter.Page-1)*page.PerPage)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, qrcode_name, qrcode_url, leading_words, tags, employees, rooms, created_at
+		SELECT id, medium_id, qrcode_name, qrcode_url, leading_words, tags, employees, rooms, created_at
 		FROM mc_work_room_auto_pull
 		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY id DESC
@@ -17015,7 +17149,7 @@ func (s *MySQLStore) WorkRoomAutoPullPage(ctx context.Context, filter dashboard.
 		var raw autoPullRaw
 		var rawTags, rawEmployees, rawRooms []byte
 		var createdAt sql.NullTime
-		if err := rows.Scan(&raw.item.WorkRoomAutoPullID, &raw.item.QRCodeName, &raw.item.QRCodeURL, &raw.item.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt); err != nil {
+		if err := rows.Scan(&raw.item.WorkRoomAutoPullID, &raw.item.MediumID, &raw.item.QRCodeName, &raw.item.QRCodeURL, &raw.item.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt); err != nil {
 			return dashboard.WorkRoomAutoPullPage{}, err
 		}
 		raw.item.CreatedAt = formatTime(createdAt)
@@ -17121,11 +17255,11 @@ func (s *MySQLStore) WorkRoomAutoPullShowByID(ctx context.Context, id int) (dash
 	var rawTags, rawEmployees, rawRooms []byte
 	var createdAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, corp_id, qrcode_name, qrcode_url, is_verified, leading_words, tags, employees, rooms, created_at
+		SELECT id, corp_id, medium_id, qrcode_name, qrcode_url, is_verified, leading_words, tags, employees, rooms, created_at
 		FROM mc_work_room_auto_pull
 		WHERE id = ? AND deleted_at IS NULL
 		LIMIT 1
-	`, id).Scan(&info.WorkRoomAutoPullID, &corpID, &info.QRCodeName, &info.QRCodeURL, &info.IsVerified, &info.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt)
+	`, id).Scan(&info.WorkRoomAutoPullID, &corpID, &info.MediumID, &info.QRCodeName, &info.QRCodeURL, &info.IsVerified, &info.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.WorkRoomAutoPullShow{}, false, nil
 	}
@@ -17729,9 +17863,9 @@ func (s *MySQLStore) CreateWorkRoomAutoPullWithLog(ctx context.Context, values d
 	}
 	defer rollbackQuietly(tx)
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO mc_work_room_auto_pull (corp_id, qrcode_name, qrcode_url, wx_config_id, is_verified, leading_words, tags, employees, rooms, created_at, updated_at)
-		VALUES (?, ?, '', '', ?, ?, ?, ?, ?, NOW(), NOW())
-	`, values.CorpID, values.QRCodeName, values.IsVerified, values.LeadingWords, values.Tags, values.Employees, values.Rooms)
+		INSERT INTO mc_work_room_auto_pull (corp_id, medium_id, qrcode_name, qrcode_url, wx_config_id, is_verified, leading_words, tags, employees, rooms, created_at, updated_at)
+		VALUES (?, ?, ?, '', '', ?, ?, ?, ?, ?, NOW(), NOW())
+	`, values.CorpID, values.MediumID, values.QRCodeName, values.IsVerified, values.LeadingWords, values.Tags, values.Employees, values.Rooms)
 	if err != nil {
 		return 0, err
 	}
@@ -17778,9 +17912,9 @@ func (s *MySQLStore) UpdateWorkRoomAutoPullWithLog(ctx context.Context, id int, 
 	)
 	result, err := tx.ExecContext(ctx, `
 		UPDATE mc_work_room_auto_pull
-		SET is_verified = ?, employees = ?, tags = ?, rooms = ?, updated_at = NOW()
+		SET medium_id = ?, is_verified = ?, employees = ?, tags = ?, rooms = ?, updated_at = NOW()
 		WHERE id = ? AND deleted_at IS NULL
-	`, values.IsVerified, values.Employees, values.Tags, values.Rooms, id)
+	`, values.MediumID, values.IsVerified, values.Employees, values.Tags, values.Rooms, id)
 	if err != nil {
 		return dashboard.WorkRoomAutoPullUpdateTarget{}, false, err
 	}
@@ -17874,6 +18008,7 @@ func workRoomAutoPullWhere(filter dashboard.WorkRoomAutoPullFilter) ([]string, [
 
 func workRoomAutoPullBusinessLogPayload(values dashboard.WorkRoomAutoPullWrite, includeCreateFields bool) string {
 	payload := map[string]any{
+		"medium_id":   values.MediumID,
 		"is_verified": values.IsVerified,
 		"employees":   values.Employees,
 		"tags":        values.Tags,
@@ -22574,7 +22709,7 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, filter.PerPage, (filter.Page-1)*filter.PerPage)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, corp_id, user_id, user_name, employee_ids, filter_params, filter_params_detail, content,
+		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, filter_params, filter_params_detail, content,
 		       send_way, definite_time, send_time, send_employee_total, send_contact_total, send_total,
 		       not_send_total, received_total, not_received_total, receive_limit_total, not_friend_total,
 		       send_status, created_at
@@ -22596,7 +22731,7 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 
 func (s *MySQLStore) ContactMessageBatchSendByID(ctx context.Context, batchID int) (dashboard.ContactMessageBatchSendItem, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, corp_id, user_id, user_name, employee_ids, filter_params, filter_params_detail, content,
+		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, filter_params, filter_params_detail, content,
 		       send_way, definite_time, send_time, send_employee_total, send_contact_total, send_total,
 		       not_send_total, received_total, not_received_total, receive_limit_total, not_friend_total,
 		       send_status, created_at
@@ -22621,11 +22756,11 @@ func (s *MySQLStore) CreateContactMessageBatchSend(ctx context.Context, values d
 	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO mc_contact_message_batch_send (
-			corp_id, user_id, user_name, employee_ids, filter_params, filter_params_detail, content,
+			corp_id, user_id, medium_id, user_name, employee_ids, filter_params, filter_params_detail, content,
 			send_way, definite_time, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-	`, values.CorpID, values.UserID, values.UserName, mustJSONStore(values.EmployeeIDs), values.FilterParamsJSON, values.FilterDetailJSON, values.ContentJSON, values.SendWay, definite)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+	`, values.CorpID, values.UserID, values.MediumID, values.UserName, mustJSONStore(values.EmployeeIDs), values.FilterParamsJSON, values.FilterDetailJSON, values.ContentJSON, values.SendWay, definite)
 	if err != nil {
 		return 0, err
 	}
@@ -23200,7 +23335,7 @@ func scanContactMessageBatchSendRow(scanner contactMessageBatchSendScanner) (das
 	var userName, employeeIDsRaw, filterRaw, detailRaw, contentRaw sql.NullString
 	var definiteTime, sendTime, createdAt sql.NullTime
 	if err := scanner.Scan(
-		&item.ID, &item.CorpID, &item.UserID, &userName, &employeeIDsRaw, &filterRaw, &detailRaw, &contentRaw,
+		&item.ID, &item.CorpID, &item.UserID, &item.MediumID, &userName, &employeeIDsRaw, &filterRaw, &detailRaw, &contentRaw,
 		&item.SendWay, &definiteTime, &sendTime, &item.SendEmployeeTotal, &item.SendContactTotal, &item.SendTotal,
 		&item.NotSendTotal, &item.ReceivedTotal, &item.NotReceivedTotal, &item.ReceiveLimitTotal, &item.NotFriendTotal,
 		&item.SendStatus, &createdAt,
@@ -23231,7 +23366,7 @@ type contactMessageBatchSendContactRow struct {
 
 func contactMessageBatchSendByIDTx(ctx context.Context, tx *sql.Tx, batchID int) (dashboard.ContactMessageBatchSendItem, bool, error) {
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, corp_id, user_id, user_name, employee_ids, filter_params, filter_params_detail, content,
+		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, filter_params, filter_params_detail, content,
 		       send_way, definite_time, send_time, send_employee_total, send_contact_total, send_total,
 		       not_send_total, received_total, not_received_total, receive_limit_total, not_friend_total,
 		       send_status, created_at
@@ -23539,7 +23674,7 @@ func (s *MySQLStore) RoomMessageBatchSendPage(ctx context.Context, filter dashbo
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, filter.PerPage, (filter.Page-1)*filter.PerPage)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, corp_id, user_id, user_name, employee_ids, batch_title, content,
+		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, batch_title, content,
 		       send_way, definite_time, send_time, send_room_total, send_employee_total, send_total,
 		       not_send_total, received_total, not_received_total, send_status, created_at
 		FROM mc_room_message_batch_send
@@ -23567,7 +23702,7 @@ func (s *MySQLStore) RoomMessageBatchSendPage(ctx context.Context, filter dashbo
 
 func (s *MySQLStore) RoomMessageBatchSendByID(ctx context.Context, batchID int) (dashboard.RoomMessageBatchSendItem, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, corp_id, user_id, user_name, employee_ids, batch_title, content,
+		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, batch_title, content,
 		       send_way, definite_time, send_time, send_room_total, send_employee_total, send_total,
 		       not_send_total, received_total, not_received_total, send_status, created_at
 		FROM mc_room_message_batch_send
@@ -23639,10 +23774,10 @@ func (s *MySQLStore) CreateRoomMessageBatchSend(ctx context.Context, values dash
 	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO mc_room_message_batch_send (
-			corp_id, user_id, user_name, employee_ids, batch_title, content, send_way, definite_time, created_at, updated_at
+			corp_id, user_id, medium_id, user_name, employee_ids, batch_title, content, send_way, definite_time, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-	`, values.CorpID, values.UserID, values.UserName, mustJSONStore(values.EmployeeIDs), values.BatchTitle, values.ContentJSON, values.SendWay, definite)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+	`, values.CorpID, values.UserID, values.MediumID, values.UserName, mustJSONStore(values.EmployeeIDs), values.BatchTitle, values.ContentJSON, values.SendWay, definite)
 	if err != nil {
 		return 0, err
 	}
@@ -24111,7 +24246,7 @@ func scanRoomMessageBatchSendRow(scanner roomMessageBatchSendScanner) (dashboard
 	var userName, employeeIDsRaw, batchTitle, contentRaw sql.NullString
 	var definiteTime, sendTime, createdAt sql.NullTime
 	if err := scanner.Scan(
-		&item.ID, &item.CorpID, &item.UserID, &userName, &employeeIDsRaw, &batchTitle, &contentRaw,
+		&item.ID, &item.CorpID, &item.UserID, &item.MediumID, &userName, &employeeIDsRaw, &batchTitle, &contentRaw,
 		&item.SendWay, &definiteTime, &sendTime, &item.SendRoomTotal, &item.SendEmployeeTotal, &item.SendTotal,
 		&item.NotSendTotal, &item.ReceivedTotal, &item.NotReceivedTotal, &item.SendStatus, &createdAt,
 	); err != nil {
@@ -24129,7 +24264,7 @@ func scanRoomMessageBatchSendRow(scanner roomMessageBatchSendScanner) (dashboard
 
 func roomMessageBatchSendByIDTx(ctx context.Context, tx *sql.Tx, batchID int) (dashboard.RoomMessageBatchSendItem, bool, error) {
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, corp_id, user_id, user_name, employee_ids, batch_title, content,
+		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, batch_title, content,
 		       send_way, definite_time, send_time, send_room_total, send_employee_total, send_total,
 		       not_send_total, received_total, not_received_total, send_status, created_at
 		FROM mc_room_message_batch_send

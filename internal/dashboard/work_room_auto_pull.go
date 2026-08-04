@@ -27,6 +27,7 @@ type WorkRoomAutoPullPage struct {
 
 type WorkRoomAutoPullItem struct {
 	WorkRoomAutoPullID int
+	MediumID           int
 	QRCodeName         string
 	QRCodeURL          string
 	LeadingWords       string
@@ -44,6 +45,7 @@ type WorkRoomAutoPullListRoom struct {
 
 type WorkRoomAutoPullShow struct {
 	WorkRoomAutoPullID int
+	MediumID           int
 	QRCodeName         string
 	QRCodeURL          string
 	IsVerified         int
@@ -78,6 +80,7 @@ type WorkRoomAutoPullShowRoom struct {
 
 type WorkRoomAutoPullWrite struct {
 	CorpID       int
+	MediumID     int
 	QRCodeName   string
 	IsVerified   int
 	LeadingWords string
@@ -179,6 +182,7 @@ func (h *WorkRoomAutoPullHandler) Index(w http.ResponseWriter, r *http.Request) 
 	for _, item := range page.Items {
 		list = append(list, map[string]any{
 			"workRoomAutoPullId": item.WorkRoomAutoPullID,
+			"mediumId":           item.MediumID,
 			"qrcodeName":         item.QRCodeName,
 			"qrcodeUrl":          h.fileFullURL(item.QRCodeURL),
 			"leadingWords":       item.LeadingWords,
@@ -237,6 +241,7 @@ func (h *WorkRoomAutoPullHandler) Show(w http.ResponseWriter, r *http.Request) {
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
 		"workRoomAutoPullId": info.WorkRoomAutoPullID,
+		"mediumId":           info.MediumID,
 		"qrcodeName":         info.QRCodeName,
 		"qrcodeUrl":          h.fileFullURL(info.QRCodeURL),
 		"isVerified":         info.IsVerified,
@@ -278,6 +283,22 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	values.CorpID = corpID
+	if values.MediumID > 0 {
+		validator, configured := h.store.(mediumAvailabilityValidator)
+		if !configured {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "素材 Provider 未配置", nil)
+			return
+		}
+		available, err := validator.MediumAvailableToUser(r.Context(), corpID, userID, values.MediumID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return
+		}
+		if !available {
+			writeEnvelope(w, http.StatusConflict, http.StatusConflict, "素材不可用于当前企业或权限范围", nil)
+			return
+		}
+	}
 	if !enforceSaaSQuota(r.Context(), w, h.store, user.TenantID, SaaSMetricWorkRoomAutoPulls, 1) {
 		return
 	}
@@ -325,6 +346,10 @@ func (h *WorkRoomAutoPullHandler) Update(w http.ResponseWriter, r *http.Request)
 		writeAccessError(w, err)
 		return
 	}
+	corpID, ok := selectedCorpID(w, loginInfo)
+	if !ok {
+		return
+	}
 	params, err := parseRequestParams(r)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
@@ -333,6 +358,22 @@ func (h *WorkRoomAutoPullHandler) Update(w http.ResponseWriter, r *http.Request)
 	id, values, ok := parseWorkRoomAutoPullUpdateParams(w, params)
 	if !ok {
 		return
+	}
+	if values.MediumID > 0 {
+		validator, configured := h.store.(mediumAvailabilityValidator)
+		if !configured {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "素材 Provider 未配置", nil)
+			return
+		}
+		available, err := validator.MediumAvailableToUser(r.Context(), corpID, userID, values.MediumID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return
+		}
+		if !available {
+			writeEnvelope(w, http.StatusConflict, http.StatusConflict, "素材不可用于当前企业或权限范围", nil)
+			return
+		}
 	}
 	wxUserIDs, ok := h.resolveWorkRoomAutoPullEmployees(w, r.Context(), values.EmployeeIDs)
 	if !ok {
@@ -517,6 +558,11 @@ func parseWorkRoomAutoPullUpdateParams(w http.ResponseWriter, params map[string]
 }
 
 func parseWorkRoomAutoPullCommonParams(w http.ResponseWriter, params map[string]any) (WorkRoomAutoPullWrite, bool) {
+	mediumID, mediumPresent, mediumErr := intParam(params, "mediumId")
+	if mediumErr != nil || (mediumPresent && mediumID < 0) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "素材ID 必须为非负整数", nil)
+		return WorkRoomAutoPullWrite{}, false
+	}
 	isVerified, ok, err := intParam(params, "isVerified")
 	if !ok {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "添加验证 必填", nil)
@@ -543,6 +589,7 @@ func parseWorkRoomAutoPullCommonParams(w http.ResponseWriter, params map[string]
 		return WorkRoomAutoPullWrite{}, false
 	}
 	return WorkRoomAutoPullWrite{
+		MediumID:    mediumID,
 		IsVerified:  isVerified,
 		Employees:   employeesJSON,
 		Tags:        tagsJSON,

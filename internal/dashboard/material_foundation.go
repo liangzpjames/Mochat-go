@@ -12,6 +12,10 @@ type MaterialReference struct {
 	SourceName string `json:"sourceName"`
 }
 
+type mediumAvailabilityValidator interface {
+	MediumAvailableToUser(context.Context, int, int, int) (bool, error)
+}
+
 type MaterialFoundationStore interface {
 	MediumStore
 	MaterialReferences(ctx context.Context, corpID int, ids []int) ([]MaterialReference, error)
@@ -119,6 +123,16 @@ func (h *MediumHandler) Selector(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	filter := mediumFilterFromQuery(r, corpID, userID, false)
+	employeeID, err := h.store.EmployeeIDByUserCorp(r.Context(), userID, corpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	filter.ScopeType = ""
+	filter.ScopeID = 0
+	filter.SelectorVisible = true
+	filter.UserID = userID
+	filter.EmployeeID = employeeID
 	filter.Status = "available"
 	filter.PerPage = positiveQueryInt(r, "perPage", 50)
 	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("scene")), "chat") {

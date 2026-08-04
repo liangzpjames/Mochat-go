@@ -16,16 +16,19 @@ const (
 )
 
 type MediumFilter struct {
-	CorpID         int
-	Search         string
-	MediumGroupID  *int
-	Type           int
-	ScopeType      string
-	ScopeID        int
-	Status         string
-	SidebarVisible *bool
-	Page           int
-	PerPage        int
+	CorpID          int
+	Search          string
+	MediumGroupID   *int
+	Type            int
+	ScopeType       string
+	ScopeID         int
+	SelectorVisible bool
+	UserID          int
+	EmployeeID      int
+	Status          string
+	SidebarVisible  *bool
+	Page            int
+	PerPage         int
 }
 
 type MediumItem struct {
@@ -606,6 +609,10 @@ func mediumFilterFromQuery(r *http.Request, corpID int, userID int, sidebar bool
 		filter.ScopeID = userID
 	} else if scopeType == "department" {
 		filter.ScopeID = positiveQueryInt(r, "scopeId", 0)
+	}
+	if rawVisible, ok := r.URL.Query()["sidebarVisible"]; ok && len(rawVisible) > 0 {
+		visible := rawVisible[0] == "1" || strings.EqualFold(strings.TrimSpace(rawVisible[0]), "true")
+		filter.SidebarVisible = &visible
 	}
 	if sidebar {
 		visible := true
