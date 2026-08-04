@@ -236,7 +236,7 @@ func (h *Phase34AcquisitionHandler) AcquisitionLinkAuthorize(w http.ResponseWrit
 	}
 	url, err := h.external.Authorize(r.Context(), corpID)
 	if err != nil {
-		if updateErr := h.store.UpdatePhase34AcquisitionAuthorizationState(r.Context(), corpID, "failed", err.Error()); updateErr != nil {
+		if updateErr := h.store.UpdatePhase34AcquisitionAuthorizationState(r.Context(), corpID, "failed", "failed"); updateErr != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, updateErr.Error(), nil)
 			return
 		}

@@ -62,6 +62,21 @@ func TestPhase34AcquisitionAuthorizePersistsAuthorizedState(t *testing.T) {
 	}
 }
 
+func TestPhase34AcquisitionAuthorizePersistsFailedStateWhenProviderErrors(t *testing.T) {
+	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}, linkID: 17}
+	external := &fakePhase34AcquisitionExternal{authorizeErr: errors.New("企业微信凭据未配置")}
+	handler := NewPhase34AcquisitionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, external)
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/acquisitionLink/authorize", strings.NewReader(`{}`))
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.AcquisitionLinkAuthorize(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable || store.authorizationStatus != "failed" || store.authorizationState != "failed" {
+		t.Fatalf("status=%d authorization=%q state=%q body=%s", rec.Code, store.authorizationStatus, store.authorizationState, rec.Body.String())
+	}
+}
+
 func TestPhase34CustomerServiceSyncPersistsFailureReason(t *testing.T) {
 	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}}
 	external := &fakePhase34AcquisitionExternal{syncErr: errors.New("customer-service credentials rejected")}
