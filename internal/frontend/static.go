@@ -223,6 +223,7 @@ func reservedPath(path string) bool {
 	}
 	for _, prefix := range []string{
 		"/api/",
+		"/r/",
 		"/dashboard/",
 		"/security/",
 		"/sidebar/",

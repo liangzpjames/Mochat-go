@@ -130,6 +130,22 @@ func TestWrapDashboardPassesAPIPathsToNext(t *testing.T) {
 	}
 }
 
+func TestWrapDashboardPassesShortLinkRedirectsToNext(t *testing.T) {
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "index.html"), "index")
+	handler := WrapDashboard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusFound)
+		_, _ = w.Write([]byte(r.URL.Path))
+	}), DashboardConfig{DistDir: dir})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/r/abc123", nil))
+	if rec.Code != http.StatusFound || rec.Body.String() != "/r/abc123" {
+		t.Fatalf("short link redirect path = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestWrapDashboardIgnoresMissingDist(t *testing.T) {
 	handler := WrapDashboard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
