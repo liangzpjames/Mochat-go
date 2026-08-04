@@ -6570,7 +6570,8 @@ func (s *MySQLStore) MediumPage(ctx context.Context, filter dashboard.MediumFilt
 	queryArgs = append(queryArgs, filter.PerPage, (filter.Page-1)*filter.PerPage)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT m.id, m.type, m.media_id, m.content, m.corp_id, m.medium_group_id,
-		       COALESCE(g.name, ''), m.user_id, m.user_name, m.created_at
+		       COALESCE(g.name, ''), m.user_id, m.user_name, m.scope_type, m.scope_id,
+		       m.sidebar_visible, m.status, m.created_at
 		FROM mc_medium AS m
 		LEFT JOIN mc_medium_group AS g ON g.id = m.medium_group_id AND g.deleted_at IS NULL
 		WHERE `+strings.Join(where, " AND ")+`
@@ -6599,7 +6600,8 @@ func (s *MySQLStore) MediumPage(ctx context.Context, filter dashboard.MediumFilt
 func (s *MySQLStore) MediumByID(ctx context.Context, corpID int, mediumID int) (dashboard.MediumItem, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT m.id, m.type, m.media_id, m.content, m.corp_id, m.medium_group_id,
-		       COALESCE(g.name, ''), m.user_id, m.user_name, m.created_at
+		       COALESCE(g.name, ''), m.user_id, m.user_name, m.scope_type, m.scope_id,
+		       m.sidebar_visible, m.status, m.created_at
 		FROM mc_medium AS m
 		LEFT JOIN mc_medium_group AS g ON g.id = m.medium_group_id AND g.deleted_at IS NULL
 		WHERE m.id = ? AND m.corp_id = ? AND m.deleted_at IS NULL
@@ -6617,9 +6619,9 @@ func (s *MySQLStore) MediumByID(ctx context.Context, corpID int, mediumID int) (
 
 func (s *MySQLStore) CreateMedium(ctx context.Context, values dashboard.MediumWrite) (int, error) {
 	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO mc_medium (type, is_sync, content, corp_id, medium_group_id, user_id, user_name, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-	`, values.Type, values.IsSync, values.Content, values.CorpID, values.MediumGroupID, values.UserID, values.UserName)
+		INSERT INTO mc_medium (type, is_sync, content, corp_id, medium_group_id, user_id, user_name, scope_type, scope_id, sidebar_visible, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+	`, values.Type, values.IsSync, values.Content, values.CorpID, values.MediumGroupID, values.UserID, values.UserName, values.ScopeType, values.ScopeID, values.SidebarVisible, values.Status)
 	if err != nil {
 		return 0, err
 	}
@@ -6649,9 +6651,9 @@ func (s *MySQLStore) UpdateMedium(ctx context.Context, mediumID int, values dash
 	)
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE mc_medium
-		SET type = ?, is_sync = ?, content = ?, medium_group_id = ?, user_id = ?, user_name = ?, updated_at = NOW()
+		SET type = ?, is_sync = ?, content = ?, medium_group_id = ?, user_id = ?, user_name = ?, scope_type = ?, scope_id = ?, sidebar_visible = ?, status = ?, updated_at = NOW()
 		WHERE id = ? AND corp_id = ? AND deleted_at IS NULL
-	`, values.Type, values.IsSync, values.Content, values.MediumGroupID, values.UserID, values.UserName, mediumID, values.CorpID)
+	`, values.Type, values.IsSync, values.Content, values.MediumGroupID, values.UserID, values.UserName, values.ScopeType, values.ScopeID, values.SidebarVisible, values.Status, mediumID, values.CorpID)
 	if err != nil {
 		return false, err
 	}
@@ -6816,6 +6818,22 @@ func mediumWhere(filter dashboard.MediumFilter, alias string) ([]string, []any) 
 		where = append(where, prefix+"content LIKE ?")
 		args = append(args, "%"+filter.Search+"%")
 	}
+	if filter.ScopeType != "" {
+		where = append(where, prefix+"scope_type = ?")
+		args = append(args, filter.ScopeType)
+	}
+	if filter.ScopeID > 0 {
+		where = append(where, prefix+"scope_id = ?")
+		args = append(args, filter.ScopeID)
+	}
+	if filter.Status != "" {
+		where = append(where, prefix+"status = ?")
+		args = append(args, filter.Status)
+	}
+	if filter.SidebarVisible != nil {
+		where = append(where, prefix+"sidebar_visible = ?")
+		args = append(args, *filter.SidebarVisible)
+	}
 	return where, args
 }
 
@@ -6846,6 +6864,10 @@ func scanMedium(scanner mediumScanner) (dashboard.MediumItem, error) {
 		&groupName,
 		&item.UserID,
 		&item.UserName,
+		&item.ScopeType,
+		&item.ScopeID,
+		&item.SidebarVisible,
+		&item.Status,
 		&createdAt,
 	); err != nil {
 		return dashboard.MediumItem{}, err

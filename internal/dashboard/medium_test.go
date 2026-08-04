@@ -44,6 +44,40 @@ func TestMediumIndexReturnsPagedItems(t *testing.T) {
 	}
 }
 
+func TestMediumIndexAppliesPersonalScopeFromSession(t *testing.T) {
+	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, page: MediumPage{PerPage: 10}}
+	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/medium/index?scopeType=personal&scopeId=999", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Index(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastFilter.ScopeType != "personal" || store.lastFilter.ScopeID != 1 {
+		t.Fatalf("scope filter = %#v", store.lastFilter)
+	}
+}
+
+func TestMediumStoreCreatesScopedTextMedium(t *testing.T) {
+	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, createID: 32}
+	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/medium/store", strings.NewReader(`{"type":1,"mediumGroupId":0,"scopeType":"personal","scopeId":999,"sidebarVisible":true,"content":{"title":"问候","content":"你好"}}`))
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Store(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.created.ScopeType != "personal" || store.created.ScopeID != 1 || !store.created.SidebarVisible || store.created.Status != "available" {
+		t.Fatalf("created scope = %#v", store.created)
+	}
+}
+
 func TestMediumStoreCreatesTextMedium(t *testing.T) {
 	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, createID: 31}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")

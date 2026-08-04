@@ -16,12 +16,16 @@ const (
 )
 
 type MediumFilter struct {
-	CorpID        int
-	Search        string
-	MediumGroupID *int
-	Type          int
-	Page          int
-	PerPage       int
+	CorpID         int
+	Search         string
+	MediumGroupID  *int
+	Type           int
+	ScopeType      string
+	ScopeID        int
+	Status         string
+	SidebarVisible *bool
+	Page           int
+	PerPage        int
 }
 
 type MediumItem struct {
@@ -34,6 +38,10 @@ type MediumItem struct {
 	MediumGroupName string
 	UserID          int
 	UserName        string
+	ScopeType       string
+	ScopeID         int
+	SidebarVisible  bool
+	Status          string
 	CreatedAt       string
 }
 
@@ -45,13 +53,17 @@ type MediumPage struct {
 }
 
 type MediumWrite struct {
-	CorpID        int
-	Type          int
-	IsSync        int
-	Content       string
-	MediumGroupID int
-	UserID        int
-	UserName      string
+	CorpID         int
+	Type           int
+	IsSync         int
+	Content        string
+	MediumGroupID  int
+	UserID         int
+	UserName       string
+	ScopeType      string
+	ScopeID        int
+	SidebarVisible bool
+	Status         string
 }
 
 type MediumMediaUpdateItem struct {
@@ -143,7 +155,7 @@ func (h *MediumHandler) Index(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	h.writeIndex(w, r, mediumFilterFromQuery(r, corpID, false))
+	h.writeIndex(w, r, mediumFilterFromQuery(r, corpID, userID, false))
 }
 
 func (h *MediumHandler) SidebarIndex(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +167,7 @@ func (h *MediumHandler) SidebarIndex(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.writeIndex(w, r, mediumFilterFromQuery(r, corpID, true))
+	h.writeIndex(w, r, mediumFilterFromQuery(r, corpID, 0, true))
 }
 
 func (h *MediumHandler) MediaIDUpdate(w http.ResponseWriter, r *http.Request) {
@@ -470,13 +482,17 @@ func (h *MediumHandler) mediumWriteFromParams(w http.ResponseWriter, params map[
 		return MediumWrite{}, false
 	}
 	return MediumWrite{
-		CorpID:        corpID,
-		Type:          mediumType,
-		IsSync:        isSync,
-		Content:       string(raw),
-		MediumGroupID: groupID,
-		UserID:        user.ID,
-		UserName:      user.Name,
+		CorpID:         corpID,
+		Type:           mediumType,
+		IsSync:         isSync,
+		Content:        string(raw),
+		MediumGroupID:  groupID,
+		UserID:         user.ID,
+		UserName:       user.Name,
+		ScopeType:      mediumScopeType(stringParam(params, "scopeType")),
+		ScopeID:        mediumScopeID(mediumScopeType(stringParam(params, "scopeType")), params, user.ID),
+		SidebarVisible: boolParamDefault(params, "sidebarVisible", true),
+		Status:         "available",
 	}, true
 }
 
@@ -493,6 +509,10 @@ func (h *MediumHandler) mediumPayload(item MediumItem, list bool) map[string]any
 		"mediumGroupName": item.MediumGroupName,
 		"userId":          item.UserID,
 		"userName":        item.UserName,
+		"scopeType":       mediumScopeType(item.ScopeType),
+		"scopeId":         item.ScopeID,
+		"sidebarVisible":  item.SidebarVisible,
+		"status":          item.Status,
 	}
 	if item.CreatedAt != "" {
 		payload["createdAt"] = item.CreatedAt
@@ -571,13 +591,25 @@ func (h *MediumHandler) writeMediaID(w http.ResponseWriter, mediaID string) {
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{"mediaId": mediaID})
 }
 
-func mediumFilterFromQuery(r *http.Request, corpID int, sidebar bool) MediumFilter {
+func mediumFilterFromQuery(r *http.Request, corpID int, userID int, sidebar bool) MediumFilter {
+	scopeType := mediumScopeType(r.URL.Query().Get("scopeType"))
 	filter := MediumFilter{
-		CorpID:  corpID,
-		Search:  strings.TrimSpace(r.URL.Query().Get("searchStr")),
-		Type:    positiveQueryInt(r, "type", 0),
-		Page:    positiveQueryInt(r, "page", 1),
-		PerPage: positiveQueryInt(r, "perPage", 10),
+		CorpID:    corpID,
+		Search:    strings.TrimSpace(r.URL.Query().Get("searchStr")),
+		Type:      positiveQueryInt(r, "type", 0),
+		Page:      positiveQueryInt(r, "page", 1),
+		PerPage:   positiveQueryInt(r, "perPage", 10),
+		ScopeType: scopeType,
+		Status:    strings.TrimSpace(r.URL.Query().Get("status")),
+	}
+	if scopeType == "personal" {
+		filter.ScopeID = userID
+	} else if scopeType == "department" {
+		filter.ScopeID = positiveQueryInt(r, "scopeId", 0)
+	}
+	if sidebar {
+		visible := true
+		filter.SidebarVisible = &visible
 	}
 	rawValues, hasGroup := r.URL.Query()["mediumGroupId"]
 	if hasGroup && len(rawValues) > 0 {
@@ -593,6 +625,46 @@ func mediumFilterFromQuery(r *http.Request, corpID int, sidebar bool) MediumFilt
 		}
 	}
 	return filter
+}
+
+func mediumScopeType(value string) string {
+	switch strings.TrimSpace(value) {
+	case "department", "personal":
+		return strings.TrimSpace(value)
+	default:
+		return "public"
+	}
+}
+
+func mediumScopeID(scopeType string, params map[string]any, userID int) int {
+	if scopeType == "personal" {
+		return userID
+	}
+	if scopeType != "department" {
+		return 0
+	}
+	value, ok, err := intParam(params, "scopeId")
+	if err != nil || !ok || value < 0 {
+		return 0
+	}
+	return value
+}
+
+func boolParamDefault(params map[string]any, key string, fallback bool) bool {
+	value, ok := params[key]
+	if !ok {
+		return fallback
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return typed == "1" || strings.EqualFold(typed, "true")
+	case float64:
+		return typed != 0
+	default:
+		return fallback
+	}
 }
 
 func parsePositiveOrZeroInt(raw string) (int, error) {
