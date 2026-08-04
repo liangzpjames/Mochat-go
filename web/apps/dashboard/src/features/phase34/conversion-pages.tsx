@@ -159,6 +159,7 @@ export function RedirectLinkPage({ api }: { api: BusinessWorkbenchApi }) {
       await query.refetch();
     } catch (error) {
       setWriteError(error instanceof Error ? error.message : '企业授权失败。');
+      await query.refetch();
     } finally {
       setAuthorizing(false);
     }

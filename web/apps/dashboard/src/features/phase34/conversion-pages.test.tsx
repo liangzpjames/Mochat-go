@@ -55,6 +55,21 @@ describe('Phase 3.4 conversion pages', () => {
     ));
   });
 
+  it('refreshes the persisted acquisition-link failure state after authorization errors', async () => {
+    const read = vi.fn()
+      .mockResolvedValueOnce({ list: [{ id: 4, name: '官网获客入口', targetUrl: '/acquisition/v2-channel-code', authorizationStatus: 'unauthorized', status: 'draft' }] })
+      .mockResolvedValueOnce({ list: [{ id: 4, name: '官网获客入口', targetUrl: '/acquisition/v2-channel-code', authorizationStatus: 'failed', status: 'failed' }] });
+    const write = vi.fn().mockRejectedValue(new Error('企业微信凭据未配置'));
+    view(<RedirectLinkPage api={{ read, write }} />);
+
+    expect(await screen.findByText('官网获客入口')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '立即授权并使用' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('企业微信凭据未配置');
+    expect(await screen.findByText('失败 / 失败')).toBeTruthy();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it('loads customer-service accounts, persists a draft, and exposes sync failure', async () => {
     const read = vi.fn().mockResolvedValue({
       list: [{ id: 9, name: '售前客服', account: 'kf_001', employeeIds: '[3,4]', receiveMode: 'round_robin', status: 'pending_sync' }],
