@@ -113,4 +113,26 @@ describe('Phase 3.4 conversion pages', () => {
     expect(screen.getByLabelText('一键加群详情').textContent).toContain('群总数');
     expect(screen.getByLabelText('一键加群详情').textContent).toContain('4');
   });
+
+  it('creates a one-click group template through the existing auto-pull provider', async () => {
+    const read = vi.fn().mockResolvedValue({ list: [] });
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<GroupTemplatePage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无模板' });
+    fireEvent.click(screen.getByRole('button', { name: '新建加群模板' }));
+    expect(screen.getByLabelText('一键加群模板')).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText('模板名称')[1]!, { target: { value: '新品加群' } });
+    fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '欢迎加入新品群' } });
+    fireEvent.change(screen.getByLabelText('使用成员ID'), { target: { value: '99' } });
+    fireEvent.change(screen.getByLabelText('标签ID'), { target: { value: '900001' } });
+    fireEvent.change(screen.getByLabelText('群聊配置JSON'), { target: { value: '[{"roomId":900001,"maxNum":50}]' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存加群模板' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/workRoomAutoPull/store',
+      { corpId: 7, qrcodeName: '新品加群', isVerified: 2, leadingWords: '欢迎加入新品群', employees: [99], tags: [900001], rooms: '[{"roomId":900001,"maxNum":50}]' },
+      'POST',
+    ));
+  });
 });

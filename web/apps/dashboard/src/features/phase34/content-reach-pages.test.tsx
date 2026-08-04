@@ -34,13 +34,33 @@ describe('Phase 3.4 content-reach pages', () => {
 
     expect(await screen.findByText('欢迎参与')).toBeTruthy();
     expect(read).toHaveBeenCalledWith('/contactMessageBatchSend/index', expect.objectContaining({ page: 1, perPage: 20 }));
-    expect(screen.getByRole('button', { name: '新建群发' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: '新建群发' })).toHaveProperty('disabled', false);
     fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '夏日' } });
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect(read).toHaveBeenLastCalledWith('/contactMessageBatchSend/index', expect.objectContaining({ batchTitle: '夏日' })));
 
     fireEvent.click(screen.getByRole('tab', { name: '群聊群发' }));
     await waitFor(() => expect(read).toHaveBeenLastCalledWith('/roomMessageBatchSend/index', expect.objectContaining({ page: 1, perPage: 20 })));
+  });
+
+  it('creates an immediate customer precise-send task through the real provider', async () => {
+    const read = vi.fn().mockResolvedValue({ list: [] });
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<PreciseGroupSendPage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无群发任务' });
+    fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
+    expect(screen.getByLabelText('新建群发任务')).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText('任务名称')[1]!, { target: { value: '夏日客户触达' } });
+    fireEvent.change(screen.getByLabelText('发送成员ID'), { target: { value: '99' } });
+    fireEvent.change(screen.getByLabelText('群发内容'), { target: { value: '欢迎参与夏日活动' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存并发送' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/contactMessageBatchSend/store',
+      { batchTitle: '夏日客户触达', employeeIds: [99], sendWay: 1, filterParams: {}, content: [{ msgType: 'text', content: '欢迎参与夏日活动' }] },
+      'POST',
+    ));
   });
 
   it('shows execution data, details, and retries a failed precise-send query', async () => {

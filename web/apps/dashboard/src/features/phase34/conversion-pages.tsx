@@ -250,12 +250,81 @@ function Detail({ row, onClose }: { row: ConversionRecord; onClose: () => void }
   );
 }
 
+function GroupTemplateCreateDrawer({
+  name,
+  leadingWords,
+  employees,
+  tags,
+  rooms,
+  isVerified,
+  saving,
+  error,
+  onNameChange,
+  onLeadingWordsChange,
+  onEmployeesChange,
+  onTagsChange,
+  onRoomsChange,
+  onVerifiedChange,
+  onClose,
+  onSubmit,
+}: {
+  name: string;
+  leadingWords: string;
+  employees: string;
+  tags: string;
+  rooms: string;
+  isVerified: string;
+  saving: boolean;
+  error: string;
+  onNameChange: (value: string) => void;
+  onLeadingWordsChange: (value: string) => void;
+  onEmployeesChange: (value: string) => void;
+  onTagsChange: (value: string) => void;
+  onRoomsChange: (value: string) => void;
+  onVerifiedChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <aside className="phase34-detail" aria-label="一键加群模板">
+      <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />
+      <div className="phase34-detail-panel">
+        <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 转化承接</p><h2>新建加群模板</h2></div><button type="button" aria-label="关闭加群模板" onClick={onClose}>关闭</button></div>
+        <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+          <label>模板名称<input aria-label="模板名称" required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：新品加群" /></label>
+          <label>入群引导语<textarea aria-label="入群引导语" required value={leadingWords} onChange={(event) => onLeadingWordsChange(event.target.value)} placeholder="请输入扫码后的入群引导" rows={4} /></label>
+          <label>使用成员ID<input aria-label="使用成员ID" required value={employees} onChange={(event) => onEmployeesChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+          <label>标签ID<input aria-label="标签ID" required value={tags} onChange={(event) => onTagsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+          <label>添加验证<select aria-label="添加验证" value={isVerified} onChange={(event) => onVerifiedChange(event.target.value)}><option value="2">无需验证</option><option value="1">需要验证</option></select></label>
+          <label>群聊配置JSON<textarea aria-label="群聊配置JSON" required value={rooms} onChange={(event) => onRoomsChange(event.target.value)} rows={4} /></label>
+          <p className="phase34-field-hint">创建会调用现有自动拉群 Provider 生成企业微信二维码；外部失败会保留错误，不会显示假二维码。</p>
+          {error && <p role="alert" className="phase34-inline-error">{error}</p>}
+          <div className="dashboard-table-actions"><button type="button" className="phase34-secondary-button" onClick={onClose}>取消</button><button type="submit" disabled={saving}>{saving ? '创建中…' : '保存加群模板'}</button></div>
+        </form>
+      </div>
+    </aside>
+  );
+}
+
+function positiveIDs(value: string): number[] {
+  return value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0);
+}
+
 export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
   const access = useDashboardAccess();
   const path = '/acquisition/group-template';
   const [draftName, setDraftName] = useState('');
   const [name, setName] = useState('');
   const [selected, setSelected] = useState<ConversionRecord | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createLeadingWords, setCreateLeadingWords] = useState('');
+  const [createEmployees, setCreateEmployees] = useState('');
+  const [createTags, setCreateTags] = useState('');
+  const [createRooms, setCreateRooms] = useState('[]');
+  const [createVerified, setCreateVerified] = useState('2');
+  const [saving, setSaving] = useState(false);
+  const [writeError, setWriteError] = useState('');
   const query = useQuery({
     queryKey: ['phase34-group-template', access.corp.id, name],
     queryFn: () => api.read('/workRoomAutoPull/index', { ...(name ? { qrcodeName: name } : {}), page: 1, perPage: 20 }),
@@ -264,12 +333,44 @@ export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
   const hasActionContract = useMemo(() => [...access.allowedActions].some((action) => action.startsWith(`${path}@`)), [access.allowedActions]);
   const can = (action: string) => !hasActionContract || access.allowedActions.has(`${path}@${action}`);
   const refresh = () => { void query.refetch(); };
+  const openCreate = () => { setWriteError(''); setCreateOpen(true); };
+  const saveCreate = async () => {
+    const employeeIDs = positiveIDs(createEmployees);
+    const tagIDs = positiveIDs(createTags);
+    if (!createName.trim() || !createLeadingWords.trim() || employeeIDs.length === 0 || tagIDs.length === 0) {
+      setWriteError('请填写名称、引导语、使用成员 ID 和标签 ID。');
+      return;
+    }
+    try {
+      const rooms = JSON.parse(createRooms) as unknown;
+      if (!Array.isArray(rooms)) throw new Error('rooms must be an array');
+    } catch {
+      setWriteError('群聊配置必须是 JSON 数组。');
+      return;
+    }
+    setSaving(true);
+    setWriteError('');
+    try {
+      await api.write('/workRoomAutoPull/store', { corpId: Number(access.corp.id), qrcodeName: createName.trim(), isVerified: Number(createVerified), leadingWords: createLeadingWords.trim(), employees: employeeIDs, tags: tagIDs, rooms: createRooms.trim() }, 'POST');
+      setCreateOpen(false);
+      setCreateName('');
+      setCreateLeadingWords('');
+      setCreateEmployees('');
+      setCreateTags('');
+      setCreateRooms('[]');
+      await query.refetch();
+    } catch (error) {
+      setWriteError(error instanceof Error ? error.message : '创建加群模板失败。');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <section className="phase34-page">
       <header className="phase34-page-header">
         <div><p className="phase34-eyebrow">营销工具 · 转化承接</p><h1>一键加群</h1><p>复用自动拉群 Provider 管理加群模板，查看关联群聊和当日新增。</p></div>
-        <div className="phase34-header-actions"><span className="phase34-provider-badge">数据已连接</span>{can('refresh') && <button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button>}</div>
+        <div className="phase34-header-actions"><span className="phase34-provider-badge">数据已连接</span>{can('create') && <button type="button" onClick={openCreate}>新建加群模板</button>}{can('refresh') && <button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button>}</div>
       </header>
       <div className="dashboard-filter-bar phase34-filter-bar">
         <label>模板名称<input aria-label="模板名称" placeholder="请输入模板名称" value={draftName} onChange={(event) => setDraftName(event.target.value)} /></label>
@@ -282,11 +383,13 @@ export function GroupTemplatePage({ api }: { api: BusinessWorkbenchApi }) {
       </div>
       <div className="dashboard-data-card phase34-results-card">
         <div className="dashboard-card-heading"><div><h2>加群模板列表</h2><p>当前企业：{access.corp.name}，展示 Provider 返回的真实模板记录。</p></div><span>{rows.length} 条</span></div>
+        {writeError && !createOpen && <p role="alert" className="phase34-inline-error">{writeError}</p>}
         {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} {...(can('refresh') ? { onRetry: refresh } : {})} /> : rows.length === 0 ? <PageState state="empty" title="暂无模板" description="当前筛选条件下没有可展示的加群模板。" /> : (
           <div className="dashboard-table-scroll phase34-table-scroll"><table className="phase34-table"><thead><tr>{groupTemplateColumns.map((column) => <th key={column.key}>{column.title}</th>)}<th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={rowKey(row, index)}>{groupTemplateColumns.map((column) => <td key={column.key}>{display(valueFor(row, column))}</td>)}<td><button type="button" className="phase34-link-button" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>
         )}
       </div>
       {selected !== null && <Detail row={selected} onClose={() => setSelected(null)} />}
+      {createOpen && <GroupTemplateCreateDrawer name={createName} leadingWords={createLeadingWords} employees={createEmployees} tags={createTags} rooms={createRooms} isVerified={createVerified} saving={saving} error={writeError} onNameChange={setCreateName} onLeadingWordsChange={setCreateLeadingWords} onEmployeesChange={setCreateEmployees} onTagsChange={setCreateTags} onRoomsChange={setCreateRooms} onVerifiedChange={setCreateVerified} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
     </section>
   );
 }

@@ -89,12 +89,77 @@ function SendDetail({ row, onClose }: { row: ReachRecord; onClose: () => void })
   );
 }
 
+function positiveReachIDs(value: string): number[] {
+  return value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0);
+}
+
+function SendCreateDrawer({
+  mode,
+  title,
+  employeeIDs,
+  content,
+  sendWay,
+  definiteTime,
+  saving,
+  error,
+  onTitleChange,
+  onEmployeeIDsChange,
+  onContentChange,
+  onSendWayChange,
+  onDefiniteTimeChange,
+  onClose,
+  onSubmit,
+}: {
+  mode: SendMode;
+  title: string;
+  employeeIDs: string;
+  content: string;
+  sendWay: string;
+  definiteTime: string;
+  saving: boolean;
+  error: string;
+  onTitleChange: (value: string) => void;
+  onEmployeeIDsChange: (value: string) => void;
+  onContentChange: (value: string) => void;
+  onSendWayChange: (value: string) => void;
+  onDefiniteTimeChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <aside className="phase34-detail" aria-label="新建群发任务">
+      <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />
+      <div className="phase34-detail-panel">
+        <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h2>新建群发任务</h2><p>{mode === 'contact' ? '客户群发' : '群聊群发'}会走对应的真实 Provider。</p></div><button type="button" aria-label="关闭新建群发" onClick={onClose}>关闭</button></div>
+        <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+          <label>任务名称<input aria-label="任务名称" required value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="请输入任务名称" /></label>
+          <label>{mode === 'contact' ? '发送成员ID' : '群主ID'}<input aria-label={mode === 'contact' ? '发送成员ID' : '群主ID'} required value={employeeIDs} onChange={(event) => onEmployeeIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+          <label>群发内容<textarea aria-label="群发内容" required value={content} onChange={(event) => onContentChange(event.target.value)} placeholder="请输入文本内容" rows={6} /></label>
+          <label>发送方式<select aria-label="发送方式" value={sendWay} onChange={(event) => onSendWayChange(event.target.value)}><option value="1">立即发送</option><option value="2">定时发送</option></select></label>
+          {sendWay === '2' && <label>定时发送时间<input aria-label="定时发送时间" type="datetime-local" required value={definiteTime} onChange={(event) => onDefiniteTimeChange(event.target.value)} /></label>}
+          {error && <p role="alert" className="phase34-inline-error">{error}</p>}
+          <p className="phase34-field-hint">发送前会由 Go Provider 校验成员、群主、内容和企业微信凭据；失败会保留在任务状态中。</p>
+          <div className="dashboard-table-actions"><button type="button" className="phase34-secondary-button" onClick={onClose}>取消</button><button type="submit" disabled={saving}>{saving ? '提交中…' : '保存并发送'}</button></div>
+        </form>
+      </div>
+    </aside>
+  );
+}
+
 export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   const access = useDashboardAccess();
   const [mode, setMode] = useState<SendMode>('contact');
   const [draftTitle, setDraftTitle] = useState('');
   const [title, setTitle] = useState('');
   const [selected, setSelected] = useState<ReachRecord | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createTitle, setCreateTitle] = useState('');
+  const [createEmployeeIDs, setCreateEmployeeIDs] = useState('');
+  const [createContent, setCreateContent] = useState('');
+  const [createSendWay, setCreateSendWay] = useState('1');
+  const [createDefiniteTime, setCreateDefiniteTime] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [writeError, setWriteError] = useState('');
   const endpoint = mode === 'contact' ? '/contactMessageBatchSend/index' : '/roomMessageBatchSend/index';
   const query = useQuery({
     queryKey: ['phase34-precise-send', access.corp.id, mode, title],
@@ -102,12 +167,39 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   });
   const rows = useMemo(() => rowsFrom(query.data), [query.data]);
   const refresh = () => { void query.refetch(); };
+  const createEndpoint = mode === 'contact' ? '/contactMessageBatchSend/store' : '/roomMessageBatchSend/store';
+  const saveCreate = async () => {
+    const ids = positiveReachIDs(createEmployeeIDs);
+    if (!createTitle.trim() || !createContent.trim() || ids.length === 0) {
+      setWriteError('请填写任务名称、目标成员或群主 ID 和群发内容。');
+      return;
+    }
+    const body: Record<string, unknown> = { batchTitle: createTitle.trim(), employeeIds: ids, sendWay: Number(createSendWay), content: [{ msgType: 'text', content: createContent.trim() }] };
+    if (mode === 'contact') body.filterParams = {};
+    if (createSendWay === '2') body.definiteTime = createDefiniteTime.replace('T', ' ') + ':00';
+    setSaving(true);
+    setWriteError('');
+    try {
+      await api.write(createEndpoint, body, 'POST');
+      setCreateOpen(false);
+      setCreateTitle('');
+      setCreateEmployeeIDs('');
+      setCreateContent('');
+      setCreateSendWay('1');
+      setCreateDefiniteTime('');
+      await query.refetch();
+    } catch (error) {
+      setWriteError(error instanceof Error ? error.message : '群发任务创建失败。');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <section className="phase34-page">
       <header className="phase34-page-header">
         <div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>精准群发</h1><p>分别查看客户群发与群聊群发任务，追踪内容、执行结果和触达数据。</p></div>
-        <div className="phase34-header-actions"><span className="phase34-provider-badge">双 Provider 已连接</span><button type="button" disabled>新建群发</button><button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button></div>
+        <div className="phase34-header-actions"><span className="phase34-provider-badge">双 Provider 已连接</span><button type="button" onClick={() => { setWriteError(''); setCreateOpen(true); }}>新建群发</button><button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button></div>
       </header>
       <ReachTabs active={mode} onChange={(nextMode) => { setMode(nextMode); setDraftTitle(''); setTitle(''); setSelected(null); }} />
       <div className="dashboard-filter-bar phase34-filter-bar">
@@ -118,11 +210,13 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
       </div>
       <div className="dashboard-data-card phase34-results-card">
         <div className="dashboard-card-heading"><div><h2>{mode === 'contact' ? '客户群发' : '群聊群发'}任务</h2><p>当前企业：{access.corp.name}，列表仅展示 Provider 返回的真实任务。</p></div><span>{rows.length} 条</span></div>
+        {writeError && !createOpen && <p role="alert" className="phase34-inline-error">{writeError}</p>}
         {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <PageState state="empty" title="暂无群发任务" description="当前筛选条件下没有可展示的任务。" /> : (
           <div className="dashboard-table-scroll"><table className="phase34-table phase34-reach-table"><thead><tr><th>创建时间</th><th>执行时间</th><th>发送内容</th><th>执行结果</th><th>执行数据</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}><td>{primitive(row.createdAt)}</td><td>{primitive(row.sendTime ?? row.definiteTime)}</td><td>{contentText(row.content)}</td><td>{statusText(row.sendStatus)}</td><td>{executionData(row)}</td><td><button type="button" className="phase34-link-button" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>
         )}
       </div>
       {selected !== null && <SendDetail row={selected} onClose={() => setSelected(null)} />}
+      {createOpen && <SendCreateDrawer mode={mode} title={createTitle} employeeIDs={createEmployeeIDs} content={createContent} sendWay={createSendWay} definiteTime={createDefiniteTime} saving={saving} error={writeError} onTitleChange={setCreateTitle} onEmployeeIDsChange={setCreateEmployeeIDs} onContentChange={setCreateContent} onSendWayChange={setCreateSendWay} onDefiniteTimeChange={setCreateDefiniteTime} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
     </section>
   );
 }

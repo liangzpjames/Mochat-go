@@ -264,6 +264,10 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 		writeAccessError(w, err)
 		return
 	}
+	corpID, ok := selectedCorpID(w, loginInfo)
+	if !ok {
+		return
+	}
 	params, err := parseRequestParams(r)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
@@ -273,6 +277,7 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	values.CorpID = corpID
 	if !enforceSaaSQuota(r.Context(), w, h.store, user.TenantID, SaaSMetricWorkRoomAutoPulls, 1) {
 		return
 	}
@@ -280,7 +285,7 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	credential, ok := h.resolveCorpCredential(w, r.Context(), values.CorpID)
+	credential, ok := h.resolveCorpCredential(w, r.Context(), corpID)
 	if !ok {
 		return
 	}

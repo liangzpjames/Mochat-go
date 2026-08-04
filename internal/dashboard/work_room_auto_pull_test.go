@@ -215,6 +215,26 @@ func TestWorkRoomAutoPullStoreCreatesRecordAndQRCode(t *testing.T) {
 	}
 }
 
+func TestWorkRoomAutoPullStoreUsesSelectedCorpInsteadOfClientCorp(t *testing.T) {
+	store := &fakeWorkRoomAutoPullStore{
+		users:      map[int]User{1: {ID: 1}},
+		credential: RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "wwid", ContactSecret: "secret"},
+		createID:   910002,
+	}
+	client := &fakeWorkRoomAutoPullContactWayClient{qrcode: WorkRoomAutoPullQRCode{ConfigID: "config-910002", QRCodeURL: "https://wecom.example/qrcode.png"}}
+	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 99}}, "", client)
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":999,"qrcodeName":"跨企业请求","isVerified":2,"leadingWords":"欢迎","employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Store(rec, req)
+
+	if rec.Code != http.StatusOK || store.created.CorpID != 7 || store.credentialLookupCorpID != 7 {
+		t.Fatalf("status=%d createdCorp=%d credentialCorp=%d body=%s", rec.Code, store.created.CorpID, store.credentialLookupCorpID, rec.Body.String())
+	}
+}
+
 func TestWorkRoomAutoPullStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 	store := &fakeWorkRoomAutoPullStore{
 		users: map[int]User{1: {ID: 1, TenantID: 8}},
@@ -316,33 +336,34 @@ func TestWorkRoomAutoPullStoreValidatesRequiredName(t *testing.T) {
 }
 
 type fakeWorkRoomAutoPullStore struct {
-	users             map[int]User
-	credential        RoomWelcomeCorpCredential
-	page              WorkRoomAutoPullPage
-	filter            WorkRoomAutoPullFilter
-	businessOperators []int
-	businessIDs       []int
-	show              WorkRoomAutoPullShow
-	showFound         bool
-	showID            int
-	createID          int
-	createCalls       int
-	created           WorkRoomAutoPullWrite
-	createOperationID int
-	updated           WorkRoomAutoPullWrite
-	updateID          int
-	updateOperationID int
-	updateTarget      WorkRoomAutoPullUpdateTarget
-	updateFound       bool
-	qrcodeID          int
-	qrcodeURL         string
-	qrcodeConfigID    string
-	deletedID         int
-	quota             SaaSQuotaStatus
-	quotaTenantID     int
-	quotaMetric       string
-	refreshTenantID   int
-	refreshMetric     string
+	users                  map[int]User
+	credential             RoomWelcomeCorpCredential
+	page                   WorkRoomAutoPullPage
+	filter                 WorkRoomAutoPullFilter
+	businessOperators      []int
+	businessIDs            []int
+	show                   WorkRoomAutoPullShow
+	showFound              bool
+	showID                 int
+	createID               int
+	createCalls            int
+	created                WorkRoomAutoPullWrite
+	createOperationID      int
+	updated                WorkRoomAutoPullWrite
+	updateID               int
+	updateOperationID      int
+	updateTarget           WorkRoomAutoPullUpdateTarget
+	updateFound            bool
+	qrcodeID               int
+	qrcodeURL              string
+	qrcodeConfigID         string
+	deletedID              int
+	quota                  SaaSQuotaStatus
+	credentialLookupCorpID int
+	quotaTenantID          int
+	quotaMetric            string
+	refreshTenantID        int
+	refreshMetric          string
 }
 
 func (s *fakeWorkRoomAutoPullStore) UserByID(_ context.Context, userID int) (User, bool, error) {
@@ -359,6 +380,7 @@ func (s *fakeWorkRoomAutoPullStore) FirstEmployeeByUser(_ context.Context, _ int
 }
 
 func (s *fakeWorkRoomAutoPullStore) RoomWelcomeCorpCredentialByID(_ context.Context, corpID int) (RoomWelcomeCorpCredential, bool, error) {
+	s.credentialLookupCorpID = corpID
 	if s.credential.CorpID == 0 {
 		return RoomWelcomeCorpCredential{}, false, nil
 	}
