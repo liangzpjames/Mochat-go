@@ -5157,6 +5157,299 @@ func (s *MySQLStore) FriendsCircleMaterialPage(ctx context.Context, filter dashb
 	return dashboard.FriendsCircleMaterialPage{Items: items, Total: total, Page: page, PerPage: perPage, TotalPage: totalPage}, rows.Err()
 }
 
+func phase34AcquisitionLinkWhere(filter dashboard.Phase34AcquisitionLinkFilter, alias string) ([]string, []any) {
+	where := []string{alias + ".corp_id = ?", alias + ".deleted_at IS NULL"}
+	args := []any{filter.CorpID}
+	if filter.Name != "" {
+		where = append(where, alias+".name LIKE ?")
+		args = append(args, "%"+filter.Name+"%")
+	}
+	if filter.Status != "" {
+		where = append(where, alias+".status = ?")
+		args = append(args, filter.Status)
+	}
+	return where, args
+}
+
+func (s *MySQLStore) Phase34AcquisitionLinkPage(ctx context.Context, filter dashboard.Phase34AcquisitionLinkFilter) (dashboard.Phase34AcquisitionLinkPage, error) {
+	page, perPage := filter.Page, filter.PerPage
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+	where, args := phase34AcquisitionLinkWhere(filter, "l")
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mc_phase34_acquisition_links AS l WHERE "+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
+		return dashboard.Phase34AcquisitionLinkPage{}, err
+	}
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, perPage, (page-1)*perPage)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT l.id, l.corp_id, l.name, l.target_url, l.authorization_status, l.status,
+		       l.visit_total, l.conversion_total, l.creator_name,
+		       DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i:%s'), DATE_FORMAT(l.updated_at, '%Y-%m-%d %H:%i:%s')
+		FROM mc_phase34_acquisition_links AS l
+		WHERE `+strings.Join(where, " AND ")+` ORDER BY l.id DESC LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return dashboard.Phase34AcquisitionLinkPage{}, err
+	}
+	defer rows.Close()
+	items := make([]dashboard.Phase34AcquisitionLink, 0)
+	for rows.Next() {
+		var item dashboard.Phase34AcquisitionLink
+		if err := rows.Scan(&item.ID, &item.CorpID, &item.Name, &item.TargetURL, &item.AuthorizationStatus, &item.Status, &item.VisitTotal, &item.ConversionTotal, &item.CreatorName, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return dashboard.Phase34AcquisitionLinkPage{}, err
+		}
+		items = append(items, item)
+	}
+	return dashboard.Phase34AcquisitionLinkPage{Items: items, Total: total, Page: page, PerPage: perPage, TotalPage: pageCount(total, perPage)}, rows.Err()
+}
+
+func (s *MySQLStore) CreatePhase34AcquisitionLink(ctx context.Context, values dashboard.Phase34AcquisitionLinkWrite) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO mc_phase34_acquisition_links (corp_id, user_id, creator_name, name, target_url, authorization_status, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, values.CorpID, values.UserID, values.CreatorName, values.Name, values.TargetURL, values.AuthorizationStatus, values.Status)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	return int(id), err
+}
+
+func (s *MySQLStore) Phase34AcquisitionLinkByID(ctx context.Context, corpID int, id int) (dashboard.Phase34AcquisitionLink, bool, error) {
+	var item dashboard.Phase34AcquisitionLink
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, corp_id, name, target_url, authorization_status, status, visit_total, conversion_total, creator_name,
+		       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s')
+		FROM mc_phase34_acquisition_links
+		WHERE id = ? AND corp_id = ? AND deleted_at IS NULL
+	`, id, corpID).Scan(&item.ID, &item.CorpID, &item.Name, &item.TargetURL, &item.AuthorizationStatus, &item.Status, &item.VisitTotal, &item.ConversionTotal, &item.CreatorName, &item.CreatedAt, &item.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.Phase34AcquisitionLink{}, false, nil
+	}
+	if err != nil {
+		return dashboard.Phase34AcquisitionLink{}, false, err
+	}
+	return item, true, nil
+}
+
+func (s *MySQLStore) DisablePhase34AcquisitionLink(ctx context.Context, corpID int, id int) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE mc_phase34_acquisition_links SET status = 'disabled', disabled_at = NOW(), updated_at = NOW() WHERE id = ? AND corp_id = ? AND deleted_at IS NULL AND status <> 'disabled'`, id, corpID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected == 1, err
+}
+
+func (s *MySQLStore) UpdatePhase34AcquisitionAuthorizationState(ctx context.Context, corpID int, authorizationStatus string, state string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE mc_phase34_acquisition_links
+		SET authorization_status = ?, status = ?, updated_at = NOW()
+		WHERE corp_id = ? AND deleted_at IS NULL AND status <> 'disabled'
+	`, authorizationStatus, state, corpID)
+	return err
+}
+
+func phase34CustomerServiceWhere(filter dashboard.Phase34CustomerServiceFilter, alias string) ([]string, []any) {
+	where := []string{alias + ".corp_id = ?", alias + ".deleted_at IS NULL"}
+	args := []any{filter.CorpID}
+	if filter.Name != "" {
+		where = append(where, alias+".name LIKE ?")
+		args = append(args, "%"+filter.Name+"%")
+	}
+	if filter.Status != "" {
+		where = append(where, alias+".status = ?")
+		args = append(args, filter.Status)
+	}
+	return where, args
+}
+
+func (s *MySQLStore) Phase34CustomerServicePage(ctx context.Context, filter dashboard.Phase34CustomerServiceFilter) (dashboard.Phase34CustomerServicePage, error) {
+	page, perPage := filter.Page, filter.PerPage
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+	where, args := phase34CustomerServiceWhere(filter, "c")
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mc_phase34_customer_services AS c WHERE "+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
+		return dashboard.Phase34CustomerServicePage{}, err
+	}
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, perPage, (page-1)*perPage)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.id, c.corp_id, c.name, c.account, c.employee_ids, c.receive_mode, c.status, c.sync_reason, c.creator_name,
+		       DATE_FORMAT(c.created_at, '%Y-%m-%d %H:%i:%s'), DATE_FORMAT(c.updated_at, '%Y-%m-%d %H:%i:%s')
+		FROM mc_phase34_customer_services AS c
+		WHERE `+strings.Join(where, " AND ")+` ORDER BY c.id DESC LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return dashboard.Phase34CustomerServicePage{}, err
+	}
+	defer rows.Close()
+	items := make([]dashboard.Phase34CustomerService, 0)
+	for rows.Next() {
+		var item dashboard.Phase34CustomerService
+		if err := rows.Scan(&item.ID, &item.CorpID, &item.Name, &item.Account, &item.EmployeeIDs, &item.ReceiveMode, &item.Status, &item.SyncReason, &item.CreatorName, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return dashboard.Phase34CustomerServicePage{}, err
+		}
+		items = append(items, item)
+	}
+	return dashboard.Phase34CustomerServicePage{Items: items, Total: total, Page: page, PerPage: perPage, TotalPage: pageCount(total, perPage)}, rows.Err()
+}
+
+func (s *MySQLStore) CreatePhase34CustomerService(ctx context.Context, values dashboard.Phase34CustomerServiceWrite) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO mc_phase34_customer_services (corp_id, user_id, creator_name, name, account, employee_ids, receive_mode, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, values.CorpID, values.UserID, values.CreatorName, values.Name, values.Account, values.EmployeeIDs, values.ReceiveMode, values.Status)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	return int(id), err
+}
+
+func (s *MySQLStore) Phase34CustomerServiceByID(ctx context.Context, corpID int, id int) (dashboard.Phase34CustomerService, bool, error) {
+	var item dashboard.Phase34CustomerService
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, corp_id, name, account, employee_ids, receive_mode, status, sync_reason, creator_name,
+		       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s')
+		FROM mc_phase34_customer_services
+		WHERE id = ? AND corp_id = ? AND deleted_at IS NULL
+	`, id, corpID).Scan(&item.ID, &item.CorpID, &item.Name, &item.Account, &item.EmployeeIDs, &item.ReceiveMode, &item.Status, &item.SyncReason, &item.CreatorName, &item.CreatedAt, &item.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.Phase34CustomerService{}, false, nil
+	}
+	if err != nil {
+		return dashboard.Phase34CustomerService{}, false, err
+	}
+	return item, true, nil
+}
+
+func (s *MySQLStore) UpdatePhase34CustomerServiceSyncState(ctx context.Context, corpID int, state string, reason string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE mc_phase34_customer_services
+		SET status = ?, sync_reason = ?, updated_at = NOW()
+		WHERE corp_id = ? AND deleted_at IS NULL
+	`, state, reason, corpID)
+	return err
+}
+
+func phase34ShortLinkWhere(filter dashboard.Phase34ShortLinkFilter, alias string) ([]string, []any) {
+	where := []string{alias + ".corp_id = ?", alias + ".deleted_at IS NULL"}
+	args := []any{filter.CorpID}
+	if filter.Name != "" {
+		where = append(where, alias+".name LIKE ?")
+		args = append(args, "%"+filter.Name+"%")
+	}
+	if filter.Status != "" {
+		where = append(where, alias+".status = ?")
+		args = append(args, filter.Status)
+	}
+	return where, args
+}
+
+func (s *MySQLStore) Phase34ShortLinkPage(ctx context.Context, filter dashboard.Phase34ShortLinkFilter) (dashboard.Phase34ShortLinkPage, error) {
+	page, perPage := filter.Page, filter.PerPage
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+	where, args := phase34ShortLinkWhere(filter, "s")
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mc_phase34_short_links AS s WHERE "+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
+		return dashboard.Phase34ShortLinkPage{}, err
+	}
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, perPage, (page-1)*perPage)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT s.id, s.corp_id, s.name, s.token, s.target_type, s.target_url, s.status, s.visit_total, s.creator_name,
+		       DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s'), DATE_FORMAT(s.updated_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(s.disabled_at, '%Y-%m-%d %H:%i:%s'), '')
+		FROM mc_phase34_short_links AS s
+		WHERE `+strings.Join(where, " AND ")+` ORDER BY s.id DESC LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return dashboard.Phase34ShortLinkPage{}, err
+	}
+	defer rows.Close()
+	items := make([]dashboard.Phase34ShortLink, 0)
+	for rows.Next() {
+		var item dashboard.Phase34ShortLink
+		if err := rows.Scan(&item.ID, &item.CorpID, &item.Name, &item.Token, &item.TargetType, &item.TargetURL, &item.Status, &item.VisitTotal, &item.CreatorName, &item.CreatedAt, &item.UpdatedAt, &item.DisabledAt); err != nil {
+			return dashboard.Phase34ShortLinkPage{}, err
+		}
+		items = append(items, item)
+	}
+	return dashboard.Phase34ShortLinkPage{Items: items, Total: total, Page: page, PerPage: perPage, TotalPage: pageCount(total, perPage)}, rows.Err()
+}
+
+func (s *MySQLStore) CreatePhase34ShortLink(ctx context.Context, values dashboard.Phase34ShortLinkWrite) (dashboard.Phase34ShortLink, error) {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO mc_phase34_short_links (corp_id, user_id, creator_name, name, token, target_type, target_url, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, values.CorpID, values.UserID, values.CreatorName, values.Name, values.Token, values.TargetType, values.TargetURL, values.Status)
+	if err != nil {
+		return dashboard.Phase34ShortLink{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return dashboard.Phase34ShortLink{}, err
+	}
+	return dashboard.Phase34ShortLink{ID: int(id), CorpID: values.CorpID, Name: values.Name, Token: values.Token, TargetType: values.TargetType, TargetURL: values.TargetURL, Status: values.Status, CreatorName: values.CreatorName}, nil
+}
+
+func (s *MySQLStore) Phase34ShortLinkByToken(ctx context.Context, token string) (dashboard.Phase34ShortLink, bool, error) {
+	var item dashboard.Phase34ShortLink
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, corp_id, name, token, target_type, target_url, status, visit_total, creator_name,
+		       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(disabled_at, '%Y-%m-%d %H:%i:%s'), '')
+		FROM mc_phase34_short_links
+		WHERE token = ? AND deleted_at IS NULL
+	`, token).Scan(&item.ID, &item.CorpID, &item.Name, &item.Token, &item.TargetType, &item.TargetURL, &item.Status, &item.VisitTotal, &item.CreatorName, &item.CreatedAt, &item.UpdatedAt, &item.DisabledAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.Phase34ShortLink{}, false, nil
+	}
+	if err != nil {
+		return dashboard.Phase34ShortLink{}, false, err
+	}
+	return item, true, nil
+}
+
+func (s *MySQLStore) RecordPhase34ShortLinkVisit(ctx context.Context, linkID int, token string, referer string, userAgent string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var corpID int
+	if err := tx.QueryRowContext(ctx, `SELECT corp_id FROM mc_phase34_short_links WHERE id = ? AND token = ? AND deleted_at IS NULL`, linkID, token).Scan(&corpID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE mc_phase34_short_links SET visit_total = visit_total + 1, updated_at = NOW() WHERE id = ? AND token = ? AND status = 'active' AND deleted_at IS NULL`, linkID, token); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO mc_phase34_short_link_visits (short_link_id, corp_id, token, referer, user_agent) VALUES (?, ?, ?, ?, ?)`, linkID, corpID, token, referer, userAgent); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *MySQLStore) DisablePhase34ShortLink(ctx context.Context, corpID int, id int) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE mc_phase34_short_links SET status = 'disabled', disabled_at = NOW(), updated_at = NOW() WHERE id = ? AND corp_id = ? AND deleted_at IS NULL AND status <> 'disabled'`, id, corpID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected == 1, err
+}
+
 func (s *MySQLStore) CreateFriendsCircleTask(ctx context.Context, value dashboard.FriendsCircleTaskWrite) (int, error) {
 	result, err := s.db.ExecContext(ctx, `INSERT INTO mc_friends_circle_tasks (corp_id, user_id, creator_name, task_name, send_way, content, target_employees, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, value.CorpID, value.UserID, value.CreatorName, value.TaskName, value.SendWay, value.Content, value.TargetEmployees, value.Status)
 	if err != nil {

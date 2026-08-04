@@ -1276,6 +1276,27 @@ func main() {
 			compatserver.WithFriendsCirclePublishHandler(http.HandlerFunc(friendsCircle.Publish)),
 		)
 		log.Printf("go migrated routes enabled: friends circle provider")
+
+		phase34Acquisition := dashboard.NewPhase34AcquisitionHandler(
+			mysqlStore,
+			loginCache,
+			resolver,
+			dashboard.NewRBACResolver(mysqlStore),
+			dashboard.NewPhase34UnavailableExternalProvider(),
+		)
+		options = append(options,
+			compatserver.WithPhase34AcquisitionLinkIndexHandler(http.HandlerFunc(phase34Acquisition.AcquisitionLinkIndex)),
+			compatserver.WithPhase34AcquisitionLinkStoreHandler(http.HandlerFunc(phase34Acquisition.AcquisitionLinkStore)),
+			compatserver.WithPhase34AcquisitionLinkAuthorizeHandler(http.HandlerFunc(phase34Acquisition.AcquisitionLinkAuthorize)),
+			compatserver.WithPhase34CustomerServiceIndexHandler(http.HandlerFunc(phase34Acquisition.CustomerServiceIndex)),
+			compatserver.WithPhase34CustomerServiceStoreHandler(http.HandlerFunc(phase34Acquisition.CustomerServiceStore)),
+			compatserver.WithPhase34CustomerServiceSyncHandler(http.HandlerFunc(phase34Acquisition.CustomerServiceSync)),
+			compatserver.WithPhase34ShortLinkIndexHandler(http.HandlerFunc(phase34Acquisition.ShortLinkIndex)),
+			compatserver.WithPhase34ShortLinkStoreHandler(http.HandlerFunc(phase34Acquisition.ShortLinkStore)),
+			compatserver.WithPhase34ShortLinkDisableHandler(http.HandlerFunc(phase34Acquisition.ShortLinkDisable)),
+			compatserver.WithPhase34ShortLinkRedirectHandler(http.HandlerFunc(phase34Acquisition.ShortLinkRedirect)),
+		)
+		log.Printf("go migrated routes enabled: phase34 acquisition provider (external adapter fail-closed)")
 	}
 
 	if cfg.MigrateChannelCodeIndex || cfg.MigrateChannelCodeShow || cfg.MigrateChannelCodeContact || cfg.MigrateChannelCodeStatistics || cfg.MigrateChannelCodeStatsIndex || cfg.MigrateChannelCodeStore || cfg.MigrateChannelCodeUpdate ||

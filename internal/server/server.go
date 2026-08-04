@@ -209,6 +209,16 @@ type Server struct {
 	friendsCircleTaskStore                          http.Handler
 	friendsCircleMaterialStore                      http.Handler
 	friendsCirclePublish                            http.Handler
+	phase34AcquisitionLinkIndex                     http.Handler
+	phase34AcquisitionLinkStore                     http.Handler
+	phase34AcquisitionLinkAuthorize                 http.Handler
+	phase34CustomerServiceIndex                     http.Handler
+	phase34CustomerServiceStore                     http.Handler
+	phase34CustomerServiceSync                      http.Handler
+	phase34ShortLinkIndex                           http.Handler
+	phase34ShortLinkStore                           http.Handler
+	phase34ShortLinkDisable                         http.Handler
+	phase34ShortLinkRedirect                        http.Handler
 	sidebarMediumGroupIndex                         http.Handler
 	channelCodeIndex                                http.Handler
 	channelCodeShow                                 http.Handler
@@ -1787,6 +1797,46 @@ func WithFriendsCircleMaterialStoreHandler(handler http.Handler) Option {
 }
 func WithFriendsCirclePublishHandler(handler http.Handler) Option {
 	return func(server *Server) { server.friendsCirclePublish = handler }
+}
+
+func WithPhase34AcquisitionLinkIndexHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34AcquisitionLinkIndex = handler }
+}
+
+func WithPhase34AcquisitionLinkStoreHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34AcquisitionLinkStore = handler }
+}
+
+func WithPhase34AcquisitionLinkAuthorizeHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34AcquisitionLinkAuthorize = handler }
+}
+
+func WithPhase34CustomerServiceIndexHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34CustomerServiceIndex = handler }
+}
+
+func WithPhase34CustomerServiceStoreHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34CustomerServiceStore = handler }
+}
+
+func WithPhase34CustomerServiceSyncHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34CustomerServiceSync = handler }
+}
+
+func WithPhase34ShortLinkIndexHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34ShortLinkIndex = handler }
+}
+
+func WithPhase34ShortLinkStoreHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34ShortLinkStore = handler }
+}
+
+func WithPhase34ShortLinkDisableHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34ShortLinkDisable = handler }
+}
+
+func WithPhase34ShortLinkRedirectHandler(handler http.Handler) Option {
+	return func(server *Server) { server.phase34ShortLinkRedirect = handler }
 }
 
 func WithSidebarMediumGroupIndexHandler(handler http.Handler) Option {
@@ -4627,6 +4677,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.friendsCircleMaterialStore.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/friendsCircle/publish" && r.Method == http.MethodPost && s.friendsCirclePublish != nil:
 		s.friendsCirclePublish.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/acquisitionLink/index" && r.Method == http.MethodGet && s.phase34AcquisitionLinkIndex != nil:
+		s.phase34AcquisitionLinkIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/acquisitionLink/store" && r.Method == http.MethodPost && s.phase34AcquisitionLinkStore != nil:
+		s.phase34AcquisitionLinkStore.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/acquisitionLink/authorize" && r.Method == http.MethodPost && s.phase34AcquisitionLinkAuthorize != nil:
+		s.phase34AcquisitionLinkAuthorize.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/customerService/index" && r.Method == http.MethodGet && s.phase34CustomerServiceIndex != nil:
+		s.phase34CustomerServiceIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/customerService/store" && r.Method == http.MethodPost && s.phase34CustomerServiceStore != nil:
+		s.phase34CustomerServiceStore.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/customerService/sync" && r.Method == http.MethodPost && s.phase34CustomerServiceSync != nil:
+		s.phase34CustomerServiceSync.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/liveCodeShortChain/index" && r.Method == http.MethodGet && s.phase34ShortLinkIndex != nil:
+		s.phase34ShortLinkIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/liveCodeShortChain/store" && r.Method == http.MethodPost && s.phase34ShortLinkStore != nil:
+		s.phase34ShortLinkStore.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/liveCodeShortChain/disable" && r.Method == http.MethodPost && s.phase34ShortLinkDisable != nil:
+		s.phase34ShortLinkDisable.ServeHTTP(w, r)
+	case strings.HasPrefix(r.URL.Path, "/r/") && r.Method == http.MethodGet && s.phase34ShortLinkRedirect != nil:
+		s.phase34ShortLinkRedirect.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/mediumGroup/store" && r.Method == http.MethodPost && s.mediumGroupStore != nil:
 		s.mediumGroupStore.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/mediumGroup/update" && r.Method == http.MethodPut && s.mediumGroupUpdate != nil:
@@ -6264,6 +6334,36 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.friendsCirclePublish != nil {
 		routes = append(routes, "POST /dashboard/friendsCircle/publish")
+	}
+	if s.phase34AcquisitionLinkIndex != nil {
+		routes = append(routes, "GET /dashboard/acquisitionLink/index")
+	}
+	if s.phase34AcquisitionLinkStore != nil {
+		routes = append(routes, "POST /dashboard/acquisitionLink/store")
+	}
+	if s.phase34AcquisitionLinkAuthorize != nil {
+		routes = append(routes, "POST /dashboard/acquisitionLink/authorize")
+	}
+	if s.phase34CustomerServiceIndex != nil {
+		routes = append(routes, "GET /dashboard/customerService/index")
+	}
+	if s.phase34CustomerServiceStore != nil {
+		routes = append(routes, "POST /dashboard/customerService/store")
+	}
+	if s.phase34CustomerServiceSync != nil {
+		routes = append(routes, "POST /dashboard/customerService/sync")
+	}
+	if s.phase34ShortLinkIndex != nil {
+		routes = append(routes, "GET /dashboard/liveCodeShortChain/index")
+	}
+	if s.phase34ShortLinkStore != nil {
+		routes = append(routes, "POST /dashboard/liveCodeShortChain/store")
+	}
+	if s.phase34ShortLinkDisable != nil {
+		routes = append(routes, "POST /dashboard/liveCodeShortChain/disable")
+	}
+	if s.phase34ShortLinkRedirect != nil {
+		routes = append(routes, "GET /r/{token}")
 	}
 	if s.mediumGroupStore != nil {
 		routes = append(routes, "POST /dashboard/mediumGroup/store")

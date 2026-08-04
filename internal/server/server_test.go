@@ -86,6 +86,45 @@ func TestMaterialFoundationProviderRoutes(t *testing.T) {
 	}
 }
 
+func TestPhase34AcquisitionProviderRoutes(t *testing.T) {
+	handler := func(body string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) })
+	}
+	srv, err := New(config.Config{},
+		WithPhase34AcquisitionLinkIndexHandler(handler("acquisition-index")),
+		WithPhase34AcquisitionLinkStoreHandler(handler("acquisition-store")),
+		WithPhase34AcquisitionLinkAuthorizeHandler(handler("acquisition-authorize")),
+		WithPhase34CustomerServiceIndexHandler(handler("customer-index")),
+		WithPhase34CustomerServiceStoreHandler(handler("customer-store")),
+		WithPhase34CustomerServiceSyncHandler(handler("customer-sync")),
+		WithPhase34ShortLinkIndexHandler(handler("short-index")),
+		WithPhase34ShortLinkStoreHandler(handler("short-store")),
+		WithPhase34ShortLinkDisableHandler(handler("short-disable")),
+		WithPhase34ShortLinkRedirectHandler(handler("short-redirect")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodGet, "/dashboard/acquisitionLink/index", "acquisition-index"},
+		{http.MethodPost, "/dashboard/acquisitionLink/store", "acquisition-store"},
+		{http.MethodPost, "/dashboard/acquisitionLink/authorize", "acquisition-authorize"},
+		{http.MethodGet, "/dashboard/customerService/index", "customer-index"},
+		{http.MethodPost, "/dashboard/customerService/store", "customer-store"},
+		{http.MethodPost, "/dashboard/customerService/sync", "customer-sync"},
+		{http.MethodGet, "/dashboard/liveCodeShortChain/index", "short-index"},
+		{http.MethodPost, "/dashboard/liveCodeShortChain/store", "short-store"},
+		{http.MethodPost, "/dashboard/liveCodeShortChain/disable", "short-disable"},
+		{http.MethodGet, "/r/abc123", "short-redirect"},
+	} {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != tc.body {
+			t.Fatalf("%s %s: status=%d body=%q", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestHeadRootDoesNotWriteBody(t *testing.T) {
 	srv := newTestServer(t, "")
 

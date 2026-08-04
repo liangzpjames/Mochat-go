@@ -33,34 +33,51 @@ function view(page: React.ReactNode) {
 }
 
 describe('Phase 3.4 conversion pages', () => {
-  it('renders the acquisition-link authorization boundary without inventing provider data', () => {
-    const read = vi.fn();
-    const write = vi.fn();
+  it('loads persisted acquisition links and creates one through the provider', async () => {
+    const read = vi.fn().mockResolvedValue({
+      list: [{ id: 4, name: '官网获客入口', targetUrl: '/acquisition/v2-channel-code', authorizationStatus: 'authorized', status: 'active', visitTotal: 12, conversionTotal: 3 }],
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
     view(<RedirectLinkPage api={{ read, write }} />);
 
-    expect(screen.getByRole('heading', { name: '获客链接' })).toBeTruthy();
-    expect(screen.getByText('企业授权尚未接入')).toBeTruthy();
-    expect(screen.getByLabelText('链接名称')).toBeTruthy();
-    expect(screen.getByText('访问人数')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '立即授权并使用' })).toHaveProperty('disabled', true);
-    expect(read).not.toHaveBeenCalled();
-    expect(write).not.toHaveBeenCalled();
+    expect(await screen.findByText('官网获客入口')).toBeTruthy();
+    expect(read).toHaveBeenCalledWith('/acquisitionLink/index', expect.objectContaining({ page: 1, perPage: 20 }));
+    fireEvent.click(screen.getByRole('button', { name: '创建获客链接' }));
+    expect(screen.getByLabelText('创建获客链接')).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText('链接名称')[1]!, { target: { value: '新品入口' } });
+    fireEvent.change(screen.getByLabelText('目标地址'), { target: { value: '/acquisition/v2-channel-code' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存获客链接' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/acquisitionLink/store',
+      { name: '新品入口', targetUrl: '/acquisition/v2-channel-code' },
+      'POST',
+    ));
   });
 
-  it('renders the customer-service structure and blocks sync until its provider is configured', () => {
-    const read = vi.fn();
-    const write = vi.fn();
+  it('loads customer-service accounts, persists a draft, and exposes sync failure', async () => {
+    const read = vi.fn().mockResolvedValue({
+      list: [{ id: 9, name: '售前客服', account: 'kf_001', employeeIds: '[3,4]', receiveMode: 'round_robin', status: 'pending_sync' }],
+    });
+    const write = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('WeCom customer-service provider unavailable'));
     view(<WechatCustomerServicePage api={{ read, write }} />);
 
-    expect(screen.getByRole('heading', { name: '微信客服' })).toBeTruthy();
-    expect(screen.getByLabelText('客服名称')).toBeTruthy();
-    expect(screen.getByText('客服账号')).toBeTruthy();
-    expect(screen.getByText('接待员工')).toBeTruthy();
-    expect(screen.getByText('接待方式')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '同步客服账号' })).toHaveProperty('disabled', true);
-    expect(screen.getByText('微信客服 Provider 未配置')).toBeTruthy();
-    expect(read).not.toHaveBeenCalled();
-    expect(write).not.toHaveBeenCalled();
+    expect(await screen.findByText('售前客服')).toBeTruthy();
+    expect(read).toHaveBeenCalledWith('/customerService/index', expect.objectContaining({ page: 1, perPage: 20 }));
+    fireEvent.click(screen.getByRole('button', { name: '创建客服' }));
+    fireEvent.change(screen.getAllByLabelText('客服名称')[1]!, { target: { value: '售后客服' } });
+    fireEvent.change(screen.getByLabelText('客服账号'), { target: { value: 'kf_002' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存客服' }));
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/customerService/store',
+      { name: '售后客服', account: 'kf_002', employeeIds: [], receiveMode: 'round_robin' },
+      'POST',
+    ));
+
+    fireEvent.click(screen.getByRole('button', { name: '同步客服账号' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('WeCom customer-service provider unavailable');
   });
 
   it('loads group templates from the real auto-pull provider and applies a name filter', async () => {

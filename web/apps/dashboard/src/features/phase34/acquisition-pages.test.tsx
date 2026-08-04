@@ -104,16 +104,38 @@ describe('Phase 3.4 acquisition pages', () => {
     expect(screen.getByRole('button', { name: '刷新' })).toBeTruthy();
   });
 
-  it('does not invent a short-link provider or fake links', () => {
-    const read = vi.fn();
-    const api: BusinessWorkbenchApi = { read, write: vi.fn() };
+  it('loads persisted short links, opens the create drawer, and creates a draft target', async () => {
+    const read = vi.fn().mockResolvedValue({
+      list: [{ id: 8, name: '群活码短链', token: 'abc123', targetUrl: '/acquisition/group-code', status: 'active', visitTotal: 4 }],
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+    const api: BusinessWorkbenchApi = { read, write };
     view(<LiveCodeShortChainPage api={api} />);
 
-    expect(screen.getByRole('heading', { name: '活码短链' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: '短链服务未接入' })).toBeTruthy();
-    expect(screen.getByLabelText('短链名称')).toBeTruthy();
-    expect(screen.getByLabelText('短链形式')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '创建短链' })).toBeNull();
-    expect(read).not.toHaveBeenCalled();
+    expect(await screen.findByText('群活码短链')).toBeTruthy();
+    expect(read).toHaveBeenCalledWith('/liveCodeShortChain/index', expect.objectContaining({ page: 1, perPage: 20 }));
+    fireEvent.click(screen.getByRole('button', { name: '创建短链' }));
+    expect(screen.getByLabelText('创建短链')).toBeTruthy();
+    fireEvent.change(screen.getAllByLabelText('短链名称')[1]!, { target: { value: '群活码短链' } });
+    fireEvent.change(screen.getByLabelText('目标地址'), { target: { value: '/acquisition/group-code' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存短链' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/liveCodeShortChain/store',
+      { name: '群活码短链', targetUrl: '/acquisition/group-code', targetType: 'url' },
+      'POST',
+    ));
+  });
+
+  it('disables a persisted short link through the provider', async () => {
+    const read = vi.fn().mockResolvedValue({
+      list: [{ id: 8, name: '群活码短链', token: 'abc123', targetUrl: '/acquisition/group-code', status: 'active', visitTotal: 4 }],
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<LiveCodeShortChainPage api={{ read, write }} />);
+
+    await screen.findByText('群活码短链');
+    fireEvent.click(screen.getByRole('button', { name: '停用' }));
+    await waitFor(() => expect(write).toHaveBeenCalledWith('/liveCodeShortChain/disable', { id: 8 }, 'POST'));
   });
 });
