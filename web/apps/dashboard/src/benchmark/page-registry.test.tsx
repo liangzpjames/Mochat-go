@@ -19,6 +19,7 @@ import { Phase33OperationsPage } from '../features/phase33/phase33-operations-pa
 import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../features/phase34/acquisition-pages';
 import { GroupTemplatePage, RedirectLinkPage, WechatCustomerServicePage } from '../features/phase34/conversion-pages';
 import { FriendsCirclePage, PreciseGroupSendPage } from '../features/phase34/content-reach-pages';
+import { MaterialManagementPage } from '../features/phase34/material-management/material-management-page';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -205,6 +206,7 @@ describe('createPageRegistry', () => {
     expect((pages['/acquisition/group-template'] as { type?: unknown }).type).toBe(GroupTemplatePage);
     expect((pages['/acquisition/precise-group-send'] as { type?: unknown }).type).toBe(PreciseGroupSendPage);
     expect((pages['/acquisition/friends-circle'] as { type?: unknown }).type).toBe(FriendsCirclePage);
+    expect((pages['/acquisition/material-management'] as { type?: unknown }).type).toBe(MaterialManagementPage);
   });
 
   it('prefers P0 implementations over P1 implementations at the same path', () => {
