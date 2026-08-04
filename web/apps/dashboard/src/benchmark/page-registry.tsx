@@ -38,6 +38,7 @@ import { RefuseArchivePage, SilentCustomerPage } from '../features/phase33/phase
 import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
 import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../features/phase34/acquisition-pages';
 import { GroupTemplatePage, RedirectLinkPage, WechatCustomerServicePage } from '../features/phase34/conversion-pages';
+import { FriendsCirclePage, PreciseGroupSendPage } from '../features/phase34/content-reach-pages';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -104,6 +105,8 @@ export function createBenchmarkP0Pages({
       '/acquisition/redirect-link': <RedirectLinkPage api={businessWorkbenchApi} />,
       '/acquisition/wechat-customer-service': <WechatCustomerServicePage api={businessWorkbenchApi} />,
       '/acquisition/group-template': <GroupTemplatePage api={businessWorkbenchApi} />,
+      '/acquisition/precise-group-send': <PreciseGroupSendPage api={businessWorkbenchApi} />,
+      '/acquisition/friends-circle': <FriendsCirclePage api={businessWorkbenchApi} />,
     }),
   };
 }

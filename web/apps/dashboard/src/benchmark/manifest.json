@@ -592,17 +592,17 @@
       "groupId": "marketing-tools",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "screenshotVersion": "2026-08-04",
+      "implementation": "native",
+      "backend": "partial",
+      "acceptance": "unit-passed",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-precise-group-send/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-precise-group-send.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch3-content-reach-report.md"
       }
     },
     {
@@ -611,17 +611,17 @@
       "groupId": "marketing-tools",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
+      "screenshotVersion": "2026-08-04",
+      "implementation": "native",
       "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "acceptance": "unit-passed",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-friends-circle/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-friends-circle.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch3-content-reach-report.md"
       }
     },
     {

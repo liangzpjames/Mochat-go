@@ -18,6 +18,7 @@ import { SilentCustomerPage } from '../features/phase33/phase33-closure-pages';
 import { Phase33OperationsPage } from '../features/phase33/phase33-operations-page';
 import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../features/phase34/acquisition-pages';
 import { GroupTemplatePage, RedirectLinkPage, WechatCustomerServicePage } from '../features/phase34/conversion-pages';
+import { FriendsCirclePage, PreciseGroupSendPage } from '../features/phase34/content-reach-pages';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -202,6 +203,8 @@ describe('createPageRegistry', () => {
     expect((pages['/acquisition/redirect-link'] as { type?: unknown }).type).toBe(RedirectLinkPage);
     expect((pages['/acquisition/wechat-customer-service'] as { type?: unknown }).type).toBe(WechatCustomerServicePage);
     expect((pages['/acquisition/group-template'] as { type?: unknown }).type).toBe(GroupTemplatePage);
+    expect((pages['/acquisition/precise-group-send'] as { type?: unknown }).type).toBe(PreciseGroupSendPage);
+    expect((pages['/acquisition/friends-circle'] as { type?: unknown }).type).toBe(FriendsCirclePage);
   });
 
   it('prefers P0 implementations over P1 implementations at the same path', () => {
