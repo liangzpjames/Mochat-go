@@ -83,15 +83,19 @@ describe('Phase 3.4 material management', () => {
   });
 
   it('creates a real material group and refreshes the group provider', async () => {
-    vi.spyOn(window, 'prompt').mockReturnValue('新品分组');
     const read = readProvider();
     const write = vi.fn().mockResolvedValue(undefined);
     view({ read, write });
     await screen.findByText('欢迎文案');
 
     fireEvent.click(screen.getByRole('button', { name: '创建分组' }));
+    expect(screen.getByRole('dialog', { name: '创建素材分组' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '保存分组' }).hasAttribute('disabled')).toBe(true);
+    fireEvent.change(screen.getByLabelText('分组名称'), { target: { value: '新品分组' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存分组' }));
     await waitFor(() => expect(write).toHaveBeenCalledWith('/mediumGroup/store', { name: '新品分组' }, 'POST'));
     expect(read.mock.calls.filter(([endpoint]) => endpoint === '/mediumGroup/index').length).toBeGreaterThan(1);
+    expect(screen.queryByRole('dialog', { name: '创建素材分组' })).toBeNull();
   });
 
   it('batch moves selected materials and surfaces reference conflicts', async () => {

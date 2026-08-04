@@ -1315,6 +1315,20 @@ body {
 .phase34-material-batch strong { color: #5064da; font-size: .76rem; margin-right: auto; }
 .phase34-material-batch .danger { background: #fff0f0; border-color: #f3cece; color: #b84b4b; }
 .phase34-material-error { background: #fff1f1; border: 1px solid #f3d0d0; border-radius: 8px; color: #b94b4b; font-size: .76rem; padding: 9px 11px; }
+.phase34-material-group-modal { align-items: center; display: flex; inset: 0; justify-content: center; position: fixed; z-index: 90; }
+.phase34-material-group-backdrop { background: rgb(17 24 39 / 42%); border: 0; inset: 0; padding: 0; position: absolute; }
+.phase34-material-group-dialog { background: #fff; border-radius: 14px; box-shadow: 0 24px 64px rgb(15 23 42 / 22%); display: grid; gap: 20px; max-width: calc(100vw - 32px); padding: 24px; position: relative; width: 420px; }
+.phase34-material-group-dialog header { align-items: flex-start; display: flex; justify-content: space-between; }
+.phase34-material-group-dialog header h2 { color: #20283a; font-size: 1.2rem; margin: 4px 0 0; }
+.phase34-material-group-dialog header button { background: #f4f6fb; border: 0; border-radius: 50%; color: #667085; cursor: pointer; font-size: 1.2rem; height: 34px; width: 34px; }
+.phase34-material-group-dialog label { color: #4f5768; display: grid; font-size: .82rem; font-weight: 600; gap: 8px; }
+.phase34-material-group-dialog input { border: 1px solid #dfe4ee; border-radius: 9px; box-sizing: border-box; color: #394153; font: inherit; min-height: 44px; outline: none; padding: 10px 12px; width: 100%; }
+.phase34-material-group-dialog input:focus { border-color: #6678ed; box-shadow: 0 0 0 3px rgb(83 107 244 / 10%); }
+.phase34-material-group-dialog label small { color: #a0a7b5; font-weight: 400; justify-self: end; }
+.phase34-material-group-dialog footer { display: flex; gap: 10px; justify-content: flex-end; }
+.phase34-material-group-dialog footer button { border: 1px solid #d9deea; border-radius: 8px; cursor: pointer; min-height: 38px; padding: 0 18px; }
+.phase34-material-group-dialog footer button:last-child { background: #5268ef; border-color: #5268ef; color: #fff; }
+.phase34-material-group-dialog footer button:disabled { cursor: not-allowed; opacity: .55; }
 .phase34-material-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .phase34-material-grid article { background: #fff; border: 1px solid #e6e9f0; border-radius: 11px; box-shadow: 0 5px 15px rgb(39 50 75 / 4%); display: flex; flex-direction: column; min-height: 190px; padding: 14px; }
 .phase34-material-card-top { align-items: center; display: flex; justify-content: space-between; }
