@@ -15,7 +15,7 @@ const access: AccessContext = {
   allowedActions: new Set(),
 };
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function view(page: React.ReactNode) {
   return render(
@@ -58,7 +58,7 @@ describe('Phase 3.4 content-reach pages', () => {
   it('queries real friends-circle tasks and materials and persists a draft', async () => {
     const read = vi.fn()
       .mockResolvedValueOnce({ list: [{ id: 21, taskName: '夏日朋友圈', sendWay: 'manual', status: 'draft', completedTotal: 0, targetTotal: 8, creatorName: '运营员', createdAt: '2026-08-04 14:00' }] })
-      .mockResolvedValueOnce({ list: [{ id: 31, name: '新品海报', type: 'image', status: 'available', creatorName: '运营员', createdAt: '2026-08-04 14:10' }] })
+      .mockResolvedValueOnce({ list: [{ id: 31, name: '新品海报', content: '{"text":"新品正文摘要"}', type: 'image', status: 'available', creatorName: '运营员', createdAt: '2026-08-04 14:10' }] })
       .mockResolvedValue({ list: [] });
     const write = vi.fn().mockResolvedValue(undefined);
     view(<FriendsCirclePage api={{ read, write }} />);
@@ -68,10 +68,11 @@ describe('Phase 3.4 content-reach pages', () => {
     expect(await screen.findByText('夏日朋友圈')).toBeTruthy();
     expect(read).toHaveBeenCalledWith('/friendsCircle/taskIndex', expect.objectContaining({ page: 1, perPage: 20 }));
     expect(screen.getByLabelText('任务名称')).toBeTruthy();
-    expect(screen.getByLabelText('发送方式')).toBeTruthy();
+    expect(screen.getByText('发送方式')).toBeTruthy();
     expect(screen.getByText('完成情况')).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: '朋友圈素材' }));
     expect(await screen.findByText('新品海报')).toBeTruthy();
+    expect(screen.getByText('新品正文摘要')).toBeTruthy();
     expect(read).toHaveBeenLastCalledWith('/friendsCircle/materialIndex', expect.objectContaining({ page: 1, perPage: 20 }));
     fireEvent.click(screen.getByRole('tab', { name: '朋友圈' }));
     fireEvent.click(screen.getByRole('button', { name: '添加朋友圈' }));
@@ -98,5 +99,58 @@ describe('Phase 3.4 content-reach pages', () => {
     rendered.rerender(page({ ...access, session: { ...access.session, corpId: '8' }, corp: { ...access.corp, id: '8', name: 'corp-eight' } }));
     expect(await screen.findByText('corp-eight-draft')).toBeTruthy();
     expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it('supports keyboard filtering and protects unsaved drawer content', async () => {
+    const read = vi.fn().mockResolvedValue({ list: [] });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    view(<FriendsCirclePage api={{ read, write: vi.fn() }} />);
+
+    await screen.findByRole('heading', { name: '还没有朋友圈任务' });
+    const reset = screen.getByRole('button', { name: '重置' });
+    expect(reset).toHaveProperty('disabled', true);
+    fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '秋日' } });
+    fireEvent.keyDown(screen.getByLabelText('任务名称'), { key: 'Enter' });
+    await waitFor(() => expect(read).toHaveBeenLastCalledWith('/friendsCircle/taskIndex', expect.objectContaining({ taskName: '秋日' })));
+
+    const addButton = screen.getByRole('button', { name: '添加朋友圈' });
+    addButton.focus();
+    fireEvent.click(addButton);
+    expect(screen.getByLabelText('朋友圈草稿').getAttribute('data-variant')).toBe('task');
+    expect(document.activeElement).toBe(screen.getByLabelText('草稿名称'));
+    expect(screen.getByLabelText('草稿名称').hasAttribute('required')).toBe(true);
+    expect(screen.getByText('0 / 500')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('草稿名称'), { target: { value: '未保存草稿' } });
+    fireEvent.click(screen.getByRole('button', { name: '关闭新增面板' }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('朋友圈草稿')).toBeTruthy();
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: '关闭新增面板' }));
+    expect(screen.queryByLabelText('朋友圈草稿')).toBeNull();
+    expect(document.activeElement).toBe(addButton);
+
+    fireEvent.click(screen.getByRole('button', { name: '添加朋友圈' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByLabelText('朋友圈草稿')).toBeNull();
+  });
+
+  it('locks composer fields while a draft save is in flight', async () => {
+    let finishSave: (() => void) | undefined;
+    const write = vi.fn().mockImplementation(() => new Promise<void>((resolve) => { finishSave = resolve; }));
+    view(<FriendsCirclePage api={{ read: vi.fn().mockResolvedValue({ list: [] }), write }} />);
+
+    await screen.findByRole('heading', { name: '还没有朋友圈任务' });
+    fireEvent.click(screen.getByRole('button', { name: '添加朋友圈' }));
+    fireEvent.change(screen.getByLabelText('草稿名称'), { target: { value: '保存中草稿' } });
+    fireEvent.change(screen.getByLabelText('草稿内容'), { target: { value: '保存期间不可编辑' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledOnce());
+    expect(screen.getByLabelText('草稿名称')).toHaveProperty('disabled', true);
+    expect(screen.getByLabelText('草稿内容')).toHaveProperty('disabled', true);
+    expect(fireEvent.keyDown(document, { key: 'Tab' })).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole('dialog', { name: '添加朋友圈草稿' }));
+    finishSave?.();
+    await waitFor(() => expect(screen.queryByLabelText('朋友圈草稿')).toBeNull());
   });
 });

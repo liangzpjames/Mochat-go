@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
@@ -28,11 +28,18 @@ function primitive(value: unknown): string {
 }
 
 function contentText(value: unknown): string {
+  if (typeof value === 'string') {
+    try {
+      return contentText(JSON.parse(value));
+    } catch {
+      return primitive(value);
+    }
+  }
   if (Array.isArray(value)) {
     const text = value.map((item) => isRecord(item) ? primitive(item.content ?? item.title ?? item.name) : primitive(item)).filter((item) => item !== '--').join('；');
     return text || '--';
   }
-  return isRecord(value) ? primitive(value.content ?? value.title ?? value.name) : primitive(value);
+  return isRecord(value) ? primitive(value.text ?? value.content ?? value.title ?? value.name) : primitive(value);
 }
 
 function statusText(value: unknown): string {
@@ -120,9 +127,77 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   );
 }
 
+type FriendsCircleTab = 'task' | 'material';
+
+function friendsStatus(value: unknown): { label: string; tone: string } {
+  const status = primitive(value);
+  if (status === 'draft') return { label: '草稿', tone: 'draft' };
+  if (status === 'available') return { label: '可用', tone: 'success' };
+  if (status === 'failed') return { label: '失败', tone: 'danger' };
+  if (status === 'publishing' || status === 'queued') return { label: '处理中', tone: 'progress' };
+  return { label: status, tone: 'neutral' };
+}
+
+function FriendsCircleComposer({ tab, name, content, saving, error, onNameChange, onContentChange, onClose, onSave }: {
+  tab: FriendsCircleTab;
+  name: string;
+  content: string;
+  saving: boolean;
+  error: string;
+  onNameChange: (value: string) => void;
+  onContentChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const isTask = tab === 'task';
+  const panelRef = useRef<HTMLDivElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const closeRef = useRef(onClose);
+  const savingRef = useRef(saving);
+  closeRef.current = onClose;
+  savingRef.current = saving;
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    nameRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !savingRef.current) closeRef.current();
+      if (event.key !== 'Tab' || !panelRef.current) return;
+      const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled])'));
+      if (focusable.length === 0) { event.preventDefault(); panelRef.current.focus(); return; }
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => { document.removeEventListener('keydown', handleKeyDown); opener?.focus(); };
+  }, []);
+  return (
+    <aside className="phase34-detail phase34-friends-drawer" aria-label="朋友圈草稿" data-variant={tab}>
+      <div className="phase34-detail-backdrop" onClick={onClose} />
+      <div ref={panelRef} className="phase34-detail-panel" role="dialog" aria-modal="true" aria-labelledby="friends-composer-title" tabIndex={-1}>
+        <header className="phase34-friends-drawer-header">
+          <div className="phase34-friends-drawer-icon" aria-hidden="true">{isTask ? '圈' : '素'}</div>
+          <div><p className="phase34-eyebrow">{isTask ? '朋友圈任务' : '朋友圈素材'}</p><h2 id="friends-composer-title">{isTask ? '添加朋友圈草稿' : '添加文字素材'}</h2><p>{isTask ? '保存后可继续完善目标员工与正式发布配置。' : '创建可复用的文字内容，后续可用于朋友圈任务。'}</p></div>
+          <button type="button" className="phase34-friends-close" aria-label="关闭新增面板" disabled={saving} onClick={onClose}>×</button>
+        </header>
+        <div className="phase34-friends-drawer-body">
+          <div className="phase34-friends-safety"><strong>仅保存草稿</strong><span>当前不会向企业微信发布任何内容。</span></div>
+          <div className="phase34-compose-form">
+            <label><span>{isTask ? '任务名称' : '素材名称'} <b>*</b></span><input ref={nameRef} aria-label="草稿名称" aria-describedby="friends-name-count" required disabled={saving} maxLength={80} placeholder={isTask ? '例如：秋季新品朋友圈' : '例如：新品上市文案'} value={name} onChange={(event) => onNameChange(event.target.value)} /><small id="friends-name-count">{name.length} / 80</small></label>
+            <label><span>朋友圈内容 <b>*</b></span><textarea aria-label="草稿内容" aria-describedby="friends-content-count" required disabled={saving} maxLength={500} rows={9} placeholder="请输入准备发布的朋友圈文字内容…" value={content} onChange={(event) => onContentChange(event.target.value)} /><small id="friends-content-count">{content.length} / 500</small></label>
+            {error && <p className="phase34-friends-form-error" role="alert">{error}</p>}
+          </div>
+        </div>
+        <footer className="phase34-friends-drawer-footer"><span>带 * 为必填项</span><div><button type="button" className="phase34-secondary-button" disabled={saving} onClick={onClose}>取消</button><button type="button" aria-label="保存草稿" disabled={saving || !name.trim() || !content.trim()} onClick={onSave}>{saving ? '保存中…' : isTask ? '保存任务草稿' : '保存素材'}</button></div></footer>
+      </div>
+    </aside>
+  );
+}
+
 export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
   const access = useDashboardAccess();
-  const [tab, setTab] = useState<'task' | 'material'>('task');
+  const [tab, setTab] = useState<FriendsCircleTab>('task');
   const [draftFilter, setDraftFilter] = useState('');
   const [filter, setFilter] = useState('');
   const [composerOpen, setComposerOpen] = useState(false);
@@ -137,11 +212,23 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
   });
   const rows = useMemo(() => rowsFrom(query.data), [query.data]);
   const refresh = () => { void query.refetch(); };
-  const changeTab = (next: 'task' | 'material') => {
+  const applyFilter = () => {
+    const next = draftFilter.trim();
+    if (next === filter) void query.refetch(); else setFilter(next);
+  };
+  const openComposer = () => { setDraftName(''); setDraftContent(''); setSaveError(''); setComposerOpen(true); };
+  const closeComposer = () => {
+    if (saving) return false;
+    if ((draftName.trim() || draftContent.trim()) && !window.confirm('当前内容尚未保存，确定关闭吗？')) return false;
+    setComposerOpen(false);
+    setSaveError('');
+    return true;
+  };
+  const changeTab = (next: FriendsCircleTab) => {
+    if (composerOpen && !closeComposer()) return;
     setTab(next);
     setDraftFilter('');
     setFilter('');
-    setComposerOpen(false);
   };
   const saveDraft = async () => {
     if (!draftName.trim() || !draftContent.trim()) return;
@@ -164,15 +251,15 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
     }
   };
   return (
-    <section className="phase34-page">
-      <header className="phase34-page-header"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>朋友圈</h1><p>统一管理朋友圈任务和素材草稿；草稿持久化与正式发布使用相互隔离的 Provider。</p></div><div className="phase34-header-actions"><span className="phase34-provider-badge">持久化 Provider 已连接</span><button type="button" onClick={() => setComposerOpen(true)}>添加朋友圈</button><button type="button" disabled>导出</button><button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button></div></header>
-      <p className="phase34-provider-notice"><strong>发布 Provider 未配置</strong><span>，当前仅保存可审计草稿，不会向企业微信发起发布。</span></p>
+    <section className="phase34-page phase34-friends-page">
+      <header className="phase34-page-header phase34-friends-header"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>朋友圈</h1><p>统一管理朋友圈任务与内容素材，先沉淀草稿，再安全接入发布流程。</p></div><div className="phase34-header-actions"><span className="phase34-provider-badge"><i />草稿服务正常</span><button type="button" aria-label="添加朋友圈" onClick={openComposer}>＋ 添加朋友圈</button><button type="button" disabled>导出</button><button type="button" className="phase34-secondary-button" disabled={query.isFetching} onClick={refresh}>{query.isFetching ? '刷新中…' : '刷新'}</button></div></header>
+      <div className="phase34-friends-provider-notice"><span aria-hidden="true">!</span><div><strong>发布 Provider 未配置</strong><p>当前支持任务与素材草稿管理，不会向企业微信实际发布。</p></div></div>
       <div className="phase34-tabs" role="tablist" aria-label="朋友圈内容类型"><button type="button" role="tab" aria-selected={tab === 'task'} className={tab === 'task' ? 'phase34-tab-active' : ''} onClick={() => changeTab('task')}>朋友圈</button><button type="button" role="tab" aria-selected={tab === 'material'} className={tab === 'material' ? 'phase34-tab-active' : ''} onClick={() => changeTab('material')}>朋友圈素材</button></div>
       <div className="dashboard-filter-bar phase34-filter-bar phase34-friends-filter">
-        <label>{tab === 'task' ? '任务名称' : '素材关键字'}<input aria-label={tab === 'task' ? '任务名称' : '素材关键字'} placeholder="请输入关键字" value={draftFilter} onChange={(event) => setDraftFilter(event.target.value)} /></label><label>选择员工<select aria-label="选择员工" disabled><option>全部员工</option></select></label><label>发送方式<select aria-label="发送方式" disabled><option>全部方式</option></select></label><label>任务状态<select aria-label="任务状态" disabled><option>全部状态</option></select></label><div className="dashboard-table-actions"><button type="button" onClick={() => setFilter(draftFilter.trim())}>查询</button><button type="button" className="phase34-secondary-button" onClick={() => { setDraftFilter(''); setFilter(''); }}>重置</button></div>
+        <label>{tab === 'task' ? '任务名称' : '素材关键字'}<input aria-label={tab === 'task' ? '任务名称' : '素材关键字'} placeholder={tab === 'task' ? '搜索任务名称' : '搜索素材名称或内容'} value={draftFilter} onChange={(event) => setDraftFilter(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyFilter(); }} /></label><div className="dashboard-table-actions"><button type="button" onClick={applyFilter}>查询</button><button type="button" className="phase34-secondary-button" disabled={!draftFilter && !filter} onClick={() => { setDraftFilter(''); setFilter(''); }}>重置</button></div>
       </div>
-      <div className="dashboard-data-card phase34-results-card"><div className="dashboard-card-heading"><div><h2>{tab === 'task' ? '朋友圈任务' : '朋友圈素材'}</h2><p>当前展示数据库 Provider 返回的真实草稿与素材记录。</p></div><span>{rows.length} 条</span></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <PageState state="empty" title="暂无朋友圈记录" description="可通过添加朋友圈创建第一条可审计草稿。" /> : <div className="dashboard-table-scroll"><table className="phase34-table"><thead><tr><th>{tab === 'task' ? '任务名称' : '素材内容'}</th><th>发送方式</th><th>状态</th><th>完成情况</th><th>创建人 / 创建时间</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}><td>{primitive(tab === 'task' ? row.taskName : row.name)}</td><td>{primitive(tab === 'task' ? row.sendWay : row.type)}</td><td>{statusText(row.status)}</td><td>{tab === 'task' ? `${primitive(row.completedTotal)} / ${primitive(row.targetTotal)}` : '--'}</td><td>{primitive(row.creatorName)} / {primitive(row.createdAt)}</td><td><span className="phase34-muted-action">仅草稿</span></td></tr>)}</tbody></table></div>}</div>
-      {composerOpen && <aside className="phase34-detail" aria-label="朋友圈草稿"><div className="phase34-detail-backdrop" onClick={() => setComposerOpen(false)} /><div className="phase34-detail-panel"><div className="dashboard-card-heading"><div><p className="phase34-eyebrow">持久化 Provider</p><h2>{tab === 'task' ? '添加朋友圈草稿' : '添加朋友圈素材'}</h2></div><button type="button" onClick={() => setComposerOpen(false)}>关闭</button></div><div className="phase34-compose-form"><label>草稿名称<input aria-label="草稿名称" value={draftName} onChange={(event) => setDraftName(event.target.value)} /></label><label>草稿内容<textarea aria-label="草稿内容" rows={6} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} /></label>{saveError && <p role="alert">{saveError}</p>}<button type="button" disabled={saving || !draftName.trim() || !draftContent.trim()} onClick={() => void saveDraft()}>{saving ? '保存中…' : '保存草稿'}</button></div></div></aside>}
+      <div className="dashboard-data-card phase34-results-card phase34-friends-results"><div className="dashboard-card-heading"><div><h2>{tab === 'task' ? '朋友圈任务' : '朋友圈素材'}</h2><p>{tab === 'task' ? '管理待完善、待发布的朋友圈任务草稿。' : '管理可在朋友圈任务中复用的内容素材。'}</p></div><span>{rows.length} 条记录</span></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <div className="phase34-friends-empty"><div aria-hidden="true">◎</div><h3>{tab === 'task' ? '还没有朋友圈任务' : '还没有朋友圈素材'}</h3><p>{filter ? '没有找到符合当前关键字的记录，请调整后重试。' : '创建第一条草稿，开始沉淀朋友圈内容。'}</p>{!filter && <button type="button" onClick={openComposer}>立即创建</button>}</div> : <div className="dashboard-table-scroll"><table className="phase34-table phase34-friends-table"><thead><tr><th>{tab === 'task' ? '任务名称' : '素材名称'}</th><th>{tab === 'task' ? '发送方式' : '内容摘要'}</th><th>状态</th><th>{tab === 'task' ? '完成情况' : '素材类型'}</th><th>创建人 / 创建时间</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => { const status = friendsStatus(row.status); return <tr key={recordKey(row, index)}><td><strong>{primitive(tab === 'task' ? row.taskName : row.name)}</strong></td><td className="phase34-friends-summary">{tab === 'task' ? (row.sendWay === 'manual' ? '员工手动发送' : primitive(row.sendWay)) : contentText(row.content)}</td><td><span className={`phase34-friends-status phase34-friends-status-${status.tone}`}>{status.label}</span></td><td>{tab === 'task' ? `${primitive(row.completedTotal)} / ${primitive(row.targetTotal)}` : primitive(row.type)}</td><td><span>{primitive(row.creatorName)}</span><small>{primitive(row.createdAt)}</small></td><td><span className="phase34-muted-action">草稿管理</span></td></tr>; })}</tbody></table></div>}</div>
+      {composerOpen && <FriendsCircleComposer tab={tab} name={draftName} content={draftContent} saving={saving} error={saveError} onNameChange={setDraftName} onContentChange={setDraftContent} onClose={closeComposer} onSave={() => void saveDraft()} />}
     </section>
   );
 }
