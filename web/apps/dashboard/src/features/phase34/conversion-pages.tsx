@@ -61,11 +61,6 @@ function conversionStatus(value: unknown): string {
   return display(value);
 }
 
-function conversionID(row: ConversionRecord): number | null {
-  const value = row.id;
-  return typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null;
-}
-
 function ConversionCreateDrawer({
   label,
   name,
@@ -96,7 +91,7 @@ function ConversionCreateDrawer({
       <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />
       <div className="phase34-detail-panel">
         <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具</p><h2>{label}</h2></div><button type="button" aria-label={`关闭${label}`} onClick={onClose}>关闭</button></div>
-        <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+        <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
           <label>{label === '创建获客链接' ? '链接名称' : '客服名称'}<input aria-label={label === '创建获客链接' ? '链接名称' : '客服名称'} value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="请输入名称" /></label>
           <label>{accountLabel}<input aria-label={accountLabel} value={account} onChange={(event) => onAccountChange(event.target.value)} placeholder={label === '创建获客链接' ? '请输入站内路径' : '请输入客服账号'} /></label>
           {target && <p className="phase34-field-hint">仅支持站内路径，短链访问和转化会由当前企业 Provider 记录。</p>}
@@ -299,7 +294,7 @@ function GroupTemplateCreateDrawer({
       <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />
       <div className="phase34-detail-panel">
         <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 转化承接</p><h2>新建加群模板</h2></div><button type="button" aria-label="关闭加群模板" onClick={onClose}>关闭</button></div>
-        <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+        <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
           <label>模板名称<input aria-label="模板名称" required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="例如：新品加群" /></label>
           <label>入群引导语<textarea aria-label="入群引导语" required value={leadingWords} onChange={(event) => onLeadingWordsChange(event.target.value)} placeholder="请输入扫码后的入群引导" rows={4} /></label>
           <MaterialSelector api={api} scene="group_template" value={materialID || null} disabled={saving} onChange={(item) => onMaterialChange(item?.id ?? 0, item?.preview)} />

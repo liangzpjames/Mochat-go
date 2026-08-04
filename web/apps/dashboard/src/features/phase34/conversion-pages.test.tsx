@@ -152,6 +152,7 @@ describe('Phase 3.4 conversion pages', () => {
     await screen.findByRole('heading', { name: '暂无模板' });
     fireEvent.click(screen.getByRole('button', { name: '新建加群模板' }));
     expect(screen.getByLabelText('一键加群模板')).toBeTruthy();
+    expect(screen.getByLabelText('一键加群模板').querySelector('form')?.classList.contains('phase34-detail-form')).toBe(true);
     fireEvent.change(screen.getAllByLabelText('模板名称')[1]!, { target: { value: '新品加群' } });
     fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '欢迎加入新品群' } });
     fireEvent.change(screen.getByLabelText('使用成员ID'), { target: { value: '99' } });

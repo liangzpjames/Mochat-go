@@ -21,6 +21,71 @@ func TestDefaultMigrations(t *testing.T) {
 	}
 }
 
+func TestDefaultMigrationsAcceptsKnownHistoricalInitialChecksum(t *testing.T) {
+	root := t.TempDir()
+	schemaPath := filepath.Join(root, "deploy", "standalone", "schema")
+	seedPath := filepath.Join(root, "deploy", "standalone", "migrations")
+	if err := os.MkdirAll(schemaPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(seedPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(schemaPath, "mochat.sql"), []byte("CREATE TABLE mc_user (id int);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seedPath, "0002_seed_core_data.up.sql"), []byte("-- ----------------------------\n-- seed\nINSERT IGNORE INTO mc_user (id) VALUES (1);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const historicalChecksum = "b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9"
+	initial := DefaultMigrations(root)[0]
+	if !checksumMatches(historicalChecksum, "current-checksum", initial.ChecksumAliases) {
+		t.Fatalf("known historical checksum %s not accepted by aliases %#v", historicalChecksum, initial.ChecksumAliases)
+	}
+}
+
+func TestDefaultMigrationsAcceptsCRLFChecksumForIncrementalSQL(t *testing.T) {
+	root := t.TempDir()
+	schemaPath := filepath.Join(root, "deploy", "standalone", "schema")
+	seedPath := filepath.Join(root, "deploy", "standalone", "migrations")
+	if err := os.MkdirAll(schemaPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(seedPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(schemaPath, "mochat.sql"), []byte("CREATE TABLE mc_user (id int);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed := "-- MoChat standalone core seed data.\nINSERT IGNORE INTO mc_user (id) VALUES (1);\n"
+	seedFile := filepath.Join(seedPath, "0002_seed_core_data.up.sql")
+	if err := os.WriteFile(seedFile, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seedPath, "0002_seed_core_data.down.sql"), []byte("DELETE FROM mc_user;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := "CREATE TABLE phase34_line_endings (id int);\n"
+	if err := os.WriteFile(filepath.Join(seedPath, "0003_line_endings.up.sql"), []byte(strings.ReplaceAll(other, "\n", "\r\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seedPath, "0003_line_endings.down.sql"), []byte("DROP TABLE phase34_line_endings;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	crlfChecksum := checksumBytes([]byte(strings.ReplaceAll(seed, "\n", "\r\n")))
+	seedMigration := DefaultMigrations(root)[1]
+	if !checksumMatches(crlfChecksum, checksumBytes([]byte(seed)), seedMigration.ChecksumAliases) {
+		t.Fatalf("CRLF checksum %s not accepted by aliases %#v", crlfChecksum, seedMigration.ChecksumAliases)
+	}
+	lfChecksum := checksumBytes([]byte(other))
+	lineEndingMigration := DefaultMigrations(root)[2]
+	if !checksumMatches(lfChecksum, checksumBytes([]byte(strings.ReplaceAll(other, "\n", "\r\n"))), lineEndingMigration.ChecksumAliases) {
+		t.Fatalf("LF checksum %s not accepted by aliases %#v", lfChecksum, lineEndingMigration.ChecksumAliases)
+	}
+}
+
 func TestNewRunnerValidatesMigrations(t *testing.T) {
 	_, err := NewRunner(nil, []Migration{{Version: "0001", Path: "one.sql"}})
 	if err == nil || !strings.Contains(err.Error(), "db is nil") {
@@ -155,6 +220,11 @@ func TestPublicPoolParityMigrationIsReversibleAndSynced(t *testing.T) {
 			t.Errorf("public-pool migration missing %q", fragment)
 		}
 	}
+	for _, fragment := range []string{"information_schema.columns", "PREPARE public_pool_source_stmt", "PREPARE public_pool_history_stmt", "PREPARE public_pool_history_filter_index_stmt"} {
+		if !strings.Contains(up, fragment) {
+			t.Errorf("public-pool migration missing already-applied guard fragment %s", fragment)
+		}
+	}
 	for _, fragment := range []string{"DROP TABLE IF EXISTS `mochat_go_scrm_assignment_history`", "DROP COLUMN `region`", "DROP COLUMN `business_type`", "DROP COLUMN `source`"} {
 		if !strings.Contains(down, fragment) {
 			t.Errorf("down migration missing %q", fragment)
@@ -175,6 +245,11 @@ func TestContactLifecycleIdempotencyMigrationIsReversible(t *testing.T) {
 	for _, fragment := range []string{"mochat_go_scrm_idempotency_keys", "request_fingerprint", "PRIMARY KEY (`tenant_id`,`corp_id`,`action`,`idempotency_key`)"} {
 		if !strings.Contains(string(up), fragment) {
 			t.Errorf("up migration missing %s", fragment)
+		}
+	}
+	for _, fragment := range []string{"idempotency_already_applied", "information_schema.columns", "PREPARE idempotency_stmt", "DEALLOCATE PREPARE idempotency_stmt"} {
+		if !strings.Contains(string(up), fragment) {
+			t.Errorf("idempotency migration missing already-applied guard fragment %s", fragment)
 		}
 	}
 	if !strings.Contains(string(down), "DROP TABLE IF EXISTS `mochat_go_scrm_idempotency_keys`") {
@@ -202,6 +277,19 @@ func TestLeadParityMigrationMatchesStandaloneSchema(t *testing.T) {
 	for _, fragment := range []string{"cross-corp business_key conflict", "HAVING COUNT(DISTINCT `corp_id`) > 1", "DROP INDEX `uk_scrm_leads_scope_phone`", "DROP COLUMN `corp_id`"} {
 		if !strings.Contains(down, fragment) {
 			t.Errorf("down migration missing %s", fragment)
+		}
+	}
+}
+
+func TestLeadParityMigrationSkipsAlreadyMigratedSchema(t *testing.T) {
+	projectRoot := filepath.Join("..", "..")
+	body, err := os.ReadFile(filepath.Join(projectRoot, "deploy", "standalone", "migrations", "0106_scrm_lead_parity.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"lead_parity_already_applied", "information_schema.columns", "PREPARE lead_parity_stmt", "DEALLOCATE PREPARE lead_parity_stmt"} {
+		if !strings.Contains(string(body), fragment) {
+			t.Errorf("lead parity migration missing already-applied guard fragment %s", fragment)
 		}
 	}
 }

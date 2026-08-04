@@ -8,6 +8,7 @@
   "scripts": {
     "check:audit": "node scripts/audit_legacy_frontend_inventory.mjs --check && node scripts/audit_phase2_frontend_completion.mjs",
     "check:yuanhu-benchmark": "node scripts/check_yuanhu_benchmark_manifest.mjs",
+    "check:phase34-lint": "node scripts/check_phase34_lint.mjs",
     "check:phase3-2-dashboard": "node scripts/check_yuanhu_benchmark_manifest.mjs && node scripts/check_phase3_2_scrm_contract.mjs && node scripts/check_phase3_2_dashboard_completion.mjs --final && pnpm --filter @mochat/dashboard typecheck && pnpm --filter @mochat/dashboard test && pnpm --filter @mochat/dashboard build && go test ./internal/modules/scrm/... ./internal/dashboard ./internal/store -count=1 && node scripts/check_phase3_2_mysql_integration.mjs && pnpm --filter @mochat/e2e typecheck && pnpm --filter @mochat/e2e exec playwright test tests/phase3-2-dashboard.spec.ts --workers=1",
     "check:yuanhu-phase1": "pnpm check:yuanhu-benchmark && pnpm --filter @mochat/dashboard typecheck && pnpm --filter @mochat/dashboard test && pnpm --filter @mochat/dashboard build && pnpm --filter @mochat/e2e typecheck && pnpm --filter @mochat/e2e exec playwright test tests/yuanhu-phase1.spec.ts --workers=1",
     "evidence:phase2": "node scripts/generate_phase2_evidence.mjs",

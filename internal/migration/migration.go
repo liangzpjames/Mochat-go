@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -15,6 +16,8 @@ import (
 )
 
 const VersionTable = "mochat_go_schema_migrations"
+
+const knownLegacyInitialSchemaChecksum = "b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9"
 
 type Migration struct {
 	Version         string
@@ -63,10 +66,20 @@ func DefaultMigrations(projectRoot string) []Migration {
 		Version:         "0001_initial_schema",
 		Description:     "MoChat standalone initial schema",
 		Path:            schemaPath,
-		ChecksumAliases: legacyCombinedInitialChecksums(schemaPath, seedPath),
+		ChecksumAliases: legacyInitialSchemaChecksums(schemaPath, seedPath),
 	}}
 	migrations = append(migrations, standaloneIncrementalMigrations(projectRoot)...)
 	return migrations
+}
+
+func legacyInitialSchemaChecksums(schemaPath, seedPath string) []string {
+	aliases := legacyCombinedInitialChecksums(schemaPath, seedPath)
+	for _, alias := range aliases {
+		if alias == knownLegacyInitialSchemaChecksum {
+			return aliases
+		}
+	}
+	return append(aliases, knownLegacyInitialSchemaChecksum)
 }
 
 func (r *Runner) Apply(ctx context.Context) ([]StatusItem, error) {
@@ -374,14 +387,46 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 			continue
 		}
 		version := strings.TrimSuffix(name, ".up.sql")
+		path := filepath.Join(migrationDir, name)
 		migrations = append(migrations, Migration{
-			Version:     version,
-			Description: migrationDescription(version),
-			Path:        filepath.Join(migrationDir, name),
-			DownPath:    filepath.Join(migrationDir, version+".down.sql"),
+			Version:         version,
+			Description:     migrationDescription(version),
+			Path:            path,
+			DownPath:        filepath.Join(migrationDir, version+".down.sql"),
+			ChecksumAliases: migrationLineEndingChecksumAliases(path),
 		})
 	}
 	return migrations
+}
+
+func migrationLineEndingChecksumAliases(path string) []string {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	normalized := bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
+	crlf := bytes.ReplaceAll(normalized, []byte("\n"), []byte("\r\n"))
+	aliases := make([]string, 0, 2)
+	for _, variant := range [][]byte{normalized, crlf} {
+		if bytes.Equal(body, variant) {
+			continue
+		}
+		checksum := checksumBytes(variant)
+		if checksum == checksumBytes(body) {
+			continue
+		}
+		alreadyAdded := false
+		for _, alias := range aliases {
+			if alias == checksum {
+				alreadyAdded = true
+				break
+			}
+		}
+		if !alreadyAdded {
+			aliases = append(aliases, checksum)
+		}
+	}
+	return aliases
 }
 
 func migrationDescription(version string) string {

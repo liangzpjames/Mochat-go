@@ -138,7 +138,7 @@ function SendCreateDrawer({
       <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />
       <div className="phase34-detail-panel">
         <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h2>新建群发任务</h2><p>{mode === 'contact' ? '客户群发' : '群聊群发'}会走对应的真实 Provider。</p></div><button type="button" aria-label="关闭新建群发" onClick={onClose}>关闭</button></div>
-        <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+        <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
           <label>任务名称<input aria-label="任务名称" required value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="请输入任务名称" /></label>
           <label>{mode === 'contact' ? '发送成员ID' : '群主ID'}<input aria-label={mode === 'contact' ? '发送成员ID' : '群主ID'} required value={employeeIDs} onChange={(event) => onEmployeeIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
           <MaterialSelector api={api} scene="group_send" value={materialID || null} disabled={saving} onChange={(item) => { onMaterialChange(item?.id ?? 0); if (item) onContentChange(item.preview); }} />
@@ -269,7 +269,6 @@ function FriendsCircleTaskProgress({ task, rows, loading, error, exporting, expo
   onExport: () => void;
   onClose: () => void;
 }) {
-  const taskID = Number(task.id);
   return (
     <aside className="phase34-detail" aria-label="朋友圈任务进度">
       <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />

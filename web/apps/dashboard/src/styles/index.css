@@ -1225,6 +1225,11 @@ body {
 .phase34-detail { inset: 0; position: fixed; z-index: 80; }
 .phase34-detail-backdrop { background: rgb(24 30 45 / 30%); inset: 0; position: absolute; }
 .phase34-detail-panel { background: #fff; box-shadow: -12px 0 40px rgb(28 36 56 / 18%); height: 100%; overflow-y: auto; padding: 24px; position: absolute; right: 0; top: 0; width: min(480px, 92vw); }
+.phase34-detail-form { display: grid; gap: 16px; margin-top: 20px; }
+.phase34-detail-form label { color: #4f5768; display: grid; font-size: .8rem; gap: 7px; }
+.phase34-detail-form input, .phase34-detail-form textarea, .phase34-detail-form select { background: #fff; border: 1px solid #dfe4ee; border-radius: 8px; box-sizing: border-box; color: #394153; font: inherit; min-height: 38px; padding: 8px 10px; width: 100%; }
+.phase34-detail-form textarea { min-height: 96px; resize: vertical; }
+.phase34-detail-form input:focus, .phase34-detail-form textarea:focus, .phase34-detail-form select:focus { border-color: #8999f5; box-shadow: 0 0 0 3px rgb(83 107 244 / 10%); outline: none; }
 .phase34-detail-panel dl { display: grid; gap: 8px; margin: 20px 0 0; }
 .phase34-detail-panel dl > div { background: #f8f9fc; border-radius: 8px; display: grid; gap: 12px; grid-template-columns: 150px 1fr; padding: 12px; }
 .phase34-detail-panel dt { color: #7c8495; }

@@ -233,7 +233,7 @@ function ShortLinkCreateDrawer({
           <div><p className="phase34-eyebrow">营销工具</p><h2>创建短链</h2></div>
           <button type="button" aria-label="关闭创建短链" onClick={onClose}>关闭</button>
         </div>
-        <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+        <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
           <label>短链名称<input aria-label="短链名称" value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="请输入短链名称" /></label>
           <label>目标地址<input aria-label="目标地址" value={targetUrl} onChange={(event) => onTargetUrlChange(event.target.value)} placeholder="请输入站内路径" /></label>
           <p className="phase34-field-hint">仅支持当前站内路径，访问会记录到当前企业的短链统计。</p>
