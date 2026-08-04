@@ -1,3 +1,4 @@
+DELETE FROM `mc_rbac_role_menu` WHERE `menu_id` IN (115001, 115002, 115003, 115004);
 DELETE FROM `mc_rbac_menu` WHERE `id` IN (115001, 115002, 115003, 115004);
 
 ALTER TABLE `mc_medium`

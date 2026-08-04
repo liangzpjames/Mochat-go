@@ -13,3 +13,9 @@ VALUES
 (115002, 20, '素材引用检查', 4, '#1#-#14#-#20#-#115002#', '', 1, 1, 2, '/dashboard/medium/referenceCheck#post', 2, 0, '系统', 99, NOW(), NOW(), NULL),
 (115003, 20, '素材批量删除', 4, '#1#-#14#-#20#-#115003#', '', 1, 1, 2, '/dashboard/medium/batchDestroy#post', 2, 0, '系统', 99, NOW(), NOW(), NULL),
 (115004, 20, '素材统一选择', 4, '#1#-#14#-#20#-#115004#', '', 1, 1, 2, '/dashboard/materialSelector/index#get', 2, 0, '系统', 99, NOW(), NOW(), NULL);
+
+INSERT IGNORE INTO `mc_rbac_role_menu` (`role_id`, `menu_id`, `created_at`, `updated_at`)
+SELECT DISTINCT parent_access.`role_id`, material_action.`id`, NOW(), NOW()
+FROM `mc_rbac_role_menu` AS parent_access
+JOIN `mc_rbac_menu` AS material_action ON material_action.`id` IN (115001, 115002, 115003, 115004)
+WHERE parent_access.`menu_id` = 20;
