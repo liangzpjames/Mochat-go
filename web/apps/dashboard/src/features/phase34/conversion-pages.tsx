@@ -225,6 +225,7 @@ export function WechatCustomerServicePage({ api }: { api: BusinessWorkbenchApi }
       await query.refetch();
     } catch (error) {
       setWriteError(error instanceof Error ? error.message : '同步客服账号失败。');
+      await query.refetch();
     } finally {
       setSyncing(false);
     }

@@ -95,6 +95,21 @@ describe('Phase 3.4 conversion pages', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('WeCom customer-service provider unavailable');
   });
 
+  it('refreshes the persisted customer-service failure state after sync errors', async () => {
+    const read = vi.fn()
+      .mockResolvedValueOnce({ list: [{ id: 9, name: '售前客服', account: 'kf_001', employeeIds: '[]', receiveMode: 'round_robin', status: 'pending_sync' }] })
+      .mockResolvedValueOnce({ list: [{ id: 9, name: '售前客服', account: 'kf_001', employeeIds: '[]', receiveMode: 'round_robin', status: 'failed' }] });
+    const write = vi.fn().mockRejectedValue(new Error('企业微信客服凭据未配置'));
+    view(<WechatCustomerServicePage api={{ read, write }} />);
+
+    expect(await screen.findByText('售前客服')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '同步客服账号' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('企业微信客服凭据未配置');
+    expect(await screen.findByText('失败')).toBeTruthy();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it('loads group templates from the real auto-pull provider and applies a name filter', async () => {
     const read = vi.fn().mockResolvedValue({
       list: [{ workRoomAutoPullId: 31, qrcodeName: '新客福利群', stateText: '启用', roomNum: 4, todayContactNum: 6, createName: '运营员', createdAt: '2026-08-04 09:00' }],
