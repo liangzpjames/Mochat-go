@@ -21,6 +21,7 @@ Phase 3.4 的九个营销工具路由均已在 standalone Docker 和浏览器中
 | `d31b31d` | 短链 `/r/` 跳转绕过前端 fallback |
 | `7edbfcd` | 素材选择器作用域 SQL 括号修复 |
 | `90fed45` | Phase 3.4 lint 门禁、迁移漂移兼容、抽屉布局和 Manifest 语义修正 |
+| `491a5ce` | 一键加群/精准群发必填与抽屉错误、Provider 边界文案、朋友圈行内操作返工 |
 
 ## 九页 Provider 状态
 
@@ -143,11 +144,30 @@ docker compose -f deploy/standalone/docker-compose.yml -p mochat-go-desktop exec
 
 - `go test ./...`：通过。
 - `pnpm --filter @mochat/dashboard typecheck`：通过。
-- `pnpm --filter @mochat/dashboard exec vitest run --reporter=dot`：通过，70 个文件、450 个测试。
+- `pnpm --filter @mochat/dashboard exec vitest run --reporter=dot`：通过，70 个文件、455 个测试。
 - `pnpm --filter @mochat/dashboard build`：通过。
 - `pnpm check:yuanhu-benchmark`：通过，53 页清单结构检查通过。
 - `PHASE34_LINT_BASE=13cd9cc pnpm check:phase34-lint`：通过，10 个 changed Dashboard TS/TSX 文件全绿；全仓库 lint 最终仍为 173 个历史错误、0 个 warning。
 - Docker `mochat-go-desktop`：app、MySQL、Redis healthy；`/healthz`、`/readyz` 均返回 `200`，readyz 的 `migrated_route_count` 为 `712`。
+
+## 主线程验收返工
+
+本轮先以现有实现运行新增测试，得到 `conversion-pages.test.tsx 2 failed`、`content-reach-pages.test.tsx 3 failed` 的 RED 证据；修复 JSX 示例文本语法后，相关 2 个文件共 `24/24` 测试通过，完整 Dashboard 测试为 `70/455` 通过。
+
+- 一键加群：`使用成员ID` 增加必填标识、真实员工 Provider 来源说明；名称、引导语、成员/标签 ID 或群聊 JSON 不完整时保存按钮 disabled。群聊 JSON 限定为 JSON 对象数组并在抽屉内显示格式错误；Provider `400/422` 错误保留在抽屉内。
+- 精准群发：客户群发与群聊群发均要求任务名、成员/群主 ID、内容后才可提交；来源说明与必填标识可见；服务端错误在抽屉内显示。顶部徽标改为“本地任务 Provider 已连接 · 外部发送待配置”，不再把 partial 外部 Provider 宣称为已连接。
+- 朋友圈：删除表格外的 `phase34-friends-task-actions`；“查看进度”按任务行绑定 `taskId`，仅 draft 行显示“发起发布”，失败行仍可查看进度和失败明细；表格操作列不再显示静态“草稿管理”。
+- 浏览器复核在测试企业创建了本地草稿 `浏览器行操作草稿` 以验证两条任务的行级操作；点击发布后真实返回 `friends circle publisher not configured` 并转为失败，没有伪造成功。
+
+返工截图均为 `1280x720`，位于 `D:\workspace\mochat-go\output\phase34-rework-20260804`：
+
+- [01-group-template-empty-disabled.png](D:/workspace/mochat-go/output/phase34-rework-20260804/01-group-template-empty-disabled.png)：一键加群空成员、来源说明和 disabled 保存状态。
+- [02-group-template-provider-error.png](D:/workspace/mochat-go/output/phase34-rework-20260804/02-group-template-provider-error.png)：无效成员触发真实 `使用者信息错误`，错误位于抽屉内。
+- [03-precise-group-send-empty-disabled.png](D:/workspace/mochat-go/output/phase34-rework-20260804/03-precise-group-send-empty-disabled.png)：客户群发空字段 disabled 抽屉。
+- [04-precise-group-send-room-error.png](D:/workspace/mochat-go/output/phase34-rework-20260804/04-precise-group-send-room-error.png)：群聊群发无效群主的抽屉内错误。
+- [05-friends-circle-row-actions.png](D:/workspace/mochat-go/output/phase34-rework-20260804/05-friends-circle-row-actions.png)：两条任务的按钮在各自表格行内，未漂浮到标题上方。
+- [06-friends-circle-failed-progress.png](D:/workspace/mochat-go/output/phase34-rework-20260804/06-friends-circle-failed-progress.png)：失败任务进度/失败原因抽屉。
+- [07-friends-circle-publish-error.png](D:/workspace/mochat-go/output/phase34-rework-20260804/07-friends-circle-publish-error.png)：朋友圈外部发布阻塞后的失败行。
 
 ## Manifest 规则
 
