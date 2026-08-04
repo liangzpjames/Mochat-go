@@ -7453,7 +7453,7 @@ func mediumWhere(filter dashboard.MediumFilter, alias string) ([]string, []any) 
 			"("+prefix+"scope_type = 'department' AND EXISTS ("+
 			"SELECT 1 FROM mc_work_employee_department AS ed "+
 			"WHERE ed.employee_id = ? AND ed.department_id = "+prefix+"scope_id AND ed.deleted_at IS NULL"+
-			"))")
+			")))")
 		args = append(args, filter.UserID, filter.EmployeeID)
 	} else {
 		if filter.ScopeType != "" {

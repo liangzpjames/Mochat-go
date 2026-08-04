@@ -26,3 +26,17 @@ func TestMediumWhereSelectorVisibleScopesIncludePublicPersonalAndDepartment(t *t
 		t.Fatalf("selector scope args = %#v", args)
 	}
 }
+
+func TestMediumWhereSelectorVisibleScopeConditionIsBalanced(t *testing.T) {
+	where, _ := mediumWhere(dashboard.MediumFilter{
+		CorpID:          7,
+		SelectorVisible: true,
+		UserID:          11,
+		EmployeeID:      22,
+		Status:          "available",
+	}, "m")
+	joined := strings.Join(where, " AND ")
+	if strings.Count(joined, "(") != strings.Count(joined, ")") {
+		t.Fatalf("selector scope SQL has unbalanced parentheses: %s", joined)
+	}
+}
