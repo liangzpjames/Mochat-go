@@ -1230,6 +1230,7 @@ body {
 .phase34-detail-panel dt { color: #7c8495; }
 .phase34-detail-panel dd { color: #343c4e; margin: 0; overflow-wrap: anywhere; }
 .phase34-preview-headings { background: #f7f8fc; border-bottom: 1px solid #eef1f6; color: #70798b; display: grid; font-size: .76rem; font-weight: 650; grid-template-columns: 1.2fr .7fr .9fr 1.2fr .6fr; padding: 13px 18px; }
+.phase34-preview-headings-wide { grid-template-columns: 1.2fr .8fr .8fr .8fr 1.2fr .6fr; }
 
 @media (max-width: 768px) {
   .dashboard-header { flex-wrap: wrap; gap: 10px; height: auto; min-height: 72px; padding: 12px 16px; }

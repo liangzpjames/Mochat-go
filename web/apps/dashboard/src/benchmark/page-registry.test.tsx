@@ -17,6 +17,7 @@ import { KeywordLibraryPage, MessageInterceptPage } from '../features/phase33/me
 import { SilentCustomerPage } from '../features/phase33/phase33-closure-pages';
 import { Phase33OperationsPage } from '../features/phase33/phase33-operations-page';
 import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../features/phase34/acquisition-pages';
+import { GroupTemplatePage, RedirectLinkPage, WechatCustomerServicePage } from '../features/phase34/conversion-pages';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -189,6 +190,18 @@ describe('createPageRegistry', () => {
     expect((pages['/acquisition/v2-channel-code'] as { type?: unknown }).type).toBe(ChannelCodePage);
     expect((pages['/acquisition/group-code'] as { type?: unknown }).type).toBe(GroupCodePage);
     expect((pages['/acquisition/live-code-short-chain'] as { type?: unknown }).type).toBe(LiveCodeShortChainPage);
+  });
+
+  it('registers all three Phase 3.4 batch-two conversion routes when the workbench API is available', () => {
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }), exportCsv: () => Promise.resolve(new Blob()) },
+      conversationGlobalApi: { search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }), detail: () => Promise.reject(new Error('not loaded')) },
+      businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
+    });
+
+    expect((pages['/acquisition/redirect-link'] as { type?: unknown }).type).toBe(RedirectLinkPage);
+    expect((pages['/acquisition/wechat-customer-service'] as { type?: unknown }).type).toBe(WechatCustomerServicePage);
+    expect((pages['/acquisition/group-template'] as { type?: unknown }).type).toBe(GroupTemplatePage);
   });
 
   it('prefers P0 implementations over P1 implementations at the same path', () => {

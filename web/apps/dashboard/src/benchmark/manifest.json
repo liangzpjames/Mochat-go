@@ -516,17 +516,17 @@
       "groupId": "marketing-tools",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
+      "screenshotVersion": "2026-08-04",
+      "implementation": "native",
       "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "acceptance": "unit-passed",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-redirect-link/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-redirect-link.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch2-conversion-pages-report.md"
       }
     },
     {
@@ -535,17 +535,17 @@
       "groupId": "marketing-tools",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
+      "screenshotVersion": "2026-08-04",
+      "implementation": "native",
       "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "acceptance": "unit-passed",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-wechat-customer-service/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-wechat-customer-service.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch2-conversion-pages-report.md"
       }
     },
     {
@@ -573,17 +573,17 @@
       "groupId": "marketing-tools",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "screenshotVersion": "2026-08-04",
+      "implementation": "native",
+      "backend": "partial",
+      "acceptance": "unit-passed",
+      "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-acquisition-group-template/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-acquisition-group-template.json"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch2-conversion-pages-report.md"
       }
     },
     {
