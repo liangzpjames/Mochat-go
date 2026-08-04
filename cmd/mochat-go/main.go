@@ -1267,15 +1267,19 @@ func main() {
 	if cfg.MigrateFriendsCircleProvider {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("friendsCircle")
-		friendsCircle := dashboard.NewFriendsCircleHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore), nil)
+		friendsCircle := dashboard.NewFriendsCircleHandlerWithCallbackToken(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore), dashboard.NewUnavailableFriendsCirclePublisher(), cfg.FriendsCircleCallbackToken)
 		options = append(options,
 			compatserver.WithFriendsCircleTaskIndexHandler(http.HandlerFunc(friendsCircle.TaskIndex)),
 			compatserver.WithFriendsCircleMaterialIndexHandler(http.HandlerFunc(friendsCircle.MaterialIndex)),
 			compatserver.WithFriendsCircleTaskStoreHandler(http.HandlerFunc(friendsCircle.TaskStore)),
 			compatserver.WithFriendsCircleMaterialStoreHandler(http.HandlerFunc(friendsCircle.MaterialStore)),
 			compatserver.WithFriendsCirclePublishHandler(http.HandlerFunc(friendsCircle.Publish)),
+			compatserver.WithFriendsCircleTaskResultIndexHandler(http.HandlerFunc(friendsCircle.TaskResultIndex)),
+			compatserver.WithFriendsCircleExportHandler(http.HandlerFunc(friendsCircle.Export)),
+			compatserver.WithFriendsCircleExportDataHandler(http.HandlerFunc(friendsCircle.ExportData)),
+			compatserver.WithFriendsCircleProviderCallbackHandler(http.HandlerFunc(friendsCircle.ProviderCallback)),
 		)
-		log.Printf("go migrated routes enabled: friends circle provider")
+		log.Printf("go migrated routes enabled: friends circle provider (external publisher fail-closed; callback token configured=%t)", cfg.FriendsCircleCallbackToken != "")
 
 		phase34Acquisition := dashboard.NewPhase34AcquisitionHandler(
 			mysqlStore,

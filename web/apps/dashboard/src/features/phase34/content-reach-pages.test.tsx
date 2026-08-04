@@ -118,6 +118,25 @@ describe('Phase 3.4 content-reach pages', () => {
     expect(read).toHaveBeenCalledWith('/materialSelector/index', { scene: 'friends_circle' });
   });
 
+  it('shows persistent publish failure, loads target failures, and exports scoped results', async () => {
+    const read = vi.fn().mockImplementation((endpoint: string) => {
+      if (endpoint === '/friendsCircle/taskResultIndex') return Promise.resolve({ list: [{ id: 41, taskId: 21, targetEmployeeId: 99, status: 'failed', failureCode: 'E_TIMEOUT', failureReason: '发送超时', occurredAt: '2026-08-04 15:00' }] });
+      if (endpoint === '/friendsCircle/exportData') return Promise.resolve({ list: [{ taskId: 21, targetEmployeeId: 99, status: 'failed', failureCode: 'E_TIMEOUT', failureReason: '发送超时', occurredAt: '2026-08-04 15:00' }] });
+      return Promise.resolve({ list: [{ id: 21, taskName: '夏日朋友圈', sendWay: 'manual', status: 'draft', completedTotal: 0, targetTotal: 1, creatorName: '运营员', createdAt: '2026-08-04 14:00' }] });
+    });
+    const write = vi.fn().mockRejectedValue(new Error('朋友圈发布 Provider 未配置'));
+    view(<FriendsCirclePage api={{ read, write }} />);
+
+    expect(await screen.findByText('夏日朋友圈')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '发起发布' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('朋友圈发布 Provider 未配置');
+    fireEvent.click(screen.getByRole('button', { name: '查看进度' }));
+    expect(await screen.findByLabelText('朋友圈任务进度')).toBeTruthy();
+    expect(await screen.findByText('E_TIMEOUT')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '导出失败明细' }));
+    await waitFor(() => expect(read).toHaveBeenCalledWith('/friendsCircle/exportData', { taskId: 21, status: 'failed' }));
+  });
+
   it('isolates friends-circle query cache when the selected corp changes', async () => {
     const read = vi.fn().mockResolvedValueOnce({ list: [{ id: 1, taskName: 'corp-seven-draft' }] }).mockResolvedValueOnce({ list: [{ id: 2, taskName: 'corp-eight-draft' }] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

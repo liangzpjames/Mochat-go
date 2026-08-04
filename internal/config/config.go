@@ -449,6 +449,7 @@ type Config struct {
 	MigrateMediumGroupDestroy                          bool
 	MigrateSidebarMediumGroupIndex                     bool
 	MigrateFriendsCircleProvider                       bool
+	FriendsCircleCallbackToken                         string
 	MigrateChannelCodeIndex                            bool
 	MigrateChannelCodeShow                             bool
 	MigrateChannelCodeContact                          bool
@@ -1622,6 +1623,7 @@ func FromEnv() (Config, error) {
 		MigrateMediumGroupDestroy:                          envBoolDefault("MOCHAT_GO_MIGRATE_MEDIUM_GROUP_DESTROY", enableAllMigratedRoutes),
 		MigrateSidebarMediumGroupIndex:                     envBoolDefault("MOCHAT_GO_MIGRATE_SIDEBAR_MEDIUM_GROUP_INDEX", enableAllMigratedRoutes),
 		MigrateFriendsCircleProvider:                       envBoolDefault("MOCHAT_GO_MIGRATE_FRIENDS_CIRCLE_PROVIDER", enableAllMigratedRoutes),
+		FriendsCircleCallbackToken:                         strings.TrimSpace(os.Getenv("MOCHAT_GO_FRIENDS_CIRCLE_CALLBACK_TOKEN")),
 		MigrateChannelCodeIndex:                            envBoolDefault("MOCHAT_GO_MIGRATE_CHANNEL_CODE_INDEX", enableAllMigratedRoutes),
 		MigrateChannelCodeShow:                             envBoolDefault("MOCHAT_GO_MIGRATE_CHANNEL_CODE_SHOW", enableAllMigratedRoutes),
 		MigrateChannelCodeContact:                          envBoolDefault("MOCHAT_GO_MIGRATE_CHANNEL_CODE_CONTACT", enableAllMigratedRoutes),

@@ -243,6 +243,47 @@ function friendsStatus(value: unknown): { label: string; tone: string } {
   return { label: status, tone: 'neutral' };
 }
 
+function csvCell(value: unknown): string {
+  const text = primitive(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function downloadFriendsCircleResults(taskID: number, rows: ReachRecord[]): void {
+  const columns = ['taskId', 'targetEmployeeId', 'status', 'failureCode', 'failureReason', 'occurredAt'];
+  const csv = [columns, ...rows.map((row) => columns.map((column) => csvCell(row[column])))].map((row) => row.join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `friends-circle-task-${taskID}-results.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function FriendsCircleTaskProgress({ task, rows, loading, error, exporting, exportError, onExport, onClose }: {
+  task: ReachRecord;
+  rows: ReachRecord[];
+  loading: boolean;
+  error: unknown;
+  exporting: boolean;
+  exportError: string;
+  onExport: () => void;
+  onClose: () => void;
+}) {
+  const taskID = Number(task.id);
+  return (
+    <aside className="phase34-detail" aria-label="朋友圈任务进度">
+      <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />
+      <div className="phase34-detail-panel">
+        <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 朋友圈</p><h2>朋友圈任务进度</h2><p>{primitive(task.taskName)} · {primitive(task.status)} · {primitive(task.completedTotal)} / {primitive(task.targetTotal)}</p></div><button type="button" aria-label="关闭朋友圈任务进度" onClick={onClose}>关闭</button></div>
+        <dl><div><dt>外部任务 ID</dt><dd>{primitive(task.externalTaskId)}</dd></div><div><dt>最近回调</dt><dd>{primitive(task.lastCallbackAt)}</dd></div><div><dt>失败原因</dt><dd>{primitive(task.failureReason)}</dd></div></dl>
+        <div className="dashboard-card-heading"><div><h3>目标失败明细</h3><p>仅展示当前企业且与任务关联的 Provider 回调结果。</p></div><button type="button" disabled={exporting || loading || rows.length === 0} onClick={onExport}>{exporting ? '导出中…' : '导出失败明细'}</button></div>
+        {exportError && <p role="alert" className="phase34-inline-error">{exportError}</p>}
+        {loading ? <PageState state="loading" /> : error ? <PageState state={pageStateForError(error)} /> : rows.length === 0 ? <PageState state="empty" title="暂无失败明细" description="当前任务还没有可导出的失败目标。" /> : <div className="dashboard-table-scroll"><table className="phase34-table"><thead><tr><th>目标员工</th><th>状态</th><th>失败码</th><th>失败原因</th><th>发生时间</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}><td>{primitive(row.targetEmployeeId)}</td><td>{primitive(row.status)}</td><td>{primitive(row.failureCode)}</td><td>{primitive(row.failureReason)}</td><td>{primitive(row.occurredAt)}</td></tr>)}</tbody></table></div>}
+      </div>
+    </aside>
+  );
+}
+
 function FriendsCircleComposer({ tab, name, content, materials, saving, error, onNameChange, onContentChange, onClose, onSave }: {
   tab: FriendsCircleTab;
   name: string;
@@ -312,6 +353,10 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
   const [draftContent, setDraftContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [publishError, setPublishError] = useState('');
+  const [selectedTask, setSelectedTask] = useState<ReachRecord | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const endpoint = tab === 'task' ? '/friendsCircle/taskIndex' : '/friendsCircle/materialIndex';
   const query = useQuery({
     queryKey: ['phase34-friends-circle', access.corp.id, tab, filter],
@@ -322,6 +367,11 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
     queryFn: () => api.read('/materialSelector/index', { scene: 'friends_circle' }),
     enabled: composerOpen && tab === 'task',
   });
+  const resultQuery = useQuery({
+    queryKey: ['phase34-friends-circle-results', access.corp.id, selectedTask?.id],
+    queryFn: () => api.read('/friendsCircle/taskResultIndex', { taskId: Number(selectedTask?.id), status: 'failed', page: 1, perPage: 100 }),
+    enabled: selectedTask !== null && Number(selectedTask.id) > 0,
+  });
   const rows = useMemo(() => rowsFrom(query.data), [query.data]);
   const materials = useMemo(() => selectableMaterials(selectorQuery.data), [selectorQuery.data]);
   const refresh = () => { void query.refetch(); };
@@ -330,6 +380,30 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
     if (next === filter) void query.refetch(); else setFilter(next);
   };
   const openComposer = () => { setDraftName(''); setDraftContent(''); setSaveError(''); setComposerOpen(true); };
+  const publishTask = async (taskID: number) => {
+    setPublishError('');
+    try {
+      await api.write('/friendsCircle/publish', { taskId: taskID }, 'POST');
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : '朋友圈发布失败，任务状态已保留。');
+    } finally {
+      await query.refetch();
+    }
+  };
+  const exportResults = async () => {
+    if (selectedTask === null) return;
+    const taskID = Number(selectedTask.id);
+    setExporting(true);
+    setExportError('');
+    try {
+      const payload = await api.read('/friendsCircle/exportData', { taskId: taskID, status: 'failed' });
+      downloadFriendsCircleResults(taskID, rowsFrom(payload));
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : '失败明细导出失败。');
+    } finally {
+      setExporting(false);
+    }
+  };
   const closeComposer = () => {
     if (saving) return false;
     if ((draftName.trim() || draftContent.trim()) && !window.confirm('当前内容尚未保存，确定关闭吗？')) return false;
@@ -365,6 +439,8 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
   };
   return (
     <section className="phase34-page phase34-friends-page">
+      {publishError && <p role="alert" className="phase34-inline-error">{publishError}</p>}
+      {tab === 'task' && rows.length > 0 && <div className="phase34-friends-task-actions">{rows.map((row, index) => { const taskID = Number(row.id); return Number.isInteger(taskID) && taskID > 0 ? <div key={recordKey(row, index)}><button type="button" className="phase34-link-button" onClick={() => { setSelectedTask(row); setExportError(''); }}>查看进度</button>{row.status === 'draft' && <button type="button" className="phase34-link-button" onClick={() => void publishTask(taskID)}>发起发布</button>}</div> : null; })}</div>}
       <header className="phase34-page-header phase34-friends-header"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>朋友圈</h1><p>统一管理朋友圈任务与内容素材，先沉淀草稿，再安全接入发布流程。</p></div><div className="phase34-header-actions"><span className="phase34-provider-badge"><i />草稿服务正常</span><button type="button" aria-label="添加朋友圈" onClick={openComposer}>＋ 添加朋友圈</button><button type="button" disabled>导出</button><button type="button" className="phase34-secondary-button" disabled={query.isFetching} onClick={refresh}>{query.isFetching ? '刷新中…' : '刷新'}</button></div></header>
       <div className="phase34-friends-provider-notice"><span aria-hidden="true">!</span><div><strong>发布 Provider 未配置</strong><p>当前支持任务与素材草稿管理，不会向企业微信实际发布。</p></div></div>
       <div className="phase34-tabs" role="tablist" aria-label="朋友圈内容类型"><button type="button" role="tab" aria-selected={tab === 'task'} className={tab === 'task' ? 'phase34-tab-active' : ''} onClick={() => changeTab('task')}>朋友圈</button><button type="button" role="tab" aria-selected={tab === 'material'} className={tab === 'material' ? 'phase34-tab-active' : ''} onClick={() => changeTab('material')}>朋友圈素材</button></div>
@@ -373,6 +449,7 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
       </div>
       <div className="dashboard-data-card phase34-results-card phase34-friends-results"><div className="dashboard-card-heading"><div><h2>{tab === 'task' ? '朋友圈任务' : '朋友圈素材'}</h2><p>{tab === 'task' ? '管理待完善、待发布的朋友圈任务草稿。' : '管理可在朋友圈任务中复用的内容素材。'}</p></div><span>{rows.length} 条记录</span></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <div className="phase34-friends-empty"><div aria-hidden="true">◎</div><h3>{tab === 'task' ? '还没有朋友圈任务' : '还没有朋友圈素材'}</h3><p>{filter ? '没有找到符合当前关键字的记录，请调整后重试。' : '创建第一条草稿，开始沉淀朋友圈内容。'}</p>{!filter && <button type="button" onClick={openComposer}>立即创建</button>}</div> : <div className="dashboard-table-scroll"><table className="phase34-table phase34-friends-table"><thead><tr><th>{tab === 'task' ? '任务名称' : '素材名称'}</th><th>{tab === 'task' ? '发送方式' : '内容摘要'}</th><th>状态</th><th>{tab === 'task' ? '完成情况' : '素材类型'}</th><th>创建人 / 创建时间</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => { const status = friendsStatus(row.status); return <tr key={recordKey(row, index)}><td><strong>{primitive(tab === 'task' ? row.taskName : row.name)}</strong></td><td className="phase34-friends-summary">{tab === 'task' ? (row.sendWay === 'manual' ? '员工手动发送' : primitive(row.sendWay)) : contentText(row.content)}</td><td><span className={`phase34-friends-status phase34-friends-status-${status.tone}`}>{status.label}</span></td><td>{tab === 'task' ? `${primitive(row.completedTotal)} / ${primitive(row.targetTotal)}` : primitive(row.type)}</td><td><span>{primitive(row.creatorName)}</span><small>{primitive(row.createdAt)}</small></td><td><span className="phase34-muted-action">草稿管理</span></td></tr>; })}</tbody></table></div>}</div>
       {composerOpen && <FriendsCircleComposer tab={tab} name={draftName} content={draftContent} materials={materials} saving={saving} error={saveError} onNameChange={setDraftName} onContentChange={setDraftContent} onClose={closeComposer} onSave={() => void saveDraft()} />}
+      {selectedTask !== null && <FriendsCircleTaskProgress task={selectedTask} rows={rowsFrom(resultQuery.data)} loading={resultQuery.isPending} error={resultQuery.error} exporting={exporting} exportError={exportError} onExport={() => void exportResults()} onClose={() => setSelectedTask(null)} />}
     </section>
   );
 }

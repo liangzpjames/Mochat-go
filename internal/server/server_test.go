@@ -40,6 +40,10 @@ func TestFriendsCircleProviderRoutes(t *testing.T) {
 		WithFriendsCircleTaskStoreHandler(handler("task-store")),
 		WithFriendsCircleMaterialStoreHandler(handler("material-store")),
 		WithFriendsCirclePublishHandler(handler("publish")),
+		WithFriendsCircleTaskResultIndexHandler(handler("task-result-index")),
+		WithFriendsCircleExportHandler(handler("export")),
+		WithFriendsCircleExportDataHandler(handler("export-data")),
+		WithFriendsCircleProviderCallbackHandler(handler("callback")),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +54,10 @@ func TestFriendsCircleProviderRoutes(t *testing.T) {
 		{http.MethodPost, "/dashboard/friendsCircle/taskStore", "task-store"},
 		{http.MethodPost, "/dashboard/friendsCircle/materialStore", "material-store"},
 		{http.MethodPost, "/dashboard/friendsCircle/publish", "publish"},
+		{http.MethodGet, "/dashboard/friendsCircle/taskResultIndex", "task-result-index"},
+		{http.MethodGet, "/dashboard/friendsCircle/export", "export"},
+		{http.MethodGet, "/dashboard/friendsCircle/exportData", "export-data"},
+		{http.MethodPost, "/dashboard/friendsCircle/providerCallback", "callback"},
 	} {
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))

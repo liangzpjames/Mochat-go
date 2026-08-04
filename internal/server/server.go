@@ -209,6 +209,10 @@ type Server struct {
 	friendsCircleTaskStore                          http.Handler
 	friendsCircleMaterialStore                      http.Handler
 	friendsCirclePublish                            http.Handler
+	friendsCircleTaskResultIndex                    http.Handler
+	friendsCircleExport                             http.Handler
+	friendsCircleExportData                         http.Handler
+	friendsCircleProviderCallback                   http.Handler
 	phase34AcquisitionLinkIndex                     http.Handler
 	phase34AcquisitionLinkStore                     http.Handler
 	phase34AcquisitionLinkAuthorize                 http.Handler
@@ -1797,6 +1801,18 @@ func WithFriendsCircleMaterialStoreHandler(handler http.Handler) Option {
 }
 func WithFriendsCirclePublishHandler(handler http.Handler) Option {
 	return func(server *Server) { server.friendsCirclePublish = handler }
+}
+func WithFriendsCircleTaskResultIndexHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCircleTaskResultIndex = handler }
+}
+func WithFriendsCircleExportHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCircleExport = handler }
+}
+func WithFriendsCircleExportDataHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCircleExportData = handler }
+}
+func WithFriendsCircleProviderCallbackHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCircleProviderCallback = handler }
 }
 
 func WithPhase34AcquisitionLinkIndexHandler(handler http.Handler) Option {
@@ -4677,6 +4693,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.friendsCircleMaterialStore.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/friendsCircle/publish" && r.Method == http.MethodPost && s.friendsCirclePublish != nil:
 		s.friendsCirclePublish.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/taskResultIndex" && r.Method == http.MethodGet && s.friendsCircleTaskResultIndex != nil:
+		s.friendsCircleTaskResultIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/export" && r.Method == http.MethodGet && s.friendsCircleExport != nil:
+		s.friendsCircleExport.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/exportData" && r.Method == http.MethodGet && s.friendsCircleExportData != nil:
+		s.friendsCircleExportData.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/providerCallback" && r.Method == http.MethodPost && s.friendsCircleProviderCallback != nil:
+		s.friendsCircleProviderCallback.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/acquisitionLink/index" && r.Method == http.MethodGet && s.phase34AcquisitionLinkIndex != nil:
 		s.phase34AcquisitionLinkIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/acquisitionLink/store" && r.Method == http.MethodPost && s.phase34AcquisitionLinkStore != nil:
@@ -6334,6 +6358,18 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.friendsCirclePublish != nil {
 		routes = append(routes, "POST /dashboard/friendsCircle/publish")
+	}
+	if s.friendsCircleTaskResultIndex != nil {
+		routes = append(routes, "GET /dashboard/friendsCircle/taskResultIndex")
+	}
+	if s.friendsCircleExport != nil {
+		routes = append(routes, "GET /dashboard/friendsCircle/export")
+	}
+	if s.friendsCircleExportData != nil {
+		routes = append(routes, "GET /dashboard/friendsCircle/exportData")
+	}
+	if s.friendsCircleProviderCallback != nil {
+		routes = append(routes, "POST /dashboard/friendsCircle/providerCallback")
 	}
 	if s.phase34AcquisitionLinkIndex != nil {
 		routes = append(routes, "GET /dashboard/acquisitionLink/index")

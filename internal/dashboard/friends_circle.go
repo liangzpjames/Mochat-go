@@ -2,12 +2,18 @@ package dashboard
 
 import (
 	"context"
+	"crypto/subtle"
+	"encoding/csv"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
 var ErrFriendsCirclePublisherNotConfigured = errors.New("friends circle publisher not configured")
+var ErrFriendsCircleInvalidTransition = errors.New("invalid friends circle task state transition")
 
 type FriendsCircleTask struct {
 	ID              int    `json:"id"`
@@ -23,7 +29,9 @@ type FriendsCircleTask struct {
 	StartAt         string `json:"startAt"`
 	EndAt           string `json:"endAt"`
 	ExternalTaskID  string `json:"externalTaskId"`
+	PublishAttempts int    `json:"publishAttempts"`
 	FailureReason   string `json:"failureReason"`
+	LastCallbackAt  string `json:"lastCallbackAt"`
 }
 
 type FriendsCircleMaterial struct {
@@ -64,6 +72,49 @@ type FriendsCircleMaterialPage struct {
 	PerPage   int
 	TotalPage int
 }
+
+type FriendsCircleTaskResult struct {
+	ID               int    `json:"id"`
+	TaskID           int    `json:"taskId"`
+	TargetEmployeeID int    `json:"targetEmployeeId"`
+	Status           string `json:"status"`
+	FailureCode      string `json:"failureCode"`
+	FailureReason    string `json:"failureReason"`
+	OccurredAt       string `json:"occurredAt"`
+}
+
+type FriendsCircleTaskResultFilter struct {
+	CorpID  int
+	TaskID  int
+	Status  string
+	Page    int
+	PerPage int
+}
+
+type FriendsCircleTaskResultPage struct {
+	Items     []FriendsCircleTaskResult
+	Total     int
+	Page      int
+	PerPage   int
+	TotalPage int
+}
+
+type FriendsCircleTaskResultWrite struct {
+	TargetEmployeeID int
+	Status           string
+	FailureCode      string
+	FailureReason    string
+}
+
+type FriendsCircleCallback struct {
+	CorpID         int
+	ExternalTaskID string
+	Status         string
+	CompletedTotal int
+	TargetTotal    int
+	FailureReason  string
+	Results        []FriendsCircleTaskResultWrite
+}
 type FriendsCircleTaskWrite struct {
 	CorpID          int
 	UserID          int
@@ -90,8 +141,10 @@ type FriendsCircleStore interface {
 	FirstEmployeeByUser(context.Context, int) (int, int, bool, error)
 	FriendsCircleTaskPage(context.Context, FriendsCircleTaskFilter) (FriendsCircleTaskPage, error)
 	FriendsCircleMaterialPage(context.Context, FriendsCircleMaterialFilter) (FriendsCircleMaterialPage, error)
+	FriendsCircleTaskResultPage(context.Context, FriendsCircleTaskResultFilter) (FriendsCircleTaskResultPage, error)
 	FriendsCircleTaskByID(context.Context, int, int) (FriendsCircleTask, bool, error)
 	ClaimFriendsCircleTaskForPublish(context.Context, int, int) (FriendsCircleTask, bool, error)
+	ApplyFriendsCircleCallback(context.Context, FriendsCircleCallback) (FriendsCircleTask, bool, error)
 	CreateFriendsCircleTask(context.Context, FriendsCircleTaskWrite) (int, error)
 	CreateFriendsCircleMaterial(context.Context, FriendsCircleMaterialWrite) (int, error)
 	MarkFriendsCircleTaskPublished(context.Context, int, int, string) (bool, error)
@@ -102,16 +155,31 @@ type FriendsCirclePublisher interface {
 	Publish(context.Context, int, int) (string, error)
 }
 
+type unavailableFriendsCirclePublisher struct{}
+
+func NewUnavailableFriendsCirclePublisher() FriendsCirclePublisher {
+	return unavailableFriendsCirclePublisher{}
+}
+
+func (unavailableFriendsCirclePublisher) Publish(context.Context, int, int) (string, error) {
+	return "", ErrFriendsCirclePublisherNotConfigured
+}
+
 type FriendsCircleHandler struct {
-	store      FriendsCircleStore
-	cache      LoginCache
-	resolver   UserIDResolver
-	authorizer CorpAdminAuthorizer
-	publisher  FriendsCirclePublisher
+	store         FriendsCircleStore
+	cache         LoginCache
+	resolver      UserIDResolver
+	authorizer    CorpAdminAuthorizer
+	publisher     FriendsCirclePublisher
+	callbackToken string
 }
 
 func NewFriendsCircleHandler(store FriendsCircleStore, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer, publisher FriendsCirclePublisher) *FriendsCircleHandler {
-	return &FriendsCircleHandler{store: store, cache: cache, resolver: resolver, authorizer: authorizer, publisher: publisher}
+	return NewFriendsCircleHandlerWithCallbackToken(store, cache, resolver, authorizer, publisher, "")
+}
+
+func NewFriendsCircleHandlerWithCallbackToken(store FriendsCircleStore, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer, publisher FriendsCirclePublisher, callbackToken string) *FriendsCircleHandler {
+	return &FriendsCircleHandler{store: store, cache: cache, resolver: resolver, authorizer: authorizer, publisher: publisher, callbackToken: strings.TrimSpace(callbackToken)}
 }
 
 func (h *FriendsCircleHandler) TaskIndex(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +211,26 @@ func (h *FriendsCircleHandler) MaterialIndex(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeEnvelope(w, 200, 200, "success", map[string]any{"list": result.Items, "page": map[string]any{"total": result.Total, "perPage": result.PerPage, "totalPage": result.TotalPage}})
+}
+
+func (h *FriendsCircleHandler) TaskResultIndex(w http.ResponseWriter, r *http.Request) {
+	_, corpID, _, ok := h.authorized(w, r, "/dashboard/friendsCircle/taskResultIndex#get", http.MethodGet)
+	if !ok {
+		return
+	}
+	taskID, present, err := intParam(map[string]any{"taskId": r.URL.Query().Get("taskId")}, "taskId")
+	if err != nil || !present || taskID <= 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "taskId is required", nil)
+		return
+	}
+	page := positiveQueryInt(r, "page", 1)
+	perPage := min(positiveQueryInt(r, "perPage", 20), 100)
+	result, err := h.store.FriendsCircleTaskResultPage(r.Context(), FriendsCircleTaskResultFilter{CorpID: corpID, TaskID: taskID, Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: page, PerPage: perPage})
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	writeEnvelope(w, http.StatusOK, http.StatusOK, "success", map[string]any{"list": result.Items, "page": map[string]any{"total": result.Total, "perPage": result.PerPage, "totalPage": result.TotalPage}})
 }
 
 func (h *FriendsCircleHandler) TaskStore(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +331,140 @@ func (h *FriendsCircleHandler) Publish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeEnvelope(w, 200, 200, "success", map[string]any{"externalTaskId": externalID, "status": "queued"})
+}
+
+func (h *FriendsCircleHandler) ProviderCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
+		return
+	}
+	if h.callbackToken == "" {
+		writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "friends circle callback verifier not configured", nil)
+		return
+	}
+	provided := strings.TrimSpace(r.Header.Get("X-Mochat-Friends-Circle-Callback-Token"))
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(h.callbackToken)) != 1 {
+		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "invalid friends circle callback token", nil)
+		return
+	}
+	params, err := parseRequestParams(r)
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
+		return
+	}
+	corpID, corpPresent, corpErr := intParam(params, "corpId")
+	if corpErr != nil || !corpPresent || corpID <= 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "corpId is required", nil)
+		return
+	}
+	status := strings.TrimSpace(stringParam(params, "status"))
+	if !friendsCircleCallbackStatuses[status] {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid callback status", nil)
+		return
+	}
+	completedTotal, _, completedErr := intParam(params, "completedTotal")
+	targetTotal, _, targetErr := intParam(params, "targetTotal")
+	if completedErr != nil || targetErr != nil || completedTotal < 0 || targetTotal < 0 || completedTotal > targetTotal && targetTotal > 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid callback progress", nil)
+		return
+	}
+	results, err := parseFriendsCircleCallbackResults(params["results"])
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid callback results", nil)
+		return
+	}
+	externalTaskID := stringParam(params, "externalTaskId")
+	if externalTaskID == "" {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "externalTaskId is required", nil)
+		return
+	}
+	updated, found, err := h.store.ApplyFriendsCircleCallback(r.Context(), FriendsCircleCallback{CorpID: corpID, ExternalTaskID: externalTaskID, Status: status, CompletedTotal: completedTotal, TargetTotal: targetTotal, FailureReason: stringParam(params, "failureReason"), Results: results})
+	if err != nil {
+		if errors.Is(err, ErrFriendsCircleInvalidTransition) {
+			writeEnvelope(w, http.StatusUnprocessableEntity, http.StatusUnprocessableEntity, err.Error(), nil)
+			return
+		}
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !found {
+		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "task not found or callback already closed", nil)
+		return
+	}
+	writeEnvelope(w, http.StatusOK, http.StatusOK, "success", map[string]any{"taskId": updated.ID, "status": updated.Status, "completedTotal": updated.CompletedTotal, "targetTotal": updated.TargetTotal})
+}
+
+func (h *FriendsCircleHandler) Export(w http.ResponseWriter, r *http.Request) {
+	_, corpID, _, ok := h.authorized(w, r, "/dashboard/friendsCircle/export#get", http.MethodGet)
+	if !ok {
+		return
+	}
+	taskID, present, err := intParam(map[string]any{"taskId": r.URL.Query().Get("taskId")}, "taskId")
+	if err != nil || !present || taskID <= 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "taskId is required", nil)
+		return
+	}
+	result, err := h.store.FriendsCircleTaskResultPage(r.Context(), FriendsCircleTaskResultFilter{CorpID: corpID, TaskID: taskID, Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: 1, PerPage: 10000})
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"friends-circle-task-%d-results.csv\"", taskID))
+	w.WriteHeader(http.StatusOK)
+	writer := csv.NewWriter(w)
+	_ = writer.Write([]string{"task_id", "target_employee_id", "status", "failure_code", "failure_reason", "occurred_at"})
+	for _, item := range result.Items {
+		_ = writer.Write([]string{strconv.Itoa(item.TaskID), strconv.Itoa(item.TargetEmployeeID), item.Status, item.FailureCode, item.FailureReason, item.OccurredAt})
+	}
+	writer.Flush()
+}
+
+func (h *FriendsCircleHandler) ExportData(w http.ResponseWriter, r *http.Request) {
+	_, corpID, _, ok := h.authorized(w, r, "/dashboard/friendsCircle/export#get", http.MethodGet)
+	if !ok {
+		return
+	}
+	taskID, present, err := intParam(map[string]any{"taskId": r.URL.Query().Get("taskId")}, "taskId")
+	if err != nil || !present || taskID <= 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "taskId is required", nil)
+		return
+	}
+	result, err := h.store.FriendsCircleTaskResultPage(r.Context(), FriendsCircleTaskResultFilter{CorpID: corpID, TaskID: taskID, Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: 1, PerPage: 10000})
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	writeEnvelope(w, http.StatusOK, http.StatusOK, "success", map[string]any{"list": result.Items, "taskId": taskID})
+}
+
+var friendsCircleCallbackStatuses = map[string]bool{
+	"queued":              true,
+	"running":             true,
+	"partially_succeeded": true,
+	"succeeded":           true,
+	"failed":              true,
+	"cancelled":           true,
+}
+
+func parseFriendsCircleCallbackResults(value any) ([]FriendsCircleTaskResultWrite, error) {
+	if value == nil {
+		return []FriendsCircleTaskResultWrite{}, nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var results []FriendsCircleTaskResultWrite
+	if err := json.Unmarshal(raw, &results); err != nil {
+		return nil, err
+	}
+	for _, result := range results {
+		if result.TargetEmployeeID <= 0 || !map[string]bool{"pending": true, "succeeded": true, "failed": true}[result.Status] {
+			return nil, errors.New("invalid callback result")
+		}
+	}
+	return results, nil
 }
 
 func (h *FriendsCircleHandler) authorized(w http.ResponseWriter, r *http.Request, permission string, method string) (int, int, User, bool) {

@@ -5094,7 +5094,7 @@ func (s *MySQLStore) FriendsCircleTaskPage(ctx context.Context, filter dashboard
 	if perPage <= 0 {
 		perPage = 20
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, failure_reason FROM mc_friends_circle_tasks`+where+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, perPage, (page-1)*perPage)...)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks`+where+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, perPage, (page-1)*perPage)...)
 	if err != nil {
 		return dashboard.FriendsCircleTaskPage{}, err
 	}
@@ -5102,7 +5102,7 @@ func (s *MySQLStore) FriendsCircleTaskPage(ctx context.Context, filter dashboard
 	items := make([]dashboard.FriendsCircleTask, 0)
 	for rows.Next() {
 		var item dashboard.FriendsCircleTask
-		if err := rows.Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.FailureReason); err != nil {
+		if err := rows.Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.PublishAttempts, &item.FailureReason, &item.LastCallbackAt); err != nil {
 			return dashboard.FriendsCircleTaskPage{}, err
 		}
 		items = append(items, item)
@@ -5155,6 +5155,47 @@ func (s *MySQLStore) FriendsCircleMaterialPage(ctx context.Context, filter dashb
 		totalPage = (total + perPage - 1) / perPage
 	}
 	return dashboard.FriendsCircleMaterialPage{Items: items, Total: total, Page: page, PerPage: perPage, TotalPage: totalPage}, rows.Err()
+}
+
+func (s *MySQLStore) FriendsCircleTaskResultPage(ctx context.Context, filter dashboard.FriendsCircleTaskResultFilter) (dashboard.FriendsCircleTaskResultPage, error) {
+	where := []string{"corp_id = ?", "task_id = ?"}
+	args := []any{filter.CorpID, filter.TaskID}
+	if filter.Status != "" {
+		where = append(where, "status = ?")
+		args = append(args, filter.Status)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mc_friends_circle_task_results WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return dashboard.FriendsCircleTaskResultPage{}, err
+	}
+	page, perPage := filter.Page, filter.PerPage
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, perPage, (page-1)*perPage)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, task_id, target_employee_id, status, failure_code, failure_reason,
+		       DATE_FORMAT(occurred_at, '%Y-%m-%d %H:%i:%s')
+		FROM mc_friends_circle_task_results
+		WHERE `+whereSQL+` ORDER BY id ASC LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return dashboard.FriendsCircleTaskResultPage{}, err
+	}
+	defer rows.Close()
+	items := make([]dashboard.FriendsCircleTaskResult, 0)
+	for rows.Next() {
+		var item dashboard.FriendsCircleTaskResult
+		if err := rows.Scan(&item.ID, &item.TaskID, &item.TargetEmployeeID, &item.Status, &item.FailureCode, &item.FailureReason, &item.OccurredAt); err != nil {
+			return dashboard.FriendsCircleTaskResultPage{}, err
+		}
+		items = append(items, item)
+	}
+	return dashboard.FriendsCircleTaskResultPage{Items: items, Total: total, Page: page, PerPage: perPage, TotalPage: pageCount(total, perPage)}, rows.Err()
 }
 
 func phase34AcquisitionLinkWhere(filter dashboard.Phase34AcquisitionLinkFilter, alias string) ([]string, []any) {
@@ -5461,7 +5502,7 @@ func (s *MySQLStore) CreateFriendsCircleTask(ctx context.Context, value dashboar
 
 func (s *MySQLStore) FriendsCircleTaskByID(ctx context.Context, corpID int, taskID int) (dashboard.FriendsCircleTask, bool, error) {
 	var item dashboard.FriendsCircleTask
-	err := s.db.QueryRowContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, failure_reason FROM mc_friends_circle_tasks WHERE id = ? AND corp_id = ?`, taskID, corpID).Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.FailureReason)
+	err := s.db.QueryRowContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks WHERE id = ? AND corp_id = ?`, taskID, corpID).Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.PublishAttempts, &item.FailureReason, &item.LastCallbackAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.FriendsCircleTask{}, false, nil
 	}
@@ -5469,7 +5510,7 @@ func (s *MySQLStore) FriendsCircleTaskByID(ctx context.Context, corpID int, task
 }
 
 func (s *MySQLStore) ClaimFriendsCircleTaskForPublish(ctx context.Context, corpID int, taskID int) (dashboard.FriendsCircleTask, bool, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'publishing', failure_reason = '' WHERE id = ? AND corp_id = ? AND status = 'draft'`, taskID, corpID)
+	result, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'publishing', publish_attempts = publish_attempts + 1, failure_reason = '' WHERE id = ? AND corp_id = ? AND status = 'draft'`, taskID, corpID)
 	if err != nil {
 		return dashboard.FriendsCircleTask{}, false, err
 	}
@@ -5491,7 +5532,7 @@ func (s *MySQLStore) CreateFriendsCircleMaterial(ctx context.Context, value dash
 }
 
 func (s *MySQLStore) MarkFriendsCircleTaskPublished(ctx context.Context, corpID int, taskID int, externalID string) (bool, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'queued', external_task_id = ?, failure_reason = '' WHERE id = ? AND corp_id = ? AND status = 'publishing'`, externalID, taskID, corpID)
+	result, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'queued', external_task_id = ?, failure_reason = '' WHERE id = ? AND corp_id = ? AND status = 'publishing' AND ? <> ''`, externalID, taskID, corpID, externalID)
 	if err != nil {
 		return false, err
 	}
@@ -5500,8 +5541,56 @@ func (s *MySQLStore) MarkFriendsCircleTaskPublished(ctx context.Context, corpID 
 }
 
 func (s *MySQLStore) MarkFriendsCircleTaskPublishFailed(ctx context.Context, corpID int, taskID int, reason string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'failed', failure_reason = ? WHERE id = ? AND corp_id = ? AND status = 'publishing'`, reason, taskID, corpID)
+	_, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'failed', failure_reason = ?, end_at = NOW() WHERE id = ? AND corp_id = ? AND status = 'publishing'`, reason, taskID, corpID)
 	return err
+}
+
+func (s *MySQLStore) ApplyFriendsCircleCallback(ctx context.Context, callback dashboard.FriendsCircleCallback) (dashboard.FriendsCircleTask, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return dashboard.FriendsCircleTask{}, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var task dashboard.FriendsCircleTask
+	err = tx.QueryRowContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, publish_attempts, failure_reason, COALESCE(DATE_FORMAT(last_callback_at, '%Y-%m-%d %H:%i:%s'), '') FROM mc_friends_circle_tasks WHERE corp_id = ? AND external_task_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE`, callback.CorpID, callback.ExternalTaskID).Scan(&task.ID, &task.TaskName, &task.SendWay, &task.Content, &task.TargetEmployees, &task.Status, &task.CompletedTotal, &task.TargetTotal, &task.CreatorName, &task.CreatedAt, &task.StartAt, &task.EndAt, &task.ExternalTaskID, &task.PublishAttempts, &task.FailureReason, &task.LastCallbackAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.FriendsCircleTask{}, false, nil
+	}
+	if err != nil {
+		return dashboard.FriendsCircleTask{}, false, err
+	}
+	if !friendsCircleCallbackTransitionAllowed(task.Status, callback.Status) {
+		return dashboard.FriendsCircleTask{}, true, dashboard.ErrFriendsCircleInvalidTransition
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = ?, completed_total = ?, target_total = ?, failure_reason = ?, last_callback_at = NOW(), end_at = CASE WHEN ? IN ('succeeded', 'failed', 'cancelled') THEN COALESCE(end_at, NOW()) ELSE end_at END WHERE id = ? AND corp_id = ?`, callback.Status, callback.CompletedTotal, callback.TargetTotal, callback.FailureReason, callback.Status, task.ID, callback.CorpID); err != nil {
+		return dashboard.FriendsCircleTask{}, false, err
+	}
+	for _, result := range callback.Results {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mc_friends_circle_task_results (corp_id, task_id, target_employee_id, status, failure_code, failure_reason, occurred_at) VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE status = VALUES(status), failure_code = VALUES(failure_code), failure_reason = VALUES(failure_reason), occurred_at = VALUES(occurred_at)`, callback.CorpID, task.ID, result.TargetEmployeeID, result.Status, result.FailureCode, result.FailureReason); err != nil {
+			return dashboard.FriendsCircleTask{}, false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return dashboard.FriendsCircleTask{}, false, err
+	}
+	task.Status = callback.Status
+	task.CompletedTotal = callback.CompletedTotal
+	task.TargetTotal = callback.TargetTotal
+	task.FailureReason = callback.FailureReason
+	return task, true, nil
+}
+
+func friendsCircleCallbackTransitionAllowed(current, next string) bool {
+	if current == next {
+		return true
+	}
+	allowed := map[string]map[string]bool{
+		"queued":              {"running": true, "partially_succeeded": true, "succeeded": true, "failed": true, "cancelled": true},
+		"running":             {"partially_succeeded": true, "succeeded": true, "failed": true, "cancelled": true},
+		"partially_succeeded": {"succeeded": true, "failed": true, "cancelled": true},
+	}
+	return allowed[current][next]
 }
 
 func (s *MySQLStore) MediumGroupsByCorpID(ctx context.Context, corpID int) ([]dashboard.MediumGroup, error) {
