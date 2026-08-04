@@ -134,8 +134,8 @@ function selectableMaterials(payload: unknown): SelectableMaterial[] {
   return rowsFrom(payload).flatMap((row) => {
     const id = Number(row.id);
     if (!Number.isInteger(id) || id <= 0) return [];
-    const title = isRecord(row.content) ? primitive(row.content.title ?? row.content.name) : primitive(row.name);
-    const content = contentText(row.content);
+    const title = primitive(row.name ?? (isRecord(row.content) ? row.content.title ?? row.content.name : undefined));
+    const content = primitive(row.preview) !== '--' ? primitive(row.preview) : contentText(row.content);
     return title === '--' || content === '--' ? [] : [{ id, title, content }];
   });
 }

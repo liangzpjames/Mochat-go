@@ -86,7 +86,7 @@ describe('Phase 3.4 content-reach pages', () => {
 
   it('reuses a real material provider in the friends-circle composer', async () => {
     const read = vi.fn().mockImplementation((endpoint: string) => endpoint === '/materialSelector/index'
-      ? Promise.resolve({ list: [{ id: 45, content: { title: '新品文案', content: '新品今天上线' } }] })
+      ? Promise.resolve({ list: [{ id: 45, name: '新品文案', preview: '新品今天上线' }] })
       : Promise.resolve({ list: [] }));
     view(<FriendsCirclePage api={{ read, write: vi.fn() }} />);
 
