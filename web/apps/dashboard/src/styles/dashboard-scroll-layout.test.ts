@@ -57,4 +57,12 @@ describe('Dashboard independent scroll layout', () => {
     expect(declarationBlock('.page-state')).toContain('border-radius: 12px');
     expect(declarationBlock('.page-state-retry')).toContain('border-radius: 8px');
   });
+
+  it('keeps the material group modal backdrop translucent over the current page', () => {
+    const backdrop = declarationBlock('.phase34-page .phase34-material-group-backdrop');
+
+    expect(backdrop).toContain('background: rgb(17 24 39 / 42%)');
+    expect(backdrop).toContain('border: 0');
+    expect(backdrop).toContain('border-radius: 0');
+  });
 });

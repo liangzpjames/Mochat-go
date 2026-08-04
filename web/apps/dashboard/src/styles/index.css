@@ -1316,7 +1316,7 @@ body {
 .phase34-material-batch .danger { background: #fff0f0; border-color: #f3cece; color: #b84b4b; }
 .phase34-material-error { background: #fff1f1; border: 1px solid #f3d0d0; border-radius: 8px; color: #b94b4b; font-size: .76rem; padding: 9px 11px; }
 .phase34-material-group-modal { align-items: center; display: flex; inset: 0; justify-content: center; position: fixed; z-index: 90; }
-.phase34-material-group-backdrop { background: rgb(17 24 39 / 42%); border: 0; inset: 0; padding: 0; position: absolute; }
+.phase34-page .phase34-material-group-backdrop { appearance: none; background: rgb(17 24 39 / 42%); border: 0; border-radius: 0; inset: 0; padding: 0; position: absolute; }
 .phase34-material-group-dialog { background: #fff; border-radius: 14px; box-shadow: 0 24px 64px rgb(15 23 42 / 22%); display: grid; gap: 20px; max-width: calc(100vw - 32px); padding: 24px; position: relative; width: 420px; }
 .phase34-material-group-dialog header { align-items: flex-start; display: flex; justify-content: space-between; }
 .phase34-material-group-dialog header h2 { color: #20283a; font-size: 1.2rem; margin: 4px 0 0; }
