@@ -55,20 +55,48 @@ describe('Phase 3.4 content-reach pages', () => {
     expect(screen.getByLabelText('群发任务详情').textContent).toContain('执行数据');
   });
 
-  it('renders the observed friends-circle structure without calling a missing provider', () => {
-    const read = vi.fn();
-    const write = vi.fn();
+  it('queries real friends-circle tasks and materials and persists a draft', async () => {
+    const read = vi.fn()
+      .mockResolvedValueOnce({ list: [{ id: 21, taskName: '夏日朋友圈', sendWay: 'manual', status: 'draft', completedTotal: 0, targetTotal: 8, creatorName: '运营员', createdAt: '2026-08-04 14:00' }] })
+      .mockResolvedValueOnce({ list: [{ id: 31, name: '新品海报', type: 'image', status: 'available', creatorName: '运营员', createdAt: '2026-08-04 14:10' }] })
+      .mockResolvedValue({ list: [] });
+    const write = vi.fn().mockResolvedValue(undefined);
     view(<FriendsCirclePage api={{ read, write }} />);
 
     expect(screen.getByRole('tab', { name: '朋友圈' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: '朋友圈素材' })).toBeTruthy();
+    expect(await screen.findByText('夏日朋友圈')).toBeTruthy();
+    expect(read).toHaveBeenCalledWith('/friendsCircle/taskIndex', expect.objectContaining({ page: 1, perPage: 20 }));
     expect(screen.getByLabelText('任务名称')).toBeTruthy();
     expect(screen.getByLabelText('发送方式')).toBeTruthy();
     expect(screen.getByText('完成情况')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '添加朋友圈' })).toHaveProperty('disabled', true);
+    fireEvent.click(screen.getByRole('tab', { name: '朋友圈素材' }));
+    expect(await screen.findByText('新品海报')).toBeTruthy();
+    expect(read).toHaveBeenLastCalledWith('/friendsCircle/materialIndex', expect.objectContaining({ page: 1, perPage: 20 }));
+    fireEvent.click(screen.getByRole('tab', { name: '朋友圈' }));
+    fireEvent.click(screen.getByRole('button', { name: '添加朋友圈' }));
+    fireEvent.change(screen.getByLabelText('草稿名称'), { target: { value: '秋日活动' } });
+    fireEvent.change(screen.getByLabelText('草稿内容'), { target: { value: '欢迎参与' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(write).toHaveBeenCalledWith('/friendsCircle/taskStore', expect.objectContaining({ taskName: '秋日活动', content: '欢迎参与', sendWay: 'manual' })));
     expect(screen.getByRole('button', { name: '导出' })).toHaveProperty('disabled', true);
-    expect(screen.getByText('朋友圈 Provider 未配置')).toBeTruthy();
-    expect(read).not.toHaveBeenCalled();
-    expect(write).not.toHaveBeenCalled();
+    expect(screen.getByText('发布 Provider 未配置')).toBeTruthy();
+  });
+
+  it('isolates friends-circle query cache when the selected corp changes', async () => {
+    const read = vi.fn().mockResolvedValueOnce({ list: [{ id: 1, taskName: 'corp-seven-draft' }] }).mockResolvedValueOnce({ list: [{ id: 2, taskName: 'corp-eight-draft' }] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const page = (value: AccessContext) => (
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <DashboardAccessProvider value={value}><FriendsCirclePage api={{ read, write: vi.fn() }} /></DashboardAccessProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+    const rendered = render(page(access));
+    expect(await screen.findByText('corp-seven-draft')).toBeTruthy();
+    rendered.rerender(page({ ...access, session: { ...access.session, corpId: '8' }, corp: { ...access.corp, id: '8', name: 'corp-eight' } }));
+    expect(await screen.findByText('corp-eight-draft')).toBeTruthy();
+    expect(read).toHaveBeenCalledTimes(2);
   });
 });

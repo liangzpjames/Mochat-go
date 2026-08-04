@@ -30,6 +30,35 @@ func TestRootKeepsMoChatCompatibility(t *testing.T) {
 	}
 }
 
+func TestFriendsCircleProviderRoutes(t *testing.T) {
+	handler := func(body string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) })
+	}
+	srv, err := New(config.Config{},
+		WithFriendsCircleTaskIndexHandler(handler("task-index")),
+		WithFriendsCircleMaterialIndexHandler(handler("material-index")),
+		WithFriendsCircleTaskStoreHandler(handler("task-store")),
+		WithFriendsCircleMaterialStoreHandler(handler("material-store")),
+		WithFriendsCirclePublishHandler(handler("publish")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodGet, "/dashboard/friendsCircle/taskIndex", "task-index"},
+		{http.MethodGet, "/dashboard/friendsCircle/materialIndex", "material-index"},
+		{http.MethodPost, "/dashboard/friendsCircle/taskStore", "task-store"},
+		{http.MethodPost, "/dashboard/friendsCircle/materialStore", "material-store"},
+		{http.MethodPost, "/dashboard/friendsCircle/publish", "publish"},
+	} {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != tc.body {
+			t.Fatalf("%s %s: status=%d body=%q", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestHeadRootDoesNotWriteBody(t *testing.T) {
 	srv := newTestServer(t, "")
 

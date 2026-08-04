@@ -120,16 +120,59 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   );
 }
 
-export function FriendsCirclePage({ api: _api }: { api: BusinessWorkbenchApi }) {
+export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
+  const access = useDashboardAccess();
   const [tab, setTab] = useState<'task' | 'material'>('task');
+  const [draftFilter, setDraftFilter] = useState('');
+  const [filter, setFilter] = useState('');
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftContent, setDraftContent] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const endpoint = tab === 'task' ? '/friendsCircle/taskIndex' : '/friendsCircle/materialIndex';
+  const query = useQuery({
+    queryKey: ['phase34-friends-circle', access.corp.id, tab, filter],
+    queryFn: () => api.read(endpoint, { ...(filter ? (tab === 'task' ? { taskName: filter } : { keyword: filter }) : {}), page: 1, perPage: 20 }),
+  });
+  const rows = useMemo(() => rowsFrom(query.data), [query.data]);
+  const refresh = () => { void query.refetch(); };
+  const changeTab = (next: 'task' | 'material') => {
+    setTab(next);
+    setDraftFilter('');
+    setFilter('');
+    setComposerOpen(false);
+  };
+  const saveDraft = async () => {
+    if (!draftName.trim() || !draftContent.trim()) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      if (tab === 'task') {
+        await api.write('/friendsCircle/taskStore', { taskName: draftName.trim(), content: draftContent.trim(), sendWay: 'manual' });
+      } else {
+        await api.write('/friendsCircle/materialStore', { name: draftName.trim(), type: 'text', content: { text: draftContent.trim() } });
+      }
+      setComposerOpen(false);
+      setDraftName('');
+      setDraftContent('');
+      await query.refetch();
+    } catch {
+      setSaveError('草稿保存失败，请稍后重试。');
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <section className="phase34-page">
-      <header className="phase34-page-header"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>朋友圈</h1><p>统一管理朋友圈任务和朋友圈素材；正式 Provider 接入前不执行发布。</p></div><div className="phase34-header-actions"><span className="phase34-provider-badge phase34-provider-badge-warning">等待 Provider</span><button type="button" disabled>添加朋友圈</button><button type="button" disabled>导出</button></div></header>
-      <div className="phase34-tabs" role="tablist" aria-label="朋友圈内容类型"><button type="button" role="tab" aria-selected={tab === 'task'} className={tab === 'task' ? 'phase34-tab-active' : ''} onClick={() => setTab('task')}>朋友圈</button><button type="button" role="tab" aria-selected={tab === 'material'} className={tab === 'material' ? 'phase34-tab-active' : ''} onClick={() => setTab('material')}>朋友圈素材</button></div>
+      <header className="phase34-page-header"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>朋友圈</h1><p>统一管理朋友圈任务和素材草稿；草稿持久化与正式发布使用相互隔离的 Provider。</p></div><div className="phase34-header-actions"><span className="phase34-provider-badge">持久化 Provider 已连接</span><button type="button" onClick={() => setComposerOpen(true)}>添加朋友圈</button><button type="button" disabled>导出</button><button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button></div></header>
+      <p className="phase34-provider-notice"><strong>发布 Provider 未配置</strong><span>，当前仅保存可审计草稿，不会向企业微信发起发布。</span></p>
+      <div className="phase34-tabs" role="tablist" aria-label="朋友圈内容类型"><button type="button" role="tab" aria-selected={tab === 'task'} className={tab === 'task' ? 'phase34-tab-active' : ''} onClick={() => changeTab('task')}>朋友圈</button><button type="button" role="tab" aria-selected={tab === 'material'} className={tab === 'material' ? 'phase34-tab-active' : ''} onClick={() => changeTab('material')}>朋友圈素材</button></div>
       <div className="dashboard-filter-bar phase34-filter-bar phase34-friends-filter">
-        <label>任务名称<input aria-label="任务名称" placeholder="请输入任务名称" disabled /></label><label>选择员工<select aria-label="选择员工" disabled><option>全部员工</option></select></label><label>发送方式<select aria-label="发送方式" disabled><option>全部方式</option></select></label><label>任务状态<select aria-label="任务状态" disabled><option>全部状态</option></select></label>
+        <label>{tab === 'task' ? '任务名称' : '素材关键字'}<input aria-label={tab === 'task' ? '任务名称' : '素材关键字'} placeholder="请输入关键字" value={draftFilter} onChange={(event) => setDraftFilter(event.target.value)} /></label><label>选择员工<select aria-label="选择员工" disabled><option>全部员工</option></select></label><label>发送方式<select aria-label="发送方式" disabled><option>全部方式</option></select></label><label>任务状态<select aria-label="任务状态" disabled><option>全部状态</option></select></label><div className="dashboard-table-actions"><button type="button" onClick={() => setFilter(draftFilter.trim())}>查询</button><button type="button" className="phase34-secondary-button" onClick={() => { setDraftFilter(''); setFilter(''); }}>重置</button></div>
       </div>
-      <div className="dashboard-data-card phase34-results-card"><div className="dashboard-card-heading"><div><h2>{tab === 'task' ? '朋友圈任务' : '朋友圈素材'}</h2><p>管理员创建内容、选择客户并通知员工发布的结构已覆盖，发布与导出保持阻断。</p></div></div><div className="phase34-preview-headings phase34-preview-headings-friends" aria-hidden="true"><span>{tab === 'task' ? '任务名称' : '素材内容'}</span><span>发送方式</span><span>状态</span><span>完成情况</span><span>创建人 / 创建时间</span><span>操作</span></div><PageState state="not-found" title="朋友圈 Provider 未配置" description="当前环境没有可审计的朋友圈任务、素材、发布和导出 Provider，相关操作已停用。" /></div>
+      <div className="dashboard-data-card phase34-results-card"><div className="dashboard-card-heading"><div><h2>{tab === 'task' ? '朋友圈任务' : '朋友圈素材'}</h2><p>当前展示数据库 Provider 返回的真实草稿与素材记录。</p></div><span>{rows.length} 条</span></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <PageState state="empty" title="暂无朋友圈记录" description="可通过添加朋友圈创建第一条可审计草稿。" /> : <div className="dashboard-table-scroll"><table className="phase34-table"><thead><tr><th>{tab === 'task' ? '任务名称' : '素材内容'}</th><th>发送方式</th><th>状态</th><th>完成情况</th><th>创建人 / 创建时间</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}><td>{primitive(tab === 'task' ? row.taskName : row.name)}</td><td>{primitive(tab === 'task' ? row.sendWay : row.type)}</td><td>{statusText(row.status)}</td><td>{tab === 'task' ? `${primitive(row.completedTotal)} / ${primitive(row.targetTotal)}` : '--'}</td><td>{primitive(row.creatorName)} / {primitive(row.createdAt)}</td><td><span className="phase34-muted-action">仅草稿</span></td></tr>)}</tbody></table></div>}</div>
+      {composerOpen && <aside className="phase34-detail" aria-label="朋友圈草稿"><div className="phase34-detail-backdrop" onClick={() => setComposerOpen(false)} /><div className="phase34-detail-panel"><div className="dashboard-card-heading"><div><p className="phase34-eyebrow">持久化 Provider</p><h2>{tab === 'task' ? '添加朋友圈草稿' : '添加朋友圈素材'}</h2></div><button type="button" onClick={() => setComposerOpen(false)}>关闭</button></div><div className="phase34-compose-form"><label>草稿名称<input aria-label="草稿名称" value={draftName} onChange={(event) => setDraftName(event.target.value)} /></label><label>草稿内容<textarea aria-label="草稿内容" rows={6} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} /></label>{saveError && <p role="alert">{saveError}</p>}<button type="button" disabled={saving || !draftName.trim() || !draftContent.trim()} onClick={() => void saveDraft()}>{saving ? '保存中…' : '保存草稿'}</button></div></div></aside>}
     </section>
   );
 }

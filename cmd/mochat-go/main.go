@@ -1257,6 +1257,20 @@ func main() {
 		}
 	}
 
+	if cfg.MigrateFriendsCircleProvider {
+		mysqlStore := getMySQLStore()
+		resolver, loginCache := buildUserResolver("friendsCircle")
+		friendsCircle := dashboard.NewFriendsCircleHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore), nil)
+		options = append(options,
+			compatserver.WithFriendsCircleTaskIndexHandler(http.HandlerFunc(friendsCircle.TaskIndex)),
+			compatserver.WithFriendsCircleMaterialIndexHandler(http.HandlerFunc(friendsCircle.MaterialIndex)),
+			compatserver.WithFriendsCircleTaskStoreHandler(http.HandlerFunc(friendsCircle.TaskStore)),
+			compatserver.WithFriendsCircleMaterialStoreHandler(http.HandlerFunc(friendsCircle.MaterialStore)),
+			compatserver.WithFriendsCirclePublishHandler(http.HandlerFunc(friendsCircle.Publish)),
+		)
+		log.Printf("go migrated routes enabled: friends circle provider")
+	}
+
 	if cfg.MigrateChannelCodeIndex || cfg.MigrateChannelCodeShow || cfg.MigrateChannelCodeContact || cfg.MigrateChannelCodeStatistics || cfg.MigrateChannelCodeStatsIndex || cfg.MigrateChannelCodeStore || cfg.MigrateChannelCodeUpdate ||
 		cfg.MigrateChannelCodeGroupIndex || cfg.MigrateChannelCodeGroupDetail || cfg.MigrateChannelCodeGroupStore || cfg.MigrateChannelCodeGroupUpdate || cfg.MigrateChannelCodeGroupMove {
 		mysqlStore := getMySQLStore()

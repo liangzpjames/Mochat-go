@@ -82,8 +82,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0113_silent_customer_refuse_archive_provider" {
-		t.Fatalf("latest migration = %q, want 0113_silent_customer_refuse_archive_provider", latest.Version)
+	if latest.Version != "0114_friends_circle_provider" {
+		t.Fatalf("latest migration = %q, want 0114_friends_circle_provider", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)

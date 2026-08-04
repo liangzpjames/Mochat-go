@@ -448,6 +448,7 @@ type Config struct {
 	MigrateMediumGroupUpdate                           bool
 	MigrateMediumGroupDestroy                          bool
 	MigrateSidebarMediumGroupIndex                     bool
+	MigrateFriendsCircleProvider                       bool
 	MigrateChannelCodeIndex                            bool
 	MigrateChannelCodeShow                             bool
 	MigrateChannelCodeContact                          bool
@@ -1620,6 +1621,7 @@ func FromEnv() (Config, error) {
 		MigrateMediumGroupUpdate:                           envBoolDefault("MOCHAT_GO_MIGRATE_MEDIUM_GROUP_UPDATE", enableAllMigratedRoutes),
 		MigrateMediumGroupDestroy:                          envBoolDefault("MOCHAT_GO_MIGRATE_MEDIUM_GROUP_DESTROY", enableAllMigratedRoutes),
 		MigrateSidebarMediumGroupIndex:                     envBoolDefault("MOCHAT_GO_MIGRATE_SIDEBAR_MEDIUM_GROUP_INDEX", enableAllMigratedRoutes),
+		MigrateFriendsCircleProvider:                       envBoolDefault("MOCHAT_GO_MIGRATE_FRIENDS_CIRCLE_PROVIDER", enableAllMigratedRoutes),
 		MigrateChannelCodeIndex:                            envBoolDefault("MOCHAT_GO_MIGRATE_CHANNEL_CODE_INDEX", enableAllMigratedRoutes),
 		MigrateChannelCodeShow:                             envBoolDefault("MOCHAT_GO_MIGRATE_CHANNEL_CODE_SHOW", enableAllMigratedRoutes),
 		MigrateChannelCodeContact:                          envBoolDefault("MOCHAT_GO_MIGRATE_CHANNEL_CODE_CONTACT", enableAllMigratedRoutes),
@@ -1948,7 +1950,7 @@ func FromEnv() (Config, error) {
 		cfg.MigrateOperationWorkFissionInviteFriends || cfg.MigrateOperationWorkFissionPoster || cfg.MigrateOperationWorkFissionTaskData || cfg.MigrateOperationWorkFissionReceive || cfg.MigrateOperationWorkFissionAuth || cfg.MigrateOperationWorkFissionOpenUserInfo ||
 		cfg.MigrateWorkRoomGroupIndex || cfg.MigrateWorkRoomGroupStore || cfg.MigrateWorkRoomGroupUpdate || cfg.MigrateWorkRoomGroupDestroy || cfg.MigrateSidebarContactTagAll || cfg.MigrateSidebarContactDetail || cfg.MigrateSidebarContactShow || cfg.MigrateSidebarContactTrack || cfg.MigrateSidebarContactUpdate || cfg.MigrateSidebarProcessStatus || cfg.MigrateSidebarProcessUpdate || cfg.MigrateContactBatchAddDashboard || cfg.MigrateSensitiveWordsDashboard || cfg.MigrateContactSOPDashboard || cfg.MigrateRoomSOPDashboard || cfg.MigrateShopCodeDashboard || cfg.MigrateRadarDashboard || cfg.MigrateAutoTagDashboard || cfg.MigrateLotteryDashboard || cfg.MigrateRoomFissionDashboard || cfg.MigrateRoomClockInDashboard || cfg.MigrateRoomQualityDashboard || cfg.MigrateRoomCalendarDashboard || cfg.MigrateRoomRemindDashboard || cfg.MigrateRoomInfinitePullDashboard || cfg.MigrateSidebarContactBatchAddDetail ||
 		cfg.MigrateMediumIndex || cfg.MigrateMediumShow || cfg.MigrateMediumStore || cfg.MigrateMediumUpdate || cfg.MigrateMediumDestroy || cfg.MigrateMediumItemGroupUpdate || cfg.MigrateSidebarMediumIndex || cfg.MigrateSidebarMediumMediaIDUpdate ||
-		cfg.MigrateMediumGroupIndex || cfg.MigrateMediumGroupStore || cfg.MigrateMediumGroupUpdate || cfg.MigrateMediumGroupDestroy || cfg.MigrateSidebarMediumGroupIndex ||
+		cfg.MigrateMediumGroupIndex || cfg.MigrateMediumGroupStore || cfg.MigrateMediumGroupUpdate || cfg.MigrateMediumGroupDestroy || cfg.MigrateSidebarMediumGroupIndex || cfg.MigrateFriendsCircleProvider ||
 		cfg.MigrateChannelCodeIndex || cfg.MigrateChannelCodeShow || cfg.MigrateChannelCodeContact || cfg.MigrateChannelCodeStatistics || cfg.MigrateChannelCodeStatsIndex || cfg.MigrateChannelCodeStore || cfg.MigrateChannelCodeUpdate ||
 		cfg.MigrateChannelCodeGroupIndex || cfg.MigrateChannelCodeGroupDetail || cfg.MigrateChannelCodeGroupStore || cfg.MigrateChannelCodeGroupUpdate || cfg.MigrateChannelCodeGroupMove ||
 		cfg.MigrateGreetingIndex || cfg.MigrateGreetingShow || cfg.MigrateGreetingStore || cfg.MigrateGreetingUpdate || cfg.MigrateGreetingDestroy ||
@@ -1982,7 +1984,7 @@ func FromEnv() (Config, error) {
 		cfg.MigrateWorkFissionIndex || cfg.MigrateWorkFissionShow || cfg.MigrateWorkFissionInfo || cfg.MigrateWorkFissionStatistics || cfg.MigrateWorkFissionChooseContact || cfg.MigrateWorkFissionInviteData || cfg.MigrateWorkFissionInviteDetail ||
 		cfg.MigrateWorkRoomGroupIndex ||
 		cfg.MigrateContactBatchAddDashboard || cfg.MigrateSensitiveWordsDashboard || cfg.MigrateContactSOPDashboard || cfg.MigrateRoomSOPDashboard || cfg.MigrateShopCodeDashboard || cfg.MigrateRadarDashboard || cfg.MigrateAutoTagDashboard || cfg.MigrateLotteryDashboard || cfg.MigrateRoomFissionDashboard || cfg.MigrateRoomClockInDashboard || cfg.MigrateRoomQualityDashboard || cfg.MigrateRoomCalendarDashboard || cfg.MigrateRoomRemindDashboard || cfg.MigrateRoomInfinitePullDashboard ||
-		cfg.MigrateMediumIndex || cfg.MigrateMediumShow || cfg.MigrateMediumGroupIndex ||
+		cfg.MigrateMediumIndex || cfg.MigrateMediumShow || cfg.MigrateMediumGroupIndex || cfg.MigrateFriendsCircleProvider ||
 		cfg.MigrateChannelCodeIndex || cfg.MigrateChannelCodeShow || cfg.MigrateChannelCodeContact || cfg.MigrateChannelCodeStatistics || cfg.MigrateChannelCodeStatsIndex ||
 		cfg.MigrateChannelCodeGroupIndex || cfg.MigrateChannelCodeGroupDetail ||
 		cfg.MigrateGreetingIndex || cfg.MigrateGreetingShow ||

@@ -200,6 +200,11 @@ type Server struct {
 	mediumGroupStore                                http.Handler
 	mediumGroupUpdate                               http.Handler
 	mediumGroupDestroy                              http.Handler
+	friendsCircleTaskIndex                          http.Handler
+	friendsCircleMaterialIndex                      http.Handler
+	friendsCircleTaskStore                          http.Handler
+	friendsCircleMaterialStore                      http.Handler
+	friendsCirclePublish                            http.Handler
 	sidebarMediumGroupIndex                         http.Handler
 	channelCodeIndex                                http.Handler
 	channelCodeShow                                 http.Handler
@@ -1746,6 +1751,22 @@ func WithMediumGroupDestroyHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.mediumGroupDestroy = handler
 	}
+}
+
+func WithFriendsCircleTaskIndexHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCircleTaskIndex = handler }
+}
+func WithFriendsCircleMaterialIndexHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCircleMaterialIndex = handler }
+}
+func WithFriendsCircleTaskStoreHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCircleTaskStore = handler }
+}
+func WithFriendsCircleMaterialStoreHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCircleMaterialStore = handler }
+}
+func WithFriendsCirclePublishHandler(handler http.Handler) Option {
+	return func(server *Server) { server.friendsCirclePublish = handler }
 }
 
 func WithSidebarMediumGroupIndexHandler(handler http.Handler) Option {
@@ -4568,6 +4589,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.sidebarMediumMediaIDUpdate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/mediumGroup/index" && r.Method == http.MethodGet && s.mediumGroupIndex != nil:
 		s.mediumGroupIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/taskIndex" && r.Method == http.MethodGet && s.friendsCircleTaskIndex != nil:
+		s.friendsCircleTaskIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/materialIndex" && r.Method == http.MethodGet && s.friendsCircleMaterialIndex != nil:
+		s.friendsCircleMaterialIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/taskStore" && r.Method == http.MethodPost && s.friendsCircleTaskStore != nil:
+		s.friendsCircleTaskStore.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/materialStore" && r.Method == http.MethodPost && s.friendsCircleMaterialStore != nil:
+		s.friendsCircleMaterialStore.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/friendsCircle/publish" && r.Method == http.MethodPost && s.friendsCirclePublish != nil:
+		s.friendsCirclePublish.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/mediumGroup/store" && r.Method == http.MethodPost && s.mediumGroupStore != nil:
 		s.mediumGroupStore.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/mediumGroup/update" && r.Method == http.MethodPut && s.mediumGroupUpdate != nil:
@@ -6178,6 +6209,21 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.mediumGroupIndex != nil {
 		routes = append(routes, "GET /dashboard/mediumGroup/index")
+	}
+	if s.friendsCircleTaskIndex != nil {
+		routes = append(routes, "GET /dashboard/friendsCircle/taskIndex")
+	}
+	if s.friendsCircleMaterialIndex != nil {
+		routes = append(routes, "GET /dashboard/friendsCircle/materialIndex")
+	}
+	if s.friendsCircleTaskStore != nil {
+		routes = append(routes, "POST /dashboard/friendsCircle/taskStore")
+	}
+	if s.friendsCircleMaterialStore != nil {
+		routes = append(routes, "POST /dashboard/friendsCircle/materialStore")
+	}
+	if s.friendsCirclePublish != nil {
+		routes = append(routes, "POST /dashboard/friendsCircle/publish")
 	}
 	if s.mediumGroupStore != nil {
 		routes = append(routes, "POST /dashboard/mediumGroup/store")

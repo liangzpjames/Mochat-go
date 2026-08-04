@@ -613,15 +613,15 @@
       "status": "documented",
       "screenshotVersion": "2026-08-04",
       "implementation": "native",
-      "backend": "missing",
+      "backend": "partial",
       "acceptance": "unit-passed",
       "phase": "3.4",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-03-phase3.4-marketing-tools-design.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/batch3-content-reach-report.md"
+        "spec": "docs/phases/phase-3-dashboard/phase-3.4/design/2026-08-04-friends-circle-provider-design.md",
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3.4/reports/friends-circle-provider-report.md"
       }
     },
     {

@@ -5072,6 +5072,145 @@ func workContactTagIDsByGroupTx(ctx context.Context, tx *sql.Tx, corpID int, gro
 	return scanIntColumn(rows)
 }
 
+func (s *MySQLStore) FriendsCircleTaskPage(ctx context.Context, filter dashboard.FriendsCircleTaskFilter) (dashboard.FriendsCircleTaskPage, error) {
+	where := " WHERE corp_id = ?"
+	args := []any{filter.CorpID}
+	if filter.TaskName != "" {
+		where += " AND task_name LIKE ?"
+		args = append(args, "%"+filter.TaskName+"%")
+	}
+	if filter.Status != "" {
+		where += " AND status = ?"
+		args = append(args, filter.Status)
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mc_friends_circle_tasks"+where, args...).Scan(&total); err != nil {
+		return dashboard.FriendsCircleTaskPage{}, err
+	}
+	page, perPage := filter.Page, filter.PerPage
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, failure_reason FROM mc_friends_circle_tasks`+where+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, perPage, (page-1)*perPage)...)
+	if err != nil {
+		return dashboard.FriendsCircleTaskPage{}, err
+	}
+	defer rows.Close()
+	items := make([]dashboard.FriendsCircleTask, 0)
+	for rows.Next() {
+		var item dashboard.FriendsCircleTask
+		if err := rows.Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.FailureReason); err != nil {
+			return dashboard.FriendsCircleTaskPage{}, err
+		}
+		items = append(items, item)
+	}
+	totalPage := 0
+	if total > 0 {
+		totalPage = (total + perPage - 1) / perPage
+	}
+	return dashboard.FriendsCircleTaskPage{Items: items, Total: total, Page: page, PerPage: perPage, TotalPage: totalPage}, rows.Err()
+}
+
+func (s *MySQLStore) FriendsCircleMaterialPage(ctx context.Context, filter dashboard.FriendsCircleMaterialFilter) (dashboard.FriendsCircleMaterialPage, error) {
+	where := " WHERE corp_id = ?"
+	args := []any{filter.CorpID}
+	if filter.Keyword != "" {
+		where += " AND (name LIKE ? OR content LIKE ?)"
+		like := "%" + filter.Keyword + "%"
+		args = append(args, like, like)
+	}
+	if filter.Type != "" {
+		where += " AND type = ?"
+		args = append(args, filter.Type)
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mc_friends_circle_materials"+where, args...).Scan(&total); err != nil {
+		return dashboard.FriendsCircleMaterialPage{}, err
+	}
+	page, perPage := filter.Page, filter.PerPage
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, type, content, status, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') FROM mc_friends_circle_materials`+where+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, perPage, (page-1)*perPage)...)
+	if err != nil {
+		return dashboard.FriendsCircleMaterialPage{}, err
+	}
+	defer rows.Close()
+	items := make([]dashboard.FriendsCircleMaterial, 0)
+	for rows.Next() {
+		var item dashboard.FriendsCircleMaterial
+		if err := rows.Scan(&item.ID, &item.Name, &item.Type, &item.Content, &item.Status, &item.CreatorName, &item.CreatedAt); err != nil {
+			return dashboard.FriendsCircleMaterialPage{}, err
+		}
+		items = append(items, item)
+	}
+	totalPage := 0
+	if total > 0 {
+		totalPage = (total + perPage - 1) / perPage
+	}
+	return dashboard.FriendsCircleMaterialPage{Items: items, Total: total, Page: page, PerPage: perPage, TotalPage: totalPage}, rows.Err()
+}
+
+func (s *MySQLStore) CreateFriendsCircleTask(ctx context.Context, value dashboard.FriendsCircleTaskWrite) (int, error) {
+	result, err := s.db.ExecContext(ctx, `INSERT INTO mc_friends_circle_tasks (corp_id, user_id, creator_name, task_name, send_way, content, target_employees, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, value.CorpID, value.UserID, value.CreatorName, value.TaskName, value.SendWay, value.Content, value.TargetEmployees, value.Status)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	return int(id), err
+}
+
+func (s *MySQLStore) FriendsCircleTaskByID(ctx context.Context, corpID int, taskID int) (dashboard.FriendsCircleTask, bool, error) {
+	var item dashboard.FriendsCircleTask
+	err := s.db.QueryRowContext(ctx, `SELECT id, task_name, send_way, content, target_employees, status, completed_total, target_total, creator_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s'), ''), external_task_id, failure_reason FROM mc_friends_circle_tasks WHERE id = ? AND corp_id = ?`, taskID, corpID).Scan(&item.ID, &item.TaskName, &item.SendWay, &item.Content, &item.TargetEmployees, &item.Status, &item.CompletedTotal, &item.TargetTotal, &item.CreatorName, &item.CreatedAt, &item.StartAt, &item.EndAt, &item.ExternalTaskID, &item.FailureReason)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.FriendsCircleTask{}, false, nil
+	}
+	return item, err == nil, err
+}
+
+func (s *MySQLStore) ClaimFriendsCircleTaskForPublish(ctx context.Context, corpID int, taskID int) (dashboard.FriendsCircleTask, bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'publishing', failure_reason = '' WHERE id = ? AND corp_id = ? AND status = 'draft'`, taskID, corpID)
+	if err != nil {
+		return dashboard.FriendsCircleTask{}, false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil || affected != 1 {
+		return dashboard.FriendsCircleTask{}, false, err
+	}
+	task, found, err := s.FriendsCircleTaskByID(ctx, corpID, taskID)
+	return task, found, err
+}
+
+func (s *MySQLStore) CreateFriendsCircleMaterial(ctx context.Context, value dashboard.FriendsCircleMaterialWrite) (int, error) {
+	result, err := s.db.ExecContext(ctx, `INSERT INTO mc_friends_circle_materials (corp_id, user_id, creator_name, name, type, content, status) VALUES (?, ?, ?, ?, ?, ?, ?)`, value.CorpID, value.UserID, value.CreatorName, value.Name, value.Type, value.Content, value.Status)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	return int(id), err
+}
+
+func (s *MySQLStore) MarkFriendsCircleTaskPublished(ctx context.Context, corpID int, taskID int, externalID string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'queued', external_task_id = ?, failure_reason = '' WHERE id = ? AND corp_id = ? AND status = 'publishing'`, externalID, taskID, corpID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected == 1, err
+}
+
+func (s *MySQLStore) MarkFriendsCircleTaskPublishFailed(ctx context.Context, corpID int, taskID int, reason string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE mc_friends_circle_tasks SET status = 'failed', failure_reason = ? WHERE id = ? AND corp_id = ? AND status = 'publishing'`, reason, taskID, corpID)
+	return err
+}
+
 func (s *MySQLStore) MediumGroupsByCorpID(ctx context.Context, corpID int) ([]dashboard.MediumGroup, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name
