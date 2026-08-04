@@ -1220,6 +1220,13 @@ func main() {
 			options = append(options, compatserver.WithMediumItemGroupUpdateHandler(http.HandlerFunc(medium.GroupUpdate)))
 			log.Printf("go migrated route enabled: PUT /dashboard/medium/groupUpdate")
 		}
+		options = append(options,
+			compatserver.WithMediumBatchGroupUpdateHandler(http.HandlerFunc(medium.BatchGroupUpdate)),
+			compatserver.WithMediumReferenceCheckHandler(http.HandlerFunc(medium.ReferenceCheck)),
+			compatserver.WithMediumBatchDestroyHandler(http.HandlerFunc(medium.BatchDestroy)),
+			compatserver.WithMaterialSelectorIndexHandler(http.HandlerFunc(medium.Selector)),
+		)
+		log.Printf("go material foundation routes enabled")
 		if cfg.MigrateSidebarMediumIndex {
 			options = append(options, compatserver.WithSidebarMediumIndexHandler(http.HandlerFunc(medium.SidebarIndex)))
 			log.Printf("go migrated route enabled: GET /sidebar/medium/index")

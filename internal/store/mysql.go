@@ -6715,6 +6715,129 @@ func (s *MySQLStore) UpdateMediumGroupID(ctx context.Context, corpID int, medium
 	return affected > 0, err
 }
 
+func (s *MySQLStore) MaterialReferences(ctx context.Context, corpID int, ids []int) ([]dashboard.MaterialReference, error) {
+	ids = uniquePositiveInts(ids)
+	if corpID <= 0 || len(ids) == 0 {
+		return []dashboard.MaterialReference{}, nil
+	}
+	args := []any{corpID}
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(words, '')
+		FROM mc_greeting
+		WHERE corp_id = ? AND medium_id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL
+		ORDER BY id
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	references := make([]dashboard.MaterialReference, 0)
+	for rows.Next() {
+		var id int
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(name) == "" {
+			name = "欢迎语"
+		}
+		references = append(references, dashboard.MaterialReference{SourceType: "greeting", SourceID: id, SourceName: name})
+	}
+	return references, rows.Err()
+}
+
+func (s *MySQLStore) BatchUpdateMediumGroupID(ctx context.Context, corpID int, ids []int, groupID int) (bool, error) {
+	ids = uniquePositiveInts(ids)
+	if corpID <= 0 || len(ids) == 0 || groupID < 0 {
+		return false, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	if groupID > 0 {
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_medium_group WHERE id = ? AND corp_id = ? AND deleted_at IS NULL`, groupID, corpID).Scan(&count); err != nil || count != 1 {
+			if err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+	}
+	args := []any{groupID, corpID}
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	countArgs := []any{corpID}
+	for _, id := range ids {
+		countArgs = append(countArgs, id)
+	}
+	var materialCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_medium WHERE corp_id = ? AND id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL`, countArgs...).Scan(&materialCount); err != nil {
+		return false, err
+	}
+	if materialCount != len(ids) {
+		return false, nil
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE mc_medium SET medium_group_id = ?, updated_at = NOW() WHERE corp_id = ? AND id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL`, args...)
+	if err != nil {
+		return false, err
+	}
+	if _, err := result.RowsAffected(); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *MySQLStore) BatchDeleteMedium(ctx context.Context, corpID int, ids []int) (bool, error) {
+	ids = uniquePositiveInts(ids)
+	if corpID <= 0 || len(ids) == 0 {
+		return false, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	checkArgs := []any{corpID}
+	for _, id := range ids {
+		checkArgs = append(checkArgs, id)
+	}
+	var references int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_greeting WHERE corp_id = ? AND medium_id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL`, checkArgs...).Scan(&references); err != nil {
+		return false, err
+	}
+	if references > 0 {
+		return false, nil
+	}
+	var materialCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_medium WHERE corp_id = ? AND id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL`, checkArgs...).Scan(&materialCount); err != nil {
+		return false, err
+	}
+	if materialCount != len(ids) {
+		return false, nil
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE mc_medium SET deleted_at = NOW(), updated_at = NOW() WHERE corp_id = ? AND id IN (`+placeholders(len(ids))+`) AND deleted_at IS NULL`, checkArgs...)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil || int(affected) != len(ids) {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *MySQLStore) MediumMediaForUpdateByID(ctx context.Context, mediumID int) (dashboard.MediumMediaUpdateItem, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, media_id, last_upload_time, type, content

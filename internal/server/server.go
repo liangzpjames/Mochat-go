@@ -194,6 +194,10 @@ type Server struct {
 	mediumUpdate                                    http.Handler
 	mediumDestroy                                   http.Handler
 	mediumItemGroupUpdate                           http.Handler
+	mediumBatchGroupUpdate                          http.Handler
+	mediumReferenceCheck                            http.Handler
+	mediumBatchDestroy                              http.Handler
+	materialSelectorIndex                           http.Handler
 	sidebarMediumIndex                              http.Handler
 	sidebarMediumMediaIDUpdate                      http.Handler
 	mediumGroupIndex                                http.Handler
@@ -1715,6 +1719,22 @@ func WithMediumItemGroupUpdateHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.mediumItemGroupUpdate = handler
 	}
+}
+
+func WithMediumBatchGroupUpdateHandler(handler http.Handler) Option {
+	return func(server *Server) { server.mediumBatchGroupUpdate = handler }
+}
+
+func WithMediumReferenceCheckHandler(handler http.Handler) Option {
+	return func(server *Server) { server.mediumReferenceCheck = handler }
+}
+
+func WithMediumBatchDestroyHandler(handler http.Handler) Option {
+	return func(server *Server) { server.mediumBatchDestroy = handler }
+}
+
+func WithMaterialSelectorIndexHandler(handler http.Handler) Option {
+	return func(server *Server) { server.materialSelectorIndex = handler }
 }
 
 func WithSidebarMediumIndexHandler(handler http.Handler) Option {
@@ -4583,6 +4603,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mediumDestroy.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/medium/groupUpdate" && r.Method == http.MethodPut && s.mediumItemGroupUpdate != nil:
 		s.mediumItemGroupUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/medium/batchGroupUpdate" && r.Method == http.MethodPost && s.mediumBatchGroupUpdate != nil:
+		s.mediumBatchGroupUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/medium/referenceCheck" && r.Method == http.MethodPost && s.mediumReferenceCheck != nil:
+		s.mediumReferenceCheck.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/medium/batchDestroy" && r.Method == http.MethodPost && s.mediumBatchDestroy != nil:
+		s.mediumBatchDestroy.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/materialSelector/index" && r.Method == http.MethodGet && s.materialSelectorIndex != nil:
+		s.materialSelectorIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/sidebar/medium/index" && r.Method == http.MethodGet && s.sidebarMediumIndex != nil:
 		s.sidebarMediumIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/sidebar/medium/mediaIdUpdate" && r.Method == http.MethodGet && s.sidebarMediumMediaIDUpdate != nil:
@@ -6200,6 +6228,18 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.mediumItemGroupUpdate != nil {
 		routes = append(routes, "PUT /dashboard/medium/groupUpdate")
+	}
+	if s.mediumBatchGroupUpdate != nil {
+		routes = append(routes, "POST /dashboard/medium/batchGroupUpdate")
+	}
+	if s.mediumReferenceCheck != nil {
+		routes = append(routes, "POST /dashboard/medium/referenceCheck")
+	}
+	if s.mediumBatchDestroy != nil {
+		routes = append(routes, "POST /dashboard/medium/batchDestroy")
+	}
+	if s.materialSelectorIndex != nil {
+		routes = append(routes, "GET /dashboard/materialSelector/index")
 	}
 	if s.sidebarMediumIndex != nil {
 		routes = append(routes, "GET /sidebar/medium/index")

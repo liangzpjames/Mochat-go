@@ -59,6 +59,33 @@ func TestFriendsCircleProviderRoutes(t *testing.T) {
 	}
 }
 
+func TestMaterialFoundationProviderRoutes(t *testing.T) {
+	handler := func(body string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) })
+	}
+	srv, err := New(config.Config{},
+		WithMediumBatchGroupUpdateHandler(handler("batch-move")),
+		WithMediumReferenceCheckHandler(handler("reference-check")),
+		WithMediumBatchDestroyHandler(handler("batch-destroy")),
+		WithMaterialSelectorIndexHandler(handler("selector")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodPost, "/dashboard/medium/batchGroupUpdate", "batch-move"},
+		{http.MethodPost, "/dashboard/medium/referenceCheck", "reference-check"},
+		{http.MethodPost, "/dashboard/medium/batchDestroy", "batch-destroy"},
+		{http.MethodGet, "/dashboard/materialSelector/index", "selector"},
+	} {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != tc.body {
+			t.Fatalf("%s %s: status=%d body=%q", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestHeadRootDoesNotWriteBody(t *testing.T) {
 	srv := newTestServer(t, "")
 
