@@ -46,6 +46,9 @@ import { OrderPage } from '../features/phase35/order-page';
 import { SettingsPage } from '../features/phase35/settings-page';
 import { CustomerReportPage } from '../features/phase35/customer-report-page';
 import { ConversionReportPage } from '../features/phase35/conversion-report-page';
+import { EmployeeReportPage } from '../features/phase35/employee-report-page';
+import { BehaviorReportPage } from '../features/phase35/behavior-report-page';
+import { ReportPage } from '../features/phase35/report-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -121,6 +124,9 @@ export function createBenchmarkP0Pages({
       '/customer/settings': <SettingsPage api={businessWorkbenchApi} />,
       '/data/customer': <CustomerReportPage api={businessWorkbenchApi} />,
       '/data/conversion': <ConversionReportPage api={businessWorkbenchApi} />,
+      '/data/employee': <EmployeeReportPage api={businessWorkbenchApi} />,
+      '/data/behavior': <BehaviorReportPage api={businessWorkbenchApi} />,
+      '/data/report': <ReportPage api={businessWorkbenchApi} />,
     }),
   };
 }
