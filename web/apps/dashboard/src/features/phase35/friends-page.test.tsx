@@ -9,5 +9,5 @@ test('filters friends and opens real detail', async () => {
   await screen.findByText('Ada');
   fireEvent.click(screen.getByRole('button', { name: '查看 Ada' }));
   await waitFor(() => expect(api.read).toHaveBeenLastCalledWith('/workContact/show', expect.objectContaining({ id: 7 })));
-  expect(await screen.findByRole('complementary', { name: '好友详情' })).not.toBeNull();
+  expect(await screen.findByRole('dialog', { name: '好友详情' })).not.toBeNull();
 });
