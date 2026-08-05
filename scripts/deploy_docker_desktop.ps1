@@ -100,7 +100,8 @@ function Test-CapturedScalar {
 
 function Get-CapturedContainerId {
     param([string]$Output)
-    $candidates = $Output -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[0-9a-f]{12,64}$' }
+    $normalized = [string]$Output
+    $candidates = $normalized -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[0-9a-f]{12,64}$' }
     if ($candidates) { return $candidates[-1] }
     return ''
 }
@@ -134,7 +135,11 @@ function Wait-ComposeService {
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        $containerId = Get-CapturedContainerId (Invoke-Compose -Arguments @('ps', '-q', $Service) -Capture)
+        $rawContainerOutput = Invoke-Compose -Arguments @('ps', '-q', $Service) -Capture | Out-String
+        $containerId = Get-CapturedContainerId -Output $rawContainerOutput
+        if ([string]::IsNullOrWhiteSpace($containerId) -and $rawContainerOutput.Trim()) {
+            Write-Verbose ("compose ps -q $Service returned invalid container id: type={0}; value={1}" -f $rawContainerOutput.GetType().FullName, ($rawContainerOutput.Trim() -replace "`r?`n", ' | '))
+        }
         if ($containerId -match '^[0-9a-f]{12,64}$') {
             $stateOutput = Invoke-Docker -Arguments @(
                 'inspect',
