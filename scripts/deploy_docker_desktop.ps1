@@ -56,17 +56,25 @@ function Invoke-Docker {
     $ErrorActionPreference = 'Continue'
     try {
         if ($Capture) {
-            $output = & $DockerCommand @Arguments 2>&1
+            $stderrPath = [System.IO.Path]::GetTempFileName()
+            try {
+                # Keep progress/warnings on stderr out of machine-readable stdout.
+                $output = & $DockerCommand @Arguments 2> $stderrPath
+                $stderr = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
+            } finally {
+                Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+            }
         } else {
             & $DockerCommand @Arguments
             $output = $null
+            $stderr = ''
         }
         $exitCode = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $previousPreference
     }
     if ($exitCode -ne 0) {
-        $details = if ($null -eq $output) { '' } else { $output | Out-String }
+        $details = (($output | Out-String) + [string]$stderr).Trim()
         throw "Docker 命令执行失败（退出码 $exitCode）：`n$details"
     }
     if ($Capture) {
@@ -127,7 +135,7 @@ function Wait-ComposeService {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         $containerId = Get-CapturedContainerId (Invoke-Compose -Arguments @('ps', '-q', $Service) -Capture)
-        if (-not [string]::IsNullOrWhiteSpace($containerId)) {
+        if ($containerId -match '^[0-9a-f]{12,64}$') {
             $stateOutput = Invoke-Docker -Arguments @(
                 'inspect',
                 '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}',

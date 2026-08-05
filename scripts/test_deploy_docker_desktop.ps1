@@ -62,6 +62,8 @@ Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-ro
 Assert-Matches $defaultOutput 'exec -T app mochat-bootstrap -phone 13800000000' '未执行管理员初始化'
 $deploySource = Get-Content -LiteralPath $deployScript -Raw
 Assert-Matches $deploySource '"--database=\$database"' '迁移/管理员数据库校验未显式指定目标 database'
+Assert-Matches $deploySource '\$Output -split "`r\?`n".*\^\[0-9a-f\]\{12,64\}' '容器 ID 未执行严格十六进制校验'
+Assert-Matches $deploySource '2> \$stderrPath' 'Docker Capture 未分离 stderr'
 Assert-Matches $defaultOutput '将验证管理员、租户企业和通讯录员工映射' '未声明管理员企业访问映射验证'
 Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/security/login' '未检查 SaaS 身份登录入口'
 Assert-Matches $resetOutput 'down --volumes --remove-orphans' 'ResetData 未删除项目数据卷'
@@ -93,7 +95,7 @@ if "%1"=="inspect" (
   echo running^|healthy
   exit /b 0
 )
-if "%8"=="ps" if "%9"=="-q" (
+if "%9"=="-q" (
   echo 1234567890ab
   exit /b 0
 )
