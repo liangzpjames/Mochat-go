@@ -78,7 +78,8 @@ function Invoke-Docker {
         throw "Docker 命令执行失败（退出码 $exitCode）：`n$details"
     }
     if ($Capture) {
-        return ($output | Out-String).Trim()
+        $capturedText = [string]($output | Out-String).Trim()
+        return $capturedText
     }
     return ''
 }
@@ -90,7 +91,8 @@ function Invoke-Compose {
         [string[]]$Secrets = @()
     )
 
-    return Invoke-Docker -Arguments ($composeArguments + $Arguments) -Capture:$Capture -Secrets $Secrets
+    $result = Invoke-Docker -Arguments ($composeArguments + $Arguments) -Capture:$Capture -Secrets $Secrets
+    return $result
 }
 
 function Test-CapturedScalar {
@@ -138,7 +140,7 @@ function Wait-ComposeService {
         $rawContainerOutput = Invoke-Compose -Arguments @('ps', '-q', $Service) -Capture | Out-String
         $containerId = Get-CapturedContainerId -Output $rawContainerOutput
         if ([string]::IsNullOrWhiteSpace($containerId) -and $rawContainerOutput.Trim()) {
-            Write-Verbose ("compose ps -q $Service returned invalid container id: type={0}; value={1}" -f $rawContainerOutput.GetType().FullName, ($rawContainerOutput.Trim() -replace "`r?`n", ' | '))
+            Write-Host ("compose ps -q $Service returned invalid container id: type={0}; value={1}" -f $rawContainerOutput.GetType().FullName, ($rawContainerOutput.Trim() -replace "`r?`n", ' | ')) -ForegroundColor Yellow
         }
         if ($containerId -match '^[0-9a-f]{12,64}$') {
             $stateOutput = Invoke-Docker -Arguments @(
