@@ -33,6 +33,8 @@ type Config struct {
 	Standalone                                         bool
 	EnableAllMigratedRoutes                            bool
 	EnablePhase22SCRMPilot                             bool
+	EnablePhase35AcceptanceLifecycle                  bool
+	Phase35AcceptanceEnvironmentID                    string
 	PHPUpstream                                        string
 	APIBaseURL                                         string
 	DashboardBaseURL                                   string
@@ -1207,6 +1209,8 @@ func FromEnv() (Config, error) {
 		Standalone:                                         standalone,
 		EnableAllMigratedRoutes:                            enableAllMigratedRoutes,
 		EnablePhase22SCRMPilot:                             envBool("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT"),
+		EnablePhase35AcceptanceLifecycle:                  envBool("MOCHAT_GO_ENABLE_PHASE35_ACCEPTANCE_LIFECYCLE"),
+		Phase35AcceptanceEnvironmentID:                    strings.TrimSpace(os.Getenv("MOCHAT_GO_PHASE35_ACCEPTANCE_ENVIRONMENT_ID")),
 		PHPUpstream:                                        phpUpstream,
 		APIBaseURL:                                         envOrDefault("MOCHAT_API_BASE_URL", envOrDefault("API_BASE_URL", defaultAPIBaseURL)),
 		DashboardBaseURL:                                   envOrDefault("MOCHAT_DASHBOARD_BASE_URL", envOrDefault("DASHBOARD_BASE_URL", defaultDashboardBaseURL)),

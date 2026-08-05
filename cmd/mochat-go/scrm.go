@@ -77,6 +77,8 @@ func newSCRMModuleRouter(
 			return nil, fmt.Errorf("build SCRM lead authorizer: %w", err)
 		}
 		dependencies.LeadAuthorizer = leadAuthorizer
+		dependencies.EnableAcceptanceLifecycle = cfg.EnablePhase35AcceptanceLifecycle
+		dependencies.AcceptanceEnvironmentID = cfg.Phase35AcceptanceEnvironmentID
 	}
 	if err := appbootstrap.RegisterSCRM(router, cfg.EnablePhase22SCRMPilot, dependencies); err != nil {
 		return nil, fmt.Errorf("register SCRM pilot module: %w", err)

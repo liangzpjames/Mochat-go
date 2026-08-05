@@ -19,9 +19,11 @@ import (
 )
 
 type SCRMDependencies struct {
-	DB                *sql.DB
-	PrincipalResolver transporthttp.PrincipalResolver
-	LeadAuthorizer    transporthttp.LeadAuthorizer
+	DB                        *sql.DB
+	PrincipalResolver         transporthttp.PrincipalResolver
+	LeadAuthorizer            transporthttp.LeadAuthorizer
+	EnableAcceptanceLifecycle bool
+	AcceptanceEnvironmentID   string
 }
 
 func RegisterSCRM(router *appmodules.Router, enabled bool, dependencies SCRMDependencies) error {
@@ -29,11 +31,13 @@ func RegisterSCRM(router *appmodules.Router, enabled bool, dependencies SCRMDepe
 		return nil
 	}
 	module, err := scrm.New(scrm.Dependencies{
-		DB:                dependencies.DB,
-		Clock:             scrmClock{},
-		IDGenerator:       scrmIDGenerator{},
-		PrincipalResolver: dependencies.PrincipalResolver,
-		LeadAuthorizer:    dependencies.LeadAuthorizer,
+		DB:                        dependencies.DB,
+		Clock:                     scrmClock{},
+		IDGenerator:               scrmIDGenerator{},
+		PrincipalResolver:         dependencies.PrincipalResolver,
+		LeadAuthorizer:            dependencies.LeadAuthorizer,
+		EnableAcceptanceLifecycle: dependencies.EnableAcceptanceLifecycle,
+		AcceptanceEnvironmentID:   dependencies.AcceptanceEnvironmentID,
 	})
 	if err != nil {
 		return err

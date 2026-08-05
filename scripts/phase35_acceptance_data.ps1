@@ -2,7 +2,7 @@
 param(
     [ValidateSet('create', 'verify', 'cleanup')][string]$Action = 'verify',
     [Parameter(Mandatory = $true)][string]$BaseUrl,
-    [Parameter(Mandatory = $true)][ValidatePattern('^P35-ACCEPT-[A-Za-z0-9-]+$')][string]$EnvironmentId,
+    [Parameter(Mandatory = $true)][ValidatePattern('^P35-ACCEPT-[A-Za-z0-9-]{1,35}$')][string]$EnvironmentId,
     [Parameter(Mandatory = $true)][long]$CorpId,
     [string]$Token,
     [switch]$AllowIsolatedEnvironment

@@ -14,11 +14,13 @@ import (
 )
 
 type Dependencies struct {
-	DB                *sql.DB
-	Clock             ports.Clock
-	IDGenerator       ports.IDGenerator
-	PrincipalResolver transporthttp.PrincipalResolver
-	LeadAuthorizer    transporthttp.LeadAuthorizer
+	DB                        *sql.DB
+	Clock                     ports.Clock
+	IDGenerator               ports.IDGenerator
+	PrincipalResolver         transporthttp.PrincipalResolver
+	LeadAuthorizer            transporthttp.LeadAuthorizer
+	EnableAcceptanceLifecycle bool
+	AcceptanceEnvironmentID   string
 }
 
 type Module struct {
@@ -29,6 +31,7 @@ type Module struct {
 	customerTagHTTP   *transporthttp.CustomerTagHandler
 	orderHTTP         *transporthttp.OrderHandler
 	settingsHTTP      *transporthttp.SettingsHandler
+	acceptanceHTTP    *transporthttp.AcceptanceHandler
 }
 
 func New(dependencies Dependencies) (*Module, error) {
@@ -92,7 +95,11 @@ func New(dependencies Dependencies) (*Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM settings repository: %w", err)
 	}
-	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP, orderHTTP: transporthttp.NewOrderHandler(orderRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer), settingsHTTP: transporthttp.NewSettingsHandler(settingsRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)}, nil
+	acceptanceStore, err := transporthttp.NewSQLAcceptanceStore(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create Phase 3.5 acceptance store: %w", err)
+	}
+	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP, orderHTTP: transporthttp.NewOrderHandler(orderRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer), settingsHTTP: transporthttp.NewSettingsHandler(settingsRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer), acceptanceHTTP: transporthttp.NewAcceptanceHandler(dependencies.EnableAcceptanceLifecycle, dependencies.AcceptanceEnvironmentID, acceptanceStore, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)}, nil
 }
 
 func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
@@ -125,6 +132,11 @@ func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
 	}
 	if err := registrar.Handle("PUT", "/dashboard/scrm/settings", m.settingsHTTP); err != nil {
 		return err
+	}
+	for _, method := range []string{"GET", "POST", "DELETE"} {
+		if err := registrar.Handle(method, transporthttp.AcceptancePath, m.acceptanceHTTP); err != nil {
+			return err
+		}
 	}
 	return transporthttp.RegisterCustomerTagRoutes(registrar, m.customerTagHTTP)
 }
