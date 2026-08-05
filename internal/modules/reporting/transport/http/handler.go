@@ -50,6 +50,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusUnprocessableEntity, "unknown report kind", nil)
 		return
 	}
+	if kind == reporting.BehaviorReport { if event:=r.URL.Query().Get("eventType"); event!="" && event!="lead.created" && event!="contact.updated" && event!="order.created" { write(w,http.StatusUnprocessableEntity,"unknown behavior event type",nil); return } }
 	principal, err := h.resolver.Resolve(r)
 	if err != nil {
 		write(w, http.StatusUnauthorized, "unauthorized", nil)

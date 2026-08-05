@@ -36,12 +36,16 @@ func (r *SQLRepository) Query(ctx context.Context, q ReportQuery) (ReportResult,
 		table = "mochat_go_scrm_contacts"
 	}
 	var count float64
-	query := "SELECT COUNT(DISTINCT id) FROM " + table + " WHERE tenant_id=? AND corp_id=?"
+	key := "COALESCE(NULLIF(external_userid,''),id)"
+	if r.kind != CustomerReport { key = "id" }
+	query := "SELECT COUNT(DISTINCT " + key + ") FROM " + table + " WHERE tenant_id=? AND corp_id=?"
 	err := r.db.QueryRowContext(ctx, query, q.TenantID, q.CorpID).Scan(&count)
 	if err != nil {
 		return ReportResult{}, err
 	}
-	return ReportResult{Summary: map[string]*float64{string(r.kind): &count}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize}, Freshness: Freshness{Provider: provider, Status: "available"}}, nil
+	result := ReportResult{Summary: map[string]*float64{string(r.kind): &count}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize}, Freshness: Freshness{Provider: provider, Status: "available"}}
+	if r.kind == EmployeeReport { var tables int; if err:=r.db.QueryRowContext(ctx,"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'mc_work_message_%'").Scan(&tables);err!=nil{return ReportResult{},err}; if tables==0{return UnavailableSource("conversation_archive","会话归档表不可用").Query(ctx,q)} }
+	return result, nil
 }
 
 func (r *SQLRepository) queryConversion(ctx context.Context, q ReportQuery) (ReportResult, error) {

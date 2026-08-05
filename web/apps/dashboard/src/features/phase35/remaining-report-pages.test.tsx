@@ -1,0 +1,13 @@
+import type React from 'react';
+import { cleanup, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { vi, test, expect } from 'vitest';
+import { EmployeeReportPage } from './employee-report-page';
+import { BehaviorReportPage } from './behavior-report-page';
+import { ReportPage } from './report-page';
+import { afterEach } from 'vitest';
+afterEach(cleanup);
+const wrap=(node:React.ReactNode)=><QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>;
+test('employee limitation is visible',async()=>{const api={read:vi.fn().mockResolvedValue({limitations:[{provider:'conversation_archive',message:'归档不可用'}]}),write:vi.fn()};render(wrap(<EmployeeReportPage api={api}/>));expect(await screen.findByText('归档不可用')).not.toBeNull()});
+test('behavior error is visible',async()=>{const api={read:vi.fn().mockRejectedValue(new Error('x')),write:vi.fn()};render(wrap(<BehaviorReportPage api={api}/>));expect(await screen.findByRole('alert')).not.toBeNull()});
+test('report empty state is visible',async()=>{const api={read:vi.fn().mockResolvedValue({summary:{},items:[]}),write:vi.fn()};render(wrap(<ReportPage api={api}/>));expect(await screen.findByText('暂无数据。')).not.toBeNull()});
