@@ -40,6 +40,8 @@ import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../featu
 import { GroupTemplatePage, RedirectLinkPage, WechatCustomerServicePage } from '../features/phase34/conversion-pages';
 import { FriendsCirclePage, PreciseGroupSendPage } from '../features/phase34/content-reach-pages';
 import { MaterialManagementPage } from '../features/phase34/material-management/material-management-page';
+import { FriendsPage } from '../features/phase35/friends-page';
+import { GroupPage } from '../features/phase35/group-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -109,6 +111,8 @@ export function createBenchmarkP0Pages({
       '/acquisition/precise-group-send': <PreciseGroupSendPage api={businessWorkbenchApi} />,
       '/acquisition/friends-circle': <FriendsCirclePage api={businessWorkbenchApi} />,
       '/acquisition/material-management': <MaterialManagementPage api={businessWorkbenchApi} />,
+      '/customer/friends': <FriendsPage api={businessWorkbenchApi} />,
+      '/customer/group': <GroupPage api={businessWorkbenchApi} />,
     }),
   };
 }
