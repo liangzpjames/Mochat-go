@@ -1,1 +1,1 @@
-export type ReportResult={summary?:Record<string,number|null>;items?:Record<string,unknown>[];limitations?:{provider:string;message:string}[]};
+export type ReportResult={summary?:Record<string,number|null>;series?:Record<string,unknown>[];dimensions?:Record<string,number|null>;items?:Record<string,unknown>[];total?:number;page?:number;pageSize?:number;limitations?:{provider:string;message:string}[]};
