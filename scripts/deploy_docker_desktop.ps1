@@ -85,6 +85,18 @@ function Invoke-Compose {
     return Invoke-Docker -Arguments ($composeArguments + $Arguments) -Capture:$Capture -Secrets $Secrets
 }
 
+function Test-CapturedScalar {
+    param([string]$Output, [string]$Expected)
+    return (($Output -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -contains $Expected)
+}
+
+function Get-CapturedContainerId {
+    param([string]$Output)
+    $candidates = $Output -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[0-9a-f]{12,64}$' }
+    if ($candidates) { return $candidates[-1] }
+    return ''
+}
+
 function Show-Diagnostics {
     if ($DryRun) {
         return
@@ -114,13 +126,16 @@ function Wait-ComposeService {
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        $containerId = Invoke-Compose -Arguments @('ps', '-q', $Service) -Capture
+        $containerId = Get-CapturedContainerId (Invoke-Compose -Arguments @('ps', '-q', $Service) -Capture)
         if (-not [string]::IsNullOrWhiteSpace($containerId)) {
-            $state = Invoke-Docker -Arguments @(
+            $stateOutput = Invoke-Docker -Arguments @(
                 'inspect',
                 '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}',
                 $containerId
             ) -Capture
+
+            $state = ($stateOutput -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^(running|created|exited|dead)\|' } | Select-Object -Last 1)
+            if ([string]::IsNullOrWhiteSpace($state)) { $state = $stateOutput.Trim() }
 
             $parts = $state -split '\|', 2
             $containerState = $parts[0]
@@ -184,7 +199,7 @@ function Test-MigrationLedgerExists {
         'mariadb', '--batch', '--skip-column-names',
         "-u$user", "-p$password", '-e', $query
     ) -Capture -Secrets @($password)
-    return $output.Trim() -eq '1'
+    return (Test-CapturedScalar -Output $output -Expected '1')
 }
 
 function Test-BootstrapDashboardAccess {
@@ -213,7 +228,7 @@ SELECT CASE WHEN EXISTS (
         'mariadb', '--batch', '--skip-column-names',
         "-u$user", "-p$password", '-e', $query
     ) -Capture -Secrets @($password)
-    if ($output.Trim() -ne '1') {
+    if (-not (Test-CapturedScalar -Output $output -Expected '1')) {
         throw "管理员 $Phone 未获得 tenant 1 的企业和员工映射"
     }
     Write-Host "管理员企业访问映射通过：$Phone" -ForegroundColor Green

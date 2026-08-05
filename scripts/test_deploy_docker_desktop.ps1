@@ -80,6 +80,7 @@ try {
 @'
 @echo off
 setlocal
+echo docker progress 1>&2
 if "%1"=="info" (
   echo identity=%MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY% 1>&2
   if defined MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY echo identity_key=set 1>&2
@@ -91,7 +92,7 @@ if "%1"=="inspect" (
   exit /b 0
 )
 if "%8"=="ps" if "%9"=="-q" (
-  echo fake-container-id
+  echo 1234567890ab
   exit /b 0
 )
 echo 1
