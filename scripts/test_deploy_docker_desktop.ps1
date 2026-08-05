@@ -60,6 +60,7 @@ Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' 
 Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '未声明安全的条件基线策略'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
 Assert-Matches $defaultOutput 'exec -T app mochat-bootstrap -phone 13800000000' '未执行管理员初始化'
+Assert-Matches $defaultOutput '将验证管理员、租户企业和通讯录员工映射' '未声明管理员企业访问映射验证'
 Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/security/login' '未检查 SaaS 身份登录入口'
 Assert-Matches $resetOutput 'down --volumes --remove-orphans' 'ResetData 未删除项目数据卷'
 Assert-Matches $portOutput 'MySQL：23316' '未应用 MySQL 端口参数'
@@ -93,11 +94,8 @@ if "%8"=="ps" if "%9"=="-q" (
   echo fake-container-id
   exit /b 0
 )
-echo %* | findstr /c:"information_schema.tables" >nul
-if not errorlevel 1 (
-  echo 1
-  exit /b 0
-)
+echo 1
+exit /b 0
 echo docker progress 1>&2
 exit /b 0
 '@ | Set-Content -LiteralPath $fakeDocker -Encoding Ascii

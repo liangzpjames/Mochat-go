@@ -175,6 +175,7 @@ func TestDefaultCorpReconciliationIsTenantScopedAndIdempotent(t *testing.T) {
 		"e.`corp_id` = c.`id`",
 		"e.`log_user_id` = u.`id`",
 		"u.`isSuperAdmin` = 1",
+		"SELECT MIN(c2.`id`)",
 	} {
 		if !strings.Contains(sql, required) {
 			t.Fatalf("reconciliation migration missing %q", required)

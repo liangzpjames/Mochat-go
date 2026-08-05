@@ -187,6 +187,38 @@ function Test-MigrationLedgerExists {
     return $output.Trim() -eq '1'
 }
 
+function Test-BootstrapDashboardAccess {
+    param([string]$Phone)
+
+    if ($DryRun) {
+        Write-Host '[预览] 将验证管理员、租户企业和通讯录员工映射。'
+        return
+    }
+
+    $database = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_DATABASE)) { 'mochat' } else { $env:MOCHAT_MYSQL_DATABASE }
+    $user = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_USER)) { 'mochat' } else { $env:MOCHAT_MYSQL_USER }
+    $password = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_PASSWORD)) { 'mochat_pass' } else { $env:MOCHAT_MYSQL_PASSWORD }
+    $escapedPhone = $Phone.Replace("'", "''")
+    $query = @"
+SELECT CASE WHEN EXISTS (
+  SELECT 1
+  FROM mc_user u
+  JOIN mc_corp c ON c.tenant_id = u.tenant_id AND c.deleted_at IS NULL
+  JOIN mc_work_employee e ON e.corp_id = c.id AND e.log_user_id = u.id AND e.deleted_at IS NULL
+  WHERE u.phone = '$escapedPhone' AND u.tenant_id = 1 AND u.deleted_at IS NULL
+) THEN 1 ELSE 0 END
+"@
+    $output = Invoke-Compose -Arguments @(
+        'exec', '-T', 'mysql',
+        'mariadb', '--batch', '--skip-column-names',
+        "-u$user", "-p$password", '-e', $query
+    ) -Capture -Secrets @($password)
+    if ($output.Trim() -ne '1') {
+        throw "管理员 $Phone 未获得 tenant 1 的企业和员工映射"
+    }
+    Write-Host "管理员企业访问映射通过：$Phone" -ForegroundColor Green
+}
+
 if (-not (Test-Path -LiteralPath $composeFile)) {
     throw "找不到 Compose 文件：$composeFile"
 }
@@ -259,6 +291,7 @@ try {
         '-phone', $AdminPhone,
         '-password', $AdminPassword
     ) -Secrets @($AdminPassword)
+    Test-BootstrapDashboardAccess -Phone $AdminPhone
 
     $dashboardUrl = "http://127.0.0.1:$DashboardPort/"
     $saasAdminUrl = "http://127.0.0.1:$DashboardPort/saas-admin/"

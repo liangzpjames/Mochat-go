@@ -73,6 +73,30 @@ type bootstrapResult struct {
 	ConfigCopyCount  int
 }
 
+type defaultCorpEmployeeProvision struct {
+	TenantID          int
+	UserID            int
+	CorpName          string
+	WXCorpID          string
+	EmployeeMobile    string
+	CorpLookupSQL     string
+	EmployeeLookupSQL string
+	EmployeeInsertSQL string
+}
+
+func defaultCorpEmployeeContract(options bootstrapOptions, userID int) defaultCorpEmployeeProvision {
+	return defaultCorpEmployeeProvision{
+		TenantID:          options.TenantID,
+		UserID:            userID,
+		CorpName:          strings.TrimSpace(options.TenantName) + "演示企业",
+		WXCorpID:          fmt.Sprintf("fake_tenant_%d", options.TenantID),
+		EmployeeMobile:    options.Phone,
+		CorpLookupSQL:     `SELECT id FROM mc_corp WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1`,
+		EmployeeLookupSQL: `SELECT id FROM mc_work_employee WHERE corp_id = ? AND log_user_id = ? AND deleted_at IS NULL ORDER BY id ASC LIMIT 1`,
+		EmployeeInsertSQL: `INSERT INTO mc_work_employee (wx_user_id, corp_id, name, mobile, status, log_user_id, audit_status, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, 1, ?, 1, NOW(), NOW(), NULL)`,
+	}
+}
+
 type saasLimits struct {
 	MaxCorps          int `json:"maxCorps"`
 	MaxUsers          int `json:"maxUsers"`
@@ -420,6 +444,9 @@ func bootstrap(ctx context.Context, db *sql.DB, options bootstrapOptions) (boots
 	if err != nil {
 		return bootstrapResult{}, err
 	}
+	if err := ensureBootstrapCorpEmployee(ctx, tx, options, userID); err != nil {
+		return bootstrapResult{}, err
+	}
 	roleID, err := upsertAdminRole(ctx, tx, options, userID)
 	if err != nil {
 		return bootstrapResult{}, err
@@ -455,6 +482,41 @@ func bootstrap(ctx context.Context, db *sql.DB, options bootstrapOptions) (boots
 		SeedVersionCount: seedVersionCount,
 		ConfigCopyCount:  configCopyCount,
 	}, nil
+}
+
+func ensureBootstrapCorpEmployee(ctx context.Context, tx *sql.Tx, options bootstrapOptions, userID int) error {
+	contract := defaultCorpEmployeeContract(options, userID)
+	var corpID int
+	err := tx.QueryRowContext(ctx, contract.CorpLookupSQL, contract.TenantID).Scan(&corpID)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if err == sql.ErrNoRows {
+		result, insertErr := tx.ExecContext(ctx, `
+			INSERT INTO mc_corp
+				(name, wx_corpid, social_code, employee_secret, event_callback, contact_secret, token, encoding_aes_key, tenant_id, created_at, updated_at, deleted_at)
+			VALUES (?, ?, '', '', '', '', '', '', ?, NOW(), NOW(), NULL)
+		`, contract.CorpName, contract.WXCorpID, contract.TenantID)
+		if insertErr != nil {
+			return insertErr
+		}
+		id, idErr := result.LastInsertId()
+		if idErr != nil {
+			return idErr
+		}
+		corpID = int(id)
+	}
+
+	var employeeID int
+	err = tx.QueryRowContext(ctx, contract.EmployeeLookupSQL, corpID, contract.UserID).Scan(&employeeID)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if err == sql.ErrNoRows {
+		_, err = tx.ExecContext(ctx, contract.EmployeeInsertSQL,
+			fmt.Sprintf("bootstrap_%d", contract.UserID), corpID, options.UserName, contract.EmployeeMobile, contract.UserID)
+	}
+	return err
 }
 
 func upsertAdminUser(ctx context.Context, tx *sql.Tx, options bootstrapOptions, passwordHash string) (int, error) {
