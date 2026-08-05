@@ -27,7 +27,20 @@ func (h *SettingsHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request
 		nethttp.Error(w, "principal unauthorized", 401)
 		return
 	}
+	// PUT clients send corpId in the JSON payload; accept either location while
+	// keeping GET query-only semantics. Decode before authorization so the
+	// principal is always checked against the requested corp.
+	var payload mysql.SCRMSetting
+	if r.Method != nethttp.MethodGet {
+		if json.NewDecoder(r.Body).Decode(&payload) != nil {
+			nethttp.Error(w, "invalid json", 400)
+			return
+		}
+	}
 	corp, _ := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)
+	if corp <= 0 {
+		corp = payload.CorpID
+	}
 	if corp <= 0 {
 		nethttp.Error(w, "corpId required", 400)
 		return
@@ -51,11 +64,7 @@ func (h *SettingsHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request
 		json.NewEncoder(w).Encode(map[string]any{"data": v})
 		return
 	}
-	var s mysql.SCRMSetting
-	if json.NewDecoder(r.Body).Decode(&s) != nil {
-		nethttp.Error(w, "invalid json", 400)
-		return
-	}
+	s := payload
 	s.TenantID = p.TenantID
 	s.CorpID = corp
 	v, e := h.repo.Upsert(r.Context(), s, p.UserID)
