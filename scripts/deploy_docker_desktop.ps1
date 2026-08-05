@@ -137,9 +137,15 @@ function Wait-ComposeService {
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        $rawContainerLines = & $DockerCommand @($composeArguments + @('ps', '-q', $Service)) 2>$null
-        $composeExitCode = $LASTEXITCODE
-        $rawContainerOutput = [string]($rawContainerLines | Out-String).Trim()
+        $waitArguments = $composeArguments + @('ps', '-q', $Service)
+        $stderrPath = [System.IO.Path]::GetTempFileName()
+        try {
+            $rawContainerLines = & $DockerCommand @waitArguments 2> $stderrPath
+            $composeExitCode = $LASTEXITCODE
+            $rawContainerOutput = [string]($rawContainerLines | Out-String).Trim()
+        } finally {
+            Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+        }
         if ($composeExitCode -ne 0) {
             Start-Sleep -Seconds 2
             continue
