@@ -42,6 +42,8 @@ import { FriendsCirclePage, PreciseGroupSendPage } from '../features/phase34/con
 import { MaterialManagementPage } from '../features/phase34/material-management/material-management-page';
 import { FriendsPage } from '../features/phase35/friends-page';
 import { GroupPage } from '../features/phase35/group-page';
+import { OrderPage } from '../features/phase35/order-page';
+import { SettingsPage } from '../features/phase35/settings-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -113,6 +115,8 @@ export function createBenchmarkP0Pages({
       '/acquisition/material-management': <MaterialManagementPage api={businessWorkbenchApi} />,
       '/customer/friends': <FriendsPage api={businessWorkbenchApi} />,
       '/customer/group': <GroupPage api={businessWorkbenchApi} />,
+      '/customer/order': <OrderPage api={businessWorkbenchApi} />,
+      '/customer/settings': <SettingsPage api={businessWorkbenchApi} />,
     }),
   };
 }

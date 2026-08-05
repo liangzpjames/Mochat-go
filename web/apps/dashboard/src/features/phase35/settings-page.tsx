@@ -1,0 +1,2 @@
+import {useQuery} from '@tanstack/react-query';import type {Phase35Api} from './api';import {records,text} from './api';
+export function SettingsPage({api}:{api:Phase35Api}){const q=useQuery({queryKey:['p35-settings'],queryFn:()=>api.read('/scrm/settings',{corpId:1})});return <section className="dashboard-content"><h1>客户设置</h1>{q.isLoading?<p>加载中…</p>:q.isError?<p role="alert">设置加载失败</p>:<ul>{records(q.data).map((r,i)=><li key={i}>{text(r.label??r.key)}：{text(r.value)}</li>)}</ul>}</section>}
