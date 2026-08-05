@@ -197,7 +197,7 @@ function Test-MigrationLedgerExists {
     $output = Invoke-Compose -Arguments @(
         'exec', '-T', 'mysql',
         'mariadb', '--batch', '--skip-column-names',
-        "-u$user", "-p$password", '-e', $query
+        "-u$user", "-p$password", "--database=$database", '-e', $query
     ) -Capture -Secrets @($password)
     return (Test-CapturedScalar -Output $output -Expected '1')
 }
@@ -226,7 +226,7 @@ SELECT CASE WHEN EXISTS (
     $output = Invoke-Compose -Arguments @(
         'exec', '-T', 'mysql',
         'mariadb', '--batch', '--skip-column-names',
-        "-u$user", "-p$password", '-e', $query
+        "-u$user", "-p$password", "--database=$database", '-e', $query
     ) -Capture -Secrets @($password)
     if (-not (Test-CapturedScalar -Output $output -Expected '1')) {
         throw "管理员 $Phone 未获得 tenant 1 的企业和员工映射"
