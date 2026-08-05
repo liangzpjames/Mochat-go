@@ -147,11 +147,46 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0119_phase35_orders_settings" {
-		t.Fatalf("latest migration = %q, want 0119_phase35_orders_settings", latest.Version)
+	if latest.Version != "0120_saas_tenant_default_corp_reconcile" {
+		t.Fatalf("latest migration = %q, want 0120_saas_tenant_default_corp_reconcile", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
+	}
+}
+
+func TestDefaultCorpReconciliationIsTenantScopedAndIdempotent(t *testing.T) {
+	root := filepath.Join("..", "..")
+	legacy, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0099_saas_tenant_default_corp.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(legacy), "t.`id` <> 1") {
+		t.Fatal("0099 must include the bootstrap tenant instead of excluding tenant 1")
+	}
+	body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0120_saas_tenant_default_corp_reconcile.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(body)
+	for _, required := range []string{
+		"NOT EXISTS",
+		"c.`tenant_id` = t.`id`",
+		"e.`corp_id` = c.`id`",
+		"e.`log_user_id` = u.`id`",
+		"u.`isSuperAdmin` = 1",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("reconciliation migration missing %q", required)
+		}
+	}
+	rollback, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0120_saas_tenant_default_corp_reconcile.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackSQL := strings.ToUpper(string(rollback))
+	if strings.Contains(rollbackSQL, "DELETE FROM") || strings.Contains(rollbackSQL, "DROP TABLE") {
+		t.Fatal("reconciliation rollback must be non-destructive")
 	}
 }
 
