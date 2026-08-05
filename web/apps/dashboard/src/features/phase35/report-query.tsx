@@ -5,6 +5,14 @@ function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+export function zonedBoundary(date: string, timezone: string): string {
+  const probe = new Date(`${date}T00:00:00Z`);
+  const part = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' })
+    .formatToParts(probe).find((item) => item.type === 'timeZoneName')?.value ?? 'GMT';
+  const offset = part === 'GMT' ? 'Z' : part.replace(/^GMT/, '');
+  return `${date}T00:00:00${offset}`;
+}
+
 export function useReportFilters() {
   const access = useOptionalDashboardAccess();
   const today = useMemo(() => new Date(), []);
@@ -15,8 +23,8 @@ export function useReportFilters() {
   const params = useMemo(() => ({
     ...(access?.corp.id ? { corpId: Number(access.corp.id) } : {}),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-    startAt: `${startDate}T00:00:00`,
-    endAt: `${endDate}T00:00:00`,
+    startAt: zonedBoundary(startDate, Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+    endAt: zonedBoundary(endDate, Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
     ...(employeeId ? { employeeId: Number(employeeId) } : {}),
     ...(departmentId ? { departmentId: Number(departmentId) } : {}),
   }), [access?.corp.id, departmentId, employeeId, endDate, startDate]);
