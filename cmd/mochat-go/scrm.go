@@ -56,11 +56,12 @@ func newSCRMModuleRouter(
 ) (*appmodules.Router, error) {
 	router := appmodules.NewRouter()
 	dependencies := appbootstrap.SCRMDependencies{}
+	var mysqlStore *store.MySQLStore
 	if cfg.EnablePhase22SCRMPilot {
 		if getMySQLStore == nil || buildUserResolver == nil {
 			return nil, errors.New("SCRM runtime dependencies are required")
 		}
-		mysqlStore := getMySQLStore()
+		mysqlStore = getMySQLStore()
 		if mysqlStore == nil {
 			return nil, errors.New("SCRM MySQL store is required")
 		}
