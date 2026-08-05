@@ -1,9 +1,53 @@
 [CmdletBinding()]
-param([ValidateSet('create','verify','cleanup')][string]$Action='verify',[string]$BaseUrl='http://127.0.0.1:18080',[string]$Token)
-$ErrorActionPreference='Stop'
-if ($Action -eq 'cleanup') { throw '本命令仅允许通过真实受控 API 清理 P35-ACCEPT- 数据；未提供 API 清理实现，拒绝执行。' }
-if ($Action -eq 'create') { throw '验收数据必须通过订单/设置真实 API 创建；请使用隔离环境运行，脚本不直接写数据库。' }
-$headers=@{}; if($Token){$headers.Authorization="Bearer $Token"}
-$url="$BaseUrl/readyz"; $response=Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $url -TimeoutSec 10
-if($response.StatusCode -lt 200 -or $response.StatusCode -ge 400){throw "应用不可用：HTTP $($response.StatusCode)"}
-Write-Host 'Phase 3.5 验收环境可用；数据创建/清理需通过真实 API 与隔离库执行。'
+param(
+    [ValidateSet('create', 'verify', 'cleanup')][string]$Action = 'verify',
+    [Parameter(Mandatory = $true)][string]$BaseUrl,
+    [Parameter(Mandatory = $true)][ValidatePattern('^P35-ACCEPT-[A-Za-z0-9-]+$')][string]$EnvironmentId,
+    [Parameter(Mandatory = $true)][long]$CorpId,
+    [string]$Token,
+    [switch]$AllowIsolatedEnvironment
+)
+
+$ErrorActionPreference = 'Stop'
+$prefix = 'P35-ACCEPT-'
+
+if (-not $AllowIsolatedEnvironment) {
+    throw 'Refused: -AllowIsolatedEnvironment is required for an isolated acceptance environment.'
+}
+if ($CorpId -le 0) { throw 'CorpId must be greater than zero.' }
+if (-not $EnvironmentId.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+    throw "EnvironmentId must start with $prefix."
+}
+
+$uri = [Uri]$BaseUrl
+if ($uri.Scheme -notin @('http', 'https')) { throw 'BaseUrl must use http or https.' }
+$headers = @{ 'X-Phase35-Acceptance-Environment' = $EnvironmentId }
+if ($Token) { $headers.Authorization = "Bearer $Token" }
+$endpoint = "{0}/dashboard/acceptance/phase35?corpId={1}&prefix={2}" -f $BaseUrl.TrimEnd('/'), $CorpId, [Uri]::EscapeDataString($prefix)
+
+$invoke = @{
+    Uri = $endpoint
+    Headers = $headers
+    ContentType = 'application/json; charset=utf-8'
+    TimeoutSec = 20
+}
+
+switch ($Action) {
+    'create' {
+        $body = @{ environmentId = $EnvironmentId; prefix = $prefix } | ConvertTo-Json
+        $result = Invoke-RestMethod @invoke -Method Post -Body $body
+    }
+    'verify' {
+        $result = Invoke-RestMethod @invoke -Method Get
+    }
+    'cleanup' {
+        # The server must validate the prefix again; no broader cleanup scope is sent.
+        $body = @{ environmentId = $EnvironmentId; prefix = $prefix } | ConvertTo-Json
+        $result = Invoke-RestMethod @invoke -Method Delete -Body $body
+    }
+}
+
+if ($null -eq $result -or $result.prefix -ne $prefix) {
+    throw 'The acceptance API did not echo the controlled prefix.'
+}
+$result | ConvertTo-Json -Depth 10
