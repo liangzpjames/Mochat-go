@@ -2,10 +2,15 @@ package reporting
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 )
+
+func NewSQLService(db *sql.DB) *Service {
+	return NewService(map[ReportKind]Source{CustomerReport: NewSQLRepository(db, CustomerReport), EmployeeReport: NewSQLRepository(db, EmployeeReport), ConversionReport: NewSQLRepository(db, ConversionReport), BehaviorReport: NewSQLRepository(db, BehaviorReport), DetailReport: NewSQLRepository(db, DetailReport)})
+}
 
 var ErrInvalidQuery = errors.New("invalid report query")
 
