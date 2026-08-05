@@ -1,0 +1,2 @@
+import type { ReportResult } from './report-types';
+export function ReportPrimitives({result}:{result?:ReportResult}){if(!result)return <p>暂无数据。</p>;return <><div className="dashboard-stat-grid">{Object.entries(result.summary??{}).map(([k,v])=><article key={k}><span>{k}</span><strong>{v===null?'--':v}</strong></article>)}</div>{result.limitations?.map(v=><p role="status" key={v.provider}>{v.message}</p>)}<table><tbody>{(result.items??[]).map((row,i)=><tr key={i}>{Object.values(row).map((v,j)=><td key={j}>{String(v??'--')}</td>)}</tr>)}</tbody></table></>}

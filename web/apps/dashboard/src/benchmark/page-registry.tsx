@@ -44,6 +44,8 @@ import { FriendsPage } from '../features/phase35/friends-page';
 import { GroupPage } from '../features/phase35/group-page';
 import { OrderPage } from '../features/phase35/order-page';
 import { SettingsPage } from '../features/phase35/settings-page';
+import { CustomerReportPage } from '../features/phase35/customer-report-page';
+import { ConversionReportPage } from '../features/phase35/conversion-report-page';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -117,6 +119,8 @@ export function createBenchmarkP0Pages({
       '/customer/group': <GroupPage api={businessWorkbenchApi} />,
       '/customer/order': <OrderPage api={businessWorkbenchApi} />,
       '/customer/settings': <SettingsPage api={businessWorkbenchApi} />,
+      '/data/customer': <CustomerReportPage api={businessWorkbenchApi} />,
+      '/data/conversion': <ConversionReportPage api={businessWorkbenchApi} />,
     }),
   };
 }

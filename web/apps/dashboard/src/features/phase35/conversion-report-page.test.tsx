@@ -1,0 +1,2 @@
+import {render,screen} from '@testing-library/react';import {QueryClient,QueryClientProvider} from '@tanstack/react-query';import {vi,test,expect} from 'vitest';import {ConversionReportPage} from './conversion-report-page';
+test('renders conversion report limitation',async()=>{const api={read:vi.fn().mockResolvedValue({summary:{lead:null},limitations:[{provider:'x',message:'受限'}]}),write:vi.fn()};render(<QueryClientProvider client={new QueryClient()}><ConversionReportPage api={api}/></QueryClientProvider>);expect(await screen.findByText('受限')).not.toBeNull()});

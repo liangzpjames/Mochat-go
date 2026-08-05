@@ -1,0 +1,2 @@
+import {render,screen} from '@testing-library/react';import {QueryClient,QueryClientProvider} from '@tanstack/react-query';import {vi,test,expect} from 'vitest';import {CustomerReportPage} from './customer-report-page';
+test('renders customer report summary',async()=>{const api={read:vi.fn().mockResolvedValue({summary:{contact:2}}),write:vi.fn()};render(<QueryClientProvider client={new QueryClient()}><CustomerReportPage api={api}/></QueryClientProvider>);expect(await screen.findByText('2')).not.toBeNull()});
