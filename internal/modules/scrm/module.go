@@ -28,6 +28,7 @@ type Module struct {
 	opportunityHTTP   *transporthttp.OpportunityHandler
 	customerTagHTTP   *transporthttp.CustomerTagHandler
 	orderHTTP         *transporthttp.OrderHandler
+	settingsHTTP      *transporthttp.SettingsHandler
 }
 
 func New(dependencies Dependencies) (*Module, error) {
@@ -83,7 +84,15 @@ func New(dependencies Dependencies) (*Module, error) {
 		return nil, fmt.Errorf("create SCRM customer tag service: %w", err)
 	}
 	customerTagHTTP := transporthttp.NewCustomerTagHandler(customerTagService, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)
-	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP, orderHTTP: transporthttp.NewOrderHandler(transporthttp.NewMemoryOrderRepository())}, nil
+	orderRepository, err := mysql.NewSQLOrderRepository(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM order repository: %w", err)
+	}
+	settingsRepository, err := mysql.NewSQLSettingsRepository(dependencies.DB)
+	if err != nil {
+		return nil, fmt.Errorf("create SCRM settings repository: %w", err)
+	}
+	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP, orderHTTP: transporthttp.NewOrderHandler(orderRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer), settingsHTTP: transporthttp.NewSettingsHandler(settingsRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)}, nil
 }
 
 func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
@@ -102,8 +111,21 @@ func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
 	if err := transporthttp.RegisterOpportunityRoutes(registrar, m.opportunityHTTP); err != nil {
 		return err
 	}
-	if err := registrar.Handle("GET", "/dashboard/scrm/orders", m.orderHTTP); err != nil { return err }
-	if err := registrar.Handle("POST", "/dashboard/scrm/orders", m.orderHTTP); err != nil { return err }
+	if err := registrar.Handle("GET", "/dashboard/scrm/orders", m.orderHTTP); err != nil {
+		return err
+	}
+	if err := registrar.Handle("POST", "/dashboard/scrm/orders", m.orderHTTP); err != nil {
+		return err
+	}
+	if err := registrar.Handle("PATCH", "/dashboard/scrm/orders/{id}/transition", m.orderHTTP); err != nil {
+		return err
+	}
+	if err := registrar.Handle("GET", "/dashboard/scrm/settings", m.settingsHTTP); err != nil {
+		return err
+	}
+	if err := registrar.Handle("PUT", "/dashboard/scrm/settings", m.settingsHTTP); err != nil {
+		return err
+	}
 	return transporthttp.RegisterCustomerTagRoutes(registrar, m.customerTagHTTP)
 }
 
