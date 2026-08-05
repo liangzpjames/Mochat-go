@@ -1,11 +1,36 @@
 package migration
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestHistorical0099ChecksumRemainsStable(t *testing.T) {
+	root := filepath.Join("..", "..")
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "up", want: "c409fc5562fa2336f9f559efc628b10ff42b0e2f2ebab6af30bf2607f38fd099"},
+		{name: "down", want: "de7efc7f22eb8b834d1b046916138b38f294023e4cdec9b828b05b6ae56f0e5a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(root, "deploy", "standalone", "migrations", "0099_saas_tenant_default_corp."+tc.name+".sql")
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(body)
+			if got := hex.EncodeToString(sum[:]); got != tc.want {
+				t.Fatalf("0099 %s checksum = %s, want %s", tc.name, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestDefaultMigrations(t *testing.T) {
 	migrations := DefaultMigrations("/project")
@@ -157,13 +182,6 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 
 func TestDefaultCorpReconciliationIsTenantScopedAndIdempotent(t *testing.T) {
 	root := filepath.Join("..", "..")
-	legacy, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0099_saas_tenant_default_corp.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(legacy), "t.`id` <> 1") {
-		t.Fatal("0099 must include the bootstrap tenant instead of excluding tenant 1")
-	}
 	body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0120_saas_tenant_default_corp_reconcile.up.sql"))
 	if err != nil {
 		t.Fatal(err)
@@ -188,6 +206,25 @@ func TestDefaultCorpReconciliationIsTenantScopedAndIdempotent(t *testing.T) {
 	rollbackSQL := strings.ToUpper(string(rollback))
 	if strings.Contains(rollbackSQL, "DELETE FROM") || strings.Contains(rollbackSQL, "DROP TABLE") {
 		t.Fatal("reconciliation rollback must be non-destructive")
+	}
+}
+
+func TestRetainedLedger0099Through0119Gets0120AsNextMigration(t *testing.T) {
+	migrations := DefaultMigrations(filepath.Join("..", ".."))
+	index := make(map[string]int, len(migrations))
+	for i, migration := range migrations {
+		index[migration.Version] = i
+	}
+	if _, ok := index["0099_saas_tenant_default_corp"]; !ok {
+		t.Fatal("0099 migration was not discovered")
+	}
+	for _, version := range []string{"0110_risk_behavior_provider", "0111_timeout_warning_provider", "0119_phase35_orders_settings"} {
+		if _, ok := index[version]; !ok {
+			t.Fatalf("retained-ledger migration %s was not discovered", version)
+		}
+	}
+	if index["0120_saas_tenant_default_corp_reconcile"] <= index["0119_phase35_orders_settings"] {
+		t.Fatal("0120 reconciliation must run after the retained 0099-0119 ledger")
 	}
 }
 

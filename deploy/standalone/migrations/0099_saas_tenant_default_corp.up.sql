@@ -49,7 +49,8 @@ SELECT
   NOW(),
   NULL
 FROM `mc_tenant` t
-WHERE t.`status` = 1
+WHERE t.`id` <> 1
+  AND t.`status` = 1
   AND t.`deleted_at` IS NULL
   AND NOT EXISTS (
     SELECT 1
