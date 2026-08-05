@@ -14,6 +14,16 @@ import (
 // Scope is always part of every statement; callers must provide the authenticated tenant.
 type SQLOrderRepository struct{ db *sql.DB }
 
+func (r *SQLOrderRepository) GetContext(ctx context.Context, id string, tenantID, corpID int64) (domain.Order, error) {
+	var o domain.Order
+	err := r.db.QueryRowContext(ctx, `SELECT id,tenant_id,corp_id,contact_id,COALESCE(opportunity_id,''),amount_cents,currency,status,version FROM mochat_go_scrm_orders WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL`, id, tenantID, corpID).Scan(&o.ID,&o.TenantID,&o.CorpID,&o.ContactID,&o.OpportunityID,&o.AmountCents,&o.Currency,&o.Status,&o.Version)
+	return o, err
+}
+func (r *SQLOrderRepository) AuditContext(ctx context.Context, id string, tenantID, corpID int64) ([]map[string]any, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT action,actor_id,from_version,to_version,created_at FROM mochat_go_scrm_order_audit WHERE order_id=? AND tenant_id=? AND corp_id=? ORDER BY created_at ASC`, id, tenantID, corpID)
+	if err != nil { return nil, err }; defer rows.Close(); out:=[]map[string]any{}; for rows.Next(){var action string; var actor,from,to int64; var at time.Time; if err:=rows.Scan(&action,&actor,&from,&to,&at); err!=nil{return nil,err}; out=append(out,map[string]any{"action":action,"actorId":actor,"fromVersion":from,"toVersion":to,"createdAt":at})}; return out, rows.Err()
+}
+
 func NewSQLOrderRepository(db *sql.DB) (*SQLOrderRepository, error) {
 	if db == nil {
 		return nil, errors.New("order database is required")
