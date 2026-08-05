@@ -81,13 +81,7 @@ func newSCRMModuleRouter(
 		return nil, fmt.Errorf("register SCRM pilot module: %w", err)
 	}
 	if cfg.EnablePhase22SCRMPilot {
-		reportingService := reporting.NewService(map[reporting.ReportKind]reporting.Source{
-			reporting.CustomerReport:   reporting.UnavailableSource("customer_reporting", "客户报表数据源尚未装配"),
-			reporting.EmployeeReport:   reporting.UnavailableSource("conversation_archive", "会话存档 Provider 不可用"),
-			reporting.ConversionReport: reporting.UnavailableSource("conversion_reporting", "转化报表数据源尚未装配"),
-			reporting.BehaviorReport:   reporting.UnavailableSource("behavior_events", "行为事件数据源尚未装配"),
-			reporting.DetailReport:     reporting.UnavailableSource("reporting", "综合报表数据源尚未装配"),
-		})
+		reportingService := reporting.NewSQLService(mysqlStore.DB())
 		reportingHandler := reportinghttp.NewHandler(reportingService, reportingPrincipalResolver{delegate: dependencies.PrincipalResolver}, reportingAuthorizer{delegate: dependencies.LeadAuthorizer})
 		if err := router.Handle(http.MethodGet, reportinghttp.ReportsPath, reportingHandler); err != nil {
 			return nil, fmt.Errorf("register reporting module: %w", err)
