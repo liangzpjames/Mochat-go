@@ -136,29 +136,13 @@ function Wait-ComposeService {
     }
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $containerName = "$ProjectName-$Service-1"
     while ((Get-Date) -lt $deadline) {
-        $waitArguments = $composeArguments + @('ps', '-q', $Service)
-        $stderrPath = [System.IO.Path]::GetTempFileName()
         try {
-            $rawContainerLines = & $DockerCommand @waitArguments 2> $stderrPath
-            $composeExitCode = $LASTEXITCODE
-            $rawContainerOutput = [string]($rawContainerLines | Out-String).Trim()
-        } finally {
-            Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
-        }
-        if ($composeExitCode -ne 0) {
-            Start-Sleep -Seconds 2
-            continue
-        }
-        $containerId = Get-CapturedContainerId -Output $rawContainerOutput
-        if ([string]::IsNullOrWhiteSpace($containerId) -and $rawContainerOutput.Trim()) {
-            Write-Host ("compose ps -q $Service returned invalid container id: type={0}; value={1}" -f $rawContainerOutput.GetType().FullName, ($rawContainerOutput.Trim() -replace "`r?`n", ' | ')) -ForegroundColor Yellow
-        }
-        if ($containerId -match '^[0-9a-f]{12,64}$') {
             $stateOutput = Invoke-Docker -Arguments @(
                 'inspect',
                 '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}',
-                $containerId
+                $containerName
             ) -Capture
 
             $state = ($stateOutput -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^(running|created|exited|dead)\|' } | Select-Object -Last 1)
@@ -174,6 +158,9 @@ function Wait-ComposeService {
             if ($containerState -in @('exited', 'dead') -or $healthState -eq 'unhealthy') {
                 throw "服务 $Service 状态异常：$state"
             }
+        } catch {
+            # Container may not exist during the first compose startup polls.
+            if ($_.Exception.Message -like '服务 *状态异常*') { throw }
         }
         Start-Sleep -Seconds 2
     }
