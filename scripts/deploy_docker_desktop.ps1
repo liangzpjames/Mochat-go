@@ -137,7 +137,13 @@ function Wait-ComposeService {
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        $rawContainerOutput = Invoke-Compose -Arguments @('ps', '-q', $Service) -Capture | Out-String
+        $rawContainerLines = & $DockerCommand @($composeArguments + @('ps', '-q', $Service)) 2>$null
+        $composeExitCode = $LASTEXITCODE
+        $rawContainerOutput = [string]($rawContainerLines | Out-String).Trim()
+        if ($composeExitCode -ne 0) {
+            Start-Sleep -Seconds 2
+            continue
+        }
         $containerId = Get-CapturedContainerId -Output $rawContainerOutput
         if ([string]::IsNullOrWhiteSpace($containerId) -and $rawContainerOutput.Trim()) {
             Write-Host ("compose ps -q $Service returned invalid container id: type={0}; value={1}" -f $rawContainerOutput.GetType().FullName, ($rawContainerOutput.Trim() -replace "`r?`n", ' | ')) -ForegroundColor Yellow
