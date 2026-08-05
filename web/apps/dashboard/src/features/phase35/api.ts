@@ -3,6 +3,12 @@ import type { BusinessWorkbenchApi } from '../business-workbench/business-workbe
 export type Phase35Api = BusinessWorkbenchApi;
 export type Row = Record<string, unknown>;
 
+export type Phase35ReportKind = 'customer' | 'employee' | 'conversion' | 'behavior' | 'report';
+
+// ApiClient already prefixes dashboard endpoints with /dashboard. Keeping
+// this helper central prevents accidental /dashboard/dashboard/... requests.
+export const reportEndpoint = (kind: Phase35ReportKind) => `/reports/${kind}`;
+
 export function records(payload: unknown): Row[] {
   if (Array.isArray(payload)) return payload.filter((value): value is Row => !!value && typeof value === 'object');
   if (!payload || typeof payload !== 'object') return [];

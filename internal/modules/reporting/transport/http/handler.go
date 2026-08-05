@@ -50,7 +50,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusUnprocessableEntity, "unknown report kind", nil)
 		return
 	}
-	if kind == reporting.BehaviorReport { if event:=r.URL.Query().Get("eventType"); event!="" && event!="lead.created" && event!="contact.updated" && event!="order.created" { write(w,http.StatusUnprocessableEntity,"unknown behavior event type",nil); return } }
+	if kind == reporting.BehaviorReport {
+		if event := r.URL.Query().Get("eventType"); event != "" && event != "lead.created" && event != "contact.updated" && event != "order.created" {
+			write(w, http.StatusUnprocessableEntity, "unknown behavior event type", nil)
+			return
+		}
+	}
 	principal, err := h.resolver.Resolve(r)
 	if err != nil {
 		write(w, http.StatusUnauthorized, "unauthorized", nil)
@@ -119,5 +124,6 @@ func parseIDs(values []string) []int64 {
 func write(w http.ResponseWriter, status int, message string, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"code": status, "message": message, "data": data})
+	// Dashboard ApiClient validates the shared {code,msg,data} envelope.
+	_ = json.NewEncoder(w).Encode(map[string]any{"code": status, "msg": message, "data": data})
 }

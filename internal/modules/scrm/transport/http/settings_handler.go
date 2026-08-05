@@ -61,7 +61,7 @@ func (h *SettingsHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request
 			nethttp.Error(w, e.Error(), 500)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"data": v})
+		json.NewEncoder(w).Encode(map[string]any{"code": nethttp.StatusOK, "msg": "success", "data": v})
 		return
 	}
 	s := payload
@@ -72,5 +72,5 @@ func (h *SettingsHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request
 		nethttp.Error(w, e.Error(), 409)
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]any{"data": v})
+	json.NewEncoder(w).Encode(map[string]any{"code": nethttp.StatusOK, "msg": "success", "data": v})
 }
