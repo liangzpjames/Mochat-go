@@ -11,3 +11,4 @@ test('filters friends and opens real detail', async () => {
   await waitFor(() => expect(api.read).toHaveBeenLastCalledWith('/workContact/show', expect.objectContaining({ id: 7 })));
   expect(await screen.findByRole('dialog', { name: '好友详情' })).not.toBeNull();
 });
+test('explains the next step when friend sync has no data',async()=>{const api={read:vi.fn().mockResolvedValue({list:[],total:0}),write:vi.fn()};render(<QueryClientProvider client={new QueryClient()}><FriendsPage api={api}/></QueryClientProvider>);expect(await screen.findByRole('region',{name:'好友数据接入说明'})).not.toBeNull();expect(screen.getByText(/企业微信通讯录同步/)).not.toBeNull()});

@@ -58,6 +58,13 @@ type ContactPage struct {
 	Items      []ContactSummary
 	NextCursor string
 }
+type CreateContactCommand struct {
+	TenantID, CorpID, ActorID int64
+	Name, Phone               string
+}
+type ContactCreator interface {
+	CreateContact(context.Context, CreateContactCommand) (ContactSummary, error)
+}
 type ListContactsFilter struct {
 	TenantID int64
 	CorpID   int64

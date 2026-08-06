@@ -25,11 +25,37 @@ const (
 type CustomerLifecycleService interface {
 	ListContacts(context.Context, application.ListContactsQuery) (ports.ContactPage, error)
 	GetContact(context.Context, int64, int64, string) (ports.ContactDetail, error)
+	CreateContact(context.Context, ports.CreateContactCommand) (ports.ContactSummary, error)
 	ListPublicPool(context.Context, application.ListPublicPoolQuery) (ports.AssignmentPage, error)
 	UpdateAssignment(context.Context, ports.UpdateAssignmentCommand) (domain.CustomerAssignment, error)
 	MoveToPublicPool(context.Context, ports.MoveToPublicPoolCommand) (domain.CustomerAssignment, error)
 	ClaimFromPublicPool(context.Context, ports.ClaimPublicPoolCommand) (domain.CustomerAssignment, error)
 	BatchClaimFromPublicPool(context.Context, application.BatchClaimPublicPoolCommand) ([]application.PublicPoolMutationResult, error)
+}
+
+func (h *CustomerLifecycleHandler) CreateContact(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.resolvePrincipal(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		CorpID int64  `json:"corpId"`
+		Name   string `json:"name"`
+		Phone  string `json:"phone"`
+	}
+	if decodeRequestJSON(w, r, &req) != nil {
+		writeError(w, 400, "invalid request JSON")
+		return
+	}
+	if !h.authorize(w, r, principal, req.CorpID, contactPermissionEdit) {
+		return
+	}
+	item, err := h.service.CreateContact(r.Context(), ports.CreateContactCommand{TenantID: principal.TenantID, CorpID: req.CorpID, ActorID: principal.UserID, Name: req.Name, Phone: req.Phone})
+	if err != nil {
+		writeCustomerLifecycleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": contactSummaryView(item)})
 }
 
 type CustomerLifecycleHandler struct {

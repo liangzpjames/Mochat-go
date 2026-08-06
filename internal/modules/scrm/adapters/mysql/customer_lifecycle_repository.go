@@ -23,6 +23,27 @@ func NewCustomerLifecycleRepository(db *sql.DB) (*CustomerLifecycleRepository, e
 	return &CustomerLifecycleRepository{db: db}, nil
 }
 
+func (r *CustomerLifecycleRepository) CreateContact(ctx context.Context, command ports.CreateContactCommand) (ports.ContactSummary, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ports.ContactSummary{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	now := time.Now().UTC()
+	contactID, assignmentID := uuid.NewString(), uuid.NewString()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_contacts (id,tenant_id,corp_id,name,phone,source,version,created_at,updated_at) VALUES (?,?,?,?,?,'order_quick_create',1,?,?)`, contactID, command.TenantID, command.CorpID, command.Name, command.Phone, now, now); err != nil {
+		return ports.ContactSummary{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_assignments (id,tenant_id,corp_id,contact_id,owner_id,status,version,created_at,updated_at) VALUES (?,?,?,?,?,'owned',1,?,?)`, assignmentID, command.TenantID, command.CorpID, contactID, command.ActorID, now, now); err != nil {
+		return ports.ContactSummary{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return ports.ContactSummary{}, err
+	}
+	owner := command.ActorID
+	return ports.ContactSummary{ID: contactID, Name: command.Name, Phone: command.Phone, OwnerID: &owner, AssignmentStatus: "owned", Version: 1, AssignmentVersion: 1, UpdatedAt: now}, nil
+}
+
 func (r *CustomerLifecycleRepository) ListContacts(ctx context.Context, filter ports.ListContactsFilter) (ports.ContactPage, error) {
 	offset, err := parseAssignmentCursor(filter.Cursor)
 	if err != nil {

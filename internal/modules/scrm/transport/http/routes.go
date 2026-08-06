@@ -40,6 +40,9 @@ func RegisterCustomerLifecycleRoutes(registrar RouteRegistrar, handler *Customer
 	if err := registrar.Handle(nethttp.MethodGet, ContactsPath, nethttp.HandlerFunc(handler.ListContacts)); err != nil {
 		return err
 	}
+	if err := registrar.Handle(nethttp.MethodPost, ContactsPath, nethttp.HandlerFunc(handler.CreateContact)); err != nil {
+		return err
+	}
 	if err := registrar.Handle(nethttp.MethodGet, ContactsPath+"/{id}", nethttp.HandlerFunc(handler.GetContact)); err != nil {
 		return err
 	}

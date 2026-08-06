@@ -10,3 +10,4 @@ test('loads groups and retrieves members for selected group', async () => {
   await waitFor(() => expect(api.read).toHaveBeenLastCalledWith('/workRoom/roomIndex', expect.objectContaining({ roomId: 9 })));
   expect(await screen.findByText('Ada')).not.toBeNull();
 });
+test('explains provider setup when no groups are synchronized',async()=>{const api={read:vi.fn().mockResolvedValue({list:[],total:0}),write:vi.fn()};render(<QueryClientProvider client={new QueryClient()}><GroupPage api={api}/></QueryClientProvider>);expect(await screen.findByRole('region',{name:'客户群数据接入说明'})).not.toBeNull();expect(screen.getByText(/群同步 Provider/)).not.toBeNull()});

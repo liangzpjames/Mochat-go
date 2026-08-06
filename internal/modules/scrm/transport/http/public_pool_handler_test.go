@@ -105,6 +105,9 @@ func (s *publicPoolServiceFake) ListContacts(context.Context, application.ListCo
 func (s *publicPoolServiceFake) GetContact(context.Context, int64, int64, string) (ports.ContactDetail, error) {
 	return ports.ContactDetail{}, nil
 }
+func (s *publicPoolServiceFake) CreateContact(context.Context, ports.CreateContactCommand) (ports.ContactSummary, error) {
+	return ports.ContactSummary{}, nil
+}
 func (s *publicPoolServiceFake) ListPublicPool(_ context.Context, query application.ListPublicPoolQuery) (ports.AssignmentPage, error) {
 	s.query = query
 	return s.page, nil

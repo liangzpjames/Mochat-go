@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"jiyi/mochat-go/internal/modules/scrm/application"
@@ -48,11 +49,31 @@ func TestContactHandlerHidesSecondCorpAndMapsNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateContactUsesAuthenticatedTenantAndActor(t *testing.T) {
+	service := &contactLifecycleServiceFake{}
+	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{TenantID: 7, UserID: 4}}, &contactAuthorizerFake{})
+	req := httptest.NewRequest(http.MethodPost, ContactsPath, strings.NewReader(`{"corpId":9,"name":"订单联系人","phone":"13800138000"}`))
+	res := httptest.NewRecorder()
+	handler.CreateContact(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	if service.create.TenantID != 7 || service.create.CorpID != 9 || service.create.ActorID != 4 {
+		t.Fatalf("command=%+v", service.create)
+	}
+}
+
 type contactLifecycleServiceFake struct {
 	query     application.ListContactsQuery
 	page      ports.ContactPage
 	detail    ports.ContactDetail
 	detailErr error
+	create    ports.CreateContactCommand
+}
+
+func (s *contactLifecycleServiceFake) CreateContact(_ context.Context, command ports.CreateContactCommand) (ports.ContactSummary, error) {
+	s.create = command
+	return ports.ContactSummary{ID: "c-new", Name: command.Name, Phone: command.Phone, Version: 1}, nil
 }
 
 func (s *contactLifecycleServiceFake) ListContacts(_ context.Context, q application.ListContactsQuery) (ports.ContactPage, error) {

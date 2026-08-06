@@ -85,6 +85,23 @@ func (s CustomerLifecycleService) GetContact(ctx context.Context, tenantID, corp
 	return detail, nil
 }
 
+func (s CustomerLifecycleService) CreateContact(ctx context.Context, command ports.CreateContactCommand) (ports.ContactSummary, error) {
+	command.Name = strings.TrimSpace(command.Name)
+	command.Phone = strings.TrimSpace(command.Phone)
+	if command.TenantID <= 0 || command.CorpID <= 0 || command.ActorID <= 0 || command.Name == "" || len(command.Name) > 200 || len(command.Phone) > 64 {
+		return ports.ContactSummary{}, fmt.Errorf("%w: invalid contact", ErrInvalidArgument)
+	}
+	creator, ok := s.assignments.(ports.ContactCreator)
+	if !ok {
+		return ports.ContactSummary{}, fmt.Errorf("%w: contact create unavailable", ErrUnavailable)
+	}
+	item, err := creator.CreateContact(ctx, command)
+	if err != nil {
+		return ports.ContactSummary{}, mapContactError(err)
+	}
+	return item, nil
+}
+
 func mapContactError(err error) error {
 	switch {
 	case errors.Is(err, ports.ErrContactNotFound), errors.Is(err, ports.ErrAssignmentNotFound):
