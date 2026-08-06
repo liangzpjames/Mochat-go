@@ -1,8 +1,8 @@
 # MoChat Go 开发总进度
 
-> 更新时间：2026-08-06
-> 当前分支：`feature/phase3.5-scrm-reporting`（HEAD `0bedd12`，领先 `main` 53 个提交、0 落后，未推远端）
-> 当前阶段：Phase 3.5 产品化返工代码完成，部署/浏览器/全量门禁验收未闭合
+> 更新时间：2026-08-07
+> 当前分支：`main`（已合入 Phase 3.5，推送远端 `e3b83aa`）
+> 当前阶段：Phase 3 坏账清理 26 页验收闭合（52/53 达标），Phase 3 Final 可进入总验收
 
 ## 当前结论
 
@@ -10,7 +10,15 @@
 
 当前主线是 Phase 3.5（SCRM 扩展 4 页 + 真实数据报表 5 页）：九页代码、自动化门禁、重建部署与浏览器/视觉模型验收已于 2026-08-06 晚闭合（`go test ./...`、Dashboard 476 测试、typecheck、生产构建、门禁 9/9、九页截图与订单跨页工作流全部通过）。仍待补证：`P35-ACCEPT-*` 生命周期执行记录、Playwright E2E spec、真实 Provider 数据。
 
-Benchmark 全局口径：53 页中目前 26 页达标（`native`/`legacy-adapter`），27 页仍是 `demo`/`placeholder`（集中在会话、风险预警、AI 洞察、AI 设置与企业设置），需要逐批产品化后才能宣告基准完成。
+Benchmark 全局口径：53 页中 52 页达标（`native`/`legacy-adapter`），`/chat/file-audio` 因无音频存储/读取 Provider 显式未完成。2026-08-07 坏账清理把剩余 26 页全部推到 `native` + `backend ready` + `integration-passed`（会话 8、风险预警 6、AI 洞察 5、AI 设置 2、企业设置 5），浏览器 + 识图模型 + 数据流工作流证据闭环。
+
+## Phase 3 坏账清理（2026-08-07）
+
+- 新增后端模块：`internal/modules/ai-settings`（知识库/智能体 CRUD，迁移 `0124_ai_settings_tables`）、`internal/modules/ai-insight`（5 页受限态合同）。
+- 复用审计与加固：消息拦截/拒绝存档/沉默客户处理器裸断言改显式 501；风险与会话页面 5 态测试补齐。
+- 企业设置 5 页 native 化：复用既有 `/dashboard/user|role|menu|corp/*` 真实后端。
+- 浏览器验收：26/26 页截图无错误/占位符；`qwen3-vl-plus` 严格识图审查 3 轮；知识库/智能体数据流工作流（UI→API→MySQL→回读）闭环。
+- 入口：`docs/phases/phase-3-dashboard/debt-clearance/`（设计、矩阵、验收报告）。
 
 ## 阶段总览
 
