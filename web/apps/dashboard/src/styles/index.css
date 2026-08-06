@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color: #17233d;
   font-family:
     Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -351,7 +351,6 @@ body {
 .dashboard-content {
   min-width: 0;
   overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 24px;
 }
 
@@ -1428,4 +1427,452 @@ body {
   .conversation-global-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .conversation-global-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .sensitive-word-record-filters, .sensitive-word-config-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ===== 客户分析（/data/customer）===== */
+.phase35-page-shell {
+  min-width: 0;
+}
+
+.phase35-page {
+  display: grid;
+  gap: 18px;
+  margin: 0 auto;
+  max-width: 1320px;
+}
+
+.phase35-chip {
+  background: #f5f7fb;
+  border: 1px solid #e8ebf2;
+  border-radius: 999px;
+  color: #788194;
+  font-size: .76rem;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.phase35-card {
+  background: #fff;
+  border: 1px solid #edf0f6;
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgb(31 36 51 / 4%);
+  min-width: 0;
+}
+
+.phase35-filters {
+  padding: 16px 20px;
+}
+
+.phase35-filters .dashboard-filter-bar {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.phase35-kpis {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.phase35-kpi {
+  align-items: flex-start;
+  background: linear-gradient(145deg, #fff, #fafbff);
+  border: 1px solid #edf0f6;
+  border-radius: 14px;
+  box-shadow: 0 4px 18px rgb(31 36 51 / 4%);
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+  padding: 20px 22px;
+  position: relative;
+}
+
+.phase35-kpi::before {
+  background: #536bf4;
+  border-radius: 0 0 999px 999px;
+  content: '';
+  height: 4px;
+  left: 22px;
+  position: absolute;
+  right: 22px;
+  top: 0;
+}
+
+.phase35-kpi-green::before { background: #39aa82; }
+.phase35-kpi-violet::before { background: #8066db; }
+
+.phase35-kpi span { color: #7a8294; font-size: .84rem; }
+.phase35-kpi strong { color: #20283a; font-size: 2rem; line-height: 1.1; }
+.phase35-kpi small { color: #98a0af; font-size: .74rem; line-height: 1.5; }
+
+.phase35-columns {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+.phase35-card-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 20px 22px 0;
+}
+
+.phase35-card-header h2 { color: #293042; font-size: 1.05rem; margin: 0; }
+.phase35-card-header p { color: #8991a1; font-size: .8rem; margin: 6px 0 0; }
+
+.phase35-page .dashboard-card {
+  padding: 18px 22px 22px;
+}
+
+.phase35-page .dashboard-card h2 {
+  color: #293042;
+  font-size: 1rem;
+  margin: 0 0 10px;
+}
+
+.phase35-page .dashboard-card strong {
+  color: #6b5b00;
+  display: block;
+  font-size: .9rem;
+  margin: 0 0 8px;
+}
+
+.phase35-page .dashboard-card p {
+  color: #737b8c;
+  line-height: 1.7;
+  margin: 6px 0 0;
+}
+
+.phase35-chart {
+  padding: 8px 22px 22px;
+}
+
+.phase35-chart .phase35-trend-chart {
+  align-items: end;
+  border-bottom: 1px solid #eef1f6;
+  display: flex;
+  gap: 12px;
+  height: 220px;
+  margin: 18px 0 0;
+  overflow-x: auto;
+  padding: 12px 4px 0;
+}
+
+.phase35-chart .phase35-trend-column {
+  align-items: center;
+  display: grid;
+  flex: 1 0 54px;
+  gap: 8px;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  min-width: 54px;
+  text-align: center;
+}
+
+.phase35-chart .phase35-trend-column em {
+  color: #536bf4;
+  font-size: .72rem;
+  font-style: normal;
+}
+
+.phase35-chart .phase35-trend-bar {
+  background: linear-gradient(180deg, #6d83f7, #536bf4);
+  border-radius: 6px 6px 0 0;
+  display: block;
+  justify-self: stretch;
+  min-height: 4px;
+}
+
+.phase35-chart .phase35-trend-label { color: #9aa2b1; font-size: .68rem; }
+
+.phase35-empty {
+  color: #a0a8b6;
+  margin: 0;
+  padding: 72px 20px;
+  text-align: center;
+}
+
+.phase35-notes {
+  display: grid;
+  margin: 0;
+  padding: 16px 22px 22px;
+}
+
+.phase35-notes > div {
+  border-bottom: 1px solid #f0f2f7;
+  display: grid;
+  gap: 4px;
+  padding: 12px 0;
+}
+
+.phase35-notes > div:last-child { border-bottom: 0; }
+.phase35-notes dt { color: #414b5f; font-size: .86rem; font-weight: 650; }
+.phase35-notes dd { color: #8a93a4; font-size: .8rem; line-height: 1.6; margin: 0; }
+
+.phase35-limits {
+  background: #fff8e8;
+  border: 1px solid #f2e2bd;
+  border-radius: 10px;
+  color: #9a6a17;
+  font-size: .8rem;
+  list-style: none;
+  margin: 4px 22px 22px;
+  padding: 12px 14px;
+}
+
+.phase35-table {
+  padding: 10px 0 0;
+}
+
+.phase35-table table { border-collapse: collapse; width: 100%; }
+.phase35-table th {
+  background: #fafbfe;
+  color: #737b8c;
+  font-size: .8rem;
+  font-weight: 650;
+  text-align: left;
+}
+.phase35-table td,
+.phase35-table th { border-bottom: 1px solid #f0f2f6; padding: 13px 22px; }
+.phase35-table td { color: #465065; font-size: .86rem; }
+.phase35-table tbody tr:hover { background: #fafbff; }
+
+.phase35-table .dashboard-pagination {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 22px 18px;
+}
+.phase35-table .dashboard-pagination span { color: #8991a1; font-size: .8rem; }
+.phase35-table .dashboard-pagination button {
+  background: #fff;
+  border: 1px solid #dfe4ee;
+  border-radius: 8px;
+  color: #59647a;
+  cursor: pointer;
+  font: inherit;
+  padding: 7px 14px;
+}
+.phase35-table .dashboard-pagination button:disabled { cursor: not-allowed; opacity: .5; }
+
+@media (max-width: 1080px) {
+  .phase35-columns { grid-template-columns: 1fr; }
+  .phase35-kpis { grid-template-columns: 1fr; }
+}
+
+/* ===== Phase 3.5 通用：KPI 多卡 / 漏斗 / 综合报表区段 / 列表卡 ===== */
+.phase35-kpis {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.phase35-kpi-orange::before { background: #e99a4b; }
+.phase35-kpi-teal::before { background: #39b6a6; }
+.phase35-kpi-red::before { background: #d97070; }
+
+.phase35-funnel-card .dashboard-funnel {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: 18px 22px 22px;
+}
+
+.phase35-funnel-card .dashboard-funnel button {
+  align-items: center;
+  background: linear-gradient(145deg, #fafbff, #f2f5ff);
+  border: 1px solid #e4e9f7;
+  border-radius: 12px;
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  min-height: 108px;
+  padding: 16px 10px;
+  position: relative;
+}
+
+.phase35-funnel-card .dashboard-funnel button:hover {
+  background: linear-gradient(145deg, #f0f4ff, #e7edff);
+  border-color: #bcc9f7;
+}
+
+.phase35-funnel-card .dashboard-funnel button:not(:last-child)::after {
+  color: #aeb6c9;
+  content: '→';
+  font-size: 1.1rem;
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.phase35-funnel-card .dashboard-funnel span { color: #7a8294; font-size: .82rem; }
+.phase35-funnel-card .dashboard-funnel strong { color: #20283a; font-size: 1.5rem; }
+.phase35-funnel-card .dashboard-funnel small { color: #98a0af; font-size: .7rem; }
+
+.phase35-section-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.phase35-section {
+  display: grid;
+  gap: 12px;
+  min-height: 150px;
+  padding: 22px 24px;
+}
+
+.phase35-section h2 { color: #293042; font-size: 1.05rem; margin: 0; }
+.phase35-section p { color: #8991a1; font-size: .8rem; line-height: 1.6; margin: 0; }
+.phase35-section strong { color: #20283a; font-size: 2.1rem; line-height: 1.1; }
+.phase35-section a { color: #526be8; font-size: .8rem; text-decoration: none; }
+.phase35-section a:hover { text-decoration: underline; }
+
+.phase35-table-card {
+  padding: 8px 0 0;
+}
+
+.phase35-table-card p {
+  margin: 0;
+  padding: 12px 22px 16px;
+}
+
+.phase35-table-card table { border-collapse: collapse; width: 100%; }
+.phase35-table-card th {
+  background: #fafbfe;
+  color: #737b8c;
+  font-size: .8rem;
+  font-weight: 650;
+  text-align: left;
+  white-space: nowrap;
+}
+.phase35-table-card td,
+.phase35-table-card th { border-bottom: 1px solid #f0f2f6; padding: 13px 20px; }
+.phase35-table-card td { color: #465065; font-size: .86rem; }
+.phase35-table-card tbody tr:hover { background: #fafbff; }
+.phase35-table-card button {
+  background: transparent;
+  border: 1px solid #dfe4ee;
+  border-radius: 7px;
+  color: #526be8;
+  cursor: pointer;
+  font: inherit;
+  font-size: .8rem;
+  padding: 5px 10px;
+}
+.phase35-table-card button:hover { border-color: #bcc9f7; background: #f5f8ff; }
+
+@media (max-width: 1080px) {
+  .phase35-section-grid { grid-template-columns: 1fr; }
+  .phase35-funnel-card .dashboard-funnel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .phase35-funnel-card .dashboard-funnel button:not(:last-child)::after { content: ''; }
+}
+
+/* 业务列表页（好友/客户群/订单/设置）的 KPI 网格与页内表格 */
+.phase35-page .dashboard-stat-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.phase35-page .dashboard-stat-grid article {
+  align-items: flex-start;
+  background: linear-gradient(145deg, #fff, #fafbff);
+  border: 1px solid #edf0f6;
+  border-radius: 14px;
+  box-shadow: 0 4px 18px rgb(31 36 51 / 4%);
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+  padding: 20px 22px;
+  position: relative;
+}
+
+.phase35-page .dashboard-stat-grid article::before {
+  background: #536bf4;
+  border-radius: 0 0 999px 999px;
+  content: '';
+  height: 4px;
+  left: 22px;
+  position: absolute;
+  right: 22px;
+  top: 0;
+}
+
+.phase35-page .dashboard-stat-grid span { color: #7a8294; font-size: .84rem; }
+.phase35-page .dashboard-stat-grid strong { color: #20283a; font-size: 1.8rem; line-height: 1.1; }
+
+.phase35-page .phase35-filter-card form.dashboard-filter-bar { flex-wrap: wrap; }
+
+@media (max-width: 1080px) {
+  .phase35-page .dashboard-stat-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== Phase 3.5 按钮：仿线索池（scrm-lead-page）===== */
+.phase35-page button,
+.phase35-page .phase35-card button,
+.phase35-page .phase35-table-card button,
+.phase35-page .phase35-table .dashboard-pagination button {
+  background: #536bf4;
+  border: 1px solid #536bf4;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  padding: 9px 15px;
+}
+
+.phase35-page button:hover,
+.phase35-page .phase35-card button:hover,
+.phase35-page .phase35-table-card button:hover,
+.phase35-page .phase35-table .dashboard-pagination button:hover {
+  background: #4059df;
+  border-color: #4059df;
+}
+
+.phase35-page button:disabled,
+.phase35-page .phase35-card button:disabled,
+.phase35-page .phase35-table-card button:disabled,
+.phase35-page .phase35-table .dashboard-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+/* 筛选栏中跟在“查询”之后的“重置”等次要按钮：白底次按钮（同线索池） */
+.phase35-filter-card .dashboard-filter-bar button[type="submit"] ~ button {
+  background: #fff;
+  border-color: #dfe4ee;
+  color: #59647a;
+}
+
+.phase35-filter-card .dashboard-filter-bar button[type="submit"] ~ button:hover {
+  background: #f4f6fb;
+  border-color: #dfe4ee;
+  color: #4059df;
+}
+
+/* 转化漏斗阶段卡保持浅色卡片按钮，不受主按钮样式影响 */
+.phase35-funnel-card .dashboard-funnel button {
+  background: linear-gradient(145deg, #fafbff, #f2f5ff);
+  border: 1px solid #e4e9f7;
+  border-radius: 12px;
+  color: inherit;
+  padding: 16px 10px;
+}
+
+.phase35-funnel-card .dashboard-funnel button:hover {
+  background: linear-gradient(145deg, #f0f4ff, #e7edff);
+  border-color: #bcc9f7;
+  color: inherit;
+}
+
+/* 翻页按钮缩小（保持蓝色主按钮风格，仅调尺寸） */
+.phase35-page .phase35-table .dashboard-pagination button {
+  border-radius: 7px;
+  font-size: .8rem;
+  padding: 5px 12px;
 }

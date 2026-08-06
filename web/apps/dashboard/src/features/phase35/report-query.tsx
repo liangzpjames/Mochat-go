@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useOptionalDashboardAccess } from '../../app/access-context';
 
-const isoDate = (date: Date) => date.toISOString().slice(0, 10);
+const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 export function zonedBoundary(date: string, timezone: string): string {
   const probe = new Date(`${date}T00:00:00Z`);

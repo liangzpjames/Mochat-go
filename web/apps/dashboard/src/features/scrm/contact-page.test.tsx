@@ -22,6 +22,13 @@ describe('ContactPage', () => {
     expect(screen.getByTestId('location').textContent).toContain('cursor=20');
   });
 
+  it('renders contacts with null tagNames without crashing', async () => {
+    const api = { listContacts: vi.fn().mockResolvedValue({ items: [{ ...contact, tagNames: null }], nextCursor: '' }) } as any;
+    wrap(<ContactPage api={api} />);
+    expect(await screen.findByText('张三')).toBeTruthy();
+    expect(screen.getByText('—')).toBeTruthy();
+  });
+
   it('opens aggregate detail and executes lifecycle actions', async () => {
     const important = { id: 'important', groupId: 'g1', name: '重点', version: 8, usageCount: 4 };
     const api = { listContacts: vi.fn().mockResolvedValue({ items: [contact], nextCursor: '' }), getContact: vi.fn().mockResolvedValue(detail), listTagCatalog: vi.fn().mockResolvedValue({ groups: [], tags: [important] }), updateAssignment: vi.fn().mockResolvedValue(detail.assignment), maintainTagContacts: vi.fn().mockResolvedValue({ ...important, version: 9, usageCount: 5 }), listFollowUps: vi.fn().mockResolvedValue({ items: detail.followUps, nextCursor: '' }), appendFollowUp: vi.fn().mockResolvedValue({}), releaseToPublicPool: vi.fn().mockResolvedValue({ ...detail.assignment, status: 'public_pool', version: 5 }), createOpportunity: vi.fn().mockResolvedValue({}) } as any;
