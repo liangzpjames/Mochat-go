@@ -92,6 +92,48 @@ describe('createApiClient', () => {
     expect(result).toEqual({ userId: 7 });
   });
 
+  it('accepts a created response and unwraps its successful envelope', async () => {
+    server.use(
+      http.post('https://api.example.test/dashboard/scrm/contacts', () =>
+        HttpResponse.json(
+          { code: 201, msg: 'created', data: { id: 'contact-new', name: '新联系人' } },
+          { status: 201 },
+        ),
+      ),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/dashboard/',
+      getToken: () => null,
+      onUnauthorized: vi.fn(),
+    });
+
+    const result = await client.request<{ id: string; name: string }>('/scrm/contacts', {
+      method: 'POST',
+    });
+
+    expect(result).toEqual({ id: 'contact-new', name: '新联系人' });
+  });
+
+  it('rejects a non-2xx response even when its envelope uses a success code', async () => {
+    server.use(
+      http.post('https://api.example.test/dashboard/scrm/contacts', () =>
+        HttpResponse.json({ code: 0, msg: 'invalid contact', data: null }, { status: 422 }),
+      ),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/dashboard/',
+      getToken: () => null,
+      onUnauthorized: vi.fn(),
+    });
+
+    await expectApiError(client.request('/scrm/contacts', { method: 'POST' }), {
+      kind: 'validation',
+      status: 422,
+      code: 0,
+      message: 'invalid contact',
+    });
+  });
+
   it('maps a 401 response and invokes onUnauthorized exactly once', async () => {
     server.use(
       http.get('https://api.example.test/private', () =>
