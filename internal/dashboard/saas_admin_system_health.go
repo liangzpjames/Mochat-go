@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0123_phase35_order_collation_align"
-	SaaSAdminExpectedMigrationCount   = 123
+	SaaSAdminExpectedMigrationVersion = "0124_ai_settings_tables"
+	SaaSAdminExpectedMigrationCount   = 124
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

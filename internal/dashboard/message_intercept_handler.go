@@ -94,7 +94,12 @@ func (h *MessageInterceptHandler) SaveLibrary(w http.ResponseWriter, r *http.Req
 	}
 	v.TenantID = int64(t)
 	v.CorpID = int64(c)
-	id, e := h.provider.(KeywordLibraryWriter).SaveKeywordLibrary(r.Context(), v)
+	writer, ok := h.provider.(KeywordLibraryWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "关键词库写入能力未启用", nil)
+		return
+	}
+	id, e := writer.SaveKeywordLibrary(r.Context(), v)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -113,7 +118,12 @@ func (h *MessageInterceptHandler) LibraryStatus(w http.ResponseWriter, r *http.R
 	if !decode(w, r, &v) {
 		return
 	}
-	yes, e := h.provider.(KeywordLibraryWriter).SetKeywordLibraryStatus(r.Context(), t, c, v.ID, v.Status)
+	writer, ok := h.provider.(KeywordLibraryWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "关键词库写入能力未启用", nil)
+		return
+	}
+	yes, e := writer.SetKeywordLibraryStatus(r.Context(), t, c, v.ID, v.Status)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -125,7 +135,12 @@ func (h *MessageInterceptHandler) DeleteLibrary(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	yes, e := h.provider.(KeywordLibraryWriter).DeleteKeywordLibrary(r.Context(), t, c, idQuery(r))
+	writer, ok := h.provider.(KeywordLibraryWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "关键词库写入能力未启用", nil)
+		return
+	}
+	yes, e := writer.DeleteKeywordLibrary(r.Context(), t, c, idQuery(r))
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -143,7 +158,12 @@ func (h *MessageInterceptHandler) PublishLibrary(w http.ResponseWriter, r *http.
 	if !decode(w, r, &v) {
 		return
 	}
-	version, e := h.provider.(KeywordLibraryWriter).PublishKeywordLibrary(r.Context(), t, c, v.ID, a)
+	writer, ok := h.provider.(KeywordLibraryWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "关键词库发布能力未启用", nil)
+		return
+	}
+	version, e := writer.PublishKeywordLibrary(r.Context(), t, c, v.ID, a)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -173,7 +193,12 @@ func (h *MessageInterceptHandler) SaveEntry(w http.ResponseWriter, r *http.Reque
 	if !decode(w, r, &v) {
 		return
 	}
-	id, e := h.provider.(KeywordLibraryWriter).SaveKeywordEntry(r.Context(), t, c, v)
+	writer, ok := h.provider.(KeywordLibraryWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "关键词库写入能力未启用", nil)
+		return
+	}
+	id, e := writer.SaveKeywordEntry(r.Context(), t, c, v)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -192,7 +217,12 @@ func (h *MessageInterceptHandler) EntryStatus(w http.ResponseWriter, r *http.Req
 	if !decode(w, r, &v) {
 		return
 	}
-	yes, e := h.provider.(KeywordLibraryWriter).SetKeywordEntryStatus(r.Context(), t, c, v.ID, v.Status)
+	writer, ok := h.provider.(KeywordLibraryWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "关键词库写入能力未启用", nil)
+		return
+	}
+	yes, e := writer.SetKeywordEntryStatus(r.Context(), t, c, v.ID, v.Status)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -204,7 +234,12 @@ func (h *MessageInterceptHandler) DeleteEntry(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	yes, e := h.provider.(KeywordLibraryWriter).DeleteKeywordEntry(r.Context(), t, c, idQuery(r))
+	writer, ok := h.provider.(KeywordLibraryWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "关键词库写入能力未启用", nil)
+		return
+	}
+	yes, e := writer.DeleteKeywordEntry(r.Context(), t, c, idQuery(r))
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -235,7 +270,12 @@ func (h *MessageInterceptHandler) SaveRule(w http.ResponseWriter, r *http.Reques
 	}
 	v.TenantID = int64(t)
 	v.CorpID = int64(c)
-	id, e := h.provider.(MessageInterceptWriter).SaveMessageInterceptRule(r.Context(), v)
+	writer, ok := h.provider.(MessageInterceptWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "消息拦截写入能力未启用", nil)
+		return
+	}
+	id, e := writer.SaveMessageInterceptRule(r.Context(), v)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -254,7 +294,12 @@ func (h *MessageInterceptHandler) RuleStatus(w http.ResponseWriter, r *http.Requ
 	if !decode(w, r, &v) {
 		return
 	}
-	yes, e := h.provider.(MessageInterceptWriter).SetMessageInterceptRuleStatus(r.Context(), t, c, v.ID, v.Status)
+	writer, ok := h.provider.(MessageInterceptWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "消息拦截写入能力未启用", nil)
+		return
+	}
+	yes, e := writer.SetMessageInterceptRuleStatus(r.Context(), t, c, v.ID, v.Status)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -266,7 +311,12 @@ func (h *MessageInterceptHandler) DeleteRule(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	yes, e := h.provider.(MessageInterceptWriter).DeleteMessageInterceptRule(r.Context(), t, c, idQuery(r))
+	writer, ok := h.provider.(MessageInterceptWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "消息拦截写入能力未启用", nil)
+		return
+	}
+	yes, e := writer.DeleteMessageInterceptRule(r.Context(), t, c, idQuery(r))
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -296,7 +346,12 @@ func (h *MessageInterceptHandler) Evaluate(w http.ResponseWriter, r *http.Reques
 	if !decode(w, r, &v) {
 		return
 	}
-	out, e := h.provider.(MessageInterceptWriter).EvaluateMessageIntercept(r.Context(), t, c, v)
+	writer, ok := h.provider.(MessageInterceptWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "消息拦截评估能力未启用", nil)
+		return
+	}
+	out, e := writer.EvaluateMessageIntercept(r.Context(), t, c, v)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -316,7 +371,12 @@ func (h *MessageInterceptHandler) Audit(w http.ResponseWriter, r *http.Request) 
 	if !decode(w, r, &v) {
 		return
 	}
-	n, e := h.provider.(MessageInterceptWriter).AuditMessageInterceptRecords(r.Context(), t, c, a, v.IDs, v.Action, v.Remark)
+	writer, ok := h.provider.(MessageInterceptWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "消息拦截审计能力未启用", nil)
+		return
+	}
+	n, e := writer.AuditMessageInterceptRecords(r.Context(), t, c, a, v.IDs, v.Action, v.Remark)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return

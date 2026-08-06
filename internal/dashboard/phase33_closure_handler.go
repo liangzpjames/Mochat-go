@@ -40,7 +40,12 @@ func (h *Phase33ClosureHandler) SaveSilentRule(w http.ResponseWriter, r *http.Re
 	}
 	v.TenantID = int64(t)
 	v.CorpID = int64(c)
-	id, e := h.provider.(Phase33ClosureWriter).SaveSilentRule(r.Context(), v)
+	writer, ok := h.provider.(Phase33ClosureWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "沉默客户写入能力未启用", nil)
+		return
+	}
+	id, e := writer.SaveSilentRule(r.Context(), v)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -59,7 +64,12 @@ func (h *Phase33ClosureHandler) SilentRuleStatus(w http.ResponseWriter, r *http.
 	if !decode(w, r, &v) {
 		return
 	}
-	yes, e := h.provider.(Phase33ClosureWriter).SetSilentRuleStatus(r.Context(), t, c, v.ID, v.Status)
+	writer, ok := h.provider.(Phase33ClosureWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "沉默客户写入能力未启用", nil)
+		return
+	}
+	yes, e := writer.SetSilentRuleStatus(r.Context(), t, c, v.ID, v.Status)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -71,7 +81,12 @@ func (h *Phase33ClosureHandler) DeleteSilentRule(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	yes, e := h.provider.(Phase33ClosureWriter).DeleteSilentRule(r.Context(), t, c, idQuery(r))
+	writer, ok := h.provider.(Phase33ClosureWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "沉默客户写入能力未启用", nil)
+		return
+	}
+	yes, e := writer.DeleteSilentRule(r.Context(), t, c, idQuery(r))
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -101,7 +116,12 @@ func (h *Phase33ClosureHandler) EvaluateSilent(w http.ResponseWriter, r *http.Re
 	if !decode(w, r, &v) {
 		return
 	}
-	n, e := h.provider.(Phase33ClosureWriter).EvaluateSilentCustomer(r.Context(), t, c, v)
+	writer, ok := h.provider.(Phase33ClosureWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "沉默客户评估能力未启用", nil)
+		return
+	}
+	n, e := writer.EvaluateSilentCustomer(r.Context(), t, c, v)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -122,7 +142,12 @@ func (h *Phase33ClosureHandler) ActSilent(w http.ResponseWriter, r *http.Request
 	if !decode(w, r, &v) {
 		return
 	}
-	n, e := h.provider.(Phase33ClosureWriter).ActSilentRecords(r.Context(), t, c, a, v.IDs, v.Action, v.AssignedEmployeeID, v.Remark)
+	writer, ok := h.provider.(Phase33ClosureWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "沉默客户处置能力未启用", nil)
+		return
+	}
+	n, e := writer.ActSilentRecords(r.Context(), t, c, a, v.IDs, v.Action, v.AssignedEmployeeID, v.Remark)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -151,7 +176,12 @@ func (h *Phase33ClosureHandler) SyncRefuse(w http.ResponseWriter, r *http.Reques
 	if !decode(w, r, &v) {
 		return
 	}
-	id, e := h.provider.(Phase33ClosureWriter).UpsertRefuseArchive(r.Context(), t, c, a, v)
+	writer, ok := h.provider.(Phase33ClosureWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "拒绝存档同步能力未启用", nil)
+		return
+	}
+	id, e := writer.UpsertRefuseArchive(r.Context(), t, c, a, v)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
@@ -171,7 +201,12 @@ func (h *Phase33ClosureHandler) FollowRefuse(w http.ResponseWriter, r *http.Requ
 	if !decode(w, r, &v) {
 		return
 	}
-	yes, e := h.provider.(Phase33ClosureWriter).FollowUpRefuseArchive(r.Context(), t, c, a, v.ID, v.Status, v.Note)
+	writer, ok := h.provider.(Phase33ClosureWriter)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "拒绝存档跟进能力未启用", nil)
+		return
+	}
+	yes, e := writer.FollowUpRefuseArchive(r.Context(), t, c, a, v.ID, v.Status, v.Note)
 	if e != nil {
 		writeEnvelope(w, 400, 400, e.Error(), nil)
 		return
