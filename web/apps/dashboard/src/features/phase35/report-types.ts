@@ -1,1 +1,3 @@
-export type ReportResult={summary?:Record<string,number|null>;series?:Record<string,unknown>[];dimensions?:Record<string,number|null>;items?:Record<string,unknown>[];total?:number;page?:number;pageSize?:number;limitations?:{provider:string;message:string}[]};
+export type ReportItem=Record<string,unknown>;
+export type ReportResult={summary?:Record<string,number|null>;series?:Record<string,unknown>[];dimensions?:Record<string,number|null>|{key:string;label:string;value:number}[];items?:ReportItem[];total?:number;page?:number;pageSize?:number;pagination?:{total:number;page:number;pageSize:number};freshness?:{dataThrough?:string;provider?:string;status?:string};limitations?:{provider:string;message:string}[]};
+export const paginationOf=(result?:ReportResult)=>({page:result?.pagination?.page??result?.page??1,pageSize:result?.pagination?.pageSize??result?.pageSize??20,total:result?.pagination?.total??result?.total??0});

@@ -1,8 +1,3 @@
-const labels: Record<string, string> = {
-  customer: '客户数', contact: '联系人', lead: '线索', opportunity: '商机', won: '已赢单', order: '订单',
-  employee: '会话员工', behavior: '行为事件', report: '综合报表', total: '总数', amount: '金额', rate: '转化率',
-  createdAt: '创建时间', updatedAt: '更新时间', ownerId: '负责人', status: '状态', source: '来源', limitations: '数据限制',
-};
-export function metricLabel(key: string): string {
-  return labels[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
-}
+const labels: Record<string,string>={customer:'客户数',contact:'联系人',lead:'线索',opportunity:'商机',won:'已赢单',order:'订单',employee:'会话员工',behavior:'行为事件',report:'综合报表',total:'总数',amount:'金额',rate:'转化率',contactRate:'联系人转化率',opportunityRate:'商机转化率',wonRate:'赢单转化率',orderRate:'订单转化率',createdAt:'创建时间',updatedAt:'更新时间',occurredAt:'发生时间',ownerId:'负责人',actorId:'操作者',objectId:'业务对象',eventType:'行为类型',detail:'变更摘要',status:'状态',source:'来源',day:'日期',limitations:'数据限制'};
+export function metricLabel(key:string):string{return labels[key]??'业务指标'}
+export function behaviorLabel(value:unknown):string{return ({'setting.updated':'设置更新',created:'订单创建',transition:'订单状态变更','order.created':'订单创建'} as Record<string,string>)[String(value)]??'业务操作'}

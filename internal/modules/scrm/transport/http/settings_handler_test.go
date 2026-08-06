@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"jiyi/mochat-go/internal/modules/scrm/adapters/mysql"
 )
@@ -21,10 +22,27 @@ type settingsAuth struct{}
 
 func (settingsAuth) Authorize(context.Context, Principal, int64, string) error { return nil }
 
-type settingsRepo struct{ got mysql.SCRMSetting }
+type settingsRepo struct {
+	got   mysql.SCRMSetting
+	items []mysql.SCRMSetting
+}
 
 func (r *settingsRepo) List(context.Context, int64, int64, string) ([]mysql.SCRMSetting, error) {
-	return nil, nil
+	return r.items, nil
+}
+
+func TestSettingsGetReturnsActorAndUpdateTime(t *testing.T) {
+	at := time.Date(2026, 8, 6, 8, 0, 0, 0, time.UTC)
+	repo := &settingsRepo{items: []mysql.SCRMSetting{{ID: "s1", TenantID: 9, CorpID: 42, Type: "customer_source", Key: "web", UpdatedBy: 4, UpdatedAt: at, Version: 2}}}
+	h := NewSettingsHandler(repo, settingsPrincipal{}, settingsAuth{})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/scrm/settings?corpId=42", nil))
+	if w.Code != 200 {
+		t.Fatalf("status=%d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"updatedBy":4`) || !strings.Contains(w.Body.String(), "2026-08-06T08:00:00Z") {
+		t.Fatalf("body=%s", w.Body.String())
+	}
 }
 func (r *settingsRepo) Upsert(_ context.Context, s mysql.SCRMSetting, _ int64) (mysql.SCRMSetting, error) {
 	r.got = s

@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { reportEndpoint, type Phase35Api } from './api';
-import { ReportFilters, useReportFilters } from './report-query';
-import { ReportPrimitives } from './report-primitives';
+import { reportEndpoint,type Phase35Api } from './api';
+import { ReportFilters,useReportFilters } from './report-query';
+import type { ReportResult } from './report-types';
 import { Phase35PageShell } from './components/phase35-page-shell';
 import { Phase35DataState } from './components/data-state';
-export function ReportPage({ api }: { api: Phase35Api }) { const filters = useReportFilters(); const query = useQuery({ queryKey: ['p35-report', 'report', filters.params], queryFn: () => api.read(reportEndpoint('report'), filters.params) }); return <Phase35PageShell title="综合报表" description="汇总客户、转化、订单与行为指标并支持追溯"><ReportFilters filters={filters} /><Phase35DataState loading={query.isLoading} error={query.isError}><ReportPrimitives result={query.data as never} /></Phase35DataState></Phase35PageShell>; }
+const sections=[{name:'客户概览',description:'说明客户规模、新增趋势与负责人覆盖情况。',keys:['customer','contact']},{name:'转化漏斗',description:'说明线索到联系人、商机、赢单及订单的阶段转化。',keys:['lead','opportunity','won']},{name:'订单经营',description:'说明订单数量、状态和成交金额。',keys:['order','amount']},{name:'行为审计',description:'说明设置变更和订单操作等可追溯行为。',keys:['behavior']}] as const;
+export function ReportPage({api}:{api:Phase35Api}){const filters=useReportFilters();const query=useQuery({queryKey:['p35-report','report',filters.params],queryFn:()=>api.read(reportEndpoint('report'),filters.params)});const result=query.data as ReportResult|undefined;const summary=result?.summary??{};return <Phase35PageShell title="综合报表" description="按客户、转化、订单和行为四个核心区块汇总经营情况"><ReportFilters filters={filters}/><Phase35DataState loading={query.isLoading} error={query.isError} onRetry={()=>void query.refetch()}><div className="dashboard-report-sections">{sections.map((section)=><section role="region" aria-label={section.name} key={section.name}><h2>{section.name}</h2><p>{section.description}</p><strong>{section.keys.reduce((sum,key)=>sum+Number(summary[key]??0),0)}</strong><p>{section.keys.some((key)=>summary[key]!=null)?'数据来自当前筛选范围内的真实业务记录。':'当前范围暂无数据；可调整筛选条件或先完成对应业务流程。'}</p></section>)}</div>{result?.limitations?.map((item)=><p role="status" key={item.provider}>{item.message}</p>)}</Phase35DataState></Phase35PageShell>}

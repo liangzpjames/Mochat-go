@@ -31,9 +31,37 @@ func (r *SQLRepository) Query(ctx context.Context, q ReportQuery) (ReportResult,
 		return r.queryEmployee(ctx, q)
 	case BehaviorReport:
 		return r.queryBehavior(ctx, q)
+	case DetailReport:
+		return r.querySummary(ctx, q)
 	default:
 		return r.queryEntity(ctx, q, r.kind)
 	}
+}
+
+func (r *SQLRepository) querySummary(ctx context.Context, q ReportQuery) (ReportResult, error) {
+	customer, err := r.queryEntity(ctx, q, CustomerReport)
+	if err != nil {
+		return ReportResult{}, err
+	}
+	conversion, err := r.queryConversion(ctx, q)
+	if err != nil {
+		return ReportResult{}, err
+	}
+	behavior, err := r.queryBehavior(ctx, q)
+	if err != nil {
+		return ReportResult{}, err
+	}
+	summary := map[string]*float64{}
+	for key, value := range customer.Summary {
+		summary[key] = value
+	}
+	for key, value := range conversion.Summary {
+		summary[key] = value
+	}
+	for key, value := range behavior.Summary {
+		summary[key] = value
+	}
+	return ReportResult{Summary: summary, Series: customer.Series, Dimensions: []Dimension{}, Items: []map[string]any{}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize, Total: customer.Pagination.Total}, Freshness: Freshness{Provider: "scrm", Status: "available"}, Limitations: append(append(customer.Limitations, conversion.Limitations...), behavior.Limitations...)}, nil
 }
 
 func placeholders(n int) string {
@@ -221,17 +249,22 @@ func (r *SQLRepository) queryBehavior(ctx context.Context, q ReportQuery) (Repor
 	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mochat_go_scrm_order_audit oa WHERE "+w, a...).Scan(&n); err != nil {
 		return ReportResult{}, err
 	}
-	rows, err := r.db.QueryContext(ctx, "SELECT oa.action,oa.created_at,oa.id FROM mochat_go_scrm_order_audit oa WHERE "+w+" ORDER BY oa.created_at DESC LIMIT ? OFFSET ?", append(a, q.PageSize, (q.Page-1)*q.PageSize)...)
+	rows, err := r.db.QueryContext(ctx, "SELECT oa.action,oa.actor_id,oa.order_id,oa.created_at,oa.id FROM mochat_go_scrm_order_audit oa WHERE "+w+" ORDER BY oa.created_at DESC LIMIT ? OFFSET ?", append(a, q.PageSize, (q.Page-1)*q.PageSize)...)
 	if err != nil {
 		return ReportResult{}, err
 	}
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var typ, id string
+		var typ, objectID, id string
+		var actorID int64
 		var at time.Time
-		if rows.Scan(&typ, &at, &id) == nil {
-			items = append(items, map[string]any{"eventType": typ, "id": id, "occurredAt": at})
+		if rows.Scan(&typ, &actorID, &objectID, &at, &id) == nil {
+			detail := "订单业务操作"
+			if typ == "setting.updated" {
+				detail = "客户设置已更新"
+			}
+			items = append(items, map[string]any{"eventType": typ, "actorId": actorID, "objectId": objectID, "id": id, "occurredAt": at, "detail": detail})
 		}
 	}
 	return ReportResult{Summary: map[string]*float64{"behavior": &n}, Items: items, Series: []SeriesPoint{}, Dimensions: []Dimension{}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize, Total: int(n)}, Freshness: Freshness{Provider: "business_audit", Status: "available"}, Limitations: limitation(q, "business_audit")}, nil

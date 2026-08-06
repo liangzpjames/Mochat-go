@@ -1,13 +1,12 @@
 import type React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, test, expect } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { EmployeeReportPage } from './employee-report-page';
 import { BehaviorReportPage } from './behavior-report-page';
 import { ReportPage } from './report-page';
-import { afterEach } from 'vitest';
 afterEach(cleanup);
 const wrap=(node:React.ReactNode)=><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>{node}</QueryClientProvider>;
-test('employee limitation is visible',async()=>{const api={read:vi.fn().mockResolvedValue({limitations:[{provider:'conversation_archive',message:'归档不可用'}]}),write:vi.fn()};render(wrap(<EmployeeReportPage api={api}/>));expect(await screen.findByText('归档不可用')).not.toBeNull()});
-test('behavior error is visible',async()=>{const api={read:vi.fn().mockRejectedValue(new Error('x')),write:vi.fn()};render(wrap(<BehaviorReportPage api={api}/>));expect(await screen.findByRole('alert')).not.toBeNull()});
-test('report empty state is visible',async()=>{const api={read:vi.fn().mockResolvedValue({summary:{},items:[]}),write:vi.fn()};render(wrap(<ReportPage api={api}/>));expect(await screen.findByText('暂无数据。')).not.toBeNull()});
+test('employee limitation is visible',async()=>{const api={read:vi.fn().mockResolvedValue({limitations:[{provider:'conversation_archive',message:'会话归档不可用'}]}),write:vi.fn()};render(wrap(<EmployeeReportPage api={api}/>));expect(await screen.findByText('会话归档不可用')).not.toBeNull()});
+test('behavior maps nested pagination and renders Chinese business detail',async()=>{const api={read:vi.fn().mockResolvedValue({summary:{behavior:3},items:[{eventType:'setting.updated',actorId:4,objectId:'setting-1',occurredAt:'2026-08-06T00:00:00Z',detail:'客户来源已更新'}],pagination:{page:1,pageSize:20,total:3}}),write:vi.fn()};render(wrap(<BehaviorReportPage api={api}/>));expect(await screen.findByText('共 3 条，第 1 页')).not.toBeNull();expect(screen.getByText('设置更新')).not.toBeNull();expect(screen.getByText('账号 4')).not.toBeNull();expect(screen.queryByText('Event Type')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'查看行为详情'}));expect(screen.getByRole('dialog',{name:'行为详情'})).not.toBeNull()});
+test('summary report always renders four explained business sections',async()=>{const api={read:vi.fn().mockResolvedValue({summary:{},items:[],pagination:{page:1,pageSize:20,total:0}}),write:vi.fn()};render(wrap(<ReportPage api={api}/>));for(const name of ['客户概览','转化漏斗','订单经营','行为审计'])expect(await screen.findByRole('region',{name})).not.toBeNull()});
