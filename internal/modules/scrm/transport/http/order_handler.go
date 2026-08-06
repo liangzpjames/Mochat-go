@@ -117,7 +117,11 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 					nethttp.Error(w, "order not found", 404)
 					return
 				}
-				audit, _ := dr.AuditContext(r.Context(), id, p.TenantID, corpID)
+				audit, err := dr.AuditContext(r.Context(), id, p.TenantID, corpID)
+				if err != nil {
+					nethttp.Error(w, "internal server error", nethttp.StatusInternalServerError)
+					return
+				}
 				writeJSON(w, 200, map[string]any{"data": map[string]any{"order": o, "audit": audit}})
 				return
 			}

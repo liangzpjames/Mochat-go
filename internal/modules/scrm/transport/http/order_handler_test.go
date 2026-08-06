@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	"net/http"
 	"net/http/httptest"
@@ -66,6 +67,28 @@ func TestOrderHandlerRoutesDetailPathToGetAndAuditContext(t *testing.T) {
 	}
 	if repo.listCalls != 0 {
 		t.Fatalf("ListContext calls = %d, want 0", repo.listCalls)
+	}
+}
+
+func TestOrderHandlerReturnsInternalServerErrorWhenAuditQueryFails(t *testing.T) {
+	repo := &routingOrderRepository{
+		detail:   domain.Order{ID: "o-detail", TenantID: 7, CorpID: 1536612155},
+		auditErr: errors.New("audit unavailable"),
+	}
+	h := NewOrderHandler(repo, routingPrincipalResolver{})
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/scrm/orders/o-detail?corpId=1536612155", nil)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body = %q, want 500", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "audit unavailable") {
+		t.Fatalf("body = %q, must not expose repository error", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "internal server error") {
+		t.Fatalf("body = %q, want stable audit error", rec.Body.String())
 	}
 }
 
@@ -140,6 +163,7 @@ type routingOrderRepository struct {
 	listItems   []domain.Order
 	detail      domain.Order
 	audit       []map[string]any
+	auditErr    error
 	listCalls   int
 	getCalls    int
 	auditCalls  int
@@ -179,5 +203,5 @@ func (r *routingOrderRepository) GetContext(_ context.Context, id string, _, _ i
 
 func (r *routingOrderRepository) AuditContext(context.Context, string, int64, int64) ([]map[string]any, error) {
 	r.auditCalls++
-	return r.audit, nil
+	return r.audit, r.auditErr
 }
