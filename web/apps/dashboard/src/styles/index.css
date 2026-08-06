@@ -1876,3 +1876,30 @@ body {
   font-size: .8rem;
   padding: 5px 12px;
 }
+
+/* 头部操作按钮（Phase35PageShell actions）与页面级分页禁用态 */
+.phase35-page-shell > header.dashboard-page-header button {
+  background: #536bf4;
+  border: 1px solid #536bf4;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  padding: 9px 15px;
+}
+
+.phase35-page-shell > header.dashboard-page-header button:hover {
+  background: #4059df;
+  border-color: #4059df;
+}
+
+.phase35-page .dashboard-pagination button {
+  border-radius: 7px;
+  font-size: .8rem;
+  padding: 5px 12px;
+}
+
+.phase35-page .dashboard-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}

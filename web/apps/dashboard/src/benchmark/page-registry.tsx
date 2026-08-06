@@ -49,8 +49,27 @@ import { ConversionReportPage } from '../features/phase35/conversion-report-page
 import { EmployeeReportPage } from '../features/phase35/employee-report-page';
 import { BehaviorReportPage } from '../features/phase35/behavior-report-page';
 import { ReportPage } from '../features/phase35/report-page';
+import type { AISettingsApi } from '../features/ai-settings/ai-settings-api';
+import { KnowledgeBasePage } from '../features/ai-settings/knowledge-base-page';
+import { AgentPage } from '../features/ai-settings/agent-page';
+import type { AiInsightApi } from '../features/ai-insight/ai-insight-api';
+import { AiInsightPage } from '../features/ai-insight/ai-insight-pages';
+import { CompanyWebsitePage } from '../features/company-settings/website-page';
+import { CompanyStaffPage } from '../features/company-settings/staff-page';
+import { CompanyRolePage } from '../features/company-settings/role-page';
+import { CompanyAdditionalPage } from '../features/company-settings/additional-page';
+import { CompanyAuthorizationPage } from '../features/company-settings/authorization-page';
+import { createCorpAdminApi } from '../features/corp/corp-admin-api';
+import { createUserAdminApi } from '../features/user-admin/user-admin-api';
+import { createRoleApi } from '../features/role/role-api';
+import { createMenuAdminApi } from '../features/menu-admin/menu-admin-api';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
+
+type CorpAdminApi = ReturnType<typeof createCorpAdminApi>;
+type UserAdminApi = ReturnType<typeof createUserAdminApi>;
+type RoleApi = ReturnType<typeof createRoleApi>;
+type MenuAdminApi = ReturnType<typeof createMenuAdminApi>;
 
 export function createBenchmarkP0Pages({
   dashboardOverviewApi,
@@ -60,6 +79,12 @@ export function createBenchmarkP0Pages({
   scrmApi,
   contactApi,
   businessWorkbenchApi,
+  aiSettingsApi,
+  aiInsightApi,
+  corpAdminApi,
+  userAdminApi,
+  roleApi,
+  menuAdminApi,
 }: {
   dashboardOverviewApi: DashboardOverviewApi;
   conversationGlobalApi: ConversationGlobalApi;
@@ -68,6 +93,12 @@ export function createBenchmarkP0Pages({
   scrmApi?: ScrmApi;
   contactApi?: ContactApi;
   businessWorkbenchApi?: BusinessWorkbenchApi;
+  aiSettingsApi?: AISettingsApi;
+  aiInsightApi?: AiInsightApi;
+  corpAdminApi?: CorpAdminApi;
+  userAdminApi?: UserAdminApi;
+  roleApi?: RoleApi;
+  menuAdminApi?: MenuAdminApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
@@ -127,6 +158,24 @@ export function createBenchmarkP0Pages({
       '/data/employee': <EmployeeReportPage api={businessWorkbenchApi} />,
       '/data/behavior': <BehaviorReportPage api={businessWorkbenchApi} />,
       '/data/report': <ReportPage api={businessWorkbenchApi} />,
+    }),
+    ...(aiSettingsApi === undefined ? {} : {
+      '/ai-setting/ai-knowledge-base': <KnowledgeBasePage api={aiSettingsApi} />,
+      '/ai-setting/agent': <AgentPage api={aiSettingsApi} />,
+    }),
+    ...(aiInsightApi === undefined ? {} : {
+      '/ai-insight/session-analysis': <AiInsightPage api={aiInsightApi} page="session-analysis" />,
+      '/ai-insight/smart-analysis': <AiInsightPage api={aiInsightApi} page="smart-analysis" />,
+      '/ai-insight/emotion': <AiInsightPage api={aiInsightApi} page="emotion" />,
+      '/ai-insight/employee-score': <AiInsightPage api={aiInsightApi} page="employee-score" />,
+      '/ai-insight/communication-keyword': <AiInsightPage api={aiInsightApi} page="communication-keyword" />,
+    }),
+    ...(corpAdminApi === undefined ? {} : { '/company-setting/website': <CompanyWebsitePage api={corpAdminApi} /> }),
+    ...(userAdminApi === undefined ? {} : { '/company-setting/staff': <CompanyStaffPage api={userAdminApi} /> }),
+    ...(roleApi === undefined ? {} : { '/setting/role': <CompanyRolePage api={roleApi} /> }),
+    ...(menuAdminApi === undefined ? {} : {
+      '/setting/additional': <CompanyAdditionalPage api={menuAdminApi} />,
+      '/setting/authorization': <CompanyAuthorizationPage api={menuAdminApi} />,
     }),
   };
 }

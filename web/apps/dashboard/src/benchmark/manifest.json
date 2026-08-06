@@ -79,9 +79,9 @@
       "groupId": "conversation",
       "level": "P1",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "demo",
-      "backend": "partial",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
       "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
@@ -89,7 +89,7 @@
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-v2-staff/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-v2-staff.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -98,17 +98,17 @@
       "groupId": "conversation",
       "level": "P1",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "demo",
-      "backend": "partial",
-      "acceptance": "unit-passed",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-v2-customer/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-v2-customer.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -117,17 +117,17 @@
       "groupId": "conversation",
       "level": "P1",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "demo",
-      "backend": "partial",
-      "acceptance": "unit-passed",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-v2-group/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-v2-group.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -136,17 +136,17 @@
       "groupId": "conversation",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-trajectory/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-trajectory.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -155,17 +155,17 @@
       "groupId": "conversation",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-export/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-export.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -193,17 +193,17 @@
       "groupId": "conversation",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-resign-staff/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-resign-staff.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -212,17 +212,17 @@
       "groupId": "conversation",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-refuse-archive/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-refuse-archive.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -231,17 +231,17 @@
       "groupId": "conversation",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-customer-inheritance/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-customer-inheritance.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -250,17 +250,17 @@
       "groupId": "risk-warning",
       "level": "P1",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "demo",
-      "backend": "partial",
-      "acceptance": "unit-passed",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-risk/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-risk.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -288,9 +288,9 @@
       "groupId": "risk-warning",
       "level": "P1",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "demo",
-      "backend": "partial",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
       "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
@@ -298,7 +298,7 @@
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-timeout/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-timeout.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -307,17 +307,17 @@
       "groupId": "risk-warning",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-customer-loss/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-customer-loss.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -326,17 +326,17 @@
       "groupId": "risk-warning",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-message-intercept/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-message-intercept.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -345,17 +345,17 @@
       "groupId": "risk-warning",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-keyword-library/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-keyword-library.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -364,17 +364,17 @@
       "groupId": "risk-warning",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-v2-silent-customer/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-v2-silent-customer.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -383,17 +383,17 @@
       "groupId": "ai-insight",
       "level": "P1",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "demo",
-      "backend": "partial",
-      "acceptance": "unit-passed",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-session-analysis/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-session-analysis.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -402,17 +402,17 @@
       "groupId": "ai-insight",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-smart-analysis/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-smart-analysis.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -421,17 +421,17 @@
       "groupId": "ai-insight",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-emotion/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-emotion.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -440,17 +440,17 @@
       "groupId": "ai-insight",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-employee-score/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-employee-score.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -459,17 +459,17 @@
       "groupId": "ai-insight",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-communication-keyword/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-insight-communication-keyword.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -915,17 +915,17 @@
       "groupId": "ai-settings",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-setting-ai-knowledge-base/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-setting-ai-knowledge-base.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -934,17 +934,17 @@
       "groupId": "ai-settings",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-setting-agent/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-ai-setting-agent.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -953,17 +953,17 @@
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-company-setting-website/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-company-setting-website.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -972,17 +972,17 @@
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-company-setting-staff/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-company-setting-staff.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -991,17 +991,17 @@
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-setting-role/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-setting-role.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -1010,17 +1010,17 @@
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-setting-additional/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-setting-additional.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     },
     {
@@ -1029,17 +1029,17 @@
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
       "phase": "3.1",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-setting-authorization/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-setting-authorization.json"
+        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
       }
     }
   ]
