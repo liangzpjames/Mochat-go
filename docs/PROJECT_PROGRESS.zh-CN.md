@@ -1,12 +1,16 @@
 # MoChat Go 开发总进度
 
-> 更新时间：2026-07-28  
-> 当前分支：`main`  
-> 当前阶段：Phase 2 设计完成，等待逐页迁移实施
+> 更新时间：2026-08-06
+> 当前分支：`feature/phase3.5-scrm-reporting`（HEAD `0bedd12`，领先 `main` 53 个提交、0 落后，未推远端）
+> 当前阶段：Phase 3.5 产品化返工代码完成，部署/浏览器/全量门禁验收未闭合
 
 ## 当前结论
 
-后端独立版、Go 工程底座和 Phase 1 前端统一底座均已完成。Docker 已分别发布 Dashboard 与 SaaS Admin，授权导航和产品化登录页也已补齐。前端产品迁移尚未完成：当前只有 `/corp/index` 是 React 业务页面，60 条 Dashboard 路由仍由 legacy 承接，Sidebar 和 Operation 尚未迁移。
+主线已完成 Phase 0–3.4：Go 单体底座、React 统一前端底座、Phase 3.2 八页门禁、Phase 3.3 菜单合入（`/chat/file-audio` 明确未完成）、Phase 3.4 营销工具 9 页均已交付并合入 `main`。
+
+当前主线是 Phase 3.5（SCRM 扩展 4 页 + 真实数据报表 5 页）：九页代码、自动化门禁、重建部署与浏览器/视觉模型验收已于 2026-08-06 晚闭合（`go test ./...`、Dashboard 476 测试、typecheck、生产构建、门禁 9/9、九页截图与订单跨页工作流全部通过）。仍待补证：`P35-ACCEPT-*` 生命周期执行记录、Playwright E2E spec、真实 Provider 数据。
+
+Benchmark 全局口径：53 页中目前 26 页达标（`native`/`legacy-adapter`），27 页仍是 `demo`/`placeholder`（集中在会话、风险预警、AI 洞察、AI 设置与企业设置），需要逐批产品化后才能宣告基准完成。
 
 ## 阶段总览
 
@@ -14,43 +18,55 @@
 | --- | --- | --- | --- | --- |
 | Phase Pre-0：独立版与 SaaS 能力收口 | 已完成 | 以独立部署、SaaS MVP 和候选证据为准 | 建立独立运行、SaaS 总后台和生产证据链 | [阶段详情](phases/phase-pre0-standalone/README.md) |
 | Phase 0：Go 工程底座 | 已完成 | 计划、检查表和验收项已闭合 | 建立 Go 单体运行边界、登记表和验证基线 | [阶段详情](phases/phase-0-go-foundation/README.md) |
-| Phase 1：前端统一底座 | 已完成 | Task 1–10 与发布纠偏均验收 | pnpm workspace、React Shell、共享契约、manifest、首条 React 路由、双应用发布与授权导航 | [阶段详情](phases/phase-1-frontend-foundation/README.md) |
-| Phase 2：前端逐页迁移 | 设计完成，实施未开始 | 尚未完成页面元数据基线，不虚构百分比 | 已确定元数据基线、分批迁移、视觉门禁和 legacy 退出策略 | [阶段详情](phases/phase-2-frontend-migration/README.md) |
+| Phase 1：前端统一底座 | 已完成 | Task 1–10 与发布纠偏均验收 | pnpm workspace、React Shell、共享契约、manifest、双应用发布与授权导航 | [阶段详情](phases/phase-1-frontend-foundation/README.md) |
+| Phase 2：前端逐页迁移 | 部分完成（治理基线与路线已闭环，业务迁移在历史分支） | 以审计、契约、组件测试和真实业务为准 | 135 页清单、审计修复、迁移治理与真实业务验证债务清单 | [阶段详情](phases/phase-2-frontend-migration/README.md) |
+| Phase 2.1：功能前端迁移 | 已完成 | 功能矩阵、自动化测试、生产构建与四前端验收 | Dashboard/Sidebar/Operation/SaaS Admin 可运行 | [阶段详情](phases/phase-2.1-functional-frontend-migration/README.md) |
+| Phase 2.2：后端质量门禁 | 已完成 | Go 模块化架构与质量门禁 | 后端质量合同与 GitHub Actions 门禁 | [阶段详情](phases/phase-2.2-backend-quality-gates/README.md) |
+| Phase 3.1–3.2：Dashboard 基准与八页门禁 | 已完成并合入 `main` | 八路由精确门禁，native/legacy-adapter 才计 | 数据概览、全局消息、敏感词、SCRM 五页等 8 页 | [阶段详情](phases/phase-3-dashboard/README.md) |
+| Phase 3.3：会话与风险预警菜单 | 已合入 `main` | 菜单与路由按基准呈现；业务证据为准 | 菜单合入；`/chat/file-audio` 保持未完成（无真实音频存储/读取 Provider） | [阶段详情](phases/phase-3-dashboard/README.md) |
+| Phase 3.4：营销工具 | 已完成并合入 `main` | 9 页 native + 截图与验收记录 | 渠道活码、群活码、获客链接、微信客服、活码短链、一键加群、精准群发、朋友圈、素材管理 | [阶段详情](phases/phase-3-dashboard/phase-3.4/README.md) |
+| Phase 3.5：SCRM 扩展与数据报表 | **进行中** | 九页代码完成；部署/浏览器/全量门禁未闭合 | 好友、客户群、订单、客户设置、客户/会话/转化/行为/综合报表 | [阶段详情](phases/phase-3-dashboard/phase-3.5/README.md) |
 
 ## 当前可测试范围
 
 | 范围 | 状态 | 说明 |
 | --- | --- | --- |
-| `/login` | 可测试 | React + Ant Design 产品化登录页 |
-| `/` | 可测试 | React Dashboard Shell，按权限渲染导航 |
-| `/corp/index` | 可测试 | 当前唯一注册的 React 业务页面，需要有效账号与权限 |
-| 60 条 Dashboard legacy 路由 | 可按权限导航或直接访问 | manifest 承接，逐页迁移尚未开始 |
+| `/login`、`/`、`/index` | 可测试 | React Dashboard Shell，按权限渲染导航 |
+| Phase 3.2 八页 | 可测试 | `/index`、`/chat/v2-all`、`/ai-insight/v2/sensitive-word`、SCRM 五页 |
+| Phase 3.4 九页 | 可测试 | `/acquisition/*` 全部 native，截图版本 2026-08-04 |
+| Phase 3.5 九页 | 代码可测，浏览器待复验 | `/customer/friends|group|order|settings`、`/data/*` |
 | `/saas-admin/` | 可测试 | Docker 独立产物与资源前缀已验证 |
-| Sidebar | 未迁移 | 保留旧前端和独立运行入口 |
-| Operation | 未迁移 | 保留旧前端和独立运行入口 |
+| Sidebar / Operation | 历史分支承载 | phase2 工作树分支未合入，需按既定迁移路线收口 |
+| 剩余 27 页（demo/placeholder） | 未完成 | 会话 9、风险预警 6、AI 洞察 5、AI 设置 2、企业设置 5 |
 
 ## 当前阻塞与风险
 
-1. **迁移基线未完成。** 开始 Dashboard batch 2 前，必须给 134 条未分配页面补齐 owner、risk 和 batch，并保护元数据不被 `--refresh` 覆盖。
-2. **外部证据缺失。** 真实企微、微信开放平台、SaaS 租户及生产环境证据仍未提供。
-3. **既有测试限制。** Windows 环境仍存在 Go 路径分隔符和 POSIX 权限断言问题；前端审计测试已恢复为 30/30 通过。
-4. **性能风险。** Dashboard 首包约 1.19 MB，Phase 2 必须按页面切分。
+1. **Phase 3.5 已闭合项**：迁移常量与 0120 编号冲突已解决（`0120_phase35_acceptance_lifecycle` 重排为 `0122`，新增 `0123_phase35_order_collation_align` 对齐 collation，常量更新为 123）；部署已重建到最新迁移；九页浏览器验收与跨页工作流通过。
+2. **已补齐两项待补证（2026-08-06 晚）**：`P35-ACCEPT-*` 生命周期 create/verify/cleanup 已执行留证；Playwright E2E spec（`web/e2e/tests/phase35-live.spec.ts`）已入库并在真实部署通过。剩余：真实企微/会话存档 Provider 数据。
+3. **基准 27 页未达标。** `demo` 6 页、`placeholder` 21 页（会话 9、风险预警 6、AI 洞察 5、AI 设置 2、企业设置 5），是宣告 53 页基准完成的最大缺口。
+4. **Provider 能力受限。** 会话存档等真实 Provider 未接入，`/chat/file-audio` 保持未完成；会话/风险类页面只能做受限状态呈现。
+5. **未跟踪产物。** `web/saas-admin/`（dist+node_modules，约 141MB）、`.gocache-phase35-review/`、`.workbuddy/` 与个别计划文件未入库，需用户确认清理策略。
+6. **验收测试数据待清理。** 运行库中 `P35-ACCEPT-*` 联系人/订单为测试数据（含经 PowerShell 创建的名称带 `?` 的记录），清理步骤见主线分析文档。
 
 ## 精确下一任务
 
-1. 建立 Phase 2 页面 metadata override 和防覆盖测试。
-2. 为未分配页面建立迁移批次。
-3. 按风险和依赖领取 Dashboard batch 2 第一条基础 CRUD/列表页。
+1. 补齐剩余待补证：接入真实企微/会话存档 Provider 数据；`P35-ACCEPT-*` 生命周期与 Playwright E2E spec 已于 2026-08-06 晚完成。
+2. 复核本轮改动（迁移 0121–0123、路由 PUT/PATCH、报表/明细修复）后，将 `feature/phase3.5-scrm-reporting` 合入 `main` 并同步本文件。
+3. 启动基准补齐批次：先产品化 6 个 `demo` 页（会话 3、风险预警 2、AI 洞察 1），再按依赖处理 21 个 `placeholder` 页。
+4. 清理验收测试数据（`P35-ACCEPT-*`，含名称带 `?` 的记录），步骤见主线分析文档。
 
 ## 最近交付
 
-- `78f4218`：Phase 1 验收与交接。
-- `2869ed0`：SaaS Admin Docker 发布修复设计。
-- `c7bae35`：阶段化文档重组设计。
-- `79a5e27`：阶段化文档重组实施计划。
-- `9f93cd9`：Dashboard 与 SaaS Admin 双应用发布。
-- `aa42a52`：Dashboard 授权导航。
-- `9a7eb1c`：Ant Design 登录页。
+- `0bedd12`：订单审计写入原子化（Phase 3.5 最后提交，2026-08-06）。
+- 2026-08-06 晚：迁移 0121–0123 应用、collation 与 transition 路由修复、九页浏览器验收与跨页工作流证据闭合。
+- `0bba77a`：Phase 3.5 订单工作流产品化。
+- `c995af5`：好友与客户群详情产品化。
+- `d496a1f`：客户设置产品化。
+- `c7ea81f`：五类报表页产品化。
+- `baf8c98`：Phase 3.5 产品化设计（9 页统一体验模型与审核门禁）。
+- `5496f1a`（main）：Phase 3.4 返工验收记录。
+- `d23d17a`（main）：Phase 3.4 获客页建设。
+- `8e18fe7`（main）：Phase 3.3 菜单合入。
 
 ## 更新规则
 
@@ -58,3 +74,4 @@
 - 每个任务提交后更新“已完成、未完成与阻塞、验收与证据”。
 - 只有任务清单和验收定义已基线化时才给出完成比例。
 - 证据生成文件不得直接覆盖人工维护的总进度。
+- 用户审阅/确认文档使用中文；代码标识符、命令、路径与接口字段保留原文。
