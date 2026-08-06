@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ func TestOrderHandlerRoutesListPathToListContext(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %q", rec.Code, rec.Body.String())
 	}
+	assertOrderEnvelope(t, rec, http.StatusOK)
 	if repo.listCalls != 1 {
 		t.Fatalf("ListContext calls = %d, want 1", repo.listCalls)
 	}
@@ -44,6 +46,7 @@ func TestOrderHandlerRoutesDetailPathToGetAndAuditContext(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %q", rec.Code, rec.Body.String())
 	}
+	assertOrderEnvelope(t, rec, http.StatusOK)
 	if repo.getCalls != 1 || repo.auditCalls != 1 {
 		t.Fatalf("detail repository calls = GetContext %d, AuditContext %d, want 1, 1", repo.getCalls, repo.auditCalls)
 	}
@@ -64,12 +67,56 @@ func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("status %d", rec.Code)
 	}
+	response := assertOrderEnvelope(t, rec, http.StatusOK)
+	var created domain.Order
+	if err := json.Unmarshal(response.Data, &created); err != nil {
+		t.Fatalf("decode created order: %v", err)
+	}
+	if created.ID != "o1" {
+		t.Fatalf("created order id = %q, want o1", created.ID)
+	}
 	if len(r.List(1, 1)) != 1 {
 		t.Fatal("not persisted")
 	}
 	if _, e := domain.NewOrder(domain.NewOrderInput{ID: "", TenantID: 1, CorpID: 1, ContactID: "c", Status: domain.OrderPending}); e == nil {
 		t.Fatal("expected invalid")
 	}
+}
+
+func TestOrderHandlerTransitionUsesDashboardEnvelope(t *testing.T) {
+	repo := NewMemoryOrderRepository()
+	_, err := repo.Create(domain.Order{ID: "o-transition", TenantID: 7, CorpID: 1536612155, ContactID: "c1", Status: domain.OrderPending, Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewOrderHandler(repo, routingPrincipalResolver{})
+	req := httptest.NewRequest(http.MethodPatch, "/dashboard/scrm/orders/o-transition/transition?corpId=1536612155", strings.NewReader(`{"status":"paid","version":1}`))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", rec.Code, rec.Body.String())
+	}
+	assertOrderEnvelope(t, rec, http.StatusOK)
+}
+
+type orderEnvelope struct {
+	Code int             `json:"code"`
+	Msg  string          `json:"msg"`
+	Data json.RawMessage `json:"data"`
+}
+
+func assertOrderEnvelope(t *testing.T, recorder *httptest.ResponseRecorder, status int) orderEnvelope {
+	t.Helper()
+	var response orderEnvelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode order envelope: %v; body = %q", err, recorder.Body.String())
+	}
+	if response.Code != status || response.Msg != "success" || len(response.Data) == 0 || string(response.Data) == "null" {
+		t.Fatalf("response = %#v, want code=%d msg=success non-null data; body = %q", response, status, recorder.Body.String())
+	}
+	return response
 }
 
 type routingPrincipalResolver struct{}

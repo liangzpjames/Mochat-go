@@ -183,8 +183,7 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 		nethttp.Error(w, e.Error(), 409)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"data": o})
+	writeJSON(w, nethttp.StatusOK, map[string]any{"data": o})
 }
 
 func orderDetailID(path string) string {
