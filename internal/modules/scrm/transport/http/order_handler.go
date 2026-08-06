@@ -118,7 +118,7 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 					return
 				}
 				audit, _ := dr.AuditContext(r.Context(), id, p.TenantID, corpID)
-				writeJSON(w, 200, map[string]any{"data": o, "audit": audit})
+				writeJSON(w, 200, map[string]any{"data": map[string]any{"order": o, "audit": audit}})
 				return
 			}
 		}
@@ -145,13 +145,16 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	var in struct {
-		ID          string             `json:"id"`
-		TenantID    int64              `json:"tenantId"`
-		CorpID      int64              `json:"corpId"`
-		ContactID   string             `json:"contactId"`
-		AmountCents int64              `json:"amountCents"`
-		Currency    string             `json:"currency"`
-		Status      domain.OrderStatus `json:"status"`
+		ID            string             `json:"id"`
+		TenantID      int64              `json:"tenantId"`
+		CorpID        int64              `json:"corpId"`
+		ContactID     string             `json:"contactId"`
+		OpportunityID string             `json:"opportunityId"`
+		Title         string             `json:"title"`
+		Note          string             `json:"note"`
+		AmountCents   int64              `json:"amountCents"`
+		Currency      string             `json:"currency"`
+		Status        domain.OrderStatus `json:"status"`
 	}
 	if json.NewDecoder(r.Body).Decode(&in) != nil {
 		nethttp.Error(w, "invalid json", 400)
@@ -169,7 +172,7 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 			return
 		}
 	}
-	o, e := domain.NewOrder(domain.NewOrderInput{ID: strings.TrimSpace(in.ID), TenantID: in.TenantID, CorpID: in.CorpID, ContactID: in.ContactID, AmountCents: in.AmountCents, Currency: in.Currency, Status: in.Status})
+	o, e := domain.NewOrder(domain.NewOrderInput{ID: strings.TrimSpace(in.ID), TenantID: in.TenantID, CorpID: in.CorpID, ContactID: in.ContactID, OpportunityID: in.OpportunityID, Title: in.Title, Note: in.Note, AmountCents: in.AmountCents, Currency: in.Currency, Status: in.Status})
 	if e != nil {
 		nethttp.Error(w, e.Error(), 422)
 		return

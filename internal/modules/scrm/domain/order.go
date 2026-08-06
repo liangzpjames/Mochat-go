@@ -21,7 +21,10 @@ type Order struct {
 	TenantID      int64       `json:"tenantId"`
 	CorpID        int64       `json:"corpId"`
 	ContactID     string      `json:"contactId"`
+	ContactName   string      `json:"contactName,omitempty"`
 	OpportunityID string      `json:"opportunityId,omitempty"`
+	Title         string      `json:"title"`
+	Note          string      `json:"note"`
 	AmountCents   int64       `json:"amountCents"`
 	Currency      string      `json:"currency"`
 	Status        OrderStatus `json:"status"`
@@ -32,20 +35,23 @@ type NewOrderInput struct {
 	ID                       string
 	TenantID, CorpID         int64
 	ContactID, OpportunityID string
+	Title, Note              string
 	AmountCents              int64
 	Currency                 string
 	Status                   OrderStatus
 }
 
 func NewOrder(input NewOrderInput) (Order, error) {
-	if strings.TrimSpace(input.ID) == "" || input.TenantID <= 0 || input.CorpID <= 0 || strings.TrimSpace(input.ContactID) == "" || input.AmountCents < 0 || !validOrderStatus(input.Status) {
+	title := strings.TrimSpace(input.Title)
+	note := strings.TrimSpace(input.Note)
+	if strings.TrimSpace(input.ID) == "" || input.TenantID <= 0 || input.CorpID <= 0 || strings.TrimSpace(input.ContactID) == "" || title == "" || len([]rune(title)) > 200 || len([]rune(note)) > 2000 || input.AmountCents < 0 || !validOrderStatus(input.Status) {
 		return Order{}, errors.New("invalid order")
 	}
 	currency := strings.ToUpper(strings.TrimSpace(input.Currency))
 	if currency == "" {
 		currency = "CNY"
 	}
-	return Order{ID: input.ID, TenantID: input.TenantID, CorpID: input.CorpID, ContactID: input.ContactID, OpportunityID: input.OpportunityID, AmountCents: input.AmountCents, Currency: currency, Status: input.Status, Version: 1}, nil
+	return Order{ID: input.ID, TenantID: input.TenantID, CorpID: input.CorpID, ContactID: input.ContactID, OpportunityID: input.OpportunityID, Title: title, Note: note, AmountCents: input.AmountCents, Currency: currency, Status: input.Status, Version: 1}, nil
 }
 
 func (order *Order) Transition(status OrderStatus, version int64) error {

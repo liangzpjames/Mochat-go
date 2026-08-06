@@ -47,6 +47,17 @@ func TestOrderHandlerRoutesDetailPathToGetAndAuditContext(t *testing.T) {
 		t.Fatalf("status = %d, body = %q", rec.Code, rec.Body.String())
 	}
 	assertOrderEnvelope(t, rec, http.StatusOK)
+	var payload struct {
+		Order domain.Order     `json:"order"`
+		Audit []map[string]any `json:"audit"`
+	}
+	response := assertOrderEnvelope(t, rec, http.StatusOK)
+	if err := json.Unmarshal(response.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Order.ID != "o-detail" || len(payload.Audit) != 1 {
+		t.Fatalf("detail payload = %#v", payload)
+	}
 	if repo.getCalls != 1 || repo.auditCalls != 1 {
 		t.Fatalf("detail repository calls = GetContext %d, AuditContext %d, want 1, 1", repo.getCalls, repo.auditCalls)
 	}
@@ -61,7 +72,7 @@ func TestOrderHandlerRoutesDetailPathToGetAndAuditContext(t *testing.T) {
 func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	r := NewMemoryOrderRepository()
 	h := NewOrderHandler(r)
-	req := httptest.NewRequest("POST", "/scrm/orders", strings.NewReader(`{"id":"o1","tenantId":1,"corpId":1,"contactId":"c1","amountCents":100,"status":"pending"}`))
+	req := httptest.NewRequest("POST", "/scrm/orders", strings.NewReader(`{"id":"o1","tenantId":1,"corpId":1,"contactId":"c1","opportunityId":"opp1","title":"年度续费","note":"客户确认","amountCents":100,"status":"pending"}`))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -72,8 +83,8 @@ func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	if err := json.Unmarshal(response.Data, &created); err != nil {
 		t.Fatalf("decode created order: %v", err)
 	}
-	if created.ID != "o1" {
-		t.Fatalf("created order id = %q, want o1", created.ID)
+	if created.ID != "o1" || created.Title != "年度续费" || created.Note != "客户确认" || created.OpportunityID != "opp1" {
+		t.Fatalf("created order = %#v", created)
 	}
 	if len(r.List(1, 1)) != 1 {
 		t.Fatal("not persisted")

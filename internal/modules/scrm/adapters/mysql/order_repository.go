@@ -10,18 +10,32 @@ import (
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 )
 
-// SQLOrderRepository persists Phase 3.5 orders in migration 0119 tables.
+// SQLOrderRepository persists Phase 3.5 orders in the 0119 and 0121 schema.
 // Scope is always part of every statement; callers must provide the authenticated tenant.
 type SQLOrderRepository struct{ db *sql.DB }
 
 func (r *SQLOrderRepository) GetContext(ctx context.Context, id string, tenantID, corpID int64) (domain.Order, error) {
 	var o domain.Order
-	err := r.db.QueryRowContext(ctx, `SELECT id,tenant_id,corp_id,contact_id,COALESCE(opportunity_id,''),amount_cents,currency,status,version FROM mochat_go_scrm_orders WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL`, id, tenantID, corpID).Scan(&o.ID,&o.TenantID,&o.CorpID,&o.ContactID,&o.OpportunityID,&o.AmountCents,&o.Currency,&o.Status,&o.Version)
+	err := r.db.QueryRowContext(ctx, `SELECT o.id,o.tenant_id,o.corp_id,o.contact_id,COALESCE(c.name,''),COALESCE(o.opportunity_id,''),o.title,o.note,o.amount_cents,o.currency,o.status,o.version FROM mochat_go_scrm_orders o LEFT JOIN mochat_go_scrm_contacts c ON c.id=o.contact_id AND c.tenant_id=o.tenant_id AND c.corp_id=o.corp_id AND c.deleted_at IS NULL WHERE o.id=? AND o.tenant_id=? AND o.corp_id=? AND o.deleted_at IS NULL`, id, tenantID, corpID).Scan(&o.ID, &o.TenantID, &o.CorpID, &o.ContactID, &o.ContactName, &o.OpportunityID, &o.Title, &o.Note, &o.AmountCents, &o.Currency, &o.Status, &o.Version)
 	return o, err
 }
 func (r *SQLOrderRepository) AuditContext(ctx context.Context, id string, tenantID, corpID int64) ([]map[string]any, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT action,actor_id,from_version,to_version,created_at FROM mochat_go_scrm_order_audit WHERE order_id=? AND tenant_id=? AND corp_id=? ORDER BY created_at ASC`, id, tenantID, corpID)
-	if err != nil { return nil, err }; defer rows.Close(); out:=[]map[string]any{}; for rows.Next(){var action string; var actor,from,to int64; var at time.Time; if err:=rows.Scan(&action,&actor,&from,&to,&at); err!=nil{return nil,err}; out=append(out,map[string]any{"action":action,"actorId":actor,"fromVersion":from,"toVersion":to,"createdAt":at})}; return out, rows.Err()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var action string
+		var actor, from, to int64
+		var at time.Time
+		if err := rows.Scan(&action, &actor, &from, &to, &at); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{"action": action, "actorId": actor, "fromVersion": from, "toVersion": to, "createdAt": at})
+	}
+	return out, rows.Err()
 }
 
 func NewSQLOrderRepository(db *sql.DB) (*SQLOrderRepository, error) {
@@ -33,7 +47,7 @@ func NewSQLOrderRepository(db *sql.DB) (*SQLOrderRepository, error) {
 
 func (r *SQLOrderRepository) CreateContext(ctx context.Context, order domain.Order, actorID int64) (domain.Order, error) {
 	now := time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `INSERT INTO mochat_go_scrm_orders (id,tenant_id,corp_id,contact_id,opportunity_id,amount_cents,currency,status,version,idempotency_key,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, order.ID, order.TenantID, order.CorpID, order.ContactID, order.OpportunityID, order.AmountCents, order.Currency, order.Status, order.Version, order.ID, actorID, now, now)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO mochat_go_scrm_orders (id,tenant_id,corp_id,contact_id,opportunity_id,title,note,amount_cents,currency,status,version,idempotency_key,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, order.ID, order.TenantID, order.CorpID, order.ContactID, order.OpportunityID, order.Title, order.Note, order.AmountCents, order.Currency, order.Status, order.Version, order.ID, actorID, now, now)
 	if err != nil {
 		return domain.Order{}, err
 	}
@@ -42,7 +56,7 @@ func (r *SQLOrderRepository) CreateContext(ctx context.Context, order domain.Ord
 }
 
 func (r *SQLOrderRepository) ListContext(ctx context.Context, tenantID, corpID int64) ([]domain.Order, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id,tenant_id,corp_id,contact_id,COALESCE(opportunity_id,''),amount_cents,currency,status,version FROM mochat_go_scrm_orders WHERE tenant_id=? AND corp_id=? AND deleted_at IS NULL ORDER BY updated_at DESC`, tenantID, corpID)
+	rows, err := r.db.QueryContext(ctx, `SELECT o.id,o.tenant_id,o.corp_id,o.contact_id,COALESCE(c.name,''),COALESCE(o.opportunity_id,''),o.title,o.note,o.amount_cents,o.currency,o.status,o.version FROM mochat_go_scrm_orders o LEFT JOIN mochat_go_scrm_contacts c ON c.id=o.contact_id AND c.tenant_id=o.tenant_id AND c.corp_id=o.corp_id AND c.deleted_at IS NULL WHERE o.tenant_id=? AND o.corp_id=? AND o.deleted_at IS NULL ORDER BY o.updated_at DESC`, tenantID, corpID)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +64,7 @@ func (r *SQLOrderRepository) ListContext(ctx context.Context, tenantID, corpID i
 	items := []domain.Order{}
 	for rows.Next() {
 		var o domain.Order
-		if err := rows.Scan(&o.ID, &o.TenantID, &o.CorpID, &o.ContactID, &o.OpportunityID, &o.AmountCents, &o.Currency, &o.Status, &o.Version); err != nil {
+		if err := rows.Scan(&o.ID, &o.TenantID, &o.CorpID, &o.ContactID, &o.ContactName, &o.OpportunityID, &o.Title, &o.Note, &o.AmountCents, &o.Currency, &o.Status, &o.Version); err != nil {
 			return nil, err
 		}
 		items = append(items, o)
@@ -60,7 +74,7 @@ func (r *SQLOrderRepository) ListContext(ctx context.Context, tenantID, corpID i
 
 func (r *SQLOrderRepository) TransitionContext(ctx context.Context, id string, tenantID, corpID int64, status domain.OrderStatus, version, actorID int64) (domain.Order, error) {
 	var o domain.Order
-	err := r.db.QueryRowContext(ctx, `SELECT id,tenant_id,corp_id,contact_id,COALESCE(opportunity_id,''),amount_cents,currency,status,version FROM mochat_go_scrm_orders WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE`, id, tenantID, corpID).Scan(&o.ID, &o.TenantID, &o.CorpID, &o.ContactID, &o.OpportunityID, &o.AmountCents, &o.Currency, &o.Status, &o.Version)
+	err := r.db.QueryRowContext(ctx, `SELECT o.id,o.tenant_id,o.corp_id,o.contact_id,COALESCE(c.name,''),COALESCE(o.opportunity_id,''),o.title,o.note,o.amount_cents,o.currency,o.status,o.version FROM mochat_go_scrm_orders o LEFT JOIN mochat_go_scrm_contacts c ON c.id=o.contact_id AND c.tenant_id=o.tenant_id AND c.corp_id=o.corp_id AND c.deleted_at IS NULL WHERE o.id=? AND o.tenant_id=? AND o.corp_id=? AND o.deleted_at IS NULL FOR UPDATE`, id, tenantID, corpID).Scan(&o.ID, &o.TenantID, &o.CorpID, &o.ContactID, &o.ContactName, &o.OpportunityID, &o.Title, &o.Note, &o.AmountCents, &o.Currency, &o.Status, &o.Version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Order{}, sql.ErrNoRows
 	}

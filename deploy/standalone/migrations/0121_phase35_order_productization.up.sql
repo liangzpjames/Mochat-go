@@ -1,0 +1,3 @@
+ALTER TABLE mochat_go_scrm_orders
+  ADD COLUMN title VARCHAR(200) NOT NULL DEFAULT '' AFTER opportunity_id,
+  ADD COLUMN note VARCHAR(2000) NOT NULL DEFAULT '' AFTER title;

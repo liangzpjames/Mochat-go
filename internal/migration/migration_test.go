@@ -172,8 +172,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0120_saas_tenant_default_corp_reconcile" {
-		t.Fatalf("latest migration = %q, want 0120_saas_tenant_default_corp_reconcile", latest.Version)
+	if latest.Version != "0121_phase35_order_productization" {
+		t.Fatalf("latest migration = %q, want 0121_phase35_order_productization", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -225,6 +225,24 @@ func TestRetainedLedger0099Through0119Gets0120AsNextMigration(t *testing.T) {
 	}
 	if index["0120_saas_tenant_default_corp_reconcile"] <= index["0119_phase35_orders_settings"] {
 		t.Fatal("0120 reconciliation must run after the retained 0099-0119 ledger")
+	}
+}
+
+func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	latest := migrations[len(migrations)-1]
+	if latest.Version != "0121_phase35_order_productization" {
+		t.Fatalf("latest migration = %q", latest.Version)
+	}
+	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"ADD COLUMN title", "ADD COLUMN note"} {
+		if !strings.Contains(string(up), required) {
+			t.Fatalf("migration missing %q", required)
+		}
 	}
 }
 
