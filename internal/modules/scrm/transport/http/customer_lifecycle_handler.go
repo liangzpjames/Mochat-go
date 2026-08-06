@@ -368,14 +368,28 @@ type contactDetailJSON struct {
 }
 
 func contactSummaryView(item ports.ContactSummary) contactSummaryJSON {
-	return contactSummaryJSON{ID: item.ID, Name: item.Name, Phone: item.Phone, OwnerID: item.OwnerID, AssignmentStatus: item.AssignmentStatus, TagNames: item.TagNames, Version: item.Version, AssignmentVersion: item.AssignmentVersion, UpdatedAt: item.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")}
+	tagNames := item.TagNames
+	if tagNames == nil {
+		tagNames = []string{}
+	}
+	return contactSummaryJSON{ID: item.ID, Name: item.Name, Phone: item.Phone, OwnerID: item.OwnerID, AssignmentStatus: item.AssignmentStatus, TagNames: tagNames, Version: item.Version, AssignmentVersion: item.AssignmentVersion, UpdatedAt: item.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")}
 }
 func contactDetailView(item ports.ContactDetail) contactDetailJSON {
 	followUps := make([]followUpJSON, 0, len(item.FollowUps))
 	for _, f := range item.FollowUps {
 		followUps = append(followUps, followUpJSON{ID: f.ID, ContactID: item.ID, Content: f.Content, CreatedAt: f.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"), CreatedBy: f.CreatedBy})
 	}
-	return contactDetailJSON{contactSummaryJSON: contactSummaryView(item.ContactSummary), Assignment: assignmentViewJSON(item.Assignment), Tags: item.Tags, WeComFriends: item.WeComFriends, WeComFriendsAvailable: item.WeComFriendsAvailable, Opportunities: item.Opportunities, FollowUps: followUps}
+	tags, weComFriends, opportunities := item.Tags, item.WeComFriends, item.Opportunities
+	if tags == nil {
+		tags = []ports.ContactTagSummary{}
+	}
+	if weComFriends == nil {
+		weComFriends = []ports.WeComFriendSummary{}
+	}
+	if opportunities == nil {
+		opportunities = []ports.ContactOpportunitySummary{}
+	}
+	return contactDetailJSON{contactSummaryJSON: contactSummaryView(item.ContactSummary), Assignment: assignmentViewJSON(item.Assignment), Tags: tags, WeComFriends: weComFriends, WeComFriendsAvailable: item.WeComFriendsAvailable, Opportunities: opportunities, FollowUps: followUps}
 }
 
 func assignmentViewJSON(item domain.CustomerAssignment) assignmentJSON {

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0120_saas_tenant_default_corp_reconcile"
-	SaaSAdminExpectedMigrationCount   = 120
+	SaaSAdminExpectedMigrationVersion = "0123_phase35_order_collation_align"
+	SaaSAdminExpectedMigrationCount   = 123
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

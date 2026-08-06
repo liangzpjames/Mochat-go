@@ -172,8 +172,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0121_phase35_order_productization" {
-		t.Fatalf("latest migration = %q, want 0121_phase35_order_productization", latest.Version)
+	if latest.Version != "0123_phase35_order_collation_align" {
+		t.Fatalf("latest migration = %q, want 0123_phase35_order_collation_align", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -232,7 +232,7 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0121_phase35_order_productization" {
+	if latest.Version != "0123_phase35_order_collation_align" {
 		t.Fatalf("latest migration = %q", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))

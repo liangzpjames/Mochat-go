@@ -105,21 +105,20 @@ func (r *SQLRepository) queryEntity(ctx context.Context, q ReportQuery, kind Rep
 	// Trend uses tenant-local date while preserving the half-open UTC window.
 	trendArgs := append([]any{q.Timezone}, args...)
 	trendArgs = append(trendArgs, q.Timezone)
-	trendSQL := "SELECT DATE(CONVERT_TZ(c.created_at,'+00:00',?)), COUNT(DISTINCT c.id) FROM mochat_go_scrm_contacts c WHERE " + where + " GROUP BY DATE(CONVERT_TZ(c.created_at,'+00:00',?)) ORDER BY 1"
+	trendSQL := "SELECT DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?), '%Y-%m-%d'), COUNT(DISTINCT c.id) FROM mochat_go_scrm_contacts c WHERE " + where + " GROUP BY DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?), '%Y-%m-%d') ORDER BY 1"
 	if rows, err := r.db.QueryContext(ctx, trendSQL, trendArgs...); err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var day string
 			var n float64
 			if rows.Scan(&day, &n) == nil {
-				t, _ := time.ParseInLocation("2006-01-02", day, time.UTC)
-				res.Series = append(res.Series, SeriesPoint{At: t, Value: n})
+				res.Series = append(res.Series, SeriesPoint{At: parseReportDay(day), Value: n})
 			}
 		}
 	}
 	itemArgs := append([]any{q.Timezone}, args...)
 	itemArgs = append(itemArgs, q.PageSize, (q.Page-1)*q.PageSize)
-	rows, err := r.db.QueryContext(ctx, "SELECT c.id, DATE(CONVERT_TZ(c.created_at,'+00:00',?)), COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0) FROM mochat_go_scrm_contacts c WHERE "+where+" ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?", itemArgs...)
+	rows, err := r.db.QueryContext(ctx, "SELECT c.id, DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?), '%Y-%m-%d'), COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0), COALESCE((SELECT e.name FROM mochat_go_scrm_assignments a2 JOIN mc_work_employee e ON e.corp_id=a2.corp_id AND e.log_user_id=a2.owner_id AND e.deleted_at IS NULL WHERE a2.tenant_id=c.tenant_id AND a2.corp_id=c.corp_id AND a2.contact_id=c.id AND a2.deleted_at IS NULL ORDER BY a2.updated_at DESC LIMIT 1),'') FROM mochat_go_scrm_contacts c WHERE "+where+" ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?", itemArgs...)
 	if err != nil {
 		return res, err
 	}
@@ -127,8 +126,9 @@ func (r *SQLRepository) queryEntity(ctx context.Context, q ReportQuery, kind Rep
 	for rows.Next() {
 		var id, day string
 		var owner sql.NullInt64
-		if rows.Scan(&id, &day, &owner) == nil {
-			res.Items = append(res.Items, map[string]any{"id": id, "day": day, "ownerId": owner.Int64})
+		var ownerName sql.NullString
+		if rows.Scan(&id, &day, &owner, &ownerName) == nil {
+			res.Items = append(res.Items, map[string]any{"id": id, "day": day, "ownerId": owner.Int64, "ownerName": ownerName.String})
 		}
 	}
 	return res, nil
