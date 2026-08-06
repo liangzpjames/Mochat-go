@@ -85,6 +85,7 @@ func TestRegisterRoutesInstallsAllSCRMRoutes(t *testing.T) {
 		{method: nethttp.MethodPost, pattern: transporthttp.FollowUpsPath},
 		{method: nethttp.MethodGet, pattern: "/dashboard/scrm/orders"},
 		{method: nethttp.MethodPost, pattern: "/dashboard/scrm/orders"},
+		{method: nethttp.MethodGet, pattern: "/dashboard/scrm/orders/{id}"},
 		{method: nethttp.MethodPatch, pattern: "/dashboard/scrm/orders/{id}/transition"},
 		{method: nethttp.MethodGet, pattern: "/dashboard/scrm/settings"},
 		{method: nethttp.MethodPut, pattern: "/dashboard/scrm/settings"},

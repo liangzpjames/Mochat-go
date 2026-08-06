@@ -20,7 +20,10 @@ type orderContextRepository interface {
 	ListContext(context.Context, int64, int64) ([]domain.Order, error)
 	TransitionContext(context.Context, string, int64, int64, domain.OrderStatus, int64, int64) (domain.Order, error)
 }
-type orderDetailRepository interface { GetContext(context.Context, string, int64, int64) (domain.Order, error); AuditContext(context.Context, string, int64, int64) ([]map[string]any, error) }
+type orderDetailRepository interface {
+	GetContext(context.Context, string, int64, int64) (domain.Order, error)
+	AuditContext(context.Context, string, int64, int64) ([]map[string]any, error)
+}
 type MemoryOrderRepository struct {
 	mu    sync.Mutex
 	items map[string]domain.Order
@@ -106,9 +109,18 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 				return
 			}
 		}
-		id := strings.TrimPrefix(r.URL.Path, "/dashboard/scrm/orders/")
+		id := orderDetailID(r.URL.Path)
 		if id != "" && id != "/" {
-			if dr, ok := h.repo.(orderDetailRepository); ok { o, err := dr.GetContext(r.Context(), id, p.TenantID, corpID); if err != nil { nethttp.Error(w, "order not found", 404); return }; audit, _ := dr.AuditContext(r.Context(), id, p.TenantID, corpID); writeJSON(w, 200, map[string]any{"data": o, "audit": audit}); return }
+			if dr, ok := h.repo.(orderDetailRepository); ok {
+				o, err := dr.GetContext(r.Context(), id, p.TenantID, corpID)
+				if err != nil {
+					nethttp.Error(w, "order not found", 404)
+					return
+				}
+				audit, _ := dr.AuditContext(r.Context(), id, p.TenantID, corpID)
+				writeJSON(w, 200, map[string]any{"data": o, "audit": audit})
+				return
+			}
 		}
 		var items []domain.Order
 		if cr, ok := h.repo.(orderContextRepository); ok {
@@ -173,6 +185,14 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"data": o})
+}
+
+func orderDetailID(path string) string {
+	const ordersPath = "/dashboard/scrm/orders"
+	if path == ordersPath {
+		return ""
+	}
+	return strings.TrimPrefix(path, ordersPath+"/")
 }
 
 func (h *OrderHandler) transition(w nethttp.ResponseWriter, r *nethttp.Request, p Principal, corp int64) {

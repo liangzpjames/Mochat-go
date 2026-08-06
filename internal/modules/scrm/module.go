@@ -124,6 +124,9 @@ func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
 	if err := registrar.Handle("POST", "/dashboard/scrm/orders", m.orderHTTP); err != nil {
 		return err
 	}
+	if err := registrar.Handle("GET", "/dashboard/scrm/orders/{id}", m.orderHTTP); err != nil {
+		return err
+	}
 	if err := registrar.Handle("PATCH", "/dashboard/scrm/orders/{id}/transition", m.orderHTTP); err != nil {
 		return err
 	}
