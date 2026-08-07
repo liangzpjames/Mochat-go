@@ -581,7 +581,7 @@ func upsertAdminRole(ctx context.Context, tx *sql.Tx, options bootstrapOptions, 
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO mc_rbac_role
 			(tenant_id, name, remarks, status, operate_id, operate_name, data_permission, created_at, updated_at, deleted_at)
-		VALUES (?, ?, 'bootstrap full-access role', 1, ?, ?, '[]', NOW(), NOW(), NULL)
+		VALUES (?, ?, '系统预置全权限角色', 1, ?, ?, '[]', NOW(), NOW(), NULL)
 	`, options.TenantID, options.RoleName, userID, options.UserName)
 	if err != nil {
 		return 0, err

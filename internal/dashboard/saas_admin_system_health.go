@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0124_ai_settings_tables"
-	SaaSAdminExpectedMigrationCount   = 124
+	SaaSAdminExpectedMigrationVersion = "0125_bootstrap_role_remark_cn"
+	SaaSAdminExpectedMigrationCount   = 125
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

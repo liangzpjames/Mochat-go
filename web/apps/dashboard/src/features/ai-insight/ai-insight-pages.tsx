@@ -67,9 +67,9 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
         </section>
 
         <section className="phase35-card phase35-table-card">
-          <header className="phase35-card-header"><div><h2>分析结果</h2><p>按分析任务读取结果，无数据时展示空状态</p></div><span className="phase35-chip">{result?.data.length ?? 0} 条</span></header>
+          <header className="phase35-card-header"><div><h2>分析结果</h2><p>按分析任务读取结果，无数据时展示空状态</p></div><span className="phase35-chip">{limited ? '受限' : `${result?.data.length ?? 0} 条`}</span></header>
           {limited ? (
-            <p className="phase35-empty">{copy.empty}</p>
+            <p className="phase35-empty">Provider 受限，暂无分析结果。</p>
           ) : (
             <Phase35DataState loading={query.isLoading} error={query.isError} empty={!result?.data.length} onRetry={() => void query.refetch()}>
               <div className="phase35-table"><table><thead><tr><th>会话</th><th>结果</th></tr></thead><tbody>{result?.data.map((item, index) => (

@@ -63,7 +63,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
             loading={query.isLoading}
             error={query.isError}
             empty={!total}
-            emptyContent={<p className="phase35-empty">暂无知识库数据</p>}
+            emptyContent={<p className="phase35-empty">暂无知识库，点击“新建知识库”开始创建</p>}
             onRetry={() => void query.refetch()}
           >
             <div className="phase35-table">

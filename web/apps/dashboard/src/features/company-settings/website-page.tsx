@@ -9,6 +9,7 @@ type CorpAdminApi = ReturnType<typeof createCorpAdminApi>;
 export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
   const queryClient = useQueryClient();
   const [keyword, setKeyword] = useState('');
+  const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<CorpDetail | null>(null);
   const [creating, setCreating] = useState(false);
   const [corpName, setCorpName] = useState('');
@@ -17,8 +18,8 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
   const [contactSecret, setContactSecret] = useState('');
   const [error, setError] = useState('');
 
-  const input: CorpListInput = { corpId: '', corpName: keyword, page: 1, perPage: 20 };
-  const query = useQuery({ queryKey: ['company-website', keyword], queryFn: () => api.list(input) });
+  const input: CorpListInput = { corpId: '', corpName: keyword, page, perPage: 20 };
+  const query = useQuery({ queryKey: ['company-website', keyword, page], queryFn: () => api.list(input) });
   const items = query.data?.list ?? [];
   const total = query.data?.page?.total ?? 0;
 
@@ -43,10 +44,10 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
     <Phase35PageShell title="企业信息" description="查看与维护企业微信企业信息与密钥配置" actions={<button type="button" onClick={openCreate}>新建企业</button>}>
       <div className="phase35-page">
         <section className="phase35-card phase35-filter-card">
-          <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); void query.refetch(); }}>
+          <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); void query.refetch(); }}>
             <input aria-label="企业名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="按企业名称筛选" />
             <button type="submit">查询</button>
-            <button type="button" onClick={() => setKeyword('')}>重置</button>
+            <button type="button" onClick={() => { setKeyword(''); setPage(1); }}>重置</button>
           </form>
         </section>
 
@@ -70,6 +71,11 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="phase35-table dashboard-pagination">
+              <span>共 {total} 条，第 {page} 页</span>
+              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一页</button>
+              <button type="button" disabled={page * 20 >= total} onClick={() => setPage((current) => current + 1)}>下一页</button>
             </div>
           </Phase35DataState>
         </section>
