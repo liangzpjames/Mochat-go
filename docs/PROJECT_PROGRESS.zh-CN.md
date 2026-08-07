@@ -2,7 +2,7 @@
 
 > 更新时间：2026-08-07
 > 当前分支：`main`（Phase 3.5、坏账清理与 Phase 3 Final 均已合入并推送远端）
-> 当前阶段：Phase 3 Final 总验收闭合（53/53 达标）
+> 当前阶段：Phase 3 Final 已合入 `main`（53/53 达标）；测试期 AI API 默认关闭
 
 ## 当前结论
 
@@ -17,6 +17,7 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 - 后端：`internal/modules/providers`（本地音频存储 / OpenAI 兼容 AI / 企微会话存档适配层）、`internal/modules/chat-media`（`/dashboard/chat/media*` 上传/列表/鉴权下载/软删）、AI 洞察真实化（DB + AIProvider + 5 分钟缓存 + `refresh=1`）、迁移 `0126_phase3_final_providers`。
 - 前端：`/chat/file-audio` native 页（选择文件→上传→播放→删除→分页），manifest 更新为 `native/ready/integration-passed`；`check_debt_clearance` 门禁 27/27。
 - 验收：真实 WAV 上传→落盘→鉴权下载字节一致→软删闭环；AI 五页真实结果落库回读；`qwen3-vl-plus` 严格识图复核；全部门禁绿。
+- 2026-08-07 晚：Phase 3 Final 已合入并推送 `main`（`361b918`）；**测试期 AI API 默认关闭**（`MOCHAT_GO_AI_INSIGHT_ENABLED=0`，即使配置 key 也不发起调用，实测访问页面不产生新 AI 分析）；AI 洞察与文件录音页面按 phase35 参考样式收口（KPI 卡、友好类型显示、成功/错误提示条）。
 - 入口：`docs/phases/phase-3-dashboard/phase-3-final/`（设计、总验收报告、README）。
 
 ## Phase 3 坏账清理（2026-08-07）
@@ -41,7 +42,7 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 | Phase 3.3：会话与风险预警菜单 | 已合入 `main` | 菜单与路由按基准呈现；业务证据为准 | 菜单合入；`/chat/file-audio` 保持未完成（无真实音频存储/读取 Provider） | [阶段详情](phases/phase-3-dashboard/README.md) |
 | Phase 3.4：营销工具 | 已完成并合入 `main` | 9 页 native + 截图与验收记录 | 渠道活码、群活码、获客链接、微信客服、活码短链、一键加群、精准群发、朋友圈、素材管理 | [阶段详情](phases/phase-3-dashboard/phase-3.4/README.md) |
 | Phase 3.5：SCRM 扩展与数据报表 | 已完成并合入 `main` | 九页 native + 门禁 9/9 + 浏览器验收 | 好友、客户群、订单、客户设置、客户/会话/转化/行为/综合报表 | [阶段详情](phases/phase-3-dashboard/phase-3.5/README.md) |
-| Phase 3 Final：Provider 接入与总验收 | **已完成，待合入 `main`** | 53/53 达标；门禁/部署/浏览器/识图/数据流证据闭合 | 音频存储 Provider + `/chat/file-audio`、AI 洞察真实化、企微存档适配层 | [阶段详情](phases/phase-3-dashboard/phase-3-final/README.md) |
+| Phase 3 Final：Provider 接入与总验收 | **已完成并合入 `main`** | 53/53 达标；门禁/部署/浏览器/识图/数据流证据闭合 | 音频存储 Provider + `/chat/file-audio`、AI 洞察真实化、企微存档适配层 | [阶段详情](phases/phase-3-dashboard/phase-3-final/README.md) |
 
 ## 当前可测试范围
 
@@ -52,7 +53,7 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 | Phase 3.4 九页 | 可测试 | `/acquisition/*` 全部 native，截图版本 2026-08-04 |
 | Phase 3.5 九页 | 可测试 | `/customer/friends|group|order|settings`、`/data/*` |
 | `/chat/file-audio` | 可测试 | 上传/播放/删除闭环，真实本地存储 Provider |
-| AI 洞察五页 | 可测试 | 已接入 AI Provider，归档文本→分析→落库→回读 |
+| AI 洞察五页 | 受限态（测试期） | AI API 默认关闭（`MOCHAT_GO_AI_INSIGHT_ENABLED=0`）；开启开关并配置 key 后走归档文本→分析→落库→回读 |
 | `/saas-admin/` | 可测试 | Docker 独立产物与资源前缀已验证 |
 | Sidebar / Operation | 历史分支承载 | phase2 工作树分支未合入，需按既定迁移路线收口 |
 | 53 页基准 | 53/53 达标 | 唯一遗留阻塞 `/chat/file-audio` 已于 Phase 3 Final 解锁 |
@@ -62,15 +63,17 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 1. **Phase 3.5 已闭合项**：迁移常量与 0120 编号冲突已解决（`0120_phase35_acceptance_lifecycle` 重排为 `0122`，新增 `0123_phase35_order_collation_align` 对齐 collation，常量更新为 123）；部署已重建到最新迁移；九页浏览器验收与跨页工作流通过。
 2. **已补齐两项待补证（2026-08-06 晚）**：`P35-ACCEPT-*` 生命周期 create/verify/cleanup 已执行留证；Playwright E2E spec（`web/e2e/tests/phase35-live.spec.ts`）已入库并在真实部署通过。剩余：真实企微/会话存档 Provider 数据。
 3. **基准 53/53 已达标。** 真实企微会话存档凭证仍未提供：适配层已注册为 `limited`，提供凭证后激活并做会话/风险浏览器级回读验收。
-4. **未跟踪产物。** `web/saas-admin/`（dist+node_modules，约 141MB）、`.gocache-phase35-review/`、`.workbuddy/` 与个别计划文件未入库，需用户确认清理策略。
-5. **验收测试数据待清理。** 运行库中 `P35-ACCEPT-*`/`P36-*` 测试数据与 AI 分析结果，清理步骤：`deploy/standalone/acceptance/cleanup_phase3_final.sql`（由用户确认后执行）。
+4. **AI API 测试期关闭。** `MOCHAT_GO_AI_INSIGHT_ENABLED` 默认 `0`，AI 洞察页保持受限态、不发起外部调用；需要真实 AI 分析时置 `1` 并配置 `MOCHAT_GO_AI_PROVIDER_KEY`。
+5. **未跟踪产物。** `web/saas-admin/`（dist+node_modules，约 141MB）、`.gocache-phase35-review/`、`.workbuddy/` 与个别计划文件未入库，需用户确认清理策略。
+6. **验收测试数据待清理。** 运行库中 `P35-ACCEPT-*`/`P36-*` 测试数据与 AI 分析结果，清理步骤：`deploy/standalone/acceptance/cleanup_phase3_final.sql`（由用户确认后执行）。
 
 ## 精确下一任务
 
-1. 合入 Phase 3 Final 全部改动（providers/chat-media/ai-insight/迁移 0126/前端/门禁/文档）到 `main` 并推送远端。
+1. ~~合入 Phase 3 Final 全部改动到 `main`~~ 已合入并推送（`361b918`）。
 2. 接入真实企微会话存档凭证：激活 `WeComArchiveProvider`，做会话五页 + 风险事件的浏览器级回读验收。
-3. 清理验收测试数据（`deploy/standalone/acceptance/cleanup_phase3_final.sql`，由用户确认后执行）。
-4. 推进工程收尾：React 迁移（Sidebar/Operation）与生产化加固（真实 Provider、备份演练、性能安全）。
+3. 测试期保持 `MOCHAT_GO_AI_INSIGHT_ENABLED=0`；需要真实 AI 分析时置 `1` 并配置 `MOCHAT_GO_AI_PROVIDER_KEY`（可用阿里云百炼）。
+4. 清理验收测试数据（`deploy/standalone/acceptance/cleanup_phase3_final.sql`，由用户确认后执行）。
+5. 推进工程收尾：React 迁移（Sidebar/Operation）与生产化加固（真实 Provider、备份演练、性能安全）。
 
 ## 最近交付
 
@@ -78,6 +81,9 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 - 2026-08-06 晚：迁移 0121–0123 应用、collation 与 transition 路由修复、九页浏览器验收与跨页工作流证据闭合。
 - `0bba77a`：Phase 3.5 订单工作流产品化。
 - 2026-08-07：坏账清理 26 页达标；Phase 3 Final 解锁 `/chat/file-audio`、AI 洞察真实化，53/53 达标。
+- `361b918`：Phase 3 Final 合入 `main` 并推送（providers/chat-media/AI/前端/门禁/文档）。
+- `a438db2`：坏账清理独立验收修复（AI 受限计数、角色中文备注、企业信息分页、知识库空态引导）。
+- 2026-08-07 晚：测试期 AI API 默认关闭，AI 洞察/文件录音样式按 phase35 收口。
 - `c995af5`：好友与客户群详情产品化。
 - `d496a1f`：客户设置产品化。
 - `c7ea81f`：五类报表页产品化。

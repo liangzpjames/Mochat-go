@@ -1,6 +1,6 @@
 # Phase 3 Final：Provider 接入与总验收
 
-> 状态：2026-08-07 总验收闭合，53/53 达标，待合入 `main`
+> 状态：2026-08-07 总验收闭合，53/53 达标，已合入并推送 `main`（`361b918`）
 
 ## 范围
 
@@ -23,6 +23,8 @@ Phase 3 Final 不做新页面开发，目标是让 53 页基准获得真实数�
 - 前端：`/chat/file-audio` native 页（选择文件→上传→播放→删除→分页）、manifest 状态 `native/ready/integration-passed`。
 - 门禁：`pnpm check:phase3-final`（debt-clearance 27/27 + phase3-5 9/9）。
 - 验收脚本：`web/e2e/phase3-final-acceptance.mjs`；验收产物在 `D:\workspace\mochat-go\output\phase3-final-browser-20260807\`。
+- 测试期 AI API 默认关闭（`MOCHAT_GO_AI_INSIGHT_ENABLED=0`，即使配置 key 也不调用）；开启开关并配置 `MOCHAT_GO_AI_PROVIDER_KEY` 后走真实分析。
+- AI 洞察与文件录音页面样式已按 phase35 参考页面收口（KPI 卡、友好类型显示、成功/错误提示条、AI 摘要换行）。
 
 ## 遗留
 
