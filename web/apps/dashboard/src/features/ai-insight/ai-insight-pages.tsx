@@ -23,6 +23,7 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
   const result = query.data;
   const limitations = result?.limitations ?? [];
   const limited = result?.capability !== 'ready';
+  const generatedAt = result?.generatedAt ?? '';
   const copy = {
     'session-analysis': {
       notice: '会话分析需要会话存档数据。当前未接入会话存档 Provider，暂无分析结果；接入后本页将按会话自动生成分析。',
@@ -61,7 +62,7 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
                 {limitations.map((item) => <li key={item}>{item}</li>)}
               </ul>
             ) : (
-              <p role="status">AI 分析能力已就绪</p>
+              <p role="status">AI 分析能力已就绪{generatedAt !== '' ? `（生成时间：${generatedAt.slice(0, 19).replace('T', ' ')}）` : ''}</p>
             )}
           </Phase35DataState>
         </section>

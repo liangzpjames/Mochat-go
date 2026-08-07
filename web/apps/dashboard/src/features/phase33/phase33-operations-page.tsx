@@ -10,7 +10,7 @@ type OperationRecord = Record<string, unknown>;
 type ProviderState = 'connected' | 'unavailable';
 
 export type Phase33OperationConfig = {
-  path: '/chat/file-audio' | '/chat/resign-staff' | '/chat/refuse-archive' | '/customer/inheritance';
+  path: '/chat/resign-staff' | '/chat/refuse-archive' | '/customer/inheritance';
   title: string;
   description: string;
   providerState: ProviderState;
@@ -19,12 +19,6 @@ export type Phase33OperationConfig = {
 };
 
 export const phase33OperationConfigs: Record<Phase33OperationConfig['path'], Phase33OperationConfig> = {
-  '/chat/file-audio': {
-    path: '/chat/file-audio',
-    title: '文件录音',
-    description: '文件与录音记录需要独立媒体 provider 后才能读取或下载。',
-    providerState: 'unavailable',
-  },
   '/chat/resign-staff': {
     path: '/chat/resign-staff',
     title: '离职员工',

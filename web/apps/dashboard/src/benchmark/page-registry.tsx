@@ -59,6 +59,8 @@ import { CompanyStaffPage } from '../features/company-settings/staff-page';
 import { CompanyRolePage } from '../features/company-settings/role-page';
 import { CompanyAdditionalPage } from '../features/company-settings/additional-page';
 import { CompanyAuthorizationPage } from '../features/company-settings/authorization-page';
+import type { FileAudioApi } from '../features/phase35/file-audio-api';
+import { FileAudioPage } from '../features/phase35/file-audio-page';
 import { createCorpAdminApi } from '../features/corp/corp-admin-api';
 import { createUserAdminApi } from '../features/user-admin/user-admin-api';
 import { createRoleApi } from '../features/role/role-api';
@@ -81,6 +83,7 @@ export function createBenchmarkP0Pages({
   businessWorkbenchApi,
   aiSettingsApi,
   aiInsightApi,
+  fileAudioApi,
   corpAdminApi,
   userAdminApi,
   roleApi,
@@ -95,6 +98,7 @@ export function createBenchmarkP0Pages({
   businessWorkbenchApi?: BusinessWorkbenchApi;
   aiSettingsApi?: AISettingsApi;
   aiInsightApi?: AiInsightApi;
+  fileAudioApi?: FileAudioApi;
   corpAdminApi?: CorpAdminApi;
   userAdminApi?: UserAdminApi;
   roleApi?: RoleApi;
@@ -122,6 +126,7 @@ export function createBenchmarkP0Pages({
         <Phase33OperationsPage key={path} api={businessWorkbenchApi} config={config} />,
       ]),
     )),
+    ...(fileAudioApi === undefined ? {} : { '/chat/file-audio': <FileAudioPage api={fileAudioApi} /> }),
     ...(businessWorkbenchApi === undefined ? {} : { '/ai-insight/v2/customer-loss': <CustomerLossPage api={businessWorkbenchApi} /> }),
     ...(businessWorkbenchApi === undefined ? {} : {
       '/customer/inheritance': <CustomerTransferPage api={businessWorkbenchApi} mode="inheritance" />,

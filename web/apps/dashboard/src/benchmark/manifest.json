@@ -174,17 +174,17 @@
       "groupId": "conversation",
       "level": "P2",
       "status": "documented",
-      "screenshotVersion": "unobserved",
-      "implementation": "placeholder",
-      "backend": "missing",
-      "acceptance": "not-started",
-      "phase": "3.1",
+      "screenshotVersion": "2026-08-07",
+      "implementation": "native",
+      "backend": "ready",
+      "acceptance": "integration-passed",
+      "phase": "3-final",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
         "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-chat-file-audio/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/phase-3.2/evidence-chat-file-audio.json"
+        "acceptance": "docs/phases/phase-3-dashboard/phase-3-final/2026-08-07-phase3-final-total-acceptance-report.md"
       }
     },
     {

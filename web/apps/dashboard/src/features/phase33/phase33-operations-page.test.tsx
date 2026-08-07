@@ -41,10 +41,9 @@ function view(
 }
 
 describe('Phase33OperationsPage', () => {
-  it('maps the four Task 1 routes to real providers or an explicit unavailable state', () => {
+  it('maps the Task 1 routes to real providers or an explicit unavailable state', () => {
     expect(phase33OperationConfigs['/chat/resign-staff'].readEndpoint).toBe('/contactTransfer/info');
     expect(phase33OperationConfigs['/customer/inheritance'].readEndpoint).toBe('/contactTransfer/unassignedList');
-    expect(phase33OperationConfigs['/chat/file-audio'].providerState).toBe('unavailable');
     expect(phase33OperationConfigs['/chat/refuse-archive'].providerState).toBe('unavailable');
   });
 
@@ -161,7 +160,7 @@ describe('Phase33OperationsPage', () => {
     await waitFor(() => expect(container.querySelector('.page-state-empty')).not.toBeNull());
   });
 
-  it.each(['/chat/file-audio', '/chat/refuse-archive'] as const)(
+  it.each(['/chat/refuse-archive'] as const)(
     'does not invent provider data or downloads for %s',
     (path) => {
       const read = vi.fn();

@@ -51,6 +51,7 @@ import { createScrmApi } from './features/scrm/scrm-api';
 import { createContactApi } from './features/scrm/contact-api';
 import { createAISettingsApi } from './features/ai-settings/ai-settings-api';
 import { createAiInsightApi } from './features/ai-insight/ai-insight-api';
+import { createFileAudioApi } from './features/phase35/file-audio-api';
 import './styles/index.css';
 
 const CorpPage = lazy(async () => ({ default: (await import('./features/corp/corp-page')).CorpPage }));
@@ -104,6 +105,7 @@ const scrmApi = createScrmApi(apiClient);
 const contactApi = createContactApi(apiClient);
 const aiSettingsApi = createAISettingsApi(apiClient);
 const aiInsightApi = createAiInsightApi(apiClient);
+const fileAudioApi = createFileAudioApi(apiClient);
 const migratedPages = Object.fromEntries(
   Object.entries(businessRouteCatalog).map(([path, config]) => [
     path,
@@ -149,7 +151,7 @@ const router = createDashboardRouter({
     ...migratedPages,
     ...createPageRegistry({
       manifest: benchmarkManifest,
-      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi, businessWorkbenchApi, aiSettingsApi, aiInsightApi, corpAdminApi, userAdminApi, roleApi, menuAdminApi }),
+      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi, businessWorkbenchApi, aiSettingsApi, aiInsightApi, fileAudioApi, corpAdminApi, userAdminApi, roleApi, menuAdminApi }),
       p1Pages: {},
     }),
     '/corp/index': page(<CorpPage api={corpAdminApi} />),

@@ -1,6 +1,7 @@
 export type AiInsightPageResult = {
   page: string; title: string; capability: 'ready' | 'limited' | 'unavailable';
   provider: string; limitations: string[]; data: unknown[];
+  generatedAt?: string;
 };
 
 type Client = { request(input: RequestInfo | URL, init?: RequestInit): Promise<unknown> };

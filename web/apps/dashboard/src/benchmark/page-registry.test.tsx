@@ -4,6 +4,7 @@ import { MemoryRouter, RouterProvider } from 'react-router';
 
 import { benchmarkManifest, type BenchmarkManifest } from './benchmark-manifest';
 import { createBenchmarkP0Pages, createPageRegistry } from './page-registry';
+import { FileAudioPage } from '../features/phase35/file-audio-page';
 import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
@@ -90,13 +91,14 @@ describe('createPageRegistry', () => {
     expect((pages['/chat/v2-staff'] as { type?: unknown }).type).toBe(EmployeeConversationPage);
   });
 
-  it('keeps file audio on the Phase 3.3 operation page until its provider is available', () => {
+  it('registers file audio on the Phase 3 Final native page with a real storage API', () => {
     const pages = createBenchmarkP0Pages({
       dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }), exportCsv: () => Promise.resolve(new Blob()) },
       conversationGlobalApi: { search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }), detail: () => Promise.reject(new Error('not loaded')) },
       businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
+      fileAudioApi: { list: () => Promise.resolve({ list: [], total: 0, page: 1, perPage: 20 }), upload: () => Promise.resolve({ id: 1, playUrl: '' }), remove: () => Promise.resolve({ id: 1 }) },
     });
-    expect((pages['/chat/file-audio'] as { type?: unknown }).type).toBe(Phase33OperationsPage);
+    expect((pages['/chat/file-audio'] as { type?: unknown }).type).toBe(FileAudioPage);
   });
 
   it('registers customer and room pages with fixed conversation scopes', () => {

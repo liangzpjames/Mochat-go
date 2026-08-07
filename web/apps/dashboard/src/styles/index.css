@@ -1903,3 +1903,27 @@ body {
   cursor: not-allowed;
   opacity: .45;
 }
+
+.phase35-file-input-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.phase35-file-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.phase35-file-name {
+  color: #59647a;
+  font-size: 13px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

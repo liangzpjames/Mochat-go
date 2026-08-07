@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * check_debt_clearance.mjs — Phase 3 坏账清理最终门禁。
+ * check_debt_clearance.mjs — Phase 3 Final 最终门禁：53/53 达标。
  *
- * 规则：除 /chat/file-audio（Provider 阻塞）外，manifest 中不允许
- * demo/placeholder/backend!=ready/acceptance 未通过；否则失败。
+ * 规则：坏账清理 26 页 + /chat/file-audio（音频存储 Provider 已解锁）
+ * 全部 native/ready/integration-passed；否则失败。
  */
 
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-const allowedIncomplete = new Set(['/chat/file-audio']);
+const allowedIncomplete = new Set();
 
 const debtRoutes = [
   '/chat/v2-staff', '/chat/v2-customer', '/chat/v2-group', '/chat/trajectory', '/chat/export', '/chat/file-audio',
@@ -37,7 +37,7 @@ export async function validateDebtClearance(manifest) {
     }
   }
   if (errors.length) {
-    throw new Error(`坏账未清（${done}/${debtRoutes.length - allowedIncomplete.size} 达标）:\n${errors.join('\n')}`);
+    throw new Error(`Phase 3 Final 未达标（${done}/${debtRoutes.length - allowedIncomplete.size} 达标）:\n${errors.join('\n')}`);
   }
   return { total: debtRoutes.length, done, incomplete: allowedIncomplete.size };
 }
@@ -45,7 +45,7 @@ export async function validateDebtClearance(manifest) {
 async function main() {
   const manifest = JSON.parse(await readFile(new URL('../web/apps/dashboard/src/benchmark/manifest.json', import.meta.url), 'utf8'));
   const result = await validateDebtClearance(manifest);
-  console.log(`坏账清理：${result.done}/${result.total - result.incomplete} 达标（${result.incomplete} 页 Provider 阻塞：/chat/file-audio）`);
+  console.log(`Phase 3 Final：${result.done}/${result.total - result.incomplete} 达标（含 /chat/file-audio 音频存储 Provider 解锁）`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
