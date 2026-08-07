@@ -201,6 +201,50 @@ func TestRoleAdminPermissionStoreExpandsAndReplacesMenus(t *testing.T) {
 	}
 }
 
+func TestRoleAdminStatusUpdateRejectsSystemPresetRole(t *testing.T) {
+	store := &fakeRoleAdminStore{
+		users: map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		details: map[int]RoleDetail{
+			1: {ID: 1, Name: "超级管理员", Remarks: "系统预置全权限角色"},
+		},
+	}
+	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
+
+	req := httptest.NewRequest(http.MethodPut, "/dashboard/role/statusUpdate", strings.NewReader(`{"roleId":1,"status":2}`))
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.StatusUpdate(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.statusRoleID != 0 {
+		t.Fatalf("status update must not run for preset role")
+	}
+}
+
+func TestRoleAdminDestroyRejectsSystemPresetRole(t *testing.T) {
+	store := &fakeRoleAdminStore{
+		users: map[int]User{1: {ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		details: map[int]RoleDetail{
+			1: {ID: 1, Name: "超级管理员", Remarks: "bootstrap full-access role"},
+		},
+	}
+	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/dashboard/role/destroy", strings.NewReader(`{"roleId":1}`))
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Destroy(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.deletedRoleID != 0 {
+		t.Fatalf("delete must not run for preset role")
+	}
+}
+
 type fakeRoleAdminStore struct {
 	users              map[int]User
 	rolePage           RoleListPage

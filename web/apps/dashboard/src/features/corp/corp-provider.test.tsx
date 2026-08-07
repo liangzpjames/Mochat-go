@@ -72,6 +72,16 @@ describe('CorpProvider', () => {
     expect(props.navigate).toHaveBeenCalledWith('/workContact/index');
   });
 
+  it('preserves the current deep link when auto-selecting a single enterprise', async () => {
+    window.history.pushState({}, '', '/data/employee?x=1');
+    const props = renderProvider([authorized]);
+
+    await waitFor(() => expect(props.bindCorp).toHaveBeenCalledWith('3'));
+    expect(props.refreshAccess).toHaveBeenCalledOnce();
+    expect(props.navigate).not.toHaveBeenCalled();
+    window.history.replaceState({}, '', '/');
+  });
+
   it('uses loader-provided enterprises without fetching them twice', async () => {
     const loadCorps = vi.fn(() => Promise.resolve([]));
     const props = renderProvider([], {

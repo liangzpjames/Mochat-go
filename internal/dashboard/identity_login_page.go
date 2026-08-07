@@ -2,8 +2,8 @@ package dashboard
 
 import (
 	"html/template"
-	"net"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -11,12 +11,6 @@ type IdentityLoginPageHandler struct {
 	branding SaaSBrandingReader
 	domains  SaaSTenantDomainReader
 	tenantID int
-	prefill  identityLoginPrefill
-}
-
-type identityLoginPrefill struct {
-	phone    string
-	password string
 }
 
 func NewIdentityLoginPageHandler(branding SaaSBrandingReader, tenantID int) http.Handler {
@@ -27,22 +21,16 @@ func NewIdentityLoginPageHandler(branding SaaSBrandingReader, tenantID int) http
 }
 
 func NewIdentityLoginPageHandlerWithDomains(branding SaaSBrandingReader, domains SaaSTenantDomainReader, tenantID int) http.Handler {
-	return NewIdentityLoginPageHandlerWithDomainsAndPrefill(branding, domains, tenantID, "", "")
-}
-
-func NewIdentityLoginPageHandlerWithDomainsAndPrefill(branding SaaSBrandingReader, domains SaaSTenantDomainReader, tenantID int, phone, password string) http.Handler {
 	if tenantID <= 0 {
 		tenantID = 1
 	}
-	return IdentityLoginPageHandler{
-		branding: branding,
-		domains:  domains,
-		tenantID: tenantID,
-		prefill: identityLoginPrefill{
-			phone:    strings.TrimSpace(phone),
-			password: password,
-		},
-	}
+	return IdentityLoginPageHandler{branding: branding, domains: domains, tenantID: tenantID}
+}
+
+func NewIdentityLoginPageHandlerWithDomainsAndPrefill(branding SaaSBrandingReader, domains SaaSTenantDomainReader, tenantID int, phone, password string) http.Handler {
+	_ = phone
+	_ = password
+	return NewIdentityLoginPageHandlerWithDomains(branding, domains, tenantID)
 }
 
 func (h IdentityLoginPageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -79,15 +67,23 @@ func (h IdentityLoginPageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			profile = NormalizeSaaSBrandingProfile(stored)
 		}
 	}
+	logoURL := strings.TrimSpace(profile.LogoURL)
+	if logoURL == "" || logoURL == "/img/logo-no-word.c30823d0.png" {
+		logoURL = inlineSVGAsset(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 44"><text x="0" y="30" font-family="Arial,sans-serif" font-size="26" font-weight="bold" fill="#1769AA">MoChat Go</text></svg>`)
+	}
+	faviconURL := strings.TrimSpace(profile.FaviconURL)
+	if faviconURL == "" || faviconURL == "/favicon.ico" {
+		faviconURL = inlineSVGAsset(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#1769AA"/><text x="16" y="23" font-family="Arial,sans-serif" font-size="18" font-weight="bold" fill="#ffffff" text-anchor="middle">M</text></svg>`)
+	}
+	backgroundURL := strings.TrimSpace(profile.LoginBackgroundURL)
+	if backgroundURL == "" || strings.HasPrefix(backgroundURL, "/img/background.") {
+		backgroundURL = inlineSVGAsset(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eaf0f3"/><stop offset="1" stop-color="#d7e5ef"/></linearGradient></defs><rect width="1600" height="900" fill="url(#bg)"/></svg>`)
+	}
 	view := identityLoginPageView{
 		ProductName: profile.ProductName, ProductSubtitle: profile.ProductSubtitle,
-		LogoURL: template.URL(profile.LogoURL), FaviconURL: template.URL(profile.FaviconURL),
-		LoginBackgroundURL: template.URL(profile.LoginBackgroundURL),
+		LogoURL: template.URL(logoURL), FaviconURL: template.URL(faviconURL),
+		LoginBackgroundURL: template.URL(backgroundURL),
 		PrimaryColor:       template.CSS(profile.PrimaryColor), AccentColor: template.CSS(profile.AccentColor),
-	}
-	if identityLoginPrefillAllowed(r.Host) {
-		view.DefaultPhone = h.prefill.phone
-		view.DefaultPassword = h.prefill.password
 	}
 	if err := identityLoginPageTemplate.Execute(w, view); err != nil {
 		return
@@ -106,17 +102,8 @@ type identityLoginPageView struct {
 	DefaultPassword    string
 }
 
-func identityLoginPrefillAllowed(requestHost string) bool {
-	host := strings.TrimSpace(requestHost)
-	if parsed, _, err := net.SplitHostPort(host); err == nil {
-		host = parsed
-	}
-	host = strings.Trim(strings.TrimSpace(host), "[]")
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+func inlineSVGAsset(svg string) string {
+	return "data:image/svg+xml;charset=utf-8," + strings.ReplaceAll(url.QueryEscape(svg), "+", "%20")
 }
 
 var identityLoginPageTemplate = template.Must(template.New("identity-login").Parse(identityLoginPageHTML))

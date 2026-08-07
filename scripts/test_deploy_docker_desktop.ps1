@@ -88,7 +88,6 @@ echo docker progress 1>&2
 if "%1"=="info" (
   echo identity=%MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY% 1>&2
   if defined MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY echo identity_key=set 1>&2
-  echo prefill_phone=%MOCHAT_GO_LOGIN_PREFILL_PHONE% 1>&2
   exit /b 0
 )
 if "%1"=="inspect" (

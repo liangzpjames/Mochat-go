@@ -135,23 +135,24 @@ func (r *SQLRepository) queryEntity(ctx context.Context, q ReportQuery, kind Rep
 }
 
 func (r *SQLRepository) queryConversion(ctx context.Context, q ReportQuery) (ReportResult, error) {
-	tables := []struct {
-		table, alias, id, owner string
-		deleted                 bool
-	}{{"mochat_go_scrm_leads", "l", "l.id", "l.owner_id", false}, {"mochat_go_scrm_contacts", "c", "c.id", "", true}, {"mochat_go_scrm_opportunities", "o", "o.id", "o.owner_id", true}, {"mochat_go_scrm_opportunities", "o", "o.id", "o.owner_id", true}, {"mochat_go_scrm_orders", "ord", "ord.id", "ord.created_by", true}}
-	keys := []string{"lead", "contact", "opportunity", "won", "order"}
-	nums := make([]float64, 5)
+	stages := []conversionStage{
+		{key: "lead", table: "mochat_go_scrm_leads", alias: "l", id: "l.id", owner: "l.owner_id"},
+		{key: "contact", table: "mochat_go_scrm_contacts", alias: "c", id: "c.id", deleted: true},
+		{key: "opportunity", table: "mochat_go_scrm_opportunities", alias: "o", id: "o.id", owner: "o.owner_id", deleted: true},
+		{key: "won", table: "mochat_go_scrm_opportunities", alias: "o", id: "o.id", owner: "o.owner_id", deleted: true, extra: "o.status='won'"},
+		{key: "order", table: "mochat_go_scrm_orders", alias: "ord", id: "ord.id", owner: "ord.created_by", deleted: true, extra: "ord.status IN ('won','completed','paid')"},
+	}
+	nums := make([]float64, len(stages))
 	limits := limitation(q, "scrm")
-	for i, s := range tables {
+	whereByStage := make([]string, len(stages))
+	argsByStage := make([][]any, len(stages))
+	for i, s := range stages {
 		w, a := scope(q, s.alias, "created_at")
 		if s.deleted {
 			w += " AND " + s.alias + ".deleted_at IS NULL"
 		}
-		if i == 3 {
-			w += " AND " + s.alias + ".status='won'"
-		}
-		if i == 4 {
-			w += " AND " + s.alias + ".status IN ('won','completed','paid')"
+		if s.extra != "" {
+			w += " AND " + s.extra
 		}
 		if len(q.EmployeeIDs) > 0 {
 			if s.owner != "" {
@@ -166,19 +167,110 @@ func (r *SQLRepository) queryConversion(ctx context.Context, q ReportQuery) (Rep
 				}
 			}
 		}
+		whereByStage[i] = w
+		argsByStage[i] = a
 		query := "SELECT COUNT(DISTINCT " + s.id + ") FROM " + s.table + " " + s.alias + " WHERE " + w
 		if err := r.db.QueryRowContext(ctx, query, a...).Scan(&nums[i]); err != nil {
 			return ReportResult{}, err
 		}
 	}
 	s := map[string]*float64{}
-	for i, k := range keys {
-		s[k] = &nums[i]
+	for i, stage := range stages {
+		s[stage.key] = &nums[i]
 		if i > 0 {
-			s[k+"Rate"] = Ratio(nums[i], nums[i-1])
+			s[stage.key+"Rate"] = Ratio(nums[i], nums[i-1])
 		}
 	}
-	return ReportResult{Summary: s, Series: []SeriesPoint{}, Dimensions: []Dimension{}, Items: []map[string]any{}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize, Total: int(nums[0])}, Freshness: Freshness{Provider: "scrm", Status: "available"}, Limitations: limits}, nil
+	res := ReportResult{Summary: s, Series: []SeriesPoint{}, Dimensions: []Dimension{}, Items: []map[string]any{}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize, Total: int(nums[0])}, Freshness: Freshness{Provider: "scrm", Status: "available"}, Limitations: limits}
+	if q.Stage == "" {
+		return res, nil
+	}
+	idx := -1
+	for i, stage := range stages {
+		if stage.key == q.Stage {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return ReportResult{}, fmt.Errorf("%w: unknown conversion stage", ErrInvalidQuery)
+	}
+	items, err := r.conversionStageItems(ctx, stages[idx], whereByStage[idx], argsByStage[idx], q)
+	if err != nil {
+		return ReportResult{}, err
+	}
+	res.Items = items
+	res.Pagination.Total = int(nums[idx])
+	return res, nil
+}
+
+type conversionStage struct {
+	key, table, alias, id, owner, extra string
+	deleted                             bool
+}
+
+func (r *SQLRepository) conversionStageItems(ctx context.Context, stage conversionStage, where string, args []any, q ReportQuery) ([]map[string]any, error) {
+	var selectSQL string
+	switch stage.key {
+	case "lead":
+		selectSQL = "SELECT l.id,l.name,l.source,l.status,COALESCE(l.owner_id,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(l.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_leads l LEFT JOIN mc_work_employee e ON e.corp_id=l.corp_id AND e.log_user_id=l.owner_id AND e.deleted_at IS NULL WHERE " + where + " ORDER BY l.created_at DESC,l.id DESC LIMIT ? OFFSET ?"
+	case "contact":
+		selectSQL = "SELECT c.id,c.name,c.phone,COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0),COALESCE((SELECT e.name FROM mochat_go_scrm_assignments a2 JOIN mc_work_employee e ON e.corp_id=a2.corp_id AND e.log_user_id=a2.owner_id AND e.deleted_at IS NULL WHERE a2.tenant_id=c.tenant_id AND a2.corp_id=c.corp_id AND a2.contact_id=c.id AND a2.deleted_at IS NULL ORDER BY a2.updated_at DESC LIMIT 1),''),DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_contacts c WHERE " + where + " ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?"
+	case "opportunity", "won":
+		selectSQL = "SELECT o.id,COALESCE(c.name,''),o.status,COALESCE(o.owner_id,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(o.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_opportunities o LEFT JOIN mochat_go_scrm_contacts c ON c.tenant_id=o.tenant_id AND c.corp_id=o.corp_id AND c.id=o.contact_id AND c.deleted_at IS NULL LEFT JOIN mc_work_employee e ON e.corp_id=o.corp_id AND e.log_user_id=o.owner_id AND e.deleted_at IS NULL WHERE " + where + " ORDER BY o.created_at DESC,o.id DESC LIMIT ? OFFSET ?"
+	case "order":
+		selectSQL = "SELECT ord.id,COALESCE(c.name,''),ord.amount_cents,ord.currency,ord.status,COALESCE(ord.created_by,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(ord.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_orders ord LEFT JOIN mochat_go_scrm_contacts c ON c.tenant_id=ord.tenant_id AND c.corp_id=ord.corp_id AND c.id=ord.contact_id AND c.deleted_at IS NULL LEFT JOIN mc_work_employee e ON e.corp_id=ord.corp_id AND e.log_user_id=ord.created_by AND e.deleted_at IS NULL WHERE " + where + " ORDER BY ord.created_at DESC,ord.id DESC LIMIT ? OFFSET ?"
+	default:
+		return nil, fmt.Errorf("%w: unknown conversion stage", ErrInvalidQuery)
+	}
+	queryArgs := append([]any{q.Timezone}, args...)
+	queryArgs = append(queryArgs, q.PageSize, (q.Page-1)*q.PageSize)
+	rows, err := r.db.QueryContext(ctx, selectSQL, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var id, name, day string
+		var ownerID int64
+		var ownerName string
+		switch stage.key {
+		case "lead":
+			var source, status string
+			if rows.Scan(&id, &name, &source, &status, &ownerID, &ownerName, &day) == nil {
+				items = append(items, map[string]any{"id": id, "name": name, "source": source, "status": status, "ownerId": ownerID, "ownerName": ownerName, "day": day})
+			}
+		case "contact":
+			var phone string
+			if rows.Scan(&id, &name, &phone, &ownerID, &ownerName, &day) == nil {
+				items = append(items, map[string]any{"id": id, "name": name, "phone": phone, "ownerId": ownerID, "ownerName": ownerName, "day": day})
+			}
+		case "opportunity", "won":
+			var status string
+			if rows.Scan(&id, &name, &status, &ownerID, &ownerName, &day) == nil {
+				items = append(items, map[string]any{"id": id, "contactName": name, "status": status, "ownerId": ownerID, "ownerName": ownerName, "day": day})
+			}
+		case "order":
+			var amountCents int64
+			var currency, status string
+			if rows.Scan(&id, &name, &amountCents, &currency, &status, &ownerID, &ownerName, &day) == nil {
+				items = append(items, map[string]any{"id": id, "contactName": name, "amount": formatMoney(amountCents, currency), "status": status, "ownerId": ownerID, "ownerName": ownerName, "day": day})
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func formatMoney(cents int64, currency string) string {
+	symbol := "¥"
+	if currency != "" && currency != "CNY" {
+		symbol = currency + " "
+	}
+	return fmt.Sprintf("%s%.2f", symbol, float64(cents)/100)
 }
 
 func (r *SQLRepository) queryEmployee(ctx context.Context, q ReportQuery) (ReportResult, error) {

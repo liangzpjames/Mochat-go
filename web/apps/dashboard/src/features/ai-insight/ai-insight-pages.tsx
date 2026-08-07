@@ -4,6 +4,11 @@ import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import type { AiInsightApi } from './ai-insight-api';
 
+const aiRestrictedCopy = {
+  status: 'AI 能力未接入',
+  detail: '当前未接入可用的 AI 分析 Provider，暂无分析结果。',
+};
+
 export const aiInsightPageConfigs = {
   'session-analysis': { title: '会话分析', description: '按会话维度分析沟通量、时长与关键词', page: 'session-analysis' },
   'smart-analysis': { title: '智能分析', description: 'AI 对话摘要、意图识别与跟进建议', page: 'smart-analysis' },
@@ -38,14 +43,14 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
   const count = result?.data.length ?? 0;
 
   return (
-    <Phase35PageShell title={config.title} description={config.description} actions={<span className="phase35-chip">AI 能力状态：{limited ? '未接入' : '已就绪'}</span>}>
+    <Phase35PageShell title={config.title} description={config.description} actions={<span className="phase35-chip">AI 能力状态：{limited ? aiRestrictedCopy.status : '已就绪'}</span>}>
       <div className="phase35-page">
         <section className="phase35-kpis" aria-label="AI 洞察指标">
           <article className="phase35-kpi phase35-kpi-primary">
-            <span>分析结果</span><strong>{limited ? '受限' : count}</strong><small>{limited ? 'AI 能力未接入，暂无分析结果' : '当前返回的分析结果条数'}</small>
+            <span>分析结果</span><strong>{limited ? aiRestrictedCopy.status : count}</strong><small>{limited ? aiRestrictedCopy.detail : '当前返回的分析结果条数'}</small>
           </article>
           <article className="phase35-kpi phase35-kpi-green">
-            <span>能力状态</span><strong>{limited ? '未接入' : '已就绪'}</strong><small>AI Provider 当前状态</small>
+            <span>能力状态</span><strong>{limited ? aiRestrictedCopy.status : '已就绪'}</strong><small>AI Provider 当前状态</small>
           </article>
           <article className="phase35-kpi phase35-kpi-violet">
             <span>生成时间</span><strong>{friendlyTime(generatedAt)}</strong><small>{generatedAt ? '最近一次分析生成时间' : '尚未生成（AI 能力未接入）'}</small>
@@ -56,9 +61,12 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
           <header className="phase35-card-header"><div><h2>能力说明</h2><p>本页由 AI 分析能力提供数据</p></div></header>
           <Phase35DataState loading={query.isLoading} error={query.isError} onRetry={() => void query.refetch()}>
             {limited ? (
-              <ul className="phase35-limits" role="status">
-                {limitations.map((item) => <li key={item}>{item}</li>)}
-              </ul>
+              <>
+                <ul className="phase35-limits" role="status">
+                  {limitations.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+                <p><a href="/ai-setting/agent">前往接入 AI 能力</a></p>
+              </>
             ) : (
               <p role="status">AI 分析能力已就绪{generatedAt !== '' ? `（生成时间：${generatedAt.slice(0, 19).replace('T', ' ')}）` : ''}</p>
             )}
@@ -66,9 +74,9 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
         </section>
 
         <section className="phase35-card phase35-table-card">
-          <header className="phase35-card-header"><div><h2>分析结果</h2><p>按分析任务读取结果，无数据时展示暂无数据状态</p></div><span className="phase35-chip">{limited ? '受限' : `${count} 条`}</span></header>
+          <header className="phase35-card-header"><div><h2>分析结果</h2><p>按分析任务读取结果，无数据时展示暂无数据状态</p></div><span className="phase35-chip">{limited ? '未接入' : `${count} 条`}</span></header>
           {limited ? (
-            <p className="phase35-empty">Provider 受限，暂无分析结果。</p>
+            <p className="phase35-empty">{aiRestrictedCopy.detail}</p>
           ) : (
             <Phase35DataState loading={query.isLoading} error={query.isError} empty={!count} onRetry={() => void query.refetch()}>
               <div className="phase35-table">

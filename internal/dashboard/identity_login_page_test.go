@@ -59,27 +59,17 @@ func TestIdentityLoginPageHeadHasNoBody(t *testing.T) {
 	}
 }
 
-func TestIdentityLoginPagePrefillsCredentialsOnlyOnLoopback(t *testing.T) {
-	handler := NewIdentityLoginPageHandlerWithDomainsAndPrefill(nil, nil, 1, " 13800000090 ", "secret090")
-	for _, host := range []string{"127.0.0.1:18090", "localhost:18090", "[::1]:18090"} {
+func TestIdentityLoginPageNeverPrefillsCredentials(t *testing.T) {
+	handler := NewIdentityLoginPageHandlerWithDomainsAndPrefill(nil, nil, 1, "13800000090", "secret090")
+	for _, host := range []string{"127.0.0.1:18090", "localhost:18090", "[::1]:18090", "login.customer.example.com"} {
 		req := httptest.NewRequest(http.MethodGet, "/security/login", nil)
 		req.Host = host
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		for _, want := range []string{`value="13800000090"`, `value="secret090"`} {
-			if !strings.Contains(rec.Body.String(), want) {
-				t.Fatalf("host %q page missing %q", host, want)
+		for _, secret := range []string{"13800000090", "secret090"} {
+			if strings.Contains(rec.Body.String(), secret) {
+				t.Fatalf("host %q leaked prefill value %q", host, secret)
 			}
-		}
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/security/login", nil)
-	req.Host = "login.customer.example.com"
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	for _, secret := range []string{"13800000090", "secret090"} {
-		if strings.Contains(rec.Body.String(), secret) {
-			t.Fatalf("customer domain leaked prefill value %q", secret)
 		}
 	}
 }

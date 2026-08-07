@@ -80,7 +80,7 @@ export function DashboardLayout() {
         <a className="dashboard-admin-link" href="/saas-admin/">SaaS 管理后台</a>
         <div className="dashboard-account-actions">
           {access !== null && <span className="dashboard-corp-badge">{access.corp.name}</span>}
-          {sessionActions.userId !== null && <span>账号 {sessionActions.userId}</span>}
+          {sessionActions.userId !== null && <span>{sessionActions.userName ?? `账号 ${sessionActions.userId}`}</span>}
           <button
             className="dashboard-logout-button"
             disabled={sessionActions.isLoggingOut}

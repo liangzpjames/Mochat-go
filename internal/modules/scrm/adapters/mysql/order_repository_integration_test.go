@@ -39,7 +39,7 @@ func TestOrderRepositoryRoundTripsProductFieldsContactNameAndAudit(t *testing.T)
 	if created.Title != "年度续费" || created.Note != "客户确认" {
 		t.Fatalf("created = %#v", created)
 	}
-	items, err := repository.ListContext(ctx, namespace.tenantID, corpID)
+	items, _, err := repository.ListContext(ctx, namespace.tenantID, corpID, 1, 20)
 	if err != nil || len(items) != 1 || items[0].ContactName != "张三" || items[0].Title != "年度续费" || items[0].Note != "客户确认" {
 		t.Fatalf("items = %#v, err = %v", items, err)
 	}

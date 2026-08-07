@@ -72,21 +72,25 @@ func (r *SQLOrderRepository) CreateContext(ctx context.Context, order domain.Ord
 	return order, nil
 }
 
-func (r *SQLOrderRepository) ListContext(ctx context.Context, tenantID, corpID int64) ([]domain.Order, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT o.id,o.tenant_id,o.corp_id,o.contact_id,COALESCE(c.name,''),COALESCE(o.opportunity_id,''),o.title,o.note,o.amount_cents,o.currency,o.status,o.version FROM mochat_go_scrm_orders o LEFT JOIN mochat_go_scrm_contacts c ON c.id=o.contact_id AND c.tenant_id=o.tenant_id AND c.corp_id=o.corp_id AND c.deleted_at IS NULL WHERE o.tenant_id=? AND o.corp_id=? AND o.deleted_at IS NULL ORDER BY o.updated_at DESC`, tenantID, corpID)
+func (r *SQLOrderRepository) ListContext(ctx context.Context, tenantID, corpID int64, page, pageSize int) ([]domain.Order, int, error) {
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_scrm_orders o WHERE o.tenant_id=? AND o.corp_id=? AND o.deleted_at IS NULL`, tenantID, corpID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT o.id,o.tenant_id,o.corp_id,o.contact_id,COALESCE(c.name,''),COALESCE(o.opportunity_id,''),o.title,o.note,o.amount_cents,o.currency,o.status,o.version FROM mochat_go_scrm_orders o LEFT JOIN mochat_go_scrm_contacts c ON c.id=o.contact_id AND c.tenant_id=o.tenant_id AND c.corp_id=o.corp_id AND c.deleted_at IS NULL WHERE o.tenant_id=? AND o.corp_id=? AND o.deleted_at IS NULL ORDER BY o.updated_at DESC,o.id DESC LIMIT ? OFFSET ?`, tenantID, corpID, pageSize, (page-1)*pageSize)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	items := []domain.Order{}
 	for rows.Next() {
 		var o domain.Order
 		if err := rows.Scan(&o.ID, &o.TenantID, &o.CorpID, &o.ContactID, &o.ContactName, &o.OpportunityID, &o.Title, &o.Note, &o.AmountCents, &o.Currency, &o.Status, &o.Version); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		items = append(items, o)
 	}
-	return items, rows.Err()
+	return items, total, rows.Err()
 }
 
 func (r *SQLOrderRepository) TransitionContext(ctx context.Context, id string, tenantID, corpID int64, status domain.OrderStatus, version, actorID int64) (domain.Order, error) {
@@ -139,7 +143,7 @@ func (r *SQLOrderRepository) Create(o domain.Order) (domain.Order, error) {
 	return r.CreateContext(context.Background(), o, 0)
 }
 func (r *SQLOrderRepository) List(t, c int64) []domain.Order {
-	v, _ := r.ListContext(context.Background(), t, c)
+	v, _, _ := r.ListContext(context.Background(), t, c, 1, 200)
 	return v
 }
 func (r *SQLOrderRepository) Transition(id string, t int64, s domain.OrderStatus, v int64) (domain.Order, error) {

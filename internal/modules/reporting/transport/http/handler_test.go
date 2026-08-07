@@ -48,3 +48,54 @@ func TestReportResponseUsesSharedMsgEnvelope(t *testing.T) {
 		t.Fatalf("legacy message field present: %s", recorder.Body.String())
 	}
 }
+
+func TestParseQueryEmployeeDepartmentFilters(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		query           string
+		wantEmployees   []int64
+		wantDepartments []int64
+	}{
+		{name: "plural comma separated", query: "corpId=9&timezone=Asia%2FShanghai&startAt=2026-08-01T00:00:00Z&endAt=2026-08-02T00:00:00Z&employeeIds=4,5&departmentIds=1,2", wantEmployees: []int64{4, 5}, wantDepartments: []int64{1, 2}},
+		{name: "singular fallback", query: "corpId=9&timezone=Asia%2FShanghai&startAt=2026-08-01T00:00:00Z&endAt=2026-08-02T00:00:00Z&employeeId=4&departmentId=1", wantEmployees: []int64{4}, wantDepartments: []int64{1}},
+		{name: "absent filters stay empty", query: "corpId=9&timezone=Asia%2FShanghai&startAt=2026-08-01T00:00:00Z&endAt=2026-08-02T00:00:00Z", wantEmployees: []int64{}, wantDepartments: []int64{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/dashboard/reports/customer?"+tc.query, nil)
+			query, err := parseQuery(req, Principal{TenantID: 7})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(query.EmployeeIDs) != len(tc.wantEmployees) {
+				t.Fatalf("employees=%v want=%v", query.EmployeeIDs, tc.wantEmployees)
+			}
+			for i := range tc.wantEmployees {
+				if query.EmployeeIDs[i] != tc.wantEmployees[i] {
+					t.Fatalf("employees=%v want=%v", query.EmployeeIDs, tc.wantEmployees)
+				}
+			}
+			if len(query.DepartmentIDs) != len(tc.wantDepartments) {
+				t.Fatalf("departments=%v want=%v", query.DepartmentIDs, tc.wantDepartments)
+			}
+			for i := range tc.wantDepartments {
+				if query.DepartmentIDs[i] != tc.wantDepartments[i] {
+					t.Fatalf("departments=%v want=%v", query.DepartmentIDs, tc.wantDepartments)
+				}
+			}
+		})
+	}
+}
+
+func TestParseQueryConversionStage(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/reports/conversion?corpId=9&timezone=Asia%2FShanghai&startAt=2026-08-01T00:00:00Z&endAt=2026-08-02T00:00:00Z&stage=won&page=2&pageSize=10", nil)
+	query, err := parseQuery(req, Principal{TenantID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Stage != "won" {
+		t.Fatalf("stage=%q want won", query.Stage)
+	}
+	if query.Page != 2 || query.PageSize != 10 {
+		t.Fatalf("page=%d pageSize=%d want 2/10", query.Page, query.PageSize)
+	}
+}

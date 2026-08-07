@@ -11,12 +11,14 @@ export type DashboardSessionActions = {
   isLoggingOut: boolean;
   logout: () => Promise<void>;
   userId: string | null;
+  userName: string | null;
 };
 
 type DashboardSessionActionsProviderProps = {
   children: ReactNode;
   onLogout: () => Promise<void>;
   userId: string | null;
+  userName?: string | null;
 };
 
 type LogoutDependencies = {
@@ -52,6 +54,7 @@ export function DashboardSessionActionsProvider({
   children,
   onLogout,
   userId,
+  userName = null,
 }: DashboardSessionActionsProviderProps) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const handleLogout = useCallback(async () => {
@@ -67,7 +70,8 @@ export function DashboardSessionActionsProvider({
     isLoggingOut,
     logout: handleLogout,
     userId,
-  }), [handleLogout, isLoggingOut, userId]);
+    userName,
+  }), [handleLogout, isLoggingOut, userId, userName]);
 
   return (
     <DashboardSessionActionsContext.Provider value={value}>

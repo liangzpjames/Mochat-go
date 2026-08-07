@@ -43,6 +43,19 @@ func TestServiceIntersectsRequestedEmployeesWithScope(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsUnknownConversionStage(t *testing.T) {
+	service := NewService(map[ReportKind]Source{ConversionReport: &sourceStub{}})
+	query := validQuery()
+	query.Stage = "unknown"
+	if _, err := service.Query(context.Background(), ConversionReport, query); err == nil {
+		t.Fatal("expected invalid query for unknown stage")
+	}
+	query.Stage = "won"
+	if _, err := service.Query(context.Background(), ConversionReport, query); err != nil {
+		t.Fatalf("valid stage rejected: %v", err)
+	}
+}
+
 func TestRatioReturnsNilForZeroDenominator(t *testing.T) {
 	if Ratio(3, 0) != nil {
 		t.Fatal("zero denominator must return null")

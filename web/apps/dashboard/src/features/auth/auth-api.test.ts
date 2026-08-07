@@ -25,9 +25,30 @@ describe('authenticate', () => {
     expect(result).toEqual({
       token: `Bearer ${token}`,
       userId: '7',
+      userName: null,
       corpId: null,
       expiresAt: 3_601_000,
     });
+  });
+
+  it('maps the backend user name into the session', async () => {
+    const payload = btoa(JSON.stringify({ uid: 7 }))
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+      .replaceAll('=', '');
+    const request = vi.fn(() => Promise.resolve({
+      token: `header.${payload}.signature`,
+      expire: 3600,
+      session: { userName: '超级管理员' },
+    }));
+
+    const result = await authenticate(
+      { request },
+      { phone: '13800138000', password: 'secret' },
+      1_000,
+    );
+
+    expect(result.userName).toBe('超级管理员');
   });
 });
 

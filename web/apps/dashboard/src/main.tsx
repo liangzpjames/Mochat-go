@@ -191,6 +191,7 @@ const router = createDashboardRouter({
     <DashboardSessionActionsProvider
       onLogout={performLogout}
       userId={authStore.getSession()?.userId ?? null}
+      userName={authStore.getSession()?.userName ?? null}
     >
       <CorpProvider
         bindCorp={(corpId) => bindCorp(apiClient, corpId)}

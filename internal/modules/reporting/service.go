@@ -37,6 +37,13 @@ func (s *Service) Query(ctx context.Context, kind ReportKind, query ReportQuery)
 	if _, err := time.LoadLocation(query.Timezone); err != nil || !query.StartAt.Before(query.EndAt) {
 		return ReportResult{}, ErrInvalidQuery
 	}
+	if kind == ConversionReport && query.Stage != "" {
+		switch query.Stage {
+		case "lead", "contact", "opportunity", "won", "order":
+		default:
+			return ReportResult{}, ErrInvalidQuery
+		}
+	}
 	source, ok := s.sources[kind]
 	if !ok || source == nil {
 		return ReportResult{}, fmt.Errorf("%w: unsupported report kind", ErrInvalidQuery)

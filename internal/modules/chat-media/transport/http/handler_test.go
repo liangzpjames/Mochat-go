@@ -137,7 +137,7 @@ func multipartUpload(t *testing.T, handler http.Handler, name string, contentTyp
 
 func TestUploadListDownloadDelete(t *testing.T) {
 	handler, _, root := newTestHandler(t)
-	content := []byte("fake-wave-bytes")
+	content := []byte("RIFF\x24\x00\x00\x00WAVEfmt ")
 	rec := multipartUpload(t, handler, "p35-accept.wav", "audio/wav", content)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload code = %d body=%s", rec.Code, rec.Body.String())
@@ -169,8 +169,8 @@ func TestUploadListDownloadDelete(t *testing.T) {
 	}
 	var listed struct {
 		Data struct {
-			List []AudioObject `json:"list"`
-			Total int64 `json:"total"`
+			List  []AudioObject `json:"list"`
+			Total int64         `json:"total"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(listRec.Body.Bytes(), &listed); err != nil {
@@ -205,6 +205,16 @@ func TestUploadListDownloadDelete(t *testing.T) {
 	if afterRec.Code != http.StatusNotFound {
 		t.Fatalf("content after delete code = %d, want 404", afterRec.Code)
 	}
+	foundAfter := false
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".wav") {
+			foundAfter = true
+		}
+		return nil
+	})
+	if foundAfter {
+		t.Fatal("disk file still present after soft delete")
+	}
 }
 
 func TestUploadRejectsNonAudioAndMissingCorp(t *testing.T) {
@@ -227,6 +237,52 @@ func TestUploadRejectsNonAudioAndMissingCorp(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing corp code = %d, want 400", rec.Code)
+	}
+}
+
+func TestUploadRejectsTextRenamedAsAudio(t *testing.T) {
+	handler, _, _ := newTestHandler(t)
+	rec := multipartUpload(t, handler, "notes.wav", "audio/wav", []byte("hello"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("renamed text code = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUploadNormalizesExtensionFromContent(t *testing.T) {
+	handler, store, root := newTestHandler(t)
+	content := []byte("RIFF\x24\x00\x00\x00WAVEfmt ")
+	rec := multipartUpload(t, handler, "clip.mp3", "application/octet-stream", content)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload code = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Data struct {
+			ID          int64  `json:"id"`
+			ContentType string `json:"contentType"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Data.ContentType != "audio/wav" {
+		t.Fatalf("content type = %q, want audio/wav", created.Data.ContentType)
+	}
+	object, err := store.GetByID(context.Background(), created.Data.ID)
+	if err != nil || object == nil {
+		t.Fatalf("stored object = %#v err=%v", object, err)
+	}
+	if !strings.HasSuffix(object.RelativePath, ".wav") {
+		t.Fatalf("relative path = %q, want .wav suffix", object.RelativePath)
+	}
+	found := false
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".wav") {
+			found = true
+		}
+		return nil
+	})
+	if !found {
+		t.Fatal("normalized .wav file not found on disk")
 	}
 }
 

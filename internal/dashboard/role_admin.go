@@ -465,6 +465,19 @@ func (h *RoleAdminHandler) StatusUpdate(w http.ResponseWriter, r *http.Request) 
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "状态 值必须在列表内：[1,2]", nil)
 		return
 	}
+	role, found, err := h.store.RoleDetailByIDTenant(r.Context(), roleID, user.TenantID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !found {
+		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "角色不存在", nil)
+		return
+	}
+	if isSystemPresetRole(role) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "系统预置角色不可停用，请新建角色后调整", nil)
+		return
+	}
 	updated, err := h.store.UpdateRoleStatus(r.Context(), roleID, user.TenantID, status)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -503,6 +516,19 @@ func (h *RoleAdminHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	roleID, ok, err := intParam(params, "roleId")
 	if err != nil || !ok || roleID <= 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "角色id 必填", nil)
+		return
+	}
+	role, found, err := h.store.RoleDetailByIDTenant(r.Context(), roleID, user.TenantID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !found {
+		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "角色不存在", nil)
+		return
+	}
+	if isSystemPresetRole(role) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "系统预置角色不可删除", nil)
 		return
 	}
 	employeeCount, err := h.store.RoleEmployeeCount(r.Context(), roleID, corpID)
@@ -565,6 +591,11 @@ func (h *RoleAdminHandler) PermissionStore(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+}
+
+func isSystemPresetRole(role RoleDetail) bool {
+	remarks := strings.TrimSpace(role.Remarks)
+	return remarks == "系统预置全权限角色" || remarks == "bootstrap full-access role"
 }
 
 func (h *RoleAdminHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {

@@ -58,7 +58,8 @@ describe('CustomerTransferPage', () => {
     const read = vi.fn().mockResolvedValue({ list: [] });
     view('inheritance', access, { read, write: vi.fn() });
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: '暂无数据' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('heading', { name: '暂无待分配客户' })).toBeTruthy());
+    expect(screen.getByRole('link', { name: '去分配' })).toBeTruthy();
   });
 
   it('renders error state and retries', async () => {

@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	maxAudioBytes    = 50 << 20
-	mediaPermission  = "/chat/file-audio#get"
+	maxAudioBytes   = 50 << 20
+	mediaPermission = "/chat/file-audio#get"
 )
 
 type PrincipalResolver interface {
@@ -35,10 +35,10 @@ type Authorizer interface {
 }
 
 type MediaHandler struct {
-	store       MediaStore
-	storage     providers.AudioProvider
-	principal   PrincipalResolver
-	authorize   Authorizer
+	store     MediaStore
+	storage   providers.AudioProvider
+	principal PrincipalResolver
+	authorize Authorizer
 }
 
 func NewMediaHandler(store MediaStore, fileStorageRoot string, principal PrincipalResolver, authorize Authorizer) (*MediaHandler, error) {
@@ -128,11 +128,6 @@ func (h *MediaHandler) upload(w http.ResponseWriter, r *http.Request, principal 
 		return
 	}
 	defer file.Close()
-	contentType := strings.ToLower(strings.TrimSpace(header.Header.Get("Content-Type")))
-	if !strings.HasPrefix(contentType, "audio/") {
-		writeEnvelope(w, http.StatusBadRequest, "仅支持音频文件（audio/*）", nil)
-		return
-	}
 	payload, err := io.ReadAll(io.LimitReader(file, maxAudioBytes+1))
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, "读取上传文件失败", nil)
@@ -146,13 +141,19 @@ func (h *MediaHandler) upload(w http.ResponseWriter, r *http.Request, principal 
 		writeEnvelope(w, http.StatusBadRequest, "上传文件超过 50MB 限制", nil)
 		return
 	}
+	detected, ok := detectAudioFormat(payload)
+	if !ok {
+		writeEnvelope(w, http.StatusBadRequest, "仅支持 WAV/MP3/OGG/FLAC/M4A/AAC/AMR/WebM 音频文件（按文件内容识别）", nil)
+		return
+	}
+	contentType := detected.contentType
 	now := time.Now()
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, "生成文件标识失败", nil)
 		return
 	}
-	extension := strings.ToLower(filepath.Ext(header.Filename))
+	extension := detected.extension
 	key := fmt.Sprintf("audio/%d/%04d/%02d/%s%s", corpID, now.Year(), int(now.Month()), hex.EncodeToString(random[:]), extension)
 	sha256Hex, err := sha256HexOf(payload)
 	if err != nil {
@@ -235,7 +236,37 @@ func (h *MediaHandler) remove(w http.ResponseWriter, r *http.Request, principal 
 		writeEnvelope(w, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
+	_ = h.storage.Delete(r.Context(), object.RelativePath)
 	writeEnvelope(w, http.StatusOK, "success", map[string]any{"id": id})
+}
+
+type audioFormat struct {
+	contentType string
+	extension   string
+}
+
+func detectAudioFormat(payload []byte) (audioFormat, bool) {
+	switch {
+	case len(payload) >= 12 && bytes.Equal(payload[0:4], []byte("RIFF")) && bytes.Equal(payload[8:12], []byte("WAVE")):
+		return audioFormat{contentType: "audio/wav", extension: ".wav"}, true
+	case len(payload) >= 3 && bytes.Equal(payload[0:3], []byte("ID3")):
+		return audioFormat{contentType: "audio/mpeg", extension: ".mp3"}, true
+	case len(payload) >= 2 && payload[0] == 0xFF && payload[1]&0xE0 == 0xE0 && payload[1]&0x06 != 0x02:
+		return audioFormat{contentType: "audio/mpeg", extension: ".mp3"}, true
+	case len(payload) >= 4 && bytes.Equal(payload[0:4], []byte("OggS")):
+		return audioFormat{contentType: "audio/ogg", extension: ".ogg"}, true
+	case len(payload) >= 4 && bytes.Equal(payload[0:4], []byte("fLaC")):
+		return audioFormat{contentType: "audio/flac", extension: ".flac"}, true
+	case len(payload) >= 12 && bytes.Equal(payload[4:8], []byte("ftyp")):
+		return audioFormat{contentType: "audio/mp4", extension: ".m4a"}, true
+	case len(payload) >= 6 && bytes.Equal(payload[0:6], []byte("#!AMR")):
+		return audioFormat{contentType: "audio/amr", extension: ".amr"}, true
+	case len(payload) >= 4 && bytes.Equal(payload[0:4], []byte{0x1A, 0x45, 0xDF, 0xA3}):
+		return audioFormat{contentType: "audio/webm", extension: ".webm"}, true
+	case len(payload) >= 2 && payload[0] == 0xFF && payload[1]&0xF6 == 0xF0:
+		return audioFormat{contentType: "audio/aac", extension: ".aac"}, true
+	}
+	return audioFormat{}, false
 }
 
 func parseCorpID(r *http.Request) (int64, error) {

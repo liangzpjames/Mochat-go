@@ -99,7 +99,15 @@ func parseQuery(r *http.Request, principal Principal) (reporting.ReportQuery, er
 		return reporting.ReportQuery{}, err
 	}
 	page, pageSize := parsePositive(values.Get("page"), 1), parsePositive(values.Get("pageSize"), 20)
-	return reporting.ReportQuery{TenantID: principal.TenantID, CorpID: corpID, Timezone: values.Get("timezone"), StartAt: startAt, EndAt: endAt, DepartmentIDs: parseIDs(values["departmentIds"]), EmployeeIDs: parseIDs(values["employeeIds"]), AllowedEmployeeIDs: principal.AllowedEmployeeIDs, Page: page, PageSize: pageSize}, nil
+	employeeIDs := parseIDs(values["employeeIds"])
+	if len(employeeIDs) == 0 && values.Get("employeeId") != "" {
+		employeeIDs = parseIDs([]string{values.Get("employeeId")})
+	}
+	departmentIDs := parseIDs(values["departmentIds"])
+	if len(departmentIDs) == 0 && values.Get("departmentId") != "" {
+		departmentIDs = parseIDs([]string{values.Get("departmentId")})
+	}
+	return reporting.ReportQuery{TenantID: principal.TenantID, CorpID: corpID, Timezone: values.Get("timezone"), StartAt: startAt, EndAt: endAt, DepartmentIDs: departmentIDs, EmployeeIDs: employeeIDs, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, Stage: values.Get("stage"), Page: page, PageSize: pageSize}, nil
 }
 
 func parsePositive(value string, fallback int) int {

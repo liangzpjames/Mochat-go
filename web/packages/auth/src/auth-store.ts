@@ -18,6 +18,7 @@ export function createAuthStore(storage: StorageAdapter = browserStorageAdapter)
   const clearSession = () => {
     storage.removeItem(SESSION_STORAGE_KEYS.token);
     storage.removeItem(SESSION_STORAGE_KEYS.userId);
+    storage.removeItem(SESSION_STORAGE_KEYS.userName);
     storage.removeItem(SESSION_STORAGE_KEYS.corpId);
     storage.removeItem(SESSION_STORAGE_KEYS.expiresAt);
   };
@@ -28,6 +29,7 @@ export function createAuthStore(storage: StorageAdapter = browserStorageAdapter)
       try {
         const token = parseValue(storage, SESSION_STORAGE_KEYS.token);
         const userId = parseValue(storage, SESSION_STORAGE_KEYS.userId);
+        const userName = parseValue(storage, SESSION_STORAGE_KEYS.userName);
         const corpId = parseValue(storage, SESSION_STORAGE_KEYS.corpId);
         const expiresAt = parseValue(storage, SESSION_STORAGE_KEYS.expiresAt);
         if (
@@ -35,11 +37,12 @@ export function createAuthStore(storage: StorageAdapter = browserStorageAdapter)
           || typeof userId !== 'string'
           || (corpId !== null && typeof corpId !== 'string')
           || (expiresAt !== null && typeof expiresAt !== 'number')
+          || (userName !== undefined && userName !== null && typeof userName !== 'string')
         ) {
           clearSession();
           return null;
         }
-        return { token, userId, corpId, expiresAt };
+        return { token, userId, corpId, expiresAt, userName: typeof userName === 'string' ? userName : null };
       } catch {
         clearSession();
         return null;
@@ -48,6 +51,7 @@ export function createAuthStore(storage: StorageAdapter = browserStorageAdapter)
     setSession(value) {
       storage.setItem(SESSION_STORAGE_KEYS.token, JSON.stringify(value.token));
       storage.setItem(SESSION_STORAGE_KEYS.userId, JSON.stringify(value.userId));
+      storage.setItem(SESSION_STORAGE_KEYS.userName, JSON.stringify(value.userName ?? null));
       storage.setItem(SESSION_STORAGE_KEYS.corpId, JSON.stringify(value.corpId));
       storage.setItem(SESSION_STORAGE_KEYS.expiresAt, JSON.stringify(value.expiresAt));
     },

@@ -3,6 +3,8 @@ package domain
 import (
 	"errors"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 type OrderStatus string
@@ -44,14 +46,18 @@ type NewOrderInput struct {
 func NewOrder(input NewOrderInput) (Order, error) {
 	title := strings.TrimSpace(input.Title)
 	note := strings.TrimSpace(input.Note)
-	if strings.TrimSpace(input.ID) == "" || input.TenantID <= 0 || input.CorpID <= 0 || strings.TrimSpace(input.ContactID) == "" || title == "" || len([]rune(title)) > 200 || len([]rune(note)) > 2000 || input.AmountCents < 0 || !validOrderStatus(input.Status) {
+	if input.TenantID <= 0 || input.CorpID <= 0 || strings.TrimSpace(input.ContactID) == "" || title == "" || len([]rune(title)) > 200 || len([]rune(note)) > 2000 || input.AmountCents < 0 || !validOrderStatus(input.Status) {
 		return Order{}, errors.New("invalid order")
 	}
 	currency := strings.ToUpper(strings.TrimSpace(input.Currency))
 	if currency == "" {
 		currency = "CNY"
 	}
-	return Order{ID: input.ID, TenantID: input.TenantID, CorpID: input.CorpID, ContactID: input.ContactID, OpportunityID: input.OpportunityID, Title: title, Note: note, AmountCents: input.AmountCents, Currency: currency, Status: input.Status, Version: 1}, nil
+	id := strings.TrimSpace(input.ID)
+	if id == "" {
+		id = uuid.NewString()
+	}
+	return Order{ID: id, TenantID: input.TenantID, CorpID: input.CorpID, ContactID: input.ContactID, OpportunityID: input.OpportunityID, Title: title, Note: note, AmountCents: input.AmountCents, Currency: currency, Status: input.Status, Version: 1}, nil
 }
 
 func (order *Order) Transition(status OrderStatus, version int64) error {

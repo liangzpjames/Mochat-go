@@ -62,7 +62,9 @@ export function CorpProvider({
         queryClient.removeQueries({ queryKey: ['corp', previousCorpId] });
       }
       const menu = await loadMenuAccess(nextCorpId);
-      navigate(menu.firstRoute);
+      if (!preserveCurrentDeepLink()) {
+        navigate(menu.firstRoute);
+      }
       refreshAccess();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '企业切换失败');
@@ -79,6 +81,11 @@ export function CorpProvider({
     queryClient,
     refreshAccess,
   ]);
+
+  function preserveCurrentDeepLink(): boolean {
+    const pathname = window.location.pathname;
+    return pathname !== '/' && pathname !== '/login' && pathname !== '/corpData/index';
+  }
 
   useEffect(() => {
     let active = true;

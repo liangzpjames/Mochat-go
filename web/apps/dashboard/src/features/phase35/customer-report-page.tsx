@@ -4,6 +4,7 @@ import { reportEndpoint, type Phase35Api } from './api';
 import { ReportFilters, useReportFilters } from './report-query';
 import { SimpleTrendChart } from './components/simple-trend-chart';
 import { ReportDetailTable } from './components/report-detail-table';
+import { Phase35KpiLegend } from './components/phase35-kpi-legend';
 import type { ReportResult } from './report-types';
 import { paginationOf } from './report-types';
 import { Phase35PageShell } from './components/phase35-page-shell';
@@ -35,7 +36,7 @@ export function CustomerReportPage({ api }: { api: Phase35Api }) {
     >
       <div className="phase35-page">
 <section className="phase35-card phase35-filter-card">
-          <ReportFilters filters={filters} />
+          <ReportFilters filters={filters} api={api} />
         </section>
 
         <section className="phase35-kpis" aria-label="客户分析指标">
@@ -49,6 +50,7 @@ export function CustomerReportPage({ api }: { api: Phase35Api }) {
             <span>负责人覆盖</span><strong>{coverage}</strong><small>当前页明细中已分配负责人的客户（联系人）占比</small>
           </article>
         </section>
+        <Phase35KpiLegend />
 
         <div className="phase35-columns">
           <section className="phase35-card">

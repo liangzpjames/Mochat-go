@@ -31,6 +31,7 @@ type ReportQuery struct {
 	DepartmentIDs      []int64
 	EmployeeIDs        []int64
 	AllowedEmployeeIDs []int64
+	Stage              string
 	Page               int
 	PageSize           int
 }

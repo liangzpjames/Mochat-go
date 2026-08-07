@@ -14,9 +14,10 @@ import (
 func TestOrderHandlerRoutesListPathToListContext(t *testing.T) {
 	repo := &routingOrderRepository{
 		listItems: []domain.Order{{ID: "o-list", TenantID: 7, CorpID: 1536612155}},
+		listTotal: 12,
 	}
 	h := NewOrderHandler(repo, routingPrincipalResolver{})
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/scrm/orders?corpId=1536612155&status=paid", nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/scrm/orders?corpId=1536612155&status=paid&page=2&pageSize=5", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -30,6 +31,22 @@ func TestOrderHandlerRoutesListPathToListContext(t *testing.T) {
 	}
 	if repo.getCalls != 0 || repo.auditCalls != 0 {
 		t.Fatalf("detail repository calls = GetContext %d, AuditContext %d, want 0, 0", repo.getCalls, repo.auditCalls)
+	}
+	if repo.listPage != 2 || repo.listPageSize != 5 {
+		t.Fatalf("list page/pageSize = %d/%d, want 2/5", repo.listPage, repo.listPageSize)
+	}
+	var payload struct {
+		Items    []domain.Order `json:"items"`
+		Total    int            `json:"total"`
+		Page     int            `json:"page"`
+		PageSize int            `json:"pageSize"`
+	}
+	response := assertOrderEnvelope(t, rec, http.StatusOK)
+	if err := json.Unmarshal(response.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) != 1 || payload.Total != 12 || payload.Page != 2 || payload.PageSize != 5 {
+		t.Fatalf("list payload = %#v", payload)
 	}
 }
 
@@ -112,8 +129,29 @@ func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	if len(r.List(1, 1)) != 1 {
 		t.Fatal("not persisted")
 	}
-	if _, e := domain.NewOrder(domain.NewOrderInput{ID: "", TenantID: 1, CorpID: 1, ContactID: "c", Status: domain.OrderPending}); e == nil {
-		t.Fatal("expected invalid")
+	autoReq := httptest.NewRequest("POST", "/scrm/orders", strings.NewReader(`{"tenantId":1,"corpId":1,"contactId":"c1","title":"auto id","amountCents":50,"status":"pending"}`))
+	autoRec := httptest.NewRecorder()
+	h.ServeHTTP(autoRec, autoReq)
+	if autoRec.Code != 200 {
+		t.Fatalf("auto id status %d body %q", autoRec.Code, autoRec.Body.String())
+	}
+	autoResponse := assertOrderEnvelope(t, autoRec, http.StatusOK)
+	var autoCreated domain.Order
+	if err := json.Unmarshal(autoResponse.Data, &autoCreated); err != nil {
+		t.Fatalf("decode auto order: %v", err)
+	}
+	if autoCreated.ID == "" || strings.HasPrefix(autoCreated.ID, "P35-ORDER-") {
+		t.Fatalf("auto id = %q, want server-side non-acceptance id", autoCreated.ID)
+	}
+	if len(r.List(1, 1)) != 2 {
+		t.Fatal("auto order not persisted")
+	}
+	generated, err := domain.NewOrder(domain.NewOrderInput{TenantID: 1, CorpID: 1, ContactID: "c", Title: "auto id", AmountCents: 1, Status: domain.OrderPending})
+	if err != nil {
+		t.Fatalf("NewOrder without id failed: %v", err)
+	}
+	if generated.ID == "" || strings.HasPrefix(generated.ID, "P35-ORDER-") {
+		t.Fatalf("generated id = %q, want server-side non-acceptance id", generated.ID)
 	}
 }
 
@@ -160,14 +198,17 @@ func (routingPrincipalResolver) Resolve(*http.Request) (Principal, error) {
 }
 
 type routingOrderRepository struct {
-	listItems   []domain.Order
-	detail      domain.Order
-	audit       []map[string]any
-	auditErr    error
-	listCalls   int
-	getCalls    int
-	auditCalls  int
-	gotDetailID string
+	listItems    []domain.Order
+	listTotal    int
+	detail       domain.Order
+	audit        []map[string]any
+	auditErr     error
+	listCalls    int
+	listPage     int
+	listPageSize int
+	getCalls     int
+	auditCalls   int
+	gotDetailID  string
 }
 
 func (r *routingOrderRepository) Create(order domain.Order) (domain.Order, error) {
@@ -186,9 +227,11 @@ func (r *routingOrderRepository) CreateContext(context.Context, domain.Order, in
 	return domain.Order{}, nil
 }
 
-func (r *routingOrderRepository) ListContext(context.Context, int64, int64) ([]domain.Order, error) {
+func (r *routingOrderRepository) ListContext(_ context.Context, _ int64, _ int64, page, pageSize int) ([]domain.Order, int, error) {
 	r.listCalls++
-	return r.listItems, nil
+	r.listPage = page
+	r.listPageSize = pageSize
+	return r.listItems, r.listTotal, nil
 }
 
 func (r *routingOrderRepository) TransitionContext(context.Context, string, int64, int64, domain.OrderStatus, int64, int64) (domain.Order, error) {

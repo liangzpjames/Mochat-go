@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useOptionalDashboardAccess } from '../../app/access-context';
+import { ConfirmAction } from '../../components/confirm-action';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import type { AISettingsApi, KnowledgeBaseItem } from './ai-settings-api';
@@ -76,7 +77,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
                       <td>{item.status === 1 ? '启用' : '停用'}</td><td>{item.updatedAt}</td>
                       <td>
                         <button type="button" onClick={() => openEdit(item)}>编辑</button>
-                        <button type="button" onClick={() => { if (window.confirm(`确认删除知识库“${item.name}”？`)) remove.mutate(item.id); }}>删除</button>
+                        <ConfirmAction title={`确认删除知识库“${item.name}”？`} onConfirm={() => remove.mutate(item.id)}><button type="button">删除</button></ConfirmAction>
                       </td>
                     </tr>
                   ))}

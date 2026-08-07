@@ -313,12 +313,10 @@ func main() {
 			options = append(options,
 				compatserver.WithAuthMFAHandler(http.HandlerFunc(authHandler.MFA)),
 				compatserver.WithIdentitySelfHandler(dashboard.NewIdentitySelfHandler(mysqlStore, resolver, identityManager)),
-				compatserver.WithIdentityLoginPageHandler(dashboard.NewIdentityLoginPageHandlerWithDomainsAndPrefill(
+				compatserver.WithIdentityLoginPageHandler(dashboard.NewIdentityLoginPageHandlerWithDomains(
 					mysqlStore,
 					mysqlStore,
 					cfg.SaaSPlatformAdminTenantID,
-					os.Getenv("MOCHAT_GO_LOGIN_PREFILL_PHONE"),
-					os.Getenv("MOCHAT_GO_LOGIN_PREFILL_PASSWORD"),
 				)),
 			)
 			log.Printf("go identity routes enabled: POST /dashboard/user/authMFA GET/POST/PUT /dashboard/user/securityMFA GET /security/login")

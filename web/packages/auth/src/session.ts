@@ -1,6 +1,7 @@
 export type Session = {
   token: string;
   userId: string;
+  userName?: string | null;
   corpId: string | null;
   expiresAt: number | null;
 };
@@ -14,6 +15,7 @@ export interface StorageAdapter {
 export const SESSION_STORAGE_KEYS = {
   token: 'mochat_dashboard_token',
   userId: 'mochat_dashboard_user_id',
+  userName: 'mochat_dashboard_user_name',
   corpId: 'mochat_dashboard_corp_id',
   expiresAt: 'mochat_dashboard_expires_at',
 } as const;

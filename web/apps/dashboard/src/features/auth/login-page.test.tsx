@@ -77,7 +77,7 @@ describe('LoginPage', () => {
     expect(screen.queryByText('secret')).toBeNull();
   });
 
-  it('stores the session and opens data overview instead of a stale same-origin path', async () => {
+  it('restores a safe same-origin deep link after login', async () => {
     const props = renderLogin({
       returnTo: '/workContact/index?tab=active#top',
     });
@@ -85,7 +85,15 @@ describe('LoginPage', () => {
     submitCredentials();
 
     await waitFor(() => expect(props.setSession).toHaveBeenCalledWith(session));
-    expect(props.navigate).toHaveBeenCalledWith('/index');
+    expect(props.navigate).toHaveBeenCalledWith('/workContact/index?tab=active#top');
+  });
+
+  it('falls back to data overview for a login-page return target', async () => {
+    const props = renderLogin({ returnTo: '/login?next=/data/customer' });
+
+    submitCredentials();
+
+    await waitFor(() => expect(props.navigate).toHaveBeenCalledWith('/index'));
   });
 
   it('rejects an external return target and opens data overview', async () => {

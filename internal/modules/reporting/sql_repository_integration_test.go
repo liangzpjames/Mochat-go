@@ -37,4 +37,15 @@ func TestSQLRepositoryAgainstRetainedMariaDBSchema(t *testing.T) {
 			t.Fatalf("kind %s failed against retained schema: %v", kind, err)
 		}
 	}
+	for _, stage := range []string{"lead", "contact", "opportunity", "won", "order"} {
+		stageQuery := q
+		stageQuery.Stage = stage
+		result, err := service.Query(ctx, ConversionReport, stageQuery)
+		if err != nil {
+			t.Fatalf("conversion stage %s failed against retained schema: %v", stage, err)
+		}
+		if int(result.Pagination.Total) != int(*result.Summary[stage]) {
+			t.Fatalf("stage %s pagination total=%d summary=%v", stage, result.Pagination.Total, *result.Summary[stage])
+		}
+	}
 }

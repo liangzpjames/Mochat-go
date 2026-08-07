@@ -14,7 +14,15 @@ const loginSchema = z.object({
 });
 
 function safeReturnTo(returnTo: string | null): string {
-  void returnTo;
+  if (
+    returnTo !== null &&
+    returnTo.startsWith('/') &&
+    !returnTo.startsWith('//') &&
+    !returnTo.startsWith('/\\') &&
+    !returnTo.startsWith('/login')
+  ) {
+    return returnTo;
+  }
   return '/index';
 }
 

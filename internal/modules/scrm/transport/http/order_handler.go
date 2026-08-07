@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	nethttp "net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -17,7 +19,7 @@ type OrderRepository interface {
 }
 type orderContextRepository interface {
 	CreateContext(context.Context, domain.Order, int64) (domain.Order, error)
-	ListContext(context.Context, int64, int64) ([]domain.Order, error)
+	ListContext(context.Context, int64, int64, int, int) ([]domain.Order, int, error)
 	TransitionContext(context.Context, string, int64, int64, domain.OrderStatus, int64, int64) (domain.Order, error)
 }
 type orderDetailRepository interface {
@@ -51,6 +53,20 @@ func (r *MemoryOrderRepository) List(t, c int64) []domain.Order {
 		}
 	}
 	return out
+}
+func (r *MemoryOrderRepository) ListContext(_ context.Context, t, c int64, page, pageSize int) ([]domain.Order, int, error) {
+	all := r.List(t, c)
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []domain.Order{}, total, nil
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return all[start:end], total, nil
 }
 func (r *MemoryOrderRepository) Transition(id string, t int64, s domain.OrderStatus, v int64) (domain.Order, error) {
 	r.mu.Lock()
@@ -126,18 +142,41 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 				return
 			}
 		}
+		page, pageSize := 1, 20
+		if raw := r.URL.Query().Get("page"); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+				page = parsed
+			}
+		}
+		if raw := r.URL.Query().Get("pageSize"); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 200 {
+				pageSize = parsed
+			}
+		}
 		var items []domain.Order
+		var total int
 		if cr, ok := h.repo.(orderContextRepository); ok {
 			var err error
-			items, err = cr.ListContext(r.Context(), p.TenantID, corpID)
+			items, total, err = cr.ListContext(r.Context(), p.TenantID, corpID, page, pageSize)
 			if err != nil {
 				nethttp.Error(w, err.Error(), 500)
 				return
 			}
 		} else {
-			items = h.repo.List(p.TenantID, corpID)
+			all := h.repo.List(p.TenantID, corpID)
+			total = len(all)
+			start := (page - 1) * pageSize
+			if start < total {
+				end := start + pageSize
+				if end > total {
+					end = total
+				}
+				items = all[start:end]
+			} else {
+				items = []domain.Order{}
+			}
 		}
-		writeJSON(w, 200, map[string]any{"data": items})
+		writeJSON(w, 200, map[string]any{"data": map[string]any{"items": items, "total": total, "page": page, "pageSize": pageSize}})
 		return
 	}
 	if r.Method == nethttp.MethodPatch || r.Method == nethttp.MethodPut {

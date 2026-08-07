@@ -29,13 +29,14 @@ describe('AI 洞察页面（受限态）', () => {
     const api = { read: vi.fn().mockResolvedValue(limitedResult) };
     renderPage(api);
     expect(await screen.findByText('未接入情绪识别模型服务')).toBeTruthy();
-    expect(screen.getByText(/Provider 受限，暂无分析结果/)).toBeTruthy();
+    expect((await screen.findAllByText(/当前未接入可用的 AI 分析 Provider，暂无分析结果/)).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: '前往接入 AI 能力' })).toBeTruthy();
   });
 
   it('能力未接入时展示受限状态徽标', async () => {
     const api = { read: vi.fn().mockResolvedValue(limitedResult) };
     renderPage(api);
-    expect(await screen.findByText(/AI 能力状态：未接入/)).toBeTruthy();
+    expect(await screen.findByText(/AI 能力状态：AI 能力未接入/)).toBeTruthy();
   });
 
   it('错误态可重试', async () => {

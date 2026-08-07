@@ -12,6 +12,7 @@ export type LoginInput = {
 type AuthResponse = {
   token: string;
   expire: number;
+  session?: { userName?: string };
 };
 
 function tokenUserId(token: string): string {
@@ -51,6 +52,7 @@ export async function authenticate(
       ? result.token
       : `Bearer ${result.token}`,
     userId: tokenUserId(result.token),
+    userName: result.session?.userName ?? null,
     corpId: null,
     expiresAt: now + result.expire * 1_000,
   };

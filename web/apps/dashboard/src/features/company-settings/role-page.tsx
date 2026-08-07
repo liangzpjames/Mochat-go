@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
+import { ConfirmAction } from '../../components/confirm-action';
 import { createRoleApi, type PermissionNode, type RoleItem } from '../role/role-api';
 
 type RoleApi = ReturnType<typeof createRoleApi>;
@@ -79,8 +80,8 @@ export function CompanyRolePage({ api }: { api: RoleApi }) {
                       <td>
                         <button type="button" onClick={() => openPermissions(item)}>权限</button>
                         <button type="button" onClick={() => openEdit(item)}>编辑</button>
-                        <button type="button" onClick={() => toggleStatus.mutate({ roleId: item.roleId, next: item.status === 1 ? 0 : 1 })}>{item.status === 1 ? '停用' : '启用'}</button>
-                        <button type="button" onClick={() => { if (window.confirm(`确认删除角色“${item.name}”？`)) remove.mutate(item.roleId); }}>删除</button>
+                        <ConfirmAction title={item.status === 1 ? `确认停用角色“${item.name}”？` : `确认启用角色“${item.name}”？`} onConfirm={() => toggleStatus.mutate({ roleId: item.roleId, next: item.status === 1 ? 0 : 1 })}><button type="button">{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
+                        <ConfirmAction title={`确认删除角色“${item.name}”？`} onConfirm={() => remove.mutate(item.roleId)}><button type="button">删除</button></ConfirmAction>
                       </td>
                     </tr>
                   ))}
