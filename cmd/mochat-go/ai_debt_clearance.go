@@ -59,9 +59,12 @@ func registerAIDebtClearanceModules(
 	}); err != nil {
 		return err
 	}
-	aiProvider, err := buildAIProvider()
-	if err != nil {
-		return err
+	var aiProvider providers.AIProvider
+	if cfg.EnableAIInsight {
+		aiProvider, err = buildAIProvider()
+		if err != nil {
+			return err
+		}
 	}
 	return appbootstrap.RegisterAIInsight(router, true, appbootstrap.AIInsightDependencies{
 		PrincipalResolver: aiInsightPrincipalResolver{delegate: principalResolver},

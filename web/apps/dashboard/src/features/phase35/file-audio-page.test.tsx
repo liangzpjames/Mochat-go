@@ -47,7 +47,7 @@ describe('FileAudioPage', () => {
     renderPage(api);
     expect(await screen.findByText('p36-accept.wav')).not.toBeNull();
     expect(list).toHaveBeenCalledWith(9, 1, 20, '');
-    expect(screen.getByText('audio/wav')).not.toBeNull();
+    expect(screen.getByText('WAV')).not.toBeNull();
     expect(screen.getByRole('button', { name: /删除 p36-accept.wav/ })).not.toBeNull();
     expect(document.querySelector('audio')?.getAttribute('src')).toBe('/dashboard/chat/media/1/content');
   });
@@ -74,7 +74,7 @@ describe('FileAudioPage', () => {
     await screen.findByText('p36-accept.wav');
     const file = new File(['text'], 'notes.txt', { type: 'text/plain' });
     fireEvent.change(screen.getByLabelText('选择音频文件'), { target: { files: [file] } });
-    expect(await screen.findByText('仅支持音频文件（audio/*）')).not.toBeNull();
+    expect(await screen.findByText('仅支持常见音频格式（如 WAV、MP3、AAC）')).not.toBeNull();
     expect(upload).not.toHaveBeenCalled();
   });
 

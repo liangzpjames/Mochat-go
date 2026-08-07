@@ -1812,6 +1812,32 @@ body {
   .phase35-page .dashboard-stat-grid { grid-template-columns: 1fr; }
 }
 
+/* ===== Phase 3 Final：AI 洞察与文件录音补充样式 ===== */
+.phase35-ai-summary {
+  line-height: 1.7;
+  max-width: 760px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.phase35-notice-success {
+  background: #edf9f0;
+  border: 1px solid #b7e3c8;
+  border-radius: 10px;
+  color: #2f8f57;
+  margin: 0;
+  padding: 11px 14px;
+}
+
+.phase35-notice-error {
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  border-radius: 10px;
+  color: #cf4c4c;
+  margin: 0;
+  padding: 11px 14px;
+}
+
 /* ===== Phase 3.5 按钮：仿线索池（scrm-lead-page）===== */
 .phase35-page button,
 .phase35-page .phase35-card button,

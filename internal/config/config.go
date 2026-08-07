@@ -36,6 +36,7 @@ type Config struct {
 	EnablePhase35AcceptanceLifecycle                   bool
 	Phase35AcceptanceEnvironmentID                     string
 	EnableAIDebtClearance                              bool
+	EnableAIInsight                                    bool
 	PHPUpstream                                        string
 	APIBaseURL                                         string
 	DashboardBaseURL                                   string
@@ -1213,6 +1214,7 @@ func FromEnv() (Config, error) {
 		EnablePhase35AcceptanceLifecycle:                   envBool("MOCHAT_GO_ENABLE_PHASE35_ACCEPTANCE_LIFECYCLE"),
 		Phase35AcceptanceEnvironmentID:                     strings.TrimSpace(os.Getenv("MOCHAT_GO_PHASE35_ACCEPTANCE_ENVIRONMENT_ID")),
 		EnableAIDebtClearance:                              envBool("MOCHAT_GO_ENABLE_AI_DEBT_CLEARANCE"),
+		EnableAIInsight:                                    envBool("MOCHAT_GO_AI_INSIGHT_ENABLED"),
 		PHPUpstream:                                        phpUpstream,
 		APIBaseURL:                                         envOrDefault("MOCHAT_API_BASE_URL", envOrDefault("API_BASE_URL", defaultAPIBaseURL)),
 		DashboardBaseURL:                                   envOrDefault("MOCHAT_DASHBOARD_BASE_URL", envOrDefault("DASHBOARD_BASE_URL", defaultDashboardBaseURL)),

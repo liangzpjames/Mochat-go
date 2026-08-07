@@ -12,6 +12,17 @@ export const aiInsightPageConfigs = {
   'communication-keyword': { title: '沟通关键词', description: '会话高频词、敏感词命中与趋势', page: 'communication-keyword' },
 } as const;
 
+function sessionLabel(value: unknown): string {
+  const raw = String(value ?? '');
+  if (raw === '' || raw === 'archive') return '归档会话';
+  return raw;
+}
+
+function friendlyTime(value: string): string {
+  if (!value) return '--';
+  return `${value.slice(5, 10)} ${value.slice(11, 16)}`;
+}
+
 export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof typeof aiInsightPageConfigs }) {
   const corpId = useOptionalDashboardAccess()?.corp.id;
   const config = aiInsightPageConfigs[page];
@@ -24,39 +35,26 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
   const limitations = result?.limitations ?? [];
   const limited = result?.capability !== 'ready';
   const generatedAt = result?.generatedAt ?? '';
-  const copy = {
-    'session-analysis': {
-      notice: '会话分析需要会话存档数据。当前未接入会话存档 Provider，暂无分析结果；接入后本页将按会话自动生成分析。',
-      empty: '当前未接入会话存档 Provider，暂无会话分析结果。',
-    },
-    'smart-analysis': {
-      notice: '智能分析需要 AI 模型服务。当前未接入 AI Provider，智能分析暂不可用；配置后将提供对话摘要、意图识别与跟进建议。',
-      empty: '当前未接入 AI Provider，暂无智能分析结果。',
-    },
-    emotion: {
-      notice: '情绪识别需要情绪分析模型服务。当前未接入 AI Provider，情绪分析暂不可用；配置后将按会话展示情绪倾向与异常波动。',
-      empty: '当前未接入 AI Provider，暂无情绪识别结果。',
-    },
-    'employee-score': {
-      notice: '员工评分需要评分模型与会话存档数据。当前未接入相关 Provider，员工评分暂不可用；接入后将按员工展示响应时效、沟通质量与得分。',
-      empty: '当前未接入评分所需 Provider，暂无员工评分结果。',
-    },
-    'communication-keyword': {
-      notice: '沟通关键词统计需要会话存档数据。当前未接入会话存档 Provider，关键词统计暂不可用；接入后将展示高频词、敏感词命中与趋势。',
-      empty: '当前未接入会话存档 Provider，暂无沟通关键词统计结果。',
-    },
-  }[page] ?? { notice: '', empty: '' };
+  const count = result?.data.length ?? 0;
 
   return (
     <Phase35PageShell title={config.title} description={config.description} actions={<span className="phase35-chip">AI 能力状态：{limited ? '未接入' : '已就绪'}</span>}>
       <div className="phase35-page">
+        <section className="phase35-kpis" aria-label="AI 洞察指标">
+          <article className="phase35-kpi phase35-kpi-primary">
+            <span>分析结果</span><strong>{limited ? '受限' : count}</strong><small>{limited ? 'AI 能力未接入，暂无分析结果' : '当前返回的分析结果条数'}</small>
+          </article>
+          <article className="phase35-kpi phase35-kpi-green">
+            <span>能力状态</span><strong>{limited ? '未接入' : '已就绪'}</strong><small>AI Provider 当前状态</small>
+          </article>
+          <article className="phase35-kpi phase35-kpi-violet">
+            <span>生成时间</span><strong>{friendlyTime(generatedAt)}</strong><small>{generatedAt ? '最近一次分析生成时间' : '尚未生成（AI 能力未接入）'}</small>
+          </article>
+        </section>
+
         <section className="phase35-card">
           <header className="phase35-card-header"><div><h2>能力说明</h2><p>本页由 AI 分析能力提供数据</p></div></header>
-          <Phase35DataState
-            loading={query.isLoading}
-            error={query.isError}
-            onRetry={() => void query.refetch()}
-          >
+          <Phase35DataState loading={query.isLoading} error={query.isError} onRetry={() => void query.refetch()}>
             {limited ? (
               <ul className="phase35-limits" role="status">
                 {limitations.map((item) => <li key={item}>{item}</li>)}
@@ -68,14 +66,22 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
         </section>
 
         <section className="phase35-card phase35-table-card">
-          <header className="phase35-card-header"><div><h2>分析结果</h2><p>按分析任务读取结果，无数据时展示空状态</p></div><span className="phase35-chip">{limited ? '受限' : `${result?.data.length ?? 0} 条`}</span></header>
+          <header className="phase35-card-header"><div><h2>分析结果</h2><p>按分析任务读取结果，无数据时展示暂无数据状态</p></div><span className="phase35-chip">{limited ? '受限' : `${count} 条`}</span></header>
           {limited ? (
             <p className="phase35-empty">Provider 受限，暂无分析结果。</p>
           ) : (
-            <Phase35DataState loading={query.isLoading} error={query.isError} empty={!result?.data.length} onRetry={() => void query.refetch()}>
-              <div className="phase35-table"><table><thead><tr><th>会话</th><th>结果</th></tr></thead><tbody>{result?.data.map((item, index) => (
-                <tr key={index}><td>{String((item as { sessionId?: string }).sessionId ?? index + 1)}</td><td>{String((item as { summary?: string }).summary ?? '—')}</td></tr>
-              ))}</tbody></table></div>
+            <Phase35DataState loading={query.isLoading} error={query.isError} empty={!count} onRetry={() => void query.refetch()}>
+              <div className="phase35-table">
+                <table>
+                  <thead><tr><th>会话</th><th>结果</th></tr></thead>
+                  <tbody>{result?.data.map((item, index) => (
+                    <tr key={index}>
+                      <td>{sessionLabel((item as { sessionId?: string }).sessionId ?? index + 1)}</td>
+                      <td className="phase35-ai-summary">{String((item as { summary?: string }).summary ?? '—')}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
             </Phase35DataState>
           )}
         </section>

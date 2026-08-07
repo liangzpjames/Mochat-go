@@ -21,6 +21,20 @@ function formatDate(value: string): string {
   return value.slice(0, 19).replace('T', ' ');
 }
 
+function formatType(value: string): string {
+  const map: Record<string, string> = {
+    'audio/wav': 'WAV',
+    'audio/mpeg': 'MP3',
+    'audio/mp4': 'M4A',
+    'audio/aac': 'AAC',
+    'audio/ogg': 'OGG',
+    'audio/flac': 'FLAC',
+  };
+  if (map[value]) return map[value];
+  if (value.startsWith('audio/')) return value.slice(6).toUpperCase();
+  return '音频';
+}
+
 function messageText(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败';
 }
@@ -74,7 +88,7 @@ export function FileAudioPage({ api }: { api: FileAudioApi }) {
   const handleFile = (file: File | undefined): void => {
     if (file === undefined) return;
     if (!file.type.startsWith('audio/')) {
-      setNotice({ kind: 'error', text: '仅支持音频文件（audio/*）' });
+      setNotice({ kind: 'error', text: '仅支持常见音频格式（如 WAV、MP3、AAC）' });
       setSelectedName('');
       return;
     }
@@ -104,7 +118,7 @@ export function FileAudioPage({ api }: { api: FileAudioApi }) {
   return (
     <Phase35PageShell
       title="文件录音"
-      description="集中管理会话文件与录音：上传后可在线播放或下载，删除后列表不再展示"
+      description="集中管理会话文件与录音：上传后可在线播放或下载"
       actions={<span className="phase35-chip">存储：已接入</span>}
     >
       <div className="phase35-page">
@@ -139,7 +153,7 @@ export function FileAudioPage({ api }: { api: FileAudioApi }) {
           <header className="phase35-card-header">
             <div>
               <h2>上传音频</h2>
-              <p>支持常见音频格式（audio/*），单个文件不超过 50MB</p>
+              <p>支持常见音频格式（WAV、MP3、AAC 等），单个文件不超过 50MB</p>
             </div>
           </header>
           <div className="dashboard-filter-bar phase35-file-picker">
@@ -164,7 +178,7 @@ export function FileAudioPage({ api }: { api: FileAudioApi }) {
             </button>
           </div>
           {notice !== null && (
-            <p className={notice.kind === 'error' ? 'phase35-empty' : 'phase35-chip'} role={notice.kind === 'error' ? 'alert' : 'status'}>
+            <p className={notice.kind === 'error' ? 'phase35-notice-error' : 'phase35-notice-success'} role={notice.kind === 'error' ? 'alert' : 'status'}>
               {notice.text}
             </p>
           )}
@@ -205,7 +219,7 @@ export function FileAudioPage({ api }: { api: FileAudioApi }) {
                 {items.map((item) => (
                   <tr key={item.id}>
                     <td>{item.originalName || `--`}</td>
-                    <td>{item.contentType || '--'}</td>
+                  <td>{formatType(item.contentType || '')}</td>
                     <td>{formatBytes(item.sizeBytes)}</td>
                     <td>{formatDate(item.createdAt)}</td>
                     <td>
