@@ -12,6 +12,7 @@ Phase 3 以圆弧 AI 页面为业务和交互参考，将 Dashboard 清单中的
 - [`phase-3.1/`](phase-3.1/)：Dashboard 基础壳、路由、会话隔离与首批验证资料。
 - [`phase-3.2/`](phase-3.2/)：数据概览、全局消息、敏感词及 SCRM 核心页面的设计、实施、验收和证据。
 - [`phase-3.3/`](phase-3.3/)：会话与风险预警 15 个菜单的范围、设计、实施计划、验收与证据。
+- [`phase-3-final/`](phase-3-final/)：Provider 接入（音频/AI/企微存档）与 53 页总验收收口。
 - [`reference/`](reference/)：跨 Phase 3 子阶段持续有效的约束、数据流和状态说明。
 
 ## 文档维护规则
