@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"time"
 
 	appbootstrap "jiyi/mochat-go/internal/app/bootstrap"
 	appmodules "jiyi/mochat-go/internal/app/modules"
@@ -11,6 +14,8 @@ import (
 	"jiyi/mochat-go/internal/dashboard"
 	aiinsighthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
 	aisettingshttp "jiyi/mochat-go/internal/modules/ai-settings/transport/http"
+	"jiyi/mochat-go/internal/modules/providers"
+	openai "jiyi/mochat-go/internal/modules/providers/ai/openai"
 	scrmhttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
 	"jiyi/mochat-go/internal/store"
 )
@@ -54,10 +59,41 @@ func registerAIDebtClearanceModules(
 	}); err != nil {
 		return err
 	}
+	aiProvider, err := buildAIProvider()
+	if err != nil {
+		return err
+	}
 	return appbootstrap.RegisterAIInsight(router, true, appbootstrap.AIInsightDependencies{
 		PrincipalResolver: aiInsightPrincipalResolver{delegate: principalResolver},
 		Authorizer:        aiInsightAuthorizer{delegate: leadAuthorizer},
+		DB:                mysqlStore.DB(),
+		AIProvider:        aiProvider,
 	})
+}
+
+func buildAIProvider() (providers.AIProvider, error) {
+	provider, err := openai.New(openai.Config{
+		BaseURL: os.Getenv("MOCHAT_GO_AI_PROVIDER_BASE_URL"),
+		APIKey:  os.Getenv("MOCHAT_GO_AI_PROVIDER_KEY"),
+		Model:   os.Getenv("MOCHAT_GO_AI_PROVIDER_MODEL"),
+		Timeout: time.Duration(envInt("MOCHAT_GO_AI_PROVIDER_TIMEOUT_SECONDS", 30)) * time.Second,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return provider, nil
+}
+
+func envInt(name string, fallback int) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	var parsed int
+	if _, err := fmt.Sscanf(value, "%d", &parsed); err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 type aiDebtAuthorizer struct {

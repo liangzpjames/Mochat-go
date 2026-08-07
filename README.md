@@ -125,6 +125,14 @@ env -u GOROOT \
 | `MOCHAT_SIDEBAR_BASE_URL` / `SIDEBAR_BASE_URL` | `MOCHAT_GO_ADDR` 派生的本机 URL；显式设置 `MOCHAT_PHP_UPSTREAM` 时默认跟随 upstream | `chatTool/config` 生成侧边栏页面 URL 的基础域名 |
 | `MOCHAT_OPERATION_BASE_URL` / `OPERATION_BASE_URL` | `MOCHAT_GO_ADDR` 派生的本机 URL；显式设置 `MOCHAT_PHP_UPSTREAM` 时默认跟随 upstream | 裂变等 operation 页面授权跳转 URL 的基础域名 |
 | `MOCHAT_FILE_STORAGE_ROOT` / `FILE_STORAGE_ROOT` | standalone 为 `./storage/upload/static`；兼容模式为 `../mochat/api-server/storage/upload/static` | `txtVerifyUpload`、通用上传和 `AsyncFileUpload` 异步文件队列写入文件的本地存储根目录；Go 服务会把该目录以只读方式托管到 `/static/*` |
+| `MOCHAT_GO_AI_PROVIDER_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | AI 洞察调用的 OpenAI 兼容模型服务地址 |
+| `MOCHAT_GO_AI_PROVIDER_KEY` | 空 | AI Provider API Key；部署时通过环境注入，不写入仓库 |
+| `MOCHAT_GO_AI_PROVIDER_MODEL` | `qwen-plus` | AI 洞察使用的模型名 |
+| `MOCHAT_GO_AI_PROVIDER_TIMEOUT_SECONDS` | `30` | 单次 AI 分析调用超时秒数 |
+| `MOCHAT_GO_WECOM_ARCHIVE_CORP_ID` | 空 | 企微会话存档企业 CorpId；四件套齐全后适配层状态为 ready |
+| `MOCHAT_GO_WECOM_ARCHIVE_SECRET` | 空 | 企微会话存档 Secret |
+| `MOCHAT_GO_WECOM_ARCHIVE_PUBLIC_KEY` | 空 | 企微会话存档 RSA 公钥 |
+| `MOCHAT_GO_WECOM_ARCHIVE_PRIVATE_KEY` | 空 | 企微会话存档 RSA 私钥 |
 | `MOCHAT_DASHBOARD_DIST` | `./web/dashboard/dist` | Go 服务托管 dashboard 前端静态产物的目录；目录不存在时不接管前端路由 |
 | `MOCHAT_SAAS_ADMIN_DIST` | `./web/apps/saas-admin/dist` | Go 服务在 `/saas-admin/` 托管获客前 SaaS 总后台 MVP 的静态产物目录 |
 | `MOCHAT_GO_LOGIN_PREFILL_PHONE` | 空 | 仅在 localhost/回环地址的登录页预填账号；生产和客户域名不输出 |

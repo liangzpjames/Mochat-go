@@ -3277,6 +3277,9 @@ func main() {
 	if err := registerAIDebtClearanceModules(moduleRouter, cfg, getMySQLStore, buildUserResolver); err != nil {
 		log.Fatal(err)
 	}
+	if err := registerChatMediaModule(moduleRouter, cfg, getMySQLStore, buildUserResolver); err != nil {
+		log.Fatal(err)
+	}
 	options = append(options, compatserver.WithModuleRouter(moduleRouter))
 	handler, err := compatserver.New(cfg, options...)
 	if err != nil {
