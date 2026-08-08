@@ -185,6 +185,18 @@ describe('Dashboard shell', () => {
     expect(screen.getByRole('button', { name: '退出登录' })).toBeTruthy();
   });
 
+  it('exposes an accessible mobile navigation drawer trigger', async () => {
+    renderDashboard({ session: true, initialPath: '/index' });
+
+    const trigger = await screen.findByRole('button', { name: '打开主菜单' });
+    expect(trigger.getAttribute('aria-controls')).toBe('dashboard-sidebar');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('navigation', { name: '主菜单' }).className).toContain('dashboard-sidebar-open');
+  });
+
   it('filters authorized navigation and supports keyboard navigation from search', async () => {
     renderDashboard({
       session: true,

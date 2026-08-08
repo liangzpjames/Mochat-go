@@ -12,6 +12,12 @@ function declarationBlock(selector: string): string {
   return match?.[1] ?? '';
 }
 
+function declarationBlocks(selector: string): string[] {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [...stylesheet.matchAll(new RegExp(`(?:^|\\n)\\s*${escapedSelector}\\s*\\{([^}]*)\\}`, 'g'))]
+    .map((match) => match[1] ?? '');
+}
+
 describe('Dashboard independent scroll layout', () => {
   it('keeps the header fixed while sidebar and content scroll independently', () => {
     expect(declarationBlock('.dashboard-corp-frame')).toContain('height: 100vh');
@@ -64,5 +70,14 @@ describe('Dashboard independent scroll layout', () => {
     expect(backdrop).toContain('background: rgb(17 24 39 / 42%)');
     expect(backdrop).toContain('border: 0');
     expect(backdrop).toContain('border-radius: 0');
+  });
+
+  it('keeps the final dashboard body rule single-column on narrow screens', () => {
+    const bodyRules = declarationBlocks('.dashboard-body');
+
+    expect(bodyRules.length).toBeGreaterThan(1);
+    expect(bodyRules.at(-1)).toContain('grid-template-columns: 1fr');
+    expect(stylesheet).toContain('.dashboard-sidebar-open');
+    expect(stylesheet).toContain('transform: translateX(-100%)');
   });
 });

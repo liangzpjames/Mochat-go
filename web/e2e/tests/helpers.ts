@@ -110,6 +110,21 @@ export async function mockDashboardBackend(
       }));
       return;
     }
+    if (path === '/scrm/tags' && route.request().method() === 'GET') {
+      await json(route, envelope({ groups: [], tags: [] }));
+      return;
+    }
+    if (path.startsWith('/ai-insight/')) {
+      await json(route, envelope({
+        page: path.replace('/ai-insight/', ''),
+        title: '',
+        capability: 'limited',
+        provider: 'unavailable',
+        limitations: ['Provider 未接入'],
+        data: [],
+      }));
+      return;
+    }
     if (path === '/workContactTagGroup/index') {
       await json(route, envelope([]));
       return;

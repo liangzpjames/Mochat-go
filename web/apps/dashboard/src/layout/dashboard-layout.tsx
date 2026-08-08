@@ -38,6 +38,7 @@ export function DashboardLayout() {
     () => new Set(activeGroupIds),
   );
   const [searchQuery, setSearchQuery] = useState('');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const searchResultsRef = useRef<HTMLElement>(null);
   const previousPathname = useRef(location.pathname);
   const hasPages = topLevelNavigation.length > 0
@@ -58,6 +59,7 @@ export function DashboardLayout() {
       return;
     }
     previousPathname.current = location.pathname;
+    setMobileMenuOpen(false);
     setExpandedGroups((current) => {
       const next = new Set(current);
       activeGroupIds.forEach((groupId) => next.add(groupId));
@@ -101,6 +103,16 @@ export function DashboardLayout() {
   return (
     <div className="dashboard-shell">
       <header className="dashboard-header">
+        <button
+          aria-controls="dashboard-sidebar"
+          aria-expanded={mobileMenuOpen}
+          aria-label={mobileMenuOpen ? '关闭主菜单' : '打开主菜单'}
+          className="dashboard-menu-toggle"
+          onClick={() => setMobileMenuOpen((current) => !current)}
+          type="button"
+        >
+          <span aria-hidden="true">☰</span>
+        </button>
         <NavLink className="dashboard-brand" to="/">
           <span aria-hidden="true" className="dashboard-brand-mark">M</span>
           <span>MoChat AI</span>
@@ -151,7 +163,19 @@ export function DashboardLayout() {
         </div>
       </header>
       <div className="dashboard-body">
-        <nav aria-label="主菜单" className="dashboard-sidebar">
+        {mobileMenuOpen && (
+          <button
+            aria-label="关闭主菜单"
+            className="dashboard-sidebar-backdrop"
+            onClick={() => setMobileMenuOpen(false)}
+            type="button"
+          />
+        )}
+        <nav
+          aria-label="主菜单"
+          className={`dashboard-sidebar${mobileMenuOpen ? ' dashboard-sidebar-open' : ''}`}
+          id="dashboard-sidebar"
+        >
           <div className="dashboard-sidebar-heading">
             <span>工作台</span>
             <span className="dashboard-sidebar-caption">全部功能</span>
