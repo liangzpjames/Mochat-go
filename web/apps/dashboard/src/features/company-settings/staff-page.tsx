@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ConfirmAction } from '../../components/confirm-action';
+import { DashboardDialog } from '../../components/dashboard-dialog';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createUserAdminApi, type UserItem, type UserWrite } from '../user-admin/user-admin-api';
@@ -20,6 +21,7 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
   const [roleId, setRoleId] = useState(1);
   const [formStatus, setFormStatus] = useState(1);
   const [error, setError] = useState('');
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   const query = useQuery({
     queryKey: ['company-staff', appliedPhone, status, page],
@@ -44,9 +46,10 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
   const openCreate = () => { setCreating(true); setEditing(null); setUserName(''); setFormPhone(''); setRoleId(roles.data?.[0]?.roleId ?? 1); setFormStatus(1); setError(''); };
   const openEdit = (item: UserItem) => { setEditing(item); setCreating(false); setUserName(item.userName); setFormPhone(item.phone); setRoleId(item.roleId); setFormStatus(item.status); setError(''); };
   const valid = Boolean(userName.trim() && /^1\d{10}$/.test(formPhone.trim()));
+  const closeEditor = () => { setEditing(null); setCreating(false); setError(''); };
 
   return (
-    <Phase35PageShell title="员工权限" description="员工账号、启用/停用状态与角色分配" actions={<button type="button" onClick={openCreate}>新增员工</button>}>
+    <Phase35PageShell title="员工权限" description="员工账号、启用/停用状态与角色分配" actions={<button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; openCreate(); }}>新增员工</button>}>
       <div className="phase35-page">
         <section className="phase35-card phase35-filter-card">
           <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); setAppliedPhone(phoneFilter.trim()); }}>
@@ -76,7 +79,7 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
                     <tr key={item.userId}>
                       <td>{item.userName}</td><td>{item.phone}</td><td>{item.roleName}</td><td>{item.statusText}</td>
                       <td>
-                        <button type="button" onClick={() => openEdit(item)}>编辑</button>
+                        <button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; openEdit(item); }}>编辑</button>
                         <ConfirmAction
                           title={item.status === 1 ? `确认停用员工“${item.userName}”？` : `确认启用员工“${item.userName}”？`}
                           description={item.status === 1 ? '停用后该员工将无法登录 Dashboard。' : '启用后该员工将恢复登录权限。'}
@@ -97,9 +100,7 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
           </Phase35DataState>
         </section>
 
-        {(creating || editing) && (
-          <section className="phase35-card" role="dialog" aria-label="员工表单">
-            <header className="phase35-card-header"><div><h2>{editing ? '编辑员工' : '新增员工'}</h2></div></header>
+        <DashboardDialog open={creating || editing !== null} title={editing ? '编辑员工' : '新增员工'} triggerRef={triggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={closeEditor} onConfirm={() => save.mutate()}>
             {error && <p role="alert" className="phase35-limits">{error}</p>}
             <form onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
               <label>姓名<input value={userName} onChange={(event) => setUserName(event.target.value)} /></label>
@@ -108,11 +109,8 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
                 {(roles.data ?? []).map((role) => <option key={role.roleId} value={role.roleId}>{role.name}</option>)}
               </select></label>
               <label>状态<select value={formStatus} onChange={(event) => setFormStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select></label>
-              <button type="submit" disabled={!valid || save.isPending}>保存</button>
-              <button type="button" onClick={() => { setEditing(null); setCreating(false); setError(''); }}>取消</button>
             </form>
-          </section>
-        )}
+        </DashboardDialog>
       </div>
     </Phase35PageShell>
   );

@@ -145,4 +145,26 @@ describe('企业设置页面', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
     await waitFor(() => expect(updateStatus).toHaveBeenCalledTimes(1));
   });
+
+  it('员工权限：共享 Modal 支持取消并恢复触发焦点', async () => {
+    const api = { list: vi.fn().mockResolvedValue({ list: [], page: { total: 0, totalPage: 1 } }), roles: vi.fn().mockResolvedValue([{ roleId: 1, name: '管理员' }]) } as unknown as UserAdminApi;
+    renderPage(<CompanyStaffPage api={api} />);
+    const trigger = await screen.findByRole('button', { name: '新增员工' });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: '新增员工' });
+    expect(dialog.closest('.dashboard-dialog--modal')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '新增员工' })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it('角色授权树使用中文映射并安全回退未知权限名', async () => {
+    const api = { list: vi.fn().mockResolvedValue({ list: [{ roleId: 1, name: '管理员', employeeNum: 2, remarks: '', status: 1, updatedAt: '' }], page: { total: 1, totalPage: 1 } }), permissions: vi.fn().mockResolvedValue([{ id: 10, name: 'Friends circle', checked: '1', children: [] }, { id: 11, name: '??? Provider ??', checked: '3', children: [] }]), savePermissions: vi.fn() } as unknown as RoleApi;
+    renderPage(<CompanyRolePage api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: '权限' }));
+    expect(await screen.findByText('朋友圈')).toBeTruthy();
+    expect(screen.getByText('未命名权限（11）')).toBeTruthy();
+    expect(screen.queryByText('Friends circle')).toBeNull();
+    expect(screen.queryByText('??? Provider ??')).toBeNull();
+  });
 });

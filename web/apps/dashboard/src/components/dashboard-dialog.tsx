@@ -1,5 +1,5 @@
 import { Button, Drawer, Modal } from 'antd';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { RefObject, ReactNode } from 'react';
 
 type DashboardDialogProps = {
@@ -35,6 +35,7 @@ export function DashboardDialog({
   triggerRef,
   footer,
 }: DashboardDialogProps) {
+  const wasOpen = useRef(open);
   useEffect(() => {
     if (!open) return undefined;
     const timer = window.setTimeout(() => {
@@ -47,6 +48,10 @@ export function DashboardDialog({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [open]);
+  useEffect(() => {
+    if (wasOpen.current && !open) queueMicrotask(() => triggerRef?.current?.focus());
+    wasOpen.current = open;
+  }, [open, triggerRef]);
 
   function handleCancel() {
     onCancel();

@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useOptionalDashboardAccess } from '../../app/access-context';
-import { records, text, type Phase35Api } from './api';
+import { DateRangeFields, validateDateRange } from '../../components/date-range-fields';
+import { records, text, type Phase35Api, type Row } from './api';
 
 const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const flattenRows = (rows: Row[]): Row[] => rows.flatMap((row) => [row, ...flattenRows(records(row.children))]);
 
 export function zonedBoundary(date: string, timezone: string): string {
   const probe = new Date(`${date}T00:00:00Z`);
@@ -57,17 +59,22 @@ export function ReportFilters({ filters, api }: { filters: ReturnType<typeof use
     queryFn: () => api!.read('/workEmployee/index', { page: 1, perPage: 200 }),
     enabled: Boolean(api && access?.corp.id),
   });
+  const departments = useQuery({
+    queryKey: ['p35-department-options', access?.corp.id],
+    queryFn: () => api!.read('/workDepartment/pageIndex', { name: '', parentName: '', page: 1, perPage: 200 }),
+    enabled: Boolean(api && access?.corp.id),
+  });
   const employeeOptions = records(employees.data);
-  return <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); filters.apply(); }}>
-    <label>开始日期<input aria-label="开始日期" type="date" value={filters.startDate} onChange={(event) => filters.setStartDate(event.target.value)} /></label>
-    <label>结束日期<input aria-label="结束日期" type="date" value={filters.endDate} onChange={(event) => filters.setEndDate(event.target.value)} /></label>
+  const departmentOptions = flattenRows(records(departments.data));
+  return <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); if (validateDateRange({ startDate: filters.startDate, endDate: filters.endDate }) === null) filters.apply(); }}>
+    <DateRangeFields value={{ startDate: filters.startDate, endDate: filters.endDate }} onChange={(value) => { filters.setStartDate(value.startDate); filters.setEndDate(value.endDate); }} />
     <label>员工
       <select aria-label="员工" value={filters.employeeId} onChange={(event) => filters.setEmployeeId(event.target.value)}>
         <option value="">全部员工</option>
         {employeeOptions.map((row) => <option key={String(row.id)} value={String(row.id)}>{text(row.name ?? row.id)}</option>)}
       </select>
     </label>
-    <label>部门<input aria-label="部门" inputMode="numeric" value={filters.departmentId} onChange={(event) => filters.setDepartmentId(event.target.value.replace(/\D/g, ''))} /></label>
+    <label>部门<select aria-label="部门" value={filters.departmentId} onChange={(event) => filters.setDepartmentId(event.target.value)}><option value="">全部部门</option>{departmentOptions.map((row) => <option key={String(row.departmentId ?? row.id)} value={String(row.departmentId ?? row.id)}>{text(row.name ?? row.departmentName)}</option>)}</select></label>
     <button type="submit">查询</button><button type="button" onClick={filters.reset}>重置</button>
   </form>;
 }

@@ -1,18 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { ConfirmAction } from '../../components/confirm-action';
+import { DashboardDialog } from '../../components/dashboard-dialog';
 import { createRoleApi, type PermissionNode, type RoleItem } from '../role/role-api';
 
 type RoleApi = ReturnType<typeof createRoleApi>;
+const permissionNameMap: Record<string, string> = { 'Friends circle': '朋友圈' };
+const permissionName = (node: PermissionNode) => permissionNameMap[node.name] ?? (/\?{2,}|provider/i.test(node.name) ? `未命名权限（${node.id}）` : node.name || `未命名权限（${node.id}）`);
 
 function PermissionTree({ nodes, selected, onToggle }: { nodes: PermissionNode[]; selected: Set<number>; onToggle: (id: number) => void }) {
   return (
     <ul>
       {nodes.map((node) => (
         <li key={node.id}>
-          <label><input type="checkbox" checked={selected.has(node.id)} onChange={() => onToggle(node.id)} />{node.name}</label>
+          <label><input type="checkbox" checked={selected.has(node.id)} onChange={() => onToggle(node.id)} />{permissionName(node)}</label>
           {node.children?.length > 0 && <PermissionTree nodes={node.children} selected={selected} onToggle={onToggle} />}
         </li>
       ))}
@@ -31,6 +34,7 @@ export function CompanyRolePage({ api }: { api: RoleApi }) {
   const [permissionTarget, setPermissionTarget] = useState<RoleItem | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [error, setError] = useState('');
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   const query = useQuery({ queryKey: ['company-role', keyword, page], queryFn: () => api.list({ name: keyword, page, perPage: 20 }) });
   const items = query.data?.list ?? [];
@@ -55,9 +59,11 @@ export function CompanyRolePage({ api }: { api: RoleApi }) {
   const openEdit = (item: RoleItem) => { setEditing(item); setCreating(false); setName(item.name); setRemarks(item.remarks ?? ''); setError(''); };
   const openPermissions = (item: RoleItem) => { setPermissionTarget(item); void permissions.refetch(); };
   const valid = Boolean(name.trim().length >= 2);
+  const closeEditor = () => { setEditing(null); setCreating(false); setError(''); };
+  const closePermissions = () => { setPermissionTarget(null); setSelected(new Set()); };
 
   return (
-    <Phase35PageShell title="角色管理" description="角色增删改查与菜单权限勾选" actions={<button type="button" onClick={openCreate}>新建角色</button>}>
+    <Phase35PageShell title="角色管理" description="角色增删改查与菜单权限勾选" actions={<button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; openCreate(); }}>新建角色</button>}>
       <div className="phase35-page">
         <section className="phase35-card phase35-filter-card">
           <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); void query.refetch(); }}>
@@ -78,8 +84,8 @@ export function CompanyRolePage({ api }: { api: RoleApi }) {
                     <tr key={item.roleId}>
                       <td>{item.name}</td><td>{item.remarks || '—'}</td><td>{item.employeeNum}</td><td>{item.status === 1 ? '启用' : '停用'}</td><td>{item.updatedAt}</td>
                       <td>
-                        <button type="button" onClick={() => openPermissions(item)}>权限</button>
-                        <button type="button" onClick={() => openEdit(item)}>编辑</button>
+                        <button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; openPermissions(item); }}>权限</button>
+                        <button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; openEdit(item); }}>编辑</button>
                         <ConfirmAction title={item.status === 1 ? `确认停用角色“${item.name}”？` : `确认启用角色“${item.name}”？`} onConfirm={() => toggleStatus.mutate({ roleId: item.roleId, next: item.status === 1 ? 0 : 1 })}><button type="button">{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
                         <ConfirmAction title={`确认删除角色“${item.name}”？`} onConfirm={() => remove.mutate(item.roleId)}><button type="button">删除</button></ConfirmAction>
                       </td>
@@ -95,22 +101,16 @@ export function CompanyRolePage({ api }: { api: RoleApi }) {
           </Phase35DataState>
         </section>
 
-        {(creating || editing) && (
-          <section className="phase35-card" role="dialog" aria-label="角色表单">
-            <header className="phase35-card-header"><div><h2>{editing ? '编辑角色' : '新建角色'}</h2></div></header>
+        <DashboardDialog open={creating || editing !== null} title={editing ? '编辑角色' : '新建角色'} triggerRef={triggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={closeEditor} onConfirm={() => save.mutate()}>
             {error && <p role="alert" className="phase35-limits">{error}</p>}
             <form onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
               <label>角色名<input value={name} onChange={(event) => setName(event.target.value)} /></label>
               <label>备注<input value={remarks} onChange={(event) => setRemarks(event.target.value)} /></label>
-              <button type="submit" disabled={!valid || save.isPending}>保存</button>
-              <button type="button" onClick={() => { setEditing(null); setCreating(false); setError(''); }}>取消</button>
             </form>
-          </section>
-        )}
+        </DashboardDialog>
 
-        {permissionTarget && (
-          <section className="phase35-card" role="dialog" aria-label="角色权限">
-            <header className="phase35-card-header"><div><h2>“{permissionTarget.name}”的菜单权限</h2><p>勾选后保存，角色所辖员工登录时按此过滤菜单</p></div></header>
+        <DashboardDialog open={permissionTarget !== null} title={permissionTarget ? `“${permissionTarget.name}”的菜单权限` : '角色权限'} triggerRef={triggerRef} confirmText="保存权限" confirmLoading={savePermissions.isPending} onCancel={closePermissions} onConfirm={() => savePermissions.mutate()}>
+            <p>勾选后保存，角色所辖员工登录时按此过滤菜单</p>
             {permissions.isLoading && <p>正在加载权限…</p>}
             {permissions.isError && <p role="alert" className="phase35-limits">权限加载失败</p>}
             {permissions.data && (
@@ -121,10 +121,7 @@ export function CompanyRolePage({ api }: { api: RoleApi }) {
               />
             )}
             <button type="button" onClick={() => { setSelected(collect(permissions.data ?? [], new Set())); }}>全选当前</button>
-            <button type="button" onClick={() => void savePermissions.mutate()} disabled={savePermissions.isPending}>保存权限</button>
-            <button type="button" onClick={() => { setPermissionTarget(null); setSelected(new Set()); }}>关闭</button>
-          </section>
-        )}
+        </DashboardDialog>
       </div>
     </Phase35PageShell>
   );

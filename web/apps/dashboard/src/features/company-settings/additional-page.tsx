@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ConfirmAction } from '../../components/confirm-action';
+import { DashboardDialog } from '../../components/dashboard-dialog';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createMenuAdminApi, type MenuNode } from '../menu-admin/menu-admin-api';
@@ -18,6 +19,7 @@ export function CompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
   const [level, setLevel] = useState(1);
   const [icon, setIcon] = useState('');
   const [error, setError] = useState('');
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   const query = useQuery({ queryKey: ['company-additional', keyword, page], queryFn: () => api.list({ name: keyword, page, perPage: 20 }) });
   const items = query.data?.list ?? [];
@@ -37,9 +39,10 @@ export function CompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
   const openCreate = () => { setCreating(true); setEditing(null); setName(''); setLinkUrl(''); setLevel(1); setIcon(''); setError(''); };
   const openEdit = (item: MenuNode) => { setEditing(item); setCreating(false); setName(item.name); setLinkUrl(item.menuPath); setLevel(item.level); setIcon(item.icon); setError(''); };
   const valid = Boolean(name.trim().length >= 2);
+  const closeEditor = () => { setEditing(null); setCreating(false); setError(''); };
 
   return (
-    <Phase35PageShell title="附加权限" description="维护菜单/功能点，作为附加权限的来源" actions={<button type="button" onClick={openCreate}>新增菜单</button>}>
+    <Phase35PageShell title="附加权限" description="维护菜单/功能点，作为附加权限的来源" actions={<button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; openCreate(); }}>新增菜单</button>}>
       <div className="phase35-page">
         <section className="phase35-card phase35-filter-card">
           <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); void query.refetch(); }}>
@@ -60,7 +63,7 @@ export function CompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
                     <tr key={item.menuId}>
                       <td>{item.icon ? `${item.icon} ` : ''}{item.name}</td><td>{item.levelName}</td><td>{item.menuPath}</td><td>{item.status === 1 ? '启用' : '停用'}</td><td>{item.updatedAt}</td>
                       <td>
-                        <button type="button" onClick={() => openEdit(item)}>编辑</button>
+                        <button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; openEdit(item); }}>编辑</button>
                         <ConfirmAction title={item.status === 1 ? `确认停用菜单“${item.name}”？` : `确认启用菜单“${item.name}”？`} onConfirm={() => toggleStatus.mutate({ id: item.menuId, next: item.status === 1 ? 0 : 1 })}>
                           <button type="button">{item.status === 1 ? `停用 ${item.name}` : `启用 ${item.name}`}</button>
                         </ConfirmAction>
@@ -80,20 +83,15 @@ export function CompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
           </Phase35DataState>
         </section>
 
-        {(creating || editing) && (
-          <section className="phase35-card" role="dialog" aria-label="菜单表单">
-            <header className="phase35-card-header"><div><h2>{editing ? '编辑菜单' : '新增菜单'}</h2></div></header>
+        <DashboardDialog open={creating || editing !== null} title={editing ? '编辑菜单' : '新增菜单'} triggerRef={triggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={closeEditor} onConfirm={() => save.mutate()}>
             {error && <p role="alert" className="phase35-limits">{error}</p>}
             <form onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
               <label>名称<input value={name} onChange={(event) => setName(event.target.value)} /></label>
               <label>层级<select value={level} onChange={(event) => setLevel(Number(event.target.value))}><option value={1}>一级</option><option value={2}>二级</option><option value={3}>三级</option></select></label>
               <label>路径<input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} /></label>
               <label>图标<input value={icon} onChange={(event) => setIcon(event.target.value)} /></label>
-              <button type="submit" disabled={!valid || save.isPending}>保存</button>
-              <button type="button" onClick={() => { setEditing(null); setCreating(false); setError(''); }}>取消</button>
             </form>
-          </section>
-        )}
+        </DashboardDialog>
       </div>
     </Phase35PageShell>
   );

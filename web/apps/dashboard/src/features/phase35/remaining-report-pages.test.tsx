@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { EmployeeReportPage } from './employee-report-page';
 import { BehaviorReportPage } from './behavior-report-page';
 import { ReportPage } from './report-page';
+import { DashboardAccessProvider } from '../../app/access-context';
 afterEach(cleanup);
 const wrap=(node:React.ReactNode)=><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter>{node}</MemoryRouter></QueryClientProvider>;
 test('employee limitation is visible',async()=>{const api={read:vi.fn().mockResolvedValue({limitations:[{provider:'conversation_archive',message:'会话归档不可用'}]}),write:vi.fn()};render(wrap(<EmployeeReportPage api={api}/>));expect(await screen.findByText(/会话归档不可用/)).not.toBeNull()});
@@ -13,3 +14,13 @@ test('behavior maps nested pagination and renders Chinese business detail',async
 test('summary report always renders four explained business sections',async()=>{const api={read:vi.fn().mockResolvedValue({summary:{},items:[],pagination:{page:1,pageSize:20,total:0}}),write:vi.fn()};render(wrap(<ReportPage api={api}/>));for(const name of ['客户概览','转化漏斗','订单经营','行为审计'])expect(await screen.findByRole('region',{name})).not.toBeNull()});
 
 test('summary report uses primary metrics without heterogeneous summation',async()=>{const api={read:vi.fn().mockResolvedValue({summary:{customer:5,contact:3,lead:2,opportunity:1,won:4,order:3,amount:1200,behavior:7},items:[],pagination:{page:1,pageSize:20,total:0}}),write:vi.fn()};render(wrap(<ReportPage api={api}/>));await vi.waitFor(()=>expect(screen.getAllByText('7').length).toBeGreaterThan(0));const articles=screen.getAllByRole('article');const text=articles.map((item)=>item.textContent??'').join('\n');expect(text).toContain('客户概览5');expect(text).toContain('转化漏斗2');expect(text).toContain('订单经营3');expect(text).toContain('行为审计7');expect(text).not.toContain('客户概览8');});
+
+test('report filters use shared date validation and real department options', async () => {
+  const api = { read: vi.fn().mockImplementation((path: string) => Promise.resolve(path.includes('workEmployee') ? { list: [] } : path.includes('workDepartment') ? { list: [{ departmentId: 3, name: '华东销售部' }] } : { summary: {}, items: [], pagination: { page: 1, pageSize: 20, total: 0 } })), write: vi.fn() };
+  const access = { corp: { id: '9' }, session: {}, menu: [], allowedRoutes: new Set(), allowedActions: new Set() } as never;
+  render(<DashboardAccessProvider value={access}>{wrap(<ReportPage api={api}/>)}</DashboardAccessProvider>);
+  expect(await screen.findByRole('option', { name: '华东销售部' })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-02' } });
+  fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-01' } });
+  expect(await screen.findByText('开始日期不能晚于结束日期')).toBeTruthy();
+});

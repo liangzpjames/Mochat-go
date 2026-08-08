@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useOptionalDashboardAccess } from '../../app/access-context';
 import { ConfirmAction } from '../../components/confirm-action';
+import { DashboardDialog } from '../../components/dashboard-dialog';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import type { AISettingsApi, AgentItem } from './ai-settings-api';
@@ -16,6 +17,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
   const [selectedBases, setSelectedBases] = useState<string[]>([]);
   const [status, setStatus] = useState(1);
   const [error, setError] = useState('');
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const query = useQuery({
     queryKey: ['ai-agents', corpId],
@@ -53,9 +55,10 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
   };
   const toggleBase = (id: string) => setSelectedBases((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   const valid = Boolean(corpId && name.trim().length >= 2 && name.trim().length <= 128);
+  const closeEditor = () => { setEditing(null); setCreating(false); setError(''); };
 
   return (
-    <Phase35PageShell title="智能体管理" description="维护智能体：名称、说明、关联知识库与启停状态" actions={<button type="button" onClick={openCreate}>新建智能体</button>}>
+    <Phase35PageShell title="智能体管理" description="维护智能体：名称、说明、关联知识库与启停状态" actions={<button ref={triggerRef} type="button" onClick={openCreate}>新建智能体</button>}>
       <div className="phase35-page">
         <section className="phase35-kpis" aria-label="智能体指标">
           <article className="phase35-kpi phase35-kpi-primary"><span>智能体总数</span><strong>{total}</strong><small>当前企业内已创建的智能体</small></article>
@@ -93,9 +96,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
           </Phase35DataState>
         </section>
 
-        {(creating || editing) && (
-          <section className="phase35-card" role="dialog" aria-label="智能体表单">
-            <header className="phase35-card-header"><div><h2>{editing ? '编辑智能体' : '新建智能体'}</h2></div></header>
+        <DashboardDialog open={creating || editing !== null} title={editing ? '编辑智能体' : '新建智能体'} triggerRef={triggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={closeEditor} onConfirm={() => save.mutate()}>
             {error && <p role="alert" className="phase35-limits">{error}</p>}
             <form onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
               <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：智能客服" /></label>
@@ -108,11 +109,8 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
                 ))}
               </fieldset>
               <label>状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select></label>
-              <button type="submit" disabled={!valid || save.isPending}>保存</button>
-              <button type="button" onClick={() => { setEditing(null); setCreating(false); setError(''); }}>取消</button>
             </form>
-          </section>
-        )}
+        </DashboardDialog>
       </div>
     </Phase35PageShell>
   );

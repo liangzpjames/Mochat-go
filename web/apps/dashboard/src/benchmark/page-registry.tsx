@@ -105,7 +105,7 @@ export function createBenchmarkP0Pages({
   menuAdminApi?: MenuAdminApi;
 }): PageRegistry {
   return {
-    '/index': <DashboardOverviewPage api={dashboardOverviewApi} />,
+    '/index': <DashboardOverviewPage api={dashboardOverviewApi} optionsApi={businessWorkbenchApi} />,
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
     '/chat/v2-staff': <EmployeeConversationPage api={conversationGlobalApi} />,
     '/chat/v2-customer': <ConversationGlobalPage api={conversationGlobalApi} fixedConversationType="customer" />,

@@ -6,6 +6,8 @@ import { Link, useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
+import { DateRangeFields } from '../../components/date-range-fields';
+import { records, text, type Phase35Api } from '../phase35/api';
 import { updateSearch } from '../../shared/query-state';
 import type {
   DashboardOverviewApi,
@@ -18,20 +20,6 @@ type FilterDraft = OverviewRange & { employeeIds: string; departmentIds: string 
 
 const defaultPageSize = 20;
 const enterpriseTimeZone = 'Asia/Shanghai';
-
-function enterpriseDateText(value: Date): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: enterpriseTimeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(value);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const year = values.year ?? '';
-  const month = values.month ?? '';
-  const date = values.day ?? '';
-  return `${year}-${month}-${date}`;
-}
 
 function defaultRange(): OverviewRange {
   const now = new Date();
@@ -61,6 +49,17 @@ function idsFromSearch(search: URLSearchParams, key: string): string[] {
 
 function idsFromText(value: string): string[] {
   return [...new Set(value.split(',').map((item) => item.trim()).filter((item) => /^\d+$/.test(item) && Number(item) > 0))];
+}
+
+function namedOptions(rows: ReturnType<typeof records>, selected: string[], idKeys: string[], fallback: string) {
+  const options = rows.flatMap((row) => {
+    const rawId = idKeys.map((key) => row[key]).find((value) => typeof value === 'string' || typeof value === 'number');
+    if (rawId === undefined) return [];
+    const id = String(rawId);
+    return [{ id, name: text(row.name ?? row.departmentName) }];
+  });
+  for (const id of selected) if (!options.some((option) => option.id === id)) options.push({ id, name: `${fallback}（${id}）` });
+  return options;
 }
 
 function filtersFromSearch(search: URLSearchParams, fallback: OverviewRange): FilterDraft {
@@ -178,7 +177,7 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
   </div>;
 }
 
-export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOverviewApi; initialRange?: OverviewRange }) {
+export function DashboardOverviewPage({ api, initialRange, optionsApi }: { api: DashboardOverviewApi; initialRange?: OverviewRange; optionsApi?: Phase35Api | undefined }) {
   const access = useDashboardAccess();
   const [searchParams, setSearchParams] = useSearchParams();
   const fallback = initialRange ?? defaultRange();
@@ -202,6 +201,12 @@ export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOve
     pageSize,
   }), [access.corp.id, current.departmentIds, current.employeeIds, current.from, current.to, page, pageSize]);
   const query = useQuery({ queryKey: ['corp', access.corp.id, 'dashboard-overview', input], queryFn: () => api.load(input) });
+  const employees = useQuery({ queryKey: ['overview-employee-options', access.corp.id], queryFn: () => optionsApi!.read('/workEmployee/index', { page: 1, perPage: 200 }), enabled: Boolean(optionsApi) });
+  const departments = useQuery({ queryKey: ['overview-department-options', access.corp.id], queryFn: () => optionsApi!.read('/workDepartment/pageIndex', { name: '', parentName: '', page: 1, perPage: 200 }), enabled: Boolean(optionsApi) });
+  const employeeOptions = records(employees.data);
+  const departmentOptions = records(departments.data);
+  const employeeChoices = namedOptions(employeeOptions, idsFromText(draft.employeeIds), ['id', 'employeeId'], '员工');
+  const departmentChoices = namedOptions(departmentOptions, idsFromText(draft.departmentIds), ['departmentId', 'id'], '部门');
 
   function applyFilters() {
     if (draft.from === '' || draft.to === '' || draft.from > draft.to) { setRangeError('请选择有效的日期范围'); return; }
@@ -222,12 +227,11 @@ export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOve
     <header className="dashboard-overview-header dashboard-page-header dashboard-data-card">
       <div><p className="dashboard-overview-eyebrow">数据中心</p><h1>数据概览</h1><p>查看当前企业客户、线索、订单与行为数据（与数据报表同口径）。</p></div>
       <div className="dashboard-overview-filters dashboard-filter-bar">
-        <label><span>开始日期</span><input aria-label="开始日期" type="date" value={draft.from} onChange={(event) => setDraft((value) => ({ ...value, from: event.target.value }))} /></label>
-        <label><span>结束日期</span><input aria-label="结束日期" type="date" value={draft.to} onChange={(event) => setDraft((value) => ({ ...value, to: event.target.value }))} /></label>
-        <button onClick={applyFilters} type="button">查询</button><button disabled={query.isFetching} onClick={() => void query.refetch()} type="button">刷新</button><button disabled={query.isFetching} onClick={() => void exportCsv()} type="button">导出 CSV</button>
+        <DateRangeFields value={{ startDate: draft.from, endDate: draft.to }} onChange={(value) => setDraft((currentDraft) => ({ ...currentDraft, from: value.startDate, to: value.endDate }))} onValidSubmit={applyFilters} />
+        <button disabled={query.isFetching} onClick={() => void query.refetch()} type="button">刷新</button><button disabled={query.isFetching} onClick={() => void exportCsv()} type="button">导出 CSV</button>
       </div>
     </header>
-    <details className="overview-advanced-filters dashboard-data-card"><summary>高级范围筛选</summary><div><label><span>员工 ID</span><input aria-label="员工 ID" placeholder="多个 ID 用逗号分隔" value={draft.employeeIds} onChange={(event) => setDraft((value) => ({ ...value, employeeIds: event.target.value }))} /></label><label><span>部门 ID</span><input aria-label="部门 ID" placeholder="多个 ID 用逗号分隔" value={draft.departmentIds} onChange={(event) => setDraft((value) => ({ ...value, departmentIds: event.target.value }))} /></label></div></details>
+    <details className="overview-advanced-filters dashboard-data-card"><summary>高级范围筛选</summary><div><label><span>员工</span><select multiple aria-label="员工范围" value={idsFromText(draft.employeeIds)} onChange={(event) => setDraft((value) => ({ ...value, employeeIds: [...event.currentTarget.selectedOptions].map((option) => option.value).join(',') }))}>{employeeChoices.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label><label><span>部门</span><select multiple aria-label="部门范围" value={idsFromText(draft.departmentIds)} onChange={(event) => setDraft((value) => ({ ...value, departmentIds: [...event.currentTarget.selectedOptions].map((option) => option.value).join(',') }))}>{departmentChoices.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label></div></details>
     {rangeError !== null && <p className="dashboard-overview-inline-error" role="alert">{rangeError}</p>}
     {exportError !== null && <p className="dashboard-overview-inline-error" role="alert">{exportError}</p>}
     {query.isPending && <PageState state="loading" title="正在加载数据概览" />}

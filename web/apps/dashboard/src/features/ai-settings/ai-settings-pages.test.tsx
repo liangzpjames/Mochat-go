@@ -107,4 +107,15 @@ describe('AI 设置页面', () => {
     fireEvent.click(await screen.findByRole('button', { name: '取消' }));
     expect(deleteAgent).not.toHaveBeenCalled();
   });
+
+  it('知识库：共享 Modal 支持 Esc 关闭并恢复触发焦点', async () => {
+    renderPage(createApi(), 'kb');
+    const trigger = await screen.findByRole('button', { name: '新建知识库' });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: '新建知识库' });
+    expect(dialog.closest('.dashboard-dialog--modal')).not.toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '新建知识库' })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
 });

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { DashboardDialog } from '../../components/dashboard-dialog';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createCorpAdminApi, type CorpDetail, type CorpListInput } from '../corp/corp-admin-api';
@@ -17,6 +18,7 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
   const [employeeSecret, setEmployeeSecret] = useState('');
   const [contactSecret, setContactSecret] = useState('');
   const [error, setError] = useState('');
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   const input: CorpListInput = { corpId: '', corpName: keyword, page, perPage: 20 };
   const query = useQuery({ queryKey: ['company-website', keyword, page], queryFn: () => api.list(input) });
@@ -39,9 +41,10 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
     setEmployeeSecret(''); setContactSecret(''); setError('');
   };
   const valid = Boolean(corpName.trim() && wxCorpId.trim());
+  const closeEditor = () => { setEditing(null); setCreating(false); setError(''); };
 
   return (
-    <Phase35PageShell title="企业信息" description="查看与维护企业微信企业信息与密钥配置" actions={<button type="button" onClick={openCreate}>新建企业</button>}>
+    <Phase35PageShell title="企业信息" description="查看与维护企业微信企业信息与密钥配置" actions={<button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; openCreate(); }}>新建企业</button>}>
       <div className="phase35-page">
         <section className="phase35-card phase35-filter-card">
           <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); void query.refetch(); }}>
@@ -66,7 +69,7 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
                   {items.map((item) => (
                     <tr key={item.corpId}>
                       <td>{item.corpName}</td><td>{item.wxCorpId}</td><td>{item.createdAt}</td>
-                      <td><button type="button" onClick={() => void api.show(item.corpId).then(openEdit)}>编辑</button></td>
+                      <td><button type="button" onClick={(event) => { triggerRef.current = event.currentTarget; void api.show(item.corpId).then(openEdit); }}>编辑</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -80,9 +83,7 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
           </Phase35DataState>
         </section>
 
-        {(creating || editing) && (
-          <section className="phase35-card" role="dialog" aria-label="企业信息表单">
-            <header className="phase35-card-header"><div><h2>{editing ? '编辑企业' : '新建企业'}</h2></div></header>
+        <DashboardDialog open={creating || editing !== null} title={editing ? '编辑企业' : '新建企业'} triggerRef={triggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={closeEditor} onConfirm={() => save.mutate()}>
             {error && <p role="alert" className="phase35-limits">{error}</p>}
             <form onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
               <label>企业名称<input value={corpName} onChange={(event) => setCorpName(event.target.value)} /></label>
@@ -90,11 +91,8 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
               <label>员工密钥<input type="password" value={employeeSecret} onChange={(event) => setEmployeeSecret(event.target.value)} /></label>
               <label>客户密钥<input type="password" value={contactSecret} onChange={(event) => setContactSecret(event.target.value)} /></label>
               {editing && <small>留空表示不修改</small>}
-              <button type="submit" disabled={!valid || save.isPending}>保存</button>
-              <button type="button" onClick={() => { setEditing(null); setCreating(false); setError(''); }}>取消</button>
             </form>
-          </section>
-        )}
+        </DashboardDialog>
       </div>
     </Phase35PageShell>
   );

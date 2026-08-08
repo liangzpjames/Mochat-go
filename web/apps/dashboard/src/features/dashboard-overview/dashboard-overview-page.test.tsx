@@ -13,6 +13,7 @@ import type {
 } from './dashboard-overview-api';
 import { createDashboardOverviewApi } from './dashboard-overview-api';
 import { DashboardOverviewPage } from './dashboard-overview-page';
+import type { Phase35Api } from '../phase35/api';
 
 const access: AccessContext = {
   session: { token: 'Bearer test', userId: '1', corpId: '7', expiresAt: null },
@@ -56,6 +57,7 @@ function LocationProbe() {
 function renderPage(
   api: Pick<DashboardOverviewApi, 'load'> & Partial<Pick<DashboardOverviewApi, 'exportCsv'>>,
   entry = '/index',
+  optionsApi?: Phase35Api,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -64,7 +66,7 @@ function renderPage(
     <MemoryRouter initialEntries={[entry]}>
       <QueryClientProvider client={queryClient}>
         <DashboardAccessProvider value={access}>
-          <DashboardOverviewPage api={{ exportCsv: vi.fn(() => Promise.resolve(new Blob())), ...api }} initialRange={range} />
+          <DashboardOverviewPage api={{ exportCsv: vi.fn(() => Promise.resolve(new Blob())), ...api }} initialRange={range} optionsApi={optionsApi} />
           <LocationProbe />
         </DashboardAccessProvider>
       </QueryClientProvider>
@@ -73,6 +75,14 @@ function renderPage(
 }
 
 describe('DashboardOverviewPage', () => {
+  it('uses real employee and department names instead of ID text fields', async () => {
+    const optionsApi = { read: vi.fn().mockImplementation((path: string) => Promise.resolve(path.includes('workEmployee') ? { list: [{ id: 9, name: '销售小王' }] } : { list: [{ departmentId: 3, name: '华东销售部' }] })), write: vi.fn() };
+    renderPage({ load: vi.fn().mockResolvedValue(overview) }, '/index', optionsApi);
+    expect(await screen.findByRole('option', { name: '销售小王' })).toBeTruthy();
+    expect(await screen.findByRole('option', { name: '华东销售部' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: '部门 ID' })).toBeNull();
+  });
+
   it('builds the default range in the explicit enterprise timezone', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-08-01T16:30:00Z'));
@@ -242,7 +252,7 @@ describe('DashboardOverviewPage', () => {
       corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01',
       employeeIds: ['9', '12'], departmentIds: ['3'], page: 2, pageSize: 20,
     });
-    expect(screen.getByDisplayValue('9,12')).not.toBeNull();
+    expect([...screen.getByLabelText('员工范围').querySelectorAll('option:checked')].map((option) => option.getAttribute('value'))).toEqual(['9', '12']);
     expect(screen.queryByLabelText('趋势周期')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
