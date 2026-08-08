@@ -28,6 +28,16 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 - 浏览器验收：26/26 页截图无错误/占位符；`qwen3-vl-plus` 严格识图审查 3 轮；知识库/智能体数据流工作流（UI→API→MySQL→回读）闭环。
 - 入口：`docs/phases/phase-3-dashboard/debt-clearance/`（设计、矩阵、验收报告）。
 
+## 数据口径统一与短期清理（2026-08-08）
+
+- 目标：消除数据概览 `/index`（legacy `/corpData/index`）与 Phase 3.5 报表（`/dashboard/reports/*`）的两套数据口径。
+- 后端：`internal/modules/reporting` 新增 `overview` 报表类型，复用 customer/conversion/behavior/employee 四类查询合并结果；授权权限键 `/dashboard/corpData/index#get`（与系统首页菜单一致）；legacy `/corpData/index` 保留不动。
+- 前端：`dashboard-overview-api.ts` 改为调用 `/reports/overview`（`timezone=Asia/Shanghai` + 东八区半开日期区间，与报表一致）；概览页移除硬编码 0 模块（会话数据/质检数据/员工排行/轨迹）与趋势周期下拉；KPI 改为客户总数/线索总数/订单总数/行为事件 4 卡（与综合报表同口径）；AI 与会话归档未接入时显示空态引导。
+- 验收：`go test ./...` 全绿；前端 88 文件 518 测试全绿；typecheck/build 通过；Docker 重建后 `/readyz` 200；Playwright 实测 overview 与 customer/conversion/behavior 报表各主指标一致，页面无硬编码 0。
+- 清理：验收数据清理已执行（AI 分析 16 行、音频 1 行、归档消息 5 行、P35 联系人/分配/订单/审计等），证据与备份在 `D:\workspace\mochat-go\output\acceptance-cleanup-20260808\`。
+- 分支：`feat/2026-08-08-data-calibre-unification`（含 `cf853c0`、`ea4f27f`、`59475cf` 等，待合入 `main`）。
+- 已知限制：`reportingPrincipalResolver` 未填充 `AllowedEmployeeIDs`，员工级数据权限（self/department）在报表与概览中暂未生效（菜单权限仍生效），已另行记录。
+
 ## 阶段总览
 
 | 阶段 | 状态 | 进度口径 | 主要结果 | 入口 |
@@ -65,18 +75,20 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 3. **基准 53/53 已达标。** 真实企微会话存档凭证仍未提供：适配层已注册为 `limited`，提供凭证后激活并做会话/风险浏览器级回读验收。
 4. **AI API 测试期关闭。** `MOCHAT_GO_AI_INSIGHT_ENABLED` 默认 `0`，AI 洞察页保持受限态、不发起外部调用；需要真实 AI 分析时置 `1` 并配置 `MOCHAT_GO_AI_PROVIDER_KEY`。
 5. **未跟踪产物。** `web/saas-admin/`（dist+node_modules，约 141MB）、`.gocache-phase35-review/`、`.workbuddy/` 与个别计划文件未入库，需用户确认清理策略。
-6. **验收测试数据待清理。** 运行库中 `P35-ACCEPT-*`/`P36-*` 测试数据与 AI 分析结果，清理步骤：`deploy/standalone/acceptance/cleanup_phase3_final.sql`（由用户确认后执行）。
+6. **验收测试数据已清理（2026-08-08）。** 运行库中 `P35-ACCEPT-*`/`P36-*` 测试数据与 AI 分析结果已删除（三轮清理，含漏网验收订单），备份与证据在 `D:\workspace\mochat-go\output\acceptance-cleanup-20260808\`；legacy 旧表（`mc_work_*`）未做全面扫描，如需彻底清理可另行立项。
 
 ## 精确下一任务
 
 1. ~~合入 Phase 3 Final 全部改动到 `main`~~ 已合入并推送（`361b918`）。
 2. 接入真实企微会话存档凭证：激活 `WeComArchiveProvider`，做会话五页 + 风险事件的浏览器级回读验收。
 3. 测试期保持 `MOCHAT_GO_AI_INSIGHT_ENABLED=0`；需要真实 AI 分析时置 `1` 并配置 `MOCHAT_GO_AI_PROVIDER_KEY`（可用阿里云百炼）。
-4. 清理验收测试数据（`deploy/standalone/acceptance/cleanup_phase3_final.sql`，由用户确认后执行）。
+4. ~~清理验收测试数据~~ 已完成（2026-08-08，证据与备份见 `D:\workspace\mochat-go\output\acceptance-cleanup-20260808\`）。
 5. 推进工程收尾：React 迁移（Sidebar/Operation）与生产化加固（真实 Provider、备份演练、性能安全）。
+6. 数据口径统一分支 `feat/2026-08-08-data-calibre-unification` 待合入 `main` 并推送。
 
 ## 最近交付
 
+- 2026-08-08：数据口径统一（overview 报表 + 概览页接入统一口径）+ 验收数据清理；分支 `feat/2026-08-08-data-calibre-unification`。
 - `0bedd12`：订单审计写入原子化（Phase 3.5 最后提交，2026-08-06）。
 - 2026-08-06 晚：迁移 0121–0123 应用、collation 与 transition 路由修复、九页浏览器验收与跨页工作流证据闭合。
 - `0bba77a`：Phase 3.5 订单工作流产品化。
