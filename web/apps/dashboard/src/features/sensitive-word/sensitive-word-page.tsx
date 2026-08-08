@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { ConfirmAction } from '../../components/confirm-action';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { SensitiveWordApi, SensitiveWordMatchFilters } from './sensitive-word-api';
 
@@ -34,7 +35,7 @@ function detailValue(value: unknown): string {
 	const entries = Object.entries(value as Record<string, unknown>);
 	return entries.length === 0 ? '--' : entries.map(([key, item]) => `${key}: ${detailValue(item)}`).join(' · ');
   }
-  return String(value);
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint' ? String(value) : '--';
 }
 
 export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
@@ -65,7 +66,7 @@ export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
   const wordsKey = useMemo(() => ['sensitive-word', corpID, 'words'] as const, [corpID]);
   const recordsKey = useMemo(() => ['sensitive-word', corpID, 'records'] as const, [corpID]);
 
-  const groups = useQuery({ queryKey: groupsKey, queryFn: api.groups });
+  const groups = useQuery({ queryKey: groupsKey, queryFn: () => api.groups() });
   const words = useQuery({
 	queryKey: [...wordsKey, groupID, keywords],
 	queryFn: () => api.list({ groupId: groupID, keywords, page: 1, perPage: 10 }),
@@ -233,7 +234,7 @@ export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
 			  </table></div></div>
 			  {(words.data?.items.length ?? 0) === 0 ? <PageState state="empty" /> : <div className="sensitive-word-config-card dashboard-data-card"><header><h2>敏感词条</h2><span>{words.data?.total ?? 0} 个词条</span></header><div className="dashboard-table-scroll"><table>
 				<thead><tr><th>敏感词</th><th>分组</th><th>状态</th><th>移动到</th><th>操作</th></tr></thead>
-				<tbody>{words.data?.items.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.groupName}</td><td>{item.status === 1 ? '启用' : '停用'}</td><td><select aria-label={`移动 ${item.name}`} value={moveTargets[item.id] ?? item.groupId} onChange={(event) => setMoveTargets((current) => ({ ...current, [item.id]: Number(event.target.value) }))}>{(groups.data ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></td><td><div className="dashboard-table-actions">{canEdit && <button aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} type="button" onClick={() => setEnabled.mutate({ id: item.id, enabled: item.status !== 1, version: item.version })}>{item.status === 1 ? '停用' : '启用'}</button>}{canEdit && <button aria-label={`确认移动 ${item.name}`} type="button" onClick={() => moveWord.mutate({ id: item.id, targetGroupID: moveTargets[item.id] ?? item.groupId, version: item.version })}>移动</button>}{canDelete && <button aria-label={`删除 ${item.name}`} type="button" onClick={() => { if (window.confirm(`确认删除敏感词“${item.name}”？`)) removeWord.mutate({ id: item.id, version: item.version }); }}>删除</button>}</div></td></tr>)}</tbody>
+				<tbody>{words.data?.items.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.groupName}</td><td>{item.status === 1 ? '启用' : '停用'}</td><td><select aria-label={`移动 ${item.name}`} value={moveTargets[item.id] ?? item.groupId} onChange={(event) => setMoveTargets((current) => ({ ...current, [item.id]: Number(event.target.value) }))}>{(groups.data ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></td><td><div className="dashboard-table-actions">{canEdit && <ConfirmAction title={`确认${item.status === 1 ? '停用' : '启用'}敏感词“${item.name}”？`} onConfirm={() => setEnabled.mutate({ id: item.id, enabled: item.status !== 1, version: item.version })}><button aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} type="button">{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>}{canEdit && <button aria-label={`确认移动 ${item.name}`} type="button" onClick={() => moveWord.mutate({ id: item.id, targetGroupID: moveTargets[item.id] ?? item.groupId, version: item.version })}>移动</button>}{canDelete && <ConfirmAction title={`确认删除敏感词“${item.name}”？`} description="删除后无法恢复。" onConfirm={() => removeWord.mutate({ id: item.id, version: item.version })}><button aria-label={`删除 ${item.name}`} type="button">删除</button></ConfirmAction>}</div></td></tr>)}</tbody>
 			  </table></div></div>}
 			</>
 		  )}

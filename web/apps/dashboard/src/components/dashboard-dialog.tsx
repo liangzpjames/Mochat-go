@@ -11,6 +11,7 @@ type DashboardDialogProps = {
   confirmText?: string;
   cancelText?: string;
   confirmLoading?: boolean;
+  confirmDisabled?: boolean;
   danger?: boolean;
   mode?: 'modal' | 'drawer';
   width?: number | string;
@@ -27,6 +28,7 @@ export function DashboardDialog({
   confirmText = '保存',
   cancelText = '取消',
   confirmLoading = false,
+  confirmDisabled = false,
   danger = false,
   mode = 'modal',
   width,
@@ -56,7 +58,7 @@ export function DashboardDialog({
         <>
           <Button aria-label={cancelText} onClick={handleCancel}>{cancelText}</Button>
           {onConfirm !== undefined && (
-            <Button aria-label={confirmText} danger={danger} loading={confirmLoading} type="primary" onClick={onConfirm}>{confirmText}</Button>
+            <Button aria-label={confirmText} danger={danger} disabled={confirmDisabled} loading={confirmLoading} type="primary" onClick={onConfirm}>{confirmText}</Button>
           )}
         </>
       )

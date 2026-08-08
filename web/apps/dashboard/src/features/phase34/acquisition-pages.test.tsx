@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../app/access-context';
 import type { AccessContext } from '../../app/access-loader';
@@ -24,7 +25,10 @@ const access: AccessContext = {
   allowedActions: new Set(),
 };
 
-afterEach(cleanup);
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 function view(page: React.ReactNode, allowedActions = access.allowedActions) {
   return render(
@@ -104,6 +108,58 @@ describe('Phase 3.4 acquisition pages', () => {
     expect(screen.getByRole('button', { name: '刷新' })).toBeTruthy();
   });
 
+  it('creates a channel code through the existing write Provider', async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<ChannelCodePage api={{ read: vi.fn().mockResolvedValue({ list: [] }), write }} />);
+
+    await screen.findByRole('heading', { name: '暂无记录' });
+    fireEvent.click(screen.getByRole('button', { name: '新建渠道活码' }));
+    fireEvent.change(screen.getByLabelText('渠道活码名称'), { target: { value: '官网咨询' } });
+    fireEvent.change(screen.getByLabelText('使用成员 ID'), { target: { value: '21' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存渠道活码' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/channelCode/store',
+      expect.objectContaining({
+        baseInfo: expect.objectContaining({ name: '官网咨询', autoAddFriend: 1 }),
+        drainageEmployee: expect.objectContaining({ type: 1 }),
+        welcomeMessage: expect.any(Object),
+      }),
+      'POST',
+    ));
+  });
+
+  it('creates a group code through the existing auto-pull Provider', async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<GroupCodePage api={{ read: vi.fn().mockResolvedValue({ list: [] }), write }} />);
+
+    await screen.findByRole('heading', { name: '暂无记录' });
+    fireEvent.click(screen.getByRole('button', { name: '新建群活码' }));
+    fireEvent.change(screen.getAllByLabelText('群活码名称')[1]!, { target: { value: '售后服务群' } });
+    fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '欢迎入群' } });
+    fireEvent.change(screen.getByLabelText('使用成员 ID'), { target: { value: '21' } });
+    fireEvent.change(screen.getByLabelText('客户标签 ID'), { target: { value: '31' } });
+    fireEvent.change(screen.getByLabelText('群聊配置 JSON'), { target: { value: '[{"roomId":41,"maxNum":50}]' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存群活码' }));
+
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/workRoomAutoPull/store',
+      expect.objectContaining({ corpId: 7, qrcodeName: '售后服务群', employees: [21], tags: [31] }),
+      'POST',
+    ));
+  });
+
+  it('shows an explicit read-only state when granular permissions omit create', async () => {
+    view(
+      <ChannelCodePage api={{ read: vi.fn().mockResolvedValue({ list: [] }), write: vi.fn() }} />,
+      new Set(['/acquisition/v2-channel-code@refresh']),
+    );
+
+    await screen.findByRole('heading', { name: '暂无记录' });
+    expect(screen.queryByRole('button', { name: '新建渠道活码' })).toBeNull();
+    expect(screen.getByText('当前账号仅可查看渠道活码')).toBeTruthy();
+  });
+
   it('loads persisted short links, opens the create drawer, and creates a draft target', async () => {
     const read = vi.fn().mockResolvedValue({
       list: [{ id: 8, name: '群活码短链', token: 'abc123', targetUrl: '/acquisition/group-code', status: 'active', visitTotal: 4 }],
@@ -136,6 +192,8 @@ describe('Phase 3.4 acquisition pages', () => {
 
     await screen.findByText('群活码短链');
     fireEvent.click(screen.getByRole('button', { name: '停用' }));
+    expect(write).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
     await waitFor(() => expect(write).toHaveBeenCalledWith('/liveCodeShortChain/disable', { id: 8 }, 'POST'));
   });
 });

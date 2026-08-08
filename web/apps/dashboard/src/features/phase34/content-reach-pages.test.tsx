@@ -33,6 +33,9 @@ describe('Phase 3.4 content-reach pages', () => {
     view(<PreciseGroupSendPage api={{ read, write: vi.fn() }} />);
 
     expect(await screen.findByText('欢迎参与')).toBeTruthy();
+    const contactTab = screen.getByRole('tab', { name: '客户群发' });
+    expect(contactTab.getAttribute('aria-controls')).toBe('precise-send-panel');
+    expect(screen.getByRole('tabpanel').getAttribute('id')).toBe('precise-send-panel');
     expect(read).toHaveBeenCalledWith('/contactMessageBatchSend/index', expect.objectContaining({ page: 1, perPage: 20 }));
     expect(screen.getByRole('button', { name: '新建群发' })).toHaveProperty('disabled', false);
     fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '夏日' } });
@@ -153,8 +156,9 @@ describe('Phase 3.4 content-reach pages', () => {
     const write = vi.fn().mockResolvedValue(undefined);
     view(<FriendsCirclePage api={{ read, write }} />);
 
-    expect(screen.getByRole('tab', { name: '朋友圈' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '朋友圈' }).getAttribute('aria-controls')).toBe('friends-circle-panel');
     expect(screen.getByRole('tab', { name: '朋友圈素材' })).toBeTruthy();
+    expect(screen.getByRole('tabpanel').getAttribute('id')).toBe('friends-circle-panel');
     expect(await screen.findByText('夏日朋友圈')).toBeTruthy();
     expect(read).toHaveBeenCalledWith('/friendsCircle/taskIndex', expect.objectContaining({ page: 1, perPage: 20 }));
     expect(screen.getByLabelText('任务名称')).toBeTruthy();
@@ -276,7 +280,6 @@ describe('Phase 3.4 content-reach pages', () => {
 
   it('supports keyboard filtering and protects unsaved drawer content', async () => {
     const read = vi.fn().mockResolvedValue({ list: [] });
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     view(<FriendsCirclePage api={{ read, write: vi.fn() }} />);
 
     await screen.findByRole('heading', { name: '还没有朋友圈任务' });
@@ -295,10 +298,12 @@ describe('Phase 3.4 content-reach pages', () => {
     expect(screen.getByText('0 / 500')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('草稿名称'), { target: { value: '未保存草稿' } });
     fireEvent.click(screen.getByRole('button', { name: '关闭新增面板' }));
-    expect(confirm).toHaveBeenCalledOnce();
+    const discardDialog = await screen.findByRole('dialog', { name: '放弃未保存内容？' });
     expect(screen.getByLabelText('朋友圈草稿')).toBeTruthy();
-    confirm.mockReturnValue(true);
+    fireEvent.click(within(discardDialog).getByRole('button', { name: '取消' }));
+    expect(screen.getByLabelText('朋友圈草稿')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '关闭新增面板' }));
+    fireEvent.click(await screen.findByRole('button', { name: '放弃更改' }));
     expect(screen.queryByLabelText('朋友圈草稿')).toBeNull();
     expect(document.activeElement).toBe(addButton);
 

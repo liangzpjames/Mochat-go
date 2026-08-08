@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../../app/access-context';
 import type { AccessContext } from '../../../app/access-loader';
@@ -16,7 +16,8 @@ const access: AccessContext = {
   allowedActions: new Set(),
 };
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function view(api: BusinessWorkbenchApi) {
   return render(
@@ -42,6 +43,9 @@ describe('Phase 3.4 material management', () => {
     view({ read, write: vi.fn() });
 
     expect(await screen.findByText('欢迎文案')).toBeTruthy();
+    const publicTab = screen.getByRole('tab', { name: /公共素材/ });
+    expect(publicTab.getAttribute('aria-controls')).toBe('material-scope-panel');
+    expect(screen.getByRole('tabpanel').getAttribute('id')).toBe('material-scope-panel');
     expect(read).toHaveBeenCalledWith('/medium/index', expect.objectContaining({ scopeType: 'public', page: 1, perPage: 20 }));
     fireEvent.click(screen.getByRole('button', { name: '活动素材' }));
     fireEvent.change(screen.getByLabelText('素材类型'), { target: { value: '1' } });
@@ -61,6 +65,24 @@ describe('Phase 3.4 material management', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存素材' }));
 
     await waitFor(() => expect(write).toHaveBeenCalledWith('/medium/store', expect.objectContaining({ type: 1, scopeType: 'public', content: { title: '新品介绍', content: '新品现已上线' } }), 'POST'));
+    expect(screen.queryByRole('dialog', { name: '添加素材' })).toBeNull();
+  });
+
+  it('protects unsaved material content with the shared confirmation dialog', async () => {
+    view({ read: readProvider(), write: vi.fn() });
+    await screen.findByText('欢迎文案');
+
+    fireEvent.click(screen.getByRole('button', { name: '添加素材' }));
+    fireEvent.change(screen.getByLabelText('素材名称'), { target: { value: '未保存素材' } });
+    fireEvent.click(screen.getByRole('button', { name: '关闭素材面板' }));
+
+    const discardDialog = await screen.findByRole('dialog', { name: '放弃未保存素材？' });
+    expect(screen.getByRole('dialog', { name: '添加素材' })).toBeTruthy();
+    fireEvent.click(within(discardDialog).getByRole('button', { name: '取消' }));
+    expect(screen.getByLabelText('素材名称')).toHaveProperty('value', '未保存素材');
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭素材面板' }));
+    fireEvent.click(await screen.findByRole('button', { name: '放弃更改' }));
     expect(screen.queryByRole('dialog', { name: '添加素材' })).toBeNull();
   });
 
@@ -108,6 +130,8 @@ describe('Phase 3.4 material management', () => {
     fireEvent.click(screen.getByRole('button', { name: '批量移动' }));
     await waitFor(() => expect(write).toHaveBeenCalledWith('/medium/batchGroupUpdate', { ids: [21], mediumGroupId: 9 }, 'POST'));
     fireEvent.click(screen.getByRole('button', { name: '批量删除' }));
+    expect(write).not.toHaveBeenCalledWith('/medium/batchDelete', expect.anything(), 'DELETE');
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
     expect((await screen.findByRole('alert')).textContent).toContain('素材正在被欢迎语引用');
   });
 });

@@ -2,10 +2,13 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { DashboardDialog } from '../../components/dashboard-dialog';
+import { ConfirmAction } from '../../components/confirm-action';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
 
 type AcquisitionRecord = Record<string, unknown>;
+type AcquisitionKind = 'channel' | 'group';
 
 type Column = {
   key: string;
@@ -120,6 +123,75 @@ function RecordDetail({
   );
 }
 
+function positiveIDs(value: string): number[] {
+  return [...new Set(value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0))];
+}
+
+function AcquisitionCreateDrawer({
+  kind,
+  open,
+  saving,
+  name,
+  employeeIDs,
+  leadingWords,
+  tagIDs,
+  rooms,
+  error,
+  onNameChange,
+  onEmployeeIDsChange,
+  onLeadingWordsChange,
+  onTagIDsChange,
+  onRoomsChange,
+  onCancel,
+  onConfirm,
+}: {
+  kind: AcquisitionKind;
+  open: boolean;
+  saving: boolean;
+  name: string;
+  employeeIDs: string;
+  leadingWords: string;
+  tagIDs: string;
+  rooms: string;
+  error: string;
+  onNameChange: (value: string) => void;
+  onEmployeeIDsChange: (value: string) => void;
+  onLeadingWordsChange: (value: string) => void;
+  onTagIDsChange: (value: string) => void;
+  onRoomsChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const label = kind === 'channel' ? '渠道活码' : '群活码';
+  const required = name.trim() !== ''
+    && positiveIDs(employeeIDs).length > 0
+    && (kind === 'channel' || (leadingWords.trim() !== '' && positiveIDs(tagIDs).length > 0 && rooms.trim() !== ''));
+  return (
+    <DashboardDialog
+      confirmLoading={saving}
+      confirmDisabled={!required}
+      confirmText={`保存${label}`}
+      mode="drawer"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      open={open}
+      title={`新建${label}`}
+    >
+      <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); if (required) onConfirm(); }}>
+        <label>{label}名称<input aria-label={`${label}名称`} required value={name} onChange={(event) => onNameChange(event.target.value)} /></label>
+        <label>使用成员 ID<input aria-label="使用成员 ID" inputMode="numeric" required value={employeeIDs} onChange={(event) => onEmployeeIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+        {kind === 'group' && <>
+          <label>入群引导语<textarea aria-label="入群引导语" required value={leadingWords} onChange={(event) => onLeadingWordsChange(event.target.value)} /></label>
+          <label>客户标签 ID<input aria-label="客户标签 ID" inputMode="numeric" required value={tagIDs} onChange={(event) => onTagIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+          <label>群聊配置 JSON<textarea aria-label="群聊配置 JSON" required value={rooms} onChange={(event) => onRoomsChange(event.target.value)} /></label>
+        </>}
+        <p className="phase34-field-hint">保存会调用现有 Go Provider；企业微信配置或业务对象无效时会保留真实错误，不生成假二维码。</p>
+        {error && <p className="phase34-inline-error" role="alert">{error}</p>}
+      </form>
+    </DashboardDialog>
+  );
+}
+
 function ConnectedAcquisitionPage({
   api,
   path,
@@ -130,6 +202,7 @@ function ConnectedAcquisitionPage({
   inputPlaceholder,
   columns,
   detailLabel,
+  kind,
   nameParam = 'name',
 }: {
   api: BusinessWorkbenchApi;
@@ -141,12 +214,21 @@ function ConnectedAcquisitionPage({
   inputPlaceholder: string;
   columns: Column[];
   detailLabel: string;
+  kind: AcquisitionKind;
   nameParam?: string;
 }) {
   const access = useDashboardAccess();
   const [draftName, setDraftName] = useState('');
   const [name, setName] = useState('');
   const [selected, setSelected] = useState<AcquisitionRecord | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createEmployeeIDs, setCreateEmployeeIDs] = useState('');
+  const [createLeadingWords, setCreateLeadingWords] = useState('');
+  const [createTagIDs, setCreateTagIDs] = useState('');
+  const [createRooms, setCreateRooms] = useState('[]');
+  const [saving, setSaving] = useState(false);
+  const [writeError, setWriteError] = useState('');
   const query = useQuery({
     queryKey: ['phase34-acquisition', access.corp.id, path, name],
     queryFn: () => api.read(endpoint, { ...(name ? { [nameParam]: name } : {}), page: 1, perPage: 20 }),
@@ -158,6 +240,43 @@ function ConnectedAcquisitionPage({
   );
   const can = (action: string) => !hasPhase34ActionContract || access.allowedActions.has(`${path}@${action}`);
   const refresh = () => { void query.refetch(); };
+  const saveCreate = async () => {
+    const employees = positiveIDs(createEmployeeIDs);
+    if (!createName.trim() || employees.length === 0) return;
+    setSaving(true);
+    setWriteError('');
+    try {
+      if (kind === 'channel') {
+        await api.write('/channelCode/store', {
+          baseInfo: { groupId: 0, name: createName.trim(), autoAddFriend: 1, tags: [] },
+          drainageEmployee: {
+            type: 1,
+            employees: [],
+            specialPeriod: { status: 1, detail: [{ startDate: '2000-01-01', endDate: '2099-12-31', timeSlot: [{ startTime: '00:00', endTime: '00:00', employeeId: employees }] }] },
+            addMax: { status: 2, employees: [], spareEmployeeIds: [] },
+          },
+          welcomeMessage: { scanCodePush: 2, messageDetail: [] },
+        }, 'POST');
+      } else {
+        JSON.parse(createRooms) as unknown;
+        await api.write('/workRoomAutoPull/store', {
+          corpId: Number(access.corp.id), qrcodeName: createName.trim(), isVerified: 2,
+          leadingWords: createLeadingWords.trim(), employees, tags: positiveIDs(createTagIDs), rooms: createRooms.trim(),
+        }, 'POST');
+      }
+      setCreateOpen(false);
+      setCreateName('');
+      setCreateEmployeeIDs('');
+      setCreateLeadingWords('');
+      setCreateTagIDs('');
+      setCreateRooms('[]');
+      await query.refetch();
+    } catch (error) {
+      setWriteError(error instanceof Error ? error.message : `创建${title}失败`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <section className="phase34-page">
@@ -165,6 +284,7 @@ function ConnectedAcquisitionPage({
         <div><p className="phase34-eyebrow">营销工具 · 渠道获客</p><h1>{title}</h1><p>{description}</p></div>
         <div className="phase34-header-actions">
           <span className="phase34-provider-badge">数据已连接</span>
+          {can('create') ? <button type="button" onClick={() => { setWriteError(''); setCreateOpen(true); }}>{`新建${title}`}</button> : <span className="phase34-provider-badge">当前账号仅可查看{title}</span>}
           {can('refresh') && <button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button>}
         </div>
       </header>
@@ -182,16 +302,17 @@ function ConnectedAcquisitionPage({
         {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} {...(can('refresh') ? { onRetry: refresh } : {})} /> : rows.length === 0 ? <PageState state="empty" title="暂无记录" description="当前筛选条件下没有可展示的数据。" /> : <AcquisitionTable rows={rows} columns={columns} onDetail={setSelected} />}
       </div>
       {selected !== null && <RecordDetail title={detailLabel} row={selected} columns={columns} onClose={() => setSelected(null)} />}
+      {createOpen && <AcquisitionCreateDrawer kind={kind} open saving={saving} name={createName} employeeIDs={createEmployeeIDs} leadingWords={createLeadingWords} tagIDs={createTagIDs} rooms={createRooms} error={writeError} onNameChange={setCreateName} onEmployeeIDsChange={setCreateEmployeeIDs} onLeadingWordsChange={setCreateLeadingWords} onTagIDsChange={setCreateTagIDs} onRoomsChange={setCreateRooms} onCancel={() => { if (!saving) setCreateOpen(false); }} onConfirm={() => { void saveCreate(); }} />}
     </section>
   );
 }
 
 export function ChannelCodePage({ api }: { api: BusinessWorkbenchApi }) {
-  return <ConnectedAcquisitionPage api={api} path="/acquisition/v2-channel-code" title="渠道活码" description="通过员工与部门活码承接客户，并追踪新增好友与渠道效果。" endpoint="/channelCode/index" inputLabel="活码名称" inputPlaceholder="请输入名称" columns={channelColumns} detailLabel="渠道活码详情" />;
+  return <ConnectedAcquisitionPage api={api} path="/acquisition/v2-channel-code" title="渠道活码" description="通过员工与部门活码承接客户，并追踪新增好友与渠道效果。" endpoint="/channelCode/index" inputLabel="活码名称" inputPlaceholder="请输入名称" columns={channelColumns} detailLabel="渠道活码详情" kind="channel" />;
 }
 
 export function GroupCodePage({ api }: { api: BusinessWorkbenchApi }) {
-  return <ConnectedAcquisitionPage api={api} path="/acquisition/group-code" title="群活码" description="基于现有自动拉群能力查看群二维码配置和关联群聊。扫码统计未有统一口径时不构造数据。" endpoint="/workRoomAutoPull/index" inputLabel="群活码名称" inputPlaceholder="请输入名称" columns={groupColumns} detailLabel="群活码详情" nameParam="qrcodeName" />;
+  return <ConnectedAcquisitionPage api={api} path="/acquisition/group-code" title="群活码" description="基于现有自动拉群能力查看群二维码配置和关联群聊。扫码统计未有统一口径时不构造数据。" endpoint="/workRoomAutoPull/index" inputLabel="群活码名称" inputPlaceholder="请输入名称" columns={groupColumns} detailLabel="群活码详情" kind="group" nameParam="qrcodeName" />;
 }
 
 function shortLinkStatus(value: unknown): string {
@@ -334,7 +455,7 @@ export function LiveCodeShortChainPage({ api }: { api: BusinessWorkbenchApi }) {
               <tbody>{rows.map((row, index) => {
                 const id = shortLinkId(row);
                 const active = row.status === 'active';
-                return <tr key={rowKey(row, index)}><td><strong>{display(row.name)}</strong><br /><code>/r/{display(row.token)}</code></td><td>{display(row.targetUrl)}</td><td>{shortLinkStatus(row.status)}</td><td>{display(row.visitTotal)}</td><td>{display(row.creatorName)} / {display(row.createdAt)}</td><td>{active && can('disable') && id !== null ? <button type="button" className="phase34-link-button" disabled={busyID === id} onClick={() => { void disable(row); }}>停用</button> : <span>--</span>}</td></tr>;
+                return <tr key={rowKey(row, index)}><td><strong>{display(row.name)}</strong><br /><code>/r/{display(row.token)}</code></td><td>{display(row.targetUrl)}</td><td>{shortLinkStatus(row.status)}</td><td>{display(row.visitTotal)}</td><td>{display(row.creatorName)} / {display(row.createdAt)}</td><td>{active && can('disable') && id !== null ? <ConfirmAction title={`确认停用短链“${display(row.name)}”？`} description="停用后该短链将无法继续访问。" onConfirm={() => { void disable(row); }}><button type="button" className="phase34-link-button" disabled={busyID === id}>停用</button></ConfirmAction> : <span>--</span>}</td></tr>;
               })}</tbody>
             </table>
           </div>

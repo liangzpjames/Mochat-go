@@ -1,3 +1,4 @@
+import { ApiError } from '@mochat/api-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
@@ -72,5 +73,20 @@ describe('EmployeeConversationPage', () => {
 
     expect(await screen.findByText('你好')).toBeTruthy();
     expect(detail).toHaveBeenCalledWith(summary.id);
+  });
+
+  it('maps the archive Provider error to the shared configuration state', async () => {
+    renderPage({
+      employees: () => Promise.resolve([employee]),
+      search: () => Promise.reject(new ApiError('forbidden', 'archive not authorized', { status: 403, code: 40301 })),
+      detail: vi.fn(),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: /张三/ }));
+
+    const state = (await screen.findByText('会话归档未开通')).closest('[role="status"]');
+    expect(state?.textContent).toContain('会话归档未开通');
+    expect(screen.getByRole('link', { name: '去配置会话归档' }).getAttribute('href')).toBe('/company-setting/website');
+    expect(screen.queryByText('加载失败')).toBeNull();
   });
 });

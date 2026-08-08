@@ -7,6 +7,10 @@ import { useSearchParams } from 'react-router';
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
 import { updateSearch } from '../../shared/query-state';
+import {
+  ConversationArchiveUnavailableState,
+  isConversationArchiveUnavailable,
+} from './conversation-archive-state';
 import type {
   ConversationGlobalApi,
   ConversationMessage,
@@ -50,12 +54,6 @@ function filtersFromSearch(
 
 function employeeIDsFromDraft(value: string): string[] {
   return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
-}
-
-function isArchiveUnauthorized(error: unknown): boolean {
-  return error instanceof ApiError
-    && error.status === 403
-    && error.code === 40301;
 }
 
 function targetTypeLabel(type: ConversationTargetType): string {
@@ -185,7 +183,7 @@ export function ConversationGlobalPage({
     setSearchParams(updateSearch(searchParams, { conversationType, page: 1, pageSize }));
   }
 
-  const archiveUnauthorized = isArchiveUnauthorized(listQuery.error);
+  const archiveUnauthorized = isConversationArchiveUnavailable(listQuery.error);
   const forbidden = listQuery.error instanceof ApiError
     && listQuery.error.kind === 'forbidden'
     && !archiveUnauthorized;
@@ -193,8 +191,8 @@ export function ConversationGlobalPage({
     && detailQuery.error.status === 404;
   const detailForbidden = detailQuery.error instanceof ApiError
     && detailQuery.error.status === 403
-    && !isArchiveUnauthorized(detailQuery.error);
-  const detailArchiveUnauthorized = isArchiveUnauthorized(detailQuery.error);
+    && !isConversationArchiveUnavailable(detailQuery.error);
+  const detailArchiveUnauthorized = isConversationArchiveUnavailable(detailQuery.error);
   const showRoomLimitation = currentFilters.conversationType === 'room'
     || listQuery.data?.list.some((item) => item.targetType === 'room') === true;
   const totalPages = Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / pageSize));
@@ -331,11 +329,7 @@ export function ConversationGlobalPage({
 
       {listQuery.isPending && <PageState state="loading" title="正在加载全局消息" />}
       {archiveUnauthorized && (
-        <PageState
-          description="请先在企业微信完成会话内容存档授权并启用归档同步。"
-          state="forbidden"
-          title="当前企业未开通会话内容存档"
-        />
+        <ConversationArchiveUnavailableState />
       )}
       {forbidden && (
         <PageState

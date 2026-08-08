@@ -265,7 +265,9 @@ describe('ConversationGlobalPage', () => {
       detail: vi.fn(),
     });
 
-    expect(await screen.findByText('当前企业未开通会话内容存档')).not.toBeNull();
+    const state = (await screen.findByText('会话归档未开通')).closest('[role="status"]');
+    expect(state?.textContent).toContain('会话归档未开通');
+    expect(screen.getByRole('link', { name: '去配置会话归档' }).getAttribute('href')).toBe('/company-setting/website');
   });
 
   it('shows a dedicated non-retryable state when a conversation no longer exists', async () => {

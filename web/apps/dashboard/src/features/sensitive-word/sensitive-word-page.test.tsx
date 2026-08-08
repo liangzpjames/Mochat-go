@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/unbound-method */
 import { ApiError } from '@mochat/api-client';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SensitiveWordApi } from './sensitive-word-api';
 import { SensitiveWordPage } from './sensitive-word-page';
@@ -17,9 +18,18 @@ vi.mock('../../app/access-context', () => ({
   }),
 }));
 
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function apiFixture(overrides: Partial<SensitiveWordApi> = {}): SensitiveWordApi {
@@ -107,9 +117,8 @@ describe('SensitiveWordPage', () => {
 	expect(await screen.findByText('报价')).toBeTruthy();
   });
 
-  it('creates groups and words, toggles, moves and confirms deletion with concurrency metadata', async () => {
+	it('creates groups and words, toggles, moves and confirms deletion with concurrency metadata', async () => {
 	const api = apiFixture();
-	vi.spyOn(window, 'confirm').mockReturnValue(true);
 	const { invalidateQueries } = renderPage(api);
 	fireEvent.click(await screen.findByRole('button', { name: '敏感词配置' }));
 
@@ -123,11 +132,15 @@ describe('SensitiveWordPage', () => {
 	await waitFor(() => expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ names: ['报价'], groupId: 2, version: '0', idempotencyKey: expect.any(String) })));
 
 	fireEvent.click(screen.getByRole('button', { name: '停用 旧词' }));
+	expect(api.setEnabled).not.toHaveBeenCalled();
+	fireEvent.click(await screen.findByRole('button', { name: '确认' }));
 	await waitFor(() => expect(api.setEnabled).toHaveBeenCalledWith(expect.objectContaining({ id: 1, enabled: false, version: 'word-v1', idempotencyKey: expect.any(String) })));
 	fireEvent.change(screen.getByRole('combobox', { name: '移动 旧词' }), { target: { value: '3' } });
 	fireEvent.click(screen.getByRole('button', { name: '确认移动 旧词' }));
 	await waitFor(() => expect(api.move).toHaveBeenCalledWith(expect.objectContaining({ id: 1, groupId: 3, version: 'word-v1', idempotencyKey: expect.any(String) })));
 	fireEvent.click(screen.getByRole('button', { name: '删除 旧词' }));
+	expect(api.remove).not.toHaveBeenCalled();
+	fireEvent.click(await screen.findByRole('button', { name: '确认' }));
 	await waitFor(() => expect(api.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 1, version: 'word-v1', confirmed: true, idempotencyKey: expect.any(String) })));
 
 	expect((await screen.findByRole('status')).textContent).toContain('操作成功');
@@ -144,6 +157,7 @@ describe('SensitiveWordPage', () => {
 	const conflictView = renderPage(conflictApi);
 	fireEvent.click(await screen.findByRole('button', { name: '敏感词配置' }));
 	fireEvent.click(await screen.findByRole('button', { name: '停用 旧词' }));
+	fireEvent.click(await screen.findByRole('button', { name: '确认' }));
 	expect((await screen.findByRole('alert')).textContent).toContain('数据已被其他人更新，请刷新后重试');
 	conflictView.unmount();
 

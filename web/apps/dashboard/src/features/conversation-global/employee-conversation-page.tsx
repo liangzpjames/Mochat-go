@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router';
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
 import { updateSearch } from '../../shared/query-state';
+import { ConversationArchiveUnavailableState, isConversationArchiveUnavailable } from './conversation-archive-state';
 import type { ConversationGlobalApi, ConversationMessage, ConversationTargetType } from './conversation-global-api';
 
 const pageSize = 20;
@@ -72,6 +73,9 @@ export function EmployeeConversationPage({ api }: { api: ConversationGlobalApi }
 
   const selectedEmployee = employeeQuery.data?.find((item) => String(item.id) === selectedEmployeeId);
   const totalPages = Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / pageSize));
+  const employeeArchiveUnavailable = isConversationArchiveUnavailable(employeeQuery.error);
+  const listArchiveUnavailable = isConversationArchiveUnavailable(listQuery.error);
+  const detailArchiveUnavailable = isConversationArchiveUnavailable(detailQuery.error);
 
   return (
     <section className="employee-conversation-page">
@@ -94,7 +98,8 @@ export function EmployeeConversationPage({ api }: { api: ConversationGlobalApi }
             <div><input id="employee-name" value={employeeDraft} onChange={(event) => setEmployeeDraft(event.target.value)} placeholder="请输入员工名称" /><button type="submit" aria-label="搜索员工">搜索</button></div>
           </form>
           {employeeQuery.isPending && <PageState state="loading" />}
-          {employeeQuery.error && <PageState state="error" onRetry={() => void employeeQuery.refetch()} />}
+          {employeeArchiveUnavailable && <ConversationArchiveUnavailableState />}
+          {employeeQuery.error && !employeeArchiveUnavailable && <PageState state="error" onRetry={() => void employeeQuery.refetch()} />}
           {!employeeQuery.isPending && !employeeQuery.error && employeeQuery.data?.length === 0 && <PageState state="empty" title="暂无员工" description="当前搜索条件下没有员工。" />}
           <div className="employee-conversation-employee-list">
             {employeeQuery.data?.map((employee) => (
@@ -113,7 +118,8 @@ export function EmployeeConversationPage({ api }: { api: ConversationGlobalApi }
           </nav>
           {!selectedEmployeeId && <PageState state="empty" title="请选择员工" description="从左侧员工列表选择员工后查看会话。" />}
           {selectedEmployeeId && listQuery.isPending && <PageState state="loading" />}
-          {selectedEmployeeId && listQuery.error && <PageState state="error" onRetry={() => void listQuery.refetch()} />}
+          {selectedEmployeeId && listArchiveUnavailable && <ConversationArchiveUnavailableState />}
+          {selectedEmployeeId && listQuery.error && !listArchiveUnavailable && <PageState state="error" onRetry={() => void listQuery.refetch()} />}
           {selectedEmployeeId && !listQuery.isPending && !listQuery.error && listQuery.data?.list.length === 0 && <PageState state="empty" />}
           <div className="employee-conversation-items">
             {listQuery.data?.list.map((conversation) => <button className={conversation.id === selectedConversationId ? 'is-selected' : ''} key={conversation.id} onClick={() => selectConversation(conversation.id)} type="button"><strong>{conversation.targetName}</strong><span>{targetLabel(conversation.targetType)} · {conversation.sentAt}</span><p>{conversation.lastMessage || '暂无消息'}</p></button>)}
@@ -124,7 +130,8 @@ export function EmployeeConversationPage({ api }: { api: ConversationGlobalApi }
         <section className="employee-conversation-detail dashboard-data-card" aria-label="会话详情">
           {!selectedConversationId && <PageState state="empty" title="请选择会话" description="选择中间列表中的会话查看消息详情。" />}
           {selectedConversationId && detailQuery.isPending && <PageState state="loading" />}
-          {selectedConversationId && detailQuery.error && <PageState state="error" onRetry={() => void detailQuery.refetch()} />}
+          {selectedConversationId && detailArchiveUnavailable && <ConversationArchiveUnavailableState />}
+          {selectedConversationId && detailQuery.error && !detailArchiveUnavailable && <PageState state="error" onRetry={() => void detailQuery.refetch()} />}
           {detailQuery.data && <><header><div><strong>{detailQuery.data.targetName}</strong><span>{targetLabel(detailQuery.data.targetType)} · {detailQuery.data.employeeName}</span></div></header><div className="employee-conversation-messages">{detailQuery.data.messages.map((message) => <article className={message.direction} key={message.id}><header><strong>{message.senderName}</strong><time>{message.sentAt}</time></header><p>{messageText(message)}</p></article>)}</div>{detailQuery.data.truncated && <p className="conversation-global-window-note">仅展示最近消息</p>}</>}
         </section>
       </div>
