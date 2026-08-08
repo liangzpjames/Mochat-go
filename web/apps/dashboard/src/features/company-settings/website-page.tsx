@@ -36,7 +36,7 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
   const openCreate = () => { setCreating(true); setEditing(null); setCorpName(''); setWxCorpId(''); setEmployeeSecret(''); setContactSecret(''); setError(''); };
   const openEdit = (item: CorpDetail) => {
     setEditing(item); setCreating(false); setCorpName(item.corpName); setWxCorpId(item.wxCorpId);
-    setEmployeeSecret(item.employeeSecret); setContactSecret(item.contactSecret); setError('');
+    setEmployeeSecret(''); setContactSecret(''); setError('');
   };
   const valid = Boolean(corpName.trim() && wxCorpId.trim());
 
@@ -87,8 +87,9 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
             <form onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
               <label>企业名称<input value={corpName} onChange={(event) => setCorpName(event.target.value)} /></label>
               <label>企业微信 CorpId<input value={wxCorpId} onChange={(event) => setWxCorpId(event.target.value)} /></label>
-              <label>员工密钥<input value={employeeSecret} onChange={(event) => setEmployeeSecret(event.target.value)} /></label>
-              <label>客户密钥<input value={contactSecret} onChange={(event) => setContactSecret(event.target.value)} /></label>
+              <label>员工密钥<input type="password" value={employeeSecret} onChange={(event) => setEmployeeSecret(event.target.value)} /></label>
+              <label>客户密钥<input type="password" value={contactSecret} onChange={(event) => setContactSecret(event.target.value)} /></label>
+              {editing && <small>留空表示不修改</small>}
               <button type="submit" disabled={!valid || save.isPending}>保存</button>
               <button type="button" onClick={() => { setEditing(null); setCreating(false); setError(''); }}>取消</button>
             </form>

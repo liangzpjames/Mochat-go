@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../app/access-context';
 import type { AccessContext } from '../../app/access-loader';
@@ -22,6 +22,7 @@ const forbiddenAccess: AccessContext = {
 };
 
 afterEach(cleanup);
+beforeAll(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }; });
 
 function view(access: AccessContext, api: BusinessWorkbenchApi) {
   return render(
@@ -95,5 +96,20 @@ describe('RiskBehaviorPage', () => {
       expect.objectContaining({ name: '转账拦截' }),
       'POST',
     ));
+  });
+
+  it('does not toggle or delete a named rule before confirmation', async () => {
+    const read = vi.fn().mockResolvedValue({
+      items: [{ id: 11, name: '转账拦截', status: 'enabled', subject: 'employee' }],
+    });
+    const write = vi.fn().mockResolvedValue({});
+    view(authorizedAccess, { read, write });
+
+    fireEvent.click(screen.getByRole('button', { name: '规则配置' }));
+    const disable = await screen.findByRole('button', { name: '停用 转账拦截' });
+    fireEvent.click(disable);
+    expect(write).not.toHaveBeenCalledWith('/risk/rules/status', expect.anything(), 'PUT');
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
   });
 });

@@ -83,7 +83,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
                       <td>{item.status === 1 ? '启用' : '停用'}</td><td>{item.updatedAt}</td>
                       <td>
                         <button type="button" onClick={() => openEdit(item)}>编辑</button>
-                        <ConfirmAction title={`确认删除智能体“${item.name}”？`} onConfirm={() => remove.mutate(item.id)}><button type="button">删除</button></ConfirmAction>
+                        <ConfirmAction title={`确认删除智能体“${item.name}”？`} onConfirm={() => remove.mutate(item.id)}><button type="button">{`删除 ${item.name}`}</button></ConfirmAction>
                       </td>
                     </tr>
                   ))}

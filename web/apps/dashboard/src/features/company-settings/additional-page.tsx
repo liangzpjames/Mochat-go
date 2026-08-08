@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { ConfirmAction } from '../../components/confirm-action';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createMenuAdminApi, type MenuNode } from '../menu-admin/menu-admin-api';
@@ -60,8 +61,12 @@ export function CompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
                       <td>{item.icon ? `${item.icon} ` : ''}{item.name}</td><td>{item.levelName}</td><td>{item.menuPath}</td><td>{item.status === 1 ? '启用' : '停用'}</td><td>{item.updatedAt}</td>
                       <td>
                         <button type="button" onClick={() => openEdit(item)}>编辑</button>
-                        <button type="button" onClick={() => toggleStatus.mutate({ id: item.menuId, next: item.status === 1 ? 0 : 1 })}>{item.status === 1 ? '停用' : '启用'}</button>
-                        <button type="button" onClick={() => { if (window.confirm(`确认删除“${item.name}”？`)) remove.mutate(item.menuId); }}>删除</button>
+                        <ConfirmAction title={item.status === 1 ? `确认停用菜单“${item.name}”？` : `确认启用菜单“${item.name}”？`} onConfirm={() => toggleStatus.mutate({ id: item.menuId, next: item.status === 1 ? 0 : 1 })}>
+                          <button type="button">{item.status === 1 ? `停用 ${item.name}` : `启用 ${item.name}`}</button>
+                        </ConfirmAction>
+                        <ConfirmAction title={`确认删除菜单“${item.name}”？`} description="删除后引用该菜单的授权将失效。" onConfirm={() => remove.mutate(item.menuId)}>
+                          <button type="button">{`删除 ${item.name}`}</button>
+                        </ConfirmAction>
                       </td>
                     </tr>
                   ))}

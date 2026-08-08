@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { KnowledgeBasePage } from './knowledge-base-page';
 import { AgentPage } from './agent-page';
 import type { AISettingsApi } from './ai-settings-api';
@@ -21,6 +21,7 @@ function createApi(overrides: Partial<AISettingsApi> = {}): AISettingsApi {
 }
 
 afterEach(cleanup);
+beforeAll(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }; });
 
 function renderPage(api: AISettingsApi, page: 'kb' | 'agent') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -59,8 +60,9 @@ describe('AI 设置页面', () => {
     expect(screen.getByRole('button', { name: '重新加载' })).toBeTruthy();
   });
 
-  it('知识库：受限态（未授权 corp 不请求）', async () => {
-    const api = createApi();
+  it('知识库：受限态（未授权 corp 不请求）', () => {
+    const listKnowledgeBases = vi.fn().mockResolvedValue([]);
+    const api = createApi({ listKnowledgeBases });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { container } = render(
       <QueryClientProvider client={client}>
@@ -68,7 +70,7 @@ describe('AI 设置页面', () => {
       </QueryClientProvider>,
     );
     expect(container.textContent).toContain('知识库');
-    expect(api.listKnowledgeBases).not.toHaveBeenCalled();
+    expect(listKnowledgeBases).not.toHaveBeenCalled();
   });
 
   it('智能体：数据加载并渲染行，创建校验名称必填', async () => {
@@ -79,5 +81,30 @@ describe('AI 设置页面', () => {
     });
     renderPage(api, 'agent');
     expect(await screen.findByText('智能客服')).toBeTruthy();
+  });
+
+  it('知识库：确认前不删除指定对象', async () => {
+    const deleteKnowledgeBase = vi.fn().mockResolvedValue({});
+    const api = createApi({
+      listKnowledgeBases: vi.fn().mockResolvedValue([{ id: 'kb-1', corpId: 9, name: '售后话术库', description: '', documentCount: 3, status: 1, createdAt: '', updatedAt: '' }]),
+      deleteKnowledgeBase,
+    });
+    renderPage(api, 'kb');
+    fireEvent.click(await screen.findByRole('button', { name: '删除 售后话术库' }));
+    expect(deleteKnowledgeBase).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    await waitFor(() => expect(deleteKnowledgeBase).toHaveBeenCalledTimes(1));
+  });
+
+  it('智能体：取消删除时请求数为零', async () => {
+    const deleteAgent = vi.fn().mockResolvedValue({});
+    const api = createApi({
+      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '智能客服', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+      deleteAgent,
+    });
+    renderPage(api, 'agent');
+    fireEvent.click(await screen.findByRole('button', { name: '删除 智能客服' }));
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(deleteAgent).not.toHaveBeenCalled();
   });
 });

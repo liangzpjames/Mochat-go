@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { ConfirmAction } from '../../components/confirm-action';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createMenuAdminApi, type MenuNode } from '../menu-admin/menu-admin-api';
@@ -17,7 +18,13 @@ function OptionTree({ nodes, depth, onToggle }: { nodes: MenuNode[]; depth: numb
         <li key={node.menuId}>
           <span>{node.name}</span>
           <span className="phase35-chip">{node.status === 1 ? '已授权' : '已停用'}</span>
-          <button type="button" onClick={() => onToggle(node.menuId)}>{node.status === 1 ? '停用' : '启用'}</button>
+          <ConfirmAction
+            title={node.status === 1 ? `确认停用授权节点“${node.name}”？` : `确认启用授权节点“${node.name}”？`}
+            {...(node.status === 1 ? { description: '停用后该菜单不再授予当前企业用户。' } : {})}
+            onConfirm={() => onToggle(node.menuId)}
+          >
+            <button type="button">{node.status === 1 ? `停用 ${node.name}` : `启用 ${node.name}`}</button>
+          </ConfirmAction>
           {node.children?.length > 0 && <OptionTree nodes={node.children} depth={depth + 1} onToggle={onToggle} />}
         </li>
       ))}

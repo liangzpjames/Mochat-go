@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { ConfirmAction } from '../../components/confirm-action';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createUserAdminApi, type UserItem, type UserWrite } from '../user-admin/user-admin-api';
@@ -74,9 +75,13 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
                       <td>{item.userName}</td><td>{item.phone}</td><td>{item.roleName}</td><td>{item.statusText}</td>
                       <td>
                         <button type="button" onClick={() => openEdit(item)}>编辑</button>
-                        <button type="button" onClick={() => toggleStatus.mutate({ ids: [item.userId], next: item.status === 1 ? 0 : 1 })}>
-                          {item.status === 1 ? '停用' : '启用'}
-                        </button>
+                        <ConfirmAction
+                          title={item.status === 1 ? `确认停用员工“${item.userName}”？` : `确认启用员工“${item.userName}”？`}
+                          description={item.status === 1 ? '停用后该员工将无法登录 Dashboard。' : '启用后该员工将恢复登录权限。'}
+                          onConfirm={() => toggleStatus.mutate({ ids: [item.userId], next: item.status === 1 ? 0 : 1 })}
+                        >
+                          <button type="button">{item.status === 1 ? `停用 ${item.userName}` : `启用 ${item.userName}`}</button>
+                        </ConfirmAction>
                       </td>
                     </tr>
                   ))}
