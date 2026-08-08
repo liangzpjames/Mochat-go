@@ -333,7 +333,11 @@ func (r *SQLRepository) queryEmployee(ctx context.Context, q ReportQuery) (Repor
 		}
 	}
 	var n float64
-	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM (SELECT employee_id FROM ("+union+") m WHERE "+w+") x", a...).Scan(&n); err != nil {
+	// The employee metric is documented as the number of distinct employees
+	// appearing in the archived messages for the scoped range, not the
+	// message count; the derived table only exists to apply the tenant/corp
+	// and employee scope once across all archive partitions.
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(DISTINCT employee_id) FROM ("+union+") m WHERE "+w, a...).Scan(&n); err != nil {
 		return ReportResult{}, err
 	}
 	return ReportResult{Summary: map[string]*float64{"employee": &n}, Items: []map[string]any{}, Series: []SeriesPoint{}, Dimensions: []Dimension{}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize, Total: int(n)}, Freshness: Freshness{Provider: "conversation_archive", Status: "available"}, Limitations: limitation(q, "conversation_archive")}, nil
