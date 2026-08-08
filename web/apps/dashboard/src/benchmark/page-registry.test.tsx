@@ -33,6 +33,19 @@ const manifest = {
 
 afterEach(cleanup);
 
+const emptyOverview = {
+  cards: [],
+  trend: [],
+  summary: {
+    customer: 0, lead: 0, contact: 0, opportunity: 0, won: 0, order: 0, behavior: 0, employee: 0,
+  },
+  limitations: [],
+  updatedAt: '',
+  page: 1,
+  pageSize: 20,
+  total: 0,
+};
+
 function renderDashboardRoute(path: string) {
   const router = createDashboardRouter({
     getSession: () => ({
@@ -61,7 +74,7 @@ describe('createPageRegistry', () => {
   it('registers the real global conversation P0 page', () => {
     const pages = createBenchmarkP0Pages({
       dashboardOverviewApi: {
-        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        load: () => Promise.resolve(emptyOverview),
         exportCsv: () => Promise.resolve(new Blob()),
       },
       conversationGlobalApi: {
@@ -82,7 +95,7 @@ describe('createPageRegistry', () => {
     };
     const pages = createBenchmarkP0Pages({
       dashboardOverviewApi: {
-        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        load: () => Promise.resolve(emptyOverview),
         exportCsv: () => Promise.resolve(new Blob()),
       },
       conversationGlobalApi,
@@ -93,7 +106,7 @@ describe('createPageRegistry', () => {
 
   it('registers file audio on the Phase 3 Final native page with a real storage API', () => {
     const pages = createBenchmarkP0Pages({
-      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }), exportCsv: () => Promise.resolve(new Blob()) },
+      dashboardOverviewApi: { load: () => Promise.resolve(emptyOverview), exportCsv: () => Promise.resolve(new Blob()) },
       conversationGlobalApi: { search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }), detail: () => Promise.reject(new Error('not loaded')) },
       businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
       fileAudioApi: { list: () => Promise.resolve({ list: [], total: 0, page: 1, perPage: 20 }), upload: () => Promise.resolve({ id: 1, playUrl: '' }), remove: () => Promise.resolve({ id: 1 }) },
@@ -108,7 +121,7 @@ describe('createPageRegistry', () => {
     };
     const pages = createBenchmarkP0Pages({
       dashboardOverviewApi: {
-        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        load: () => Promise.resolve(emptyOverview),
         exportCsv: () => Promise.resolve(new Blob()),
       },
       conversationGlobalApi,
@@ -125,7 +138,7 @@ describe('createPageRegistry', () => {
   it('registers the conversation trajectory page', () => {
     const pages = createBenchmarkP0Pages({
       dashboardOverviewApi: {
-        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        load: () => Promise.resolve(emptyOverview),
         exportCsv: () => Promise.resolve(new Blob()),
       },
       conversationGlobalApi: {
@@ -140,7 +153,7 @@ describe('createPageRegistry', () => {
   it('registers the conversation export page', () => {
     const pages = createBenchmarkP0Pages({
       dashboardOverviewApi: {
-        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        load: () => Promise.resolve(emptyOverview),
         exportCsv: () => Promise.resolve(new Blob()),
       },
       conversationGlobalApi: {
@@ -155,7 +168,7 @@ describe('createPageRegistry', () => {
   it('registers all six risk warning routes as native pages when the workbench API is available', () => {
     const pages = createBenchmarkP0Pages({
       dashboardOverviewApi: {
-        load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }),
+        load: () => Promise.resolve(emptyOverview),
         exportCsv: () => Promise.resolve(new Blob()),
       },
       conversationGlobalApi: {
@@ -186,7 +199,7 @@ describe('createPageRegistry', () => {
 
   it('registers all three Phase 3.4 batch-one acquisition routes when the workbench API is available', () => {
     const pages = createBenchmarkP0Pages({
-      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }), exportCsv: () => Promise.resolve(new Blob()) },
+      dashboardOverviewApi: { load: () => Promise.resolve(emptyOverview), exportCsv: () => Promise.resolve(new Blob()) },
       conversationGlobalApi: { search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }), detail: () => Promise.reject(new Error('not loaded')) },
       businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
     });
@@ -198,7 +211,7 @@ describe('createPageRegistry', () => {
 
   it('registers all three Phase 3.4 batch-two conversion routes when the workbench API is available', () => {
     const pages = createBenchmarkP0Pages({
-      dashboardOverviewApi: { load: () => Promise.resolve({ cards: [], trend: [], updatedAt: '' }), exportCsv: () => Promise.resolve(new Blob()) },
+      dashboardOverviewApi: { load: () => Promise.resolve(emptyOverview), exportCsv: () => Promise.resolve(new Blob()) },
       conversationGlobalApi: { search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }), detail: () => Promise.reject(new Error('not loaded')) },
       businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
     });

@@ -9,6 +9,7 @@ import type { AccessContext } from '../../app/access-loader';
 import type {
   DashboardOverview,
   DashboardOverviewApi,
+  DashboardOverviewQuery,
 } from './dashboard-overview-api';
 import { createDashboardOverviewApi } from './dashboard-overview-api';
 import { DashboardOverviewPage } from './dashboard-overview-page';
@@ -25,33 +26,17 @@ const range = { from: '2026-07-01', to: '2026-07-31' };
 
 const overview: DashboardOverview = {
   cards: [
-    { key: 'contacts', label: '真实客户总数', value: 137 },
-    { key: 'rooms', label: '真实客户群', value: 29 },
+    { key: 'customer', label: '客户总数', value: 137 },
+    { key: 'lead', label: '线索总数', value: 58 },
+    { key: 'order', label: '订单总数', value: 12 },
+    { key: 'behavior', label: '行为事件', value: 41 },
   ],
-  trend: [
-    {
-      date: '2026-07-30',
-      addContactNum: 12,
-      addIntoRoomNum: 8,
-      lossContactNum: 2,
-      quitRoomNum: 1,
-    },
-  ],
-  updatedAt: '2026-07-31 09:30:00',
+  trend: [{ date: '2026-07-30', addCustomerNum: 12 }],
   summary: {
-    weChatContactNum: 137,
-    weChatRoomNum: 29,
-    roomMemberNum: 86,
-    corpMemberNum: 18,
-    addContactNum: 12,
-    lastAddContactNum: 9,
-    addIntoRoomNum: 8,
-    lastAddIntoRoomNum: 6,
-    lossContactNum: 2,
-    lastLossContactNum: 3,
-    quitRoomNum: 1,
-    lastQuitRoomNum: 1,
+    customer: 137, lead: 58, contact: 46, opportunity: 30, won: 15, order: 12, behavior: 41, employee: 0,
   },
+  limitations: [{ provider: 'conversation_archive', code: 'provider_unavailable', message: '会话归档表不可用' }],
+  updatedAt: '2026-07-31 09:30:00',
   page: 1,
   pageSize: 20,
   total: 1,
@@ -92,7 +77,7 @@ describe('DashboardOverviewPage', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-08-01T16:30:00Z'));
     vi.stubEnv('TZ', 'UTC');
-    const load = vi.fn(() => Promise.resolve(overview));
+    const load = vi.fn((_input: DashboardOverviewQuery) => Promise.resolve(overview));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
@@ -105,12 +90,15 @@ describe('DashboardOverviewPage', () => {
       </MemoryRouter>,
     );
 
-    await screen.findByText('真实客户总数');
+    await screen.findByText('客户总数');
     expect(load).toHaveBeenCalledWith(expect.objectContaining({
-      startDate: '2026-07-03',
-      endDate: '2026-08-02',
+      startDate: '2026-08-01',
+      endDate: '2026-09-01',
     }));
+    const firstCall = load.mock.calls[0]?.[0];
+    expect(firstCall).not.toHaveProperty('period');
   });
+
   it('shows loading, then renders cards and trend values from the API response', async () => {
     let resolve: ((value: DashboardOverview) => void) | undefined;
     const load = vi.fn(() => new Promise<DashboardOverview>((accept) => {
@@ -121,7 +109,7 @@ describe('DashboardOverviewPage', () => {
     expect(screen.getAllByRole('status')[0]?.textContent).toContain('正在加载数据概览');
     resolve?.(overview);
 
-    expect(await screen.findByText('真实客户总数')).not.toBeNull();
+    expect(await screen.findByText('客户总数')).not.toBeNull();
     expect(screen.getByText('137')).not.toBeNull();
     expect(screen.getAllByText('2026-07-30')).not.toHaveLength(0);
     expect(screen.getByLabelText('新增客户 12')).not.toBeNull();
@@ -132,7 +120,6 @@ describe('DashboardOverviewPage', () => {
       endDate: range.to,
       employeeIds: [],
       departmentIds: [],
-      period: 'day',
       page: 1,
       pageSize: 20,
     });
@@ -147,16 +134,25 @@ describe('DashboardOverviewPage', () => {
       load: vi.fn(() => Promise.resolve({
         cards: [],
         trend: [],
+        summary: {
+          customer: 0, lead: 0, contact: 0, opportunity: 0, won: 0, order: 0, behavior: 0, employee: 0,
+        },
+        limitations: [],
         updatedAt: '',
+        page: 1,
+        pageSize: 20,
+        total: 0,
       })),
     });
 
-    expect(await screen.findByRole('heading', { name: 'AI 洞察' })).not.toBeNull();
+    expect(await screen.findByRole('heading', { name: '经营概览' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '数据概览' })).not.toBeNull();
-    expect(screen.getByRole('heading', { name: '会话数据' })).not.toBeNull();
-    expect(screen.getByRole('heading', { name: '质检数据' })).not.toBeNull();
-    expect(screen.getByRole('heading', { name: '员工会话数据排行' })).not.toBeNull();
-    expect(screen.getByRole('heading', { name: '员工会话轨迹一览' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: 'AI 洞察' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '经营趋势明细' })).not.toBeNull();
+    expect(screen.queryByRole('heading', { name: '会话数据' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '质检数据' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '员工会话数据排行' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '员工会话轨迹一览' })).toBeNull();
     expect(screen.getAllByText('暂无数据').length).toBeGreaterThan(0);
   });
 
@@ -193,7 +189,7 @@ describe('DashboardOverviewPage', () => {
 
     await waitFor(() => expect(container.querySelector('.page-state-error')).not.toBeNull());
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
-    expect(await screen.findByText('真实客户总数')).not.toBeNull();
+    expect(await screen.findByText('客户总数')).not.toBeNull();
     expect(load).toHaveBeenCalledTimes(2);
   });
 
@@ -204,14 +200,14 @@ describe('DashboardOverviewPage', () => {
     }));
     renderPage(createDashboardOverviewApi({ request }));
 
-    expect(await screen.findByText('数据概览接口尚未启用')).not.toBeNull();
+    expect(await screen.findByText('数据概览接口返回了无效数据')).not.toBeNull();
     expect(screen.queryByText('137')).toBeNull();
   });
 
   it('applies a new date range and refreshes through the injected API', async () => {
     const load = vi.fn(() => Promise.resolve(overview));
     renderPage({ load });
-    await screen.findByText('真实客户总数');
+    await screen.findByText('客户总数');
 
     fireEvent.change(screen.getByLabelText('开始日期'), {
       target: { value: '2026-07-08' },
@@ -227,7 +223,6 @@ describe('DashboardOverviewPage', () => {
       endDate: '2026-07-20',
       employeeIds: [],
       departmentIds: [],
-      period: 'day',
       page: 1,
       pageSize: 20,
     }));
@@ -237,18 +232,18 @@ describe('DashboardOverviewPage', () => {
     await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
   });
 
-  it('restores complete filters from the URL, changes the trend period, and paginates', async () => {
+  it('restores complete filters from the URL and paginates', async () => {
     const load = vi.fn(() => Promise.resolve({ ...overview, total: 41 }));
     renderPage({ load, exportCsv: vi.fn(() => Promise.resolve(new Blob())) },
-      '/index?startDate=2026-07-01&endDate=2026-07-31&employeeIds=9&employeeIds=12&departmentIds=3&period=week&page=2&pageSize=20');
+      '/index?startDate=2026-07-01&endDate=2026-08-01&employeeIds=9&employeeIds=12&departmentIds=3&page=2&pageSize=20');
 
-    await screen.findByText('真实客户总数');
+    await screen.findByText('客户总数');
     expect(load).toHaveBeenCalledWith({
-      corpId: '7', startDate: '2026-07-01', endDate: '2026-07-31',
-      employeeIds: ['9', '12'], departmentIds: ['3'], period: 'week', page: 2, pageSize: 20,
+      corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01',
+      employeeIds: ['9', '12'], departmentIds: ['3'], page: 2, pageSize: 20,
     });
     expect(screen.getByDisplayValue('9,12')).not.toBeNull();
-    expect((screen.getByLabelText('趋势周期') as HTMLSelectElement).value).toBe('week');
+    expect(screen.queryByLabelText('趋势周期')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('page=3'));
@@ -257,21 +252,21 @@ describe('DashboardOverviewPage', () => {
   it('shows an export error without altering the active scoped query', async () => {
     const exportCsv = vi.fn(() => Promise.reject(new Error('导出失败')));
     renderPage({ load: vi.fn(() => Promise.resolve(overview)), exportCsv },
-      '/index?startDate=2026-07-01&endDate=2026-07-31&employeeIds=9&departmentIds=3&period=month&page=1&pageSize=20');
-    await screen.findByText('真实客户总数');
+      '/index?startDate=2026-07-01&endDate=2026-08-01&employeeIds=9&departmentIds=3&page=1&pageSize=20');
+    await screen.findByText('客户总数');
 
     fireEvent.click(screen.getByRole('button', { name: '导出 CSV' }));
     expect(await screen.findByText('导出失败')).not.toBeNull();
     expect(exportCsv).toHaveBeenCalledWith({
-      corpId: '7', startDate: '2026-07-01', endDate: '2026-07-31',
-      employeeIds: ['9'], departmentIds: ['3'], period: 'month', page: 1, pageSize: 20,
+      corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01',
+      employeeIds: ['9'], departmentIds: ['3'], page: 1, pageSize: 20,
     });
   });
 
   it('rejects a range longer than the backend 31-day window', async () => {
     const load = vi.fn(() => Promise.resolve(overview));
     renderPage({ load });
-    await screen.findByText('真实客户总数');
+    await screen.findByText('客户总数');
 
     fireEvent.change(screen.getByLabelText('开始日期'), {
       target: { value: '2026-06-01' },
