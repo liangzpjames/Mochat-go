@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useOptionalDashboardAccess } from '../../app/access-context';
+import { DashboardDialog } from '../../components/dashboard-dialog';
 import type { Phase35Api, Row } from './api';
 import { records, text } from './api';
 import { Phase35PageShell } from './components/phase35-page-shell';
@@ -20,6 +21,7 @@ export function OrderPage({ api }: { api: Phase35Api }) {
   const [contactKeyword, setContactKeyword] = useState('');
   const [quickName, setQuickName] = useState('');
   const [quickPhone, setQuickPhone] = useState('');
+  const [quickOpen, setQuickOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -58,15 +60,16 @@ export function OrderPage({ api }: { api: Phase35Api }) {
     onSuccess: (payload) => {
       const contact = unwrap(payload);
       setQuickContact(contact);
-      setContactId(String(contact.id ?? ''));
+      setContactId(text(contact.id));
       setQuickName('');
       setQuickPhone('');
+      setQuickOpen(false);
       void contacts.refetch();
     },
   });
   const detailPayload = (detail.data ?? {}) as Row;
   const current = unwrap(detailPayload.order);
-  const status = String(current.status ?? '');
+  const status = text(current.status);
   const transition = useMutation({
     mutationFn: (next: string) => api.write(`/scrm/orders/${selectedId}/transition?corpId=${Number(corpId)}`, { status: next, version: Number(current.version) }, 'PUT'),
     onSuccess: () => { void orders.refetch(); void detail.refetch(); },
@@ -81,35 +84,53 @@ export function OrderPage({ api }: { api: Phase35Api }) {
       <div className="phase35-page">
         <section className="phase35-card phase35-filter-card">
           <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); if (valid) create.mutate(); }}>
-            <label>搜索联系人<input aria-label="搜索联系人" value={contactKeyword} onChange={(event) => setContactKeyword(event.target.value)} /></label>
-            <label>联系人
-              <select aria-label="联系人" value={contactId} onChange={(event) => setContactId(event.target.value)}>
-                <option value="">请选择联系人</option>
-                {options.map((row) => <option key={String(row.id ?? row.contactId)} value={String(row.id ?? row.contactId)}>{text(row.name ?? row.contactName)}</option>)}
-              </select>
-            </label>
-            <label>关联商机
-              <select aria-label="关联商机" value={opportunityId} onChange={(event) => setOpportunityId(event.target.value)}>
-                <option value="">不关联商机</option>
-                {records(opportunities.data).map((row) => <option key={String(row.id)} value={String(row.id)}>{text(row.title ?? row.name ?? row.id)}</option>)}
-              </select>
-            </label>
-            {!contacts.isLoading && options.length === 0 && (
-              <fieldset>
-                <legend>快速创建联系人</legend>
-                <p>当前没有可用联系人，可在此创建并自动选中。</p>
-                <label>联系人姓名<input aria-label="快速联系人姓名" value={quickName} onChange={(event) => setQuickName(event.target.value)} /></label>
-                <label>手机号码<input aria-label="快速联系人手机" value={quickPhone} onChange={(event) => setQuickPhone(event.target.value.replace(/\D/g, ''))} /></label>
-                <button type="button" disabled={!quickName.trim() || quickCreate.isPending} onClick={() => quickCreate.mutate()}>{quickCreate.isPending ? '创建中…' : '创建并选中'}</button>
-                {quickCreate.isError && <p role="alert">联系人创建失败，请检查姓名、手机号或权限。</p>}
-              </fieldset>
-            )}
-            <label>订单标题<input aria-label="订单标题" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-            <label>金额（元）<input aria-label="金额（元）" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
-            <label>备注<input aria-label="备注" value={note} onChange={(event) => setNote(event.target.value)} /></label>
-            <button type="submit" disabled={!valid || create.isPending}>{create.isPending ? '创建中…' : '创建订单'}</button>
+            <section aria-label="1. 联系人选择" role="region">
+              <h2>1. 联系人选择</h2>
+              <label>搜索联系人<input aria-label="搜索联系人" value={contactKeyword} onChange={(event) => setContactKeyword(event.target.value)} /></label>
+              <label>联系人
+                <select aria-label="联系人" value={contactId} onChange={(event) => setContactId(event.target.value)}>
+                  <option value="">请选择联系人</option>
+                  {options.map((row) => <option key={String(row.id ?? row.contactId)} value={String(row.id ?? row.contactId)}>{text(row.name ?? row.contactName)}</option>)}
+                </select>
+              </label>
+              <button type="button" onClick={() => setQuickOpen(true)}>快速创建联系人</button>
+              {!contacts.isLoading && options.length === 0 && <p>当前没有可用联系人，可先快速创建并自动选中。</p>}
+            </section>
+            <section aria-label="2. 订单信息" role="region">
+              <h2>2. 订单信息</h2>
+              <label>关联商机
+                <select aria-label="关联商机" value={opportunityId} onChange={(event) => setOpportunityId(event.target.value)}>
+                  <option value="">不关联商机</option>
+                  {records(opportunities.data).map((row) => <option key={String(row.id)} value={String(row.id)}>{text(row.title ?? row.name ?? row.id)}</option>)}
+                </select>
+              </label>
+              <label>订单标题<input aria-label="订单标题" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+              <label>金额（元）<input aria-label="金额（元）" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+              <label>备注<input aria-label="备注" value={note} onChange={(event) => setNote(event.target.value)} /></label>
+            </section>
+            <section aria-label="3. 提交订单" role="region">
+              <h2>3. 提交订单</h2>
+              <p>提交后将创建待支付订单，并保留创建审计记录。</p>
+              <button type="submit" disabled={!valid || create.isPending}>{create.isPending ? '创建中…' : '创建订单'}</button>
+            </section>
           </form>
         </section>
+        {quickOpen && <DashboardDialog
+          mode="drawer"
+          open={quickOpen}
+          title="快速创建联系人"
+          confirmText="创建并选中"
+          confirmDisabled={!quickName.trim()}
+          confirmLoading={quickCreate.isPending}
+          onCancel={() => { if (!quickCreate.isPending) setQuickOpen(false); }}
+          onConfirm={() => quickCreate.mutate()}
+        >
+          <div className="dashboard-filter-bar">
+            <label>联系人姓名<input autoFocus aria-label="快速联系人姓名" value={quickName} onChange={(event) => setQuickName(event.target.value)} /></label>
+            <label>手机号码<input aria-label="快速联系人手机" value={quickPhone} onChange={(event) => setQuickPhone(event.target.value.replace(/\D/g, ''))} /></label>
+            {quickCreate.isError && <p role="alert">联系人创建失败，请检查姓名、手机号或权限。</p>}
+          </div>
+        </DashboardDialog>}
         {quickCreate.isSuccess && <p role="status">联系人已创建并自动选中，可以继续填写订单。</p>}
         {create.isError && <p role="alert">创建失败，请检查字段、权限或版本状态。</p>}
         {create.isSuccess && <p role="status">订单已创建并回填列表。</p>}

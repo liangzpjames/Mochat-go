@@ -27,6 +27,7 @@ function api(overrides: Record<string, unknown> = {}) {
     previewDeleteTag: vi.fn().mockResolvedValue({ tagId: 't1', version: 4, affectedResourceCount: 5 }),
     deleteTag: vi.fn().mockResolvedValue({ affectedResourceCount: 2 }),
     maintainTagContacts: vi.fn().mockResolvedValue({ ...catalog.tags[0], usageCount: 2, version: 4 }),
+    listContactOptions: vi.fn().mockResolvedValue([{ id: 'c1', name: '客户甲', version: 4 }, { id: 'c2', name: '客户乙', version: 5 }, { id: 'c3', name: '客户丙', version: 6 }]),
     ...overrides,
   };
 }
@@ -101,8 +102,9 @@ describe('TagPage', () => {
     const invalidation = vi.spyOn(client, 'invalidateQueries');
     view(value, '/customer/tags', client);
     await screen.findByText('使用 2');
-    fireEvent.change(screen.getByLabelText('绑定联系人'), { target: { value: 'c1,c2' } });
-    fireEvent.change(screen.getByLabelText('解绑联系人'), { target: { value: 'c3' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: '绑定联系人 客户甲' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '绑定联系人 客户乙' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '解绑联系人 客户丙' }));
     fireEvent.click(screen.getByRole('button', { name: '维护联系人 普通' }));
     await waitFor(() => expect(value.maintainTagContacts).toHaveBeenCalledWith(expect.objectContaining({ tagId: 't1', addContactIds: ['c1', 'c2'], removeContactIds: ['c3'], version: 3 })));
     expect(value.listTagCatalog).toHaveBeenCalledTimes(2);

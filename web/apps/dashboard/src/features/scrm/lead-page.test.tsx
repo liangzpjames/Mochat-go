@@ -11,7 +11,7 @@ vi.mock('../../app/access-context', () => ({ useDashboardAccess: () => ({ corp: 
 afterEach(cleanup);
 
 const lead = { id: 'lead-0', businessKey: 'wx:existing', name: '已有线索', phone: '13800000000', source: 'wecom' as const, status: 'new' as const, ownerId: null, convertedContactId: '', discardReason: '', version: 1 };
-function api(overrides: Partial<LeadApi> = {}): LeadApi { return { list: vi.fn().mockResolvedValue({ items: [lead], nextCursor: '' }), create: vi.fn().mockResolvedValue(lead), findDuplicates: vi.fn().mockResolvedValue({ items: [] }), assign: vi.fn().mockResolvedValue({ results: [] }), transition: vi.fn().mockResolvedValue({ ...lead, status: 'qualified', version: 2 }), ...overrides }; }
+function api(overrides: Partial<LeadApi> = {}): LeadApi { return { list: vi.fn().mockResolvedValue({ items: [lead], nextCursor: '' }), create: vi.fn().mockResolvedValue(lead), findDuplicates: vi.fn().mockResolvedValue({ items: [] }), assign: vi.fn().mockResolvedValue({ results: [] }), transition: vi.fn().mockResolvedValue({ ...lead, status: 'qualified', version: 2 }), listOwnerOptions: vi.fn().mockResolvedValue([{ id: 12, name: '销售小王' }]), ...overrides }; }
 function RouterProbe() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -36,7 +36,7 @@ describe('LeadPage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '搜索线索' }), { target: { value: 'Ada' } });
     fireEvent.change(screen.getByRole('combobox', { name: '线索状态' }), { target: { value: 'qualified' } });
     fireEvent.change(screen.getByRole('combobox', { name: '线索来源' }), { target: { value: 'manual' } });
-    fireEvent.change(screen.getByRole('spinbutton', { name: '负责人筛选' }), { target: { value: '12' } });
+    fireEvent.change(await screen.findByRole('combobox', { name: '负责人筛选' }), { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect(value.list).toHaveBeenLastCalledWith(expect.objectContaining({ corpId: 7, keyword: 'Ada', statuses: ['qualified'], sources: ['manual'], ownerIds: [12] })));
     fireEvent.click(screen.getByRole('button', { name: '重置' }));
@@ -75,7 +75,7 @@ describe('LeadPage', () => {
   it('reports per-target partial failures for batch assignment', async () => {
     const value = api({ assign: vi.fn().mockResolvedValue({ results: [{ id: 'lead-0', status: 'failed', errorCode: 'CONFLICT' }] }) }); view(value); await screen.findByText('已有线索');
     fireEvent.click(screen.getByRole('checkbox', { name: '选择已有线索' }));
-    fireEvent.change(screen.getByRole('spinbutton', { name: '分配负责人' }), { target: { value: '12' } });
+    fireEvent.change(await screen.findByRole('combobox', { name: '分配负责人' }), { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: '批量分配' }));
     await waitFor(() => expect(value.assign).toHaveBeenCalledWith({ corpId: 7, ownerId: 12, targets: [{ id: 'lead-0', version: 1 }] }));
     expect((await screen.findByRole('alert')).textContent).toContain('CONFLICT');

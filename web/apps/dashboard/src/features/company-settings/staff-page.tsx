@@ -9,19 +9,21 @@ type UserAdminApi = ReturnType<typeof createUserAdminApi>;
 
 export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
   const queryClient = useQueryClient();
-  const [phone, setPhone] = useState('');
+  const [phoneFilter, setPhoneFilter] = useState('');
+  const [appliedPhone, setAppliedPhone] = useState('');
   const [status, setStatus] = useState<number | ''>('');
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<UserItem | null>(null);
   const [creating, setCreating] = useState(false);
   const [userName, setUserName] = useState('');
+  const [formPhone, setFormPhone] = useState('');
   const [roleId, setRoleId] = useState(1);
   const [formStatus, setFormStatus] = useState(1);
   const [error, setError] = useState('');
 
   const query = useQuery({
-    queryKey: ['company-staff', phone, status, page],
-    queryFn: () => api.list({ phone, status, page, perPage: 20 }),
+    queryKey: ['company-staff', appliedPhone, status, page],
+    queryFn: () => api.list({ phone: appliedPhone, status, page, perPage: 20 }),
   });
   const roles = useQuery({ queryKey: ['role-options'], queryFn: () => api.roles() });
   const items = query.data?.list ?? [];
@@ -30,8 +32,8 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
 
   const save = useMutation({
     mutationFn: () => editing
-      ? api.update(editing.userId, { userName: userName.trim(), phone: phone.trim(), gender: 1, roleId, status: formStatus } satisfies UserWrite)
-      : api.create({ userName: userName.trim(), phone: phone.trim(), gender: 1, roleId, status: formStatus, password: 'P36-ACCEPT-Pass1', confirmPass: 'P36-ACCEPT-Pass1' }),
+      ? api.update(editing.userId, { userName: userName.trim(), phone: formPhone.trim(), gender: 1, roleId, status: formStatus } satisfies UserWrite)
+      : api.create({ userName: userName.trim(), phone: formPhone.trim(), gender: 1, roleId, status: formStatus, password: 'P36-ACCEPT-Pass1', confirmPass: 'P36-ACCEPT-Pass1' }),
     onSuccess: () => { setEditing(null); setCreating(false); setError(''); void queryClient.invalidateQueries({ queryKey: ['company-staff'] }); },
     onError: (err) => setError(err instanceof Error ? err.message : '保存失败'),
   });
@@ -39,21 +41,21 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
     mutationFn: (input: { ids: number[]; next: number }) => api.updateStatus(input.ids, input.next),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company-staff'] }),
   });
-  const openCreate = () => { setCreating(true); setEditing(null); setUserName(''); setPhone(''); setRoleId(roles.data?.[0]?.roleId ?? 1); setFormStatus(1); setError(''); };
-  const openEdit = (item: UserItem) => { setEditing(item); setCreating(false); setUserName(item.userName); setPhone(item.phone); setRoleId(item.roleId); setFormStatus(item.status); setError(''); };
-  const valid = Boolean(userName.trim() && /^1\d{10}$/.test(phone.trim()));
+  const openCreate = () => { setCreating(true); setEditing(null); setUserName(''); setFormPhone(''); setRoleId(roles.data?.[0]?.roleId ?? 1); setFormStatus(1); setError(''); };
+  const openEdit = (item: UserItem) => { setEditing(item); setCreating(false); setUserName(item.userName); setFormPhone(item.phone); setRoleId(item.roleId); setFormStatus(item.status); setError(''); };
+  const valid = Boolean(userName.trim() && /^1\d{10}$/.test(formPhone.trim()));
 
   return (
     <Phase35PageShell title="员工权限" description="员工账号、启用/停用状态与角色分配" actions={<button type="button" onClick={openCreate}>新增员工</button>}>
       <div className="phase35-page">
         <section className="phase35-card phase35-filter-card">
-          <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); void query.refetch(); }}>
-            <input aria-label="手机号" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="按手机号筛选" />
+          <form className="dashboard-filter-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); setAppliedPhone(phoneFilter.trim()); }}>
+            <input aria-label="手机号筛选" value={phoneFilter} onChange={(event) => setPhoneFilter(event.target.value)} placeholder="按手机号筛选" />
             <select aria-label="状态" value={status} onChange={(event) => setStatus(event.target.value === '' ? '' : Number(event.target.value))}>
               <option value="">全部状态</option><option value={1}>启用</option><option value={0}>停用</option>
             </select>
             <button type="submit">查询</button>
-            <button type="button" onClick={() => { setPhone(''); setStatus(''); }}>重置</button>
+            <button type="button" onClick={() => { setPhoneFilter(''); setAppliedPhone(''); setStatus(''); }}>重置</button>
           </form>
         </section>
 
@@ -101,7 +103,7 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
             {error && <p role="alert" className="phase35-limits">{error}</p>}
             <form onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
               <label>姓名<input value={userName} onChange={(event) => setUserName(event.target.value)} /></label>
-              <label>手机号<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
+              <label>手机号<input aria-label="员工手机号" value={formPhone} onChange={(event) => setFormPhone(event.target.value)} /></label>
               <label>角色<select value={roleId} onChange={(event) => setRoleId(Number(event.target.value))}>
                 {(roles.data ?? []).map((role) => <option key={role.roleId} value={role.roleId}>{role.name}</option>)}
               </select></label>

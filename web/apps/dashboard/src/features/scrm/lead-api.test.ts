@@ -3,6 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { createLeadApi } from './lead-api';
 
 describe('LeadApi', () => {
+  it('loads owner options from the real employee list', async () => {
+    const request = vi.fn().mockResolvedValue({ list: [{ id: 12, name: '销售小王' }] });
+    await expect(createLeadApi({ request }).listOwnerOptions()).resolves.toEqual([{ id: 12, name: '销售小王' }]);
+    expect(request).toHaveBeenCalledWith('/workEmployee/index?page=1&perPage=200');
+  });
+
   it('uses the formal SCRM leads endpoint', async () => {
     const request = vi.fn().mockResolvedValue({ items: [{ id: 'lead-1', name: '客户甲', status: 'new' }], nextCursor: '' });
     const api = createLeadApi({ request });

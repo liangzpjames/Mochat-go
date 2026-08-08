@@ -73,6 +73,22 @@ describe('企业设置页面', () => {
     await waitFor(() => expect(updateStatus).toHaveBeenCalledTimes(1));
   });
 
+  it('员工权限：取消编辑不覆盖手机号筛选', async () => {
+    const api = {
+      list: vi.fn().mockResolvedValue({ list: [{ userId: 3, userName: '张三', phone: '18600000000', gender: 1, roleId: 1, roleName: '管理员', status: 1, statusText: '启用', createdAt: '', department: [] }], normalNum: 1, notEnabledNum: 0, disableNum: 0, page: { perPage: 20, total: 1, totalPage: 1 } }),
+      roles: vi.fn().mockResolvedValue([{ roleId: 1, name: '管理员' }]),
+      updateStatus: vi.fn(), update: vi.fn(), create: vi.fn(), resetPassword: vi.fn(),
+    } as unknown as UserAdminApi;
+    renderPage(<CompanyStaffPage api={api} />);
+
+    const phoneFilter = await screen.findByLabelText('手机号筛选');
+    fireEvent.change(phoneFilter, { target: { value: '138' } });
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    expect(phoneFilter).toHaveProperty('value', '138');
+  });
+
   it('企业信息：加载并渲染行', async () => {
     const api = {
       list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),

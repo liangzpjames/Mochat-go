@@ -2,6 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { createScrmApi } from './scrm-api';
 
 describe('ScrmApi', () => {
+  it('loads business selectors from contacts, employees and enabled funnel settings', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ items: [{ id: 'c1', name: '客户甲', version: 2, assignmentVersion: 7 }] })
+      .mockResolvedValueOnce({ list: [{ id: 12, name: '销售小王' }] })
+      .mockResolvedValueOnce([{ type: 'funnel_stage', key: 'proposal', value: '方案确认', enabled: true }, { type: 'funnel_stage', key: 'disabled', value: '停用', enabled: false }]);
+    const api = createScrmApi({ request });
+    await expect(api.listContactOptions!({ corpId: 7 })).resolves.toEqual([{ id: 'c1', name: '客户甲', version: 7 }]);
+    await expect(api.listEmployeeOptions!()).resolves.toEqual([{ id: '12', name: '销售小王' }]);
+    await expect(api.listStageOptions!({ corpId: 7 })).resolves.toEqual([{ id: 'proposal', name: '方案确认' }]);
+    expect(request.mock.calls.map(([path]) => path)).toEqual(['/scrm/contacts?corpId=7&pageSize=100', '/workEmployee/index?page=1&perPage=200', '/scrm/settings?corpId=7']);
+  });
+
   it('serializes public pool filters and sends complete single and batch claim commands', async () => {
     const request = vi.fn().mockResolvedValue({ data: { items: [], nextCursor: '' } });
     const api = createScrmApi({ request });

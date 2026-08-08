@@ -29,6 +29,9 @@ function apiWith(overrides: Partial<ScrmApi> = {}): ScrmApi {
     listFollowUps: vi.fn().mockResolvedValue({ items: [], nextCursor: '' }),
     listPublicPool: vi.fn(), updateAssignment: vi.fn(), releaseToPublicPool: vi.fn(), claimFromPublicPool: vi.fn(), batchClaimFromPublicPool: vi.fn(),
     listTags: vi.fn(), createTag: vi.fn(), renameTag: vi.fn(),
+    listContactOptions: vi.fn().mockResolvedValue([{ id: 'c1', name: '客户甲', version: 4 }, { id: 'c2', name: '客户乙', version: 6 }]),
+    listEmployeeOptions: vi.fn().mockResolvedValue([{ id: '9', name: '销售小李' }, { id: '12', name: '销售小王' }]),
+    listStageOptions: vi.fn().mockResolvedValue([{ id: 'proposal', name: '方案确认' }, { id: 'won', name: '赢单' }]),
     ...overrides,
   };
 }
@@ -63,7 +66,7 @@ describe('OpportunityPage', () => {
     const api = apiWith({ createOpportunity });
     renderPage(api);
     await screen.findByText('c1');
-    fireEvent.change(screen.getByLabelText('联系人 ID'), { target: { value: 'c2' } });
+    fireEvent.change(screen.getByRole('combobox', { name: '商机联系人' }), { target: { value: 'c2' } });
     fireEvent.change(screen.getByLabelText('商机金额'), { target: { value: '1280.50' } });
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-08-02' } });
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-08-20' } });
@@ -104,7 +107,7 @@ describe('OpportunityPage', () => {
     await screen.findByText('c1');
 
     const fillCreate = () => {
-      fireEvent.change(screen.getByLabelText('联系人 ID'), { target: { value: 'c2' } });
+      fireEvent.change(screen.getByRole('combobox', { name: '商机联系人' }), { target: { value: 'c2' } });
       fireEvent.change(screen.getByLabelText('商机金额'), { target: { value: '100' } });
       fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-08-02' } });
       fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-08-20' } });

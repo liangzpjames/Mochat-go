@@ -31,6 +31,7 @@ function api(overrides: Partial<ScrmApi> = {}): ScrmApi {
     batchClaimFromPublicPool: vi.fn().mockResolvedValue({ results: [] }),
     listOpportunities: vi.fn(), createOpportunity: vi.fn(), changeOpportunityStage: vi.fn(),
     listFollowUps: vi.fn(), appendFollowUp: vi.fn(), listTags: vi.fn(), createTag: vi.fn(), renameTag: vi.fn(),
+    listContactOptions: vi.fn().mockResolvedValue([{ id: 'contact-owned', name: '归属客户', version: 8 }]),
     ...overrides,
   };
 }
@@ -133,8 +134,7 @@ describe('PublicPoolPage', () => {
       .mockResolvedValueOnce(item);
     view(api({ releaseToPublicPool: move }));
     await screen.findByText('Ada');
-    fireEvent.change(screen.getByLabelText('操作联系人 ID'), { target: { value: 'contact-owned' } });
-    fireEvent.change(screen.getByLabelText('操作版本'), { target: { value: '8' } });
+    fireEvent.change(screen.getByRole('combobox', { name: '操作联系人' }), { target: { value: 'contact-owned' } });
     fireEvent.change(screen.getByLabelText('操作入海原因'), { target: { value: '超时未跟进' } });
     fireEvent.click(screen.getByRole('button', { name: '退回公海' }));
     fireEvent.click(await screen.findByRole('button', { name: '重试原操作' }));
@@ -149,8 +149,7 @@ describe('PublicPoolPage', () => {
     const value = api({ releaseToPublicPool: release });
     view(value);
     await screen.findByText('Ada');
-    fireEvent.change(screen.getByLabelText('操作联系人 ID'), { target: { value: 'contact-owned' } });
-    fireEvent.change(screen.getByLabelText('操作版本'), { target: { value: '8' } });
+    fireEvent.change(screen.getByRole('combobox', { name: '操作联系人' }), { target: { value: 'contact-owned' } });
     fireEvent.change(screen.getByLabelText('操作入海原因'), { target: { value: '超时未跟进' } });
     fireEvent.click(screen.getByRole('button', { name: '退回公海' }));
     await waitFor(() => expect(release).toHaveBeenCalledWith({ corpId: 7, contactId: 'contact-owned', version: 8, action: 'return', reason: '超时未跟进', idempotencyKey: 'pool-return-contact-owned-8-42' }));
