@@ -75,22 +75,24 @@ export function CompanyWebsitePage({ api }: { api: CorpAdminApi }) {
                 </tbody>
               </table>
             </div>
-            <div className="phase35-table dashboard-pagination">
+            <nav aria-label="企业分页" className="dashboard-pagination company-website-pagination">
               <span>共 {total} 条，第 {page} 页</span>
-              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一页</button>
-              <button type="button" disabled={page * 20 >= total} onClick={() => setPage((current) => current + 1)}>下一页</button>
-            </div>
+              <div className="company-website-pagination-actions">
+                <button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一页</button>
+                <button type="button" disabled={page * 20 >= total} onClick={() => setPage((current) => current + 1)}>下一页</button>
+              </div>
+            </nav>
           </Phase35DataState>
         </section>
 
-        <DashboardDialog open={creating || editing !== null} title={editing ? '编辑企业' : '新建企业'} triggerRef={triggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={closeEditor} onConfirm={() => save.mutate()}>
+        <DashboardDialog open={creating || editing !== null} title={editing ? '编辑企业' : '新建企业'} width={520} triggerRef={triggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={closeEditor} onConfirm={() => save.mutate()}>
             {error && <p role="alert" className="phase35-limits">{error}</p>}
-            <form onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
-              <label>企业名称<input value={corpName} onChange={(event) => setCorpName(event.target.value)} /></label>
-              <label>企业微信 CorpId<input value={wxCorpId} onChange={(event) => setWxCorpId(event.target.value)} /></label>
-              <label>员工密钥<input type="password" value={employeeSecret} onChange={(event) => setEmployeeSecret(event.target.value)} /></label>
-              <label>客户密钥<input type="password" value={contactSecret} onChange={(event) => setContactSecret(event.target.value)} /></label>
-              {editing && <small>留空表示不修改</small>}
+            <form autoComplete="off" className="company-website-form" onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(); }}>
+              <label>企业名称<input autoComplete="organization" name="corpName" value={corpName} onChange={(event) => setCorpName(event.target.value)} /></label>
+              <label>企业微信 CorpId<input autoComplete="off" name="wxCorpId" value={wxCorpId} onChange={(event) => setWxCorpId(event.target.value)} /></label>
+              <label>员工密钥<input autoComplete="new-password" name="employeeSecret" type="password" value={employeeSecret} onChange={(event) => setEmployeeSecret(event.target.value)} /></label>
+              <label>客户密钥<input autoComplete="new-password" name="contactSecret" type="password" value={contactSecret} onChange={(event) => setContactSecret(event.target.value)} /></label>
+              {editing && <small className="company-website-form-note">留空表示不修改</small>}
             </form>
         </DashboardDialog>
       </div>

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CompanyRolePage } from './role-page';
@@ -96,6 +96,46 @@ describe('企业设置页面', () => {
     } as unknown as CorpAdminApi;
     renderPage(<CompanyWebsitePage api={api} />);
     expect(await screen.findByText('演示企业')).toBeTruthy();
+  });
+
+  it('企业信息：新建弹框使用紧凑双列表单', async () => {
+    const api = {
+      list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),
+      show: vi.fn(), create: vi.fn(), update: vi.fn(),
+    } as unknown as CorpAdminApi;
+    renderPage(<CompanyWebsitePage api={api} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建企业' }));
+    const dialog = await screen.findByRole('dialog', { name: '新建企业' });
+    expect(dialog.querySelector('form.company-website-form')).not.toBeNull();
+  });
+
+  it('企业信息：新建字段不接收登录凭据自动填充', async () => {
+    const api = {
+      list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),
+      show: vi.fn(), create: vi.fn(), update: vi.fn(),
+    } as unknown as CorpAdminApi;
+    renderPage(<CompanyWebsitePage api={api} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建企业' }));
+    const dialog = await screen.findByRole('dialog', { name: '新建企业' });
+    expect(within(dialog).getByLabelText('企业名称').getAttribute('autocomplete')).toBe('organization');
+    expect(within(dialog).getByLabelText('企业微信 CorpId').getAttribute('autocomplete')).toBe('off');
+    expect(within(dialog).getByLabelText('员工密钥').getAttribute('autocomplete')).toBe('new-password');
+    expect(within(dialog).getByLabelText('客户密钥').getAttribute('autocomplete')).toBe('new-password');
+  });
+
+  it('企业信息：分页信息和右侧按钮组分开排布', async () => {
+    const api = {
+      list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),
+      show: vi.fn(), create: vi.fn(), update: vi.fn(),
+    } as unknown as CorpAdminApi;
+    renderPage(<CompanyWebsitePage api={api} />);
+
+    const pagination = await screen.findByRole('navigation', { name: '企业分页' });
+    const actions = pagination.querySelector('.company-website-pagination-actions');
+    expect(actions).not.toBeNull();
+    expect(actions?.querySelectorAll('button')).toHaveLength(2);
   });
 
   it('企业信息：编辑时不回填明文密钥', async () => {
