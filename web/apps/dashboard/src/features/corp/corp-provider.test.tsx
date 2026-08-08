@@ -66,6 +66,7 @@ describe('CorpProvider', () => {
   it('automatically selects one authorized enterprise', async () => {
     const props = renderProvider([authorized]);
 
+    expect(screen.queryByLabelText('企业选择')).toBeNull();
     await waitFor(() => expect(props.bindCorp).toHaveBeenCalledWith('3'));
     expect(props.persistCorpId).toHaveBeenCalledWith('3');
     expect(props.refreshAccess).toHaveBeenCalledOnce();
@@ -99,14 +100,9 @@ describe('CorpProvider', () => {
       { id: '4', name: '未授权企业', authorized: false },
     ]);
 
-    expect(
-      (await screen.findByRole('button', { name: '迁移企业' }))
-        .hasAttribute('disabled'),
-    ).toBe(false);
-    expect(
-      screen.getByRole('button', { name: '未授权企业' })
-        .hasAttribute('disabled'),
-    ).toBe(true);
+    expect(await screen.findByRole('combobox', { name: '企业选择' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '迁移企业' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('option', { name: '未授权企业' }).hasAttribute('disabled')).toBe(true);
     expect(props.bindCorp).not.toHaveBeenCalled();
   });
 
@@ -135,7 +131,7 @@ describe('CorpProvider', () => {
       },
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: '新企业' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: '企业选择' }), { target: { value: '4' } });
     await waitFor(() => expect(props.navigate).toHaveBeenCalledWith('/new/home'));
 
     expect(order).toEqual([
@@ -164,12 +160,12 @@ describe('CorpProvider', () => {
       { bindCorp, initialCorpId: '3' },
     );
 
-    const next = await screen.findByRole('button', { name: '新企业' });
-    fireEvent.click(next);
+    const next = await screen.findByRole('combobox', { name: '企业选择' });
+    fireEvent.change(next, { target: { value: '4' } });
     await waitFor(() => expect(bindCorp).toHaveBeenCalledOnce());
     expect(next.hasAttribute('disabled')).toBe(true);
     expect(screen.queryByText('业务内容')).toBeNull();
-    fireEvent.click(next);
+    fireEvent.change(next, { target: { value: '4' } });
     expect(bindCorp).toHaveBeenCalledOnce();
     releaseBind?.();
   });
@@ -183,12 +179,11 @@ describe('CorpProvider', () => {
       },
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: '新企业' }));
+    const selector = await screen.findByRole('combobox', { name: '企业选择' });
+    fireEvent.change(selector, { target: { value: '4' } });
 
     expect((await screen.findByRole('alert')).textContent).toContain('菜单加载失败');
     expect(screen.queryByText('业务内容')).toBeNull();
-    expect(
-      screen.getByRole('button', { name: '新企业' }).hasAttribute('disabled'),
-    ).toBe(true);
+    expect((selector as HTMLSelectElement).value).toBe('4');
   });
 });

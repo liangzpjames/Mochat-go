@@ -91,7 +91,7 @@ describe('Dashboard shell', () => {
   it('opens data overview as the default route and exposes it as a top-level menu item', async () => {
     renderDashboard({
       session: true,
-      accessLoader: async () => ({
+      accessLoader: () => Promise.resolve({
         session: {
           token: 'Bearer test',
           userId: '7',
@@ -181,7 +181,33 @@ describe('Dashboard shell', () => {
     fireEvent.click(screen.getByRole('button', { name: /会话/ }));
     expect(screen.queryByRole('link', { name: '全局消息' })).toBeNull();
     expect(screen.getByRole('searchbox', { name: '搜索功能' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '任务中心' })).toBeNull();
     expect(screen.getByRole('button', { name: '退出登录' })).toBeTruthy();
+  });
+
+  it('filters authorized navigation and supports keyboard navigation from search', async () => {
+    renderDashboard({
+      session: true,
+      initialPath: '/index',
+      accessLoader: () => Promise.resolve({
+        session: { token: 'Bearer test', userId: '7', corpId: '12', expiresAt: null },
+        corp: { id: '12', name: '测试企业', authorized: true },
+        menu: [],
+        allowedRoutes: new Set(['/index', '/customer/tags']),
+        allowedActions: new Set(),
+      }),
+      reactPages: {
+        '/index': <h1>数据概览内容</h1>,
+        '/customer/tags': <h1>客户标签内容</h1>,
+      },
+    });
+
+    const search = await screen.findByRole('searchbox', { name: '搜索功能' });
+    fireEvent.change(search, { target: { value: '标签' } });
+    expect(screen.getByRole('link', { name: '标签' }).getAttribute('href')).toBe('/customer/tags');
+
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(await screen.findByRole('heading', { name: '客户标签内容' })).toBeTruthy();
   });
 
   it('renders one empty state when no manifest page is authorized', async () => {

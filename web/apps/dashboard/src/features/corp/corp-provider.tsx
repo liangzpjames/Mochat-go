@@ -157,20 +157,24 @@ export function CorpProvider({
 
   return (
     <div className="dashboard-corp-frame">
-      <div aria-label="企业选择" className="dashboard-corp-switcher">
-        {corps.map((corp) => (
-          <button
-            disabled={
-              isSwitching || !corp.authorized || corp.id === activeCorpId
-            }
-            key={corp.id}
-            onClick={() => void switchCorp(corp.id)}
-            type="button"
+      {corps.length > 1 && (
+        <label className="dashboard-corp-switcher">
+          <span>当前企业</span>
+          <select
+            aria-label="企业选择"
+            disabled={isSwitching}
+            value={activeCorpId ?? ''}
+            onChange={(event) => void switchCorp(event.target.value)}
           >
-            {corp.name}
-          </button>
-        ))}
-      </div>
+            <option disabled value="">请选择企业</option>
+            {corps.map((corp) => (
+              <option disabled={!corp.authorized} key={corp.id} value={corp.id}>
+                {corp.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {error !== null && <div role="alert">{error}</div>}
       {activeCorpId === null
         ? <div>请选择企业</div>
