@@ -33,6 +33,8 @@ func (r *SQLRepository) Query(ctx context.Context, q ReportQuery) (ReportResult,
 		return r.queryBehavior(ctx, q)
 	case DetailReport:
 		return r.querySummary(ctx, q)
+	case OverviewReport:
+		return r.queryOverview(ctx, q)
 	default:
 		return r.queryEntity(ctx, q, r.kind)
 	}
@@ -62,6 +64,43 @@ func (r *SQLRepository) querySummary(ctx context.Context, q ReportQuery) (Report
 		summary[key] = value
 	}
 	return ReportResult{Summary: summary, Series: customer.Series, Dimensions: []Dimension{}, Items: []map[string]any{}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize, Total: customer.Pagination.Total}, Freshness: Freshness{Provider: "scrm", Status: "available"}, Limitations: append(append(customer.Limitations, conversion.Limitations...), behavior.Limitations...)}, nil
+}
+
+func (r *SQLRepository) queryOverview(ctx context.Context, q ReportQuery) (ReportResult, error) {
+	customer, err := r.queryEntity(ctx, q, CustomerReport)
+	if err != nil {
+		return ReportResult{}, err
+	}
+	conversion, err := r.queryConversion(ctx, q)
+	if err != nil {
+		return ReportResult{}, err
+	}
+	behavior, err := r.queryBehavior(ctx, q)
+	if err != nil {
+		return ReportResult{}, err
+	}
+	employee, err := r.queryEmployee(ctx, q)
+	if err != nil {
+		return ReportResult{}, err
+	}
+	summary := map[string]*float64{}
+	for _, result := range []ReportResult{customer, conversion, behavior, employee} {
+		for key, value := range result.Summary {
+			summary[key] = value
+		}
+	}
+	limitations := append([]Limitation{}, customer.Limitations...)
+	limitations = append(limitations, conversion.Limitations...)
+	limitations = append(limitations, behavior.Limitations...)
+	limitations = append(limitations, employee.Limitations...)
+	return ReportResult{
+		Summary:     summary,
+		Series:      customer.Series,
+		Items:       customer.Items,
+		Pagination:  customer.Pagination,
+		Freshness:   Freshness{Provider: "scrm", Status: "available"},
+		Limitations: limitations,
+	}, nil
 }
 
 func placeholders(n int) string {

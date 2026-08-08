@@ -9,7 +9,14 @@ import (
 )
 
 func NewSQLService(db *sql.DB) *Service {
-	return NewService(map[ReportKind]Source{CustomerReport: NewSQLRepository(db, CustomerReport), EmployeeReport: NewSQLRepository(db, EmployeeReport), ConversionReport: NewSQLRepository(db, ConversionReport), BehaviorReport: NewSQLRepository(db, BehaviorReport), DetailReport: NewSQLRepository(db, DetailReport)})
+	return NewService(map[ReportKind]Source{
+		CustomerReport:   NewSQLRepository(db, CustomerReport),
+		EmployeeReport:   NewSQLRepository(db, EmployeeReport),
+		ConversionReport: NewSQLRepository(db, ConversionReport),
+		BehaviorReport:   NewSQLRepository(db, BehaviorReport),
+		DetailReport:     NewSQLRepository(db, DetailReport),
+		OverviewReport:   NewSQLRepository(db, OverviewReport),
+	})
 }
 
 var ErrInvalidQuery = errors.New("invalid report query")

@@ -99,3 +99,42 @@ func TestParseQueryConversionStage(t *testing.T) {
 		t.Fatalf("page=%d pageSize=%d want 2/10", query.Page, query.PageSize)
 	}
 }
+
+type recordingAuthorizer struct {
+	permission string
+}
+
+func (a *recordingAuthorizer) Authorize(_ context.Context, _ Principal, _ int64, permission string) error {
+	a.permission = permission
+	return nil
+}
+
+func TestOverviewReportUsesOverviewMenuPermission(t *testing.T) {
+	authorizer := &recordingAuthorizer{}
+	handler := NewHandler(serviceStub{}, resolverStub{}, authorizer)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/reports/overview?corpId=9&timezone=Asia%2FShanghai&startAt=2026-08-01T00:00:00Z&endAt=2026-08-02T00:00:00Z", nil)
+	req.SetPathValue("kind", "overview")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if authorizer.permission != "/dashboard/corpData/index#get" {
+		t.Fatalf("permission=%q want /dashboard/corpData/index#get", authorizer.permission)
+	}
+}
+
+func TestReportKindUsesDataReportMenuPermission(t *testing.T) {
+	authorizer := &recordingAuthorizer{}
+	handler := NewHandler(serviceStub{}, resolverStub{}, authorizer)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/reports/report?corpId=9&timezone=Asia%2FShanghai&startAt=2026-08-01T00:00:00Z&endAt=2026-08-02T00:00:00Z", nil)
+	req.SetPathValue("kind", "report")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if authorizer.permission != "/data/report#get" {
+		t.Fatalf("permission=%q want /data/report#get", authorizer.permission)
+	}
+}

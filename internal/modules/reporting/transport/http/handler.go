@@ -66,8 +66,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusBadRequest, "invalid report query", nil)
 		return
 	}
+	permission := "/data/" + string(kind) + "#get"
+	if kind == reporting.OverviewReport {
+		permission = "/dashboard/corpData/index#get"
+	}
 	if h.authorizer != nil {
-		if err := h.authorizer.Authorize(r.Context(), principal, query.CorpID, "/data/"+string(kind)+"#get"); err != nil {
+		if err := h.authorizer.Authorize(r.Context(), principal, query.CorpID, permission); err != nil {
 			write(w, http.StatusForbidden, "forbidden", nil)
 			return
 		}

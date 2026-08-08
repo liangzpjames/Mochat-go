@@ -32,7 +32,7 @@ func TestSQLRepositoryAgainstRetainedMariaDBSchema(t *testing.T) {
 	}
 	service := NewSQLService(db)
 	q := ReportQuery{TenantID: 1, CorpID: 1, StartAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), EndAt: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), Timezone: "Asia/Shanghai", Page: 1, PageSize: 20}
-	for _, kind := range []ReportKind{CustomerReport, ConversionReport, EmployeeReport, BehaviorReport, DetailReport} {
+	for _, kind := range []ReportKind{CustomerReport, ConversionReport, EmployeeReport, BehaviorReport, DetailReport, OverviewReport} {
 		if _, err := service.Query(ctx, kind, q); err != nil {
 			t.Fatalf("kind %s failed against retained schema: %v", kind, err)
 		}

@@ -10,12 +10,13 @@ const (
 	ConversionReport ReportKind = "conversion"
 	BehaviorReport   ReportKind = "behavior"
 	DetailReport     ReportKind = "report"
+	OverviewReport   ReportKind = "overview"
 )
 
 func ParseKind(value string) (ReportKind, bool) {
 	kind := ReportKind(value)
 	switch kind {
-	case CustomerReport, EmployeeReport, ConversionReport, BehaviorReport, DetailReport:
+	case CustomerReport, EmployeeReport, ConversionReport, BehaviorReport, DetailReport, OverviewReport:
 		return kind, true
 	default:
 		return "", false

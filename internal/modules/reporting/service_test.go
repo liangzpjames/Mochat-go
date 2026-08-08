@@ -73,6 +73,26 @@ func TestUnavailableProviderBecomesLimitation(t *testing.T) {
 	}
 }
 
+func TestParseKindAcceptsOverview(t *testing.T) {
+	kind, ok := ParseKind("overview")
+	if !ok || kind != OverviewReport {
+		t.Fatalf("ParseKind(overview) = %q, %v", kind, ok)
+	}
+}
+
+func TestServiceRunsOverviewThroughItsSource(t *testing.T) {
+	source := &sourceStub{result: ReportResult{Summary: map[string]*float64{"customer": floatPtr(3)}}}
+	service := NewService(map[ReportKind]Source{OverviewReport: source})
+	if _, err := service.Query(context.Background(), OverviewReport, validQuery()); err != nil {
+		t.Fatalf("overview query failed: %v", err)
+	}
+	if source.query.CorpID != 2 || source.query.Page != 1 {
+		t.Fatalf("query passed to source = %#v", source.query)
+	}
+}
+
+func floatPtr(value float64) *float64 { return &value }
+
 func validQuery() ReportQuery {
 	return ReportQuery{TenantID: 1, CorpID: 2, Timezone: "Asia/Shanghai", StartAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), EndAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Page: 1, PageSize: 20}
 }
