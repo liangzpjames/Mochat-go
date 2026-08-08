@@ -7,8 +7,8 @@ import { Phase35DataState } from './components/data-state';
 import { Phase35DetailDrawer } from './components/detail-drawer';
 import { MetricCardGrid } from './components/metric-card-grid';
 
-const friendName = (row: Row) => String(row.name ?? row.contactName ?? '--');
-const friendOwner = (row: Row) => String(row.employeeName ?? row.ownerName ?? '--');
+const friendName = (row: Row) => text(row.name ?? row.contactName);
+const friendOwner = (row: Row) => text(row.employeeName ?? row.ownerName);
 const friendTags = (row: Row) => Array.isArray(row.tag)
   ? row.tag.map((tag) => String((tag as Row)?.tagName ?? tag)).join('、')
   : Array.isArray(row.tags) ? row.tags.map(text).join('、') : text(row.tagNames);
@@ -46,7 +46,7 @@ export function FriendsPage({ api }: { api: Phase35Api }) {
             <Phase35DataState loading={list.isLoading} error={list.isError} empty={!list.isLoading && !rows.length} emptyContent={<section aria-label="好友数据接入说明"><h2>还没有可展示的企业微信好友</h2><p>好友数据来自企业微信通讯录同步。请先完成企业微信接入和联系人同步，再查看负责人、标签与来源。</p><a href="/customer/contact">查看客户联系人</a></section>} onRetry={() => void list.refetch()}>
               <table><thead><tr><th>好友</th><th>备注</th><th>负责人</th><th>标签</th><th>来源</th><th>更新时间</th><th>操作</th></tr></thead>
               <tbody>{rows.map((row) => (
-                <tr key={String(row.id ?? row.contactId ?? 0)}>
+                <tr key={text(row.id ?? row.contactId ?? 0)}>
                   <td>{friendName(row)}</td>
                   <td>{text(row.remark)}</td>
                   <td>{friendOwner(row)}</td>

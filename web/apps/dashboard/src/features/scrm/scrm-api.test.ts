@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- request mocks intentionally expose raw protocol payloads */
 import { describe, expect, it, vi } from 'vitest';
 import { createScrmApi } from './scrm-api';
 

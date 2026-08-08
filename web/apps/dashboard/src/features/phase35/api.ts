@@ -19,5 +19,9 @@ export function records(payload: unknown): Row[] {
   return [];
 }
 
-export const text = (value: unknown) => value === null || value === undefined || value === '' ? '--' : String(value);
+export const text = (value: unknown) => {
+  if (value === null || value === undefined || value === '') return '--';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  return '--';
+};
 export const numericId = (row: Row) => Number(row.id ?? row.contactId ?? row.roomId ?? 0);

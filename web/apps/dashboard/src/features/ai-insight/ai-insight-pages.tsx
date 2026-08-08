@@ -18,7 +18,7 @@ export const aiInsightPageConfigs = {
 } as const;
 
 function sessionLabel(value: unknown): string {
-  const raw = String(value ?? '');
+  const raw = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
   if (raw === '' || raw === 'archive') return '归档会话';
   return raw;
 }

@@ -23,7 +23,7 @@ async function json(route: Route, data: unknown, status = 200) {
   });
 }
 
-async function requestBody<T>(route: Route): Promise<T> {
+function requestBody<T>(route: Route): T {
   return JSON.parse(route.request().postData() ?? '{}') as T;
 }
 
@@ -37,10 +37,13 @@ async function installPhase32ContractBackend(page: Page) {
   const tags = [{ id: 't1', groupId: 'g1', name: '重点', version: 1, usageCount: 1 }];
   const contact = { id: 'c1', name: '张三', phone: '13900000000', ownerId: 1, assignmentStatus: 'assigned', tagNames: ['重点'], version: 4, assignmentVersion: 4, updatedAt: '2026-08-01T08:00:00Z' };
 
-  await page.route('**/dashboard/corpData/index*', async (route) => json(route, {
-    cards: [{ key: 'newCustomers', label: '新增客户', value: 12 }],
-    trend: [{ date: '2026-08-01', addContactNum: 12, addIntoRoomNum: 5, lossContactNum: 1, quitRoomNum: 0 }],
-    updatedAt: '2026-08-01T08:00:00+08:00', page: 1, pageSize: 20, total: 1,
+  await page.route('**/dashboard/reports/overview*', async (route) => json(route, {
+    summary: { customer: 12, lead: 4, contact: 8, opportunity: 2, won: 1, order: 1, behavior: 6, employee: 1, contactRate: 0.67, opportunityRate: 0.25, wonRate: 0.5, orderRate: 1 },
+    series: [{ at: '2026-08-01T00:00:00Z', value: 12 }],
+    items: [{ id: 'c1', day: '2026-08-01', ownerId: 12, ownerName: '销售一号' }],
+    pagination: { page: 1, pageSize: 20, total: 1 },
+    freshness: { provider: 'scrm', status: 'available', dataThrough: '2026-08-01T08:00:00Z' },
+    limitations: [],
   }));
   await page.route('**/dashboard/workMessage/toUsers*', async (route) => json(route, {
     list: [{ id: 'msg-1', employeeId: 1, employeeName: '销售一号', employeeAvatar: '', targetType: 'customer', targetId: 9, targetName: '张三', targetAvatar: '', lastMessage: '合同已发送', sentAt: '2026-08-01T08:00:00Z' }],
@@ -53,11 +56,15 @@ async function installPhase32ContractBackend(page: Page) {
   await page.route('**/dashboard/sensitiveWordGroup/select*', async (route) => json(route, [{ groupId: 1, name: '重点词组', version: 'g1' }]));
   await page.route('**/dashboard/sensitiveWord/index*', async (route) => json(route, { list: sensitiveWords, page: { total: sensitiveWords.length, perPage: 10, totalPage: 1 } }));
   await page.route('**/dashboard/sensitiveWord/store*', async (route) => {
-    const body = await requestBody<{ groupId: number; name: string }>(route);
+    const body = requestBody<{ groupId: number; name: string }>(route);
     sensitiveWords.push({ sensitiveWordId: sensitiveWords.length + 1, groupId: body.groupId, groupName: '重点词组', name: body.name, status: 1, version: `v${sensitiveWords.length + 1}` });
     await json(route, { version: sensitiveWords.at(-1)?.version, idempotent: false });
   });
   await page.route('**/dashboard/sensitiveWordsMonitor/index*', async (route) => json(route, { list: [], page: { total: 0, perPage: 10 } }));
+  await page.route('**/dashboard/workEmployee/index*', async (route) => json(route, {
+    list: [{ id: 12, name: '销售一号' }],
+    page: { page: 1, perPage: 200, total: 1, totalPage: 1 },
+  }));
 
   await page.route('**/dashboard/scrm/**', async (route) => {
     const url = new URL(route.request().url());
@@ -65,9 +72,13 @@ async function installPhase32ContractBackend(page: Page) {
     const method = route.request().method();
 
     if (path === '/scrm/leads/duplicates' && method === 'GET') return json(route, { items: [] });
+    if (path === '/scrm/settings' && method === 'GET') return json(route, [
+      { type: 'funnel_stage', key: 'proposal', value: '方案', enabled: true },
+      { type: 'funnel_stage', key: 'negotiation', value: '谈判', enabled: true },
+    ]);
     if (path === '/scrm/leads' && method === 'GET') return json(route, { items: leads, nextCursor: '' });
     if (path === '/scrm/leads' && method === 'POST') {
-      const body = await requestBody<{ businessKey: string; name: string; phone: string; source: 'manual' | 'import' | 'wecom' }>(route);
+      const body = requestBody<{ businessKey: string; name: string; phone: string; source: 'manual' | 'import' | 'wecom' }>(route);
       const lead = { id: `lead-${leads.length + 1}`, ...body, status: 'new', ownerId: null, convertedContactId: '', discardReason: '', version: 1 };
       leads.push(lead);
       return json(route, lead);
@@ -80,14 +91,14 @@ async function installPhase32ContractBackend(page: Page) {
     });
     if (path === '/scrm/contacts/c1/follow-ups' && method === 'GET') return json(route, { items: followUps, nextCursor: '' });
     if (path === '/scrm/contacts/c1/follow-ups' && method === 'POST') {
-      const body = await requestBody<{ content: string }>(route);
+      const body = requestBody<{ content: string }>(route);
       const item = { id: `follow-${followUps.length + 1}`, contactId: 'c1', content: body.content, createdAt: '2026-08-01T09:00:00Z', createdBy: 1 };
       followUps.push(item);
       return json(route, item);
     }
     if (path === '/scrm/opportunities' && method === 'GET') return json(route, { items: [opportunity], nextCursor: '' });
     if (path === '/scrm/opportunities/o1/stage' && method === 'POST') {
-      const body = await requestBody<{ stageId: string; lostReason: string; version: number }>(route);
+      const body = requestBody<{ stageId: string; lostReason: string; version: number }>(route);
       opportunity.stage = body.stageId;
       opportunity.status = body.stageId === 'won' || body.stageId === 'lost' ? body.stageId : 'open';
       opportunity.lostReason = body.lostReason;
@@ -96,7 +107,7 @@ async function installPhase32ContractBackend(page: Page) {
     }
     if (path === '/scrm/assignments' && method === 'GET') return json(route, { items: publicPool, nextCursor: '' });
     if (path === '/scrm/assignments/claim' && method === 'POST') {
-      const body = await requestBody<{ contactId: string }>(route);
+      const body = requestBody<{ contactId: string }>(route);
       const index = publicPool.findIndex((item) => item.contactId === body.contactId);
       const [item] = index >= 0 ? publicPool.splice(index, 1) : [];
       return json(route, { ...item, ownerId: 1, status: 'assigned', version: (item?.version ?? 0) + 1 });
@@ -107,7 +118,7 @@ async function installPhase32ContractBackend(page: Page) {
       return json(route, { groups: tagGroups, tags: tags.filter((tag) => (!groupId || tag.groupId === groupId) && (!keyword || tag.name.includes(keyword))) });
     }
     if (path === '/scrm/tags' && method === 'POST') {
-      const body = await requestBody<{ groupId: string; name: string }>(route);
+      const body = requestBody<{ groupId: string; name: string }>(route);
       const tag = { id: `t${tags.length + 1}`, groupId: body.groupId, name: body.name, version: 1, usageCount: 0 };
       tags.push(tag);
       const group = tagGroups.find((item) => item.id === body.groupId);
@@ -124,19 +135,20 @@ async function runClosure(page: Page, route: Phase32Route) {
 
   switch (route) {
     case '/index': {
-      await expect(page.getByRole('heading', { name: '数据概览' })).toBeVisible();
-      await page.getByLabel('员工 ID').fill('12');
+      await expect(page.getByRole('heading', { name: '数据概览', exact: true })).toBeVisible();
+      await page.getByText('高级范围筛选', { exact: true }).click();
+      await page.getByLabel('员工范围').selectOption('12');
       await page.getByRole('button', { name: '查询' }).click();
       await expect(page).toHaveURL(/employeeIds=12/);
       const download = page.waitForEvent('download');
       await page.getByRole('button', { name: '导出 CSV' }).click();
       expect((await download).suggestedFilename()).toBe('dashboard-overview.csv');
       await page.reload();
-      await expect(page.getByLabel('员工 ID')).toHaveValue('12');
+      await expect(page.getByLabel('员工范围')).toHaveValue('12');
       break;
     }
     case '/chat/v2-all': {
-      await expect(page.getByRole('heading', { name: '全局消息' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '全局消息', exact: true })).toBeVisible();
       await page.getByLabel('关键词').fill('合同');
       await page.getByRole('button', { name: '查询' }).click();
       await expect(page).toHaveURL(/keyword=%E5%90%88%E5%90%8C/);
@@ -170,7 +182,7 @@ async function runClosure(page: Page, route: Phase32Route) {
       break;
     }
     case '/customer/contact': {
-      await expect(page.getByRole('heading', { name: '联系人' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '联系人', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '查看张三' }).click();
       await page.getByLabel('跟进内容').fill('二次跟进');
       await page.getByRole('button', { name: '添加跟进' }).click();
@@ -181,11 +193,11 @@ async function runClosure(page: Page, route: Phase32Route) {
     }
     case '/customer/opportunity': {
       await expect(page.getByRole('heading', { name: '商机管理' })).toBeVisible();
-      await page.getByLabel('目标阶段 o1').fill('negotiation');
+      await page.getByLabel('目标阶段 o1').selectOption('negotiation');
       await page.getByRole('button', { name: '推进阶段 o1' }).click();
-      await expect(page.getByText('negotiation')).toBeVisible();
+      await expect(page.getByRole('cell', { name: '谈判', exact: true })).toBeVisible();
       await page.reload();
-      await expect(page.getByText('negotiation')).toBeVisible();
+      await expect(page.getByRole('cell', { name: '谈判', exact: true })).toBeVisible();
       break;
     }
     case '/customer/public-sea': {
@@ -199,8 +211,8 @@ async function runClosure(page: Page, route: Phase32Route) {
     case '/customer/tags': {
       await expect(page.getByRole('heading', { name: '客户标签' })).toBeVisible();
       await page.getByLabel('标签组筛选').selectOption('g1');
-      await page.getByLabel('新标签').fill('高意向');
-      await page.getByRole('button', { name: '新增标签' }).click();
+      await page.getByLabel('新标签', { exact: true }).fill('高意向');
+      await page.getByRole('button', { name: '新增标签', exact: true }).click();
       await expect(page.getByText('高意向')).toBeVisible();
       await page.reload();
       await expect(page.getByText('高意向')).toBeVisible();

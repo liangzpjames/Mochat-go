@@ -892,7 +892,7 @@
     },
     {
       "path": "/data/report",
-      "title": "数据报表",
+      "title": "综合报表",
       "groupId": "data-reports",
       "level": "P2",
       "status": "documented",

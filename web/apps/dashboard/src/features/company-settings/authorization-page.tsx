@@ -7,6 +7,19 @@ import { createMenuAdminApi, type MenuNode } from '../menu-admin/menu-admin-api'
 
 type MenuAdminApi = ReturnType<typeof createMenuAdminApi>;
 
+const authorizationNameMap: Record<string, string> = {
+  'Friends circle task query': '朋友圈任务查询',
+  'Friends circle material query': '朋友圈素材查询',
+  'Friends circle task draft': '朋友圈任务草稿',
+  'Friends circle material create': '朋友圈素材创建',
+  'Friends circle publish': '朋友圈发布',
+};
+
+function authorizationName(node: MenuNode): string {
+  return authorizationNameMap[node.name]
+    ?? (/\?{2,}|provider/i.test(node.name) ? `未命名权限（${node.menuId}）` : node.name || `未命名权限（${node.menuId}）`);
+}
+
 function countNodes(nodes: MenuNode[]): number {
   return nodes.reduce((sum, node) => sum + 1 + countNodes(node.children ?? []), 0);
 }
@@ -16,14 +29,14 @@ function OptionTree({ nodes, depth, onToggle }: { nodes: MenuNode[]; depth: numb
     <ul style={{ marginLeft: depth * 18 }}>
       {nodes.map((node) => (
         <li key={node.menuId}>
-          <span>{node.name}</span>
+          <span>{authorizationName(node)}</span>
           <span className="phase35-chip">{node.status === 1 ? '已授权' : '已停用'}</span>
           <ConfirmAction
-            title={node.status === 1 ? `确认停用授权节点“${node.name}”？` : `确认启用授权节点“${node.name}”？`}
+            title={node.status === 1 ? `确认停用授权节点“${authorizationName(node)}”？` : `确认启用授权节点“${authorizationName(node)}”？`}
             {...(node.status === 1 ? { description: '停用后该菜单不再授予当前企业用户。' } : {})}
             onConfirm={() => onToggle(node.menuId)}
           >
-            <button type="button">{node.status === 1 ? `停用 ${node.name}` : `启用 ${node.name}`}</button>
+            <button type="button">{node.status === 1 ? `停用 ${authorizationName(node)}` : `启用 ${authorizationName(node)}`}</button>
           </ConfirmAction>
           {node.children?.length > 0 && <OptionTree nodes={node.children} depth={depth + 1} onToggle={onToggle} />}
         </li>

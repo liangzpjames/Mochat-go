@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { reportEndpoint, type Phase35Api } from './api';
+import { reportEndpoint, text, type Phase35Api } from './api';
 import { ReportFilters, useReportFilters } from './report-query';
 import type { ReportItem, ReportResult } from './report-types';
 import { paginationOf } from './report-types';
@@ -23,7 +23,7 @@ export function BehaviorReportPage({ api }: { api: Phase35Api }) {
   const result = query.data as ReportResult | undefined;
   const pagination = paginationOf(result);
   const items = result?.items ?? [];
-  const types = new Set(items.map((item) => String(item.eventType ?? ''))).size;
+  const types = new Set(items.map((item) => text(item.eventType))).size;
   return (
     <Phase35PageShell
       title="行为分析"
@@ -59,12 +59,12 @@ export function BehaviorReportPage({ api }: { api: Phase35Api }) {
                 <thead><tr><th>行为类型</th><th>操作者</th><th>业务对象</th><th>发生时间</th><th>变更摘要</th><th>操作</th></tr></thead>
                 <tbody>
                   {items.map((item, index) => (
-                    <tr key={String(item.id ?? index)}>
+                    <tr key={text(item.id ?? index)}>
                       <td>{behaviorLabel(item.eventType)}</td>
-                      <td>账号 {String(item.actorId ?? '--')}</td>
-                      <td>{String(item.objectLabel ?? item.objectId ?? '--')}</td>
+                      <td>账号 {text(item.actorId)}</td>
+                      <td>{text(item.objectLabel ?? item.objectId)}</td>
                       <td>{formatDate(item.occurredAt)}</td>
-                      <td>{String(item.detail ?? '可查看详情')}</td>
+                      <td>{item.detail == null ? '可查看详情' : text(item.detail)}</td>
                       <td><button type="button" aria-label="查看行为详情" onClick={() => setSelected(item)}>查看详情</button></td>
                     </tr>
                   ))}
@@ -94,10 +94,10 @@ export function BehaviorReportPage({ api }: { api: Phase35Api }) {
       <Phase35DetailDrawer title="行为详情" open={Boolean(selected)} onClose={() => setSelected(undefined)}>
         <dl>
           <dt>行为类型</dt><dd>{behaviorLabel(selected?.eventType)}</dd>
-          <dt>操作者</dt><dd>账号 {String(selected?.actorId ?? '--')}</dd>
-          <dt>业务对象</dt><dd>{String(selected?.objectLabel ?? selected?.objectId ?? '--')}</dd>
+          <dt>操作者</dt><dd>账号 {text(selected?.actorId)}</dd>
+          <dt>业务对象</dt><dd>{text(selected?.objectLabel ?? selected?.objectId)}</dd>
           <dt>发生时间</dt><dd>{formatDate(selected?.occurredAt)}</dd>
-          <dt>变更摘要</dt><dd>{String(selected?.detail ?? '暂无补充说明')}</dd>
+          <dt>变更摘要</dt><dd>{selected?.detail == null ? '暂无补充说明' : text(selected.detail)}</dd>
         </dl>
       </Phase35DetailDrawer>
     </Phase35PageShell>

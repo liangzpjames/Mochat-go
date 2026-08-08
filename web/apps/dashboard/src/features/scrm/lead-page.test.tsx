@@ -15,7 +15,7 @@ function api(overrides: Partial<LeadApi> = {}): LeadApi { return { list: vi.fn()
 function RouterProbe() {
   const location = useLocation();
   const navigate = useNavigate();
-  return <><output aria-label="当前地址">{location.pathname}{location.search}</output><button type="button" onClick={() => navigate(-1)}>浏览器后退</button><button type="button" onClick={() => navigate(1)}>浏览器前进</button></>;
+  return <><output aria-label="当前地址">{location.pathname}{location.search}</output><button type="button" onClick={() => void navigate(-1)}>浏览器后退</button><button type="button" onClick={() => void navigate(1)}>浏览器前进</button></>;
 }
 function view(value: LeadApi, entry = '/scrm/lead/index') { return render(<MemoryRouter initialEntries={[entry]}><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><LeadPage api={value} /><RouterProbe /></QueryClientProvider></MemoryRouter>); }
 
@@ -47,8 +47,8 @@ describe('LeadPage', () => {
     const value = api();
     view(value, '/scrm/lead/index?keyword=Ada&status=qualified&source=manual&ownerId=12&cursor=next-page');
     await waitFor(() => expect(value.list).toHaveBeenLastCalledWith({ corpId: 7, keyword: 'Ada', statuses: ['qualified'], sources: ['manual'], ownerIds: [12], cursor: 'next-page', pageSize: 20 }));
-    expect((screen.getByRole('textbox', { name: '搜索线索' }) as HTMLInputElement).value).toBe('Ada');
-    expect((screen.getByRole('combobox', { name: '线索状态' }) as HTMLSelectElement).value).toBe('qualified');
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: '搜索线索' }).value).toBe('Ada');
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '线索状态' }).value).toBe('qualified');
     fireEvent.click(screen.getByRole('button', { name: '重置' }));
     await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toBe('/scrm/lead/index'));
     await waitFor(() => expect(value.list).toHaveBeenLastCalledWith({ corpId: 7, pageSize: 20 }));

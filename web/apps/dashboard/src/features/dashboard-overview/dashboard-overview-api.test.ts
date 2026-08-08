@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment -- malformed API fixtures intentionally exercise unknown payload normalization */
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDashboardOverviewApi } from './dashboard-overview-api';

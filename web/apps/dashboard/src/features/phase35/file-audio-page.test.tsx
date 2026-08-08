@@ -59,7 +59,7 @@ describe('FileAudioPage', () => {
     renderPage(api);
     await screen.findByText('p36-accept.wav');
     const file = new File(['wave'], 'new.wav', { type: 'audio/wav' });
-    const input = screen.getByLabelText('选择音频文件') as HTMLInputElement;
+    const input = screen.getByLabelText('选择音频文件');
     fireEvent.change(input, { target: { files: [file] } });
     expect(screen.getByText('new.wav')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '上传' }));
@@ -82,7 +82,7 @@ describe('FileAudioPage', () => {
     const api: FileAudioApi = { list: vi.fn().mockResolvedValue(sample), upload: vi.fn(), remove: vi.fn() };
     renderPage(api);
     await screen.findByText('p36-accept.wav');
-    expect((screen.getByRole('button', { name: '上传' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '上传' }).disabled).toBe(true);
     expect(screen.getByText('未选择文件')).not.toBeNull();
   });
 

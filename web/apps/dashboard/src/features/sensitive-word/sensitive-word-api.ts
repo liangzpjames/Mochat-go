@@ -19,6 +19,10 @@ function number(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function string(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+}
+
 function parsePage(value: unknown): SensitiveWordPage {
   const record = value as { list?: unknown; page?: { total?: unknown; perPage?: unknown; totalPage?: unknown } };
   const list = Array.isArray(record?.list) ? record.list : [];
@@ -28,10 +32,10 @@ function parsePage(value: unknown): SensitiveWordPage {
       return {
         id: number(row.sensitiveWordId ?? row.id),
         groupId: number(row.groupId),
-        groupName: String(row.groupName ?? ''),
-		name: String(row.name ?? ''),
+		groupName: string(row.groupName),
+		name: string(row.name),
 		status: number(row.status),
-		version: String(row.version ?? ''),
+		version: string(row.version),
       };
     }),
     total: number(record?.page?.total),
@@ -48,12 +52,12 @@ function parseMatchPage(value: unknown, page: number): SensitiveWordMatchPage {
 	  const row = item as Record<string, unknown>;
 	  return {
 		id: number(row.sensitiveWordsMonitorId ?? row.sensitiveWordMonitorId ?? row.id),
-		sensitiveWordName: String(row.sensitiveWordName ?? ''),
+		sensitiveWordName: string(row.sensitiveWordName),
 		source: number(row.source),
-		sourceText: String(row.sourceText ?? ''),
-		triggerName: String(row.triggerName ?? ''),
-		triggerScenario: String(row.triggerScenario ?? ''),
-		triggerTime: String(row.triggerTime ?? ''),
+		sourceText: string(row.sourceText),
+		triggerName: string(row.triggerName),
+		triggerScenario: string(row.triggerScenario),
+		triggerTime: string(row.triggerTime),
 	  };
 	}),
 	total: number(record?.page?.total),
@@ -87,7 +91,7 @@ export function createSensitiveWordApi(client: Client): SensitiveWordApi {
       const rows = await client.request<unknown>('/sensitiveWordGroup/select');
       return (Array.isArray(rows) ? rows : []).map((row) => {
         const value = row as Record<string, unknown>;
-	  return { id: number(value.groupId ?? value.id), name: String(value.name ?? ''), version: String(value.version ?? '') };
+	  return { id: number(value.groupId ?? value.id), name: string(value.name), version: string(value.version) };
 	});
 	},
 	async create(input) { return client.request('/sensitiveWord/store', json('POST', { groupId: input.groupId, name: input.names.join(','), version: input.version, idempotencyKey: input.idempotencyKey })); },
@@ -107,6 +111,6 @@ export function createSensitiveWordApi(client: Client): SensitiveWordApi {
 	  query.set('perPage', String(input.perPage));
 	  return parseMatchPage(await client.request(`/sensitiveWordsMonitor/index?${query.toString()}`), input.page);
 	},
-    async matchDetail(id) { return client.request(`/sensitiveWordsMonitor/show?id=${id}`) as Promise<readonly Record<string, unknown>[]>; },
+    async matchDetail(id) { return client.request(`/sensitiveWordsMonitor/show?id=${id}`); },
   };
 }

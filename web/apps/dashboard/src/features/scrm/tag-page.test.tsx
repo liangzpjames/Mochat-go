@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment -- mock call inspection verifies generated idempotency payloads */
 import { ApiError } from '@mochat/api-client';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -32,7 +33,7 @@ function api(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const HistoryControls = () => { const navigate = useNavigate(); return <><button type="button" onClick={() => navigate(-1)}>后退测试</button><button type="button" onClick={() => navigate(1)}>前进测试</button></>; };
+const HistoryControls = () => { const navigate = useNavigate(); return <><button type="button" onClick={() => void navigate(-1)}>后退测试</button><button type="button" onClick={() => void navigate(1)}>前进测试</button></>; };
 function view(value = api(), entry = '/customer/tags', client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })) {
   return render(<MemoryRouter initialEntries={[entry]}><QueryClientProvider client={client}><TagPage api={value} /><HistoryControls /></QueryClientProvider></MemoryRouter>);
 }
@@ -44,7 +45,7 @@ describe('TagPage', () => {
     await screen.findByText('普通');
     expect(screen.getByText('SCRM · 客户分类')).toBeTruthy();
     expect(screen.getByRole('tab', { name: '企业标签' }).getAttribute('aria-selected')).toBe('true');
-    expect((screen.getByRole('tab', { name: '系统标签' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('tab', { name: '系统标签' }).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '刷新标签' }));
     await waitFor(() => expect(value.listTagCatalog).toHaveBeenCalledTimes(2));
   });
@@ -62,7 +63,7 @@ describe('TagPage', () => {
     const value = api();
     view(value);
     await screen.findByText('普通');
-    expect((screen.getByLabelText('标签组筛选') as HTMLSelectElement).value).toBe('');
+    expect(screen.getByLabelText<HTMLSelectElement>('标签组筛选').value).toBe('');
     expect(value.listTagCatalog).toHaveBeenCalledWith({ corpId: 7 });
   });
 
@@ -72,11 +73,11 @@ describe('TagPage', () => {
     fireEvent.change(screen.getByLabelText('标签关键词'), { target: { value: '地域' } });
     fireEvent.change(screen.getByLabelText('标签组筛选'), { target: { value: 'g2' } });
     fireEvent.click(screen.getByRole('button', { name: '后退测试' }));
-    await waitFor(() => expect((screen.getByLabelText('标签关键词') as HTMLInputElement).value).toBe('VIP'));
-    expect((screen.getByLabelText('标签组筛选') as HTMLSelectElement).value).toBe('g1');
+    await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('标签关键词').value).toBe('VIP'));
+    expect(screen.getByLabelText<HTMLSelectElement>('标签组筛选').value).toBe('g1');
     fireEvent.click(screen.getByRole('button', { name: '前进测试' }));
-    await waitFor(() => expect((screen.getByLabelText('标签关键词') as HTMLInputElement).value).toBe('地域'));
-    expect((screen.getByLabelText('标签组筛选') as HTMLSelectElement).value).toBe('g2');
+    await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('标签关键词').value).toBe('地域'));
+    expect(screen.getByLabelText<HTMLSelectElement>('标签组筛选').value).toBe('g2');
   });
 
   it('creates and renames groups, and creates renames and moves tags', async () => {

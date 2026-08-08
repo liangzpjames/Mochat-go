@@ -1,6 +1,6 @@
 ﻿import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { reportEndpoint, type Phase35Api } from './api';
+import { reportEndpoint, text, type Phase35Api } from './api';
 import { ReportFilters, useReportFilters } from './report-query';
 import { SimpleTrendChart } from './components/simple-trend-chart';
 import { ReportDetailTable } from './components/report-detail-table';
@@ -22,10 +22,10 @@ export function CustomerReportPage({ api }: { api: Phase35Api }) {
   const items = result?.items ?? [];
   const total = Number(result?.summary?.customer ?? 0);
   const pagination = paginationOf(result);
-  const owned = items.filter((row) => String(row.ownerName ?? '') !== '');
+  const owned = items.filter((row) => text(row.ownerName) !== '--');
   const coverage = items.length ? `${Math.round((owned.length / items.length) * 100)}%` : '--';
   const empty = !query.isLoading && !total && !items.length;
-  const series = (result?.series ?? []).map((point) => ({ at: String(point.at ?? point.day ?? ''), value: Number(point.value ?? 0) }));
+  const series = (result?.series ?? []).map((point) => ({ at: text(point.at ?? point.day), value: Number(point.value ?? 0) }));
   const limitations = result?.limitations ?? [];
 
   return (

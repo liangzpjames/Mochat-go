@@ -6,7 +6,7 @@ import { pageStateForError, PageState } from './page-state';
 describe('PageState', () => {
   afterEach(cleanup);
 
-  it('renders the conflict message and retries', async () => {
+  it('renders the conflict message and retries', () => {
     const onRetry = vi.fn();
 
     render(<PageState state="conflict" onRetry={onRetry} />);

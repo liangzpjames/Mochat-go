@@ -17,15 +17,15 @@ type Client = { request<T = unknown>(input: RequestInfo | URL, init?: RequestIni
 const json = (body: unknown, idempotencyKey: string, method = 'POST'): RequestInit => ({ method, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(body) });
 
 export type ContactApi = {
-  listContacts(input: ContactListInput): Promise<{ items: ContactSummary[]; nextCursor: string }>;
-  getContact(input: { corpId: number; contactId: string }): Promise<ContactDetail>;
-  updateAssignment(input: { corpId: number; contactId: string; ownerId: number | null; collaboratorIds: number[]; version: number; idempotencyKey: string }): Promise<Assignment>;
-  listTagCatalog(input: { corpId: number }): Promise<ContactTagCatalog>;
-  maintainTagContacts(input: { corpId: number; tagId: string; addContactIds: string[]; removeContactIds: string[]; version: number; idempotencyKey: string }): Promise<ContactTagCatalog['tags'][number]>;
-  appendFollowUp(input: { corpId: number; contactId: string; content: string; idempotencyKey: string }): Promise<ContactDetail['followUps'][number]>;
-  listFollowUps(input: { corpId: number; contactId: string }): Promise<{ items: ContactDetail['followUps']; nextCursor: string }>;
-  releaseToPublicPool(input: { corpId: number; contactId: string; version: number; action: 'enter' | 'return' | 'reclaim'; reason: string; idempotencyKey: string }): Promise<Assignment>;
-  createOpportunity(input: { corpId: number; contactId: string; stage: string; amount: number; startDate: string; endDate: string; ownerId: number | null; idempotencyKey: string }): Promise<ContactDetail['opportunities'][number]>;
+  listContacts: (input: ContactListInput) => Promise<{ items: ContactSummary[]; nextCursor: string }>;
+  getContact: (input: { corpId: number; contactId: string }) => Promise<ContactDetail>;
+  updateAssignment: (input: { corpId: number; contactId: string; ownerId: number | null; collaboratorIds: number[]; version: number; idempotencyKey: string }) => Promise<Assignment>;
+  listTagCatalog: (input: { corpId: number }) => Promise<ContactTagCatalog>;
+  maintainTagContacts: (input: { corpId: number; tagId: string; addContactIds: string[]; removeContactIds: string[]; version: number; idempotencyKey: string }) => Promise<ContactTagCatalog['tags'][number]>;
+  appendFollowUp: (input: { corpId: number; contactId: string; content: string; idempotencyKey: string }) => Promise<ContactDetail['followUps'][number]>;
+  listFollowUps: (input: { corpId: number; contactId: string }) => Promise<{ items: ContactDetail['followUps']; nextCursor: string }>;
+  releaseToPublicPool: (input: { corpId: number; contactId: string; version: number; action: 'enter' | 'return' | 'reclaim'; reason: string; idempotencyKey: string }) => Promise<Assignment>;
+  createOpportunity: (input: { corpId: number; contactId: string; stage: string; amount: number; startDate: string; endDate: string; ownerId: number | null; idempotencyKey: string }) => Promise<ContactDetail['opportunities'][number]>;
 };
 
 export function createContactApi(client: Client): ContactApi {
@@ -37,24 +37,24 @@ export function createContactApi(client: Client): ContactApi {
       input.tagIds?.forEach((id) => query.append('tagId', id));
       input.statuses?.forEach((status) => query.append('status', status));
       if (input.cursor) query.set('cursor', input.cursor);
-      return client.request(`/scrm/contacts?${query.toString()}`) as Promise<{ items: ContactSummary[]; nextCursor: string }>;
+      return client.request(`/scrm/contacts?${query.toString()}`);
     },
-    async getContact(input) { return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}?corpId=${input.corpId}`) as Promise<ContactDetail>; },
-    async updateAssignment(input) { return client.request('/scrm/assignments', json(input, input.idempotencyKey, 'PUT')) as Promise<Assignment>; },
-    async listTagCatalog(input) { return client.request(`/scrm/tags?corpId=${input.corpId}`) as Promise<ContactTagCatalog>; },
+    async getContact(input) { return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}?corpId=${input.corpId}`); },
+    async updateAssignment(input) { return client.request('/scrm/assignments', json(input, input.idempotencyKey, 'PUT')); },
+    async listTagCatalog(input) { return client.request(`/scrm/tags?corpId=${input.corpId}`); },
     async maintainTagContacts(input) {
       const body = { corpId: input.corpId, addContactIds: input.addContactIds, removeContactIds: input.removeContactIds, version: input.version };
-      return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/contacts`, json(body, input.idempotencyKey, 'PUT')) as Promise<ContactTagCatalog['tags'][number]>;
+      return client.request(`/scrm/tags/${encodeURIComponent(input.tagId)}/contacts`, json(body, input.idempotencyKey, 'PUT'));
     },
     async appendFollowUp(input) {
       const body = { corpId: input.corpId, content: input.content };
-      return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups`, json(body, input.idempotencyKey)) as Promise<ContactDetail['followUps'][number]>;
+      return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups`, json(body, input.idempotencyKey));
     },
-    async listFollowUps(input) { return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups?corpId=${input.corpId}`) as Promise<{ items: ContactDetail['followUps']; nextCursor: string }>; },
+    async listFollowUps(input) { return client.request(`/scrm/contacts/${encodeURIComponent(input.contactId)}/follow-ups?corpId=${input.corpId}`); },
     async releaseToPublicPool(input) {
       const body = { corpId: input.corpId, contactId: input.contactId, version: input.version, action: input.action, reason: input.reason };
-      return client.request('/scrm/assignments/release', json(body, input.idempotencyKey)) as Promise<Assignment>;
+      return client.request('/scrm/assignments/release', json(body, input.idempotencyKey));
     },
-    async createOpportunity(input) { return client.request('/scrm/opportunities', json(input, input.idempotencyKey)) as Promise<ContactDetail['opportunities'][number]>; },
+    async createOpportunity(input) { return client.request('/scrm/opportunities', json(input, input.idempotencyKey)); },
   };
 }

@@ -9,12 +9,12 @@ type Client = { request<T = unknown>(input: RequestInfo | URL, init?: RequestIni
 
 export type LeadListInput = { corpId: number; keyword?: string; statuses?: LeadStatus[]; sources?: LeadSource[]; ownerIds?: number[]; createdFrom?: string; createdTo?: string; cursor?: string; pageSize?: number };
 export type LeadApi = {
-  listOwnerOptions(): Promise<LeadOwnerOption[]>;
-  list(input: LeadListInput): Promise<LeadPage>;
-  create(input: { corpId: number; businessKey: string; name: string; phone: string; source: LeadSource }): Promise<Lead>;
-  findDuplicates(input: { corpId: number; businessKey?: string; phone?: string }): Promise<{ items: Lead[] }>;
-  assign(input: { corpId: number; ownerId: number; targets: LeadTarget[] }): Promise<{ results: LeadMutationResult[] }>;
-  transition(input: { corpId: number; id: string; toStatus: LeadStatus; version: number; discardReason: string }): Promise<Lead>;
+  listOwnerOptions: () => Promise<LeadOwnerOption[]>;
+  list: (input: LeadListInput) => Promise<LeadPage>;
+  create: (input: { corpId: number; businessKey: string; name: string; phone: string; source: LeadSource }) => Promise<Lead>;
+  findDuplicates: (input: { corpId: number; businessKey?: string; phone?: string }) => Promise<{ items: Lead[] }>;
+  assign: (input: { corpId: number; ownerId: number; targets: LeadTarget[] }) => Promise<{ results: LeadMutationResult[] }>;
+  transition: (input: { corpId: number; id: string; toStatus: LeadStatus; version: number; discardReason: string }) => Promise<Lead>;
 };
 
 const jsonRequest = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

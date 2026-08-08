@@ -167,4 +167,32 @@ describe('企业设置页面', () => {
     expect(screen.queryByText('Friends circle')).toBeNull();
     expect(screen.queryByText('??? Provider ??')).toBeNull();
   });
+
+  it('授权管理树使用中文业务名称并安全回退未知 Provider 权限', async () => {
+    const api = {
+      list: vi.fn().mockResolvedValue({
+        list: [
+          { menuId: 114001, parentId: 0, name: 'Friends circle task query', level: 4, levelName: '四级菜单', menuPath: '3', icon: '', status: 1, updatedAt: '' },
+          { menuId: 114002, parentId: 0, name: 'Friends circle material query', level: 4, levelName: '四级菜单', menuPath: '4', icon: '', status: 1, updatedAt: '' },
+          { menuId: 114003, parentId: 0, name: 'Friends circle task draft', level: 4, levelName: '四级菜单', menuPath: '5', icon: '', status: 1, updatedAt: '' },
+          { menuId: 114004, parentId: 0, name: 'Friends circle material create', level: 4, levelName: '四级菜单', menuPath: '6', icon: '', status: 1, updatedAt: '' },
+          { menuId: 114005, parentId: 0, name: 'Friends circle publish', level: 4, levelName: '四级菜单', menuPath: '7', icon: '', status: 1, updatedAt: '' },
+          { menuId: 117003, parentId: 0, name: '??? Provider ??', level: 4, levelName: '四级菜单', menuPath: '8', icon: '', status: 1, updatedAt: '' },
+        ],
+        page: { total: 6, totalPage: 1 },
+      }),
+      updateStatus: vi.fn(),
+    } as unknown as MenuAdminApi;
+
+    renderPage(<CompanyAuthorizationPage api={api} />);
+
+    expect(await screen.findByText('朋友圈任务查询')).toBeTruthy();
+    expect(screen.getByText('朋友圈素材查询')).toBeTruthy();
+    expect(screen.getByText('朋友圈任务草稿')).toBeTruthy();
+    expect(screen.getByText('朋友圈素材创建')).toBeTruthy();
+    expect(screen.getByText('朋友圈发布')).toBeTruthy();
+    expect(screen.getByText('未命名权限（117003）')).toBeTruthy();
+    expect(screen.queryByText(/Friends circle/i)).toBeNull();
+    expect(screen.queryByText('??? Provider ??')).toBeNull();
+  });
 });

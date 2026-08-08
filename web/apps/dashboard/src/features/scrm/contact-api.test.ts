@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment -- request mocks capture native RequestInit bodies for protocol assertions */
 import { describe, expect, it, vi } from 'vitest';
 import { createContactApi } from './contact-api';
 

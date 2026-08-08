@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment -- mock call inspection verifies generated idempotency payloads */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -28,13 +29,13 @@ test('quick creates a real contact and selects it for the order', async () => {
   render(<DashboardAccessProvider value={access}><QueryClientProvider client={new QueryClient()}><OrderPage api={api} /></QueryClientProvider></DashboardAccessProvider>);
   fireEvent.click(await screen.findByRole('button', { name: '快速创建联系人' }));
   expect(screen.getByRole('dialog', { name: '快速创建联系人' })).not.toBeNull();
-  const quickName = screen.getByLabelText('快速联系人姓名') as HTMLInputElement;
-  const quickPhone = screen.getByLabelText('快速联系人手机') as HTMLInputElement;
+  const quickName = screen.getByLabelText('快速联系人姓名');
+  const quickPhone = screen.getByLabelText('快速联系人手机');
   fireEvent.change(quickName, { target: { value: '新联系人' } });
   fireEvent.change(quickPhone, { target: { value: '13800138000' } });
   fireEvent.click(screen.getByRole('button', { name: '创建并选中' }));
   expect(await screen.findByText('联系人已创建并自动选中，可以继续填写订单。')).not.toBeNull();
-  expect((screen.getByLabelText('联系人') as HTMLSelectElement).value).toBe('contact-new');
+  expect(screen.getByLabelText<HTMLInputElement>('联系人').value).toBe('contact-new');
   expect(screen.queryByRole('dialog', { name: '快速创建联系人' })).toBeNull();
   expect(screen.queryByLabelText('快速联系人姓名')).toBeNull();
   expect(screen.queryByLabelText('快速联系人手机')).toBeNull();
@@ -84,8 +85,8 @@ test('disables duplicate submission while pending and preserves fields on failur
   expect(api.write).toHaveBeenCalledWith('/scrm/orders', expect.not.objectContaining({ id: expect.anything() }), 'POST');
   rejectCreate(new Error('failed'));
   await waitFor(() => expect(screen.getByRole('alert')).not.toBeNull());
-  expect((screen.getByLabelText('订单标题') as HTMLInputElement).value).toBe('续费订单');
-  expect((screen.getByLabelText('金额（元）') as HTMLInputElement).value).toBe('12.00');
+  expect(screen.getByLabelText<HTMLInputElement>('订单标题').value).toBe('续费订单');
+  expect(screen.getByLabelText<HTMLInputElement>('金额（元）').value).toBe('12.00');
 });
 
 test('paginates the order list with small phase35 controls', async () => {
