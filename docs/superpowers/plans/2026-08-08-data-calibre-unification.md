@@ -13,7 +13,7 @@
 - 工作分支：`feat/2026-08-08-data-calibre-unification`（从 `main @ 9b6515e` 创建），**不推送到远端**。
 - 不修改 legacy `/corpData/index`（`internal/dashboard/corp_data.go`）及其路由；它是历史兼容入口。
 - 不改变 `customer / conversion / behavior / employee / report` 五个既有报表的响应契约与查询行为。
-- 新接口授权权限键：`/index#get`（复用数据概览菜单权限，不引入 `/data/overview#get`）。
+- 新接口授权权限键：`/dashboard/corpData/index#get`（复用数据概览菜单权限，不引入 `/data/overview#get`）。**不要使用 `/index#get`**：`RBACResolver` 按去掉 `#get` 后的路径精确匹配 `mc_rbac_menu.link_url`，菜单表中“系统首页”的 `link_url` 是 `/dashboard/corpData/index`（id=219）；`/index#get` 只有超管（`IsSuperAdmin=1`）能通过，普通角色会 403。
 - 日期语义与 Phase 3.5 报表一致：`startAt = startDate T00:00:00+08:00`，`endAt = endDate T00:00:00+08:00`（半开区间，结束日期为次日 00:00 边界）。
 - 概览默认区间与报表一致：开始 = 本月 1 日，结束 = 下月 1 日（Asia/Shanghai）。
 - 用户可见文案使用中文；代码标识符、路径、接口字段保留英文。
@@ -47,7 +47,7 @@
 
 **Interfaces:**
 - Consumes: 现有 `ReportQuery`、`ReportResult`、`Source`、`NewService`、`NewSQLRepository`。
-- Produces: `reporting.OverviewReport`（值 `"overview"`）；`GET /dashboard/reports/overview` 可用；授权权限键为 `/index#get`；响应 `ReportResult` 的 `Summary` 合并 `customer/lead/contact/opportunity/won/order/behavior/employee`（含转化率 `contactRate/opportunityRate/wonRate/orderRate`），`Series`/`Items`/`Pagination` 来自 customer 查询，`Limitations` 四源合并，`Freshness.Provider="scrm"`。
+- Produces: `reporting.OverviewReport`（值 `"overview"`）；`GET /dashboard/reports/overview` 可用；授权权限键为 `/dashboard/corpData/index#get`；响应 `ReportResult` 的 `Summary` 合并 `customer/lead/contact/opportunity/won/order/behavior/employee`（含转化率 `contactRate/opportunityRate/wonRate/orderRate`），`Series`/`Items`/`Pagination` 来自 customer 查询，`Limitations` 四源合并，`Freshness.Provider="scrm"`。
 
 - [ ] **Step 1: 写失败测试（contracts + service + handler + integration）**
 
@@ -87,7 +87,7 @@ func (a *recordingAuthorizer) Authorize(_ context.Context, _ Principal, _ int64,
 	return nil
 }
 
-func TestOverviewReportUsesIndexMenuPermission(t *testing.T) {
+func TestOverviewReportUsesOverviewMenuPermission(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewHandler(serviceStub{}, resolverStub{}, authorizer)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/reports/overview?corpId=9&timezone=Asia%2FShanghai&startAt=2026-08-01T00:00:00Z&endAt=2026-08-02T00:00:00Z", nil)
@@ -97,8 +97,8 @@ func TestOverviewReportUsesIndexMenuPermission(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if authorizer.permission != "/index#get" {
-		t.Fatalf("permission=%q want /index#get", authorizer.permission)
+	if authorizer.permission != "/dashboard/corpData/index#get" {
+		t.Fatalf("permission=%q want /dashboard/corpData/index#get", authorizer.permission)
 	}
 }
 
@@ -220,7 +220,7 @@ func (r *SQLRepository) queryOverview(ctx context.Context, q ReportQuery) (Repor
 ```go
 	permission := "/data/" + string(kind) + "#get"
 	if kind == reporting.OverviewReport {
-		permission = "/index#get"
+		permission = "/dashboard/corpData/index#get"
 	}
 	if h.authorizer != nil {
 		if err := h.authorizer.Authorize(r.Context(), principal, query.CorpID, permission); err != nil {
@@ -247,6 +247,8 @@ git commit -m "feat(reporting): add overview report kind for unified dashboard o
 ---
 
 ### Task 2: 前端概览页切换为 `/reports/overview`
+
+> 状态：实现已提交（`ea4f27f`，`feat(dashboard): switch overview to unified reporting data source`），依赖 Task 1 后端接口；提交内容已包含本任务全部 Step，待验证矩阵统一复跑。
 
 **Files:**
 - Modify: `web/apps/dashboard/src/features/dashboard-overview/dashboard-overview-api.ts`
@@ -512,7 +514,11 @@ function parseOverview(value: unknown): DashboardOverview {
     .map((point) => ({ date: point.at.slice(0, 10), addCustomerNum: point.value }));
   const pagination = isRecord(value.pagination) ? value.pagination : {};
   const freshness = isRecord(value.freshness) ? value.freshness : {};
-  const dataThrough = typeof freshness.dataThrough === 'string' ? freshness.dataThrough : '';
+  // Zero time.Time marshals as 0001-01-01T00:00:00Z; treat sentinel/missing
+  // values as "no freshness timestamp" instead of rendering 0001-01-01.
+  const dataThrough = typeof freshness.dataThrough === 'string' && /^20\d\d-/.test(freshness.dataThrough)
+    ? freshness.dataThrough
+    : '';
   const updatedAt = dataThrough === '' ? '' : dataThrough.replace('T', ' ').replace('Z', '').slice(0, 19);
   return {
     cards,
@@ -595,7 +601,9 @@ function defaultRange(): OverviewRange {
 }
 ```
 
-把 `filtersFromSearch` 的返回值去掉 `period` 字段；把 `overviewSearch` 去掉 `period` 参数与 `next.set('period', ...)` 逻辑；把 `input` 的 `useMemo` 去掉 `period` 字段。
+把 `filtersFromSearch` 的返回值去掉 `period` 字段；把 `overviewSearch` 去掉 `period` 参数与 `next.set('period', ...)` 逻辑，并在构造 `next` 后追加 `next.delete('period')`（`updateSearch` 会保留未提及的旧参数，必须显式清除 URL 中残留的 `period`）；把 `input` 的 `useMemo` 去掉 `period` 字段。
+
+日期范围校验同步调整：默认区间“本月 1 日 → 下月 1 日”在 31 天月份跨度为 31 天，现有 `calendarDaySpan(draft) > 30` 会误伤默认区间；把 `applyFilters` 中的校验改为 `calendarDaySpan(draft) > 31`（提示文案保持“日期范围最多为 31 天”，即允许 31 天内的整月区间）。
 
 把 `TrendChart` 替换为单序列版本：
 
@@ -714,6 +722,42 @@ git commit -m "feat(dashboard): switch overview to unified reporting data source
 
 ---
 
+### Task 5（子代理执行）：AI 入口收敛为单一“AI 能力中心”（D3）
+
+> 背景：AI 洞察 5 页（`/ai-insight/session-analysis|smart-analysis|emotion|employee-score|communication-keyword`）当前全部受限（`AI_INSIGHT_ENABLED=0`），但菜单“AI 洞察”组展示 5 个入口，用户逐页点开才发现不可用。本轮将侧边栏该组收敛为 1 个“AI 能力中心”入口，路由与直接访问保留。
+
+**Files:**
+- Add: `web/apps/dashboard/src/features/ai-insight/ai-insight-hub-page.tsx`
+- Add: `web/apps/dashboard/src/features/ai-insight/ai-insight-hub-page.test.tsx`
+- Modify: `web/apps/dashboard/src/benchmark/page-registry.tsx`（注册 `/ai-insight/overview`）
+- Modify: `web/apps/dashboard/src/main.tsx`（`knownRoutes` 增加 `/ai-insight/overview`）
+- Modify: `web/apps/dashboard/src/layout/yuanhu-navigation.ts`（组收敛 override）
+- Modify: `web/apps/dashboard/src/layout/dashboard-layout.tsx`（传入 override）
+- Modify: `web/apps/dashboard/src/layout/yuanhu-navigation.test.ts`（新增收敛用例）
+
+**设计决策：**
+1. **不新增后端状态接口**：Hub 页复用现有 `createAiInsightApi().read('session-analysis', corpId)` 判断 `capability`；`ready` 时展示 5 个子能力卡片（可点击跳转），`limited/unavailable` 时展示“AI 能力未接入”引导 + 5 个禁用能力卡片 + “前往接入”链接（`/ai-setting/ai-knowledge-base`）。
+2. **侧边栏收敛是前端导航层 override，不修改 benchmark manifest**：`buildYuanhuNavigation(access, manifest, groupOverrides?)`，`groupOverrides` 形如 `{ groupId: 'ai-insight', title: 'AI 能力中心', path: '/ai-insight/overview' }`；当该组存在任意 allowed 页面时，仅渲染 1 个条目，路径为 Hub 页。其余组行为不变。
+3. **5 个原路由保持注册与可直达**：直接 URL 仍可用（受限态原样展示），为后续 AI 能力开放保留兼容。
+4. **风险预警组（`/ai-insight/v2/*`）不收拢**：它们是 legacy 业务页（敏感词/拦截/超时等），不依赖 AI Provider。
+5. Hub 页展示文案与现有受限态术语一致（“AI 能力未接入 / 当前未接入可用的 AI 分析 Provider，暂无分析结果”），5 个能力卡片标题与 `aiInsightPageConfigs` 一致。
+
+- [ ] Step 1: 写失败测试（yuanhu-navigation override + Hub 页受限/就绪两种渲染）
+- [ ] Step 2: 运行测试确认失败
+- [ ] Step 3: 实现 `yuanhu-navigation.ts` override 与 `dashboard-layout.tsx` 传参
+- [ ] Step 4: 实现 `ai-insight-hub-page.tsx` 并注册路由（page-registry + main.tsx knownRoutes）
+- [ ] Step 5: 运行 `pnpm --filter @mochat/dashboard test` 与 `pnpm --filter @mochat/dashboard typecheck` 确认通过
+- [ ] Step 6: 提交 `feat(dashboard): converge AI insight entries into a single hub`
+
+---
+
+### Task 6（主代理执行）：统一验证、部署与文档收尾
+
+- [ ] Step 1: 复跑 Go 单测/全量、前端单测/typecheck/build（验证矩阵）
+- [ ] Step 2: 重建 Docker 栈并做浏览器验收：`/index` 客户总数 = `/data/customer` 主指标；侧边栏“AI 洞察”仅 1 个“AI 能力中心”入口；受限态 Hub 页正常
+- [ ] Step 3: 更新 `PROJECT_PROGRESS.zh-CN.md` 与 `docs/reviews/2026-08-08-dashboard-dataflow-scenario-analysis.zh-CN.md`（D1/D2/D3/W8 标记已实施，含验收证据路径）
+- [ ] Step 4: 提交文档与收尾改动
+
 ## 验证矩阵（全部通过才可交付）
 
 | 检查项 | 命令 | 预期 |
@@ -726,6 +770,7 @@ git commit -m "feat(dashboard): switch overview to unified reporting data source
 | 生产构建 | `pnpm --filter @mochat/dashboard build` | PASS |
 | Docker 部署 | `docker compose -p mochat-go-desktop -f deploy/standalone/docker-compose.yml --profile app build app` 后 `up -d`，`/readyz` 200 | 容器 healthy |
 | 浏览器验收 | 登录 `13800000000`，访问 `/index` | 概览客户数 = `/data/customer` 主指标；无硬编码 0；会话归档显示未接入空态 |
+| 浏览器验收（AI 收敛） | 登录后查看侧边栏 | “AI 洞察”组仅 1 个“AI 能力中心”入口；Hub 页受限态引导 + 配置入口正常 |
 
 ## 已知限制（本轮明确不修）
 
