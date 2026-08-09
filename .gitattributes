@@ -1,3 +1,5 @@
 web/legacy/dashboard/** -text
 web/legacy/sidebar/** -text
 web/legacy/operation/** -text
+deploy/standalone/migrations/0099_saas_tenant_default_corp.up.sql text eol=crlf
+deploy/standalone/migrations/0099_saas_tenant_default_corp.down.sql text eol=lf
