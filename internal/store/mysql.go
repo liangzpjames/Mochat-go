@@ -15082,13 +15082,17 @@ func insertBusinessLog(ctx context.Context, executor businessLogExecutor, busine
 	return err
 }
 
-func (s *MySQLStore) WorkContactSyncEmployees(ctx context.Context, corpID int) ([]dashboard.WorkContactSyncEmployee, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func workContactSyncEmployeesQuery() string {
+	return `
 		SELECT id, wx_user_id
 		FROM mc_work_employee
-		WHERE corp_id = ? AND wx_user_id <> '' AND deleted_at IS NULL
+		WHERE corp_id = ? AND contact_auth = 1 AND wx_user_id <> '' AND deleted_at IS NULL
 		ORDER BY id ASC
-	`, corpID)
+	`
+}
+
+func (s *MySQLStore) WorkContactSyncEmployees(ctx context.Context, corpID int) ([]dashboard.WorkContactSyncEmployee, error) {
+	rows, err := s.db.QueryContext(ctx, workContactSyncEmployeesQuery(), corpID)
 	if err != nil {
 		return nil, err
 	}
