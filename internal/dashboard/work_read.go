@@ -2932,9 +2932,6 @@ func workDepartmentPageTree(departments []WorkDepartment) []map[string]any {
 	items := make(map[int]map[string]any, len(departments))
 	ordered := make([]int, 0, len(departments))
 	for _, department := range departments {
-		if department.Level == 0 {
-			continue
-		}
 		items[department.ID] = map[string]any{
 			"id":           department.ID,
 			"name":         department.Name,
@@ -2980,6 +2977,7 @@ func assignDepartmentPagePath(items []map[string]any, path string) []map[string]
 
 func departmentLevelName(level int) string {
 	names := map[int]string{
+		0:  "企业根部门",
 		1:  "一级部门",
 		2:  "二级部门",
 		3:  "三级部门",

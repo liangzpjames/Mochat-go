@@ -265,6 +265,25 @@ func TestWorkDepartmentPageIndexReturnsTreeWithAuthorization(t *testing.T) {
 	}
 }
 
+func TestWorkDepartmentPagePayloadIncludesEnterpriseRoot(t *testing.T) {
+	payload := workDepartmentPagePayload([]WorkDepartment{
+		{ID: 2, CorpID: 7, Name: "测试公司", ParentID: 0, Level: 0, Path: "#2#"},
+	}, 1, 10)
+
+	page := payload["page"].(map[string]any)
+	if page["total"] != 1 || page["totalPage"] != 1 {
+		t.Fatalf("page = %#v", page)
+	}
+	list := payload["list"].([]map[string]any)
+	if len(list) != 1 {
+		t.Fatalf("list = %#v", list)
+	}
+	root := list[0]
+	if root["departmentId"] != 2 || root["name"] != "测试公司" || root["level"] != "企业根部门" || root["departmentPath"] != "1" {
+		t.Fatalf("root = %#v", root)
+	}
+}
+
 func TestWorkDepartmentShowEmployeeReturnsPagedEmployees(t *testing.T) {
 	store := &fakeWorkReadStore{
 		users: map[int]User{1: {ID: 1}},
