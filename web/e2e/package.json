@@ -6,7 +6,8 @@
   "scripts": {
     "lint": "eslint playwright.config.ts tests",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:dashboard-page-rbac": "playwright test tests/dashboard-page-rbac.spec.ts --workers=1"
   },
   "devDependencies": {
     "@mochat/config": "workspace:*",
