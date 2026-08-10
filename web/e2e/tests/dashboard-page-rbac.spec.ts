@@ -10,6 +10,7 @@ const protectedRoutes = new Set(['/company-setting/staff', '/setting/role', '/se
 const ordinaryRoutes = routes.filter((route) => !protectedRoutes.has(route));
 const liveBase = process.env.MOCHAT_E2E_LIVE_BASE;
 const liveFixture = process.env.MOCHAT_E2E_RBAC_FIXTURE_JSON ? JSON.parse(process.env.MOCHAT_E2E_RBAC_FIXTURE_JSON) as {
+  managedUserId: number;
   tenantDenied: LiveAccount; noPermission: LiveAccount; direct: LiveAccount; twoRole: LiveAccount; roleDisabledDirectRetained: LiveAccount; ordinary49: LiveAccount; superadmin: LiveAccount;
 } : undefined;
 
@@ -56,6 +57,21 @@ async function loginLive(page: Page, base: string, account: LiveAccount) {
   await page.getByRole('button', { name: /登录/ }).click();
   expect((await loginResponse).status()).toBe(200);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).not.toBeNull();
+}
+async function liveAdminHeaders(page: Page, base: string, account: LiveAccount) {
+  const response = await page.request.post(`${base}/dashboard/user/auth`, { data: { phone: account.phone, password: account.password } });
+  expect(response.status()).toBe(200);
+  const body = await response.json() as { data?: { token?: string }; token?: string };
+  const token = body.data?.token ?? body.token;
+  expect(token).toBeTruthy();
+  return { Authorization: `Bearer ${token}` };
+}
+async function replaceLiveAccess(page: Page, base: string, headers: Record<string, string>, userId: number, roleIds: number[], directPermissions: Array<{ code: string; scope: 'self' | 'tenant' }>) {
+  const current = await page.request.get(`${base}/dashboard/access/users/${userId}`, { headers });
+  expect(current.status()).toBe(200);
+  const detail = await current.json() as { data: { version: number } };
+  const replaced = await page.request.put(`${base}/dashboard/access/users/${userId}`, { headers, data: { roleIds, directPermissions, expectedVersion: detail.data.version } });
+  expect(replaced.status()).toBe(200);
 }
 
 test.describe('Dashboard Page RBAC completion matrix', () => {
@@ -114,7 +130,13 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
     page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     const expectedPermission403 = new Set(routes.map((route) => `${liveBase}${route}`));
     page.on('response', (response) => { if (response.status() < 400) return; if (response.status() === 403 && (expectedPermission403.has(response.url()) || response.url().includes('/dashboard/access/not-registered') || response.url().includes('/dashboard/access/profile') || response.url().includes('/dashboard/user/auth'))) return; unexpected.push(`${response.status()} ${response.url()}`); });
-    const live = liveBase!; await loginLive(page, live, liveFixture!.ordinary49);
+    const live = liveBase!;
+    const adminHeaders = await liveAdminHeaders(page, live, liveFixture!.superadmin);
+    const catalogResponse = await page.request.get(`${live}/dashboard/access/catalog`, { headers: adminHeaders });
+    expect(catalogResponse.status()).toBe(200);
+    const catalog = await catalogResponse.json() as { data: Array<{ code: string; superadminOnly: boolean }> };
+    await replaceLiveAccess(page, live, adminHeaders, liveFixture!.managedUserId, [], catalog.data.filter((permission) => !permission.superadminOnly).map((permission) => ({ code: permission.code, scope: 'tenant' })));
+    await loginLive(page, live, liveFixture!.ordinary49);
     const ordinaryProfile = await fetchLiveProfile(page, live); expect(ordinaryProfile.status).toBe(200); const ordinaryData = ordinaryProfile.body.data!; assertExactRoutes(ordinaryData.allowedRoutes, liveFixture!.ordinary49.exactAllowedRoutes, 'ordinary49');
     for (const route of ordinaryRoutes) { await page.goto(`${live}${route}`); await assertPageShell(page); }
     await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertMenuMatches(page, liveFixture!.ordinary49.exactAllowedRoutes); await assertNoSaaSLinks(page);
@@ -122,8 +144,13 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertPageShell(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390); await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await loginLive(page, live, liveFixture!.superadmin);
     await page.setViewportSize({ width: 1440, height: 900 }); const superProfile = await fetchLiveProfile(page, live); expect(superProfile.status).toBe(200); assertExactRoutes(superProfile.body.data?.allowedRoutes, liveFixture!.superadmin.exactAllowedRoutes, 'superadmin'); for (const route of routes) { await page.goto(`${live}${route}`); await assertPageShell(page); } await page.goto(`${live}${routes[0]!}`); await assertMenuMatches(page, liveFixture!.superadmin.exactAllowedRoutes); await assertNoSaaSLinks(page);
-    for (const account of [liveFixture!.direct, liveFixture!.twoRole, liveFixture!.roleDisabledDirectRetained]) { await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await loginLive(page, live, account); const accountProfile = await fetchLiveProfile(page, live); expect(accountProfile.status).toBe(200); const data = accountProfile.body.data!; assertExactRoutes(data.allowedRoutes, account.exactAllowedRoutes, 'account exact routes'); for (const expectedSource of account.expectedSources ?? []) expect(data.effectivePermissions.some((permission) => permission.code === expectedSource.code && permission.sources.some((source) => source.type === expectedSource.type && source.id === expectedSource.id))).toBe(true); for (const forbiddenCode of account.forbiddenCodes ?? []) expect(data.effectivePermissions.some((permission) => permission.code === forbiddenCode)).toBe(false); for (const forbiddenRoleId of account.forbiddenRoleIds ?? []) expect(data.effectivePermissions.some((permission) => permission.sources.some((source) => source.type === 'role' && source.id === forbiddenRoleId))).toBe(false); await assertNoSaaSLinks(page); }
-    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await loginLive(page, live, liveFixture!.noPermission);
+    const accountStates = [
+      { account: liveFixture!.direct, roleIds: [] as number[], directPermissions: [{ code: liveFixture!.direct.directPermissionCode!, scope: 'self' as const }] },
+      { account: liveFixture!.twoRole, roleIds: liveFixture!.twoRole.twoRoleIds!, directPermissions: [] },
+      { account: liveFixture!.roleDisabledDirectRetained, roleIds: [liveFixture!.roleDisabledDirectRetained.disabledRoleId!], directPermissions: [{ code: liveFixture!.roleDisabledDirectRetained.directRetainedPermissionCode!, scope: 'self' as const }] },
+    ];
+    for (const state of accountStates) { await replaceLiveAccess(page, live, adminHeaders, liveFixture!.managedUserId, state.roleIds, state.directPermissions); await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await loginLive(page, live, state.account); const accountProfile = await fetchLiveProfile(page, live); expect(accountProfile.status).toBe(200); const data = accountProfile.body.data!; assertExactRoutes(data.allowedRoutes, state.account.exactAllowedRoutes, 'account exact routes'); for (const expectedSource of state.account.expectedSources ?? []) expect(data.effectivePermissions.some((permission) => permission.code === expectedSource.code && permission.sources.some((source) => source.type === expectedSource.type && source.id === expectedSource.id))).toBe(true); for (const forbiddenCode of state.account.forbiddenCodes ?? []) expect(data.effectivePermissions.some((permission) => permission.code === forbiddenCode)).toBe(false); for (const forbiddenRoleId of state.account.forbiddenRoleIds ?? []) expect(data.effectivePermissions.some((permission) => permission.sources.some((source) => source.type === 'role' && source.id === forbiddenRoleId))).toBe(false); await assertNoSaaSLinks(page); }
+    await replaceLiveAccess(page, live, adminHeaders, liveFixture!.managedUserId, [], []); await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await loginLive(page, live, liveFixture!.noPermission);
     const noPermissionProfile = await fetchLiveProfile(page, live); expect(noPermissionProfile.status).toBe(200); assertExactRoutes(noPermissionProfile.body.data?.allowedRoutes, liveFixture!.noPermission.exactAllowedRoutes, 'noPermission'); await assertMenuMatches(page, liveFixture!.noPermission.exactAllowedRoutes); for (const route of routes) { const response = await page.goto(`${live}${route}`); expect(response?.status()).toBe(403); await expect(page.locator('main h1')).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
     await assertNoSaaSLinks(page);
     const deniedApi = await page.evaluate(async () => { const raw = JSON.parse(localStorage.getItem('mochat_dashboard_token') ?? 'null') as string | null; const token = raw && /^Bearer\s/i.test(raw) ? raw : `Bearer ${raw ?? ''}`; const response = await fetch('/dashboard/access/not-registered', { headers: { Authorization: token } }); return { status: response.status, body: await response.json() as { msg?: string } }; }); expect(deniedApi.status).toBe(403); expect(deniedApi.body.msg).toBe('DASHBOARD_PERMISSION_DENIED');
