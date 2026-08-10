@@ -120,7 +120,7 @@ describe('Dashboard shell', () => {
     expect(await screen.findByRole('heading', { name: '数据概览内容' })).not.toBeNull();
   });
 
-  it('renders the SaaS Admin entry after access is loaded', async () => {
+  it('does not render an SaaS entry inside Dashboard', async () => {
     renderDashboard({
       session: true,
       accessLoader: () => Promise.resolve({
@@ -155,8 +155,8 @@ describe('Dashboard shell', () => {
       (await screen.findByRole('link', { name: '客户列表' })).getAttribute('href'),
     ).toBe('/workContact/index'); */
     expect(
-      screen.getByRole('link', { name: 'SaaS 管理后台' }).getAttribute('href'),
-    ).toBe('/saas-admin/');
+      screen.queryByRole('link', { name: 'SaaS 管理后台' }),
+    ).toBeNull();
     expect(screen.queryByText('菜单将在权限加载后显示')).toBeNull();
   });
 

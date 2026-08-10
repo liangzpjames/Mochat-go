@@ -3,15 +3,16 @@ import type { Session } from '@mochat/auth';
 import { redirect } from 'react-router';
 
 import type { CorpOption } from '../features/corp/corp-api';
-import {
-  buildMenuAccess,
-  type MenuNode,
-} from '../features/navigation/menu-tree';
+import type { AccessProfile } from '../features/access/access-api';
+import type { MenuNode } from '../features/navigation/menu-tree';
 
 export type AccessContext = {
   session: Session;
   corp: CorpOption;
-  menu: readonly MenuNode[];
+  /** Full server profile; optional only for legacy unit-test fixtures. */
+  profile?: AccessProfile;
+  /** @deprecated navigation no longer derives authorization from legacy menus. */
+  menu?: readonly MenuNode[];
   allowedRoutes: ReadonlySet<string>;
   allowedActions: ReadonlySet<string>;
 };
@@ -25,9 +26,9 @@ export type AccessLoaderDeps = {
   clearSession: () => void;
   getSession: () => Session | null;
   loadCorps: () => Promise<readonly CorpOption[]>;
-  loadMenu: (corpId: string) => Promise<readonly MenuNode[]>;
+  loadProfile: (corpId: string) => Promise<AccessProfile>;
   knownRoutes: ReadonlySet<string>;
-  benchmarkRoutes?: ReadonlySet<string>;
+  manifestRoutes: ReadonlySet<string>;
   now?: () => number;
 };
 
@@ -71,11 +72,14 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
         return { state: 'select-corp', corps };
       }
 
-      const menu = await deps.loadMenu(corp.id);
-      const { routes: menuRoutes, actions } = buildMenuAccess(menu, deps.knownRoutes);
-      const routes = new Set(menuRoutes);
-      for (const route of deps.benchmarkRoutes ?? []) {
-        routes.add(route);
+      const profile = await deps.loadProfile(corp.id);
+      const routes = new Set<string>();
+      const actions = new Set<string>();
+      const catalogByPath = new Map(profile.catalog.map((item) => [item.path, item]));
+      for (const permission of profile.effectivePermissions) {
+        const catalog = catalogByPath.get(permission.path);
+        if (catalog?.superadminOnly && !profile.isSuperAdmin) continue;
+        if (deps.manifestRoutes.has(permission.path)) routes.add(permission.path);
       }
       if (pathname !== '/' && !routes.has(pathname)) {
         throwRouterResponse(new Response(null, { status: 403 }));
@@ -83,7 +87,7 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
       return {
         session,
         corp,
-        menu,
+        profile,
         allowedRoutes: routes,
         allowedActions: actions,
       };
@@ -93,6 +97,10 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
         throwRouterResponse(redirect('/login'));
       }
       if (error instanceof ApiError && error.kind === 'forbidden') {
+        if (error.code === 'TENANT_ACCESS_DENIED') {
+          deps.clearSession();
+          throwRouterResponse(redirect('/login'));
+        }
         throwRouterResponse(new Response(null, { status: 403 }));
       }
       throw error;

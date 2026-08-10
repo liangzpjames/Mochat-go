@@ -148,7 +148,6 @@ export function DashboardLayout() {
             </nav>
           )}
         </div>
-        <a className="dashboard-admin-link" href="/saas-admin/">SaaS 管理后台</a>
         <div className="dashboard-account-actions">
           {access !== null && <span className="dashboard-corp-badge">{access.corp.name}</span>}
           {sessionActions.userId !== null && <span>{sessionActions.userName ?? `账号 ${sessionActions.userId}`}</span>}

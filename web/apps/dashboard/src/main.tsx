@@ -3,11 +3,6 @@ import { lazy, Suspense, type ReactNode } from 'react';
 
 import { createAuthStore } from '@mochat/auth';
 import { createApiClient } from '@mochat/api-client';
-import {
-  parseRouteManifest,
-} from '@mochat/routing';
-
-import migrationRoutesJson from './migration-routes.json';
 import { benchmarkManifest } from './benchmark/benchmark-manifest';
 import {
   createBenchmarkP0Pages,
@@ -30,8 +25,7 @@ import {
 } from './features/corp/corp-api';
 import { createCorpAdminApi } from './features/corp/corp-admin-api';
 import { CorpProvider } from './features/corp/corp-provider';
-import { loadMenu } from './features/navigation/menu-api';
-import { buildMenuAccess } from './features/navigation/menu-tree';
+import { loadAccessProfile } from './features/access/access-api';
 import { createPasswordApi } from './features/password/password-api';
 import { createEmployeeApi } from './features/employee/employee-api';
 import { createDepartmentApi } from './features/department/department-api';
@@ -118,19 +112,15 @@ const migratedPages = Object.fromEntries(
     ),
   ]),
 );
-const migrationManifest = parseRouteManifest(migrationRoutesJson);
-const knownRoutes = new Set([
-  '/',
-  ...migrationManifest.map((route) => route.path),
-  ...benchmarkManifest.pages.map((page) => page.path),
-]);
+const manifestRoutes = new Set(benchmarkManifest.pages.map((page) => page.path));
+const knownRoutes = new Set(['/', ...manifestRoutes]);
 const loadAccess = createAccessLoader({
   clearSession: () => authStore.clearSession(),
   getSession: () => authStore.getSession(),
   knownRoutes,
-  benchmarkRoutes: new Set(benchmarkManifest.pages.map((page) => page.path)),
+  manifestRoutes,
   loadCorps: () => loadCorps(apiClient),
-  loadMenu: () => loadMenu(apiClient),
+  loadProfile: () => loadAccessProfile(apiClient),
 });
 const accessLoader = ({ request }: { request: Request }) => loadAccess({ request });
 const routerRef: { current?: ReturnType<typeof createDashboardRouter> } = {};
@@ -199,8 +189,12 @@ const router = createDashboardRouter({
         {...('state' in access ? { initialCorps: access.corps } : {})}
         loadCorps={() => loadCorps(apiClient)}
         loadMenuAccess={async () => {
-          const access = buildMenuAccess(await loadMenu(apiClient), knownRoutes);
-          return { firstRoute: access.routes.values().next().value ?? '/' };
+          const profile = await loadAccessProfile(apiClient);
+          const firstRoute = benchmarkManifest.pages.find((page) =>
+            profile.effectivePermissions.some((permission) => permission.path === page.path)
+            && (!profile.catalog.find((item) => item.path === page.path)?.superadminOnly || profile.isSuperAdmin),
+          )?.path ?? '/';
+          return { firstRoute };
         }}
         navigate={(path) => void routerRef.current?.navigate(path)}
         persistCorpId={(corpId) => {

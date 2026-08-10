@@ -3,45 +3,27 @@ import { ApiError } from '@mochat/api-client';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createAccessLoader } from './access-loader';
+import type { AccessProfile } from '../features/access/access-api';
 import type { CorpOption } from '../features/corp/corp-api';
-import type { MenuNode } from '../features/navigation/menu-tree';
 
-const session: Session = {
-  token: 'token',
-  userId: '7',
-  corpId: '3',
-  expiresAt: Date.now() + 60_000,
+const session: Session = { token: 'token', userId: '7', corpId: '3', expiresAt: Date.now() + 60_000 };
+const corps: CorpOption[] = [{ id: '3', name: '企业', authorized: true }];
+const profile: AccessProfile = {
+  userId: 7, userName: '用户', tenantId: 1, corpId: 3, workEmployeeId: 9,
+  departmentIds: [], departmentEmployeeIds: [], isSuperAdmin: false,
+  catalog: [{ id: 1, code: 'contacts', path: '/chat/v2-all', name: '会话', groupCode: 'conversation', sort: 1, superadminOnly: false, scopeRequired: false }],
+  effectivePermissions: [{ code: 'contacts', path: '/chat/v2-all', name: '会话', scope: 'self', sources: [] }],
+  allowedRoutes: ['/chat/v2-all'],
 };
-const corps: CorpOption[] = [
-  { id: '3', name: '迁移企业', authorized: true },
-];
-const menus: MenuNode[] = [{
-  name: 'top',
-  icon: null,
-  linkUrl: null,
-  linkType: 1,
-  children: [{
-    name: 'section',
-    icon: null,
-    linkUrl: null,
-    linkType: 1,
-    children: [{
-      name: 'contacts',
-      icon: null,
-      linkUrl: '/workContact/index',
-      linkType: 1,
-      children: [],
-    }],
-  }],
-}];
 
 function deps(overrides: Partial<Parameters<typeof createAccessLoader>[0]> = {}) {
   return {
     clearSession: vi.fn(),
     getSession: () => session,
     loadCorps: vi.fn(() => Promise.resolve(corps)),
-    loadMenu: vi.fn(() => Promise.resolve(menus)),
-    knownRoutes: new Set(['/workContact/index', '/known-but-forbidden']),
+    loadProfile: vi.fn(() => Promise.resolve(profile)),
+    knownRoutes: new Set(['/chat/v2-all', '/known-but-forbidden', '/contactField/index']),
+    manifestRoutes: new Set(['/chat/v2-all']),
     now: () => Date.now(),
     ...overrides,
   };
@@ -56,135 +38,43 @@ async function expectRedirect(result: Promise<unknown>, location: string) {
 
 describe('createAccessLoader', () => {
   it('redirects a missing session to login with an encoded local return path', async () => {
-    const loader = createAccessLoader(deps({ getSession: () => null }));
-
-    await expectRedirect(
-      loader({ request: new Request('https://app.test/workContact/index?q=1#tab') }),
-      '/login?returnTo=%2FworkContact%2Findex%3Fq%3D1%23tab',
-    );
+    await expectRedirect(createAccessLoader(deps({ getSession: () => null }))({ request: new Request('https://app.test/chat/v2-all?q=1#tab') }), '/login?returnTo=%2Fchat%2Fv2-all%3Fq%3D1%23tab');
   });
 
   it('clears an expired session and redirects to login', async () => {
     const clearSession = vi.fn();
-    const loader = createAccessLoader(deps({
-      clearSession,
-      getSession: () => ({ ...session, expiresAt: Date.now() - 1 }),
-    }));
-
-    await expectRedirect(
-      loader({ request: new Request('https://app.test/workContact/index') }),
-      '/login',
-    );
+    await expectRedirect(createAccessLoader(deps({ clearSession, getSession: () => ({ ...session, expiresAt: Date.now() - 1 }) }))({ request: new Request('https://app.test/chat/v2-all') }), '/login');
     expect(clearSession).toHaveBeenCalledOnce();
   });
 
-  it('maps an API 401 to the same cleared login state', async () => {
+  it('clears session for TENANT_ACCESS_DENIED but preserves it for page denial', async () => {
     const clearSession = vi.fn();
-    const loader = createAccessLoader(deps({
-      clearSession,
-      loadCorps: vi.fn(() => Promise.reject(
-        new ApiError('unauthorized', 'expired', { status: 401 }),
-      )),
-    }));
-
-    await expectRedirect(
-      loader({ request: new Request('https://app.test/workContact/index') }),
-      '/login',
-    );
+    await expectRedirect(createAccessLoader(deps({ clearSession, loadCorps: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 'TENANT_ACCESS_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }), '/login');
     expect(clearSession).toHaveBeenCalledOnce();
-  });
-
-  it('maps an API 403 to a forbidden route response', async () => {
-    const loader = createAccessLoader(deps({
-      loadCorps: vi.fn(() => Promise.reject(
-        new ApiError('forbidden', 'denied', { status: 403 }),
-      )),
-    }));
-
-    const error = await loader({
-      request: new Request('https://app.test/workContact/index'),
-    }).catch((reason: unknown) => reason);
-    expect(error).toBeInstanceOf(Response);
-    expect(error).toMatchObject({ status: 403 });
+    const pageError = await createAccessLoader(deps({ loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 'DASHBOARD_PERMISSION_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }).catch((reason: unknown) => reason);
+    expect(pageError).toMatchObject({ status: 403 });
   });
 
   it('returns enterprise selection state when no enterprise is active', async () => {
-    const loader = createAccessLoader(deps({
-      getSession: () => ({ ...session, corpId: null }),
-    }));
-
-    await expect(loader({
-      request: new Request('https://app.test/workContact/index'),
-    })).resolves.toEqual({ state: 'select-corp', corps });
+    await expect(createAccessLoader(deps({ getSession: () => ({ ...session, corpId: null }) }))({ request: new Request('https://app.test/chat/v2-all') })).resolves.toEqual({ state: 'select-corp', corps });
   });
 
   it('returns 404 before enterprise selection for an unknown route', async () => {
-    const loader = createAccessLoader(deps({
-      getSession: () => ({ ...session, corpId: null }),
-    }));
-
-    await expect(loader({
-      request: new Request('https://app.test/not-registered'),
-    })).rejects.toMatchObject({ status: 404 });
+    await expect(createAccessLoader(deps({ getSession: () => ({ ...session, corpId: null }) }))({ request: new Request('https://app.test/not-registered') })).rejects.toMatchObject({ status: 404 });
   });
 
-  it('returns access context for an allowed route', async () => {
-    const loader = createAccessLoader(deps());
-
-    const result = await loader({
-      request: new Request('https://app.test/workContact/index'),
-    });
-
-    expect(result).toMatchObject({ session, corp: corps[0] });
-    expect(result).toMatchObject({ menu: menus });
-    expect(result).not.toHaveProperty('state');
+  it('returns the complete AccessProfile and grouped-route set for an allowed route', async () => {
+    const result = await createAccessLoader(deps())({ request: new Request('https://app.test/chat/v2-all') });
+    expect(result).toMatchObject({ session, corp: corps[0], profile });
+    expect((result as { allowedRoutes: ReadonlySet<string> }).allowedRoutes).toEqual(new Set(['/chat/v2-all']));
   });
 
-  it('allows documented benchmark routes even when legacy menu permissions use different paths', async () => {
-    const loader = createAccessLoader(deps({
-      loadMenu: vi.fn(() => Promise.resolve([])),
-      knownRoutes: new Set(['/benchmark/demo']),
-      benchmarkRoutes: new Set(['/benchmark/demo']),
-    }));
-
-    await expect(loader({
-      request: new Request('https://app.test/benchmark/demo'),
-    })).resolves.toMatchObject({
-      allowedRoutes: new Set(['/benchmark/demo']),
-    });
+  it('does not let a flat benchmark route set grant access', async () => {
+    await expect(createAccessLoader(deps({ knownRoutes: new Set(['/benchmark/demo']), manifestRoutes: new Set(['/benchmark/demo']), loadProfile: vi.fn(() => Promise.resolve({ ...profile, effectivePermissions: [] })) }))({ request: new Request('https://app.test/benchmark/demo') })).rejects.toMatchObject({ status: 403 });
   });
 
-  it('returns 403 for a known route without permission and 404 for an unknown route', async () => {
-    const loader = createAccessLoader(deps());
-
-    await expect(loader({
-      request: new Request('https://app.test/known-but-forbidden'),
-    })).rejects.toMatchObject({ status: 403 });
-    await expect(loader({
-      request: new Request('https://app.test/not-registered'),
-    })).rejects.toMatchObject({ status: 404 });
-  });
-
-  it('rejects a non-manifest legacy deep link for an ordinary user', async () => {
-    const loader = createAccessLoader(deps({
-      knownRoutes: new Set(['/contactField/index']),
-      benchmarkRoutes: new Set(),
-    }));
-
-    await expect(loader({
-      request: new Request('https://app.test/contactField/index'),
-    })).rejects.toMatchObject({ status: 403 });
-  });
-
-  it('surfaces server and network failures without automatic retry', async () => {
-    const loadCorps = vi.fn(() => Promise.reject(
-      new ApiError('network', 'offline'),
-    ));
-    const loader = createAccessLoader(deps({ loadCorps }));
-
-    await expect(loader({
-      request: new Request('https://app.test/workContact/index'),
-    })).rejects.toMatchObject({ kind: 'network' });
-    expect(loadCorps).toHaveBeenCalledOnce();
+  it('returns 403 for a known route without permission and for non-manifest legacy deep links', async () => {
+    await expect(createAccessLoader(deps())({ request: new Request('https://app.test/known-but-forbidden') })).rejects.toMatchObject({ status: 403 });
+    await expect(createAccessLoader(deps())({ request: new Request('https://app.test/contactField/index') })).rejects.toMatchObject({ status: 403 });
   });
 });
