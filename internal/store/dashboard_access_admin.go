@@ -315,6 +315,9 @@ func (s *MySQLStore) ReplaceUserDashboardAccess(ctx context.Context, command das
 		return dashboard.DashboardAccessUserDetail{}, err
 	}
 	defer tx.Rollback()
+	if err = validateDashboardAccessActorTx(ctx, tx, command.TenantID, command.ActorUserID); err != nil {
+		return dashboard.DashboardAccessUserDetail{}, err
+	}
 	var version uint64
 	var name, phone string
 	var status, superadmin int
@@ -369,7 +372,7 @@ func (s *MySQLStore) ReplaceUserDashboardAccess(ctx context.Context, command das
 }
 
 func (s *MySQLStore) CreateDashboardRole(ctx context.Context, command dashboard.CreateDashboardRoleCommand) (dashboard.DashboardAccessRoleDetail, error) {
-	if command.TenantID <= 0 || command.ActorUserID <= 0 || strings.TrimSpace(command.Name) == "" || (command.Status != 1 && command.Status != 2) {
+	if command.TenantID <= 0 || command.ActorUserID <= 0 || strings.TrimSpace(command.Name) == "" || (command.Status != 1 && command.Status != 2) || dashboardAccessSystemRole(command.Remark) {
 		return dashboard.DashboardAccessRoleDetail{}, dashboard.ErrDashboardAccessAdminInvalid
 	}
 	tx, err := s.beginDashboardAccessAdmin(ctx)
@@ -377,6 +380,9 @@ func (s *MySQLStore) CreateDashboardRole(ctx context.Context, command dashboard.
 		return dashboard.DashboardAccessRoleDetail{}, err
 	}
 	defer tx.Rollback()
+	if err = validateDashboardAccessActorTx(ctx, tx, command.TenantID, command.ActorUserID); err != nil {
+		return dashboard.DashboardAccessRoleDetail{}, err
+	}
 	permissionIDs, err := validateDashboardAssignmentsTx(ctx, tx, command.Permissions)
 	if err != nil {
 		return dashboard.DashboardAccessRoleDetail{}, err
@@ -408,11 +414,17 @@ func (s *MySQLStore) UpdateDashboardRole(ctx context.Context, command dashboard.
 }
 
 func (s *MySQLStore) updateDashboardRole(ctx context.Context, command dashboard.UpdateDashboardRoleCommand, status *int) (dashboard.DashboardAccessRoleDetail, error) {
+	if dashboardAccessSystemRole(command.Remark) {
+		return dashboard.DashboardAccessRoleDetail{}, dashboard.ErrDashboardAccessAdminInvalid
+	}
 	tx, err := s.beginDashboardAccessAdmin(ctx)
 	if err != nil {
 		return dashboard.DashboardAccessRoleDetail{}, err
 	}
 	defer tx.Rollback()
+	if err = validateDashboardAccessActorTx(ctx, tx, command.TenantID, command.ActorUserID); err != nil {
+		return dashboard.DashboardAccessRoleDetail{}, err
+	}
 	version, oldName, oldRemark, oldStatus, err := lockDashboardRoleTx(ctx, tx, command.TenantID, command.RoleID)
 	if err != nil {
 		return dashboard.DashboardAccessRoleDetail{}, err
@@ -472,6 +484,9 @@ func (s *MySQLStore) UpdateDashboardRoleStatus(ctx context.Context, command dash
 		return dashboard.DashboardAccessRoleDetail{}, err
 	}
 	defer tx.Rollback()
+	if err = validateDashboardAccessActorTx(ctx, tx, command.TenantID, command.ActorUserID); err != nil {
+		return dashboard.DashboardAccessRoleDetail{}, err
+	}
 	version, name, remark, oldStatus, err := lockDashboardRoleTx(ctx, tx, command.TenantID, command.RoleID)
 	if err != nil {
 		return dashboard.DashboardAccessRoleDetail{}, err
@@ -506,6 +521,9 @@ func (s *MySQLStore) DeleteDashboardRole(ctx context.Context, command dashboard.
 		return err
 	}
 	defer tx.Rollback()
+	if err = validateDashboardAccessActorTx(ctx, tx, command.TenantID, command.ActorUserID); err != nil {
+		return err
+	}
 	version, name, remark, status, err := lockDashboardRoleTx(ctx, tx, command.TenantID, command.RoleID)
 	if err != nil {
 		return err
@@ -549,6 +567,24 @@ func lockDashboardRoleTx(ctx context.Context, tx dashboardAccessAdminTx, tenantI
 		err = dashboard.ErrDashboardAccessAdminNotFound
 	}
 	return version, name, remark, status, err
+}
+
+func validateDashboardAccessActorTx(ctx context.Context, tx dashboardAccessAdminTx, tenantID, actorUserID int) error {
+	if tenantID <= 0 || actorUserID <= 0 {
+		return dashboard.ErrDashboardAccessAdminForbidden
+	}
+	var lockedActorID int
+	err := tx.QueryRowContext(ctx, `SELECT id AS dashboard_access_actor_id FROM mc_user WHERE tenant_id=? AND id=? AND status=1 AND COALESCE(isSuperAdmin,0)=1 AND deleted_at IS NULL LIMIT 1 FOR UPDATE`, tenantID, actorUserID).Scan(&lockedActorID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.ErrDashboardAccessAdminForbidden
+	}
+	if err != nil {
+		return err
+	}
+	if lockedActorID != actorUserID {
+		return dashboard.ErrDashboardAccessAdminForbidden
+	}
+	return nil
 }
 
 func validateDashboardRoleIDsTx(ctx context.Context, tx dashboardAccessAdminTx, tenantID int, roleIDs []int) error {
@@ -718,8 +754,7 @@ func uniqueSortedInts(values []int) []int {
 	return result
 }
 func dashboardAccessSystemRole(remark string) bool {
-	remark = strings.TrimSpace(remark)
-	return remark == "系统预置全权限角色" || remark == "bootstrap full-access role"
+	return dashboard.IsReservedDashboardRoleRemark(remark)
 }
 func dashboardAdminPage(page, perPage, total int) dashboard.DashboardAccessPage {
 	totalPage := 0

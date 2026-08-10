@@ -20,6 +20,7 @@ func (result fakeDashboardAccessAdminResult) RowsAffected() (int64, error) {
 }
 
 type fakeDashboardAccessAdminTx struct {
+	actorRow  func(string, ...any) dashboardAccessAdminRow
 	row       func(string, ...any) dashboardAccessAdminRow
 	rows      func(string, ...any) (dashboardAccessRows, error)
 	exec      func(string, ...any) (sql.Result, error)
@@ -34,6 +35,12 @@ type fakeDashboardAccessAdminTx struct {
 func (tx *fakeDashboardAccessAdminTx) QueryRowContext(_ context.Context, query string, args ...any) dashboardAccessAdminRow {
 	tx.queries = append(tx.queries, query)
 	tx.queryArgs = append(tx.queryArgs, append([]any(nil), args...))
+	if strings.Contains(query, "dashboard_access_actor_id") {
+		if tx.actorRow != nil {
+			return tx.actorRow(query, args...)
+		}
+		return fakeDashboardTenantAccessRow{values: []any{args[1]}}
+	}
 	return tx.row(query, args...)
 }
 
@@ -60,6 +67,95 @@ func (tx *fakeDashboardAccessAdminTx) Rollback() error { tx.rollbacks++; return 
 
 func dashboardAccessAdminStoreWithTx(tx *fakeDashboardAccessAdminTx) *MySQLStore {
 	return &MySQLStore{dashboardAccessAdminBegin: func(context.Context) (dashboardAccessAdminTx, error) { return tx, nil }}
+}
+
+func TestDashboardAccessAdminWritesRevalidateActorBeforeTargetOrMutation(t *testing.T) {
+	writes := []struct {
+		name string
+		run  func(*MySQLStore) error
+	}{
+		{name: "replace user access", run: func(store *MySQLStore) error {
+			_, err := store.ReplaceUserDashboardAccess(context.Background(), dashboard.ReplaceUserDashboardAccessCommand{TenantID: 9, ActorUserID: 1, TargetUserID: 7, ExpectedVersion: 3})
+			return err
+		}},
+		{name: "create role", run: func(store *MySQLStore) error {
+			_, err := store.CreateDashboardRole(context.Background(), dashboard.CreateDashboardRoleCommand{TenantID: 9, ActorUserID: 1, Name: "销售", Status: 1})
+			return err
+		}},
+		{name: "update role", run: func(store *MySQLStore) error {
+			_, err := store.UpdateDashboardRole(context.Background(), dashboard.UpdateDashboardRoleCommand{TenantID: 9, ActorUserID: 1, RoleID: 8, Name: "销售", ExpectedVersion: 4})
+			return err
+		}},
+		{name: "update role status", run: func(store *MySQLStore) error {
+			_, err := store.UpdateDashboardRoleStatus(context.Background(), dashboard.UpdateDashboardRoleStatusCommand{TenantID: 9, ActorUserID: 1, RoleID: 8, Status: 2, ExpectedVersion: 4})
+			return err
+		}},
+		{name: "delete role", run: func(store *MySQLStore) error {
+			return store.DeleteDashboardRole(context.Background(), dashboard.DeleteDashboardRoleCommand{TenantID: 9, ActorUserID: 1, RoleID: 8, ExpectedVersion: 4})
+		}},
+	}
+	actorStates := []string{"wrong tenant", "disabled", "not superadmin"}
+	for _, write := range writes {
+		for _, actorState := range actorStates {
+			t.Run(write.name+"/"+actorState, func(t *testing.T) {
+				tx := &fakeDashboardAccessAdminTx{
+					actorRow: func(string, ...any) dashboardAccessAdminRow {
+						return fakeDashboardTenantAccessRow{err: sql.ErrNoRows}
+					},
+					row: func(string, ...any) dashboardAccessAdminRow {
+						return fakeDashboardTenantAccessRow{err: errors.New("target query must not execute")}
+					},
+				}
+				err := write.run(dashboardAccessAdminStoreWithTx(tx))
+				if !errors.Is(err, dashboard.ErrDashboardAccessAdminForbidden) {
+					t.Fatalf("error=%v", err)
+				}
+				if len(tx.queries) != 1 || len(tx.execs) != 0 || tx.commits != 0 {
+					t.Fatalf("queries=%v execs=%v commits=%d", tx.queries, tx.execs, tx.commits)
+				}
+				query := tx.queries[0]
+				for _, contract := range []string{"tenant_id=?", "id=?", "status=1", "isSuperAdmin", "deleted_at IS NULL", "FOR UPDATE"} {
+					if !strings.Contains(query, contract) {
+						t.Fatalf("actor query missing %q: %s", contract, query)
+					}
+				}
+				if !reflect.DeepEqual(tx.queryArgs[0], []any{9, 1}) {
+					t.Fatalf("actor args=%v", tx.queryArgs[0])
+				}
+			})
+		}
+	}
+}
+
+func TestDashboardAccessAdminStoreRejectsReservedRoleRemarksBeforeMutation(t *testing.T) {
+	for _, remark := range []string{"系统预置全权限角色", "bootstrap full-access role"} {
+		t.Run(remark, func(t *testing.T) {
+			createTx := &fakeDashboardAccessAdminTx{row: func(string, ...any) dashboardAccessAdminRow {
+				return fakeDashboardTenantAccessRow{err: errors.New("unexpected target query")}
+			}}
+			store := dashboardAccessAdminStoreWithTx(createTx)
+			_, err := store.CreateDashboardRole(context.Background(), dashboard.CreateDashboardRoleCommand{
+				TenantID: 9, ActorUserID: 1, Name: "伪装角色", Remark: remark, Status: 1,
+			})
+			if !errors.Is(err, dashboard.ErrDashboardAccessAdminInvalid) || len(createTx.execs) != 0 || createTx.commits != 0 {
+				t.Fatalf("create error=%v execs=%v commits=%d", err, createTx.execs, createTx.commits)
+			}
+
+			updateTx := &fakeDashboardAccessAdminTx{row: func(query string, _ ...any) dashboardAccessAdminRow {
+				if strings.Contains(query, "FROM mc_rbac_role") {
+					return fakeDashboardTenantAccessRow{values: []any{uint64(4), "销售", "普通角色", 1}}
+				}
+				return fakeDashboardTenantAccessRow{err: errors.New("unexpected row query")}
+			}}
+			store = dashboardAccessAdminStoreWithTx(updateTx)
+			_, err = store.UpdateDashboardRole(context.Background(), dashboard.UpdateDashboardRoleCommand{
+				TenantID: 9, ActorUserID: 1, RoleID: 8, Name: "伪装角色", Remark: remark, ExpectedVersion: 4,
+			})
+			if !errors.Is(err, dashboard.ErrDashboardAccessAdminInvalid) || len(updateTx.execs) != 0 || updateTx.commits != 0 {
+				t.Fatalf("update error=%v execs=%v commits=%d", err, updateTx.execs, updateTx.commits)
+			}
+		})
+	}
 }
 
 func TestDashboardAccessAdminReplaceUserIsTenantScopedPhysicalAtomicAndAudited(t *testing.T) {

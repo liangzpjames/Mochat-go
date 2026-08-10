@@ -164,6 +164,22 @@ func TestDashboardAccessAdminRejectsSuperadminOnlyGrantsBeforeStoreWrite(t *test
 	}
 }
 
+func TestDashboardAccessAdminRejectsReservedRoleRemarksBeforeStoreWrite(t *testing.T) {
+	for _, remark := range []string{"系统预置全权限角色", "bootstrap full-access role"} {
+		t.Run(remark, func(t *testing.T) {
+			service, store := newDashboardAccessAdminFixture()
+			_, err := service.CreateRole(context.Background(), 1, CreateDashboardRoleInput{Name: "伪装角色", Remark: remark, Status: 1})
+			if !errors.Is(err, ErrDashboardAccessAdminInvalid) || store.writeCalls != 0 {
+				t.Fatalf("create error=%v writeCalls=%d", err, store.writeCalls)
+			}
+			_, err = service.UpdateRole(context.Background(), 1, 8, UpdateDashboardRoleInput{Name: "伪装角色", Remark: remark, ExpectedVersion: 4})
+			if !errors.Is(err, ErrDashboardAccessAdminInvalid) || store.writeCalls != 0 {
+				t.Fatalf("update error=%v writeCalls=%d", err, store.writeCalls)
+			}
+		})
+	}
+}
+
 func TestDashboardAccessAdminPropagatesVersionAndMemberConflicts(t *testing.T) {
 	service, store := newDashboardAccessAdminFixture()
 	store.writeErr = ErrDashboardAccessAdminConflict

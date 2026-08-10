@@ -17,6 +17,16 @@ var (
 	ErrDashboardAccessAdminInvalid   = errors.New("invalid dashboard access administration input")
 )
 
+const (
+	dashboardAccessSystemRoleRemark       = "系统预置全权限角色"
+	dashboardAccessLegacySystemRoleRemark = "bootstrap full-access role"
+)
+
+func IsReservedDashboardRoleRemark(remark string) bool {
+	remark = strings.TrimSpace(remark)
+	return remark == dashboardAccessSystemRoleRemark || remark == dashboardAccessLegacySystemRoleRemark
+}
+
 type DashboardAccessPage struct {
 	Page      int `json:"page"`
 	PerPage   int `json:"perPage"`
@@ -318,7 +328,7 @@ func (service *DashboardAccessAdminService) CreateRole(ctx context.Context, acto
 	if err != nil {
 		return DashboardAccessRoleDetail{}, err
 	}
-	if strings.TrimSpace(input.Name) == "" || !validDashboardRoleStatus(input.Status) {
+	if strings.TrimSpace(input.Name) == "" || !validDashboardRoleStatus(input.Status) || IsReservedDashboardRoleRemark(input.Remark) {
 		return DashboardAccessRoleDetail{}, ErrDashboardAccessAdminInvalid
 	}
 	return service.store.CreateDashboardRole(ctx, CreateDashboardRoleCommand{
@@ -337,7 +347,7 @@ func (service *DashboardAccessAdminService) UpdateRole(ctx context.Context, acto
 	if err != nil {
 		return DashboardAccessRoleDetail{}, err
 	}
-	if roleID <= 0 || strings.TrimSpace(input.Name) == "" || input.ExpectedVersion == 0 {
+	if roleID <= 0 || strings.TrimSpace(input.Name) == "" || input.ExpectedVersion == 0 || IsReservedDashboardRoleRemark(input.Remark) {
 		return DashboardAccessRoleDetail{}, ErrDashboardAccessAdminInvalid
 	}
 	return service.store.UpdateDashboardRole(ctx, UpdateDashboardRoleCommand{
