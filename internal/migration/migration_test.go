@@ -172,8 +172,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0127_dashboard_page_rbac" {
-		t.Fatalf("latest migration = %q, want 0127_dashboard_page_rbac", latest.Version)
+	if latest.Version != "0128_dashboard_page_rbac_legacy_scope_fix" {
+		t.Fatalf("latest migration = %q, want 0128_dashboard_page_rbac_legacy_scope_fix", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -232,7 +232,7 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0127_dashboard_page_rbac" {
+	if latest.Version != "0128_dashboard_page_rbac_legacy_scope_fix" {
 		t.Fatalf("latest migration = %q", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
@@ -249,15 +249,21 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 func TestDashboardPageRBACMigrationContract(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
-	latest := migrations[len(migrations)-1]
-	if latest.Version != "0127_dashboard_page_rbac" {
-		t.Fatalf("latest migration = %q", latest.Version)
+	var target Migration
+	for _, migration := range migrations {
+		if migration.Version == "0127_dashboard_page_rbac" {
+			target = migration
+			break
+		}
 	}
-	upBody, err := os.ReadFile(latest.Path)
+	if target.Version == "" {
+		t.Fatal("0127_dashboard_page_rbac migration not found")
+	}
+	upBody, err := os.ReadFile(target.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	downBody, err := os.ReadFile(latest.DownPath)
+	downBody, err := os.ReadFile(target.DownPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,6 +353,40 @@ func TestDashboardPageRBACMigrationContract(t *testing.T) {
 		if !strings.Contains(down, required) {
 			t.Fatalf("0127 down migration missing %q", required)
 		}
+	}
+}
+
+func TestDashboardPageRBACLegacyScopeFixMigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	latest := migrations[len(migrations)-1]
+	if latest.Version != "0128_dashboard_page_rbac_legacy_scope_fix" {
+		t.Fatalf("latest migration = %q", latest.Version)
+	}
+	upBody, err := os.ReadFile(latest.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downBody, err := os.ReadFile(latest.DownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := string(upBody)
+	for _, required := range []string{
+		"permissionType",
+		"permission_type",
+		"'tenant'",
+		"'department'",
+		"'self'",
+		"migration.legacy_scope_review",
+		"requiresAdminReview",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("0128 up migration missing %q", required)
+		}
+	}
+	if strings.Contains(strings.ToUpper(string(downBody)), "UPDATE `MOCHAT_GO_DASHBOARD_ROLE_PERMISSIONS`") {
+		t.Fatal("0128 down must not guess pre-correction role scopes")
 	}
 }
 

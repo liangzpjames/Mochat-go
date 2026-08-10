@@ -1,0 +1,3 @@
+-- Forward-only data correction. The pre-correction value cannot be reconstructed
+-- safely after administrators edit role permissions, so rollback is intentionally
+-- non-destructive and leaves both corrected scopes and audit evidence intact.

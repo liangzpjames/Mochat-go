@@ -47,6 +47,37 @@ func TestDashboardPageRBACIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("forward correction preserves legacy tenant department and self scopes", func(t *testing.T) {
+		db := newDashboardRBACMigrationDB(t)
+		createDashboardRBACLegacyFixture(t, db)
+		execDashboardRBACMigration(t, db, "0127_dashboard_page_rbac.up.sql", false)
+		execDashboardRBACMigration(t, db, "0128_dashboard_page_rbac_legacy_scope_fix.up.sql", false)
+
+		want := map[int]string{20: "department", 21: "self", 22: "tenant", 23: "self"}
+		for roleID, wantScope := range want {
+			var scope string
+			err := db.QueryRow(`
+				SELECT rp.data_scope
+				FROM mochat_go_dashboard_role_permissions rp
+				INNER JOIN mochat_go_dashboard_permissions p ON p.id=rp.permission_id
+				WHERE rp.tenant_id=1 AND rp.role_id=? AND p.path='/acquisition/v2-channel-code'
+			`, roleID).Scan(&scope)
+			if err != nil || scope != wantScope {
+				t.Fatalf("role %d scope=%q want=%q err=%v", roleID, scope, wantScope, err)
+			}
+		}
+
+		var reviewAudit int
+		if err := db.QueryRow(`
+			SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits
+			WHERE tenant_id=1 AND target_type='role' AND target_id='23'
+			  AND action='migration.legacy_scope_review'
+			  AND JSON_EXTRACT(after_json, '$.requiresAdminReview') = TRUE
+		`).Scan(&reviewAudit); err != nil || reviewAudit != 1 {
+			t.Fatalf("ambiguous role review audit=%d err=%v", reviewAudit, err)
+		}
+	})
+
 	t.Run("subscription preflight fails before DDL", func(t *testing.T) {
 		db := newDashboardRBACMigrationDB(t)
 		createDashboardRBACLegacyFixture(t, db)
@@ -172,10 +203,14 @@ func createDashboardRBACLegacyFixture(t *testing.T, db *sql.DB) {
 		`CREATE TABLE mochat_go_saas_tenant_packages (id int(10) unsigned NOT NULL, tenant_id int(10) unsigned NOT NULL, starts_at timestamp NULL, expires_at timestamp NULL, status tinyint(4) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
 		`CREATE TABLE mochat_go_saas_subscriptions (id bigint(20) unsigned NOT NULL, tenant_id int(10) unsigned NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
 		`INSERT INTO mc_user (id,tenant_id,isSuperAdmin,deleted_at) VALUES (10,1,0,NULL)`,
-		`INSERT INTO mc_rbac_role (id,tenant_id,data_permission,deleted_at) VALUES (20,1,NULL,NULL)`,
+		`INSERT INTO mc_rbac_role (id,tenant_id,data_permission,deleted_at) VALUES
+			(20,1,NULL,NULL),
+			(21,1,'[{"corpId":1,"permissionType":2}]',NULL),
+			(22,1,'[{"corpId":1,"permissionType":1}]',NULL),
+			(23,1,'[{"corpId":1,"permissionType":1},{"corpId":2,"permissionType":2}]',NULL)`,
 		`INSERT INTO mc_rbac_user_role (user_id,role_id,created_at,updated_at,deleted_at) VALUES (10,20,NOW(),NOW(),NULL)`,
-		`INSERT INTO mc_rbac_menu (id,link_url,data_permission,deleted_at) VALUES (30,'/dashboard/channelCode/index#GET',1,NULL),(31,'/dashboard/workContact/index@read',1,NULL),(32,'/dashboard/user/index#GET',1,NULL)`,
-		`INSERT INTO mc_rbac_role_menu (role_id,menu_id,created_at,updated_at) VALUES (20,30,NOW(),NOW()),(20,31,NOW(),NOW()),(20,32,NOW(),NOW())`,
+		`INSERT INTO mc_rbac_menu (id,link_url,data_permission,deleted_at) VALUES (30,'/dashboard/channelCode/index#GET',1,NULL),(31,'/dashboard/workContact/index@read',1,NULL),(32,'/dashboard/user/index#GET',1,NULL),(33,'/dashboard/channelCode/index#GET',2,NULL)`,
+		`INSERT INTO mc_rbac_role_menu (role_id,menu_id,created_at,updated_at) VALUES (20,30,NOW(),NOW()),(20,31,NOW(),NOW()),(20,32,NOW(),NOW()),(21,30,NOW(),NOW()),(22,33,NOW(),NOW()),(23,30,NOW(),NOW())`,
 		`INSERT INTO mochat_go_saas_tenant_packages (id,tenant_id,starts_at,expires_at,status,deleted_at) VALUES (1,1,NULL,NULL,1,NULL)`,
 		`INSERT INTO mochat_go_saas_subscriptions (id,tenant_id,deleted_at) VALUES (1,1,NULL)`,
 	}
