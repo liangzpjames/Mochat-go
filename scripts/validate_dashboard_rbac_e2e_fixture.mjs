@@ -9,6 +9,7 @@ const sameSet = (left, right) => left.length === right.length && [...new Set(lef
 
 export function validateFixture(fixture, manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))) {
   if (!fixture || typeof fixture !== 'object') throw new Error('fixture must be a JSON object');
+  if (!Number.isInteger(fixture.managedUserId) || fixture.managedUserId <= 0) throw new Error('managedUserId must be a positive integer');
   const routes = manifest.pages.map((page) => page.path);
   for (const name of requiredAccounts) {
     const account = fixture[name];
