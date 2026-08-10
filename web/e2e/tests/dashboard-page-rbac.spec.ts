@@ -24,6 +24,7 @@ async function assertNoSaaSLinks(page: Page) {
 }
 
 async function assertMenuMatches(page: Page, expected: string[]) {
+  await expect(page.locator('#dashboard-sidebar')).toBeVisible();
   const toggles = page.locator('.dashboard-menu-group-toggle');
   for (let index = 0; index < await toggles.count(); index += 1) {
     const toggle = toggles.nth(index);
