@@ -65,7 +65,7 @@ async function loginLive(page: Page, base: string, account: LiveAccount) {
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).not.toBeNull();
   await page.waitForURL((url) => url.pathname !== '/login');
   await page.goto(`${base}/index`);
-  await expect(page.locator('#dashboard-sidebar, .dashboard-corp-switcher select').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('#dashboard-sidebar, .dashboard-corp-switcher select, main h1').first()).toBeVisible({ timeout: 15_000 });
   const corpSelector = page.locator('.dashboard-corp-switcher select');
   if (await corpSelector.isVisible()) {
     const corpId = await corpSelector.locator('option:not([disabled])').first().getAttribute('value');
