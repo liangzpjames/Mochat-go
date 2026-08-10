@@ -38,7 +38,7 @@ async function installAccessProfile(page: Page, permissions: string[], options: 
   if (liveBase) return;
   await page.route('**/dashboard/access/profile', async (route) => {
     if (options.tenantDenied) {
-      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: 403, msg: 'TENANT_ACCESS_DENIED', data: null }) });
+      await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: 'TENANT_ACCESS_DENIED', msg: 'tenant access denied', data: null }) });
       return;
     }
     const catalog = routes.map((path, index) => ({ id: index + 1, code: `page-${index + 1}`, path, name: path, groupCode: 'dashboard', sort: index, superadminOnly: protectedRoutes.has(path), scopeRequired: false }));
@@ -124,10 +124,10 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
   test('tenant gate returns machine code and page denial preserves session', async ({ page }) => {
     test.skip(Boolean(liveBase), 'live mode uses the real desktop service and fixture credentials');
     await seedSession(page); await mockDashboardBackend(page);
-    await installAccessProfile(page, [], { tenantDenied: true }); const tenantWait = page.waitForResponse((response) => response.url().includes('/dashboard/access/profile')); await page.goto('/index'); const tenantResponse = await tenantWait; expect(tenantResponse.status()).toBe(403); expect(await tenantResponse.json()).toMatchObject({ msg: 'TENANT_ACCESS_DENIED' });
+    await installAccessProfile(page, [], { tenantDenied: true }); const tenantWait = page.waitForResponse((response) => response.url().includes('/dashboard/access/profile')); await page.goto('/index'); const tenantResponse = await tenantWait; expect(tenantResponse.status()).toBe(403); expect(await tenantResponse.json()).toMatchObject({ code: 'TENANT_ACCESS_DENIED' });
     await page.unroute('**/dashboard/access/profile');
-    await page.route('**/dashboard/access/profile', async (route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: 403, msg: 'DASHBOARD_PERMISSION_DENIED', data: null }) }));
-    const pageWait = page.waitForResponse((response) => response.url().includes('/dashboard/access/profile')); await page.goto('/index'); const pageResponse = await pageWait; expect(pageResponse.status()).toBe(403); expect(await pageResponse.json()).toMatchObject({ msg: 'DASHBOARD_PERMISSION_DENIED' });
+    await page.route('**/dashboard/access/profile', async (route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: 'DASHBOARD_PERMISSION_DENIED', msg: 'dashboard permission denied', data: null }) }));
+    const pageWait = page.waitForResponse((response) => response.url().includes('/dashboard/access/profile')); await page.goto('/index'); const pageResponse = await pageWait; expect(pageResponse.status()).toBe(403); expect(await pageResponse.json()).toMatchObject({ code: 'DASHBOARD_PERMISSION_DENIED' });
     expect(page.url()).not.toContain('/login');
     expect(routes).toHaveLength(53);
   });
@@ -172,8 +172,8 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
     await replaceLiveAccess(page, live, adminHeaders, liveFixture!.managedUserId, [], []); await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await loginLive(page, live, liveFixture!.noPermission);
     const noPermissionProfile = await fetchLiveProfile(page, live); expect(noPermissionProfile.status).toBe(200); assertExactRoutes(noPermissionProfile.body.data?.allowedRoutes, liveFixture!.noPermission.exactAllowedRoutes, 'noPermission'); await expect(page.locator('#dashboard-sidebar')).toHaveCount(0); expect(await page.locator('a[href]').evaluateAll((links) => links.map((link) => new URL((link as HTMLAnchorElement).href).pathname).filter((path) => routes.includes(path)))).toEqual([]); for (const route of routes) { const response = await page.goto(`${live}${route}`); expect(response?.status() ?? 200).toBeLessThan(400); await expect(page.getByRole('heading', { name: '无权访问' })).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
     await assertNoSaaSLinks(page);
-    const deniedApi = await page.evaluate(async () => { const raw = JSON.parse(localStorage.getItem('mochat_dashboard_token') ?? 'null') as string | null; const token = raw && /^Bearer\s/i.test(raw) ? raw : `Bearer ${raw ?? ''}`; const response = await fetch('/dashboard/access/not-registered', { headers: { Authorization: token } }); return { status: response.status, body: await response.json() as { msg?: string } }; }); expect(deniedApi.status).toBe(403); expect(deniedApi.body.msg).toBe('DASHBOARD_PERMISSION_DENIED');
-    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.tenantDenied.phone); await page.getByLabel('密码').fill(liveFixture!.tenantDenied.password); const tenantLogin = page.waitForResponse((response) => response.url().includes('/dashboard/user/auth')); await page.getByRole('button', { name: /登录/ }).click(); const tenantDenied = await tenantLogin; expect(tenantDenied.status()).toBe(403); expect(await tenantDenied.json()).toMatchObject({ msg: 'TENANT_ACCESS_DENIED' }); expect(await page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).toBeNull();
+    const deniedApi = await page.evaluate(async () => { const raw = JSON.parse(localStorage.getItem('mochat_dashboard_token') ?? 'null') as string | null; const token = raw && /^Bearer\s/i.test(raw) ? raw : `Bearer ${raw ?? ''}`; const response = await fetch('/dashboard/access/not-registered', { headers: { Authorization: token } }); return { status: response.status, body: await response.json() as { code?: string } }; }); expect(deniedApi.status).toBe(403); expect(deniedApi.body.code).toBe('DASHBOARD_PERMISSION_DENIED');
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.tenantDenied.phone); await page.getByLabel('密码').fill(liveFixture!.tenantDenied.password); const tenantLogin = page.waitForResponse((response) => response.url().includes('/dashboard/user/auth')); await page.getByRole('button', { name: /登录/ }).click(); const tenantDenied = await tenantLogin; expect(tenantDenied.status()).toBe(403); expect(await tenantDenied.json()).toMatchObject({ code: 'TENANT_ACCESS_DENIED' }); expect(await page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).toBeNull();
     expect(consoleErrors).toEqual([]); expect(unexpected).toEqual([]); await assertNoSaaSLinks(page);
   });
 });
