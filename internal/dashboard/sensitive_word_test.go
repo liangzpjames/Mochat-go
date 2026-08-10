@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -287,6 +288,46 @@ func TestSensitiveWordsMonitorShowReturnsMessages(t *testing.T) {
 	}
 }
 
+func TestSensitiveWordsMonitorShowRestrictsMessagesToAuthorizedEmployees(t *testing.T) {
+	store := &fakeSensitiveWordStore{
+		user:     User{ID: 1, TenantID: 1},
+		messages: []SensitiveWordsMonitorMessage{{Sender: "employee-81"}},
+	}
+	authorizer := &recordingAuthorizer{
+		accessSet: true,
+		access: AccessContext{
+			User:            store.user,
+			CorpID:          7,
+			WorkEmployeeID:  81,
+			DataPermission:  DataPermissionDepartment,
+			DeptEmployeeIDs: []int{81, 82},
+			PermissionKey:   "/dashboard/sensitiveWordsMonitor/show#get",
+		},
+	}
+	handler := NewSensitiveWordHandler(store, staticAdminCache("7-81"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/show?id=9", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+
+	handler.MonitorShow(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	filter := store.lastMonitorMessageFilter
+	if filter.CorpID != 7 || filter.MonitorID != 9 || !filter.RestrictEmployeeIDs || strings.Join(intSliceStrings(filter.AllowedEmployeeIDs), ",") != "81,82" {
+		t.Fatalf("message filter = %#v", filter)
+	}
+}
+
+func intSliceStrings(values []int) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		result = append(result, strconv.Itoa(value))
+	}
+	return result
+}
+
 func TestSensitiveWordPageServesStandaloneConsole(t *testing.T) {
 	handler := NewSensitiveWordPageHandler()
 
@@ -336,32 +377,33 @@ func TestSensitiveWordPageRejectsPost(t *testing.T) {
 }
 
 type fakeSensitiveWordStore struct {
-	user              User
-	page              SensitiveWordPage
-	lastFilter        SensitiveWordFilter
-	createdCorpID     int
-	createdGroupID    int
-	createdNames      []string
-	createCalls       int
-	pageCalls         int
-	mutationCalls     int
-	lastMutation      SensitiveWordMutation
-	mutationErr       error
-	replayFound       bool
-	replayResult      SensitiveWordMutationResult
-	groups            []SensitiveWordGroup
-	monitorPage       SensitiveWordsMonitorPage
-	lastMonitorFilter SensitiveWordsMonitorFilter
-	messages          []SensitiveWordsMonitorMessage
-	messageErr        error
-	lastMonitorCorpID int
-	lastMonitorID     int
-	quota             SaaSQuotaStatus
-	quotaTenantID     int
-	quotaMetric       string
-	quotaAdditional   int64
-	refreshTenantID   int
-	refreshMetric     string
+	user                     User
+	page                     SensitiveWordPage
+	lastFilter               SensitiveWordFilter
+	createdCorpID            int
+	createdGroupID           int
+	createdNames             []string
+	createCalls              int
+	pageCalls                int
+	mutationCalls            int
+	lastMutation             SensitiveWordMutation
+	mutationErr              error
+	replayFound              bool
+	replayResult             SensitiveWordMutationResult
+	groups                   []SensitiveWordGroup
+	monitorPage              SensitiveWordsMonitorPage
+	lastMonitorFilter        SensitiveWordsMonitorFilter
+	messages                 []SensitiveWordsMonitorMessage
+	messageErr               error
+	lastMonitorCorpID        int
+	lastMonitorID            int
+	lastMonitorMessageFilter SensitiveWordsMonitorMessageFilter
+	quota                    SaaSQuotaStatus
+	quotaTenantID            int
+	quotaMetric              string
+	quotaAdditional          int64
+	refreshTenantID          int
+	refreshMetric            string
 }
 
 func (s *fakeSensitiveWordStore) UserByID(context.Context, int) (User, bool, error) {
@@ -402,9 +444,10 @@ func (s *fakeSensitiveWordStore) SensitiveWordsMonitorPage(_ context.Context, fi
 	return s.monitorPage, nil
 }
 
-func (s *fakeSensitiveWordStore) SensitiveWordsMonitorMessages(_ context.Context, corpID int, monitorID int) ([]SensitiveWordsMonitorMessage, bool, error) {
-	s.lastMonitorCorpID = corpID
-	s.lastMonitorID = monitorID
+func (s *fakeSensitiveWordStore) SensitiveWordsMonitorMessages(_ context.Context, filter SensitiveWordsMonitorMessageFilter) ([]SensitiveWordsMonitorMessage, bool, error) {
+	s.lastMonitorCorpID = filter.CorpID
+	s.lastMonitorID = filter.MonitorID
+	s.lastMonitorMessageFilter = filter
 	return s.messages, true, s.messageErr
 }
 

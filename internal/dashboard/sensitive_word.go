@@ -117,6 +117,13 @@ type SensitiveWordsMonitorMessage struct {
 	MsgContent any
 }
 
+type SensitiveWordsMonitorMessageFilter struct {
+	CorpID              int
+	MonitorID           int
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
+}
+
 func intersectPositiveIntIDs(requested, allowed []int) []int {
 	set := make(map[int]struct{}, len(allowed))
 	for _, id := range allowed {
@@ -149,7 +156,7 @@ type SensitiveWordStore interface {
 	MutateSensitiveWords(ctx context.Context, mutation SensitiveWordMutation) (SensitiveWordMutationResult, error)
 	SensitiveWordGroups(ctx context.Context, corpID int) ([]SensitiveWordGroup, error)
 	SensitiveWordsMonitorPage(ctx context.Context, filter SensitiveWordsMonitorFilter) (SensitiveWordsMonitorPage, error)
-	SensitiveWordsMonitorMessages(ctx context.Context, corpID int, monitorID int) ([]SensitiveWordsMonitorMessage, bool, error)
+	SensitiveWordsMonitorMessages(ctx context.Context, filter SensitiveWordsMonitorMessageFilter) ([]SensitiveWordsMonitorMessage, bool, error)
 }
 
 type SensitiveWordHandler struct {
@@ -407,7 +414,7 @@ func (h *SensitiveWordHandler) MonitorShow(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/sensitiveWordsMonitor/show#get")
+	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/sensitiveWordsMonitor/show#get")
 	if !ok {
 		return
 	}
@@ -423,7 +430,12 @@ func (h *SensitiveWordHandler) MonitorShow(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "sensitiveWordsMonitorId required", nil)
 		return
 	}
-	messages, found, err := h.store.SensitiveWordsMonitorMessages(r.Context(), corpID, monitorID)
+	messages, found, err := h.store.SensitiveWordsMonitorMessages(r.Context(), SensitiveWordsMonitorMessageFilter{
+		CorpID:              corpID,
+		MonitorID:           monitorID,
+		AllowedEmployeeIDs:  append([]int(nil), access.DeptEmployeeIDs...),
+		RestrictEmployeeIDs: access.DataPermission != DataPermissionAll,
+	})
 	if err != nil {
 		writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "扫描结果暂时无法连接，请稍后重试", nil)
 		return

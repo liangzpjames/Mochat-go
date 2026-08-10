@@ -1684,13 +1684,34 @@ func (s *MySQLStore) SensitiveWordsMonitorPage(ctx context.Context, filter dashb
 	return dashboard.SensitiveWordsMonitorPage{Items: items, Total: total, TotalPage: totalPage, PerPage: filter.PerPage}, nil
 }
 
-func (s *MySQLStore) SensitiveWordsMonitorMessages(ctx context.Context, corpID int, monitorID int) ([]dashboard.SensitiveWordsMonitorMessage, bool, error) {
+func (s *MySQLStore) SensitiveWordsMonitorMessages(ctx context.Context, filter dashboard.SensitiveWordsMonitorMessageFilter) ([]dashboard.SensitiveWordsMonitorMessage, bool, error) {
+	where := []string{"id = ?", "corp_id = ?", "deleted_at IS NULL"}
+	args := []any{filter.MonitorID, filter.CorpID}
+	if filter.RestrictEmployeeIDs {
+		placeholders := make([]string, 0, len(filter.AllowedEmployeeIDs))
+		seen := make(map[int]struct{}, len(filter.AllowedEmployeeIDs))
+		for _, employeeID := range filter.AllowedEmployeeIDs {
+			if employeeID <= 0 {
+				continue
+			}
+			if _, exists := seen[employeeID]; exists {
+				continue
+			}
+			seen[employeeID] = struct{}{}
+			placeholders = append(placeholders, "?")
+			args = append(args, employeeID)
+		}
+		if len(placeholders) == 0 {
+			return nil, false, nil
+		}
+		where = append(where, "trigger_user_id IN ("+strings.Join(placeholders, ",")+")")
+	}
 	row := s.db.QueryRowContext(ctx, `
 		SELECT sender, msg_type, send_time, content, conversation_json
 		FROM mc_sensitive_words_monitor
-		WHERE id = ? AND corp_id = ? AND deleted_at IS NULL
+		WHERE `+strings.Join(where, " AND ")+`
 		LIMIT 1
-	`, monitorID, corpID)
+	`, args...)
 	var sender string
 	var msgType int
 	var sendTime sql.NullTime
