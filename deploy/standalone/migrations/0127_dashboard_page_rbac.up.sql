@@ -234,17 +234,17 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/toUsers', 0
   UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/detail', 0
   UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/fromUsers', 0
-  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/toUsers', 0
-  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/detail', 0
-  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/fromUsers', 0
-  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/toUsers', 0
-  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/detail', 0
-  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/fromUsers', 0
-  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/toUsers', 0
-  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/detail', 0
-  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/fromUsers', 0
-  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/toUsers', 0
-  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/detail', 0
+  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/toUsers', 1
+  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/detail', 1
+  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/fromUsers', 1
+  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/toUsers', 1
+  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/detail', 1
+  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/fromUsers', 1
+  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/toUsers', 1
+  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/detail', 1
+  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/fromUsers', 1
+  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/toUsers', 1
+  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/detail', 1
   UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/fromUsers', 0
   UNION ALL SELECT 'dashboard.chat.export', 'GET', '/dashboard/workMessage/toUsers', 1
   UNION ALL SELECT 'dashboard.chat.export', 'GET', '/dashboard/workMessage/detail', 1
@@ -276,24 +276,24 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'GET', '/dashboard/timeout-warning/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'GET', '/dashboard/timeout-warning/settings', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'POST', '/dashboard/timeout-warning/rules', 0
-  UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'PUT', '/dashboard/timeout-warning/rules', 1
+  UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'PUT', '/dashboard/timeout-warning/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'PUT', '/dashboard/timeout-warning/rules/status', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'DELETE', '/dashboard/timeout-warning/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'POST', '/dashboard/timeout-warning/records/audit', 1
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'PUT', '/dashboard/timeout-warning/records/assign', 1
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'PUT', '/dashboard/timeout-warning/settings', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_customer_loss', 'GET', '/dashboard/workContact/lossContact', 1
-  UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'GET', '/dashboard/message-intercept/records', 1
+  UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'GET', '/dashboard/message-intercept/records', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'GET', '/dashboard/message-intercept/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'POST', '/dashboard/message-intercept/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'PUT', '/dashboard/message-intercept/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'PUT', '/dashboard/message-intercept/rules/status', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'DELETE', '/dashboard/message-intercept/rules', 0
-  UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'POST', '/dashboard/message-intercept/records/audit', 1
+  UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'POST', '/dashboard/message-intercept/records/audit', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'GET', '/dashboard/keyword-library/libraries', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'GET', '/dashboard/keyword-library/libraries', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'POST', '/dashboard/keyword-library/libraries', 0
-  UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'PUT', '/dashboard/keyword-library/libraries', 1
+  UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'PUT', '/dashboard/keyword-library/libraries', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'PUT', '/dashboard/keyword-library/libraries/status', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'POST', '/dashboard/keyword-library/libraries/publish', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'DELETE', '/dashboard/keyword-library/libraries', 0
@@ -303,11 +303,11 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'PUT', '/dashboard/keyword-library/entries/status', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'DELETE', '/dashboard/keyword-library/entries', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'GET', '/dashboard/silent-customer/records', 1
-  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'GET', '/dashboard/silent-customer/rules', 1
-  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'POST', '/dashboard/silent-customer/rules', 1
-  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'PUT', '/dashboard/silent-customer/rules', 1
-  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'PUT', '/dashboard/silent-customer/rules/status', 1
-  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'DELETE', '/dashboard/silent-customer/rules', 1
+  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'GET', '/dashboard/silent-customer/rules', 0
+  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'POST', '/dashboard/silent-customer/rules', 0
+  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'PUT', '/dashboard/silent-customer/rules', 0
+  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'PUT', '/dashboard/silent-customer/rules/status', 0
+  UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'DELETE', '/dashboard/silent-customer/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_silent_customer', 'POST', '/dashboard/silent-customer/records/action', 1
   UNION ALL SELECT 'dashboard.ai_insight.session_analysis', 'GET', '/dashboard/ai-insight/session-analysis', 1
   UNION ALL SELECT 'dashboard.ai_insight.smart_analysis', 'GET', '/dashboard/ai-insight/smart-analysis', 1
@@ -318,38 +318,38 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.acquisition.v2_channel_code', 'POST', '/dashboard/channelCode/store', 1
   UNION ALL SELECT 'dashboard.acquisition.group_code', 'GET', '/dashboard/workRoomAutoPull/index', 1
   UNION ALL SELECT 'dashboard.acquisition.group_code', 'POST', '/dashboard/workRoomAutoPull/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'GET', '/dashboard/acquisitionLink/index', 1
-  UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'POST', '/dashboard/acquisitionLink/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'POST', '/dashboard/acquisitionLink/authorize', 1
-  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'GET', '/dashboard/customerService/index', 1
-  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'POST', '/dashboard/customerService/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'POST', '/dashboard/customerService/sync', 1
-  UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'GET', '/dashboard/liveCodeShortChain/index', 1
-  UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'POST', '/dashboard/liveCodeShortChain/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'POST', '/dashboard/liveCodeShortChain/disable', 1
+  UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'GET', '/dashboard/acquisitionLink/index', 0
+  UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'POST', '/dashboard/acquisitionLink/store', 0
+  UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'POST', '/dashboard/acquisitionLink/authorize', 0
+  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'GET', '/dashboard/customerService/index', 0
+  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'POST', '/dashboard/customerService/store', 0
+  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'POST', '/dashboard/customerService/sync', 0
+  UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'GET', '/dashboard/liveCodeShortChain/index', 0
+  UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'POST', '/dashboard/liveCodeShortChain/store', 0
+  UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'POST', '/dashboard/liveCodeShortChain/disable', 0
   UNION ALL SELECT 'dashboard.acquisition.group_template', 'GET', '/dashboard/workRoomAutoPull/index', 1
   UNION ALL SELECT 'dashboard.acquisition.group_template', 'POST', '/dashboard/workRoomAutoPull/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_template', 'GET', '/dashboard/materialSelector/index', 1
+  UNION ALL SELECT 'dashboard.acquisition.group_template', 'GET', '/dashboard/materialSelector/index', 0
   UNION ALL SELECT 'dashboard.acquisition.precise_group_send', 'GET', '/dashboard/contactMessageBatchSend/index', 1
   UNION ALL SELECT 'dashboard.acquisition.precise_group_send', 'POST', '/dashboard/contactMessageBatchSend/store', 1
   UNION ALL SELECT 'dashboard.acquisition.precise_group_send', 'GET', '/dashboard/roomMessageBatchSend/index', 1
   UNION ALL SELECT 'dashboard.acquisition.precise_group_send', 'POST', '/dashboard/roomMessageBatchSend/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.precise_group_send', 'GET', '/dashboard/materialSelector/index', 1
+  UNION ALL SELECT 'dashboard.acquisition.precise_group_send', 'GET', '/dashboard/materialSelector/index', 0
   UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'GET', '/dashboard/friendsCircle/taskIndex', 1
-  UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'GET', '/dashboard/friendsCircle/materialIndex', 1
+  UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'GET', '/dashboard/friendsCircle/materialIndex', 0
   UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'GET', '/dashboard/friendsCircle/taskResultIndex', 1
   UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'GET', '/dashboard/friendsCircle/exportData', 1
   UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'POST', '/dashboard/friendsCircle/publish', 1
   UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'POST', '/dashboard/friendsCircle/taskStore', 1
-  UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'POST', '/dashboard/friendsCircle/materialStore', 1
-  UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'GET', '/dashboard/materialSelector/index', 1
-  UNION ALL SELECT 'dashboard.acquisition.material_management', 'GET', '/dashboard/mediumGroup/index', 1
-  UNION ALL SELECT 'dashboard.acquisition.material_management', 'POST', '/dashboard/mediumGroup/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.material_management', 'GET', '/dashboard/medium/index', 1
-  UNION ALL SELECT 'dashboard.acquisition.material_management', 'POST', '/dashboard/medium/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.material_management', 'POST', '/dashboard/medium/batchGroupUpdate', 1
-  UNION ALL SELECT 'dashboard.acquisition.material_management', 'POST', '/dashboard/medium/batchDestroy', 1
-  UNION ALL SELECT 'dashboard.acquisition.material_management', 'GET', '/dashboard/workDepartment/pageIndex', 1
+  UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'POST', '/dashboard/friendsCircle/materialStore', 0
+  UNION ALL SELECT 'dashboard.acquisition.friends_circle', 'GET', '/dashboard/materialSelector/index', 0
+  UNION ALL SELECT 'dashboard.acquisition.material_management', 'GET', '/dashboard/mediumGroup/index', 0
+  UNION ALL SELECT 'dashboard.acquisition.material_management', 'POST', '/dashboard/mediumGroup/store', 0
+  UNION ALL SELECT 'dashboard.acquisition.material_management', 'GET', '/dashboard/medium/index', 0
+  UNION ALL SELECT 'dashboard.acquisition.material_management', 'POST', '/dashboard/medium/store', 0
+  UNION ALL SELECT 'dashboard.acquisition.material_management', 'POST', '/dashboard/medium/batchGroupUpdate', 0
+  UNION ALL SELECT 'dashboard.acquisition.material_management', 'POST', '/dashboard/medium/batchDestroy', 0
+  UNION ALL SELECT 'dashboard.acquisition.material_management', 'GET', '/dashboard/workDepartment/pageIndex', 0
   UNION ALL SELECT 'dashboard.customer.clue_default', 'GET', '/dashboard/workEmployee/index', 1
   UNION ALL SELECT 'dashboard.customer.clue_default', 'GET', '/dashboard/scrm/leads', 1
   UNION ALL SELECT 'dashboard.customer.clue_default', 'POST', '/dashboard/scrm/leads', 1
@@ -363,7 +363,7 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.customer.contact', 'PUT', '/dashboard/scrm/assignments', 1
   UNION ALL SELECT 'dashboard.customer.contact', 'POST', '/dashboard/scrm/assignments/release', 1
   UNION ALL SELECT 'dashboard.customer.contact', 'GET', '/dashboard/scrm/tags', 0
-  UNION ALL SELECT 'dashboard.customer.contact', 'PUT', '/dashboard/scrm/tags/{id}/contacts', 1
+  UNION ALL SELECT 'dashboard.customer.contact', 'PUT', '/dashboard/scrm/tags/{id}/contacts', 0
   UNION ALL SELECT 'dashboard.customer.contact', 'POST', '/dashboard/scrm/opportunities', 1
   UNION ALL SELECT 'dashboard.customer.friends', 'GET', '/dashboard/workContact/index', 1
   UNION ALL SELECT 'dashboard.customer.friends', 'GET', '/dashboard/workContact/show', 1
@@ -379,18 +379,18 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.customer.public_sea', 'POST', '/dashboard/scrm/assignments/claim/batch', 1
   UNION ALL SELECT 'dashboard.customer.public_sea', 'GET', '/dashboard/scrm/contacts', 1
   UNION ALL SELECT 'dashboard.customer.public_sea', 'GET', '/dashboard/workEmployee/index', 1
-  UNION ALL SELECT 'dashboard.customer.public_sea', 'GET', '/dashboard/scrm/settings', 1
+  UNION ALL SELECT 'dashboard.customer.public_sea', 'GET', '/dashboard/scrm/settings', 0
   UNION ALL SELECT 'dashboard.customer.group', 'GET', '/dashboard/workRoom/index', 1
   UNION ALL SELECT 'dashboard.customer.group', 'GET', '/dashboard/workRoom/roomIndex', 1
   UNION ALL SELECT 'dashboard.customer.tags', 'GET', '/dashboard/scrm/tags', 0
-  UNION ALL SELECT 'dashboard.customer.tags', 'POST', '/dashboard/scrm/tags', 1
+  UNION ALL SELECT 'dashboard.customer.tags', 'POST', '/dashboard/scrm/tags', 0
   UNION ALL SELECT 'dashboard.customer.tags', 'PUT', '/dashboard/scrm/tags/{id}', 0
-  UNION ALL SELECT 'dashboard.customer.tags', 'DELETE', '/dashboard/scrm/tags/{id}', 1
-  UNION ALL SELECT 'dashboard.customer.tags', 'POST', '/dashboard/scrm/tags/{id}/move', 1
-  UNION ALL SELECT 'dashboard.customer.tags', 'GET', '/dashboard/scrm/tags/{id}/delete-preview', 1
-  UNION ALL SELECT 'dashboard.customer.tags', 'PUT', '/dashboard/scrm/tags/{id}/contacts', 1
-  UNION ALL SELECT 'dashboard.customer.tags', 'POST', '/dashboard/scrm/tag-groups', 1
-  UNION ALL SELECT 'dashboard.customer.tags', 'PUT', '/dashboard/scrm/tag-groups/{id}', 1
+  UNION ALL SELECT 'dashboard.customer.tags', 'DELETE', '/dashboard/scrm/tags/{id}', 0
+  UNION ALL SELECT 'dashboard.customer.tags', 'POST', '/dashboard/scrm/tags/{id}/move', 0
+  UNION ALL SELECT 'dashboard.customer.tags', 'GET', '/dashboard/scrm/tags/{id}/delete-preview', 0
+  UNION ALL SELECT 'dashboard.customer.tags', 'PUT', '/dashboard/scrm/tags/{id}/contacts', 0
+  UNION ALL SELECT 'dashboard.customer.tags', 'POST', '/dashboard/scrm/tag-groups', 0
+  UNION ALL SELECT 'dashboard.customer.tags', 'PUT', '/dashboard/scrm/tag-groups/{id}', 0
   UNION ALL SELECT 'dashboard.customer.order', 'GET', '/dashboard/scrm/orders', 1
   UNION ALL SELECT 'dashboard.customer.order', 'POST', '/dashboard/scrm/orders', 1
   UNION ALL SELECT 'dashboard.customer.order', 'GET', '/dashboard/scrm/orders/{id}', 1
@@ -399,22 +399,22 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.customer.order', 'POST', '/dashboard/scrm/contacts', 1
   UNION ALL SELECT 'dashboard.customer.order', 'GET', '/dashboard/scrm/opportunities', 1
   UNION ALL SELECT 'dashboard.customer.settings', 'GET', '/dashboard/scrm/settings', 0
-  UNION ALL SELECT 'dashboard.customer.settings', 'PUT', '/dashboard/scrm/settings', 1
+  UNION ALL SELECT 'dashboard.customer.settings', 'PUT', '/dashboard/scrm/settings', 0
   UNION ALL SELECT 'dashboard.data.customer', 'GET', '/dashboard/reports/customer', 1
   UNION ALL SELECT 'dashboard.data.customer', 'GET', '/dashboard/workEmployee/index', 1
-  UNION ALL SELECT 'dashboard.data.customer', 'GET', '/dashboard/workDepartment/pageIndex', 1
+  UNION ALL SELECT 'dashboard.data.customer', 'GET', '/dashboard/workDepartment/pageIndex', 0
   UNION ALL SELECT 'dashboard.data.employee', 'GET', '/dashboard/reports/employee', 1
   UNION ALL SELECT 'dashboard.data.employee', 'GET', '/dashboard/workEmployee/index', 1
-  UNION ALL SELECT 'dashboard.data.employee', 'GET', '/dashboard/workDepartment/pageIndex', 1
+  UNION ALL SELECT 'dashboard.data.employee', 'GET', '/dashboard/workDepartment/pageIndex', 0
   UNION ALL SELECT 'dashboard.data.conversion', 'GET', '/dashboard/reports/conversion', 1
   UNION ALL SELECT 'dashboard.data.conversion', 'GET', '/dashboard/workEmployee/index', 1
-  UNION ALL SELECT 'dashboard.data.conversion', 'GET', '/dashboard/workDepartment/pageIndex', 1
+  UNION ALL SELECT 'dashboard.data.conversion', 'GET', '/dashboard/workDepartment/pageIndex', 0
   UNION ALL SELECT 'dashboard.data.behavior', 'GET', '/dashboard/reports/behavior', 1
   UNION ALL SELECT 'dashboard.data.behavior', 'GET', '/dashboard/workEmployee/index', 1
-  UNION ALL SELECT 'dashboard.data.behavior', 'GET', '/dashboard/workDepartment/pageIndex', 1
+  UNION ALL SELECT 'dashboard.data.behavior', 'GET', '/dashboard/workDepartment/pageIndex', 0
   UNION ALL SELECT 'dashboard.data.report', 'GET', '/dashboard/reports/report', 1
   UNION ALL SELECT 'dashboard.data.report', 'GET', '/dashboard/workEmployee/index', 1
-  UNION ALL SELECT 'dashboard.data.report', 'GET', '/dashboard/workDepartment/pageIndex', 1
+  UNION ALL SELECT 'dashboard.data.report', 'GET', '/dashboard/workDepartment/pageIndex', 0
   UNION ALL SELECT 'dashboard.ai_setting.ai_knowledge_base', 'GET', '/dashboard/ai-settings/knowledge-bases', 0
   UNION ALL SELECT 'dashboard.ai_setting.ai_knowledge_base', 'POST', '/dashboard/ai-settings/knowledge-bases', 0
   UNION ALL SELECT 'dashboard.ai_setting.ai_knowledge_base', 'PUT', '/dashboard/ai-settings/knowledge-bases/{id}', 0

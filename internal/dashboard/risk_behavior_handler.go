@@ -77,7 +77,8 @@ func (h *RiskBehaviorHandler) Records(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	per, _ := strconv.Atoi(r.URL.Query().Get("perPage"))
 	ruleID, _ := strconv.ParseInt(r.URL.Query().Get("ruleId"), 10, 64)
-	result, err := h.provider.RiskRecordPage(r.Context(), RiskRecordFilter{TenantID: tenant, CorpID: corp, RiskLevel: r.URL.Query().Get("riskLevel"), Behavior: r.URL.Query().Get("behavior"), ConversationType: r.URL.Query().Get("conversationType"), RuleID: ruleID, Page: page, PerPage: per})
+	access, _ := DashboardAccessFromContext(r.Context())
+	result, err := h.provider.RiskRecordPage(r.Context(), RiskRecordFilter{TenantID: tenant, CorpID: corp, RiskLevel: r.URL.Query().Get("riskLevel"), Behavior: r.URL.Query().Get("behavior"), ConversationType: r.URL.Query().Get("conversationType"), RuleID: ruleID, Page: page, PerPage: per, AllowedEmployeeIDs: append([]int(nil), access.AllowedEmployeeIDs...), RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return

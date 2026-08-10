@@ -62,17 +62,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
-          "scopeRequired": false
+          "scopeRequired": true
         }
       ]
     },
@@ -87,17 +87,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
-          "scopeRequired": false
+          "scopeRequired": true
         }
       ]
     },
@@ -112,17 +112,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
-          "scopeRequired": false
+          "scopeRequired": true
         }
       ]
     },
@@ -137,12 +137,12 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
@@ -382,7 +382,7 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/timeout-warning/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
@@ -437,7 +437,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/message-intercept/records",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
@@ -467,7 +467,7 @@
         {
           "method": "POST",
           "pathPattern": "/dashboard/message-intercept/records/audit",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
@@ -497,7 +497,7 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/keyword-library/libraries",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
@@ -557,27 +557,27 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/silent-customer/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/silent-customer/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/silent-customer/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/silent-customer/rules/status",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/silent-customer/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
@@ -712,17 +712,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/acquisitionLink/index",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/acquisitionLink/store",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/acquisitionLink/authorize",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -737,17 +737,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/customerService/index",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/customerService/store",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/customerService/sync",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -762,17 +762,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/liveCodeShortChain/index",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/liveCodeShortChain/store",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/liveCodeShortChain/disable",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -797,7 +797,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/materialSelector/index",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -832,7 +832,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/materialSelector/index",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -852,7 +852,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/friendsCircle/materialIndex",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
@@ -877,12 +877,12 @@
         {
           "method": "POST",
           "pathPattern": "/dashboard/friendsCircle/materialStore",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/materialSelector/index",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -897,37 +897,37 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/mediumGroup/index",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/mediumGroup/store",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/medium/index",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/medium/store",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/medium/batchGroupUpdate",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/medium/batchDestroy",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workDepartment/pageIndex",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1017,7 +1017,7 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/scrm/tags/{id}/contacts",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
@@ -1127,7 +1127,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/scrm/settings",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1167,7 +1167,7 @@
         {
           "method": "POST",
           "pathPattern": "/dashboard/scrm/tags",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
@@ -1177,32 +1177,32 @@
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/scrm/tags/{id}",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/scrm/tags/{id}/move",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/scrm/tags/{id}/delete-preview",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/scrm/tags/{id}/contacts",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/scrm/tag-groups",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/scrm/tag-groups/{id}",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1267,7 +1267,7 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/scrm/settings",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1292,7 +1292,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workDepartment/pageIndex",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1317,7 +1317,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workDepartment/pageIndex",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1342,7 +1342,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workDepartment/pageIndex",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1367,7 +1367,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workDepartment/pageIndex",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1392,7 +1392,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workDepartment/pageIndex",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },

@@ -87,6 +87,7 @@ export async function runCompletionGate(root = process.cwd()) {
     path.join(root, 'internal/dashboard'),
     path.join(root, 'internal/modules/reporting'),
     path.join(root, 'internal/modules/scrm'),
+    path.join(root, 'internal/modules/ai-insight'),
     path.join(root, 'cmd/mochat-go'),
   ];
   const scopeGoFiles = (await Promise.all(scopeGoRoots.map((directory) => readGoFiles(directory)))).flat();
@@ -103,19 +104,54 @@ export async function runCompletionGate(root = process.cwd()) {
   const guardLine = guardBody.slice(0, guardBody.indexOf('type DashboardAccessContext')).split('\n').length;
   const consumerCandidates = scopeGoFiles.filter((file) => !file.endsWith('_test.go'));
   const consumerSources = await Promise.all(consumerCandidates.map(async (file) => ({ file, body: await readFile(file, 'utf8') })));
+  const functionBody = (body, symbol) => {
+    const start = body.indexOf(symbol);
+    if (start < 0) return '';
+    const brace = body.indexOf('{', start);
+    if (brace < 0) return '';
+    let depth = 0;
+    for (let i = brace; i < body.length; i += 1) {
+      if (body[i] === '{') depth += 1;
+      else if (body[i] === '}' && --depth === 0) return body.slice(start, i + 1);
+    }
+    return '';
+  };
   const consumerRules = [
     { test: /reports|report/i, evidence: /AllowedEmployeeIDs|EmployeeScopeRestricted|intersectIDs/, files: [/modules[\\/]reporting[\\/]service\.go$/, /cmd[\\/]mochat-go[\\/]scrm\.go$/] },
+    { test: /workMessage/i, evidence: /func \(h \*AutoTagHandler\) WorkMessage(FromUsers|ToUsers|Index)\b/, files: [/internal[\\/]dashboard[\\/]auto_tag_dashboard\.go$/], evidenceForRoute: (resource) => {
+      if (/fromUsers/i.test(resource.pathPattern)) return /func \(h \*AutoTagHandler\) WorkMessageFromUsers\b/;
+      if (/toUsers/i.test(resource.pathPattern)) return /func \(h \*AutoTagHandler\) WorkMessageToUsers\b/;
+      return /func \(h \*AutoTagHandler\) WorkMessageIndex\b/;
+    } },
+    { test: /channelCode/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|DeptEmployeeIDs|ChannelCodeBusinessIDsByOperators/, files: [/internal[\\/]dashboard[\\/]channel_code_routes\.go$/, /internal[\\/]dashboard[\\/]channel_code_write\.go$/], symbolForRoute: (r) => /store/i.test(r.pathPattern) ? 'func (h *ChannelCodeHandler) Store' : 'func (h *ChannelCodeHandler) Index' },
+    { test: /workEmployee[\\/]index/i, evidence: /DashboardAccessFromContext|RestrictEmployeeIDs|EmployeeIDs/, files: [/internal[\\/]dashboard[\\/]work_read\.go$/] },
+    { test: /workContact[\\/]index/i, evidence: /DashboardAccessFromContext|RestrictEmployees|EmployeeIDs/, files: [/internal[\\/]dashboard[\\/]work_read\.go$/] },
+    { test: /workContact[\\/]show/i, evidence: /DashboardAccessFromContext|employee scope denied|AllowedEmployeeIDs/, files: [/internal[\\/]dashboard[\\/]work_read\.go$/] },
+    { test: /workRoom[\\/](index|roomIndex)/i, evidence: /DashboardAccessFromContext|RestrictOwner|OwnerIDs/, files: [/internal[\\/]dashboard[\\/]work_read\.go$/] },
+    { test: /workRoomAutoPull/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|DeptEmployeeIDs|WorkRoomAutoPullBusinessIDsByOperators/, files: [/internal[\\/]dashboard[\\/]work_room_auto_pull\.go$/], symbolForRoute: (r) => /store/i.test(r.pathPattern) ? 'func (h *WorkRoomAutoPullHandler) Store' : 'func (h *WorkRoomAutoPullHandler) Index' },
+    { test: /roomMessageBatchSend/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|RestrictEmployeeIDs|employee scope denied/, files: [/internal[\\/]dashboard[\\/]room_message_batch_send\.go$/], symbolForRoute: (r) => /store/i.test(r.pathPattern) ? 'func (h *RoomMessageBatchSendHandler) Store' : 'func (h *RoomMessageBatchSendHandler) Index' },
+    { test: /contactMessageBatchSend/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|RestrictEmployeeIDs|employee scope denied/, files: [/internal[\\/]dashboard[\\/]contact_message_batch_send\.go$/], symbolForRoute: (r) => /store/i.test(r.pathPattern) ? 'func (h *ContactMessageBatchSendHandler) Store' : 'func (h *ContactMessageBatchSendHandler) Index' },
+    { test: /friendsCircle\/(taskIndex|taskResultIndex|exportData|publish|taskStore|materialStore)/i, evidence: /DashboardAccessFromContext|employeeIDsWithinDashboardScope|filterFriendsCircle/, files: [/internal[\\/]dashboard[\\/]friends_circle\.go$/], symbolForRoute: (r) => { const p=r.pathPattern; if (/taskIndex/.test(p)) return 'func (h *FriendsCircleHandler) TaskIndex'; if (/taskResultIndex/.test(p)) return 'func (h *FriendsCircleHandler) TaskResultIndex'; if (/taskStore/.test(p)) return 'func (h *FriendsCircleHandler) TaskStore'; if (/publish/.test(p)) return 'func (h *FriendsCircleHandler) Publish'; if (/exportData/.test(p)) return 'func (h *FriendsCircleHandler) ExportData'; return 'func (h *FriendsCircleHandler) MaterialStore'; } },
+    { test: /risk[\\/]records/i, evidence: /AllowedEmployeeIDs|RestrictEmployeeIDs|JSON_EXTRACT/, files: [/internal[\\/]dashboard[\\/]risk_behavior_handler\.go$/, /internal[\\/]store[\\/]risk_behavior\.go$/] },
+    { test: /timeout-warning[\\/]records/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|RestrictEmployeeIDs|assigned_employee_id/, files: [/internal[\\/]dashboard[\\/]timeout_warning_handler\.go$/, /internal[\\/]store[\\/]timeout_warning\.go$/], symbolForRoute: (r) => /audit/i.test(r.pathPattern) ? 'func (h *TimeoutWarningHandler) AuditRecords' : /assign/i.test(r.pathPattern) ? 'func (h *TimeoutWarningHandler) AssignRecords' : 'func (h *TimeoutWarningHandler) Records' },
+    { test: /sensitiveWordsMonitor/i, evidence: /AllowedEmployeeIDs|intersectPositiveIntIDs/, files: [/internal[\\/]dashboard[\\/]sensitive_word\.go$/] },
+    { test: /workContact[\\/]lossContact|contactTransfer/i, evidence: /AllowedEmployeeIDs|intersectPositiveIntIDs|EmployeeIDs/, files: [/internal[\\/]dashboard[\\/]contact_transfer\.go$/] },
+    { test: /silent-customer[\\/]records/i, evidence: /AllowedEmployeeIDs|RestrictEmployeeIDs|assigned_employee_id/, files: [/internal[\\/]dashboard[\\/]phase33_closure_handler\.go$/, /internal[\\/]store[\\/]phase33_closure\.go$/] },
+    { test: /ai-insight[\\/](session-analysis|smart-analysis|emotion|employee-score|communication-keyword)/i, evidence: /FetchArchiveTexts|EmployeeScopeRestricted|AllowedEmployeeIDs/, files: [/internal[\\/]modules[\\/]ai-insight[\\/]transport[\\/]http[\\/]handler\.go$/, /internal[\\/]modules[\\/]ai-insight[\\/]transport[\\/]http[\\/]analysis_store\.go$/] },
     { test: /scrm[\\/](contacts|assignments)/i, evidence: /AllowedEmployeeIDs|EmployeeScopeRestricted|restrictOwnerIDs/, files: [/modules[\\/]scrm[\\/]application[\\/]customer_lifecycle_service\.go$/, /modules[\\/]scrm[\\/]transport[\\/]http[\\/]customer_lifecycle_handler\.go$/] },
     { test: /scrm[\\/]leads|customer[\\/]clue/i, evidence: /AllowedEmployeeIDs|EmployeeScopeRestricted|restrictOwnerIDs/, files: [/modules[\\/]scrm[\\/]application[\\/]service\.go$/, /modules[\\/]scrm[\\/]transport[\\/]http[\\/]lead_handler\.go$/] },
     { test: /scrm[\\/]opportunit|customer[\\/]opportunit/i, evidence: /AllowedEmployeeIDs|EmployeeScopeRestricted|owner_id IN/, files: [/modules[\\/]scrm[\\/]adapters[\\/]mysql[\\/]opportunity_repository\.go$/, /modules[\\/]scrm[\\/]transport[\\/]http[\\/]opportunity_handler\.go$/] },
+    { test: /scrm[\\/]orders/i, evidence: /AllowedEmployeeIDs|EmployeeScopeRestricted|OwnerID|owner/, files: [/modules[\\/]scrm[\\/]transport[\\/]http[\\/]order_handler\.go$/, /modules[\\/]scrm[\\/]adapters[\\/]mysql[\\/]order_repository\.go$/] },
   ];
   const scopeMappings = scopeResources.map((resource) => {
     const route = backend.find((candidate) => covers(candidate, resource));
     if (!route) throw new Error(`scopeRequired resource has no registered handler: ${resource.method} ${resource.pathPattern}`);
     const rule = consumerRules.find((candidate) => candidate.test.test(resource.pathPattern) || candidate.test.test(route.contract));
-    const consumer = rule && consumerSources.find(({ file, body }) => rule.files.some((pattern) => pattern.test(file)) && rule.evidence.test(body));
+    const evidence = rule?.evidenceForRoute ? rule.evidenceForRoute(resource) : rule?.evidence;
+    const symbol = rule?.symbolForRoute ? rule.symbolForRoute(resource) : '';
+    const consumer = rule && consumerSources.find(({ file, body }) => rule.files.some((pattern) => pattern.test(file)) && evidence.test(symbol ? functionBody(body, symbol) : body));
     if (!consumer) throw new Error(`scopeRequired consumer evidence missing for ${resource.method} ${resource.pathPattern}; handler=${route.file}:${route.line}`);
-    const consumerLine = consumer.body.split('\n').findIndex((line) => rule.evidence.test(line)) + 1;
+    const consumerLine = symbol ? consumer.body.split('\n').findIndex((line) => line.includes(symbol.replace(/^func /, ''))) + 1 : consumer.body.split('\n').findIndex((line) => evidence.test(line)) + 1;
     return `${resource.method} ${resource.pathPattern} -> handler ${route.contract} (${route.file}:${route.line}) -> guard internal/dashboard/dashboard_access_guard.go:${guardLine} -> consumer ${consumer.file.replaceAll('\\', '/')}:${consumerLine}`;
   });
   const facts = validateCompletionFacts({ catalogOutput: output, sourceCorpus: `${sourceCorpus}\n${accessGo}`, frontendSource: frontend.map((item) => typeof item === 'string' ? item : (item.contract ?? item.path ?? '')).join('\n'), backendEvidence: backend.map((route) => `source:${route.file}:${route.line} ${route.contract}`).join('\n'), scopeMappings: scopeMappings.join('\n'), e2eSource, smokeSource, packageJSON });

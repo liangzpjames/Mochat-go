@@ -1735,17 +1735,25 @@ func autoTagKeywordMessageTable(index int) (string, error) {
 	return fmt.Sprintf("mc_work_message_%d", index), nil
 }
 
-func (s *MySQLStore) WorkMessageFromUsers(ctx context.Context, corpID int, name string, page int, perPage int) ([]dashboard.WorkMessageFromUser, error) {
-	page = positivePage(page)
-	perPage = positivePerPage(perPage, 100)
+func (s *MySQLStore) WorkMessageFromUsers(ctx context.Context, filter dashboard.WorkMessageFromUserFilter) ([]dashboard.WorkMessageFromUser, error) {
+	filter.Page = positivePage(filter.Page)
+	filter.PerPage = positivePerPage(filter.PerPage, 100)
 	where := "WHERE corp_id = ? AND deleted_at IS NULL"
-	args := []any{corpID}
-	if strings.TrimSpace(name) != "" {
-		where += " AND name LIKE ?"
-		args = append(args, "%"+strings.TrimSpace(name)+"%")
+	args := []any{filter.CorpID}
+	if filter.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(filter.EmployeeIDs)
+		if len(ids) == 0 {
+			return []dashboard.WorkMessageFromUser{}, nil
+		}
+		where += " AND id IN (" + placeholders(len(ids)) + ")"
+		args = append(args, intsToAny(ids)...)
 	}
-	offset := (page - 1) * perPage
-	args = append(args, perPage, offset)
+	if strings.TrimSpace(filter.Name) != "" {
+		where += " AND name LIKE ?"
+		args = append(args, "%"+strings.TrimSpace(filter.Name)+"%")
+	}
+	offset := (filter.Page - 1) * filter.PerPage
+	args = append(args, filter.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, COALESCE(name, ''), COALESCE(avatar, '')
 		FROM mc_work_employee
@@ -1885,9 +1893,23 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	filter.Page = positivePage(filter.Page)
 	filter.PerPage = positivePerPage(filter.PerPage, 15)
 	sourceSQL, sourceArgs := workMessageUnionSQL(filter.CorpID)
-	where := []string{"work_employee_id = ?"}
 	args := append([]any{}, sourceArgs...)
-	args = append(args, filter.WorkEmployeeID)
+	where := []string{}
+	if filter.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(filter.EmployeeIDs)
+		if len(ids) == 0 {
+			return dashboard.WorkMessagePage{}, nil
+		}
+		where = append(where, "work_employee_id IN ("+placeholders(len(ids))+")")
+		args = append(args, intsToAny(ids)...)
+		if filter.WorkEmployeeID > 0 {
+			where = append(where, "work_employee_id = ?")
+			args = append(args, filter.WorkEmployeeID)
+		}
+	} else {
+		where = append(where, "work_employee_id = ?")
+		args = append(args, filter.WorkEmployeeID)
+	}
 	if filter.Type > 0 {
 		where = append(where, "msg_type = ?")
 		args = append(args, filter.Type)
@@ -2367,7 +2389,7 @@ func workMessageUserBaseWhere(filter dashboard.WorkMessageUserFilter, prefix str
 	column := func(name string) string { return prefix + name }
 	where := make([]string, 0, 7)
 	args := make([]any, 0, 8)
-	if !filter.AllowAllEmployees || filter.WorkEmployeeID > 0 {
+	if (!filter.AllowAllEmployees && !filter.RestrictEmployeeIDs) || filter.WorkEmployeeID > 0 {
 		where = append(where, column("work_employee_id")+" = ?")
 		args = append(args, filter.WorkEmployeeID)
 	}

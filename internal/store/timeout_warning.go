@@ -289,6 +289,14 @@ func (s *MySQLStore) TimeoutRecordPage(ctx context.Context, f dashboard.TimeoutR
 		where += " AND r.rule_id=?"
 		args = append(args, f.RuleID)
 	}
+	if f.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(f.AllowedEmployeeIDs)
+		if len(ids) == 0 { return dashboard.TimeoutRecordPage{}, nil }
+		p := placeholders(len(ids))
+		where += " AND (r.employee_id IN ("+p+") OR r.assigned_employee_id IN ("+p+"))"
+		args = append(args, intsToAny(ids)...)
+		args = append(args, intsToAny(ids)...)
+	}
 	var total int
 	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mochat_go_timeout_records r"+where, args...).Scan(&total); err != nil {
 		return dashboard.TimeoutRecordPage{}, err

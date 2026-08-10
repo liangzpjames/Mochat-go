@@ -15,6 +15,40 @@ import (
 var ErrFriendsCirclePublisherNotConfigured = errors.New("friends circle publisher not configured")
 var ErrFriendsCircleInvalidTransition = errors.New("invalid friends circle task state transition")
 
+func filterFriendsCircleTasksByEmployees(items []FriendsCircleTask, allowed []int) []FriendsCircleTask {
+	set := make(map[int]struct{}, len(allowed))
+	for _, id := range allowed {
+		set[id] = struct{}{}
+	}
+	out := make([]FriendsCircleTask, 0, len(items))
+	for _, item := range items {
+		var ids []int
+		if json.Unmarshal([]byte(item.TargetEmployees), &ids) != nil {
+			continue
+		}
+		for _, id := range ids {
+			if _, ok := set[id]; ok {
+				out = append(out, item)
+				break
+			}
+		}
+	}
+	return out
+}
+func filterFriendsCircleResultsByEmployees(items []FriendsCircleTaskResult, allowed []int) []FriendsCircleTaskResult {
+	set := make(map[int]struct{}, len(allowed))
+	for _, id := range allowed {
+		set[id] = struct{}{}
+	}
+	out := make([]FriendsCircleTaskResult, 0, len(items))
+	for _, item := range items {
+		if _, ok := set[item.TargetEmployeeID]; ok {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 type FriendsCircleTask struct {
 	ID              int    `json:"id"`
 	TaskName        string `json:"taskName"`
@@ -46,11 +80,13 @@ type FriendsCircleMaterial struct {
 }
 
 type FriendsCircleTaskFilter struct {
-	CorpID   int
-	TaskName string
-	Status   string
-	Page     int
-	PerPage  int
+	CorpID              int
+	TaskName            string
+	Status              string
+	Page                int
+	PerPage             int
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
 }
 type FriendsCircleMaterialFilter struct {
 	CorpID  int
@@ -85,11 +121,13 @@ type FriendsCircleTaskResult struct {
 }
 
 type FriendsCircleTaskResultFilter struct {
-	CorpID  int
-	TaskID  int
-	Status  string
-	Page    int
-	PerPage int
+	CorpID              int
+	TaskID              int
+	Status              string
+	Page                int
+	PerPage             int
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
 }
 
 type FriendsCircleTaskResultPage struct {
@@ -192,10 +230,14 @@ func (h *FriendsCircleHandler) TaskIndex(w http.ResponseWriter, r *http.Request)
 	_ = userID
 	page := positiveQueryInt(r, "page", 1)
 	perPage := min(positiveQueryInt(r, "perPage", 20), 100)
-	result, err := h.store.FriendsCircleTaskPage(r.Context(), FriendsCircleTaskFilter{CorpID: corpID, TaskName: strings.TrimSpace(r.URL.Query().Get("taskName")), Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: page, PerPage: perPage})
+	access, _ := DashboardAccessFromContext(r.Context())
+	result, err := h.store.FriendsCircleTaskPage(r.Context(), FriendsCircleTaskFilter{CorpID: corpID, TaskName: strings.TrimSpace(r.URL.Query().Get("taskName")), Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: page, PerPage: perPage, AllowedEmployeeIDs: access.AllowedEmployeeIDs, RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
 	if err != nil {
 		writeEnvelope(w, 500, 500, err.Error(), nil)
 		return
+	}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		result.Items = filterFriendsCircleTasksByEmployees(result.Items, access.AllowedEmployeeIDs)
 	}
 	writeEnvelope(w, 200, 200, "success", map[string]any{"list": result.Items, "page": map[string]any{"total": result.Total, "perPage": result.PerPage, "totalPage": result.TotalPage}})
 }
@@ -227,10 +269,14 @@ func (h *FriendsCircleHandler) TaskResultIndex(w http.ResponseWriter, r *http.Re
 	}
 	page := positiveQueryInt(r, "page", 1)
 	perPage := min(positiveQueryInt(r, "perPage", 20), 100)
-	result, err := h.store.FriendsCircleTaskResultPage(r.Context(), FriendsCircleTaskResultFilter{CorpID: corpID, TaskID: taskID, Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: page, PerPage: perPage})
+	access, _ := DashboardAccessFromContext(r.Context())
+	result, err := h.store.FriendsCircleTaskResultPage(r.Context(), FriendsCircleTaskResultFilter{CorpID: corpID, TaskID: taskID, Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: page, PerPage: perPage, AllowedEmployeeIDs: access.AllowedEmployeeIDs, RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
+	}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		result.Items = filterFriendsCircleResultsByEmployees(result.Items, access.AllowedEmployeeIDs)
 	}
 	writeEnvelope(w, http.StatusOK, http.StatusOK, "success", map[string]any{"list": result.Items, "page": map[string]any{"total": result.Total, "perPage": result.PerPage, "totalPage": result.TotalPage}})
 }
@@ -272,6 +318,13 @@ func (h *FriendsCircleHandler) TaskStore(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	target := mustJSON(params["targetEmployees"])
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		var targetIDs []int
+		if json.Unmarshal([]byte(target), &targetIDs) != nil || !employeeIDsWithinDashboardScope(targetIDs, access.AllowedEmployeeIDs) {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+			return
+		}
+	}
 	id, err := h.store.CreateFriendsCircleTask(r.Context(), FriendsCircleTaskWrite{CorpID: corpID, UserID: userID, CreatorName: user.Name, TaskName: name, SendWay: sendWay, Content: content, MediumID: mediumID, TargetEmployees: target, Status: "draft"})
 	if err != nil || id <= 0 {
 		writeEnvelope(w, 500, 500, "create task failed", nil)
@@ -304,6 +357,10 @@ func (h *FriendsCircleHandler) MaterialStore(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *FriendsCircleHandler) Publish(w http.ResponseWriter, r *http.Request) {
+	if access, ok := DashboardAccessFromContext(r.Context()); ok && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	_, corpID, _, ok := h.authorized(w, r, "/dashboard/friendsCircle/publish#post", http.MethodPost)
 	if !ok {
 		return
@@ -444,6 +501,10 @@ func (h *FriendsCircleHandler) Export(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *FriendsCircleHandler) ExportData(w http.ResponseWriter, r *http.Request) {
+	if access, ok := DashboardAccessFromContext(r.Context()); ok && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	_, corpID, _, ok := h.authorized(w, r, "/dashboard/friendsCircle/export#get", http.MethodGet)
 	if !ok {
 		return

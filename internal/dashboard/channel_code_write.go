@@ -35,6 +35,10 @@ func (h *ChannelCodeHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant && !channelCodeEmployeesAllowed(values.DrainageEmployee, access.AllowedEmployeeIDs) {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	if !enforceSaaSQuota(r.Context(), w, h.store, user.TenantID, SaaSMetricChannelCodes, 1) {
 		return
 	}
@@ -274,6 +278,21 @@ func channelCodeActiveEmployeeIDs(drainage map[string]any, now time.Time) []int 
 		}
 	}
 	return channelCodeUniquePositiveInts(ids)
+}
+
+func channelCodeEmployeesAllowed(drainage map[string]any, allowed []int) bool {
+	set := make(map[int]struct{}, len(allowed))
+	for _, id := range allowed {
+		if id > 0 {
+			set[id] = struct{}{}
+		}
+	}
+	for _, id := range channelCodeActiveEmployeeIDs(drainage, time.Now()) {
+		if _, ok := set[id]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func channelCodeApplyAddMax(employeeIDs []int, addMax map[string]any, counts map[int]int) []int {

@@ -20,14 +20,16 @@ type RiskRulePage struct {
 	PerPage int        `json:"perPage"`
 }
 type RiskRecordFilter struct {
-	TenantID         int
-	CorpID           int
-	RiskLevel        string
-	Behavior         string
-	ConversationType string
-	RuleID           int64
-	Page             int
-	PerPage          int
+	TenantID            int
+	CorpID              int
+	RiskLevel           string
+	Behavior            string
+	ConversationType    string
+	RuleID              int64
+	Page                int
+	PerPage             int
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
 }
 type RiskRecordPage struct {
 	Items   []RiskRecord `json:"items"`

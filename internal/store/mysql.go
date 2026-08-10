@@ -5097,6 +5097,20 @@ func (s *MySQLStore) FriendsCircleTaskPage(ctx context.Context, filter dashboard
 		where += " AND status = ?"
 		args = append(args, filter.Status)
 	}
+	if filter.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(filter.AllowedEmployeeIDs)
+		if len(ids) == 0 {
+			return dashboard.FriendsCircleTaskPage{}, nil
+		}
+		parts := make([]string, 0, len(ids))
+		for range ids {
+			parts = append(parts, "JSON_CONTAINS(target_employees, JSON_ARRAY(?)) OR JSON_CONTAINS(target_employees, JSON_OBJECT('employeeId', ?))")
+		}
+		where += " AND (" + strings.Join(parts, " OR ") + ")"
+		for _, id := range ids {
+			args = append(args, id, id)
+		}
+	}
 	var total int
 	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mc_friends_circle_tasks"+where, args...).Scan(&total); err != nil {
 		return dashboard.FriendsCircleTaskPage{}, err
@@ -5177,6 +5191,14 @@ func (s *MySQLStore) FriendsCircleTaskResultPage(ctx context.Context, filter das
 	if filter.Status != "" {
 		where = append(where, "status = ?")
 		args = append(args, filter.Status)
+	}
+	if filter.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(filter.AllowedEmployeeIDs)
+		if len(ids) == 0 {
+			return dashboard.FriendsCircleTaskResultPage{}, nil
+		}
+		where = append(where, "target_employee_id IN ("+placeholders(len(ids))+")")
+		args = append(args, intsToAny(ids)...)
 	}
 	whereSQL := strings.Join(where, " AND ")
 	var total int
@@ -22709,7 +22731,18 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 	}
 	where := []string{"user_id = ?", "deleted_at IS NULL"}
 	args := []any{filter.UserID}
-
+	if filter.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(filter.AllowedEmployeeIDs)
+		if len(ids) == 0 {
+			return dashboard.ContactMessageBatchSendPage{}, nil
+		}
+		parts := make([]string, 0, len(ids))
+		for _, id := range ids {
+			parts = append(parts, "JSON_CONTAINS(employee_ids, JSON_ARRAY(?))")
+			args = append(args, id)
+		}
+		where = append(where, "("+strings.Join(parts, " OR ")+")")
+	}
 	var total int
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
@@ -23674,6 +23707,18 @@ func (s *MySQLStore) RoomMessageBatchSendPage(ctx context.Context, filter dashbo
 	}
 	where := []string{"user_id = ?", "deleted_at IS NULL"}
 	args := []any{filter.UserID}
+	if filter.RestrictEmployeeIDs {
+		ids := uniquePositiveInts(filter.AllowedEmployeeIDs)
+		if len(ids) == 0 {
+			return dashboard.RoomMessageBatchSendPage{}, nil
+		}
+		parts := make([]string, 0, len(ids))
+		for _, id := range ids {
+			parts = append(parts, "JSON_CONTAINS(employee_ids, JSON_ARRAY(?))")
+			args = append(args, id)
+		}
+		where = append(where, "("+strings.Join(parts, " OR ")+")")
+	}
 	if filter.BatchTitle != "" {
 		where = append(where, "batch_title LIKE ?")
 		args = append(args, "%"+filter.BatchTitle+"%")

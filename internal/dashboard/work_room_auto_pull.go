@@ -164,7 +164,15 @@ func (h *WorkRoomAutoPullHandler) Index(w http.ResponseWriter, r *http.Request) 
 		Page:       positiveQueryInt(r, "page", 1),
 		PerPage:    positiveQueryInt(r, "perPage", 10),
 	}
-	if access.DataPermission != DataPermissionAll {
+	if dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context()); hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant {
+		ids, err := h.store.WorkRoomAutoPullBusinessIDsByOperators(r.Context(), dashboardAccess.AllowedEmployeeIDs)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return
+		}
+		filter.RestrictBusinessIDs = true
+		filter.BusinessIDs = ids
+	} else if access.DataPermission != DataPermissionAll {
 		ids, err := h.store.WorkRoomAutoPullBusinessIDsByOperators(r.Context(), access.DeptEmployeeIDs)
 		if err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -282,6 +290,10 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	if dashboardAccess, scoped := DashboardAccessFromContext(r.Context()); scoped && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant && !workRoomAutoPullEmployeesAllowed(values.EmployeeIDs, dashboardAccess.AllowedEmployeeIDs) {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	values.CorpID = corpID
 	if values.MediumID > 0 {
 		validator, configured := h.store.(mediumAvailabilityValidator)
@@ -357,6 +369,10 @@ func (h *WorkRoomAutoPullHandler) Update(w http.ResponseWriter, r *http.Request)
 	}
 	id, values, ok := parseWorkRoomAutoPullUpdateParams(w, params)
 	if !ok {
+		return
+	}
+	if dashboardAccess, scoped := DashboardAccessFromContext(r.Context()); scoped && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant && !workRoomAutoPullEmployeesAllowed(values.EmployeeIDs, dashboardAccess.AllowedEmployeeIDs) {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
 		return
 	}
 	if values.MediumID > 0 {
@@ -596,6 +612,23 @@ func parseWorkRoomAutoPullCommonParams(w http.ResponseWriter, params map[string]
 		Rooms:       roomsJSON,
 		EmployeeIDs: employeeIDs,
 	}, true
+}
+
+func workRoomAutoPullEmployeesAllowed(ids, allowed []int) bool {
+	set := make(map[int]struct{}, len(allowed))
+	for _, id := range allowed {
+		if id > 0 {
+			set[id] = struct{}{}
+		}
+	}
+	for _, id := range ids {
+		if id > 0 {
+			if _, ok := set[id]; !ok {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func workRoomAutoPullIDsJSON(w http.ResponseWriter, params map[string]any, key string, label string) ([]int, string, bool) {

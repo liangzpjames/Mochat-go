@@ -749,7 +749,7 @@ func (s *fakeAutoTagStore) AutoTagKeywordTask(context.Context, int) (AutoTagKeyw
 	return AutoTagKeywordTaskResult{RuleCount: 1}, nil
 }
 
-func (s *fakeAutoTagStore) WorkMessageFromUsers(context.Context, int, string, int, int) ([]WorkMessageFromUser, error) {
+func (s *fakeAutoTagStore) WorkMessageFromUsers(context.Context, WorkMessageFromUserFilter) ([]WorkMessageFromUser, error) {
 	return []WorkMessageFromUser{{ID: 99, Name: "张三"}}, nil
 }
 

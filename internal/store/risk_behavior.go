@@ -125,6 +125,17 @@ func (s *MySQLStore) RiskRecordPage(ctx context.Context, f dashboard.RiskRecordF
 		where += " AND rule_id = ?"
 		args = append(args, f.RuleID)
 	}
+	if f.RestrictEmployeeIDs {
+		if len(f.AllowedEmployeeIDs) == 0 {
+			where += " AND 1=0"
+		} else {
+			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(f.AllowedEmployeeIDs)), ",")
+			where += " AND CAST(JSON_UNQUOTE(JSON_EXTRACT(related_user_json, '$.employeeId')) AS UNSIGNED) IN (" + placeholders + ")"
+			for _, id := range f.AllowedEmployeeIDs {
+				args = append(args, id)
+			}
+		}
+	}
 	var total int
 	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mochat_go_risk_records"+where, args...).Scan(&total); err != nil {
 		return dashboard.RiskRecordPage{}, err

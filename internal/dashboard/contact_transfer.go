@@ -440,6 +440,12 @@ func (h *ContactTransferHandler) contactFilterFromQuery(w http.ResponseWriter, r
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "employeeId 格式错误", nil)
 		return ContactTransferContactFilter{}, false
 	}
+	if access, ok := DashboardAccessFromContext(r.Context()); ok && access.ScopeRequired && access.Scope != DataScopeTenant {
+		employeeIDs = intersectPositiveIntIDs(employeeIDs, access.AllowedEmployeeIDs)
+		if len(access.AllowedEmployeeIDs) == 0 || len(employeeIDs) == 0 {
+			employeeIDs = []int{0}
+		}
+	}
 	return ContactTransferContactFilter{
 		CorpID:       corpID,
 		ContactName:  strings.TrimSpace(r.URL.Query().Get("contactName")),
@@ -458,6 +464,12 @@ func (h *ContactTransferHandler) unassignedFilterFromQuery(w http.ResponseWriter
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "employeeId 格式错误", nil)
 		return ContactTransferUnassignedFilter{}, false
+	}
+	if access, ok := DashboardAccessFromContext(r.Context()); ok && access.ScopeRequired && access.Scope != DataScopeTenant {
+		employeeIDs = intersectPositiveIntIDs(employeeIDs, access.AllowedEmployeeIDs)
+		if len(access.AllowedEmployeeIDs) == 0 || len(employeeIDs) == 0 {
+			employeeIDs = []int{0}
+		}
 	}
 	return ContactTransferUnassignedFilter{
 		CorpID:       corpID,

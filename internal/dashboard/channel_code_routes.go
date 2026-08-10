@@ -39,7 +39,15 @@ func (h *ChannelCodeHandler) Index(w http.ResponseWriter, r *http.Request) {
 			filter.GroupID = &value
 		}
 	}
-	if access.DataPermission != DataPermissionAll {
+	if dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context()); hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant {
+		ids, err := h.store.ChannelCodeBusinessIDsByOperators(r.Context(), dashboardAccess.AllowedEmployeeIDs)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return
+		}
+		filter.RestrictBusinessIDs = true
+		filter.BusinessIDs = ids
+	} else if access.DataPermission != DataPermissionAll {
 		ids, err := h.store.ChannelCodeBusinessIDsByOperators(r.Context(), access.DeptEmployeeIDs)
 		if err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)

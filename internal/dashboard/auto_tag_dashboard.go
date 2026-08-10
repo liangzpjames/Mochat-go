@@ -161,6 +161,15 @@ type WorkMessageUserFilter struct {
 	PerPage             int
 }
 
+type WorkMessageFromUserFilter struct {
+	CorpID              int
+	Name                string
+	Page                int
+	PerPage             int
+	RestrictEmployeeIDs bool
+	EmployeeIDs         []int
+}
+
 type WorkMessageToUser struct {
 	ID             int
 	TableIndex     int
@@ -187,17 +196,19 @@ type WorkMessageToUserPage struct {
 }
 
 type WorkMessageFilter struct {
-	CorpID         int
-	WorkEmployeeID int
-	Type           int
-	ToUserType     int
-	ToUserID       int
-	Content        string
-	DateTimeStart  string
-	DateTimeEnd    string
-	Page           int
-	PerPage        int
-	Latest         bool
+	CorpID              int
+	WorkEmployeeID      int
+	Type                int
+	ToUserType          int
+	ToUserID            int
+	Content             string
+	DateTimeStart       string
+	DateTimeEnd         string
+	Page                int
+	PerPage             int
+	Latest              bool
+	RestrictEmployeeIDs bool
+	EmployeeIDs         []int
 }
 
 type WorkMessageArchiveFilter struct {
@@ -281,7 +292,7 @@ type AutoTagStore interface {
 	AutoTagStatistics(ctx context.Context, corpID int, autoTagID int) (AutoTagStatistics, error)
 	AutoTagRecordPage(ctx context.Context, filter AutoTagRecordFilter) (AutoTagRecordPage, error)
 	AutoTagKeywordTask(ctx context.Context, corpID int) (AutoTagKeywordTaskResult, error)
-	WorkMessageFromUsers(ctx context.Context, corpID int, name string, page int, perPage int) ([]WorkMessageFromUser, error)
+	WorkMessageFromUsers(ctx context.Context, filter WorkMessageFromUserFilter) ([]WorkMessageFromUser, error)
 	WorkMessageToUsers(ctx context.Context, filter WorkMessageUserFilter) (WorkMessageToUserPage, error)
 	WorkMessagePage(ctx context.Context, filter WorkMessageFilter) (WorkMessagePage, error)
 	WorkMessageArchiveAuthorized(ctx context.Context, tenantID int, corpID int) (bool, error)
@@ -485,7 +496,7 @@ func (h *AutoTagHandler) WorkMessageFromUsers(w http.ResponseWriter, r *http.Req
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/fromUsers#get")
+	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/fromUsers#get")
 	if !ok {
 		return
 	}
@@ -493,7 +504,7 @@ func (h *AutoTagHandler) WorkMessageFromUsers(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	items, err := h.store.WorkMessageFromUsers(r.Context(), corpID, sopQueryName(r), positiveQueryInt(r, "page", 1), positiveQueryInt(r, "perPage", 100))
+	items, err := h.store.WorkMessageFromUsers(r.Context(), WorkMessageFromUserFilter{CorpID: corpID, Name: sopQueryName(r), Page: positiveQueryInt(r, "page", 1), PerPage: positiveQueryInt(r, "perPage", 100), RestrictEmployeeIDs: access.DataPermission != DataPermissionAll, EmployeeIDs: access.DeptEmployeeIDs})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -523,12 +534,14 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	filter := WorkMessageUserFilter{
-		CorpID:         corpID,
-		WorkEmployeeID: positiveQueryInt(r, "workEmployeeId", 0),
-		ToUserType:     autoTagQueryInt(r, 0, "toUsertype", "toUserType", "to_user_type"),
-		Name:           sopQueryName(r),
-		Page:           positiveQueryInt(r, "page", 1),
-		PerPage:        positiveQueryInt(r, "perPage", 15),
+		CorpID:              corpID,
+		WorkEmployeeID:      positiveQueryInt(r, "workEmployeeId", 0),
+		ToUserType:          autoTagQueryInt(r, 0, "toUsertype", "toUserType", "to_user_type"),
+		Name:                sopQueryName(r),
+		Page:                positiveQueryInt(r, "page", 1),
+		PerPage:             positiveQueryInt(r, "perPage", 15),
+		RestrictEmployeeIDs: access.DataPermission != DataPermissionAll,
+		EmployeeIDs:         access.DeptEmployeeIDs,
 	}
 	if global {
 		var valid bool
@@ -583,16 +596,18 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 		return
 	}
 	page, err := h.store.WorkMessagePage(r.Context(), WorkMessageFilter{
-		CorpID:         corpID,
-		WorkEmployeeID: positiveQueryInt(r, "workEmployeeId", 0),
-		Type:           positiveQueryInt(r, "type", 0),
-		ToUserType:     autoTagQueryInt(r, 0, "toUserType", "toUsertype", "to_user_type"),
-		ToUserID:       autoTagQueryInt(r, 0, "toUserId", "to_user_id"),
-		Content:        strings.TrimSpace(r.URL.Query().Get("content")),
-		DateTimeStart:  autoTagQueryString(r, "dateTimeStart", "start_time", "startTime"),
-		DateTimeEnd:    autoTagQueryString(r, "dateTimeEnd", "end_time", "endTime"),
-		Page:           positiveQueryInt(r, "page", 1),
-		PerPage:        positiveQueryInt(r, "perPage", 15),
+		CorpID:              corpID,
+		WorkEmployeeID:      positiveQueryInt(r, "workEmployeeId", 0),
+		Type:                positiveQueryInt(r, "type", 0),
+		ToUserType:          autoTagQueryInt(r, 0, "toUserType", "toUsertype", "to_user_type"),
+		ToUserID:            autoTagQueryInt(r, 0, "toUserId", "to_user_id"),
+		Content:             strings.TrimSpace(r.URL.Query().Get("content")),
+		DateTimeStart:       autoTagQueryString(r, "dateTimeStart", "start_time", "startTime"),
+		DateTimeEnd:         autoTagQueryString(r, "dateTimeEnd", "end_time", "endTime"),
+		Page:                positiveQueryInt(r, "page", 1),
+		PerPage:             positiveQueryInt(r, "perPage", 15),
+		RestrictEmployeeIDs: access.DataPermission != DataPermissionAll,
+		EmployeeIDs:         access.DeptEmployeeIDs,
 	})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)

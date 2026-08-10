@@ -103,6 +103,8 @@ type TimeoutRecordFilter struct {
 	Customer, RiskLevel, ConversationType, AuditStatus string
 	RuleID                                             int64
 	Page, PerPage                                      int
+	AllowedEmployeeIDs                                 []int
+	RestrictEmployeeIDs                                bool
 }
 type TimeoutRulePage struct {
 	Items                []TimeoutRule `json:"items"`

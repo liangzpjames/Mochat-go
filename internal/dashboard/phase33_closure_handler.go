@@ -100,7 +100,8 @@ func (h *Phase33ClosureHandler) SilentRecords(w http.ResponseWriter, r *http.Req
 	}
 	p, n := pageQuery(r)
 	rid, _ := strconv.ParseInt(r.URL.Query().Get("ruleId"), 10, 64)
-	v, e := h.provider.SilentRecordPage(r.Context(), SilentRecordFilter{TenantID: t, CorpID: c, Customer: r.URL.Query().Get("customer"), Status: r.URL.Query().Get("status"), RuleID: rid, Page: p, PerPage: n})
+	access, _ := DashboardAccessFromContext(r.Context())
+	v, e := h.provider.SilentRecordPage(r.Context(), SilentRecordFilter{TenantID: t, CorpID: c, Customer: r.URL.Query().Get("customer"), Status: r.URL.Query().Get("status"), RuleID: rid, Page: p, PerPage: n, AllowedEmployeeIDs: append([]int(nil), access.AllowedEmployeeIDs...), RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
 	if e != nil {
 		writeEnvelope(w, 500, 500, e.Error(), nil)
 		return

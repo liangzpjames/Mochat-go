@@ -75,7 +75,8 @@ func (h *TimeoutWarningHandler) Records(w http.ResponseWriter, r *http.Request) 
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	per, _ := strconv.Atoi(r.URL.Query().Get("perPage"))
 	ruleID, _ := strconv.ParseInt(r.URL.Query().Get("ruleId"), 10, 64)
-	v, err := h.provider.TimeoutRecordPage(r.Context(), TimeoutRecordFilter{TenantID: tenant, CorpID: corp, Customer: r.URL.Query().Get("customer"), RiskLevel: r.URL.Query().Get("riskLevel"), ConversationType: r.URL.Query().Get("conversationType"), AuditStatus: r.URL.Query().Get("auditStatus"), RuleID: ruleID, Page: page, PerPage: per})
+	access, _ := DashboardAccessFromContext(r.Context())
+	v, err := h.provider.TimeoutRecordPage(r.Context(), TimeoutRecordFilter{TenantID: tenant, CorpID: corp, Customer: r.URL.Query().Get("customer"), RiskLevel: r.URL.Query().Get("riskLevel"), ConversationType: r.URL.Query().Get("conversationType"), AuditStatus: r.URL.Query().Get("auditStatus"), RuleID: ruleID, Page: page, PerPage: per, AllowedEmployeeIDs: append([]int(nil), access.AllowedEmployeeIDs...), RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
 	if err != nil {
 		writeEnvelope(w, 500, 500, err.Error(), nil)
 		return
@@ -221,6 +222,10 @@ func (h *TimeoutWarningHandler) SaveSettings(w http.ResponseWriter, r *http.Requ
 	writeEnvelope(w, 200, 0, "ok", map[string]any{"updated": true})
 }
 func (h *TimeoutWarningHandler) AuditRecords(w http.ResponseWriter, r *http.Request) {
+	if access, ok := DashboardAccessFromContext(r.Context()); ok && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/timeout#manage")
 	if !ok {
 		return
@@ -248,6 +253,10 @@ func (h *TimeoutWarningHandler) AuditRecords(w http.ResponseWriter, r *http.Requ
 	writeEnvelope(w, 200, 0, "ok", map[string]any{"updated": count})
 }
 func (h *TimeoutWarningHandler) AssignRecords(w http.ResponseWriter, r *http.Request) {
+	if access, ok := DashboardAccessFromContext(r.Context()); ok && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/timeout#manage")
 	if !ok {
 		return

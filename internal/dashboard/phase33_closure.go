@@ -62,10 +62,12 @@ type SilentRuleFilter struct {
 	Page, PerPage    int
 }
 type SilentRecordFilter struct {
-	TenantID, CorpID int
-	Customer, Status string
-	RuleID           int64
-	Page, PerPage    int
+	TenantID, CorpID    int
+	Customer, Status    string
+	RuleID              int64
+	Page, PerPage       int
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
 }
 type RefuseArchiveFilter struct {
 	TenantID, CorpID                             int

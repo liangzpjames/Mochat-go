@@ -777,7 +777,10 @@ func (h *WorkReadHandler) WorkEmployeeIndex(w http.ResponseWriter, r *http.Reque
 	if filter.ContactAuth == "" {
 		filter.ContactAuth = "all"
 	}
-	if access.DataPermission != DataPermissionAll {
+	if dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context()); hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant {
+		filter.RestrictEmployeeIDs = true
+		filter.EmployeeIDs = append([]int{}, dashboardAccess.AllowedEmployeeIDs...)
+	} else if access.DataPermission != DataPermissionAll {
 		filter.RestrictEmployeeIDs = true
 		filter.EmployeeIDs = append([]int{}, access.DeptEmployeeIDs...)
 	}
@@ -1192,6 +1195,19 @@ func (h *WorkReadHandler) WorkContactShow(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "员工id必传", nil)
 		return
 	}
+	if dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context()); hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant {
+		allowed := false
+		for _, id := range dashboardAccess.AllowedEmployeeIDs {
+			if id == employeeID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+			return
+		}
+	}
 
 	h.writeWorkContactShow(w, r, contactID, employeeID)
 }
@@ -1227,7 +1243,10 @@ func (h *WorkReadHandler) WorkContactIndex(w http.ResponseWriter, r *http.Reques
 		Page:              positiveQueryInt(r, "page", 1),
 		PerPage:           positiveQueryInt(r, "perPage", 20),
 	}
-	if access.DataPermission != DataPermissionAll {
+	if dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context()); hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant {
+		filter.RestrictEmployees = true
+		filter.EmployeeIDs = append([]int{}, dashboardAccess.AllowedEmployeeIDs...)
+	} else if access.DataPermission != DataPermissionAll {
 		filter.RestrictEmployees = true
 		filter.EmployeeIDs = append([]int{}, access.DeptEmployeeIDs...)
 	}
@@ -1540,7 +1559,14 @@ func (h *WorkReadHandler) WorkRoomIndex(w http.ResponseWriter, r *http.Request) 
 		Page:          positiveQueryInt(r, "page", 1),
 		PerPage:       positiveQueryInt(r, "perPage", 10),
 	}
-	if access.DataPermission != DataPermissionAll {
+	if dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context()); hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant {
+		filter.RestrictOwner = true
+		if len(filter.OwnerIDs) == 0 {
+			filter.OwnerIDs = append([]int{}, dashboardAccess.AllowedEmployeeIDs...)
+		} else {
+			filter.OwnerIDs = intersectInts(filter.OwnerIDs, dashboardAccess.AllowedEmployeeIDs)
+		}
+	} else if access.DataPermission != DataPermissionAll {
 		filter.RestrictOwner = true
 		if len(filter.OwnerIDs) == 0 {
 			filter.OwnerIDs = append([]int{}, access.DeptEmployeeIDs...)

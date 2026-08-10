@@ -150,6 +150,20 @@ func (s *MySQLStore) SilentRecordPage(ctx context.Context, f dashboard.SilentRec
 		w += " AND rule_id=?"
 		a = append(a, f.RuleID)
 	}
+	if f.RestrictEmployeeIDs {
+		if len(f.AllowedEmployeeIDs) == 0 {
+			w += " AND 1=0"
+		} else {
+			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(f.AllowedEmployeeIDs)), ",")
+			w += " AND (employee_id IN (" + placeholders + ") OR assigned_employee_id IN (" + placeholders + "))"
+			for _, id := range f.AllowedEmployeeIDs {
+				a = append(a, id)
+			}
+			for _, id := range f.AllowedEmployeeIDs {
+				a = append(a, id)
+			}
+		}
+	}
 	var total int
 	if e := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mochat_go_silent_customer_records"+w, a...).Scan(&total); e != nil {
 		return dashboard.SilentRecordPage{}, e

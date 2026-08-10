@@ -8,10 +8,12 @@ import (
 )
 
 type RoomMessageBatchSendFilter struct {
-	UserID     int
-	BatchTitle string
-	Page       int
-	PerPage    int
+	UserID              int
+	BatchTitle          string
+	Page                int
+	PerPage             int
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
 }
 
 type RoomMessageBatchSendPage struct {
@@ -199,11 +201,19 @@ func (h *RoomMessageBatchSendHandler) Index(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context())
 	page, err := h.store.RoomMessageBatchSendPage(r.Context(), RoomMessageBatchSendFilter{
 		UserID:     userID,
 		BatchTitle: strings.TrimSpace(r.URL.Query().Get("batchTitle")),
 		Page:       positiveQueryInt(r, "page", 1),
 		PerPage:    positiveQueryInt(r, "perPage", 10),
+		AllowedEmployeeIDs: func() []int {
+			if hasDashboardAccess {
+				return append([]int(nil), dashboardAccess.AllowedEmployeeIDs...)
+			}
+			return nil
+		}(),
+		RestrictEmployeeIDs: hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant,
 	})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -270,6 +280,10 @@ func (h *RoomMessageBatchSendHandler) Store(w http.ResponseWriter, r *http.Reque
 	}
 	write, ok := h.batchWriteFromParams(w, r.Context(), params, corpID, userID, user)
 	if !ok {
+		return
+	}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant && !employeeIDsWithinDashboardScope(write.EmployeeIDs, access.AllowedEmployeeIDs) {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
 		return
 	}
 	if !enforceSaaSQuota(r.Context(), w, h.store, user.TenantID, SaaSMetricRoomMessageBatches, 1) {

@@ -117,6 +117,29 @@ type SensitiveWordsMonitorMessage struct {
 	MsgContent any
 }
 
+func intersectPositiveIntIDs(requested, allowed []int) []int {
+	set := make(map[int]struct{}, len(allowed))
+	for _, id := range allowed {
+		if id > 0 {
+			set[id] = struct{}{}
+		}
+	}
+	if len(requested) == 0 {
+		result := make([]int, 0, len(set))
+		for id := range set {
+			result = append(result, id)
+		}
+		return result
+	}
+	result := make([]int, 0, len(requested))
+	for _, id := range requested {
+		if _, ok := set[id]; ok {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
 type SensitiveWordStore interface {
 	UserByID(ctx context.Context, userID int) (User, bool, error)
 	EmployeeIDByUserCorp(ctx context.Context, userID int, corpID int) (int, error)
@@ -340,7 +363,7 @@ func (h *SensitiveWordHandler) MonitorIndex(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/sensitiveWordsMonitor/index#get")
+	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/sensitiveWordsMonitor/index#get")
 	if !ok {
 		return
 	}
@@ -349,6 +372,12 @@ func (h *SensitiveWordHandler) MonitorIndex(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	employeeIDs := parseQueryIntList(r, "employeeId")
+	if access.DataPermission != DataPermissionAll {
+		employeeIDs = intersectPositiveIntIDs(employeeIDs, access.DeptEmployeeIDs)
+		if len(access.DeptEmployeeIDs) == 0 || len(employeeIDs) == 0 {
+			employeeIDs = []int{0}
+		}
+	}
 	page, err := h.store.SensitiveWordsMonitorPage(r.Context(), SensitiveWordsMonitorFilter{
 		CorpID:             corpID,
 		EmployeeIDs:        employeeIDs,

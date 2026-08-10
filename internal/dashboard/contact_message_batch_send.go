@@ -16,10 +16,12 @@ import (
 const contactMessageBatchSendTextLimit = 4000
 
 type ContactMessageBatchSendFilter struct {
-	UserID     int
-	BatchTitle string
-	Page       int
-	PerPage    int
+	UserID              int
+	BatchTitle          string
+	Page                int
+	PerPage             int
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
 }
 
 type ContactMessageBatchSendPage struct {
@@ -266,6 +268,7 @@ func (h *ContactMessageBatchSendHandler) Index(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
+	dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context())
 	page := positiveQueryInt(r, "page", 1)
 	perPage := positiveQueryInt(r, "perPage", 10)
 	result, err := h.store.ContactMessageBatchSendPage(r.Context(), ContactMessageBatchSendFilter{
@@ -273,6 +276,13 @@ func (h *ContactMessageBatchSendHandler) Index(w http.ResponseWriter, r *http.Re
 		BatchTitle: strings.TrimSpace(r.URL.Query().Get("batchTitle")),
 		Page:       page,
 		PerPage:    perPage,
+		AllowedEmployeeIDs: func() []int {
+			if hasDashboardAccess {
+				return append([]int(nil), dashboardAccess.AllowedEmployeeIDs...)
+			}
+			return nil
+		}(),
+		RestrictEmployeeIDs: hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant,
 	})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -357,6 +367,10 @@ func (h *ContactMessageBatchSendHandler) Store(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant && !employeeIDsWithinDashboardScope(write.EmployeeIDs, access.AllowedEmployeeIDs) {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	if !enforceSaaSQuota(r.Context(), w, h.store, user.TenantID, SaaSMetricContactMessageBatches, 1) {
 		return
 	}
@@ -375,6 +389,23 @@ func (h *ContactMessageBatchSendHandler) Store(w http.ResponseWriter, r *http.Re
 		}
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+}
+
+func employeeIDsWithinDashboardScope(ids, allowed []int) bool {
+	set := make(map[int]struct{}, len(allowed))
+	for _, id := range allowed {
+		if id > 0 {
+			set[id] = struct{}{}
+		}
+	}
+	for _, id := range ids {
+		if id > 0 {
+			if _, ok := set[id]; !ok {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (h *ContactMessageBatchSendHandler) EmployeeSendIndex(w http.ResponseWriter, r *http.Request) {
