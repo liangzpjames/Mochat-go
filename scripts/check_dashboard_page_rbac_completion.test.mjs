@@ -42,6 +42,10 @@ test('RED: scope mapping without handler/guard/consumer source fails', () => {
   assert.throws(() => validateCompletionFacts({ ...base, scopeMappings: 'GET /dashboard/reports/overview -> DashboardAccessContext' }), /scope mapping/);
 });
 
+test('RED: scopeRequired route cannot be mislabeled tenant-only', () => {
+  assert.throws(() => validateCompletionFacts({ ...base, scopeMappings: 'GET /dashboard/workEmployee/index -> handler GET /dashboard/workEmployee/index (server.go:1) -> guard internal/dashboard/dashboard_access_guard.go:1 -> tenant-only config' }), /scope mapping/);
+});
+
 test('RED: ordinary management and fallback allow fail independently', () => {
   assert.throws(() => validateCompletionFacts({ ...base, sourceCorpus: 'ordinary company-setting/staff fallback: allow' }), /ordinary management/);
 });

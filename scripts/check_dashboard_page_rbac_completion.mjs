@@ -14,7 +14,7 @@ export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource
   if (/DataPermission/.test(sourceCorpus)) throw new Error('scopeRequired path still reads legacy DataPermission');
   if (frontendSource && /dashboard\/access\/profile/.test(frontendSource) && !/dashboard\/access\/catalog/.test(frontendSource)) throw new Error('frontend API extraction missed catalog usage');
   if (backendEvidence && /GET \/dashboard\/access\/users/.test(backendEvidence) && !/source:/.test(backendEvidence)) throw new Error('backend handler evidence must include source file and line');
-  if (scopeMappings && !/handler .*\(.+:[0-9]+\) -> guard .*:[0-9]+ -> (consumer .+:[0-9]+|tenant-only config)/.test(scopeMappings)) throw new Error('scope mapping must include handler, guard, and consumer or tenant-only classification');
+  if (scopeMappings && !/handler .*\(.+:[0-9]+\) -> guard .*:[0-9]+ -> consumer .+:[0-9]+/.test(scopeMappings)) throw new Error('scope mapping must include handler, guard, and consumer source evidence');
   if (!e2eSource.includes('390') || !e2eSource.includes('53') || !e2eSource.includes('49') || !/for\s*\(const route of (routes|ordinaryRoutes)/.test(e2eSource)) {
     throw new Error('Playwright matrix must declare 53/49/4 and 390px coverage');
   }
@@ -114,9 +114,7 @@ export async function runCompletionGate(root = process.cwd()) {
     if (!route) throw new Error(`scopeRequired resource has no registered handler: ${resource.method} ${resource.pathPattern}`);
     const rule = consumerRules.find((candidate) => candidate.test.test(resource.pathPattern) || candidate.test.test(route.contract));
     const consumer = rule && consumerSources.find(({ file, body }) => rule.files.some((pattern) => pattern.test(file)) && rule.evidence.test(body));
-    if (!consumer) {
-      return `${resource.method} ${resource.pathPattern} -> handler ${route.contract} (${route.file}:${route.line}) -> guard internal/dashboard/dashboard_access_guard.go:${guardLine} -> tenant-only config (no employee owner query evidence)`;
-    }
+    if (!consumer) throw new Error(`scopeRequired consumer evidence missing for ${resource.method} ${resource.pathPattern}; handler=${route.file}:${route.line}`);
     const consumerLine = consumer.body.split('\n').findIndex((line) => rule.evidence.test(line)) + 1;
     return `${resource.method} ${resource.pathPattern} -> handler ${route.contract} (${route.file}:${route.line}) -> guard internal/dashboard/dashboard_access_guard.go:${guardLine} -> consumer ${consumer.file.replaceAll('\\', '/')}:${consumerLine}`;
   });
