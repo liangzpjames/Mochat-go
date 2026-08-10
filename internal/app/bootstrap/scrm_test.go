@@ -102,6 +102,27 @@ func TestSCRMPrincipalResolverIgnoresClaimedTenantHeader(t *testing.T) {
 	}
 }
 
+func TestSCRMPrincipalResolverCarriesDashboardScopeAndFailsClosedOnMismatch(t *testing.T) {
+	resolver, err := NewSCRMPrincipalResolver(
+		fixedUserIDResolver{userID: 7},
+		fixedSCRMUserStore{user: dashboard.User{ID: 7, TenantID: 42}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, transporthttp.LeadsPath, nil).WithContext(dashboard.WithDashboardAccessContext(context.Background(), dashboard.DashboardAccessContext{
+		UserID: 7, TenantID: 42, WorkEmployeeID: 81, Scope: dashboard.DataScopeSelf, ScopeRequired: true, AllowedEmployeeIDs: []int{81},
+	}))
+	principal, err := resolver.Resolve(request)
+	if err != nil || principal.WorkEmployeeID != 81 || !principal.EmployeeScopeRestricted || len(principal.AllowedEmployeeIDs) != 1 || principal.AllowedEmployeeIDs[0] != 81 {
+		t.Fatalf("principal scope = %+v, err=%v", principal, err)
+	}
+	mismatch := httptest.NewRequest(http.MethodGet, transporthttp.LeadsPath, nil).WithContext(dashboard.WithDashboardAccessContext(context.Background(), dashboard.DashboardAccessContext{UserID: 8, TenantID: 42}))
+	if _, err := resolver.Resolve(mismatch); !errors.Is(err, transporthttp.ErrPrincipalUnauthorized) {
+		t.Fatalf("mismatch error = %v", err)
+	}
+}
+
 func TestSCRMPrincipalResolverClassifiesCredentialFailuresAsUnauthorized(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

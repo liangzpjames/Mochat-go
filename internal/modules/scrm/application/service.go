@@ -113,16 +113,18 @@ func newCommandLead(id string, command CreateLeadCommand, now time.Time) (domain
 }
 
 type ListLeadsQuery struct {
-	TenantID    int64
-	CorpID      int64
-	Keyword     string
-	Statuses    []domain.LeadStatus
-	Sources     []domain.LeadSource
-	OwnerIDs    []int64
-	CreatedFrom time.Time
-	CreatedTo   time.Time
-	Cursor      string
-	PageSize    int
+	TenantID                int64
+	CorpID                  int64
+	Keyword                 string
+	Statuses                []domain.LeadStatus
+	Sources                 []domain.LeadSource
+	OwnerIDs                []int64
+	CreatedFrom             time.Time
+	CreatedTo               time.Time
+	Cursor                  string
+	PageSize                int
+	AllowedEmployeeIDs      []int64
+	EmployeeScopeRestricted bool
 }
 
 type LeadPage = ports.LeadPage
@@ -155,7 +157,7 @@ func (s Service) ListLeads(ctx context.Context, query ListLeadsQuery) (LeadPage,
 		Keyword:     strings.TrimSpace(query.Keyword),
 		Statuses:    append([]domain.LeadStatus(nil), query.Statuses...),
 		Sources:     append([]domain.LeadSource(nil), query.Sources...),
-		OwnerIDs:    append([]int64(nil), query.OwnerIDs...),
+		OwnerIDs:    restrictOwnerIDs(query.OwnerIDs, query.AllowedEmployeeIDs, query.EmployeeScopeRestricted),
 		CreatedFrom: query.CreatedFrom.UTC(), CreatedTo: query.CreatedTo.UTC(),
 		Cursor: query.Cursor,
 		Limit:  limit,

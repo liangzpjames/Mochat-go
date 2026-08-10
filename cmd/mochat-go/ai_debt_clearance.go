@@ -112,7 +112,7 @@ type aiInsightAuthorizer struct {
 }
 
 func (a aiInsightAuthorizer) Authorize(ctx context.Context, principal aiinsighthttp.Principal, corpID int64, permission string) error {
-	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID}, corpID, permission)
+	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
 }
 
 type aiSettingsPrincipalResolver struct {
@@ -136,5 +136,15 @@ func (r aiInsightPrincipalResolver) Resolve(request *http.Request) (aiinsighthtt
 	if err != nil {
 		return aiinsighthttp.Principal{}, err
 	}
-	return aiinsighthttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID}, nil
+	access, ok := dashboard.DashboardAccessFromContext(request.Context())
+	if !ok || access.UserID != int(principal.UserID) || access.TenantID != int(principal.TenantID) {
+		return aiinsighthttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
+	allowed := make([]int64, 0, len(access.AllowedEmployeeIDs))
+	for _, id := range access.AllowedEmployeeIDs {
+		if id > 0 {
+			allowed = append(allowed, int64(id))
+		}
+	}
+	return aiinsighthttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: access.ScopeRequired && access.Scope != dashboard.DataScopeTenant}, nil
 }

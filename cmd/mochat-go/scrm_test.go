@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,49 @@ import (
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/store"
 
+	reportinghttp "jiyi/mochat-go/internal/modules/reporting/transport/http"
 	transporthttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
 )
+
+func TestReportingPrincipalResolverCarriesDashboardEmployeeScope(t *testing.T) {
+	resolver := reportingPrincipalResolver{delegate: fixedMainPrincipalResolver{principal: transporthttp.Principal{UserID: 7, TenantID: 9}}}
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/reports/customer", nil)
+	request = request.WithContext(dashboard.WithDashboardAccessContext(context.Background(), dashboard.DashboardAccessContext{
+		UserID: 7, TenantID: 9, Scope: dashboard.DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{81, 82},
+	}))
+	principal, err := resolver.Resolve(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !principal.EmployeeScopeRestricted || len(principal.AllowedEmployeeIDs) != 2 || principal.AllowedEmployeeIDs[1] != 82 {
+		t.Fatalf("scope not carried: %+v", principal)
+	}
+}
+
+func TestReportingPrincipalResolverTenantScopeIsUnrestricted(t *testing.T) {
+	resolver := reportingPrincipalResolver{delegate: fixedMainPrincipalResolver{principal: transporthttp.Principal{UserID: 7, TenantID: 9}}}
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/reports/customer", nil).WithContext(dashboard.WithDashboardAccessContext(context.Background(), dashboard.DashboardAccessContext{UserID: 7, TenantID: 9, Scope: dashboard.DataScopeTenant, ScopeRequired: true}))
+	principal, err := resolver.Resolve(request)
+	if err != nil || principal.EmployeeScopeRestricted {
+		t.Fatalf("tenant scope should be unrestricted: %+v, %v", principal, err)
+	}
+}
+
+func TestReportingPrincipalResolverRejectsContextIdentityMismatch(t *testing.T) {
+	resolver := reportingPrincipalResolver{delegate: fixedMainPrincipalResolver{principal: transporthttp.Principal{UserID: 7, TenantID: 9}}}
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/reports/customer", nil).WithContext(dashboard.WithDashboardAccessContext(context.Background(), dashboard.DashboardAccessContext{UserID: 8, TenantID: 9}))
+	if _, err := resolver.Resolve(request); err == nil {
+		t.Fatal("identity mismatch must fail closed")
+	}
+}
+
+type fixedMainPrincipalResolver struct{ principal transporthttp.Principal }
+
+func (r fixedMainPrincipalResolver) Resolve(*http.Request) (transporthttp.Principal, error) {
+	return r.principal, nil
+}
+
+var _ reportinghttp.PrincipalResolver = reportingPrincipalResolver{}
 
 func TestNewSCRMModuleRouterDisabledDoesNotResolveDependencies(t *testing.T) {
 	router, err := newSCRMModuleRouter(config.Config{}, nil, nil)

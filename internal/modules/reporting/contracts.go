@@ -24,17 +24,18 @@ func ParseKind(value string) (ReportKind, bool) {
 }
 
 type ReportQuery struct {
-	TenantID           int64
-	CorpID             int64
-	Timezone           string
-	StartAt            time.Time
-	EndAt              time.Time
-	DepartmentIDs      []int64
-	EmployeeIDs        []int64
-	AllowedEmployeeIDs []int64
-	Stage              string
-	Page               int
-	PageSize           int
+	TenantID                int64
+	CorpID                  int64
+	Timezone                string
+	StartAt                 time.Time
+	EndAt                   time.Time
+	DepartmentIDs           []int64
+	EmployeeIDs             []int64
+	AllowedEmployeeIDs      []int64
+	EmployeeScopeRestricted bool
+	Stage                   string
+	Page                    int
+	PageSize                int
 }
 
 type SeriesPoint struct {

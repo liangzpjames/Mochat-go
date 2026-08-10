@@ -109,6 +109,10 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 			nethttp.Error(w, "principal unauthorized", 401)
 			return
 		}
+		if p.EmployeeScopeRestricted {
+			nethttp.Error(w, "order owner scope cannot be resolved", nethttp.StatusForbidden)
+			return
+		}
 	}
 	corpID := int64(0)
 	if v := r.URL.Query().Get("corpId"); v != "" {

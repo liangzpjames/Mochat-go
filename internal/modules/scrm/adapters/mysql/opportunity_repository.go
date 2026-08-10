@@ -34,6 +34,17 @@ func (r *OpportunityRepository) ListOpportunities(ctx context.Context, filter po
 		query += " AND owner_id=?"
 		args = append(args, *filter.OwnerID)
 	}
+	if filter.EmployeeScopeRestricted {
+		if len(filter.AllowedEmployeeIDs) == 0 {
+			query += " AND owner_id=0"
+		} else if filter.OwnerID == nil {
+			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(filter.AllowedEmployeeIDs)), ",")
+			query += " AND owner_id IN (" + placeholders + ")"
+			for _, id := range filter.AllowedEmployeeIDs {
+				args = append(args, id)
+			}
+		}
+	}
 	if filter.Status != "" {
 		query += " AND status=?"
 		args = append(args, filter.Status)

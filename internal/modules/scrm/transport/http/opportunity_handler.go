@@ -119,7 +119,8 @@ func (h *OpportunityHandler) List(w http.ResponseWriter, r *http.Request) {
 	if value := queryInt(r, "ownerId"); value > 0 {
 		ownerID = &value
 	}
-	page, err := h.service.ListOpportunities(r.Context(), ports.OpportunityFilter{TenantID: p.TenantID, CorpID: corpID, Stage: strings.TrimSpace(r.URL.Query().Get("stage")), Status: strings.TrimSpace(r.URL.Query().Get("status")), OwnerID: ownerID, Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")), PageSize: int(queryInt(r, "pageSize"))})
+	ownerID = application.RestrictOwnerIDForHTTP(ownerID, p.AllowedEmployeeIDs, p.EmployeeScopeRestricted)
+	page, err := h.service.ListOpportunities(r.Context(), ports.OpportunityFilter{TenantID: p.TenantID, CorpID: corpID, Stage: strings.TrimSpace(r.URL.Query().Get("stage")), Status: strings.TrimSpace(r.URL.Query().Get("status")), OwnerID: ownerID, AllowedEmployeeIDs: p.AllowedEmployeeIDs, EmployeeScopeRestricted: p.EmployeeScopeRestricted, Cursor: strings.TrimSpace(r.URL.Query().Get("cursor")), PageSize: int(queryInt(r, "pageSize"))})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -145,6 +146,10 @@ func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !h.authorize(w, r, p, q.CorpID, opportunityPermissionEdit) {
 		return
 	}
+	if q.OwnerID > 0 && !p.AllowsEmployee(q.OwnerID) {
+		writeError(w, http.StatusForbidden, "employee is outside dashboard scope")
+		return
+	}
 	item, err := h.service.CreateOpportunity(r.Context(), q)
 	if err != nil {
 		writeSCRMError(w, err)
@@ -156,6 +161,10 @@ func (h *OpportunityHandler) Stage(w http.ResponseWriter, r *http.Request) {
 	p, err := h.principal.Resolve(r)
 	if err != nil {
 		writeError(w, 401, "authentication required")
+		return
+	}
+	if p.EmployeeScopeRestricted {
+		writeError(w, http.StatusForbidden, "opportunity owner scope cannot be resolved")
 		return
 	}
 	var q changeOpportunityStageRequest

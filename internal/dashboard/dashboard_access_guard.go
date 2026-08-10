@@ -128,6 +128,14 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 		guard.attachIdentityContext(request, identity)
 		return true
 	}
+	if isDashboardAccessManagementRoute(contract) {
+		if !identity.IsSuperAdmin {
+			writeDashboardPermissionDenied(w)
+			return false
+		}
+		guard.attachIdentityContext(request, identity)
+		return true
+	}
 
 	resources, err := guard.store.DashboardPermissionResources(request.Context(), method)
 	if err != nil {
@@ -165,6 +173,14 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 	}
 	*request = *request.WithContext(WithDashboardAccessContext(request.Context(), access))
 	return true
+}
+
+func isDashboardAccessManagementRoute(contract string) bool {
+	method, path, ok := strings.Cut(contract, " ")
+	if !ok || !strings.HasPrefix(path, "/dashboard/access/") || path == "/dashboard/access/profile" {
+		return false
+	}
+	return method == http.MethodGet || method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete
 }
 
 func (guard *DashboardAccessGuard) validatedCorpID(request *http.Request, identity DashboardAccessIdentity) (int, error) {

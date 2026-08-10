@@ -100,7 +100,7 @@ func (h *CustomerLifecycleHandler) ListContacts(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, "invalid ownerId")
 		return
 	}
-	query := application.ListContactsQuery{TenantID: principal.TenantID, CorpID: corpID, Keyword: values.Get("keyword"), OwnerIDs: ownerIDs, TagIDs: values["tagId"], Statuses: values["status"], Cursor: values.Get("cursor"), PageSize: pageSize}
+	query := application.ListContactsQuery{TenantID: principal.TenantID, CorpID: corpID, Keyword: values.Get("keyword"), OwnerIDs: ownerIDs, TagIDs: values["tagId"], Statuses: values["status"], Cursor: values.Get("cursor"), PageSize: pageSize, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}
 	page, err := h.service.ListContacts(r.Context(), query)
 	if err != nil {
 		writeCustomerLifecycleError(w, err)
@@ -116,6 +116,10 @@ func (h *CustomerLifecycleHandler) ListContacts(w http.ResponseWriter, r *http.R
 func (h *CustomerLifecycleHandler) GetContact(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.resolvePrincipal(w, r)
 	if !ok {
+		return
+	}
+	if principal.EmployeeScopeRestricted {
+		writeError(w, http.StatusForbidden, "contact owner scope cannot be resolved")
 		return
 	}
 	corpID, err := parsePositiveInt64(r.URL.Query().Get("corpId"))
@@ -165,7 +169,7 @@ func (h *CustomerLifecycleHandler) ListPublicPool(w http.ResponseWriter, r *http
 	page, err := h.service.ListPublicPool(r.Context(), application.ListPublicPoolQuery{
 		TenantID: principal.TenantID, CorpID: corpID, Keyword: values.Get("keyword"), Sources: values["source"],
 		BusinessTypes: values["businessType"], TagIDs: values["tagId"], Regions: values["region"],
-		Reasons: values["reason"], PreviousOwnerIDs: previousOwnerIDs, Cursor: values.Get("cursor"), PageSize: pageSize,
+		Reasons: values["reason"], PreviousOwnerIDs: previousOwnerIDs, Cursor: values.Get("cursor"), PageSize: pageSize, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted,
 	})
 	if err != nil {
 		writeCustomerLifecycleError(w, err)
@@ -183,6 +187,10 @@ func (h *CustomerLifecycleHandler) UpdateAssignment(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
+	if principal.EmployeeScopeRestricted {
+		writeError(w, http.StatusForbidden, "contact owner scope cannot be resolved")
+		return
+	}
 	var req struct {
 		CorpID          int64   `json:"corpId"`
 		ContactID       string  `json:"contactId"`
@@ -197,6 +205,16 @@ func (h *CustomerLifecycleHandler) UpdateAssignment(w http.ResponseWriter, r *ht
 	if !h.authorize(w, r, principal, req.CorpID, contactPermissionEdit) {
 		return
 	}
+	if req.OwnerID != nil && !principal.AllowsEmployee(*req.OwnerID) {
+		writeError(w, http.StatusForbidden, "employee is outside dashboard scope")
+		return
+	}
+	for _, collaboratorID := range req.CollaboratorIDs {
+		if !principal.AllowsEmployee(collaboratorID) {
+			writeError(w, http.StatusForbidden, "employee is outside dashboard scope")
+			return
+		}
+	}
 	item, err := h.service.UpdateAssignment(r.Context(), ports.UpdateAssignmentCommand{TenantID: principal.TenantID, CorpID: req.CorpID, ContactID: req.ContactID, OwnerID: req.OwnerID, CollaboratorIDs: req.CollaboratorIDs, Version: req.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeCustomerLifecycleError(w, err)
@@ -208,6 +226,10 @@ func (h *CustomerLifecycleHandler) UpdateAssignment(w http.ResponseWriter, r *ht
 func (h *CustomerLifecycleHandler) ReleaseToPublicPool(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.resolvePrincipal(w, r)
 	if !ok {
+		return
+	}
+	if principal.EmployeeScopeRestricted {
+		writeError(w, http.StatusForbidden, "contact owner scope cannot be resolved")
 		return
 	}
 	var req struct {

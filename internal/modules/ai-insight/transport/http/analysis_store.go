@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -62,7 +63,7 @@ func (s *SQLAnalysisStore) Save(ctx context.Context, corpID int64, page string, 
 	return nil
 }
 
-func FetchArchiveTexts(ctx context.Context, db *sql.DB, corpID int64, limit int) ([]string, error) {
+func FetchArchiveTexts(ctx context.Context, db *sql.DB, corpID int64, limit int, allowedEmployeeIDs []int64, restricted bool) ([]string, error) {
 	if db == nil {
 		return nil, nil
 	}
@@ -71,12 +72,26 @@ func FetchArchiveTexts(ctx context.Context, db *sql.DB, corpID int64, limit int)
 	}
 	texts := make([]string, 0, limit)
 	for table := 1; table <= 10 && len(texts) < limit; table++ {
-		rows, err := db.QueryContext(ctx, fmt.Sprintf(`
+		query := fmt.Sprintf(`
 			SELECT content_text
 			FROM mc_work_message_%d
-			WHERE corp_id = ? AND content_text IS NOT NULL AND deleted_at IS NULL
+			WHERE corp_id = ? AND content_text IS NOT NULL AND deleted_at IS NULL`, table)
+		args := []any{corpID}
+		if restricted {
+			if len(allowedEmployeeIDs) == 0 {
+				query += " AND 1=0"
+			} else {
+				query += " AND work_employee_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(allowedEmployeeIDs)), ",") + ")"
+				for _, id := range allowedEmployeeIDs {
+					args = append(args, id)
+				}
+			}
+		}
+		query += `
 			ORDER BY msg_data_time DESC
-			LIMIT ?`, table), corpID, limit-len(texts))
+			LIMIT ?`
+		args = append(args, limit-len(texts))
+		rows, err := db.QueryContext(ctx, query, args...)
 		if err != nil {
 			// The shard may not exist in fresh deployments; skip it.
 			continue

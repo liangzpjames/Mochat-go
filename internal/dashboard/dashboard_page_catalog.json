@@ -182,17 +182,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/chat/media",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/chat/media",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/chat/media/{id}",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -262,27 +262,27 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/risk/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/risk/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/risk/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/risk/rules/status",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/risk/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
@@ -302,42 +302,42 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/sensitiveWord/index",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/sensitiveWordGroup/select",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/sensitiveWord/store",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/sensitiveWord/statusUpdate",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/sensitiveWord/move",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/sensitiveWord/destroy",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/sensitiveWordGroup/store",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/sensitiveWordGroup/update",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
@@ -367,17 +367,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/timeout-warning/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/timeout-warning/settings",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/timeout-warning/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
@@ -387,12 +387,12 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/timeout-warning/rules/status",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/timeout-warning/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
@@ -407,7 +407,7 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/timeout-warning/settings",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -442,27 +442,27 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/message-intercept/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/message-intercept/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/message-intercept/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/message-intercept/rules/status",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/message-intercept/rules",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
@@ -472,7 +472,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/keyword-library/libraries",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -487,12 +487,12 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/keyword-library/libraries",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/keyword-library/libraries",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
@@ -502,42 +502,42 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/keyword-library/libraries/status",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/keyword-library/libraries/publish",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/keyword-library/libraries",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/keyword-library/entries",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/keyword-library/entries",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/keyword-library/entries",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/keyword-library/entries/status",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/keyword-library/entries",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1012,7 +1012,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/scrm/tags",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
@@ -1162,7 +1162,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/scrm/tags",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
@@ -1172,7 +1172,7 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/scrm/tags/{id}",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
@@ -1262,7 +1262,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/scrm/settings",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
@@ -1407,22 +1407,22 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/ai-settings/knowledge-bases",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/ai-settings/knowledge-bases",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/ai-settings/knowledge-bases/{id}",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/ai-settings/knowledge-bases/{id}",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -1437,22 +1437,22 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/ai-settings/agents",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/ai-settings/agents",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "PUT",
           "pathPattern": "/dashboard/ai-settings/agents/{id}",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/ai-settings/agents/{id}",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },

@@ -142,6 +142,29 @@ func TestListLeadsAlwaysScopesRepositoryByTenant(t *testing.T) {
 	}
 }
 
+func TestListLeadsUsesDashboardScopeInsteadOfLegacyDataPermission(t *testing.T) {
+	repository := &fakeLeadRepository{}
+	service, err := NewService(repository, fixedClock{}, fixedIDGenerator{id: "generated-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ListLeads(context.Background(), ListLeadsQuery{TenantID: 42, AllowedEmployeeIDs: []int64{81, 82}, EmployeeScopeRestricted: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.listFilter.OwnerIDs) != 2 || repository.listFilter.OwnerIDs[0] != 81 || repository.listFilter.OwnerIDs[1] != 82 {
+		t.Fatalf("dashboard scope was not applied: %+v", repository.listFilter.OwnerIDs)
+	}
+	repository.listFilter = ports.ListLeadsFilter{}
+	_, err = service.ListLeads(context.Background(), ListLeadsQuery{TenantID: 42, EmployeeScopeRestricted: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.listFilter.OwnerIDs) != 1 || repository.listFilter.OwnerIDs[0] != 0 {
+		t.Fatalf("empty restricted scope must be zero-result owner filter: %+v", repository.listFilter.OwnerIDs)
+	}
+}
+
 func TestListLeadsAppliesDefaultAndMaximumPageSize(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

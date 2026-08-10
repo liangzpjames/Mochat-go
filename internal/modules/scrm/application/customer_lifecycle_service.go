@@ -22,28 +22,32 @@ func NewCustomerLifecycleService(assignments ports.AssignmentRepository) (Custom
 }
 
 type ListPublicPoolQuery struct {
-	TenantID         int64
-	CorpID           int64
-	Keyword          string
-	Sources          []string
-	BusinessTypes    []string
-	TagIDs           []string
-	Regions          []string
-	Reasons          []string
-	PreviousOwnerIDs []int64
-	Cursor           string
-	PageSize         int
+	TenantID                int64
+	CorpID                  int64
+	Keyword                 string
+	Sources                 []string
+	BusinessTypes           []string
+	TagIDs                  []string
+	Regions                 []string
+	Reasons                 []string
+	PreviousOwnerIDs        []int64
+	Cursor                  string
+	PageSize                int
+	AllowedEmployeeIDs      []int64
+	EmployeeScopeRestricted bool
 }
 
 type ListContactsQuery struct {
-	TenantID int64
-	CorpID   int64
-	Keyword  string
-	OwnerIDs []int64
-	TagIDs   []string
-	Statuses []string
-	Cursor   string
-	PageSize int
+	TenantID                int64
+	CorpID                  int64
+	Keyword                 string
+	OwnerIDs                []int64
+	TagIDs                  []string
+	Statuses                []string
+	Cursor                  string
+	PageSize                int
+	AllowedEmployeeIDs      []int64
+	EmployeeScopeRestricted bool
 }
 
 func (s CustomerLifecycleService) ListContacts(ctx context.Context, query ListContactsQuery) (ports.ContactPage, error) {
@@ -67,7 +71,7 @@ func (s CustomerLifecycleService) ListContacts(ctx context.Context, query ListCo
 	if limit > maximumPageSize {
 		limit = maximumPageSize
 	}
-	page, err := s.assignments.ListContacts(ctx, ports.ListContactsFilter{TenantID: query.TenantID, CorpID: query.CorpID, Keyword: strings.TrimSpace(query.Keyword), OwnerIDs: query.OwnerIDs, TagIDs: query.TagIDs, Statuses: query.Statuses, Cursor: query.Cursor, Limit: limit})
+	page, err := s.assignments.ListContacts(ctx, ports.ListContactsFilter{TenantID: query.TenantID, CorpID: query.CorpID, Keyword: strings.TrimSpace(query.Keyword), OwnerIDs: restrictOwnerIDs(query.OwnerIDs, query.AllowedEmployeeIDs, query.EmployeeScopeRestricted), TagIDs: query.TagIDs, Statuses: query.Statuses, Cursor: query.Cursor, Limit: limit})
 	if err != nil {
 		return ports.ContactPage{}, mapContactError(err)
 	}
@@ -133,7 +137,7 @@ func (s CustomerLifecycleService) ListPublicPool(ctx context.Context, query List
 		TenantID: query.TenantID, CorpID: query.CorpID, Keyword: strings.TrimSpace(query.Keyword),
 		Sources: trimPublicPoolFilters(query.Sources), BusinessTypes: trimPublicPoolFilters(query.BusinessTypes),
 		TagIDs: trimPublicPoolFilters(query.TagIDs), Regions: trimPublicPoolFilters(query.Regions),
-		Reasons: trimPublicPoolFilters(query.Reasons), PreviousOwnerIDs: append([]int64(nil), query.PreviousOwnerIDs...),
+		Reasons: trimPublicPoolFilters(query.Reasons), PreviousOwnerIDs: restrictOwnerIDs(query.PreviousOwnerIDs, query.AllowedEmployeeIDs, query.EmployeeScopeRestricted),
 		Cursor: query.Cursor, Limit: limit,
 	})
 	if err != nil {

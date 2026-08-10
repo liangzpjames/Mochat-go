@@ -96,12 +96,29 @@ func newSCRMModuleRouter(
 type reportingPrincipalResolver struct{ delegate scrmhttp.PrincipalResolver }
 
 func (r reportingPrincipalResolver) Resolve(request *http.Request) (reportinghttp.Principal, error) {
+	if request == nil {
+		return reportinghttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
 	principal, err := r.delegate.Resolve(request)
-	return reportinghttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID}, err
+	if err != nil {
+		return reportinghttp.Principal{}, err
+	}
+	access, ok := dashboard.DashboardAccessFromContext(request.Context())
+	if !ok || access.UserID != int(principal.UserID) || access.TenantID != int(principal.TenantID) {
+		return reportinghttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
+	allowed := make([]int64, 0, len(access.AllowedEmployeeIDs))
+	for _, id := range access.AllowedEmployeeIDs {
+		if id > 0 {
+			allowed = append(allowed, int64(id))
+		}
+	}
+	restricted := access.ScopeRequired && access.Scope != dashboard.DataScopeTenant
+	return reportinghttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: restricted}, nil
 }
 
 type reportingAuthorizer struct{ delegate scrmhttp.LeadAuthorizer }
 
 func (a reportingAuthorizer) Authorize(ctx context.Context, principal reportinghttp.Principal, corpID int64, permission string) error {
-	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID}, corpID, permission)
+	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
 }

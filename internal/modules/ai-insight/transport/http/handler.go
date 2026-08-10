@@ -19,8 +19,10 @@ var (
 )
 
 type Principal struct {
-	UserID   int64
-	TenantID int64
+	UserID                  int64
+	TenantID                int64
+	AllowedEmployeeIDs      []int64
+	EmployeeScopeRestricted bool
 }
 
 type PrincipalResolver interface {
@@ -129,15 +131,15 @@ func (h *InsightHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	config = h.resolvePage(r, config, corp)
+	config = h.resolvePage(r, config, corp, p)
 	writeEnvelope(w, http.StatusOK, "success", config)
 }
 
-func (h *InsightHandler) resolvePage(r *http.Request, config InsightPage, corp int64) InsightPage {
+func (h *InsightHandler) resolvePage(r *http.Request, config InsightPage, corp int64, principal Principal) InsightPage {
 	if h.db == nil || h.ai == nil || h.ai.Status().State != providers.StateReady {
 		return config
 	}
-	texts, err := FetchArchiveTexts(r.Context(), h.db, corp, 20)
+	texts, err := FetchArchiveTexts(r.Context(), h.db, corp, 20, principal.AllowedEmployeeIDs, principal.EmployeeScopeRestricted)
 	if err != nil {
 		config.Capability = "limited"
 		config.Limitations = []string{"读取归档会话数据失败：" + err.Error()}
@@ -149,7 +151,7 @@ func (h *InsightHandler) resolvePage(r *http.Request, config InsightPage, corp i
 		return config
 	}
 	refresh := r.URL.Query().Get("refresh") == "1"
-	if !refresh && h.analysis != nil {
+	if !principal.EmployeeScopeRestricted && !refresh && h.analysis != nil {
 		if row, err := h.analysis.Latest(r.Context(), corp, config.Page); err == nil && row != nil && time.Since(row.CreatedAt) < 5*time.Minute {
 			return readyPageFromPayload(config, row.Payload, row.CreatedAt)
 		}
@@ -162,7 +164,7 @@ func (h *InsightHandler) resolvePage(r *http.Request, config InsightPage, corp i
 	}
 	now := time.Now()
 	payload := map[string]any{"summary": result, "keywords": []any{}, "generatedAt": now.Format(time.RFC3339)}
-	if h.analysis != nil {
+	if h.analysis != nil && !principal.EmployeeScopeRestricted {
 		if err := h.analysis.Save(r.Context(), corp, config.Page, "succeeded", payload, ""); err != nil {
 			config.Capability = "limited"
 			config.Limitations = []string{"分析结果落库失败：" + err.Error()}

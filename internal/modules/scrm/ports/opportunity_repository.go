@@ -22,11 +22,13 @@ type Opportunity struct {
 }
 
 type OpportunityFilter struct {
-	TenantID, CorpID int64
-	Stage, Status    string
-	OwnerID          *int64
-	Cursor           string
-	PageSize         int
+	TenantID, CorpID        int64
+	Stage, Status           string
+	OwnerID                 *int64
+	Cursor                  string
+	PageSize                int
+	AllowedEmployeeIDs      []int64
+	EmployeeScopeRestricted bool
 }
 
 type OpportunityPage struct {

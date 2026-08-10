@@ -125,7 +125,20 @@ func (r scrmPrincipalResolver) Resolve(request *http.Request) (transporthttp.Pri
 	if !found || user.TenantID <= 0 {
 		return transporthttp.Principal{}, transporthttp.ErrPrincipalUnauthorized
 	}
-	return transporthttp.Principal{UserID: int64(userID), TenantID: int64(user.TenantID)}, nil
+	principal := transporthttp.Principal{UserID: int64(userID), TenantID: int64(user.TenantID)}
+	if access, ok := dashboard.DashboardAccessFromContext(request.Context()); ok {
+		if access.UserID != userID || access.TenantID != user.TenantID {
+			return transporthttp.Principal{}, transporthttp.ErrPrincipalUnauthorized
+		}
+		principal.WorkEmployeeID = int64(access.WorkEmployeeID)
+		principal.EmployeeScopeRestricted = access.ScopeRequired && access.Scope != dashboard.DataScopeTenant
+		for _, employeeID := range access.AllowedEmployeeIDs {
+			if employeeID > 0 {
+				principal.AllowedEmployeeIDs = append(principal.AllowedEmployeeIDs, int64(employeeID))
+			}
+		}
+	}
+	return principal, nil
 }
 
 func isSCRMCredentialError(err error) bool {

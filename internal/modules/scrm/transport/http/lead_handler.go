@@ -57,6 +57,10 @@ func (h *LeadHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if !ok {
 		return
 	}
+	if principal.EmployeeScopeRestricted {
+		writeError(w, nethttp.StatusForbidden, "lead owner scope cannot be resolved")
+		return
+	}
 	var request struct {
 		CorpID      int64             `json:"corpId"`
 		BusinessKey string            `json:"businessKey"`
@@ -106,6 +110,8 @@ func (h *LeadHandler) List(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if !h.authorize(w, r, principal, query.CorpID, leadPermissionView) {
 		return
 	}
+	query.AllowedEmployeeIDs = append([]int64(nil), principal.AllowedEmployeeIDs...)
+	query.EmployeeScopeRestricted = principal.EmployeeScopeRestricted
 	page, err := h.service.ListLeads(r.Context(), query)
 	if err != nil {
 		writeApplicationError(w, err, nethttp.StatusBadRequest)
@@ -123,6 +129,10 @@ func (h *LeadHandler) Assign(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if !ok {
 		return
 	}
+	if principal.EmployeeScopeRestricted {
+		writeError(w, nethttp.StatusForbidden, "lead owner scope cannot be resolved")
+		return
+	}
 	var request struct {
 		CorpID  int64                            `json:"corpId"`
 		OwnerID int64                            `json:"ownerId"`
@@ -133,6 +143,10 @@ func (h *LeadHandler) Assign(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	if !h.authorize(w, r, principal, request.CorpID, leadPermissionAssign) {
+		return
+	}
+	if !principal.AllowsEmployee(request.OwnerID) {
+		writeError(w, nethttp.StatusForbidden, "employee is outside dashboard scope")
 		return
 	}
 	results, err := h.service.AssignLeads(r.Context(), application.AssignLeadsCommand{TenantID: principal.TenantID, CorpID: request.CorpID, OwnerID: request.OwnerID, Targets: request.Targets})
@@ -146,6 +160,10 @@ func (h *LeadHandler) Assign(w nethttp.ResponseWriter, r *nethttp.Request) {
 func (h *LeadHandler) Transition(w nethttp.ResponseWriter, r *nethttp.Request) {
 	principal, ok := h.resolvePrincipal(w, r)
 	if !ok {
+		return
+	}
+	if principal.EmployeeScopeRestricted {
+		writeError(w, nethttp.StatusForbidden, "lead owner scope cannot be resolved")
 		return
 	}
 	var request struct {
@@ -173,6 +191,10 @@ func (h *LeadHandler) Transition(w nethttp.ResponseWriter, r *nethttp.Request) {
 func (h *LeadHandler) Duplicates(w nethttp.ResponseWriter, r *nethttp.Request) {
 	principal, ok := h.resolvePrincipal(w, r)
 	if !ok {
+		return
+	}
+	if principal.EmployeeScopeRestricted {
+		writeError(w, nethttp.StatusForbidden, "lead owner scope cannot be resolved")
 		return
 	}
 	corpID, err := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)

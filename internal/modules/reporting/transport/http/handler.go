@@ -15,9 +15,10 @@ import (
 const ReportsPath = "/dashboard/reports/{kind}"
 
 type Principal struct {
-	UserID             int64
-	TenantID           int64
-	AllowedEmployeeIDs []int64
+	UserID                  int64
+	TenantID                int64
+	AllowedEmployeeIDs      []int64
+	EmployeeScopeRestricted bool
 }
 
 type PrincipalResolver interface {
@@ -111,7 +112,7 @@ func parseQuery(r *http.Request, principal Principal) (reporting.ReportQuery, er
 	if len(departmentIDs) == 0 && values.Get("departmentId") != "" {
 		departmentIDs = parseIDs([]string{values.Get("departmentId")})
 	}
-	return reporting.ReportQuery{TenantID: principal.TenantID, CorpID: corpID, Timezone: values.Get("timezone"), StartAt: startAt, EndAt: endAt, DepartmentIDs: departmentIDs, EmployeeIDs: employeeIDs, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, Stage: values.Get("stage"), Page: page, PageSize: pageSize}, nil
+	return reporting.ReportQuery{TenantID: principal.TenantID, CorpID: corpID, Timezone: values.Get("timezone"), StartAt: startAt, EndAt: endAt, DepartmentIDs: departmentIDs, EmployeeIDs: employeeIDs, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted, Stage: values.Get("stage"), Page: page, PageSize: pageSize}, nil
 }
 
 func parsePositive(value string, fallback int) int {

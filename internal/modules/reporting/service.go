@@ -55,12 +55,15 @@ func (s *Service) Query(ctx context.Context, kind ReportKind, query ReportQuery)
 	if !ok || source == nil {
 		return ReportResult{}, fmt.Errorf("%w: unsupported report kind", ErrInvalidQuery)
 	}
-	query.EmployeeIDs = intersectIDs(query.EmployeeIDs, query.AllowedEmployeeIDs)
+	query.EmployeeIDs = intersectIDs(query.EmployeeIDs, query.AllowedEmployeeIDs, query.EmployeeScopeRestricted)
 	return source.Query(ctx, query)
 }
 
-func intersectIDs(requested, allowed []int64) []int64 {
+func intersectIDs(requested, allowed []int64, restricted bool) []int64 {
 	if len(allowed) == 0 {
+		if restricted {
+			return []int64{0}
+		}
 		return requested
 	}
 	set := make(map[int64]struct{}, len(allowed))
