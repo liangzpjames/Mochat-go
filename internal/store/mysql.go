@@ -27,6 +27,8 @@ type MySQLStore struct {
 	db                            *sql.DB
 	corpDataExecutor              corpDataQueryExecutor
 	dashboardTenantAccessQueryRow dashboardTenantAccessQueryRowFunc
+	dashboardAccessQueryRow       dashboardAccessQueryRowFunc
+	dashboardAccessQuery          dashboardAccessQueryFunc
 	saasAlertCredentialCipher     *saasalertcredentials.Manager
 	weComCredentialCipher         *wecomcredentials.Manager
 	weChatOpenCredentialCipher    *wechatopencredentials.Manager
@@ -103,6 +105,12 @@ func NewMySQLStore(db *sql.DB) *MySQLStore {
 	store := &MySQLStore{db: db, corpDataExecutor: db}
 	store.dashboardTenantAccessQueryRow = func(ctx context.Context, query string, args ...any) dashboardTenantAccessRow {
 		return db.QueryRowContext(ctx, query, args...)
+	}
+	store.dashboardAccessQueryRow = func(ctx context.Context, query string, args ...any) dashboardTenantAccessRow {
+		return db.QueryRowContext(ctx, query, args...)
+	}
+	store.dashboardAccessQuery = func(ctx context.Context, query string, args ...any) (dashboardAccessRows, error) {
+		return db.QueryContext(ctx, query, args...)
 	}
 	return store
 }
