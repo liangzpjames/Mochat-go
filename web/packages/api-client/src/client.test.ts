@@ -200,6 +200,31 @@ describe('createApiClient', () => {
     });
   });
 
+  it('preserves a stable tenant access machine code on 403', async () => {
+    server.use(
+      http.get('https://api.example.test/tenant-denied', () =>
+        HttpResponse.json(
+          { code: 'TENANT_ACCESS_DENIED', msg: 'tenant access denied', data: null },
+          { status: 403 },
+        ),
+      ),
+    );
+    const onUnauthorized = vi.fn();
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/',
+      getToken: () => 'session-token',
+      onUnauthorized,
+    });
+
+    await expectApiError(client.request('/tenant-denied'), {
+      kind: 'forbidden',
+      status: 403,
+      code: 'TENANT_ACCESS_DENIED',
+      message: 'tenant access denied',
+    });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
   it('maps a nonzero business code to a validation API error', async () => {
     server.use(
       http.post('https://api.example.test/users', () =>

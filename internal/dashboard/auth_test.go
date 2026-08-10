@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +12,164 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/authjwt"
+	"jiyi/mochat-go/internal/identitysecurity"
 )
+
+type fakeDashboardTenantGate struct {
+	access       DashboardTenantAccess
+	err          error
+	calls        int
+	lastTenantID int
+}
+
+func (gate *fakeDashboardTenantGate) DashboardTenantAccess(_ context.Context, tenantID int, _ time.Time) (DashboardTenantAccess, error) {
+	gate.calls++
+	gate.lastTenantID = tenantID
+	return gate.access, gate.err
+}
+
+func TestAuthDashboardTenantGateDeniesBeforeToken(t *testing.T) {
+	passwordHash, err := authjwt.GeneratePasswordHash("secret", "123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := &fakeDashboardTenantGate{access: DashboardTenantAccess{TenantID: 902, Reason: DashboardTenantAccessReasonSubscriptionMissing}}
+	handler := NewAuthHandler(&fakeAuthStore{user: AuthUser{ID: 7, TenantID: 902, Status: 1, Password: passwordHash}}, "secret", time.Hour).
+		WithDashboardTenantGate(gate)
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", strings.NewReader(`{"phone":"13800138000","password":"123456"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden || gate.calls != 1 || gate.lastTenantID != 902 {
+		t.Fatalf("status=%d gate=%+v body=%s", response.Code, gate, response.Body.String())
+	}
+	var body struct {
+		Code string         `json:"code"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != DashboardTenantAccessDeniedCode || body.Data != nil || strings.Contains(response.Body.String(), `"token"`) {
+		t.Fatalf("body=%s", response.Body.String())
+	}
+}
+
+func TestAuthDashboardTenantGateErrorDoesNotIssueToken(t *testing.T) {
+	passwordHash, err := authjwt.GeneratePasswordHash("secret", "123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := &fakeDashboardTenantGate{err: errors.New("tenant gate unavailable")}
+	handler := NewAuthHandler(&fakeAuthStore{user: AuthUser{ID: 7, TenantID: 902, Status: 1, Password: passwordHash}}, "secret", time.Hour).
+		WithDashboardTenantGate(gate)
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", strings.NewReader(`{"phone":"13800138000","password":"123456"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), `"token"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAuthBadPasswordDoesNotCallDashboardTenantGate(t *testing.T) {
+	passwordHash, err := authjwt.GeneratePasswordHash("secret", "123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := &fakeDashboardTenantGate{access: DashboardTenantAccess{TenantID: 902, Allowed: true}}
+	handler := NewAuthHandler(&fakeAuthStore{user: AuthUser{ID: 7, TenantID: 902, Status: 1, Password: passwordHash}}, "secret", time.Hour).
+		WithDashboardTenantGate(gate)
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", strings.NewReader(`{"phone":"13800138000","password":"wrong"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized || gate.calls != 0 {
+		t.Fatalf("status=%d gate=%+v body=%s", response.Code, gate, response.Body.String())
+	}
+}
+
+type fakeAuthIdentitySecurity struct {
+	completion identitysecurity.MFACompletion
+}
+
+func (fakeAuthIdentitySecurity) RecordUnknownPasswordFailure(context.Context, string, identitysecurity.RequestMeta) error {
+	return nil
+}
+func (fakeAuthIdentitySecurity) ClientMeta(*http.Request) identitysecurity.RequestMeta {
+	return identitysecurity.RequestMeta{}
+}
+func (fakeAuthIdentitySecurity) CheckPasswordLogin(context.Context, identitysecurity.Principal, identitysecurity.RequestMeta) (identitysecurity.Policy, error) {
+	return identitysecurity.Policy{}, nil
+}
+func (fakeAuthIdentitySecurity) RecordPasswordFailure(context.Context, identitysecurity.Principal, string, identitysecurity.RequestMeta, identitysecurity.Policy) (identitysecurity.UserState, error) {
+	return identitysecurity.UserState{}, nil
+}
+func (fakeAuthIdentitySecurity) PasswordAccepted(context.Context, identitysecurity.Principal, string, identitysecurity.RequestMeta, identitysecurity.Policy) (identitysecurity.AuthDecision, error) {
+	return identitysecurity.AuthDecision{}, nil
+}
+func (fakeAuthIdentitySecurity) SessionTTL(_ identitysecurity.Policy, fallback time.Duration) time.Duration {
+	return fallback
+}
+func (fakeAuthIdentitySecurity) RegisterSession(context.Context, identitysecurity.Principal, string, map[string]any, string, identitysecurity.RequestMeta, identitysecurity.Policy) (identitysecurity.Session, error) {
+	return identitysecurity.Session{}, nil
+}
+func (security fakeAuthIdentitySecurity) CompleteMFA(context.Context, string, string, identitysecurity.RequestMeta) (identitysecurity.MFACompletion, error) {
+	return security.completion, nil
+}
+func (security fakeAuthIdentitySecurity) CompleteMFAForTenant(context.Context, string, string, identitysecurity.RequestMeta, int) (identitysecurity.MFACompletion, error) {
+	return security.completion, nil
+}
+
+func TestMFADashboardTenantGateDeniesBeforeToken(t *testing.T) {
+	gate := &fakeDashboardTenantGate{access: DashboardTenantAccess{TenantID: 902, Reason: DashboardTenantAccessReasonPackageExpired}}
+	store := &fakeAuthStore{user: AuthUser{ID: 7, TenantID: 902, Status: 1}}
+	handler := NewAuthHandler(store, "secret", time.Hour).WithDashboardTenantGate(gate)
+	handler.security = fakeAuthIdentitySecurity{completion: identitysecurity.MFACompletion{
+		Principal: identitysecurity.Principal{UserID: 7, TenantID: 902},
+		Policy:    identitysecurity.DefaultPolicy(902), AuthMethod: identitysecurity.AuthMethodTOTP,
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/user/authMFA", strings.NewReader(`{"challengeToken":"challenge","code":"123456"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.MFA(response, request)
+
+	if response.Code != http.StatusForbidden || gate.calls != 1 || strings.Contains(response.Body.String(), `"token"`) {
+		t.Fatalf("status=%d gate=%+v body=%s", response.Code, gate, response.Body.String())
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Code != DashboardTenantAccessDeniedCode {
+		t.Fatalf("code=%q err=%v body=%s", body.Code, err, response.Body.String())
+	}
+}
+
+func TestMFADashboardTenantGateErrorDoesNotIssueToken(t *testing.T) {
+	gate := &fakeDashboardTenantGate{err: errors.New("tenant gate unavailable")}
+	store := &fakeAuthStore{user: AuthUser{ID: 7, TenantID: 902, Status: 1}}
+	handler := NewAuthHandler(store, "secret", time.Hour).WithDashboardTenantGate(gate)
+	handler.security = fakeAuthIdentitySecurity{completion: identitysecurity.MFACompletion{
+		Principal: identitysecurity.Principal{UserID: 7, TenantID: 902},
+		Policy:    identitysecurity.DefaultPolicy(902), AuthMethod: identitysecurity.AuthMethodTOTP,
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/user/authMFA", strings.NewReader(`{"challengeToken":"challenge","code":"123456"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.MFA(response, request)
+
+	if response.Code != http.StatusInternalServerError || gate.calls != 1 || strings.Contains(response.Body.String(), `"token"`) {
+		t.Fatalf("status=%d gate=%+v body=%s", response.Code, gate, response.Body.String())
+	}
+}
 
 func TestAuthReturnsPHPCompatibleToken(t *testing.T) {
 	passwordHash, err := authjwt.GeneratePasswordHash("secret", "123456")
@@ -248,6 +406,10 @@ func (s *fakeAuthStore) UserAuthByTenantPhone(_ context.Context, tenantID int, _
 	s.tenantCalls++
 	s.lastTenantID = tenantID
 	return s.tenantUser, s.tenantUser.ID != 0, nil
+}
+
+func (s *fakeAuthStore) UserAuthByID(_ context.Context, userID int) (AuthUser, bool, error) {
+	return s.user, s.user.ID == userID, nil
 }
 
 type fakeAuthTenantDomainReader struct {

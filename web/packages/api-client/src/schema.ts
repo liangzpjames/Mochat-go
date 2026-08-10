@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
 export type ApiEnvelope<T> = {
-  code: number;
+  code: number | string;
   msg: string;
   data: T;
 };
 
 export const apiEnvelopeSchema = z.object({
-  code: z.number(),
+  code: z.union([z.number(), z.string()]),
   msg: z.string(),
   data: z.unknown(),
 });

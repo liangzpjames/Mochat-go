@@ -299,7 +299,8 @@ func main() {
 
 	if cfg.MigrateAuth {
 		mysqlStore := getMySQLStore()
-		authHandler := dashboard.NewAuthHandler(mysqlStore, cfg.SimpleJWTSecret, cfg.SimpleJWTTTL)
+		authHandler := dashboard.NewAuthHandler(mysqlStore, cfg.SimpleJWTSecret, cfg.SimpleJWTTTL).
+			WithDashboardTenantGate(mysqlStore)
 		if cfg.EnableSaaSAdminDashboard {
 			authHandler.WithTenantDomains(mysqlStore)
 		}

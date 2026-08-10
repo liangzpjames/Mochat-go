@@ -38,13 +38,26 @@ type authTenantStore interface {
 	UserAuthByTenantPhone(ctx context.Context, tenantID int, phone string) (AuthUser, bool, error)
 }
 
+type authIdentitySecurity interface {
+	RecordUnknownPasswordFailure(context.Context, string, identitysecurity.RequestMeta) error
+	ClientMeta(*http.Request) identitysecurity.RequestMeta
+	CheckPasswordLogin(context.Context, identitysecurity.Principal, identitysecurity.RequestMeta) (identitysecurity.Policy, error)
+	RecordPasswordFailure(context.Context, identitysecurity.Principal, string, identitysecurity.RequestMeta, identitysecurity.Policy) (identitysecurity.UserState, error)
+	PasswordAccepted(context.Context, identitysecurity.Principal, string, identitysecurity.RequestMeta, identitysecurity.Policy) (identitysecurity.AuthDecision, error)
+	SessionTTL(identitysecurity.Policy, time.Duration) time.Duration
+	RegisterSession(context.Context, identitysecurity.Principal, string, map[string]any, string, identitysecurity.RequestMeta, identitysecurity.Policy) (identitysecurity.Session, error)
+	CompleteMFA(context.Context, string, string, identitysecurity.RequestMeta) (identitysecurity.MFACompletion, error)
+	CompleteMFAForTenant(context.Context, string, string, identitysecurity.RequestMeta, int) (identitysecurity.MFACompletion, error)
+}
+
 type AuthHandler struct {
-	store    AuthStore
-	secret   string
-	ttl      time.Duration
-	now      func() time.Time
-	security *identitysecurity.Manager
-	domains  SaaSTenantDomainReader
+	store      AuthStore
+	secret     string
+	ttl        time.Duration
+	now        func() time.Time
+	security   authIdentitySecurity
+	domains    SaaSTenantDomainReader
+	tenantGate DashboardTenantAccessStore
 }
 
 type authRequest struct {
@@ -63,6 +76,11 @@ func (h *AuthHandler) WithIdentitySecurity(manager *identitysecurity.Manager) *A
 
 func (h *AuthHandler) WithTenantDomains(reader SaaSTenantDomainReader) *AuthHandler {
 	h.domains = reader
+	return h
+}
+
+func (h *AuthHandler) WithDashboardTenantGate(gate DashboardTenantAccessStore) *AuthHandler {
+	h.tenantGate = gate
 	return h
 }
 
@@ -123,17 +141,19 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "账户无法登录", nil)
 		return
 	}
-	if user.TenantStatus == 2 {
-		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "租户已停用", nil)
-		return
-	}
-	if user.TenantSubscriptionManaged && !user.TenantSubscriptionAccessAllowed {
-		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, SaaSAdminSubscriptionAccessReason(user.TenantSubscriptionStatus), nil)
-		return
-	}
-	if user.TenantPackageExpired {
-		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "租户套餐已到期", nil)
-		return
+	if h.tenantGate == nil {
+		if user.TenantStatus == 2 {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "租户已停用", nil)
+			return
+		}
+		if user.TenantSubscriptionManaged && !user.TenantSubscriptionAccessAllowed {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, SaaSAdminSubscriptionAccessReason(user.TenantSubscriptionStatus), nil)
+			return
+		}
+		if user.TenantPackageExpired {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "租户套餐已到期", nil)
+			return
+		}
 	}
 	if !authjwt.CheckPasswordHash(h.secret, params.Password, user.Password) {
 		if h.security != nil {
@@ -141,6 +161,17 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "手机号或密码错误", nil)
 		return
+	}
+	if h.tenantGate != nil {
+		access, err := h.dashboardTenantAccess(r.Context(), user.TenantID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "tenant access service unavailable", nil)
+			return
+		}
+		if !access.Allowed {
+			writeMachineEnvelope(w, http.StatusForbidden, DashboardTenantAccessDeniedCode, "tenant access denied", nil)
+			return
+		}
 	}
 	method := identitysecurity.AuthMethodPassword
 	if h.security != nil {
@@ -254,13 +285,37 @@ func (h *AuthHandler) MFA(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
-	if !found || user.Status != 1 || user.TenantStatus == 2 || user.TenantPackageExpired || (user.TenantSubscriptionManaged && !user.TenantSubscriptionAccessAllowed) {
+	if !found || user.Status != 1 {
 		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "账户无法登录", nil)
 		return
+	}
+	if h.tenantGate == nil {
+		if user.TenantStatus == 2 || user.TenantPackageExpired || (user.TenantSubscriptionManaged && !user.TenantSubscriptionAccessAllowed) {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "账户无法登录", nil)
+			return
+		}
+	} else {
+		access, err := h.dashboardTenantAccess(r.Context(), user.TenantID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "tenant access service unavailable", nil)
+			return
+		}
+		if !access.Allowed {
+			writeMachineEnvelope(w, http.StatusForbidden, DashboardTenantAccessDeniedCode, "tenant access denied", nil)
+			return
+		}
 	}
 	principal := completion.Principal
 	principal.Name, principal.Phone = user.Name, user.Phone
 	h.issueToken(w, r, user, principal, completion.Policy, completion.AuthMethod)
+}
+
+func (h *AuthHandler) dashboardTenantAccess(ctx context.Context, tenantID int) (DashboardTenantAccess, error) {
+	now := time.Now()
+	if h.now != nil {
+		now = h.now()
+	}
+	return h.tenantGate.DashboardTenantAccess(ctx, tenantID, now)
 }
 
 func writeIdentityAuthError(w http.ResponseWriter, err error) {

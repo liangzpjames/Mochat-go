@@ -7,14 +7,14 @@ export type ApiErrorKind =
 
 export type ApiErrorDetails = {
   status?: number;
-  code?: number;
+  code?: number | string;
   cause?: unknown;
 };
 
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
   readonly status?: number;
-  readonly code?: number;
+  readonly code?: number | string;
 
   constructor(kind: ApiErrorKind, message: string, details: ApiErrorDetails = {}) {
     super(message, details.cause === undefined ? undefined : { cause: details.cause });

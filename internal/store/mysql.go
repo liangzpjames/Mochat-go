@@ -24,11 +24,12 @@ import (
 )
 
 type MySQLStore struct {
-	db                         *sql.DB
-	corpDataExecutor           corpDataQueryExecutor
-	saasAlertCredentialCipher  *saasalertcredentials.Manager
-	weComCredentialCipher      *wecomcredentials.Manager
-	weChatOpenCredentialCipher *wechatopencredentials.Manager
+	db                            *sql.DB
+	corpDataExecutor              corpDataQueryExecutor
+	dashboardTenantAccessQueryRow dashboardTenantAccessQueryRowFunc
+	saasAlertCredentialCipher     *saasalertcredentials.Manager
+	weComCredentialCipher         *wecomcredentials.Manager
+	weChatOpenCredentialCipher    *wechatopencredentials.Manager
 }
 
 type corpDataQueryExecutor interface {
@@ -99,7 +100,11 @@ type saasUsageLimitSnapshot struct {
 }
 
 func NewMySQLStore(db *sql.DB) *MySQLStore {
-	return &MySQLStore{db: db, corpDataExecutor: db}
+	store := &MySQLStore{db: db, corpDataExecutor: db}
+	store.dashboardTenantAccessQueryRow = func(ctx context.Context, query string, args ...any) dashboardTenantAccessRow {
+		return db.QueryRowContext(ctx, query, args...)
+	}
+	return store
 }
 
 func (s *MySQLStore) WithSaaSAlertCredentialCipher(cipher *saasalertcredentials.Manager) *MySQLStore {
