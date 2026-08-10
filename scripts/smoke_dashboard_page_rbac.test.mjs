@@ -7,6 +7,8 @@ test('smoke script is safe, bearer-authenticated, and Windows PowerShell compati
   assert.match(source, /BaseUrl = "http:\/\/127\.0\.0\.1:18080"/);
   assert.match(source, /ComposeFile.*docker-compose\.yml/);
   assert.match(source, /MARIADB_USER/);
+  assert.match(source, /\$countQuery\s*\|\s*docker compose/);
+  assert.doesNotMatch(source, /-e '\$countQuery'/);
   assert.match(source, /expected exactly four mochat-go-desktop volumes/);
   assert.match(source, /dashboard\/user\/auth/);
   assert.match(source, /Authorization/);

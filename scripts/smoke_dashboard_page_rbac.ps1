@@ -59,7 +59,12 @@ $beforeVolumes = @(Snapshot-Volumes "volumes-before.json")
 $containerIds = @{ app = (docker compose @composeArgs ps -q app); mysql = (docker compose @composeArgs ps -q mysql); redis = (docker compose @composeArgs ps -q redis) }
 Write-Json "container-ids.json" $containerIds
 $countQuery = "SELECT 'mc_user',COUNT(*) FROM mc_user UNION ALL SELECT 'mc_rbac_role',COUNT(*) FROM mc_rbac_role UNION ALL SELECT 'permissions',COUNT(*) FROM mochat_go_dashboard_permissions UNION ALL SELECT 'user_roles',COUNT(*) FROM mochat_go_dashboard_user_roles UNION ALL SELECT 'user_permissions',COUNT(*) FROM mochat_go_dashboard_user_permissions UNION ALL SELECT 'audits',COUNT(*) FROM mochat_go_dashboard_permission_audits"
-$counts = docker compose @composeArgs exec -T mysql sh -lc "mariadb -u\"`$MARIADB_USER\" -p\"`$MARIADB_PASSWORD\" \"`$MARIADB_DATABASE\" -N -B -e '$countQuery'"; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-before.txt") -Value $counts -Encoding utf8
+function Invoke-TableCounts {
+  $result = $countQuery | docker compose @composeArgs exec -T mysql sh -lc 'mariadb -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" "$MARIADB_DATABASE" -N -B'
+  if ($LASTEXITCODE -ne 0) { throw "failed to read dashboard RBAC table counts" }
+  return $result
+}
+$counts = Invoke-TableCounts; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-before.txt") -Value $counts -Encoding utf8
 function Convert-TableCounts([string]$Raw) { $result = @{}; foreach ($line in ($Raw -split "`r?`n")) { $parts = $line -split "`t"; if ($parts.Count -ge 2) { $result[$parts[0]] = [int64]$parts[1] } }; return $result }
 $beforeCountMap = Convert-TableCounts ([string]$counts)
 
@@ -88,7 +93,7 @@ if ((ConvertTo-Json $beforeVolumes) -ne (ConvertTo-Json $afterVolumes)) { throw 
 $containerIdsAfter = @{ app = (docker compose @composeArgs ps -q app); mysql = (docker compose @composeArgs ps -q mysql); redis = (docker compose @composeArgs ps -q redis) }
 Write-Json "container-ids-after.json" $containerIdsAfter
 if ((ConvertTo-Json $containerIds) -ne (ConvertTo-Json $containerIdsAfter)) { throw "app/mysql/redis container IDs changed during smoke" }
-$afterCountsRaw = docker compose @composeArgs exec -T mysql sh -lc "mariadb -u\"`$MARIADB_USER\" -p\"`$MARIADB_PASSWORD\" \"`$MARIADB_DATABASE\" -N -B -e '$countQuery'"; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-after.txt") -Value $afterCountsRaw -Encoding utf8
+$afterCountsRaw = Invoke-TableCounts; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-after.txt") -Value $afterCountsRaw -Encoding utf8
 $afterCountMap = Convert-TableCounts ([string]$afterCountsRaw)
 $countDelta = @{}; foreach ($name in $beforeCountMap.Keys) { $countDelta[$name] = $afterCountMap[$name] - $beforeCountMap[$name] }
 Write-Json "table-count-delta.json" $countDelta
