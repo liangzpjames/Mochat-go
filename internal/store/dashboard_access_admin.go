@@ -172,14 +172,26 @@ func (s *MySQLStore) dashboardAccessUserDirectPermissions(ctx context.Context, t
 }
 
 func (s *MySQLStore) DashboardAccessRoles(ctx context.Context, tenantID, page, perPage int) (dashboard.DashboardAccessRolePage, error) {
-	if s.db == nil {
+	queryRow := s.dashboardAccessQueryRow
+	if queryRow == nil && s.db != nil {
+		queryRow = func(ctx context.Context, statement string, args ...any) dashboardTenantAccessRow {
+			return s.db.QueryRowContext(ctx, statement, args...)
+		}
+	}
+	query := s.dashboardAccessQuery
+	if query == nil && s.db != nil {
+		query = func(ctx context.Context, statement string, args ...any) (dashboardAccessRows, error) {
+			return s.db.QueryContext(ctx, statement, args...)
+		}
+	}
+	if queryRow == nil || query == nil {
 		return dashboard.DashboardAccessRolePage{}, errors.New("dashboard access administration store is unavailable")
 	}
 	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_rbac_role WHERE tenant_id=? AND deleted_at IS NULL`, tenantID).Scan(&total); err != nil {
+	if err := queryRow(ctx, `SELECT COUNT(*) FROM mc_rbac_role WHERE tenant_id=? AND deleted_at IS NULL`, tenantID).Scan(&total); err != nil {
 		return dashboard.DashboardAccessRolePage{}, err
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := query(ctx, `
 		SELECT role.id,role.tenant_id,role.name,COALESCE(role.remarks,''),role.status,role.dashboard_access_version,
 			(SELECT COUNT(*) FROM mochat_go_dashboard_user_roles member WHERE member.tenant_id=role.tenant_id AND member.role_id=role.id)
 		FROM mc_rbac_role role WHERE role.tenant_id=? AND role.deleted_at IS NULL
@@ -196,9 +208,47 @@ func (s *MySQLStore) DashboardAccessRoles(ctx context.Context, tenantID, page, p
 			return dashboard.DashboardAccessRolePage{}, err
 		}
 		item.IsSystem = dashboardAccessSystemRole(item.Remark)
+		item.Permissions = make([]dashboard.DashboardPermissionAssignment, 0)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
+		return dashboard.DashboardAccessRolePage{}, err
+	}
+	if len(items) == 0 {
+		return dashboard.DashboardAccessRolePage{List: items, Page: dashboardAdminPage(page, perPage, total)}, nil
+	}
+
+	placeholders := make([]string, 0, len(items))
+	permissionArgs := make([]any, 0, len(items)+1)
+	permissionArgs = append(permissionArgs, tenantID)
+	roleIndexes := make(map[int]int, len(items))
+	for index, item := range items {
+		placeholders = append(placeholders, "?")
+		permissionArgs = append(permissionArgs, item.ID)
+		roleIndexes[item.ID] = index
+	}
+	permissionRows, err := query(ctx, `
+		SELECT relation.role_id,permission.code,relation.data_scope
+		FROM mochat_go_dashboard_role_permissions relation
+		INNER JOIN mochat_go_dashboard_permissions permission ON permission.id=relation.permission_id
+		WHERE relation.tenant_id=? AND relation.role_id IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY relation.role_id DESC,permission.code ASC
+	`, permissionArgs...)
+	if err != nil {
+		return dashboard.DashboardAccessRolePage{}, err
+	}
+	defer permissionRows.Close()
+	for permissionRows.Next() {
+		var roleID int
+		var assignment dashboard.DashboardPermissionAssignment
+		if err := permissionRows.Scan(&roleID, &assignment.Code, &assignment.Scope); err != nil {
+			return dashboard.DashboardAccessRolePage{}, err
+		}
+		if index, ok := roleIndexes[roleID]; ok {
+			items[index].Permissions = append(items[index].Permissions, assignment)
+		}
+	}
+	if err := permissionRows.Err(); err != nil {
 		return dashboard.DashboardAccessRolePage{}, err
 	}
 	return dashboard.DashboardAccessRolePage{List: items, Page: dashboardAdminPage(page, perPage, total)}, nil

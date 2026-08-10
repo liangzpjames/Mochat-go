@@ -69,6 +69,57 @@ func dashboardAccessAdminStoreWithTx(tx *fakeDashboardAccessAdminTx) *MySQLStore
 	return &MySQLStore{dashboardAccessAdminBegin: func(context.Context) (dashboardAccessAdminTx, error) { return tx, nil }}
 }
 
+func TestDashboardAccessRolesLoadsPermissionsForEveryListedRole(t *testing.T) {
+	queries := make([]string, 0, 2)
+	queryArgs := make([][]any, 0, 2)
+	store := &MySQLStore{
+		dashboardAccessQueryRow: func(_ context.Context, query string, args ...any) dashboardTenantAccessRow {
+			if !strings.Contains(query, "COUNT(*) FROM mc_rbac_role") || !reflect.DeepEqual(args, []any{9}) {
+				return fakeDashboardTenantAccessRow{err: errors.New("unexpected count query")}
+			}
+			return fakeDashboardTenantAccessRow{values: []any{2}}
+		},
+		dashboardAccessQuery: func(_ context.Context, query string, args ...any) (dashboardAccessRows, error) {
+			queries = append(queries, query)
+			queryArgs = append(queryArgs, append([]any(nil), args...))
+			switch {
+			case strings.Contains(query, "FROM mc_rbac_role role"):
+				return &fakeDashboardAccessRows{rows: [][]any{
+					{8, 9, "销售", "普通角色", 1, uint64(4), 2},
+					{7, 9, "空权限", "普通角色", 2, uint64(3), 0},
+				}}, nil
+			case strings.Contains(query, "mochat_go_dashboard_role_permissions"):
+				return &fakeDashboardAccessRows{rows: [][]any{
+					{8, "dashboard.index", dashboard.DataScopeDepartment},
+					{8, "dashboard.chat.v2_all", dashboard.DataScopeTenant},
+				}}, nil
+			default:
+				return nil, errors.New("unexpected roles query")
+			}
+		},
+	}
+
+	page, err := store.DashboardAccessRoles(context.Background(), 9, 1, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.List) != 2 || len(page.List[0].Permissions) != 2 {
+		t.Fatalf("roles=%+v", page.List)
+	}
+	if page.List[0].Permissions[0].Code != "dashboard.index" || page.List[0].Permissions[0].Scope != dashboard.DataScopeDepartment {
+		t.Fatalf("first role permissions=%+v", page.List[0].Permissions)
+	}
+	if page.List[1].Permissions == nil || len(page.List[1].Permissions) != 0 {
+		t.Fatalf("empty role permissions must encode as []: %#v", page.List[1].Permissions)
+	}
+	if len(queries) != 2 || !strings.Contains(queries[1], "relation.role_id IN (?,?)") {
+		t.Fatalf("queries=%v", queries)
+	}
+	if !reflect.DeepEqual(queryArgs[1], []any{9, 8, 7}) {
+		t.Fatalf("permission args=%v", queryArgs[1])
+	}
+}
+
 func TestDashboardAccessAdminWritesRevalidateActorBeforeTargetOrMutation(t *testing.T) {
 	writes := []struct {
 		name string
