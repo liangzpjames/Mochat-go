@@ -66,7 +66,7 @@ function Invoke-TableCounts {
 }
 $counts = Invoke-TableCounts; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-before.txt") -Value $counts -Encoding utf8
 function Convert-TableCounts([string]$Raw) { $result = @{}; foreach ($line in ($Raw -split "`r?`n")) { $parts = $line -split "`t"; if ($parts.Count -ge 2) { $result[$parts[0]] = [int64]$parts[1] } }; return $result }
-$beforeCountMap = Convert-TableCounts ([string]$counts)
+$beforeCountMap = Convert-TableCounts ($counts | Out-String)
 
 $statuses = @{}
 $statuses.readyz = Invoke-Contract "readyz.json" "/readyz"
@@ -94,7 +94,7 @@ $containerIdsAfter = @{ app = (docker compose @composeArgs ps -q app); mysql = (
 Write-Json "container-ids-after.json" $containerIdsAfter
 if ((ConvertTo-Json $containerIds) -ne (ConvertTo-Json $containerIdsAfter)) { throw "app/mysql/redis container IDs changed during smoke" }
 $afterCountsRaw = Invoke-TableCounts; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-after.txt") -Value $afterCountsRaw -Encoding utf8
-$afterCountMap = Convert-TableCounts ([string]$afterCountsRaw)
+$afterCountMap = Convert-TableCounts ($afterCountsRaw | Out-String)
 $countDelta = @{}; foreach ($name in $beforeCountMap.Keys) { $countDelta[$name] = $afterCountMap[$name] - $beforeCountMap[$name] }
 Write-Json "table-count-delta.json" $countDelta
 if ($ReadOnly) { if ((ConvertTo-Json $beforeCountMap -Compress) -ne (ConvertTo-Json $afterCountMap -Compress)) { throw "read-only smoke changed table counts" } }

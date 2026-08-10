@@ -9,6 +9,8 @@ test('smoke script is safe, bearer-authenticated, and Windows PowerShell compati
   assert.match(source, /MARIADB_USER/);
   assert.match(source, /\$countQuery\s*\|\s*docker compose/);
   assert.doesNotMatch(source, /-e '\$countQuery'/);
+  assert.match(source, /\$counts\s*\|\s*Out-String/);
+  assert.match(source, /\$afterCountsRaw\s*\|\s*Out-String/);
   assert.match(source, /expected exactly four mochat-go-desktop volumes/);
   assert.match(source, /dashboard\/user\/auth/);
   assert.match(source, /Authorization/);
