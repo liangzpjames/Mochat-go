@@ -63,6 +63,13 @@ async function loginLive(page: Page, base: string, account: LiveAccount) {
   await page.getByRole('button', { name: /登录/ }).click();
   expect((await loginResponse).status()).toBe(200);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).not.toBeNull();
+  await page.goto(`${base}/index`);
+  const corpSelector = page.getByLabel('企业选择');
+  if (await corpSelector.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    const corpId = await corpSelector.locator('option:not([disabled])').first().getAttribute('value');
+    if (!corpId) throw new Error('live superadmin has no selectable corp');
+    await corpSelector.selectOption(corpId);
+  }
 }
 async function liveAdminHeaders(page: Page, base: string, account: LiveAccount) {
   const response = await page.request.post(`${base}/dashboard/user/auth`, { data: { phone: account.phone, password: account.password } });
@@ -131,6 +138,7 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
   });
 
   test('live desktop fixture performs real login and the 53/49/4 matrix without route interception', async ({ page }) => {
+    test.setTimeout(180_000);
     test.skip(!liveBase || !liveFixture, 'set MOCHAT_E2E_LIVE_BASE and MOCHAT_E2E_RBAC_FIXTURE_JSON for desktop acceptance');
     const consoleErrors: string[] = []; const unexpected: string[] = [];
     page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
