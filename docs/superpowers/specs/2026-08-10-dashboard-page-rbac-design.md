@@ -32,7 +32,9 @@ Phase 4 建立一套独立于 SaaS 套餐功能项的企业内 Dashboard 页面�
 - `package_code` 非空，且 `limits_json` 是非 `null` 的 JSON object，能解码为当前额度快照结构；
 - 存在订阅记录，按当前生命周期规则计算后允许访问。
 
-门槛不沿用“缺套餐视为未过期”“缺订阅视为未托管，因此放行”的旧兼容语义。数据库查询失败、表缺失、JSON 无效或状态未知均不放行。登录失败返回 `403`；已有会话在 API 门槛失效后也立即返回 `403`，前端清空会话并回到登录页。`/dashboard/user/auth`、MFA 登录完成接口在签发 token 前执行相同门槛。
+订阅要求不会无意锁死合法历史租户：`0039_saas_subscription_lifecycle` 已把当时所有未删除的 tenant package 一一回填为 subscription，并为每个回填订阅写入 `migration:0039` 事件。0127 在建 RBAC 表前再次执行一致性检查：每个未删除、启用、有效期内的 tenant package 必须存在同 tenant 的未删除 subscription；发现缺失即用 `SIGNAL SQLSTATE '45000'` 中止迁移，要求先修复 SaaS 生命周期数据，不能静默跳过或在运行期才暴露。
+
+门槛不沿用“缺套餐视为未过期”“缺订阅视为未托管，因此放行”的旧兼容语义。数据库查询失败、表缺失、JSON 无效或状态未知均不放行。订阅已经纳入生命周期时，以 `SaaSAdminEffectiveSubscriptionStatus` 和 `SaaSAdminSubscriptionAllowsAccess` 的现有规则为唯一状态判定，不另造第二套状态枚举。登录失败返回 `403`；已有会话在 API 门槛失效后也立即返回 `403`，前端清空会话并回到登录页。`/dashboard/user/auth`、MFA 登录完成接口在签发 token 前执行相同门槛。
 
 ### 2.2 页面权限
 
@@ -67,6 +69,15 @@ Phase 4 建立一套独立于 SaaS 套餐功能项的企业内 Dashboard 页面�
 
 迁移编号固定为 `0127_dashboard_page_rbac`，创建以下六张表。表名使用 `mochat_go_dashboard_` 前缀以保持与现有 Go 扩展表一致，领域名称仍分别为 `permissions`、`permission_resources`、`user_roles`、`role_permissions`、`user_permissions`、`permission_audits`。
 
+0127 同时给两个权威聚合对象增加集合版本字段：
+
+- `mc_user.dashboard_access_version bigint(20) unsigned NOT NULL DEFAULT 1`；
+- `mc_rbac_role.dashboard_access_version bigint(20) unsigned NOT NULL DEFAULT 1`。
+
+用户多角色和直接权限作为一个集合，以 `mc_user.dashboard_access_version` 为唯一乐观锁；角色元数据、状态和权限集作为一个集合，以 `mc_rbac_role.dashboard_access_version` 为唯一乐观锁。关系行不承担集合版本职责。
+
+新表外键列必须逐字匹配现有父表类型：`tenant_id int(11)`（signed）、`user_id int(10) unsigned`、`role_id int(11)`（signed）、`permission_id bigint(20) unsigned`。迁移测试从当前 schema 定义核对这些类型，禁止为了表面统一擅自把 tenant 或 role 改成 unsigned，否则复合外键无法创建。
+
 ### 3.1 `mochat_go_dashboard_permissions`
 
 全局、不可由租户改名的页面目录：
@@ -98,37 +109,41 @@ Phase 4 建立一套独立于 SaaS 套餐功能项的企业内 Dashboard 页面�
 
 匹配器先做路径标准化，再按静态段优先、参数段其次匹配；不接受任意正则，避免宽泛映射误授权。
 
+资源覆盖有硬门禁：构建脚本扫描 Dashboard React 应用实际发出的每一个 `/dashboard` 相对 API 调用，并与 server/module 注册的 Dashboard API 清单交叉核对。除精确系统豁免外，每个被 53 页使用的 `method + path pattern` 必须至少映射到一个页面权限；新增页面、修改 API 或新增 handler 时，如果 manifest、前端调用、server 注册和 catalog 任一侧漂移，测试直接失败。未映射资源不能通过旧菜单、前缀匹配或 fallback 放行。
+
 ### 3.3 `mochat_go_dashboard_user_roles`
 
 租户内多角色关联：
 
-- `tenant_id int unsigned`；
-- `user_id int unsigned`；
-- `role_id int unsigned`，复用 `mc_rbac_role`；
-- `version bigint unsigned`、时间戳和软删除；
-- 唯一活动关系 `(tenant_id, user_id, role_id, deleted_at)` 的等价约束；
+- `tenant_id int(11)`；
+- `user_id int(10) unsigned`；
+- `role_id int(11)`，复用 `mc_rbac_role`；
+- `created_at` 和 `updated_at`，不设软删除字段；
+- 唯一键 `(tenant_id, user_id, role_id)`；
 - 复合外键 `(tenant_id, user_id)` 与 `(tenant_id, role_id)`。
 
-迁移先为 `mc_user(tenant_id,id)` 和 `mc_rbac_role(tenant_id,id)` 建立必要的复合唯一索引。回填旧 `mc_rbac_user_role` 前，必须验证 user 与 role 的 `tenant_id` 完全相同；发现跨租户脏关系时迁移直接失败，不跳过、不修猜测。
+关联历史不依赖 nullable `deleted_at` 唯一键，因为 MariaDB 对唯一键中的多个 `NULL` 不提供“唯一活动行”语义。更新用户授权时，事务物理删除该用户当前关系行并按请求集合重新插入；变更前后快照由 append-only audit 永久保存。迁移先为 `mc_user(tenant_id,id)` 和 `mc_rbac_role(tenant_id,id)` 建立必要的复合唯一索引。回填旧 `mc_rbac_user_role` 前，必须验证 user 与 role 的 `tenant_id` 完全相同；发现跨租户脏关系时迁移直接失败，不跳过、不修猜测。
 
 ### 3.4 `mochat_go_dashboard_role_permissions`
 
-- `tenant_id`、`role_id`、`permission_id`；
+- `tenant_id int(11)`、`role_id int(11)`、`permission_id bigint(20) unsigned`；
 - `data_scope enum('self','department','tenant')`；
-- `version`、时间戳、软删除；
+- 时间戳，不设软删除字段；
 - 复合外键 `(tenant_id,role_id)` 和权限目录外键；
-- 唯一活动关系 `(tenant_id,role_id,permission_id)` 的等价约束。
+- 唯一键 `(tenant_id,role_id,permission_id)`。
 
-旧 `mc_rbac_role_menu` 只用于一次兼容回填：把旧页面菜单 `link_url` 规范化后映射到 53 页；无法映射的旧条目保留在旧表但不成为新权限。四个 `superadmin_only` 页面不回填给普通角色。
+更新角色权限时，事务物理删除该角色当前权限关系并重新插入，append-only audit 保存前后集合。旧 `mc_rbac_role_menu` 只用于一次兼容回填：把旧页面菜单 `link_url` 规范化后映射到 53 页；无法映射的旧条目保留在旧表但不成为新权限。四个 `superadmin_only` 页面不回填给普通角色。
 
 ### 3.5 `mochat_go_dashboard_user_permissions`
 
-- `tenant_id`、`user_id`、`permission_id`；
+- `tenant_id int(11)`、`user_id int(10) unsigned`、`permission_id bigint(20) unsigned`；
 - `effect enum('allow')`；本阶段不引入 deny，避免与并集规则冲突；
 - `data_scope` 默认 `self`；
-- `version`、时间戳、软删除；
+- 时间戳，不设软删除字段；
 - 复合外键 `(tenant_id,user_id)` 和权限目录外键；
-- 唯一活动关系 `(tenant_id,user_id,permission_id)` 的等价约束。
+- 唯一键 `(tenant_id,user_id,permission_id)`。
+
+更新直接权限时与 `user_roles` 在同一事务内物理替换；历史只存在 `permission_audits`，不存在可被误读为活动关系的软删除行。
 
 ### 3.6 `mochat_go_dashboard_permission_audits`
 
@@ -194,11 +209,14 @@ JWT 仍只承载 `uid`。服务端通过 `uid` 查询 `mc_user` 得到 `tenant_i
 ### 5.2 原子写接口
 
 - `PUT /users/{id}`：一次替换多角色和直接权限；body 包含 `roleIds[]`、`directPermissions[]`、`expectedVersion`。
-- `PUT /roles/{id}`：一次更新角色启停、名称/备注和权限集合；body 包含 `status`、`permissions[]`、`expectedVersion`。
+- `POST /roles`：创建租户角色并原子写入初始权限集合；角色名称在 tenant 内唯一。
+- `PUT /roles/{id}`：更新角色名称、备注和权限集合；body 包含 `permissions[]`、`expectedVersion`。
+- `PUT /roles/{id}/status`：独立启用或停用角色；body 包含 `status`、`expectedVersion`，停用后请求级解析立即停止其贡献。
+- `DELETE /roles/{id}`：删除无成员的非系统角色；body 包含 `expectedVersion`。仍有 `user_roles` 成员时返回 `409`，不能级联删除成员关系。
 
-写入过程锁定目标行，比较 `expectedVersion`，验证所有 role/user 均属于认证 tenant，拒绝四个 `superadmin_only` 权限，写关联、递增版本并追加审计后提交。任一 ID 越界返回 `404`，版本不一致返回 `409`，整个事务不产生部分结果。
+用户授权写入执行 `SELECT ... FROM mc_user WHERE tenant_id=? AND id=? FOR UPDATE`，以 `mc_user.dashboard_access_version` 比较并递增；角色 CRUD 执行同等的 `mc_rbac_role.dashboard_access_version` compare-and-increment。事务验证所有 role/user 均属于认证 tenant，拒绝四个 `superadmin_only` 权限，物理替换关系、更新聚合版本并追加审计后提交。任一 ID 越界返回 `404`，版本不一致或删除有成员角色返回 `409`，整个事务不产生部分结果。
 
-旧 `/dashboard/user/*`、`/dashboard/role/*` 管理写接口改为 superadmin-only；前端 Phase 4 页面使用新原子接口。旧表仍保留用于兼容读取，但不再是新页面授权的权威写模型。
+用户账号生命周期不与“页面访问集合”混在一个 PUT：账号创建、基础资料修改、启停和密码重置继续走旧 `/dashboard/user/store`、`/dashboard/user/update`、`/dashboard/user/statusUpdate`、`/dashboard/user/passwordReset`，这些旧接口永久 superadmin-only；`PUT /dashboard/access/users/{id}` 只管理多角色与直接权限。旧 `/dashboard/role/*` 与 `/dashboard/menu/*` 管理读写接口也永久 superadmin-only，并停止作为 Phase 4 四页的权威写入口；前端角色管理改用上述完整 `/dashboard/access/roles*` CRUD。
 
 ## 6. 前端设计
 
@@ -234,13 +252,15 @@ Dashboard header 中删除 `/saas-admin/` 链接。390px 下权限树、角色�
 
 迁移在一个数据库事务中依次执行：
 
-1. 检测旧 user-role 跨租户关系；有任一条即 `SIGNAL SQLSTATE '45000'` 失败；
-2. 建复合唯一索引和六张新表；
-3. seed 53 页及资源映射；
-4. 把同租户旧 user-role 关系回填到 `user_roles`；
-5. 把旧 role-menu 页面关系映射到 `role_permissions`；
-6. 为回填写一条迁移审计摘要；
-7. 提交。
+1. 检测有效 tenant package 缺少 0039 subscription 的关系；有任一条即失败；
+2. 检测旧 user-role 跨租户关系；有任一条即 `SIGNAL SQLSTATE '45000'` 失败；
+3. 增加两个 `dashboard_access_version` 聚合版本字段；
+4. 建复合唯一索引和六张新表，所有 FK 列类型与父表完全一致；
+5. seed 53 页及完整资源映射，并由覆盖门禁证明 53 页使用的每个 Dashboard API 已登记；
+6. 把同租户旧 user-role 关系回填到 `user_roles`；
+7. 把旧 role-menu 页面关系映射到 `role_permissions`；
+8. 为回填写一条迁移审计摘要；
+9. 提交。
 
 迁移可重放，不覆盖已存在的新模型显式授权。down 只删除 0127 新表及新增索引，不修改旧 RBAC 数据。历史旧关联保留只读兼容，后续版本再单独移除。
 
@@ -256,12 +276,14 @@ Dashboard header 中删除 `/saas-admin/` 链接。390px 下权限树、角色�
 
 所有行为变更遵循 RED → GREEN → REFACTOR，并保留每个 RED 的预期失败输出。最低自动化覆盖：
 
-- 迁移 apply、rollback、replay；53 个 seed 与 4 个 `superadmin_only`；跨租户旧脏数据导致迁移失败；
+- 迁移 apply、rollback、replay；53 个 seed 与 4 个 `superadmin_only`；跨租户旧脏数据、缺失 0039 subscription 均导致迁移失败；
+- FK 列 signed/unsigned 与父表一致；关系表直接唯一键；用户/角色聚合版本 compare-and-increment；
+- 53 页实际使用的每个 Dashboard API 都有资源映射；manifest、前端调用、server 注册或 catalog 漂移均失败，不允许 fallback；
 - SaaS 门槛：租户停用、套餐缺失/停用/未生效/过期、额度 JSON 无效、订阅缺失/不可访问、存储错误全部拒绝；
 - 普通用户无权限、多角色并集、角色停用、直接权限保留、数据范围优先级；
 - superadmin 同 tenant 53 页隐式全权限，跨 tenant 目标 `404`；
 - 未映射 API 默认拒绝，映射 API 与页面权限一致，系统豁免精确；
-- `expectedVersion` 冲突、同事务审计、失败回滚；
+- 角色 create/update/status/delete 完整 CRUD、成员角色删除 `409`、`expectedVersion` 冲突、同事务审计、失败回滚；
 - 前端无 `benchmarkRoutes`，导航/搜索/深链一致，四个管理页仅 superadmin；
 - 49 个普通页与 53 个超管页清单门禁；
 - 桌面与 390px 浏览器真实交互，Dashboard 无 SaaS 链接。
