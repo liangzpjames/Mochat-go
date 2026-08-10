@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { scanBackendRegisteredAPIs, scanFrontendAPIUsages } from './check_dashboard_page_rbac_catalog.mjs';
 
-export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource, smokeSource, packageJSON, frontendSource = '' }) {
+export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource, smokeSource, packageJSON, frontendSource = '', backendEvidence = '', scopeMappings = '' }) {
   if (!/^53 pages, 49 ordinary, 4 superadmin_only, 0 unmapped dashboard API usages$/.test(catalogOutput.trim())) {
     throw new Error('catalog gate must report 53/49/4 and zero unmapped usages');
   }
@@ -13,6 +13,8 @@ export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource
   if (/fallback\s*[:=].*allow|allow\s*[:=].*fallback|ordinary.*company-setting\/staff/i.test(sourceCorpus)) throw new Error('ordinary management or fallback allow found');
   if (/DataPermission/.test(sourceCorpus)) throw new Error('scopeRequired path still reads legacy DataPermission');
   if (frontendSource && /dashboard\/access\/profile/.test(frontendSource) && !/dashboard\/access\/catalog/.test(frontendSource)) throw new Error('frontend API extraction missed catalog usage');
+  if (backendEvidence && /GET \/dashboard\/access\/users/.test(backendEvidence) && !/source:/.test(backendEvidence)) throw new Error('backend handler evidence must include source file and line');
+  if (scopeMappings && !/handler .*\(.+:[0-9]+\) -> guard .*:[0-9]+ -> consumer /.test(scopeMappings)) throw new Error('scope mapping must include handler, guard, and consumer source evidence');
   if (!e2eSource.includes('390') || !e2eSource.includes('53') || !e2eSource.includes('49') || !/for\s*\(const route of (routes|ordinaryRoutes)/.test(e2eSource)) {
     throw new Error('Playwright matrix must declare 53/49/4 and 390px coverage');
   }
@@ -25,13 +27,14 @@ export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource
   if (/PSCredential|\-Credential\b|Basic\s+/i.test(smokeSource) || !smokeSource.includes('/dashboard/user/auth') || !smokeSource.includes('Authorization')) {
     throw new Error('smoke must authenticate with dashboard/user/auth and Bearer token, never Basic credentials');
   }
+  if (!smokeSource.includes('TargetUserId') || !smokeSource.includes('CrossTenantUserId') || !smokeSource.includes('MutationJson') || !smokeSource.includes('sh -lc') || !smokeSource.includes('COUNT(*)')) throw new Error('full smoke must exercise protected mutation, cross-tenant read, and exact table counts');
   if (!packageJSON.scripts?.['check:phase4-dashboard-page-rbac']) {
     throw new Error('package script check:phase4-dashboard-page-rbac is required');
   }
   if (!e2eSource.includes(".phase35-page-shell") || !e2eSource.includes('document.documentElement.scrollWidth') || !e2eSource.includes('page.on')) {
     throw new Error('Playwright must assert page shell, 390px overflow, and console/network evidence');
   }
-  if (!e2eSource.includes('MOCHAT_E2E_LIVE_BASE') || !e2eSource.includes('MOCHAT_E2E_RBAC_FIXTURE_JSON') || !e2eSource.includes('liveFixture')) throw new Error('live Playwright fixture/login matrix is required');
+  if (!e2eSource.includes('MOCHAT_E2E_LIVE_BASE') || !e2eSource.includes('MOCHAT_E2E_RBAC_FIXTURE_JSON') || !e2eSource.includes('liveFixture') || !e2eSource.includes('directCode') || !e2eSource.includes('roleUnionCode') || !e2eSource.includes('disabledRoleCode') || !e2eSource.includes('noPermission') || !e2eSource.includes('mochat_dashboard_token') || !e2eSource.includes('tenantDenied')) throw new Error('live Playwright fixture/login matrix is required');
   return { pages: 53, ordinary: 49, superadminOnly: 4 };
 }
 
@@ -88,8 +91,15 @@ export async function runCompletionGate(root = process.cwd()) {
   if (!dashboardGo.includes('DashboardAccessContext') || /DataPermission/.test(accessGo)) {
     throw new Error('scopeRequired handlers must use DashboardAccessContext and not legacy DataPermission');
   }
-  const scopeMappings = scopeResources.map((resource) => `${resource.method} ${resource.pathPattern} -> DashboardAccessContext -> DashboardEmployeeScope`);
-  const facts = validateCompletionFacts({ catalogOutput: output, sourceCorpus: `${sourceCorpus}\n${accessGo}`, frontendSource: frontend.map((item) => typeof item === 'string' ? item : (item.contract ?? item.path ?? '')).join('\n'), e2eSource, smokeSource, packageJSON });
+  const covers = (registered, resource) => { const [rm, rp] = registered.contract.split(' '); if (rm !== resource.method) return false; const a = rp.split('/'); const b = resource.pathPattern.split('/'); return a.length === b.length && a.every((segment, index) => /^\{[^/]+\}$/.test(segment) || segment === b[index]); };
+  const guardFile = path.join(root, 'internal/dashboard/dashboard_access_guard.go');
+  const guardBody = await readFile(guardFile, 'utf8');
+  const guardLine = guardBody.slice(0, guardBody.indexOf('type DashboardAccessContext')).split('\n').length;
+  const consumerCandidates = dashboardGoFiles.filter((file) => !file.endsWith('_test.go') && /dashboard_access|corp_data|scrm/.test(file));
+  const consumerEvidence = (await Promise.all(consumerCandidates.map(async (file) => ({ file, body: await readFile(file, 'utf8') })))).filter(({ body }) => /DashboardEmployeeScope|AllowedEmployeeIDs|DashboardAccessContext/.test(body)).map(({ file, body }) => `${file.replaceAll('\\', '/')}:${body.split('\n').findIndex((line) => /DashboardEmployeeScope|AllowedEmployeeIDs|DashboardAccessContext/.test(line)) + 1}`);
+  if (consumerEvidence.length === 0) throw new Error('scopeRequired consumer evidence missing');
+  const scopeMappings = scopeResources.map((resource) => { const route = backend.find((candidate) => covers(candidate, resource)); if (!route) throw new Error(`scopeRequired resource has no registered handler: ${resource.method} ${resource.pathPattern}`); return `${resource.method} ${resource.pathPattern} -> handler ${route.contract} (${route.file}:${route.line}) -> guard internal/dashboard/dashboard_access_guard.go:${guardLine} -> consumer ${consumerEvidence[0]}`; });
+  const facts = validateCompletionFacts({ catalogOutput: output, sourceCorpus: `${sourceCorpus}\n${accessGo}`, frontendSource: frontend.map((item) => typeof item === 'string' ? item : (item.contract ?? item.path ?? '')).join('\n'), backendEvidence: backend.map((route) => `source:${route.file}:${route.line} ${route.contract}`).join('\n'), scopeMappings: scopeMappings.join('\n'), e2eSource, smokeSource, packageJSON });
   return { ...facts, scopeRequired: scopeMappings.length, scopeMappings };
 }
 

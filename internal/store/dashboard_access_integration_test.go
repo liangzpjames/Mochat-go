@@ -3,21 +3,31 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/migration"
 )
 
-// TestDashboardAccessIntegration deliberately uses the database after migration 0127.
-// The fixture is supplied by the desktop acceptance harness; creating shadow tables here
-// would only prove a parallel schema and would not exercise MySQLStore or production FKs.
+// TestDashboardAccessIntegration creates a throwaway schema from an admin DSN, applies the
+// production 0127 migration, and exercises MySQLStore against only named fixture rows.
 func TestDashboardAccessIntegration(t *testing.T) {
 	db := openDashboardIntegrationDB(t)
-	fixture := dashboardIntegrationFixtureFromEnv(t)
+	fixture := dashboardIntegrationFixture{TenantID: 1, OtherTenantID: 2, ActorUserID: 100, TargetUserID: 101, RoleID: 10, OtherRoleID: 11, CorpID: 7, PermissionCode: "dashboard.index", ActorName: "task9 actor", OriginalRoleStatus: 1}
 	assertDashboard0127Applied(t, db)
+	if err := db.QueryRow(`SELECT id FROM mochat_go_dashboard_permissions WHERE code=?`, fixture.PermissionCode).Scan(&fixture.PermissionID); err != nil {
+		t.Fatal(err)
+	}
+	var secondPermissionID int64
+	if err := db.QueryRow(`SELECT id FROM mochat_go_dashboard_permissions WHERE code='dashboard.chat.v2_all'`).Scan(&secondPermissionID); err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 
 	// All writes are named fixture rows and are removed on exit. No non-fixture row is touched.
@@ -42,17 +52,42 @@ func TestDashboardAccessIntegration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO mochat_go_dashboard_role_permissions(tenant_id,role_id,permission_id,data_scope) VALUES (?,?,?,?)`, fixture.TenantID, fixture.RoleID, permissionID, dashboard.DataScopeTenant); err == nil {
 		t.Fatal("production unique role-permission relation accepted duplicate")
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO mochat_go_dashboard_user_roles(tenant_id,user_id,role_id) VALUES (?,?,?)`, fixture.TenantID, fixture.TargetUserID, fixture.RoleID); err != nil {
+	var backfilled int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_dashboard_user_roles WHERE tenant_id=? AND user_id=? AND role_id=?`, fixture.TenantID, fixture.TargetUserID, fixture.RoleID).Scan(&backfilled); err != nil || backfilled != 1 {
+		t.Fatalf("0127 role backfill=%d err=%v", backfilled, err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO mochat_go_dashboard_role_permissions(tenant_id,role_id,permission_id,data_scope) VALUES (?,?,?,?)`, fixture.TenantID, fixture.OtherRoleID, secondPermissionID, dashboard.DataScopeDepartment); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO mochat_go_dashboard_user_roles(tenant_id,user_id,role_id) VALUES (?,?,?)`, fixture.TenantID, fixture.TargetUserID, fixture.OtherRoleID); err != nil {
 		t.Fatal(err)
 	}
 
 	store := NewMySQLStore(db)
+	created, err := store.CreateDashboardRole(ctx, dashboard.CreateDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", Name: "task9 role", Status: 1, RequestID: "task9-role-create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.UpdateDashboardRole(ctx, dashboard.UpdateDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: created.ID, Name: "task9 role updated", ExpectedVersion: created.Version, RequestID: "task9-role-update"})
+	if err != nil || updated.Name != "task9 role updated" {
+		t.Fatalf("role CRUD update=%+v err=%v", updated, err)
+	}
+	if err := store.DeleteDashboardRole(ctx, dashboard.DeleteDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: created.ID, ExpectedVersion: updated.Version, RequestID: "task9-role-delete"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteDashboardRole(ctx, dashboard.DeleteDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: fixture.RoleID, ExpectedVersion: 1, RequestID: "task9-member-delete"}); err != dashboard.ErrDashboardAccessRoleHasMembers { t.Fatalf("member role delete err=%v", err) }
+	var longRequest string; for i := 0; i < 120; i++ { longRequest += "x" }
+	if _, err := store.UpdateDashboardRole(ctx, dashboard.UpdateDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: fixture.OtherRoleID, Name: "must rollback", ExpectedVersion: 1, RequestID: longRequest}); err == nil { t.Fatal("oversized audit request unexpectedly committed") }
+	var unchanged string; if err := db.QueryRowContext(ctx, `SELECT name FROM mc_rbac_role WHERE tenant_id=? AND id=?`, fixture.TenantID, fixture.OtherRoleID).Scan(&unchanged); err != nil || unchanged != "role-b" { t.Fatalf("audit failure did not rollback role name=%q err=%v", unchanged, err) }
 	profile, err := dashboard.NewDashboardAccessService(store).Resolve(ctx, fixture.TargetUserID, fixture.CorpID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !containsEffectivePermission(profile.EffectivePermissions, fixture.PermissionCode) {
 		t.Fatalf("production service did not resolve role permission %q", fixture.PermissionCode)
+	}
+	if !containsEffectivePermission(profile.EffectivePermissions, "dashboard.chat.v2_all") {
+		t.Fatal("second enabled role permission missing from union")
 	}
 
 	// Disable the real role and verify its contribution disappears while a direct grant remains.
@@ -65,6 +100,14 @@ func TestDashboardAccessIntegration(t *testing.T) {
 	profile, err = dashboard.NewDashboardAccessService(store).Resolve(ctx, fixture.TargetUserID, fixture.CorpID)
 	if err != nil || !containsEffectivePermission(profile.EffectivePermissions, fixture.PermissionCode) {
 		t.Fatalf("direct grant was not retained after role disable: err=%v", err)
+	}
+	indexPermission, indexOK := findEffectivePermission(profile.EffectivePermissions, fixture.PermissionCode)
+	chatPermission, chatOK := findEffectivePermission(profile.EffectivePermissions, "dashboard.chat.v2_all")
+	if !indexOK || !hasSourceType(indexPermission, dashboard.PermissionSourceDirect) || hasSourceType(indexPermission, dashboard.PermissionSourceRole) {
+		t.Fatal("disabled role source was not removed while direct source remained")
+	}
+	if !chatOK || !hasSourceType(chatPermission, dashboard.PermissionSourceRole) {
+		t.Fatal("enabled second role source disappeared")
 	}
 
 	// The real aggregate version is compare-and-incremented by the production admin store.
@@ -97,29 +140,12 @@ type dashboardIntegrationFixture struct {
 	ActorUserID        int    `json:"actorUserId"`
 	TargetUserID       int    `json:"targetUserId"`
 	RoleID             int    `json:"roleId"`
+	OtherRoleID        int    `json:"otherRoleId"`
 	PermissionID       int64  `json:"permissionId"`
 	CorpID             int    `json:"corpId"`
 	PermissionCode     string `json:"permissionCode"`
 	ActorName          string `json:"actorName"`
 	OriginalRoleStatus int    `json:"originalRoleStatus"`
-}
-
-func dashboardIntegrationFixtureFromEnv(t *testing.T) dashboardIntegrationFixture {
-	raw := os.Getenv("MOCHAT_GO_DASHBOARD_FIXTURE_JSON")
-	if raw == "" {
-		t.Fatal("MOCHAT_GO_DASHBOARD_FIXTURE_JSON is required when MOCHAT_GO_MYSQL_INTEGRATION_DSN is set; provide isolated 0127 fixture IDs")
-	}
-	var fixture dashboardIntegrationFixture
-	if err := json.Unmarshal([]byte(raw), &fixture); err != nil {
-		t.Fatalf("invalid dashboard fixture JSON: %v", err)
-	}
-	if fixture.PermissionCode == "" || fixture.ActorName == "" {
-		t.Fatal("dashboard fixture must include permissionCode and actorName")
-	}
-	if fixture.OriginalRoleStatus == 0 {
-		fixture.OriginalRoleStatus = 1
-	}
-	return fixture
 }
 
 func assertDashboard0127Applied(t *testing.T, db *sql.DB) {
@@ -138,7 +164,24 @@ func openDashboardIntegrationDB(t *testing.T) *sql.DB {
 	if dsn == "" {
 		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
 	}
-	db, err := sql.Open("mysql", dsn)
+	cfg, err := mysqldriver.ParseDSN(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminCfg := *cfg
+	adminCfg.DBName = ""
+	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := fmt.Sprintf("mochat_dashboard_access_%d", time.Now().UnixNano())
+	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
+		_ = admin.Close()
+		t.Fatalf("create isolated schema: %v", err)
+	}
+	t.Cleanup(func() { _, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`"); _ = admin.Close() })
+	cfg.DBName = schema
+	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,12 +189,76 @@ func openDashboardIntegrationDB(t *testing.T) *sql.DB {
 	if err := db.PingContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	createDashboardAccessFixture(t, db)
 	return db
+}
+
+func createDashboardAccessFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
+	statements := []string{
+		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL, tenant_id int(11) NOT NULL, name varchar(100) NOT NULL DEFAULT '', phone varchar(32) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, isSuperAdmin tinyint(1) DEFAULT 0, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, name varchar(100) NOT NULL DEFAULT '', remarks varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, operate_id int NOT NULL DEFAULT 0, operate_name varchar(100) NOT NULL DEFAULT '', data_permission json DEFAULT NULL, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_rbac_user_role (id int NOT NULL AUTO_INCREMENT, user_id int NOT NULL, role_id int NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_rbac_menu (id int NOT NULL, link_url varchar(255) NOT NULL, data_permission tinyint NOT NULL DEFAULT 1, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_rbac_role_menu (id int NOT NULL AUTO_INCREMENT, role_id int NOT NULL, menu_id int NOT NULL, created_at timestamp NULL, updated_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mochat_go_saas_tenant_packages (id int unsigned NOT NULL, tenant_id int unsigned NOT NULL, starts_at timestamp NULL, expires_at timestamp NULL, status tinyint NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mochat_go_saas_subscriptions (id bigint unsigned NOT NULL, tenant_id int unsigned NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_corp (id int NOT NULL, tenant_id int NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_work_employee (id int NOT NULL, corp_id int NOT NULL, log_user_id int NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_work_employee_department (employee_id int NOT NULL, department_id int NOT NULL, deleted_at timestamp NULL) ENGINE=InnoDB`,
+		`CREATE TABLE mc_work_department (id int NOT NULL, corp_id int NOT NULL, path varchar(255) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`INSERT INTO mc_user(id,tenant_id,name,phone,status,isSuperAdmin) VALUES (100,1,'actor','100',1,1),(101,1,'target','101',1,0),(201,2,'other','201',1,0)`,
+		`INSERT INTO mc_rbac_role(id,tenant_id,name,remarks,status,data_permission) VALUES (10,1,'role-a','',1,'[]'),(11,1,'role-b','',1,'[]')`,
+		`INSERT INTO mc_rbac_user_role(user_id,role_id) VALUES (101,10)`,
+		`INSERT INTO mc_rbac_menu(id,link_url) VALUES (30,'/dashboard/channelCode/index#GET'),(31,'/dashboard/workContact/index@read')`,
+		`INSERT INTO mc_rbac_role_menu(role_id,menu_id) VALUES (10,30),(10,31)`,
+		`INSERT INTO mochat_go_saas_tenant_packages VALUES (1,1,NULL,NULL,1,NULL),(2,2,NULL,NULL,1,NULL)`,
+		`INSERT INTO mochat_go_saas_subscriptions VALUES (1,1,NULL),(2,2,NULL)`,
+		`INSERT INTO mc_corp VALUES (7,1,NULL),(8,2,NULL)`,
+		`INSERT INTO mc_work_employee VALUES (700,7,101,NULL),(701,8,201,NULL)`,
+		`INSERT INTO mc_work_department VALUES (70,7,'/70/',NULL)`,
+		`INSERT INTO mc_work_employee_department VALUES (700,70,NULL)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("fixture: %v", err)
+		}
+	}
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0127_dashboard_page_rbac.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrationStatements, err := migration.SplitSQLStatements(string(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range migrationStatements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("0127: %v", err)
+		}
+	}
 }
 
 func containsEffectivePermission(items []dashboard.EffectivePermission, code string) bool {
 	for _, item := range items {
 		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func findEffectivePermission(items []dashboard.EffectivePermission, code string) (dashboard.EffectivePermission, bool) {
+	for _, item := range items {
+		if item.Code == code {
+			return item, true
+		}
+	}
+	return dashboard.EffectivePermission{}, false
+}
+func hasSourceType(item dashboard.EffectivePermission, sourceType string) bool {
+	for _, source := range item.Sources {
+		if source.Type == sourceType {
 			return true
 		}
 	}

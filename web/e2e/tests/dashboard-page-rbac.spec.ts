@@ -3,13 +3,14 @@ import { readFileSync } from 'node:fs';
 import { mockDashboardBackend, seedSession } from './helpers';
 
 type Manifest = { pages: Array<{ path: string }> };
+type LiveAccount = { phone: string; password: string; expectedRoutes: string[]; expectedSources?: Array<{ type: string; id?: number }> };
 const manifest = JSON.parse(readFileSync(new URL('../../apps/dashboard/src/benchmark/manifest.json', import.meta.url), 'utf8')) as Manifest;
 const routes = manifest.pages.map((page) => page.path);
 const protectedRoutes = new Set(['/company-setting/staff', '/setting/role', '/setting/additional', '/setting/authorization']);
 const ordinaryRoutes = routes.filter((route) => !protectedRoutes.has(route));
 const liveBase = process.env.MOCHAT_E2E_LIVE_BASE;
 const liveFixture = process.env.MOCHAT_E2E_RBAC_FIXTURE_JSON ? JSON.parse(process.env.MOCHAT_E2E_RBAC_FIXTURE_JSON) as {
-  ordinary: { phone: string; password: string }; superadmin: { phone: string; password: string };
+  tenantDenied: LiveAccount; noPermission: LiveAccount; direct: LiveAccount; twoRole: LiveAccount; roleDisabledDirectRetained: LiveAccount; ordinary49: LiveAccount; superadmin: LiveAccount; ordinary: LiveAccount & { directCode: string; roleUnionCode: string; disabledRoleCode: string };
 } : undefined;
 
 async function installAccessProfile(page: Page, permissions: string[], options: { superadmin?: boolean; tenantDenied?: boolean } = {}) {
@@ -29,6 +30,9 @@ async function installAccessProfile(page: Page, permissions: string[], options: 
 
 async function assertPageShell(page: Page) {
   await expect(page.locator('.phase35-page-shell, main, section').first()).toBeVisible();
+}
+async function fetchLiveProfile(page: Page, base: string) {
+  return page.evaluate(async (url) => { const raw = JSON.parse(localStorage.getItem('mochat_dashboard_token') ?? 'null') as string | null; const token = raw && /^Bearer\s/i.test(raw) ? raw : `Bearer ${raw ?? ''}`; const response = await fetch(`${url}/dashboard/access/profile`, { headers: { Authorization: token } }); return { status: response.status, body: await response.json() as { data?: { allowedRoutes: string[]; effectivePermissions: Array<{ code: string; sources: Array<{ type: string; id?: number }> }> } } }; }, base);
 }
 
 test.describe('Dashboard Page RBAC completion matrix', () => {
@@ -89,12 +93,19 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
     test.skip(!liveBase || !liveFixture, 'set MOCHAT_E2E_LIVE_BASE and MOCHAT_E2E_RBAC_FIXTURE_JSON for desktop acceptance');
     const consoleErrors: string[] = []; const unexpected: number[] = [];
     page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
-    page.on('response', (response) => { if (response.status() >= 400 && ![401, 403, 404].includes(response.status())) unexpected.push(response.status()); });
-    const live = liveBase!; await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.ordinary.phone); await page.getByLabel('密码').fill(liveFixture!.ordinary.password); await page.getByRole('button', { name: /登录/ }).click();
+    page.on('response', (response) => { if (response.status() >= 400 && !(response.status() === 403 && (response.url().includes('/dashboard/access/not-registered') || response.url().includes('/dashboard/access/profile')))) unexpected.push(response.status()); });
+    const live = liveBase!; await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.ordinary49.phone); await page.getByLabel('密码').fill(liveFixture!.ordinary49.password); await page.getByRole('button', { name: /登录/ }).click();
+    const ordinaryProfile = await fetchLiveProfile(page, live); expect(ordinaryProfile.status).toBe(200); const ordinaryData = ordinaryProfile.body.data!; const directGrant = ordinaryData.effectivePermissions.find((item) => item.code === liveFixture!.ordinary.directCode); const roleUnion = ordinaryData.effectivePermissions.find((item) => item.code === liveFixture!.ordinary.roleUnionCode); expect(directGrant?.sources.some((source) => source.type === 'direct')).toBe(true); expect(roleUnion?.sources.filter((source) => source.type === 'role').length).toBeGreaterThanOrEqual(2); expect(ordinaryData.effectivePermissions.some((item) => item.code === liveFixture!.ordinary.disabledRoleCode)).toBe(false);
     for (const route of ordinaryRoutes) { await page.goto(`${live}${route}`); await assertPageShell(page); }
+    for (const route of protectedRoutes) { await page.goto(`${live}${route}`); await expect(page.locator('main h1')).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertPageShell(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390); await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.superadmin.phone); await page.getByLabel('密码').fill(liveFixture!.superadmin.password); await page.getByRole('button', { name: /登录/ }).click();
     await page.setViewportSize({ width: 1440, height: 900 }); for (const route of routes) { await page.goto(`${live}${route}`); await assertPageShell(page); }
+    for (const account of [liveFixture!.direct, liveFixture!.twoRole, liveFixture!.roleDisabledDirectRetained]) { await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(account.phone); await page.getByLabel('密码').fill(account.password); await page.getByRole('button', { name: /登录/ }).click(); const accountProfile = await fetchLiveProfile(page, live); expect(accountProfile.status).toBe(200); const data = accountProfile.body.data!; expect(data.allowedRoutes).toEqual(expect.arrayContaining(account.expectedRoutes)); for (const expectedSource of account.expectedSources ?? []) expect(data.effectivePermissions.some((permission) => permission.sources.some((source) => source.type === expectedSource.type && source.id === expectedSource.id))).toBe(true); }
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.noPermission.phone); await page.getByLabel('密码').fill(liveFixture!.noPermission.password); await page.getByRole('button', { name: /登录/ }).click();
+    for (const route of routes) { await page.goto(`${live}${route}`); await expect(page.locator('main h1')).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
+    const deniedApi = await page.evaluate(async () => { const raw = JSON.parse(localStorage.getItem('mochat_dashboard_token') ?? 'null') as string | null; const token = raw && /^Bearer\s/i.test(raw) ? raw : `Bearer ${raw ?? ''}`; const response = await fetch('/dashboard/access/not-registered', { headers: { Authorization: token } }); return { status: response.status, body: await response.json() as { msg?: string } }; }); expect(deniedApi.status).toBe(403); expect(deniedApi.body.msg).toBe('DASHBOARD_PERMISSION_DENIED');
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.tenantDenied.phone); await page.getByLabel('密码').fill(liveFixture!.tenantDenied.password); const tenantLogin = page.waitForResponse((response) => response.url().includes('/dashboard/user/auth')); await page.getByRole('button', { name: /登录/ }).click(); const tenantDenied = await tenantLogin; expect(tenantDenied.status()).toBe(403); expect(await tenantDenied.json()).toMatchObject({ msg: 'TENANT_ACCESS_DENIED' }); expect(await page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).toBeNull();
     expect(consoleErrors).toEqual([]); expect(unexpected).toEqual([]); await expect(page.locator('body')).not.toContainText('SaaS');
   });
 });

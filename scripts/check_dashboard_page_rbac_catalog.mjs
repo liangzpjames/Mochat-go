@@ -450,9 +450,9 @@ export async function scanBackendRegisteredAPIs() {
   const internalFiles = await sourceFiles('internal', ['.go']);
   const compositionFiles = await sourceFiles(path.join('cmd', 'mochat-go'), ['.go']);
   const production = [
-    ...internalFiles.filter((file) => file.includes(`${path.sep}server${path.sep}`)
-      || file.includes(`${path.sep}modules${path.sep}`)),
-    ...compositionFiles,
+    ...internalFiles.filter((file) => !file.endsWith('_test.go') && (file.includes(`${path.sep}server${path.sep}`)
+      || file.includes(`${path.sep}modules${path.sep}`))),
+    ...compositionFiles.filter((file) => !file.endsWith('_test.go')),
   ];
   const sources = await Promise.all(production.map(async (file) => ({
     file: file.replace(/\\/g, '/'),
