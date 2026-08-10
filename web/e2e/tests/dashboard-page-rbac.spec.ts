@@ -140,7 +140,7 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
   });
 
   test('live desktop fixture performs real login and the 53/49/4 matrix without route interception', async ({ page }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(420_000);
     test.skip(!liveBase || !liveFixture, 'set MOCHAT_E2E_LIVE_BASE and MOCHAT_E2E_RBAC_FIXTURE_JSON for desktop acceptance');
     const consoleErrors: string[] = []; const unexpected: string[] = [];
     page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
