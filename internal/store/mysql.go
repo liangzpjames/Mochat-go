@@ -29,6 +29,7 @@ type MySQLStore struct {
 	dashboardTenantAccessQueryRow dashboardTenantAccessQueryRowFunc
 	dashboardAccessQueryRow       dashboardAccessQueryRowFunc
 	dashboardAccessQuery          dashboardAccessQueryFunc
+	dashboardAccessAdminBegin     dashboardAccessAdminBeginFunc
 	saasAlertCredentialCipher     *saasalertcredentials.Manager
 	weComCredentialCipher         *wecomcredentials.Manager
 	weChatOpenCredentialCipher    *wechatopencredentials.Manager
