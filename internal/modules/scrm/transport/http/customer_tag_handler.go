@@ -189,6 +189,13 @@ func (h *CustomerTagHandler) MaintainContacts(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	// Contact ownership is resolved by the customer repository, not by the tag
+	// aggregate. Until that lookup is part of this command, restricted users
+	// fail closed instead of allowing an arbitrary contact ID to be tagged.
+	if p.EmployeeScopeRestricted {
+		writeError(w, http.StatusForbidden, "contact ownership is outside dashboard scope")
+		return
+	}
 	item, err := h.service.MaintainContacts(r.Context(), ports.MaintainTagContactsCommand{TenantID: p.TenantID, CorpID: body.CorpID, TagID: pathValue(r, "tags", "contacts"), AddContactIDs: body.AddContactIDs, RemoveContactIDs: body.RemoveContactIDs, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeSCRMError(w, err)

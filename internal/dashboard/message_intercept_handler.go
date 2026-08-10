@@ -328,6 +328,10 @@ func (h *MessageInterceptHandler) Records(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "message intercept records are not safely employee-scoped", map[string]any{"code": DashboardPermissionDeniedCode})
+		return
+	}
 	p, n := pageQuery(r)
 	rid, _ := strconv.ParseInt(r.URL.Query().Get("ruleId"), 10, 64)
 	v, e := h.provider.MessageInterceptRecordPage(r.Context(), MessageInterceptRecordFilter{TenantID: t, CorpID: c, RuleID: rid, Keyword: r.URL.Query().Get("keyword"), Decision: r.URL.Query().Get("decision"), AuditStatus: r.URL.Query().Get("auditStatus"), Page: p, PerPage: n})
@@ -361,6 +365,10 @@ func (h *MessageInterceptHandler) Evaluate(w http.ResponseWriter, r *http.Reques
 func (h *MessageInterceptHandler) Audit(w http.ResponseWriter, r *http.Request) {
 	t, c, a, ok := h.resolve(w, r, "/ai-insight/v2/message-intercept#audit")
 	if !ok {
+		return
+	}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "message intercept audit is not safely employee-scoped", map[string]any{"code": DashboardPermissionDeniedCode})
 		return
 	}
 	var v struct {

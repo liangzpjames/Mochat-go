@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -109,6 +110,32 @@ func TestPhase34CustomerServiceIndexUsesSelectedCorp(t *testing.T) {
 	}
 }
 
+func TestPhase34CustomerServiceRestrictedScopeFlowsToPage(t *testing.T) {
+	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}}
+	h := NewPhase34AcquisitionHandler(store, staticCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, NewPhase34UnavailableExternalProvider())
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/customerService/index", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{11, 12}}))
+	rec := httptest.NewRecorder()
+	h.CustomerServiceIndex(rec, req)
+	if rec.Code != http.StatusOK || !store.customerServiceFilter.RestrictEmployeeIDs || !reflect.DeepEqual(store.customerServiceFilter.AllowedEmployeeIDs, []int{11, 12}) {
+		t.Fatalf("status=%d filter=%#v body=%s", rec.Code, store.customerServiceFilter, rec.Body.String())
+	}
+}
+
+func TestPhase34CustomerServiceStoreRejectsOutOfScopeEmployees(t *testing.T) {
+	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}}
+	h := NewPhase34AcquisitionHandler(store, staticCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, NewPhase34UnavailableExternalProvider())
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/customerService/store", strings.NewReader(`{"name":"客服","account":"acct","employeeIds":[99]}`))
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeSelf, AllowedEmployeeIDs: []int{11}}))
+	rec := httptest.NewRecorder()
+	h.CustomerServiceStore(rec, req)
+	if rec.Code != http.StatusForbidden || store.customerServiceCreateCalls != 0 {
+		t.Fatalf("status=%d creates=%d body=%s", rec.Code, store.customerServiceCreateCalls, rec.Body.String())
+	}
+}
+
 func TestPhase34ShortLinkRedirectRecordsVisitAndRejectsDisabledLink(t *testing.T) {
 	store := &fakePhase34AcquisitionStore{shortLink: Phase34ShortLink{ID: 8, CorpID: 7, Token: "abc123", TargetURL: "/acquisition/v2-channel-code", Status: "active"}}
 	handler := NewPhase34AcquisitionHandler(store, nil, nil, nil, nil)
@@ -129,18 +156,19 @@ func TestPhase34ShortLinkRedirectRecordsVisitAndRejectsDisabledLink(t *testing.T
 }
 
 type fakePhase34AcquisitionStore struct {
-	users                 map[int]User
-	linkID                int
-	createdLink           Phase34AcquisitionLinkWrite
-	authorizationCalls    int
-	authorizationStatus   string
-	authorizationState    string
-	customerServices      Phase34CustomerServicePage
-	customerServiceFilter Phase34CustomerServiceFilter
-	customerServiceStatus string
-	customerServiceReason string
-	shortLink             Phase34ShortLink
-	visitToken            string
+	users                      map[int]User
+	linkID                     int
+	createdLink                Phase34AcquisitionLinkWrite
+	authorizationCalls         int
+	authorizationStatus        string
+	authorizationState         string
+	customerServices           Phase34CustomerServicePage
+	customerServiceFilter      Phase34CustomerServiceFilter
+	customerServiceStatus      string
+	customerServiceReason      string
+	customerServiceCreateCalls int
+	shortLink                  Phase34ShortLink
+	visitToken                 string
 }
 
 type fakePhase34AcquisitionExternal struct {
@@ -199,6 +227,7 @@ func (s *fakePhase34AcquisitionStore) Phase34CustomerServicePage(_ context.Conte
 }
 
 func (s *fakePhase34AcquisitionStore) CreatePhase34CustomerService(context.Context, Phase34CustomerServiceWrite) (int, error) {
+	s.customerServiceCreateCalls++
 	return 1, nil
 }
 

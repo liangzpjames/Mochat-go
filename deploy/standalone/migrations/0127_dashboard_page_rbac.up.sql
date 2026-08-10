@@ -283,13 +283,13 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'PUT', '/dashboard/timeout-warning/records/assign', 1
   UNION ALL SELECT 'dashboard.ai_insight.v2_timeout', 'PUT', '/dashboard/timeout-warning/settings', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_customer_loss', 'GET', '/dashboard/workContact/lossContact', 1
-  UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'GET', '/dashboard/message-intercept/records', 0
+  UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'GET', '/dashboard/message-intercept/records', 1
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'GET', '/dashboard/message-intercept/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'POST', '/dashboard/message-intercept/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'PUT', '/dashboard/message-intercept/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'PUT', '/dashboard/message-intercept/rules/status', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'DELETE', '/dashboard/message-intercept/rules', 0
-  UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'POST', '/dashboard/message-intercept/records/audit', 0
+  UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'POST', '/dashboard/message-intercept/records/audit', 1
   UNION ALL SELECT 'dashboard.ai_insight.v2_message_intercept', 'GET', '/dashboard/keyword-library/libraries', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'GET', '/dashboard/keyword-library/libraries', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_keyword_library', 'POST', '/dashboard/keyword-library/libraries', 0
@@ -321,9 +321,9 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'GET', '/dashboard/acquisitionLink/index', 0
   UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'POST', '/dashboard/acquisitionLink/store', 0
   UNION ALL SELECT 'dashboard.acquisition.redirect_link', 'POST', '/dashboard/acquisitionLink/authorize', 0
-  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'GET', '/dashboard/customerService/index', 0
-  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'POST', '/dashboard/customerService/store', 0
-  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'POST', '/dashboard/customerService/sync', 0
+  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'GET', '/dashboard/customerService/index', 1
+  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'POST', '/dashboard/customerService/store', 1
+  UNION ALL SELECT 'dashboard.acquisition.wechat_customer_service', 'POST', '/dashboard/customerService/sync', 1
   UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'GET', '/dashboard/liveCodeShortChain/index', 0
   UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'POST', '/dashboard/liveCodeShortChain/store', 0
   UNION ALL SELECT 'dashboard.acquisition.live_code_short_chain', 'POST', '/dashboard/liveCodeShortChain/disable', 0
@@ -363,7 +363,7 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.customer.contact', 'PUT', '/dashboard/scrm/assignments', 1
   UNION ALL SELECT 'dashboard.customer.contact', 'POST', '/dashboard/scrm/assignments/release', 1
   UNION ALL SELECT 'dashboard.customer.contact', 'GET', '/dashboard/scrm/tags', 0
-  UNION ALL SELECT 'dashboard.customer.contact', 'PUT', '/dashboard/scrm/tags/{id}/contacts', 0
+  UNION ALL SELECT 'dashboard.customer.contact', 'PUT', '/dashboard/scrm/tags/{id}/contacts', 1
   UNION ALL SELECT 'dashboard.customer.contact', 'POST', '/dashboard/scrm/opportunities', 1
   UNION ALL SELECT 'dashboard.customer.friends', 'GET', '/dashboard/workContact/index', 1
   UNION ALL SELECT 'dashboard.customer.friends', 'GET', '/dashboard/workContact/show', 1
@@ -388,7 +388,7 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.customer.tags', 'DELETE', '/dashboard/scrm/tags/{id}', 0
   UNION ALL SELECT 'dashboard.customer.tags', 'POST', '/dashboard/scrm/tags/{id}/move', 0
   UNION ALL SELECT 'dashboard.customer.tags', 'GET', '/dashboard/scrm/tags/{id}/delete-preview', 0
-  UNION ALL SELECT 'dashboard.customer.tags', 'PUT', '/dashboard/scrm/tags/{id}/contacts', 0
+  UNION ALL SELECT 'dashboard.customer.tags', 'PUT', '/dashboard/scrm/tags/{id}/contacts', 1
   UNION ALL SELECT 'dashboard.customer.tags', 'POST', '/dashboard/scrm/tag-groups', 0
   UNION ALL SELECT 'dashboard.customer.tags', 'PUT', '/dashboard/scrm/tag-groups/{id}', 0
   UNION ALL SELECT 'dashboard.customer.order', 'GET', '/dashboard/scrm/orders', 1

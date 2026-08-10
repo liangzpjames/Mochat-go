@@ -5342,6 +5342,18 @@ func phase34CustomerServiceWhere(filter dashboard.Phase34CustomerServiceFilter, 
 		where = append(where, alias+".status = ?")
 		args = append(args, filter.Status)
 	}
+	if filter.RestrictEmployeeIDs {
+		if len(filter.AllowedEmployeeIDs) == 0 {
+			where = append(where, "1=0")
+		} else {
+			parts := make([]string, 0, len(filter.AllowedEmployeeIDs))
+			for _, employeeID := range filter.AllowedEmployeeIDs {
+				parts = append(parts, "JSON_CONTAINS("+alias+".employee_ids, JSON_ARRAY(?))")
+				args = append(args, employeeID)
+			}
+			where = append(where, "("+strings.Join(parts, " OR ")+")")
+		}
+	}
 	return where, args
 }
 

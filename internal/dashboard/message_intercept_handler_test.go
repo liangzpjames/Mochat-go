@@ -9,12 +9,13 @@ import (
 )
 
 type interceptProvider struct {
-	tenantID int
-	filter   any
-	library  KeywordLibrary
-	entry    KeywordEntry
-	rule     MessageInterceptRule
-	decision MessageInterceptDecision
+	tenantID   int
+	filter     any
+	library    KeywordLibrary
+	entry      KeywordEntry
+	rule       MessageInterceptRule
+	decision   MessageInterceptDecision
+	auditCalls int
 }
 
 func (p *interceptProvider) TenantIDByCorpID(context.Context, int) (int, error) {
@@ -85,6 +86,7 @@ func (p *interceptProvider) EvaluateMessageIntercept(context.Context, int, int, 
 	return p.decision, nil
 }
 func (p *interceptProvider) AuditMessageInterceptRecords(context.Context, int, int, int64, []int64, string, string) (int64, error) {
+	p.auditCalls++
 	return 1, nil
 }
 
@@ -217,6 +219,28 @@ func TestMessageInterceptRecordsScopesFilter(t *testing.T) {
 	}
 	if f.CorpID != 5 || f.TenantID != 23 || f.Keyword != "加" || f.Decision != "blocked" || f.RuleID != 1 {
 		t.Fatalf("filter=%+v", f)
+	}
+}
+
+func TestMessageInterceptRecordsRestrictedScopeFailsClosed(t *testing.T) {
+	h, p := newInterceptHandler()
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/message-intercept/records", nil)
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeSelf, AllowedEmployeeIDs: []int{9}}))
+	rec := httptest.NewRecorder()
+	h.Records(rec, req)
+	if rec.Code != http.StatusForbidden || p.filter != nil {
+		t.Fatalf("status=%d filter=%#v body=%s", rec.Code, p.filter, rec.Body.String())
+	}
+}
+
+func TestMessageInterceptAuditRestrictedScopeFailsClosed(t *testing.T) {
+	h, p := newInterceptHandler()
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/message-intercept/records/audit", strings.NewReader(`{"ids":[1],"action":"confirmed"}`))
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{9}}))
+	rec := httptest.NewRecorder()
+	h.Audit(rec, req)
+	if rec.Code != http.StatusForbidden || p.auditCalls != 0 {
+		t.Fatalf("status=%d auditCalls=%d body=%s", rec.Code, p.auditCalls, rec.Body.String())
 	}
 }
 

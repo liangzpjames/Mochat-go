@@ -66,11 +66,13 @@ type Phase34CustomerService struct {
 }
 
 type Phase34CustomerServiceFilter struct {
-	CorpID  int
-	Name    string
-	Status  string
-	Page    int
-	PerPage int
+	CorpID              int
+	Name                string
+	Status              string
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
+	Page                int
+	PerPage             int
 }
 
 type Phase34CustomerServicePage struct {
@@ -256,7 +258,11 @@ func (h *Phase34AcquisitionHandler) CustomerServiceIndex(w http.ResponseWriter, 
 		return
 	}
 	_ = userID
-	page, err := h.store.Phase34CustomerServicePage(r.Context(), Phase34CustomerServiceFilter{CorpID: corpID, Name: strings.TrimSpace(r.URL.Query().Get("name")), Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: positiveQueryInt(r, "page", 1), PerPage: min(positiveQueryInt(r, "perPage", 20), 100)})
+	filter := Phase34CustomerServiceFilter{CorpID: corpID, Name: strings.TrimSpace(r.URL.Query().Get("name")), Status: strings.TrimSpace(r.URL.Query().Get("status")), Page: positiveQueryInt(r, "page", 1), PerPage: min(positiveQueryInt(r, "perPage", 20), 100)}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		filter.RestrictEmployeeIDs, filter.AllowedEmployeeIDs = true, access.AllowedEmployeeIDs
+	}
+	page, err := h.store.Phase34CustomerServicePage(r.Context(), filter)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -288,6 +294,10 @@ func (h *Phase34AcquisitionHandler) CustomerServiceStore(w http.ResponseWriter, 
 		}
 	}
 	employeeJSON := mustJSON(employeeIDs)
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant && !employeeIDsWithinDashboardScope(employeeIDs, access.AllowedEmployeeIDs) {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "customer service employees are outside dashboard scope", map[string]any{"code": DashboardPermissionDeniedCode})
+		return
+	}
 	receiveMode := strings.TrimSpace(stringParam(params, "receiveMode"))
 	if receiveMode == "" {
 		receiveMode = "round_robin"
@@ -303,6 +313,10 @@ func (h *Phase34AcquisitionHandler) CustomerServiceStore(w http.ResponseWriter, 
 func (h *Phase34AcquisitionHandler) CustomerServiceSync(w http.ResponseWriter, r *http.Request) {
 	_, corpID, _, ok := h.authorized(w, r, "/dashboard/customerService/sync#post", http.MethodPost)
 	if !ok {
+		return
+	}
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "customer service sync is not safely employee-scoped", map[string]any{"code": DashboardPermissionDeniedCode})
 		return
 	}
 	if h.external == nil {

@@ -82,6 +82,18 @@ func TestCustomerTagHandlerMapsForbiddenNotFoundConflictAndDuplicate(t *testing.
 	}
 }
 
+func TestCustomerTagMaintainContactsRestrictedScopeFailsClosed(t *testing.T) {
+	service := &customerTagServiceFake{}
+	handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{7}}}, &contactAuthorizerFake{})
+	request := httptest.NewRequest(http.MethodPut, TagsPath+"/t1/contacts", strings.NewReader(`{"corpId":22,"addContactIds":["c1"],"version":2}`))
+	request.Header.Set("Idempotency-Key", "tag-scope")
+	response := httptest.NewRecorder()
+	handler.MaintainContacts(response, request)
+	if response.Code != http.StatusForbidden || service.calls != 0 {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, service.calls, response.Body.String())
+	}
+}
+
 type customerTagServiceFake struct {
 	calls  int
 	filter ports.ListTagCatalogFilter

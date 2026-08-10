@@ -437,7 +437,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/message-intercept/records",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
@@ -467,7 +467,7 @@
         {
           "method": "POST",
           "pathPattern": "/dashboard/message-intercept/records/audit",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "GET",
@@ -737,17 +737,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/customerService/index",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/customerService/store",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/customerService/sync",
-          "scopeRequired": false
+          "scopeRequired": true
         }
       ]
     },
@@ -1017,7 +1017,7 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/scrm/tags/{id}/contacts",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "POST",
@@ -1192,7 +1192,7 @@
         {
           "method": "PUT",
           "pathPattern": "/dashboard/scrm/tags/{id}/contacts",
-          "scopeRequired": false
+          "scopeRequired": true
         },
         {
           "method": "POST",
