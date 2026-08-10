@@ -14,8 +14,11 @@ test('smoke script is safe, bearer-authenticated, and Windows PowerShell compati
   assert.match(source, /expected exactly four mochat-go-desktop volumes/);
   assert.match(source, /dashboard\/user\/auth/);
   assert.match(source, /Authorization/);
+  assert.match(source, /\$body\.PSObject\.Properties\['code'\]/);
+  assert.match(source, /\$_\.Exception\.PSObject\.Properties\['Response'\]/);
   assert.match(source, /COUNT\(\*\)/);
   assert.match(source, /volumes-before|volumes-after/);
+  assert.match(source, /\(docker volume inspect \$volume \| ConvertFrom-Json\)\[0\]/);
   assert.match(source, /container-ids/);
   assert.match(source, /MutationJson/);
   assert.match(source, /if \(-not \$ReadOnly -and \$TargetUserId/);

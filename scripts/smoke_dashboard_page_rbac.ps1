@@ -25,10 +25,14 @@ function Invoke-Contract([string]$Name, [string]$Path) {
     $headers = @{}; if ($script:Jwt) { $headers.Authorization = "Bearer $script:Jwt" }
     $response = Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl$Path" -Method Get -Headers $headers
     $body = $response.Content | ConvertFrom-Json
-    Write-Json $Name @{ status = [int]$response.StatusCode; code = $body.code; machineCode = $body.msg; hasData = ($null -ne $body.data); contentLength = $response.Content.Length }
+    $codeProperty = $body.PSObject.Properties['code']
+    $messageProperty = $body.PSObject.Properties['msg']
+    $dataProperty = $body.PSObject.Properties['data']
+    Write-Json $Name @{ status = [int]$response.StatusCode; code = if ($codeProperty) { $codeProperty.Value } else { [int]$response.StatusCode }; machineCode = if ($messageProperty) { $messageProperty.Value } else { '' }; hasData = ($null -ne $dataProperty -and $null -ne $dataProperty.Value); contentLength = $response.Content.Length }
     return [int]$response.StatusCode
   } catch {
-    $status = if ($null -ne $_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+    $responseProperty = $_.Exception.PSObject.Properties['Response']
+    $status = if ($null -ne $responseProperty -and $null -ne $responseProperty.Value) { [int]$responseProperty.Value.StatusCode } else { 0 }
     Write-Json $Name @{ status = $status; error = "request failed" }
     return $status
   }
@@ -46,7 +50,7 @@ function Snapshot-Volumes([string]$Name) {
   $expectedNames = @('mochat-go-desktop_app-storage', 'mochat-go-desktop_audit-anchor-storage', 'mochat-go-desktop_mysql-data', 'mochat-go-desktop_redis-data')
   $names = @(docker volume ls --format "{{.Name}}" | Where-Object { $expectedNames -contains $_ })
   if ($names.Count -ne $expectedNames.Count) { throw "expected exactly four mochat-go-desktop volumes: $($expectedNames -join ', ')" }
-  $items = foreach ($volume in $names) { docker volume inspect $volume | ConvertFrom-Json | Select-Object Name, Mountpoint, Labels }
+  $items = foreach ($volume in $names) { (docker volume inspect $volume | ConvertFrom-Json)[0] | Select-Object Name, Mountpoint, Labels }
   Write-Json $Name $items
   return $items
 }
