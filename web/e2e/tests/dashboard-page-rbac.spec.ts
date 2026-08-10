@@ -69,6 +69,8 @@ async function loginLive(page: Page, base: string, account: LiveAccount) {
     const corpId = await corpSelector.locator('option:not([disabled])').first().getAttribute('value');
     if (!corpId) throw new Error('live superadmin has no selectable corp');
     await corpSelector.selectOption(corpId);
+    await expect(corpSelector).toHaveValue(corpId);
+    await expect(page.locator('#dashboard-sidebar')).toBeVisible();
   }
 }
 async function liveAdminHeaders(page: Page, base: string, account: LiveAccount) {
