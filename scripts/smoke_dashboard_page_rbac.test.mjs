@@ -12,6 +12,8 @@ test('smoke script is safe, bearer-authenticated, and Windows PowerShell compati
   assert.match(source, /container-ids/);
   assert.match(source, /MutationJson/);
   assert.match(source, /if \(-not \$ReadOnly -and \$TargetUserId/);
+  assert.match(source, /read-only smoke changed table counts/);
+  assert.match(source, /expected exactly one audit row/);
   assert.match(source, /CrossTenantUserId/);
   assert.doesNotMatch(source, /\?\?/);
   assert.doesNotMatch(source, /down\s+-v|volume\s+rm|system\s+prune|volume\s+prune/i);

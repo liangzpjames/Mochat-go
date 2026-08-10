@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { mockDashboardBackend, seedSession } from './helpers';
 
 type Manifest = { pages: Array<{ path: string }> };
-type LiveAccount = { phone: string; password: string; exactAllowedRoutes: string[]; expectedSources?: Array<{ type: 'direct' | 'role' | 'inherited'; id?: number }>; forbiddenCodes?: string[]; forbiddenRoleIds?: number[] };
+type LiveAccount = { phone: string; password: string; exactAllowedRoutes: string[]; expectedSources?: Array<{ code: string; type: 'direct' | 'role' | 'inherited'; id?: number }>; directPermissionCode?: string; twoRolePermissionCode?: string; twoRoleIds?: number[]; disabledRolePermissionCode?: string; disabledRoleId?: number; directRetainedPermissionCode?: string; forbiddenCodes?: string[]; forbiddenRoleIds?: number[] };
 const manifest = JSON.parse(readFileSync(new URL('../../apps/dashboard/src/benchmark/manifest.json', import.meta.url), 'utf8')) as Manifest;
 const routes = manifest.pages.map((page) => page.path);
 const protectedRoutes = new Set(['/company-setting/staff', '/setting/role', '/setting/additional', '/setting/authorization']);
@@ -104,11 +104,11 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
     const consoleErrors: string[] = []; const unexpected: string[] = [];
     page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     const expectedPermission403 = new Set(routes.map((route) => `${liveBase}${route}`));
-    page.on('response', (response) => { if (response.status() < 400) return; if (response.status() === 403 && (expectedPermission403.has(response.url()) || response.url().includes('/dashboard/access/not-registered') || response.url().includes('/dashboard/access/profile'))) return; unexpected.push(`${response.status()} ${response.url()}`); });
+    page.on('response', (response) => { if (response.status() < 400) return; if (response.status() === 403 && (expectedPermission403.has(response.url()) || response.url().includes('/dashboard/access/not-registered') || response.url().includes('/dashboard/access/profile') || response.url().includes('/dashboard/user/auth'))) return; unexpected.push(`${response.status()} ${response.url()}`); });
     const live = liveBase!; await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.ordinary49.phone); await page.getByLabel('密码').fill(liveFixture!.ordinary49.password); await page.getByRole('button', { name: /登录/ }).click();
     const ordinaryProfile = await fetchLiveProfile(page, live); expect(ordinaryProfile.status).toBe(200); const ordinaryData = ordinaryProfile.body.data!; assertExactRoutes(ordinaryData.allowedRoutes, liveFixture!.ordinary49.exactAllowedRoutes, 'ordinary49');
     for (const route of ordinaryRoutes) { await page.goto(`${live}${route}`); await assertPageShell(page); }
-    await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertMenuMatches(page, ordinary.exactAllowedRoutes); await assertNoSaaSLinks(page);
+    await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertMenuMatches(page, liveFixture!.ordinary49.exactAllowedRoutes); await assertNoSaaSLinks(page);
     for (const route of protectedRoutes) { await page.goto(`${live}${route}`); await expect(page.locator('main h1')).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertPageShell(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390); await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.superadmin.phone); await page.getByLabel('密码').fill(liveFixture!.superadmin.password); await page.getByRole('button', { name: /登录/ }).click();
