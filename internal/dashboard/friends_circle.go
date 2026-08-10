@@ -320,7 +320,7 @@ func (h *FriendsCircleHandler) TaskStore(w http.ResponseWriter, r *http.Request)
 	target := mustJSON(params["targetEmployees"])
 	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
 		var targetIDs []int
-		if json.Unmarshal([]byte(target), &targetIDs) != nil || !employeeIDsWithinDashboardScope(targetIDs, access.AllowedEmployeeIDs) {
+		if json.Unmarshal([]byte(target), &targetIDs) != nil || len(targetIDs) == 0 || !employeeIDsWithinDashboardScope(targetIDs, access.AllowedEmployeeIDs) {
 			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
 			return
 		}

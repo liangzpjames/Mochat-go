@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+func TestEmployeeIDsWithinDashboardScopeRejectsEmptyAndForeignTargets(t *testing.T) {
+	if employeeIDsWithinDashboardScope(nil, []int{81}) {
+		t.Fatal("empty target IDs must be rejected for restricted writes")
+	}
+	if employeeIDsWithinDashboardScope([]int{99}, []int{81}) {
+		t.Fatal("foreign target ID must be rejected")
+	}
+	if !employeeIDsWithinDashboardScope([]int{81}, []int{81, 82}) {
+		t.Fatal("allowed target ID should pass")
+	}
+}
+
 func TestFriendsCircleTaskIndexUsesSelectedCorpAndFilters(t *testing.T) {
 	store := &fakeFriendsCircleStore{users: map[int]User{1: {ID: 1}}, tasks: FriendsCircleTaskPage{Items: []FriendsCircleTask{{ID: 9, TaskName: "夏日活动", Status: "draft"}}, Total: 1, Page: 1, PerPage: 20}}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
