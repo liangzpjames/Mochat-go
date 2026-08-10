@@ -59,8 +59,8 @@ describe('ContactFieldPage', () => {
     expect(client.list).toHaveBeenCalledWith({ status: 2, page: 1, perPage: 10 });
   });
 
-  it('hides the advanced field surface without permission', () => {
-    renderPage(api(), new Set());
+  it('hides the advanced field surface when a legacy action contract omits it', () => {
+    renderPage(api(), new Set(['/contactField/index@add']));
     expect(screen.queryByText('高级属性')).toBeNull();
   });
 

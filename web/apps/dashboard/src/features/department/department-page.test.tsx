@@ -56,8 +56,8 @@ describe('DepartmentPage', () => {
     expect(client.list).toHaveBeenCalledWith({ name: '', parentName: '', page: 1, perPage: 10 });
   });
 
-  it('gates search, sync, and member actions', async () => {
-    renderPage(api(), new Set()); await screen.findByText('总部');
+  it('gates search, sync, and member actions when a legacy action contract omits them', async () => {
+    renderPage(api(), new Set(['/department/index@legacy-other'])); await screen.findByText('总部');
     expect(screen.queryByRole('button', { name: '查询' })).toBeNull();
     expect(screen.queryByRole('button', { name: '同步企业微信通讯录' })).toBeNull();
     expect(screen.queryByRole('button', { name: '查看成员' })).toBeNull();
