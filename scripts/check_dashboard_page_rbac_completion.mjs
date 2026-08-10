@@ -34,7 +34,7 @@ export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource
   if (!e2eSource.includes(".phase35-page-shell") || !e2eSource.includes('document.documentElement.scrollWidth') || !e2eSource.includes('page.on')) {
     throw new Error('Playwright must assert page shell, 390px overflow, and console/network evidence');
   }
-  if (!e2eSource.includes('MOCHAT_E2E_LIVE_BASE') || !e2eSource.includes('MOCHAT_E2E_RBAC_FIXTURE_JSON') || !e2eSource.includes('liveFixture') || !e2eSource.includes('directCode') || !e2eSource.includes('roleUnionCode') || !e2eSource.includes('disabledRoleCode') || !e2eSource.includes('noPermission') || !e2eSource.includes('mochat_dashboard_token') || !e2eSource.includes('tenantDenied')) throw new Error('live Playwright fixture/login matrix is required');
+  if (!e2eSource.includes('MOCHAT_E2E_LIVE_BASE') || !e2eSource.includes('MOCHAT_E2E_RBAC_FIXTURE_JSON') || !e2eSource.includes('liveFixture') || !e2eSource.includes('exactAllowedRoutes') || !e2eSource.includes('expectedSources') || !e2eSource.includes('forbiddenCodes') || !e2eSource.includes('forbiddenRoleIds') || !e2eSource.includes('noPermission') || !e2eSource.includes('mochat_dashboard_token') || !e2eSource.includes('tenantDenied')) throw new Error('live Playwright fixture/login matrix is required');
   return { pages: 53, ordinary: 49, superadminOnly: 4 };
 }
 async function readGoFiles(directory) {

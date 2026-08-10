@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { validateFixture } from './validate_dashboard_rbac_e2e_fixture.mjs';
+
+const routes = Array.from({ length: 53 }, (_, index) => `/route-${index + 1}`);
+const account = (exactAllowedRoutes) => ({ phone: 'fixture', password: 'fixture', exactAllowedRoutes });
+
+test('fixture validator requires the complete account matrix and exact route contracts', () => {
+  const fixture = Object.fromEntries(['tenantDenied', 'noPermission', 'direct', 'twoRole', 'roleDisabledDirectRetained', 'ordinary49', 'superadmin'].map((name) => [name, account([])]));
+  fixture.ordinary49.exactAllowedRoutes = [...routes.slice(0, 48), '/bad'];
+  fixture.superadmin.exactAllowedRoutes = routes;
+  assert.throws(() => validateFixture(fixture, { pages: routes.map((path) => ({ path })) }), /unknown route/);
+});
+
+test('fixture validator rejects missing exact routes', () => {
+  assert.throws(() => validateFixture({}, { pages: [] }), /tenantDenied requires/);
+});

@@ -66,7 +66,7 @@ $statuses.audits = Invoke-Contract "access-audits.json" "/dashboard/access/audit
 $statuses.unknown = Invoke-Contract "unknown-api.json" "/dashboard/access/not-registered"
 if ($statuses.unknown -lt 400) { throw "unknown dashboard API was not denied" }
 if ($CrossTenantUserId -gt 0) { $statuses.crossTenant = Invoke-Contract "cross-tenant-user.json" "/dashboard/access/users/$CrossTenantUserId"; if ($statuses.crossTenant -ne 404) { throw "cross-tenant user did not return 404" } }
-if ($TargetUserId -gt 0 -and $MutationJson) {
+if (-not $ReadOnly -and $TargetUserId -gt 0 -and $MutationJson) {
   $headers = @{ Authorization = "Bearer $script:Jwt" }
   $mutation = Invoke-RestMethod -Uri "$BaseUrl/dashboard/access/users/$TargetUserId" -Method Put -Headers $headers -ContentType "application/json" -Body $MutationJson
   Write-Json "mutation-result.json" @{ code = $mutation.code; hasData = ($null -ne $mutation.data) }
@@ -77,9 +77,9 @@ if ($TargetUserId -gt 0 -and $MutationJson) {
 }
 
 $afterVolumes = @(Snapshot-Volumes "volumes-after.json")
-if ((ConvertTo-Json $beforeVolumes) -ne (ConvertTo-Json $afterVolumes)) { throw "volume name/mountpoint changed during read-only smoke" }
+if ((ConvertTo-Json $beforeVolumes) -ne (ConvertTo-Json $afterVolumes)) { throw "volume name/mountpoint changed during smoke" }
 $containerIdsAfter = @{ app = (docker compose -p mochat-go-desktop ps -q app); mysql = (docker compose -p mochat-go-desktop ps -q mysql); redis = (docker compose -p mochat-go-desktop ps -q redis) }
 Write-Json "container-ids-after.json" $containerIdsAfter
-if ((ConvertTo-Json $containerIds) -ne (ConvertTo-Json $containerIdsAfter)) { throw "app/mysql/redis container IDs changed during read-only smoke" }
+if ((ConvertTo-Json $containerIds) -ne (ConvertTo-Json $containerIdsAfter)) { throw "app/mysql/redis container IDs changed during smoke" }
 $counts = docker compose -p mochat-go-desktop exec -T mysql sh -lc "mariadb -u\"`$MYSQL_USER\" -p\"`$MYSQL_PASSWORD\" \"`$MYSQL_DATABASE\" -N -B -e '$countQuery'"; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-after.txt") -Value $counts -Encoding utf8
 Write-Json "smoke-contract.json" @{ baseUrl = $BaseUrl; project = "mochat-go-desktop"; tenantGate = "TENANT_ACCESS_DENIED"; pageGate = "DASHBOARD_PERMISSION_DENIED"; catalog = "53 pages / 49 ordinary / 4 superadmin_only"; statuses = $statuses; destructiveOperations = @() }

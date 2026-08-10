@@ -1,17 +1,31 @@
-import { expect, test, type Page, type Response } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { mockDashboardBackend, seedSession } from './helpers';
 
 type Manifest = { pages: Array<{ path: string }> };
-type LiveAccount = { phone: string; password: string; expectedRoutes: string[]; expectedSources?: Array<{ type: string; id?: number }> };
+type LiveAccount = { phone: string; password: string; exactAllowedRoutes: string[]; expectedSources?: Array<{ type: 'direct' | 'role' | 'inherited'; id?: number }>; forbiddenCodes?: string[]; forbiddenRoleIds?: number[] };
 const manifest = JSON.parse(readFileSync(new URL('../../apps/dashboard/src/benchmark/manifest.json', import.meta.url), 'utf8')) as Manifest;
 const routes = manifest.pages.map((page) => page.path);
 const protectedRoutes = new Set(['/company-setting/staff', '/setting/role', '/setting/additional', '/setting/authorization']);
 const ordinaryRoutes = routes.filter((route) => !protectedRoutes.has(route));
 const liveBase = process.env.MOCHAT_E2E_LIVE_BASE;
 const liveFixture = process.env.MOCHAT_E2E_RBAC_FIXTURE_JSON ? JSON.parse(process.env.MOCHAT_E2E_RBAC_FIXTURE_JSON) as {
-  tenantDenied: LiveAccount; noPermission: LiveAccount; direct: LiveAccount; twoRole: LiveAccount; roleDisabledDirectRetained: LiveAccount; ordinary49: LiveAccount; superadmin: LiveAccount; ordinary: LiveAccount & { directCode: string; roleUnionCode: string; disabledRoleCode: string };
+  tenantDenied: LiveAccount; noPermission: LiveAccount; direct: LiveAccount; twoRole: LiveAccount; roleDisabledDirectRetained: LiveAccount; ordinary49: LiveAccount; superadmin: LiveAccount;
 } : undefined;
+
+function assertExactRoutes(actual: string[] | undefined, expected: string[], label: string) {
+  expect([...new Set(actual ?? [])].sort(), label).toEqual([...new Set(expected)].sort());
+}
+
+async function assertNoSaaSLinks(page: Page) {
+  const hrefs = await page.locator('a[href]').evaluateAll((links) => links.map((link) => (link as HTMLAnchorElement).href));
+  expect(hrefs.some((href) => /saas|18081|subscription|package/i.test(href))).toBe(false);
+}
+
+async function assertMenuMatches(page: Page, expected: string[]) {
+  const hrefs = await page.locator('a[href]').evaluateAll((links) => links.map((link) => new URL((link as HTMLAnchorElement).href).pathname));
+  assertExactRoutes(hrefs.filter((href) => routes.includes(href)), expected, 'visible dashboard menu routes');
+}
 
 async function installAccessProfile(page: Page, permissions: string[], options: { superadmin?: boolean; tenantDenied?: boolean } = {}) {
   if (liveBase) return;
@@ -67,14 +81,10 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
   test('tenant gate returns machine code and page denial preserves session', async ({ page }) => {
     test.skip(Boolean(liveBase), 'live mode uses the real desktop service and fixture credentials');
     await seedSession(page); await mockDashboardBackend(page);
-    let profileResponse: Response | undefined;
-    page.on('response', (response) => { if (response.url().includes('/dashboard/access/profile')) profileResponse = response; });
-    await installAccessProfile(page, [], { tenantDenied: true }); await page.goto('/index');
-    expect(profileResponse).toBeDefined(); const tenantResponse = profileResponse as Response; expect(tenantResponse.status()).toBe(403); expect(await tenantResponse.json()).toMatchObject({ msg: 'TENANT_ACCESS_DENIED' });
+    await installAccessProfile(page, [], { tenantDenied: true }); const tenantWait = page.waitForResponse((response) => response.url().includes('/dashboard/access/profile')); await page.goto('/index'); const tenantResponse = await tenantWait; expect(tenantResponse.status()).toBe(403); expect(await tenantResponse.json()).toMatchObject({ msg: 'TENANT_ACCESS_DENIED' });
     await page.unroute('**/dashboard/access/profile');
     await page.route('**/dashboard/access/profile', async (route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: 403, msg: 'DASHBOARD_PERMISSION_DENIED', data: null }) }));
-    profileResponse = undefined; await page.goto('/index');
-    const pageResponse = profileResponse as unknown as Response; expect(pageResponse.status()).toBe(403); expect(await pageResponse.json()).toMatchObject({ msg: 'DASHBOARD_PERMISSION_DENIED' });
+    const pageWait = page.waitForResponse((response) => response.url().includes('/dashboard/access/profile')); await page.goto('/index'); const pageResponse = await pageWait; expect(pageResponse.status()).toBe(403); expect(await pageResponse.json()).toMatchObject({ msg: 'DASHBOARD_PERMISSION_DENIED' });
     expect(page.url()).not.toContain('/login');
     expect(routes).toHaveLength(53);
   });
@@ -91,21 +101,24 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
 
   test('live desktop fixture performs real login and the 53/49/4 matrix without route interception', async ({ page }) => {
     test.skip(!liveBase || !liveFixture, 'set MOCHAT_E2E_LIVE_BASE and MOCHAT_E2E_RBAC_FIXTURE_JSON for desktop acceptance');
-    const consoleErrors: string[] = []; const unexpected: number[] = [];
+    const consoleErrors: string[] = []; const unexpected: string[] = [];
     page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
-    page.on('response', (response) => { if (response.status() >= 400 && !(response.status() === 403 && (response.url().includes('/dashboard/access/not-registered') || response.url().includes('/dashboard/access/profile')))) unexpected.push(response.status()); });
+    const expectedPermission403 = new Set(routes.map((route) => `${liveBase}${route}`));
+    page.on('response', (response) => { if (response.status() < 400) return; if (response.status() === 403 && (expectedPermission403.has(response.url()) || response.url().includes('/dashboard/access/not-registered') || response.url().includes('/dashboard/access/profile'))) return; unexpected.push(`${response.status()} ${response.url()}`); });
     const live = liveBase!; await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.ordinary49.phone); await page.getByLabel('密码').fill(liveFixture!.ordinary49.password); await page.getByRole('button', { name: /登录/ }).click();
-    const ordinaryProfile = await fetchLiveProfile(page, live); expect(ordinaryProfile.status).toBe(200); const ordinaryData = ordinaryProfile.body.data!; const directGrant = ordinaryData.effectivePermissions.find((item) => item.code === liveFixture!.ordinary.directCode); const roleUnion = ordinaryData.effectivePermissions.find((item) => item.code === liveFixture!.ordinary.roleUnionCode); expect(directGrant?.sources.some((source) => source.type === 'direct')).toBe(true); expect(roleUnion?.sources.filter((source) => source.type === 'role').length).toBeGreaterThanOrEqual(2); expect(ordinaryData.effectivePermissions.some((item) => item.code === liveFixture!.ordinary.disabledRoleCode)).toBe(false);
+    const ordinaryProfile = await fetchLiveProfile(page, live); expect(ordinaryProfile.status).toBe(200); const ordinaryData = ordinaryProfile.body.data!; assertExactRoutes(ordinaryData.allowedRoutes, liveFixture!.ordinary49.exactAllowedRoutes, 'ordinary49');
     for (const route of ordinaryRoutes) { await page.goto(`${live}${route}`); await assertPageShell(page); }
+    await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertMenuMatches(page, ordinary.exactAllowedRoutes); await assertNoSaaSLinks(page);
     for (const route of protectedRoutes) { await page.goto(`${live}${route}`); await expect(page.locator('main h1')).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertPageShell(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390); await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.superadmin.phone); await page.getByLabel('密码').fill(liveFixture!.superadmin.password); await page.getByRole('button', { name: /登录/ }).click();
-    await page.setViewportSize({ width: 1440, height: 900 }); for (const route of routes) { await page.goto(`${live}${route}`); await assertPageShell(page); }
-    for (const account of [liveFixture!.direct, liveFixture!.twoRole, liveFixture!.roleDisabledDirectRetained]) { await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(account.phone); await page.getByLabel('密码').fill(account.password); await page.getByRole('button', { name: /登录/ }).click(); const accountProfile = await fetchLiveProfile(page, live); expect(accountProfile.status).toBe(200); const data = accountProfile.body.data!; expect(data.allowedRoutes).toEqual(expect.arrayContaining(account.expectedRoutes)); for (const expectedSource of account.expectedSources ?? []) expect(data.effectivePermissions.some((permission) => permission.sources.some((source) => source.type === expectedSource.type && source.id === expectedSource.id))).toBe(true); }
+    await page.setViewportSize({ width: 1440, height: 900 }); const superProfile = await fetchLiveProfile(page, live); expect(superProfile.status).toBe(200); assertExactRoutes(superProfile.body.data?.allowedRoutes, liveFixture!.superadmin.exactAllowedRoutes, 'superadmin'); for (const route of routes) { await page.goto(`${live}${route}`); await assertPageShell(page); }
+    for (const account of [liveFixture!.direct, liveFixture!.twoRole, liveFixture!.roleDisabledDirectRetained]) { await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(account.phone); await page.getByLabel('密码').fill(account.password); await page.getByRole('button', { name: /登录/ }).click(); const accountProfile = await fetchLiveProfile(page, live); expect(accountProfile.status).toBe(200); const data = accountProfile.body.data!; assertExactRoutes(data.allowedRoutes, account.exactAllowedRoutes, 'account exact routes'); for (const expectedSource of account.expectedSources ?? []) expect(data.effectivePermissions.some((permission) => permission.sources.some((source) => source.type === expectedSource.type && source.id === expectedSource.id))).toBe(true); for (const forbiddenCode of account.forbiddenCodes ?? []) expect(data.effectivePermissions.some((permission) => permission.code === forbiddenCode)).toBe(false); for (const forbiddenRoleId of account.forbiddenRoleIds ?? []) expect(data.effectivePermissions.some((permission) => permission.sources.some((source) => source.type === 'role' && source.id === forbiddenRoleId))).toBe(false); await assertNoSaaSLinks(page); }
     await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.noPermission.phone); await page.getByLabel('密码').fill(liveFixture!.noPermission.password); await page.getByRole('button', { name: /登录/ }).click();
-    for (const route of routes) { await page.goto(`${live}${route}`); await expect(page.locator('main h1')).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
+    const noPermissionProfile = await fetchLiveProfile(page, live); expect(noPermissionProfile.status).toBe(200); assertExactRoutes(noPermissionProfile.body.data?.allowedRoutes, liveFixture!.noPermission.exactAllowedRoutes, 'noPermission'); await assertMenuMatches(page, liveFixture!.noPermission.exactAllowedRoutes); for (const route of routes) { const response = await page.goto(`${live}${route}`); expect(response?.status()).toBe(403); await expect(page.locator('main h1')).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
+    await assertNoSaaSLinks(page);
     const deniedApi = await page.evaluate(async () => { const raw = JSON.parse(localStorage.getItem('mochat_dashboard_token') ?? 'null') as string | null; const token = raw && /^Bearer\s/i.test(raw) ? raw : `Bearer ${raw ?? ''}`; const response = await fetch('/dashboard/access/not-registered', { headers: { Authorization: token } }); return { status: response.status, body: await response.json() as { msg?: string } }; }); expect(deniedApi.status).toBe(403); expect(deniedApi.body.msg).toBe('DASHBOARD_PERMISSION_DENIED');
     await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await page.goto(`${live}/login`); await page.getByLabel('手机号').fill(liveFixture!.tenantDenied.phone); await page.getByLabel('密码').fill(liveFixture!.tenantDenied.password); const tenantLogin = page.waitForResponse((response) => response.url().includes('/dashboard/user/auth')); await page.getByRole('button', { name: /登录/ }).click(); const tenantDenied = await tenantLogin; expect(tenantDenied.status()).toBe(403); expect(await tenantDenied.json()).toMatchObject({ msg: 'TENANT_ACCESS_DENIED' }); expect(await page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).toBeNull();
-    expect(consoleErrors).toEqual([]); expect(unexpected).toEqual([]); await expect(page.locator('body')).not.toContainText('SaaS');
+    expect(consoleErrors).toEqual([]); expect(unexpected).toEqual([]); await assertNoSaaSLinks(page);
   });
 });
