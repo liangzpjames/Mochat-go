@@ -9,6 +9,7 @@ import type {
   AccessUser,
   AccessUserSummary,
 } from "../access/access-admin-api";
+import { AccessPermissionSelector } from "./access-permission-selector";
 
 type Api = {
   users: (input: { page: number; perPage: number }) => Promise<{
@@ -105,7 +106,7 @@ export function AccessStaffPage({ api }: { api: Api }) {
     ? `将更新员工“${selected.name}”的 ${roleIds.length} 个角色与 ${direct.length} 项直接权限`
     : "";
   return (
-    <Phase35PageShell title="员工权限" description="多角色、直接权限与继承来源">
+    <Phase35PageShell title="员工权限" description="为员工配置角色与直接页面权限">
       <div className="phase35-page">
         <section className="phase35-card phase35-table-card">
           <div className="dashboard-table-scroll">
@@ -169,6 +170,7 @@ export function AccessStaffPage({ api }: { api: Api }) {
           <DashboardDialog
             open
             title={`编辑 ${selected.name} 权限`}
+            width={820}
             onCancel={() => {
               setSelected(null);
               setRoleIds([]);
@@ -197,7 +199,13 @@ export function AccessStaffPage({ api }: { api: Api }) {
               </>
             }
           >
-            <fieldset>
+            <div className="access-editor-summary" role="status">
+              <strong>{selected.name}</strong>
+              <span>
+                已选 {roleIds.length} 个角色 · {direct.length} 项直接权限
+              </span>
+            </div>
+            <fieldset className="access-role-selector">
               <legend>角色（可多选）</legend>
               {detail.isLoading ? (
                 <p>正在加载详情…</p>
@@ -211,10 +219,15 @@ export function AccessStaffPage({ api }: { api: Api }) {
               ) : !canEdit ? (
                 <p>正在准备可编辑权限数据…</p>
               ) : (
-                (roles.data ?? []).map((role) => (
-                  <label key={role.id}>
-                    <input
-                      type="checkbox"
+                <div className="access-role-grid">
+                  {(roles.data ?? []).map((role) => (
+                    <label
+                      className={`access-role-option${roleIds.includes(role.id) ? " access-role-option--selected" : ""}`}
+                      key={role.id}
+                    >
+                      <input
+                        aria-label={`${role.name}（${role.status === 1 ? "启用" : "停用"}）`}
+                        type="checkbox"
                       disabled={role.status !== 1}
                       checked={roleIds.includes(role.id)}
                       onChange={() =>
@@ -225,69 +238,21 @@ export function AccessStaffPage({ api }: { api: Api }) {
                         )
                       }
                     />
-                    {role.name}（{role.status === 1 ? "启用" : "停用"}）
-                  </label>
-                ))
+                      <span>
+                        <strong>{role.name}</strong>
+                        <small>{role.status === 1 ? "启用" : "停用"}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
               )}
             </fieldset>
-            <fieldset>
-              <legend>直接权限</legend>
-              {(catalog.data ?? [])
-                .filter((item) => !item.superadminOnly)
-                .map((item) => {
-                  const found = direct.find(
-                    (permission) => permission.code === item.code,
-                  );
-                  return (
-                    <label key={item.code}>
-                      <input
-                        type="checkbox"
-                        checked={found !== undefined}
-                        onChange={() =>
-                          setDirect((current) =>
-                            found
-                              ? current.filter(
-                                  (permission) => permission.code !== item.code,
-                                )
-                              : [
-                                  ...current,
-                                  { code: item.code, scope: "self" },
-                                ],
-                          )
-                        }
-                      />
-                      {item.name}
-                      <select
-                        aria-label={`${item.name} 数据范围`}
-                        value={found?.scope ?? "self"}
-                        disabled={!found}
-                        onChange={(event) =>
-                          setDirect((current) =>
-                            current.map((permission) =>
-                              permission.code === item.code
-                                ? { ...permission, scope: event.target.value }
-                                : permission,
-                            ),
-                          )
-                        }
-                      >
-                        <option value="self">本人</option>
-                        <option value="department">部门</option>
-                        <option value="tenant">全企业</option>
-                      </select>
-                    </label>
-                  );
-                })}
-            </fieldset>
-            <h3>继承权限（只读）</h3>
-            {(detail.data?.inheritedPermissions ?? []).map((permission) => (
-              <p key={permission.code}>
-                {permission.name} ·{" "}
-                {permission.sources
-                  .map((source) => `${source.name}/${source.scope}`)
-                  .join("、")}
-              </p>
-            ))}
+            <AccessPermissionSelector
+              ariaLabel="直接权限"
+              catalog={catalog.data ?? []}
+              value={direct}
+              onChange={setDirect}
+            />
             {save.error && (
               <p role="alert">
                 {saveError?.status === 409

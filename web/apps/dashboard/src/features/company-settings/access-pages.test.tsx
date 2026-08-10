@@ -10,6 +10,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessStaffPage } from "./access-staff-page";
 import { AccessRolePage } from "./access-role-page";
+import { AccessPermissionSelector } from "./access-permission-selector";
 import { CompanyAdditionalPage } from "./additional-page";
 import { CompanyAuthorizationPage } from "./authorization-page";
 
@@ -39,6 +40,63 @@ function wrap(node: React.ReactNode) {
 }
 
 describe("access management pages", () => {
+  it("groups and searches grantable permissions without exposing protected pages", () => {
+    function SelectorHarness() {
+      const [value, setValue] = React.useState<
+        { code: string; scope: string }[]
+      >([]);
+      return (
+        <AccessPermissionSelector
+          ariaLabel="测试权限"
+          catalog={[
+            {
+              id: 1,
+              code: "dashboard.report.overview",
+              path: "/reports/overview",
+              name: "数据概览",
+              groupCode: "data-reports",
+              sort: 1,
+              scopeRequired: true,
+              superadminOnly: false,
+            },
+            {
+              id: 2,
+              code: "dashboard.conversation.all",
+              path: "/chat/v2-all",
+              name: "全局消息",
+              groupCode: "conversation",
+              sort: 2,
+              scopeRequired: true,
+              superadminOnly: false,
+            },
+            {
+              id: 3,
+              code: "dashboard.company.role",
+              path: "/company/role",
+              name: "角色管理",
+              groupCode: "company-settings",
+              sort: 3,
+              scopeRequired: false,
+              superadminOnly: true,
+            },
+          ]}
+          value={value}
+          onChange={setValue}
+        />
+      );
+    }
+
+    wrap(<SelectorHarness />);
+    expect(screen.getByText("数据报表")).toBeTruthy();
+    expect(screen.getByText("会话管理")).toBeTruthy();
+    expect(screen.queryByLabelText("选择 角色管理")).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox", { name: "测试权限搜索" }), {
+      target: { value: "conversation.all" },
+    });
+    expect(screen.queryByLabelText("选择 数据概览")).toBeNull();
+    expect(screen.getByLabelText("选择 全局消息")).toBeTruthy();
+  });
+
   it("loads summary then detail and requires confirmation before expectedVersion payload", async () => {
     const replaceUser = vi.fn().mockResolvedValue({});
     const api = {
@@ -86,8 +144,18 @@ describe("access management pages", () => {
         page: { total: 2, totalPage: 1 },
       }),
       catalog: vi.fn().mockResolvedValue([
-        { code: "p", name: "概览", superadminOnly: false },
-        { code: "protected", name: "受保护", superadminOnly: true },
+        {
+          code: "p",
+          name: "概览",
+          groupCode: "data-reports",
+          superadminOnly: false,
+        },
+        {
+          code: "protected",
+          name: "受保护",
+          groupCode: "company-settings",
+          superadminOnly: true,
+        },
       ]),
     };
     Object.defineProperty(window, "innerWidth", {
@@ -97,14 +165,17 @@ describe("access management pages", () => {
     wrap(<AccessStaffPage api={api} />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑权限" }));
     await waitFor(() => expect(api.user).toHaveBeenCalledWith(7));
-    expect(await screen.findByText(/继承权限/)).toBeTruthy();
+    expect(await screen.findByText("数据报表")).toBeTruthy();
+    expect(screen.getByText("已选 1 个角色 · 0 项直接权限")).toBeTruthy();
+    expect(screen.queryByText(/继承权限/)).toBeNull();
+    expect(screen.queryByText(/销售\/department/)).toBeNull();
     expect(screen.queryByLabelText("受保护")).toBeNull();
     expect(
       screen
         .getByRole("checkbox", { name: "停用（停用）" })
         .hasAttribute("disabled"),
     ).toBe(true);
-    fireEvent.click(screen.getAllByRole("checkbox")[2]!);
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 概览" }));
     fireEvent.change(
       screen
         .getAllByRole("combobox")
@@ -166,6 +237,7 @@ describe("access management pages", () => {
           code: "p",
           path: "/index",
           name: "概览",
+          groupCode: "data-reports",
           superadminOnly: false,
         },
         {
@@ -173,6 +245,7 @@ describe("access management pages", () => {
           code: "protected",
           path: "/secret",
           name: "受保护",
+          groupCode: "company-settings",
           superadminOnly: true,
         },
       ]),
@@ -194,7 +267,8 @@ describe("access management pages", () => {
     fireEvent.change(screen.getByLabelText("角色名称"), {
       target: { value: "销售新" },
     });
-    fireEvent.click(screen.getAllByRole("checkbox")[0]!);
+    expect(screen.getByText("数据报表")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 概览" }));
     fireEvent.change(
       screen
         .getAllByRole("combobox")

@@ -5,6 +5,7 @@ import { ConfirmAction } from "../../components/confirm-action";
 import { Phase35PageShell } from "../phase35/components/phase35-page-shell";
 import type { AccessCatalogItem } from "../access/access-api";
 import type { AccessRole } from "../access/access-admin-api";
+import { AccessPermissionSelector } from "./access-permission-selector";
 
 type Api = {
   roles: (input: { page: number; perPage: number }) => Promise<{
@@ -216,6 +217,7 @@ export function AccessRolePage({ api }: { api: Api }) {
           <DashboardDialog
             open
             title={editing.id ? "编辑角色" : "新建角色"}
+            width={820}
             onCancel={() => setEditing(null)}
             confirmDisabled={save.isPending}
             footer={
@@ -231,70 +233,32 @@ export function AccessRolePage({ api }: { api: Api }) {
               </>
             }
           >
-            <p>{summary}</p>
-            <label>
-              角色名称
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
-            <label>
-              备注
-              <input
-                value={remark}
-                onChange={(event) => setRemark(event.target.value)}
-              />
-            </label>
-            <fieldset>
-              <legend>页面权限与数据范围</legend>
-              {(catalog.data ?? [])
-                .filter((item) => !item.superadminOnly)
-                .map((item) => {
-                  const selected = codes.find(
-                    (permission) => permission.code === item.code,
-                  );
-                  return (
-                    <label key={item.code}>
-                      <input
-                        type="checkbox"
-                        checked={selected !== undefined}
-                        onChange={() =>
-                          setCodes((current) =>
-                            selected
-                              ? current.filter(
-                                  (permission) => permission.code !== item.code,
-                                )
-                              : [
-                                  ...current,
-                                  { code: item.code, scope: "self" },
-                                ],
-                          )
-                        }
-                      />
-                      {item.name}
-                      <select
-                        aria-label={`${item.name} 数据范围`}
-                        disabled={!selected}
-                        value={selected?.scope ?? "self"}
-                        onChange={(event) =>
-                          setCodes((current) =>
-                            current.map((permission) =>
-                              permission.code === item.code
-                                ? { ...permission, scope: event.target.value }
-                                : permission,
-                            ),
-                          )
-                        }
-                      >
-                        <option value="self">本人</option>
-                        <option value="department">部门</option>
-                        <option value="tenant">全企业</option>
-                      </select>
-                    </label>
-                  );
-                })}
-            </fieldset>
+            <div className="access-editor-summary" role="status">
+              <strong>{editing.id ? "编辑角色" : "新建角色"}</strong>
+              <span>{codes.length} 项页面权限</span>
+            </div>
+            <div className="access-role-basics">
+              <label>
+                角色名称
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </label>
+              <label>
+                备注
+                <input
+                  value={remark}
+                  onChange={(event) => setRemark(event.target.value)}
+                />
+              </label>
+            </div>
+            <AccessPermissionSelector
+              ariaLabel="页面权限与数据范围"
+              catalog={catalog.data ?? []}
+              value={codes}
+              onChange={setCodes}
+            />
           </DashboardDialog>
         )}
       </div>
