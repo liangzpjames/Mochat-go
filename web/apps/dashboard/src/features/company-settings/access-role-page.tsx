@@ -7,10 +7,7 @@ import type { AccessCatalogItem } from "../access/access-api";
 import type { AccessRole } from "../access/access-admin-api";
 
 type Api = {
-  roles: (input: {
-    page: number;
-    perPage: number;
-  }) => Promise<{
+  roles: (input: { page: number; perPage: number }) => Promise<{
     list: AccessRole[];
     page: { total: number; totalPage: number };
   }>;
@@ -46,9 +43,10 @@ export function AccessRolePage({ api }: { api: Api }) {
     [],
   );
   const [error, setError] = React.useState("");
+  const [page, setPage] = React.useState(1);
   const roles = useQuery({
-    queryKey: ["access-roles"],
-    queryFn: () => api.roles({ page: 1, perPage: 50 }),
+    queryKey: ["access-roles", page],
+    queryFn: () => api.roles({ page, perPage: 50 }),
   });
   const catalog = useQuery({
     queryKey: ["access-role-catalog"],
@@ -194,6 +192,25 @@ export function AccessRolePage({ api }: { api: Api }) {
             </table>
           </div>
           {error && <p role="alert">{error}</p>}
+          <div className="dashboard-pagination">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((value) => value - 1)}
+            >
+              上一页
+            </button>
+            <span>
+              第 {page}/{roles.data?.page.totalPage ?? 1} 页
+            </span>
+            <button
+              type="button"
+              disabled={page >= (roles.data?.page.totalPage ?? 1)}
+              onClick={() => setPage((value) => value + 1)}
+            >
+              下一页
+            </button>
+          </div>
         </section>
         {editing && (
           <DashboardDialog

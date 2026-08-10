@@ -10,6 +10,8 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessStaffPage } from "./access-staff-page";
 import { AccessRolePage } from "./access-role-page";
+import { CompanyAdditionalPage } from "./additional-page";
+import { CompanyAuthorizationPage } from "./authorization-page";
 
 class TestResizeObserver {
   observe() {}
@@ -40,51 +42,48 @@ describe("access management pages", () => {
   it("loads summary then detail and requires confirmation before expectedVersion payload", async () => {
     const replaceUser = vi.fn().mockResolvedValue({});
     const api = {
-      users: vi
-        .fn()
-        .mockResolvedValue({
-          list: [
-            {
-              id: 7,
-              name: "张三",
-              phone: "13800000000",
-              status: 1,
-              isSuperAdmin: false,
-              version: 3,
-            },
-          ],
-          page: { total: 1, totalPage: 1 },
-        }),
-      user: vi
-        .fn()
-        .mockResolvedValue({
-          id: 7,
-          name: "张三",
-          phone: "",
-          status: 1,
-          isSuperAdmin: false,
-          version: 4,
-          roles: [{ id: 2, name: "销售", status: 1, version: 1 }],
-          directPermissions: [],
-          inheritedPermissions: [
-            {
-              code: "x",
-              path: "/index",
-              name: "概览",
-              scope: "department",
-              sources: [
-                { type: "role", id: 2, name: "销售", scope: "department" },
-              ],
-            },
-          ],
-          effectivePermissions: [],
-        }),
+      users: vi.fn().mockResolvedValue({
+        list: [
+          {
+            id: 7,
+            name: "张三",
+            phone: "13800000000",
+            status: 1,
+            isSuperAdmin: false,
+            version: 3,
+          },
+        ],
+        page: { total: 1, totalPage: 1 },
+      }),
+      user: vi.fn().mockResolvedValue({
+        id: 7,
+        name: "张三",
+        phone: "",
+        status: 1,
+        isSuperAdmin: false,
+        version: 4,
+        roles: [{ id: 2, name: "销售", status: 1, version: 1 }],
+        directPermissions: [],
+        inheritedPermissions: [
+          {
+            code: "x",
+            path: "/index",
+            name: "概览",
+            scope: "department",
+            sources: [
+              { type: "role", id: 2, name: "销售", scope: "department" },
+            ],
+          },
+        ],
+        effectivePermissions: [],
+      }),
       replaceUser,
       roles: vi.fn().mockResolvedValue({
         list: [
           { id: 2, name: "销售", status: 1, version: 1 },
           { id: 3, name: "停用", status: 2, version: 1 },
         ],
+        page: { total: 2, totalPage: 1 },
       }),
       catalog: vi.fn().mockResolvedValue([
         { code: "p", name: "概览", superadminOnly: false },
@@ -221,5 +220,245 @@ describe("access management pages", () => {
     expect(document.querySelector(".dashboard-table-scroll")).not.toBeNull();
     expect(window.innerWidth).toBe(390);
     expect(document.body.scrollWidth).toBeLessThanOrEqual(390);
+  });
+
+  it("does not allow saving when detail fails and loads role options across pages", async () => {
+    const replaceUser = vi.fn();
+    const api = {
+      users: vi.fn().mockResolvedValue({
+        list: [
+          {
+            id: 7,
+            name: "张三",
+            phone: "13800000000",
+            status: 1,
+            isSuperAdmin: false,
+            version: 3,
+          },
+        ],
+        page: { total: 1, totalPage: 1 },
+      }),
+      user: vi.fn().mockRejectedValue(new Error("detail failed")),
+      replaceUser,
+      roles: vi.fn().mockImplementation(({ page }: { page: number }) =>
+        Promise.resolve({
+          list:
+            page === 1
+              ? [{ id: 2, name: "销售", status: 1, version: 1 }]
+              : [{ id: 99, name: "第二页角色", status: 1, version: 1 }],
+          page: { total: 2, totalPage: 2 },
+        }),
+      ),
+      catalog: vi
+        .fn()
+        .mockResolvedValue([
+          { code: "p", name: "概览", superadminOnly: false },
+        ]),
+    };
+    wrap(<AccessStaffPage api={api} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑权限" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "详情加载失败",
+    );
+    expect(
+      screen.getByRole("button", { name: "保存权限" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(replaceUser).not.toHaveBeenCalled();
+  });
+
+  it("loads second role page and includes an unassigned role in the confirmed payload", async () => {
+    const replaceUser = vi.fn().mockResolvedValue({});
+    const api = {
+      users: vi.fn().mockResolvedValue({
+        list: [
+          {
+            id: 7,
+            name: "张三",
+            phone: "13800000000",
+            status: 1,
+            isSuperAdmin: false,
+            version: 3,
+          },
+        ],
+        page: { total: 1, totalPage: 1 },
+      }),
+      user: vi.fn().mockResolvedValue({
+        id: 7,
+        name: "张三",
+        phone: "",
+        status: 1,
+        isSuperAdmin: false,
+        version: 4,
+        roles: [],
+        directPermissions: [],
+        inheritedPermissions: [],
+        effectivePermissions: [],
+      }),
+      replaceUser,
+      roles: vi.fn().mockImplementation(({ page }: { page: number }) =>
+        Promise.resolve({
+          list:
+            page === 1
+              ? [{ id: 2, name: "销售", status: 1, version: 1 }]
+              : [{ id: 99, name: "第二页角色", status: 1, version: 1 }],
+          page: { total: 2, totalPage: 2 },
+        }),
+      ),
+      catalog: vi.fn().mockResolvedValue([]),
+    };
+    wrap(<AccessStaffPage api={api} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑权限" }));
+    await waitFor(() =>
+      expect(api.roles).toHaveBeenCalledWith({ page: 2, perPage: 100 }),
+    );
+    expect(await screen.findByText(/第二页角色/)).toBeTruthy();
+    expect(api.roles).toHaveBeenCalledWith({ page: 2, perPage: 100 });
+    fireEvent.click(screen.getByLabelText("第二页角色（启用）"));
+    fireEvent.click(screen.getByRole("button", { name: "保存权限" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认" }));
+    await waitFor(() =>
+      expect(replaceUser).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ roleIds: [99], expectedVersion: 4 }),
+      ),
+    );
+  });
+
+  it("paginates employee summaries through the access users contract", async () => {
+    const users = vi.fn().mockImplementation(({ page }: { page: number }) =>
+      Promise.resolve({
+        list: [
+          {
+            id: page,
+            name: `员工${page}`,
+            phone: "",
+            status: 1,
+            isSuperAdmin: false,
+            version: 1,
+          },
+        ],
+        page: { total: 51, totalPage: 2 },
+      }),
+    );
+    const api = {
+      users,
+      user: vi.fn(),
+      replaceUser: vi.fn(),
+      roles: vi
+        .fn()
+        .mockResolvedValue({ list: [], page: { total: 0, totalPage: 1 } }),
+      catalog: vi.fn().mockResolvedValue([]),
+    };
+    wrap(<AccessStaffPage api={api} />);
+    expect(await screen.findByText(/员工1/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() =>
+      expect(users).toHaveBeenCalledWith({ page: 2, perPage: 50 }),
+    );
+  });
+
+  it("renders real catalog and audit access branches with empty/error states and pagination scroll", async () => {
+    const catalogApi = {
+      catalog: vi.fn().mockResolvedValue([
+        {
+          code: "p",
+          path: "/overview",
+          name: "概览",
+          groupCode: "core",
+          scopeRequired: false,
+          superadminOnly: false,
+        },
+      ]),
+    };
+    wrap(<CompanyAdditionalPage api={catalogApi} />);
+    expect(await screen.findByText("概览")).toBeTruthy();
+    expect(document.querySelector(".dashboard-table-scroll")).not.toBeNull();
+
+    const audits = vi.fn().mockResolvedValue({
+      list: [
+        {
+          id: 1,
+          actorUserId: 2,
+          actorName: "管理员",
+          action: "grant",
+          targetType: "user",
+          targetId: "7",
+          before: null,
+          after: null,
+          expectedVersion: 1,
+          resultVersion: 2,
+          requestId: "req-1",
+          time: "2026-08-10T00:00:00Z",
+        },
+      ],
+      page: { page: 1, perPage: 50, total: 51, totalPage: 2 },
+    });
+    wrap(<CompanyAuthorizationPage api={{ audits }} />);
+    expect(await screen.findByText("管理员")).toBeTruthy();
+    expect(document.querySelector(".dashboard-table-scroll")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() =>
+      expect(audits).toHaveBeenCalledWith({ page: 2, perPage: 50 }),
+    );
+  });
+
+  it("shows catalog and audit empty and retryable error states", async () => {
+    const catalog = vi.fn().mockResolvedValue([]);
+    wrap(<CompanyAdditionalPage api={{ catalog }} />);
+    expect(await screen.findByText("暂无权限目录")).toBeTruthy();
+    cleanup();
+    const retryCatalog = vi.fn().mockRejectedValue(new Error("catalog failed"));
+    wrap(<CompanyAdditionalPage api={{ catalog: retryCatalog }} />);
+    expect(
+      await screen.findByRole("button", { name: "重新加载" }),
+    ).toBeTruthy();
+
+    cleanup();
+    const audits = vi.fn().mockResolvedValue({
+      list: [],
+      page: { page: 1, perPage: 50, total: 0, totalPage: 1 },
+    });
+    wrap(<CompanyAuthorizationPage api={{ audits }} />);
+    expect(await screen.findByText("暂无审计记录")).toBeTruthy();
+    cleanup();
+    const retryAudits = vi.fn().mockRejectedValue(new Error("audit failed"));
+    wrap(<CompanyAuthorizationPage api={{ audits: retryAudits }} />);
+    expect(
+      await screen.findByRole("button", { name: "重新加载" }),
+    ).toBeTruthy();
+  });
+
+  it("paginates roles through the access roles contract", async () => {
+    const roles = vi.fn().mockImplementation(({ page }: { page: number }) =>
+      Promise.resolve({
+        list: [
+          {
+            id: page,
+            name: `角色${page}`,
+            remark: "",
+            status: 1,
+            isSystem: false,
+            memberCount: 0,
+            permissions: [],
+            version: 1,
+          },
+        ],
+        page: { total: 51, totalPage: 2 },
+      }),
+    );
+    const api = {
+      roles,
+      catalog: vi.fn().mockResolvedValue([]),
+      createRole: vi.fn(),
+      updateRole: vi.fn(),
+      updateRoleStatus: vi.fn(),
+      deleteRole: vi.fn(),
+    };
+    wrap(<AccessRolePage api={api} />);
+    expect(await screen.findByText("角色1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() =>
+      expect(roles).toHaveBeenCalledWith({ page: 2, perPage: 50 }),
+    );
   });
 });

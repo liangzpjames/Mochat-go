@@ -11,10 +11,7 @@ import type {
 } from "../access/access-admin-api";
 
 type Api = {
-  users: (input: {
-    page: number;
-    perPage: number;
-  }) => Promise<{
+  users: (input: { page: number; perPage: number }) => Promise<{
     list: AccessUserSummary[];
     page: { total: number; totalPage: number };
   }>;
@@ -27,10 +24,10 @@ type Api = {
       expectedVersion: number;
     },
   ) => Promise<AccessUser>;
-  roles: (input: {
-    page: number;
-    perPage: number;
-  }) => Promise<{ list: AccessRoleSummary[] }>;
+  roles: (input: { page: number; perPage: number }) => Promise<{
+    list: AccessRoleSummary[];
+    page: { total: number; totalPage: number };
+  }>;
   catalog: () => Promise<AccessCatalogItem[]>;
 };
 
@@ -39,17 +36,31 @@ export function AccessStaffPage({ api }: { api: Api }) {
   const [selected, setSelected] = React.useState<AccessUserSummary | null>(
     null,
   );
+  const [userPage, setUserPage] = React.useState(1);
   const [roleIds, setRoleIds] = React.useState<number[]>([]);
   const [direct, setDirect] = React.useState<{ code: string; scope: string }[]>(
     [],
   );
   const users = useQuery({
-    queryKey: ["access-users"],
-    queryFn: () => api.users({ page: 1, perPage: 50 }),
+    queryKey: ["access-users", userPage],
+    queryFn: () => api.users({ page: userPage, perPage: 50 }),
   });
   const roles = useQuery({
     queryKey: ["access-role-options"],
-    queryFn: () => api.roles({ page: 1, perPage: 200 }),
+    queryFn: async () => {
+      const first = await api.roles({ page: 1, perPage: 100 });
+      const pages = first.page.totalPage;
+      const rest = await Promise.all(
+        Array.from({ length: Math.max(0, pages - 1) }, (_, index) =>
+          api.roles({ page: index + 2, perPage: 100 }),
+        ),
+      );
+      const byID = new Map(first.list.map((role) => [role.id, role]));
+      for (const page of rest) {
+        for (const role of page.list) byID.set(role.id, role);
+      }
+      return [...byID.values()];
+    },
   });
   const catalog = useQuery({
     queryKey: ["access-catalog-options"],
@@ -66,16 +77,27 @@ export function AccessStaffPage({ api }: { api: Api }) {
       setDirect(detail.data.directPermissions);
     }
   }, [detail.data]);
+  const canEdit =
+    detail.isSuccess &&
+    detail.data !== undefined &&
+    roles.isSuccess &&
+    catalog.isSuccess;
   const save = useMutation({
-    mutationFn: () =>
-      api.replaceUser(selected!.id, {
+    mutationFn: () => {
+      if (!selected || !detail.data || !canEdit) {
+        throw new Error("员工详情尚未加载完成");
+      }
+      return api.replaceUser(selected.id, {
         roleIds,
         directPermissions: direct,
-        expectedVersion: detail.data?.version ?? selected!.version,
-      }),
+        expectedVersion: detail.data.version,
+      });
+    },
     onSuccess: () => {
       setSelected(null);
-      void client.invalidateQueries({ queryKey: ["access-users"] });
+      setRoleIds([]);
+      setDirect([]);
+      void client.invalidateQueries({ queryKey: ["access-users", userPage] });
     },
   });
   const saveError = save.error as { status?: number } | null;
@@ -105,7 +127,15 @@ export function AccessStaffPage({ api }: { api: Api }) {
                     </td>
                     <td>{item.status === 1 ? "正常" : "停用"}</td>
                     <td>
-                      <button type="button" onClick={() => setSelected(item)}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRoleIds([]);
+                          setDirect([]);
+                          save.reset();
+                          setSelected(item);
+                        }}
+                      >
                         编辑权限
                       </button>
                     </td>
@@ -115,23 +145,52 @@ export function AccessStaffPage({ api }: { api: Api }) {
             </table>
           </div>
           <p>共 {users.data?.page.total ?? 0} 名员工</p>
+          <div className="dashboard-pagination">
+            <button
+              type="button"
+              disabled={userPage <= 1}
+              onClick={() => setUserPage((page) => page - 1)}
+            >
+              上一页
+            </button>
+            <span>
+              第 {userPage}/{users.data?.page.totalPage ?? 1} 页
+            </span>
+            <button
+              type="button"
+              disabled={userPage >= (users.data?.page.totalPage ?? 1)}
+              onClick={() => setUserPage((page) => page + 1)}
+            >
+              下一页
+            </button>
+          </div>
         </section>
         {selected && (
           <DashboardDialog
             open
             title={`编辑 ${selected.name} 权限`}
-            onCancel={() => setSelected(null)}
-            confirmDisabled={detail.isLoading || save.isPending}
+            onCancel={() => {
+              setSelected(null);
+              setRoleIds([]);
+              setDirect([]);
+              save.reset();
+            }}
+            confirmDisabled={!canEdit || save.isPending}
             footer={
               <>
-                <button type="button" onClick={() => setSelected(null)}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelected(null);
+                    setRoleIds([]);
+                    setDirect([]);
+                    save.reset();
+                  }}
+                >
                   取消
                 </button>
                 <ConfirmAction title={summary} onConfirm={() => save.mutate()}>
-                  <button
-                    type="button"
-                    disabled={detail.isLoading || save.isPending}
-                  >
+                  <button type="button" disabled={!canEdit || save.isPending}>
                     保存权限
                   </button>
                 </ConfirmAction>
@@ -142,8 +201,17 @@ export function AccessStaffPage({ api }: { api: Api }) {
               <legend>角色（可多选）</legend>
               {detail.isLoading ? (
                 <p>正在加载详情…</p>
+              ) : detail.isError ? (
+                <p role="alert">
+                  员工详情加载失败，请重试
+                  <button type="button" onClick={() => void detail.refetch()}>
+                    重试
+                  </button>
+                </p>
+              ) : !canEdit ? (
+                <p>正在准备可编辑权限数据…</p>
               ) : (
-                (roles.data?.list ?? []).map((role) => (
+                (roles.data ?? []).map((role) => (
                   <label key={role.id}>
                     <input
                       type="checkbox"
