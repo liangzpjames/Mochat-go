@@ -6,8 +6,11 @@ param(
   [string]$Password,
   [string]$Jwt,
   [string]$MysqlDatabase = "mochat",
+  [string]$ComposeFile = (Join-Path $PSScriptRoot "..\deploy\standalone\docker-compose.yml"),
   [int]$TargetUserId,
   [int]$CrossTenantUserId,
+  [int]$ExpectedUserRoleDelta = 0,
+  [int]$ExpectedUserPermissionDelta = 0,
   [Parameter(Mandatory = $false)][string]$MutationJson,
   [switch]$ReadOnly
 )
@@ -40,21 +43,23 @@ if (-not $Jwt -and $Phone -and $Password) {
 if (-not $Jwt -and -not ($Phone -and $Password)) { throw "provide -Jwt or -Phone and -Password; credentials are never written to evidence" }
 if (-not $ReadOnly -and ($TargetUserId -le 0 -or $CrossTenantUserId -le 0 -or -not $MutationJson)) { throw "full smoke requires TargetUserId, CrossTenantUserId, and MutationJson; use -ReadOnly explicitly for diagnostics" }
 function Snapshot-Volumes([string]$Name) {
-  $names = @(docker volume ls --format "{{.Name}}" | Where-Object { $_ -like "mochat-go-desktop*" })
-  if ($names.Count -lt 4) { throw "expected at least four mochat-go-desktop volumes" }
+  $expectedNames = @('mochat-go-desktop_app-storage', 'mochat-go-desktop_audit-anchor-storage', 'mochat-go-desktop_mysql-data', 'mochat-go-desktop_redis-data')
+  $names = @(docker volume ls --format "{{.Name}}" | Where-Object { $expectedNames -contains $_ })
+  if ($names.Count -ne $expectedNames.Count) { throw "expected exactly four mochat-go-desktop volumes: $($expectedNames -join ', ')" }
   $items = foreach ($volume in $names) { docker volume inspect $volume | ConvertFrom-Json | Select-Object Name, Mountpoint, Labels }
   Write-Json $Name $items
   return $items
 }
 
-$compose = docker compose -p mochat-go-desktop ps --format json 2>$null
+$composeArgs = @('-f', $ComposeFile, '-p', 'mochat-go-desktop')
+$compose = docker compose @composeArgs ps --format json 2>$null
 if ($LASTEXITCODE -ne 0 -or -not ($compose | Select-String "mochat-go-desktop")) { throw "compose project mochat-go-desktop is not available" }
 Set-Content -LiteralPath (Join-Path $EvidenceDir "compose-ps.json") -Value $compose -Encoding utf8
 $beforeVolumes = @(Snapshot-Volumes "volumes-before.json")
-$containerIds = @{ app = (docker compose -p mochat-go-desktop ps -q app); mysql = (docker compose -p mochat-go-desktop ps -q mysql); redis = (docker compose -p mochat-go-desktop ps -q redis) }
+$containerIds = @{ app = (docker compose @composeArgs ps -q app); mysql = (docker compose @composeArgs ps -q mysql); redis = (docker compose @composeArgs ps -q redis) }
 Write-Json "container-ids.json" $containerIds
 $countQuery = "SELECT 'mc_user',COUNT(*) FROM mc_user UNION ALL SELECT 'mc_rbac_role',COUNT(*) FROM mc_rbac_role UNION ALL SELECT 'permissions',COUNT(*) FROM mochat_go_dashboard_permissions UNION ALL SELECT 'user_roles',COUNT(*) FROM mochat_go_dashboard_user_roles UNION ALL SELECT 'user_permissions',COUNT(*) FROM mochat_go_dashboard_user_permissions UNION ALL SELECT 'audits',COUNT(*) FROM mochat_go_dashboard_permission_audits"
-$counts = docker compose -p mochat-go-desktop exec -T mysql sh -lc "mariadb -u\"`$MYSQL_USER\" -p\"`$MYSQL_PASSWORD\" \"`$MYSQL_DATABASE\" -N -B -e '$countQuery'"; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-before.txt") -Value $counts -Encoding utf8
+$counts = docker compose @composeArgs exec -T mysql sh -lc "mariadb -u\"`$MARIADB_USER\" -p\"`$MARIADB_PASSWORD\" \"`$MARIADB_DATABASE\" -N -B -e '$countQuery'"; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-before.txt") -Value $counts -Encoding utf8
 function Convert-TableCounts([string]$Raw) { $result = @{}; foreach ($line in ($Raw -split "`r?`n")) { $parts = $line -split "`t"; if ($parts.Count -ge 2) { $result[$parts[0]] = [int64]$parts[1] } }; return $result }
 $beforeCountMap = Convert-TableCounts ([string]$counts)
 
@@ -80,13 +85,13 @@ if (-not $ReadOnly -and $TargetUserId -gt 0 -and $MutationJson) {
 
 $afterVolumes = @(Snapshot-Volumes "volumes-after.json")
 if ((ConvertTo-Json $beforeVolumes) -ne (ConvertTo-Json $afterVolumes)) { throw "volume name/mountpoint changed during smoke" }
-$containerIdsAfter = @{ app = (docker compose -p mochat-go-desktop ps -q app); mysql = (docker compose -p mochat-go-desktop ps -q mysql); redis = (docker compose -p mochat-go-desktop ps -q redis) }
+$containerIdsAfter = @{ app = (docker compose @composeArgs ps -q app); mysql = (docker compose @composeArgs ps -q mysql); redis = (docker compose @composeArgs ps -q redis) }
 Write-Json "container-ids-after.json" $containerIdsAfter
 if ((ConvertTo-Json $containerIds) -ne (ConvertTo-Json $containerIdsAfter)) { throw "app/mysql/redis container IDs changed during smoke" }
-$afterCountsRaw = docker compose -p mochat-go-desktop exec -T mysql sh -lc "mariadb -u\"`$MYSQL_USER\" -p\"`$MYSQL_PASSWORD\" \"`$MYSQL_DATABASE\" -N -B -e '$countQuery'"; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-after.txt") -Value $afterCountsRaw -Encoding utf8
+$afterCountsRaw = docker compose @composeArgs exec -T mysql sh -lc "mariadb -u\"`$MARIADB_USER\" -p\"`$MARIADB_PASSWORD\" \"`$MARIADB_DATABASE\" -N -B -e '$countQuery'"; Set-Content -LiteralPath (Join-Path $EvidenceDir "table-counts-after.txt") -Value $afterCountsRaw -Encoding utf8
 $afterCountMap = Convert-TableCounts ([string]$afterCountsRaw)
 $countDelta = @{}; foreach ($name in $beforeCountMap.Keys) { $countDelta[$name] = $afterCountMap[$name] - $beforeCountMap[$name] }
 Write-Json "table-count-delta.json" $countDelta
 if ($ReadOnly) { if ((ConvertTo-Json $beforeCountMap -Compress) -ne (ConvertTo-Json $afterCountMap -Compress)) { throw "read-only smoke changed table counts" } }
-else { if (-not $statuses.auditAfterMutation -or $countDelta.audits -ne 1) { throw "full smoke expected exactly one audit row after protected mutation" } }
+else { if (-not $statuses.auditAfterMutation -or $countDelta.audits -ne 1 -or $countDelta.mc_user -ne 0 -or $countDelta.mc_rbac_role -ne 0 -or $countDelta.permissions -ne 0 -or $countDelta.user_roles -ne $ExpectedUserRoleDelta -or $countDelta.user_permissions -ne $ExpectedUserPermissionDelta) { throw "full smoke count delta violated: audit=1, user/role/catalog=0, relation deltas must match parameters" } }
 Write-Json "smoke-contract.json" @{ baseUrl = $BaseUrl; project = "mochat-go-desktop"; tenantGate = "TENANT_ACCESS_DENIED"; pageGate = "DASHBOARD_PERMISSION_DENIED"; catalog = "53 pages / 49 ordinary / 4 superadmin_only"; statuses = $statuses; destructiveOperations = @() }

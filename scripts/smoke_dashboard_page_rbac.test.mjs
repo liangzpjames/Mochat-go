@@ -5,6 +5,9 @@ import { readFile } from 'node:fs/promises';
 test('smoke script is safe, bearer-authenticated, and Windows PowerShell compatible', async () => {
   const source = await readFile(new URL('./smoke_dashboard_page_rbac.ps1', import.meta.url), 'utf8');
   assert.match(source, /BaseUrl = "http:\/\/127\.0\.0\.1:18080"/);
+  assert.match(source, /ComposeFile.*docker-compose\.yml/);
+  assert.match(source, /MARIADB_USER/);
+  assert.match(source, /expected exactly four mochat-go-desktop volumes/);
   assert.match(source, /dashboard\/user\/auth/);
   assert.match(source, /Authorization/);
   assert.match(source, /COUNT\(\*\)/);
@@ -13,7 +16,8 @@ test('smoke script is safe, bearer-authenticated, and Windows PowerShell compati
   assert.match(source, /MutationJson/);
   assert.match(source, /if \(-not \$ReadOnly -and \$TargetUserId/);
   assert.match(source, /read-only smoke changed table counts/);
-  assert.match(source, /expected exactly one audit row/);
+  assert.match(source, /full smoke count delta violated|audit=1/);
+  assert.match(source, /ExpectedUserRoleDelta|ExpectedUserPermissionDelta/);
   assert.match(source, /CrossTenantUserId/);
   assert.doesNotMatch(source, /\?\?/);
   assert.doesNotMatch(source, /down\s+-v|volume\s+rm|system\s+prune|volume\s+prune/i);
