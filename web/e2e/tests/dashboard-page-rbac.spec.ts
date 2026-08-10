@@ -65,12 +65,14 @@ async function loginLive(page: Page, base: string, account: LiveAccount) {
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).not.toBeNull();
   await page.waitForURL((url) => url.pathname !== '/login');
   await page.goto(`${base}/index`);
-  const corpSelector = page.getByLabel('企业选择');
-  if (await corpSelector.isVisible({ timeout: 1_000 }).catch(() => false)) {
+  await expect(page.locator('#dashboard-sidebar, .dashboard-corp-switcher select').first()).toBeVisible({ timeout: 15_000 });
+  const corpSelector = page.locator('.dashboard-corp-switcher select');
+  if (await corpSelector.isVisible()) {
     const corpId = await corpSelector.locator('option:not([disabled])').first().getAttribute('value');
     if (!corpId) throw new Error('live superadmin has no selectable corp');
     await corpSelector.selectOption(corpId);
     await expect(corpSelector).toHaveValue(corpId);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('mochat_dashboard_corp_id'))).toBe(JSON.stringify(corpId));
     await expect(page.locator('#dashboard-sidebar')).toBeVisible();
   }
 }
