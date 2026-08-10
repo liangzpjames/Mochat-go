@@ -5,10 +5,11 @@ import { DashboardDialog } from '../../components/dashboard-dialog';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createMenuAdminApi, type MenuNode } from '../menu-admin/menu-admin-api';
+import type { AccessCatalogItem } from '../access/access-api';
 
 type MenuAdminApi = ReturnType<typeof createMenuAdminApi>;
 
-export function CompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
+function LegacyCompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
   const queryClient = useQueryClient();
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -95,4 +96,14 @@ export function CompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
       </div>
     </Phase35PageShell>
   );
+}
+
+type CatalogApi = { catalog: () => Promise<AccessCatalogItem[]> };
+function CatalogPage({ api }: { api: CatalogApi }) {
+  const query = useQuery({ queryKey: ['dashboard-access-catalog'], queryFn: api.catalog });
+  return <Phase35PageShell title="权限目录" description="53 个 Dashboard 页面及其 scopeRequired 治理定义"><div className="phase35-page"><section className="phase35-card phase35-table-card"><table><thead><tr><th>页面</th><th>路径</th><th>分组</th><th>范围</th><th>超管专属</th></tr></thead><tbody>{(query.data ?? []).map((item) => <tr key={item.code}><td>{item.name}</td><td><code>{item.path}</code></td><td>{item.groupCode}</td><td>{item.scopeRequired ? '需要员工数据范围' : '企业级'}</td><td>{item.superadminOnly ? '是' : '否'}</td></tr>)}</tbody></table></section></div></Phase35PageShell>;
+}
+
+export function CompanyAdditionalPage({ api }: { api: MenuAdminApi | CatalogApi }) {
+  return 'catalog' in api ? <CatalogPage api={api} /> : <LegacyCompanyAdditionalPage api={api} />;
 }

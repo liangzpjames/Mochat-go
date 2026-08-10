@@ -9,7 +9,7 @@ export function ConfirmAction({
   children,
 }: {
   title: string;
-  description?: string;
+  description?: string | undefined;
   onConfirm: () => void;
   children: ReactElement<{ onClick?: unknown }>;
 }) {

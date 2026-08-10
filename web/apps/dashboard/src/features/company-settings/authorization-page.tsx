@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-base-to-string */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ConfirmAction } from '../../components/confirm-action';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createMenuAdminApi, type MenuNode } from '../menu-admin/menu-admin-api';
+import type { Page } from '../access/access-admin-api';
 
 type MenuAdminApi = ReturnType<typeof createMenuAdminApi>;
 
@@ -45,7 +47,7 @@ function OptionTree({ nodes, depth, onToggle }: { nodes: MenuNode[]; depth: numb
   );
 }
 
-export function CompanyAuthorizationPage({ api }: { api: MenuAdminApi }) {
+function LegacyCompanyAuthorizationPage({ api }: { api: MenuAdminApi }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const query = useQuery({ queryKey: ['company-authorization'], queryFn: () => api.list({ name: '', page: 1, perPage: 200 }) });
@@ -74,6 +76,16 @@ export function CompanyAuthorizationPage({ api }: { api: MenuAdminApi }) {
       </div>
     </Phase35PageShell>
   );
+}
+
+type AuditApi = { audits: (input: { page: number; perPage: number }) => Promise<Page<Record<string, unknown>>> };
+function AuditPage({ api }: { api: AuditApi }) {
+  const query = useQuery({ queryKey: ['dashboard-access-audits'], queryFn: () => api.audits({ page: 1, perPage: 50 }) });
+  return <Phase35PageShell title="权限审计" description="同事务记录的授权变更与 expectedVersion 结果"><div className="phase35-page"><section className="phase35-card phase35-table-card"><table><thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>目标</th><th>请求</th><th>结果版本</th></tr></thead><tbody>{(query.data?.list ?? []).map((audit, index) => <tr key={String(audit.id ?? index)}><td>{String(audit.time ?? '')}</td><td>{String(audit.actorName ?? audit.actorUserId ?? '')}</td><td>{String(audit.action ?? '')}</td><td>{String(audit.targetType ?? '')} {String(audit.targetId ?? '')}</td><td>{String(audit.requestId ?? '')}</td><td>{String(audit.resultVersion ?? '')}</td></tr>)}</tbody></table></section></div></Phase35PageShell>;
+}
+
+export function CompanyAuthorizationPage({ api }: { api: MenuAdminApi | AuditApi }) {
+  return 'audits' in api ? <AuditPage api={api} /> : <LegacyCompanyAuthorizationPage api={api} />;
 }
 
 function buildMenuTree(flat: MenuNode[]): MenuNode[] {

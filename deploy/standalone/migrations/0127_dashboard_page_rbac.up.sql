@@ -428,6 +428,9 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.company_setting.website', 'POST', '/dashboard/corp/store', 0
   UNION ALL SELECT 'dashboard.company_setting.website', 'PUT', '/dashboard/corp/update', 0
   UNION ALL SELECT 'dashboard.company_setting.staff', 'GET', '/dashboard/user/index', 0
+  UNION ALL SELECT 'dashboard.company_setting.staff', 'GET', '/dashboard/access/users', 0
+  UNION ALL SELECT 'dashboard.company_setting.staff', 'GET', '/dashboard/access/users/{id}', 0
+  UNION ALL SELECT 'dashboard.company_setting.staff', 'PUT', '/dashboard/access/users/{id}', 0
   UNION ALL SELECT 'dashboard.company_setting.staff', 'GET', '/dashboard/user/show', 0
   UNION ALL SELECT 'dashboard.company_setting.staff', 'GET', '/dashboard/workDepartment/selectByPhone', 0
   UNION ALL SELECT 'dashboard.company_setting.staff', 'GET', '/dashboard/role/select', 0
@@ -436,6 +439,11 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.company_setting.staff', 'PUT', '/dashboard/user/statusUpdate', 0
   UNION ALL SELECT 'dashboard.company_setting.staff', 'PUT', '/dashboard/user/passwordReset', 0
   UNION ALL SELECT 'dashboard.setting.role', 'GET', '/dashboard/role/index', 0
+  UNION ALL SELECT 'dashboard.setting.role', 'GET', '/dashboard/access/roles', 0
+  UNION ALL SELECT 'dashboard.setting.role', 'POST', '/dashboard/access/roles', 0
+  UNION ALL SELECT 'dashboard.setting.role', 'PUT', '/dashboard/access/roles/{id}', 0
+  UNION ALL SELECT 'dashboard.setting.role', 'PUT', '/dashboard/access/roles/{id}/status', 0
+  UNION ALL SELECT 'dashboard.setting.role', 'DELETE', '/dashboard/access/roles/{id}', 0
   UNION ALL SELECT 'dashboard.setting.role', 'GET', '/dashboard/role/show', 0
   UNION ALL SELECT 'dashboard.setting.role', 'GET', '/dashboard/role/showEmployee', 0
   UNION ALL SELECT 'dashboard.setting.role', 'GET', '/dashboard/role/permissionShow', 0
@@ -445,6 +453,7 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.setting.role', 'DELETE', '/dashboard/role/destroy', 0
   UNION ALL SELECT 'dashboard.setting.role', 'POST', '/dashboard/role/permissionStore', 0
   UNION ALL SELECT 'dashboard.setting.additional', 'GET', '/dashboard/menu/index', 0
+  UNION ALL SELECT 'dashboard.setting.additional', 'GET', '/dashboard/access/catalog', 0
   UNION ALL SELECT 'dashboard.setting.additional', 'GET', '/dashboard/menu/select', 0
   UNION ALL SELECT 'dashboard.setting.additional', 'GET', '/dashboard/menu/show', 0
   UNION ALL SELECT 'dashboard.setting.additional', 'GET', '/dashboard/menu/iconIndex', 0
@@ -453,6 +462,7 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.setting.additional', 'PUT', '/dashboard/menu/statusUpdate', 0
   UNION ALL SELECT 'dashboard.setting.additional', 'DELETE', '/dashboard/menu/destroy', 0
   UNION ALL SELECT 'dashboard.setting.authorization', 'GET', '/dashboard/menu/index', 0
+  UNION ALL SELECT 'dashboard.setting.authorization', 'GET', '/dashboard/access/audits', 0
   UNION ALL SELECT 'dashboard.setting.authorization', 'GET', '/dashboard/menu/select', 0
   UNION ALL SELECT 'dashboard.setting.authorization', 'GET', '/dashboard/role/permissionShow', 0
   UNION ALL SELECT 'dashboard.setting.authorization', 'POST', '/dashboard/role/permissionStore', 0

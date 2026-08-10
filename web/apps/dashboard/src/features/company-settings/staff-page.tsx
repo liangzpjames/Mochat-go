@@ -5,10 +5,11 @@ import { DashboardDialog } from '../../components/dashboard-dialog';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createUserAdminApi, type UserItem, type UserWrite } from '../user-admin/user-admin-api';
+import type { AccessUser } from '../access/access-admin-api';
 
 type UserAdminApi = ReturnType<typeof createUserAdminApi>;
 
-export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
+function LegacyCompanyStaffPage({ api }: { api: UserAdminApi }) {
   const queryClient = useQueryClient();
   const [phoneFilter, setPhoneFilter] = useState('');
   const [appliedPhone, setAppliedPhone] = useState('');
@@ -114,4 +115,25 @@ export function CompanyStaffPage({ api }: { api: UserAdminApi }) {
       </div>
     </Phase35PageShell>
   );
+}
+
+type AccessStaffApi = {
+  users: (input: { page: number; perPage: number }) => Promise<{ list: AccessUser[]; page: { total: number; totalPage: number } }>;
+  user: (id: number) => Promise<AccessUser>;
+  replaceUser: (id: number, input: { roleIds: number[]; directPermissions: { code: string; scope: string }[]; expectedVersion: number }) => Promise<AccessUser>;
+};
+
+function AccessStaffPage({ api }: { api: AccessStaffApi }) {
+  const queryClient = useQueryClient();
+  const [selected, setSelected] = useState<AccessUser | null>(null);
+  const [roleIds, setRoleIds] = useState<number[]>([]);
+  const [direct, setDirect] = useState('');
+  const query = useQuery({ queryKey: ['dashboard-access-users'], queryFn: () => api.users({ page: 1, perPage: 50 }) });
+  const detail = useQuery({ queryKey: ['dashboard-access-user', selected?.id], queryFn: () => api.user(selected!.id), enabled: selected !== null });
+  const save = useMutation({ mutationFn: () => api.replaceUser(selected!.id, { roleIds, directPermissions: direct.split(',').map((code) => ({ code: code.trim(), scope: 'self' })).filter((item) => item.code), expectedVersion: detail.data?.version ?? selected!.version }), onSuccess: () => { setSelected(null); void queryClient.invalidateQueries({ queryKey: ['dashboard-access-users'] }); } });
+  return <Phase35PageShell title="员工权限" description="管理多角色、直接权限及其继承来源"><div className="phase35-page"><section className="phase35-card phase35-table-card"><table><thead><tr><th>员工</th><th>状态</th><th>角色</th><th>权限来源</th><th>操作</th></tr></thead><tbody>{(query.data?.list ?? []).map((item) => <tr key={item.id}><td>{item.name}<br /><small>{item.phone}</small></td><td>{item.status === 1 ? '正常' : '停用'}</td><td>{item.roles.map((role) => role.name).join('、') || '无角色'}</td><td>直接 {item.directPermissions.length} · 继承 {item.inheritedPermissions.length}</td><td><button type="button" onClick={() => { setSelected(item); setRoleIds(item.roles.map((role) => role.id)); setDirect(item.directPermissions.map((permission) => permission.code).join(',')); }}>编辑权限</button></td></tr>)}</tbody></table><p>共 {query.data?.page.total ?? 0} 名员工</p></section>{selected && <DashboardDialog open title={`编辑 ${selected.name} 权限`} confirmText="保存权限" confirmLoading={save.isPending} onCancel={() => setSelected(null)} onConfirm={() => save.mutate()}><p>角色（可多选）：{selected.roles.map((role) => <label key={role.id}><input type="checkbox" checked={roleIds.includes(role.id)} onChange={() => setRoleIds((current) => current.includes(role.id) ? current.filter((id) => id !== role.id) : [...current, role.id])} />{role.name}</label>)}</p><label>直接权限 code（逗号分隔）<input value={direct} onChange={(event) => setDirect(event.target.value)} /></label><p>继承权限：{(detail.data?.inheritedPermissions ?? []).map((permission) => permission.name).join('、') || '无'}</p>{save.error && <p role="alert">保存失败（可能是版本冲突，请刷新后重试）</p>}</DashboardDialog>}</div></Phase35PageShell>;
+}
+
+export function CompanyStaffPage({ api }: { api: UserAdminApi | AccessStaffApi }) {
+  return 'users' in api ? <AccessStaffPage api={api} /> : <LegacyCompanyStaffPage api={api} />;
 }

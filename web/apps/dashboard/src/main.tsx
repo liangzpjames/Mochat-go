@@ -26,6 +26,7 @@ import {
 import { createCorpAdminApi } from './features/corp/corp-admin-api';
 import { CorpProvider } from './features/corp/corp-provider';
 import { loadAccessProfile } from './features/access/access-api';
+import { createDashboardAccessAdminApi } from './features/access/access-admin-api';
 import { createPasswordApi } from './features/password/password-api';
 import { createEmployeeApi } from './features/employee/employee-api';
 import { createDepartmentApi } from './features/department/department-api';
@@ -89,6 +90,7 @@ const contactFieldApi = createContactFieldApi(apiClient);
 const roleApi = createRoleApi(apiClient);
 const menuAdminApi = createMenuAdminApi(apiClient);
 const userAdminApi = createUserAdminApi(apiClient);
+const dashboardAccessAdminApi = createDashboardAccessAdminApi(apiClient);
 const contactTagApi = createContactTagApi(apiClient);
 const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
 const dashboardOverviewApi = createDashboardOverviewApi(apiClient);
@@ -141,7 +143,7 @@ const router = createDashboardRouter({
     ...migratedPages,
     ...createPageRegistry({
       manifest: benchmarkManifest,
-      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi, businessWorkbenchApi, aiSettingsApi, aiInsightApi, fileAudioApi, corpAdminApi, userAdminApi, roleApi, menuAdminApi }),
+      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi, businessWorkbenchApi, aiSettingsApi, aiInsightApi, fileAudioApi, corpAdminApi, userAdminApi: dashboardAccessAdminApi as unknown as typeof userAdminApi, roleApi: dashboardAccessAdminApi as unknown as typeof roleApi, menuAdminApi: dashboardAccessAdminApi as unknown as typeof menuAdminApi }),
       p1Pages: {},
     }),
     '/corp/index': page(<CorpPage api={corpAdminApi} />),

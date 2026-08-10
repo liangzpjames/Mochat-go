@@ -1494,6 +1494,9 @@
       "sort": 50,
       "superadminOnly": true,
       "resources": [
+        { "method": "GET", "pathPattern": "/dashboard/access/users", "scopeRequired": false },
+        { "method": "GET", "pathPattern": "/dashboard/access/users/{id}", "scopeRequired": false },
+        { "method": "PUT", "pathPattern": "/dashboard/access/users/{id}", "scopeRequired": false },
         {
           "method": "GET",
           "pathPattern": "/dashboard/user/index",
@@ -1544,6 +1547,11 @@
       "sort": 51,
       "superadminOnly": true,
       "resources": [
+        { "method": "GET", "pathPattern": "/dashboard/access/roles", "scopeRequired": false },
+        { "method": "POST", "pathPattern": "/dashboard/access/roles", "scopeRequired": false },
+        { "method": "PUT", "pathPattern": "/dashboard/access/roles/{id}", "scopeRequired": false },
+        { "method": "PUT", "pathPattern": "/dashboard/access/roles/{id}/status", "scopeRequired": false },
+        { "method": "DELETE", "pathPattern": "/dashboard/access/roles/{id}", "scopeRequired": false },
         {
           "method": "GET",
           "pathPattern": "/dashboard/role/index",
@@ -1599,6 +1607,7 @@
       "sort": 52,
       "superadminOnly": true,
       "resources": [
+        { "method": "GET", "pathPattern": "/dashboard/access/catalog", "scopeRequired": false },
         {
           "method": "GET",
           "pathPattern": "/dashboard/menu/index",
@@ -1649,6 +1658,7 @@
       "sort": 53,
       "superadminOnly": true,
       "resources": [
+        { "method": "GET", "pathPattern": "/dashboard/access/audits", "scopeRequired": false },
         {
           "method": "GET",
           "pathPattern": "/dashboard/menu/index",
