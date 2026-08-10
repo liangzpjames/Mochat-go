@@ -193,6 +193,10 @@ func (h *RiskBehaviorHandler) DeleteRule(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *RiskBehaviorHandler) AuditRecords(w http.ResponseWriter, r *http.Request) {
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#manage")
 	if !ok {
 		return

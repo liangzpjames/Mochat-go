@@ -130,6 +130,10 @@ func (h *Phase33ClosureHandler) EvaluateSilent(w http.ResponseWriter, r *http.Re
 	writeEnvelope(w, 200, 0, "ok", map[string]any{"matched": n})
 }
 func (h *Phase33ClosureHandler) ActSilent(w http.ResponseWriter, r *http.Request) {
+	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		return
+	}
 	t, c, a, ok := h.base.resolve(w, r, "/ai-insight/v2/silent-customer#manage")
 	if !ok {
 		return

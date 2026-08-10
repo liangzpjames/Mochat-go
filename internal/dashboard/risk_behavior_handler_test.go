@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +43,16 @@ func TestRiskBehaviorHandlerResolvesTenantFromCorp(t *testing.T) {
 	}
 	if provider.filter.CorpID != 5 || provider.filter.TenantID != 23 {
 		t.Fatalf("filter=%+v", provider.filter)
+	}
+}
+
+func TestRiskAuditRejectsRestrictedScopeBeforeMutation(t *testing.T) {
+	handler := NewRiskBehaviorHandler(&riskHandlerProvider{}, staticCache("5-9"), riskHandlerResolver{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/risk/records/audit", strings.NewReader(`{"ids":[1],"action":"approve"}`))
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeSelf, AllowedEmployeeIDs: []int{9}}))
+	rec := httptest.NewRecorder()
+	handler.AuditRecords(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

@@ -67,6 +67,18 @@ func (p *closureProvider) EvaluateSilentCustomer(context.Context, int, int, Sile
 func (p *closureProvider) ActSilentRecords(context.Context, int, int, int64, []int64, string, int64, string) (int64, error) {
 	return 2, nil
 }
+
+func TestSilentActRejectsRestrictedScopeBeforeMutation(t *testing.T) {
+	p := &closureProvider{}
+	h := NewPhase33ClosureHandler(p, staticCache("5-9"), riskHandlerResolver{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/silent-customer/records/action", strings.NewReader(`{"ids":[1],"action":"assign","assignedEmployeeId":99}`))
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{9}}))
+	rec := httptest.NewRecorder()
+	h.ActSilent(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
 func (p *closureProvider) UpsertRefuseArchive(_ context.Context, _ int, _ int, _ int64, v RefuseArchiveRecord) (int64, error) {
 	p.refused = v
 	return 21, nil
