@@ -196,7 +196,7 @@ func openDashboardIntegrationDB(t *testing.T) *sql.DB {
 func createDashboardAccessFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL, tenant_id int(11) NOT NULL, name varchar(100) NOT NULL DEFAULT '', phone varchar(32) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, isSuperAdmin tinyint(1) DEFAULT 0, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL, tenant_id int(11) NOT NULL, name varchar(100) NOT NULL DEFAULT '', phone varchar(32) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, isSuperAdmin tinyint(1) DEFAULT 0, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, name varchar(100) NOT NULL DEFAULT '', remarks varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, operate_id int NOT NULL DEFAULT 0, operate_name varchar(100) NOT NULL DEFAULT '', data_permission json DEFAULT NULL, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_user_role (id int NOT NULL AUTO_INCREMENT, user_id int NOT NULL, role_id int NOT NULL, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_menu (id int NOT NULL, link_url varchar(255) NOT NULL, data_permission tinyint NOT NULL DEFAULT 1, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
