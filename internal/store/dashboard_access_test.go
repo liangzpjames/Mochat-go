@@ -101,7 +101,7 @@ func TestMySQLStoreDashboardPermissionResourcesUseRegisteredMethod(t *testing.T)
 	if !reflect.DeepEqual(args, []any{"GET"}) {
 		t.Fatalf("args=%v", args)
 	}
-	for _, contract := range []string{"resource.method = ?", "resource.status = 1", "resource.deleted_at IS NULL", "permission.status = 1", "permission.deleted_at IS NULL"} {
+	for _, contract := range []string{"resource.http_method = ?", "resource.status = 1", "resource.deleted_at IS NULL", "permission.status = 1", "permission.deleted_at IS NULL"} {
 		if !strings.Contains(query, contract) {
 			t.Fatalf("query missing %q: %s", contract, query)
 		}

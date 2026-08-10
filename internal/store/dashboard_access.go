@@ -20,12 +20,12 @@ func (s *MySQLStore) DashboardPermissionResources(ctx context.Context, method st
 		return nil, errors.New("dashboard permission resource store is unavailable")
 	}
 	rows, err := query(ctx, `
-		SELECT permission.code, resource.method, resource.path_pattern, resource.scope_required
+		SELECT permission.code, resource.http_method, resource.path_pattern, resource.scope_required
 		FROM mochat_go_dashboard_permission_resources resource
 		INNER JOIN mochat_go_dashboard_permissions permission
 			ON permission.id = resource.permission_id
 			AND permission.status = 1 AND permission.deleted_at IS NULL
-		WHERE resource.method = ? AND resource.status = 1 AND resource.deleted_at IS NULL
+		WHERE resource.http_method = ? AND resource.status = 1 AND resource.deleted_at IS NULL
 		ORDER BY resource.path_pattern ASC, permission.code ASC
 	`, strings.ToUpper(strings.TrimSpace(method)))
 	if err != nil {
