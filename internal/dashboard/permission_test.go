@@ -56,7 +56,7 @@ func TestPermissionByUserReturnsSuperAdminMenuTree(t *testing.T) {
 	}
 }
 
-func TestPermissionByUserReturnsRoleMenus(t *testing.T) {
+func TestPermissionByUserRejectsOrdinaryUser(t *testing.T) {
 	store := &fakePermissionStore{
 		user:    User{ID: 7, TenantID: 1, IsSuperAdmin: 0},
 		roleID:  12,
@@ -73,18 +73,11 @@ func TestPermissionByUserReturnsRoleMenus(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusForbidden || machineCode(t, rec) != DashboardPermissionDeniedCode {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	if store.roleUserID != 7 || store.roleTenantID != 1 {
-		t.Fatalf("role lookup = user %d tenant %d", store.roleUserID, store.roleTenantID)
-	}
-	if store.menuRoleID != 12 {
-		t.Fatalf("menu roleID = %d", store.menuRoleID)
-	}
-	body := decodePermissionResponse(t, rec.Body.Bytes())
-	if len(body.Data) != 1 || len(body.Data[0].Children) != 1 {
-		t.Fatalf("unexpected tree: %+v", body.Data)
+	if store.roleUserID != 0 || store.menuRoleID != 0 {
+		t.Fatalf("legacy role lookup executed: user=%d role=%d", store.roleUserID, store.menuRoleID)
 	}
 }
 
@@ -154,8 +147,8 @@ func TestPermissionByUserRejectsRoleWithoutMenus(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	if rec.Code != http.StatusForbidden || machineCode(t, rec) != DashboardPermissionDeniedCode {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

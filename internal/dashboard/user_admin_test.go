@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -137,7 +138,7 @@ func TestUserAdminStoreRefreshesSaaSUserUsage(t *testing.T) {
 
 func TestUserAdminStatusUpdateRejectsRepeatedStatus(t *testing.T) {
 	store := &fakeUserAdminStore{
-		users:      map[int]User{1: {ID: 1, TenantID: 8}},
+		users:      map[int]User{1: {ID: 1, TenantID: 8, IsSuperAdmin: 1}},
 		itemsByIDs: []UserAdminItem{{ID: 2, Name: "张三", Status: 1}},
 	}
 	handler := NewUserAdminHandler(store, nil, HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
@@ -164,7 +165,7 @@ func TestUserAdminPasswordUpdateChecksOldPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &fakeUserAdminStore{
-		users:      map[int]User{1: {ID: 1, TenantID: 8}},
+		users:      map[int]User{1: {ID: 1, TenantID: 8, IsSuperAdmin: 1}},
 		adminItems: map[int]UserAdminItem{1: {ID: 1, Name: "管理员", Status: 1}},
 		authUsers:  map[int]AuthUser{1: {ID: 1, Status: 1, Password: oldHash}},
 	}
@@ -179,6 +180,18 @@ func TestUserAdminPasswordUpdateChecksOldPassword(t *testing.T) {
 	}
 	if store.passwordUpdatedID != 1 || !authjwt.CheckPasswordHash("secret", "new456", store.passwordHash) {
 		t.Fatalf("password update = id %d hash %q", store.passwordUpdatedID, store.passwordHash)
+	}
+}
+
+func TestUserAdminRejectsOrdinaryUserBeforeManagementQueries(t *testing.T) {
+	store := &fakeUserAdminStore{users: map[int]User{2: {ID: 2, TenantID: 8}}}
+	handler := NewUserAdminHandler(store, nil, HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
+	response := performRequest(handler.Index, http.MethodGet, "/dashboard/user/index", nil, map[string]string{"X-Mochat-Go-User-ID": "2"})
+	if response.Code != http.StatusForbidden || machineCode(t, response) != DashboardPermissionDeniedCode {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if len(store.statusCountIDs) != 0 || store.lastFilter.TenantID != 0 {
+		t.Fatalf("management queries ran: statusIDs=%v filter=%+v", store.statusCountIDs, store.lastFilter)
 	}
 }
 

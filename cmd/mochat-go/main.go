@@ -3288,8 +3288,14 @@ func main() {
 		dashboardAccessResolver,
 		dashboardAccessService,
 	)
+	dashboardAccessAdminService := dashboard.NewDashboardAccessAdminService(dashboardAccessStore, dashboardAccessService)
+	dashboardAccessHTTP := dashboard.NewDashboardAccessHTTP(dashboardAccessAdminService, dashboardAccessResolver)
+	if err := registerDashboardAccessRoutes(moduleRouter, dashboardAccessHTTP); err != nil {
+		log.Fatalf("register Dashboard access administration routes: %v", err)
+	}
 	options = append(options,
 		compatserver.WithDashboardRequestGuard(dashboardAccessGuard),
+		compatserver.WithDashboardAccessHandler(dashboardAccessHTTP),
 		compatserver.WithModuleRouter(moduleRouter),
 	)
 	handler, err := compatserver.New(cfg, options...)

@@ -27,6 +27,7 @@ type Server struct {
 	proxy                                           http.Handler
 	moduleRouter                                    ModuleRouter
 	dashboardRequestGuard                           DashboardRequestGuard
+	dashboardAccess                                 http.Handler
 	auth                                            http.Handler
 	authMFA                                         http.Handler
 	identitySelf                                    http.Handler
@@ -733,6 +734,16 @@ func WithDashboardRequestGuard(guard DashboardRequestGuard) Option {
 			return
 		}
 		server.dashboardRequestGuard = guard
+	}
+}
+
+func WithDashboardAccessHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		if nilcheck.IsNil(handler) {
+			server.dashboardAccess = nil
+			return
+		}
+		server.dashboardAccess = handler
 	}
 }
 
@@ -4310,6 +4321,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !s.dashboardRequestGuard.Authorize(w, r) {
 			return
 		}
+	}
+	if strings.HasPrefix(r.URL.Path, "/dashboard/access/") && !nilcheck.IsNil(s.dashboardAccess) {
+		if !nilcheck.IsNil(s.moduleRouter) {
+			if handler, ok := s.moduleRouter.Match(r); ok && !nilcheck.IsNil(handler) {
+				handler.ServeHTTP(w, r)
+				return
+			}
+		}
+		s.dashboardAccess.ServeHTTP(w, r)
+		return
 	}
 	if !nilcheck.IsNil(s.moduleRouter) {
 		if handler, ok := s.moduleRouter.Match(r); ok {

@@ -276,6 +276,48 @@ func TestDashboardRequestGuardRunsBeforeModuleRouterAndLegacySwitch(t *testing.T
 	}
 }
 
+func TestDashboardAccessHandlerRunsAfterGuardAndBeforeOtherModuleRoutes(t *testing.T) {
+	router := modules.NewRouter()
+	registered := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	})
+	if err := router.Handle(http.MethodGet, "/dashboard/access/profile", registered); err != nil {
+		t.Fatal(err)
+	}
+	fallbackCalls := 0
+	fallback := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fallbackCalls++
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+	guard := &recordingDashboardRequestGuard{allow: true}
+	server, err := New(config.Config{}, WithDashboardRequestGuard(guard), WithDashboardAccessHandler(fallback), WithModuleRouter(router))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard/access/profile", nil))
+	if response.Code != http.StatusCreated || guard.calls != 1 || fallbackCalls != 0 {
+		t.Fatalf("registered status=%d guard=%d fallback=%d", response.Code, guard.calls, fallbackCalls)
+	}
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/dashboard/access/profile", nil))
+	if response.Code != http.StatusMethodNotAllowed || guard.calls != 2 || fallbackCalls != 1 {
+		t.Fatalf("fallback status=%d guard=%d fallback=%d", response.Code, guard.calls, fallbackCalls)
+	}
+
+	deniedGuard := &recordingDashboardRequestGuard{}
+	server, err = New(config.Config{}, WithDashboardRequestGuard(deniedGuard), WithDashboardAccessHandler(fallback), WithModuleRouter(router))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard/access/profile", nil))
+	if response.Code != http.StatusForbidden || deniedGuard.calls != 1 || fallbackCalls != 1 {
+		t.Fatalf("denied status=%d guard=%d fallback=%d", response.Code, deniedGuard.calls, fallbackCalls)
+	}
+}
+
 func TestDashboardRequestGuardSkipsSaaSAndRunsOnceAfterBundledNormalization(t *testing.T) {
 	t.Run("saas admin bypass", func(t *testing.T) {
 		guard := &recordingDashboardRequestGuard{}

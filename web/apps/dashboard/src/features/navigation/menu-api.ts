@@ -4,25 +4,27 @@ type ApiClient = {
   request(input: RequestInfo | URL, init?: RequestInit): Promise<unknown>;
 };
 
-type MenuResponse = {
+type EffectivePermissionResponse = {
+  code: string;
   name: string;
-  icon?: string | null;
-  linkUrl?: string | null;
-  linkType?: number;
-  children?: MenuResponse[];
+  path: string;
 };
 
-function mapMenu(node: MenuResponse): MenuNode {
+type DashboardAccessProfileResponse = {
+  effectivePermissions: EffectivePermissionResponse[];
+};
+
+function mapPermission(permission: EffectivePermissionResponse): MenuNode {
   return {
-    name: node.name,
-    icon: node.icon || null,
-    linkUrl: node.linkUrl || null,
-    linkType: node.linkType === 2 ? 2 : 1,
-    children: (node.children ?? []).map(mapMenu),
+    name: permission.name,
+    icon: null,
+    linkUrl: permission.path,
+    linkType: 1,
+    children: [],
   };
 }
 
 export async function loadMenu(client: ApiClient): Promise<MenuNode[]> {
-  const menu = await client.request('/role/permissionByUser') as MenuResponse[];
-  return menu.map(mapMenu);
+  const profile = await client.request('/access/profile') as DashboardAccessProfileResponse;
+  return (profile.effectivePermissions ?? []).map(mapPermission);
 }

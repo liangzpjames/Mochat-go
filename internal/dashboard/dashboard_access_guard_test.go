@@ -24,6 +24,7 @@ type fakeDashboardAccessGuardStore struct {
 	allowedCorpIDs []int
 	resourceCalls  int
 	grantCalls     int
+	tenantCalls    int
 }
 
 func (store *fakeDashboardAccessGuardStore) DashboardAccessIdentity(context.Context, int) (DashboardAccessIdentity, bool, error) {
@@ -31,11 +32,71 @@ func (store *fakeDashboardAccessGuardStore) DashboardAccessIdentity(context.Cont
 }
 
 func (store *fakeDashboardAccessGuardStore) DashboardTenantAccess(_ context.Context, tenantID int, _ time.Time) (DashboardTenantAccess, error) {
+	store.tenantCalls++
 	access := store.tenantAccess
 	if access.TenantID == 0 {
 		access.TenantID = tenantID
 	}
 	return access, nil
+}
+
+func TestDashboardAccessGuardProfileRequiresAuthenticationAndTenantGate(t *testing.T) {
+	guard, store := newDashboardAccessGuardFixture(false)
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/access/profile", nil)
+	response := httptest.NewRecorder()
+	if !guard.Authorize(response, request) {
+		t.Fatalf("profile rejected: status=%d body=%s", response.Code, response.Body.String())
+	}
+	access, ok := DashboardAccessFromContext(request.Context())
+	if !ok || access.UserID != 7 || access.TenantID != 9 || access.CorpID != 12 || access.IsSuperAdmin {
+		t.Fatalf("access=%+v ok=%v", access, ok)
+	}
+	if store.tenantCalls != 1 || store.resourceCalls != 0 || store.grantCalls != 0 {
+		t.Fatalf("tenant=%d resource=%d grants=%d", store.tenantCalls, store.resourceCalls, store.grantCalls)
+	}
+
+	guard, store = newDashboardAccessGuardFixture(false)
+	store.tenantAccess = DashboardTenantAccess{TenantID: 9, Allowed: false}
+	response = httptest.NewRecorder()
+	if guard.Authorize(response, httptest.NewRequest(http.MethodGet, "/dashboard/access/profile", nil)) {
+		t.Fatal("profile accepted for denied tenant")
+	}
+	if response.Code != http.StatusForbidden || machineCode(t, response) != DashboardTenantAccessDeniedCode {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestDashboardAccessGuardManagementRoutesAreSuperadminOnly(t *testing.T) {
+	for _, contract := range []struct{ method, path string }{
+		{http.MethodGet, "/dashboard/access/catalog"},
+		{http.MethodGet, "/dashboard/access/users/7"},
+		{http.MethodPut, "/dashboard/access/users/7"},
+		{http.MethodPost, "/dashboard/access/roles"},
+		{http.MethodPut, "/dashboard/access/roles/8/status"},
+		{http.MethodDelete, "/dashboard/access/roles/8"},
+		{http.MethodGet, "/dashboard/access/audits"},
+	} {
+		t.Run(contract.method+" "+contract.path, func(t *testing.T) {
+			ordinary, _ := newDashboardAccessGuardFixture(false)
+			ordinaryResponse := httptest.NewRecorder()
+			if ordinary.Authorize(ordinaryResponse, httptest.NewRequest(contract.method, contract.path, nil)) {
+				t.Fatal("ordinary user accepted")
+			}
+			if ordinaryResponse.Code != http.StatusForbidden || machineCode(t, ordinaryResponse) != DashboardPermissionDeniedCode {
+				t.Fatalf("ordinary status=%d body=%s", ordinaryResponse.Code, ordinaryResponse.Body.String())
+			}
+
+			superadmin, _ := newDashboardAccessGuardFixture(true)
+			superadminRequest := httptest.NewRequest(contract.method, contract.path, nil)
+			if !superadmin.Authorize(httptest.NewRecorder(), superadminRequest) {
+				t.Fatal("superadmin rejected")
+			}
+			access, ok := DashboardAccessFromContext(superadminRequest.Context())
+			if !ok || !access.IsSuperAdmin || access.TenantID != 9 {
+				t.Fatalf("access=%+v ok=%v", access, ok)
+			}
+		})
+	}
 }
 
 func (store *fakeDashboardAccessGuardStore) DashboardPermissionResources(context.Context, string) ([]DashboardPermissionResource, error) {

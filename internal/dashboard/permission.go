@@ -60,33 +60,11 @@ func (h *PermissionByUserHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
 		return
 	}
-
-	var menus []Menu
-	if user.IsSuperAdmin == 1 {
-		menus, err = h.store.PageMenus(r.Context())
-	} else {
-		roleID, ok, err := h.store.RoleIDByUserTenant(r.Context(), user.ID, user.TenantID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return
-		}
-		if !ok || roleID <= 0 {
-			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "该角色未设置菜单权限", nil)
-			return
-		}
-
-		menuIDs, err := h.store.MenuIDsByRole(r.Context(), roleID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return
-		}
-		if len(menuIDs) == 0 {
-			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "该角色未设置菜单权限", nil)
-			return
-		}
-
-		menus, err = h.store.MenusByIDs(r.Context(), menuIDs)
+	if !requireTenantSuperAdmin(w, user) {
+		return
 	}
+
+	menus, err := h.store.PageMenus(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return

@@ -3,11 +3,11 @@ package dashboard
 // These contracts are policy, not routing evidence. The catalog gate independently
 // extracts reachable registrations from production Go dispatch and composition code.
 var exactExemptDashboardRouteContracts = []string{
+	"GET /dashboard/access/profile",
 	"GET /dashboard/corp/select",
 	"GET /dashboard/corp/weWorkCallback",
 	"GET /dashboard/officialAccount/authEventCallback",
 	"GET /dashboard/officialAccount/authRedirect/",
-	"GET /dashboard/role/permissionByUser",
 	"GET /dashboard/user/loginShow",
 	"GET /dashboard/user/securityMFA",
 	"POST /dashboard/corp/bind",
@@ -47,6 +47,17 @@ func PublicDashboardRouteContracts() []string {
 // denyOnlyDashboardRouteContracts are registered endpoints that are intentionally
 // unavailable to ordinary Dashboard users. A same-tenant superadmin may still use them.
 var denyOnlyDashboardRouteContracts = []string{
+	"DELETE /dashboard/access/roles/{id}",
+	"GET /dashboard/access/audits",
+	"GET /dashboard/access/catalog",
+	"GET /dashboard/access/roles",
+	"GET /dashboard/access/users",
+	"GET /dashboard/access/users/{id}",
+	"GET /dashboard/role/permissionByUser",
+	"POST /dashboard/access/roles",
+	"PUT /dashboard/access/roles/{id}",
+	"PUT /dashboard/access/roles/{id}/status",
+	"PUT /dashboard/access/users/{id}",
 	"DELETE /dashboard/acceptance/phase35",
 	"DELETE /dashboard/autoTag/destroy",
 	"DELETE /dashboard/contactBatchAdd/destroy",

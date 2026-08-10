@@ -108,6 +108,15 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 		return false
 	}
 
+	if contract == "GET /dashboard/access/profile" {
+		corpID, err := guard.validatedCorpID(request, identity)
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusInternalServerError, "DASHBOARD_ACCESS_ERROR", "dashboard access unavailable", nil)
+			return false
+		}
+		guard.attachIdentityContext(request, identity, corpID)
+		return true
+	}
 	if dashboardContractContains(ExactExemptDashboardRouteContracts(), contract) {
 		return true
 	}
@@ -178,10 +187,14 @@ func (guard *DashboardAccessGuard) validatedCorpID(request *http.Request, identi
 	return info.CorpIDs[0], nil
 }
 
-func (guard *DashboardAccessGuard) attachIdentityContext(request *http.Request, identity DashboardAccessIdentity) {
+func (guard *DashboardAccessGuard) attachIdentityContext(request *http.Request, identity DashboardAccessIdentity, corpIDs ...int) {
+	corpID := 0
+	if len(corpIDs) > 0 {
+		corpID = corpIDs[0]
+	}
 	access := DashboardAccessContext{
 		UserID: identity.UserID, UserName: identity.UserName, TenantID: identity.TenantID,
-		Scope: DataScopeTenant, IsSuperAdmin: identity.IsSuperAdmin,
+		CorpID: corpID, Scope: DataScopeTenant, IsSuperAdmin: identity.IsSuperAdmin,
 	}
 	*request = *request.WithContext(WithDashboardAccessContext(request.Context(), access))
 }

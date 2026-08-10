@@ -123,37 +123,37 @@ type DashboardPermissionAuditPage struct {
 }
 
 type ReplaceUserDashboardAccessInput struct {
-	RoleIDs           []int
-	DirectPermissions []DashboardPermissionAssignment
-	ExpectedVersion   uint64
-	RequestID         string
+	RoleIDs           []int                           `json:"roleIds"`
+	DirectPermissions []DashboardPermissionAssignment `json:"directPermissions"`
+	ExpectedVersion   uint64                          `json:"expectedVersion"`
+	RequestID         string                          `json:"requestId"`
 }
 
 type CreateDashboardRoleInput struct {
-	Name        string
-	Remark      string
-	Status      int
-	Permissions []DashboardPermissionAssignment
-	RequestID   string
+	Name        string                          `json:"name"`
+	Remark      string                          `json:"remark"`
+	Status      int                             `json:"status"`
+	Permissions []DashboardPermissionAssignment `json:"permissions"`
+	RequestID   string                          `json:"requestId"`
 }
 
 type UpdateDashboardRoleInput struct {
-	Name            string
-	Remark          string
-	Permissions     []DashboardPermissionAssignment
-	ExpectedVersion uint64
-	RequestID       string
+	Name            string                          `json:"name"`
+	Remark          string                          `json:"remark"`
+	Permissions     []DashboardPermissionAssignment `json:"permissions"`
+	ExpectedVersion uint64                          `json:"expectedVersion"`
+	RequestID       string                          `json:"requestId"`
 }
 
 type UpdateDashboardRoleStatusInput struct {
-	Status          int
-	ExpectedVersion uint64
-	RequestID       string
+	Status          int    `json:"status"`
+	ExpectedVersion uint64 `json:"expectedVersion"`
+	RequestID       string `json:"requestId"`
 }
 
 type DeleteDashboardRoleInput struct {
-	ExpectedVersion uint64
-	RequestID       string
+	ExpectedVersion uint64 `json:"expectedVersion"`
+	RequestID       string `json:"requestId"`
 }
 
 type ReplaceUserDashboardAccessCommand struct {
@@ -228,8 +228,12 @@ type DashboardAccessAdminService struct {
 	access *DashboardAccessService
 }
 
-func NewDashboardAccessAdminService(store DashboardAccessAdminStore) *DashboardAccessAdminService {
-	return &DashboardAccessAdminService{store: store, access: NewDashboardAccessService(store)}
+func NewDashboardAccessAdminService(store DashboardAccessAdminStore, accessServices ...*DashboardAccessService) *DashboardAccessAdminService {
+	access := NewDashboardAccessService(store)
+	if len(accessServices) > 0 && accessServices[0] != nil {
+		access = accessServices[0]
+	}
+	return &DashboardAccessAdminService{store: store, access: access}
 }
 
 func (service *DashboardAccessAdminService) Profile(ctx context.Context, userID, corpID int) (DashboardAccessProfile, error) {

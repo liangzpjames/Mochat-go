@@ -613,6 +613,9 @@ func (h *RoleAdminHandler) resolveAccess(w http.ResponseWriter, r *http.Request)
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
 		return 0, User{}, LoginCorpInfo{}, false
 	}
+	if !requireTenantSuperAdmin(w, user) {
+		return 0, User{}, LoginCorpInfo{}, false
+	}
 
 	cacheValue := ""
 	if h.cache != nil {
