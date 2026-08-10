@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 53 个 Dashboard 页面建立独立、租户隔离、服务端失败关闭的页面 RBAC，并交付多角色、直接权限、数据范围、原子审计管理及真实 Docker/browser 验收。
+**Goal:** 为 53 个 Dashboard 页面建立独立、租户隔离、服务端失败关闭的页面 RBAC，并交付多角色、直接权限、数据范围、原子审计管理及非 Docker 全门禁；真实 Docker/browser 最终验收由主任务执行。
 
 **Architecture:** 迁移 `0127_dashboard_page_rbac` 建立权限目录、API 资源映射和租户关联表；`DashboardAccessService` 统一计算 SaaS 门槛、页面权限来源与数据范围，并由 server 前置 guard 和 `/dashboard/access/*` 管理 handler 共用。React loader 改读 `/access/profile`，manifest 只负责 53 页呈现结构，权限事实由服务端返回。
 
@@ -18,7 +18,7 @@
 - 普通用户有效权限为直接权限与所有启用角色权限的并集；数据范围 `tenant > department > self`；直接权限默认 `self`。
 - 普通用户未映射 Dashboard API 默认 `403`；superadmin 仅在同 tenant 隐式全部。
 - 每项生产代码必须先有可解释的 RED，再写最小 GREEN；每个逻辑批次独立提交。
-- 最终 Docker 只使用 `mochat-go-desktop`；不执行 `down -v`、`volume rm`、`system prune`，不删除、清理或重建卷，不重建 MySQL/Redis，只可在主任务确认后重建 `app`。
+- 本分支只完成非 Docker 全门禁；Docker Task 10 由主任务在 `mochat-go-desktop` 执行。本分支不得重建 `app`、MySQL/Redis 或卷，也不得执行 `down -v`、`volume rm`、`system prune`。
 - 最终证据写入 `D:\workspace\mochat-go\output`；route/test passed 不代表产品完成。
 
 ---
@@ -33,9 +33,10 @@
 - Create: `deploy/standalone/migrations/0127_dashboard_page_rbac.down.sql`
 - Modify: `deploy/standalone/migrations/README.md`
 - Test: `internal/migration/migration_test.go`
+- Test: `internal/migration/dashboard_page_rbac_integration_test.go`
 
 **Interfaces:**
-- Produces: `DashboardPageCatalog` 的 53 个 `{code,path,name,groupCode,sort,superadminOnly,resources[]}` 条目。
+- Produces: `DashboardPageCatalog` 的 53 个 `{code,path,name,groupCode,sort,superadminOnly,resources[]}` 条目；每个资源显式包含 `scopeRequired`。
 - Produces: 六张 `mochat_go_dashboard_*` 表、`mc_user`/`mc_rbac_role.dashboard_access_version` 及 `(tenant_id,id)` 复合约束。
 - Consumes: `web/apps/dashboard/src/benchmark/manifest.json`。
 
@@ -64,7 +65,7 @@ export function validateDashboardPageRBACCatalog({ manifest, catalog, apiUsages 
 }
 ```
 
-`dashboard_page_catalog.json` 完整列出 manifest 的 53 页；资源使用 `METHOD /dashboard/path`，同一资源可属于多个页面。校验器扫描 React API 调用并交叉核对 server/module 注册清单；系统豁免使用精确 method+path 常量且不放入页面资源。除精确豁免外，任何 manifest、前端调用、server 注册或 catalog 漂移都失败，不能以旧菜单或 fallback 通过。
+`dashboard_page_catalog.json` 完整列出 manifest 的 53 页；资源使用 `METHOD /dashboard/path`，同一资源可属于多个页面。每个资源必须显式声明 `scopeRequired: true|false`；校验器扫描 React API 调用、server switch/module 注册和所有访问 employee/corp 数据的 handler/store 调用链，后者必须标记为 `true`。系统豁免使用精确 method+path 常量且不放入页面资源。除精确豁免外，任何 manifest、前端调用、server 注册、scope 标记或 catalog 漂移都失败，不能以旧菜单或 fallback 通过。
 
 - [ ] **Step 4: 运行 GREEN 并记录资源覆盖**
 
@@ -74,7 +75,7 @@ Expected: PASS，并打印 `53 pages, 49 ordinary, 4 superadmin_only, 0 unmapped
 
 - [ ] **Step 5: 写迁移 RED**
 
-在 `internal/migration/migration_test.go` 新增测试，读取 DefaultMigrations 最后一项并断言版本、up/down 文件存在；读取 SQL 断言六张表、53 个权限 seed、四个 `superadmin_only=1`、跨租户和缺失 0039 subscription 两类 `SIGNAL SQLSTATE '45000'`、两个 `dashboard_access_version`、复合外键、直接唯一键和旧关系回填语句存在。断言 `tenant_id int(11)` signed、`user_id int(10) unsigned`、`role_id int(11)` signed、`permission_id bigint(20) unsigned` 与父表一致，关系表不存在 nullable `deleted_at` 唯一键。
+在 `internal/migration/migration_test.go` 新增测试，读取 DefaultMigrations 最后一项并断言版本、up/down 文件存在；读取 SQL 断言六张表、53 个权限 seed、四个 `superadmin_only=1`、跨租户和缺失 0039 subscription 两类动态 `SIGNAL SQLSTATE '45000'`、两个 `dashboard_access_version`、复合外键、直接唯一键和旧关系回填语句存在。断言预检均位于第一条 DDL 前，使用仓库 0106 的 `SET` + `PREPARE/EXECUTE` 兼容方式且不含 `DELIMITER`/存储过程；断言 `tenant_id int(11)` signed、`user_id int(10) unsigned`、`role_id int(11)` signed、`permission_id bigint(20) unsigned` 与父表一致，关系表不存在 nullable `deleted_at` 唯一键，也不使用 `ADD COLUMN IF NOT EXISTS`。
 
 - [ ] **Step 6: 运行迁移 RED**
 
@@ -84,18 +85,24 @@ Expected: FAIL，缺少 `0127_dashboard_page_rbac`。
 
 - [ ] **Step 7: 写 up/down SQL**
 
-up SQL 顺序固定为：有效 package 缺少 0039 subscription 检测 → 跨租户脏数据检测 → 两个聚合版本字段 → 复合唯一索引 → 六张表 → 53 页和完整资源 seed → 同 tenant 旧 user-role 回填 → 可映射旧 role-menu 回填。`user_roles`、`role_permissions`、`user_permissions` 使用 `(tenant_id, target_id)` 复合外键和直接唯一键，不设软删除；关系更新由应用事务物理替换，历史只进入 append-only audit。down 先按外键逆序删六张表，再删 0127 新增版本字段和索引，不修改旧关联数据。
+up SQL 顺序固定为：有效 package 缺少 0039 subscription 检测 → 跨租户脏数据检测 → 两个聚合版本字段 → 复合唯一索引 → 六张表 → 53 页和完整资源 seed → 同 tenant 旧 user-role 回填 → 可映射旧 role-menu 回填。两项数据预检必须在第一条 DDL 前完成；MariaDB/MySQL DDL 会隐式提交，不宣称整体事务原子性。runner 按分号拆分，预检沿用 0106 动态 `SIGNAL`，禁止 `DELIMITER` 和存储过程。`user_roles`、`role_permissions`、`user_permissions` 使用 `(tenant_id, target_id)` 复合外键和直接唯一键，不设软删除；关系更新由应用事务物理替换，历史只进入 append-only audit。`permission_audits.actor_user_id` 可空，非空时使用 tenant+user 复合外键，`target_id varchar(64)`。down 先按外键逆序删六张表，再删两个版本字段和 0127 新增复合索引，不修改旧关联数据。
 
-- [ ] **Step 8: 运行 GREEN 和迁移静态门禁**
+- [ ] **Step 8: 写并运行真实 MariaDB 迁移门禁**
+
+编写隔离数据库集成测试，验证：缺 subscription 或跨 tenant 旧关系时第一条 DDL 尚未发生；正常 apply 后 ledger 才记录 0127；down 删除六表、两个版本字段和两个复合索引；随后再次 apply 成功；人为制造中途 DDL 失败时 ledger 不记账、错误可诊断，并按 down/修复路径恢复。开发会话只编写测试，不自行操作 Docker；`MOCHAT_GO_MYSQL_INTEGRATION_DSN` 缺失时明确 SKIP。主任务在 `mochat-go-desktop` 最终阶段提供隔离临时数据库 DSN，执行 apply→down→apply 并留证。
+
+Run: `go test ./internal/migration -run DashboardPageRBACIntegration -count=1`
+
+- [ ] **Step 9: 运行 GREEN 和迁移静态门禁**
 
 Run: `go test ./internal/migration -run DashboardPageRBAC -count=1 && node scripts/check_dashboard_page_rbac_catalog.mjs && git diff --check`
 
 Expected: PASS。
 
-- [ ] **Step 9: 提交**
+- [ ] **Step 10: 提交**
 
 ```powershell
-git add internal/dashboard/dashboard_page_catalog.json scripts/check_dashboard_page_rbac_catalog.mjs scripts/check_dashboard_page_rbac_catalog.test.mjs deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql deploy/standalone/migrations/0127_dashboard_page_rbac.down.sql deploy/standalone/migrations/README.md internal/migration/migration_test.go
+git add internal/dashboard/dashboard_page_catalog.json scripts/check_dashboard_page_rbac_catalog.mjs scripts/check_dashboard_page_rbac_catalog.test.mjs deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql deploy/standalone/migrations/0127_dashboard_page_rbac.down.sql deploy/standalone/migrations/README.md internal/migration/migration_test.go internal/migration/dashboard_page_rbac_integration_test.go
 git commit -m "feat(rbac): add dashboard page permission schema"
 ```
 
@@ -146,7 +153,7 @@ Expected: PASS。
 
 - [ ] **Step 5: 写登录/MFA RED**
 
-在 `auth_test.go` 与 `saas_identity_security_test.go` 断言密码正确但门槛失败时不签 token、返回 `403` 和稳定 reason；gate error 返回 `500`。MFA 完成同样覆盖。
+在 `auth_test.go` 与 `saas_identity_security_test.go` 断言密码正确但门槛失败时不签 token、返回 `403` 和稳定 machine code `TENANT_ACCESS_DENIED`；gate error 返回 `500`。MFA 完成同样覆盖，禁止靠中文 `msg` 判断。
 
 - [ ] **Step 6: 运行 RED 并实现注入**
 
@@ -201,7 +208,7 @@ Expected: FAIL，解析器不存在。
 
 - [ ] **Step 3: 写最小解析器与 scoped SQL**
 
-store 的所有读 SQL 第一条件为 `tenant_id = ?`；角色只取 `status=1` 且未删除；直接权限默认 scope self；superadmin 直接从目录生成 53 条结果。按 permission code 排序 sources，保证响应稳定。
+store 的所有读 SQL 第一条件为 `tenant_id = ?`；角色只取 `status=1` 且未删除；直接权限默认 scope self；superadmin 直接从目录生成 53 条结果。按 permission code 排序 sources，保证响应稳定。解析器先把每个已授权资源的最终 scope 纳入 profile，供 Task 4 写入 `DashboardAccessContext`。
 
 - [ ] **Step 4: 运行 GREEN**
 
@@ -238,7 +245,7 @@ git commit -m "feat(rbac): resolve direct and multi-role access"
 
 - [ ] **Step 1: 写 guard RED**
 
-覆盖：无 token `401`；门槛失败 `403`；普通用户已映射且有任一权限放行；无权限 `403`；未映射 `/dashboard/newUnknown` 默认 `403`；superadmin 同 tenant 放行；`/dashboard/saasAdmin/*` 不进入本 guard；auth/MFA/logout/corp select/bind/profile 与明确 callback 精确豁免；相似前缀不能借豁免放行。
+覆盖：无 token `401`；门槛失败 `403 + TENANT_ACCESS_DENIED`；普通用户已映射且有任一权限放行；无权限和未映射 `/dashboard/newUnknown` 均返回 `403 + DASHBOARD_PERMISSION_DENIED`；superadmin 同 tenant 放行；`/dashboard/saasAdmin/*` 不进入本 guard；auth/MFA/logout/corp select/bind/profile 与明确 callback 精确豁免；相似前缀不能借豁免放行。
 
 - [ ] **Step 2: 运行 RED**
 
@@ -248,7 +255,9 @@ Expected: FAIL，guard 不存在。
 
 - [ ] **Step 3: 实现 matcher、context 与 guard**
 
-定义 `DashboardAccessFromContext(ctx)`；路径 pattern 只支持完整静态段和 `{id}` 单段。普通用户资源查不到即拒绝。管理 API 由 handler 再验证 superadmin，guard 不根据请求 body 获取 tenant。
+定义 `DashboardAccessFromContext(ctx)`；路径 pattern 只支持完整静态段和 `{id}` 单段。普通用户资源查不到即拒绝。匹配资源后，guard 把认证 tenant、corp、permission code、最终 scope 和 `scopeRequired` 写入 `DashboardAccessContext`。管理 API 由 handler 再验证 superadmin，guard 不根据请求 body 获取 tenant。
+
+catalog `scopeRequired=true` 对应的 employee/corp handler 必须使用 `DashboardAccessFromContext`；其 store 查询接收已解析的 allowed employee IDs/department IDs 或 tenant scope，并把认证 tenant/corp 作为固定过滤条件，禁止调用旧首角色 `DataPermission`。新增表驱动测试逐条遍历 catalog 的 scope 资源，断言 handler 已注册 scope consumer；漏消费或继续走旧路径即失败。
 
 - [ ] **Step 4: 写 server 前置顺序 RED**
 
@@ -309,7 +318,7 @@ Run before implementation: `go test ./internal/store -run DashboardAccessAdmin -
 
 Expected: FAIL。
 
-实现 `ReplaceUserDashboardAccess`、`CreateDashboardRole`、`UpdateDashboardRole`、`UpdateDashboardRoleStatus` 与 `DeleteDashboardRole`，所有关系物理 delete/insert、聚合版本 update 与 audit 使用同一 tx；禁止从 input 接受 tenant，禁止用关系行 version 冒充集合版本。
+实现 `ReplaceUserDashboardAccess`、`CreateDashboardRole`、`UpdateDashboardRole`、`UpdateDashboardRoleStatus` 与 `DeleteDashboardRole`，所有关系物理 delete/insert、聚合版本 update 与 audit 使用同一 tx；新角色写入现有 `mc_rbac_role` 必填字段，`operate_id`/`operate_name` 仅由认证 actor 生成，禁止客户端提供。角色 `status` 只允许 `1=启用`、`2=禁用`，用户状态沿用 `1=正常`、`2=禁用`。禁止从 input 接受 tenant，禁止用关系行 version 冒充集合版本。
 
 Run after implementation: `go test ./internal/dashboard ./internal/store -run DashboardAccessAdmin -count=1`
 
@@ -343,7 +352,7 @@ git commit -m "feat(rbac): add atomic access administration"
 
 - [ ] **Step 1: 写路由与 envelope RED**
 
-表驱动覆盖 GET profile/catalog/users/users/{id}/roles/audits、PUT users/{id}、POST roles、PUT roles/{id}、PUT roles/{id}/status、DELETE roles/{id}；断言 method、JSON decode、query pagination、HTTP status 和 `{code,msg,data}`。body 含 `tenantId` 时返回 `400`；删除有成员角色返回 `409`。
+表驱动覆盖 GET profile/catalog/users/users/{id}/roles/audits、PUT users/{id}、POST roles、PUT roles/{id}、PUT roles/{id}/status、DELETE roles/{id}；断言 method、JSON decode、query pagination、HTTP status 和 `{code,msg,data}`。门槛拒绝稳定返回 `TENANT_ACCESS_DENIED`，权限拒绝稳定返回 `DASHBOARD_PERMISSION_DENIED`；body 含 `tenantId`、`operateId` 或 `operateName` 时返回 `400`；删除有成员角色返回 `409`。
 
 - [ ] **Step 2: 运行 RED**
 
@@ -402,7 +411,7 @@ Expected: FAIL，文件不存在。
 
 - [ ] **Step 3: 写 loader RED**
 
-删除测试 deps 中 `benchmarkRoutes`，新增 `loadProfile`；断言无权限 benchmark 深链返回 `403`、有权限正常、53 页 superadmin profile 正常、tenant gate `403` 清 session 并 redirect login、普通权限 `403` 不清 session。
+删除测试 deps 中 `benchmarkRoutes`，新增 `loadProfile`；断言无权限 benchmark 深链返回 `403 + DASHBOARD_PERMISSION_DENIED`、有权限正常、53 页 superadmin profile 正常、tenant gate `403 + TENANT_ACCESS_DENIED` 清 session 并 redirect login、普通权限 `403 + DASHBOARD_PERMISSION_DENIED` 保留 session。增加 `ApiClient` 测试证明 machine code 原样透传，禁止解析中文 `msg`。
 
 - [ ] **Step 4: 运行 RED、实现 profile loader**
 
@@ -517,6 +526,7 @@ git commit -m "feat(rbac): add dashboard access management ui"
 - Modify: `package.json`
 - Modify: `web/e2e/package.json`
 - Test: `internal/store/dashboard_access_integration_test.go`
+- Test: `internal/store/dashboard_access_scope_integration_test.go`
 
 **Interfaces:**
 - Produces: `pnpm check:phase4-dashboard-page-rbac`。
@@ -524,7 +534,7 @@ git commit -m "feat(rbac): add dashboard access management ui"
 
 - [ ] **Step 1: 写完成门禁 RED**
 
-测试故意保留 `benchmarkRoutes`、SaaS link、52 页 catalog、普通管理页、前端调用未映射、server handler 未登记、fallback 放行、缺少 390px case 时分别失败；完整 fixture 通过。
+测试故意保留 `benchmarkRoutes`、SaaS link、52 页 catalog、普通管理页、前端调用未映射、server handler 未登记、fallback 放行、`scopeRequired` 资源仍读取旧首角色 `DataPermission`、缺少 390px case 时分别失败；完整 fixture 通过。完成门禁输出每个需 employee/corp 数据范围的 API 与实际 handler 的一一映射，不能把“后续逐步替代”作为通过条件。
 
 - [ ] **Step 2: 运行 RED、实现门禁**
 
@@ -538,13 +548,13 @@ Expected: PASS，打印 53/53 catalog、49 ordinary、4 superadmin_only、0 benc
 
 - [ ] **Step 3: 写 MySQL integration RED**
 
-以独立 namespace 建两个 tenant，覆盖 FK signed/unsigned 可真实创建、复合外键拒绝跨 tenant、关系直接唯一键、同 tenant 多角色并集、角色停用即时移除、直接权限保留、用户/角色聚合 expectedVersion 冲突、关系物理替换、角色 CRUD、有成员删除 409、audit rollback。测试只在 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 存在时运行。
+以独立 namespace 建两个 tenant，覆盖 FK signed/unsigned 可真实创建、复合外键拒绝跨 tenant、关系直接唯一键、同 tenant 多角色并集、角色停用即时移除、直接权限保留、用户/角色聚合 expectedVersion 冲突、关系物理替换、角色 CRUD、有成员删除 409、audit rollback。测试枚举 catalog 全部 `scopeRequired=true` 资源，定位其 handler 和 store consumer；对每条调用链注入 tenant/department/self 三种 `DashboardAccessContext`，分别断言全 tenant、同部门、本人数据集合以及 tenant/corp 固定边界，并用冲突的旧首角色 `DataPermission` 证明旧值不被读取。开发会话缺 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 时明确 SKIP，主任务最终阶段用隔离临时数据库 DSN 跑 PASS 并留证。
 
 - [ ] **Step 4: 运行集成 GREEN**
 
 Run: `go test ./internal/store -run DashboardAccessIntegration -count=1`
 
-Expected: 有 DSN 时 PASS；无 DSN 时明确 SKIP。
+Expected: 开发会话无 DSN 时明确 SKIP；主任务最终阶段使用隔离临时数据库 DSN，迁移与 scope 集成测试均 PASS 并留证。
 
 - [ ] **Step 5: 写 Playwright 矩阵**
 
@@ -563,11 +573,11 @@ Expected: exit 0；记录完整测试数量。
 - [ ] **Step 8: 提交**
 
 ```powershell
-git add scripts/check_dashboard_page_rbac_completion.mjs scripts/check_dashboard_page_rbac_completion.test.mjs scripts/smoke_dashboard_page_rbac.ps1 web/e2e/tests/dashboard-page-rbac.spec.ts package.json web/e2e/package.json internal/store/dashboard_access_integration_test.go
+git add scripts/check_dashboard_page_rbac_completion.mjs scripts/check_dashboard_page_rbac_completion.test.mjs scripts/smoke_dashboard_page_rbac.ps1 web/e2e/tests/dashboard-page-rbac.spec.ts package.json web/e2e/package.json internal/store/dashboard_access_integration_test.go internal/store/dashboard_access_scope_integration_test.go
 git commit -m "test(rbac): gate dashboard page access completion"
 ```
 
-### Task 10: Docker Desktop、浏览器与数据保留最终验收
+### Task 10: 主任务执行 Docker Desktop、浏览器与数据保留最终验收
 
 **Files:**
 - Create outside repo: `D:\workspace\mochat-go\output\phase4-dashboard-page-rbac-<timestamp>\*`
@@ -577,9 +587,9 @@ git commit -m "test(rbac): gate dashboard page access completion"
 - Consumes: 主任务对 app-only rebuild 的确认。
 - Produces: 四卷前后、API、SQL、Playwright、截图、容器健康与变更边界证据。
 
-- [ ] **Step 1: 在任何 Docker 写操作前报告主任务**
+- [ ] **Step 1: 本分支停止并向主任务交接**
 
-回报分支 SHA、拟使用 compose project `mochat-go-desktop`、只重建 app、MySQL/Redis/四卷不重建，并等待主任务确认不会回退当前服务。未确认前只做 `docker ps`、`docker volume inspect` 等只读检查。
+非 Docker 全门禁通过后，本分支必须停止，回报分支 SHA、全部提交、测试证据和重叠文件（重点是 `cmd/mochat-go/main.go`），不得执行任何 Docker 构建、替换或卷操作。以下 Step 2-9 全部由主任务执行。
 
 - [ ] **Step 2: 记录前置状态**
 

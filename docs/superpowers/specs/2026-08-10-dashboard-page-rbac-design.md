@@ -34,7 +34,7 @@ Phase 4 建立一套独立于 SaaS 套餐功能项的企业内 Dashboard 页面�
 
 订阅要求不会无意锁死合法历史租户：`0039_saas_subscription_lifecycle` 已把当时所有未删除的 tenant package 一一回填为 subscription，并为每个回填订阅写入 `migration:0039` 事件。0127 在建 RBAC 表前再次执行一致性检查：每个未删除、启用、有效期内的 tenant package 必须存在同 tenant 的未删除 subscription；发现缺失即用 `SIGNAL SQLSTATE '45000'` 中止迁移，要求先修复 SaaS 生命周期数据，不能静默跳过或在运行期才暴露。
 
-门槛不沿用“缺套餐视为未过期”“缺订阅视为未托管，因此放行”的旧兼容语义。数据库查询失败、表缺失、JSON 无效或状态未知均不放行。订阅已经纳入生命周期时，以 `SaaSAdminEffectiveSubscriptionStatus` 和 `SaaSAdminSubscriptionAllowsAccess` 的现有规则为唯一状态判定，不另造第二套状态枚举。登录失败返回 `403`；已有会话在 API 门槛失效后也立即返回 `403`，前端清空会话并回到登录页。`/dashboard/user/auth`、MFA 登录完成接口在签发 token 前执行相同门槛。
+门槛不沿用“缺套餐视为未过期”“缺订阅视为未托管，因此放行”的旧兼容语义。数据库查询失败、表缺失、JSON 无效或状态未知均不放行。订阅已经纳入生命周期时，以 `SaaSAdminEffectiveSubscriptionStatus` 和 `SaaSAdminSubscriptionAllowsAccess` 的现有规则为唯一状态判定，不另造第二套状态枚举。登录失败返回 `403`；已有会话在 API 门槛失效后也立即返回 `403`。所有门槛拒绝使用稳定 machine code `TENANT_ACCESS_DENIED`；`/dashboard/user/auth`、MFA 登录完成接口在签发 token 前执行相同门槛，前端只按该 code 清空会话并回到登录页，禁止根据中文 `msg` 判断。
 
 ### 2.2 页面权限
 
@@ -63,7 +63,7 @@ Phase 4 建立一套独立于 SaaS 套餐功能项的企业内 Dashboard 页面�
 - `department`：本人所属部门范围；
 - `tenant`：全企业。
 
-直接权限默认 `self`。多个来源合并时取最大范围：`tenant > department > self`。角色停用后其范围即时移除；直接权限继续参与合并。解析出的有效范围通过请求 context 传给现有报表和业务 handler，逐步替代旧的单角色 `DataPermission` 推导。任何需要员工 ID 集合的数据查询都在认证租户和当前企业内求值，不能接受客户端提供 `tenant_id`。
+直接权限默认 `self`。多个来源合并时取最大范围：`tenant > department > self`。角色停用后其范围即时移除；直接权限继续参与合并。catalog 必须给每个读取 employee/corp 数据的 API 标记 `scope_required`；这些 API 在本阶段全部从 `DashboardAccessContext` 读取最终 scope，禁止继续走旧的首角色 `DataPermission` 推导。任何需要员工 ID 集合的数据查询都在认证租户和当前企业内求值，不能接受客户端提供 `tenant_id`。完成门禁逐条核对 `scope_required` 资源及 handler，并以 tenant/department/self 三种集成场景证明查询边界。
 
 ## 3. 数据模型
 
@@ -149,8 +149,8 @@ Phase 4 建立一套独立于 SaaS 套餐功能项的企业内 Dashboard 页面�
 
 仅追加审计，记录：
 
-- `tenant_id`、`actor_user_id`；
-- `action`、`target_type`、`target_id`；
+- `tenant_id int(11)`、`actor_user_id int(10) unsigned NULL`；迁移或修复审计允许系统 actor 使用 `NULL`，禁止用 `0` 绕过约束；非空 actor 使用 `(tenant_id,actor_user_id)` 复合外键；
+- `action`、`target_type`、`target_id varchar(64)`，统一兼容 signed role ID、unsigned user ID 与未来非数字系统目标；
 - `before_json`、`after_json`；
 - `expected_version`、`result_version`；
 - `request_id`、`created_at`。
@@ -191,7 +191,7 @@ JWT 仍只承载 `uid`。服务端通过 `uid` 查询 `mc_user` 得到 `tenant_i
 7. 将 `DashboardAccessContext` 写入 request context；
 8. 调用原 handler。
 
-错误响应保持现有 envelope。未认证为 `401`，租户整体门槛或权限不足为 `403`，跨租户管理对象为 `404`，乐观锁冲突为 `409`，存储异常为 `500`。
+错误响应保持现有 envelope，并增加稳定 machine code。未认证为 `401`；租户整体门槛为 `403 + TENANT_ACCESS_DENIED`；页面、资源或管理权限不足为 `403 + DASHBOARD_PERMISSION_DENIED`；跨租户管理对象为 `404`；乐观锁冲突为 `409`；存储异常为 `500`。登录、MFA、请求 guard、`/dashboard/access/profile` 和前端 `ApiClient` 必须测试 code 透传；前端只对 `TENANT_ACCESS_DENIED` 清 session，对 `DASHBOARD_PERMISSION_DENIED` 保留 session 并展示无权限页，不得解析中文 `msg`。
 
 ## 5. 管理 API 契约
 
@@ -213,6 +213,8 @@ JWT 仍只承载 `uid`。服务端通过 `uid` 查询 `mc_user` 得到 `tenant_i
 - `PUT /roles/{id}`：更新角色名称、备注和权限集合；body 包含 `permissions[]`、`expectedVersion`。
 - `PUT /roles/{id}/status`：独立启用或停用角色；body 包含 `status`、`expectedVersion`，停用后请求级解析立即停止其贡献。
 - `DELETE /roles/{id}`：删除无成员的非系统角色；body 包含 `expectedVersion`。仍有 `user_roles` 成员时返回 `409`，不能级联删除成员关系。
+
+角色创建写入现有 `mc_rbac_role`，输入只接受名称、备注和权限集合；服务端强制写入认证 tenant，并由认证 actor 填充必填 `operate_id`、`operate_name`，禁止客户端提供 tenant 或操作者字段。现有状态语义固定为 `1=启用`、`2=禁用`；用户状态同样沿用 `1=正常`、`2=禁用`。
 
 用户授权写入执行 `SELECT ... FROM mc_user WHERE tenant_id=? AND id=? FOR UPDATE`，以 `mc_user.dashboard_access_version` 比较并递增；角色 CRUD 执行同等的 `mc_rbac_role.dashboard_access_version` compare-and-increment。事务验证所有 role/user 均属于认证 tenant，拒绝四个 `superadmin_only` 权限，物理替换关系、更新聚合版本并追加审计后提交。任一 ID 越界返回 `404`，版本不一致或删除有成员角色返回 `409`，整个事务不产生部分结果。
 
@@ -250,19 +252,11 @@ Dashboard header 中删除 `/saas-admin/` 链接。390px 下权限树、角色�
 
 ## 7. 兼容迁移策略
 
-迁移在一个数据库事务中依次执行：
+MariaDB/MySQL DDL 会隐式提交，0127 不宣称跨 DDL 原子事务。所有数据一致性预检必须在第一条 DDL 前完成：先检测有效 tenant package 缺少 0039 subscription，再检测旧 user-role 跨租户关系，任一失败都不得产生 schema 变化。预检沿用 0106 的 `SET` + 动态 SQL + `PREPARE/EXECUTE` `SIGNAL SQLSTATE '45000'` 兼容写法；当前 runner 按分号拆分语句，因此禁止 `DELIMITER`、存储过程或触发器。
 
-1. 检测有效 tenant package 缺少 0039 subscription 的关系；有任一条即失败；
-2. 检测旧 user-role 跨租户关系；有任一条即 `SIGNAL SQLSTATE '45000'` 失败；
-3. 增加两个 `dashboard_access_version` 聚合版本字段；
-4. 建复合唯一索引和六张新表，所有 FK 列类型与父表完全一致；
-5. seed 53 页及完整资源映射，并由覆盖门禁证明 53 页使用的每个 Dashboard API 已登记；
-6. 把同租户旧 user-role 关系回填到 `user_roles`；
-7. 把旧 role-menu 页面关系映射到 `role_permissions`；
-8. 为回填写一条迁移审计摘要；
-9. 提交。
+预检通过后，DDL 按“聚合版本字段 → 复合唯一索引 → 六张表 → 53 页与资源 seed → 同 tenant 旧关系回填 → 迁移审计摘要”分阶段执行。每个阶段失败必须保留可诊断错误；migration ledger 只在全部语句成功后记录 0127。0127 不使用 MySQL 5.7 不支持的 `ADD COLUMN IF NOT EXISTS`，所谓重放仅指现有 ledger 阻止已成功版本重复执行，以及完整 down 后可再次 apply；不承诺对未记账的部分 DDL 直接幂等重跑。
 
-迁移可重放，不覆盖已存在的新模型显式授权。down 只删除 0127 新表及新增索引，不修改旧 RBAC 数据。历史旧关联保留只读兼容，后续版本再单独移除。
+down 按外键逆序删除六张新表，再删除两个 `dashboard_access_version` 字段和 0127 新增的两个复合唯一索引，不修改旧 RBAC 数据。历史旧关联保留只读兼容，后续版本再单独移除。隔离 MariaDB 集成测试必须覆盖：预检失败时零 DDL、正常 apply、down、再次 apply，以及人为制造中途 DDL 失败后的可诊断状态和恢复路径。
 
 ## 8. 方案比较与选择
 
@@ -276,11 +270,11 @@ Dashboard header 中删除 `/saas-admin/` 链接。390px 下权限树、角色�
 
 所有行为变更遵循 RED → GREEN → REFACTOR，并保留每个 RED 的预期失败输出。最低自动化覆盖：
 
-- 迁移 apply、rollback、replay；53 个 seed 与 4 个 `superadmin_only`；跨租户旧脏数据、缺失 0039 subscription 均导致迁移失败；
+- 真实 MariaDB 迁移预检、apply、down、再次 apply 与部分 DDL 失败恢复；53 个 seed 与 4 个 `superadmin_only`；跨租户旧脏数据、缺失 0039 subscription 均在第一条 DDL 前导致迁移失败；
 - FK 列 signed/unsigned 与父表一致；关系表直接唯一键；用户/角色聚合版本 compare-and-increment；
 - 53 页实际使用的每个 Dashboard API 都有资源映射；manifest、前端调用、server 注册或 catalog 漂移均失败，不允许 fallback；
 - SaaS 门槛：租户停用、套餐缺失/停用/未生效/过期、额度 JSON 无效、订阅缺失/不可访问、存储错误全部拒绝；
-- 普通用户无权限、多角色并集、角色停用、直接权限保留、数据范围优先级；
+- 普通用户无权限、多角色并集、角色停用、直接权限保留、数据范围优先级；所有 `scope_required` API 从 `DashboardAccessContext` 取范围，并覆盖 tenant/department/self 集成测试；
 - superadmin 同 tenant 53 页隐式全权限，跨 tenant 目标 `404`；
 - 未映射 API 默认拒绝，映射 API 与页面权限一致，系统豁免精确；
 - 角色 create/update/status/delete 完整 CRUD、成员角色删除 `409`、`expectedVersion` 冲突、同事务审计、失败回滚；
@@ -288,7 +282,7 @@ Dashboard header 中删除 `/saas-admin/` 链接。390px 下权限树、角色�
 - 49 个普通页与 53 个超管页清单门禁；
 - 桌面与 390px 浏览器真实交互，Dashboard 无 SaaS 链接。
 
-最终只在 `mochat-go-desktop` 做 Docker 验证。验收前后记录四个具名卷与关键数据计数；不执行 `down -v`、`volume rm`、`system prune`，不删除、清理或重建卷，不重建 MySQL/Redis，只在主任务确认不会回退现有运行服务后重建 `app`。截图、API 结果、SQL 只读结果和日志写入 `D:\workspace\mochat-go\output`。
+最终 Docker 验证只允许由主任务在 `mochat-go-desktop` 执行。本分支完成非 Docker 全门禁后停止并报告 SHA 与重叠文件，不自行重建 `app`。主任务验收前后记录四个具名卷与关键数据计数；不执行 `down -v`、`volume rm`、`system prune`，不删除、清理或重建卷，不重建 MySQL/Redis。截图、API 结果、SQL 只读结果和日志写入 `D:\workspace\mochat-go\output`。
 
 ## 10. 完成边界
 
