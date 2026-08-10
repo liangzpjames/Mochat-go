@@ -24,6 +24,11 @@ async function assertNoSaaSLinks(page: Page) {
 }
 
 async function assertMenuMatches(page: Page, expected: string[]) {
+  const toggles = page.locator('.dashboard-menu-group-toggle');
+  for (let index = 0; index < await toggles.count(); index += 1) {
+    const toggle = toggles.nth(index);
+    if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click();
+  }
   const hrefs = await page.locator('a[href]').evaluateAll((links) => links.map((link) => new URL((link as HTMLAnchorElement).href).pathname));
   assertExactRoutes(hrefs.filter((href) => routes.includes(href)), expected, 'visible dashboard menu routes');
 }
