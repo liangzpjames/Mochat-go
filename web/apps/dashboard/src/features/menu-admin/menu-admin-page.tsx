@@ -24,7 +24,7 @@ export function MenuAdminPage({ api }: { api: MenuAdminPageApi }) {
   const options = useQuery({ queryKey: [...key, 'options'], queryFn: () => api.options() });
   const mutation = useMutation({ mutationFn: (op: () => Promise<void>) => op(),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }) });
-  const can = (a: string) => access.allowedActions.has(`/menu/index@${a}`);
+  const can = (a: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/menu/index@${a}`);
   const edit = async (menuId: number) => {
     const d = await api.detail(menuId); setEditor({ kind: 'edit', menuId, status: d.status, initial: d });
   };

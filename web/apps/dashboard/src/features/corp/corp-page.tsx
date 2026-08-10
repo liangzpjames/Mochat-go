@@ -58,7 +58,7 @@ export function CorpPage({ api }: { api: CorpPageApi }) {
     },
   });
 
-  const can = (action: string) => access.allowedActions.has(`/corp/index@${action}`);
+  const can = (action: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/corp/index@${action}`);
   const openDetail = async (corpId: number, mode: 'edit' | 'view') => {
     setFeedback(null);
     setDetailError(null);

@@ -26,7 +26,7 @@ export function UserAdminPage({ api }: { api: UserAdminPageApi }) {
   const roles = useQuery({ queryKey: [...key, 'roles'], queryFn: () => api.roles() });
   const mutation = useMutation({ mutationFn: (op: () => Promise<void>) => op(),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }) });
-  const can = (a: string) => access.allowedActions.has(`/user/index@${a}`);
+  const can = (a: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/user/index@${a}`);
   const edit = async (id: number) => setEditor({ id, initial: await api.detail(id) });
   return <Card title="子账户管理"><Space wrap>
     <Input aria-label="手机号码筛选" placeholder="按手机号码筛选" value={phoneDraft} onChange={e => setPhoneDraft(e.target.value)} />

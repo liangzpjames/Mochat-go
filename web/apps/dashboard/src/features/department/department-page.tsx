@@ -46,7 +46,7 @@ export function DepartmentPage({ api }: { api: DepartmentPageApi }) {
       queryClient.invalidateQueries({ queryKey: conditionKey }),
     ]),
   });
-  const can = (action: string) => access.allowedActions.has(`/department/index@${action}`);
+  const can = (action: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/department/index@${action}`);
   const error = listQuery.error ?? conditionQuery.error ?? memberQuery.error ?? syncMutation.error;
 
   return <Card title="组织架构">

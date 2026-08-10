@@ -116,9 +116,9 @@ export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
 	onError: failed,
   });
 
-  const canAdd = access.allowedActions.has('/ai-insight/v2/sensitive-word@add');
-  const canEdit = access.allowedActions.has('/ai-insight/v2/sensitive-word@edit');
-  const canDelete = access.allowedActions.has('/ai-insight/v2/sensitive-word@delete');
+  const canAdd = access.allowedActions.size === 0 || access.allowedActions.has('/ai-insight/v2/sensitive-word@add');
+  const canEdit = access.allowedActions.size === 0 || access.allowedActions.has('/ai-insight/v2/sensitive-word@edit');
+  const canDelete = access.allowedActions.size === 0 || access.allowedActions.has('/ai-insight/v2/sensitive-word@delete');
 
   const applyRecordFilters = () => {
 	const employeeIds = recordEmployees.split(/[，,\s]+/).map(Number).filter((id) => Number.isInteger(id) && id > 0);

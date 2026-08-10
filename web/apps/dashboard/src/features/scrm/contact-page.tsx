@@ -48,7 +48,7 @@ export function ContactPage({ api }: { api: ContactApi }) {
   const release = useMutation({ mutationFn: (value: ContactDetail) => api.releaseToPublicPool({ corpId, contactId: value.id, version: value.assignment.version, action: 'enter', reason: poolReason.trim(), idempotencyKey: `pool-enter-${value.id}-${value.assignment.version}` }), onSuccess: () => { setFeedback('联系人已进入公海'); setPoolReason(''); refresh(); } });
   const [amount, setAmount] = useState(''); const [startDate, setStartDate] = useState(''); const [endDate, setEndDate] = useState('');
   const createOpportunity = useMutation({ mutationFn: () => api.createOpportunity({ corpId, contactId, stage: 'proposal', amount: Number(amount), startDate, endDate, ownerId: detail.data?.assignment.ownerId ?? null, idempotencyKey: `contact-opportunity-${contactId}-${Date.now()}` }), onSuccess: () => { setFeedback('商机已创建'); setAmount(''); refresh(); } });
-  const canEdit = access.allowedActions?.has('/customer/contact@edit') ?? true;
+  const canEdit = access.allowedActions?.size === 0 || access.allowedActions?.has('/customer/contact@edit') || access.allowedActions === undefined;
   const closeDetail = useCallback(() => {
     const latestFilter = filterFromSearch(searchParams); const latestCursor = searchParams.get('cursor') ?? '';
     setSearchParams(nextSearch(searchParams, latestFilter, latestCursor)); detailTriggerRef.current?.focus();

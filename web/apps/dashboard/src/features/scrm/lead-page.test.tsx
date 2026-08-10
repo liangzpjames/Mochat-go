@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LeadApi } from './lead-api';
 import { LeadPage } from './lead-page';
 
-vi.mock('../../app/access-context', () => ({ useDashboardAccess: () => ({ corp: { id: '7' }, allowedActions: new Set(['/customer/clue/default@add', '/customer/clue/default@assign', '/customer/clue/default@edit']) }) }));
+vi.mock('../../app/access-context', () => ({ useDashboardAccess: () => ({ corp: { id: '7' }, allowedActions: new Set() }) }));
 afterEach(cleanup);
 
 const lead = { id: 'lead-0', businessKey: 'wx:existing', name: '已有线索', phone: '13800000000', source: 'wecom' as const, status: 'new' as const, ownerId: null, convertedContactId: '', discardReason: '', version: 1 };

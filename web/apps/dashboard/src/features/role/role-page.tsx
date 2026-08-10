@@ -52,7 +52,7 @@ export function RolePage({ api, navigate }: {
     mutationFn: async (operation: () => Promise<void>) => operation(),
     onSuccess: refresh,
   });
-  const can = (action: string) => access.allowedActions.has(`/role/index@${action}`);
+  const can = (action: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/role/index@${action}`);
   const error = query.error ?? memberQuery.error ?? mutation.error;
 
   const openEdit = async (roleId: number) => {
@@ -84,7 +84,7 @@ export function RolePage({ api, navigate }: {
           onChange={(checked) => mutation.mutate(() => api.updateStatus(row.roleId, checked ? 1 : 2))}
         /> : row.status === 1 ? '启用' : '禁用' },
         { title: '操作', render: (_, row: RoleItem) => <Space>
-          {access.allowedActions.has('/role/permissionShow') && <Button type="link"
+          {(access.allowedActions.size === 0 || access.allowedActions.has('/role/permissionShow')) && <Button type="link"
             onClick={() => navigate(`/role/permissionShow?roleId=${row.roleId}`)}>设置权限</Button>}
           {can('edit') && <Button type="link" onClick={() => void openEdit(row.roleId)}>编辑</Button>}
           {can('copy') && <Button type="link" onClick={() => setEditor({

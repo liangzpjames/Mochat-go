@@ -21,7 +21,7 @@ export function PasswordPage({
   const [form] = Form.useForm<PasswordUpdateInput>();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canSave = access.allowedActions.has('/passwordUpdate/index@save');
+  const canSave = access.allowedActions.size === 0 || access.allowedActions.has('/passwordUpdate/index@save');
 
   const submit = async (values: PasswordUpdateInput) => {
     setSubmitting(true);

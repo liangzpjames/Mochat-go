@@ -37,7 +37,7 @@ export function ContactFieldPage({ api }: { api: ContactFieldPageApi }) {
     mutationFn: async (operation: () => Promise<void>) => operation(),
     onSuccess: refresh,
   });
-  const can = (action: string) => access.allowedActions.has(`/contactField/index@${action}`);
+  const can = (action: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/contactField/index@${action}`);
   if (!can('advanced')) return null;
   const rows = batchMode ? batchRows : (query.data?.list ?? []);
   const error = query.error ?? mutation.error;

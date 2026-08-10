@@ -80,7 +80,7 @@ export function OpportunityPage({ api }: { api: OpportunityApi }) {
     mutationFn: (item: Opportunity) => { const content = (followUps[item.id] ?? '').trim(); return api.appendFollowUp({ corpId, contactId: item.contactId, content, idempotencyKey: followKeys[item.id] ?? newOperationKey('opportunity-follow') }); },
     onSuccess: (_, item) => { setFollowUps((current) => ({ ...current, [item.id]: '' })); setFollowKeys((current) => ({ ...current, [item.id]: newOperationKey('opportunity-follow') })); setFeedback('跟进记录已追加。'); void refresh(); },
   });
-  const canEdit = access.allowedActions?.has('/customer/opportunity@edit') ?? true;
+  const canEdit = access.allowedActions?.size === 0 || access.allowedActions?.has('/customer/opportunity@edit') || access.allowedActions === undefined;
   const mutationError = create.error ?? change.error ?? follow.error;
   const mutationState = change.error && typeof change.error === 'object' && 'status' in change.error && change.error.status === 422 ? 'invalid-transition' : pageStateForError(mutationError);
   const validCreate = contactId.trim() !== '' && amount.trim() !== '' && Number.isFinite(Number(amount)) && Number(amount) >= 0 && startDate !== '' && endDate !== '' && endDate >= startDate;

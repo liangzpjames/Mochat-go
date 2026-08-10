@@ -47,7 +47,7 @@ export function EmployeePage({ api }: { api: EmployeePageApi }) {
       setFeedback('通讯录同步完成');
     },
   });
-  const can = (action: string) => access.allowedActions.has(`/workEmployee/index@${action}`);
+  const can = (action: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/workEmployee/index@${action}`);
   const error = listQuery.error ?? conditionQuery.error ?? syncMutation.error;
 
   return (

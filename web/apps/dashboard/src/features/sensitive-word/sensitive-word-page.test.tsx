@@ -10,11 +10,7 @@ import { SensitiveWordPage } from './sensitive-word-page';
 vi.mock('../../app/access-context', () => ({
   useDashboardAccess: () => ({
 	corp: { id: '7' },
-	allowedActions: new Set([
-	  '/ai-insight/v2/sensitive-word@add',
-	  '/ai-insight/v2/sensitive-word@edit',
-	  '/ai-insight/v2/sensitive-word@delete',
-	]),
+	allowedActions: new Set(),
   }),
 }));
 

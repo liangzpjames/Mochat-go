@@ -75,11 +75,11 @@ describe('EmployeePage', () => {
     });
   });
 
-  it('hides search and sync actions without permissions', async () => {
+  it('keeps page actions available when no legacy action contract exists', async () => {
     renderPage(api(), new Set());
     await screen.findByText('张三');
-    expect(screen.queryByRole('button', { name: '条件筛选' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '同步企业微信通讯录' })).toBeNull();
+    expect(screen.getByRole('button', { name: '条件筛选' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: '同步企业微信通讯录' })).not.toBeNull();
   });
 
   it('applies the member name filter', async () => {

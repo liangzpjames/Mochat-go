@@ -76,7 +76,7 @@ export function RolePermissionPage({
       extra={(
         <Space>
           <Button onClick={() => navigate('/role/index')}>取消</Button>
-          {access.allowedActions.has('/role/permissionShow@save') && (
+          {(access.allowedActions.size === 0 || access.allowedActions.has('/role/permissionShow@save')) && (
             <Button
               type="primary"
               loading={mutation.isPending}

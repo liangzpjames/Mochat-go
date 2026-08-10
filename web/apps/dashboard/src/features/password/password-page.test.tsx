@@ -68,13 +68,13 @@ function fillForm(values = {
 }
 
 describe('PasswordPage', () => {
-  it('renders password inputs and hides save without permission', () => {
+  it('renders password inputs and keeps save when no legacy action contract exists', () => {
     renderPage(api(), vi.fn(), new Set());
 
     expect(screen.getByLabelText('旧密码').getAttribute('type')).toBe('password');
     expect(screen.getByLabelText('新密码').getAttribute('type')).toBe('password');
     expect(screen.getByLabelText('确认新密码').getAttribute('type')).toBe('password');
-    expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
+    expect(screen.getByRole('button', { name: /保\s*存/ })).not.toBeNull();
   });
 
   it('rejects non-alphanumeric and mismatched passwords before submission', async () => {

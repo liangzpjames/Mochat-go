@@ -78,7 +78,7 @@ export function PublicPoolPage({ api }: { api: PublicPoolApi }) {
     onError: (error, input) => setFailedMutation({ kind: 'move', input, error }),
     onSuccess: () => { setFailedMutation(null); setFeedback('公海归属已更新，历史负责人和原因已留痕。'); setOperationContactId(''); setOperationReason(''); void refresh(); },
   });
-  const canEdit = access.allowedActions.has('/customer/contact@edit');
+  const canEdit = access.allowedActions.size === 0 || access.allowedActions.has('/customer/contact@edit');
   const mutationState = failedMutation ? pageStateForError(failedMutation.error) : null;
   const retryFailedMutation = () => {
     if (!failedMutation) return;

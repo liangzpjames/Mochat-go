@@ -25,7 +25,7 @@ export function ContactTagPage({ api }: { api: ContactTagPageApi }) {
     queryFn: () => api.list({ groupId, page, perPage }) });
   const mutation = useMutation({ mutationFn: (op: () => Promise<void>) => op(),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }) });
-  const can = (a: string) => access.allowedActions.has(`/workContactTag/index@${a}`);
+  const can = (a: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/workContactTag/index@${a}`);
   const close = () => { setDialog(null); setName(''); setEditTag(null); };
   const selectedIds = selected.map(Number);
   const saveTags = () => {

@@ -14,6 +14,7 @@ export type AccessContext = {
   /** @deprecated navigation no longer derives authorization from legacy menus. */
   menu?: readonly MenuNode[];
   allowedRoutes: ReadonlySet<string>;
+  /** Empty means the page permission grants every page action; non-empty sets are legacy action contracts. */
   allowedActions: ReadonlySet<string>;
 };
 
