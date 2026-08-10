@@ -392,6 +392,9 @@ func (h *ContactMessageBatchSendHandler) Store(w http.ResponseWriter, r *http.Re
 }
 
 func employeeIDsWithinDashboardScope(ids, allowed []int) bool {
+	if len(ids) == 0 {
+		return false
+	}
 	set := make(map[int]struct{}, len(allowed))
 	for _, id := range allowed {
 		if id > 0 {
