@@ -63,6 +63,7 @@ async function loginLive(page: Page, base: string, account: LiveAccount) {
   await page.getByRole('button', { name: /登录/ }).click();
   expect((await loginResponse).status()).toBe(200);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mochat_dashboard_token'))).not.toBeNull();
+  await page.waitForURL((url) => url.pathname !== '/login');
   await page.goto(`${base}/index`);
   const corpSelector = page.getByLabel('企业选择');
   if (await corpSelector.isVisible({ timeout: 1_000 }).catch(() => false)) {
