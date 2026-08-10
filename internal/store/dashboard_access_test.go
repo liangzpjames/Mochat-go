@@ -81,6 +81,33 @@ func TestMySQLStoreDashboardPermissionCatalogAggregatesScopeRequirement(t *testi
 	}
 }
 
+func TestMySQLStoreDashboardPermissionResourcesUseRegisteredMethod(t *testing.T) {
+	var query string
+	var args []any
+	store := &MySQLStore{dashboardAccessQuery: func(_ context.Context, gotQuery string, gotArgs ...any) (dashboardAccessRows, error) {
+		query, args = gotQuery, gotArgs
+		return &fakeDashboardAccessRows{rows: [][]any{
+			{"dashboard.contacts", "GET", "/dashboard/workContact/{id}", 1},
+			{"dashboard.contacts", "GET", "/dashboard/workContact/index", 0},
+		}}, nil
+	}}
+	resources, err := store.DashboardPermissionResources(context.Background(), " get ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resources) != 2 || !resources[0].ScopeRequired || resources[1].PathPattern != "/dashboard/workContact/index" {
+		t.Fatalf("resources=%+v", resources)
+	}
+	if !reflect.DeepEqual(args, []any{"GET"}) {
+		t.Fatalf("args=%v", args)
+	}
+	for _, contract := range []string{"resource.method = ?", "resource.status = 1", "resource.deleted_at IS NULL", "permission.status = 1", "permission.deleted_at IS NULL"} {
+		if !strings.Contains(query, contract) {
+			t.Fatalf("query missing %q: %s", contract, query)
+		}
+	}
+}
+
 func TestMySQLStoreDashboardPermissionGrantsAreTenantScoped(t *testing.T) {
 	var query string
 	var args []any

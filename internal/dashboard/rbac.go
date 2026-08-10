@@ -85,6 +85,9 @@ func (r *RBACResolver) Resolve(
 	corpID int,
 	workEmployeeID int,
 ) (AccessContext, error) {
+	if dashboardAccess, ok := DashboardAccessFromContext(ctx); ok {
+		return legacyAccessContextFromDashboard(dashboardAccess, userID, permissionKey, corpID, workEmployeeID)
+	}
 	user, ok, err := r.store.UserByID(ctx, userID)
 	if err != nil {
 		return AccessContext{}, err
@@ -164,6 +167,53 @@ func (r *RBACResolver) Resolve(
 	}
 
 	return access, nil
+}
+
+func legacyAccessContextFromDashboard(dashboardAccess DashboardAccessContext, userID int, permissionKey string, corpID int, workEmployeeID int) (AccessContext, error) {
+	if dashboardAccess.UserID != userID || dashboardAccess.TenantID <= 0 || dashboardAccess.CorpID != corpID {
+		return AccessContext{}, ErrPermissionDenied
+	}
+	if dashboardAccess.ScopeRequired && (dashboardAccess.CorpID <= 0 || dashboardAccess.WorkEmployeeID <= 0) {
+		return AccessContext{}, ErrPermissionDenied
+	}
+	access := AccessContext{
+		User: User{
+			ID: dashboardAccess.UserID, Name: dashboardAccess.UserName, TenantID: dashboardAccess.TenantID,
+			Status: 1, IsSuperAdmin: boolInt(dashboardAccess.IsSuperAdmin),
+		},
+		PermissionKey: permissionKey, CorpID: dashboardAccess.CorpID,
+		WorkEmployeeID: dashboardAccess.WorkEmployeeID,
+	}
+	switch dashboardAccess.Scope {
+	case DataScopeTenant:
+		access.DataPermission = DataPermissionAll
+		access.DeptEmployeeIDs = []int{}
+	case DataScopeDepartment:
+		if len(dashboardAccess.AllowedEmployeeIDs) == 0 {
+			return AccessContext{}, ErrPermissionDenied
+		}
+		access.DataPermission = DataPermissionDepartment
+		access.DeptEmployeeIDs = append([]int(nil), dashboardAccess.AllowedEmployeeIDs...)
+	case DataScopeSelf:
+		if dashboardAccess.WorkEmployeeID <= 0 {
+			return AccessContext{}, ErrPermissionDenied
+		}
+		access.DataPermission = DataPermissionSelf
+		access.DeptEmployeeIDs = []int{dashboardAccess.WorkEmployeeID}
+	default:
+		return AccessContext{}, ErrPermissionDenied
+	}
+	if workEmployeeID > 0 && workEmployeeID != dashboardAccess.WorkEmployeeID {
+		return AccessContext{}, ErrPermissionDenied
+	}
+	return access, nil
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func resolveRouteDataPermission(menu Menu, role Role, corpID int) int {

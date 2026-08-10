@@ -3279,7 +3279,19 @@ func main() {
 	if err := registerChatMediaModule(moduleRouter, cfg, getMySQLStore, buildUserResolver); err != nil {
 		log.Fatal(err)
 	}
-	options = append(options, compatserver.WithModuleRouter(moduleRouter))
+	dashboardAccessStore := getMySQLStore()
+	dashboardAccessResolver, dashboardAccessCache := buildUserResolver("dashboardAccessGuard")
+	dashboardAccessService := dashboard.NewDashboardAccessService(dashboardAccessStore)
+	dashboardAccessGuard := dashboard.NewDashboardAccessGuard(
+		dashboardAccessStore,
+		dashboardAccessCache,
+		dashboardAccessResolver,
+		dashboardAccessService,
+	)
+	options = append(options,
+		compatserver.WithDashboardRequestGuard(dashboardAccessGuard),
+		compatserver.WithModuleRouter(moduleRouter),
+	)
 	handler, err := compatserver.New(cfg, options...)
 	if err != nil {
 		log.Fatalf("build server: %v", err)

@@ -220,6 +220,96 @@ func (*panicHandler) ServeHTTP(http.ResponseWriter, *http.Request) {
 	panic("typed-nil handler must never be dispatched")
 }
 
+type recordingDashboardRequestGuard struct {
+	allow bool
+	calls int
+	paths []string
+}
+
+func (guard *recordingDashboardRequestGuard) Authorize(w http.ResponseWriter, request *http.Request) bool {
+	guard.calls++
+	guard.paths = append(guard.paths, request.URL.Path)
+	if !guard.allow {
+		http.Error(w, "guard denied", http.StatusForbidden)
+	}
+	return guard.allow
+}
+
+func TestDashboardRequestGuardRunsBeforeModuleRouterAndLegacySwitch(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		path    string
+		options func(*testing.T, http.Handler) []Option
+	}{
+		{
+			name: "module router", path: "/dashboard/reports/overview",
+			options: func(t *testing.T, handler http.Handler) []Option {
+				router := modules.NewRouter()
+				if err := router.Handle(http.MethodGet, "/dashboard/reports/overview", handler); err != nil {
+					t.Fatal(err)
+				}
+				return []Option{WithModuleRouter(router)}
+			},
+		},
+		{
+			name: "legacy switch", path: "/dashboard/corpData/index",
+			options: func(_ *testing.T, handler http.Handler) []Option {
+				return []Option{WithCorpDataIndexHandler(handler)}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			guard := &recordingDashboardRequestGuard{}
+			handlerCalled := false
+			handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { handlerCalled = true })
+			options := append(test.options(t, handler), WithDashboardRequestGuard(guard))
+			server, err := New(config.Config{}, options...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if response.Code != http.StatusForbidden || handlerCalled || guard.calls != 1 {
+				t.Fatalf("status=%d handlerCalled=%v guardCalls=%d", response.Code, handlerCalled, guard.calls)
+			}
+		})
+	}
+}
+
+func TestDashboardRequestGuardSkipsSaaSAndRunsOnceAfterBundledNormalization(t *testing.T) {
+	t.Run("saas admin bypass", func(t *testing.T) {
+		guard := &recordingDashboardRequestGuard{}
+		server, err := New(config.Config{},
+			WithDashboardRequestGuard(guard),
+			WithSaaSAdminOverviewHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/overview", nil))
+		if response.Code != http.StatusNoContent || guard.calls != 0 {
+			t.Fatalf("status=%d guardCalls=%d", response.Code, guard.calls)
+		}
+	})
+
+	t.Run("normalized dashboard request", func(t *testing.T) {
+		guard := &recordingDashboardRequestGuard{allow: true}
+		server, err := New(config.Config{},
+			WithDashboardRequestGuard(guard),
+			WithCorpDataIndexHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/undefined/dashboard/corpData/index", nil))
+		if response.Code != http.StatusNoContent || guard.calls != 1 || len(guard.paths) != 1 || guard.paths[0] != "/dashboard/corpData/index" {
+			t.Fatalf("status=%d calls=%d paths=%v", response.Code, guard.calls, guard.paths)
+		}
+	})
+}
+
 func TestUnknownRouteFallsBackToPHP(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/dashboard/user/loginShow" {

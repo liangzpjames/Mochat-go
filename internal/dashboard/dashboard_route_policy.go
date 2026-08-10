@@ -27,6 +27,23 @@ func ExactExemptDashboardRouteContracts() []string {
 	return append([]string(nil), exactExemptDashboardRouteContracts...)
 }
 
+// publicDashboardRouteContracts are the exact exemptions that cannot have an
+// authenticated tenant yet. Every other exemption still passes the tenant gate.
+var publicDashboardRouteContracts = []string{
+	"GET /dashboard/corp/weWorkCallback",
+	"GET /dashboard/officialAccount/authEventCallback",
+	"GET /dashboard/officialAccount/authRedirect/",
+	"POST /dashboard/corp/weWorkCallback",
+	"POST /dashboard/officialAccount/authEventCallback",
+	"POST /dashboard/officialAccount/authRedirect/",
+	"POST /dashboard/user/auth",
+	"POST /dashboard/user/authMFA",
+}
+
+func PublicDashboardRouteContracts() []string {
+	return append([]string(nil), publicDashboardRouteContracts...)
+}
+
 // denyOnlyDashboardRouteContracts are registered endpoints that are intentionally
 // unavailable to ordinary Dashboard users. A same-tenant superadmin may still use them.
 var denyOnlyDashboardRouteContracts = []string{

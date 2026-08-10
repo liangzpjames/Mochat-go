@@ -26,6 +26,7 @@ type Server struct {
 	startedAt                                       time.Time
 	proxy                                           http.Handler
 	moduleRouter                                    ModuleRouter
+	dashboardRequestGuard                           DashboardRequestGuard
 	auth                                            http.Handler
 	authMFA                                         http.Handler
 	identitySelf                                    http.Handler
@@ -709,6 +710,10 @@ type ModuleRouter interface {
 	Match(*http.Request) (http.Handler, bool)
 }
 
+type DashboardRequestGuard interface {
+	Authorize(http.ResponseWriter, *http.Request) bool
+}
+
 type Option func(*Server)
 
 func WithModuleRouter(router ModuleRouter) Option {
@@ -718,6 +723,16 @@ func WithModuleRouter(router ModuleRouter) Option {
 			return
 		}
 		server.moduleRouter = router
+	}
+}
+
+func WithDashboardRequestGuard(guard DashboardRequestGuard) Option {
+	return func(server *Server) {
+		if nilcheck.IsNil(guard) {
+			server.dashboardRequestGuard = nil
+			return
+		}
+		server.dashboardRequestGuard = guard
 	}
 }
 
@@ -4291,6 +4306,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.ServeHTTP(w, normalized)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/dashboard/") && !isDashboardSaaSRequestPath(r.URL.Path) && !nilcheck.IsNil(s.dashboardRequestGuard) {
+		if !s.dashboardRequestGuard.Authorize(w, r) {
+			return
+		}
+	}
 	if !nilcheck.IsNil(s.moduleRouter) {
 		if handler, ok := s.moduleRouter.Match(r); ok {
 			if !nilcheck.IsNil(handler) {
@@ -5630,6 +5650,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.forwardToPHP(w, r)
 	}
+}
+
+func isDashboardSaaSRequestPath(path string) bool {
+	return strings.HasPrefix(path, "/dashboard/saasAdmin/") ||
+		strings.HasPrefix(path, "/dashboard/saasAlert/") ||
+		strings.HasPrefix(path, "/dashboard/saasBilling/")
 }
 
 func normalizeBundledFrontendAPIPath(path string) (string, bool) {

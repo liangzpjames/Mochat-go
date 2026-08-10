@@ -40,6 +40,13 @@ type DashboardPermissionDefinition struct {
 	ScopeRequired  bool   `json:"scopeRequired"`
 }
 
+type DashboardPermissionResource struct {
+	PermissionCode string `json:"permissionCode"`
+	Method         string `json:"method"`
+	PathPattern    string `json:"pathPattern"`
+	ScopeRequired  bool   `json:"scopeRequired"`
+}
+
 type DashboardEmployeeScope struct {
 	EmployeeID            int
 	DepartmentIDs         []int

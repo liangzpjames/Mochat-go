@@ -4,9 +4,49 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"jiyi/mochat-go/internal/dashboard"
 )
+
+func (s *MySQLStore) DashboardPermissionResources(ctx context.Context, method string) ([]dashboard.DashboardPermissionResource, error) {
+	query := s.dashboardAccessQuery
+	if query == nil && s.db != nil {
+		query = func(ctx context.Context, statement string, args ...any) (dashboardAccessRows, error) {
+			return s.db.QueryContext(ctx, statement, args...)
+		}
+	}
+	if query == nil {
+		return nil, errors.New("dashboard permission resource store is unavailable")
+	}
+	rows, err := query(ctx, `
+		SELECT permission.code, resource.method, resource.path_pattern, resource.scope_required
+		FROM mochat_go_dashboard_permission_resources resource
+		INNER JOIN mochat_go_dashboard_permissions permission
+			ON permission.id = resource.permission_id
+			AND permission.status = 1 AND permission.deleted_at IS NULL
+		WHERE resource.method = ? AND resource.status = 1 AND resource.deleted_at IS NULL
+		ORDER BY resource.path_pattern ASC, permission.code ASC
+	`, strings.ToUpper(strings.TrimSpace(method)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	resources := make([]dashboard.DashboardPermissionResource, 0)
+	for rows.Next() {
+		var resource dashboard.DashboardPermissionResource
+		var scopeRequired int
+		if err := rows.Scan(&resource.PermissionCode, &resource.Method, &resource.PathPattern, &scopeRequired); err != nil {
+			return nil, err
+		}
+		resource.ScopeRequired = scopeRequired == 1
+		resources = append(resources, resource)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
 
 type dashboardAccessRows interface {
 	Next() bool
