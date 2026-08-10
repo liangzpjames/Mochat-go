@@ -8,6 +8,7 @@ export type AccessRole = AccessRoleSummary & { remark: string; isSystem: boolean
 export type AccessUserSummary = { id: number; name: string; phone: string; status: number; isSuperAdmin: boolean; version: number };
 export type AccessUser = AccessUserSummary & { roles: AccessRoleSummary[]; directPermissions: { code: string; scope: 'self' | 'department' | 'tenant' }[]; inheritedPermissions: EffectivePermission[]; effectivePermissions: EffectivePermission[] };
 export type Page<T> = { list: T[]; page: { page: number; perPage: number; total: number; totalPage: number } };
+export type DashboardAccessAdminApi = ReturnType<typeof createDashboardAccessAdminApi>;
 
 export function createDashboardAccessAdminApi(client: Client) {
   return {
