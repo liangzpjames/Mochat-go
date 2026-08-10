@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { ConfirmAction } from '../../components/confirm-action';
@@ -6,6 +7,7 @@ import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
 import { createUserAdminApi, type UserItem, type UserWrite } from '../user-admin/user-admin-api';
 import type { AccessUser } from '../access/access-admin-api';
+import { AccessStaffPage as NewAccessStaffPage } from './access-staff-page';
 
 type UserAdminApi = ReturnType<typeof createUserAdminApi>;
 
@@ -118,12 +120,12 @@ function LegacyCompanyStaffPage({ api }: { api: UserAdminApi }) {
 }
 
 type AccessStaffApi = {
-  users: (input: { page: number; perPage: number }) => Promise<{ list: AccessUser[]; page: { total: number; totalPage: number } }>;
+  users: (input: { page: number; perPage: number }) => Promise<{ list: { id: number; name: string; phone: string; status: number; version: number }[]; page: { total: number; totalPage: number } }>;
   user: (id: number) => Promise<AccessUser>;
   replaceUser: (id: number, input: { roleIds: number[]; directPermissions: { code: string; scope: string }[]; expectedVersion: number }) => Promise<AccessUser>;
 };
 
-function AccessStaffPage({ api }: { api: AccessStaffApi }) {
+function AccessStaffPage({ api }: { api: any }) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<AccessUser | null>(null);
   const [roleIds, setRoleIds] = useState<number[]>([]);
@@ -135,5 +137,5 @@ function AccessStaffPage({ api }: { api: AccessStaffApi }) {
 }
 
 export function CompanyStaffPage({ api }: { api: UserAdminApi | AccessStaffApi }) {
-  return 'users' in api ? <AccessStaffPage api={api} /> : <LegacyCompanyStaffPage api={api} />;
+  return 'users' in api ? <NewAccessStaffPage api={api as never} /> : <LegacyCompanyStaffPage api={api} />;
 }

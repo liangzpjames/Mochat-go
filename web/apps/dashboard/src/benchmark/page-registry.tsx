@@ -65,6 +65,7 @@ import { createCorpAdminApi } from '../features/corp/corp-admin-api';
 import { createUserAdminApi } from '../features/user-admin/user-admin-api';
 import { createRoleApi } from '../features/role/role-api';
 import { createMenuAdminApi } from '../features/menu-admin/menu-admin-api';
+import { createDashboardAccessAdminApi } from '../features/access/access-admin-api';
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
@@ -72,6 +73,7 @@ type CorpAdminApi = ReturnType<typeof createCorpAdminApi>;
 type UserAdminApi = ReturnType<typeof createUserAdminApi>;
 type RoleApi = ReturnType<typeof createRoleApi>;
 type MenuAdminApi = ReturnType<typeof createMenuAdminApi>;
+export type DashboardAccessAdminApi = ReturnType<typeof createDashboardAccessAdminApi>;
 
 export function createBenchmarkP0Pages({
   dashboardOverviewApi,
@@ -100,9 +102,9 @@ export function createBenchmarkP0Pages({
   aiInsightApi?: AiInsightApi;
   fileAudioApi?: FileAudioApi;
   corpAdminApi?: CorpAdminApi;
-  userAdminApi?: UserAdminApi;
-  roleApi?: RoleApi;
-  menuAdminApi?: MenuAdminApi;
+  userAdminApi?: UserAdminApi | DashboardAccessAdminApi;
+  roleApi?: RoleApi | DashboardAccessAdminApi;
+  menuAdminApi?: MenuAdminApi | DashboardAccessAdminApi;
 }): PageRegistry {
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} optionsApi={businessWorkbenchApi} />,

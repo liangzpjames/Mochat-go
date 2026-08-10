@@ -3,13 +3,15 @@ import type { AccessCatalogItem, EffectivePermission } from './access-api';
 type Client = { request(input: RequestInfo | URL, init?: RequestInit): Promise<unknown> };
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-export type AccessRole = { id: number; name: string; remark: string; status: number; isSystem: boolean; memberCount: number; permissions: { code: string; scope: 'self' | 'department' | 'tenant' }[]; version: number };
-export type AccessUser = { id: number; name: string; phone: string; status: number; isSuperAdmin: boolean; roles: { id: number; name: string; status: number; version: number }[]; directPermissions: { code: string; scope: 'self' | 'department' | 'tenant' }[]; inheritedPermissions: EffectivePermission[]; effectivePermissions: EffectivePermission[]; version: number };
+export type AccessRoleSummary = { id: number; name: string; status: number; version: number };
+export type AccessRole = AccessRoleSummary & { remark: string; isSystem: boolean; memberCount: number; permissions: { code: string; scope: 'self' | 'department' | 'tenant' }[] };
+export type AccessUserSummary = { id: number; name: string; phone: string; status: number; isSuperAdmin: boolean; version: number };
+export type AccessUser = AccessUserSummary & { roles: AccessRoleSummary[]; directPermissions: { code: string; scope: 'self' | 'department' | 'tenant' }[]; inheritedPermissions: EffectivePermission[]; effectivePermissions: EffectivePermission[] };
 export type Page<T> = { list: T[]; page: { page: number; perPage: number; total: number; totalPage: number } };
 
 export function createDashboardAccessAdminApi(client: Client) {
   return {
-    users: (input: { page: number; perPage: number }): Promise<Page<AccessUser>> => client.request(`/access/users?page=${input.page}&perPage=${input.perPage}`) as Promise<Page<AccessUser>>,
+    users: (input: { page: number; perPage: number }): Promise<Page<AccessUserSummary>> => client.request(`/access/users?page=${input.page}&perPage=${input.perPage}`) as Promise<Page<AccessUserSummary>>,
     user: (id: number): Promise<AccessUser> => client.request(`/access/users/${id}`) as Promise<AccessUser>,
     replaceUser: (id: number, input: { roleIds: number[]; directPermissions: { code: string; scope: string }[]; expectedVersion: number }) => client.request(`/access/users/${id}`, json('PUT', input)) as Promise<AccessUser>,
     roles: (input: { page: number; perPage: number }): Promise<Page<AccessRole>> => client.request(`/access/roles?page=${input.page}&perPage=${input.perPage}`) as Promise<Page<AccessRole>>,

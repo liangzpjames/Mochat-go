@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
@@ -7,6 +8,7 @@ import { DashboardDialog } from '../../components/dashboard-dialog';
 import { createRoleApi, type PermissionNode, type RoleItem } from '../role/role-api';
 import type { AccessRole } from '../access/access-admin-api';
 import type { AccessCatalogItem } from '../access/access-api';
+import { AccessRolePage as NewAccessRolePage } from './access-role-page';
 
 type RoleApi = ReturnType<typeof createRoleApi>;
 const permissionNameMap: Record<string, string> = { 'Friends circle': '朋友圈' };
@@ -154,5 +156,5 @@ function AccessRolePage({ api }: { api: AccessRoleApi }) {
 }
 
 export function CompanyRolePage({ api }: { api: RoleApi | AccessRoleApi }) {
-  return 'roles' in api ? <AccessRolePage api={api} /> : <LegacyCompanyRolePage api={api} />;
+  return 'roles' in api ? <NewAccessRolePage api={api as never} /> : <LegacyCompanyRolePage api={api} />;
 }

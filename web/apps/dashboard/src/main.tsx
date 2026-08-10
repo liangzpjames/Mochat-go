@@ -143,7 +143,7 @@ const router = createDashboardRouter({
     ...migratedPages,
     ...createPageRegistry({
       manifest: benchmarkManifest,
-      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi, businessWorkbenchApi, aiSettingsApi, aiInsightApi, fileAudioApi, corpAdminApi, userAdminApi: dashboardAccessAdminApi as unknown as typeof userAdminApi, roleApi: dashboardAccessAdminApi as unknown as typeof roleApi, menuAdminApi: dashboardAccessAdminApi as unknown as typeof menuAdminApi }),
+      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi, businessWorkbenchApi, aiSettingsApi, aiInsightApi, fileAudioApi, corpAdminApi, userAdminApi: dashboardAccessAdminApi, roleApi: dashboardAccessAdminApi, menuAdminApi: dashboardAccessAdminApi }),
       p1Pages: {},
     }),
     '/corp/index': page(<CorpPage api={corpAdminApi} />),
