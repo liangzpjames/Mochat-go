@@ -167,3 +167,4 @@
 - `0095_saas_tenant_domain_create_guard` 将新增租户自定义域名纳入不可关闭的 critical 双人会签。审批申请只冻结标准化租户 ID 和 hostname，不生成 DNS 校验令牌；执行时重新锁定租户并校验状态、域名唯一性和数量上限，再生成令牌，并在同一事务内创建待验证绑定、交付台账、操作审计和审批副作用。审批持久化结果不保存令牌；DNS 所有权验证仍保持直接执行。down 只删除策略 seed，不删除已创建域名、历史审批或审计。
 - `0096_saas_tenant_enable_approval_guard` 将已停用业务租户的重新启用纳入不可关闭的 critical 双人会签。审批申请冻结租户状态、名称及订阅 ID、状态和版本；执行时重新锁定并校验全部快照，再在同一事务内恢复租户、同步订阅、写操作审计和审批副作用。down 只删除策略 seed，不回滚已执行的租户或订阅状态，也不删除历史审批与审计。
 - 迁移器会识别拆分前的一体化 `0001_initial_schema` checksum，旧库如果已经通过旧版 `0001` 建表并写入 seed，升级后执行 `apply` 会接受 legacy checksum，并用 `0002_seed_core_data` 补齐迁移记录。
+- `0127_dashboard_page_rbac` 在任何 DDL 前校验套餐订阅和旧 RBAC 关系一致性，随后建立 53 页权限目录、API 资源映射、多角色/直接权限关系与追加式审计，并为用户和角色增加集合级乐观锁版本。MariaDB/MySQL DDL 会隐式提交，因此迁移按阶段执行且仅在全部成功后写 ledger；down 使用 `information_schema` 与动态 SQL 兼容恢复部分完成状态。旧菜单仅按规范化的真实 API 资源回填，四个永久 `superadmin_only` 管理页不会继承旧授权。

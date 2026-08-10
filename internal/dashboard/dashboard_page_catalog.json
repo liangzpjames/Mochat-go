@@ -1,0 +1,1675 @@
+{
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "code": "dashboard.index",
+      "path": "/index",
+      "name": "数据概览",
+      "groupCode": null,
+      "sort": 1,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/reports/overview",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workDepartment/pageIndex",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.v2_all",
+      "path": "/chat/v2-all",
+      "name": "全局消息",
+      "groupCode": "conversation",
+      "sort": 2,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/toUsers",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/fromUsers",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.v2_staff",
+      "path": "/chat/v2-staff",
+      "name": "员工会话",
+      "groupCode": "conversation",
+      "sort": 3,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/toUsers",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/fromUsers",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.v2_customer",
+      "path": "/chat/v2-customer",
+      "name": "客户会话",
+      "groupCode": "conversation",
+      "sort": 4,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/toUsers",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/fromUsers",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.v2_group",
+      "path": "/chat/v2-group",
+      "name": "群聊会话",
+      "groupCode": "conversation",
+      "sort": 5,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/toUsers",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/fromUsers",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.trajectory",
+      "path": "/chat/trajectory",
+      "name": "会话轨迹",
+      "groupCode": "conversation",
+      "sort": 6,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/toUsers",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/fromUsers",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.export",
+      "path": "/chat/export",
+      "name": "会话导出",
+      "groupCode": "conversation",
+      "sort": 7,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/toUsers",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/detail",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.file_audio",
+      "path": "/chat/file-audio",
+      "name": "文件录音",
+      "groupCode": "conversation",
+      "sort": 8,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/chat/media",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/chat/media",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/chat/media/{id}",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.resign_staff",
+      "path": "/chat/resign-staff",
+      "name": "离职员工",
+      "groupCode": "conversation",
+      "sort": 9,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/contactTransfer/info",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.chat.refuse_archive",
+      "path": "/chat/refuse-archive",
+      "name": "拒绝存档",
+      "groupCode": "conversation",
+      "sort": 10,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/refuse-archive/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/refuse-archive/follow-up",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.inheritance",
+      "path": "/customer/inheritance",
+      "name": "客户继承",
+      "groupCode": "conversation",
+      "sort": 11,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/contactTransfer/unassignedList",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.v2_risk",
+      "path": "/ai-insight/v2/risk",
+      "name": "风险行为",
+      "groupCode": "risk-warning",
+      "sort": 12,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/risk/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/risk/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/risk/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/risk/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/risk/rules/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/risk/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/risk/records/audit",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.v2_sensitive_word",
+      "path": "/ai-insight/v2/sensitive-word",
+      "name": "敏感词",
+      "groupCode": "risk-warning",
+      "sort": 13,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/sensitiveWord/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/sensitiveWordGroup/select",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/sensitiveWord/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/sensitiveWord/statusUpdate",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/sensitiveWord/move",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/sensitiveWord/destroy",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/sensitiveWordGroup/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/sensitiveWordGroup/update",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/sensitiveWordsMonitor/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/sensitiveWordsMonitor/show",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.v2_timeout",
+      "path": "/ai-insight/v2/timeout",
+      "name": "超时预警",
+      "groupCode": "risk-warning",
+      "sort": 14,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/timeout-warning/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/timeout-warning/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/timeout-warning/settings",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/timeout-warning/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/timeout-warning/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/timeout-warning/rules/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/timeout-warning/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/timeout-warning/records/audit",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/timeout-warning/records/assign",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/timeout-warning/settings",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.v2_customer_loss",
+      "path": "/ai-insight/v2/customer-loss",
+      "name": "客户流失",
+      "groupCode": "risk-warning",
+      "sort": 15,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workContact/lossContact",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.v2_message_intercept",
+      "path": "/ai-insight/v2/message-intercept",
+      "name": "消息拦截",
+      "groupCode": "risk-warning",
+      "sort": 16,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/message-intercept/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/message-intercept/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/message-intercept/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/message-intercept/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/message-intercept/rules/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/message-intercept/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/message-intercept/records/audit",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/keyword-library/libraries",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.v2_keyword_library",
+      "path": "/ai-insight/v2/keyword-library",
+      "name": "关键词库",
+      "groupCode": "risk-warning",
+      "sort": 17,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/keyword-library/libraries",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/keyword-library/libraries",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/keyword-library/libraries",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/keyword-library/libraries/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/keyword-library/libraries/publish",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/keyword-library/libraries",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/keyword-library/entries",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/keyword-library/entries",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/keyword-library/entries",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/keyword-library/entries/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/keyword-library/entries",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.v2_silent_customer",
+      "path": "/ai-insight/v2/silent-customer",
+      "name": "沉默客户",
+      "groupCode": "risk-warning",
+      "sort": 18,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/silent-customer/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/silent-customer/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/silent-customer/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/silent-customer/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/silent-customer/rules/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/silent-customer/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/silent-customer/records/action",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.session_analysis",
+      "path": "/ai-insight/session-analysis",
+      "name": "会话分析",
+      "groupCode": "ai-insight",
+      "sort": 19,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/session-analysis",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.smart_analysis",
+      "path": "/ai-insight/smart-analysis",
+      "name": "智能分析",
+      "groupCode": "ai-insight",
+      "sort": 20,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.emotion",
+      "path": "/ai-insight/emotion",
+      "name": "情绪识别",
+      "groupCode": "ai-insight",
+      "sort": 21,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/emotion",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.employee_score",
+      "path": "/ai-insight/employee-score",
+      "name": "员工评分",
+      "groupCode": "ai-insight",
+      "sort": 22,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/employee-score",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_insight.communication_keyword",
+      "path": "/ai-insight/communication-keyword",
+      "name": "沟通关键词",
+      "groupCode": "ai-insight",
+      "sort": 23,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/communication-keyword",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.v2_channel_code",
+      "path": "/acquisition/v2-channel-code",
+      "name": "渠道活码",
+      "groupCode": "marketing-tools",
+      "sort": 24,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/channelCode/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/channelCode/store",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.group_code",
+      "path": "/acquisition/group-code",
+      "name": "群活码",
+      "groupCode": "marketing-tools",
+      "sort": 25,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workRoomAutoPull/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/workRoomAutoPull/store",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.redirect_link",
+      "path": "/acquisition/redirect-link",
+      "name": "获客链接",
+      "groupCode": "marketing-tools",
+      "sort": 26,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/acquisitionLink/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/acquisitionLink/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/acquisitionLink/authorize",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.wechat_customer_service",
+      "path": "/acquisition/wechat-customer-service",
+      "name": "微信客服",
+      "groupCode": "marketing-tools",
+      "sort": 27,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/customerService/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/customerService/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/customerService/sync",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.live_code_short_chain",
+      "path": "/acquisition/live-code-short-chain",
+      "name": "活码短链",
+      "groupCode": "marketing-tools",
+      "sort": 28,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/liveCodeShortChain/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/liveCodeShortChain/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/liveCodeShortChain/disable",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.group_template",
+      "path": "/acquisition/group-template",
+      "name": "一键加群",
+      "groupCode": "marketing-tools",
+      "sort": 29,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workRoomAutoPull/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/workRoomAutoPull/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/materialSelector/index",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.precise_group_send",
+      "path": "/acquisition/precise-group-send",
+      "name": "精准群发",
+      "groupCode": "marketing-tools",
+      "sort": 30,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/contactMessageBatchSend/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/contactMessageBatchSend/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/roomMessageBatchSend/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/roomMessageBatchSend/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/materialSelector/index",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.friends_circle",
+      "path": "/acquisition/friends-circle",
+      "name": "朋友圈",
+      "groupCode": "marketing-tools",
+      "sort": 31,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/friendsCircle/taskIndex",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/friendsCircle/materialIndex",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/friendsCircle/taskResultIndex",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/friendsCircle/exportData",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/friendsCircle/publish",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/friendsCircle/taskStore",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/friendsCircle/materialStore",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/materialSelector/index",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.acquisition.material_management",
+      "path": "/acquisition/material-management",
+      "name": "素材管理",
+      "groupCode": "marketing-tools",
+      "sort": 32,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/mediumGroup/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/mediumGroup/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/medium/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/medium/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/medium/batchGroupUpdate",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/medium/batchDestroy",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workDepartment/pageIndex",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.clue_default",
+      "path": "/customer/clue/default",
+      "name": "线索池",
+      "groupCode": "scrm",
+      "sort": 33,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/leads",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/leads",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/leads/duplicates",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/leads/assignments",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/leads/transition",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.contact",
+      "path": "/customer/contact",
+      "name": "联系人",
+      "groupCode": "scrm",
+      "sort": 34,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/contacts",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/contacts/{id}",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/contacts/{id}/follow-ups",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/contacts/{id}/follow-ups",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/scrm/assignments",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/assignments/release",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/tags",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/scrm/tags/{id}/contacts",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/opportunities",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.friends",
+      "path": "/customer/friends",
+      "name": "好友",
+      "groupCode": "scrm",
+      "sort": 35,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workContact/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workContact/show",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.opportunity",
+      "path": "/customer/opportunity",
+      "name": "商机",
+      "groupCode": "scrm",
+      "sort": 36,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/opportunities",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/opportunities",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/opportunities/{id}/stage",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/contacts/{id}/follow-ups",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/contacts/{id}/follow-ups",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.public_sea",
+      "path": "/customer/public-sea",
+      "name": "公海",
+      "groupCode": "scrm",
+      "sort": 37,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/assignments",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/scrm/assignments",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/assignments/release",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/assignments/claim",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/assignments/claim/batch",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/contacts",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/settings",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.group",
+      "path": "/customer/group",
+      "name": "客户群",
+      "groupCode": "scrm",
+      "sort": 38,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workRoom/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workRoom/roomIndex",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.tags",
+      "path": "/customer/tags",
+      "name": "标签",
+      "groupCode": "scrm",
+      "sort": 39,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/tags",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/tags",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/scrm/tags/{id}",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/scrm/tags/{id}",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/tags/{id}/move",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/tags/{id}/delete-preview",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/scrm/tags/{id}/contacts",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/tag-groups",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/scrm/tag-groups/{id}",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.order",
+      "path": "/customer/order",
+      "name": "订单",
+      "groupCode": "scrm",
+      "sort": 40,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/orders",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/orders",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/orders/{id}",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/scrm/orders/{id}/transition",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/contacts",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/scrm/contacts",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/opportunities",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.customer.settings",
+      "path": "/customer/settings",
+      "name": "设置",
+      "groupCode": "scrm",
+      "sort": 41,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/scrm/settings",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/scrm/settings",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.data.customer",
+      "path": "/data/customer",
+      "name": "客户分析",
+      "groupCode": "data-reports",
+      "sort": 42,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/reports/customer",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workDepartment/pageIndex",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.data.employee",
+      "path": "/data/employee",
+      "name": "会话分析",
+      "groupCode": "data-reports",
+      "sort": 43,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/reports/employee",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workDepartment/pageIndex",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.data.conversion",
+      "path": "/data/conversion",
+      "name": "转化分析",
+      "groupCode": "data-reports",
+      "sort": 44,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/reports/conversion",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workDepartment/pageIndex",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.data.behavior",
+      "path": "/data/behavior",
+      "name": "行为分析",
+      "groupCode": "data-reports",
+      "sort": 45,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/reports/behavior",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workDepartment/pageIndex",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.data.report",
+      "path": "/data/report",
+      "name": "综合报表",
+      "groupCode": "data-reports",
+      "sort": 46,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/reports/report",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workDepartment/pageIndex",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_setting.ai_knowledge_base",
+      "path": "/ai-setting/ai-knowledge-base",
+      "name": "AI 知识库",
+      "groupCode": "ai-settings",
+      "sort": 47,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-settings/knowledge-bases",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/ai-settings/knowledge-bases",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/ai-settings/knowledge-bases/{id}",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/ai-settings/knowledge-bases/{id}",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.ai_setting.agent",
+      "path": "/ai-setting/agent",
+      "name": "智能体管理",
+      "groupCode": "ai-settings",
+      "sort": 48,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-settings/agents",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/ai-settings/agents",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/ai-settings/agents/{id}",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/ai-settings/agents/{id}",
+          "scopeRequired": true
+        }
+      ]
+    },
+    {
+      "code": "dashboard.company_setting.website",
+      "path": "/company-setting/website",
+      "name": "企业信息",
+      "groupCode": "company-settings",
+      "sort": 49,
+      "superadminOnly": false,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/corp/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/corp/show",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/corp/store",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/corp/update",
+          "scopeRequired": false
+        }
+      ]
+    },
+    {
+      "code": "dashboard.company_setting.staff",
+      "path": "/company-setting/staff",
+      "name": "员工权限",
+      "groupCode": "company-settings",
+      "sort": 50,
+      "superadminOnly": true,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/user/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/user/show",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workDepartment/selectByPhone",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/role/select",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/user/store",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/user/update",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/user/statusUpdate",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/user/passwordReset",
+          "scopeRequired": false
+        }
+      ]
+    },
+    {
+      "code": "dashboard.setting.role",
+      "path": "/setting/role",
+      "name": "角色管理",
+      "groupCode": "company-settings",
+      "sort": 51,
+      "superadminOnly": true,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/role/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/role/show",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/role/showEmployee",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/role/permissionShow",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/role/store",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/role/update",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/role/statusUpdate",
+          "scopeRequired": false
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/role/destroy",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/role/permissionStore",
+          "scopeRequired": false
+        }
+      ]
+    },
+    {
+      "code": "dashboard.setting.additional",
+      "path": "/setting/additional",
+      "name": "附加权限",
+      "groupCode": "company-settings",
+      "sort": 52,
+      "superadminOnly": true,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/menu/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/menu/select",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/menu/show",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/menu/iconIndex",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/menu/store",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/menu/update",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/menu/statusUpdate",
+          "scopeRequired": false
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/menu/destroy",
+          "scopeRequired": false
+        }
+      ]
+    },
+    {
+      "code": "dashboard.setting.authorization",
+      "path": "/setting/authorization",
+      "name": "授权管理",
+      "groupCode": "company-settings",
+      "sort": 53,
+      "superadminOnly": true,
+      "resources": [
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/menu/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/menu/select",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/role/permissionShow",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/role/permissionStore",
+          "scopeRequired": false
+        }
+      ]
+    }
+  ]
+}

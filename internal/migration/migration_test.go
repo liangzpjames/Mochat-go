@@ -172,8 +172,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0126_phase3_final_providers" {
-		t.Fatalf("latest migration = %q, want 0126_phase3_final_providers", latest.Version)
+	if latest.Version != "0127_dashboard_page_rbac" {
+		t.Fatalf("latest migration = %q, want 0127_dashboard_page_rbac", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -232,7 +232,7 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0126_phase3_final_providers" {
+	if latest.Version != "0127_dashboard_page_rbac" {
 		t.Fatalf("latest migration = %q", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
@@ -242,6 +242,110 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	for _, required := range []string{"ADD COLUMN title", "ADD COLUMN note"} {
 		if !strings.Contains(string(up), required) {
 			t.Fatalf("migration missing %q", required)
+		}
+	}
+}
+
+func TestDashboardPageRBACMigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	latest := migrations[len(migrations)-1]
+	if latest.Version != "0127_dashboard_page_rbac" {
+		t.Fatalf("latest migration = %q", latest.Version)
+	}
+	upBody, err := os.ReadFile(latest.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downBody, err := os.ReadFile(latest.DownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := string(upBody)
+	for _, required := range []string{
+		"mochat_go_dashboard_permissions",
+		"mochat_go_dashboard_permission_resources",
+		"mochat_go_dashboard_user_roles",
+		"mochat_go_dashboard_role_permissions",
+		"mochat_go_dashboard_user_permissions",
+		"mochat_go_dashboard_permission_audits",
+		"dashboard_access_version",
+		"SIGNAL SQLSTATE ''45000''",
+		"missing subscription for active tenant package",
+		"cross-tenant legacy user-role relationship",
+		"dangling legacy user-role relationship",
+		"PREPARE dashboard_subscription_guard_stmt",
+		"EXECUTE dashboard_subscription_guard_stmt",
+		"PREPARE dashboard_legacy_role_guard_stmt",
+		"EXECUTE dashboard_legacy_role_guard_stmt",
+		"LEFT JOIN `mc_user` u ON u.`id` = CAST(ur.`user_id` AS UNSIGNED)",
+		"LEFT JOIN `mc_rbac_role` r ON r.`id` = ur.`role_id`",
+		"`tenant_id` int(11) NOT NULL",
+		"`user_id` int(10) unsigned NOT NULL",
+		"`role_id` int(11) NOT NULL",
+		"`permission_id` bigint(20) unsigned NOT NULL",
+		"`actor_user_id` int(10) unsigned NULL",
+		"`target_id` varchar(64) NOT NULL",
+		"CONSTRAINT `fk_dashboard_audit_actor` FOREIGN KEY (`tenant_id`, `actor_user_id`)",
+		"UNIQUE KEY `uni_dashboard_user_roles` (`tenant_id`, `user_id`, `role_id`)",
+		"UNIQUE KEY `uni_dashboard_role_permissions` (`tenant_id`, `role_id`, `permission_id`)",
+		"UNIQUE KEY `uni_dashboard_user_permissions` (`tenant_id`, `user_id`, `permission_id`)",
+		"'/dashboard/channelCode/index'",
+		"'/dashboard/workContact/index'",
+		"SUBSTRING_INDEX(SUBSTRING_INDEX(m.`link_url`, '@', 1), '#', 1)",
+		"INNER JOIN `mochat_go_dashboard_permission_resources` pr",
+		"p.`superadmin_only` = 0",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("0127 up migration missing %q", required)
+		}
+	}
+	if got := strings.Count(up, "'page', '/"); got != 53 {
+		t.Fatalf("page seed count = %d, want 53", got)
+	}
+	if got := strings.Count(up, "'superadmin_only', 1"); got != 4 {
+		t.Fatalf("superadmin_only seed count = %d, want 4", got)
+	}
+	for _, forbidden := range []string{
+		"DELIMITER",
+		"CREATE PROCEDURE",
+		"ADD COLUMN IF NOT EXISTS",
+		"UNIQUE KEY `uni_dashboard_user_roles` (`tenant_id`, `user_id`, `role_id`, `deleted_at`)",
+		"UNIQUE KEY `uni_dashboard_role_permissions` (`tenant_id`, `role_id`, `permission_id`, `deleted_at`)",
+		"UNIQUE KEY `uni_dashboard_user_permissions` (`tenant_id`, `user_id`, `permission_id`, `deleted_at`)",
+	} {
+		if strings.Contains(up, forbidden) {
+			t.Fatalf("0127 up migration contains unreliable nullable uniqueness %q", forbidden)
+		}
+	}
+	firstDDL := strings.Index(up, "ALTER TABLE")
+	if firstDDL < 0 {
+		t.Fatal("0127 up migration has no DDL")
+	}
+	for _, preflight := range []string{"missing subscription for active tenant package", "cross-tenant legacy user-role relationship"} {
+		if offset := strings.Index(up, preflight); offset < 0 || offset > firstDDL {
+			t.Fatalf("0127 preflight %q must run before first DDL", preflight)
+		}
+	}
+	if strings.Index(up, "dangling legacy user-role relationship") > firstDDL {
+		t.Fatal("0127 dangling legacy relation preflight must run before first DDL")
+	}
+	down := string(downBody)
+	for _, required := range []string{
+		"DROP TABLE IF EXISTS `mochat_go_dashboard_permission_audits`",
+		"DROP TABLE IF EXISTS `mochat_go_dashboard_permissions`",
+		"DROP COLUMN `dashboard_access_version`",
+		"DROP INDEX `uni_dashboard_user_tenant_id_id`",
+		"DROP INDEX `uni_dashboard_role_tenant_id_id`",
+		"PREPARE dashboard_down_user_column_stmt",
+		"PREPARE dashboard_down_user_index_stmt",
+		"PREPARE dashboard_down_role_column_stmt",
+		"PREPARE dashboard_down_role_index_stmt",
+		"information_schema.columns",
+		"information_schema.statistics",
+	} {
+		if !strings.Contains(down, required) {
+			t.Fatalf("0127 down migration missing %q", required)
 		}
 	}
 }

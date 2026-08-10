@@ -165,6 +165,17 @@ describe('createAccessLoader', () => {
     })).rejects.toMatchObject({ status: 404 });
   });
 
+  it('rejects a non-manifest legacy deep link for an ordinary user', async () => {
+    const loader = createAccessLoader(deps({
+      knownRoutes: new Set(['/contactField/index']),
+      benchmarkRoutes: new Set(),
+    }));
+
+    await expect(loader({
+      request: new Request('https://app.test/contactField/index'),
+    })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('surfaces server and network failures without automatic retry', async () => {
     const loadCorps = vi.fn(() => Promise.reject(
       new ApiError('network', 'offline'),
