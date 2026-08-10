@@ -229,32 +229,32 @@ SELECT p.`id`, 'api', resource_seed.`http_method`, resource_seed.`path_pattern`,
 FROM `mochat_go_dashboard_permissions` p
 INNER JOIN (
   SELECT 'dashboard.index' AS `permission_code`, 'GET' AS `http_method`, '/dashboard/reports/overview' AS `path_pattern`, 1 AS `scope_required`
-  UNION ALL SELECT 'dashboard.index', 'GET', '/dashboard/workEmployee/index', 1
-  UNION ALL SELECT 'dashboard.index', 'GET', '/dashboard/workDepartment/pageIndex', 1
-  UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/toUsers', 1
-  UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/detail', 1
-  UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/fromUsers', 1
-  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/toUsers', 1
-  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/detail', 1
-  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/fromUsers', 1
-  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/toUsers', 1
-  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/detail', 1
-  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/fromUsers', 1
-  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/toUsers', 1
-  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/detail', 1
-  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/fromUsers', 1
-  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/toUsers', 1
-  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/detail', 1
-  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/fromUsers', 1
+  UNION ALL SELECT 'dashboard.index', 'GET', '/dashboard/workEmployee/index', 0
+  UNION ALL SELECT 'dashboard.index', 'GET', '/dashboard/workDepartment/pageIndex', 0
+  UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/toUsers', 0
+  UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/detail', 0
+  UNION ALL SELECT 'dashboard.chat.v2_all', 'GET', '/dashboard/workMessage/fromUsers', 0
+  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/toUsers', 0
+  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/detail', 0
+  UNION ALL SELECT 'dashboard.chat.v2_staff', 'GET', '/dashboard/workMessage/fromUsers', 0
+  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/toUsers', 0
+  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/detail', 0
+  UNION ALL SELECT 'dashboard.chat.v2_customer', 'GET', '/dashboard/workMessage/fromUsers', 0
+  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/toUsers', 0
+  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/detail', 0
+  UNION ALL SELECT 'dashboard.chat.v2_group', 'GET', '/dashboard/workMessage/fromUsers', 0
+  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/toUsers', 0
+  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/detail', 0
+  UNION ALL SELECT 'dashboard.chat.trajectory', 'GET', '/dashboard/workMessage/fromUsers', 0
   UNION ALL SELECT 'dashboard.chat.export', 'GET', '/dashboard/workMessage/toUsers', 1
   UNION ALL SELECT 'dashboard.chat.export', 'GET', '/dashboard/workMessage/detail', 1
   UNION ALL SELECT 'dashboard.chat.file_audio', 'GET', '/dashboard/chat/media', 0
   UNION ALL SELECT 'dashboard.chat.file_audio', 'POST', '/dashboard/chat/media', 0
   UNION ALL SELECT 'dashboard.chat.file_audio', 'DELETE', '/dashboard/chat/media/{id}', 0
-  UNION ALL SELECT 'dashboard.chat.resign_staff', 'GET', '/dashboard/contactTransfer/info', 1
-  UNION ALL SELECT 'dashboard.chat.refuse_archive', 'GET', '/dashboard/refuse-archive/records', 1
-  UNION ALL SELECT 'dashboard.chat.refuse_archive', 'POST', '/dashboard/refuse-archive/follow-up', 1
-  UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/contactTransfer/unassignedList', 1
+  UNION ALL SELECT 'dashboard.chat.resign_staff', 'GET', '/dashboard/contactTransfer/info', 0
+  UNION ALL SELECT 'dashboard.chat.refuse_archive', 'GET', '/dashboard/refuse-archive/records', 0
+  UNION ALL SELECT 'dashboard.chat.refuse_archive', 'POST', '/dashboard/refuse-archive/follow-up', 0
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/contactTransfer/unassignedList', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_risk', 'GET', '/dashboard/risk/records', 1
   UNION ALL SELECT 'dashboard.ai_insight.v2_risk', 'GET', '/dashboard/risk/rules', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_risk', 'POST', '/dashboard/risk/rules', 0

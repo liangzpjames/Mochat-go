@@ -17,12 +17,12 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workEmployee/index",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workDepartment/pageIndex",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -37,17 +37,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -62,17 +62,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -87,17 +87,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -112,17 +112,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -137,17 +137,17 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -207,7 +207,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/contactTransfer/info",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -222,12 +222,12 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/refuse-archive/records",
-          "scopeRequired": true
+          "scopeRequired": false
         },
         {
           "method": "POST",
           "pathPattern": "/dashboard/refuse-archive/follow-up",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
@@ -242,7 +242,7 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/contactTransfer/unassignedList",
-          "scopeRequired": true
+          "scopeRequired": false
         }
       ]
     },
