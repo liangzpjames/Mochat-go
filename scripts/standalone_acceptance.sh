@@ -86,9 +86,7 @@ run_core() {
   run_step "independent package smoke without original PHP checkout" ./scripts/smoke_independent_package.sh
   run_step "production evidence gate rule smoke" ./scripts/smoke_production_evidence_gate.sh
   run_step "standalone MySQL/Redis stack check" ./scripts/standalone_stack_check.sh
-  run_step "standalone compose app check" ./scripts/smoke_standalone_compose_app.sh
   run_step "standalone route coverage must be complete" env MOCHAT_ROUTE_COVERAGE_MAX_MISSING=0 ./scripts/standalone_route_coverage.sh
-  run_step "bootstrap standalone tenant" ./scripts/smoke_bootstrap_standalone.sh
   run_step "queue idempotency" ./scripts/smoke_queue_idempotency.sh
 }
 

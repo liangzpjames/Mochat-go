@@ -91,10 +91,8 @@ modules = [
             "internal/dashboard/user_admin.go",
         ],
         "smokes": [
-            "smoke_bootstrap_standalone.sh",
             "smoke_saas_tenant_isolation.sh",
             "smoke_admin_core_dashboard.sh",
-            "smoke_standalone_compose_app.sh",
         ],
         "tokens": [
             ("scripts/smoke_saas_quota_enforcement.sh", "metric = 'corps'"),
@@ -510,7 +508,6 @@ modules = [
             "smoke_saas_billing_invoices.sh",
             "smoke_saas_payment_settlements.sh",
             "smoke_saas_payment_settlement_sync.sh",
-            "smoke_standalone_compose_app.sh",
         ],
         "tokens": [
             ("scripts/smoke_saas_admin_dashboard.sh", "notificationHealthRecovery"),
@@ -652,7 +649,6 @@ modules = [
 			("scripts/smoke_saas_identity_security.sh", "recovery-login"),
 			("scripts/smoke_saas_branding.sh", "platform.branding.manage"),
 			("scripts/smoke_saas_branding.sh", "baseURL:\"/dashboard\""),
-            ("scripts/smoke_standalone_compose_app.sh", "0037_saas_notification_health_index"),
         ],
     },
 ]

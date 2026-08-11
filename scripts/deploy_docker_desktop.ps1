@@ -9,8 +9,6 @@ param(
     [ValidateRange(1, 65535)][int]$OperationPort = 18082,
     [ValidateRange(1, 65535)][int]$MySQLPort = 13316,
     [ValidateRange(1, 65535)][int]$RedisPort = 26389,
-    [string]$AdminPhone = '13800000000',
-    [string]$AdminPassword = 'MochatLocal@123',
     [string]$DockerCommand = 'docker'
 )
 
@@ -216,46 +214,11 @@ function Test-MigrationLedgerExists {
     return (Test-CapturedScalar -Output $output -Expected '1')
 }
 
-function Test-BootstrapDashboardAccess {
-    param([string]$Phone)
-
-    if ($DryRun) {
-        Write-Host '[预览] 将验证管理员、租户企业和通讯录员工映射。'
-        return
-    }
-
-    $database = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_DATABASE)) { 'mochat' } else { $env:MOCHAT_MYSQL_DATABASE }
-    $user = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_USER)) { 'mochat' } else { $env:MOCHAT_MYSQL_USER }
-    $password = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_PASSWORD)) { 'mochat_pass' } else { $env:MOCHAT_MYSQL_PASSWORD }
-    $escapedPhone = $Phone.Replace("'", "''")
-    $query = @"
-SELECT CASE WHEN EXISTS (
-  SELECT 1
-  FROM mc_user u
-  JOIN mc_corp c ON c.tenant_id = u.tenant_id AND c.deleted_at IS NULL
-  JOIN mc_work_employee e ON e.corp_id = c.id AND e.log_user_id = u.id AND e.deleted_at IS NULL
-  WHERE u.phone = '$escapedPhone' AND u.tenant_id = 1 AND u.deleted_at IS NULL
-) THEN 1 ELSE 0 END
-"@
-    $output = Invoke-Compose -Arguments @(
-        'exec', '-T', 'mysql',
-        'mariadb', '--batch', '--skip-column-names',
-        "-u$user", "-p$password", "--database=$database", '-e', $query
-    ) -Capture -Secrets @($password)
-    if (-not (Test-CapturedScalar -Output $output -Expected '1')) {
-        throw "管理员 $Phone 未获得 tenant 1 的企业和员工映射"
-    }
-    Write-Host "管理员企业访问映射通过：$Phone" -ForegroundColor Green
-}
-
 if (-not (Test-Path -LiteralPath $composeFile)) {
     throw "找不到 Compose 文件：$composeFile"
 }
 if ([string]::IsNullOrWhiteSpace($ProjectName) -or $ProjectName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]*$') {
     throw 'ProjectName 只能包含字母、数字、下划线和连字符，并且必须以字母或数字开头'
-}
-if ([string]::IsNullOrWhiteSpace($AdminPhone) -or [string]::IsNullOrWhiteSpace($AdminPassword)) {
-    throw '管理员手机号和密码不能为空'
 }
 
 $env:MOCHAT_GO_PORT = [string]$DashboardPort
@@ -312,13 +275,7 @@ try {
         'exec', '-T', 'app',
         'mochat-migrate', '-action', 'up', '-project-root', '/app'
     )
-    Invoke-Compose -Arguments @(
-        'exec', '-T', 'app',
-        'mochat-bootstrap',
-        '-phone', $AdminPhone,
-        '-password', $AdminPassword
-    ) -Secrets @($AdminPassword)
-    Test-BootstrapDashboardAccess -Phone $AdminPhone
+    Write-Host 'SaaS 管理员初始化未自动执行；请按 deploy/standalone/README.md 的一次性 PasswordFile + RequestKey 流程显式执行。' -ForegroundColor Yellow
 
     $dashboardUrl = "http://127.0.0.1:$DashboardPort/"
     $saasAdminUrl = "http://127.0.0.1:$DashboardPort/saas-admin/"
@@ -338,7 +295,6 @@ try {
     Write-Host "SaaS Admin：$saasAdminUrl"
     Write-Host "Sidebar：$sidebarUrl"
     Write-Host "Operation：$operationUrl"
-    Write-Host "管理员账号：$AdminPhone"
 } catch {
     Write-Host ''
     Write-Host "部署失败：$($_.Exception.Message)" -ForegroundColor Red

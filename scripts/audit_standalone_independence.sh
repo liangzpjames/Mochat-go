@@ -66,9 +66,7 @@ core_standalone_scripts = [
     "scripts/standalone_route_coverage.sh",
     "scripts/smoke_dashboard_frontend_login.sh",
 ]
-standalone_smoke_scripts = core_standalone_scripts + [
-    "scripts/smoke_standalone_compose_app.sh",
-]
+standalone_smoke_scripts = core_standalone_scripts
 script_forbidden = [
     (r"\bPHP_ADDR\b|\bPHP_LOG\b|\bPHP_PID\b", "standalone smoke must not start or manage a PHP process"),
     (r"fake[- ]PHP|fake php", "standalone smoke must not start fake PHP fallback"),

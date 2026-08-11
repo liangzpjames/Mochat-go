@@ -41,16 +41,18 @@ docker compose \
   mochat-migrate -action baseline -project-root /app
 
 BOOTSTRAP_HOST_FILE="/secure/path/from-secret-manager"
-BOOTSTRAP_CONTAINER_FILE="/tmp/mochat-bootstrap-saas-admin-password"
 BOOTSTRAP_REQUEST_KEY="initial-saas-admin-v1"
 BOOTSTRAP_LOGIN="platform-admin"
 BOOTSTRAP_PHONE="13800000000"
 BOOTSTRAP_NAME="Platform Admin"
 
-docker compose \
-  --env-file deploy/standalone/.env.local \
-  -f deploy/standalone/docker-compose.yml \
-  --profile app cp "$BOOTSTRAP_HOST_FILE" "app:$BOOTSTRAP_CONTAINER_FILE"
+BOOTSTRAP_CONTAINER_FILE="$(
+  docker compose \
+    --env-file deploy/standalone/.env.local \
+    -f deploy/standalone/docker-compose.yml \
+    --profile app exec -T -u 0 app \
+    sh -c 'umask 077; mktemp /tmp/mochat-bootstrap-saas-admin.XXXXXX'
+)"
 
 cleanup_bootstrap_file() {
   docker compose \
@@ -59,6 +61,11 @@ cleanup_bootstrap_file() {
     --profile app exec -T -u 0 app rm -f "$BOOTSTRAP_CONTAINER_FILE" >/dev/null 2>&1 || true
 }
 trap cleanup_bootstrap_file EXIT
+
+docker compose \
+  --env-file deploy/standalone/.env.local \
+  -f deploy/standalone/docker-compose.yml \
+  --profile app cp "$BOOTSTRAP_HOST_FILE" "app:$BOOTSTRAP_CONTAINER_FILE"
 
 docker compose \
   --env-file deploy/standalone/.env.local \
@@ -213,12 +220,12 @@ standalone 模式下同时配置 `MOCHAT_MYSQL_DSN` 和 `MOCHAT_SIMPLE_JWT_SECRE
 
 ## 自动检查
 
+> 注意：下列历史业务 smoke 清单不等于本阶段身份验收入口。凡仍依赖旧 tenant bootstrap、Dashboard 旧登录或企业选择的脚本，在 Task12 完成 SaaS/Dashboard 身份切换前均不得执行或宣称可用。
+
 ```bash
 ./scripts/standalone_stack_check.sh
-./scripts/smoke_standalone_compose_app.sh
 ./scripts/standalone_inventory_parity.sh
 ./scripts/smoke_schema_migrate.sh
-./scripts/smoke_bootstrap_standalone.sh
 ./scripts/smoke_saas_provisioning.sh
 ./scripts/smoke_saas_quota_enforcement.sh
 ./scripts/smoke_saas_storage_reconcile.sh
@@ -247,7 +254,8 @@ standalone 模式下同时配置 `MOCHAT_MYSQL_DSN` 和 `MOCHAT_SIMPLE_JWT_SECRE
 - `scripts/standalone_inventory_parity.sh` 会在迁移工作区对比 PHP 原项目重新扫描结果和 Go 内置 manifest，确认路由、表、定时任务、事件处理器和队列注解没有清单漏项；生产独立部署不需要保留 PHP 原项目。
 - `scripts/standalone_route_coverage.sh` 会验证 standalone + MySQL + Redis + JWT secret 下默认挂载的已迁移业务路由仍覆盖全部 manifest 路由。
 - `cmd/mochat-migrate` 可在空数据库上顺序执行当前 89 个版本，从 `0001_initial_schema` 到 `0089_saas_invoice_issue_approval_guard`；其中 `0011_sop_rbac` 兼容旧初始化 SQL 缺少 SOP 主表/触达日志表的情况。迁移器可对已有 schema + seed + SaaS 表执行 `baseline`，拒绝对空库做 baseline，可对带 `.down.sql` 的增量迁移执行 rollback，并可接受拆分前的一体化 `0001_initial_schema` legacy checksum 后补记 seed 迁移。
-- `cmd/mochat-bootstrap` 可在迁移后的空库上创建默认租户、超级管理员、管理员角色、用户角色绑定、可用菜单权限绑定、SaaS 套餐绑定、用量计数、seed 版本记录和开通记录，并可用该账号通过 Go standalone `auth` 换取 token；`scripts/smoke_standalone_compose_app.sh` 会在完整容器栈中继续验证 `loginShow`、`permissionByUser`、`corp/select`、`corp/bind`、Redis 企业选择缓存、dashboard 首页统计和基础通讯录读接口。
+- `cmd/mochat-bootstrap` 只创建一个 SaaS 平台管理员并只写入 `mochat_go_saas_admin_users`；它不会创建或修改 tenant、corp、`mc_user`、Dashboard identity、套餐或 RBAC 业务数据。密码只通过一次性现有 app 容器流程的受限 `PasswordFile` 读取，`RequestKey` 持久化并用于幂等判定。
+- 旧的 tenant bootstrap smoke 已删除；`scripts/smoke_standalone_compose_app.sh` 等历史业务 smoke 尚未切换到 SaaS-only bootstrap，本阶段不作为身份验收，必须由 Task12 更新后才能恢复使用。
 - `scripts/smoke_saas_provisioning.sh` 会用 CSV 一次开通两个租户，并验证两个租户管理员都能通过 Go standalone 登录。
 - `scripts/smoke_saas_tenant_isolation.sh` 会用真实 MySQL/Redis/Go standalone 验证两个租户的企业绑定、Redis 企业选择缓存、首页统计、基础通讯录、角色列表、权限菜单和 dashboard 上传账本互相隔离，并主动污染 `mc:user.{userId}` 为其他租户企业来回归读路径不会跨租户取数；两个租户分别上传文件后，脚本会断言 `mochat_go_saas_storage_objects` 和 `storage_mb` 用量只归属各自租户。
 - `scripts/smoke_saas_quota_enforcement.sh` 会用真实 Go standalone 写接口验证企业数、子账号数、应用数、渠道活码数、门店活码数、互动雷达数、抽奖活动数、无限拉群数、群裂变数、群打卡数、群质检规则数、群日历数、客户群提醒数、个人 SOP 规则数、群 SOP 规则数、敏感词词库数、客户数、客户群数、客户群发任务数、客户群群发任务数、标签建群任务数、自动拉群活码数、裂变活动数、公众号授权数和素材存储套餐上限拦截，并确认超额请求不会写入对应业务表、`mochat_go_saas_storage_objects` 或上传目录。

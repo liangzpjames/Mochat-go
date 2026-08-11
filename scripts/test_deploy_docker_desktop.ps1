@@ -17,8 +17,7 @@ function Invoke-DeploymentPreview {
         '-ExecutionPolicy', 'Bypass',
         '-File', $deployScript,
         '-DryRun',
-        '-SkipHttpCheck',
-        '-AdminPassword', 'test-password-must-not-be-printed'
+        '-SkipHttpCheck'
     )
     if ($ResetData) {
         $arguments += '-ResetData'
@@ -59,13 +58,15 @@ Assert-Matches $defaultOutput 'down --remove-orphans' '默认部署未替换旧�
 Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' '缺少强制重建参数'
 Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '未声明安全的条件基线策略'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
-Assert-Matches $defaultOutput 'exec -T app mochat-bootstrap -phone 13800000000' '未执行管理员初始化'
+Assert-Matches $defaultOutput 'SaaS 管理员初始化未自动执行' '部署入口仍未声明 SaaS-only 初始化边界'
 $deploySource = Get-Content -LiteralPath $deployScript -Raw
 Assert-Matches $deploySource '"--database=\$database"' '迁移/管理员数据库校验未显式指定目标 database'
 Assert-Matches $deploySource '12,64' '容器 ID 未执行 12-64 位长度校验'
 Assert-Matches $deploySource '2> \$stderrPath' 'Docker Capture 未分离 stderr'
-Assert-Matches $defaultOutput '将验证管理员、租户企业和通讯录员工映射' '未声明管理员企业访问映射验证'
 Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/security/login' '未检查 SaaS 身份登录入口'
+if ($deploySource -match 'mochat-bootstrap|AdminPassword|AdminPhone') {
+    throw '生产部署入口仍包含旧 bootstrap 命令行密码或旧管理员参数'
+}
 Assert-Matches $resetOutput 'down --volumes --remove-orphans' 'ResetData 未删除项目数据卷'
 Assert-Matches $portOutput 'MySQL：23316' '未应用 MySQL 端口参数'
 Assert-Matches $portOutput 'Redis：36389' '未应用 Redis 端口参数'
@@ -109,8 +110,7 @@ exit /b 0
     try {
         $fakeOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
             -DockerCommand $fakeDocker `
-            -SkipHttpCheck `
-            -AdminPassword 'test-password-must-not-be-printed' 2>&1 | Out-String
+            -SkipHttpCheck 2>&1 | Out-String
     } finally {
         $ErrorActionPreference = $previousPreference
     }
@@ -120,7 +120,6 @@ exit /b 0
     Assert-Matches $fakeOutput '部署完成' '正常的 Docker 标准错误进度导致部署失败'
     Assert-Matches $fakeOutput 'identity=1' '启用 SaaS Admin 时未启用身份安全登录'
     Assert-Matches $fakeOutput 'identity_key=set' '启用身份安全登录时未配置本地加密密钥'
-    Assert-Matches $fakeOutput 'prefill_phone=13800000000' 'SaaS 身份登录页未使用部署管理员账号'
     if ($fakeOutput -match 'mochat-migrate -action baseline') {
         throw '已有迁移账本时仍执行 baseline，会跳过新的增量迁移'
     }

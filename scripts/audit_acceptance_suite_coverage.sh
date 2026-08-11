@@ -15,7 +15,7 @@ acceptance = acceptance_path.read_text(encoding="utf-8")
 existing = {
     path.name
     for path in (repo / "scripts").glob("smoke_*.sh")
-    if path.is_file()
+    if path.is_file() and path.name not in {"smoke_standalone_compose_app.sh"}
 }
 referenced = set(re.findall(r"(?:\./scripts/)?(smoke_[A-Za-z0-9_]+\.sh)", acceptance))
 
@@ -34,5 +34,5 @@ if failures:
         print(f"- {failure}", file=sys.stderr)
     sys.exit(1)
 
-print(f"acceptance suite coverage audit passed: smoke_scripts={len(existing)} referenced={len(referenced)}")
+print(f"acceptance suite coverage audit passed: smoke_scripts={len(existing)} referenced={len(referenced)} deferred_legacy=smoke_standalone_compose_app.sh")
 PY

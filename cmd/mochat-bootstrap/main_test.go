@@ -94,3 +94,72 @@ func TestLongRunningComposeDoesNotExposeBootstrapPassword(t *testing.T) {
 		}
 	}
 }
+
+func TestBootstrapProductionEntrypointsDoNotInvokeLegacyTenantBootstrap(t *testing.T) {
+	root := filepath.Join("..", "..")
+	deploySource, err := os.ReadFile(filepath.Join(root, "scripts", "deploy_docker_desktop.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"mochat-bootstrap",
+		"AdminPassword",
+		"AdminPhone",
+		"'-secret'",
+		`"-secret"`,
+		" -secret ",
+		"-tenant-id",
+		"'-password'",
+		`"-password"`,
+		" -password ",
+	} {
+		if strings.Contains(string(deploySource), forbidden) {
+			t.Fatalf("production deploy entrypoint still contains legacy bootstrap material: %s", forbidden)
+		}
+	}
+
+	for _, relativePath := range []string{
+		filepath.Join("scripts", "standalone_acceptance.sh"),
+		filepath.Join("scripts", "audit_functional_module_matrix.sh"),
+	} {
+		raw, readErr := os.ReadFile(filepath.Join(root, relativePath))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if strings.Contains(string(raw), "smoke_bootstrap_standalone.sh") || strings.Contains(string(raw), "smoke_standalone_compose_app.sh") {
+			t.Fatalf("production smoke registry still references removed legacy script: %s", relativePath)
+		}
+	}
+
+	legacySmoke := filepath.Join(root, "scripts", "smoke_bootstrap_standalone.sh")
+	if _, statErr := os.Stat(legacySmoke); !os.IsNotExist(statErr) {
+		t.Fatalf("legacy standalone bootstrap smoke must be removed, stat error: %v", statErr)
+	}
+}
+
+func TestBootstrapReadmeUsesUniqueTemporaryPasswordFileAndTruthfulContract(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "standalone", "README.md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(raw)
+	for _, forbidden := range []string{
+		"smoke_bootstrap_standalone.sh",
+		"创建默认租户、超级管理员",
+		`BOOTSTRAP_CONTAINER_FILE="/tmp/mochat-bootstrap-saas-admin-password"`,
+	} {
+		if strings.Contains(readme, forbidden) {
+			t.Fatalf("standalone README still contains stale bootstrap contract: %s", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"mktemp /tmp/mochat-bootstrap-saas-admin.XXXXXX",
+		"mochat_go_saas_admin_users",
+		"Task12",
+	} {
+		if !strings.Contains(readme, required) {
+			t.Fatalf("standalone README is missing bootstrap contract marker: %s", required)
+		}
+	}
+}

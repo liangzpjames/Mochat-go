@@ -41,7 +41,7 @@ cd /Users/lv/Documents/企业微信/mochat-go
 .\scripts\deploy_docker_desktop.ps1
 ```
 
-脚本会使用固定 Compose 项目名 `mochat-go-desktop`，自动检查 Docker Desktop、构建并替换上一次部署的容器、等待 MySQL/Redis/应用健康、执行数据库迁移、初始化管理员，并检查 Dashboard、SaaS Admin、Sidebar、Operation 四个前端入口。默认管理员账号为 `13800000000`，默认密码为 `MochatLocal@123`，可通过 `-AdminPhone` 和 `-AdminPassword` 覆盖。
+脚本会使用固定 Compose 项目名 `mochat-go-desktop`，自动检查 Docker Desktop、构建并替换上一次部署的容器、等待 MySQL/Redis/应用健康、执行数据库迁移，并检查 Dashboard、SaaS Admin、Sidebar、Operation 四个前端入口。它不会自动创建管理员；SaaS 管理员只能按 `deploy/standalone/README.md` 的一次性现有 app 容器 `PasswordFile + RequestKey` 流程显式初始化，密码不进入命令行或长运行 app 配置。
 
 默认部署只替换容器，保留 MySQL、Redis、上传文件、备份和审计锚点等数据卷。只有明确需要清空全部项目数据时才执行：
 
@@ -75,17 +75,16 @@ MOCHAT_SIMPLE_JWT_SECRET='请替换成生产密钥' \
 docker compose -f deploy/standalone/docker-compose.yml --profile app up -d --build
 ```
 
-首次启动后，在 Go app 容器内记录 schema baseline 并创建管理员账号：
+首次启动后，在 Go app 容器内记录 schema baseline；SaaS 管理员初始化必须使用 `deploy/standalone/README.md` 中的受限一次性流程：
 
 ```bash
 MOCHAT_SIMPLE_JWT_SECRET='请替换成生产密钥' \
 docker compose -f deploy/standalone/docker-compose.yml --profile app exec app \
   mochat-migrate -action baseline -project-root /app
 
-MOCHAT_SIMPLE_JWT_SECRET='请替换成生产密钥' \
-docker compose -f deploy/standalone/docker-compose.yml --profile app exec app \
-  mochat-bootstrap -phone '13800000000' -password '请替换成强密码'
 ```
+
+旧的 tenant bootstrap smoke 已删除；历史业务 smoke 尚未切换到 SaaS-only bootstrap，本阶段不作为身份验收，必须由 Task12 更新后才能恢复使用。
 
 手动启动 Go standalone：
 
@@ -823,7 +822,6 @@ env -u GOROOT \
 ./scripts/smoke_standalone.sh
 ./scripts/standalone_stack_check.sh
 ./scripts/smoke_schema_migrate.sh
-./scripts/smoke_bootstrap_standalone.sh
 ./scripts/standalone_inventory_parity.sh
 ./scripts/standalone_route_coverage.sh
 ./scripts/audit_saas_storage_reclaim_coverage.sh
@@ -1225,7 +1223,6 @@ cd /Users/lv/Documents/企业微信/mochat-go
 env -u GOROOT go test -race ./...
 ./scripts/smoke_standalone.sh
 ./scripts/standalone_stack_check.sh
-./scripts/smoke_standalone_compose_app.sh
 ./scripts/standalone_inventory_parity.sh
 ./scripts/standalone_route_coverage.sh
 ./scripts/collect_standalone_evidence.sh
@@ -1233,7 +1230,6 @@ env -u GOROOT go test -race ./...
 ./scripts/audit_goal_completion.sh
 ./scripts/source_fingerprint.py
 ./scripts/smoke_production_evidence_gate.sh
-./scripts/smoke_bootstrap_standalone.sh
 ./scripts/smoke_saas_provisioning.sh
 ./scripts/smoke_saas_tenant_isolation.sh
 ./scripts/smoke_saas_quota_enforcement.sh
@@ -1298,7 +1294,7 @@ env -u GOROOT go test -race ./...
 - `frontend` 套件还会运行 `scripts/smoke_contact_transfer_dashboard.sh`，覆盖在职转接/离职继承待分配同步、在职客户列表、离职待分配客户列表、待分配群列表、客户接替、群接替、分配记录和企业微信 `get_unassigned_list` / `transfer_customer` / `groupchat/transfer` 请求口径。
 - `scripts/test.sh` 会先执行 `scripts/audit_standalone_independence.sh`、`scripts/audit_acceptance_suite_coverage.sh`、`scripts/audit_manifest_route_smoke_coverage.sh`、`scripts/audit_functional_module_matrix.sh`、`scripts/audit_login_corp_validation.sh`、队列注解覆盖、worker SaaS 用量断言、SaaS 指标覆盖、SaaS 存储回收覆盖审计和生产证据门禁自测，再执行 `go test ./...`、`go vet ./...` 和 `cmd/mochat-go`、`cmd/mochat-inventory`、`cmd/mochat-migrate`、`cmd/mochat-bootstrap`、`cmd/mochat-saas-maintenance` 五个入口的 `go build`。
 - `scripts/audit_standalone_independence.sh` 会静态审计独立交付包和核心 standalone smoke，阻止 `deploy/standalone` 定义 PHP 服务、挂载原 `../mochat`、配置 PHP fallback，阻止核心 standalone smoke 重新依赖 fake PHP、原项目路径、外部 manifest 或逐路由迁移开关。
-- `scripts/audit_acceptance_suite_coverage.sh` 会静态扫描所有 `scripts/smoke_*.sh`，确保每个 smoke 都已纳入 `scripts/standalone_acceptance.sh`，并反查验收入口没有引用已删除的 smoke，防止新增验收脚本游离在独立版总验收之外。
+- `scripts/audit_acceptance_suite_coverage.sh` 会静态扫描当前 smoke（明确排除 Task12 deferred 的旧 `smoke_standalone_compose_app.sh`），确保其余每个 smoke 都已纳入 `scripts/standalone_acceptance.sh`，并反查验收入口没有引用已删除的 smoke，防止新增验收脚本游离在独立版总验收之外。
 - `scripts/audit_manifest_route_smoke_coverage.sh` 会读取内置 `compat_manifest_embedded.json`，要求 224 条原 PHP manifest 路由都能在 `scripts/smoke_*.sh` 中找到直接覆盖痕迹；动态路由会按 `{appId}`、`{params?}` 和 `WW_verify_*.txt` 生成可匹配变体。
 - `scripts/audit_functional_module_matrix.sh` 会把内置 manifest 的 224 条 method+path 路由和 `internal/server/server.go` 中的 Go 运行时迁移路由归入 29 个业务功能模块，并检查每个模块是否具备 Go 源码、已纳入 `standalone_acceptance.sh` 的 smoke 证据，以及关键 SaaS 指标、上传账本回收、队列或企微回调门禁 token；它用于防止只用路由覆盖数误判“全功能迁移完成”，也防止新增 Go 兼容路由游离在模块验收之外。
 - `scripts/audit_frontend_dist_api_coverage.sh` 会扫描 `web/dashboard/dist`、`web/sidebar/dist` 和 `web/operation/dist` 内置旧前端构建产物中的静态 API 声明，并与 `internal/server/server.go` 的 Go runtime dispatch/routes 对比；默认只报告，设置 `MOCHAT_FRONTEND_DIST_API_STRICT=1` 后发现缺失 API 会返回非 0。该脚本用于防止 `manifest 224/224` 已通过但旧前端真实调用的 API 仍未被 Go 承接。
@@ -1331,8 +1327,9 @@ env -u GOROOT go test -race ./...
 - `scripts/smoke_sidebar_frontend_contact.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，在故意污染 `MOCHAT_PHP_UPSTREAM`、`MOCHAT_SOURCE_ROOT`、`MOCHAT_COMPAT_MANIFEST` 的情况下先用真实浏览器访问 sidebar `/login?agentId=1&target=/contact?agentId=1`，验证旧 dist 会进入 Go `/sidebar/agent/auth`、生成企业微信 OAuth 外跳、用 code 回调 `auth/getuserinfo` 签发 sidebar 员工 JWT，并由前端 `/auth` 写入 `token/agentId` cookie 后落回 `/contact?agentId=1`；随后继续访问 `/contactSop?id=900001&agentId=1`、`/roomSop?id=900001`、`/contactBatchAdd?batchId=900001` 和 `/medium?agentId=1`，验证 `agent/jssdkConfig`、`workContact/detail/show/track`、`contactFieldPivot/index`、`contactSop/getSopTipInfo`、`contactSop/getSopInfo`、`roomSop/getSopInfo`、`roomSop/logState`、`contactBatchAdd/detail`、`mediumGroup/index`、`medium/index`、本地 `/static/*` 头像/画像资源，以及旧 dist 里 `/undefined/sidebar/*` API 前缀能被 Go runtime 兼容归一化；脚本会开启 `cron-sop-log` 并等待 Go 自动生成普通和周期个人/群 SOP 日志，以及 `targetAnchor=room_join` 入群后群 SOP 日志，断言周期日志带 `_mochatGoOccurrence`、入群后群 SOP 写入 `mc_room_sop_log.contact`，再断言个人 SOP 弹窗、个人 SOP 详情页、群 SOP 页面和 `mc_room_sop_log.state` 均可独立闭环。
 - `scripts/smoke_operation_frontend_work_fission.sh` 会启动独立 MySQL/Redis、fake 微信开放平台 API 和 Go standalone，在无 PHP、无原源码、无外部 manifest 的情况下先验证 operation `/auth/workFission` 生成公众号 OAuth 外跳参数，再用 code 回调调用 fake 微信 `api_component_token`、`sns/oauth2/component/access_token`、`sns/userinfo` 写入 Go operation session；同一脚本也会验证兼容 `/load/{params?}` 的 GET OAuth 外跳和 POST code 回调。随后脚本用真实浏览器访问 `/workFission?id=900001` 和助力进度页，验证 `openUserInfo/workFission` 同源别名、`workFission/poster`、`taskData`、`inviteFriends`、`receive`、本地 `/static/*` 海报/头像/二维码资源，以及旧 dist 里 `/undefined/operation/*` API 前缀归一化。
 - `scripts/standalone_inventory_parity.sh` 会从 `MOCHAT_SOURCE_ROOT` 指向的 PHP 原项目重新扫描路由、表、定时任务、事件处理器和队列注解，并和 Go 内置 `compat_manifest_embedded.json` 对比，防止迁移清单漏收原 PHP 功能；默认读取 `../mochat`，只作为迁移期清单门禁，不是 Go standalone 运行时依赖。
-- `scripts/smoke_bootstrap_standalone.sh` 会在迁移后的空库上执行 `cmd/mochat-bootstrap`，创建默认租户、超级管理员、管理员角色、用户角色绑定、可用菜单权限绑定、SaaS 套餐绑定、用量计数、seed 版本记录和开通记录，再启动 Go standalone 的 `POST /dashboard/user/auth` 验证该账号可以直接换取 token。
-- `scripts/smoke_saas_provisioning.sh` 会使用 `cmd/mochat-bootstrap -batch-file` 一次开通两个租户，验证 `mochat_go_saas_packages`、`mochat_go_saas_tenant_packages`、`mochat_go_saas_usage_counters`、`mochat_go_seed_versions` 和 `mochat_go_tenant_provision_runs` 写入正确，并验证两个租户管理员都能通过 Go standalone 登录。
+- 注意：下方仍保留的 `scripts/smoke_standalone_compose_app.sh` 是历史业务 smoke，当前未切换到 SaaS-only bootstrap，已从本阶段 acceptance/matrix 入口移除，不得作为身份验收或部署步骤执行；必须由 Task12 更新后才能恢复使用。
+- `cmd/mochat-bootstrap` 只创建一个 SaaS 平台管理员并只写入 `mochat_go_saas_admin_users`；不会创建 tenant、corp、`mc_user`、Dashboard identity、套餐或 RBAC 业务数据。真实隔离 MariaDB contract 由 `internal/migration` integration gate 覆盖，密码只通过受限 `PasswordFile` 读取，`RequestKey` 持久化用于幂等判定。
+- `scripts/smoke_saas_provisioning.sh` 是历史 tenant provisioning smoke，依赖已废弃的 batch bootstrap 口径；本阶段不作为可执行身份验收，必须由 Task12 切换到受保护 SaaS API 后才能恢复使用。
 - `scripts/smoke_saas_admin_dashboard.sh` 会启动独立 Go + MySQL，验证 SaaS 总后台页面、平台 overview、租户 overview、单租户详情、租户生命周期审计、租户用量明细、运营日报、经营指标、经营趋势、风险看板、客户成功队列、风险跟进、风险跟进任务列表、负责人工作台、风险跟进批量关闭、告警处置和批量解决、通知重试、批量重试、通知关闭和批量关闭、套餐列表、套餐维护、套餐变更影响、套餐快照同步、套餐同步任务、续费任务、平台开户、租户开停、套餐到期拦截、续费账单、账单筛选汇总、告警/通知筛选汇总、告警/通知 CSV 导出、操作记录、租户/生命周期审计/用量/风险/经营指标/经营趋势/风险跟进任务/风险负责人/运营日报/操作/账单/账单跟进/账单负责人 CSV 导出、平台调整租户套餐、调整后 26 项额度刷新，以及普通租户越权访问平台总览/生命周期审计/用量明细/运营日报/经营指标/风险看板/客户成功队列/风险跟进/风险跟进任务/负责人工作台/风险跟进批量关闭/告警/批量告警解决/通知/批量通知重试/批量通知关闭/套餐/操作记录/账单/CSV 导出/平台开户/租户开停/租户套餐调整均返回 `403`；页面断言包含经营指标、经营趋势、导出经营指标 CSV、导出经营趋势 CSV、日报日期、统计天数、刷新日报、运营日报明细、日报负责人、日报通知、日报操作动作、日报账单流水、客户成功队列、生命周期审计、生命周期筛选、导出审计 CSV、套餐变更影响、套餐快照同步入口、套餐同步任务入口和续费任务入口；脚本会真实调用 `GET /dashboard/saasAdmin/businessMetrics` 并通过 `GET /dashboard/saasAdmin/export?type=businessMetrics` 导出经营指标 CSV，断言最近续费账单会进入估算 MRR/ARR、近期账单金额和套餐收入分布；脚本会真实调用 `GET /dashboard/saasAdmin/risk`，断言租户风险等级、风险分、风险原因、建议动作和 Top 风险指标，并调用 `GET /dashboard/saasAdmin/customerSuccess` 断言待处理租户的优先级、健康分、原因、下一步动作和失败通知数量，再用 `GET /dashboard/saasAdmin/export?type=risk` 导出风险 CSV；真实调用 `POST /dashboard/saasAdmin/riskFollowUp`，断言写入 `tenant.risk.follow_up` 操作日志，并再次读取风险看板、`GET /dashboard/saasAdmin/riskFollowUps` 任务列表、`GET /dashboard/saasAdmin/riskFollowUpOwners` 负责人工作台、显式带 `date` 和 `days` 的 `GET /dashboard/saasAdmin/dailyReport` 运营日报、`GET /dashboard/saasAdmin/export?type=dailyReport` 日报 CSV、`GET /dashboard/saasAdmin/export?type=riskFollowUps` 跟进任务 CSV、`GET /dashboard/saasAdmin/export?type=riskFollowUpOwners` 风险负责人 CSV 和风险 CSV，确认最新跟进状态、负责人、下次跟进时间、备注、到期状态、操作 ID、负责人任务分布、打开跟进、打开告警、失败通知、日报窗口日期、日报 CSV summary 和当日操作已回显；随后真实调用 `POST /dashboard/saasAdmin/riskFollowUpBulkClose`，断言按筛选条件把最新任务置为 `resolved`、任务列表进入 `closed`、并追加新的 `tenant.risk.follow_up` 操作日志；后段还会调用 `GET /dashboard/saasAdmin/export?type=usage` 导出目标租户用量 CSV，断言 users 指标、额度、状态和打开告警数字段；脚本还会断言套餐保存 `impact` 返回额度变化、分配租户数、降额后的超新额度租户和租户套餐快照未自动改写口径，并调用 `POST /dashboard/saasAdmin/packageSync` 验证 dry-run 预览不写入、实际同步遇到超额会阻断、显式允许超额后会写入租户快照并刷新 26 项额度，再调用 `POST /dashboard/saasAdmin/packageSyncTask` 和 `POST /dashboard/saasAdmin/packageSyncTaskApply` 验证套餐同步任务可创建 `blocked/pending` 状态、应用后变为 `applied`，并可通过 `GET /dashboard/saasAdmin/tasks` 回看任务；调用 `POST /dashboard/saasAdmin/tenantRenewalTask` 和 `POST /dashboard/saasAdmin/tenantRenewalTaskApply` 验证续费任务先生成预览、应用后写入账单事件并变为 `applied`，并通过 `GET /dashboard/saasAdmin/tasks?taskType=tenant_renewal` 回看任务；还会真实调用 `POST /dashboard/saasAdmin/alertResolve`，断言告警转为 resolved、用量明细打开告警数归零，并生成 `tenant.alert.resolve` 操作日志；真实调用 `POST /dashboard/saasAdmin/alertBulkResolve`，断言匹配筛选条件的 open 告警批量转为 resolved，并为每条告警生成带 `bulkResolve=true` 的 `tenant.alert.resolve` 操作日志；真实调用 `POST /dashboard/saasAdmin/notificationRetry`，断言 dead 通知回到 pending、失败原因清空，并生成 `tenant.notification.retry` 操作日志；真实调用 `POST /dashboard/saasAdmin/notificationBulkRetry`，断言匹配筛选条件的 failed 通知批量回到 pending、失败原因清空，并为每条通知生成 `tenant.notification.retry` 操作日志；随后真实调用 `POST /dashboard/saasAdmin/notificationClose` 和 `POST /dashboard/saasAdmin/notificationBulkClose`，断言 pending 通知进入 `closed`、`nextRetryAt` 清空、失败原因写入关闭备注，并生成带 `tenant.notification.close` 和 `bulkClose=true` 的操作日志。
 - SaaS 总后台 smoke 在关闭通知后还会重新读取显式日期窗口的 `GET /dashboard/saasAdmin/dailyReport` 和 `GET /dashboard/saasAdmin/export?type=dailyReport`，断言关闭通知进入 `notifications.closedItems`，`closedNotificationCount`、`windowNotificationCloseCount`、`notifications.summary.closedCount` 和日报 CSV 的 `closedNotification` section 均回显关闭备注；在运营待办认领后还会断言 `operationQueueAssignments?dueState=future`、认领 CSV、日报 `operationQueueAssignments` 分区、`windowQueueAssignmentCount/windowTaskSlaAssignCount`、日报 CSV 的 `operationQueueAssignment` section、`tenantLifecycle?source=operation&status=contacted` 和生命周期审计 CSV 都能回显任务 SLA 认领负责人、来源、状态、到期状态和备注。
 - SaaS 总后台 smoke 还会断言页面包含“经营趋势”、`businessTrends`、`businessRenewalFunnel` 和“导出经营趋势 CSV”，普通租户访问 `GET /dashboard/saasAdmin/businessTrends` 与 `GET /dashboard/saasAdmin/export?type=businessTrends` 返回 `403`；平台管理员在续费任务应用并写入账单后读取趋势接口并导出经营趋势 CSV，确认最近账单进入月度趋势、scale 套餐流水和续费任务漏斗。
