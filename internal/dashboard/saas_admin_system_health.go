@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0128_dashboard_page_rbac_legacy_scope_fix"
-	SaaSAdminExpectedMigrationCount   = 128
+	SaaSAdminExpectedMigrationVersion = "0129_identity_realms_single_corp_schema"
+	SaaSAdminExpectedMigrationCount   = 129
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"
