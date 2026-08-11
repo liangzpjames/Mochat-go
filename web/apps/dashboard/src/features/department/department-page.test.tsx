@@ -9,7 +9,7 @@ import type { AccessContext } from '../../app/access-loader';
 import { DepartmentPage, type DepartmentPageApi } from './department-page';
 
 const access: AccessContext = {
-  session: { token: 'token', userId: '1', corpId: '7', expiresAt: null },
+  session: { token: 'token', userId: '1', expiresAt: null },
   corp: { id: '7', name: '测试企业', authorized: true },
   menu: [], allowedRoutes: new Set(['/department/index']),
   allowedActions: new Set(['/department/index@search', '/department/index@sync', '/department/index@check']),

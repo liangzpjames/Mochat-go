@@ -16,6 +16,7 @@ import (
 	"jiyi/mochat-go/internal/clientip"
 	"jiyi/mochat-go/internal/config"
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/dashboardauth"
 	"jiyi/mochat-go/internal/frontend"
 	"jiyi/mochat-go/internal/identitysecurity"
 	"jiyi/mochat-go/internal/mysqlconn"
@@ -124,6 +125,7 @@ func main() {
 	var identityManager *identitysecurity.Manager
 	var identitySessionChecker authjwt.SessionChecker
 	var tenantDomainVerifier *dashboard.SaaSTenantDomainDNSVerifier
+	var dashboardIdentityGuard *dashboardauth.RequestGuard
 	var serviceAccountKeyManager *serviceaccountkey.Manager
 	var serviceAccountClientIPResolver *clientip.Resolver
 	if cfg.EnableSaaSAdminDashboard {
@@ -338,32 +340,45 @@ func main() {
 
 	if cfg.MigrateAuth {
 		mysqlStore := getMySQLStore()
-		authHandler := dashboard.NewAuthHandler(mysqlStore, cfg.SimpleJWTSecret, cfg.SimpleJWTTTL).
-			WithDashboardTenantGate(mysqlStore)
-		if cfg.EnableSaaSAdminDashboard {
-			authHandler.WithTenantDomains(mysqlStore)
+		dashboardMFAKey, parseErr := saasbackup.ParseEncryptionKey(cfg.DashboardMFAEncryptionKey)
+		if parseErr != nil {
+			log.Fatalf("build Dashboard MFA encryption key: %v", parseErr)
 		}
-		if identityManager != nil {
-			authHandler.WithIdentitySecurity(identityManager)
+		dashboardTokenConfig := authrealm.TokenConfig{
+			Secret: []byte(cfg.DashboardJWTSecret), Issuer: cfg.DashboardJWTIssuer,
+			Audience: cfg.DashboardJWTAudience, TTL: cfg.DashboardJWTTTL,
+			Realm: authrealm.RealmDashboard, Prefix: cfg.DashboardJWTPrefix,
 		}
-		options = append(options, compatserver.WithAuthHandler(authHandler))
-		log.Printf("go migrated route enabled: POST /dashboard/user/auth")
-		if identityManager != nil {
-			resolver, _ := buildUserResolver("identitySelf")
-			options = append(options,
-				compatserver.WithAuthMFAHandler(http.HandlerFunc(authHandler.MFA)),
-				compatserver.WithIdentitySelfHandler(dashboard.NewIdentitySelfHandler(mysqlStore, resolver, identityManager)),
-				compatserver.WithIdentityLoginPageHandler(dashboard.NewIdentityLoginPageHandlerWithDomains(
-					mysqlStore,
-					mysqlStore,
-					cfg.SaaSPlatformAdminTenantID,
-				)),
-			)
-			log.Printf("go identity routes enabled: POST /dashboard/user/authMFA GET/POST/PUT /dashboard/user/securityMFA GET /security/login")
+		dashboardIdentityStore := store.NewDashboardIdentityStore(mysqlStore.DB())
+		dashboardIdentityService := dashboardauth.NewService(dashboardIdentityStore)
+		dashboardTenantGate := dashboardauth.DashboardTenantGate(func(ctx context.Context, tenantID int, now time.Time) (dashboardauth.TenantAccess, error) {
+			access, err := mysqlStore.DashboardTenantAccess(ctx, tenantID, now)
+			return dashboardauth.TenantAccess{TenantID: access.TenantID, Allowed: access.Allowed, Reason: access.Reason}, err
+		})
+		dashboardParser := authrealm.Parser{
+			Config: dashboardTokenConfig,
+			ValidateSession: func(ctx context.Context, claims authrealm.Claims) error {
+				return dashboardIdentityService.CheckTokenSession(ctx, claims)
+			},
 		}
+		dashboardAuthHandler, authErr := dashboardauth.NewHTTPHandler(dashboardauth.HTTPConfig{
+			Service: dashboardIdentityService, Persistence: dashboardIdentityStore,
+			Signer: dashboardTokenConfig, Parser: dashboardParser,
+			MFAKey: dashboardMFAKey, MFAKeyID: cfg.DashboardMFAEncryptionKeyID,
+			TenantGate: dashboardTenantGate,
+		})
+		if authErr != nil {
+			log.Fatalf("build Dashboard authentication handler: %v", authErr)
+		}
+		dashboardIdentityGuard, authErr = dashboardauth.NewRequestGuard(dashboardParser, dashboardIdentityStore, dashboardTenantGate)
+		if authErr != nil {
+			log.Fatalf("build Dashboard request guard: %v", authErr)
+		}
+		options = append(options, compatserver.WithDashboardAuthHandler(dashboardAuthHandler))
+		log.Printf("go Dashboard identity routes enabled: POST /dashboard/user/auth POST /dashboard/user/authMFA POST /dashboard/auth/activate POST /dashboard/auth/password/reset-request POST /dashboard/auth/password/reset GET /dashboard/auth/session")
 	}
 
-	if cfg.MigrateLogout {
+	if cfg.MigrateLogout && dashboardIdentityGuard == nil {
 		redisStore := getRedisStore()
 		logoutHandler := dashboard.NewLogoutHandler(redisStore, authjwt.Parser{
 			Secret:    cfg.SimpleJWTSecret,
@@ -3332,8 +3347,13 @@ func main() {
 	if err := registerDashboardAccessRoutes(moduleRouter, dashboardAccessHTTP); err != nil {
 		log.Fatalf("register Dashboard access administration routes: %v", err)
 	}
+	if dashboardIdentityGuard != nil {
+		dashboardIdentityGuard.WithNext(dashboardAccessGuard)
+		options = append(options, compatserver.WithDashboardRequestGuard(dashboardIdentityGuard))
+	} else {
+		options = append(options, compatserver.WithDashboardRequestGuard(dashboardAccessGuard))
+	}
 	options = append(options,
-		compatserver.WithDashboardRequestGuard(dashboardAccessGuard),
 		compatserver.WithDashboardAccessHandler(dashboardAccessHTTP),
 		compatserver.WithModuleRouter(moduleRouter),
 	)

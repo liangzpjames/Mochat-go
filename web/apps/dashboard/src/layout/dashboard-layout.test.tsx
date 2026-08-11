@@ -12,10 +12,7 @@ import { RouterProvider } from 'react-router';
 
 import { createDashboardQueryClient } from '../app/providers';
 import { createDashboardRouter } from '../app/router';
-import type {
-  AccessContext,
-  CorpSelection,
-} from '../app/access-loader';
+import type { AccessContext } from '../app/access-loader';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 
 afterEach(cleanup);
@@ -30,9 +27,7 @@ function renderDashboard(options: {
   session: boolean;
   initialPath?: string;
   loadInitialData?: () => Promise<void>;
-  accessLoader?: (args: { request: Request }) => Promise<
-    AccessContext | CorpSelection
-  >;
+  accessLoader?: (args: { request: Request }) => Promise<AccessContext>;
   onLogout?: () => Promise<void>;
   reactPages?: Readonly<Record<string, ReactNode>>;
 }) {
@@ -41,7 +36,6 @@ function renderDashboard(options: {
     getSession: () => options.session ? {
       token: 'Bearer test',
       userId: '7',
-      corpId: '12',
       expiresAt: null,
     } : null,
     initialEntries: [options.initialPath ?? '/'],
@@ -95,7 +89,6 @@ describe('Dashboard shell', () => {
         session: {
           token: 'Bearer test',
           userId: '7',
-          corpId: '12',
           expiresAt: null,
         },
         corp: { id: '12', name: '测试企业', authorized: true },
@@ -127,7 +120,6 @@ describe('Dashboard shell', () => {
         session: {
           token: 'Bearer test',
           userId: '7',
-          corpId: '12',
           expiresAt: null,
         },
         corp: { id: '12', name: '测试企业', authorized: true },
@@ -165,7 +157,7 @@ describe('Dashboard shell', () => {
       session: true,
       initialPath: '/chat/v2-all',
       accessLoader: () => Promise.resolve({
-        session: { token: 'Bearer test', userId: '7', corpId: '12', expiresAt: null },
+        session: { token: 'Bearer test', userId: '7', expiresAt: null },
         corp: { id: '12', name: '测试企业', authorized: true },
         menu: [],
         allowedRoutes: new Set(['/chat/v2-all']),
@@ -202,7 +194,7 @@ describe('Dashboard shell', () => {
       session: true,
       initialPath: '/index',
       accessLoader: () => Promise.resolve({
-        session: { token: 'Bearer test', userId: '7', corpId: '12', expiresAt: null },
+        session: { token: 'Bearer test', userId: '7', expiresAt: null },
         corp: { id: '12', name: '测试企业', authorized: true },
         menu: [],
         allowedRoutes: new Set(['/index', '/customer/tags']),
@@ -226,7 +218,7 @@ describe('Dashboard shell', () => {
     renderDashboard({
       session: true,
       accessLoader: () => Promise.resolve({
-        session: { token: 'Bearer test', userId: '7', corpId: '12', expiresAt: null },
+        session: { token: 'Bearer test', userId: '7', expiresAt: null },
         corp: { id: '12', name: '测试企业', authorized: true },
         menu: [],
         allowedRoutes: new Set(),

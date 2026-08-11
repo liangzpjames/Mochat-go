@@ -595,6 +595,7 @@ function dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
   const dashboardPrincipalRoutes = [];
   const saasPrincipalRoutes = [];
   const publicExactRoutes = [];
+  const authenticatedExactRoutes = [];
   const failures = [];
   const saasPrefixes = ['/dashboard/saasAdmin/', '/dashboard/saasAlert/', '/dashboard/saasBilling/'];
   const classify = (method, route) => {
@@ -638,8 +639,9 @@ function dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
       evidence.evidence += ' -> SaaSPrincipal consumer';
       saasPrincipalRoutes.push(evidence);
     } else if (category === 'public-exact') {
-      evidence.evidence += ` -> exact exemption${policy.publicContracts.has(contract) ? ' public' : ''}`;
-      publicExactRoutes.push(evidence);
+      const isPublic = policy.publicContracts.has(contract);
+      evidence.evidence += ` -> exact exemption${isPublic ? ' public' : ' identity-authenticated'}`;
+      (isPublic ? publicExactRoutes : authenticatedExactRoutes).push(evidence);
     } else {
       if (!principalConsumerPattern.test(resolved.consumerBody)) {
         failures.push(`${contract} -> handler ${resolved.handlerSymbol} source:${resolved.handlerSource} has no DashboardPrincipal consumer in ${resolved.consumerSymbol} source:${resolved.consumerSource}`);
@@ -652,14 +654,14 @@ function dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
   if (failures.length) {
     throw new Error(`Dashboard route principal binding failed: ${failures.join('; ')}`);
   }
-  requireEvidence([...dashboardPrincipalRoutes, ...saasPrincipalRoutes, ...publicExactRoutes], 'Dashboard route evidence is required');
-  return { dashboardPrincipalRoutes, saasPrincipalRoutes, publicExactRoutes };
+  requireEvidence([...dashboardPrincipalRoutes, ...saasPrincipalRoutes, ...publicExactRoutes, ...authenticatedExactRoutes], 'Dashboard route evidence is required');
+  return { dashboardPrincipalRoutes, saasPrincipalRoutes, publicExactRoutes, authenticatedExactRoutes };
 }
 
 function storeQueryLocations(files, table) {
   const locations = [];
   const tablePattern = new RegExp('\\b(?:FROM|INTO|UPDATE)\\s+[\\x60]?'+table+'[\\x60]?\\b', 'i');
-  const dbCallPattern = /\b(?:Query(?:Row|Context)?|Exec(?:Context)?|Prepare(?:Context)?)\s*\(/;
+  const dbCallPattern = /\b(?:Query(?:Row|Context)?|Exec(?:Context)?|Prepare(?:Context)?|query|exec)\s*\(/;
   for (const file of files) {
     const source = stripComments(fs.readFileSync(file, 'utf8'), GO_EXT);
     for (const functionBody of goFunctionBodies(file, source)) {
@@ -779,7 +781,19 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
   const dashboardIdentityFiles = [...new Set(dashboardIdentityTables.map((location) => location.file))];
   const saasSharedIdentity = locationsFor([...saasGo, ...saasIdentityFiles], /\bmc_user\b/);
   assertNo(saasSharedIdentity, 'SaaS identity/auth store must not read mc_user');
-  const dashboardSharedIdentity = locationsFor([...dashboardAuthGo, ...dashboardIdentityFiles], /\bmc_user\b/);
+  const dashboardSharedIdentity = locationsFor(dashboardAuthGo, /\bmc_user\b/);
+  for (const file of dashboardIdentityFiles) {
+    const source = stripComments(fs.readFileSync(file, 'utf8'), GO_EXT);
+    for (const functionBody of goFunctionBodies(file, source)) {
+      const match = functionBody.body.match(/\bmc_user\b/);
+      if (!match || functionBody.name === 'ResolvePrincipal') continue;
+      dashboardSharedIdentity.push({
+        file: functionBody.file,
+        line: lineAt(source, functionBody.start + functionBody.body.indexOf(match[0])),
+        match: match[0],
+      });
+    }
+  }
   assertNo(dashboardSharedIdentity, 'Dashboard identity/auth store must not read mc_user');
 
   const jwtRealms = {
@@ -819,6 +833,7 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
     dashboardPrincipalRoutes: routeEvidence.dashboardPrincipalRoutes,
     saasPrincipalRoutes: routeEvidence.saasPrincipalRoutes,
     publicExactRoutes: routeEvidence.publicExactRoutes,
+    authenticatedExactRoutes: routeEvidence.authenticatedExactRoutes,
     forbiddenCorpRoutes,
     forbiddenSessionCorpFields,
     plaintextSecretReads,
@@ -829,5 +844,5 @@ export { runIdentitySingleCorpGate };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const result = runIdentitySingleCorpGate();
-  console.log(`identity single-corp gate PASS: SaaS realm=${result.jwtRealms.saas_admin.length}, Dashboard realm=${result.jwtRealms.dashboard.length}, SaaS Store queries=${result.saasIdentityTables.length}, Dashboard Store queries=${result.dashboardIdentityTables.length}, SaaS principal routes=${result.saasPrincipalRoutes.length}, Dashboard principal routes=${result.dashboardPrincipalRoutes.length}, public exact routes=${result.publicExactRoutes.length}`);
+  console.log(`identity single-corp gate PASS: SaaS realm=${result.jwtRealms.saas_admin.length}, Dashboard realm=${result.jwtRealms.dashboard.length}, SaaS Store queries=${result.saasIdentityTables.length}, Dashboard Store queries=${result.dashboardIdentityTables.length}, SaaS principal routes=${result.saasPrincipalRoutes.length}, Dashboard principal routes=${result.dashboardPrincipalRoutes.length}, public exact routes=${result.publicExactRoutes.length}, identity-auth exact routes=${result.authenticatedExactRoutes.length}`);
 }

@@ -1,6 +1,8 @@
 secrets:
   saas_admin_mfa_encryption_key:
     file: "${MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE:?MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE must point to a protected file}"
+  dashboard_mfa_encryption_key:
+    file: "${MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE:?MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE must point to a protected file}"
 
 services:
   app:
@@ -15,6 +17,9 @@ services:
     secrets:
       - source: saas_admin_mfa_encryption_key
         target: mochat-saas-admin-mfa-encryption-key
+        mode: 0400
+      - source: dashboard_mfa_encryption_key
+        target: mochat-dashboard-mfa-encryption-key
         mode: 0400
     environment:
       TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
@@ -39,6 +44,8 @@ services:
       MOCHAT_DASHBOARD_JWT_AUDIENCE: "${MOCHAT_DASHBOARD_JWT_AUDIENCE:-mochat-dashboard}"
       MOCHAT_DASHBOARD_JWT_PREFIX: "${MOCHAT_DASHBOARD_JWT_PREFIX:-mochat_dashboard_}"
       MOCHAT_DASHBOARD_JWT_TTL: "${MOCHAT_DASHBOARD_JWT_TTL:-604800}"
+      MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE: "/run/secrets/mochat-dashboard-mfa-encryption-key"
+      MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID: "${MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID:?MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID must be set}"
       MOCHAT_SIDEBAR_JWT_SECRET: "${MOCHAT_SIDEBAR_JWT_SECRET:-Br3LXhp&Ysha1zRDh}"
       MOCHAT_SIDEBAR_JWT_PREFIX: "${MOCHAT_SIDEBAR_JWT_PREFIX:-default}"
       MOCHAT_FILE_STORAGE_ROOT: "/app/storage/upload/static"

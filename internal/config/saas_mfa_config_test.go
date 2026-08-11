@@ -69,3 +69,39 @@ func TestIdentityRealmValidationRequiresSaaSMFAFileAndKeyID(t *testing.T) {
 		t.Fatalf("missing SaaS MFA key id was accepted: %v", err)
 	}
 }
+
+func TestIdentityRealmValidationRequiresDashboardMFAFileAndKeyID(t *testing.T) {
+	cfg := Config{
+		MigrateAuth:        true,
+		SaaSAdminJWTSecret: "saas-jwt-secret", SaaSAdminJWTIssuer: "saas-issuer", SaaSAdminJWTAudience: "saas-audience", SaaSAdminJWTPrefix: "saas_", SaaSAdminJWTTTL: 1,
+		DashboardJWTSecret: "dashboard-jwt-secret", DashboardJWTIssuer: "dashboard-issuer", DashboardJWTAudience: "dashboard-audience", DashboardJWTPrefix: "dashboard_", DashboardJWTTTL: 1,
+	}
+	if err := cfg.ValidateIdentityRealms(); err == nil || !strings.Contains(err.Error(), "MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE") {
+		t.Fatalf("missing Dashboard MFA file was accepted: %v", err)
+	}
+	cfg.DashboardMFAEncryptionKey = "dashboard-file-loaded-key"
+	if err := cfg.ValidateIdentityRealms(); err == nil || !strings.Contains(err.Error(), "MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID") {
+		t.Fatalf("missing Dashboard MFA key id was accepted: %v", err)
+	}
+}
+
+func TestDashboardMFAUsesProtectedSecretFileInDeploymentContract(t *testing.T) {
+	compose, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	composeText := string(compose)
+	if !strings.Contains(composeText, `file: "${MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE:?`) || !strings.Contains(composeText, `MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE: "/run/secrets/`) {
+		t.Fatal("Compose must require and pass the Dashboard MFA secret-file path")
+	}
+	if !strings.Contains(composeText, `MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID: "${MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID:?`) {
+		t.Fatal("Compose must require the Dashboard MFA key id without a default")
+	}
+	envExample, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", ".env.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(envExample), "MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE=") || !strings.Contains(string(envExample), "MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID=") {
+		t.Fatal(".env.example must document the protected Dashboard MFA file and key id")
+	}
+}

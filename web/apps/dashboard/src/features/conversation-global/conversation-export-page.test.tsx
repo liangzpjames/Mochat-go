@@ -9,7 +9,7 @@ import type { ConversationGlobalApi } from './conversation-global-api';
 import { ConversationExportPage } from './conversation-export-page';
 
 const access: AccessContext = {
-  session: { token: 'Bearer test', userId: '1', corpId: '7', expiresAt: null },
+  session: { token: 'Bearer test', userId: '1', expiresAt: null },
   corp: { id: '7', name: '测试企业', authorized: true }, menu: [],
   allowedRoutes: new Set(['/chat/export']), allowedActions: new Set(),
 };

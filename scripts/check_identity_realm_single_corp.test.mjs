@@ -120,6 +120,41 @@ test('GREEN: identity SQL may live in internal/store behind auth interfaces', as
   });
 });
 
+test('GREEN: identity adapters may route SQL through their narrow query helper', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'store'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'identity.go'), 'package store\ntype SaaSIdentityStore struct{}\ntype DashboardIdentityStore struct{}\nfunc (s SaaSIdentityStore) Authenticate(db DB, login string) { row := s.query(db, login); _ = row; db.QueryRow("SELECT id FROM mochat_go_saas_admin_users WHERE login_name = ?", login) }\nfunc (s SaaSIdentityStore) query(db DB, login string) { db.QueryRow("SELECT id FROM a_narrow_adapter_helper WHERE login_name = ?", login) }\nfunc (s DashboardIdentityStore) Authenticate(db DB, login string) { row := s.query(db, login); _ = row; db.QueryRow("SELECT user_id FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\nfunc (s DashboardIdentityStore) query(db DB, login string) { db.QueryRow("SELECT user_id FROM a_narrow_adapter_helper WHERE login_identifier = ?", login) }\n');
+  }, async (root) => {
+    assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('GREEN: Dashboard adapter may resolve the server principal through mc_user binding', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'store'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'saas_identity.go'), 'package store\ntype SaaSIdentityStore struct{}\nfunc (s SaaSIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT id FROM mochat_go_saas_admin_users WHERE login_name = ?", login) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'dashboard_identity.go'), 'package store\ntype DashboardIdentityStore struct{}\nfunc (s DashboardIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT user_id FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\nfunc (s DashboardIdentityStore) ResolvePrincipal(db DB, userID int) { db.QueryRow("SELECT tenant_id, corp_id FROM mc_user WHERE id = ?", userID) }\n');
+  }, async (root) => {
+    assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('RED: Dashboard identity authentication cannot read mc_user outside principal resolution', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'store'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'saas_identity.go'), 'package store\ntype SaaSIdentityStore struct{}\nfunc (s SaaSIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT id FROM mochat_go_saas_admin_users WHERE login_name = ?", login) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'dashboard_identity.go'), 'package store\ntype DashboardIdentityStore struct{}\nfunc (s DashboardIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT user_id FROM mochat_go_dashboard_identities WHERE login_identifier = ? AND id IN (SELECT id FROM mc_user)" , login) }\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /Dashboard.*mc_user/i);
+  });
+});
+
 test('GREEN: public auth exact routes do not require DashboardPrincipal', async () => {
   await withFixture(async (root) => {
     await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc (h Handler) Auth() { println("login") }\n');
@@ -127,6 +162,20 @@ test('GREEN: public auth exact routes do not require DashboardPrincipal', async 
   }, async (root) => {
     const result = runIdentitySingleCorpGate(root);
     assert.ok(result.publicExactRoutes.some((route) => route.route === '/dashboard/auth'));
+  });
+});
+
+test('GREEN: identity-authenticated exact routes are not reported as public routes', async () => {
+  await withFixture(async (root) => {
+    await fs.writeFile(path.join(root, 'internal', 'dashboard', 'dashboard_route_policy.go'), 'package dashboard\nvar exactExemptDashboardRouteContracts = []string{"POST /dashboard/auth", "POST /dashboard/auth/password/reset-request", "GET /dashboard/auth/session", "POST /dashboard/auth/logout", "PUT /dashboard/user/logout"}\nvar publicDashboardRouteContracts = []string{"POST /dashboard/auth"}\nvar denyOnlyDashboardRouteContracts = []string{"DELETE /dashboard/deny"}\nvar pageMappedDashboardRouteContracts = []string{"GET /dashboard/index", "GET /dashboard/server", "GET /dashboard/cmd", "POST /dashboard/module", "POST /dashboard/closure", "GET /dashboard/same-file"}\nvar saasPrincipalDashboardRouteContracts = []string{"GET /dashboard/saasAdmin/settings"}\n');
+    await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc (h Handler) Auth() { println("auth") }\nfunc (h Handler) ResetRequest() { println("reset") }\nfunc (h Handler) Session() { println("session") }\nfunc (h Handler) Logout() { println("logout") }\nfunc (h Handler) UserLogout() { println("user logout") }\n');
+    await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerIdentityAuth(router Router, handler Handler) { router.Handle("POST", "/dashboard/auth", handler.Auth); router.Handle("POST", "/dashboard/auth/password/reset-request", handler.ResetRequest); router.Handle("GET", "/dashboard/auth/session", handler.Session); router.Handle("POST", "/dashboard/auth/logout", handler.Logout); router.Handle("PUT", "/dashboard/user/logout", handler.UserLogout) }\n');
+  }, async (root) => {
+    const result = runIdentitySingleCorpGate(root);
+    assert.ok(result.publicExactRoutes.some((route) => route.route === '/dashboard/auth'));
+    assert.equal(result.publicExactRoutes.some((route) => route.route === '/dashboard/auth/session'), false);
+    assert.ok(result.authenticatedExactRoutes.some((route) => route.route === '/dashboard/auth/session'));
+    assert.ok(result.authenticatedExactRoutes.some((route) => route.route === '/dashboard/auth/logout'));
   });
 });
 

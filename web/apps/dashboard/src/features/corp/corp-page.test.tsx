@@ -10,7 +10,7 @@ import type { AccessContext } from '../../app/access-loader';
 import { CorpPage, type CorpPageApi } from './corp-page';
 
 const access: AccessContext = {
-  session: { token: 'Bearer token', userId: '1', corpId: '7', expiresAt: null },
+  session: { token: 'Bearer token', userId: '1', expiresAt: null },
   corp: { id: '7', name: '测试企业', authorized: true },
   menu: [],
   allowedRoutes: new Set(['/corp/index']),

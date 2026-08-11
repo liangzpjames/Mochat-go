@@ -4,10 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createAccessLoader } from './access-loader';
 import type { AccessProfile } from '../features/access/access-api';
-import type { CorpOption } from '../features/corp/corp-api';
 
-const session: Session = { token: 'token', userId: '7', corpId: '3', expiresAt: Date.now() + 60_000 };
-const corps: CorpOption[] = [{ id: '3', name: '企业', authorized: true }];
+const session: Session = { token: 'token', userId: '7', expiresAt: Date.now() + 60_000 };
 const profile: AccessProfile = {
   userId: 7, userName: '用户', tenantId: 1, corpId: 3, workEmployeeId: 9,
   departmentIds: [], departmentEmployeeIds: [], isSuperAdmin: false,
@@ -20,7 +18,6 @@ function deps(overrides: Partial<Parameters<typeof createAccessLoader>[0]> = {})
   return {
     clearSession: vi.fn(),
     getSession: () => session,
-    loadCorps: vi.fn(() => Promise.resolve(corps)),
     loadProfile: vi.fn(() => Promise.resolve(profile)),
     knownRoutes: new Set(['/chat/v2-all', '/known-but-forbidden', '/contactField/index']),
     manifestRoutes: new Set(['/chat/v2-all']),
@@ -49,23 +46,29 @@ describe('createAccessLoader', () => {
 
   it('clears session for TENANT_ACCESS_DENIED but preserves it for page denial', async () => {
     const clearSession = vi.fn();
-    await expectRedirect(createAccessLoader(deps({ clearSession, loadCorps: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 'TENANT_ACCESS_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }), '/login');
+    await expectRedirect(createAccessLoader(deps({ clearSession, loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 403, machineCode: 'TENANT_ACCESS_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }), '/login');
     expect(clearSession).toHaveBeenCalledOnce();
-    const pageError = await createAccessLoader(deps({ loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 'DASHBOARD_PERMISSION_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }).catch((reason: unknown) => reason);
+    const pageError = await createAccessLoader(deps({ loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 403, machineCode: 'DASHBOARD_PERMISSION_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }).catch((reason: unknown) => reason);
     expect(pageError).toMatchObject({ status: 403 });
   });
 
-  it('returns enterprise selection state when no enterprise is active', async () => {
-    await expect(createAccessLoader(deps({ getSession: () => ({ ...session, corpId: null }) }))({ request: new Request('https://app.test/chat/v2-all') })).resolves.toEqual({ state: 'select-corp', corps });
+  it('uses the server profile binding without returning an enterprise selection state', async () => {
+    await expect(createAccessLoader(deps())({ request: new Request('https://app.test/chat/v2-all') })).resolves.toMatchObject({
+      session,
+      corp: { id: '3', name: '企业 3', authorized: true },
+      profile,
+    });
   });
 
-  it('returns 404 before enterprise selection for an unknown route', async () => {
-    await expect(createAccessLoader(deps({ getSession: () => ({ ...session, corpId: null }) }))({ request: new Request('https://app.test/not-registered') })).rejects.toMatchObject({ status: 404 });
+  it('returns 404 before loading a server binding for an unknown route', async () => {
+    const loadProfile = vi.fn(() => Promise.resolve(profile));
+    await expect(createAccessLoader(deps({ loadProfile }))({ request: new Request('https://app.test/not-registered') })).rejects.toMatchObject({ status: 404 });
+    expect(loadProfile).not.toHaveBeenCalled();
   });
 
   it('returns the complete AccessProfile and grouped-route set for an allowed route', async () => {
     const result = await createAccessLoader(deps())({ request: new Request('https://app.test/chat/v2-all') });
-    expect(result).toMatchObject({ session, corp: corps[0], profile });
+    expect(result).toMatchObject({ session, corp: { id: '3', name: '企业 3', authorized: true }, profile });
     expect((result as { allowedRoutes: ReadonlySet<string> }).allowedRoutes).toEqual(new Set(['/chat/v2-all']));
   });
 

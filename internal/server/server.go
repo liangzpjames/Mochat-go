@@ -31,6 +31,7 @@ type Server struct {
 	dashboardAccess                                 http.Handler
 	saasAuth                                        http.Handler
 	saasLoginPage                                   http.Handler
+	dashboardAuth                                   http.Handler
 	auth                                            http.Handler
 	authMFA                                         http.Handler
 	identitySelf                                    http.Handler
@@ -787,6 +788,12 @@ func WithBackgroundTasks(snapshot func() []taskrunner.Snapshot) Option {
 func WithAuthHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.auth = handler
+	}
+}
+
+func WithDashboardAuthHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.dashboardAuth = handler
 	}
 }
 
@@ -4407,9 +4414,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/compat/routes" && r.Method == http.MethodGet:
 		s.handleRoutes(w)
 	case r.URL.Path == "/dashboard/user/auth" && r.Method == http.MethodPost && s.auth != nil:
+		if s.dashboardAuth != nil {
+			s.dashboardAuth.ServeHTTP(w, r)
+			break
+		}
 		s.auth.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/authMFA" && r.Method == http.MethodPost && s.authMFA != nil:
+		if s.dashboardAuth != nil {
+			s.dashboardAuth.ServeHTTP(w, r)
+			break
+		}
 		s.authMFA.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/user/auth" && r.Method == http.MethodPost:
+		s.dashboardAuth.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/user/authMFA" && r.Method == http.MethodPost:
+		s.dashboardAuth.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/activate" && r.Method == http.MethodPost:
+		s.dashboardAuth.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/password/reset-request" && r.Method == http.MethodPost:
+		s.dashboardAuth.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/password/reset" && r.Method == http.MethodPost:
+		s.dashboardAuth.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/session" && r.Method == http.MethodGet:
+		s.dashboardAuth.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/logout" && r.Method == http.MethodPost:
+		s.dashboardAuth.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/user/logout" && r.Method == http.MethodPut:
+		s.dashboardAuth.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/securityMFA" && (r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodPut) && s.identitySelf != nil:
 		s.identitySelf.ServeHTTP(w, r)
 	case r.URL.Path == "/security/login" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.identityLoginPage != nil:
@@ -5887,6 +5918,18 @@ func (s *Server) status() statusPayload {
 
 func (s *Server) migratedRoutes() []string {
 	routes := append([]string{}, migratedRoutes...)
+	if s.dashboardAuth != nil {
+		routes = append(routes,
+			"POST /dashboard/user/auth",
+			"POST /dashboard/user/authMFA",
+			"POST /dashboard/auth/activate",
+			"POST /dashboard/auth/password/reset-request",
+			"POST /dashboard/auth/password/reset",
+			"GET /dashboard/auth/session",
+			"POST /dashboard/auth/logout",
+			"PUT /dashboard/user/logout",
+		)
+	}
 	if s.auth != nil {
 		routes = append(routes, "POST /dashboard/user/auth")
 	}

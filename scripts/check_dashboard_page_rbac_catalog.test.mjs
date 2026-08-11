@@ -119,6 +119,21 @@ test('only exact exemptions may omit a page mapping', () => {
   assert.throws(() => validateDashboardPageRBACCatalog(input), /unmapped dashboard api usage: POST \/dashboard\/user\/auth-shadow/);
 });
 
+test('activation is an exact public auth contract, while authenticated auth routes stay explicit', () => {
+  const input = fixture();
+  input.apiUsages.push('POST /dashboard/auth/activate');
+  input.registeredAPIs.push('POST /dashboard/auth/activate');
+  input.exemptions.push('POST /dashboard/auth/activate');
+  assert.doesNotThrow(() => validateDashboardPageRBACCatalog(input));
+
+  input.apiUsages.push('POST /dashboard/auth/password/reset-request');
+  input.registeredAPIs.push('POST /dashboard/auth/password/reset-request');
+  assert.throws(
+    () => validateDashboardPageRBACCatalog(input),
+    /unmapped dashboard api usage: POST \/dashboard\/auth\/password\/reset-request/,
+  );
+});
+
 test('extracts a newly added production frontend request as an independent usage fact', () => {
   const usages = extractFrontendAPIUsages([
     `export async function load(client) {

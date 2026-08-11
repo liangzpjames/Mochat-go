@@ -50,7 +50,6 @@ function renderDashboardRoute(path: string) {
     getSession: () => ({
       token: 'Bearer test',
       userId: '7',
-      corpId: '12',
       expiresAt: null,
     }),
     initialEntries: [path],

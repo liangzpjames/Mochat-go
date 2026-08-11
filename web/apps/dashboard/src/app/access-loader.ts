@@ -18,16 +18,10 @@ export type AccessContext = {
   allowedActions: ReadonlySet<string>;
 };
 
-export type CorpSelection = {
-  state: 'select-corp';
-  corps: readonly CorpOption[];
-};
-
 export type AccessLoaderDeps = {
   clearSession: () => void;
   getSession: () => Session | null;
-  loadCorps: () => Promise<readonly CorpOption[]>;
-  loadProfile: (corpId: string) => Promise<AccessProfile>;
+  loadProfile: () => Promise<AccessProfile>;
   knownRoutes: ReadonlySet<string>;
   manifestRoutes: ReadonlySet<string>;
   now?: () => number;
@@ -45,7 +39,7 @@ function throwRouterResponse(response: Response): never {
 }
 
 export function createAccessLoader(deps: AccessLoaderDeps) {
-  return async ({ request }: { request: Request }): Promise<AccessContext | CorpSelection> => {
+  return async ({ request }: { request: Request }): Promise<AccessContext> => {
     const session = deps.getSession();
     if (session === null) {
       throwRouterResponse(
@@ -62,18 +56,12 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
     }
 
     try {
-      const corps = await deps.loadCorps();
-      if (session.corpId === null) {
-        return { state: 'select-corp', corps };
-      }
-      const corp = corps.find(
-        (candidate) => candidate.id === session.corpId && candidate.authorized,
-      );
-      if (corp === undefined) {
-        return { state: 'select-corp', corps };
-      }
-
-      const profile = await deps.loadProfile(corp.id);
+      const profile = await deps.loadProfile();
+      const corp: CorpOption = {
+        id: String(profile.corpId),
+        name: `企业 ${profile.corpId}`,
+        authorized: profile.corpId > 0,
+      };
       const routes = new Set<string>();
       const actions = new Set<string>();
       const catalogByPath = new Map(profile.catalog.map((item) => [item.path, item]));
@@ -98,7 +86,7 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
         throwRouterResponse(redirect('/login'));
       }
       if (error instanceof ApiError && error.kind === 'forbidden') {
-        if (error.code === 'TENANT_ACCESS_DENIED') {
+        if (error.machineCode === 'TENANT_ACCESS_DENIED') {
           deps.clearSession();
           throwRouterResponse(redirect('/login'));
         }

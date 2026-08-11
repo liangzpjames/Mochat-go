@@ -877,6 +877,22 @@ func TestAuthUsesMigratedHandlerWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestDashboardAuthHandlerUsesDedicatedIdentityRoute(t *testing.T) {
+	migrated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("dashboard identity auth"))
+	})
+	srv, err := New(config.Config{Standalone: true}, WithDashboardAuthHandler(migrated))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/auth/activate", nil)
+	response := httptest.NewRecorder()
+	srv.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "dashboard identity auth" {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 func TestSaaSAlertRoutesDispatchWhenConfigured(t *testing.T) {
 	page := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("go saas alert page"))

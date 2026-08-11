@@ -23,13 +23,14 @@ const session: Session = {
   token: 'Bearer legacy-token',
   userId: '7',
   userName: '管理员',
-  corpId: '12',
   expiresAt: 1_800_000_000_000,
 };
 
 describe('createAuthStore', () => {
   it('uses the audited legacy Dashboard token key', () => {
     expect(SESSION_STORAGE_KEYS.token).toBe('mochat_dashboard_token');
+    expect('corpId' in SESSION_STORAGE_KEYS).toBe(false);
+    expect(Object.values(SESSION_STORAGE_KEYS)).not.toContain('mochat_dashboard_corp_id');
   });
 
   it('writes and reads a session through the supplied storage adapter', () => {
@@ -39,8 +40,8 @@ describe('createAuthStore', () => {
     store.setSession(session);
 
     expect(store.getSession()).toEqual(session);
-    expect(storage.setItem).toHaveBeenCalledTimes(5);
-    expect(storage.getItem).toHaveBeenCalledTimes(5);
+    expect(storage.setItem).toHaveBeenCalledTimes(4);
+    expect(storage.getItem).toHaveBeenCalledTimes(4);
   });
 
   it('clears every session field from the supplied adapter', () => {
@@ -51,11 +52,10 @@ describe('createAuthStore', () => {
     store.clearSession();
 
     expect([...storage.values]).toEqual([]);
-    expect(storage.removeItem).toHaveBeenCalledTimes(5);
+    expect(storage.removeItem).toHaveBeenCalledTimes(4);
     expect(storage.removeItem).toHaveBeenCalledWith(SESSION_STORAGE_KEYS.token);
     expect(storage.removeItem).toHaveBeenCalledWith(SESSION_STORAGE_KEYS.userId);
     expect(storage.removeItem).toHaveBeenCalledWith(SESSION_STORAGE_KEYS.userName);
-    expect(storage.removeItem).toHaveBeenCalledWith(SESSION_STORAGE_KEYS.corpId);
     expect(storage.removeItem).toHaveBeenCalledWith(SESSION_STORAGE_KEYS.expiresAt);
   });
 
@@ -64,13 +64,12 @@ describe('createAuthStore', () => {
       [SESSION_STORAGE_KEYS.token]: '{not-json',
       [SESSION_STORAGE_KEYS.userId]: JSON.stringify('7'),
       [SESSION_STORAGE_KEYS.userName]: JSON.stringify('管理员'),
-      [SESSION_STORAGE_KEYS.corpId]: JSON.stringify(null),
       [SESSION_STORAGE_KEYS.expiresAt]: JSON.stringify(null),
     });
     const store = createAuthStore(storage);
 
     expect(store.getSession()).toBeNull();
     expect([...storage.values]).toEqual([]);
-    expect(storage.removeItem).toHaveBeenCalledTimes(5);
+    expect(storage.removeItem).toHaveBeenCalledTimes(4);
   });
 });

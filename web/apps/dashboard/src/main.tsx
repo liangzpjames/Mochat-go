@@ -12,19 +12,16 @@ import { createAccessLoader } from './app/access-loader';
 import { createDashboardQueryClient, DashboardProviders } from './app/providers';
 import { createDashboardRouter } from './app/router';
 import {
+  activate,
   authenticate,
+  completeMFA,
   logout as invalidateServerSession,
 } from './features/auth/auth-api';
 import {
   createLogoutAction,
   DashboardSessionActionsProvider,
 } from './features/auth/session-actions';
-import {
-  bindCorp,
-  loadCorps,
-} from './features/corp/corp-api';
 import { createCorpAdminApi } from './features/corp/corp-admin-api';
-import { CorpProvider } from './features/corp/corp-provider';
 import { loadAccessProfile } from './features/access/access-api';
 import { createDashboardAccessAdminApi } from './features/access/access-admin-api';
 import { createPasswordApi } from './features/password/password-api';
@@ -121,7 +118,6 @@ const loadAccess = createAccessLoader({
   getSession: () => authStore.getSession(),
   knownRoutes,
   manifestRoutes,
-  loadCorps: () => loadCorps(apiClient),
   loadProfile: () => loadAccessProfile(apiClient),
 });
 const accessLoader = ({ request }: { request: Request }) => loadAccess({ request });
@@ -136,7 +132,9 @@ const performLogout = createLogoutAction({
 });
 const router = createDashboardRouter({
   accessLoader,
+  activate: (input) => activate(loginClient, input),
   authenticate: (input) => authenticate(loginClient, input),
+  completeMFA: (input) => completeMFA(loginClient, input),
   getSession: () => authStore.getSession(),
   loadInitialData: () => Promise.resolve(),
   reactPages: {
@@ -179,39 +177,13 @@ const router = createDashboardRouter({
     '/user/index': page(<UserAdminPage api={userAdminApi} />),
     '/workContactTag/index': page(<ContactTagPage api={contactTagApi} />),
   },
-  renderAccess: (access, children) => (
+  renderAccess: (_access, children) => (
     <DashboardSessionActionsProvider
       onLogout={performLogout}
       userId={authStore.getSession()?.userId ?? null}
       userName={authStore.getSession()?.userName ?? null}
     >
-      <CorpProvider
-        bindCorp={(corpId) => bindCorp(apiClient, corpId)}
-        initialCorpId={authStore.getSession()?.corpId ?? null}
-        {...('state' in access ? { initialCorps: access.corps } : {})}
-        loadCorps={() => loadCorps(apiClient)}
-        loadMenuAccess={async () => {
-          const profile = await loadAccessProfile(apiClient);
-          const firstRoute = benchmarkManifest.pages.find((page) =>
-            profile.effectivePermissions.some((permission) => permission.path === page.path)
-            && (!profile.catalog.find((item) => item.path === page.path)?.superadminOnly || profile.isSuperAdmin),
-          )?.path ?? '/';
-          return { firstRoute };
-        }}
-        navigate={(path) => void routerRef.current?.navigate(path)}
-        persistCorpId={(corpId) => {
-          const session = authStore.getSession();
-          if (session !== null) {
-            authStore.setSession({ ...session, corpId });
-          }
-        }}
-        queryClient={queryClient}
-        refreshAccess={() => {
-          void routerRef.current?.revalidate();
-        }}
-      >
-        {children}
-      </CorpProvider>
+      {children}
     </DashboardSessionActionsProvider>
   ),
   setSession: (session) => authStore.setSession(session),

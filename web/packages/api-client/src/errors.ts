@@ -6,15 +6,17 @@ export type ApiErrorKind =
   | 'network';
 
 export type ApiErrorDetails = {
-  status?: number;
-  code?: number | string;
-  cause?: unknown;
+	status?: number;
+	code?: number;
+	machineCode?: string;
+	cause?: unknown;
 };
 
 export class ApiError extends Error {
-  readonly kind: ApiErrorKind;
-  readonly status?: number;
-  readonly code?: number | string;
+	readonly kind: ApiErrorKind;
+	readonly status?: number;
+	readonly code?: number;
+	readonly machineCode?: string;
 
   constructor(kind: ApiErrorKind, message: string, details: ApiErrorDetails = {}) {
     super(message, details.cause === undefined ? undefined : { cause: details.cause });
@@ -25,6 +27,9 @@ export class ApiError extends Error {
     }
     if (details.code !== undefined) {
       this.code = details.code;
+    }
+    if (details.machineCode !== undefined) {
+      this.machineCode = details.machineCode;
     }
   }
 }

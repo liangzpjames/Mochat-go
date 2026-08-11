@@ -599,6 +599,71 @@ CREATE TABLE IF NOT EXISTS `mochat_go_tenant_corp_bindings` (
   CONSTRAINT `fk_tenant_corp_binding_corp` FOREIGN KEY (`tenant_id`, `corp_id`) REFERENCES `mc_corp` (`tenant_id`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Authoritative one-tenant one-corp binding';
 
+CREATE TABLE IF NOT EXISTS `mochat_go_dashboard_mfa_credentials` (
+  `user_id` int(10) unsigned NOT NULL,
+  `status` tinyint(3) unsigned NOT NULL DEFAULT 0 COMMENT '0=pending,1=active,2=disabled',
+  `secret_ciphertext` longtext COLLATE utf8mb4_bin NOT NULL,
+  `encryption_key_id` varchar(96) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `last_totp_step` bigint(20) unsigned DEFAULT NULL,
+  `verified_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user_id`),
+  CONSTRAINT `fk_dashboard_mfa_user` FOREIGN KEY (`user_id`) REFERENCES `mochat_go_dashboard_identities` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Dashboard MFA encrypted credential';
+
+CREATE TABLE IF NOT EXISTS `mochat_go_dashboard_mfa_challenges` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `token_digest` binary(32) NOT NULL,
+  `user_id` int(10) unsigned NOT NULL,
+  `auth_version` bigint(20) unsigned NOT NULL,
+  `challenge_type` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` tinyint(3) unsigned NOT NULL DEFAULT 0 COMMENT '0=pending,1=consumed,2=locked',
+  `attempts` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `max_attempts` tinyint(3) unsigned NOT NULL DEFAULT 5,
+  `expires_at` timestamp NOT NULL,
+  `consumed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uni_dashboard_mfa_challenge_digest` (`token_digest`),
+  KEY `idx_dashboard_mfa_challenge_user` (`user_id`, `status`, `expires_at`),
+  CONSTRAINT `fk_dashboard_mfa_challenge_user` FOREIGN KEY (`user_id`) REFERENCES `mochat_go_dashboard_identities` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Dashboard MFA challenge';
+
+CREATE TABLE IF NOT EXISTS `mochat_go_dashboard_sessions` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `jti_digest` binary(32) NOT NULL,
+  `user_id` int(10) unsigned NOT NULL,
+  `auth_version` bigint(20) unsigned NOT NULL,
+  `status` tinyint(3) unsigned NOT NULL DEFAULT 1 COMMENT '1=active,2=revoked',
+  `issued_at` timestamp NOT NULL,
+  `expires_at` timestamp NOT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uni_dashboard_session_jti_digest` (`jti_digest`),
+  KEY `idx_dashboard_session_user` (`user_id`, `auth_version`, `status`, `expires_at`),
+  CONSTRAINT `fk_dashboard_session_user` FOREIGN KEY (`user_id`) REFERENCES `mochat_go_dashboard_identities` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Dashboard session';
+
+CREATE TABLE IF NOT EXISTS `mochat_go_dashboard_password_resets` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `token_digest` binary(32) NOT NULL,
+  `user_id` int(10) unsigned NOT NULL,
+  `auth_version` bigint(20) unsigned NOT NULL,
+  `status` tinyint(3) unsigned NOT NULL DEFAULT 0 COMMENT '0=pending,1=consumed',
+  `expires_at` timestamp NOT NULL,
+  `consumed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uni_dashboard_password_reset_digest` (`token_digest`),
+  KEY `idx_dashboard_password_reset_user` (`user_id`, `status`, `expires_at`),
+  CONSTRAINT `fk_dashboard_password_reset_user` FOREIGN KEY (`user_id`) REFERENCES `mochat_go_dashboard_identities` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Dashboard password reset';
+
 CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_mfa_credentials` (
   `user_id` int(10) unsigned NOT NULL,
   `status` tinyint(3) unsigned NOT NULL DEFAULT 0 COMMENT '0=pending,1=active,2=disabled',

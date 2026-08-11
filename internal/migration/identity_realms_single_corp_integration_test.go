@@ -138,6 +138,10 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 			"mochat_go_dashboard_identities",
 			"mochat_go_dashboard_identity_activations",
 			"mochat_go_tenant_corp_bindings",
+			"mochat_go_dashboard_mfa_credentials",
+			"mochat_go_dashboard_mfa_challenges",
+			"mochat_go_dashboard_sessions",
+			"mochat_go_dashboard_password_resets",
 		} {
 			assertIdentityTableExists(t, db, table)
 		}
@@ -171,6 +175,10 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 			"mochat_go_dashboard_identities",
 			"mochat_go_dashboard_identity_activations",
 			"mochat_go_tenant_corp_bindings",
+			"mochat_go_dashboard_mfa_credentials",
+			"mochat_go_dashboard_mfa_challenges",
+			"mochat_go_dashboard_sessions",
+			"mochat_go_dashboard_password_resets",
 		} {
 			assertIdentityTableMissing(t, db, table)
 		}

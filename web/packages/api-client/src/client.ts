@@ -39,6 +39,9 @@ export function createApiClient(options: ApiClientOptions): {
         const message = error instanceof Error ? error.message : 'Network request failed';
         throw new ApiError('network', message, { cause: error });
       }
+      if (response.status === 204) {
+        return undefined as T;
+      }
       let payload: unknown;
       try {
         payload = await response.json();
@@ -65,29 +68,30 @@ export function createApiClient(options: ApiClientOptions): {
         throw error;
       }
       const envelope = parseApiEnvelope<T>(payload);
+      const errorDetails = {
+        status: response.status,
+        code: envelope.code,
+        ...(envelope.errorCode === undefined ? {} : { machineCode: envelope.errorCode }),
+      };
       if (response.status === 401) {
         options.onUnauthorized();
         throw new ApiError('unauthorized', envelope.msg, {
-          status: response.status,
-          code: envelope.code,
+          ...errorDetails,
         });
       }
       if (response.status === 403) {
         throw new ApiError('forbidden', envelope.msg, {
-          status: response.status,
-          code: envelope.code,
+          ...errorDetails,
         });
       }
       if (response.status >= 500) {
         throw new ApiError('server', envelope.msg, {
-          status: response.status,
-          code: envelope.code,
+          ...errorDetails,
         });
       }
       if (!response.ok) {
         throw new ApiError('validation', envelope.msg, {
-          status: response.status,
-          code: envelope.code,
+          ...errorDetails,
         });
       }
       if (
@@ -95,8 +99,7 @@ export function createApiClient(options: ApiClientOptions): {
         || (envelope.code !== 0 && (envelope.code < 200 || envelope.code >= 300))
       ) {
         throw new ApiError('validation', envelope.msg, {
-          status: response.status,
-          code: envelope.code,
+          ...errorDetails,
         });
       }
       return envelope.data;

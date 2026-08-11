@@ -11,7 +11,6 @@ import type { AccessContext } from './access-loader';
 const session: Session = {
   token: 'token',
   userId: '7',
-  corpId: '3',
   expiresAt: null,
 };
 

@@ -339,6 +339,40 @@ func TestDashboardPublicExemptionsAreAnExactPolicySubset(t *testing.T) {
 	}
 }
 
+func TestDashboardIdentityAuthenticatedRoutesAreExactButNotPublic(t *testing.T) {
+	exact := make(map[string]bool)
+	for _, contract := range ExactExemptDashboardRouteContracts() {
+		exact[contract] = true
+	}
+	public := make(map[string]bool)
+	for _, contract := range PublicDashboardRouteContracts() {
+		public[contract] = true
+	}
+	for _, contract := range []string{
+		"POST /dashboard/auth/password/reset-request",
+		"GET /dashboard/auth/session",
+		"POST /dashboard/auth/logout",
+		"PUT /dashboard/user/logout",
+	} {
+		if !exact[contract] {
+			t.Fatalf("identity-authenticated route %q must remain a page-RBAC exact exemption", contract)
+		}
+		if public[contract] {
+			t.Fatalf("identity-authenticated route %q must not be an identity-public exemption", contract)
+		}
+	}
+	for _, contract := range []string{
+		"POST /dashboard/user/auth",
+		"POST /dashboard/user/authMFA",
+		"POST /dashboard/auth/activate",
+		"POST /dashboard/auth/password/reset",
+	} {
+		if !public[contract] || !exact[contract] {
+			t.Fatalf("identity-public route %q must be both public and exact", contract)
+		}
+	}
+}
+
 func TestDashboardAccessGuardReplacesUntrustedCorpWithTenantValidatedCorp(t *testing.T) {
 	guard, store := newDashboardAccessGuardFixture(false)
 	store.allowedCorpIDs = []int{13}

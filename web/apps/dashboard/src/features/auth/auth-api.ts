@@ -10,9 +10,46 @@ export type LoginInput = {
 };
 
 type AuthResponse = {
-  token: string;
-  expire: number;
+  token?: string;
+  userId?: number | string;
+  expiresAt?: number;
+  expire?: number;
   session?: { userName?: string };
+  enrollmentToken?: string;
+  enrollmentSecret?: string;
+  otpAuthURL?: string;
+  challengeToken?: string;
+  passwordChangeToken?: string;
+};
+
+export type DashboardAuthPending =
+  | {
+    kind: 'mfa-enrollment';
+    enrollmentToken: string;
+    enrollmentSecret: string;
+    otpAuthURL: string;
+    expiresAt: number;
+  }
+  | {
+    kind: 'mfa';
+    challengeToken: string;
+    expiresAt: number;
+  }
+  | {
+    kind: 'password-change';
+    passwordChangeToken: string;
+    expiresAt: number;
+  };
+
+export type DashboardAuthResult = Session | DashboardAuthPending;
+
+export type MFAInput =
+  | { challengeToken: string; code: string }
+  | { passwordChangeToken: string; newPassword: string };
+
+export type ActivationInput = {
+  activationToken: string;
+  password: string;
 };
 
 function tokenUserId(token: string): string {
@@ -41,20 +78,88 @@ export async function authenticate(
   client: ApiClient,
   input: LoginInput,
   now = Date.now(),
-): Promise<Session> {
+): Promise<DashboardAuthResult> {
   const result = await client.request('/user/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   }) as AuthResponse;
+  return mapAuthResponse(result, now);
+}
+
+export async function completeMFA(
+  client: ApiClient,
+  input: MFAInput,
+  now = Date.now(),
+): Promise<DashboardAuthResult> {
+  const result = await client.request('/user/authMFA', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }) as AuthResponse;
+  return mapAuthResponse(result, now);
+}
+
+export async function activate(
+  client: ApiClient,
+  input: ActivationInput,
+): Promise<void> {
+  await client.request('/auth/activate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+function mapAuthResponse(result: AuthResponse, now: number): DashboardAuthResult {
+  if (result.enrollmentToken !== undefined) {
+    if (
+      result.enrollmentSecret === undefined
+      || result.otpAuthURL === undefined
+      || result.expiresAt === undefined
+    ) {
+      throw new Error('Dashboard authentication response is incomplete');
+    }
+    return {
+      kind: 'mfa-enrollment',
+      enrollmentToken: result.enrollmentToken,
+      enrollmentSecret: result.enrollmentSecret,
+      otpAuthURL: result.otpAuthURL,
+      expiresAt: result.expiresAt * 1_000,
+    };
+  }
+  if (result.challengeToken !== undefined) {
+    if (result.expiresAt === undefined) {
+      throw new Error('Dashboard MFA response is incomplete');
+    }
+    return {
+      kind: 'mfa',
+      challengeToken: result.challengeToken,
+      expiresAt: result.expiresAt * 1_000,
+    };
+  }
+  if (result.passwordChangeToken !== undefined) {
+    if (result.expiresAt === undefined) {
+      throw new Error('Dashboard password change response is incomplete');
+    }
+    return {
+      kind: 'password-change',
+      passwordChangeToken: result.passwordChangeToken,
+      expiresAt: result.expiresAt * 1_000,
+    };
+  }
+  if (result.token === undefined) {
+    throw new Error('Dashboard authentication response is incomplete');
+  }
   return {
     token: /^Bearer\s/i.test(result.token)
       ? result.token
       : `Bearer ${result.token}`,
-    userId: tokenUserId(result.token),
+    userId: result.userId === undefined ? tokenUserId(result.token) : String(result.userId),
     userName: result.session?.userName ?? null,
-    corpId: null,
-    expiresAt: now + result.expire * 1_000,
+    expiresAt: result.expiresAt === undefined
+      ? now + (result.expire ?? 0) * 1_000
+      : result.expiresAt * 1_000,
   };
 }
 

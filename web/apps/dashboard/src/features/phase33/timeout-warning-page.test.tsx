@@ -7,7 +7,7 @@ import type { AccessContext } from '../../app/access-loader';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
 import { TimeoutWarningPage } from './timeout-warning-page';
 
-const access: AccessContext={session:{token:'token',userId:'1',corpId:'7',expiresAt:null},corp:{id:'7',name:'测试企业',authorized:true},menu:[],allowedRoutes:new Set(['/ai-insight/v2/timeout']),allowedActions:new Set()};
+const access: AccessContext={session:{token:'token',userId:'1',expiresAt:null},corp:{id:'7',name:'测试企业',authorized:true},menu:[],allowedRoutes:new Set(['/ai-insight/v2/timeout']),allowedActions:new Set()};
 afterEach(cleanup);
 beforeAll(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }; });
 it('loads timeout records and exposes all three tabs',async()=>{

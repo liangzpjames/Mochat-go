@@ -75,6 +75,8 @@ type Config struct {
 	DashboardJWTAudience                               string
 	DashboardJWTPrefix                                 string
 	DashboardJWTTTL                                    time.Duration
+	DashboardMFAEncryptionKey                          string
+	DashboardMFAEncryptionKeyID                        string
 	SidebarJWTSecret                                   string
 	SidebarJWTPrefix                                   string
 	RedisAddr                                          string
@@ -588,6 +590,10 @@ func FromEnv() (Config, error) {
 		return Config{}, fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_TTL must be a positive integer")
 	}
 	saasAdminMFAEncryptionKey, err := readSecretFile("MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE")
+	if err != nil {
+		return Config{}, err
+	}
+	dashboardMFAEncryptionKey, err := readSecretFile("MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE")
 	if err != nil {
 		return Config{}, err
 	}
@@ -1283,6 +1289,8 @@ func FromEnv() (Config, error) {
 		DashboardJWTAudience:                               strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_AUDIENCE")),
 		DashboardJWTPrefix:                                 strings.TrimSpace(envDefaultIfUnset("MOCHAT_DASHBOARD_JWT_PREFIX", "mochat_dashboard_")),
 		DashboardJWTTTL:                                    time.Duration(dashboardJWTTTL) * time.Second,
+		DashboardMFAEncryptionKey:                          strings.TrimSpace(dashboardMFAEncryptionKey),
+		DashboardMFAEncryptionKeyID:                        strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID")),
 		SidebarJWTSecret:                                   envOrDefault("MOCHAT_SIDEBAR_JWT_SECRET", envOrDefault("SIDEBAR_JWT_SECRET", "Br3LXhp&Ysha1zRDh")),
 		SidebarJWTPrefix:                                   envOrDefault("MOCHAT_SIDEBAR_JWT_PREFIX", envOrDefault("SIDEBAR_JWT_PREFIX", "default")),
 		RedisAddr:                                          redisAddrFromEnv(),
@@ -2182,6 +2190,12 @@ func (cfg Config) ValidateIdentityRealms() error {
 	}
 	if cfg.EnableSaaSAdminDashboard && strings.TrimSpace(cfg.SaaSAdminMFAEncryptionKeyID) == "" {
 		return fmt.Errorf("MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID is required when SaaS admin authentication is enabled")
+	}
+	if cfg.MigrateAuth && strings.TrimSpace(cfg.DashboardMFAEncryptionKey) == "" {
+		return fmt.Errorf("MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE is required when Dashboard authentication is enabled")
+	}
+	if cfg.MigrateAuth && strings.TrimSpace(cfg.DashboardMFAEncryptionKeyID) == "" {
+		return fmt.Errorf("MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID is required when Dashboard authentication is enabled")
 	}
 	if cfg.DashboardJWTTTL <= 0 {
 		return fmt.Errorf("MOCHAT_DASHBOARD_JWT_TTL must be positive")

@@ -8,7 +8,7 @@ import type { AccessContext } from '../../app/access-loader';
 import { FriendsCirclePage, PreciseGroupSendPage } from './content-reach-pages';
 
 const access: AccessContext = {
-  session: { token: 'token', userId: '1', corpId: '7', expiresAt: null },
+  session: { token: 'token', userId: '1', expiresAt: null },
   corp: { id: '7', name: '测试企业', authorized: true },
   menu: [],
   allowedRoutes: new Set(['/acquisition/precise-group-send', '/acquisition/friends-circle']),
@@ -273,7 +273,7 @@ describe('Phase 3.4 content-reach pages', () => {
     );
     const rendered = render(page(access));
     expect(await screen.findByText('corp-seven-draft')).toBeTruthy();
-    rendered.rerender(page({ ...access, session: { ...access.session, corpId: '8' }, corp: { ...access.corp, id: '8', name: 'corp-eight' } }));
+    rendered.rerender(page({ ...access, session: { ...access.session }, corp: { ...access.corp, id: '8', name: 'corp-eight' } }));
     expect(await screen.findByText('corp-eight-draft')).toBeTruthy();
     expect(read).toHaveBeenCalledTimes(2);
   });

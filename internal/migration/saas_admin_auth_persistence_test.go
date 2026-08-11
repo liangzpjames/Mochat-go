@@ -24,6 +24,10 @@ func TestSaaSAdminAuthPersistenceMigrationContract(t *testing.T) {
 		"mochat_go_saas_admin_mfa_credentials",
 		"mochat_go_saas_admin_mfa_challenges",
 		"mochat_go_saas_admin_sessions",
+		"mochat_go_dashboard_mfa_credentials",
+		"mochat_go_dashboard_mfa_challenges",
+		"mochat_go_dashboard_sessions",
+		"mochat_go_dashboard_password_resets",
 	} {
 		if !strings.Contains(up, "create table if not exists "+table) {
 			t.Fatalf("0129 up migration missing %s", table)
@@ -46,6 +50,16 @@ func TestSaaSAdminAuthPersistenceMigrationContract(t *testing.T) {
 		"fk_saas_admin_mfa_user",
 		"fk_saas_admin_mfa_challenge_user",
 		"fk_saas_admin_session_user",
+		"dashboard mfa",
+		"dashboard session",
+		"dashboard password reset",
+		"unique key uni_dashboard_mfa_challenge_digest",
+		"unique key uni_dashboard_session_jti_digest",
+		"unique key uni_dashboard_password_reset_digest",
+		"fk_dashboard_mfa_user",
+		"fk_dashboard_mfa_challenge_user",
+		"fk_dashboard_session_user",
+		"fk_dashboard_password_reset_user",
 	} {
 		if !strings.Contains(up, required) {
 			t.Fatalf("0129 up migration missing %q", required)
@@ -64,5 +78,8 @@ func TestSaaSAdminAuthPersistenceMigrationContract(t *testing.T) {
 	}
 	if strings.Index(down, "drop table if exists mochat_go_saas_admin_mfa_challenges") > strings.Index(down, "drop table if exists mochat_go_saas_admin_mfa_credentials") {
 		t.Fatal("0129 down migration must drop challenges before credentials")
+	}
+	if strings.Index(down, "drop table if exists mochat_go_dashboard_sessions") > strings.Index(down, "drop table if exists mochat_go_dashboard_mfa_challenges") || strings.Index(down, "drop table if exists mochat_go_dashboard_mfa_challenges") > strings.Index(down, "drop table if exists mochat_go_dashboard_mfa_credentials") {
+		t.Fatal("0129 down migration must drop Dashboard sessions before challenges before credentials")
 	}
 }

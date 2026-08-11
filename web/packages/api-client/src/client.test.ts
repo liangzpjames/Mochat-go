@@ -75,6 +75,20 @@ describe('createApiClient', () => {
     expect(result).toEqual({ id: '7' });
   });
 
+  it('accepts a successful 204 response without requiring a JSON envelope', async () => {
+    server.use(
+      http.post('https://api.example.test/dashboard/auth/activate', () =>
+        new HttpResponse(null, { status: 204 })),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/dashboard/',
+      getToken: () => null,
+      onUnauthorized: vi.fn(),
+    });
+
+    await expect(client.request('/auth/activate', { method: 'POST' })).resolves.toBeUndefined();
+  });
+
   it('accepts the dashboard API success code', async () => {
     server.use(
       http.get('https://api.example.test/dashboard/user/loginShow', () =>
@@ -204,7 +218,7 @@ describe('createApiClient', () => {
     server.use(
       http.get('https://api.example.test/tenant-denied', () =>
         HttpResponse.json(
-          { code: 'TENANT_ACCESS_DENIED', msg: 'tenant access denied', data: null },
+          { code: 403, errorCode: 'TENANT_ACCESS_DENIED', msg: 'tenant access denied', data: null },
           { status: 403 },
         ),
       ),
@@ -219,10 +233,32 @@ describe('createApiClient', () => {
     await expectApiError(client.request('/tenant-denied'), {
       kind: 'forbidden',
       status: 403,
-      code: 'TENANT_ACCESS_DENIED',
+      code: 403,
+      machineCode: 'TENANT_ACCESS_DENIED',
       message: 'tenant access denied',
     });
     expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('exposes backend errorCode as a machine code without replacing the numeric HTTP code', async () => {
+    server.use(
+      http.post('https://api.example.test/dashboard/user/authMFA', () =>
+        HttpResponse.json(
+          { code: 401, errorCode: 'MFA_CHALLENGE_INVALID', msg: 'mfa challenge invalid', data: null },
+          { status: 401 },
+        ),
+      ),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/dashboard/',
+      getToken: () => 'dashboard-token',
+      onUnauthorized: vi.fn(),
+    });
+
+    const error = await client.request('/user/authMFA', { method: 'POST' }).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ kind: 'unauthorized', status: 401, code: 401 });
+    expect((error as ApiError & { machineCode?: string }).machineCode).toBe('MFA_CHALLENGE_INVALID');
   });
 
   it('maps a nonzero business code to a validation API error', async () => {

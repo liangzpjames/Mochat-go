@@ -8,7 +8,7 @@ import type { AccessContext } from '../../app/access-loader';
 import { MenuAdminPage, type MenuAdminPageApi } from './menu-admin-page';
 
 const access: AccessContext = {
-  session: { token: 't', userId: '1', corpId: '7', expiresAt: null },
+  session: { token: 't', userId: '1', expiresAt: null },
   corp: { id: '7', name: '测试企业', authorized: true }, menu: [],
   allowedRoutes: new Set(['/menu/index']),
   allowedActions: new Set(['/menu/index@search', '/menu/index@add', '/menu/index@edit']),

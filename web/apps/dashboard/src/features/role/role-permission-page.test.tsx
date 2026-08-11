@@ -11,7 +11,7 @@ import { RolePermissionPage, type RolePermissionPageApi } from './role-permissio
 import type { PermissionNode } from './role-api';
 
 const access: AccessContext = {
-  session: { token: 'token', userId: '1', corpId: '7', expiresAt: null },
+  session: { token: 'token', userId: '1', expiresAt: null },
   corp: { id: '7', name: '测试企业', authorized: true },
   menu: [],
   allowedRoutes: new Set(['/role/index', '/role/permissionShow']),

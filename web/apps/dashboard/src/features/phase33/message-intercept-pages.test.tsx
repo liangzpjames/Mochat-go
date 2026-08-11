@@ -6,7 +6,7 @@ import { afterEach,beforeAll,expect,it,vi } from 'vitest';
 import { DashboardAccessProvider } from '../../app/access-context';
 import type { AccessContext } from '../../app/access-loader';
 import { KeywordLibraryPage,MessageInterceptPage } from './message-intercept-pages';
-const access:AccessContext={session:{token:'t',userId:'1',corpId:'7',expiresAt:null},corp:{id:'7',name:'企业',authorized:true},menu:[],allowedRoutes:new Set(),allowedActions:new Set()};
+const access:AccessContext={session:{token:'t',userId:'1',expiresAt:null},corp:{id:'7',name:'企业',authorized:true},menu:[],allowedRoutes:new Set(),allowedActions:new Set()};
 const wrap=(node:ReactNode)=><MemoryRouter><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><DashboardAccessProvider value={access}>{node}</DashboardAccessProvider></QueryClientProvider></MemoryRouter>;
 beforeAll(()=>{vi.stubGlobal('ResizeObserver',class{observe(){} unobserve(){} disconnect(){}})});
 afterEach(cleanup);

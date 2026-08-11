@@ -16,6 +16,11 @@ var exactExemptDashboardRouteContracts = []string{
 	"POST /dashboard/officialAccount/authRedirect/",
 	"POST /dashboard/user/auth",
 	"POST /dashboard/user/authMFA",
+	"POST /dashboard/auth/activate",
+	"POST /dashboard/auth/password/reset",
+	"POST /dashboard/auth/password/reset-request",
+	"GET /dashboard/auth/session",
+	"POST /dashboard/auth/logout",
 	"POST /dashboard/user/securityMFA",
 	"PUT /dashboard/user/logout",
 	"PUT /dashboard/user/securityMFA",
@@ -38,6 +43,8 @@ var publicDashboardRouteContracts = []string{
 	"POST /dashboard/officialAccount/authRedirect/",
 	"POST /dashboard/user/auth",
 	"POST /dashboard/user/authMFA",
+	"POST /dashboard/auth/activate",
+	"POST /dashboard/auth/password/reset",
 }
 
 func PublicDashboardRouteContracts() []string {

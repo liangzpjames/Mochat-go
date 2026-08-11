@@ -16,7 +16,7 @@ import { DashboardOverviewPage } from './dashboard-overview-page';
 import type { Phase35Api } from '../phase35/api';
 
 const access: AccessContext = {
-  session: { token: 'Bearer test', userId: '1', corpId: '7', expiresAt: null },
+  session: { token: 'Bearer test', userId: '1', expiresAt: null },
   corp: { id: '7', name: '测试企业', authorized: true },
   menu: [],
   allowedRoutes: new Set(['/index']),

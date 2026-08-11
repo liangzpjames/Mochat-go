@@ -8,7 +8,7 @@ import type { AccessContext } from '../../app/access-loader';
 import { UserAdminPage, type UserAdminPageApi } from './user-admin-page';
 
 const access: AccessContext = {
-  session: { token: 't', userId: '1', corpId: '7', expiresAt: null },
+  session: { token: 't', userId: '1', expiresAt: null },
   corp: { id: '7', name: '测试企业', authorized: true }, menu: [],
   allowedRoutes: new Set(['/user/index']),
   allowedActions: new Set(['/user/index@search', '/user/index@add']),

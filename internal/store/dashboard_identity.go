@@ -2,11 +2,15 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
+	"jiyi/mochat-go/internal/authrealm"
 	"jiyi/mochat-go/internal/dashboardauth"
+	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
 type dashboardIdentityQueryRowFunc func(context.Context, string, ...any) identityRowScanner
@@ -19,6 +23,8 @@ type dashboardIdentityTx interface {
 }
 
 type dashboardIdentityBeginFunc func(context.Context) (dashboardIdentityTx, error)
+
+type dashboardIdentityExecFunc func(context.Context, string, ...any) (sql.Result, error)
 
 type sqlDashboardIdentityTx struct{ tx *sql.Tx }
 
@@ -37,6 +43,7 @@ type DashboardIdentityStore struct {
 	db       *sql.DB
 	queryRow dashboardIdentityQueryRowFunc
 	begin    dashboardIdentityBeginFunc
+	exec     dashboardIdentityExecFunc
 }
 
 var _ dashboardauth.DashboardIdentityStore = (*DashboardIdentityStore)(nil)
@@ -53,6 +60,9 @@ func NewDashboardIdentityStore(db *sql.DB) *DashboardIdentityStore {
 				return nil, err
 			}
 			return sqlDashboardIdentityTx{tx: tx}, nil
+		}
+		store.exec = func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return db.ExecContext(ctx, query, args...)
 		}
 	}
 	return store
@@ -161,6 +171,471 @@ func (store *DashboardIdentityStore) Activate(ctx context.Context, tokenDigest [
 	return nil
 }
 
+func (store *DashboardIdentityStore) ResolvePrincipal(ctx context.Context, userID int) (dashboardprincipal.DashboardPrincipal, error) {
+	if store == nil || userID <= 0 {
+		return dashboardprincipal.DashboardPrincipal{}, dashboardprincipal.ErrPrincipalUnavailable
+	}
+	row, err := store.query(ctx, `
+		SELECT d.user_id, u.tenant_id, b.corp_id, b.status,
+		       COALESCE(u.isSuperAdmin, 0), d.auth_version
+		FROM mochat_go_dashboard_identities d
+		INNER JOIN mc_user u ON u.id = d.user_id AND u.deleted_at IS NULL
+		INNER JOIN mochat_go_tenant_corp_bindings b ON b.tenant_id = u.tenant_id
+		WHERE d.user_id = ? AND d.status = 1 AND u.status = 1
+		LIMIT 1
+	`, userID)
+	if err != nil {
+		return dashboardprincipal.DashboardPrincipal{}, err
+	}
+	var principal dashboardprincipal.DashboardPrincipal
+	var bindingStatus, isSuperAdmin int
+	if err := row.Scan(&principal.UserID, &principal.TenantID, &principal.CorpID, &bindingStatus, &isSuperAdmin, &principal.AuthVersion); err != nil {
+		return dashboardprincipal.DashboardPrincipal{}, err
+	}
+	principal.IsSuperAdmin = isSuperAdmin == 1
+	switch bindingStatus {
+	case 1:
+		principal.CorpStatus = dashboardprincipal.CorpBindingStatusPending
+	case 2:
+		principal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
+	case 3:
+		principal.CorpStatus = dashboardprincipal.CorpBindingStatusSuspended
+	default:
+		return dashboardprincipal.DashboardPrincipal{}, dashboardprincipal.ErrPrincipalUnavailable
+	}
+	if principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 || principal.AuthVersion == 0 {
+		return dashboardprincipal.DashboardPrincipal{}, dashboardprincipal.ErrPrincipalUnavailable
+	}
+	return principal, nil
+}
+
+func (store *DashboardIdentityStore) MFAStatus(ctx context.Context, userID int) (int, error) {
+	if store == nil || userID <= 0 {
+		return dashboardauth.DashboardMFAStatusPending, dashboardauth.ErrMFAChallengeInvalid
+	}
+	row, err := store.query(ctx, `
+		SELECT status
+		FROM mochat_go_dashboard_mfa_credentials
+		WHERE user_id = ?
+		LIMIT 1
+	`, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return dashboardauth.DashboardMFAStatusPending, nil
+		}
+		return dashboardauth.DashboardMFAStatusPending, err
+	}
+	var status int
+	if err := row.Scan(&status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return dashboardauth.DashboardMFAStatusPending, nil
+		}
+		return dashboardauth.DashboardMFAStatusPending, err
+	}
+	return status, nil
+}
+
+func (store *DashboardIdentityStore) BeginMFAEnrollment(ctx context.Context, userID int, authVersion uint64, tokenDigest [32]byte, expiresAt time.Time, secretCiphertext, keyID string) error {
+	if store == nil || userID <= 0 || authVersion == 0 || tokenDigest == ([32]byte{}) || expiresAt.IsZero() || strings.TrimSpace(secretCiphertext) == "" || strings.TrimSpace(keyID) == "" || store.begin == nil {
+		return dashboardauth.ErrMFAChallengeInvalid
+	}
+	tx, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status int
+	var currentVersion uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status, auth_version
+		FROM mochat_go_dashboard_identities
+		WHERE user_id = ?
+		FOR UPDATE
+	`, userID).Scan(&status, &currentVersion); err != nil || status != dashboardauth.DashboardIdentityStatusActive || currentVersion != authVersion {
+		return dashboardauth.ErrMFAChallengeInvalid
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_dashboard_mfa_credentials
+			(user_id, status, secret_ciphertext, encryption_key_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, NOW(), NOW())
+		ON DUPLICATE KEY UPDATE
+			status = IF(status = ?, status, ?),
+			secret_ciphertext = IF(status = ?, secret_ciphertext, VALUES(secret_ciphertext)),
+			encryption_key_id = IF(status = ?, encryption_key_id, VALUES(encryption_key_id)),
+			last_totp_step = IF(status = ?, last_totp_step, NULL), updated_at = NOW()
+	`, userID, dashboardauth.DashboardMFAStatusPending, secretCiphertext, keyID,
+		dashboardauth.DashboardMFAStatusActive, dashboardauth.DashboardMFAStatusPending,
+		dashboardauth.DashboardMFAStatusActive, dashboardauth.DashboardMFAStatusActive,
+		dashboardauth.DashboardMFAStatusActive); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_dashboard_mfa_challenges
+			(token_digest, user_id, auth_version, challenge_type, status, attempts, max_attempts, expires_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 0, 0, 5, ?, NOW(), NOW())
+	`, tokenDigest[:], userID, authVersion, dashboardauth.DashboardMFAChallengeEnrollment, expiresAt); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (store *DashboardIdentityStore) CreateMFAChallenge(ctx context.Context, userID int, authVersion uint64, challengeType string, tokenDigest [32]byte, expiresAt time.Time) error {
+	if store == nil || userID <= 0 || authVersion == 0 || tokenDigest == ([32]byte{}) || expiresAt.IsZero() || !validDashboardMFAChallengeType(challengeType) || store.begin == nil {
+		return dashboardauth.ErrMFAChallengeInvalid
+	}
+	tx, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status int
+	var currentVersion uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status, auth_version
+		FROM mochat_go_dashboard_identities
+		WHERE user_id = ?
+		FOR UPDATE
+	`, userID).Scan(&status, &currentVersion); err != nil || status != dashboardauth.DashboardIdentityStatusActive || currentVersion != authVersion {
+		return dashboardauth.ErrMFAChallengeInvalid
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_dashboard_mfa_challenges
+			(token_digest, user_id, auth_version, challenge_type, status, attempts, max_attempts, expires_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 0, 0, 5, ?, NOW(), NOW())
+	`, tokenDigest[:], userID, authVersion, challengeType, expiresAt); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (store *DashboardIdentityStore) FindMFAChallenge(ctx context.Context, tokenDigest [32]byte) (dashboardauth.DashboardMFAChallenge, error) {
+	if store == nil || tokenDigest == ([32]byte{}) {
+		return dashboardauth.DashboardMFAChallenge{}, dashboardauth.ErrMFAChallengeInvalid
+	}
+	row, err := store.query(ctx, `
+		SELECT c.user_id, c.auth_version, c.challenge_type, c.status, c.attempts, c.max_attempts,
+		       c.expires_at, COALESCE(m.secret_ciphertext, ''), COALESCE(m.encryption_key_id, '')
+		FROM mochat_go_dashboard_mfa_challenges c
+		LEFT JOIN mochat_go_dashboard_mfa_credentials m ON m.user_id = c.user_id
+		WHERE c.token_digest = ?
+		LIMIT 1
+	`, tokenDigest[:])
+	if err != nil {
+		return dashboardauth.DashboardMFAChallenge{}, dashboardauth.ErrMFAChallengeInvalid
+	}
+	return scanDashboardMFAChallenge(row)
+}
+
+func (store *DashboardIdentityStore) RecordMFAFailure(ctx context.Context, tokenDigest [32]byte) error {
+	if store == nil || tokenDigest == ([32]byte{}) {
+		return dashboardauth.ErrMFAChallengeInvalid
+	}
+	exec := store.exec
+	if exec == nil && store.db != nil {
+		exec = func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return store.db.ExecContext(ctx, query, args...)
+		}
+	}
+	if exec == nil {
+		return dashboardauth.ErrMFAChallengeInvalid
+	}
+	_, err := exec(ctx, `
+		UPDATE mochat_go_dashboard_mfa_challenges
+		SET status = IF(attempts + 1 >= max_attempts, 2, status),
+			attempts = attempts + 1, updated_at = NOW()
+		WHERE token_digest = ? AND status = 0 AND expires_at > NOW() AND attempts < max_attempts
+	`, tokenDigest[:])
+	return err
+}
+
+func (store *DashboardIdentityStore) CompleteMFAChallenge(ctx context.Context, tokenDigest [32]byte, userID int, authVersion uint64, challengeType string, totpStep int64) (dashboardauth.DashboardIdentity, error) {
+	if store == nil || userID <= 0 || authVersion == 0 || tokenDigest == ([32]byte{}) || totpStep <= 0 || !validDashboardMFAChallengeType(challengeType) || challengeType == dashboardauth.DashboardMFAChallengePasswordChange || store.begin == nil {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrMFAChallengeInvalid
+	}
+	tx, err := store.begin(ctx)
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	challenge, err := scanDashboardMFAChallenge(tx.QueryRowContext(ctx, `
+		SELECT user_id, auth_version, challenge_type, status, attempts, max_attempts, expires_at, '', ''
+		FROM mochat_go_dashboard_mfa_challenges
+		WHERE token_digest = ? AND user_id = ? AND auth_version = ?
+			AND challenge_type = ? AND status = 0 AND expires_at > NOW()
+		FOR UPDATE
+	`, tokenDigest[:], userID, authVersion, challengeType))
+	if err != nil || challenge.Status != dashboardauth.DashboardMFAStatusPending || challenge.Attempts >= challenge.MaxAttempts {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrMFAChallengeInvalid
+	}
+	credentialStatusPredicate := "status = 1"
+	if challengeType == dashboardauth.DashboardMFAChallengeEnrollment {
+		credentialStatusPredicate = "status = 0"
+	}
+	credentialUpdateQuery := `
+		UPDATE mochat_go_dashboard_mfa_credentials
+		SET status = 1, last_totp_step = ?, verified_at = IF(? = ?, NOW(), verified_at), updated_at = NOW()
+		WHERE user_id = ? AND ` + credentialStatusPredicate + ` AND (last_totp_step IS NULL OR last_totp_step < ?)
+	`
+	credentialUpdate, err := tx.ExecContext(ctx, credentialUpdateQuery, totpStep, challengeType, dashboardauth.DashboardMFAChallengeEnrollment, userID, totpStep)
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if affected, err := credentialUpdate.RowsAffected(); err != nil || affected != 1 {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrMFAChallengeInvalid
+	}
+	challengeUpdate, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_dashboard_mfa_challenges
+		SET status = 1, consumed_at = NOW(), updated_at = NOW()
+		WHERE token_digest = ? AND status = 0
+	`, tokenDigest[:])
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if affected, err := challengeUpdate.RowsAffected(); err != nil || affected != 1 {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrMFAChallengeInvalid
+	}
+	identity, err := scanDashboardIdentity(tx.QueryRowContext(ctx, `
+		SELECT user_id, login_identifier, password_hash, status,
+		       must_rotate_password, auth_version, mfa_required
+		FROM mochat_go_dashboard_identities
+		WHERE user_id = ? AND status = 1 AND auth_version = ?
+		LIMIT 1
+	`, userID, authVersion))
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	return identity, nil
+}
+
+func (store *DashboardIdentityStore) CompletePasswordChange(ctx context.Context, tokenDigest [32]byte, passwordHash string) (dashboardauth.DashboardIdentity, error) {
+	if store == nil || tokenDigest == ([32]byte{}) || strings.TrimSpace(passwordHash) == "" || store.begin == nil {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrInvalidPassword
+	}
+	tx, err := store.begin(ctx)
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var userID int
+	var authVersion uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT user_id, auth_version
+		FROM mochat_go_dashboard_mfa_challenges
+		WHERE token_digest = ? AND challenge_type = ? AND status = 0 AND expires_at > NOW()
+		FOR UPDATE
+	`, tokenDigest[:], dashboardauth.DashboardMFAChallengePasswordChange).Scan(&userID, &authVersion); err != nil {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrInvalidPassword
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_dashboard_identities
+		SET password_hash = ?, must_rotate_password = 0,
+			auth_version = auth_version + 1, updated_at = NOW()
+		WHERE user_id = ? AND auth_version = ? AND status = 1
+	`, passwordHash, userID, authVersion)
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrInvalidPassword
+	}
+	challengeUpdate, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_dashboard_mfa_challenges
+		SET status = 1, consumed_at = NOW(), updated_at = NOW()
+		WHERE token_digest = ? AND status = 0
+	`, tokenDigest[:])
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if affected, err := challengeUpdate.RowsAffected(); err != nil || affected != 1 {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrInvalidPassword
+	}
+	identity, err := scanDashboardIdentity(tx.QueryRowContext(ctx, `
+		SELECT user_id, login_identifier, password_hash, status,
+		       must_rotate_password, auth_version, mfa_required
+		FROM mochat_go_dashboard_identities
+		WHERE user_id = ? AND status = 1
+		LIMIT 1
+	`, userID))
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	return identity, nil
+}
+
+func (store *DashboardIdentityStore) CreateSession(ctx context.Context, userID int, authVersion uint64, jtiDigest [32]byte, issuedAt, expiresAt time.Time) error {
+	if store == nil || userID <= 0 || authVersion == 0 || jtiDigest == ([32]byte{}) || issuedAt.IsZero() || expiresAt.IsZero() || !expiresAt.After(issuedAt) || store.begin == nil {
+		return dashboardauth.ErrSessionInvalid
+	}
+	tx, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status int
+	var currentVersion uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status, auth_version
+		FROM mochat_go_dashboard_identities
+		WHERE user_id = ?
+		FOR UPDATE
+	`, userID).Scan(&status, &currentVersion); err != nil || status != dashboardauth.DashboardIdentityStatusActive || currentVersion != authVersion {
+		return dashboardauth.ErrSessionInvalid
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_dashboard_sessions
+			(jti_digest, user_id, auth_version, status, issued_at, expires_at, created_at, updated_at)
+		VALUES (?, ?, ?, 1, ?, ?, NOW(), NOW())
+	`, jtiDigest[:], userID, authVersion, issuedAt, expiresAt); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (store *DashboardIdentityStore) CheckSessionToken(ctx context.Context, claims authrealm.Claims) error {
+	if store == nil || claims.UserID <= 0 || claims.AuthVersion == 0 || strings.TrimSpace(claims.JWTID) == "" {
+		return dashboardauth.ErrSessionInvalid
+	}
+	digest := sha256.Sum256([]byte(claims.JWTID))
+	row, err := store.query(ctx, `
+		SELECT s.status, s.auth_version, d.status, d.auth_version
+		FROM mochat_go_dashboard_sessions s
+		INNER JOIN mochat_go_dashboard_identities d ON d.user_id = s.user_id
+		WHERE s.jti_digest = ? AND s.user_id = ? AND s.auth_version = ?
+			AND s.status = 1 AND s.expires_at > NOW()
+		LIMIT 1
+	`, digest[:], claims.UserID, claims.AuthVersion)
+	if err != nil {
+		return dashboardauth.ErrSessionInvalid
+	}
+	var sessionStatus, identityStatus int
+	var sessionVersion, identityVersion uint64
+	if err := row.Scan(&sessionStatus, &sessionVersion, &identityStatus, &identityVersion); err != nil || sessionStatus != 1 || identityStatus != dashboardauth.DashboardIdentityStatusActive || sessionVersion != claims.AuthVersion || identityVersion != claims.AuthVersion {
+		return dashboardauth.ErrSessionInvalid
+	}
+	return nil
+}
+
+func (store *DashboardIdentityStore) RevokeSession(ctx context.Context, claims authrealm.Claims) error {
+	if store == nil || claims.UserID <= 0 || claims.AuthVersion == 0 || strings.TrimSpace(claims.JWTID) == "" {
+		return dashboardauth.ErrSessionInvalid
+	}
+	digest := sha256.Sum256([]byte(claims.JWTID))
+	exec := store.exec
+	if exec == nil && store.db != nil {
+		exec = func(ctx context.Context, query string, args ...any) (sql.Result, error) {
+			return store.db.ExecContext(ctx, query, args...)
+		}
+	}
+	if exec == nil {
+		return dashboardauth.ErrSessionInvalid
+	}
+	result, err := exec(ctx, `
+		UPDATE mochat_go_dashboard_sessions
+		SET status = 2, revoked_at = NOW(), updated_at = NOW()
+		WHERE jti_digest = ? AND user_id = ? AND auth_version = ? AND status = 1
+	`, digest[:], claims.UserID, claims.AuthVersion)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return dashboardauth.ErrSessionInvalid
+	}
+	return nil
+}
+
+func (store *DashboardIdentityStore) CreatePasswordReset(ctx context.Context, userID int, authVersion uint64, tokenDigest [32]byte, expiresAt time.Time) error {
+	if store == nil || userID <= 0 || authVersion == 0 || tokenDigest == ([32]byte{}) || expiresAt.IsZero() || store.begin == nil {
+		return dashboardauth.ErrSessionInvalid
+	}
+	tx, err := store.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status int
+	var currentVersion uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status, auth_version
+		FROM mochat_go_dashboard_identities
+		WHERE user_id = ?
+		FOR UPDATE
+	`, userID).Scan(&status, &currentVersion); err != nil || status != dashboardauth.DashboardIdentityStatusActive || currentVersion != authVersion {
+		return dashboardauth.ErrSessionInvalid
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_dashboard_password_resets
+			(token_digest, user_id, auth_version, status, expires_at, created_at, updated_at)
+		VALUES (?, ?, ?, 0, ?, NOW(), NOW())
+	`, tokenDigest[:], userID, authVersion, expiresAt)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (store *DashboardIdentityStore) CompletePasswordReset(ctx context.Context, tokenDigest [32]byte, passwordHash string) (dashboardauth.DashboardIdentity, error) {
+	if store == nil || tokenDigest == ([32]byte{}) || strings.TrimSpace(passwordHash) == "" || store.begin == nil {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrInvalidPassword
+	}
+	tx, err := store.begin(ctx)
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var userID int
+	var authVersion uint64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT user_id, auth_version
+		FROM mochat_go_dashboard_password_resets
+		WHERE token_digest = ? AND status = 0 AND consumed_at IS NULL AND expires_at > NOW()
+		FOR UPDATE
+	`, tokenDigest[:]).Scan(&userID, &authVersion); err != nil {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrInvalidPassword
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_dashboard_identities
+		SET password_hash = ?, auth_version = auth_version + 1, updated_at = NOW()
+		WHERE user_id = ? AND auth_version = ? AND status = 1
+	`, passwordHash, userID, authVersion)
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrInvalidPassword
+	}
+	resetUpdate, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_dashboard_password_resets
+		SET status = 1, consumed_at = NOW(), updated_at = NOW()
+		WHERE token_digest = ? AND status = 0 AND consumed_at IS NULL
+	`, tokenDigest[:])
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if affected, err := resetUpdate.RowsAffected(); err != nil || affected != 1 {
+		return dashboardauth.DashboardIdentity{}, dashboardauth.ErrInvalidPassword
+	}
+	identity, err := scanDashboardIdentity(tx.QueryRowContext(ctx, `
+		SELECT user_id, login_identifier, password_hash, status,
+		       must_rotate_password, auth_version, mfa_required
+		FROM mochat_go_dashboard_identities
+		WHERE user_id = ? AND status = 1
+		LIMIT 1
+	`, userID))
+	if err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return dashboardauth.DashboardIdentity{}, err
+	}
+	return identity, nil
+}
+
 func (store *DashboardIdentityStore) query(ctx context.Context, query string, args ...any) (identityRowScanner, error) {
 	if store == nil {
 		return nil, errors.New("dashboard identity store is unavailable")
@@ -192,4 +667,29 @@ func scanDashboardIdentity(row identityRowScanner) (dashboardauth.DashboardIdent
 		return dashboardauth.DashboardIdentity{}, err
 	}
 	return identity, nil
+}
+
+func scanDashboardMFAChallenge(row identityRowScanner) (dashboardauth.DashboardMFAChallenge, error) {
+	var challenge dashboardauth.DashboardMFAChallenge
+	err := row.Scan(
+		&challenge.UserID, &challenge.AuthVersion, &challenge.ChallengeType,
+		&challenge.Status, &challenge.Attempts, &challenge.MaxAttempts,
+		&challenge.ExpiresAt, &challenge.SecretCiphertext, &challenge.EncryptionKeyID,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboardauth.DashboardMFAChallenge{}, dashboardauth.ErrMFAChallengeInvalid
+	}
+	if err != nil {
+		return dashboardauth.DashboardMFAChallenge{}, err
+	}
+	return challenge, nil
+}
+
+func validDashboardMFAChallengeType(value string) bool {
+	switch value {
+	case dashboardauth.DashboardMFAChallengeEnrollment, dashboardauth.DashboardMFAChallengeLogin:
+		return true
+	default:
+		return false
+	}
 }

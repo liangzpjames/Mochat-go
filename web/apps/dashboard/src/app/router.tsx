@@ -12,11 +12,18 @@ import {
   useRouteError,
 } from 'react-router';
 
-import type { AccessContext, CorpSelection } from './access-loader';
+import type { AccessContext } from './access-loader';
 import { DashboardAccessProvider } from './access-context';
 import { DashboardLayout } from '../layout/dashboard-layout';
 import { NotFoundPage } from '../pages/not-found-page';
+import { RoutedActivationPage } from '../features/auth/activation-page';
 import { RoutedLoginPage } from '../features/auth/login-page';
+import type {
+  ActivationInput,
+  DashboardAuthResult,
+  LoginInput,
+  MFAInput,
+} from '../features/auth/auth-api';
 import { AppErrorPage } from '../pages/app-error-page';
 import { ForbiddenPage } from '../pages/forbidden-page';
 
@@ -25,25 +32,16 @@ export type DashboardRouterDeps = {
   loadInitialData: () => Promise<void>;
   initialEntries?: string[];
   reactPages?: Readonly<Record<string, ReactNode>>;
-  authenticate?: (input: { phone: string; password: string }) => Promise<Session>;
+  authenticate?: (input: LoginInput) => Promise<DashboardAuthResult>;
+  completeMFA?: (input: MFAInput) => Promise<DashboardAuthResult>;
+  activate?: (input: ActivationInput) => Promise<void>;
   setSession?: (session: Session) => void;
-  accessLoader?: (args: { request: Request }) => Promise<
-    AccessContext | CorpSelection
-  >;
+  accessLoader?: (args: { request: Request }) => Promise<AccessContext>;
   renderAccess?: (
-    data: AccessContext | CorpSelection,
+    data: AccessContext,
     children: ReactNode,
   ) => ReactNode;
 };
-
-function DashboardHomePage() {
-  return (
-    <section>
-      <h1>管理后台</h1>
-      <p>请选择已迁移的功能页面。</p>
-    </section>
-  );
-}
 
 function DashboardRouteError() {
   const error = useRouteError();
@@ -75,12 +73,9 @@ function DashboardHydrateFallback() {
 function DashboardAccessShell({ renderAccess }: {
   renderAccess?: DashboardRouterDeps['renderAccess'];
 }) {
-  const data = useLoaderData<AccessContext | CorpSelection | null>();
+  const data = useLoaderData<AccessContext | null>();
   if (data === null) {
     return <DashboardLayout />;
-  }
-  if ('state' in data) {
-    return renderAccess?.(data, <DashboardHomePage />) ?? <DashboardHomePage />;
   }
   const shell = (
     <DashboardAccessProvider value={data}>
@@ -97,12 +92,23 @@ export function createDashboardRouter(deps: DashboardRouterDeps) {
   }));
   const routes = [
     {
+      path: '/activate',
+      element: (
+        <RoutedActivationPage
+          activate={deps.activate ?? (() => Promise.reject(
+            new Error('Dashboard activation is not configured'),
+          ))}
+        />
+      ),
+    },
+    {
       path: '/login',
       element: (
         <RoutedLoginPage
           authenticate={deps.authenticate ?? (() => Promise.reject(
             new Error('登录服务尚未配置'),
           ))}
+          {...(deps.completeMFA === undefined ? {} : { completeMFA: deps.completeMFA })}
           setSession={deps.setSession ?? (() => undefined)}
         />
       ),

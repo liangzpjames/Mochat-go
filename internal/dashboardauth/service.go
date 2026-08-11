@@ -6,11 +6,22 @@ import (
 	"strings"
 
 	"jiyi/mochat-go/internal/authpassword"
+	"jiyi/mochat-go/internal/authrealm"
+	"jiyi/mochat-go/internal/dashboardprincipal"
+	"time"
 )
 
 const (
 	DashboardIdentityStatusActive   = 1
 	DashboardIdentityStatusDisabled = 2
+
+	DashboardMFAStatusPending  = 0
+	DashboardMFAStatusActive   = 1
+	DashboardMFAStatusDisabled = 2
+
+	DashboardMFAChallengeEnrollment     = "enrollment"
+	DashboardMFAChallengeLogin          = "login_mfa"
+	DashboardMFAChallengePasswordChange = "password_change"
 )
 
 var (
@@ -20,6 +31,7 @@ var (
 	ErrActivationInvalid   = errors.New("dashboard activation invalid")
 	ErrSessionInvalid      = errors.New("dashboard session invalid")
 	ErrInvalidPassword     = errors.New("invalid password")
+	ErrMFAChallengeInvalid = errors.New("dashboard MFA challenge invalid")
 )
 
 type DashboardIdentity struct {
@@ -36,6 +48,41 @@ type DashboardIdentityStore interface {
 	Authenticate(ctx context.Context, loginIdentifier string) (DashboardIdentity, error)
 	Activate(ctx context.Context, tokenDigest [32]byte, passwordHash string) error
 	CheckSession(ctx context.Context, userID int, authVersion uint64) error
+}
+
+// DashboardMFAChallenge is intentionally a digest-addressed, one-time
+// server-side object. Raw challenge tokens never cross this boundary.
+type DashboardMFAChallenge struct {
+	UserID           int
+	AuthVersion      uint64
+	ChallengeType    string
+	Status           int
+	Attempts         int
+	MaxAttempts      int
+	ExpiresAt        time.Time
+	SecretCiphertext string
+	EncryptionKeyID  string
+}
+
+// DashboardAuthPersistence is the durable extension used by the Dashboard
+// authentication HTTP boundary. The original narrow interface remains intact
+// for callers that only need password lookup, activation, or legacy version
+// checks; production authentication requires this complete extension.
+type DashboardAuthPersistence interface {
+	DashboardIdentityStore
+	ResolvePrincipal(ctx context.Context, userID int) (dashboardprincipal.DashboardPrincipal, error)
+	MFAStatus(ctx context.Context, userID int) (int, error)
+	BeginMFAEnrollment(ctx context.Context, userID int, authVersion uint64, tokenDigest [32]byte, expiresAt time.Time, secretCiphertext, keyID string) error
+	CreateMFAChallenge(ctx context.Context, userID int, authVersion uint64, challengeType string, tokenDigest [32]byte, expiresAt time.Time) error
+	FindMFAChallenge(ctx context.Context, tokenDigest [32]byte) (DashboardMFAChallenge, error)
+	RecordMFAFailure(ctx context.Context, tokenDigest [32]byte) error
+	CompleteMFAChallenge(ctx context.Context, tokenDigest [32]byte, userID int, authVersion uint64, challengeType string, totpStep int64) (DashboardIdentity, error)
+	CompletePasswordChange(ctx context.Context, tokenDigest [32]byte, passwordHash string) (DashboardIdentity, error)
+	CreateSession(ctx context.Context, userID int, authVersion uint64, jtiDigest [32]byte, issuedAt, expiresAt time.Time) error
+	CheckSessionToken(ctx context.Context, claims authrealm.Claims) error
+	RevokeSession(ctx context.Context, claims authrealm.Claims) error
+	CreatePasswordReset(ctx context.Context, userID int, authVersion uint64, tokenDigest [32]byte, expiresAt time.Time) error
+	CompletePasswordReset(ctx context.Context, tokenDigest [32]byte, passwordHash string) (DashboardIdentity, error)
 }
 
 type Service struct {
@@ -93,6 +140,20 @@ func (service *Service) CheckSession(ctx context.Context, userID int, authVersio
 		return ErrSessionInvalid
 	}
 	if err := service.store.CheckSession(ctx, userID, authVersion); err != nil {
+		return ErrSessionInvalid
+	}
+	return nil
+}
+
+func (service *Service) CheckTokenSession(ctx context.Context, claims authrealm.Claims) error {
+	if service == nil || service.store == nil || claims.UserID <= 0 || claims.AuthVersion == 0 || strings.TrimSpace(claims.JWTID) == "" {
+		return ErrSessionInvalid
+	}
+	persistence, ok := service.store.(DashboardAuthPersistence)
+	if !ok {
+		return ErrSessionInvalid
+	}
+	if err := persistence.CheckSessionToken(ctx, claims); err != nil {
 		return ErrSessionInvalid
 	}
 	return nil

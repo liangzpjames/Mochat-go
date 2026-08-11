@@ -118,9 +118,9 @@ export function MaterialManagementPage({ api }: { api: BusinessWorkbenchApi }) {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState('');
   const queryScope = scope === 'sidebar' ? 'public' : scope;
-  const groupQuery = useQuery({ queryKey: ['phase34-material-groups', access.session.corpId], queryFn: () => api.read('/mediumGroup/index', {}) });
-  const departmentQuery = useQuery({ queryKey: ['phase34-material-departments', access.session.corpId], queryFn: () => api.read('/workDepartment/pageIndex', { page: 1, perPage: 500 }), enabled: scope === 'department' });
-  const materialQuery = useQuery({ queryKey: ['phase34-materials', access.session.corpId, scope, groupId, type, keyword], queryFn: () => api.read('/medium/index', { page: 1, perPage: 20, scopeType: queryScope, ...(scope === 'sidebar' ? { sidebarVisible: 1 } : {}), ...(groupId ? { mediumGroupId: groupId } : {}), ...(type ? { type } : {}), ...(keyword ? { searchStr: keyword } : {}) }) });
+  const groupQuery = useQuery({ queryKey: ['phase34-material-groups', access.corp.id], queryFn: () => api.read('/mediumGroup/index', {}) });
+  const departmentQuery = useQuery({ queryKey: ['phase34-material-departments', access.corp.id], queryFn: () => api.read('/workDepartment/pageIndex', { page: 1, perPage: 500 }), enabled: scope === 'department' });
+  const materialQuery = useQuery({ queryKey: ['phase34-materials', access.corp.id, scope, groupId, type, keyword], queryFn: () => api.read('/medium/index', { page: 1, perPage: 20, scopeType: queryScope, ...(scope === 'sidebar' ? { sidebarVisible: 1 } : {}), ...(groupId ? { mediumGroupId: groupId } : {}), ...(type ? { type } : {}), ...(keyword ? { searchStr: keyword } : {}) }) });
   const materialGroups = useMemo(() => groups(groupQuery.data), [groupQuery.data]);
   const departmentOptions = useMemo(() => departments(departmentQuery.data), [departmentQuery.data]);
   const rows = useMemo(() => records(materialQuery.data), [materialQuery.data]);
