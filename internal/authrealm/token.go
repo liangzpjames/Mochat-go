@@ -19,19 +19,16 @@ const (
 )
 
 type Claims struct {
-	Subject      string `json:"sub"`
-	UserID       int    `json:"uid"`
-	Realm        Realm  `json:"realm"`
-	Issuer       string `json:"iss"`
-	Audience     string `json:"aud"`
-	JWTID        string `json:"jti"`
-	IssuedAt     int64  `json:"iat"`
-	NotBefore    int64  `json:"nbf"`
-	ExpiresAt    int64  `json:"exp"`
-	AuthVersion  uint64 `json:"auth_version"`
-	TenantID     int    `json:"tenant_id,omitempty"`
-	CorpID       int    `json:"corp_id,omitempty"`
-	IsSuperAdmin bool   `json:"is_super_admin,omitempty"`
+	Subject     string `json:"sub"`
+	UserID      int    `json:"uid"`
+	Realm       Realm  `json:"realm"`
+	Issuer      string `json:"iss"`
+	Audience    string `json:"aud"`
+	JWTID       string `json:"jti"`
+	IssuedAt    int64  `json:"iat"`
+	NotBefore   int64  `json:"nbf"`
+	ExpiresAt   int64  `json:"exp"`
+	AuthVersion uint64 `json:"auth_version"`
 }
 
 type SessionValidator func(context.Context, Claims) error
@@ -134,6 +131,12 @@ func (p Parser) Parse(ctx context.Context, token string) (Claims, error) {
 	if err := p.Config.Validate(); err != nil {
 		return Claims{}, err
 	}
+	if p.ValidateSession == nil {
+		return Claims{}, tokenError(CodeSessionInvalid, ErrSessionInvalid)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	rawToken := strings.TrimSpace(token)
 	parts := strings.Split(rawToken, ".")
 	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
@@ -193,13 +196,11 @@ func (p Parser) Parse(ctx context.Context, token string) (Claims, error) {
 		return Claims{}, tokenError(CodeSessionInvalid, ErrInvalidToken)
 	}
 
-	if p.ValidateSession != nil {
-		if err := p.ValidateSession(ctx, claims); err != nil {
-			if errors.Is(err, ErrAuthVersionMismatch) {
-				return Claims{}, tokenError(CodeSessionInvalid, ErrAuthVersionMismatch)
-			}
-			return Claims{}, tokenError(CodeSessionInvalid, ErrSessionInvalid)
+	if err := p.ValidateSession(ctx, claims); err != nil {
+		if errors.Is(err, ErrAuthVersionMismatch) {
+			return Claims{}, tokenError(CodeSessionInvalid, ErrAuthVersionMismatch)
 		}
+		return Claims{}, tokenError(CodeSessionInvalid, ErrSessionInvalid)
 	}
 	return claims, nil
 }

@@ -48,5 +48,13 @@ func DashboardPrincipalFromContext(ctx context.Context) (DashboardPrincipal, err
 }
 
 func validPrincipal(principal DashboardPrincipal) bool {
-	return principal.UserID > 0 && principal.TenantID > 0 && principal.CorpID > 0 && principal.AuthVersion > 0
+	if principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 || principal.AuthVersion == 0 {
+		return false
+	}
+	switch principal.CorpStatus {
+	case CorpBindingStatusPending, CorpBindingStatusActive, CorpBindingStatusSuspended:
+		return true
+	default:
+		return false
+	}
 }

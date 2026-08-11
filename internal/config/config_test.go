@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -189,9 +191,11 @@ func TestLoadRequiresDistinctSaaSAndDashboardRealmConfiguration(t *testing.T) {
 		t.Setenv("MOCHAT_SAAS_ADMIN_JWT_SECRET", "saas-admin-secret-012345678901234567890")
 		t.Setenv("MOCHAT_SAAS_ADMIN_JWT_ISSUER", "mochat-go/saas-auth")
 		t.Setenv("MOCHAT_SAAS_ADMIN_JWT_AUDIENCE", "mochat-saas-admin")
+		t.Setenv("MOCHAT_SAAS_ADMIN_JWT_PREFIX", "mochat_saas_admin_")
 		t.Setenv("MOCHAT_DASHBOARD_JWT_SECRET", "dashboard-secret-012345678901234567890")
 		t.Setenv("MOCHAT_DASHBOARD_JWT_ISSUER", "mochat-go/dashboard-auth")
 		t.Setenv("MOCHAT_DASHBOARD_JWT_AUDIENCE", "mochat-dashboard")
+		t.Setenv("MOCHAT_DASHBOARD_JWT_PREFIX", "mochat_dashboard_")
 	}
 
 	cases := []struct {
@@ -205,6 +209,9 @@ func TestLoadRequiresDistinctSaaSAndDashboardRealmConfiguration(t *testing.T) {
 		}},
 		{name: "missing SaaS issuer", mutate: func(t *testing.T) { t.Setenv("MOCHAT_SAAS_ADMIN_JWT_ISSUER", "") }},
 		{name: "missing Dashboard audience", mutate: func(t *testing.T) { t.Setenv("MOCHAT_DASHBOARD_JWT_AUDIENCE", "") }},
+		{name: "missing SaaS prefix", mutate: func(t *testing.T) { t.Setenv("MOCHAT_SAAS_ADMIN_JWT_PREFIX", "") }},
+		{name: "missing Dashboard prefix", mutate: func(t *testing.T) { t.Setenv("MOCHAT_DASHBOARD_JWT_PREFIX", "") }},
+		{name: "same prefixes", mutate: func(t *testing.T) { t.Setenv("MOCHAT_DASHBOARD_JWT_PREFIX", "mochat_saas_admin_") }},
 	}
 
 	for _, tc := range cases {
@@ -215,6 +222,22 @@ func TestLoadRequiresDistinctSaaSAndDashboardRealmConfiguration(t *testing.T) {
 				t.Fatal("Load unexpectedly accepted incomplete realm configuration")
 			}
 		})
+	}
+}
+
+func TestStandaloneComposeRequiresRealmSecretsFromEnvironment(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, name := range []string{"MOCHAT_SAAS_ADMIN_JWT_SECRET", "MOCHAT_DASHBOARD_JWT_SECRET"} {
+		if !strings.Contains(text, "${"+name+":?") {
+			t.Fatalf("compose must require %s", name)
+		}
+		if strings.Contains(text, "${"+name+":-") {
+			t.Fatalf("compose must not provide a default for %s", name)
+		}
 	}
 }
 

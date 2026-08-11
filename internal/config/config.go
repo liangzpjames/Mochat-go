@@ -1268,12 +1268,12 @@ func FromEnv() (Config, error) {
 		SaaSAdminJWTSecret:                                 envFirst("MOCHAT_SAAS_ADMIN_JWT_SECRET"),
 		SaaSAdminJWTIssuer:                                 strings.TrimSpace(envFirst("MOCHAT_SAAS_ADMIN_JWT_ISSUER")),
 		SaaSAdminJWTAudience:                               strings.TrimSpace(envFirst("MOCHAT_SAAS_ADMIN_JWT_AUDIENCE")),
-		SaaSAdminJWTPrefix:                                 envOrDefault("MOCHAT_SAAS_ADMIN_JWT_PREFIX", "mochat_saas_admin_"),
+		SaaSAdminJWTPrefix:                                 strings.TrimSpace(envDefaultIfUnset("MOCHAT_SAAS_ADMIN_JWT_PREFIX", "mochat_saas_admin_")),
 		SaaSAdminJWTTTL:                                    time.Duration(saasAdminJWTTTL) * time.Second,
 		DashboardJWTSecret:                                 envFirst("MOCHAT_DASHBOARD_JWT_SECRET"),
 		DashboardJWTIssuer:                                 strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_ISSUER")),
 		DashboardJWTAudience:                               strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_AUDIENCE")),
-		DashboardJWTPrefix:                                 envOrDefault("MOCHAT_DASHBOARD_JWT_PREFIX", "mochat_dashboard_"),
+		DashboardJWTPrefix:                                 strings.TrimSpace(envDefaultIfUnset("MOCHAT_DASHBOARD_JWT_PREFIX", "mochat_dashboard_")),
 		DashboardJWTTTL:                                    time.Duration(dashboardJWTTTL) * time.Second,
 		SidebarJWTSecret:                                   envOrDefault("MOCHAT_SIDEBAR_JWT_SECRET", envOrDefault("SIDEBAR_JWT_SECRET", "Br3LXhp&Ysha1zRDh")),
 		SidebarJWTPrefix:                                   envOrDefault("MOCHAT_SIDEBAR_JWT_PREFIX", envOrDefault("SIDEBAR_JWT_PREFIX", "default")),
@@ -2145,6 +2145,15 @@ func (cfg Config) ValidateIdentityRealms() error {
 	if bytes.Equal([]byte(cfg.SaaSAdminJWTSecret), []byte(cfg.DashboardJWTSecret)) {
 		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_SECRET and MOCHAT_DASHBOARD_JWT_SECRET must differ")
 	}
+	if strings.TrimSpace(cfg.SaaSAdminJWTPrefix) == "" {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_PREFIX is required")
+	}
+	if strings.TrimSpace(cfg.DashboardJWTPrefix) == "" {
+		return fmt.Errorf("MOCHAT_DASHBOARD_JWT_PREFIX is required")
+	}
+	if strings.TrimSpace(cfg.SaaSAdminJWTPrefix) == strings.TrimSpace(cfg.DashboardJWTPrefix) {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_PREFIX and MOCHAT_DASHBOARD_JWT_PREFIX must differ")
+	}
 	if strings.TrimSpace(cfg.SaaSAdminJWTIssuer) == "" {
 		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_ISSUER is required")
 	}
@@ -2247,6 +2256,13 @@ func envOrDefault(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func envDefaultIfUnset(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }
 
 func envBool(key string) bool {

@@ -3,6 +3,7 @@ package authrealm
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -22,16 +23,16 @@ func TestRealmTokensAreRejectedByTheOtherParser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = (Parser{Config: dashboardConfig, Now: func() time.Time { return now }}).Parse(context.Background(), saasToken)
+	_, err = (Parser{Config: dashboardConfig, Now: func() time.Time { return now }, ValidateSession: allowSession}).Parse(context.Background(), saasToken)
 	assertUnauthorized(t, err)
-	_, err = (Parser{Config: saasConfig, Now: func() time.Time { return now }}).Parse(context.Background(), dashboardToken)
+	_, err = (Parser{Config: saasConfig, Now: func() time.Time { return now }, ValidateSession: allowSession}).Parse(context.Background(), dashboardToken)
 	assertUnauthorized(t, err)
 }
 
 func TestParserRejectsInvalidClaimsWithStableUnauthorizedErrors(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0).UTC()
 	config := testTokenConfig(RealmDashboard, "dashboard")
-	parser := Parser{Config: config, Now: func() time.Time { return now }}
+	parser := Parser{Config: config, Now: func() time.Time { return now }, ValidateSession: allowSession}
 
 	cases := []struct {
 		name   string
@@ -90,11 +91,54 @@ func TestParserRejectsOldAuthVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parser := Parser{Config: config, Now: func() time.Time { return now }}
+	parser := Parser{Config: config, Now: func() time.Time { return now }, ValidateSession: allowSession}
 	_, err = parser.ParseWithAuthVersion(context.Background(), token, 4)
 	assertUnauthorized(t, err)
 	if !errors.Is(err, ErrAuthVersionMismatch) {
 		t.Fatalf("err = %v, want auth version mismatch", err)
+	}
+}
+
+func TestParserRejectsTokensWhenSessionValidatorIsMissing(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0).UTC()
+	config := testTokenConfig(RealmDashboard, "dashboard")
+	token, err := Sign(config, Claims{UserID: 7, AuthVersion: 3}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = (Parser{Config: config, Now: func() time.Time { return now }}).Parse(context.Background(), token)
+	assertUnauthorized(t, err)
+	if !errors.Is(err, ErrSessionInvalid) {
+		t.Fatalf("err = %v, want missing validator to fail as session invalid", err)
+	}
+}
+
+func TestParserPassesClaimsToSessionValidatorForAuthVersionValidation(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0).UTC()
+	config := testTokenConfig(RealmDashboard, "dashboard")
+	token, err := Sign(config, Claims{UserID: 7, AuthVersion: 3}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	parser := Parser{
+		Config: config,
+		Now:    func() time.Time { return now },
+		ValidateSession: func(_ context.Context, claims Claims) error {
+			called = true
+			if claims.UserID != 7 || claims.AuthVersion != 3 {
+				return ErrAuthVersionMismatch
+			}
+			return nil
+		},
+	}
+	if _, err := parser.Parse(context.Background(), token); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("session validator was not called")
 	}
 }
 
@@ -127,21 +171,30 @@ func TestParserValidatesSessionWithoutExposingSessionDetails(t *testing.T) {
 func TestSignerAndParserRoundTripClaims(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0).UTC()
 	config := testTokenConfig(RealmDashboard, "dashboard")
-	want := Claims{UserID: 8, AuthVersion: 11, TenantID: 12, CorpID: 13, IsSuperAdmin: true}
+	want := Claims{UserID: 8, AuthVersion: 11}
 
 	token, err := Sign(config, want, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := (Parser{Config: config, Now: func() time.Time { return now }}).Parse(context.Background(), token)
+	got, err := (Parser{Config: config, Now: func() time.Time { return now }, ValidateSession: allowSession}).Parse(context.Background(), token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.UserID != want.UserID || got.AuthVersion != want.AuthVersion || got.TenantID != want.TenantID || got.CorpID != want.CorpID || !got.IsSuperAdmin {
-		t.Fatalf("claims = %+v, want user/tenant/corp/auth_version from %+v", got, want)
+	if got.UserID != want.UserID || got.AuthVersion != want.AuthVersion {
+		t.Fatalf("claims = %+v, want user/auth_version from %+v", got, want)
 	}
 	if got.Subject != "dashboard-user:8" || got.Realm != RealmDashboard || got.Issuer != config.Issuer || got.Audience != config.Audience || got.JWTID == "" {
 		t.Fatalf("derived claims = %+v", got)
+	}
+}
+
+func TestDashboardClaimsDoNotExposeBusinessBindingFields(t *testing.T) {
+	typeOfClaims := reflect.TypeOf(Claims{})
+	for _, field := range []string{"TenantID", "CorpID", "IsSuperAdmin"} {
+		if _, ok := typeOfClaims.FieldByName(field); ok {
+			t.Fatalf("Claims unexpectedly contains business field %s", field)
+		}
 	}
 }
 
@@ -169,6 +222,8 @@ func assertUnauthorized(t *testing.T, err error) {
 		t.Fatalf("err = %v, want stable HTTP 401", err)
 	}
 }
+
+func allowSession(context.Context, Claims) error { return nil }
 
 func testTokenConfig(realm Realm, secret string) TokenConfig {
 	issuer := "mochat-go/saas-auth"

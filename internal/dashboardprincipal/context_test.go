@@ -37,6 +37,8 @@ func TestDashboardPrincipalFromContextFailsClosed(t *testing.T) {
 		{name: "zero corp", ctx: context.WithValue(context.Background(), principalContextKey{}, DashboardPrincipal{UserID: 7, TenantID: 11, AuthVersion: 1})},
 		{name: "zero user", ctx: context.WithValue(context.Background(), principalContextKey{}, DashboardPrincipal{TenantID: 11, CorpID: 13, AuthVersion: 1})},
 		{name: "zero auth version", ctx: context.WithValue(context.Background(), principalContextKey{}, DashboardPrincipal{UserID: 7, TenantID: 11, CorpID: 13})},
+		{name: "empty corp status", ctx: context.WithValue(context.Background(), principalContextKey{}, DashboardPrincipal{UserID: 7, TenantID: 11, CorpID: 13, AuthVersion: 1})},
+		{name: "unknown corp status", ctx: context.WithValue(context.Background(), principalContextKey{}, DashboardPrincipal{UserID: 7, TenantID: 11, CorpID: 13, CorpStatus: CorpBindingStatus("future"), AuthVersion: 1})},
 	}
 
 	for _, tc := range cases {
@@ -55,7 +57,7 @@ func TestWithPrincipalDoesNotStoreInvalidPrincipal(t *testing.T) {
 		t.Fatalf("err = %v, want invalid principal to fail closed", err)
 	}
 
-	valid := DashboardPrincipal{UserID: 7, TenantID: 11, CorpID: 13, AuthVersion: 1}
+	valid := DashboardPrincipal{UserID: 7, TenantID: 11, CorpID: 13, CorpStatus: CorpBindingStatusActive, AuthVersion: 1}
 	ctx = WithPrincipal(context.Background(), valid)
 	ctx = WithPrincipal(ctx, DashboardPrincipal{UserID: 7, TenantID: 0, CorpID: 13, AuthVersion: 1})
 	if _, err := DashboardPrincipalFromContext(ctx); !errors.Is(err, ErrPrincipalUnavailable) {
