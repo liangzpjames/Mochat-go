@@ -31,6 +31,8 @@ docker compose \
   --profile app up -d --build
 ```
 
+启动 app 前，必须由 Secret Manager 按 `MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE` 创建权限受限的宿主机密码文件；文件缺失或权限过宽时 Compose 直接失败，不会使用默认密码。
+
 首次使用容器栈时，先记录已由 MySQL init SQL 建好的 schema baseline，再在 Go app 容器内创建管理员账号：
 
 ```bash
@@ -48,12 +50,10 @@ docker compose \
   -f deploy/standalone/docker-compose.yml \
   --profile app exec app \
   mochat-bootstrap \
-    -tenant-id "$MOCHAT_BOOTSTRAP_TENANT_ID" \
-    -tenant-name "$MOCHAT_BOOTSTRAP_TENANT_NAME" \
-    -phone "$MOCHAT_BOOTSTRAP_PHONE" \
-    -password "$MOCHAT_BOOTSTRAP_PASSWORD" \
-    -package-code "$MOCHAT_BOOTSTRAP_PACKAGE_CODE" \
-    -package-name "$MOCHAT_BOOTSTRAP_PACKAGE_NAME"
+    -request-key "$MOCHAT_BOOTSTRAP_REQUEST_KEY" \
+    -login-name "$MOCHAT_BOOTSTRAP_SAAS_ADMIN_LOGIN" \
+    -phone "$MOCHAT_BOOTSTRAP_SAAS_ADMIN_PHONE" \
+    -name "$MOCHAT_BOOTSTRAP_SAAS_ADMIN_NAME"
 ```
 
 默认端口：
@@ -160,74 +160,24 @@ deploy/standalone/migrations
 
 如果旧环境已经记录过拆分前的一体化 `0001_initial_schema` checksum，迁移器会识别 legacy checksum；升级后再次执行 `apply` 会接受旧 checksum，并用 `0002_seed_core_data` 补齐 seed 迁移记录。
 
-首次独立部署完成 migration 后，用 `cmd/mochat-bootstrap` 创建默认租户、超级管理员、管理员角色和菜单权限绑定。密码哈希使用 Go 版 `/dashboard/user/auth` 同一套 PHP 兼容规则，`MOCHAT_SIMPLE_JWT_SECRET` 必须和服务启动时保持一致：
+首次独立部署完成 migration 后，只使用 `cmd/mochat-bootstrap` 创建一个 SaaS 平台管理员。该命令只写入 `mochat_go_saas_admin_users`，不会创建或修改 tenant、corp、`mc_user`、Dashboard identity、套餐或 RBAC 业务数据。
 
 ```bash
 env -u GOROOT \
   MOCHAT_MYSQL_DSN='mochat:mochat_pass@tcp(127.0.0.1:13316)/mochat?parseTime=true&loc=Local' \
-  MOCHAT_SIMPLE_JWT_SECRET='请替换成生产密钥' \
-  MOCHAT_BOOTSTRAP_PHONE='13800000000' \
-  MOCHAT_BOOTSTRAP_PASSWORD='请替换成强密码' \
-  go run ./cmd/mochat-bootstrap
+  MOCHAT_BOOTSTRAP_REQUEST_KEY='initial-saas-admin-v1' \
+  MOCHAT_BOOTSTRAP_SAAS_ADMIN_LOGIN='platform-admin' \
+  MOCHAT_BOOTSTRAP_SAAS_ADMIN_PHONE='13800000000' \
+  MOCHAT_BOOTSTRAP_SAAS_ADMIN_NAME='Platform Admin' \
+  docker compose \
+    --env-file deploy/standalone/.env.local \
+    -f deploy/standalone/docker-compose.yml \
+    --profile app exec app mochat-bootstrap
 ```
 
-该命令可重复执行；同一租户和手机号会恢复或更新已有管理员账号，并把当前未删除菜单重新同步到管理员角色。默认会写入 `standard` 套餐、26 个 lifetime 用量指标、3 条 seed 版本记录，并按 `missing` 策略从系统级配置复制租户默认配置。常用 SaaS 参数如下：
+密码文件必须由 Secret Manager 提供并限制读取权限：Unix 文件权限只能允许 owner，Windows 必须使用仅 owner/系统管理员可读的 ACL。Compose 从 `MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE` 读取宿主机文件并以 Docker Secret 只读挂载到固定容器路径。密码不接受命令行参数、环境变量明文或 `MOCHAT_SIMPLE_JWT_SECRET`，也不会写入日志、返回值或审计正文。
 
-```bash
-env -u GOROOT \
-  MOCHAT_MYSQL_DSN='mochat:mochat_pass@tcp(127.0.0.1:13316)/mochat?parseTime=true&loc=Local' \
-  MOCHAT_SIMPLE_JWT_SECRET='请替换成生产密钥' \
-  go run ./cmd/mochat-bootstrap \
-    -tenant-id 1001 \
-    -tenant-name '客户A' \
-    -phone '13800000000' \
-    -password '请替换成强密码' \
-    -package-code growth \
-    -package-name '增长版' \
-    -max-corps 3 \
-    -max-users 25 \
-    -max-contacts 5000 \
-    -max-rooms 200 \
-    -max-agents 5 \
-    -channel-codes 120 \
-    -shop-codes 45 \
-    -radars 33 \
-    -lotteries 22 \
-    -room-infinite-pulls 24 \
-    -room-fissions 26 \
-    -room-clock-ins 28 \
-    -room-qualities 30 \
-    -room-calendars 32 \
-    -room-reminds 34 \
-    -contact-sops 36 \
-    -room-sops 38 \
-    -sensitive-words 39 \
-    -storage-mb 1024 \
-    -contact-message-batches 300 \
-    -room-message-batches 150 \
-    -room-tag-pulls 80 \
-    -work-room-auto-pulls 60 \
-    -work-fissions 40 \
-    -official-accounts 10 \
-    -async-executions 10000 \
-    -package-expires-at '2027-01-01' \
-    -config-copy-mode missing
-```
-
-批量开通使用 CSV 表头。`tenant_id`、`tenant_name`、`phone`、`password` 是每行必填字段；其他空字段会继承命令行或环境变量默认值：
-
-```csv
-tenant_id,tenant_name,phone,password,user_name,role_name,package_code,package_name,max_corps,max_users,max_contacts,max_rooms,max_agents,channel_codes,shop_codes,radars,lotteries,room_infinite_pulls,room_fissions,room_clock_ins,room_qualities,room_calendars,room_reminds,contact_sops,room_sops,sensitive_words,storage_mb,contact_message_batches,room_message_batches,room_tag_pulls,work_room_auto_pulls,work_fissions,official_accounts,async_executions,package_expires_at,config_copy_mode
-201,SaaS批量租户A,13800000201,secret201,SaaS管理员A,SaaS超级管理员,growth,增长版,2,10,1000,50,3,12,7,9,11,13,15,17,19,21,23,25,27,29,512,30,20,8,6,4,2,1000,2027-01-01,missing
-202,SaaS批量租户B,13800000202,secret202,SaaS管理员B,SaaS超级管理员,enterprise,企业版,5,50,20000,500,10,100,70,90,110,130,150,170,190,210,230,250,270,290,2048,300,200,80,60,40,20,10000,,overwrite
-```
-
-```bash
-env -u GOROOT \
-  MOCHAT_MYSQL_DSN='mochat:mochat_pass@tcp(127.0.0.1:13316)/mochat?parseTime=true&loc=Local' \
-  MOCHAT_SIMPLE_JWT_SECRET='请替换成生产密钥' \
-  go run ./cmd/mochat-bootstrap -batch-file ./tenants.csv
-```
+重复提交相同 request key/login 时只返回已有 SaaS 管理员，不重置密码；不同的企业、租户和 Dashboard 身份必须通过后续受保护的 SaaS API 流程创建和授权。bootstrap 失败时只返回不含密码内容的通用错误。
 
 回滚最后一条增量迁移：
 
