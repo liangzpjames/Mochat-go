@@ -3203,42 +3203,10 @@ func syncWorkEmployeesTx(ctx context.Context, tx *sql.Tx, credential dashboard.W
 	if err != nil {
 		return dashboard.WorkEmployeeSyncResult{}, err
 	}
-	userIDsByPhone, phoneExists, err := workEmployeeSyncUsersByPhone(ctx, tx, credential.TenantID, employeeByWX)
+	userIDsByPhone, _, err := workEmployeeSyncUsersByPhone(ctx, tx, credential.TenantID, employeeByWX)
 	if err != nil {
 		return dashboard.WorkEmployeeSyncResult{}, err
 	}
-	for _, wxUserID := range wxOrder {
-		employee := employeeByWX[wxUserID]
-		phone := strings.TrimSpace(employee.Mobile)
-		if phone == "" {
-			continue
-		}
-		if _, ok := userIDsByPhone[phone]; ok {
-			continue
-		}
-		if phoneExists[phone] {
-			continue
-		}
-		if defaultPasswordHash == "" {
-			return dashboard.WorkEmployeeSyncResult{}, fmt.Errorf("成员子账户默认密码为空")
-		}
-		mainDepartmentID := syncMainDepartmentID(employee, departments)
-		insert, err := tx.ExecContext(ctx, `
-			INSERT INTO mc_user (phone, password, name, gender, department, position, tenant_id, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-		`, phone, defaultPasswordHash, employee.Name, employee.Gender, strconv.Itoa(mainDepartmentID), employee.Position, credential.TenantID)
-		if err != nil {
-			return dashboard.WorkEmployeeSyncResult{}, err
-		}
-		id, err := insert.LastInsertId()
-		if err != nil {
-			return dashboard.WorkEmployeeSyncResult{}, err
-		}
-		userIDsByPhone[phone] = int(id)
-		phoneExists[phone] = true
-		result.UsersCreated++
-	}
-
 	employeeIDsByWX := make(map[string]int, len(wxOrder))
 	for _, wxUserID := range wxOrder {
 		employee := employeeByWX[wxUserID]

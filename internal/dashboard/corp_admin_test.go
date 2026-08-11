@@ -254,7 +254,7 @@ func TestCorpAdminStoreCreatesCorpAndCachesSelection(t *testing.T) {
 	if cache.userID != 1 || cache.value != "7-0" {
 		t.Fatalf("cache = userID:%d value:%q", cache.userID, cache.value)
 	}
-	if employeeQueue.event.UserID != 1 || employeeQueue.event.Source != "dashboard.corp.store" || !reflect.DeepEqual(employeeQueue.event.CorpIDs, []int{7}) {
+	if employeeQueue.event.BindingID != 10 || employeeQueue.event.Source != "dashboard.corp.store" {
 		t.Fatalf("employee queue event = %+v", employeeQueue.event)
 	}
 	body := decodeBody(t, rec.Body.Bytes())

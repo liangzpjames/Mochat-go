@@ -230,8 +230,8 @@ func TestContactWelcomeIdempotencyKeyUsesContactAndWelcomeCode(t *testing.T) {
 }
 
 func TestEmployeeApplyIdempotencyKeyNormalizesCorpIDs(t *testing.T) {
-	left := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{CorpIDs: []int{7, 0, 2, 7}, UserID: 5, Source: " dashboard.corp.store "})
-	right := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{CorpIDs: []int{2, 7}, UserID: 5, Source: "dashboard.corp.store"})
+	left := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{BindingID: 7, Source: " dashboard.corp.store "})
+	right := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{BindingID: 7, Source: "dashboard.corp.store"})
 	if left == "" || left != right {
 		t.Fatalf("keys differ: %q %q", left, right)
 	}
@@ -239,7 +239,7 @@ func TestEmployeeApplyIdempotencyKeyNormalizesCorpIDs(t *testing.T) {
 		t.Fatalf("key prefix = %q", left)
 	}
 
-	manual := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{CorpIDs: []int{2, 7}, UserID: 5, Source: "manual"})
+	manual := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{BindingID: 7, Source: "manual"})
 	if manual == left {
 		t.Fatalf("different source should produce a different key")
 	}

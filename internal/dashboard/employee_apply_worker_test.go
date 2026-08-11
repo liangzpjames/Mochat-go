@@ -13,7 +13,7 @@ import (
 func TestEmployeeApplyWorkerSyncsUniqueCorpIDs(t *testing.T) {
 	store := &fakeEmployeeApplyWorkerStore{
 		credentials: map[int]WorkEmployeeSyncCredential{
-			7: {CorpID: 7, TenantID: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret", ContactSecret: "contact-secret"},
+			7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret", ContactSecret: "contact-secret"},
 		},
 	}
 	client := &fakeEmployeeApplyWorkerClient{
@@ -24,9 +24,9 @@ func TestEmployeeApplyWorkerSyncsUniqueCorpIDs(t *testing.T) {
 		},
 		followUsers: []string{"go-worker-user"},
 	}
-	worker := NewEmployeeApplyWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewEmployeeApplyWorker(nil, store, client, log.Default())
 
-	if err := worker.Process(context.Background(), EmployeeApplyEvent{CorpIDs: []int{0, 7, 7}, UserID: 1, Source: "test"}); err != nil {
+	if err := worker.Process(context.Background(), EmployeeApplyEvent{BindingID: 7, Source: "test"}); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(store.syncedCorpIDs, []int{7}) {
@@ -35,16 +35,16 @@ func TestEmployeeApplyWorkerSyncsUniqueCorpIDs(t *testing.T) {
 	if len(store.syncedEmployees) != 1 || store.syncedEmployees[0].WXUserID != "go-worker-user" || store.syncedEmployees[0].Name != "员工新名" {
 		t.Fatalf("synced employees = %#v", store.syncedEmployees)
 	}
-	if !reflect.DeepEqual(store.followUserIDs, []string{"go-worker-user"}) {
+	if store.followUserIDs != nil {
 		t.Fatalf("follow users = %#v", store.followUserIDs)
 	}
-	if store.defaultPasswordHash == "" {
-		t.Fatalf("default password hash should not be empty")
+	if store.defaultPasswordHash != "" {
+		t.Fatalf("employee sync must not create password hashes")
 	}
 }
 
 func TestEmployeeApplyWorkerRequiresCorpIDs(t *testing.T) {
-	worker := NewEmployeeApplyWorker(nil, &fakeEmployeeApplyWorkerStore{}, &fakeEmployeeApplyWorkerClient{}, "worker-secret", log.Default())
+	worker := NewEmployeeApplyWorker(nil, &fakeEmployeeApplyWorkerStore{}, &fakeEmployeeApplyWorkerClient{}, log.Default())
 	if err := worker.Process(context.Background(), EmployeeApplyEvent{}); err == nil {
 		t.Fatalf("expected missing corp ids error")
 	}
@@ -55,16 +55,16 @@ func TestEmployeeApplyWorkerAcksSuccessfulDelivery(t *testing.T) {
 	store := &fakeEmployeeApplyWorkerStore{
 		tenantIDs: map[int]int{7: 11},
 		credentials: map[int]WorkEmployeeSyncCredential{
-			7: {CorpID: 7, TenantID: 11, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+			7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
 		},
 	}
 	client := &fakeEmployeeApplyWorkerClient{
 		departments: []WorkEmployeeSyncDepartment{{WXDepartmentID: 1, Name: "总部"}},
 		users:       map[int][]WorkEmployeeSyncEmployee{1: {{WXUserID: "go-user", Name: "Go员工", DepartmentIDs: []int{1}}}},
 	}
-	worker := NewEmployeeApplyWorker(queue, store, client, "worker-secret", log.Default())
+	worker := NewEmployeeApplyWorker(queue, store, client, log.Default())
 
-	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{CorpIDs: []int{7}}})
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7}})
 
 	if queue.ackedRaw != "raw-job" {
 		t.Fatalf("acked raw = %q", queue.ackedRaw)
@@ -79,7 +79,7 @@ func TestEmployeeApplyWorkerRecordsQueueItemExecution(t *testing.T) {
 	store := &fakeEmployeeApplyWorkerStore{
 		tenantIDs: map[int]int{7: 11},
 		credentials: map[int]WorkEmployeeSyncCredential{
-			7: {CorpID: 7, TenantID: 11, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+			7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
 		},
 	}
 	client := &fakeEmployeeApplyWorkerClient{
@@ -88,9 +88,9 @@ func TestEmployeeApplyWorkerRecordsQueueItemExecution(t *testing.T) {
 	}
 	recorder := &fakeWorkerExecutionRecorder{}
 	ctx := taskrunner.WithTaskRuntime(context.Background(), "employee-apply", "run-employee-1", recorder)
-	worker := NewEmployeeApplyWorker(queue, store, client, "worker-secret", log.Default())
+	worker := NewEmployeeApplyWorker(queue, store, client, log.Default())
 
-	worker.handleDelivery(ctx, EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{CorpIDs: []int{7}}})
+	worker.handleDelivery(ctx, EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7}})
 
 	running := recordedExecutionByStatus(t, recorder, "employee-apply", taskrunner.StatusRunning)
 	succeeded := recordedExecutionByStatus(t, recorder, "employee-apply", taskrunner.StatusSucceeded)
@@ -101,9 +101,9 @@ func TestEmployeeApplyWorkerRecordsQueueItemExecution(t *testing.T) {
 
 func TestEmployeeApplyWorkerRetriesFailedDelivery(t *testing.T) {
 	queue := &fakeEmployeeApplyWorkerQueue{}
-	worker := NewEmployeeApplyWorker(queue, &fakeEmployeeApplyWorkerStore{credentials: map[int]WorkEmployeeSyncCredential{}}, &fakeEmployeeApplyWorkerClient{}, "worker-secret", log.Default())
+	worker := NewEmployeeApplyWorker(queue, &fakeEmployeeApplyWorkerStore{credentials: map[int]WorkEmployeeSyncCredential{}}, &fakeEmployeeApplyWorkerClient{}, log.Default())
 
-	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Attempts: 1, Event: EmployeeApplyEvent{CorpIDs: []int{7}, Source: "test"}})
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Attempts: 1, Event: EmployeeApplyEvent{BindingID: 7, Source: "test"}})
 
 	if queue.ackedRaw != "" {
 		t.Fatalf("unexpected ack raw = %q", queue.ackedRaw)
@@ -117,9 +117,9 @@ func TestEmployeeApplyWorkerRecordsFailedQueueItemExecution(t *testing.T) {
 	queue := &fakeEmployeeApplyWorkerQueue{}
 	recorder := &fakeWorkerExecutionRecorder{}
 	ctx := taskrunner.WithTaskRuntime(context.Background(), "employee-apply", "run-employee-1", recorder)
-	worker := NewEmployeeApplyWorker(queue, &fakeEmployeeApplyWorkerStore{credentials: map[int]WorkEmployeeSyncCredential{}}, &fakeEmployeeApplyWorkerClient{}, "worker-secret", log.Default())
+	worker := NewEmployeeApplyWorker(queue, &fakeEmployeeApplyWorkerStore{credentials: map[int]WorkEmployeeSyncCredential{}}, &fakeEmployeeApplyWorkerClient{}, log.Default())
 
-	worker.handleDelivery(ctx, EmployeeApplyDelivery{Raw: "raw-job", Attempts: 1, Event: EmployeeApplyEvent{CorpIDs: []int{7}, Source: "test"}})
+	worker.handleDelivery(ctx, EmployeeApplyDelivery{Raw: "raw-job", Attempts: 1, Event: EmployeeApplyEvent{BindingID: 7, Source: "test"}})
 
 	failed := recordedExecutionByStatus(t, recorder, "employee-apply", taskrunner.StatusFailed)
 	if failed.ExecutionID == "" || failed.RunID != "run-employee-1" || failed.StoppedAt == "" || failed.Error == "" {
@@ -141,23 +141,29 @@ func (s *fakeEmployeeApplyWorkerStore) TenantIDByCorpID(_ context.Context, corpI
 	return s.tenantIDs[corpID], nil
 }
 
-func (s *fakeEmployeeApplyWorkerStore) WorkEmployeeSyncCredentials(_ context.Context, corpIDs []int) ([]WorkEmployeeSyncCredential, error) {
-	out := make([]WorkEmployeeSyncCredential, 0, len(corpIDs))
-	for _, corpID := range corpIDs {
-		if credential, ok := s.credentials[corpID]; ok {
-			out = append(out, credential)
-		}
+func (s *fakeEmployeeApplyWorkerStore) CompanyEmployeeSyncCredentials(_ context.Context, bindingID int) ([]WorkEmployeeSyncCredential, error) {
+	out := make([]WorkEmployeeSyncCredential, 0, 1)
+	if credential, ok := s.credentials[bindingID]; ok {
+		out = append(out, credential)
 	}
 	return out, nil
 }
 
-func (s *fakeEmployeeApplyWorkerStore) SyncWorkEmployees(_ context.Context, credential WorkEmployeeSyncCredential, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee, followUserIDs []string, defaultPasswordHash string) (WorkEmployeeSyncResult, error) {
+func (s *fakeEmployeeApplyWorkerStore) SyncCompanyEmployees(_ context.Context, bindingID int, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error) {
+	credential := s.credentials[bindingID]
 	s.syncedCorpIDs = append(s.syncedCorpIDs, credential.CorpID)
 	s.syncedDepartments = append([]WorkEmployeeSyncDepartment{}, departments...)
 	s.syncedEmployees = append([]WorkEmployeeSyncEmployee{}, employees...)
-	s.followUserIDs = append([]string{}, followUserIDs...)
-	s.defaultPasswordHash = defaultPasswordHash
+	s.followUserIDs = nil
+	s.defaultPasswordHash = ""
 	return WorkEmployeeSyncResult{}, nil
+}
+
+func (s *fakeEmployeeApplyWorkerStore) TenantIDByBindingID(_ context.Context, bindingID int) (int, error) {
+	if tenantID, ok := s.tenantIDs[bindingID]; ok {
+		return tenantID, nil
+	}
+	return bindingID, nil
 }
 
 type fakeEmployeeApplyWorkerClient struct {

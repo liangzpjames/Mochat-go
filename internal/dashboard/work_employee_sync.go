@@ -2,8 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,8 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"jiyi/mochat-go/internal/authjwt"
 )
 
 type WorkEmployeeSyncCredential struct {
@@ -109,11 +105,6 @@ func (h *WorkReadHandler) WorkEmployeeSync(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 		return
 	}
-	defaultPasswordHash, err := randomWorkEmployeePasswordHash(h.workEmployeePasswordKey)
-	if err != nil {
-		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "成员子账户默认密码生成失败", nil)
-		return
-	}
 	credentials, err := h.store.WorkEmployeeSyncCredentials(r.Context(), corpIDs)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -140,7 +131,7 @@ func (h *WorkReadHandler) WorkEmployeeSync(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		followUserIDs, _ := h.workEmployeeSync.FollowUsers(r.Context(), credential)
-		if _, err := h.store.SyncWorkEmployees(r.Context(), credential, departments, employees, followUserIDs, defaultPasswordHash); err != nil {
+		if _, err := h.store.SyncWorkEmployees(r.Context(), credential, departments, employees, followUserIDs, ""); err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 			return
 		}
@@ -293,14 +284,6 @@ func indexedInt(values []int, index int) int {
 		return 0
 	}
 	return values[index]
-}
-
-func randomWorkEmployeePasswordHash(secret string) (string, error) {
-	var raw [8]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", err
-	}
-	return authjwt.GeneratePasswordHash(secret, hex.EncodeToString(raw[:]))
 }
 
 func (c *RoomWelcomeWeComClient) Departments(ctx context.Context, credential WorkEmployeeSyncCredential) ([]WorkEmployeeSyncDepartment, error) {

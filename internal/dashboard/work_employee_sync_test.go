@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -89,8 +88,8 @@ func TestWorkEmployeeSyncPullsDepartmentsUsersAndStoresWithoutRBAC(t *testing.T)
 	if len(store.lastEmployeeSyncFollowUsers) != 1 || store.lastEmployeeSyncFollowUsers[0] != "lisi" {
 		t.Fatalf("follow users = %#v", store.lastEmployeeSyncFollowUsers)
 	}
-	if store.lastEmployeeSyncPasswordHash == "" || !strings.HasPrefix(store.lastEmployeeSyncPasswordHash, "$2y$") {
-		t.Fatalf("password hash was not generated")
+	if store.lastEmployeeSyncPasswordHash != "" {
+		t.Fatalf("employee sync must not create a login password hash, got %q", store.lastEmployeeSyncPasswordHash)
 	}
 }
 

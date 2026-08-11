@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"jiyi/mochat-go/internal/authjwt"
 	"jiyi/mochat-go/internal/authrealm"
 	"jiyi/mochat-go/internal/clientip"
+	"jiyi/mochat-go/internal/companyprofile"
 	"jiyi/mochat-go/internal/config"
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardadmin"
@@ -36,6 +38,60 @@ import (
 	"jiyi/mochat-go/internal/wechatopencredentials"
 	"jiyi/mochat-go/internal/wecomcredentials"
 )
+
+type companyProfileWeComVerifier struct {
+	client *dashboard.RoomWelcomeWeComClient
+}
+
+func (v companyProfileWeComVerifier) Verify(ctx context.Context, request companyprofile.VerificationRequest) (companyprofile.VerificationResult, error) {
+	if v.client == nil || request.TenantID <= 0 || request.CorpID <= 0 || strings.TrimSpace(request.WXCorpID) == "" {
+		return companyprofile.VerificationResult{}, fmt.Errorf("company verification provider is not configured")
+	}
+	result, err := v.client.VerifyCompany(ctx, request.WXCorpID, request.Credentials.EmployeeSecret, request.Credentials.ContactSecret)
+	if err != nil {
+		return companyprofile.VerificationResult{}, err
+	}
+	return companyprofile.VerificationResult{WXCorpID: result.WXCorpID, CorpName: result.CorpName}, nil
+}
+
+type companyProfileWeComSyncClient struct {
+	client *dashboard.RoomWelcomeWeComClient
+}
+
+func (c companyProfileWeComSyncClient) FullSync(ctx context.Context, request companyprofile.VerificationRequest) (companyprofile.EmployeeSyncData, error) {
+	if c.client == nil || request.TenantID <= 0 || request.CorpID <= 0 || strings.TrimSpace(request.WXCorpID) == "" {
+		return companyprofile.EmployeeSyncData{}, fmt.Errorf("company sync provider is not configured")
+	}
+	credential := dashboard.WorkEmployeeSyncCredential{
+		CorpID: request.CorpID, TenantID: request.TenantID, WXCorpID: request.WXCorpID,
+		EmployeeSecret: request.Credentials.EmployeeSecret, ContactSecret: request.Credentials.ContactSecret,
+	}
+	departments, err := c.client.Departments(ctx, credential)
+	if err != nil {
+		return companyprofile.EmployeeSyncData{}, err
+	}
+	employees, err := dashboard.WorkEmployeeSyncEmployees(ctx, c.client, credential, departments)
+	if err != nil {
+		return companyprofile.EmployeeSyncData{}, err
+	}
+	data := companyprofile.EmployeeSyncData{Departments: make([]companyprofile.SyncDepartment, 0, len(departments)), Employees: make([]companyprofile.SyncEmployee, 0, len(employees))}
+	for _, department := range departments {
+		data.Departments = append(data.Departments, companyprofile.SyncDepartment{
+			WXDepartmentID: department.WXDepartmentID, Name: department.Name, WXParentID: department.WXParentID, Order: department.Order,
+		})
+	}
+	for _, employee := range employees {
+		data.Employees = append(data.Employees, companyprofile.SyncEmployee{
+			WXUserID: employee.WXUserID, Name: employee.Name, Mobile: employee.Mobile, Position: employee.Position,
+			Gender: employee.Gender, Email: employee.Email, Avatar: employee.Avatar, ThumbAvatar: employee.ThumbAvatar,
+			Telephone: employee.Telephone, Alias: employee.Alias, Status: employee.Status, QRCode: employee.QRCode,
+			Address: employee.Address, OpenUserID: employee.OpenUserID, WXMainDepartmentID: employee.WXMainDepartmentID,
+			DepartmentIDs: append([]int(nil), employee.DepartmentIDs...), IsLeaderInDepartment: append([]int(nil), employee.IsLeaderInDepartment...),
+			DepartmentOrders: append([]int(nil), employee.DepartmentOrders...),
+		})
+	}
+	return data, nil
+}
 
 func main() {
 	cfg, err := config.Load()
@@ -398,8 +454,14 @@ func main() {
 		}
 		dashboardIdentityGuard.WithPrincipalResolver(dashboardPrincipalResolver)
 		dashboardIdentityGuard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
-		options = append(options, compatserver.WithDashboardAuthHandler(dashboardAuthHandler))
+		companyProfileWeComClient := dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL)
+		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncClient(companyProfileWeComSyncClient{client: companyProfileWeComClient})
+		options = append(options,
+			compatserver.WithDashboardAuthHandler(dashboardAuthHandler),
+			compatserver.WithCompanyProfileHandler(companyprofile.NewHTTPHandler(companyProfileService)),
+		)
 		log.Printf("go Dashboard identity routes enabled: POST /dashboard/user/auth POST /dashboard/user/authMFA POST /dashboard/auth/activate POST /dashboard/auth/password/reset-request POST /dashboard/auth/password/reset GET /dashboard/auth/session")
+		log.Printf("go Dashboard company profile routes enabled: GET/PUT /dashboard/company/profile PUT /dashboard/company/wecom-credentials PUT /dashboard/company/agent-credentials PUT /dashboard/company/archive-credentials POST /dashboard/company/verify POST /dashboard/company/employee-sync GET /dashboard/company/sync-status GET /dashboard/company/audits")
 	}
 
 	if cfg.MigrateLogout && dashboardIdentityGuard == nil {
@@ -2927,7 +2989,7 @@ func main() {
 			getRedisStore(),
 			getMySQLStore(),
 			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
-			cfg.SimpleJWTSecret,
+			"",
 			log.Default(),
 		).WithProcessingTimeout(cfg.WorkerProcessingTimeout).
 			WithWorkFissionBaseURLs(cfg.APIBaseURL, cfg.OperationBaseURL).
@@ -2955,7 +3017,6 @@ func main() {
 			getRedisStore(),
 			getMySQLStore(),
 			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
-			cfg.SimpleJWTSecret,
 			log.Default(),
 		).WithProcessingTimeout(cfg.WorkerProcessingTimeout).
 			WithSaaSAlertNotifier(saasAlertNotifier)
@@ -3025,7 +3086,7 @@ func main() {
 			getRedisStore(),
 			getMySQLStore(),
 			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
-			cfg.SimpleJWTSecret,
+			"",
 			log.Default(),
 		).WithProcessingTimeout(cfg.WorkerProcessingTimeout).
 			WithSaaSAlertNotifier(saasAlertNotifier)

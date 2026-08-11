@@ -357,11 +357,7 @@ func (w *WeWorkCallbackWorker) syncEmployeeFromEvent(ctx context.Context, corpID
 		return nil
 	}
 	followUserIDs, _ := w.client.FollowUsers(ctx, credential)
-	defaultPasswordHash, err := randomWorkEmployeePasswordHash(w.passwordKey)
-	if err != nil {
-		return err
-	}
-	_, err = w.store.SyncWorkEmployees(ctx, credential, departments, []WorkEmployeeSyncEmployee{employee}, followUserIDs, defaultPasswordHash)
+	_, err = w.store.SyncWorkEmployees(ctx, credential, departments, []WorkEmployeeSyncEmployee{employee}, followUserIDs, "")
 	return err
 }
 

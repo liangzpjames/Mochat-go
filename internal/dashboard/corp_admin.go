@@ -332,7 +332,7 @@ func (h *CorpAdminHandler) Store(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if h.employeeJob != nil {
-		if err := h.employeeJob.EnqueueEmployeeApply(r.Context(), EmployeeApplyEvent{CorpIDs: []int{corpID}, UserID: userID, Source: "dashboard.corp.store"}); err != nil {
+		if err := h.employeeJob.EnqueueEmployeeApply(r.Context(), EmployeeApplyEvent{BindingID: user.TenantID, Source: "dashboard.corp.store"}); err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "企业通讯录同步任务创建失败", nil)
 			return
 		}

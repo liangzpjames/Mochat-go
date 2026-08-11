@@ -67,8 +67,8 @@ func TestWorkDepartmentListWorkerResolvesCorpIDsFromUserAndSyncs(t *testing.T) {
 	if len(store.syncedEmployeesByCorp[2]) != 1 || store.syncedEmployeesByCorp[2][0].WXUserID != "go-user" || store.syncedEmployeesByCorp[2][0].Name != "新名" {
 		t.Fatalf("synced employees for corp 2 = %#v", store.syncedEmployeesByCorp[2])
 	}
-	if store.defaultPasswordHashByCorp[2] == "" || store.defaultPasswordHashByCorp[7] == "" {
-		t.Fatalf("default password hashes = %#v", store.defaultPasswordHashByCorp)
+	if store.defaultPasswordHashByCorp[2] != "" || store.defaultPasswordHashByCorp[7] != "" {
+		t.Fatalf("employee sync must not create login password hashes = %#v", store.defaultPasswordHashByCorp)
 	}
 }
 

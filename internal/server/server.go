@@ -33,6 +33,7 @@ type Server struct {
 	saasAuth                                        http.Handler
 	saasLoginPage                                   http.Handler
 	dashboardAuth                                   http.Handler
+	companyProfile                                  http.Handler
 	auth                                            http.Handler
 	authMFA                                         http.Handler
 	identitySelf                                    http.Handler
@@ -796,6 +797,12 @@ func WithAuthHandler(handler http.Handler) Option {
 func WithDashboardAuthHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.dashboardAuth = handler
+	}
+}
+
+func WithCompanyProfileHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.companyProfile = handler
 	}
 }
 
@@ -4481,6 +4488,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.dashboardAuth.ServeHTTP(w, r)
 	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/user/logout" && r.Method == http.MethodPut:
 		s.dashboardAuth.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/profile" && (r.Method == http.MethodGet || r.Method == http.MethodPut):
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/wecom-credentials" && r.Method == http.MethodPut:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/agent-credentials" && r.Method == http.MethodPut:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/archive-credentials" && r.Method == http.MethodPut:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/verify" && r.Method == http.MethodPost:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/employee-sync" && r.Method == http.MethodPost:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/sync-status" && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/audits" && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/securityMFA" && (r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodPut) && s.identitySelf != nil:
 		s.identitySelf.ServeHTTP(w, r)
 	case r.URL.Path == "/security/login" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.identityLoginPage != nil:
@@ -5971,6 +5994,19 @@ func (s *Server) migratedRoutes() []string {
 			"POST /dashboard/auth/logout",
 			"PUT /dashboard/user/logout",
 		)
+	}
+	if s.companyProfile != nil {
+		routes = append(routes,
+		"GET /dashboard/company/profile",
+		"PUT /dashboard/company/profile",
+		"PUT /dashboard/company/wecom-credentials",
+		"PUT /dashboard/company/agent-credentials",
+		"PUT /dashboard/company/archive-credentials",
+		"POST /dashboard/company/verify",
+		"POST /dashboard/company/employee-sync",
+		"GET /dashboard/company/sync-status",
+		"GET /dashboard/company/audits",
+	)
 	}
 	if s.auth != nil {
 		routes = append(routes, "POST /dashboard/user/auth")

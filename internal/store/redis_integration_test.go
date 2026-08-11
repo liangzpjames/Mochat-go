@@ -25,7 +25,7 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	}
 
 	descriptor := dashboard.EmployeeApplyQueueDescriptor()
-	event := dashboard.EmployeeApplyEvent{CorpIDs: []int{7, 7}, UserID: 1, Source: "queue-idempotency-integration"}
+	event := dashboard.EmployeeApplyEvent{BindingID: 7, Source: "queue-idempotency-integration"}
 	idempotencyKey := dashboard.EmployeeApplyIdempotencyKey(event)
 	if err := store.client.Del(ctx, descriptor.SourceKey, descriptor.ProcessingKey, descriptor.DeadLetterKey, idempotencyKey).Err(); err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	if !ok {
 		t.Fatal("expected delivery")
 	}
-	if len(delivery.Event.CorpIDs) != 2 || delivery.Event.CorpIDs[0] != 7 || delivery.Event.UserID != 1 || delivery.Event.Source != "queue-idempotency-integration" {
+	if delivery.Event.BindingID != 7 || delivery.Event.Source != "queue-idempotency-integration" {
 		t.Fatalf("delivery = %+v", delivery)
 	}
 	if err := store.AckEmployeeApply(ctx, delivery); err != nil {

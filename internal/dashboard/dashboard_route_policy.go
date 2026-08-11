@@ -54,6 +54,15 @@ func PublicDashboardRouteContracts() []string {
 // denyOnlyDashboardRouteContracts are registered endpoints that are intentionally
 // unavailable to ordinary Dashboard users. A same-tenant superadmin may still use them.
 var denyOnlyDashboardRouteContracts = []string{
+	"GET /dashboard/company/profile",
+	"PUT /dashboard/company/profile",
+	"PUT /dashboard/company/wecom-credentials",
+	"PUT /dashboard/company/agent-credentials",
+	"PUT /dashboard/company/archive-credentials",
+	"POST /dashboard/company/verify",
+	"POST /dashboard/company/employee-sync",
+	"GET /dashboard/company/sync-status",
+	"GET /dashboard/company/audits",
 	"GET /dashboard/role/permissionByUser",
 	"DELETE /dashboard/acceptance/phase35",
 	"DELETE /dashboard/autoTag/destroy",

@@ -12,6 +12,66 @@ type workEmployeeSyncStore interface {
 	SyncWorkEmployees(ctx context.Context, credential WorkEmployeeSyncCredential, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee, followUserIDs []string, defaultPasswordHash string) (WorkEmployeeSyncResult, error)
 }
 
+// employeeApplyStore is the binding-scoped contract used by the controlled
+// company sync job. It deliberately has no password/hash operation and no
+// client-selected tenant or corp argument.
+type employeeApplyStore interface {
+	TenantIDByBindingID(ctx context.Context, bindingID int) (int, error)
+	CompanyEmployeeSyncCredentials(ctx context.Context, bindingID int) ([]WorkEmployeeSyncCredential, error)
+	SyncCompanyEmployees(ctx context.Context, bindingID int, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error)
+}
+
+func syncCompanyEmployeesForBinding(ctx context.Context, store employeeApplyStore, client WorkEmployeeSyncClient, bindingID int) error {
+	if bindingID <= 0 {
+		return fmt.Errorf("missing binding id")
+	}
+	credentials, err := store.CompanyEmployeeSyncCredentials(ctx, bindingID)
+	if err != nil {
+		return err
+	}
+	if len(credentials) != 1 {
+		return fmt.Errorf("company binding credential unavailable")
+	}
+	credential := credentials[0]
+	if credential.TenantID != bindingID || strings.TrimSpace(credential.WXCorpID) == "" || strings.TrimSpace(credential.EmployeeSecret) == "" {
+		return fmt.Errorf("company binding credential invalid")
+	}
+	departments, err := client.Departments(ctx, credential)
+	if err != nil {
+		return err
+	}
+	employees, err := workEmployeeSyncUsersWithClient(ctx, client, credential, departments)
+	if err != nil {
+		return err
+	}
+	_, err = store.SyncCompanyEmployees(ctx, bindingID, departments, employees)
+	return err
+}
+
+// WorkEmployeeSyncEmployees is the shared provider adapter for the company
+// profile service. It only fetches business employee data; persistence remains
+// in the binding-scoped Store transaction.
+func WorkEmployeeSyncEmployees(ctx context.Context, client WorkEmployeeSyncClient, credential WorkEmployeeSyncCredential, departments []WorkEmployeeSyncDepartment) ([]WorkEmployeeSyncEmployee, error) {
+	return workEmployeeSyncUsersWithClient(ctx, client, credential, departments)
+}
+
+func uniqueEmployeeApplyCorpIDs(values []int) []int {
+	seen := map[int]struct{}{}
+	result := make([]int, 0, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Ints(result)
+	return result
+}
+
 func syncWorkEmployeesForCorp(ctx context.Context, store workEmployeeSyncStore, client WorkEmployeeSyncClient, passwordKey string, corpID int) error {
 	credentials, err := store.WorkEmployeeSyncCredentials(ctx, []int{corpID})
 	if err != nil {
@@ -33,11 +93,7 @@ func syncWorkEmployeesForCorp(ctx context.Context, store workEmployeeSyncStore, 
 		return err
 	}
 	followUserIDs, _ := client.FollowUsers(ctx, credential)
-	defaultPasswordHash, err := randomWorkEmployeePasswordHash(passwordKey)
-	if err != nil {
-		return err
-	}
-	_, err = store.SyncWorkEmployees(ctx, credential, departments, employees, followUserIDs, defaultPasswordHash)
+	_, err = store.SyncWorkEmployees(ctx, credential, departments, employees, followUserIDs, "")
 	return err
 }
 

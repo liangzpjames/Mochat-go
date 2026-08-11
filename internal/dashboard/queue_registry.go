@@ -269,13 +269,11 @@ func queueMessageString(message map[string]string, keys ...string) string {
 
 func EmployeeApplyIdempotencyKey(event EmployeeApplyEvent) string {
 	digest := stableQueuePayloadDigest(struct {
-		CorpIDs []int  `json:"corpIds"`
-		UserID  int    `json:"userId,omitempty"`
-		Source  string `json:"source,omitempty"`
+		BindingID int    `json:"bindingId"`
+		Source    string `json:"source,omitempty"`
 	}{
-		CorpIDs: uniqueQueueCorpIDs(event.CorpIDs),
-		UserID:  event.UserID,
-		Source:  strings.TrimSpace(event.Source),
+		BindingID: event.BindingID,
+		Source:    strings.TrimSpace(event.Source),
 	})
 	return QueueIdempotencyRedisKey(QueueNameEmployeeApply, digest)
 }

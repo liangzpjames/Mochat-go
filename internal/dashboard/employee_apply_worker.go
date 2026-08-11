@@ -4,16 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
 	"time"
 
 	"jiyi/mochat-go/internal/taskrunner"
 )
 
 type EmployeeApplyEvent struct {
-	CorpIDs []int  `json:"corpIds"`
-	UserID  int    `json:"userId,omitempty"`
-	Source  string `json:"source,omitempty"`
+	BindingID int    `json:"bindingId"`
+	Source    string `json:"source,omitempty"`
 }
 
 type EmployeeApplyDelivery struct {
@@ -30,15 +28,13 @@ type EmployeeApplyWorkerQueue interface {
 }
 
 type EmployeeApplyWorkerStore interface {
-	WorkEmployeeSyncCredentials(ctx context.Context, corpIDs []int) ([]WorkEmployeeSyncCredential, error)
-	SyncWorkEmployees(ctx context.Context, credential WorkEmployeeSyncCredential, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee, followUserIDs []string, defaultPasswordHash string) (WorkEmployeeSyncResult, error)
+	employeeApplyStore
 }
 
 type EmployeeApplyWorker struct {
 	queue             EmployeeApplyWorkerQueue
 	store             EmployeeApplyWorkerStore
 	client            WorkEmployeeSyncClient
-	passwordKey       string
 	pollTimeout       time.Duration
 	maxAttempts       int
 	processingTimeout time.Duration
@@ -47,7 +43,7 @@ type EmployeeApplyWorker struct {
 	logger            *log.Logger
 }
 
-func NewEmployeeApplyWorker(queue EmployeeApplyWorkerQueue, store EmployeeApplyWorkerStore, client WorkEmployeeSyncClient, passwordKey string, logger *log.Logger) *EmployeeApplyWorker {
+func NewEmployeeApplyWorker(queue EmployeeApplyWorkerQueue, store EmployeeApplyWorkerStore, client WorkEmployeeSyncClient, logger *log.Logger) *EmployeeApplyWorker {
 	if logger == nil {
 		logger = log.Default()
 	}
@@ -55,7 +51,6 @@ func NewEmployeeApplyWorker(queue EmployeeApplyWorkerQueue, store EmployeeApplyW
 		queue:             queue,
 		store:             store,
 		client:            client,
-		passwordKey:       passwordKey,
 		pollTimeout:       5 * time.Second,
 		maxAttempts:       3,
 		processingTimeout: 5 * time.Minute,
@@ -123,26 +118,29 @@ func (w *EmployeeApplyWorker) recoverProcessing(ctx context.Context) {
 
 func (w *EmployeeApplyWorker) handleDelivery(ctx context.Context, delivery EmployeeApplyDelivery) {
 	ctx = WithSaaSAlertNotifier(ctx, w.alertNotifier)
-	tenantID := tenantIDForQueueExecution(ctx, w.logger, w.store, firstPositiveInt(delivery.Event.CorpIDs))
+	tenantID, tenantErr := w.store.TenantIDByBindingID(ctx, delivery.Event.BindingID)
+	if tenantErr != nil {
+		tenantID = 0
+	}
 	finishExecution := startQueueItemExecution(ctx, w.logger, "employee-apply", w.store, tenantID)
 	if err := w.Process(ctx, delivery.Event); err != nil {
 		deadLettered, retryErr := w.queue.RetryEmployeeApply(ctx, delivery, err.Error(), w.maxAttempts)
 		if retryErr != nil {
 			finishExecution(taskrunner.StatusFailed, fmt.Errorf("%w; retry failed: %v", err, retryErr))
-			w.logger.Printf("employee apply retry failed: corp_ids=%v source=%s err=%v retry_err=%v", delivery.Event.CorpIDs, delivery.Event.Source, err, retryErr)
+			w.logger.Printf("employee apply retry failed: binding_id=%d source=%s err=%v retry_err=%v", delivery.Event.BindingID, delivery.Event.Source, err, retryErr)
 			return
 		}
 		finishExecution(taskrunner.StatusFailed, err)
 		if deadLettered {
-			w.logger.Printf("employee apply moved to dead letter: corp_ids=%v source=%s attempts=%d err=%v", delivery.Event.CorpIDs, delivery.Event.Source, delivery.Attempts+1, err)
+			w.logger.Printf("employee apply moved to dead letter: binding_id=%d source=%s attempts=%d err=%v", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1, err)
 			return
 		}
-		w.logger.Printf("employee apply requeued: corp_ids=%v source=%s attempts=%d err=%v", delivery.Event.CorpIDs, delivery.Event.Source, delivery.Attempts+1, err)
+		w.logger.Printf("employee apply requeued: binding_id=%d source=%s attempts=%d err=%v", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1, err)
 		return
 	}
 	if err := w.queue.AckEmployeeApply(ctx, delivery); err != nil {
 		finishExecution(taskrunner.StatusFailed, fmt.Errorf("ack failed: %w", err))
-		w.logger.Printf("employee apply ack failed: corp_ids=%v source=%s err=%v", delivery.Event.CorpIDs, delivery.Event.Source, err)
+		w.logger.Printf("employee apply ack failed: binding_id=%d source=%s err=%v", delivery.Event.BindingID, delivery.Event.Source, err)
 		return
 	}
 	finishExecution(taskrunner.StatusSucceeded, nil)
@@ -152,31 +150,11 @@ func (w *EmployeeApplyWorker) Process(ctx context.Context, event EmployeeApplyEv
 	if w.store == nil || w.client == nil {
 		return fmt.Errorf("employee apply worker dependencies are not configured")
 	}
-	corpIDs := uniqueEmployeeApplyCorpIDs(event.CorpIDs)
-	if len(corpIDs) == 0 {
-		return fmt.Errorf("missing corp ids")
+	if event.BindingID <= 0 {
+		return fmt.Errorf("missing binding id")
 	}
-	for _, corpID := range corpIDs {
-		if err := syncWorkEmployeesForCorp(ctx, w.store, w.client, w.passwordKey, corpID); err != nil {
-			return fmt.Errorf("corp %d: %w", corpID, err)
-		}
+	if err := syncCompanyEmployeesForBinding(ctx, w.store, w.client, event.BindingID); err != nil {
+		return fmt.Errorf("binding %d: %w", event.BindingID, err)
 	}
 	return nil
-}
-
-func uniqueEmployeeApplyCorpIDs(values []int) []int {
-	seen := map[int]struct{}{}
-	out := make([]int, 0, len(values))
-	for _, value := range values {
-		if value <= 0 {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	sort.Ints(out)
-	return out
 }

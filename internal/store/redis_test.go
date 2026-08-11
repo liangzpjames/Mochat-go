@@ -8,7 +8,7 @@ import (
 )
 
 func TestDecodeReliableQueuePayloadSupportsEnvelopeMetadata(t *testing.T) {
-	payload, err := json.Marshal(dashboard.EmployeeApplyEvent{CorpIDs: []int{7}, UserID: 1, Source: "test"})
+	payload, err := json.Marshal(dashboard.EmployeeApplyEvent{BindingID: 7, Source: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestDecodeReliableQueuePayloadSupportsEnvelopeMetadata(t *testing.T) {
 	if attempts != 2 {
 		t.Fatalf("attempts = %d", attempts)
 	}
-	if len(event.CorpIDs) != 1 || event.CorpIDs[0] != 7 || event.UserID != 1 || event.Source != "test" {
+	if event.BindingID != 7 || event.Source != "test" {
 		t.Fatalf("event = %+v", event)
 	}
 }
