@@ -105,3 +105,25 @@ func TestDashboardMFAUsesProtectedSecretFileInDeploymentContract(t *testing.T) {
 		t.Fatal(".env.example must document the protected Dashboard MFA file and key id")
 	}
 }
+
+func TestIdentityRealmValidationRejectsSharedMFAKeyOrKeyID(t *testing.T) {
+	base := Config{
+		EnableSaaSAdminDashboard: true,
+		MigrateAuth:              true,
+		SaaSAdminJWTSecret:       "saas-jwt-secret", SaaSAdminJWTIssuer: "saas-issuer", SaaSAdminJWTAudience: "saas-audience", SaaSAdminJWTPrefix: "saas_", SaaSAdminJWTTTL: 1,
+		DashboardJWTSecret: "dashboard-jwt-secret", DashboardJWTIssuer: "dashboard-issuer", DashboardJWTAudience: "dashboard-audience", DashboardJWTPrefix: "dashboard_", DashboardJWTTTL: 1,
+		SaaSAdminMFAEncryptionKey: "same-mfa-key", SaaSAdminMFAEncryptionKeyID: "saas-mfa",
+		DashboardMFAEncryptionKey: "same-mfa-key", DashboardMFAEncryptionKeyID: "dashboard-mfa",
+	}
+	if err := base.ValidateIdentityRealms(); err == nil || strings.Contains(err.Error(), "same-mfa-key") {
+		t.Fatalf("shared MFA key was accepted or leaked in error: errorPresent=%t", err != nil)
+	}
+
+	base.SaaSAdminMFAEncryptionKey = "saas-mfa-key"
+	base.DashboardMFAEncryptionKey = "dashboard-mfa-key"
+	base.SaaSAdminMFAEncryptionKeyID = "shared-mfa-id"
+	base.DashboardMFAEncryptionKeyID = "shared-mfa-id"
+	if err := base.ValidateIdentityRealms(); err == nil || strings.Contains(err.Error(), "shared-mfa-id") {
+		t.Fatalf("shared MFA key ID was accepted or leaked in error: errorPresent=%t", err != nil)
+	}
+}

@@ -128,6 +128,32 @@ describe('createApiClient', () => {
     expect(result).toEqual({ id: 'contact-new', name: '新联系人' });
   });
 
+  it('preserves Dashboard password-change data from a 202 accepted envelope', async () => {
+    server.use(
+      http.post('https://api.example.test/dashboard/user/authMFA', () =>
+        HttpResponse.json(
+          {
+            code: 202,
+            errorCode: 'PASSWORD_CHANGE_REQUIRED',
+            msg: 'password change required',
+            data: { passwordChangeToken: 'pending-token', expiresAt: 1234 },
+          },
+          { status: 202 },
+        ),
+      ),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/dashboard/',
+      getToken: () => null,
+      onUnauthorized: vi.fn(),
+    });
+
+    await expect(client.request('/user/authMFA', { method: 'POST' })).resolves.toEqual({
+      passwordChangeToken: 'pending-token',
+      expiresAt: 1234,
+    });
+  });
+
   it('rejects a non-2xx response even when its envelope uses a success code', async () => {
     server.use(
       http.post('https://api.example.test/dashboard/scrm/contacts', () =>

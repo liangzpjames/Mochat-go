@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { ApiError } from '@mochat/api-client';
 import type { Session } from '@mochat/auth';
 import { Button, Card, Input, Typography } from 'antd';
 import { useState } from 'react';
@@ -46,12 +47,41 @@ function isSession(result: DashboardAuthResult): result is Session {
 function pendingTitle(pending: DashboardAuthPending): string {
   switch (pending.kind) {
     case 'mfa-enrollment':
-      return 'Set up MFA';
+      return '设置多因素认证';
     case 'mfa':
-      return 'Verify MFA';
+      return '验证多因素认证';
     case 'password-change':
-      return 'Change password';
+      return '修改登录密码';
   }
+}
+
+function dashboardAuthErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.machineCode) {
+      case 'INVALID_CREDENTIALS':
+        return '手机号或密码错误';
+      case 'MFA_CHALLENGE_INVALID':
+        return '验证码无效或已过期，请重试';
+      case 'PASSWORD_CHANGE_INVALID':
+        return '密码修改信息无效，请重试';
+      case 'SESSION_INVALID':
+        return '登录状态已失效，请重新登录';
+      case 'TENANT_ACCESS_DENIED':
+        return '当前账号暂无 Dashboard 访问权限';
+      case 'AUTH_UNAVAILABLE':
+        return '认证服务暂不可用，请稍后重试';
+      case 'INVALID_REQUEST':
+        return '请求格式有误，请重试';
+      default:
+        if (error.kind === 'network') return '网络异常，请重试';
+        if (/[一-鿿]/u.test(error.message)) return error.message;
+        return '认证失败，请重试';
+    }
+  }
+  if (error instanceof Error && /[一-鿿]/u.test(error.message)) {
+    return error.message;
+  }
+  return '认证失败，请重试';
 }
 
 export function LoginPage({
@@ -94,7 +124,7 @@ export function LoginPage({
     try {
       finishResult(await authenticate(input));
     } catch (error) {
-      setServerError(error instanceof Error ? error.message : '登录失败');
+      setServerError(dashboardAuthErrorMessage(error));
     }
   });
 
@@ -103,13 +133,13 @@ export function LoginPage({
     if (pending === null) return;
     setServerError(null);
     if (completeMFA === undefined) {
-      setServerError('Dashboard authentication is not configured');
+      setServerError('认证服务未配置');
       return;
     }
     let input: MFAInput;
     if (pending.kind === 'password-change') {
       if (newPassword.trim() === '' || newPassword !== passwordConfirmation) {
-        setServerError('Passwords do not match');
+        setServerError('两次输入的密码不一致');
         return;
       }
       input = {
@@ -118,7 +148,7 @@ export function LoginPage({
       };
     } else {
       if (code.trim() === '') {
-        setServerError('Enter the verification code');
+        setServerError('请输入验证码');
         return;
       }
       input = {
@@ -132,7 +162,7 @@ export function LoginPage({
     try {
       finishResult(await completeMFA(input));
     } catch (error) {
-      setServerError(error instanceof Error ? error.message : 'Authentication failed');
+      setServerError(dashboardAuthErrorMessage(error));
     } finally {
       setPendingSubmitting(false);
     }
@@ -141,26 +171,26 @@ export function LoginPage({
   if (pending !== null) {
     return (
       <main className="login-page dashboard-auth-pending">
-        <section className="login-brand" aria-label="MoChat product introduction">
+        <section className="login-brand" aria-label="MoChat 产品介绍">
           <div className="login-brand-mark" aria-hidden="true">M</div>
           <p className="login-brand-name">MoChat</p>
-          <Typography.Title level={1}>Dashboard access</Typography.Title>
+          <Typography.Title level={1}>Dashboard 访问</Typography.Title>
           <Typography.Paragraph>
-            Complete every required authentication step before a session is created.
+            请完成全部认证步骤，验证通过后才会创建登录会话。
           </Typography.Paragraph>
         </section>
         <Card className="login-card" variant="borderless">
           <div className="login-card-heading">
-            <Typography.Text className="login-eyebrow">Dashboard identity</Typography.Text>
+            <Typography.Text className="login-eyebrow">Dashboard 身份</Typography.Text>
             <Typography.Title level={2}>{pendingTitle(pending)}</Typography.Title>
           </div>
           <form className="login-form" onSubmit={(event) => void submitPending(event)}>
             {pending.kind === 'mfa-enrollment' && (
               <>
                 <Typography.Paragraph>
-                  Save this one-time enrollment secret and add it to your authenticator.
+                  请保存本次一次性绑定密钥，并将其添加到验证器应用。
                 </Typography.Paragraph>
-                <div className="login-enrollment-secret" aria-label="One-time enrollment secret">
+                <div className="login-enrollment-secret" aria-label="一次性绑定密钥">
                   {pending.enrollmentSecret}
                 </div>
                 <Typography.Text type="secondary">{pending.otpAuthURL}</Typography.Text>
@@ -168,7 +198,7 @@ export function LoginPage({
             )}
             {pending.kind !== 'password-change' && (
               <>
-                <label htmlFor="dashboard-mfa-code">Verification code</label>
+                <label htmlFor="dashboard-mfa-code">验证码</label>
                 <Input
                   autoComplete="one-time-code"
                   id="dashboard-mfa-code"
@@ -180,14 +210,14 @@ export function LoginPage({
             )}
             {pending.kind === 'password-change' && (
               <>
-                <label htmlFor="dashboard-new-password">New password</label>
+                <label htmlFor="dashboard-new-password">新密码</label>
                 <Input.Password
                   autoComplete="new-password"
                   id="dashboard-new-password"
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.target.value)}
                 />
-                <label htmlFor="dashboard-confirm-password">Confirm password</label>
+                <label htmlFor="dashboard-confirm-password">确认密码</label>
                 <Input.Password
                   autoComplete="new-password"
                   id="dashboard-confirm-password"
@@ -202,7 +232,7 @@ export function LoginPage({
               </div>
             )}
             <Button
-              aria-label={pendingSubmitting ? 'Working…' : pending.kind === 'mfa-enrollment' ? 'Verify enrollment' : pending.kind === 'mfa' ? 'Verify MFA' : 'Change password'}
+              aria-label={pendingSubmitting ? '提交中…' : pending.kind === 'password-change' ? '修改密码' : '验证多因素认证'}
               block
               disabled={pendingSubmitting}
               htmlType="submit"
@@ -210,7 +240,7 @@ export function LoginPage({
               size="large"
               type="primary"
             >
-              {pendingSubmitting ? 'Working…' : pending.kind === 'mfa-enrollment' ? 'Verify enrollment' : pending.kind === 'mfa' ? 'Verify MFA' : 'Change password'}
+              {pendingSubmitting ? '提交中…' : pending.kind === 'password-change' ? '修改密码' : '验证多因素认证'}
             </Button>
           </form>
         </Card>

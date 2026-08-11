@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/authrealm"
+	appconfig "jiyi/mochat-go/internal/config"
+	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardprincipal"
+	compatserver "jiyi/mochat-go/internal/server"
 )
 
 type dashboardHTTPTestPersistence struct {
@@ -324,6 +327,211 @@ func TestDashboardRequestGuardSeparatesPublicAndAuthenticatedIdentityRoutes(t *t
 				t.Fatalf("identity-authenticated route bypassed identity guard: status=%d bodyBytes=%d", response.Code, response.Body.Len())
 			}
 		})
+	}
+}
+
+func TestDashboardRequestGuardUsesExplicitPublicDashboardContracts(t *testing.T) {
+	p := &dashboardHTTPTestPersistence{
+		principal: dashboardprincipal.DashboardPrincipal{
+			UserID: 7, TenantID: 902, CorpID: 77,
+			CorpStatus: dashboardprincipal.CorpBindingStatusPending, AuthVersion: 4,
+		},
+	}
+	config := dashboardHTTPTestConfig(p)
+	guard, err := NewRequestGuard(config.Parser, p, config.TenantGate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
+
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/dashboard/corp/weWorkCallback"},
+		{method: http.MethodPost, path: "/dashboard/corp/weWorkCallback"},
+		{method: http.MethodGet, path: "/dashboard/officialAccount/authEventCallback"},
+		{method: http.MethodPost, path: "/dashboard/officialAccount/authEventCallback"},
+		{method: http.MethodGet, path: "/dashboard/officialAccount/authRedirect/"},
+		{method: http.MethodPost, path: "/dashboard/officialAccount/authRedirect/"},
+	} {
+		t.Run(route.method+" "+route.path, func(t *testing.T) {
+			request := httptest.NewRequest(route.method, route.path, strings.NewReader("callback"))
+			response := httptest.NewRecorder()
+			if !guard.Authorize(response, request) {
+				t.Fatalf("exact callback was blocked: status=%d bodyBytes=%d", response.Code, response.Body.Len())
+			}
+			businessCalls := 0
+			businessHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				businessCalls++
+				w.WriteHeader(http.StatusAccepted)
+			})
+			businessResponse := httptest.NewRecorder()
+			businessHandler.ServeHTTP(businessResponse, request)
+			if businessCalls != 1 || businessResponse.Code != http.StatusAccepted {
+				t.Fatalf("callback business handler was not reached: calls=%d status=%d", businessCalls, businessResponse.Code)
+			}
+		})
+	}
+
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPut, path: "/dashboard/corp/weWorkCallback"},
+		{method: http.MethodGet, path: "/dashboard/corp/weWorkCallback/extra"},
+		{method: http.MethodGet, path: "/dashboard/officialAccount/authRedirect"},
+		{method: http.MethodPost, path: "/dashboard/auth/password/reset-request"},
+		{method: http.MethodGet, path: "/dashboard/auth/session"},
+		{method: http.MethodPost, path: "/dashboard/auth/logout"},
+	} {
+		t.Run("reject "+route.method+" "+route.path, func(t *testing.T) {
+			request := httptest.NewRequest(route.method, route.path, nil)
+			response := httptest.NewRecorder()
+			allowed := guard.Authorize(response, request)
+			if allowed || response.Code != http.StatusUnauthorized {
+				t.Fatalf("non-contract route bypassed identity guard: allowed=%v status=%d bodyBytes=%d", allowed, response.Code, response.Body.Len())
+			}
+		})
+	}
+}
+
+func TestDashboardRequestGuardLetsExactCallbacksReachServerHandlers(t *testing.T) {
+	p := &dashboardHTTPTestPersistence{}
+	config := dashboardHTTPTestConfig(p)
+	guard, err := NewRequestGuard(config.Parser, p, config.TenantGate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(r.Method + " " + r.URL.Path))
+	})
+	server, err := compatserver.New(appconfig.Config{Standalone: true},
+		compatserver.WithDashboardRequestGuard(guard),
+		compatserver.WithWeWorkCallbackHandler(handler),
+		compatserver.WithOfficialAccountAuthEventCallbackHandler(handler),
+		compatserver.WithOfficialAccountAuthRedirectHandler(handler),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/dashboard/corp/weWorkCallback"},
+		{method: http.MethodPost, path: "/dashboard/corp/weWorkCallback"},
+		{method: http.MethodGet, path: "/dashboard/officialAccount/authEventCallback"},
+		{method: http.MethodPost, path: "/dashboard/officialAccount/authEventCallback"},
+		{method: http.MethodGet, path: "/dashboard/officialAccount/authRedirect/"},
+		{method: http.MethodPost, path: "/dashboard/officialAccount/authRedirect/"},
+	} {
+		t.Run(route.method+" "+route.path, func(t *testing.T) {
+			request := httptest.NewRequest(route.method, route.path, nil)
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != http.StatusOK || response.Body.String() != route.method+" "+route.path {
+				t.Fatalf("exact callback did not reach business handler: status=%d bodyBytes=%d", response.Code, response.Body.Len())
+			}
+		})
+	}
+
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPut, path: "/dashboard/corp/weWorkCallback"},
+		{method: http.MethodGet, path: "/dashboard/corp/weWorkCallback/extra"},
+		{method: http.MethodGet, path: "/dashboard/officialAccount/authRedirect"},
+		{method: http.MethodPost, path: "/dashboard/auth/password/reset-request"},
+		{method: http.MethodGet, path: "/dashboard/auth/session"},
+		{method: http.MethodPost, path: "/dashboard/auth/logout"},
+	} {
+		t.Run("reject "+route.method+" "+route.path, func(t *testing.T) {
+			request := httptest.NewRequest(route.method, route.path, nil)
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != http.StatusUnauthorized || response.Body.String() == route.method+" "+route.path {
+				t.Fatalf("non-contract route bypassed identity guard: status=%d bodyBytes=%d", response.Code, response.Body.Len())
+			}
+		})
+	}
+}
+
+func TestDashboardPasswordChangePendingUsesAcceptedEnvelopeAndExpiry(t *testing.T) {
+	p := &dashboardHTTPTestPersistence{
+		identity: DashboardIdentity{
+			UserID: 7, LoginIdentifier: "13800000000", PasswordHash: mustDashboardPasswordHash(t, "secret"),
+			Status: DashboardIdentityStatusActive, AuthVersion: 5, MustRotatePassword: 1,
+		},
+		principal: dashboardprincipal.DashboardPrincipal{
+			UserID: 7, TenantID: 902, CorpID: 77,
+			CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 5,
+		},
+	}
+	handler, err := NewHTTPHandler(dashboardHTTPTestConfig(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", strings.NewReader(`{"phone":"13800000000","password":"secret"}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || p.sessionCalls != 0 {
+		t.Fatalf("password change pending status=%d sessionCalls=%d bodyBytes=%d", response.Code, p.sessionCalls, response.Body.Len())
+	}
+	var envelope struct {
+		ErrorCode string `json:"errorCode"`
+		Data      struct {
+			PasswordChangeToken string `json:"passwordChangeToken"`
+			ExpiresAt           int64  `json:"expiresAt"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.ErrorCode != CodePasswordChangeRequired || envelope.Data.PasswordChangeToken == "" || envelope.Data.ExpiresAt <= time.Now().Unix() {
+		t.Fatalf("password change pending envelope missing machine code/token/expiry: errorCode=%q tokenPresent=%t expiresAt=%d", envelope.ErrorCode, envelope.Data.PasswordChangeToken != "", envelope.Data.ExpiresAt)
+	}
+}
+
+func TestDashboardSuspendedBindingCannotIssueOrUseDashboardToken(t *testing.T) {
+	p := &dashboardHTTPTestPersistence{
+		identity: DashboardIdentity{
+			UserID: 7, LoginIdentifier: "13800000000", PasswordHash: mustDashboardPasswordHash(t, "secret"),
+			Status: DashboardIdentityStatusActive, AuthVersion: 5,
+		},
+		principal: dashboardprincipal.DashboardPrincipal{
+			UserID: 7, TenantID: 902, CorpID: 77,
+			CorpStatus: dashboardprincipal.CorpBindingStatusSuspended, AuthVersion: 5,
+		},
+	}
+	config := dashboardHTTPTestConfig(p)
+	handler, err := NewHTTPHandler(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", strings.NewReader(`{"phone":"13800000000","password":"secret"}`))
+	loginResponse := httptest.NewRecorder()
+	handler.ServeHTTP(loginResponse, login)
+	if loginResponse.Code != http.StatusForbidden || p.sessionCalls != 0 {
+		t.Fatalf("suspended binding issued a token: status=%d sessionCalls=%d bodyBytes=%d", loginResponse.Code, p.sessionCalls, loginResponse.Body.Len())
+	}
+
+	guard, err := NewRequestGuard(config.Parser, p, config.TenantGate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := authrealm.Sign(config.Signer, authrealm.Claims{UserID: 7, AuthVersion: 5, JWTID: "suspended-jti"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/index", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	if guard.Authorize(response, request) || response.Code != http.StatusForbidden {
+		t.Fatalf("suspended binding bypassed request guard: status=%d bodyBytes=%d", response.Code, response.Body.Len())
 	}
 }
 

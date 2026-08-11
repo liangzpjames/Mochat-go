@@ -2197,6 +2197,14 @@ func (cfg Config) ValidateIdentityRealms() error {
 	if cfg.MigrateAuth && strings.TrimSpace(cfg.DashboardMFAEncryptionKeyID) == "" {
 		return fmt.Errorf("MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID is required when Dashboard authentication is enabled")
 	}
+	if cfg.EnableSaaSAdminDashboard && cfg.MigrateAuth {
+		if bytes.Equal([]byte(cfg.SaaSAdminMFAEncryptionKey), []byte(cfg.DashboardMFAEncryptionKey)) {
+			return fmt.Errorf("SaaS and Dashboard MFA encryption keys must differ")
+		}
+		if strings.TrimSpace(cfg.SaaSAdminMFAEncryptionKeyID) == strings.TrimSpace(cfg.DashboardMFAEncryptionKeyID) {
+			return fmt.Errorf("SaaS and Dashboard MFA encryption key IDs must differ")
+		}
+	}
 	if cfg.DashboardJWTTTL <= 0 {
 		return fmt.Errorf("MOCHAT_DASHBOARD_JWT_TTL must be positive")
 	}

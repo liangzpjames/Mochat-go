@@ -374,6 +374,7 @@ func main() {
 		if authErr != nil {
 			log.Fatalf("build Dashboard request guard: %v", authErr)
 		}
+		dashboardIdentityGuard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
 		options = append(options, compatserver.WithDashboardAuthHandler(dashboardAuthHandler))
 		log.Printf("go Dashboard identity routes enabled: POST /dashboard/user/auth POST /dashboard/user/authMFA POST /dashboard/auth/activate POST /dashboard/auth/password/reset-request POST /dashboard/auth/password/reset GET /dashboard/auth/session")
 	}

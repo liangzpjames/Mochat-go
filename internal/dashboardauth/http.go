@@ -139,11 +139,6 @@ type dashboardActivationRequest struct {
 	Password        string `json:"password"`
 }
 
-type dashboardPasswordChangeRequest struct {
-	PasswordChangeToken string `json:"passwordChangeToken"`
-	NewPassword         string `json:"newPassword"`
-}
-
 type dashboardPasswordResetRequest struct {
 	ResetToken  string `json:"resetToken"`
 	NewPassword string `json:"newPassword"`
@@ -195,6 +190,10 @@ func (handler *HTTPHandler) authorizeTenant(w http.ResponseWriter, ctx context.C
 	principal, err := handler.persistence.ResolvePrincipal(ctx, userID)
 	if err != nil || principal.UserID != userID || principal.TenantID <= 0 || principal.AuthVersion == 0 {
 		writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
+		return false
+	}
+	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		writeDashboardAuthEnvelope(w, http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied", nil)
 		return false
 	}
 	access, err := handler.tenantGate(ctx, principal.TenantID, handler.currentTime())
@@ -318,7 +317,10 @@ func (handler *HTTPHandler) beginPasswordChange(w http.ResponseWriter, ctx conte
 		writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
 		return
 	}
-	writeDashboardAuthEnvelope(w, http.StatusPreconditionRequired, CodePasswordChangeRequired, "password change required", map[string]any{"passwordChangeToken": token})
+	writeDashboardAuthEnvelope(w, http.StatusAccepted, CodePasswordChangeRequired, "password change required", map[string]any{
+		"passwordChangeToken": token,
+		"expiresAt":           expiresAt.Unix(),
+	})
 }
 
 func (handler *HTTPHandler) activate(w http.ResponseWriter, r *http.Request) {
@@ -445,12 +447,20 @@ func (handler *HTTPHandler) currentTime() time.Time {
 }
 
 type RequestGuard struct {
-	parser      authrealm.Parser
-	persistence DashboardAuthPersistence
-	tenantGate  DashboardTenantGate
-	next        interface {
+	parser               authrealm.Parser
+	persistence          DashboardAuthPersistence
+	tenantGate           DashboardTenantGate
+	publicRouteContracts map[string]struct{}
+	next                 interface {
 		Authorize(http.ResponseWriter, *http.Request) bool
 	}
+}
+
+var dashboardIdentityPublicRouteContracts = []string{
+	"POST /dashboard/user/auth",
+	"POST /dashboard/user/authMFA",
+	"POST /dashboard/auth/activate",
+	"POST /dashboard/auth/password/reset",
 }
 
 func NewRequestGuard(parser authrealm.Parser, persistence DashboardAuthPersistence, tenantGate DashboardTenantGate) (*RequestGuard, error) {
@@ -463,7 +473,22 @@ func NewRequestGuard(parser authrealm.Parser, persistence DashboardAuthPersisten
 	if parser.ValidateSession == nil {
 		return nil, fmt.Errorf("%w: session validator is required", ErrInvalidHTTPConfig)
 	}
-	return &RequestGuard{parser: parser, persistence: persistence, tenantGate: tenantGate}, nil
+	return &RequestGuard{
+		parser:               parser,
+		persistence:          persistence,
+		tenantGate:           tenantGate,
+		publicRouteContracts: publicRouteContractSet(dashboardIdentityPublicRouteContracts),
+	}, nil
+}
+
+// WithPublicRouteContracts replaces the identity-public allowlist with exact
+// method+path contracts supplied by the composition root. It intentionally
+// does not interpret prefixes, page-RBAC exemptions, or route families.
+func (guard *RequestGuard) WithPublicRouteContracts(contracts []string) *RequestGuard {
+	if guard != nil {
+		guard.publicRouteContracts = publicRouteContractSet(contracts)
+	}
+	return guard
 }
 
 func (guard *RequestGuard) WithNext(next interface {
@@ -476,8 +501,11 @@ func (guard *RequestGuard) WithNext(next interface {
 }
 
 func (guard *RequestGuard) Authorize(w http.ResponseWriter, r *http.Request) bool {
-	if guard == nil || isDashboardAuthPublicRoute(r) {
-		return guard != nil
+	if guard == nil {
+		return false
+	}
+	if guard.isPublicRoute(r) {
+		return true
 	}
 	token, ok := dashboardBearerToken(r.Header.Get("Authorization"))
 	if !ok {
@@ -492,6 +520,10 @@ func (guard *RequestGuard) Authorize(w http.ResponseWriter, r *http.Request) boo
 	principal, err := guard.persistence.ResolvePrincipal(r.Context(), claims.UserID)
 	if err != nil || principal.UserID != claims.UserID || principal.AuthVersion != claims.AuthVersion {
 		writeDashboardAuthEnvelope(w, http.StatusUnauthorized, authrealm.CodeSessionInvalid, "session invalid", nil)
+		return false
+	}
+	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		writeDashboardAuthEnvelope(w, http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied", nil)
 		return false
 	}
 	access, err := guard.tenantGate(r.Context(), principal.TenantID, time.Now().UTC())
@@ -511,22 +543,31 @@ func (guard *RequestGuard) Authorize(w http.ResponseWriter, r *http.Request) boo
 	return true
 }
 
-func isDashboardAuthPublicRoute(r *http.Request) bool {
-	if r == nil {
+func (guard *RequestGuard) isPublicRoute(r *http.Request) bool {
+	if guard == nil {
 		return false
 	}
-	switch {
-	case r.Method == http.MethodPost && r.URL.Path == "/dashboard/user/auth":
-		return true
-	case r.Method == http.MethodPost && r.URL.Path == "/dashboard/user/authMFA":
-		return true
-	case r.Method == http.MethodPost && r.URL.Path == "/dashboard/auth/activate":
-		return true
-	case r.Method == http.MethodPost && r.URL.Path == "/dashboard/auth/password/reset":
-		return true
-	default:
+	return dashboardRouteContractMatches(guard.publicRouteContracts, r)
+}
+
+func publicRouteContractSet(contracts []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(contracts))
+	for _, contract := range contracts {
+		method, path, ok := strings.Cut(strings.TrimSpace(contract), " ")
+		if !ok || strings.TrimSpace(method) == "" || strings.TrimSpace(path) == "" {
+			continue
+		}
+		set[strings.TrimSpace(method)+" "+strings.TrimSpace(path)] = struct{}{}
+	}
+	return set
+}
+
+func dashboardRouteContractMatches(contracts map[string]struct{}, r *http.Request) bool {
+	if r == nil || r.URL == nil {
 		return false
 	}
+	_, ok := contracts[r.Method+" "+r.URL.Path]
+	return ok
 }
 
 func decodeDashboardAuthJSON(r *http.Request, target any) error {

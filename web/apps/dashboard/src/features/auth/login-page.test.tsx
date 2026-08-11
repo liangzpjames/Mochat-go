@@ -157,17 +157,17 @@ describe('LoginPage', () => {
     expect(props.setSession).not.toHaveBeenCalled();
     expect(props.navigate).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Verify enrollment' }));
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证多因素认证' }));
     await waitFor(() => expect(completeMFA).toHaveBeenCalledWith({
       challengeToken: 'enrollment-token',
       code: '123456',
     }));
     expect(props.setSession).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'rotated-password' } });
-    fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'rotated-password' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    fireEvent.change(screen.getByLabelText('新密码'), { target: { value: 'rotated-password' } });
+    fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'rotated-password' } });
+    fireEvent.click(screen.getByRole('button', { name: '修改密码' }));
     await waitFor(() => expect(completeMFA).toHaveBeenCalledWith({
       passwordChangeToken: 'password-change-token',
       newPassword: 'rotated-password',
@@ -189,10 +189,10 @@ describe('LoginPage', () => {
     });
 
     submitCredentials();
-    await waitFor(() => expect(screen.getByLabelText('Verification code')).not.toBeNull());
+    await waitFor(() => expect(screen.getByLabelText('验证码')).not.toBeNull());
     expect(props.setSession).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '654321' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Verify MFA' }));
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '654321' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证多因素认证' }));
 
     await waitFor(() => expect(completeMFA).toHaveBeenCalledWith({
       challengeToken: 'login-challenge-token',
@@ -219,14 +219,14 @@ describe('LoginPage', () => {
     });
 
     submitCredentials();
-    await waitFor(() => expect(screen.getByLabelText('Verification code')).not.toBeNull());
-    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '000000' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Verify MFA' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('Invalid MFA code');
+    await waitFor(() => expect(screen.getByLabelText('验证码')).not.toBeNull());
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '000000' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证多因素认证' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('验证码无效或已过期，请重试');
     expect(props.setSession).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Verify MFA' }));
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证多因素认证' }));
     await waitFor(() => expect(props.setSession).toHaveBeenCalledWith(session));
   });
 
@@ -242,7 +242,7 @@ describe('LoginPage', () => {
     renderLogin({ authenticate: vi.fn(() => Promise.resolve(enrollment)) });
     submitCredentials();
     await waitFor(() => expect(screen.getByRole('main').className).toContain('login-page'));
-    expect(screen.getByLabelText('Verification code')).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Verify enrollment' })).not.toBeNull();
+    expect(screen.getByLabelText('验证码')).not.toBeNull();
+    expect(screen.getByRole('button', { name: '验证多因素认证' })).not.toBeNull();
   });
 });
