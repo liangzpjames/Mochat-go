@@ -76,3 +76,21 @@ func TestBootstrapSaaSAdminSourceHasNoLegacySecretOrBusinessProvisioningPath(t *
 		}
 	}
 }
+
+func TestLongRunningComposeDoesNotExposeBootstrapPassword(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(raw)
+	for _, forbidden := range []string{
+		"MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE",
+		"mochat_bootstrap_saas_admin_password",
+		"secrets:",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("long-running Compose still exposes bootstrap secret dependency: %s", forbidden)
+		}
+	}
+}

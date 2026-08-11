@@ -50,6 +50,8 @@ func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 		"EXECUTE",
 		"UNIQUE KEY `uni_dashboard_identity_login_identifier`",
 		"UNIQUE KEY `uni_tenant_corp_binding_corp`",
+		"bootstrap_request_key",
+		"UNIQUE KEY `uni_saas_admin_user_bootstrap_request_key`",
 	} {
 		if !strings.Contains(normalizedUp, strings.ToLower(strings.ReplaceAll(required, "`", ""))) {
 			t.Fatalf("0129 up migration missing %q", required)
@@ -70,6 +72,14 @@ func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 		}
 		if !strings.Contains(normalizedDown, "drop foreign key "+foreignKey) || !strings.Contains(normalizedDown, "add constraint "+foreignKey) {
 			t.Fatalf("0129 down migration must pair drop/add for %s", foreignKey)
+		}
+	}
+	for _, required := range []string{
+		"bootstrap_request_key",
+		"uni_saas_admin_user_bootstrap_request_key",
+	} {
+		if !strings.Contains(normalizedDown, strings.ToLower(strings.ReplaceAll(required, "`", ""))) {
+			t.Fatalf("0129 down migration must explicitly account for %q", required)
 		}
 	}
 	if strings.Contains(normalizedUp, "add constraint fk_saas_admin_user_access_identity") || strings.Contains(normalizedDown, "drop foreign key fk_saas_admin_user_access_identity") {
@@ -132,6 +142,8 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 			assertIdentityTableExists(t, db, table)
 		}
 		assertIdentityIndexExists(t, db, "mochat_go_dashboard_identities", "uni_dashboard_identity_login_identifier")
+		assertIdentityIndexExists(t, db, "mochat_go_saas_admin_users", "uni_saas_admin_user_bootstrap_request_key")
+		assertIdentityColumnType(t, db, "mochat_go_saas_admin_users", "bootstrap_request_key", "varchar(96)")
 		assertIdentityIndexExists(t, db, "mochat_go_tenant_corp_bindings", "uni_tenant_corp_binding_corp")
 		assertIdentity0127ForeignKeys(t, db)
 
@@ -168,6 +180,7 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		assertIdentity0127ForeignKeys(t, db)
 
 		execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false)
+		assertIdentityIndexExists(t, db, "mochat_go_saas_admin_users", "uni_saas_admin_user_bootstrap_request_key")
 		assertIdentity0127ForeignKeys(t, db)
 	})
 
@@ -278,6 +291,11 @@ func newIdentitySingleCorpMigrationDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var schemaLeftoversBefore int
+	if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'").Scan(&schemaLeftoversBefore); err != nil {
+		_ = admin.Close()
+		t.Fatalf("check isolated schema baseline: %v", err)
+	}
 	schema := fmt.Sprintf("mochat_identity_single_corp_%d_%d", os.Getpid(), identitySingleCorpSchemaSequence.Add(1))
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		_ = admin.Close()
@@ -285,6 +303,12 @@ func newIdentitySingleCorpMigrationDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() {
 		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
+		var leftovers int
+		if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'").Scan(&leftovers); err != nil {
+			t.Errorf("check isolated schema leftovers: %v", err)
+		} else if leftovers != schemaLeftoversBefore {
+			t.Errorf("isolated schema leftovers changed from baseline=%d to %d", schemaLeftoversBefore, leftovers)
+		}
 		_ = admin.Close()
 	})
 	testCfg := *cfg

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
+
 	"jiyi/mochat-go/internal/saasauth"
 )
 
@@ -41,6 +43,11 @@ type SaaSIdentityStore struct {
 	db       *sql.DB
 	queryRow saasIdentityQueryRowFunc
 	begin    saasIdentityBeginFunc
+}
+
+type saasBootstrapRow struct {
+	identity   saasauth.SaaSIdentity
+	requestKey string
 }
 
 var _ saasauth.SaaSIdentityStore = (*SaaSIdentityStore)(nil)
@@ -110,9 +117,32 @@ func (store *SaaSIdentityStore) CheckSession(ctx context.Context, userID int, au
 }
 
 func (store *SaaSIdentityStore) Bootstrap(ctx context.Context, input saasauth.BootstrapSaaSAdmin) (saasauth.SaaSIdentity, error) {
-	if store == nil || strings.TrimSpace(input.RequestKey) == "" || strings.TrimSpace(input.LoginName) == "" || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.PasswordHash) == "" {
+	requestKey := strings.TrimSpace(input.RequestKey)
+	loginName := strings.ToLower(strings.TrimSpace(input.LoginName))
+	phone := strings.TrimSpace(input.Phone)
+	name := strings.TrimSpace(input.Name)
+	if store == nil || requestKey == "" || loginName == "" || name == "" || strings.TrimSpace(input.PasswordHash) == "" {
 		return saasauth.SaaSIdentity{}, saasauth.ErrInvalidBootstrap
 	}
+	normalized := input
+	normalized.RequestKey = requestKey
+	normalized.LoginName = loginName
+	normalized.Phone = phone
+	normalized.Name = name
+	for attempt := 0; attempt < 3; attempt++ {
+		identity, err := store.bootstrapOnce(ctx, normalized)
+		if err == nil || !isRetryableBootstrapError(err) || ctx.Err() != nil || attempt == 2 {
+			return identity, err
+		}
+	}
+	return saasauth.SaaSIdentity{}, saasauth.ErrIdentityUnavailable
+}
+
+func (store *SaaSIdentityStore) bootstrapOnce(ctx context.Context, input saasauth.BootstrapSaaSAdmin) (saasauth.SaaSIdentity, error) {
+	requestKey := input.RequestKey
+	loginName := input.LoginName
+	phone := input.Phone
+	name := input.Name
 	if store.begin == nil {
 		return saasauth.SaaSIdentity{}, errors.New("saas identity store is unavailable")
 	}
@@ -124,18 +154,45 @@ func (store *SaaSIdentityStore) Bootstrap(ctx context.Context, input saasauth.Bo
 
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, login_name, COALESCE(phone, ''), password_hash, name,
-		       status, must_rotate_password, auth_version, mfa_required
+		       status, must_rotate_password, auth_version, mfa_required,
+		       COALESCE(bootstrap_request_key, '')
 		FROM mochat_go_saas_admin_users
-		WHERE login_name = ?
+		WHERE bootstrap_request_key = ?
 		LIMIT 1
 		FOR UPDATE
-	`, strings.ToLower(strings.TrimSpace(input.LoginName)))
-	existing, lookupErr := scanSaaSIdentity(row)
+	`, requestKey)
+	existing, lookupErr := scanSaaSBootstrapRow(row)
 	if lookupErr == nil {
+		if existing.requestKey != requestKey || !sameBootstrapBusinessInput(existing.identity, loginName, phone, name) {
+			return saasauth.SaaSIdentity{}, saasauth.ErrBootstrapConflict
+		}
 		if err := tx.Commit(); err != nil {
 			return saasauth.SaaSIdentity{}, err
 		}
-		return existing, nil
+		return existing.identity, nil
+	}
+	if !errors.Is(lookupErr, saasauth.ErrIdentityNotFound) {
+		return saasauth.SaaSIdentity{}, lookupErr
+	}
+
+	row = tx.QueryRowContext(ctx, `
+		SELECT id, login_name, COALESCE(phone, ''), password_hash, name,
+		       status, must_rotate_password, auth_version, mfa_required,
+		       COALESCE(bootstrap_request_key, '')
+		FROM mochat_go_saas_admin_users
+		ORDER BY id
+		LIMIT 1
+		FOR UPDATE
+	`)
+	existing, lookupErr = scanSaaSBootstrapRow(row)
+	if lookupErr == nil {
+		if existing.requestKey != requestKey || !sameBootstrapBusinessInput(existing.identity, loginName, phone, name) {
+			return saasauth.SaaSIdentity{}, saasauth.ErrBootstrapConflict
+		}
+		if err := tx.Commit(); err != nil {
+			return saasauth.SaaSIdentity{}, err
+		}
+		return existing.identity, nil
 	}
 	if !errors.Is(lookupErr, saasauth.ErrIdentityNotFound) {
 		return saasauth.SaaSIdentity{}, lookupErr
@@ -143,9 +200,9 @@ func (store *SaaSIdentityStore) Bootstrap(ctx context.Context, input saasauth.Bo
 
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO mochat_go_saas_admin_users
-			(login_name, phone, password_hash, name, status, must_rotate_password, auth_version, mfa_required, created_at, updated_at)
-		VALUES (?, NULLIF(?, ''), ?, ?, 1, 1, 1, 1, NOW(), NOW())
-	`, strings.ToLower(strings.TrimSpace(input.LoginName)), strings.TrimSpace(input.Phone), input.PasswordHash, strings.TrimSpace(input.Name))
+			(login_name, phone, password_hash, name, status, must_rotate_password, auth_version, mfa_required, bootstrap_request_key, created_at, updated_at)
+		VALUES (?, NULLIF(?, ''), ?, ?, 1, 1, 1, 1, ?, NOW(), NOW())
+	`, loginName, phone, input.PasswordHash, name, requestKey)
 	if err != nil {
 		return saasauth.SaaSIdentity{}, err
 	}
@@ -155,10 +212,10 @@ func (store *SaaSIdentityStore) Bootstrap(ctx context.Context, input saasauth.Bo
 	}
 	identity := saasauth.SaaSIdentity{
 		ID:                 int(id),
-		LoginName:          strings.ToLower(strings.TrimSpace(input.LoginName)),
-		Phone:              strings.TrimSpace(input.Phone),
+		LoginName:          loginName,
+		Phone:              phone,
 		PasswordHash:       input.PasswordHash,
-		Name:               strings.TrimSpace(input.Name),
+		Name:               name,
 		Status:             saasauth.SaaSIdentityStatusActive,
 		MustRotatePassword: 1,
 		AuthVersion:        1,
@@ -168,6 +225,20 @@ func (store *SaaSIdentityStore) Bootstrap(ctx context.Context, input saasauth.Bo
 		return saasauth.SaaSIdentity{}, err
 	}
 	return identity, nil
+}
+
+func isRetryableBootstrapError(err error) bool {
+	var mysqlErr *mysqldriver.MySQLError
+	if !errors.As(err, &mysqlErr) {
+		return false
+	}
+	return mysqlErr.Number == 1062 || mysqlErr.Number == 1205 || mysqlErr.Number == 1213
+}
+
+func sameBootstrapBusinessInput(identity saasauth.SaaSIdentity, loginName, phone, name string) bool {
+	return strings.ToLower(strings.TrimSpace(identity.LoginName)) == loginName &&
+		strings.TrimSpace(identity.Phone) == phone &&
+		strings.TrimSpace(identity.Name) == name
 }
 
 func (store *SaaSIdentityStore) query(ctx context.Context, query string, args ...any) (identityRowScanner, error) {
@@ -203,4 +274,27 @@ func scanSaaSIdentity(row identityRowScanner) (saasauth.SaaSIdentity, error) {
 		return saasauth.SaaSIdentity{}, err
 	}
 	return identity, nil
+}
+
+func scanSaaSBootstrapRow(row identityRowScanner) (saasBootstrapRow, error) {
+	var result saasBootstrapRow
+	err := row.Scan(
+		&result.identity.ID,
+		&result.identity.LoginName,
+		&result.identity.Phone,
+		&result.identity.PasswordHash,
+		&result.identity.Name,
+		&result.identity.Status,
+		&result.identity.MustRotatePassword,
+		&result.identity.AuthVersion,
+		&result.identity.MFARequired,
+		&result.requestKey,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return saasBootstrapRow{}, saasauth.ErrIdentityNotFound
+	}
+	if err != nil {
+		return saasBootstrapRow{}, err
+	}
+	return result, nil
 }

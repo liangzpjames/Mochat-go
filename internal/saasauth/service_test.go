@@ -133,6 +133,27 @@ func TestSaaSAuthBootstrapSanitizesStoreErrors(t *testing.T) {
 	}
 }
 
+func TestSaaSAuthBootstrapPreservesConflictWithoutPasswordMaterial(t *testing.T) {
+	hash, err := HashPassword("bootstrap-conflict-password-not-output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeSaaSIdentityStore{
+		bootstrap: func(context.Context, BootstrapSaaSAdmin) (SaaSIdentity, error) {
+			return SaaSIdentity{}, ErrBootstrapConflict
+		},
+	}
+	_, err = NewService(store).Bootstrap(context.Background(), BootstrapSaaSAdmin{
+		RequestKey:   "bootstrap-conflict-request",
+		LoginName:    "platform-admin",
+		Name:         "Platform Admin",
+		PasswordHash: hash,
+	})
+	if !errors.Is(err, ErrBootstrapConflict) || strings.Contains(err.Error(), hash) {
+		t.Fatalf("bootstrap conflict was not preserved safely: %v", err)
+	}
+}
+
 func TestSaaSAuthCheckSessionDelegatesIdentityVersionValidation(t *testing.T) {
 	called := false
 	store := &fakeSaaSIdentityStore{

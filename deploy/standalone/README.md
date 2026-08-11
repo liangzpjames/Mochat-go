@@ -31,9 +31,7 @@ docker compose \
   --profile app up -d --build
 ```
 
-启动 app 前，必须由 Secret Manager 按 `MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE` 创建权限受限的宿主机密码文件；文件缺失或权限过宽时 Compose 直接失败，不会使用默认密码。
-
-首次使用容器栈时，先记录已由 MySQL init SQL 建好的 schema baseline，再在 Go app 容器内创建管理员账号：
+正常 app 启动不挂载、也不依赖 bootstrap 密码文件。首次使用容器栈时，先记录已由 MySQL init SQL 建好的 schema baseline；随后只在现有 app 容器内临时放置一次性密码文件，初始化完成或失败都会删除容器内副本：
 
 ```bash
 docker compose \
@@ -42,19 +40,43 @@ docker compose \
   --profile app exec app \
   mochat-migrate -action baseline -project-root /app
 
-set -a
-. deploy/standalone/.env.local
-set +a
+BOOTSTRAP_HOST_FILE="/secure/path/from-secret-manager"
+BOOTSTRAP_CONTAINER_FILE="/tmp/mochat-bootstrap-saas-admin-password"
+BOOTSTRAP_REQUEST_KEY="initial-saas-admin-v1"
+BOOTSTRAP_LOGIN="platform-admin"
+BOOTSTRAP_PHONE="13800000000"
+BOOTSTRAP_NAME="Platform Admin"
+
 docker compose \
   --env-file deploy/standalone/.env.local \
   -f deploy/standalone/docker-compose.yml \
-  --profile app exec app \
-  mochat-bootstrap \
-    -request-key "$MOCHAT_BOOTSTRAP_REQUEST_KEY" \
-    -login-name "$MOCHAT_BOOTSTRAP_SAAS_ADMIN_LOGIN" \
-    -phone "$MOCHAT_BOOTSTRAP_SAAS_ADMIN_PHONE" \
-    -name "$MOCHAT_BOOTSTRAP_SAAS_ADMIN_NAME"
+  --profile app cp "$BOOTSTRAP_HOST_FILE" "app:$BOOTSTRAP_CONTAINER_FILE"
+
+cleanup_bootstrap_file() {
+  docker compose \
+    --env-file deploy/standalone/.env.local \
+    -f deploy/standalone/docker-compose.yml \
+    --profile app exec -T -u 0 app rm -f "$BOOTSTRAP_CONTAINER_FILE" >/dev/null 2>&1 || true
+}
+trap cleanup_bootstrap_file EXIT
+
+docker compose \
+  --env-file deploy/standalone/.env.local \
+  -f deploy/standalone/docker-compose.yml \
+  --profile app exec -T -u 0 app chmod 0400 "$BOOTSTRAP_CONTAINER_FILE"
+docker compose \
+  --env-file deploy/standalone/.env.local \
+  -f deploy/standalone/docker-compose.yml \
+  --profile app exec -T -u 0 \
+  -e "MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE=$BOOTSTRAP_CONTAINER_FILE" \
+  app mochat-bootstrap \
+    -request-key "$BOOTSTRAP_REQUEST_KEY" \
+    -login-name "$BOOTSTRAP_LOGIN" \
+    -phone "$BOOTSTRAP_PHONE" \
+    -name "$BOOTSTRAP_NAME"
 ```
+
+`BOOTSTRAP_HOST_FILE` 由 Secret Manager 提供，文件内容不进入命令行、环境变量或日志；命令只把路径作为 `*_FILE` 传给一次性 bootstrap 进程。`docker compose cp` 复用已经运行的 app 容器，不创建新服务或容器；退出 trap 会删除容器内临时文件，宿主机原始文件仍由 Secret Manager 管理。Unix 文件权限只能允许 owner，Windows 必须使用仅 owner/系统管理员可读的 ACL。
 
 默认端口：
 
@@ -162,20 +184,7 @@ deploy/standalone/migrations
 
 首次独立部署完成 migration 后，只使用 `cmd/mochat-bootstrap` 创建一个 SaaS 平台管理员。该命令只写入 `mochat_go_saas_admin_users`，不会创建或修改 tenant、corp、`mc_user`、Dashboard identity、套餐或 RBAC 业务数据。
 
-```bash
-env -u GOROOT \
-  MOCHAT_MYSQL_DSN='mochat:mochat_pass@tcp(127.0.0.1:13316)/mochat?parseTime=true&loc=Local' \
-  MOCHAT_BOOTSTRAP_REQUEST_KEY='initial-saas-admin-v1' \
-  MOCHAT_BOOTSTRAP_SAAS_ADMIN_LOGIN='platform-admin' \
-  MOCHAT_BOOTSTRAP_SAAS_ADMIN_PHONE='13800000000' \
-  MOCHAT_BOOTSTRAP_SAAS_ADMIN_NAME='Platform Admin' \
-  docker compose \
-    --env-file deploy/standalone/.env.local \
-    -f deploy/standalone/docker-compose.yml \
-    --profile app exec app mochat-bootstrap
-```
-
-密码文件必须由 Secret Manager 提供并限制读取权限：Unix 文件权限只能允许 owner，Windows 必须使用仅 owner/系统管理员可读的 ACL。Compose 从 `MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE` 读取宿主机文件并以 Docker Secret 只读挂载到固定容器路径。密码不接受命令行参数、环境变量明文或 `MOCHAT_SIMPLE_JWT_SECRET`，也不会写入日志、返回值或审计正文。
+密码文件必须由 Secret Manager 提供并限制读取权限；密码不接受命令行参数、环境变量明文或 `MOCHAT_SIMPLE_JWT_SECRET`，也不会写入日志、返回值或审计正文。上面的现有 app 容器一次性流程是唯一初始化入口。
 
 重复提交相同 request key/login 时只返回已有 SaaS 管理员，不重置密码；不同的企业、租户和 Dashboard 身份必须通过后续受保护的 SaaS API 流程创建和授权。bootstrap 失败时只返回不含密码内容的通用错误。
 

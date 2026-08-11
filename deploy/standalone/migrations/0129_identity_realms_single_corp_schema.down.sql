@@ -74,6 +74,24 @@ PREPARE identity_down_drop_audit_actor_stmt FROM @identity_down_drop_audit_actor
 EXECUTE identity_down_drop_audit_actor_stmt;
 DEALLOCATE PREPARE identity_down_drop_audit_actor_stmt;
 
+SET @identity_down_drop_saas_bootstrap_request_key_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`statistics` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_saas_admin_users' AND `index_name` = 'uni_saas_admin_user_bootstrap_request_key') = 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_saas_admin_users` DROP INDEX `uni_saas_admin_user_bootstrap_request_key`'
+);
+PREPARE identity_down_drop_saas_bootstrap_request_key_stmt FROM @identity_down_drop_saas_bootstrap_request_key_sql;
+EXECUTE identity_down_drop_saas_bootstrap_request_key_stmt;
+DEALLOCATE PREPARE identity_down_drop_saas_bootstrap_request_key_stmt;
+
+SET @identity_down_drop_saas_bootstrap_request_key_column_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_saas_admin_users' AND `column_name` = 'bootstrap_request_key') = 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_saas_admin_users` DROP COLUMN `bootstrap_request_key`'
+);
+PREPARE identity_down_drop_saas_bootstrap_request_key_column_stmt FROM @identity_down_drop_saas_bootstrap_request_key_column_sql;
+EXECUTE identity_down_drop_saas_bootstrap_request_key_column_stmt;
+DEALLOCATE PREPARE identity_down_drop_saas_bootstrap_request_key_column_stmt;
+
 DROP TABLE IF EXISTS `mochat_go_tenant_corp_bindings`;
 DROP TABLE IF EXISTS `mochat_go_dashboard_identity_activations`;
 DROP TABLE IF EXISTS `mochat_go_dashboard_identities`;

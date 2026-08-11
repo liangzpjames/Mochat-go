@@ -541,11 +541,13 @@ CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_users` (
   `must_rotate_password` tinyint(3) unsigned NOT NULL DEFAULT 1,
   `auth_version` bigint(20) unsigned NOT NULL DEFAULT 1,
   `mfa_required` tinyint(3) unsigned NOT NULL DEFAULT 1,
+  `bootstrap_request_key` varchar(96) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uni_saas_admin_user_login_name` (`login_name`),
-  UNIQUE KEY `uni_saas_admin_user_phone` (`phone`)
+  UNIQUE KEY `uni_saas_admin_user_phone` (`phone`),
+  UNIQUE KEY `uni_saas_admin_user_bootstrap_request_key` (`bootstrap_request_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SaaS platform identity';
 
 CREATE TABLE IF NOT EXISTS `mochat_go_dashboard_identities` (

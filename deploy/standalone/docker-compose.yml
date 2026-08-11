@@ -29,8 +29,6 @@ services:
       MOCHAT_DASHBOARD_JWT_AUDIENCE: "${MOCHAT_DASHBOARD_JWT_AUDIENCE:-mochat-dashboard}"
       MOCHAT_DASHBOARD_JWT_PREFIX: "${MOCHAT_DASHBOARD_JWT_PREFIX:-mochat_dashboard_}"
       MOCHAT_DASHBOARD_JWT_TTL: "${MOCHAT_DASHBOARD_JWT_TTL:-604800}"
-      # bootstrap 仅在显式执行时读取该 Docker Secret，不通过环境变量传递密码值。
-      MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE: "/run/secrets/mochat_bootstrap_saas_admin_password"
       MOCHAT_SIDEBAR_JWT_SECRET: "${MOCHAT_SIDEBAR_JWT_SECRET:-Br3LXhp&Ysha1zRDh}"
       MOCHAT_SIDEBAR_JWT_PREFIX: "${MOCHAT_SIDEBAR_JWT_PREFIX:-default}"
       MOCHAT_FILE_STORAGE_ROOT: "/app/storage/upload/static"
@@ -224,10 +222,6 @@ services:
     volumes:
       - app-storage:/app/storage
       - audit-anchor-storage:/app/audit-anchors
-    secrets:
-      - source: mochat_bootstrap_saas_admin_password
-        target: mochat_bootstrap_saas_admin_password
-        mode: 0400
     depends_on:
       mysql:
         condition: service_healthy
@@ -375,10 +369,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
-
-secrets:
-  mochat_bootstrap_saas_admin_password:
-    file: "${MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE:?MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE must point to a restricted password file}"
 
 volumes:
   app-storage:

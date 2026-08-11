@@ -18,6 +18,7 @@ var (
 	ErrInvalidCredentials  = errors.New("invalid credentials")
 	ErrIdentityUnavailable = errors.New("saas identity unavailable")
 	ErrInvalidBootstrap    = errors.New("invalid SaaS bootstrap input")
+	ErrBootstrapConflict   = errors.New("bootstrap request conflict")
 	ErrSessionInvalid      = errors.New("saas session invalid")
 )
 
@@ -96,6 +97,9 @@ func (service *Service) Bootstrap(ctx context.Context, input BootstrapSaaSAdmin)
 		PasswordHash: input.PasswordHash,
 	})
 	if err != nil {
+		if errors.Is(err, ErrBootstrapConflict) {
+			return SaaSIdentity{}, ErrBootstrapConflict
+		}
 		return SaaSIdentity{}, ErrIdentityUnavailable
 	}
 	identity.PasswordHash = ""

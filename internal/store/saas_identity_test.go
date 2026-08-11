@@ -130,14 +130,16 @@ func TestSaaSIdentityStoreCheckSessionChecksStatusAndAuthVersion(t *testing.T) {
 }
 
 func TestSaaSIdentityStoreBootstrapIsIdempotentAndDoesNotResetPassword(t *testing.T) {
-	lookupCount := 0
+	created := false
 	tx := &identityTestTx{}
-	tx.query = func(_ string, _ ...any) identityRowScanner {
-		lookupCount++
-		if lookupCount == 1 {
+	tx.query = func(query string, _ ...any) identityRowScanner {
+		if !created {
 			return identityTestRow{err: sql.ErrNoRows}
 		}
-		return identityTestRow{values: []any{42, "platform-admin", "", "first-hash", "Platform Admin", 1, 1, uint64(1), 1}}
+		if !strings.Contains(query, "bootstrap_request_key") && !strings.Contains(query, "ORDER BY id") {
+			return identityTestRow{err: sql.ErrNoRows}
+		}
+		return identityTestRow{values: []any{42, "platform-admin", "", "first-hash", "Platform Admin", 1, 1, uint64(1), 1, "bootstrap-request-1"}}
 	}
 	insertCount := 0
 	tx.exec = func(statement string, _ ...any) (sql.Result, error) {
@@ -145,6 +147,7 @@ func TestSaaSIdentityStoreBootstrapIsIdempotentAndDoesNotResetPassword(t *testin
 		if !strings.Contains(statement, "INSERT INTO mochat_go_saas_admin_users") || strings.Contains(statement, "ON DUPLICATE KEY UPDATE") || strings.Contains(statement, "UPDATE mochat_go_saas_admin_users") {
 			t.Fatal("bootstrap must insert once and never update an existing password")
 		}
+		created = true
 		return identityTestResult{id: 42}, nil
 	}
 	store := &SaaSIdentityStore{
@@ -167,5 +170,73 @@ func TestSaaSIdentityStoreBootstrapIsIdempotentAndDoesNotResetPassword(t *testin
 		if !strings.Contains(query, "mochat_go_saas_admin_users") || strings.Contains(query, "mc_user") || strings.Contains(query, "mc_tenant") || strings.Contains(query, "mc_corp") {
 			t.Fatal("SaaS bootstrap crossed into a business identity table")
 		}
+	}
+}
+
+func TestSaaSIdentityStoreBootstrapUsesRequestKeyAndRejectsMismatchedInput(t *testing.T) {
+	var requestKeyLookup bool
+	insertCount := 0
+	tx := &identityTestTx{}
+	tx.query = func(query string, args ...any) identityRowScanner {
+		if !strings.Contains(query, "bootstrap_request_key") || len(args) == 0 || args[0] != "bootstrap-request-1" {
+			return identityTestRow{err: sql.ErrNoRows}
+		}
+		requestKeyLookup = true
+		return identityTestRow{values: []any{
+			42, "platform-admin", "13800000000", "first-hash", "Platform Admin", 1, 1, uint64(1), 1, "bootstrap-request-1",
+		}}
+	}
+	tx.exec = func(string, ...any) (sql.Result, error) {
+		insertCount++
+		return identityTestResult{id: 99}, nil
+	}
+	store := &SaaSIdentityStore{
+		begin: func(context.Context) (saasIdentityTx, error) { return tx, nil },
+	}
+	identity, err := store.Bootstrap(context.Background(), saasauth.BootstrapSaaSAdmin{
+		RequestKey:   "bootstrap-request-1",
+		LoginName:    "different-login",
+		Phone:        "13800000001",
+		Name:         "Different Admin",
+		PasswordHash: "second-hash",
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "bootstrap request conflict") {
+		t.Fatalf("same request key with different business input error=%v, want bootstrap request conflict", err)
+	}
+	if !requestKeyLookup || insertCount != 0 || identity.ID != 0 || tx.commits != 0 {
+		t.Fatalf("mismatched request key input wrote or bypassed request-key lookup: lookup=%v inserts=%d commits=%d", requestKeyLookup, insertCount, tx.commits)
+	}
+}
+
+func TestSaaSIdentityStoreBootstrapRejectsSecondRequestKeyWithoutWriting(t *testing.T) {
+	insertCount := 0
+	tx := &identityTestTx{}
+	tx.query = func(query string, _ ...any) identityRowScanner {
+		if !strings.Contains(query, "ORDER BY id") || !strings.Contains(query, "FOR UPDATE") {
+			return identityTestRow{err: sql.ErrNoRows}
+		}
+		return identityTestRow{values: []any{
+			42, "platform-admin", "13800000000", "first-hash", "Platform Admin", 1, 1, uint64(1), 1, "bootstrap-request-1",
+		}}
+	}
+	tx.exec = func(string, ...any) (sql.Result, error) {
+		insertCount++
+		return identityTestResult{id: 99}, nil
+	}
+	store := &SaaSIdentityStore{
+		begin: func(context.Context) (saasIdentityTx, error) { return tx, nil },
+	}
+	_, err := store.Bootstrap(context.Background(), saasauth.BootstrapSaaSAdmin{
+		RequestKey:   "bootstrap-request-2",
+		LoginName:    "second-admin",
+		Phone:        "13800000001",
+		Name:         "Second Admin",
+		PasswordHash: "second-hash",
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "bootstrap request conflict") {
+		t.Fatalf("second request key error=%v, want bootstrap request conflict", err)
+	}
+	if insertCount != 0 || tx.commits != 0 {
+		t.Fatalf("second bootstrap request wrote data: inserts=%d commits=%d", insertCount, tx.commits)
 	}
 }
