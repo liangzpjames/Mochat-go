@@ -41,7 +41,7 @@ const syncStatusText: Record<EmployeeSyncSnapshot['status'], string> = {
 export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, onNavigate }: CompanyWebsitePageProps) {
   const access = useOptionalDashboardAccess();
   const queryClient = useQueryClient();
-  const canView = isSuperAdmin ?? access?.profile?.isSuperAdmin ?? true;
+  const canView = isSuperAdmin ?? access?.profile?.isSuperAdmin ?? false;
   const [displayName, setDisplayName] = useState('');
   const [verifyCorpId, setVerifyCorpId] = useState('');
   const [employeeSecret, setEmployeeSecret] = useState('');
@@ -54,6 +54,9 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   const [wxSecret, setWxSecret] = useState('');
   const [operationError, setOperationError] = useState('');
   const requestSequence = useRef(0);
+  const weComInputRef = useRef<RotateWeComCredentialsInput | null>(null);
+  const agentInputRef = useRef<RotateAgentCredentialsInput | null>(null);
+  const archiveInputRef = useRef<RotateArchiveCredentialsInput | null>(null);
 
   const profileQuery = useQuery({
     queryKey: ['company-profile'],
@@ -132,19 +135,49 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     onError: (error) => showMutationError(error, '企业资料保存失败，请稍后重试。'),
   });
   const weComMutation = useMutation({
-    mutationFn: (input: RotateWeComCredentialsInput) => api.rotateWeComCredentials(input),
-    onSuccess: refreshProfile,
-    onError: (error) => showMutationError(error, '企业微信配置保存失败，请稍后重试。'),
+    mutationFn: () => {
+      const input = weComInputRef.current;
+      if (input === null) throw new Error('company WeCom input is unavailable');
+      return api.rotateWeComCredentials(input);
+    },
+    onSuccess: (nextProfile) => {
+      weComInputRef.current = null;
+      refreshProfile(nextProfile);
+    },
+    onError: (error) => {
+      weComInputRef.current = null;
+      showMutationError(error, '企业微信配置保存失败，请稍后重试。');
+    },
   });
   const agentMutation = useMutation({
-    mutationFn: (input: RotateAgentCredentialsInput) => api.rotateAgentCredentials(input),
-    onSuccess: refreshProfile,
-    onError: (error) => showMutationError(error, '应用配置保存失败，请稍后重试。'),
+    mutationFn: () => {
+      const input = agentInputRef.current;
+      if (input === null) throw new Error('company agent input is unavailable');
+      return api.rotateAgentCredentials(input);
+    },
+    onSuccess: (nextProfile) => {
+      agentInputRef.current = null;
+      refreshProfile(nextProfile);
+    },
+    onError: (error) => {
+      agentInputRef.current = null;
+      showMutationError(error, '应用配置保存失败，请稍后重试。');
+    },
   });
   const archiveMutation = useMutation({
-    mutationFn: (input: RotateArchiveCredentialsInput) => api.rotateArchiveCredentials(input),
-    onSuccess: refreshProfile,
-    onError: (error) => showMutationError(error, '会话存档配置保存失败，请稍后重试。'),
+    mutationFn: () => {
+      const input = archiveInputRef.current;
+      if (input === null) throw new Error('company archive input is unavailable');
+      return api.rotateArchiveCredentials(input);
+    },
+    onSuccess: (nextProfile) => {
+      archiveInputRef.current = null;
+      refreshProfile(nextProfile);
+    },
+    onError: (error) => {
+      archiveInputRef.current = null;
+      showMutationError(error, '会话存档配置保存失败，请稍后重试。');
+    },
   });
   const verifyMutation = useMutation({
     mutationFn: (input: VerifyCompanyInput) => api.verify(input),
@@ -197,7 +230,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   }
 
   const expectedVersion = profile.bindingVersion;
-  const hasProfileChanges = displayName.trim() !== profile.displayName;
+  const hasProfileChanges = displayName.trim() !== '' && displayName.trim() !== profile.displayName;
   const hasWeComChanges = [employeeSecret, contactSecret, callbackToken, encodingAESKey].some((value) => value !== '');
   const hasAgentChanges = agentId !== '' || wxAgentId !== '' || wxSecret !== '';
   const hasArchiveChanges = archiveChatSecret !== '';
@@ -255,7 +288,10 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
           <ConfirmAction
             title="确认保存企业微信凭据？"
             description={`变更摘要：保存已填写的企业微信字段，空字段不修改；版本 ${expectedVersion}。`}
-            onConfirm={() => weComMutation.mutate({ employeeSecret, contactSecret, callbackToken, encodingAESKey, expectedVersion, requestId: nextRequestId('wecom') })}
+            onConfirm={() => {
+              weComInputRef.current = { employeeSecret, contactSecret, callbackToken, encodingAESKey, expectedVersion, requestId: nextRequestId('wecom') };
+              weComMutation.mutate();
+            }}
           >
             <button type="button" disabled={!hasWeComChanges || weComMutation.isPending}>保存企业微信凭据</button>
           </ConfirmAction>
@@ -266,11 +302,14 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
           </div>
           <ConfirmAction
             title="确认保存应用凭据？"
-            description={`变更摘要：更新应用标识或 Secret，空 Secret 不修改；版本 ${expectedVersion}。`}
+              description={`变更摘要：按已有应用标识定位并更新 Secret，空 Secret 不修改；版本 ${expectedVersion}。`}
               onConfirm={() => {
-                const input: RotateAgentCredentialsInput = { wxAgentId, wxSecret, expectedVersion, requestId: nextRequestId('agent') };
+                const input: RotateAgentCredentialsInput = { expectedVersion, requestId: nextRequestId('agent') };
                 if (agentId !== '') input.agentId = Number(agentId);
-                agentMutation.mutate(input);
+                if (wxAgentId.trim() !== '') input.wxAgentId = wxAgentId.trim();
+                if (wxSecret.trim() !== '') input.wxSecret = wxSecret.trim();
+                agentInputRef.current = input;
+                agentMutation.mutate();
               }}
           >
             <button type="button" disabled={!hasAgentChanges || agentMutation.isPending}>保存应用凭据</button>
@@ -280,7 +319,10 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
             <ConfirmAction
               title="确认保存会话存档配置？"
               description={`变更摘要：更新会话存档 Secret，空 Secret 不修改；版本 ${expectedVersion}。`}
-              onConfirm={() => archiveMutation.mutate({ chatSecret: archiveChatSecret, expectedVersion, requestId: nextRequestId('archive') })}
+              onConfirm={() => {
+                archiveInputRef.current = { chatSecret: archiveChatSecret, expectedVersion, requestId: nextRequestId('archive') };
+                archiveMutation.mutate();
+              }}
             >
               <button type="button" disabled={!hasArchiveChanges || archiveMutation.isPending}>保存会话存档</button>
             </ConfirmAction>

@@ -185,6 +185,38 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if err != nil || decodedAgent.WXSecret != agentSecret {
 		t.Fatalf("decoded agent=%+v err=%v", decodedAgent, err)
 	}
+	preservedCiphertext, preservedKeyID := agentCiphertext, agentKeyID
+	identifierOnlyProfile, err := store.RotateAgentCredentials(ctx, verifiedPrincipal, companyprofile.AgentCredentialsInput{
+		AgentID: 300, ExpectedVersion: 4, RequestID: "task10-rotate-agent-identifiers-only",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identifierOnlyProfile.BindingVersion != 5 {
+		t.Fatalf("identifier-only profile version=%d, want 5", identifierOnlyProfile.BindingVersion)
+	}
+	if err := db.QueryRow(`SELECT wecom_credentials_ciphertext, wecom_credentials_key_id FROM mc_work_agent WHERE id=300`).Scan(&agentCiphertext, &agentKeyID); err != nil {
+		t.Fatal(err)
+	}
+	if agentCiphertext != preservedCiphertext || agentKeyID != preservedKeyID {
+		t.Fatalf("identifier-only rotation changed encrypted secret storage")
+	}
+	decodedAgent, err = manager.DecryptAgent(100, "100001", agentKeyID, agentCiphertext)
+	if err != nil || decodedAgent.WXSecret != agentSecret {
+		t.Fatalf("identifier-only decoded agent=%+v err=%v", decodedAgent, err)
+	}
+	if _, err := store.RotateAgentCredentials(ctx, verifiedPrincipal, companyprofile.AgentCredentialsInput{
+		AgentID: 999, ExpectedVersion: 5, RequestID: "task10-rotate-agent-missing",
+	}); !errors.Is(err, companyprofile.ErrNotFound) {
+		t.Fatalf("missing agent error=%v, want ErrNotFound", err)
+	}
+	var identifierAuditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits WHERE tenant_id=1 AND action=? AND request_id=?`, "dashboard.company.agent_credentials.rotate", "task10-rotate-agent-identifiers-only").Scan(&identifierAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if identifierAuditCount != 1 {
+		t.Fatalf("identifier-only audit count=%d, want 1", identifierAuditCount)
+	}
 
 	countsBeforeSync := companyIdentityAndRBACCounts(t, db)
 	firstSync, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{

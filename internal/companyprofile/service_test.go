@@ -39,6 +39,8 @@ type companyProfileContractStore struct {
 	queueErr             error
 	syncState            string
 	lastWeComInput       WeComCredentialsInput
+	lastAgentInput       AgentCredentialsInput
+	rotateAgentErr       error
 	profile              Profile
 	verificationSnapshot VerificationSnapshot
 	auditPage            AuditPage
@@ -69,8 +71,12 @@ func (s *companyProfileContractStore) RotateWeComCredentials(context.Context, da
 	return s.profile, nil
 }
 
-func (s *companyProfileContractStore) RotateAgentCredentials(context.Context, dashboardprincipal.DashboardPrincipal, AgentCredentialsInput) (Profile, error) {
+func (s *companyProfileContractStore) RotateAgentCredentials(_ context.Context, _ dashboardprincipal.DashboardPrincipal, input AgentCredentialsInput) (Profile, error) {
 	s.rotateAgentCalls++
+	s.lastAgentInput = input
+	if s.rotateAgentErr != nil {
+		return Profile{}, s.rotateAgentErr
+	}
 	return s.profile, nil
 }
 
@@ -211,6 +217,73 @@ func TestServiceDoesNotAcceptCorpSelectionDuringCredentialRotation(t *testing.T)
 	}
 	if store.rotateCorpCalls != 0 {
 		t.Fatalf("rotate calls = %d, want 0", store.rotateCorpCalls)
+	}
+}
+
+func TestServiceAllowsAgentIdentifierOnlyRotationWithoutSecret(t *testing.T) {
+	store := &companyProfileContractStore{profile: Profile{BindingVersion: 2}}
+	service := NewService(store, &companyProfileTestVerifier{})
+
+	_, err := service.RotateAgentCredentials(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive), AgentCredentialsInput{
+		AgentID:         300,
+		WXAgentID:       "wx-agent-300",
+		ExpectedVersion: 2,
+		RequestID:       "agent-identifier-only",
+	})
+	if err != nil {
+		t.Fatalf("identifier-only rotation error = %v, want success", err)
+	}
+	if store.rotateAgentCalls != 1 {
+		t.Fatalf("rotate agent calls = %d, want 1", store.rotateAgentCalls)
+	}
+}
+
+func TestServiceTreatsBlankAgentSecretAsNoChange(t *testing.T) {
+	store := &companyProfileContractStore{profile: Profile{BindingVersion: 2}}
+	service := NewService(store, &companyProfileTestVerifier{})
+	blankSecret := "   "
+
+	_, err := service.RotateAgentCredentials(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive), AgentCredentialsInput{
+		AgentID:         300,
+		WXSecret:        &blankSecret,
+		ExpectedVersion: 2,
+		RequestID:       "agent-blank-secret",
+	})
+	if err != nil {
+		t.Fatalf("blank-secret rotation error = %v, want success", err)
+	}
+	if store.lastAgentInput.WXSecret != nil {
+		t.Fatal("blank agent secret was forwarded as a replacement")
+	}
+}
+
+func TestServiceReturnsNotFoundWhenAgentDoesNotExist(t *testing.T) {
+	store := &companyProfileContractStore{rotateAgentErr: ErrNotFound}
+	service := NewService(store, &companyProfileTestVerifier{})
+
+	_, err := service.RotateAgentCredentials(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive), AgentCredentialsInput{
+		WXAgentID:       "missing-agent",
+		ExpectedVersion: 2,
+		RequestID:       "agent-missing",
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing agent error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestServiceRejectsAgentRotationWithoutIdentifierOrChange(t *testing.T) {
+	store := &companyProfileContractStore{}
+	service := NewService(store, &companyProfileTestVerifier{})
+
+	_, err := service.RotateAgentCredentials(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive), AgentCredentialsInput{
+		ExpectedVersion: 2,
+		RequestID:       "agent-empty",
+	})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("empty agent rotation error = %v, want ErrInvalidRequest", err)
+	}
+	if store.rotateAgentCalls != 0 {
+		t.Fatalf("rotate agent calls = %d, want 0", store.rotateAgentCalls)
 	}
 }
 

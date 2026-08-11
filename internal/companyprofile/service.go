@@ -90,8 +90,11 @@ func (s *Service) RotateAgentCredentials(ctx context.Context, principal dashboar
 	if err := s.authorize(principal, true); err != nil {
 		return Profile{}, err
 	}
-	if input.ExpectedVersion == 0 || (input.AgentID <= 0 && strings.TrimSpace(input.WXAgentID) == "") || input.WXSecret == nil {
+	if input.ExpectedVersion == 0 || (input.AgentID <= 0 && strings.TrimSpace(input.WXAgentID) == "") {
 		return Profile{}, ErrInvalidRequest
+	}
+	if input.WXSecret != nil && strings.TrimSpace(*input.WXSecret) == "" {
+		input.WXSecret = nil
 	}
 	if err := s.requireStore(); err != nil {
 		return Profile{}, err

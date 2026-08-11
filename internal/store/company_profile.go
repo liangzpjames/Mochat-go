@@ -315,6 +315,9 @@ func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashbo
 }
 
 func (s *MySQLStore) RotateAgentCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.AgentCredentialsInput) (companyprofile.Profile, error) {
+	if input.ExpectedVersion == 0 || (input.AgentID <= 0 && strings.TrimSpace(input.WXAgentID) == "") {
+		return companyprofile.Profile{}, companyprofile.ErrInvalidRequest
+	}
 	if s == nil || s.db == nil || s.weComCredentialCipher == nil || !s.weComCredentialCipher.ConfigStatus().EncryptionConfigured {
 		return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
 	}
@@ -340,14 +343,24 @@ func (s *MySQLStore) RotateAgentCredentials(ctx context.Context, principal dashb
 	if !found {
 		return companyprofile.Profile{}, companyprofile.ErrNotFound
 	}
-	current, err := s.decodeAgentCredentialForCompany(agent)
-	if err != nil {
-		return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
-	}
-	current.WXSecret = strings.TrimSpace(*input.WXSecret)
-	storage, err := s.encodeAgentCredential(binding.CorpID, agent.WXAgentID, current)
-	if err != nil {
-		return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
+	var storage agentCredentialStorage
+	changedFields := []string{"agentSecret"}
+	if input.WXSecret == nil || strings.TrimSpace(*input.WXSecret) == "" {
+		if _, err := s.decodeAgentCredentialForCompany(agent); err != nil {
+			return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
+		}
+		storage = agentCredentialStorage{Ciphertext: agent.Ciphertext, KeyID: agent.KeyID}
+		changedFields = []string{"agentConfiguration"}
+	} else {
+		current, err := s.decodeAgentCredentialForCompany(agent)
+		if err != nil {
+			return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
+		}
+		current.WXSecret = strings.TrimSpace(*input.WXSecret)
+		storage, err = s.encodeAgentCredential(binding.CorpID, agent.WXAgentID, current)
+		if err != nil {
+			return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
+		}
 	}
 	resultVersion, err := updateCompanyBindingVersionTx(ctx, tx, binding, principal.UserID, input.ExpectedVersion,
 		func() error {
@@ -359,7 +372,7 @@ func (s *MySQLStore) RotateAgentCredentials(ctx context.Context, principal dashb
 				return execErr
 			}
 			return requireCompanyRows(updated, 1)
-		}, "dashboard.company.agent_credentials.rotate", "company_agent", strconv.Itoa(agent.ID), []string{"agentSecret"}, input.RequestID)
+		}, "dashboard.company.agent_credentials.rotate", "company_agent", strconv.Itoa(agent.ID), changedFields, input.RequestID)
 	if err != nil {
 		return companyprofile.Profile{}, err
 	}
