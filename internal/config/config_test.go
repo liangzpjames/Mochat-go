@@ -182,6 +182,67 @@ func TestFromEnvRejectsValidTimezoneOutsideSupportedDashboardContract(t *testing
 	}
 }
 
+func TestLoadRequiresDistinctSaaSAndDashboardRealmConfiguration(t *testing.T) {
+	valid := func(t *testing.T) {
+		t.Helper()
+		clearEnv(t)
+		t.Setenv("MOCHAT_SAAS_ADMIN_JWT_SECRET", "saas-admin-secret-012345678901234567890")
+		t.Setenv("MOCHAT_SAAS_ADMIN_JWT_ISSUER", "mochat-go/saas-auth")
+		t.Setenv("MOCHAT_SAAS_ADMIN_JWT_AUDIENCE", "mochat-saas-admin")
+		t.Setenv("MOCHAT_DASHBOARD_JWT_SECRET", "dashboard-secret-012345678901234567890")
+		t.Setenv("MOCHAT_DASHBOARD_JWT_ISSUER", "mochat-go/dashboard-auth")
+		t.Setenv("MOCHAT_DASHBOARD_JWT_AUDIENCE", "mochat-dashboard")
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*testing.T)
+	}{
+		{name: "missing SaaS secret", mutate: func(t *testing.T) { t.Setenv("MOCHAT_SAAS_ADMIN_JWT_SECRET", "") }},
+		{name: "missing Dashboard secret", mutate: func(t *testing.T) { t.Setenv("MOCHAT_DASHBOARD_JWT_SECRET", "") }},
+		{name: "same secrets", mutate: func(t *testing.T) {
+			t.Setenv("MOCHAT_DASHBOARD_JWT_SECRET", "saas-admin-secret-012345678901234567890")
+		}},
+		{name: "missing SaaS issuer", mutate: func(t *testing.T) { t.Setenv("MOCHAT_SAAS_ADMIN_JWT_ISSUER", "") }},
+		{name: "missing Dashboard audience", mutate: func(t *testing.T) { t.Setenv("MOCHAT_DASHBOARD_JWT_AUDIENCE", "") }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			valid(t)
+			tc.mutate(t)
+			if _, err := Load(); err == nil {
+				t.Fatal("Load unexpectedly accepted incomplete realm configuration")
+			}
+		})
+	}
+}
+
+func TestLoadProvidesIndependentRealmTokenConfiguration(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_SAAS_ADMIN_JWT_SECRET", "saas-admin-secret-012345678901234567890")
+	t.Setenv("MOCHAT_SAAS_ADMIN_JWT_ISSUER", "mochat-go/saas-auth")
+	t.Setenv("MOCHAT_SAAS_ADMIN_JWT_AUDIENCE", "mochat-saas-admin")
+	t.Setenv("MOCHAT_SAAS_ADMIN_JWT_PREFIX", "mochat_saas_admin_")
+	t.Setenv("MOCHAT_SAAS_ADMIN_JWT_TTL", "3600")
+	t.Setenv("MOCHAT_DASHBOARD_JWT_SECRET", "dashboard-secret-012345678901234567890")
+	t.Setenv("MOCHAT_DASHBOARD_JWT_ISSUER", "mochat-go/dashboard-auth")
+	t.Setenv("MOCHAT_DASHBOARD_JWT_AUDIENCE", "mochat-dashboard")
+	t.Setenv("MOCHAT_DASHBOARD_JWT_PREFIX", "mochat_dashboard_")
+	t.Setenv("MOCHAT_DASHBOARD_JWT_TTL", "7200")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SaaSAdminJWTSecret == cfg.DashboardJWTSecret || cfg.SaaSAdminJWTPrefix == cfg.DashboardJWTPrefix {
+		t.Fatal("SaaS and Dashboard realm configuration is not independent")
+	}
+	if cfg.SaaSAdminJWTTTL != time.Hour || cfg.DashboardJWTTTL != 2*time.Hour {
+		t.Fatalf("realm TTLs = %s/%s", cfg.SaaSAdminJWTTTL, cfg.DashboardJWTTTL)
+	}
+}
+
 func TestPhase22SCRMPilotDisabledByDefault(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT", "")
@@ -3338,6 +3399,16 @@ func clearEnv(t *testing.T) {
 		"SIMPLE_JWT_TTL",
 		"MOCHAT_SIMPLE_JWT_REFRESH_TTL",
 		"SIMPLE_JWT_REFRESH_TTL",
+		"MOCHAT_SAAS_ADMIN_JWT_SECRET",
+		"MOCHAT_SAAS_ADMIN_JWT_ISSUER",
+		"MOCHAT_SAAS_ADMIN_JWT_AUDIENCE",
+		"MOCHAT_SAAS_ADMIN_JWT_PREFIX",
+		"MOCHAT_SAAS_ADMIN_JWT_TTL",
+		"MOCHAT_DASHBOARD_JWT_SECRET",
+		"MOCHAT_DASHBOARD_JWT_ISSUER",
+		"MOCHAT_DASHBOARD_JWT_AUDIENCE",
+		"MOCHAT_DASHBOARD_JWT_PREFIX",
+		"MOCHAT_DASHBOARD_JWT_TTL",
 		"MOCHAT_SIDEBAR_JWT_SECRET",
 		"SIDEBAR_JWT_SECRET",
 		"MOCHAT_SIDEBAR_JWT_PREFIX",

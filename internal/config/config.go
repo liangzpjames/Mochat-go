@@ -63,6 +63,16 @@ type Config struct {
 	SimpleJWTPrefix                                    string
 	SimpleJWTTTL                                       time.Duration
 	SimpleJWTRefreshTTL                                time.Duration
+	SaaSAdminJWTSecret                                 string
+	SaaSAdminJWTIssuer                                 string
+	SaaSAdminJWTAudience                               string
+	SaaSAdminJWTPrefix                                 string
+	SaaSAdminJWTTTL                                    time.Duration
+	DashboardJWTSecret                                 string
+	DashboardJWTIssuer                                 string
+	DashboardJWTAudience                               string
+	DashboardJWTPrefix                                 string
+	DashboardJWTTTL                                    time.Duration
 	SidebarJWTSecret                                   string
 	SidebarJWTPrefix                                   string
 	RedisAddr                                          string
@@ -567,6 +577,20 @@ func FromEnv() (Config, error) {
 	}
 	if refreshTTL <= 0 {
 		return Config{}, fmt.Errorf("MOCHAT_SIMPLE_JWT_REFRESH_TTL or SIMPLE_JWT_REFRESH_TTL must be a positive integer")
+	}
+	saasAdminJWTTTL, err := envInt("MOCHAT_SAAS_ADMIN_JWT_TTL", "", 60*60*24*7)
+	if err != nil {
+		return Config{}, err
+	}
+	if saasAdminJWTTTL <= 0 {
+		return Config{}, fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_TTL must be a positive integer")
+	}
+	dashboardJWTTTL, err := envInt("MOCHAT_DASHBOARD_JWT_TTL", "", 60*60*24*7)
+	if err != nil {
+		return Config{}, err
+	}
+	if dashboardJWTTTL <= 0 {
+		return Config{}, fmt.Errorf("MOCHAT_DASHBOARD_JWT_TTL must be a positive integer")
 	}
 	workerProcessingTimeout, err := envInt("MOCHAT_GO_WORKER_PROCESSING_TIMEOUT_SECONDS", "", 300)
 	if err != nil {
@@ -1241,6 +1265,16 @@ func FromEnv() (Config, error) {
 		SimpleJWTPrefix:                                    envOrDefault("MOCHAT_SIMPLE_JWT_PREFIX", envOrDefault("SIMPLE_JWT_PREFIX", "default")),
 		SimpleJWTTTL:                                       time.Duration(ttl) * time.Second,
 		SimpleJWTRefreshTTL:                                time.Duration(refreshTTL) * time.Second,
+		SaaSAdminJWTSecret:                                 envFirst("MOCHAT_SAAS_ADMIN_JWT_SECRET"),
+		SaaSAdminJWTIssuer:                                 strings.TrimSpace(envFirst("MOCHAT_SAAS_ADMIN_JWT_ISSUER")),
+		SaaSAdminJWTAudience:                               strings.TrimSpace(envFirst("MOCHAT_SAAS_ADMIN_JWT_AUDIENCE")),
+		SaaSAdminJWTPrefix:                                 envOrDefault("MOCHAT_SAAS_ADMIN_JWT_PREFIX", "mochat_saas_admin_"),
+		SaaSAdminJWTTTL:                                    time.Duration(saasAdminJWTTTL) * time.Second,
+		DashboardJWTSecret:                                 envFirst("MOCHAT_DASHBOARD_JWT_SECRET"),
+		DashboardJWTIssuer:                                 strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_ISSUER")),
+		DashboardJWTAudience:                               strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_AUDIENCE")),
+		DashboardJWTPrefix:                                 envOrDefault("MOCHAT_DASHBOARD_JWT_PREFIX", "mochat_dashboard_"),
+		DashboardJWTTTL:                                    time.Duration(dashboardJWTTTL) * time.Second,
 		SidebarJWTSecret:                                   envOrDefault("MOCHAT_SIDEBAR_JWT_SECRET", envOrDefault("SIDEBAR_JWT_SECRET", "Br3LXhp&Ysha1zRDh")),
 		SidebarJWTPrefix:                                   envOrDefault("MOCHAT_SIDEBAR_JWT_PREFIX", envOrDefault("SIDEBAR_JWT_PREFIX", "default")),
 		RedisAddr:                                          redisAddrFromEnv(),
@@ -2085,6 +2119,51 @@ func FromEnv() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// Load is the strict application entry point for the split SaaS and Dashboard
+// authentication realms. FromEnv remains available to non-migrated workers
+// while they are outside this identity cutover.
+func Load() (Config, error) {
+	cfg, err := FromEnv()
+	if err != nil {
+		return Config{}, err
+	}
+	if err := cfg.ValidateIdentityRealms(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func (cfg Config) ValidateIdentityRealms() error {
+	if strings.TrimSpace(cfg.SaaSAdminJWTSecret) == "" {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_SECRET is required")
+	}
+	if strings.TrimSpace(cfg.DashboardJWTSecret) == "" {
+		return fmt.Errorf("MOCHAT_DASHBOARD_JWT_SECRET is required")
+	}
+	if bytes.Equal([]byte(cfg.SaaSAdminJWTSecret), []byte(cfg.DashboardJWTSecret)) {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_SECRET and MOCHAT_DASHBOARD_JWT_SECRET must differ")
+	}
+	if strings.TrimSpace(cfg.SaaSAdminJWTIssuer) == "" {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_ISSUER is required")
+	}
+	if strings.TrimSpace(cfg.SaaSAdminJWTAudience) == "" {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_AUDIENCE is required")
+	}
+	if strings.TrimSpace(cfg.DashboardJWTIssuer) == "" {
+		return fmt.Errorf("MOCHAT_DASHBOARD_JWT_ISSUER is required")
+	}
+	if strings.TrimSpace(cfg.DashboardJWTAudience) == "" {
+		return fmt.Errorf("MOCHAT_DASHBOARD_JWT_AUDIENCE is required")
+	}
+	if cfg.SaaSAdminJWTTTL <= 0 {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_TTL must be positive")
+	}
+	if cfg.DashboardJWTTTL <= 0 {
+		return fmt.Errorf("MOCHAT_DASHBOARD_JWT_TTL must be positive")
+	}
+	return nil
 }
 
 func (cfg *Config) applyRuntimeRole() {
