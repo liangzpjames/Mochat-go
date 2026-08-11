@@ -4,19 +4,22 @@ import { clearSaaSSession, readSaaSSession, saasLoginURL, saveSaaSSession, type 
 interface ApiEnvelope<T> {
   code: number
   data: T
+  errorCode?: string
   message?: string
   msg?: string
 }
 
 export class ApiError extends Error {
   status: number
-  code: number
+  httpCode: number
+  machineCode: string
 
-  constructor(message: string, status: number, code: number) {
+  constructor(message: string, status: number, machineCode: string, httpCode = status) {
     super(message)
     this.name = 'ApiError'
     this.status = status
-    this.code = code
+    this.httpCode = httpCode
+    this.machineCode = machineCode
   }
 }
 
@@ -57,9 +60,12 @@ async function saasAuthRequest<T>(path: string, init: RequestInit): Promise<T> {
   try {
     body = (await response.json()) as ApiEnvelope<T> & { errorCode?: string }
   } catch {
-    throw new ApiError(`服务响应格式错误（HTTP ${response.status}）`, response.status, response.status)
+    throw new ApiError(`服务响应格式错误（HTTP ${response.status}）`, response.status, 'INVALID_RESPONSE')
   }
-  if (!response.ok) throw new ApiError(body.msg || body.message || '认证失败', response.status, response.status)
+  const httpCode = Number(body.code || response.status)
+  if (!response.ok || httpCode >= 400) {
+    throw new ApiError(body.msg || body.message || '认证失败', response.status, body.errorCode || 'AUTH_REQUEST_FAILED', httpCode)
+  }
   return body.data
 }
 
@@ -108,7 +114,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   const token = readStoredToken()
   if (!token) {
     location.assign(loginURL())
-    throw new ApiError('登录状态已失效', 401, 401)
+    throw new ApiError('登录状态已失效', 401, 'SESSION_INVALID')
   }
 
   const headers = new Headers(init.headers)
@@ -121,15 +127,15 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   try {
     body = (await response.json()) as ApiEnvelope<T>
   } catch {
-    throw new ApiError(`服务响应格式错误（HTTP ${response.status}）`, response.status, response.status)
+    throw new ApiError(`服务响应格式错误（HTTP ${response.status}）`, response.status, 'INVALID_RESPONSE')
   }
-  const code = Number(body.code || response.status)
-  if (!response.ok || code >= 400) {
+  const httpCode = Number(body.code || response.status)
+  if (!response.ok || httpCode >= 400) {
     if (response.status === 401) {
       clearStoredToken()
       location.assign(loginURL())
     }
-    throw new ApiError(body.msg || body.message || `请求失败（HTTP ${response.status}）`, response.status, code)
+    throw new ApiError(body.msg || body.message || `请求失败（HTTP ${response.status}）`, response.status, body.errorCode || 'API_REQUEST_FAILED', httpCode)
   }
   return body.data
 }

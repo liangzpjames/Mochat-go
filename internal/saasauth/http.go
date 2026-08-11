@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	ErrInvalidHTTPConfig = errors.New("invalid SaaS authentication HTTP configuration")
-	ErrMFAInvalid        = errors.New("SaaS MFA verification failed")
+	ErrInvalidHTTPConfig  = errors.New("invalid SaaS authentication HTTP configuration")
+	ErrMFAInvalid         = errors.New("SaaS MFA verification failed")
+	ErrInvalidSaaSRequest = errors.New("invalid SaaS authentication request")
 )
 
 type HTTPConfig struct {
@@ -107,7 +108,11 @@ type passwordChangeRequest struct {
 
 func (handler *HTTPHandler) login(w http.ResponseWriter, r *http.Request) {
 	var request loginRequest
-	if err := decodeSaaSAuthJSON(r, &request); err != nil || strings.TrimSpace(request.Login) == "" || request.Password == "" {
+	if err := decodeSaaSAuthJSON(r, &request); err != nil {
+		writeSaaSAuthEnvelope(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid authentication request", nil)
+		return
+	}
+	if strings.TrimSpace(request.Login) == "" || request.Password == "" {
 		writeSaaSAuthEnvelope(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials", nil)
 		return
 	}
@@ -185,7 +190,11 @@ func (handler *HTTPHandler) beginLoginChallenge(w http.ResponseWriter, ctx conte
 
 func (handler *HTTPHandler) mfaComplete(w http.ResponseWriter, r *http.Request) {
 	var request mfaRequest
-	if err := decodeSaaSAuthJSON(r, &request); err != nil || strings.TrimSpace(request.ChallengeToken) == "" || strings.TrimSpace(request.Code) == "" {
+	if err := decodeSaaSAuthJSON(r, &request); err != nil {
+		writeSaaSAuthEnvelope(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid authentication request", nil)
+		return
+	}
+	if strings.TrimSpace(request.ChallengeToken) == "" || strings.TrimSpace(request.Code) == "" {
 		writeSaaSAuthEnvelope(w, http.StatusUnauthorized, "MFA_CHALLENGE_INVALID", "multi-factor authentication challenge invalid", nil)
 		return
 	}
@@ -231,7 +240,11 @@ func (handler *HTTPHandler) beginPasswordChange(w http.ResponseWriter, ctx conte
 
 func (handler *HTTPHandler) passwordChange(w http.ResponseWriter, r *http.Request) {
 	var request passwordChangeRequest
-	if err := decodeSaaSAuthJSON(r, &request); err != nil || strings.TrimSpace(request.PasswordChangeToken) == "" || strings.TrimSpace(request.NewPassword) == "" {
+	if err := decodeSaaSAuthJSON(r, &request); err != nil {
+		writeSaaSAuthEnvelope(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid authentication request", nil)
+		return
+	}
+	if strings.TrimSpace(request.PasswordChangeToken) == "" || strings.TrimSpace(request.NewPassword) == "" {
 		writeSaaSAuthEnvelope(w, http.StatusUnauthorized, "PASSWORD_CHANGE_INVALID", "password change request invalid", nil)
 		return
 	}
@@ -399,9 +412,19 @@ func sameTokenConfig(left, right authrealm.TokenConfig) bool {
 }
 
 func decodeSaaSAuthJSON(r *http.Request, target any) error {
+	if r == nil || r.Body == nil {
+		return ErrInvalidSaaSRequest
+	}
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
-	return decoder.Decode(target)
+	if err := decoder.Decode(target); err != nil {
+		return ErrInvalidSaaSRequest
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return ErrInvalidSaaSRequest
+	}
+	return nil
 }
 
 func bearerToken(value string) (string, bool) {

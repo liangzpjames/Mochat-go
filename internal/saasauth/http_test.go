@@ -219,7 +219,8 @@ func TestSaaSAuthHTTPEnrollmentMFAThenPasswordCreatesDurableSession(t *testing.T
 	if enrollmentEnvelope.Data.Token == "" || enrollmentEnvelope.Data.Secret == "" {
 		t.Fatal("initial login did not return one-time MFA enrollment information")
 	}
-	code, err := totp.GenerateCode(enrollmentEnvelope.Data.Secret, time.Now())
+	enrollmentCodeTime := time.Now().UTC().Truncate(30 * time.Second).Add(-30 * time.Second)
+	code, err := totp.GenerateCode(enrollmentEnvelope.Data.Secret, enrollmentCodeTime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +277,41 @@ func TestSaaSAuthHTTPEnrollmentMFAThenPasswordCreatesDurableSession(t *testing.T
 	if !ok || secondChallenge.ChallengeType != SaaSMFAChallengeLogin {
 		t.Fatalf("post-enrollment login challenge type = %q, want %q", secondChallenge.ChallengeType, SaaSMFAChallengeLogin)
 	}
+	secondCode, err := totp.GenerateCode(enrollmentEnvelope.Data.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondMFAResponse := httptest.NewRecorder()
+	handler.ServeHTTP(secondMFAResponse, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(`{"challengeToken":"`+secondLoginEnvelope.Data.ChallengeToken+`","code":"`+secondCode+`"}`)))
+	if secondMFAResponse.Code != http.StatusOK {
+		t.Fatalf("second MFA status=%d body=%s", secondMFAResponse.Code, secondMFAResponse.Body.String())
+	}
+	persistence.mu.Lock()
+	sessionsAfterSecondMFA := len(persistence.sessions)
+	persistence.mu.Unlock()
+	thirdLoginResponse := httptest.NewRecorder()
+	handler.ServeHTTP(thirdLoginResponse, httptest.NewRequest(http.MethodPost, "/saas/auth/login", strings.NewReader(`{"login":"platform-admin","password":"saas-http-rotated-password"}`)))
+	if thirdLoginResponse.Code != http.StatusAccepted {
+		t.Fatalf("third login status=%d body=%s", thirdLoginResponse.Code, thirdLoginResponse.Body.String())
+	}
+	var thirdLoginEnvelope struct {
+		Data struct {
+			ChallengeToken string `json:"challengeToken"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(thirdLoginResponse.Body.Bytes(), &thirdLoginEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	sameStepReplay := httptest.NewRecorder()
+	handler.ServeHTTP(sameStepReplay, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(`{"challengeToken":"`+thirdLoginEnvelope.Data.ChallengeToken+`","code":"`+secondCode+`"}`)))
+	if sameStepReplay.Code != http.StatusUnauthorized {
+		t.Fatalf("same TOTP step replay status=%d body=%s", sameStepReplay.Code, sameStepReplay.Body.String())
+	}
+	persistence.mu.Lock()
+	if len(persistence.sessions) != sessionsAfterSecondMFA {
+		t.Fatalf("same TOTP step replay changed session count from %d to %d", sessionsAfterSecondMFA, len(persistence.sessions))
+	}
+	persistence.mu.Unlock()
 	sessionRequest := httptest.NewRequest(http.MethodGet, "/saas/auth/session", nil)
 	sessionRequest.Header.Set("Authorization", "Bearer "+tokenEnvelope.Data.Token)
 	sessionResponse := httptest.NewRecorder()
@@ -283,10 +319,10 @@ func TestSaaSAuthHTTPEnrollmentMFAThenPasswordCreatesDurableSession(t *testing.T
 	if sessionResponse.Code != http.StatusOK {
 		t.Fatalf("durable session was not accepted: status=%d body=%s", sessionResponse.Code, sessionResponse.Body.String())
 	}
-	secondMFAResponse := httptest.NewRecorder()
-	handler.ServeHTTP(secondMFAResponse, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(`{"challengeToken":"`+enrollmentEnvelope.Data.Token+`","code":"`+code+`"}`)))
-	if secondMFAResponse.Code != http.StatusUnauthorized {
-		t.Fatalf("enrollment challenge was reusable: status=%d body=%s", secondMFAResponse.Code, secondMFAResponse.Body.String())
+	enrollmentReplayResponse := httptest.NewRecorder()
+	handler.ServeHTTP(enrollmentReplayResponse, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(`{"challengeToken":"`+enrollmentEnvelope.Data.Token+`","code":"`+code+`"}`)))
+	if enrollmentReplayResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("enrollment challenge was reusable: status=%d body=%s", enrollmentReplayResponse.Code, enrollmentReplayResponse.Body.String())
 	}
 	logoutRequest := httptest.NewRequest(http.MethodPost, "/saas/auth/logout", nil)
 	logoutRequest.Header.Set("Authorization", "Bearer "+tokenEnvelope.Data.Token)
@@ -330,6 +366,203 @@ func TestSaaSAuthHTTPLoginErrorsAreUniform(t *testing.T) {
 	if wrong, unknown := request(`{"login":"known-admin","password":"wrong"}`), request(`{"login":"missing-admin","password":"wrong"}`); wrong != unknown {
 		t.Fatalf("login errors were not uniform: wrong=%s unknown=%s", wrong, unknown)
 	}
+}
+
+func TestSaaSAuthRejectsUnknownAndTrailingJSONWithoutAuthentication(t *testing.T) {
+	passwordHash, err := HashPassword("strict-json-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := SaaSIdentity{ID: 12, LoginName: "strict-json-admin", PasswordHash: passwordHash, Name: "Strict JSON Admin", Status: SaaSIdentityStatusActive, AuthVersion: 1}
+	persistence := newMemorySaaSAuthPersistence(identity)
+	authenticateCalls := 0
+	identityStore := &fakeSaaSIdentityStore{authenticate: func(_ context.Context, login string) (SaaSIdentity, error) {
+		authenticateCalls++
+		if login != identity.LoginName {
+			return SaaSIdentity{}, ErrIdentityNotFound
+		}
+		return identity, nil
+	}}
+	handler, err := NewHTTPHandler(testSaaSHTTPConfig(identityStore, persistence))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "tenant field", path: "/saas/auth/login", body: `{"login":"strict-json-admin","password":"strict-json-password","tenantId":1}`},
+		{name: "actor field", path: "/saas/auth/mfa", body: `{"challengeToken":"challenge","code":"000000","actorId":1}`},
+		{name: "corp field", path: "/saas/auth/password", body: `{"passwordChangeToken":"challenge","newPassword":"new-password","corpId":1}`},
+		{name: "trailing object", path: "/saas/auth/login", body: `{} {}`},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s, want 400", response.Code, response.Body.String())
+			}
+			var envelope struct {
+				ErrorCode string `json:"errorCode"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.ErrorCode != "INVALID_REQUEST" {
+				t.Fatalf("errorCode=%q, want INVALID_REQUEST", envelope.ErrorCode)
+			}
+		})
+	}
+	if authenticateCalls != 0 {
+		t.Fatalf("malformed requests reached authentication %d times", authenticateCalls)
+	}
+	persistence.mu.Lock()
+	defer persistence.mu.Unlock()
+	if len(persistence.sessions) != 0 {
+		t.Fatalf("malformed requests created %d sessions", len(persistence.sessions))
+	}
+}
+
+func TestSaaSAuthExpiredConsumedAndLockedChallengesReturn401WithoutExtraSessions(t *testing.T) {
+	t.Run("expired challenge", func(t *testing.T) {
+		handler, persistence, _, token, secret := newMemoryEnrollmentFlow(t, 0)
+		digest := sha256.Sum256([]byte(token))
+		persistence.mu.Lock()
+		challenge := persistence.challenges[digest]
+		challenge.ExpiresAt = time.Now().Add(-time.Minute)
+		persistence.challenges[digest] = challenge
+		persistence.mu.Unlock()
+		code, err := totp.GenerateCode(secret, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(`{"challengeToken":"`+token+`","code":"`+code+`"}`)))
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("expired challenge status=%d body=%s", response.Code, response.Body.String())
+		}
+		persistence.mu.Lock()
+		defer persistence.mu.Unlock()
+		if len(persistence.sessions) != 0 {
+			t.Fatalf("expired challenge created %d sessions", len(persistence.sessions))
+		}
+	})
+
+	t.Run("consumed challenge", func(t *testing.T) {
+		handler, persistence, _, token, secret := newMemoryEnrollmentFlow(t, 0)
+		code, err := totp.GenerateCode(secret, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := `{"challengeToken":"` + token + `","code":"` + code + `"}`
+		first := httptest.NewRecorder()
+		handler.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(body)))
+		if first.Code != http.StatusOK {
+			t.Fatalf("first MFA status=%d body=%s", first.Code, first.Body.String())
+		}
+		persistence.mu.Lock()
+		sessionCount := len(persistence.sessions)
+		persistence.mu.Unlock()
+		replay := httptest.NewRecorder()
+		handler.ServeHTTP(replay, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(body)))
+		if replay.Code != http.StatusUnauthorized {
+			t.Fatalf("consumed challenge replay status=%d body=%s", replay.Code, replay.Body.String())
+		}
+		persistence.mu.Lock()
+		defer persistence.mu.Unlock()
+		if len(persistence.sessions) != sessionCount {
+			t.Fatalf("consumed replay changed session count from %d to %d", sessionCount, len(persistence.sessions))
+		}
+	})
+
+	t.Run("attempt limit", func(t *testing.T) {
+		handler, persistence, identity, _, secret := newMemoryEnrollmentFlow(t, 0)
+		persistence.mu.Lock()
+		persistence.statuses[identity.ID] = SaaSMFAStatusActive
+		persistence.mu.Unlock()
+		login := httptest.NewRecorder()
+		handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/saas/auth/login", strings.NewReader(`{"login":"platform-admin","password":"flow-initial-password"}`)))
+		if login.Code != http.StatusAccepted {
+			t.Fatalf("login status=%d body=%s", login.Code, login.Body.String())
+		}
+		var loginEnvelope struct {
+			Data struct {
+				ChallengeToken string `json:"challengeToken"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(login.Body.Bytes(), &loginEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		if loginEnvelope.Data.ChallengeToken == "" {
+			t.Fatal("login did not issue MFA challenge")
+		}
+		body := `{"challengeToken":"` + loginEnvelope.Data.ChallengeToken + `","code":"not-a-code"}`
+		for attempt := 0; attempt < 5; attempt++ {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(body)))
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("invalid attempt %d status=%d", attempt+1, response.Code)
+			}
+		}
+		validCode, err := totp.GenerateCode(secret, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		locked := httptest.NewRecorder()
+		handler.ServeHTTP(locked, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(`{"challengeToken":"`+loginEnvelope.Data.ChallengeToken+`","code":"`+validCode+`"}`)))
+		if locked.Code != http.StatusUnauthorized {
+			t.Fatalf("locked challenge status=%d body=%s", locked.Code, locked.Body.String())
+		}
+		persistence.mu.Lock()
+		defer persistence.mu.Unlock()
+		if len(persistence.sessions) != 0 {
+			t.Fatalf("locked challenge created %d sessions", len(persistence.sessions))
+		}
+	})
+}
+
+func newMemoryEnrollmentFlow(t *testing.T, mustRotate int) (*HTTPHandler, *memorySaaSAuthPersistence, SaaSIdentity, string, string) {
+	t.Helper()
+	const initialPassword = "flow-initial-password"
+	passwordHash, err := HashPassword(initialPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := SaaSIdentity{ID: 13, LoginName: "platform-admin", PasswordHash: passwordHash, Name: "Platform Admin", Status: SaaSIdentityStatusActive, AuthVersion: 1, MustRotatePassword: mustRotate, MFARequired: 1}
+	persistence := newMemorySaaSAuthPersistence(identity)
+	identityStore := &fakeSaaSIdentityStore{authenticate: func(_ context.Context, login string) (SaaSIdentity, error) {
+		if login != identity.LoginName {
+			return SaaSIdentity{}, ErrIdentityNotFound
+		}
+		persistence.mu.Lock()
+		defer persistence.mu.Unlock()
+		return persistence.identities[identity.ID], nil
+	}}
+	handler, err := NewHTTPHandler(testSaaSHTTPConfig(identityStore, persistence))
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/saas/auth/login", strings.NewReader(`{"login":"platform-admin","password":"flow-initial-password"}`)))
+	if login.Code != http.StatusAccepted {
+		t.Fatalf("enrollment login status=%d body=%s", login.Code, login.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Token  string `json:"enrollmentToken"`
+			Secret string `json:"enrollmentSecret"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(login.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.Token == "" || envelope.Data.Secret == "" {
+		t.Fatal("enrollment login did not issue challenge")
+	}
+	return handler, persistence, identity, envelope.Data.Token, envelope.Data.Secret
 }
 
 func TestSaaSAuthHTTPLogoutRequiresBearer(t *testing.T) {

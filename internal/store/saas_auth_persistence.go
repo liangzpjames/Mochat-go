@@ -147,8 +147,8 @@ func (store *SaaSIdentityStore) RecordMFAFailure(ctx context.Context, tokenDiges
 	}
 	result, err := store.db.ExecContext(ctx, `
 		UPDATE mochat_go_saas_admin_mfa_challenges
-		SET attempts = attempts + 1,
-			status = IF(attempts + 1 >= max_attempts, 2, 0), updated_at = NOW()
+		SET status = IF(attempts + 1 >= max_attempts, 2, 0),
+			attempts = attempts + 1, updated_at = NOW()
 		WHERE token_digest = ? AND status = 0 AND expires_at > NOW()
 	`, tokenDigest[:])
 	if err != nil {

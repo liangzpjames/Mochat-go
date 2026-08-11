@@ -7,12 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => {
   class MockApiError extends Error {
     status: number
-    code: number
+    httpCode: number
+    machineCode: string
 
-    constructor(message: string, status: number, code: number) {
+    constructor(message: string, status: number, machineCode: string, httpCode = status) {
       super(message)
       this.status = status
-      this.code = code
+      this.httpCode = httpCode
+      this.machineCode = machineCode
     }
   }
 
@@ -95,7 +97,7 @@ describe('SaaS login component flow', () => {
   })
 
   it('keeps the credentials stage and permits retry after a uniform authentication error', async () => {
-    mocks.loginSaaS.mockRejectedValueOnce(new mocks.ApiError('invalid credentials', 401, 401))
+    mocks.loginSaaS.mockRejectedValueOnce(new mocks.ApiError('invalid credentials', 401, 'INVALID_CREDENTIALS'))
     mocks.loginSaaS.mockResolvedValueOnce({ challengeToken: 'retry-mfa-token', mfaRequired: true })
 
     setInput(0, 'platform-admin')

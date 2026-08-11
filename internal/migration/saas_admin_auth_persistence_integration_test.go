@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -51,11 +52,14 @@ func TestSaaSAdminAuthPersistenceAgainstIsolatedMariaDB(t *testing.T) {
 	if enrollment.EnrollmentToken == "" || enrollment.EnrollmentSecret == "" {
 		t.Fatal("initial SaaS login did not return one-time enrollment data")
 	}
-	code, err := totp.GenerateCode(enrollment.EnrollmentSecret, time.Now())
+	enrollmentCodeTime := time.Now().UTC().Truncate(30 * time.Second).Add(-30 * time.Second)
+	code, err := totp.GenerateCode(enrollment.EnrollmentSecret, enrollmentCodeTime)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mfa := postRealSaaSJSON(t, handler, "/saas/auth/mfa", map[string]any{
+	// Recreate Store, Service, and Handler after the login-created challenge.
+	restartedBeforeMFA := newFreshRealSaaSHTTPHandler(t, db)
+	mfa := postRealSaaSJSON(t, restartedBeforeMFA, "/saas/auth/mfa", map[string]any{
 		"challengeToken": enrollment.EnrollmentToken, "code": code,
 	})
 	if mfa.status != http.StatusPreconditionRequired {
@@ -68,7 +72,17 @@ func TestSaaSAdminAuthPersistenceAgainstIsolatedMariaDB(t *testing.T) {
 	if passwordChallenge.PasswordChangeToken == "" {
 		t.Fatal("enrollment MFA did not issue a password-change challenge")
 	}
-	password := postRealSaaSJSON(t, handler, "/saas/auth/password", map[string]any{
+	consumedEnrollment := postRealSaaSJSON(t, restartedBeforeMFA, "/saas/auth/mfa", map[string]any{
+		"challengeToken": enrollment.EnrollmentToken, "code": code,
+	})
+	if consumedEnrollment.status != http.StatusUnauthorized {
+		t.Fatalf("consumed enrollment challenge status=%d", consumedEnrollment.status)
+	}
+	if got := identityRealmsCount(t, db, "mochat_go_saas_admin_sessions"); got != 0 {
+		t.Fatalf("consumed enrollment challenge created %d sessions", got)
+	}
+	passwordHandler := newFreshRealSaaSHTTPHandler(t, db)
+	password := postRealSaaSJSON(t, passwordHandler, "/saas/auth/password", map[string]any{
 		"passwordChangeToken": passwordChallenge.PasswordChangeToken, "newPassword": "task5-rotated-password",
 	})
 	if password.status != http.StatusOK {
@@ -98,9 +112,12 @@ func TestSaaSAdminAuthPersistenceAgainstIsolatedMariaDB(t *testing.T) {
 	}
 	assertIdentityRealmCountsEqual(t, db, countsBefore, "SaaS auth flow must not create Dashboard, tenant, corp, or mc_user rows")
 
-	// Recreate the handler over the same Store to prove the challenge survives a process restart.
-	restartedHandler := newRealSaaSHTTPHandler(t, service, saasStore)
-	secondLogin := postRealSaaSJSON(t, restartedHandler, "/saas/auth/login", map[string]any{
+	// Recreate Store, Service, and Handler after the first session was issued.
+	firstSessionHandler := newFreshRealSaaSHTTPHandler(t, db)
+	if got := realSaaSSessionStatus(t, firstSessionHandler, firstSession.Token); got != http.StatusOK {
+		t.Fatalf("session did not survive handler restart: status=%d", got)
+	}
+	secondLogin := postRealSaaSJSON(t, firstSessionHandler, "/saas/auth/login", map[string]any{
 		"login": "real-platform-admin", "password": "task5-rotated-password",
 	})
 	if secondLogin.status != http.StatusAccepted {
@@ -121,11 +138,13 @@ func TestSaaSAdminAuthPersistenceAgainstIsolatedMariaDB(t *testing.T) {
 	if challengeType != saasauth.SaaSMFAChallengeLogin {
 		t.Fatalf("post-enrollment challenge type=%q, want login_mfa", challengeType)
 	}
-	secondCode, err := totp.GenerateCode(enrollment.EnrollmentSecret, time.Now())
+	secondCodeTime := time.Now().UTC().Truncate(30 * time.Second)
+	secondCode, err := totp.GenerateCode(enrollment.EnrollmentSecret, secondCodeTime)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondMFA := postRealSaaSJSON(t, restartedHandler, "/saas/auth/mfa", map[string]any{
+	loginChallengeHandler := newFreshRealSaaSHTTPHandler(t, db)
+	secondMFA := postRealSaaSJSON(t, loginChallengeHandler, "/saas/auth/mfa", map[string]any{
 		"challengeToken": loginChallenge.ChallengeToken, "code": secondCode,
 	})
 	if secondMFA.status != http.StatusOK {
@@ -138,18 +157,51 @@ func TestSaaSAdminAuthPersistenceAgainstIsolatedMariaDB(t *testing.T) {
 	if secondSession.Token == "" {
 		t.Fatal("post-restart MFA did not issue a session")
 	}
-
-	if got := realSaaSSessionStatus(t, restartedHandler, secondSession.Token); got != http.StatusOK {
+	sessionsAfterSecondMFA := identityRealmsCount(t, db, "mochat_go_saas_admin_sessions")
+	postMFAHandler := newFreshRealSaaSHTTPHandler(t, db)
+	if got := realSaaSSessionStatus(t, postMFAHandler, secondSession.Token); got != http.StatusOK {
 		t.Fatalf("durable SaaS session status=%d", got)
 	}
+	thirdLoginHandler := newFreshRealSaaSHTTPHandler(t, db)
+	thirdLogin := postRealSaaSJSON(t, thirdLoginHandler, "/saas/auth/login", map[string]any{
+		"login": "real-platform-admin", "password": "task5-rotated-password",
+	})
+	if thirdLogin.status != http.StatusAccepted {
+		t.Fatalf("same-step replay login status=%d", thirdLogin.status)
+	}
+	var thirdLoginChallenge struct {
+		ChallengeToken string `json:"challengeToken"`
+	}
+	decodeRealSaaSData(t, thirdLogin.body, &thirdLoginChallenge)
+	for attempt := 1; attempt <= 5; attempt++ {
+		sameStepReplay := postRealSaaSJSON(t, thirdLoginHandler, "/saas/auth/mfa", map[string]any{
+			"challengeToken": thirdLoginChallenge.ChallengeToken, "code": secondCode,
+		})
+		if sameStepReplay.status != http.StatusUnauthorized {
+			t.Fatalf("same TOTP step replay attempt %d status=%d", attempt, sameStepReplay.status)
+		}
+	}
+	var challengeAttempts, challengeStatus int
+	thirdChallengeDigest := sha256.Sum256([]byte(thirdLoginChallenge.ChallengeToken))
+	if err := db.QueryRow(`SELECT attempts, status FROM mochat_go_saas_admin_mfa_challenges WHERE token_digest = ?`, thirdChallengeDigest[:]).Scan(&challengeAttempts, &challengeStatus); err != nil {
+		t.Fatal(err)
+	}
+	if challengeAttempts != 5 || challengeStatus != 2 {
+		t.Fatalf("same-step replay challenge state=(attempts=%d,status=%d), want (5,2)", challengeAttempts, challengeStatus)
+	}
+	if got := identityRealmsCount(t, db, "mochat_go_saas_admin_sessions"); got != sessionsAfterSecondMFA {
+		t.Fatalf("same TOTP step replay changed session count from %d to %d", sessionsAfterSecondMFA, got)
+	}
+	logoutHandler := newFreshRealSaaSHTTPHandler(t, db)
 	logout := httptest.NewRequest(http.MethodPost, "/saas/auth/logout", nil)
 	logout.Header.Set("Authorization", "Bearer "+secondSession.Token)
 	logoutResponse := httptest.NewRecorder()
-	restartedHandler.ServeHTTP(logoutResponse, logout)
+	logoutHandler.ServeHTTP(logoutResponse, logout)
 	if logoutResponse.Code != http.StatusNoContent {
 		t.Fatalf("SaaS logout status=%d", logoutResponse.Code)
 	}
-	if got := realSaaSSessionStatus(t, restartedHandler, secondSession.Token); got != http.StatusUnauthorized {
+	afterLogoutHandler := newFreshRealSaaSHTTPHandler(t, db)
+	if got := realSaaSSessionStatus(t, afterLogoutHandler, secondSession.Token); got != http.StatusUnauthorized {
 		t.Fatalf("revoked SaaS session status=%d", got)
 	}
 }
@@ -175,6 +227,12 @@ func newRealSaaSHTTPHandler(t *testing.T, service *saasauth.Service, persistence
 		t.Fatal(err)
 	}
 	return handler
+}
+
+func newFreshRealSaaSHTTPHandler(t *testing.T, db *sql.DB) http.Handler {
+	t.Helper()
+	persistence := store.NewSaaSIdentityStore(db)
+	return newRealSaaSHTTPHandler(t, saasauth.NewService(persistence), persistence)
 }
 
 func postRealSaaSJSON(t *testing.T, handler http.Handler, path string, payload map[string]any) realSaaSResponse {
