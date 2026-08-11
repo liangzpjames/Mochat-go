@@ -39,6 +39,12 @@ func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 		"information_schema.key_column_usage",
 		"information_schema.statistics",
 		"mochat_go_dashboard_user_roles",
+		"identity_unknown_tenant_fk_count",
+		"identity_unknown_tenant_index_count",
+		"unknown tenant dependency",
+		"0129 invalid mc_rbac_role tenant",
+		"dashboard user-role relationship",
+		"deferred to 0130",
 		"SIGNAL SQLSTATE ''45000''",
 		"PREPARE",
 		"EXECUTE",
@@ -48,6 +54,29 @@ func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 		if !strings.Contains(normalizedUp, strings.ToLower(strings.ReplaceAll(required, "`", ""))) {
 			t.Fatalf("0129 up migration missing %q", required)
 		}
+	}
+	for _, foreignKey := range []string{
+		"fk_dashboard_permission_resource_permission",
+		"fk_dashboard_user_roles_user",
+		"fk_dashboard_user_roles_role",
+		"fk_dashboard_role_permissions_role",
+		"fk_dashboard_role_permissions_permission",
+		"fk_dashboard_user_permissions_user",
+		"fk_dashboard_user_permissions_permission",
+		"fk_dashboard_audit_actor",
+	} {
+		if !strings.Contains(normalizedUp, "drop foreign key "+foreignKey) || !strings.Contains(normalizedUp, "add constraint "+foreignKey) {
+			t.Fatalf("0129 up migration must pair drop/add for %s", foreignKey)
+		}
+		if !strings.Contains(normalizedDown, "drop foreign key "+foreignKey) || !strings.Contains(normalizedDown, "add constraint "+foreignKey) {
+			t.Fatalf("0129 down migration must pair drop/add for %s", foreignKey)
+		}
+	}
+	if strings.Contains(normalizedUp, "add constraint fk_saas_admin_user_access_identity") || strings.Contains(normalizedDown, "drop foreign key fk_saas_admin_user_access_identity") {
+		t.Fatal("0129 must defer SaaS actor FK ownership to 0130")
+	}
+	if strings.Contains(normalizedUp, "select @identity_tenant_dependency_fk_count") || strings.Contains(normalizedUp, "select @identity_tenant_dependency_index_count") {
+		t.Fatal("dependency facts must be validated, not merely selected")
 	}
 	for _, required := range []string{
 		"DROP TABLE IF EXISTS `mochat_go_tenant_corp_bindings`",
@@ -65,7 +94,7 @@ func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 		t.Fatal("0129 migration must not use DELIMITER or stored procedures")
 	}
 	if firstDDL := firstIdentitySchemaDDL(up); firstDDL >= 0 {
-		for _, preflight := range []string{"duplicate dashboard login identifier", "information_schema.key_column_usage", "information_schema.statistics"} {
+		for _, preflight := range []string{"duplicate dashboard login identifier", "information_schema.key_column_usage", "information_schema.statistics", "unknown tenant dependency", "dashboard user-role relationship", "0129 invalid mc_rbac_role tenant"} {
 			if offset := strings.Index(normalizedUp, strings.ToLower(strings.ReplaceAll(preflight, "`", ""))); offset < 0 || offset > firstDDL {
 				t.Fatalf("preflight %q must precede first DDL", preflight)
 			}
@@ -80,6 +109,18 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 
 	t.Run("apply down apply and enforce identity and binding constraints", func(t *testing.T) {
 		createIdentitySingleCorpBaseFixture(t, db)
+		for _, relation := range [][2]string{
+			{"mochat_go_dashboard_permission_resources", "fk_dashboard_permission_resource_permission"},
+			{"mochat_go_dashboard_user_roles", "fk_dashboard_user_roles_user"},
+			{"mochat_go_dashboard_user_roles", "fk_dashboard_user_roles_role"},
+			{"mochat_go_dashboard_role_permissions", "fk_dashboard_role_permissions_role"},
+			{"mochat_go_dashboard_role_permissions", "fk_dashboard_role_permissions_permission"},
+			{"mochat_go_dashboard_user_permissions", "fk_dashboard_user_permissions_user"},
+			{"mochat_go_dashboard_user_permissions", "fk_dashboard_user_permissions_permission"},
+			{"mochat_go_dashboard_permission_audits", "fk_dashboard_audit_actor"},
+		} {
+			dropIdentityForeignKey(t, db, relation[0], relation[1])
+		}
 		execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false)
 
 		for _, table := range []string{
@@ -92,6 +133,7 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		}
 		assertIdentityIndexExists(t, db, "mochat_go_dashboard_identities", "uni_dashboard_identity_login_identifier")
 		assertIdentityIndexExists(t, db, "mochat_go_tenant_corp_bindings", "uni_tenant_corp_binding_corp")
+		assertIdentity0127ForeignKeys(t, db)
 
 		if _, err := db.Exec(`INSERT INTO mochat_go_saas_admin_users (login_name, password_hash, name) VALUES ('platform', 'hash', 'Platform')`); err != nil {
 			t.Fatal(err)
@@ -106,7 +148,10 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		assertExecFails(t, db, `INSERT INTO mochat_go_tenant_corp_bindings (tenant_id, corp_id, status, verified_corp_name) VALUES (1, 101, 1, '')`)
 		assertExecFails(t, db, `INSERT INTO mochat_go_tenant_corp_bindings (tenant_id, corp_id, status, verified_corp_name) VALUES (2, 100, 1, '')`)
 		assertExecFails(t, db, `INSERT INTO mochat_go_tenant_corp_bindings (tenant_id, corp_id, status, verified_corp_name) VALUES (1, 200, 1, '')`)
-		assertExecFails(t, db, `INSERT INTO mochat_go_saas_admin_user_access (user_id) VALUES (10)`)
+		if _, err := db.Exec(`INSERT INTO mochat_go_saas_admin_user_access (user_id) VALUES (10)`); err != nil {
+			t.Fatalf("0129 must defer dangling SaaS actor validation to 0130: %v", err)
+		}
+		assertIdentityForeignKeyMissing(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
 
 		execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.down.sql", false)
 		for _, table := range []string{
@@ -120,14 +165,16 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		assertIdentityColumnType(t, db, "mc_user", "tenant_id", "int(11)")
 		assertIdentityColumnType(t, db, "mc_corp", "tenant_id", "int(11)")
 		assertIdentityIndexMissing(t, db, "mc_corp", "uni_mc_corp_tenant_id_id")
+		assertIdentity0127ForeignKeys(t, db)
 
 		execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false)
+		assertIdentity0127ForeignKeys(t, db)
 	})
 
 	t.Run("preflight rejects duplicate login identifiers before DDL", func(t *testing.T) {
 		db := newIdentitySingleCorpMigrationDB(t)
 		createIdentitySingleCorpBaseFixture(t, db)
-		if _, err := db.Exec(`INSERT INTO mc_user (id, tenant_id, phone, status, deleted_at) VALUES (10, 1, '13800000002', 1, NULL), (11, 1, '13800000002', 1, NULL)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO mc_user (id, tenant_id, phone, status, deleted_at) VALUES (12, 1, '13800000002', 1, NULL), (13, 1, '13800000002', 1, NULL)`); err != nil {
 			t.Fatal(err)
 		}
 		err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", true)
@@ -138,9 +185,71 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		assertIdentityColumnType(t, db, "mc_user", "tenant_id", "int(11)")
 	})
 
+	t.Run("preflight rejects an unknown tenant dependency before DDL", func(t *testing.T) {
+		db := newIdentitySingleCorpMigrationDB(t)
+		createIdentitySingleCorpBaseFixture(t, db)
+		if _, err := db.Exec(`CREATE TABLE identity_dependency_probe (tenant_id int(10) unsigned NOT NULL, CONSTRAINT fk_unknown_tenant_dependency FOREIGN KEY (tenant_id) REFERENCES mc_tenant (id)) ENGINE=InnoDB`); err != nil {
+			t.Fatal(err)
+		}
+		err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", true)
+		if !strings.Contains(strings.ToLower(err.Error()), "unknown tenant dependency") {
+			t.Fatalf("error=%v", err)
+		}
+		assertIdentityTableMissing(t, db, "mochat_go_saas_admin_users")
+		assertIdentityColumnType(t, db, "mc_user", "tenant_id", "int(11)")
+	})
+
+	t.Run("preflight rejects an unknown tenant index before DDL", func(t *testing.T) {
+		db := newIdentitySingleCorpMigrationDB(t)
+		createIdentitySingleCorpBaseFixture(t, db)
+		if _, err := db.Exec("ALTER TABLE mc_user ADD INDEX idx_unknown_tenant_dependency (tenant_id)"); err != nil {
+			t.Fatal(err)
+		}
+		err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", true)
+		if !strings.Contains(strings.ToLower(err.Error()), "unknown tenant dependency index") {
+			t.Fatalf("error=%v", err)
+		}
+		assertIdentityTableMissing(t, db, "mochat_go_saas_admin_users")
+		assertIdentityColumnType(t, db, "mc_user", "tenant_id", "int(11)")
+	})
+
+	t.Run("preflight rejects dangling known relation when its FK was removed", func(t *testing.T) {
+		db := newIdentitySingleCorpMigrationDB(t)
+		createIdentitySingleCorpBaseFixture(t, db)
+		dropIdentityForeignKey(t, db, "mochat_go_dashboard_user_roles", "fk_dashboard_user_roles_user")
+		if _, err := db.Exec(`INSERT INTO mochat_go_dashboard_user_roles (tenant_id, user_id, role_id) VALUES (1, 999, 20)`); err != nil {
+			t.Fatal(err)
+		}
+		err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", true)
+		if !strings.Contains(strings.ToLower(err.Error()), "dashboard user-role relationship") {
+			t.Fatalf("error=%v", err)
+		}
+		assertIdentityTableMissing(t, db, "mochat_go_saas_admin_users")
+		assertIdentityColumnType(t, db, "mochat_go_dashboard_user_roles", "tenant_id", "int(11)")
+	})
+
+	t.Run("preflight rejects negative role tenant before DDL", func(t *testing.T) {
+		db := newIdentitySingleCorpMigrationDB(t)
+		createIdentitySingleCorpBaseFixture(t, db)
+		dropIdentityForeignKey(t, db, "mochat_go_dashboard_user_roles", "fk_dashboard_user_roles_role")
+		dropIdentityForeignKey(t, db, "mochat_go_dashboard_role_permissions", "fk_dashboard_role_permissions_role")
+		if _, err := db.Exec(`UPDATE mc_rbac_role SET tenant_id = -1 WHERE id = 20`); err != nil {
+			t.Fatal(err)
+		}
+		err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", true)
+		if !strings.Contains(strings.ToLower(err.Error()), "invalid mc_rbac_role tenant") {
+			t.Fatalf("error=%v", err)
+		}
+		assertIdentityTableMissing(t, db, "mochat_go_saas_admin_users")
+		assertIdentityColumnType(t, db, "mc_rbac_role", "tenant_id", "int(11)")
+	})
+
 	t.Run("down tolerates partial DDL", func(t *testing.T) {
 		db := newIdentitySingleCorpMigrationDB(t)
 		createIdentitySingleCorpBaseFixture(t, db)
+		dropIdentityForeignKey(t, db, "mochat_go_dashboard_user_roles", "fk_dashboard_user_roles_user")
+		dropIdentityForeignKey(t, db, "mochat_go_dashboard_user_permissions", "fk_dashboard_user_permissions_user")
+		dropIdentityForeignKey(t, db, "mochat_go_dashboard_permission_audits", "fk_dashboard_audit_actor")
 		if _, err := db.Exec(`ALTER TABLE mc_user MODIFY tenant_id int(10) unsigned NOT NULL DEFAULT 1`); err != nil {
 			t.Fatal(err)
 		}
@@ -200,13 +309,6 @@ func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL DEFAULT 1, phone char(11) NOT NULL DEFAULT '', password varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', status tinyint unsigned NOT NULL DEFAULT 1, deleted_at timestamp NULL, isSuperAdmin tinyint NOT NULL DEFAULT 0, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, data_permission json DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_user_role (id int(11) NOT NULL AUTO_INCREMENT, user_id int(11) NOT NULL, role_id int(11) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_dashboard_permissions (id bigint unsigned NOT NULL AUTO_INCREMENT, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_dashboard_permission_resources (id bigint unsigned NOT NULL AUTO_INCREMENT, permission_id bigint unsigned NOT NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_dashboard_user_roles (id bigint unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, user_id int(10) unsigned NOT NULL, role_id int(11) NOT NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_dashboard_role_permissions (id bigint unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, role_id int(11) NOT NULL, permission_id bigint unsigned NOT NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_dashboard_user_permissions (id bigint unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, user_id int(10) unsigned NOT NULL, permission_id bigint unsigned NOT NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_dashboard_permission_audits (id bigint unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, actor_user_id int(10) unsigned NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_saas_admin_user_access (id bigint unsigned NOT NULL AUTO_INCREMENT, user_id int(10) unsigned NOT NULL, PRIMARY KEY (id), UNIQUE KEY uni_mochat_go_saas_admin_user_access_user (user_id)) ENGINE=InnoDB`,
 		`INSERT INTO mc_tenant (id, name, status) VALUES (1, 'Tenant 1', 1), (2, 'Tenant 2', 1)`,
 		`INSERT INTO mc_corp (id, tenant_id, name) VALUES (100, 1, 'Corp 1'), (200, 2, 'Corp 2')`,
 		`INSERT INTO mc_user (id, tenant_id, phone, status, deleted_at) VALUES (10, 1, '13800000001', 1, NULL)`,
@@ -216,6 +318,37 @@ func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("fixture statement failed: %v", err)
 		}
+	}
+	loadRealDashboardPageRBACDDL(t, db)
+	for _, statement := range []string{
+		`INSERT INTO mochat_go_dashboard_permissions (id, code, permission_type, path, name) VALUES (900, 'dashboard.test', 'page', '/test', 'Test')`,
+		`INSERT INTO mochat_go_dashboard_permission_resources (id, permission_id, resource_type, http_method, path_pattern) VALUES (901, 900, 'api', 'GET', '/dashboard/test')`,
+		`INSERT INTO mochat_go_dashboard_user_roles (tenant_id, user_id, role_id) VALUES (1, 10, 20)`,
+		`INSERT INTO mochat_go_dashboard_role_permissions (tenant_id, role_id, permission_id) VALUES (1, 20, 900)`,
+		`INSERT INTO mochat_go_dashboard_user_permissions (tenant_id, user_id, permission_id) VALUES (1, 10, 900)`,
+		`INSERT INTO mochat_go_dashboard_permission_audits (tenant_id, actor_user_id, action, target_type, target_id) VALUES (1, 10, 'test', 'user', '10')`,
+		`CREATE TABLE mochat_go_saas_admin_user_access (id bigint unsigned NOT NULL AUTO_INCREMENT, user_id int(10) unsigned NOT NULL, PRIMARY KEY (id), UNIQUE KEY uni_mochat_go_saas_admin_user_access_user (user_id)) ENGINE=InnoDB`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("0127 complete fixture statement failed: %v", err)
+		}
+	}
+}
+
+func loadRealDashboardPageRBACDDL(t *testing.T, db *sql.DB) {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0127_dashboard_page_rbac.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(body)
+	start := strings.Index(script, "ALTER TABLE `mc_user`")
+	end := strings.Index(script, "INSERT INTO `mochat_go_dashboard_permissions`")
+	if start < 0 || end <= start {
+		t.Fatal("0127 DDL boundaries not found")
+	}
+	if err := execSQLScript(context.Background(), db, script[start:end]); err != nil {
+		t.Fatalf("load real 0127 DDL: %v", err)
 	}
 }
 
@@ -252,6 +385,51 @@ func firstIdentitySchemaDDL(sqlText string) int {
 		}
 	}
 	return first
+}
+
+func dropIdentityForeignKey(t *testing.T, db *sql.DB, table, foreignKey string) {
+	t.Helper()
+	if _, err := db.Exec("ALTER TABLE `" + table + "` DROP FOREIGN KEY `" + foreignKey + "`"); err != nil {
+		t.Fatalf("drop %s.%s: %v", table, foreignKey, err)
+	}
+}
+
+func assertIdentityForeignKeyExists(t *testing.T, db *sql.DB, table, foreignKey string) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema=DATABASE() AND table_name=? AND constraint_name=? AND constraint_type='FOREIGN KEY'`, table, foreignKey).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("foreign key %s.%s exists=%d", table, foreignKey, count)
+	}
+}
+
+func assertIdentityForeignKeyMissing(t *testing.T, db *sql.DB, table, foreignKey string) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema=DATABASE() AND table_name=? AND constraint_name=? AND constraint_type='FOREIGN KEY'`, table, foreignKey).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("foreign key %s.%s still exists", table, foreignKey)
+	}
+}
+
+func assertIdentity0127ForeignKeys(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, relation := range [][2]string{
+		{"mochat_go_dashboard_permission_resources", "fk_dashboard_permission_resource_permission"},
+		{"mochat_go_dashboard_user_roles", "fk_dashboard_user_roles_user"},
+		{"mochat_go_dashboard_user_roles", "fk_dashboard_user_roles_role"},
+		{"mochat_go_dashboard_role_permissions", "fk_dashboard_role_permissions_role"},
+		{"mochat_go_dashboard_role_permissions", "fk_dashboard_role_permissions_permission"},
+		{"mochat_go_dashboard_user_permissions", "fk_dashboard_user_permissions_user"},
+		{"mochat_go_dashboard_user_permissions", "fk_dashboard_user_permissions_permission"},
+		{"mochat_go_dashboard_permission_audits", "fk_dashboard_audit_actor"},
+	} {
+		assertIdentityForeignKeyExists(t, db, relation[0], relation[1])
+	}
 }
 
 func assertExecFails(t *testing.T, db *sql.DB, query string) {

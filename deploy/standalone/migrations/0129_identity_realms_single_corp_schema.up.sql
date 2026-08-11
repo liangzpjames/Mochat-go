@@ -1,6 +1,173 @@
 -- Identity realm and single-corp schema.
--- All data and dependency checks intentionally precede the first DDL. MySQL/MariaDB
--- implicitly commit DDL, so a dirty source database must stop before any change.
+-- Every consistency and dependency check in this file is before the first DDL.
+-- MariaDB/MySQL DDL implicitly commits, so an unknown dependency or dirty relation
+-- must stop without attempting a type change or table creation.
+
+SET @identity_missing_0127_table_count := (
+  SELECT COUNT(*)
+  FROM (
+    SELECT 'mochat_go_dashboard_permissions' AS table_name
+    UNION ALL SELECT 'mochat_go_dashboard_permission_resources'
+    UNION ALL SELECT 'mochat_go_dashboard_user_roles'
+    UNION ALL SELECT 'mochat_go_dashboard_role_permissions'
+    UNION ALL SELECT 'mochat_go_dashboard_user_permissions'
+    UNION ALL SELECT 'mochat_go_dashboard_permission_audits'
+  ) expected
+  LEFT JOIN `information_schema`.`tables` actual
+    ON actual.`table_schema` = DATABASE()
+   AND actual.`table_name` = expected.`table_name`
+  WHERE actual.`table_name` IS NULL
+);
+SET @identity_missing_0127_table_guard_sql := IF(
+  @identity_missing_0127_table_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 missing complete 0127 dashboard schema'''
+);
+PREPARE identity_missing_0127_table_guard_stmt FROM @identity_missing_0127_table_guard_sql;
+EXECUTE identity_missing_0127_table_guard_stmt;
+DEALLOCATE PREPARE identity_missing_0127_table_guard_stmt;
+
+SET @identity_missing_0127_tenant_column_count := (
+  SELECT COUNT(*)
+  FROM (
+    SELECT 'mochat_go_dashboard_user_roles' AS table_name
+    UNION ALL SELECT 'mochat_go_dashboard_role_permissions'
+    UNION ALL SELECT 'mochat_go_dashboard_user_permissions'
+    UNION ALL SELECT 'mochat_go_dashboard_permission_audits'
+  ) expected
+  LEFT JOIN `information_schema`.`columns` actual
+    ON actual.`table_schema` = DATABASE()
+   AND actual.`table_name` = expected.`table_name`
+   AND actual.`column_name` = 'tenant_id'
+  WHERE actual.`column_name` IS NULL
+);
+SET @identity_missing_0127_tenant_column_guard_sql := IF(
+  @identity_missing_0127_tenant_column_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 missing 0127 tenant column'''
+);
+PREPARE identity_missing_0127_tenant_column_guard_stmt FROM @identity_missing_0127_tenant_column_guard_sql;
+EXECUTE identity_missing_0127_tenant_column_guard_stmt;
+DEALLOCATE PREPARE identity_missing_0127_tenant_column_guard_stmt;
+
+-- The real 0127 permission catalog is global: permissions and resources have no
+-- tenant_id. A tenant column there is an unreviewed schema dependency, not a
+-- column this migration may guess how to alter.
+SET @identity_unexpected_permission_tenant_column_count := (
+  SELECT COUNT(*)
+  FROM `information_schema`.`columns`
+  WHERE `table_schema` = DATABASE()
+    AND `table_name` IN ('mochat_go_dashboard_permissions', 'mochat_go_dashboard_permission_resources')
+    AND `column_name` = 'tenant_id'
+);
+SET @identity_unexpected_permission_tenant_column_guard_sql := IF(
+  @identity_unexpected_permission_tenant_column_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 unknown 0127 permission tenant column'''
+);
+PREPARE identity_unexpected_permission_tenant_column_guard_stmt FROM @identity_unexpected_permission_tenant_column_guard_sql;
+EXECUTE identity_unexpected_permission_tenant_column_guard_stmt;
+DEALLOCATE PREPARE identity_unexpected_permission_tenant_column_guard_stmt;
+
+-- The allowlist is grouped by constraint and ordered by ordinal_position so a
+-- newly added FK cannot hide behind a familiar constraint name. Known FK absence
+-- is allowed here; the relation queries below still prove the data is clean.
+SET @identity_unknown_tenant_fk_count := (
+  SELECT COUNT(*)
+  FROM (
+    SELECT k.`table_name`, k.`constraint_name`,
+           GROUP_CONCAT(CONCAT(k.`column_name`, '=', k.`referenced_table_name`, '.', k.`referenced_column_name`) ORDER BY k.`ordinal_position` SEPARATOR ',') AS `signature`
+    FROM `information_schema`.`key_column_usage` k
+    WHERE k.`constraint_schema` = DATABASE()
+      AND k.`referenced_table_name` IS NOT NULL
+      AND (
+        k.`column_name` = 'tenant_id'
+        OR k.`referenced_column_name` = 'tenant_id'
+        OR k.`table_name` IN (
+          'mochat_go_dashboard_permissions',
+          'mochat_go_dashboard_permission_resources',
+          'mochat_go_dashboard_user_roles',
+          'mochat_go_dashboard_role_permissions',
+          'mochat_go_dashboard_user_permissions',
+          'mochat_go_dashboard_permission_audits'
+        )
+      )
+    GROUP BY k.`table_name`, k.`constraint_name`
+  ) dependencies
+  WHERE NOT (
+    (`table_name` = 'mochat_go_dashboard_permission_resources' AND `constraint_name` = 'fk_dashboard_permission_resource_permission' AND `signature` = 'permission_id=mochat_go_dashboard_permissions.id')
+    OR (`table_name` = 'mochat_go_dashboard_user_roles' AND `constraint_name` = 'fk_dashboard_user_roles_user' AND `signature` = 'tenant_id=mc_user.tenant_id,user_id=mc_user.id')
+    OR (`table_name` = 'mochat_go_dashboard_user_roles' AND `constraint_name` = 'fk_dashboard_user_roles_role' AND `signature` = 'tenant_id=mc_rbac_role.tenant_id,role_id=mc_rbac_role.id')
+    OR (`table_name` = 'mochat_go_dashboard_role_permissions' AND `constraint_name` = 'fk_dashboard_role_permissions_role' AND `signature` = 'tenant_id=mc_rbac_role.tenant_id,role_id=mc_rbac_role.id')
+    OR (`table_name` = 'mochat_go_dashboard_role_permissions' AND `constraint_name` = 'fk_dashboard_role_permissions_permission' AND `signature` = 'permission_id=mochat_go_dashboard_permissions.id')
+    OR (`table_name` = 'mochat_go_dashboard_user_permissions' AND `constraint_name` = 'fk_dashboard_user_permissions_user' AND `signature` = 'tenant_id=mc_user.tenant_id,user_id=mc_user.id')
+    OR (`table_name` = 'mochat_go_dashboard_user_permissions' AND `constraint_name` = 'fk_dashboard_user_permissions_permission' AND `signature` = 'permission_id=mochat_go_dashboard_permissions.id')
+    OR (`table_name` = 'mochat_go_dashboard_permission_audits' AND `constraint_name` = 'fk_dashboard_audit_actor' AND `signature` = 'tenant_id=mc_user.tenant_id,actor_user_id=mc_user.id')
+    OR (`table_name` = 'mochat_go_dashboard_identities' AND `constraint_name` = 'fk_dashboard_identity_user' AND `signature` = 'user_id=mc_user.id')
+    OR (`table_name` = 'mochat_go_dashboard_identity_activations' AND `constraint_name` = 'fk_dashboard_identity_activation_identity' AND `signature` = 'user_id=mochat_go_dashboard_identities.user_id')
+    OR (`table_name` = 'mochat_go_dashboard_identity_activations' AND `constraint_name` = 'fk_dashboard_identity_activation_saas_user' AND `signature` = 'created_by_saas_user_id=mochat_go_saas_admin_users.id')
+    OR (`table_name` = 'mochat_go_tenant_corp_bindings' AND `constraint_name` = 'fk_tenant_corp_binding_tenant' AND `signature` = 'tenant_id=mc_tenant.id')
+    OR (`table_name` = 'mochat_go_tenant_corp_bindings' AND `constraint_name` = 'fk_tenant_corp_binding_corp' AND `signature` = 'tenant_id=mc_corp.tenant_id,corp_id=mc_corp.id')
+  )
+);
+SET @identity_unknown_tenant_fk_guard_sql := IF(
+  @identity_unknown_tenant_fk_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 unknown tenant dependency FK'''
+);
+PREPARE identity_unknown_tenant_fk_guard_stmt FROM @identity_unknown_tenant_fk_guard_sql;
+EXECUTE identity_unknown_tenant_fk_guard_stmt;
+DEALLOCATE PREPARE identity_unknown_tenant_fk_guard_stmt;
+
+-- Index dependencies are allowlisted by table, name and ordered columns. This
+-- includes the indexes created by 0127 and the target indexes used by 0129.
+SET @identity_unknown_tenant_index_count := (
+  SELECT COUNT(*)
+  FROM (
+    SELECT s.`table_name`, s.`index_name`,
+           GROUP_CONCAT(s.`column_name` ORDER BY s.`seq_in_index` SEPARATOR ',') AS `signature`
+    FROM `information_schema`.`statistics` s
+    WHERE s.`table_schema` = DATABASE()
+      AND s.`table_name` IN (
+        'mc_user', 'mc_corp', 'mc_rbac_role',
+        'mochat_go_dashboard_user_roles',
+        'mochat_go_dashboard_role_permissions',
+        'mochat_go_dashboard_user_permissions',
+        'mochat_go_dashboard_permission_audits',
+        'mochat_go_tenant_corp_bindings'
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM `information_schema`.`statistics` tenant_index
+        WHERE tenant_index.`table_schema` = s.`table_schema`
+          AND tenant_index.`table_name` = s.`table_name`
+          AND tenant_index.`index_name` = s.`index_name`
+          AND tenant_index.`column_name` = 'tenant_id'
+      )
+    GROUP BY s.`table_name`, s.`index_name`
+  ) dependencies
+  WHERE NOT (
+    (`table_name` = 'mc_user' AND `index_name` = 'uni_dashboard_user_tenant_id_id' AND `signature` = 'tenant_id,id')
+    OR (`table_name` = 'mc_corp' AND `index_name` = 'uni_mc_corp_tenant_id_id' AND `signature` = 'tenant_id,id')
+    OR (`table_name` = 'mc_rbac_role' AND `index_name` = 'uni_dashboard_role_tenant_id_id' AND `signature` = 'tenant_id,id')
+    OR (`table_name` = 'mochat_go_dashboard_user_roles' AND `index_name` = 'uni_dashboard_user_roles' AND `signature` = 'tenant_id,user_id,role_id')
+    OR (`table_name` = 'mochat_go_dashboard_user_roles' AND `index_name` = 'idx_dashboard_user_roles_role' AND `signature` = 'tenant_id,role_id,user_id')
+    OR (`table_name` = 'mochat_go_dashboard_role_permissions' AND `index_name` = 'uni_dashboard_role_permissions' AND `signature` = 'tenant_id,role_id,permission_id')
+    OR (`table_name` = 'mochat_go_dashboard_user_permissions' AND `index_name` = 'uni_dashboard_user_permissions' AND `signature` = 'tenant_id,user_id,permission_id')
+    OR (`table_name` = 'mochat_go_dashboard_permission_audits' AND `index_name` = 'idx_dashboard_permission_audits_tenant_time' AND `signature` = 'tenant_id,created_at,id')
+    OR (`table_name` = 'mochat_go_dashboard_permission_audits' AND `index_name` = 'idx_dashboard_permission_audits_target' AND `signature` = 'tenant_id,target_type,target_id,id')
+    OR (`table_name` = 'mochat_go_dashboard_permission_audits' AND `index_name` = 'fk_dashboard_audit_actor' AND `signature` = 'tenant_id,actor_user_id')
+    OR (`table_name` = 'mochat_go_tenant_corp_bindings' AND `index_name` = 'PRIMARY' AND `signature` = 'tenant_id')
+  )
+);
+SET @identity_unknown_tenant_index_guard_sql := IF(
+  @identity_unknown_tenant_index_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 unknown tenant dependency index'''
+);
+PREPARE identity_unknown_tenant_index_guard_stmt FROM @identity_unknown_tenant_index_guard_sql;
+EXECUTE identity_unknown_tenant_index_guard_stmt;
+DEALLOCATE PREPARE identity_unknown_tenant_index_guard_stmt;
 
 SET @identity_duplicate_dashboard_login_count := (
   SELECT COUNT(*)
@@ -23,125 +190,244 @@ PREPARE identity_duplicate_dashboard_login_guard_stmt FROM @identity_duplicate_d
 EXECUTE identity_duplicate_dashboard_login_guard_stmt;
 DEALLOCATE PREPARE identity_duplicate_dashboard_login_guard_stmt;
 
-SET @identity_dangling_user_tenant_count := (
+SET @identity_invalid_user_tenant_count := (
   SELECT COUNT(*)
   FROM `mc_user` u
   LEFT JOIN `mc_tenant` t ON t.`id` = u.`tenant_id`
-  WHERE u.`tenant_id` < 0 OR t.`id` IS NULL
+  WHERE u.`tenant_id` IS NULL
+     OR CAST(u.`tenant_id` AS DECIMAL(20,0)) < 0
+     OR CAST(u.`tenant_id` AS DECIMAL(20,0)) > 4294967295
+     OR t.`id` IS NULL
 );
-SET @identity_dangling_user_tenant_guard_sql := IF(
-  @identity_dangling_user_tenant_count = 0,
+SET @identity_invalid_user_tenant_guard_sql := IF(
+  @identity_invalid_user_tenant_count = 0,
   'SELECT 1',
-  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 dangling mc_user tenant'''
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 invalid mc_user tenant'''
 );
-PREPARE identity_dangling_user_tenant_guard_stmt FROM @identity_dangling_user_tenant_guard_sql;
-EXECUTE identity_dangling_user_tenant_guard_stmt;
-DEALLOCATE PREPARE identity_dangling_user_tenant_guard_stmt;
+PREPARE identity_invalid_user_tenant_guard_stmt FROM @identity_invalid_user_tenant_guard_sql;
+EXECUTE identity_invalid_user_tenant_guard_stmt;
+DEALLOCATE PREPARE identity_invalid_user_tenant_guard_stmt;
 
-SET @identity_dangling_corp_tenant_count := (
+SET @identity_invalid_corp_tenant_count := (
   SELECT COUNT(*)
   FROM `mc_corp` c
   LEFT JOIN `mc_tenant` t ON t.`id` = c.`tenant_id`
-  WHERE c.`tenant_id` < 0 OR (c.`tenant_id` <> 0 AND t.`id` IS NULL)
+  WHERE c.`tenant_id` IS NULL
+     OR CAST(c.`tenant_id` AS DECIMAL(20,0)) < 0
+     OR CAST(c.`tenant_id` AS DECIMAL(20,0)) > 4294967295
+     OR t.`id` IS NULL
 );
-SET @identity_dangling_corp_tenant_guard_sql := IF(
-  @identity_dangling_corp_tenant_count = 0,
+SET @identity_invalid_corp_tenant_guard_sql := IF(
+  @identity_invalid_corp_tenant_count = 0,
   'SELECT 1',
-  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 dangling mc_corp tenant'''
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 invalid mc_corp tenant'''
 );
-PREPARE identity_dangling_corp_tenant_guard_stmt FROM @identity_dangling_corp_tenant_guard_sql;
-EXECUTE identity_dangling_corp_tenant_guard_stmt;
-DEALLOCATE PREPARE identity_dangling_corp_tenant_guard_stmt;
+PREPARE identity_invalid_corp_tenant_guard_stmt FROM @identity_invalid_corp_tenant_guard_sql;
+EXECUTE identity_invalid_corp_tenant_guard_stmt;
+DEALLOCATE PREPARE identity_invalid_corp_tenant_guard_stmt;
 
--- Enumerate every dependency before altering tenant_id. The counts are kept as
--- explicit session facts so a future dependency cannot be silently missed.
-SET @identity_tenant_dependency_fk_count := (
+SET @identity_invalid_role_tenant_count := (
   SELECT COUNT(*)
-  FROM `information_schema`.`key_column_usage`
-  WHERE `constraint_schema` = DATABASE()
-    AND `referenced_table_name` IN ('mc_user', 'mc_corp', 'mc_rbac_role')
-    AND `referenced_column_name` = 'tenant_id'
+  FROM `mc_rbac_role` r
+  LEFT JOIN `mc_tenant` t ON t.`id` = r.`tenant_id`
+  WHERE r.`tenant_id` IS NULL
+     OR CAST(r.`tenant_id` AS DECIMAL(20,0)) < 0
+     OR CAST(r.`tenant_id` AS DECIMAL(20,0)) > 4294967295
+     OR t.`id` IS NULL
 );
-SET @identity_tenant_dependency_index_count := (
-  SELECT COUNT(*)
-  FROM `information_schema`.`statistics`
-  WHERE `table_schema` = DATABASE()
-    AND `column_name` = 'tenant_id'
-    AND `table_name` IN (
-      'mc_user', 'mc_corp', 'mc_rbac_role',
-      'mochat_go_dashboard_user_roles',
-      'mochat_go_dashboard_role_permissions',
-      'mochat_go_dashboard_user_permissions',
-      'mochat_go_dashboard_permission_audits'
-    )
+SET @identity_invalid_role_tenant_guard_sql := IF(
+  @identity_invalid_role_tenant_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 invalid mc_rbac_role tenant'''
 );
-SET @identity_0127_tenant_dependency_count := (
-  SELECT COUNT(*)
-  FROM `information_schema`.`columns`
-  WHERE `table_schema` = DATABASE()
-    AND `table_name` IN (
-      'mochat_go_dashboard_user_roles',
-      'mochat_go_dashboard_role_permissions',
-      'mochat_go_dashboard_user_permissions',
-      'mochat_go_dashboard_permission_audits'
-    )
-    AND `column_name` = 'tenant_id'
-);
-SELECT @identity_tenant_dependency_fk_count, @identity_tenant_dependency_index_count, @identity_0127_tenant_dependency_count;
+PREPARE identity_invalid_role_tenant_guard_stmt FROM @identity_invalid_role_tenant_guard_sql;
+EXECUTE identity_invalid_role_tenant_guard_stmt;
+DEALLOCATE PREPARE identity_invalid_role_tenant_guard_stmt;
 
-SET @identity_drop_dashboard_user_roles_user_sql := IF(
+SET @identity_invalid_0127_tenant_count := (
+  SELECT COUNT(*) FROM `mochat_go_dashboard_user_roles` WHERE `tenant_id` IS NULL OR CAST(`tenant_id` AS DECIMAL(20,0)) < 0 OR CAST(`tenant_id` AS DECIMAL(20,0)) > 4294967295
+)
++ (SELECT COUNT(*) FROM `mochat_go_dashboard_role_permissions` WHERE `tenant_id` IS NULL OR CAST(`tenant_id` AS DECIMAL(20,0)) < 0 OR CAST(`tenant_id` AS DECIMAL(20,0)) > 4294967295)
++ (SELECT COUNT(*) FROM `mochat_go_dashboard_user_permissions` WHERE `tenant_id` IS NULL OR CAST(`tenant_id` AS DECIMAL(20,0)) < 0 OR CAST(`tenant_id` AS DECIMAL(20,0)) > 4294967295)
++ (SELECT COUNT(*) FROM `mochat_go_dashboard_permission_audits` WHERE `tenant_id` IS NULL OR CAST(`tenant_id` AS DECIMAL(20,0)) < 0 OR CAST(`tenant_id` AS DECIMAL(20,0)) > 4294967295);
+SET @identity_invalid_0127_tenant_guard_sql := IF(
+  @identity_invalid_0127_tenant_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 invalid 0127 tenant column'''
+);
+PREPARE identity_invalid_0127_tenant_guard_stmt FROM @identity_invalid_0127_tenant_guard_sql;
+EXECUTE identity_invalid_0127_tenant_guard_stmt;
+DEALLOCATE PREPARE identity_invalid_0127_tenant_guard_stmt;
+
+SET @identity_dashboard_user_role_relation_count := (
+  SELECT COUNT(*)
+  FROM `mochat_go_dashboard_user_roles` ur
+  LEFT JOIN `mc_user` u ON u.`id` = ur.`user_id`
+  LEFT JOIN `mc_rbac_role` r ON r.`id` = ur.`role_id`
+  WHERE u.`id` IS NULL OR r.`id` IS NULL OR u.`tenant_id` <> ur.`tenant_id` OR r.`tenant_id` <> ur.`tenant_id`
+);
+SET @identity_dashboard_user_role_relation_guard_sql := IF(
+  @identity_dashboard_user_role_relation_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 dashboard user-role relationship'''
+);
+PREPARE identity_dashboard_user_role_relation_guard_stmt FROM @identity_dashboard_user_role_relation_guard_sql;
+EXECUTE identity_dashboard_user_role_relation_guard_stmt;
+DEALLOCATE PREPARE identity_dashboard_user_role_relation_guard_stmt;
+
+SET @identity_dashboard_role_permission_relation_count := (
+  SELECT COUNT(*)
+  FROM `mochat_go_dashboard_role_permissions` rp
+  LEFT JOIN `mc_rbac_role` r ON r.`id` = rp.`role_id`
+  LEFT JOIN `mochat_go_dashboard_permissions` p ON p.`id` = rp.`permission_id`
+  WHERE r.`id` IS NULL OR p.`id` IS NULL OR r.`tenant_id` <> rp.`tenant_id`
+);
+SET @identity_dashboard_role_permission_relation_guard_sql := IF(
+  @identity_dashboard_role_permission_relation_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 dashboard role-permission relationship'''
+);
+PREPARE identity_dashboard_role_permission_relation_guard_stmt FROM @identity_dashboard_role_permission_relation_guard_sql;
+EXECUTE identity_dashboard_role_permission_relation_guard_stmt;
+DEALLOCATE PREPARE identity_dashboard_role_permission_relation_guard_stmt;
+
+SET @identity_dashboard_user_permission_relation_count := (
+  SELECT COUNT(*)
+  FROM `mochat_go_dashboard_user_permissions` up
+  LEFT JOIN `mc_user` u ON u.`id` = up.`user_id`
+  LEFT JOIN `mochat_go_dashboard_permissions` p ON p.`id` = up.`permission_id`
+  WHERE u.`id` IS NULL OR p.`id` IS NULL OR u.`tenant_id` <> up.`tenant_id`
+);
+SET @identity_dashboard_user_permission_relation_guard_sql := IF(
+  @identity_dashboard_user_permission_relation_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 dashboard user-permission relationship'''
+);
+PREPARE identity_dashboard_user_permission_relation_guard_stmt FROM @identity_dashboard_user_permission_relation_guard_sql;
+EXECUTE identity_dashboard_user_permission_relation_guard_stmt;
+DEALLOCATE PREPARE identity_dashboard_user_permission_relation_guard_stmt;
+
+SET @identity_dashboard_audit_relation_count := (
+  SELECT COUNT(*)
+  FROM `mochat_go_dashboard_permission_audits` a
+  LEFT JOIN `mc_user` u ON u.`id` = a.`actor_user_id`
+  WHERE a.`actor_user_id` IS NOT NULL AND (u.`id` IS NULL OR u.`tenant_id` <> a.`tenant_id`)
+);
+SET @identity_dashboard_audit_relation_guard_sql := IF(
+  @identity_dashboard_audit_relation_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 dashboard audit actor relationship'''
+);
+PREPARE identity_dashboard_audit_relation_guard_stmt FROM @identity_dashboard_audit_relation_guard_sql;
+EXECUTE identity_dashboard_audit_relation_guard_stmt;
+DEALLOCATE PREPARE identity_dashboard_audit_relation_guard_stmt;
+
+SET @identity_dashboard_permission_resource_relation_count := (
+  SELECT COUNT(*)
+  FROM `mochat_go_dashboard_permission_resources` pr
+  LEFT JOIN `mochat_go_dashboard_permissions` p ON p.`id` = pr.`permission_id`
+  WHERE p.`id` IS NULL
+);
+SET @identity_dashboard_permission_resource_relation_guard_sql := IF(
+  @identity_dashboard_permission_resource_relation_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 dashboard permission-resource relationship'''
+);
+PREPARE identity_dashboard_permission_resource_relation_guard_stmt FROM @identity_dashboard_permission_resource_relation_guard_sql;
+EXECUTE identity_dashboard_permission_resource_relation_guard_stmt;
+DEALLOCATE PREPARE identity_dashboard_permission_resource_relation_guard_stmt;
+
+SET @identity_legacy_user_role_relation_count := (
+  SELECT COUNT(*)
+  FROM `mc_rbac_user_role` ur
+  LEFT JOIN `mc_user` u ON u.`id` = CAST(ur.`user_id` AS UNSIGNED)
+  LEFT JOIN `mc_rbac_role` r ON r.`id` = ur.`role_id`
+  WHERE ur.`deleted_at` IS NULL
+    AND (u.`id` IS NULL OR r.`id` IS NULL OR u.`tenant_id` <> r.`tenant_id`)
+);
+SET @identity_legacy_user_role_relation_guard_sql := IF(
+  @identity_legacy_user_role_relation_count = 0,
+  'SELECT 1',
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0129 legacy user-role relationship'''
+);
+PREPARE identity_legacy_user_role_relation_guard_stmt FROM @identity_legacy_user_role_relation_guard_sql;
+EXECUTE identity_legacy_user_role_relation_guard_stmt;
+DEALLOCATE PREPARE identity_legacy_user_role_relation_guard_stmt;
+
+-- All eight 0127 foreign keys are dropped as one explicit allowlisted cutover
+-- set. Permission/resource FKs are not tenant composites, but are restored as a
+-- pair as well so a partial run can never permanently lose them.
+SET @identity_drop_permission_resource_permission_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_permission_resources' AND `constraint_name` = 'fk_dashboard_permission_resource_permission') = 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_permission_resources` DROP FOREIGN KEY `fk_dashboard_permission_resource_permission`'
+);
+PREPARE identity_drop_permission_resource_permission_stmt FROM @identity_drop_permission_resource_permission_sql;
+EXECUTE identity_drop_permission_resource_permission_stmt;
+DEALLOCATE PREPARE identity_drop_permission_resource_permission_stmt;
+
+SET @identity_drop_user_roles_user_sql := IF(
   (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `constraint_name` = 'fk_dashboard_user_roles_user') = 0,
   'SELECT 1',
   'ALTER TABLE `mochat_go_dashboard_user_roles` DROP FOREIGN KEY `fk_dashboard_user_roles_user`'
 );
-PREPARE identity_drop_dashboard_user_roles_user_stmt FROM @identity_drop_dashboard_user_roles_user_sql;
-EXECUTE identity_drop_dashboard_user_roles_user_stmt;
-DEALLOCATE PREPARE identity_drop_dashboard_user_roles_user_stmt;
+PREPARE identity_drop_user_roles_user_stmt FROM @identity_drop_user_roles_user_sql;
+EXECUTE identity_drop_user_roles_user_stmt;
+DEALLOCATE PREPARE identity_drop_user_roles_user_stmt;
 
-SET @identity_drop_dashboard_user_roles_role_sql := IF(
+SET @identity_drop_user_roles_role_sql := IF(
   (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `constraint_name` = 'fk_dashboard_user_roles_role') = 0,
   'SELECT 1',
   'ALTER TABLE `mochat_go_dashboard_user_roles` DROP FOREIGN KEY `fk_dashboard_user_roles_role`'
 );
-PREPARE identity_drop_dashboard_user_roles_role_stmt FROM @identity_drop_dashboard_user_roles_role_sql;
-EXECUTE identity_drop_dashboard_user_roles_role_stmt;
-DEALLOCATE PREPARE identity_drop_dashboard_user_roles_role_stmt;
+PREPARE identity_drop_user_roles_role_stmt FROM @identity_drop_user_roles_role_sql;
+EXECUTE identity_drop_user_roles_role_stmt;
+DEALLOCATE PREPARE identity_drop_user_roles_role_stmt;
 
-SET @identity_drop_dashboard_role_permissions_role_sql := IF(
+SET @identity_drop_role_permissions_role_sql := IF(
   (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_role_permissions' AND `constraint_name` = 'fk_dashboard_role_permissions_role') = 0,
   'SELECT 1',
   'ALTER TABLE `mochat_go_dashboard_role_permissions` DROP FOREIGN KEY `fk_dashboard_role_permissions_role`'
 );
-PREPARE identity_drop_dashboard_role_permissions_role_stmt FROM @identity_drop_dashboard_role_permissions_role_sql;
-EXECUTE identity_drop_dashboard_role_permissions_role_stmt;
-DEALLOCATE PREPARE identity_drop_dashboard_role_permissions_role_stmt;
+PREPARE identity_drop_role_permissions_role_stmt FROM @identity_drop_role_permissions_role_sql;
+EXECUTE identity_drop_role_permissions_role_stmt;
+DEALLOCATE PREPARE identity_drop_role_permissions_role_stmt;
 
-SET @identity_drop_dashboard_user_permissions_user_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_permissions' AND `constraint_name` = 'fk_dashboard_user_permissions_user') = 0,
-  'SELECT 1',
-  'ALTER TABLE `mochat_go_dashboard_user_permissions` DROP FOREIGN KEY `fk_dashboard_user_permissions_user`'
-);
-PREPARE identity_drop_dashboard_user_permissions_user_stmt FROM @identity_drop_dashboard_user_permissions_user_sql;
-EXECUTE identity_drop_dashboard_user_permissions_user_stmt;
-DEALLOCATE PREPARE identity_drop_dashboard_user_permissions_user_stmt;
-
-SET @identity_drop_dashboard_audit_actor_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_permission_audits' AND `constraint_name` = 'fk_dashboard_audit_actor') = 0,
-  'SELECT 1',
-  'ALTER TABLE `mochat_go_dashboard_permission_audits` DROP FOREIGN KEY `fk_dashboard_audit_actor`'
-);
-PREPARE identity_drop_dashboard_audit_actor_stmt FROM @identity_drop_dashboard_audit_actor_sql;
-EXECUTE identity_drop_dashboard_audit_actor_stmt;
-DEALLOCATE PREPARE identity_drop_dashboard_audit_actor_stmt;
-
-SET @identity_drop_dashboard_role_permission_permission_sql := IF(
+SET @identity_drop_role_permissions_permission_sql := IF(
   (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_role_permissions' AND `constraint_name` = 'fk_dashboard_role_permissions_permission') = 0,
   'SELECT 1',
   'ALTER TABLE `mochat_go_dashboard_role_permissions` DROP FOREIGN KEY `fk_dashboard_role_permissions_permission`'
 );
-PREPARE identity_drop_dashboard_role_permission_permission_stmt FROM @identity_drop_dashboard_role_permission_permission_sql;
-EXECUTE identity_drop_dashboard_role_permission_permission_stmt;
-DEALLOCATE PREPARE identity_drop_dashboard_role_permission_permission_stmt;
+PREPARE identity_drop_role_permissions_permission_stmt FROM @identity_drop_role_permissions_permission_sql;
+EXECUTE identity_drop_role_permissions_permission_stmt;
+DEALLOCATE PREPARE identity_drop_role_permissions_permission_stmt;
+
+SET @identity_drop_user_permissions_user_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_permissions' AND `constraint_name` = 'fk_dashboard_user_permissions_user') = 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_user_permissions` DROP FOREIGN KEY `fk_dashboard_user_permissions_user`'
+);
+PREPARE identity_drop_user_permissions_user_stmt FROM @identity_drop_user_permissions_user_sql;
+EXECUTE identity_drop_user_permissions_user_stmt;
+DEALLOCATE PREPARE identity_drop_user_permissions_user_stmt;
+
+SET @identity_drop_user_permissions_permission_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_permissions' AND `constraint_name` = 'fk_dashboard_user_permissions_permission') = 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_user_permissions` DROP FOREIGN KEY `fk_dashboard_user_permissions_permission`'
+);
+PREPARE identity_drop_user_permissions_permission_stmt FROM @identity_drop_user_permissions_permission_sql;
+EXECUTE identity_drop_user_permissions_permission_stmt;
+DEALLOCATE PREPARE identity_drop_user_permissions_permission_stmt;
+
+SET @identity_drop_audit_actor_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_permission_audits' AND `constraint_name` = 'fk_dashboard_audit_actor') = 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_permission_audits` DROP FOREIGN KEY `fk_dashboard_audit_actor`'
+);
+PREPARE identity_drop_audit_actor_stmt FROM @identity_drop_audit_actor_sql;
+EXECUTE identity_drop_audit_actor_stmt;
+DEALLOCATE PREPARE identity_drop_audit_actor_stmt;
 
 ALTER TABLE `mc_user`
   MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL DEFAULT 1;
@@ -152,41 +438,17 @@ ALTER TABLE `mc_corp`
 ALTER TABLE `mc_rbac_role`
   MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL;
 
-SET @identity_alter_dashboard_user_roles_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  'ALTER TABLE `mochat_go_dashboard_user_roles` MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL'
-);
-PREPARE identity_alter_dashboard_user_roles_stmt FROM @identity_alter_dashboard_user_roles_sql;
-EXECUTE identity_alter_dashboard_user_roles_stmt;
-DEALLOCATE PREPARE identity_alter_dashboard_user_roles_stmt;
+ALTER TABLE `mochat_go_dashboard_user_roles`
+  MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL;
 
-SET @identity_alter_dashboard_role_permissions_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_role_permissions' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  'ALTER TABLE `mochat_go_dashboard_role_permissions` MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL'
-);
-PREPARE identity_alter_dashboard_role_permissions_stmt FROM @identity_alter_dashboard_role_permissions_sql;
-EXECUTE identity_alter_dashboard_role_permissions_stmt;
-DEALLOCATE PREPARE identity_alter_dashboard_role_permissions_stmt;
+ALTER TABLE `mochat_go_dashboard_role_permissions`
+  MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL;
 
-SET @identity_alter_dashboard_user_permissions_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_permissions' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  'ALTER TABLE `mochat_go_dashboard_user_permissions` MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL'
-);
-PREPARE identity_alter_dashboard_user_permissions_stmt FROM @identity_alter_dashboard_user_permissions_sql;
-EXECUTE identity_alter_dashboard_user_permissions_stmt;
-DEALLOCATE PREPARE identity_alter_dashboard_user_permissions_stmt;
+ALTER TABLE `mochat_go_dashboard_user_permissions`
+  MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL;
 
-SET @identity_alter_dashboard_audits_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_permission_audits' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  'ALTER TABLE `mochat_go_dashboard_permission_audits` MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL'
-);
-PREPARE identity_alter_dashboard_audits_stmt FROM @identity_alter_dashboard_audits_sql;
-EXECUTE identity_alter_dashboard_audits_stmt;
-DEALLOCATE PREPARE identity_alter_dashboard_audits_stmt;
+ALTER TABLE `mochat_go_dashboard_permission_audits`
+  MODIFY COLUMN `tenant_id` int(10) unsigned NOT NULL;
 
 SET @identity_add_corp_composite_index_sql := IF(
   (SELECT COUNT(*) FROM `information_schema`.`statistics` WHERE `table_schema` = DATABASE() AND `table_name` = 'mc_corp' AND `index_name` = 'uni_mc_corp_tenant_id_id') > 0,
@@ -196,6 +458,78 @@ SET @identity_add_corp_composite_index_sql := IF(
 PREPARE identity_add_corp_composite_index_stmt FROM @identity_add_corp_composite_index_sql;
 EXECUTE identity_add_corp_composite_index_stmt;
 DEALLOCATE PREPARE identity_add_corp_composite_index_stmt;
+
+SET @identity_add_permission_resource_permission_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_permission_resources' AND `constraint_name` = 'fk_dashboard_permission_resource_permission') > 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_permission_resources` ADD CONSTRAINT `fk_dashboard_permission_resource_permission` FOREIGN KEY (`permission_id`) REFERENCES `mochat_go_dashboard_permissions` (`id`)'
+);
+PREPARE identity_add_permission_resource_permission_stmt FROM @identity_add_permission_resource_permission_sql;
+EXECUTE identity_add_permission_resource_permission_stmt;
+DEALLOCATE PREPARE identity_add_permission_resource_permission_stmt;
+
+SET @identity_add_user_roles_user_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `constraint_name` = 'fk_dashboard_user_roles_user') > 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_user_roles` ADD CONSTRAINT `fk_dashboard_user_roles_user` FOREIGN KEY (`tenant_id`, `user_id`) REFERENCES `mc_user` (`tenant_id`, `id`)'
+);
+PREPARE identity_add_user_roles_user_stmt FROM @identity_add_user_roles_user_sql;
+EXECUTE identity_add_user_roles_user_stmt;
+DEALLOCATE PREPARE identity_add_user_roles_user_stmt;
+
+SET @identity_add_user_roles_role_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `constraint_name` = 'fk_dashboard_user_roles_role') > 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_user_roles` ADD CONSTRAINT `fk_dashboard_user_roles_role` FOREIGN KEY (`tenant_id`, `role_id`) REFERENCES `mc_rbac_role` (`tenant_id`, `id`)'
+);
+PREPARE identity_add_user_roles_role_stmt FROM @identity_add_user_roles_role_sql;
+EXECUTE identity_add_user_roles_role_stmt;
+DEALLOCATE PREPARE identity_add_user_roles_role_stmt;
+
+SET @identity_add_role_permissions_role_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_role_permissions' AND `constraint_name` = 'fk_dashboard_role_permissions_role') > 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_role_permissions` ADD CONSTRAINT `fk_dashboard_role_permissions_role` FOREIGN KEY (`tenant_id`, `role_id`) REFERENCES `mc_rbac_role` (`tenant_id`, `id`)'
+);
+PREPARE identity_add_role_permissions_role_stmt FROM @identity_add_role_permissions_role_sql;
+EXECUTE identity_add_role_permissions_role_stmt;
+DEALLOCATE PREPARE identity_add_role_permissions_role_stmt;
+
+SET @identity_add_role_permissions_permission_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_role_permissions' AND `constraint_name` = 'fk_dashboard_role_permissions_permission') > 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_role_permissions` ADD CONSTRAINT `fk_dashboard_role_permissions_permission` FOREIGN KEY (`permission_id`) REFERENCES `mochat_go_dashboard_permissions` (`id`)'
+);
+PREPARE identity_add_role_permissions_permission_stmt FROM @identity_add_role_permissions_permission_sql;
+EXECUTE identity_add_role_permissions_permission_stmt;
+DEALLOCATE PREPARE identity_add_role_permissions_permission_stmt;
+
+SET @identity_add_user_permissions_user_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_permissions' AND `constraint_name` = 'fk_dashboard_user_permissions_user') > 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_user_permissions` ADD CONSTRAINT `fk_dashboard_user_permissions_user` FOREIGN KEY (`tenant_id`, `user_id`) REFERENCES `mc_user` (`tenant_id`, `id`)'
+);
+PREPARE identity_add_user_permissions_user_stmt FROM @identity_add_user_permissions_user_sql;
+EXECUTE identity_add_user_permissions_user_stmt;
+DEALLOCATE PREPARE identity_add_user_permissions_user_stmt;
+
+SET @identity_add_user_permissions_permission_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_permissions' AND `constraint_name` = 'fk_dashboard_user_permissions_permission') > 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_user_permissions` ADD CONSTRAINT `fk_dashboard_user_permissions_permission` FOREIGN KEY (`permission_id`) REFERENCES `mochat_go_dashboard_permissions` (`id`)'
+);
+PREPARE identity_add_user_permissions_permission_stmt FROM @identity_add_user_permissions_permission_sql;
+EXECUTE identity_add_user_permissions_permission_stmt;
+DEALLOCATE PREPARE identity_add_user_permissions_permission_stmt;
+
+SET @identity_add_audit_actor_sql := IF(
+  (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_permission_audits' AND `constraint_name` = 'fk_dashboard_audit_actor') > 0,
+  'SELECT 1',
+  'ALTER TABLE `mochat_go_dashboard_permission_audits` ADD CONSTRAINT `fk_dashboard_audit_actor` FOREIGN KEY (`tenant_id`, `actor_user_id`) REFERENCES `mc_user` (`tenant_id`, `id`)'
+);
+PREPARE identity_add_audit_actor_stmt FROM @identity_add_audit_actor_sql;
+EXECUTE identity_add_audit_actor_stmt;
+DEALLOCATE PREPARE identity_add_audit_actor_stmt;
 
 CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_users` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
@@ -263,84 +597,6 @@ CREATE TABLE IF NOT EXISTS `mochat_go_tenant_corp_bindings` (
   CONSTRAINT `fk_tenant_corp_binding_corp` FOREIGN KEY (`tenant_id`, `corp_id`) REFERENCES `mc_corp` (`tenant_id`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Authoritative one-tenant one-corp binding';
 
-SET @identity_add_saas_access_fk_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`tables` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_saas_admin_user_access') = 0,
-  'SELECT 1',
-  IF(
-    (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_saas_admin_user_access' AND `constraint_name` = 'fk_saas_admin_user_access_identity') > 0,
-    'SELECT 1',
-    IF(
-      (SELECT COUNT(*) FROM `mochat_go_saas_admin_user_access` a LEFT JOIN `mochat_go_saas_admin_users` u ON u.`id` = a.`user_id` WHERE u.`id` IS NULL) > 0,
-      'SELECT 1',
-      'ALTER TABLE `mochat_go_saas_admin_user_access` ADD CONSTRAINT `fk_saas_admin_user_access_identity` FOREIGN KEY (`user_id`) REFERENCES `mochat_go_saas_admin_users` (`id`)'
-    )
-  )
-);
-PREPARE identity_add_saas_access_fk_stmt FROM @identity_add_saas_access_fk_sql;
-EXECUTE identity_add_saas_access_fk_stmt;
-DEALLOCATE PREPARE identity_add_saas_access_fk_stmt;
-
-SET @identity_add_dashboard_user_roles_user_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  IF(
-    (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `constraint_name` = 'fk_dashboard_user_roles_user') > 0,
-    'SELECT 1',
-    'ALTER TABLE `mochat_go_dashboard_user_roles` ADD CONSTRAINT `fk_dashboard_user_roles_user` FOREIGN KEY (`tenant_id`, `user_id`) REFERENCES `mc_user` (`tenant_id`, `id`)'
-  )
-);
-PREPARE identity_add_dashboard_user_roles_user_stmt FROM @identity_add_dashboard_user_roles_user_sql;
-EXECUTE identity_add_dashboard_user_roles_user_stmt;
-DEALLOCATE PREPARE identity_add_dashboard_user_roles_user_stmt;
-
-SET @identity_add_dashboard_user_roles_role_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  IF(
-    (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_roles' AND `constraint_name` = 'fk_dashboard_user_roles_role') > 0,
-    'SELECT 1',
-    'ALTER TABLE `mochat_go_dashboard_user_roles` ADD CONSTRAINT `fk_dashboard_user_roles_role` FOREIGN KEY (`tenant_id`, `role_id`) REFERENCES `mc_rbac_role` (`tenant_id`, `id`)'
-  )
-);
-PREPARE identity_add_dashboard_user_roles_role_stmt FROM @identity_add_dashboard_user_roles_role_sql;
-EXECUTE identity_add_dashboard_user_roles_role_stmt;
-DEALLOCATE PREPARE identity_add_dashboard_user_roles_role_stmt;
-
-SET @identity_add_dashboard_role_permissions_role_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_role_permissions' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  IF(
-    (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_role_permissions' AND `constraint_name` = 'fk_dashboard_role_permissions_role') > 0,
-    'SELECT 1',
-    'ALTER TABLE `mochat_go_dashboard_role_permissions` ADD CONSTRAINT `fk_dashboard_role_permissions_role` FOREIGN KEY (`tenant_id`, `role_id`) REFERENCES `mc_rbac_role` (`tenant_id`, `id`)'
-  )
-);
-PREPARE identity_add_dashboard_role_permissions_role_stmt FROM @identity_add_dashboard_role_permissions_role_sql;
-EXECUTE identity_add_dashboard_role_permissions_role_stmt;
-DEALLOCATE PREPARE identity_add_dashboard_role_permissions_role_stmt;
-
-SET @identity_add_dashboard_user_permissions_user_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_permissions' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  IF(
-    (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_user_permissions' AND `constraint_name` = 'fk_dashboard_user_permissions_user') > 0,
-    'SELECT 1',
-    'ALTER TABLE `mochat_go_dashboard_user_permissions` ADD CONSTRAINT `fk_dashboard_user_permissions_user` FOREIGN KEY (`tenant_id`, `user_id`) REFERENCES `mc_user` (`tenant_id`, `id`)'
-  )
-);
-PREPARE identity_add_dashboard_user_permissions_user_stmt FROM @identity_add_dashboard_user_permissions_user_sql;
-EXECUTE identity_add_dashboard_user_permissions_user_stmt;
-DEALLOCATE PREPARE identity_add_dashboard_user_permissions_user_stmt;
-
-SET @identity_add_dashboard_audit_actor_sql := IF(
-  (SELECT COUNT(*) FROM `information_schema`.`columns` WHERE `table_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_permission_audits' AND `column_name` = 'tenant_id') = 0,
-  'SELECT 1',
-  IF(
-    (SELECT COUNT(*) FROM `information_schema`.`table_constraints` WHERE `constraint_schema` = DATABASE() AND `table_name` = 'mochat_go_dashboard_permission_audits' AND `constraint_name` = 'fk_dashboard_audit_actor') > 0,
-    'SELECT 1',
-    'ALTER TABLE `mochat_go_dashboard_permission_audits` ADD CONSTRAINT `fk_dashboard_audit_actor` FOREIGN KEY (`tenant_id`, `actor_user_id`) REFERENCES `mc_user` (`tenant_id`, `id`)'
-  )
-);
-PREPARE identity_add_dashboard_audit_actor_stmt FROM @identity_add_dashboard_audit_actor_sql;
-EXECUTE identity_add_dashboard_audit_actor_stmt;
-DEALLOCATE PREPARE identity_add_dashboard_audit_actor_stmt;
+-- Intentionally no FK is added to mochat_go_saas_admin_user_access here.
+-- The SaaS actor FK is deferred to 0130, which owns actor backfill and must
+-- preflight/resolve every actor before adding it.
