@@ -12,6 +12,8 @@ async function makeFixtureTree() {
     fs.mkdir(path.join(root, 'internal', 'dashboardauth'), { recursive: true }),
     fs.mkdir(path.join(root, 'internal', 'dashboard'), { recursive: true }),
     fs.mkdir(path.join(root, 'internal', 'server'), { recursive: true }),
+    fs.mkdir(path.join(root, 'internal', 'modules'), { recursive: true }),
+    fs.mkdir(path.join(root, 'cmd', 'mochat-go'), { recursive: true }),
     fs.mkdir(path.join(root, 'web', 'apps', 'saas-admin', 'src'), { recursive: true }),
     fs.mkdir(path.join(root, 'web', 'apps', 'dashboard', 'src'), { recursive: true }),
   ]);
@@ -20,6 +22,7 @@ async function makeFixtureTree() {
     fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\n\nfunc Authenticate(db DB, login string) { db.QueryRow("SELECT user_id, password_hash FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\n'),
     fs.writeFile(path.join(root, 'internal', 'dashboard', 'handler.go'), 'package dashboard\n\ntype Handler struct{}\n\nfunc (h Handler) Index() { _ = DashboardPrincipalFromContext() }\n'),
     fs.writeFile(path.join(root, 'internal', 'server', 'routes.go'), 'package server\n\nfunc register(router Router, handler Handler) { router.Handle("GET", "/dashboard/index", handler.Index) }\n'),
+    fs.writeFile(path.join(root, 'internal', 'dashboard', 'dashboard_route_policy.go'), 'package dashboard\nvar exactExemptDashboardRouteContracts = []string{"POST /dashboard/auth"}\nvar publicDashboardRouteContracts = []string{"POST /dashboard/auth"}\nvar denyOnlyDashboardRouteContracts = []string{"DELETE /dashboard/deny"}\nvar pageMappedDashboardRouteContracts = []string{"GET /dashboard/index", "GET /dashboard/server", "GET /dashboard/cmd", "POST /dashboard/module", "POST /dashboard/closure", "GET /dashboard/same-file"}\nvar saasPrincipalDashboardRouteContracts = []string{"GET /dashboard/saasAdmin/settings"}\n'),
     fs.writeFile(path.join(root, 'web', 'apps', 'saas-admin', 'src', 'main.tsx'), 'export { login } from "./auth";\n'),
     fs.writeFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'main.tsx'), 'export { dashboard } from "./dashboard";\n'),
     fs.writeFile(path.join(root, 'web', 'apps', 'saas-admin', 'src', 'auth.ts'), 'export const realm = "saas_admin";\nexport const jwt = "saas-jwt";\n'),
@@ -103,6 +106,70 @@ test('GREEN: a request credential is accepted when encrypted immediately', async
     await fs.writeFile(path.join(root, 'internal', 'companyprofile', 'service.go'), 'package companyprofile\nfunc Save(input Request) { ciphertext, _ := Encrypt(input.EmployeeSecret); _ = ciphertext }\ntype Request struct { EmployeeSecret string `json:"employeeSecret"` }\n');
   }, async (root) => {
     assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('GREEN: identity SQL may live in internal/store behind auth interfaces', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'store'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'identity.go'), 'package store\ntype SaaSIdentityStore struct{}\ntype DashboardIdentityStore struct{}\nfunc (s SaaSIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT id, password_hash FROM mochat_go_saas_admin_users WHERE login_name = ?", login) }\nfunc (s DashboardIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT user_id, password_hash FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\n');
+  }, async (root) => {
+    assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('GREEN: public auth exact routes do not require DashboardPrincipal', async () => {
+  await withFixture(async (root) => {
+    await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc (h Handler) Auth() { println("login") }\n');
+    await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerAuth(router Router, handler Handler) { router.Handle("POST", "/dashboard/auth", handler.Auth) }\n');
+  }, async (root) => {
+    const result = runIdentitySingleCorpGate(root);
+    assert.ok(result.publicExactRoutes.some((route) => route.route === '/dashboard/auth'));
+  });
+});
+
+test('GREEN: SaaS realm routes require SaaSPrincipal rather than DashboardPrincipal', async () => {
+  await withFixture(async (root) => {
+    await fs.writeFile(path.join(root, 'internal', 'dashboard', 'saas_admin.go'), 'package dashboard\ntype SaaSHandler struct{}\nfunc (h SaaSHandler) Settings() { _ = SaaSPrincipalFromContext() }\n');
+    await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerSaaS(router Router, handler SaaSHandler) { router.Handle("GET", "/dashboard/saasAdmin/settings", handler.Settings) }\n');
+  }, async (root) => {
+    const result = runIdentitySingleCorpGate(root);
+    assert.ok(result.saasPrincipalRoutes.some((route) => route.route === '/dashboard/saasAdmin/settings'));
+  });
+});
+
+test('RED: an unclassified dashboard route cannot be treated as page-mapped', async () => {
+  await withFixture(async (root) => {
+    await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerUnknown(router Router, handler Handler) { router.Handle("GET", "/dashboard/unknown", handler.Index) }\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /unknown dashboard route|route policy|dashboard\/unknown/i);
+  });
+});
+
+test('RED: a principal token in another same-file handler cannot back the registered handler', async () => {
+  await withFixture(async (root) => {
+    await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc (h Handler) SameFile() { println("business") }\nfunc (h Handler) Unrelated() { _ = DashboardPrincipalFromContext() }\n');
+    await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerSameFile(router Router, handler Handler) { router.Handle("GET", "/dashboard/same-file", handler.SameFile) }\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /DashboardPrincipal.*consumer|principal.*consumer/i);
+  });
+});
+
+test('GREEN: server switch, cmd composition, and module registrar resolve concrete handlers', async () => {
+  await withFixture(async (root) => {
+    await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc (h Handler) Server() { _ = DashboardPrincipalFromContext() }\nfunc (h Handler) Cmd() { _ = DashboardPrincipalFromContext() }\nfunc (h Handler) Module() { _ = DashboardPrincipalFromContext() }\n');
+    await fs.writeFile(path.join(root, 'internal', 'server', 'dispatch.go'), 'package server\nfunc (s *Server) ServeHTTP(w W, r R) {\n  switch {\n  case r.URL.Path == "/dashboard/server" && r.Method == http.MethodGet:\n    s.server.ServeHTTP(w, r)\n  case r.URL.Path == "/dashboard/cmd" && r.Method == http.MethodGet:\n    s.cmd.ServeHTTP(w, r)\n  }\n}\n');
+    await fs.writeFile(path.join(root, 'internal', 'server', 'composition.go'), 'package server\nfunc build(handler Handler) { WithServerHandler(http.HandlerFunc(handler.Server)) }\n');
+    await fs.writeFile(path.join(root, 'cmd', 'mochat-go', 'main.go'), 'package main\nfunc options(handler Handler) { compatserver.WithCmdHandler(http.HandlerFunc(handler.Cmd)) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'modules', 'module.go'), 'package modules\nfunc Register(registrar Registrar, handler Handler) { registrar.Handle(http.MethodPost, "/dashboard/module", handler.Module) }\n');
+    await fs.appendFile(path.join(root, 'internal', 'modules', 'module.go'), '\nfunc RegisterClosure(registrar Registrar) { registrar.Handle("POST", "/dashboard/closure", func(w W, r R) { _ = DashboardPrincipalFromContext() }) }\n');
+  }, async (root) => {
+    const result = runIdentitySingleCorpGate(root);
+    for (const route of ['/dashboard/server', '/dashboard/cmd', '/dashboard/module', '/dashboard/closure']) {
+      assert.ok(result.dashboardPrincipalRoutes.some((item) => item.route === route), route);
+    }
   });
 });
 

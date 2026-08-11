@@ -1,12 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { extractBackendRegisteredAPIs } from './check_dashboard_page_rbac_catalog.mjs';
+import {
+  extractBackendRegisteredAPIs,
+  extractMigrationPermissionResourceMappings,
+} from './check_dashboard_page_rbac_catalog.mjs';
 
 const GO_EXT = '.go';
 const FRONTEND_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 const ignoredName = (name) => /(?:\.test|\.spec)\.[^.]+$/.test(name) || name.endsWith('_test.go');
 const principalConsumerPattern = /DashboardPrincipalFromContext|RequireDashboardPrincipal/;
+const saasPrincipalConsumerPattern = /SaaSPrincipalFromContext|RequireSaaSPrincipal/;
 
 function walk(directory, predicate = () => true) {
   if (!fs.existsSync(directory)) return [];
@@ -233,35 +237,109 @@ function collectGoConstants(sources) {
   return constants;
 }
 
+function skipWhitespace(source, index) {
+  let cursor = index;
+  while (/\s/.test(source[cursor] || '')) cursor += 1;
+  return cursor;
+}
+
+function nextFunctionBodyOpening(source, index) {
+  let parentheses = 0;
+  let brackets = 0;
+  let state = 'code';
+  for (let cursor = index; cursor < source.length; cursor += 1) {
+    const current = source[cursor];
+    if (state === 'quoted') {
+      if (current === '\\') cursor += 1;
+      else if (current === '"') state = 'code';
+      continue;
+    }
+    if (state === 'raw') {
+      if (current === '`') state = 'code';
+      continue;
+    }
+    if (state === 'rune') {
+      if (current === '\\') cursor += 1;
+      else if (current === "'") state = 'code';
+      continue;
+    }
+    if (current === '"') state = 'quoted';
+    else if (current === '`') state = 'raw';
+    else if (current === "'") state = 'rune';
+    else if (current === '(') parentheses += 1;
+    else if (current === ')') parentheses -= 1;
+    else if (current === '[') brackets += 1;
+    else if (current === ']') brackets -= 1;
+    else if (current === '{' && parentheses === 0 && brackets === 0) return cursor;
+  }
+  return -1;
+}
+
 function goFunctionBodies(file, source) {
   const functions = [];
-  const pattern = /func\s+(?:\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+\*?([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)[^{]*\{/g;
-  for (const match of source.matchAll(pattern)) {
-    const opening = source.indexOf('{', match.index + match[0].length - 1);
-    const closing = matchingDelimiter(source, opening, '{', '}');
-    if (opening < 0 || closing < 0) continue;
-    const receiver = match[2];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const keyword = source.indexOf('func', cursor);
+    if (keyword < 0) break;
+    const before = source[keyword - 1] || '';
+    const after = source[keyword + 4] || '';
+    if (/[_A-Za-z0-9]/.test(before) || /[_A-Za-z0-9]/.test(after)) {
+      cursor = keyword + 4;
+      continue;
+    }
+
+    let index = skipWhitespace(source, keyword + 4);
+    let receiver = null;
+    if (source[index] === '(') {
+      const receiverEnd = matchingDelimiter(source, index);
+      if (receiverEnd < 0) break;
+      const receiverText = source.slice(index + 1, receiverEnd);
+      const receiverMatch = receiverText.match(/\b[A-Za-z_][A-Za-z0-9_]*\s+\*?([A-Za-z_][A-Za-z0-9_]*)\b/);
+      receiver = receiverMatch?.[1] || null;
+      index = skipWhitespace(source, receiverEnd + 1);
+    }
+    const nameMatch = source.slice(index).match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+    if (!nameMatch) {
+      cursor = keyword + 4;
+      continue;
+    }
+    const name = nameMatch[1];
+    index = skipWhitespace(source, index + name.length);
+    if (source[index] !== '(') {
+      cursor = index;
+      continue;
+    }
+    const parametersEnd = matchingDelimiter(source, index);
+    if (parametersEnd < 0) break;
+    const opening = nextFunctionBodyOpening(source, parametersEnd + 1);
+    const closing = opening < 0 ? -1 : matchingDelimiter(source, opening, '{', '}');
+    if (opening < 0 || closing < 0) {
+      cursor = parametersEnd + 1;
+      continue;
+    }
     functions.push({
       file: file.replaceAll('\\', '/'),
-      line: lineAt(source, match.index),
-      symbol: receiver ? `${receiver}.${match[3]}` : match[3],
+      line: lineAt(source, keyword),
+      symbol: receiver ? `${receiver}.${name}` : name,
       receiver,
-      name: match[3],
-      signature: match[0],
+      name,
+      signature: source.slice(keyword, opening + 1),
       body: source.slice(opening + 1, closing),
-      start: match.index,
+      start: keyword,
       end: closing,
+      parameters: source.slice(index + 1, parametersEnd),
     });
+    cursor = closing + 1;
   }
   return functions;
 }
 
 function parseFunctionParameterTypes(signature) {
-  const opening = signature.indexOf('(');
-  const closing = signature.lastIndexOf(')');
-  if (opening < 0 || closing <= opening) return new Map();
+  const groups = [...signature.matchAll(/\(([^()]*)\)/g)];
+  const parameterText = groups.at(-1)?.[1];
+  if (parameterText === undefined) return new Map();
   const result = new Map();
-  for (const parameter of splitTopLevel(signature.slice(opening + 1, closing))) {
+  for (const parameter of splitTopLevel(parameterText)) {
     const match = parameter.match(/^([A-Za-z_][A-Za-z0-9_]*)\s+(?:\*?)([A-Za-z_][A-Za-z0-9_]*)$/);
     if (match) result.set(match[1], match[2]);
   }
@@ -290,10 +368,21 @@ function collectHandlerBindings(sources) {
       const opening = body.indexOf('(', match.index + match[0].length - 1);
       const closing = matchingDelimiter(body, opening);
       if (opening < 0 || closing < 0) continue;
-      const reference = firstMethodReference(body.slice(opening + 1, closing));
-      if (!reference) continue;
+      const argumentsBody = body.slice(opening + 1, closing);
+      let reference = firstMethodReference(argumentsBody);
+      if (reference && /\.New[A-Za-z_][A-Za-z0-9_]*Handler$/.test(reference)) reference = null;
+      const closure = argumentsBody.match(/\bfunc\s*(?:\([^)]*\))?\s*\{/);
+      if (!reference) {
+        const simpleHandler = argumentsBody.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)$/);
+        if (simpleHandler) reference = `${simpleHandler[1]}.ServeHTTP`;
+      }
+      if (!reference && /\bNew[A-Za-z_][A-Za-z0-9_]*Handler\s*\(/.test(argumentsBody)) {
+        reference = `${upperFirst(match[1])}Handler.ServeHTTP`;
+      }
+      if (!reference && !closure) continue;
       bindings.set(lowerFirst(match[1]), {
         reference,
+        closureExpression: closure ? argumentsBody.slice(closure.index).trim() : null,
         file: file.replaceAll('\\', '/'),
         line: lineAt(body, match.index),
       });
@@ -309,7 +398,7 @@ function handlerExpressionFromCall(expression) {
 function routeCandidates(sources, constants) {
   const candidates = [];
   for (const { file, body } of sources) {
-    for (const match of body.matchAll(/\b(?:router|registrar|r)\.Handle\s*\(/g)) {
+    for (const match of body.matchAll(/\b(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*\.Handle\s*\(/g)) {
       const opening = body.indexOf('(', match.index + match[0].length - 1);
       const closing = matchingDelimiter(body, opening);
       if (opening < 0 || closing < 0) continue;
@@ -317,13 +406,15 @@ function routeCandidates(sources, constants) {
       const method = goMethod(args[0] || '', constants);
       const route = goString(args[1] || '', constants);
       if (!method || !route?.startsWith('/dashboard/')) continue;
+      const handlerText = args.slice(2).join(',');
       candidates.push({
         method,
         route,
-        handlerExpression: handlerExpressionFromCall(args.slice(2).join(',')),
+        handlerExpression: handlerExpressionFromCall(handlerText),
         file: file.replaceAll('\\', '/'),
         line: lineAt(body, match.index),
         index: match.index,
+        handlerIndex: Math.max(0, body.indexOf(handlerText, opening + 1)),
       });
     }
 
@@ -346,6 +437,7 @@ function routeCandidates(sources, constants) {
           file: file.replaceAll('\\', '/'),
           line: lineAt(body, match.index),
           index: match.index,
+          handlerIndex: Math.max(0, body.indexOf(handlerExpression, match.index + match[0].length)),
         });
       }
     }
@@ -368,15 +460,41 @@ function methodDefinitions(goFiles) {
   return { definitions, parameterTypes };
 }
 
-function resolveHandlerMethod(handlerExpression, routeFile, definitions, parameterTypes, bindings) {
+function resolveClosure(expression, file, line) {
+  const opening = expression.indexOf('{');
+  const closing = opening < 0 ? -1 : matchingDelimiter(expression, opening, '{', '}');
+  if (opening < 0 || closing < 0) return null;
+  const source = file.replaceAll('\\', '/');
+  return {
+    reference: expression,
+    handlerSymbol: `closure@${source}:${line}`,
+    consumerSymbol: `closure@${source}:${line}`,
+    handlerSource: `${source}:${line}`,
+    consumerSource: `${source}:${line}`,
+    consumerBody: expression.slice(opening + 1, closing),
+  };
+}
+
+function resolveHandlerMethod(candidate, definitions, parameterTypes, bindings) {
+  const handlerExpression = candidate.handlerExpression;
+  const directClosure = resolveClosure(handlerExpression, candidate.file, candidate.line);
+  if (directClosure) return directClosure;
+
   const reference = firstMethodReference(handlerExpression) || handlerExpression;
   let [receiver, method] = reference.split('.');
   if (!method) method = 'ServeHTTP';
-  const binding = bindings.get(receiver);
-  if (binding) {
+  const fieldName = reference.includes('.') ? reference.split('.').at(-1) : receiver;
+  const binding = bindings.get(fieldName) || bindings.get(receiver);
+  if (binding?.closureExpression) {
+    const closure = resolveClosure(binding.closureExpression, binding.file, binding.line);
+    if (closure) {
+      return { ...closure, reference: handlerExpression, handlerSymbol: `${fieldName} -> ${closure.handlerSymbol}` };
+    }
+  }
+  if (binding?.reference) {
     [receiver, method] = binding.reference.split('.');
   }
-  const routeFileKey = routeFile.replaceAll('\\', '/');
+  const routeFileKey = candidate.file.replaceAll('\\', '/');
   const explicitType = parameterTypes.get(`${routeFileKey}:${receiver}`);
   const receiverCandidates = new Set([
     explicitType,
@@ -396,7 +514,52 @@ function resolveHandlerMethod(handlerExpression, routeFile, definitions, paramet
   };
 }
 
-function dashboardRoutePrincipalEvidence(routeFiles, allGoFiles) {
+function policyContracts(body, name, required = false) {
+  const declaration = body.match(new RegExp(`(?:var|const)\\s+${name}\\s*=\\s*\\[\\]string\\s*\\{`));
+  if (!declaration) {
+    if (required) throw new Error(`missing production dashboard route policy: ${name}`);
+    return [];
+  }
+  const opening = declaration.index + declaration[0].lastIndexOf('{');
+  const closing = matchingDelimiter(body, opening, '{', '}');
+  if (closing < 0) throw new Error(`unterminated production dashboard route policy: ${name}`);
+  return [...body.slice(opening + 1, closing).matchAll(/["']((?:GET|POST|PUT|PATCH|DELETE) \/dashboard\/[^"']+)["']/g)]
+    .map((match) => match[1]);
+}
+
+function dashboardRoutePolicy(root) {
+  const policyFile = path.join(root, 'internal', 'dashboard', 'dashboard_route_policy.go');
+  if (!fs.existsSync(policyFile)) throw new Error('missing production dashboard route policy');
+  const policySource = stripComments(fs.readFileSync(policyFile, 'utf8'), GO_EXT);
+  const exactExempt = new Set(policyContracts(policySource, 'exactExemptDashboardRouteContracts', true));
+  const publicContracts = new Set(policyContracts(policySource, 'publicDashboardRouteContracts', true));
+  const denyOnly = new Set(policyContracts(policySource, 'denyOnlyDashboardRouteContracts', true));
+  const explicitPageMapped = policyContracts(policySource, 'pageMappedDashboardRouteContracts');
+  const explicitSaaS = policyContracts(policySource, 'saasPrincipalDashboardRouteContracts');
+  if ([...publicContracts].some((contract) => !exactExempt.has(contract))) {
+    throw new Error('public dashboard route policy must be an exact exemption allowlist');
+  }
+
+  const pageMapped = new Set(explicitPageMapped);
+  if (!pageMapped.size) {
+    const migrationFile = path.join(root, 'deploy', 'standalone', 'migrations', '0127_dashboard_page_rbac.up.sql');
+    if (fs.existsSync(migrationFile)) {
+      for (const mapping of extractMigrationPermissionResourceMappings(fs.readFileSync(migrationFile, 'utf8'))) {
+        const [, contract] = mapping.split('\t');
+        if (contract) pageMapped.add(contract);
+      }
+    }
+  }
+  return {
+    exactExempt,
+    publicContracts,
+    denyOnly,
+    pageMapped,
+    saasPrincipal: new Set(explicitSaaS),
+  };
+}
+
+function dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
   const sources = routeFiles.map((file) => ({
     file: file.replaceAll('\\', '/'),
     body: stripComments(fs.readFileSync(file, 'utf8'), GO_EXT),
@@ -408,6 +571,7 @@ function dashboardRoutePrincipalEvidence(routeFiles, allGoFiles) {
   const constants = collectGoConstants(allSources);
   const catalogRoutes = extractBackendRegisteredAPIs(sources);
   const candidates = routeCandidates(sources, constants);
+  const policy = dashboardRoutePolicy(root);
   const candidateByContract = new Map();
   for (const candidate of candidates) {
     const contract = `${candidate.method} ${candidate.route}`;
@@ -428,35 +592,68 @@ function dashboardRoutePrincipalEvidence(routeFiles, allGoFiles) {
   }
   const { definitions, parameterTypes } = methodDefinitions(allGoFiles);
   const bindings = collectHandlerBindings(allSources);
-  const evidence = [];
+  const dashboardPrincipalRoutes = [];
+  const saasPrincipalRoutes = [];
+  const publicExactRoutes = [];
   const failures = [];
+  const saasPrefixes = ['/dashboard/saasAdmin/', '/dashboard/saasAlert/', '/dashboard/saasBilling/'];
+  const classify = (method, route) => {
+    const contract = `${method} ${route}`;
+    if (policy.exactExempt.has(contract)) return 'public-exact';
+    if (policy.saasPrincipal.has(contract) || saasPrefixes.some((prefix) => route.startsWith(prefix))) return 'saas-principal';
+    if (policy.denyOnly.has(contract)) return 'dashboard-principal-deny-only';
+    if (policy.pageMapped.has(contract)) return 'dashboard-principal-page-mapped';
+    return null;
+  };
   for (const [contract, routeCandidatesForContract] of [...candidateByContract.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    const candidate = routeCandidatesForContract.find((item) => resolveHandlerMethod(item.handlerExpression, item.file, definitions, parameterTypes, bindings));
+    const method = contract.slice(0, contract.indexOf(' '));
+    const route = contract.slice(contract.indexOf(' ') + 1);
+    const category = classify(method, route);
+    if (!category) {
+      failures.push(`${contract} -> unknown dashboard route policy; no DashboardPrincipal/SaaSPrincipal consumer category (handler candidates: ${routeCandidatesForContract.map((item) => `${item.handlerExpression} source:${item.file}:${item.line}`).join(', ')})`);
+      continue;
+    }
+    const candidate = routeCandidatesForContract.find((item) => resolveHandlerMethod(item, definitions, parameterTypes, bindings));
     if (!candidate) {
       const fallback = routeCandidatesForContract[0];
       failures.push(`${contract} -> handler ${fallback.handlerExpression} source:${fallback.file}:${fallback.line}`);
       continue;
     }
-    const resolved = resolveHandlerMethod(candidate.handlerExpression, candidate.file, definitions, parameterTypes, bindings);
-    if (!principalConsumerPattern.test(resolved.consumerBody)) {
-      failures.push(`${contract} -> handler ${resolved.handlerSymbol} source:${resolved.handlerSource} has no DashboardPrincipal consumer in ${resolved.consumerSymbol} source:${resolved.consumerSource}`);
-      continue;
-    }
-    evidence.push({
+    const resolved = resolveHandlerMethod(candidate, definitions, parameterTypes, bindings);
+    const evidence = {
       method: candidate.method,
       route: candidate.route,
-      evidence: `${candidate.method} ${candidate.route} -> handler ${resolved.handlerSymbol} source:${resolved.handlerSource} -> principal consumer ${resolved.consumerSymbol} source:${resolved.consumerSource}`,
+      category,
+      evidence: `${candidate.method} ${candidate.route} -> handler ${resolved.handlerSymbol} source:${resolved.handlerSource} -> ${resolved.consumerSymbol} source:${resolved.consumerSource}`,
       handlerSymbol: resolved.handlerSymbol,
       handlerSource: resolved.handlerSource,
       consumerSymbol: resolved.consumerSymbol,
       consumerSource: resolved.consumerSource,
-    });
+    };
+    if (category === 'saas-principal') {
+      if (!saasPrincipalConsumerPattern.test(resolved.consumerBody)) {
+        failures.push(`${contract} -> handler ${resolved.handlerSymbol} source:${resolved.handlerSource} has no SaaSPrincipal consumer in ${resolved.consumerSymbol} source:${resolved.consumerSource}`);
+        continue;
+      }
+      evidence.evidence += ' -> SaaSPrincipal consumer';
+      saasPrincipalRoutes.push(evidence);
+    } else if (category === 'public-exact') {
+      evidence.evidence += ` -> exact exemption${policy.publicContracts.has(contract) ? ' public' : ''}`;
+      publicExactRoutes.push(evidence);
+    } else {
+      if (!principalConsumerPattern.test(resolved.consumerBody)) {
+        failures.push(`${contract} -> handler ${resolved.handlerSymbol} source:${resolved.handlerSource} has no DashboardPrincipal consumer in ${resolved.consumerSymbol} source:${resolved.consumerSource}`);
+        continue;
+      }
+      evidence.evidence += ' -> DashboardPrincipal consumer';
+      dashboardPrincipalRoutes.push(evidence);
+    }
   }
   if (failures.length) {
     throw new Error(`Dashboard route principal binding failed: ${failures.join('; ')}`);
   }
-  requireEvidence(evidence, 'DashboardPrincipal consumer evidence is required');
-  return evidence;
+  requireEvidence([...dashboardPrincipalRoutes, ...saasPrincipalRoutes, ...publicExactRoutes], 'Dashboard route evidence is required');
+  return { dashboardPrincipalRoutes, saasPrincipalRoutes, publicExactRoutes };
 }
 
 function storeQueryLocations(files, table) {
@@ -474,10 +671,60 @@ function storeQueryLocations(files, table) {
         line: lineAt(source, functionBody.start + functionBody.body.indexOf(tableMatch[0])),
         match: tableMatch[0],
         symbol: functionBody.symbol,
+        source: `${functionBody.file}:${lineAt(source, functionBody.start + functionBody.body.indexOf(tableMatch[0]))}`,
       });
     }
   }
   return locations;
+}
+
+function identityInterfaceMethods(files, packagePattern) {
+  const methods = new Set();
+  for (const file of files) {
+    const source = stripComments(fs.readFileSync(file, 'utf8'), GO_EXT);
+    for (const match of source.matchAll(/type\s+([A-Za-z_][A-Za-z0-9_]*)\s+interface\s*\{/g)) {
+      if (!packagePattern.test(match[1])) continue;
+      const opening = source.indexOf('{', match.index + match[0].length - 1);
+      const closing = matchingDelimiter(source, opening, '{', '}');
+      if (opening < 0 || closing < 0) continue;
+      for (const method of source.slice(opening + 1, closing).matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
+        methods.add(method[1]);
+      }
+    }
+  }
+  return methods;
+}
+
+function identityStoreQueryLocations(
+  domainFiles,
+  adapterFiles,
+  table,
+  interfaceNamePattern,
+  packageName,
+  adapterReceiverPattern,
+  adapterFilePattern,
+) {
+  const domainLocations = storeQueryLocations(domainFiles, table).map((location) => ({
+    ...location,
+    layer: 'domain-store',
+  }));
+  const interfaceMethods = identityInterfaceMethods(domainFiles, interfaceNamePattern);
+  const adapterLocations = storeQueryLocations(adapterFiles, table)
+    .filter((location) => {
+      const method = location.symbol.split('.').at(-1);
+      if (!interfaceMethods.has(method)) return false;
+      const source = stripComments(fs.readFileSync(location.file, 'utf8'), GO_EXT);
+      const receiver = location.symbol.split('.').slice(0, -1).join('.');
+      const linkedReceiver = adapterReceiverPattern.test(receiver);
+      const linkedFile = adapterFilePattern.test(path.basename(location.file));
+      const linkedInterface = new RegExp(`var\\s+_\\s+(?:\\([^)]*\\)\\s*)?\\*?${packageName}\\.Store\\b`).test(source);
+      return linkedReceiver || linkedFile || linkedInterface;
+    })
+    .map((location) => ({
+      ...location,
+      layer: 'internal-store-adapter',
+    }));
+  return [...domainLocations, ...adapterLocations];
 }
 
 function plaintextSecretEvidence(files) {
@@ -500,6 +747,7 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
   const routeFiles = productionRouteGoFiles(root);
   const saasGo = goFiles.filter((file) => /[\\/]saasauth[\\/]/.test(file));
   const dashboardAuthGo = goFiles.filter((file) => /[\\/]dashboardauth[\\/]/.test(file));
+  const storeGo = goFiles.filter((file) => /[\\/]internal[\\/]store[\\/]/.test(file));
   const dashboardGo = goFiles.filter((file) => /[\\/]dashboard[\\/]/.test(file));
   const frontend = [
     ...frontendProductionFiles(root, 'saas-admin'),
@@ -507,12 +755,32 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
   ];
   const allProduction = [...new Set([...goFiles, ...frontend])];
 
-  const saasIdentityTables = storeQueryLocations(saasGo, 'mochat_go_saas_admin_users');
-  const dashboardIdentityTables = storeQueryLocations(dashboardAuthGo, 'mochat_go_dashboard_identities');
+  const saasIdentityTables = identityStoreQueryLocations(
+    saasGo,
+    storeGo,
+    'mochat_go_saas_admin_users',
+    /^(?:Store|SaaSIdentityStore|SaaSAuthStore)$/,
+    'saasauth',
+    /SaaS|Saas/i,
+    /saas[_-]?identity/i,
+  );
+  const dashboardIdentityTables = identityStoreQueryLocations(
+    dashboardAuthGo,
+    storeGo,
+    'mochat_go_dashboard_identities',
+    /^(?:Store|DashboardIdentityStore|DashboardAuthStore)$/,
+    'dashboardauth',
+    /Dashboard|dashboard/i,
+    /dashboard[_-]?identity/i,
+  );
   requireEvidence(saasIdentityTables, 'SaaS identity table must be used by a saasauth Store query');
   requireEvidence(dashboardIdentityTables, 'Dashboard identity table must be used by a dashboardauth Store query');
-  const saasSharedIdentity = locationsFor(saasGo, /\bmc_user\b/);
+  const saasIdentityFiles = [...new Set(saasIdentityTables.map((location) => location.file))];
+  const dashboardIdentityFiles = [...new Set(dashboardIdentityTables.map((location) => location.file))];
+  const saasSharedIdentity = locationsFor([...saasGo, ...saasIdentityFiles], /\bmc_user\b/);
   assertNo(saasSharedIdentity, 'SaaS identity/auth store must not read mc_user');
+  const dashboardSharedIdentity = locationsFor([...dashboardAuthGo, ...dashboardIdentityFiles], /\bmc_user\b/);
+  assertNo(dashboardSharedIdentity, 'Dashboard identity/auth store must not read mc_user');
 
   const jwtRealms = {
     saas_admin: locationsFor([...saasGo, ...frontendProductionFiles(root, 'saas-admin')], /saas_admin/),
@@ -540,13 +808,17 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
   const plaintextSecretReads = plaintextSecretEvidence(allProduction);
   assertNo(plaintextSecretReads, 'plaintext credential SQL/response/log/audit read in production');
 
-  const dashboardPrincipalConsumers = dashboardRoutePrincipalEvidence(routeFiles, goFiles);
+  const routeEvidence = dashboardRoutePrincipalEvidence(root, routeFiles, goFiles);
+  const dashboardPrincipalConsumers = routeEvidence.dashboardPrincipalRoutes;
 
   return {
     saasIdentityTables,
     dashboardIdentityTables,
     jwtRealms,
     dashboardPrincipalConsumers,
+    dashboardPrincipalRoutes: routeEvidence.dashboardPrincipalRoutes,
+    saasPrincipalRoutes: routeEvidence.saasPrincipalRoutes,
+    publicExactRoutes: routeEvidence.publicExactRoutes,
     forbiddenCorpRoutes,
     forbiddenSessionCorpFields,
     plaintextSecretReads,
@@ -557,5 +829,5 @@ export { runIdentitySingleCorpGate };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const result = runIdentitySingleCorpGate();
-  console.log(`identity single-corp gate PASS: SaaS realm=${result.jwtRealms.saas_admin.length}, Dashboard realm=${result.jwtRealms.dashboard.length}, principal consumers=${result.dashboardPrincipalConsumers.length}`);
+  console.log(`identity single-corp gate PASS: SaaS realm=${result.jwtRealms.saas_admin.length}, Dashboard realm=${result.jwtRealms.dashboard.length}, SaaS Store queries=${result.saasIdentityTables.length}, Dashboard Store queries=${result.dashboardIdentityTables.length}, SaaS principal routes=${result.saasPrincipalRoutes.length}, Dashboard principal routes=${result.dashboardPrincipalRoutes.length}, public exact routes=${result.publicExactRoutes.length}`);
 }
