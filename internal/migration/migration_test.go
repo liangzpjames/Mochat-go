@@ -172,8 +172,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0128_dashboard_page_rbac_legacy_scope_fix" {
-		t.Fatalf("latest migration = %q, want 0128_dashboard_page_rbac_legacy_scope_fix", latest.Version)
+	if latest.Version != "0129_identity_realms_single_corp_schema" {
+		t.Fatalf("latest migration = %q, want 0129_identity_realms_single_corp_schema", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -232,7 +232,7 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0128_dashboard_page_rbac_legacy_scope_fix" {
+	if latest.Version != "0129_identity_realms_single_corp_schema" {
 		t.Fatalf("latest migration = %q", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
@@ -359,15 +359,21 @@ func TestDashboardPageRBACMigrationContract(t *testing.T) {
 func TestDashboardPageRBACLegacyScopeFixMigrationContract(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
-	latest := migrations[len(migrations)-1]
-	if latest.Version != "0128_dashboard_page_rbac_legacy_scope_fix" {
-		t.Fatalf("latest migration = %q", latest.Version)
+	var target Migration
+	for _, migration := range migrations {
+		if migration.Version == "0128_dashboard_page_rbac_legacy_scope_fix" {
+			target = migration
+			break
+		}
 	}
-	upBody, err := os.ReadFile(latest.Path)
+	if target.Version == "" {
+		t.Fatal("0128_dashboard_page_rbac_legacy_scope_fix migration not found")
+	}
+	upBody, err := os.ReadFile(target.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	downBody, err := os.ReadFile(latest.DownPath)
+	downBody, err := os.ReadFile(target.DownPath)
 	if err != nil {
 		t.Fatal(err)
 	}

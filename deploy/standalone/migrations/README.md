@@ -169,3 +169,4 @@
 - 迁移器会识别拆分前的一体化 `0001_initial_schema` checksum，旧库如果已经通过旧版 `0001` 建表并写入 seed，升级后执行 `apply` 会接受 legacy checksum，并用 `0002_seed_core_data` 补齐迁移记录。
 - `0127_dashboard_page_rbac` 在任何 DDL 前校验套餐订阅和旧 RBAC 关系一致性，随后建立 53 页权限目录、API 资源映射、多角色/直接权限关系与追加式审计，并为用户和角色增加集合级乐观锁版本。MariaDB/MySQL DDL 会隐式提交，因此迁移按阶段执行且仅在全部成功后写 ledger；down 使用 `information_schema` 与动态 SQL 兼容恢复部分完成状态。旧菜单仅按规范化的真实 API 资源回填，四个永久 `superadmin_only` 管理页不会继承旧授权。
 - `0128_dashboard_page_rbac_legacy_scope_fix` 以前向数据修正恢复旧角色的租户、部门和本人数据范围：菜单关闭数据范围时映射为 `tenant`，角色企业配置为部门时映射为 `department`，配置为本人时映射为 `self`。旧角色在不同企业同时包含部门和本人配置时无法无损映射到新的租户级角色范围，因此按最小权限回退为 `self`，并写入 `migration.legacy_scope_review` 审计，提示 Dashboard 超级管理员确认；down 不猜测或回滚已修正、可能已被管理员继续编辑的授权数据。
+- `0129_identity_realms_single_corp_schema` 在第一条 DDL 前预检 Dashboard 登录标识、租户归属和 0127 RBAC 依赖，随后建立独立 SaaS/Dashboard 身份表、一次性激活摘要表和唯一 tenant-corp binding，并把受影响的 tenant 关联列统一为 `int(10) unsigned`。down 只删除 0129 新增对象、恢复本迁移改动的类型/索引和 0127 外键；所有阶段使用动态 `PREPARE`，支持部分 DDL 后安全回退。
