@@ -1,12 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Building2, Eye, PackageCheck, Plus, Search, UserRoundPlus } from 'lucide-react'
+import { Building2, Eye, Plus, RefreshCw, Search, ShieldCheck, UserRoundCog, UserRoundPlus, UserX } from 'lucide-react'
 import { toast } from 'sonner'
-import { apiRequest, executeGoverned, hasPermission } from '@/lib/api'
-import type { OverviewData, PackagesData, TenantDetailData, TenantSummary } from '@/lib/types'
+import { ApiError, apiRequest, hasPermission, jsonRequest } from '@/lib/api'
+import type {
+  DashboardAdminGovernanceResult,
+  DashboardAdminProvisionResult,
+  DashboardAdminGovernanceData,
+  OverviewData,
+  PackagePlan,
+  PackagesData,
+  TenantDetailData,
+  TenantSummary,
+} from '@/lib/types'
 import {
   Badge,
   Button,
+  ConfirmAction,
   Dialog,
   EmptyState,
   ErrorState,
@@ -19,44 +29,77 @@ import {
   SectionHeader,
   TableShell,
   formatDate,
-  inputClassName,
 } from '@/components/ui'
 import type { PageProps } from './shared'
-import { dueStateView, queryKeys, tenantStatusView, usageTone } from './shared'
+import { packageLimitKeys, queryKeys, tenantStatusView, usageTone } from './shared'
 
 interface CreateTenantForm {
   tenantName: string
-  adminPhone: string
+  adminLoginIdentifier: string
   adminName: string
-  password: string
-  packageCode: string
+  packageId: string
+  subscriptionStatus: 'trialing' | 'active'
+  billingCycle: 'custom' | 'monthly' | 'yearly' | 'lifetime'
   expiresAt: string
+  idempotencyKey: string
 }
 
-const emptyCreateForm: CreateTenantForm = {
+const makeRequestKey = (prefix: string) => {
+  const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `${prefix}-${uuid}`
+}
+
+const emptyCreateForm = (): CreateTenantForm => ({
   tenantName: '',
-  adminPhone: '',
+  adminLoginIdentifier: '',
   adminName: '',
-  password: '',
-  packageCode: '',
+  packageId: '',
+  subscriptionStatus: 'trialing',
+  billingCycle: 'custom',
   expiresAt: '',
+  idempotencyKey: makeRequestKey('dashboard-provision'),
+})
+
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) return `${error.machineCode}：${error.message}${error.status === 409 ? '；请刷新治理列表后重试，当前选择已保留。' : ''}`
+  return error instanceof Error ? error.message : fallback
 }
 
-export default function TenantsPage({ profile, approvalMode }: PageProps) {
+function packageLimitsSnapshot(plan: PackagePlan) {
+  const limits: Record<string, number> = {}
+  for (const key of packageLimitKeys) {
+    const value = plan.limits[key]
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new Error(`套餐额度快照缺少 ${key}`)
+    }
+    limits[key] = value
+  }
+  return limits
+}
+
+function isoEndOfDate(date: string) {
+  if (!date) return ''
+  const value = new Date(`${date}T23:59:59Z`)
+  return Number.isNaN(value.getTime()) ? '' : value.toISOString()
+}
+
+export default function TenantsPage({ profile }: PageProps) {
   const queryClient = useQueryClient()
   const canManage = hasPermission(profile.permissions, 'platform.tenants.manage')
+  const requestKeys = useRef<Record<string, string>>({})
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [packageFilter, setPackageFilter] = useState('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [createForm, setCreateForm] = useState<CreateTenantForm>(emptyCreateForm)
   const [selectedTenantId, setSelectedTenantId] = useState(0)
-  const [packageOpen, setPackageOpen] = useState(false)
-  const [packageCode, setPackageCode] = useState('')
-  const [packageExpiresAt, setPackageExpiresAt] = useState('')
-  const [packageRemark, setPackageRemark] = useState('')
-  const [statusOpen, setStatusOpen] = useState(false)
-  const [statusRemark, setStatusRemark] = useState('')
+  const [targetAdminId, setTargetAdminId] = useState('')
+  const [currentAdminId, setCurrentAdminId] = useState('')
+  const [replacementAdminId, setReplacementAdminId] = useState('')
+  const [activationToken, setActivationToken] = useState('')
+  const [activationTokenOpen, setActivationTokenOpen] = useState(false)
 
   const overviewQuery = useQuery({
     queryKey: queryKeys.overview,
@@ -71,6 +114,11 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
     queryFn: () => apiRequest<TenantDetailData>(`/dashboard/saasAdmin/tenant?tenantId=${selectedTenantId}&expiringDays=30&operationLimit=12`),
     enabled: selectedTenantId > 0,
   })
+  const governanceQuery = useQuery({
+    queryKey: ['dashboard-admin-governance', selectedTenantId],
+    queryFn: () => apiRequest<DashboardAdminGovernanceData>(`/dashboard/saasAdmin/tenants/${selectedTenantId}/dashboard-admins`),
+    enabled: selectedTenantId > 0,
+  })
 
   const invalidateTenantData = async () => {
     await Promise.all([
@@ -80,91 +128,114 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
     ])
   }
 
-  const createMutation = useMutation({
+  const createMutation = useMutation<DashboardAdminProvisionResult, unknown>({
     mutationFn: async () => {
-      if (!createForm.tenantName.trim()) throw new Error('请填写客户名称')
-      if (!/^1\d{10}$/.test(createForm.adminPhone.trim())) throw new Error('管理员手机号格式不正确')
-      if (!/^[A-Za-z0-9]{6,}$/.test(createForm.password)) throw new Error('初始密码至少 6 位，只能使用字母和数字')
-      if (!createForm.packageCode) throw new Error('请选择套餐')
-      const payload = {
-        tenantName: createForm.tenantName.trim(),
-        adminPhone: createForm.adminPhone.trim(),
-        adminName: createForm.adminName.trim() || '超级管理员',
-        password: createForm.password,
-        packageCode: createForm.packageCode,
-        expiresAt: createForm.expiresAt,
-        configCopyMode: 'missing',
-        remark: 'SaaS 总后台开通客户',
-      }
-      return executeGoverned<Record<string, unknown>>({
-        approvalMode,
-        actionType: 'tenant.provision',
-        payload,
-        reason: `开通客户租户：${payload.tenantName}`,
-        directPath: '/dashboard/saasAdmin/tenantProvision',
+      const plan = (packagesQuery.data?.packages || []).find((item) => String(item.id) === createForm.packageId && item.status === 1)
+      if (!plan) throw new Error('请选择已启用套餐')
+      if (!createForm.tenantName.trim() || !createForm.adminName.trim()) throw new Error('请填写客户名称和管理员姓名')
+      if (!/^1\d{10}$/.test(createForm.adminLoginIdentifier.trim())) throw new Error('管理员手机号格式不正确')
+      const expiresAt = isoEndOfDate(createForm.expiresAt)
+      if (!expiresAt) throw new Error('请填写有效到期日期')
+      return apiRequest<DashboardAdminProvisionResult>('/dashboard/saasAdmin/tenants/provision', {
+        ...jsonRequest('POST', {
+          tenantName: createForm.tenantName.trim(),
+          packageId: plan.id,
+          limits: packageLimitsSnapshot(plan),
+          subscription: {
+            packageCode: plan.code,
+            status: createForm.subscriptionStatus,
+            billingCycle: createForm.billingCycle,
+            startsAt: new Date().toISOString(),
+            expiresAt,
+          },
+          adminLoginIdentifier: createForm.adminLoginIdentifier.trim(),
+          adminName: createForm.adminName.trim(),
+          idempotencyKey: createForm.idempotencyKey,
+          expectedVersion: plan.version,
+        }),
+        headers: { 'X-Request-ID': createForm.idempotencyKey },
       })
     },
     onSuccess: async (result) => {
-      toast.success(result.approvalRequested ? '开户申请已提交审批' : '客户租户已开通')
       setCreateOpen(false)
-      setCreateForm(emptyCreateForm)
-      await invalidateTenantData()
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : '开通失败'),
-  })
-
-  const packageMutation = useMutation({
-    mutationFn: async () => {
-      const tenant = detailQuery.data?.tenant
-      if (!tenant) throw new Error('租户数据尚未加载')
-      if (!packageCode) throw new Error('请选择套餐')
-      const target = packagesQuery.data?.packages.find((item) => item.code === packageCode)
-      const payload = {
-        tenantId: tenant.tenantId,
-        packageCode,
-        expiresAt: packageExpiresAt,
-        remark: packageRemark.trim(),
-        expectedVersion: tenant.packageVersion,
+      setCreateForm(emptyCreateForm())
+      if (result.activationToken) {
+        setActivationToken(result.activationToken)
+        setActivationTokenOpen(true)
       }
-      return executeGoverned<Record<string, unknown>>({
-        approvalMode,
-        actionType: 'tenant.package.update',
-        payload,
-        reason: payload.remark || `将 ${tenant.tenantName} 调整为 ${target?.name || packageCode}`,
-        directPath: '/dashboard/saasAdmin/tenantPackage',
-      })
-    },
-    onSuccess: async (result) => {
-      toast.success(result.approvalRequested ? '套餐调整已提交审批' : '租户套餐已更新')
-      setPackageOpen(false)
+      toast.success(result.idempotent ? '开户请求已确认，未重复发放激活令牌' : '租户已开通，请安全交付一次性激活令牌')
       await invalidateTenantData()
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : '套餐调整失败'),
+    onError: (error) => toast.error(errorMessage(error, '开户失败，表单内容已保留')),
   })
 
-  const statusMutation = useMutation({
+  const resendMutation = useMutation<DashboardAdminGovernanceResult & { activationToken?: string }, unknown>({
     mutationFn: async () => {
-      const tenant = detailQuery.data?.tenant
-      if (!tenant) throw new Error('租户数据尚未加载')
-      if (!statusRemark.trim()) throw new Error('请填写状态变更原因')
-      const nextStatus = tenant.tenantStatus === 1 ? 2 : 1
-      const actionType = nextStatus === 2 ? 'tenant.disable' : 'tenant.enable'
-      const payload = { tenantId: tenant.tenantId, status: nextStatus, remark: statusRemark.trim() }
-      return executeGoverned<Record<string, unknown>>({
-        approvalMode,
-        actionType,
-        payload,
-        reason: statusRemark.trim(),
-        directPath: '/dashboard/saasAdmin/tenantStatus',
+      const tenantId = selectedTenantId
+      const userId = Number(targetAdminId)
+      const version = governanceQuery.data?.bindingVersion || 0
+      if (tenantId <= 0 || userId <= 0 || version <= 0) throw new Error('治理列表尚未加载完成')
+      const requestKey = requestKeys.current.resend || (requestKeys.current.resend = makeRequestKey('dashboard-resend'))
+      return apiRequest<DashboardAdminGovernanceResult & { activationToken?: string }>(`/dashboard/saasAdmin/tenants/${tenantId}/activation/resend`, {
+        ...jsonRequest('POST', { targetUserId: userId, expectedVersion: version }),
+        headers: { 'X-Request-ID': requestKey },
       })
     },
     onSuccess: async (result) => {
-      toast.success(result.approvalRequested ? '状态变更已提交审批' : '租户状态已更新')
-      setStatusOpen(false)
-      setStatusRemark('')
+      delete requestKeys.current.resend
+      if (result.activationToken) {
+        setActivationToken(result.activationToken)
+        setActivationTokenOpen(true)
+      }
+      toast.success(result.idempotent ? '重发请求已确认，激活令牌不会重复显示' : '已生成新的激活令牌')
+      await governanceQuery.refetch()
       await invalidateTenantData()
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : '状态更新失败'),
+    onError: (error) => toast.error(errorMessage(error, '重发激活失败，目标信息已保留')),
+  })
+
+  const replaceMutation = useMutation<DashboardAdminGovernanceResult, unknown>({
+    mutationFn: async () => {
+      const tenantId = selectedTenantId
+      const currentId = Number(currentAdminId)
+      const nextId = Number(replacementAdminId)
+      const version = governanceQuery.data?.bindingVersion || 0
+      if (tenantId <= 0 || currentId <= 0 || nextId <= 0 || currentId === nextId || version <= 0) throw new Error('请选择有效的当前超管、替换候选')
+      const requestKey = requestKeys.current.replace || (requestKeys.current.replace = makeRequestKey('dashboard-replace'))
+      return apiRequest<DashboardAdminGovernanceResult>(`/dashboard/saasAdmin/tenants/${tenantId}/super-admin/replace`, {
+        ...jsonRequest('POST', { currentAdminId: currentId, newAdminId: nextId, expectedVersion: version }),
+        headers: { 'X-Request-ID': requestKey },
+      })
+    },
+    onSuccess: async (result) => {
+      delete requestKeys.current.replace
+      await governanceQuery.refetch()
+      toast.success(result.idempotent ? '替换请求已确认' : '超级管理员已替换')
+      await invalidateTenantData()
+    },
+    onError: (error) => toast.error(errorMessage(error, '替换超级管理员失败，表单内容已保留')),
+  })
+
+  const statusMutation = useMutation<DashboardAdminGovernanceResult, unknown, boolean>({
+    mutationFn: async (enabled) => {
+      const tenantId = selectedTenantId
+      const userId = Number(targetAdminId)
+      const version = governanceQuery.data?.bindingVersion || 0
+      if (tenantId <= 0 || userId <= 0 || version <= 0) throw new Error('治理列表尚未加载完成')
+      const operation = enabled ? 'restore' : 'disable'
+      const requestKey = requestKeys.current[operation] || (requestKeys.current[operation] = makeRequestKey(`dashboard-${operation}`))
+      return apiRequest<DashboardAdminGovernanceResult>(`/dashboard/saasAdmin/tenants/${tenantId}/super-admin/status`, {
+        ...jsonRequest('POST', { targetUserId: userId, enabled, expectedVersion: version }),
+        headers: { 'X-Request-ID': requestKey },
+      })
+    },
+    onSuccess: async (result, enabled) => {
+      delete requestKeys.current[enabled ? 'restore' : 'disable']
+      await governanceQuery.refetch()
+      toast.success(result.idempotent ? '状态请求已确认' : enabled ? '超级管理员已恢复' : '超级管理员已停用')
+      await invalidateTenantData()
+    },
+    onError: (error) => toast.error(errorMessage(error, '超级管理员状态变更失败，表单内容已保留')),
   })
 
   const enabledPackages = (packagesQuery.data?.packages || []).filter((item) => item.status === 1)
@@ -178,106 +249,94 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   }), [keyword, packageFilter, statusFilter, tenants])
 
   const openCreate = () => {
-    setCreateForm({ ...emptyCreateForm, packageCode: enabledPackages[0]?.code || '' })
+    setCreateForm({ ...emptyCreateForm(), packageId: enabledPackages[0] ? String(enabledPackages[0].id) : '' })
     setCreateOpen(true)
   }
 
-  const openTenant = (tenant: TenantSummary) => setSelectedTenantId(tenant.tenantId)
+  const openTenant = (tenant: TenantSummary) => {
+    setSelectedTenantId(tenant.tenantId)
+    setTargetAdminId('')
+    setCurrentAdminId('')
+    setReplacementAdminId('')
+  }
+
+  useEffect(() => {
+    const identities = governanceQuery.data?.identities || []
+    if (!selectedTenantId || identities.length === 0) return
+    const current = identities.find((identity) => identity.isSuperAdmin && identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt)) || identities.find((identity) => identity.isSuperAdmin)
+    const candidate = identities.find((identity) => identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt) && identity.id !== current?.id)
+    setTargetAdminId((value) => identities.some((identity) => identity.id === Number(value) && identity.isSuperAdmin) ? value : current ? String(current.id) : '')
+    setCurrentAdminId((value) => identities.some((identity) => identity.id === Number(value) && identity.isSuperAdmin) ? value : current ? String(current.id) : '')
+    setReplacementAdminId((value) => identities.some((identity) => identity.id === Number(value) && identity.id !== Number(currentAdminId) && identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt)) ? value : candidate ? String(candidate.id) : '')
+  }, [currentAdminId, governanceQuery.data, selectedTenantId])
+
   const selectedTenant = detailQuery.data?.tenant
   const coreMetrics = (detailQuery.data?.metrics || []).filter((item) => ['users', 'corps', 'contacts', 'rooms', 'storage_mb', 'channel_codes'].includes(item.metric))
+  const createPlan = enabledPackages.find((item) => String(item.id) === createForm.packageId)
+  const governanceVersion = governanceQuery.data?.bindingVersion || 0
+  const targetIdentity = governanceQuery.data?.identities.find((identity) => identity.id === Number(targetAdminId))
+  const currentIdentity = governanceQuery.data?.identities.find((identity) => identity.id === Number(currentAdminId))
+  const replacementIdentity = governanceQuery.data?.identities.find((identity) => identity.id === Number(replacementAdminId))
+  const governanceSummary = selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}），管理员 ${targetIdentity?.name || '未选择'}，绑定版本 ${governanceVersion || '加载中'}` : '请先打开一个客户租户详情。'
+  const governanceMutationError = resendMutation.error || replaceMutation.error || statusMutation.error
 
   if (overviewQuery.isLoading || packagesQuery.isLoading) return <LoadingState label="正在加载客户租户" />
-  if (overviewQuery.isError || !overviewQuery.data) return <ErrorState message={overviewQuery.error instanceof Error ? overviewQuery.error.message : '无法加载客户租户'} onRetry={() => overviewQuery.refetch()} />
+  if (overviewQuery.isError || !overviewQuery.data) return <ErrorState message={errorMessage(overviewQuery.error, '无法加载客户租户')} onRetry={() => overviewQuery.refetch()} />
 
   return (
     <div className="space-y-7">
-      <PageHeader title="客户租户" description="开通客户并维护账号、套餐、状态和用量" actions={canManage ? <Button onClick={openCreate}><Plus className="h-4 w-4" />开通客户</Button> : undefined} />
+      <PageHeader title="客户租户" description="SaaS 开户与 Dashboard 超级管理员治理" actions={canManage ? <Button type="button" onClick={openCreate}><Plus className="h-4 w-4" />开通客户</Button> : undefined} />
 
       <section className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-3 lg:flex-row lg:items-center" aria-label="客户筛选">
-        <label className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
-          <Input value={keyword} onChange={(event) => setKeyword(event.target.value)} className="pl-9" placeholder="搜索客户名称、ID 或套餐" />
-        </label>
+        <label className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" /><Input value={keyword} onChange={(event) => setKeyword(event.target.value)} className="pl-9" placeholder="搜索客户名称、ID 或套餐" /></label>
         <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="lg:w-36"><option value="all">全部状态</option><option value="1">正常</option><option value="2">已停用</option></Select>
-        <Select value={packageFilter} onChange={(event) => setPackageFilter(event.target.value)} className="lg:w-44"><option value="all">全部套餐</option>{enabledPackages.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</Select>
+        <Select value={packageFilter} onChange={(event) => setPackageFilter(event.target.value)} className="lg:w-44"><option value="all">全部套餐</option>{enabledPackages.map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}</Select>
         <span className="px-1 text-sm text-zinc-500">{filteredTenants.length} 个客户</span>
       </section>
 
       <section className="space-y-3">
-        <SectionHeader title="客户列表" />
+        <SectionHeader title="客户列表" description="企业绑定由服务端 principal 决定，页面不提供 corp 选择。" />
         <TableShell>
           {filteredTenants.length === 0 ? (
-            <EmptyState
-              icon={<Building2 className="h-5 w-5" />}
-              title={tenants.length === 0 ? '还没有客户租户' : '没有匹配的客户'}
-              description={tenants.length === 0 ? '签约首个客户后，在这里一次完成账号与套餐开通。' : '调整搜索条件后重试。'}
-              action={tenants.length === 0 && canManage ? <Button onClick={openCreate}><UserRoundPlus className="h-4 w-4" />开通首个客户</Button> : undefined}
-            />
+            <EmptyState icon={<Building2 className="h-5 w-5" />} title={tenants.length === 0 ? '还没有客户租户' : '没有匹配的客户'} description={tenants.length === 0 ? '签约首个客户后，在这里完成一次性开户。' : '调整搜索条件后重试。'} action={tenants.length === 0 && canManage ? <Button type="button" onClick={openCreate}><UserRoundPlus className="h-4 w-4" />开通首个客户</Button> : undefined} />
           ) : (
-            <table className="min-w-[900px]">
-              <thead><tr><th>客户</th><th>套餐与到期</th><th>状态</th><th>最高用量</th><th>告警</th><th className="w-20">操作</th></tr></thead>
-              <tbody>
-                {filteredTenants.map((tenant) => {
-                  const status = tenantStatusView(tenant.tenantStatus)
-                  const due = dueStateView(tenant)
-                  const ratio = Math.round((tenant.maxUsageRatio || 0) * 100)
-                  return (
-                    <tr key={tenant.tenantId}>
-                      <td><strong className="font-medium text-zinc-950">{tenant.tenantName}</strong><div className="mt-1 text-xs text-zinc-500">租户 ID {tenant.tenantId}</div></td>
-                      <td><div>{tenant.packageName || '未配置'}</div><div className="mt-1 text-xs text-zinc-500">{tenant.expiresAt || '长期有效'}</div></td>
-                      <td><div className="flex flex-wrap gap-1"><Badge tone={status.tone}>{status.label}</Badge><Badge tone={due.tone}>{due.label}</Badge></div></td>
-                      <td><div className="flex min-w-40 items-center justify-between gap-3 text-xs"><span>{tenant.maxUsageLabel || '-'}</span><span>{ratio}%</span></div><div className="mt-2"><ProgressBar value={ratio} tone={usageTone(tenant.maxUsageRatio || 0)} /></div></td>
-                      <td>{tenant.openAlertCount > 0 ? <Badge tone="danger">{tenant.openAlertCount} 条</Badge> : <Badge tone="success">正常</Badge>}</td>
-                      <td><Button variant="ghost" onClick={() => openTenant(tenant)}><Eye className="h-4 w-4" />详情</Button></td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <table className="min-w-[900px]"><thead><tr><th>客户</th><th>套餐与到期</th><th>状态</th><th>最高用量</th><th>告警</th><th className="w-20">操作</th></tr></thead><tbody>
+              {filteredTenants.map((tenant) => {
+                const status = tenantStatusView(tenant.tenantStatus)
+                const ratio = Math.round((tenant.maxUsageRatio || 0) * 100)
+                return <tr key={tenant.tenantId}><td><strong className="font-medium text-zinc-950">{tenant.tenantName}</strong><div className="mt-1 text-xs text-zinc-500">租户 ID {tenant.tenantId}</div></td><td><div>{tenant.packageName || '未配置'}</div><div className="mt-1 text-xs text-zinc-500">{tenant.expiresAt || '长期有效'}</div></td><td><Badge tone={status.tone}>{status.label}</Badge></td><td><div className="flex min-w-40 items-center justify-between gap-3 text-xs"><span>{tenant.maxUsageLabel || '-'}</span><span>{ratio}%</span></div><div className="mt-2"><ProgressBar value={ratio} tone={usageTone(tenant.maxUsageRatio || 0)} /></div></td><td>{tenant.openAlertCount > 0 ? <Badge tone="danger">{tenant.openAlertCount} 条</Badge> : <Badge tone="success">正常</Badge>}</td><td><Button type="button" variant="ghost" onClick={() => openTenant(tenant)}><Eye className="h-4 w-4" />详情</Button></td></tr>
+              })}
+            </tbody></table>
           )}
         </TableShell>
       </section>
 
-      <Dialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        title="开通客户租户"
-        description="创建客户账号并绑定首个套餐"
-        footer={<><Button variant="secondary" onClick={() => setCreateOpen(false)}>取消</Button><Button loading={createMutation.isPending} onClick={() => createMutation.mutate()}>{approvalMode.required ? '提交开户' : '确认开通'}</Button></>}
-      >
+      <Dialog open={createOpen} onOpenChange={setCreateOpen} title="开通客户租户" description="创建 SaaS 租户、套餐快照和首个 Dashboard 管理员" footer={<><Button type="button" variant="secondary" onClick={() => setCreateOpen(false)}>取消</Button><ConfirmAction title="确认开户" summary={<div className="space-y-1"><p>客户：{createForm.tenantName || '未填写'}</p><p>管理员：{createForm.adminName || '未填写'} / {createForm.adminLoginIdentifier || '未填写'}</p><p>套餐：{createPlan ? `${createPlan.name}（ID ${createPlan.id}，版本 ${createPlan.version}）` : '未选择'}</p><p>系统将在成功响应中仅展示一次激活令牌，不会创建或传递初始密码。</p></div>} confirmLabel="确认开户" loading={createMutation.isPending} onConfirm={() => createMutation.mutateAsync()}>提交开户</ConfirmAction></>}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="客户名称" className="sm:col-span-2"><Input value={createForm.tenantName} onChange={(event) => setCreateForm((form) => ({ ...form, tenantName: event.target.value }))} placeholder="客户公司名称" autoFocus /></Field>
           <Field label="管理员姓名"><Input value={createForm.adminName} onChange={(event) => setCreateForm((form) => ({ ...form, adminName: event.target.value }))} placeholder="超级管理员" /></Field>
-          <Field label="管理员手机号"><Input value={createForm.adminPhone} onChange={(event) => setCreateForm((form) => ({ ...form, adminPhone: event.target.value }))} inputMode="numeric" maxLength={11} placeholder="11 位手机号" /></Field>
-          <Field label="初始密码" hint="至少 6 位字母或数字"><Input type="password" value={createForm.password} onChange={(event) => setCreateForm((form) => ({ ...form, password: event.target.value }))} autoComplete="new-password" /></Field>
-          <Field label="销售套餐"><Select value={createForm.packageCode} onChange={(event) => setCreateForm((form) => ({ ...form, packageCode: event.target.value }))}><option value="">请选择</option>{enabledPackages.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</Select></Field>
-          <Field label="到期日期" className="sm:col-span-2"><Input type="date" value={createForm.expiresAt} onChange={(event) => setCreateForm((form) => ({ ...form, expiresAt: event.target.value }))} /></Field>
+          <Field label="管理员手机号"><Input value={createForm.adminLoginIdentifier} onChange={(event) => setCreateForm((form) => ({ ...form, adminLoginIdentifier: event.target.value }))} inputMode="numeric" maxLength={11} placeholder="11 位手机号" /></Field>
+          <Field label="销售套餐" hint="开户时复制平台权威的 26 项额度和版本，不可在此编辑。"><Select value={createForm.packageId} onChange={(event) => setCreateForm((form) => ({ ...form, packageId: event.target.value }))}><option value="">请选择已启用套餐</option>{enabledPackages.map((item) => <option key={item.id} value={item.id}>{item.name}（ID {item.id} / v{item.version}）</option>)}</Select></Field>
+          <Field label="订阅状态"><Select value={createForm.subscriptionStatus} onChange={(event) => setCreateForm((form) => ({ ...form, subscriptionStatus: event.target.value as CreateTenantForm['subscriptionStatus'] }))}><option value="trialing">试用中</option><option value="active">有效</option></Select></Field>
+          <Field label="计费周期"><Select value={createForm.billingCycle} onChange={(event) => setCreateForm((form) => ({ ...form, billingCycle: event.target.value as CreateTenantForm['billingCycle'] }))}><option value="custom">定制</option><option value="monthly">月付</option><option value="yearly">年付</option><option value="lifetime">长期</option></Select></Field>
+          <Field label="到期日期"><Input type="date" value={createForm.expiresAt} onChange={(event) => setCreateForm((form) => ({ ...form, expiresAt: event.target.value }))} /></Field>
+          <p className="sm:col-span-2 text-xs leading-5 text-zinc-500">幂等键由页面生成并保留到成功；409 或网络错误不会清空表单。激活完成后请通过受控流程交付，不要在备注、日志或截图中复制令牌。</p>
         </div>
+      </Dialog>
+
+      <Dialog open={activationTokenOpen} onOpenChange={(open) => { setActivationTokenOpen(open); if (!open) setActivationToken('') }} title="一次性激活令牌" description="此令牌只在本次成功响应后显示，关闭后无法再次查看。" size="sm">
+        <div className="space-y-3"><p className="text-sm text-amber-800">请使用安全的受控交付渠道传给对应管理员；不要写入工单正文、日志或截图。</p><code className="block break-all rounded-md bg-zinc-950 px-3 py-3 text-xs text-emerald-300">{activationToken}</code><Button type="button" variant="secondary" onClick={() => { setActivationTokenOpen(false); setActivationToken('') }}>我已记录并关闭</Button></div>
       </Dialog>
 
       <Dialog open={selectedTenantId > 0} onOpenChange={(open) => !open && setSelectedTenantId(0)} title={selectedTenant?.tenantName || '客户详情'} description={selectedTenant ? `租户 ID ${selectedTenant.tenantId}` : '正在加载'} size="lg">
         {detailQuery.isLoading && <LoadingState label="正在加载客户详情" />}
-        {detailQuery.isError && <ErrorState message={detailQuery.error instanceof Error ? detailQuery.error.message : '无法加载客户详情'} onRetry={() => detailQuery.refetch()} />}
-        {selectedTenant && (
-          <div className="space-y-6">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">当前套餐</span><strong className="mt-1 block text-sm">{selectedTenant.packageName || '未配置'}</strong></div>
-              <div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">账号状态</span><div className="mt-1"><Badge tone={tenantStatusView(selectedTenant.tenantStatus).tone}>{tenantStatusView(selectedTenant.tenantStatus).label}</Badge></div></div>
-              <div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">套餐到期</span><strong className="mt-1 block text-sm">{selectedTenant.expiresAt || '长期有效'}</strong></div>
-            </div>
-            {canManage && <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => { setPackageCode(selectedTenant.packageCode); setPackageExpiresAt(selectedTenant.expiresAt || ''); setPackageRemark(''); setPackageOpen(true) }}><PackageCheck className="h-4 w-4" />调整套餐</Button><Button variant={selectedTenant.tenantStatus === 1 ? 'danger' : 'secondary'} onClick={() => setStatusOpen(true)}>{selectedTenant.tenantStatus === 1 ? '停用租户' : '启用租户'}</Button></div>}
-            <section className="space-y-3"><SectionHeader title="核心用量" /><div className="grid gap-3 sm:grid-cols-2">{coreMetrics.map((metric) => { const ratio = metric.limit > 0 ? metric.current / metric.limit : 0; return <div key={metric.metric} className="rounded-md border border-zinc-200 p-3"><div className="flex items-center justify-between gap-3 text-sm"><span>{metric.label}</span><strong>{metric.current} / {metric.limit}</strong></div><div className="mt-3"><ProgressBar value={ratio * 100} tone={usageTone(ratio)} /></div></div> })}</div></section>
-            <section className="space-y-3"><SectionHeader title="最近变更" /><TableShell>{(detailQuery.data?.operations || []).length === 0 ? <EmptyState icon={<Building2 className="h-5 w-5" />} title="暂无变更记录" description="租户变更会自动记录。" /> : <table><thead><tr><th>目标</th><th>说明</th><th>时间</th></tr></thead><tbody>{(detailQuery.data?.operations || []).slice(0, 8).map((item) => <tr key={item.id}><td>{item.targetName || item.targetType}</td><td>{item.remark || item.action}</td><td>{formatDate(item.createdAt)}</td></tr>)}</tbody></table>}</TableShell></section>
-          </div>
-        )}
-      </Dialog>
-
-      <Dialog open={packageOpen} onOpenChange={setPackageOpen} title="调整客户套餐" description={selectedTenant?.tenantName} footer={<><Button variant="secondary" onClick={() => setPackageOpen(false)}>取消</Button><Button loading={packageMutation.isPending} onClick={() => packageMutation.mutate()}>{approvalMode.required ? '提交调整' : '确认调整'}</Button></>}>
-        <div className="grid gap-4 sm:grid-cols-2"><Field label="套餐"><Select value={packageCode} onChange={(event) => setPackageCode(event.target.value)}>{enabledPackages.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</Select></Field><Field label="到期日期"><Input type="date" value={packageExpiresAt} onChange={(event) => setPackageExpiresAt(event.target.value)} /></Field><Field label="变更说明" className="sm:col-span-2"><Input value={packageRemark} onChange={(event) => setPackageRemark(event.target.value)} placeholder="升级、降级或权益调整原因" /></Field></div>
-      </Dialog>
-
-      <Dialog open={statusOpen} onOpenChange={setStatusOpen} title={selectedTenant?.tenantStatus === 1 ? '停用客户租户' : '启用客户租户'} description={selectedTenant?.tenantName} size="sm" footer={<><Button variant="secondary" onClick={() => setStatusOpen(false)}>取消</Button><Button variant={selectedTenant?.tenantStatus === 1 ? 'danger' : 'primary'} loading={statusMutation.isPending} onClick={() => statusMutation.mutate()}>确认变更</Button></>}>
-        <Field label="变更原因"><textarea className={inputClassName.replace('h-9', 'min-h-24 py-2')} value={statusRemark} onChange={(event) => setStatusRemark(event.target.value)} placeholder="填写停用或恢复原因" /></Field>
+        {detailQuery.isError && <ErrorState message={errorMessage(detailQuery.error, '无法加载客户详情')} onRetry={() => detailQuery.refetch()} />}
+        {selectedTenant && <div className="space-y-6">
+          <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">当前套餐</span><strong className="mt-1 block text-sm">{selectedTenant.packageName || '未配置'}</strong></div><div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">租户状态</span><div className="mt-1"><Badge tone={tenantStatusView(selectedTenant.tenantStatus).tone}>{tenantStatusView(selectedTenant.tenantStatus).label}</Badge></div></div><div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">套餐到期</span><strong className="mt-1 block text-sm">{selectedTenant.expiresAt || '长期有效'}</strong></div></div>
+          {canManage && <section className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><SectionHeader title="Dashboard 超级管理员治理" description="对象和绑定版本来自服务端只读治理列表；页面不接受手填用户 ID 或版本。" />{governanceQuery.isLoading && <LoadingState label="正在加载 Dashboard 身份" />}{governanceQuery.isError && <ErrorState message={errorMessage(governanceQuery.error, '无法加载治理列表')} onRetry={() => governanceQuery.refetch()} />}{governanceQuery.data && <><div className="grid gap-3 sm:grid-cols-2"><Field label="治理绑定版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700">v{governanceQuery.data.bindingVersion}</div></Field><Field label="重发/停用/恢复对象"><Select value={targetAdminId} onChange={(event) => setTargetAdminId(event.target.value)}><option value="">请选择 Dashboard 超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}，{identity.userStatus === 1 && identity.identityStatus === 1 && identity.activatedAt ? '启用' : '停用'}）</option>)}</Select></Field><Field label="当前超管"><Select value={currentAdminId} onChange={(event) => setCurrentAdminId(event.target.value)}><option value="">请选择当前超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field><Field label="替换候选"><Select value={replacementAdminId} onChange={(event) => setReplacementAdminId(event.target.value)}><option value="">请选择已激活候选</option>{governanceQuery.data.identities.filter((identity) => identity.id !== Number(currentAdminId) && identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt)).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field></div><div className="mb-3 text-xs text-zinc-500">当前：{currentIdentity?.name || '未选择'}；候选：{replacementIdentity?.name || '未选择'}；目标状态：{targetIdentity?.isSuperAdmin ? (targetIdentity.userStatus === 1 && targetIdentity.identityStatus === 1 && targetIdentity.activatedAt ? '启用' : '停用') : '未选择'}</div>{governanceMutationError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage(governanceMutationError, '治理操作失败，当前选择已保留。')}</p>}<div className="flex flex-wrap gap-2"><ConfirmAction title="确认重发激活" summary={governanceSummary} loading={resendMutation.isPending} disabled={!targetIdentity || !targetIdentity.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || Boolean(targetIdentity.activatedAt)} onConfirm={() => resendMutation.mutateAsync()}><RefreshCw className="h-4 w-4" />重发激活</ConfirmAction><ConfirmAction title="确认替换超管" summary={`${governanceSummary}；当前 ${currentIdentity?.name || '未选择'} → 新 ${replacementIdentity?.name || '未选择'}`} loading={replaceMutation.isPending} disabled={!currentIdentity?.isSuperAdmin || currentIdentity.userStatus !== 1 || currentIdentity.identityStatus !== 1 || !currentIdentity.activatedAt || !replacementIdentity} onConfirm={() => replaceMutation.mutateAsync()}><ShieldCheck className="h-4 w-4" />替换超管</ConfirmAction><ConfirmAction title="确认停用超管" summary={governanceSummary} variant="danger" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(false)}><UserX className="h-4 w-4" />停用超管</ConfirmAction><ConfirmAction title="确认恢复超管" summary={governanceSummary} variant="secondary" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 2 || targetIdentity.identityStatus !== 2 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(true)}><UserRoundCog className="h-4 w-4" />恢复超管</ConfirmAction></div></>}</section>}
+          <section className="space-y-3"><SectionHeader title="核心用量" /><div className="grid gap-3 sm:grid-cols-2">{coreMetrics.map((metric) => { const ratio = metric.limit > 0 ? metric.current / metric.limit : 0; return <div key={metric.metric} className="rounded-md border border-zinc-200 p-3"><div className="flex items-center justify-between gap-3 text-sm"><span>{metric.label}</span><strong>{metric.current} / {metric.limit}</strong></div><div className="mt-3"><ProgressBar value={ratio * 100} tone={usageTone(ratio)} /></div></div> })}</div></section>
+          <section className="space-y-3"><SectionHeader title="最近变更" /><TableShell>{(detailQuery.data?.operations || []).length === 0 ? <EmptyState icon={<Building2 className="h-5 w-5" />} title="暂无变更记录" description="租户变更会自动记录。" /> : <table><thead><tr><th>目标</th><th>说明</th><th>时间</th></tr></thead><tbody>{(detailQuery.data?.operations || []).slice(0, 8).map((item) => <tr key={item.id}><td>{item.targetName || item.targetType}</td><td>{item.remark || item.action}</td><td>{formatDate(item.createdAt)}</td></tr>)}</tbody></table>}</TableShell></section>
+        </div>}
       </Dialog>
     </div>
   )

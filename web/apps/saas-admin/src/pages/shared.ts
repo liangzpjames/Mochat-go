@@ -44,3 +44,10 @@ export const coreLimitFields = [
   { key: 'channelCodes', label: '渠道活码数', defaultValue: 20 },
   { key: 'asyncExecutions', label: '月异步执行量', defaultValue: 1000 },
 ] as const
+
+export const packageLimitKeys = [
+  'maxCorps', 'maxUsers', 'maxContacts', 'maxRooms', 'maxAgents', 'channelCodes', 'shopCodes', 'radars', 'lotteries',
+  'roomInfinitePulls', 'roomFissions', 'roomClockIns', 'roomQualities', 'roomCalendars', 'roomReminds', 'contactSops',
+  'roomSops', 'sensitiveWords', 'storageMb', 'contactMessageBatches', 'roomMessageBatches', 'roomTagPulls',
+  'workRoomAutoPulls', 'workFissions', 'officialAccounts', 'asyncExecutions',
+] as const

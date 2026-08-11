@@ -52,6 +52,7 @@ const (
 )
 
 var saasAdminAccessRoleCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{2,47}$`)
+var saasAdminTenantGovernanceRoutePattern = regexp.MustCompile(`^tenants/(?:\{tenantId\}|[1-9][0-9]*)/(?:activation/resend|super-admin/replace|super-admin/status|dashboard-admins)$`)
 
 type SaaSAdminPermissionDefinition struct {
 	Code        string
@@ -197,11 +198,16 @@ func SaaSAdminPermissionValid(code string) bool {
 }
 
 func SaaSAdminAccessHasPermission(profile SaaSAdminAccessProfile, permission string) bool {
+	permission = strings.TrimSpace(permission)
+	if permission == "" {
+		return false
+	}
 	if profile.IsPlatformSuperAdmin {
 		return true
 	}
 	for _, code := range profile.Permissions {
-		if code == permission {
+		code = strings.TrimSpace(code)
+		if code == permission || code == "*" {
 			return true
 		}
 	}
@@ -216,6 +222,9 @@ func SaaSAdminRequiredPermission(r *http.Request) string {
 	write := r.Method != http.MethodGet && r.Method != http.MethodHead
 	if name == "export" {
 		return saasAdminExportPermission(r.URL.Query().Get("type"))
+	}
+	if name == "tenants/provision" || saasAdminTenantGovernanceRoutePattern.MatchString(name) {
+		return SaaSAdminPermissionTenantsManage
 	}
 	if name == "accessProfile" {
 		return SaaSAdminPermissionOverviewRead

@@ -99,6 +99,7 @@ DROP TABLE IF EXISTS `mochat_go_dashboard_password_resets`;
 DROP TABLE IF EXISTS `mochat_go_dashboard_sessions`;
 DROP TABLE IF EXISTS `mochat_go_dashboard_mfa_challenges`;
 DROP TABLE IF EXISTS `mochat_go_dashboard_mfa_credentials`;
+DROP TABLE IF EXISTS `mochat_go_saas_idempotency_receipts`;
 DROP TABLE IF EXISTS `mochat_go_tenant_corp_bindings`;
 DROP TABLE IF EXISTS `mochat_go_dashboard_identity_activations`;
 DROP TABLE IF EXISTS `mochat_go_dashboard_identities`;

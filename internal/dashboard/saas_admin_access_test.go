@@ -69,6 +69,11 @@ func TestSaaSAdminRequiredPermission(t *testing.T) {
 		{http.MethodGet, "/dashboard/saasAdmin/tenant", SaaSAdminPermissionTenantsRead},
 		{http.MethodGet, "/dashboard/saasAdmin/tenantReadiness", SaaSAdminPermissionTenantsRead},
 		{http.MethodPut, "/dashboard/saasAdmin/tenantStatus", SaaSAdminPermissionTenantsManage},
+		{http.MethodPost, "/dashboard/saasAdmin/tenants/provision", SaaSAdminPermissionTenantsManage},
+		{http.MethodPost, "/dashboard/saasAdmin/tenants/{tenantId}/activation/resend", SaaSAdminPermissionTenantsManage},
+		{http.MethodPost, "/dashboard/saasAdmin/tenants/41/super-admin/replace", SaaSAdminPermissionTenantsManage},
+		{http.MethodPost, "/dashboard/saasAdmin/tenants/{tenantId}/super-admin/status", SaaSAdminPermissionTenantsManage},
+		{http.MethodGet, "/dashboard/saasAdmin/tenants/41/dashboard-admins", SaaSAdminPermissionTenantsManage},
 		{http.MethodGet, "/dashboard/saasAdmin/operationQueue", SaaSAdminPermissionOperationsRead},
 		{http.MethodPost, "/dashboard/saasAdmin/operationQueueAssign", SaaSAdminPermissionOperationsManage},
 		{http.MethodGet, "/dashboard/saasAdmin/notificationSlo", SaaSAdminPermissionNotificationsRead},
@@ -120,6 +125,13 @@ func TestSaaSAdminRequiredPermission(t *testing.T) {
 				t.Fatalf("permission = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestSaaSAdminAccessWildcardPermissionAuthorizesWithoutLegacySuperAdminFlag(t *testing.T) {
+	profile := SaaSAdminAccessProfile{Permissions: []string{"*"}}
+	if !SaaSAdminAccessHasPermission(profile, SaaSAdminPermissionTenantsManage) {
+		t.Fatal("SaaS RBAC wildcard permission was not recognized without legacy IsPlatformSuperAdmin")
 	}
 }
 

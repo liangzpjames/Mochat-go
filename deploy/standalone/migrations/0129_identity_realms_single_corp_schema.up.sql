@@ -550,6 +550,26 @@ CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_users` (
   UNIQUE KEY `uni_saas_admin_user_bootstrap_request_key` (`bootstrap_request_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SaaS platform identity';
 
+-- Generic SaaS mutation receipt. It intentionally stores no token, digest, or
+-- other credential material; 0130 may add the historical actor FK after
+-- backfill, but request uniqueness and result replay safety exist in 0129.
+CREATE TABLE IF NOT EXISTS `mochat_go_saas_idempotency_receipts` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `operation` varchar(96) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `request_key` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `fingerprint` binary(32) NOT NULL,
+  `tenant_id` int(10) unsigned NOT NULL DEFAULT '0',
+  `target_id` int(10) unsigned NOT NULL DEFAULT '0',
+  `result_version` bigint(20) unsigned NOT NULL DEFAULT '0',
+  `status` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT '0=pending,1=committed',
+  `created_by_saas_user_id` int(10) unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uni_saas_idempotency_operation_request` (`operation`, `request_key`),
+  KEY `idx_saas_idempotency_target` (`operation`, `tenant_id`, `target_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SaaS mutation idempotency receipt without secret material';
+
 CREATE TABLE IF NOT EXISTS `mochat_go_dashboard_identities` (
   `user_id` int(10) unsigned NOT NULL,
   `login_identifier` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -575,6 +595,7 @@ CREATE TABLE IF NOT EXISTS `mochat_go_dashboard_identity_activations` (
   `created_by_saas_user_id` int(10) unsigned NOT NULL,
   `request_id` varchar(96) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uni_dashboard_identity_activation_digest` (`token_digest`),
   KEY `idx_dashboard_identity_activation_user` (`user_id`, `consumed_at`, `expires_at`),

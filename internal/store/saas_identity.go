@@ -196,6 +196,9 @@ func (store *SaaSIdentityStore) bootstrapOnce(ctx context.Context, input saasaut
 		if existing.requestKey != requestKey || !sameBootstrapBusinessInput(existing.identity, loginName, phone, name) {
 			return saasauth.SaaSIdentity{}, saasauth.ErrBootstrapConflict
 		}
+		if err := ensureSaaSPlatformRootTx(ctx, tx, existing.identity.ID, false); err != nil {
+			return saasauth.SaaSIdentity{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return saasauth.SaaSIdentity{}, err
 		}
@@ -218,6 +221,9 @@ func (store *SaaSIdentityStore) bootstrapOnce(ctx context.Context, input saasaut
 	if lookupErr == nil {
 		if existing.requestKey != requestKey || !sameBootstrapBusinessInput(existing.identity, loginName, phone, name) {
 			return saasauth.SaaSIdentity{}, saasauth.ErrBootstrapConflict
+		}
+		if err := ensureSaaSPlatformRootTx(ctx, tx, existing.identity.ID, false); err != nil {
+			return saasauth.SaaSIdentity{}, err
 		}
 		if err := tx.Commit(); err != nil {
 			return saasauth.SaaSIdentity{}, err
@@ -251,10 +257,113 @@ func (store *SaaSIdentityStore) bootstrapOnce(ctx context.Context, input saasaut
 		AuthVersion:        1,
 		MFARequired:        1,
 	}
+	if err := ensureSaaSPlatformRootTx(ctx, tx, identity.ID, true); err != nil {
+		return saasauth.SaaSIdentity{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return saasauth.SaaSIdentity{}, err
 	}
 	return identity, nil
+}
+
+func ensureSaaSPlatformRootTx(ctx context.Context, tx saasIdentityTx, userID int, allowCreate bool) error {
+	if userID <= 0 {
+		return saasauth.ErrInvalidBootstrap
+	}
+	var roleID int64
+	var status, isSystem int
+	roleRow := tx.QueryRowContext(ctx, `
+		SELECT id, status, is_system
+		FROM mochat_go_saas_admin_roles
+		WHERE code = 'platform_root'
+		LIMIT 1
+		FOR UPDATE
+	`)
+	if err := roleRow.Scan(&roleID, &status, &isSystem); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) || !allowCreate {
+			return saasauth.ErrIdentityUnavailable
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT IGNORE INTO mochat_go_saas_admin_roles
+				(code, name, description, status, is_system, version, created_by, updated_by, created_at, updated_at)
+			VALUES ('platform_root', 'Platform root', 'SaaS identity realm root authority', 1, 1, 1, ?, ?, NOW(), NOW())
+		`, userID, userID); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, `
+			SELECT id, status, is_system
+			FROM mochat_go_saas_admin_roles
+			WHERE code = 'platform_root'
+			LIMIT 1
+			FOR UPDATE
+		`).Scan(&roleID, &status, &isSystem); err != nil {
+			return saasauth.ErrIdentityUnavailable
+		}
+	}
+	if roleID <= 0 || status != 1 || isSystem != 1 {
+		return saasauth.ErrIdentityUnavailable
+	}
+
+	var wildcardCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mochat_go_saas_admin_role_permissions
+		WHERE role_id = ? AND permission_code = '*'
+	`, roleID).Scan(&wildcardCount); err != nil {
+		return err
+	}
+	if wildcardCount == 0 {
+		if !allowCreate {
+			return saasauth.ErrIdentityUnavailable
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT IGNORE INTO mochat_go_saas_admin_role_permissions (role_id, permission_code, created_at)
+			VALUES (?, '*', NOW())
+		`, roleID); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM mochat_go_saas_admin_role_permissions
+			WHERE role_id = ? AND permission_code = '*'
+		`, roleID).Scan(&wildcardCount); err != nil {
+			return err
+		}
+		if wildcardCount == 0 {
+			return saasauth.ErrIdentityUnavailable
+		}
+	}
+
+	var assignmentCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mochat_go_saas_admin_user_roles
+		WHERE user_id = ? AND role_id = ?
+	`, userID, roleID).Scan(&assignmentCount); err != nil {
+		return err
+	}
+	if assignmentCount == 0 {
+		if !allowCreate {
+			return saasauth.ErrIdentityUnavailable
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT IGNORE INTO mochat_go_saas_admin_user_roles (user_id, role_id, assigned_by, created_at)
+			VALUES (?, ?, ?, NOW())
+		`, userID, roleID, userID); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM mochat_go_saas_admin_user_roles
+			WHERE user_id = ? AND role_id = ?
+		`, userID, roleID).Scan(&assignmentCount); err != nil {
+			return err
+		}
+		if assignmentCount == 0 {
+			return saasauth.ErrIdentityUnavailable
+		}
+	}
+	return nil
 }
 
 func isRetryableBootstrapError(err error) bool {

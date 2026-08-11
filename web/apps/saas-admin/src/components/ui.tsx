@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { LoaderCircle, X } from 'lucide-react'
-import type { ButtonHTMLAttributes, ChangeEventHandler, HTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
+import { useState, type ButtonHTMLAttributes, type ChangeEventHandler, type HTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
 import { twMerge } from 'tailwind-merge'
 import clsx, { type ClassValue } from 'clsx'
 
@@ -205,6 +205,52 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  )
+}
+
+export function ConfirmAction({
+  title,
+  summary,
+  confirmLabel = '确认执行',
+  variant = 'primary',
+  loading = false,
+  disabled = false,
+  onConfirm,
+  children,
+}: {
+  title: string
+  summary: ReactNode
+  confirmLabel?: string
+  variant?: ButtonVariant
+  loading?: boolean
+  disabled?: boolean
+  onConfirm: () => void | Promise<unknown>
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const confirm = async () => {
+    try {
+      await onConfirm()
+      setOpen(false)
+    } catch {
+      // The mutation owns the user-facing error. Keep the confirmation open so
+      // a 409 or transient failure does not discard the entered business data.
+    }
+  }
+  return (
+    <>
+      <Button type="button" variant={variant} loading={loading} disabled={disabled} onClick={() => setOpen(true)}>{children}</Button>
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        title={title}
+        description="请核对摘要后确认。失败或 409 时表单内容会保留。"
+        size="sm"
+        footer={<><Button type="button" variant="secondary" onClick={() => setOpen(false)}>取消</Button><Button type="button" variant={variant} loading={loading} onClick={() => { void confirm() }}>{confirmLabel}</Button></>}
+      >
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm leading-6 text-amber-950">{summary}</div>
+      </Dialog>
+    </>
   )
 }
 

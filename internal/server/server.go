@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -649,6 +650,7 @@ type Server struct {
 	saasAdminTenantProvisionTaskApply               http.Handler
 	saasAdminTenantProvisionTaskBulkApply           http.Handler
 	saasAdminTenantPackage                          http.Handler
+	saasAdminDashboardProvisioning                  http.Handler
 	chatToolConfig                                  http.Handler
 	commonUpload                                    http.Handler
 	commonUploadFile                                http.Handler
@@ -4127,6 +4129,12 @@ func WithSaaSAdminTenantPackageHandler(handler http.Handler) Option {
 	}
 }
 
+func WithSaaSAdminDashboardProvisioningHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.saasAdminDashboardProvisioning = handler
+	}
+}
+
 func WithChatToolConfigHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.chatToolConfig = handler
@@ -4338,6 +4346,38 @@ func New(cfg config.Config, options ...Option) (*Server, error) {
 		option(server)
 	}
 	return server, nil
+}
+
+func isSaaSAdminDashboardProvisioningRoute(method, path string) bool {
+	const prefix = "/dashboard/saasAdmin/tenants/"
+	if method == http.MethodGet {
+		if !strings.HasPrefix(path, prefix) {
+			return false
+		}
+		rest := strings.TrimPrefix(path, prefix)
+		idText, suffix, ok := strings.Cut(rest, "/")
+		if !ok || suffix != "dashboard-admins" {
+			return false
+		}
+		tenantID, err := strconv.Atoi(idText)
+		return err == nil && tenantID > 0 && strconv.Itoa(tenantID) == idText
+	}
+	if method != http.MethodPost {
+		return false
+	}
+	if path == "/dashboard/saasAdmin/tenants/provision" {
+		return true
+	}
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	idText, suffix, ok := strings.Cut(rest, "/")
+	if !ok || (suffix != "activation/resend" && suffix != "super-admin/replace" && suffix != "super-admin/status") {
+		return false
+	}
+	tenantID, err := strconv.Atoi(idText)
+	return err == nil && tenantID > 0 && strconv.Itoa(tenantID) == idText
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -5665,6 +5705,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.saasAdminTenantRenewalTaskApply.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAdmin/tenantRenewalTaskBulkApply" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.saasAdminTenantRenewalTaskBulkApply != nil:
 		s.saasAdminTenantRenewalTaskBulkApply.ServeHTTP(w, r)
+	case isSaaSAdminDashboardProvisioningRoute(r.Method, r.URL.Path) && s.saasAdminDashboardProvisioning != nil:
+		s.saasAdminDashboardProvisioning.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAdmin/tenantProvision" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.saasAdminTenantProvision != nil:
 		s.saasAdminTenantProvision.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAdmin/tenantProvisionTask" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.saasAdminTenantProvisionTask != nil:
@@ -7646,6 +7688,15 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.saasAdminTenantRenewalTaskBulkApply != nil {
 		routes = append(routes, "POST /dashboard/saasAdmin/tenantRenewalTaskBulkApply", "PUT /dashboard/saasAdmin/tenantRenewalTaskBulkApply")
+	}
+	if s.saasAdminDashboardProvisioning != nil {
+		routes = append(routes,
+			"POST /dashboard/saasAdmin/tenants/provision",
+			"POST /dashboard/saasAdmin/tenants/{tenantId}/activation/resend",
+			"POST /dashboard/saasAdmin/tenants/{tenantId}/super-admin/replace",
+			"POST /dashboard/saasAdmin/tenants/{tenantId}/super-admin/status",
+			"GET /dashboard/saasAdmin/tenants/{tenantId}/dashboard-admins",
+		)
 	}
 	if s.saasAdminTenantProvision != nil {
 		routes = append(routes, "POST /dashboard/saasAdmin/tenantProvision", "PUT /dashboard/saasAdmin/tenantProvision")

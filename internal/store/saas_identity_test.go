@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -131,8 +132,29 @@ func TestSaaSIdentityStoreCheckSessionChecksStatusAndAuthVersion(t *testing.T) {
 
 func TestSaaSIdentityStoreBootstrapIsIdempotentAndDoesNotResetPassword(t *testing.T) {
 	created := false
+	rootExists := false
+	wildcardExists := false
+	assignmentExists := false
 	tx := &identityTestTx{}
 	tx.query = func(query string, _ ...any) identityRowScanner {
+		if strings.Contains(query, "FROM mochat_go_saas_admin_roles") {
+			if !rootExists {
+				return identityTestRow{err: sql.ErrNoRows}
+			}
+			return identityTestRow{values: []any{int64(9), 1, 1}}
+		}
+		if strings.Contains(query, "FROM mochat_go_saas_admin_role_permissions") {
+			if wildcardExists {
+				return identityTestRow{values: []any{1}}
+			}
+			return identityTestRow{values: []any{0}}
+		}
+		if strings.Contains(query, "FROM mochat_go_saas_admin_user_roles") {
+			if assignmentExists {
+				return identityTestRow{values: []any{1}}
+			}
+			return identityTestRow{values: []any{0}}
+		}
 		if !created {
 			return identityTestRow{err: sql.ErrNoRows}
 		}
@@ -141,13 +163,24 @@ func TestSaaSIdentityStoreBootstrapIsIdempotentAndDoesNotResetPassword(t *testin
 		}
 		return identityTestRow{values: []any{42, "platform-admin", "", "first-hash", "Platform Admin", 1, 1, uint64(1), 1, "bootstrap-request-1"}}
 	}
-	insertCount := 0
+	identityInsertCount := 0
 	tx.exec = func(statement string, _ ...any) (sql.Result, error) {
-		insertCount++
-		if !strings.Contains(statement, "INSERT INTO mochat_go_saas_admin_users") || strings.Contains(statement, "ON DUPLICATE KEY UPDATE") || strings.Contains(statement, "UPDATE mochat_go_saas_admin_users") {
-			t.Fatal("bootstrap must insert once and never update an existing password")
+		if strings.Contains(statement, "INSERT INTO mochat_go_saas_admin_users") {
+			identityInsertCount++
+			if strings.Contains(statement, "ON DUPLICATE KEY UPDATE") || strings.Contains(statement, "UPDATE mochat_go_saas_admin_users") {
+				t.Fatal("bootstrap must insert once and never update an existing password")
+			}
+			created = true
 		}
-		created = true
+		if strings.Contains(statement, "INSERT IGNORE INTO mochat_go_saas_admin_roles") {
+			rootExists = true
+		}
+		if strings.Contains(statement, "INSERT IGNORE INTO mochat_go_saas_admin_role_permissions") {
+			wildcardExists = true
+		}
+		if strings.Contains(statement, "INSERT IGNORE INTO mochat_go_saas_admin_user_roles") {
+			assignmentExists = true
+		}
 		return identityTestResult{id: 42}, nil
 	}
 	store := &SaaSIdentityStore{
@@ -158,16 +191,17 @@ func TestSaaSIdentityStoreBootstrapIsIdempotentAndDoesNotResetPassword(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	firstExecCount := len(tx.execs)
 	input.PasswordHash = "second-hash"
 	second, err := store.Bootstrap(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if insertCount != 1 || first.ID != 42 || second.PasswordHash != "first-hash" || tx.commits != 2 {
+	if identityInsertCount != 1 || first.ID != 42 || second.PasswordHash != "first-hash" || tx.commits != 2 || len(tx.execs) != firstExecCount {
 		t.Fatal("repeated bootstrap was not idempotent or changed the stored password")
 	}
 	for _, query := range tx.queries {
-		if !strings.Contains(query, "mochat_go_saas_admin_users") || strings.Contains(query, "mc_user") || strings.Contains(query, "mc_tenant") || strings.Contains(query, "mc_corp") {
+		if strings.Contains(query, "mc_user") || strings.Contains(query, "mc_tenant") || strings.Contains(query, "mc_corp") {
 			t.Fatal("SaaS bootstrap crossed into a business identity table")
 		}
 	}
@@ -238,5 +272,101 @@ func TestSaaSIdentityStoreBootstrapRejectsSecondRequestKeyWithoutWriting(t *test
 	}
 	if insertCount != 0 || tx.commits != 0 {
 		t.Fatalf("second bootstrap request wrote data: inserts=%d commits=%d", insertCount, tx.commits)
+	}
+}
+
+func TestSaaSIdentityBootstrapCreatesAndAssignsPlatformRootInSameTransaction(t *testing.T) {
+	rootExists := false
+	wildcardExists := false
+	assignmentExists := false
+	tx := &identityTestTx{}
+	tx.query = func(query string, _ ...any) identityRowScanner {
+		if strings.Contains(query, "FROM mochat_go_saas_admin_roles") {
+			if !rootExists {
+				return identityTestRow{err: sql.ErrNoRows}
+			}
+			return identityTestRow{values: []any{int64(9), 1, 1}}
+		}
+		if strings.Contains(query, "FROM mochat_go_saas_admin_role_permissions") {
+			if wildcardExists {
+				return identityTestRow{values: []any{1}}
+			}
+			return identityTestRow{values: []any{0}}
+		}
+		if strings.Contains(query, "FROM mochat_go_saas_admin_user_roles") {
+			if assignmentExists {
+				return identityTestRow{values: []any{1}}
+			}
+			return identityTestRow{values: []any{0}}
+		}
+		return identityTestRow{err: sql.ErrNoRows}
+	}
+	var statements []string
+	tx.exec = func(statement string, _ ...any) (sql.Result, error) {
+		statements = append(statements, statement)
+		if strings.Contains(statement, "INSERT INTO mochat_go_saas_admin_users") {
+			return identityTestResult{id: 42}, nil
+		}
+		if strings.Contains(statement, "INSERT IGNORE INTO mochat_go_saas_admin_roles") {
+			rootExists = true
+		}
+		if strings.Contains(statement, "INSERT IGNORE INTO mochat_go_saas_admin_role_permissions") {
+			wildcardExists = true
+		}
+		if strings.Contains(statement, "INSERT IGNORE INTO mochat_go_saas_admin_user_roles") {
+			assignmentExists = true
+		}
+		return identityTestResult{id: 0}, nil
+	}
+	store := &SaaSIdentityStore{
+		begin: func(context.Context) (saasIdentityTx, error) { return tx, nil },
+	}
+	_, err := store.Bootstrap(context.Background(), saasauth.BootstrapSaaSAdmin{
+		RequestKey:   "root-bootstrap-request",
+		LoginName:    "platform-admin",
+		Name:         "Platform Admin",
+		PasswordHash: "!fixture-hash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statements) < 4 {
+		t.Fatalf("bootstrap statements=%d, want identity plus root role, permission, and assignment", len(statements))
+	}
+	joined := strings.Join(statements, "\n")
+	for _, fragment := range []string{
+		"mochat_go_saas_admin_roles",
+		"platform_root",
+		"mochat_go_saas_admin_role_permissions",
+		"permission_code",
+		"mochat_go_saas_admin_user_roles",
+	} {
+		if !strings.Contains(joined, fragment) {
+			t.Fatalf("bootstrap did not persist SaaS root authority fragment %q", fragment)
+		}
+	}
+	if strings.Contains(joined, "mc_user") || strings.Contains(joined, "mc_tenant") || strings.Contains(joined, "mc_corp") {
+		t.Fatal("SaaS bootstrap root authority crossed into a business identity table")
+	}
+}
+
+func TestSaaSPlatformRootBootstrapIsInsertOrValidateOnly(t *testing.T) {
+	body, err := os.ReadFile("saas_identity.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(body)
+	start := strings.Index(source, "func ensureSaaSPlatformRootTx")
+	if start < 0 {
+		t.Fatal("ensureSaaSPlatformRootTx was not found")
+	}
+	if end := strings.Index(source[start:], "func isRetryableBootstrapError"); end >= 0 {
+		source = source[start : start+end]
+	}
+	if strings.Contains(source, "ON DUPLICATE KEY UPDATE") || strings.Contains(source, "assigned_by = VALUES") || strings.Contains(source, "updated_by = VALUES") {
+		t.Fatal("repeated bootstrap must not update root role timestamps or assignments")
+	}
+	if !strings.Contains(source, "INSERT IGNORE") || !strings.Contains(source, "FOR UPDATE") {
+		t.Fatal("root authority must use insert-or-validate with row locks")
 	}
 }

@@ -35,6 +35,7 @@ func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 		"mochat_go_saas_admin_users",
 		"mochat_go_dashboard_identities",
 		"mochat_go_dashboard_identity_activations",
+		"mochat_go_saas_idempotency_receipts",
 		"mochat_go_tenant_corp_bindings",
 		"information_schema.key_column_usage",
 		"information_schema.statistics",
@@ -56,6 +57,11 @@ func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 		if !strings.Contains(normalizedUp, strings.ToLower(strings.ReplaceAll(required, "`", ""))) {
 			t.Fatalf("0129 up migration missing %q", required)
 		}
+	}
+	activationStart := strings.Index(normalizedUp, "create table if not exists mochat_go_dashboard_identity_activations")
+	activationEnd := strings.Index(normalizedUp[activationStart+1:], "create table if not exists ")
+	if activationStart < 0 || activationEnd < 0 || !strings.Contains(normalizedUp[activationStart:activationStart+activationEnd+1], "updated_at") {
+		t.Fatal("0129 dashboard activation table must define updated_at for resend invalidation")
 	}
 	for _, foreignKey := range []string{
 		"fk_dashboard_permission_resource_permission",
@@ -137,6 +143,7 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 			"mochat_go_saas_admin_users",
 			"mochat_go_dashboard_identities",
 			"mochat_go_dashboard_identity_activations",
+			"mochat_go_saas_idempotency_receipts",
 			"mochat_go_tenant_corp_bindings",
 			"mochat_go_dashboard_mfa_credentials",
 			"mochat_go_dashboard_mfa_challenges",
@@ -145,6 +152,7 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		} {
 			assertIdentityTableExists(t, db, table)
 		}
+		assertIdentityColumnType(t, db, "mochat_go_dashboard_identity_activations", "updated_at", "timestamp")
 		assertIdentityIndexExists(t, db, "mochat_go_dashboard_identities", "uni_dashboard_identity_login_identifier")
 		assertIdentityIndexExists(t, db, "mochat_go_saas_admin_users", "uni_saas_admin_user_bootstrap_request_key")
 		assertIdentityColumnType(t, db, "mochat_go_saas_admin_users", "bootstrap_request_key", "varchar(96)")
@@ -174,6 +182,7 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 			"mochat_go_saas_admin_users",
 			"mochat_go_dashboard_identities",
 			"mochat_go_dashboard_identity_activations",
+			"mochat_go_saas_idempotency_receipts",
 			"mochat_go_tenant_corp_bindings",
 			"mochat_go_dashboard_mfa_credentials",
 			"mochat_go_dashboard_mfa_challenges",
@@ -352,6 +361,7 @@ func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 		}
 	}
 	loadRealDashboardPageRBACDDL(t, db)
+	loadSaaSAdminRBACDDL(t, db)
 	for _, statement := range []string{
 		`INSERT INTO mochat_go_dashboard_permissions (id, code, permission_type, path, name) VALUES (900, 'dashboard.test', 'page', '/test', 'Test')`,
 		`INSERT INTO mochat_go_dashboard_permission_resources (id, permission_id, resource_type, http_method, path_pattern) VALUES (901, 900, 'api', 'GET', '/dashboard/test')`,
@@ -359,11 +369,21 @@ func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 		`INSERT INTO mochat_go_dashboard_role_permissions (tenant_id, role_id, permission_id) VALUES (1, 20, 900)`,
 		`INSERT INTO mochat_go_dashboard_user_permissions (tenant_id, user_id, permission_id) VALUES (1, 10, 900)`,
 		`INSERT INTO mochat_go_dashboard_permission_audits (tenant_id, actor_user_id, action, target_type, target_id) VALUES (1, 10, 'test', 'user', '10')`,
-		`CREATE TABLE mochat_go_saas_admin_user_access (id bigint unsigned NOT NULL AUTO_INCREMENT, user_id int(10) unsigned NOT NULL, PRIMARY KEY (id), UNIQUE KEY uni_mochat_go_saas_admin_user_access_user (user_id)) ENGINE=InnoDB`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("0127 complete fixture statement failed: %v", err)
 		}
+	}
+}
+
+func loadSaaSAdminRBACDDL(t *testing.T, db *sql.DB) {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0045_saas_admin_rbac.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := execSQLScript(context.Background(), db, string(body)); err != nil {
+		t.Fatalf("load real SaaS RBAC DDL: %v", err)
 	}
 }
 

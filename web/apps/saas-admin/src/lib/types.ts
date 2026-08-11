@@ -66,6 +66,8 @@ export interface TenantSummary {
   tenantId: number
   tenantName: string
   tenantStatus: number
+  bindingVersion?: number
+  dashboardUserId?: number
 }
 
 export interface OverviewData {
@@ -98,12 +100,44 @@ export interface TenantDetailData {
 }
 
 export interface PackagePlan {
+  id: number
   code: string
   description: string
   limits: Record<string, number>
   name: string
   status: number
   version: number
+}
+
+export interface DashboardAdminProvisionResult {
+  tenantId: number
+  dashboardUserId: number
+  bindingCorpId: number
+  activationToken?: string
+  idempotent?: boolean
+}
+
+export interface DashboardAdminGovernanceResult {
+  tenantId: number
+  dashboardUserId: number
+  version: number
+  idempotent?: boolean
+}
+
+export interface DashboardIdentityRecord {
+  id: number
+  name: string
+  loginIdentifier: string
+  userStatus: number
+  identityStatus: number
+  activatedAt: string
+  isSuperAdmin: boolean
+}
+
+export interface DashboardAdminGovernanceData {
+  tenantId: number
+  bindingVersion: number
+  identities: DashboardIdentityRecord[]
 }
 
 export interface PackagesData {

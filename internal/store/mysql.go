@@ -8395,6 +8395,7 @@ func (s *MySQLStore) SaaSAdminOverview(ctx context.Context, options dashboard.Sa
 func (s *MySQLStore) SaaSAdminPackages(ctx context.Context) ([]dashboard.SaaSAdminPackage, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
+			id,
 			code,
 			name,
 			description,
@@ -8442,6 +8443,7 @@ func (s *MySQLStore) SaaSAdminPackages(ctx context.Context) ([]dashboard.SaaSAdm
 	for rows.Next() {
 		var item dashboard.SaaSAdminPackage
 		if err := rows.Scan(
+			&item.ID,
 			&item.Code,
 			&item.Name,
 			&item.Description,
@@ -11076,6 +11078,7 @@ func saasAdminPackageByCodeTx(ctx context.Context, tx *sql.Tx, code string) (das
 	var item dashboard.SaaSAdminPackage
 	err := tx.QueryRowContext(ctx, `
 		SELECT
+			id,
 			code,
 			name,
 			description,
@@ -11112,6 +11115,7 @@ func saasAdminPackageByCodeTx(ctx context.Context, tx *sql.Tx, code string) (das
 		LIMIT 1
 		FOR UPDATE
 	`, code).Scan(
+		&item.ID,
 		&item.Code,
 		&item.Name,
 		&item.Description,

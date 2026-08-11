@@ -16,6 +16,7 @@ import (
 	"jiyi/mochat-go/internal/clientip"
 	"jiyi/mochat-go/internal/config"
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/dashboardadmin"
 	"jiyi/mochat-go/internal/dashboardauth"
 	"jiyi/mochat-go/internal/frontend"
 	"jiyi/mochat-go/internal/identitysecurity"
@@ -165,6 +166,7 @@ func main() {
 			compatserver.WithSaaSAuthHandler(saasAuthHandler),
 			compatserver.WithSaaSRequestGuard(saasRequestGuard),
 			compatserver.WithSaaSLoginPageHandler(saasauth.NewLoginPageHandler()),
+			compatserver.WithSaaSAdminDashboardProvisioningHandler(dashboardadmin.NewHTTPHandler(dashboardadmin.NewService(getMySQLStore()))),
 		)
 		tenantDomainVerifier, err = dashboard.NewSaaSTenantDomainDNSVerifier(cfg.SaaSTenantDomainDNSServer, cfg.SaaSTenantDomainDNSTimeout)
 		if err != nil {

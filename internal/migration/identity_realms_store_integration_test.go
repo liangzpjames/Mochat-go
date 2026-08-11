@@ -78,6 +78,7 @@ func TestIdentityRealmsStoresAgainstIsolatedMariaDB(t *testing.T) {
 	if concurrentID <= 0 || identityRealmsCount(t, db, "mochat_go_saas_admin_users") != 1 {
 		t.Fatal("concurrent bootstrap did not create exactly one SaaS identity")
 	}
+	assertSaaSPlatformRootAssignment(t, db, concurrentID)
 	assertIdentityRealmCountsEqual(t, db, beforeBootstrap, "bootstrap must not create Dashboard, tenant, corp, or mc_user rows")
 
 	var storedHash, storedRequestKey string
@@ -122,6 +123,7 @@ func TestIdentityRealmsStoresAgainstIsolatedMariaDB(t *testing.T) {
 	if repeatedIdentity.ID != concurrentID || repeatedIdentity.PasswordHash != storedHash || identityRealmsCount(t, db, "mochat_go_saas_admin_users") != 1 {
 		t.Fatal("repeated request key reset the password or created another SaaS identity")
 	}
+	assertSaaSPlatformRootAssignment(t, db, concurrentID)
 
 	conflictInput := bootstrapInput
 	conflictInput.LoginName = "different-login"
@@ -243,6 +245,23 @@ func TestIdentityRealmsStoresAgainstIsolatedMariaDB(t *testing.T) {
 	}
 	if rollbackStatus != 2 || rollbackVersion != activatedVersion || rollbackConsumed.Valid {
 		t.Fatal("failed Dashboard activation did not roll back its partial state")
+	}
+}
+
+func assertSaaSPlatformRootAssignment(t *testing.T, db *sql.DB, userID int) {
+	t.Helper()
+	var roleCount, permissionCount, assignmentCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_saas_admin_roles WHERE code='platform_root' AND status=1 AND is_system=1`).Scan(&roleCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_saas_admin_role_permissions rp INNER JOIN mochat_go_saas_admin_roles r ON r.id=rp.role_id WHERE r.code='platform_root' AND rp.permission_code='*'`).Scan(&permissionCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_saas_admin_user_roles ur INNER JOIN mochat_go_saas_admin_roles r ON r.id=ur.role_id WHERE ur.user_id=? AND r.code='platform_root'`, userID).Scan(&assignmentCount); err != nil {
+		t.Fatal(err)
+	}
+	if roleCount != 1 || permissionCount != 1 || assignmentCount != 1 {
+		t.Fatalf("SaaS root authority counts role=%d permission=%d assignment=%d", roleCount, permissionCount, assignmentCount)
 	}
 }
 

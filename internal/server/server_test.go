@@ -1429,6 +1429,57 @@ func TestSaaSAdminRoutesDispatchWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestSaaSAdminDashboardProvisioningRouteDispatchesExactMutationPaths(t *testing.T) {
+	provisioning := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("dashboard admin provisioning"))
+	})
+	srv, err := New(config.Config{ListenAddr: ":0", Standalone: true, ProxyTimeout: time.Second}, WithSaaSAdminDashboardProvisioningHandler(provisioning))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"/dashboard/saasAdmin/tenants/provision",
+		"/dashboard/saasAdmin/tenants/41/activation/resend",
+		"/dashboard/saasAdmin/tenants/41/super-admin/replace",
+		"/dashboard/saasAdmin/tenants/41/super-admin/status",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "dashboard admin provisioning" {
+			t.Fatalf("path=%s status=%d body=%q, want exact provisioning handler", path, rec.Code, rec.Body.String())
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/tenants/41/dashboard-admins", nil)
+	record := httptest.NewRecorder()
+	srv.ServeHTTP(record, request)
+	if record.Code != http.StatusOK {
+		t.Fatalf("dashboard admin governance read status=%d body=%s, want exact handler", record.Code, record.Body.String())
+	}
+	for _, route := range []string{
+		"POST /dashboard/saasAdmin/tenants/provision",
+		"POST /dashboard/saasAdmin/tenants/{tenantId}/activation/resend",
+		"POST /dashboard/saasAdmin/tenants/{tenantId}/super-admin/replace",
+		"POST /dashboard/saasAdmin/tenants/{tenantId}/super-admin/status",
+		"GET /dashboard/saasAdmin/tenants/{tenantId}/dashboard-admins",
+	} {
+		if !containsString(srv.migratedRoutes(), route) {
+			t.Fatalf("route %q missing from %+v", route, srv.migratedRoutes())
+		}
+	}
+	for _, path := range []string{
+		"/dashboard/saasAdmin/tenants/41/super-admin/replace/extra",
+		"/dashboard/saasAdmin/tenants/41/super-admin/status/extra",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code == http.StatusOK {
+			t.Fatalf("near-match path %q was dispatched as a governance route", path)
+		}
+	}
+}
+
 func TestSaaSAdminNotificationHealthRouteDispatchesAndLists(t *testing.T) {
 	health := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("go saas admin notification health"))
