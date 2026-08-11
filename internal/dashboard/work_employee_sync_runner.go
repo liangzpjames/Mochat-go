@@ -19,6 +19,9 @@ type employeeApplyStore interface {
 	TenantIDByBindingID(ctx context.Context, bindingID int) (int, error)
 	CompanyEmployeeSyncCredentials(ctx context.Context, bindingID int) ([]WorkEmployeeSyncCredential, error)
 	SyncCompanyEmployees(ctx context.Context, bindingID int, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error)
+	BeginCompanyEmployeeSync(ctx context.Context, bindingID int) error
+	MarkCompanyEmployeeSyncQueued(ctx context.Context, bindingID int, errorCode string) error
+	RecordCompanyEmployeeSyncFailure(ctx context.Context, bindingID int) error
 }
 
 func syncCompanyEmployeesForBinding(ctx context.Context, store employeeApplyStore, client WorkEmployeeSyncClient, bindingID int) error {

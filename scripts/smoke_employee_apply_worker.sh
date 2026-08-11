@@ -684,10 +684,10 @@ dead = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 payload = dead.get("payload") or {}
 assert dead.get("attempts") == 3, dead
 assert payload.get("corpIds") == [999], dead
-assert "corp credential not found" in dead.get("lastError", ""), dead
+assert dead.get("lastError", "") == "SYNC_FAILED", dead
 assert dead.get("lastFailedAt"), dead
 PY
-wait_mysql_scalar "SELECT IF(COUNT(*) >= 3, 1, 0) FROM mochat_go_background_task_executions WHERE tenant_id = 0 AND task_name = 'employee-apply' AND kind = 'queue_item' AND status = 'failed' AND execution_id <> '' AND task_run_id <> '' AND started_at IS NOT NULL AND stopped_at IS NOT NULL AND duration_ms IS NOT NULL AND last_error LIKE '%corp credential not found%'" "1"
+wait_mysql_scalar "SELECT IF(COUNT(*) >= 3, 1, 0) FROM mochat_go_background_task_executions WHERE tenant_id = 0 AND task_name = 'employee-apply' AND kind = 'queue_item' AND status = 'failed' AND execution_id <> '' AND task_run_id <> '' AND started_at IS NOT NULL AND stopped_at IS NOT NULL AND duration_ms IS NOT NULL AND last_error = 'SYNC_FAILED'" "1"
 wait_mysql_scalar "SELECT CONCAT(used_value, '/', limit_value, '/', updated_by) FROM mochat_go_saas_usage_counters WHERE tenant_id = 1 AND metric = 'async_executions' AND period_key = 'lifetime' AND deleted_at IS NULL" "3/1/runtime"
 
 grep -q "go worker enabled: EmployeeApply Redis consumer" "$GO_LOG"

@@ -67,3 +67,22 @@ func TestCompanySyncStatusFromRecordDoesNotExposeUnknownErrorText(t *testing.T) 
 		t.Fatalf("status leaked internal error: %s", raw)
 	}
 }
+
+func TestCompanySyncStatusFromRecordDistinguishesQueueLifecycle(t *testing.T) {
+	queued := companySyncStatusFromRecord(sql.NullTime{}, sql.NullString{String: `{"code":"SYNC_QUEUED","cursor":"company-sync"}`, Valid: true}, 0, 0)
+	if queued.Status != "queued" || queued.Cursor != "company-sync" || queued.ErrorCode != "" {
+		t.Fatalf("queued status=%+v", queued)
+	}
+	queuedAfterRetry := companySyncStatusFromRecord(sql.NullTime{}, sql.NullString{String: `{"code":"SYNC_QUEUED","cursor":"company-sync","errorCode":"SYNC_FAILED"}`, Valid: true}, 0, 0)
+	if queuedAfterRetry.Status != "queued" || queuedAfterRetry.Cursor != "company-sync" || queuedAfterRetry.ErrorCode != "SYNC_FAILED" {
+		t.Fatalf("queued-after-retry status=%+v", queuedAfterRetry)
+	}
+	running := companySyncStatusFromRecord(sql.NullTime{}, sql.NullString{String: `{"code":"SYNC_RUNNING","cursor":"company-sync"}`, Valid: true}, 0, 0)
+	if running.Status != "syncing" || running.Cursor != "company-sync" {
+		t.Fatalf("running status=%+v", running)
+	}
+	unknown := companySyncStatusFromRecord(sql.NullTime{}, sql.NullString{String: `{"code":"SYNC_RUNNING","cursor":"secret-job-id"}`, Valid: true}, 0, 0)
+	if unknown.Status != "syncing" || unknown.Cursor != "" {
+		t.Fatalf("unknown cursor status=%+v", unknown)
+	}
+}

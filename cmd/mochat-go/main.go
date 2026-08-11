@@ -54,45 +54,6 @@ func (v companyProfileWeComVerifier) Verify(ctx context.Context, request company
 	return companyprofile.VerificationResult{WXCorpID: result.WXCorpID, CorpName: result.CorpName}, nil
 }
 
-type companyProfileWeComSyncClient struct {
-	client *dashboard.RoomWelcomeWeComClient
-}
-
-func (c companyProfileWeComSyncClient) FullSync(ctx context.Context, request companyprofile.VerificationRequest) (companyprofile.EmployeeSyncData, error) {
-	if c.client == nil || request.TenantID <= 0 || request.CorpID <= 0 || strings.TrimSpace(request.WXCorpID) == "" {
-		return companyprofile.EmployeeSyncData{}, fmt.Errorf("company sync provider is not configured")
-	}
-	credential := dashboard.WorkEmployeeSyncCredential{
-		CorpID: request.CorpID, TenantID: request.TenantID, WXCorpID: request.WXCorpID,
-		EmployeeSecret: request.Credentials.EmployeeSecret, ContactSecret: request.Credentials.ContactSecret,
-	}
-	departments, err := c.client.Departments(ctx, credential)
-	if err != nil {
-		return companyprofile.EmployeeSyncData{}, err
-	}
-	employees, err := dashboard.WorkEmployeeSyncEmployees(ctx, c.client, credential, departments)
-	if err != nil {
-		return companyprofile.EmployeeSyncData{}, err
-	}
-	data := companyprofile.EmployeeSyncData{Departments: make([]companyprofile.SyncDepartment, 0, len(departments)), Employees: make([]companyprofile.SyncEmployee, 0, len(employees))}
-	for _, department := range departments {
-		data.Departments = append(data.Departments, companyprofile.SyncDepartment{
-			WXDepartmentID: department.WXDepartmentID, Name: department.Name, WXParentID: department.WXParentID, Order: department.Order,
-		})
-	}
-	for _, employee := range employees {
-		data.Employees = append(data.Employees, companyprofile.SyncEmployee{
-			WXUserID: employee.WXUserID, Name: employee.Name, Mobile: employee.Mobile, Position: employee.Position,
-			Gender: employee.Gender, Email: employee.Email, Avatar: employee.Avatar, ThumbAvatar: employee.ThumbAvatar,
-			Telephone: employee.Telephone, Alias: employee.Alias, Status: employee.Status, QRCode: employee.QRCode,
-			Address: employee.Address, OpenUserID: employee.OpenUserID, WXMainDepartmentID: employee.WXMainDepartmentID,
-			DepartmentIDs: append([]int(nil), employee.DepartmentIDs...), IsLeaderInDepartment: append([]int(nil), employee.IsLeaderInDepartment...),
-			DepartmentOrders: append([]int(nil), employee.DepartmentOrders...),
-		})
-	}
-	return data, nil
-}
-
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -455,7 +416,9 @@ func main() {
 		dashboardIdentityGuard.WithPrincipalResolver(dashboardPrincipalResolver)
 		dashboardIdentityGuard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
 		companyProfileWeComClient := dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL)
-		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncClient(companyProfileWeComSyncClient{client: companyProfileWeComClient})
+		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncScheduler(
+			dashboard.NewCompanyEmployeeSyncScheduler(getRedisStore()),
+		)
 		options = append(options,
 			compatserver.WithDashboardAuthHandler(dashboardAuthHandler),
 			compatserver.WithCompanyProfileHandler(companyprofile.NewHTTPHandler(companyProfileService)),

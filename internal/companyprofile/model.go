@@ -161,6 +161,7 @@ type Store interface {
 
 type SyncResult struct {
 	Status             string    `json:"status"`
+	Cursor             string    `json:"cursor,omitempty"`
 	DepartmentsCreated int       `json:"departmentsCreated"`
 	DepartmentsUpdated int       `json:"departmentsUpdated"`
 	EmployeesCreated   int       `json:"employeesCreated"`
@@ -213,11 +214,20 @@ type EmployeeSyncData struct {
 	Employees   []SyncEmployee
 }
 
-type EmployeeSyncClient interface {
-	FullSync(context.Context, VerificationRequest) (EmployeeSyncData, error)
+type EmployeeSyncScheduler interface {
+	EnqueueEmployeeSync(context.Context, int) (string, error)
+}
+
+type EmployeeSyncQueueResult struct {
+	Cursor        string
+	AlreadyQueued bool
 }
 
 type SyncStore interface {
-	SyncEmployeeData(context.Context, dashboardprincipal.DashboardPrincipal, EmployeeSyncData) (SyncResult, error)
 	GetSyncStatus(context.Context, dashboardprincipal.DashboardPrincipal) (SyncStatus, error)
+}
+
+type EmployeeSyncQueueStore interface {
+	QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal) (EmployeeSyncQueueResult, error)
+	RecordEmployeeSyncFailure(context.Context, dashboardprincipal.DashboardPrincipal) error
 }

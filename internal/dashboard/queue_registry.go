@@ -269,8 +269,8 @@ func queueMessageString(message map[string]string, keys ...string) string {
 
 func EmployeeApplyIdempotencyKey(event EmployeeApplyEvent) string {
 	digest := stableQueuePayloadDigest(struct {
-		BindingID int    `json:"bindingId"`
-		Source    string `json:"source,omitempty"`
+		BindingID TenantBindingID `json:"bindingId"`
+		Source    string          `json:"source,omitempty"`
 	}{
 		BindingID: event.BindingID,
 		Source:    strings.TrimSpace(event.Source),

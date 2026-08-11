@@ -4,23 +4,24 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
 type Service struct {
-	store      Store
-	verifier   WeComVerifier
-	syncClient EmployeeSyncClient
+	store         Store
+	verifier      WeComVerifier
+	syncScheduler EmployeeSyncScheduler
 }
 
 func NewService(store Store, verifier WeComVerifier) *Service {
 	return &Service{store: store, verifier: verifier}
 }
 
-func (s *Service) WithEmployeeSyncClient(client EmployeeSyncClient) *Service {
+func (s *Service) WithEmployeeSyncScheduler(scheduler EmployeeSyncScheduler) *Service {
 	if s != nil {
-		s.syncClient = client
+		s.syncScheduler = scheduler
 	}
 	return s
 }
@@ -162,7 +163,7 @@ func (s *Service) StartEmployeeSync(ctx context.Context, principal dashboardprin
 	if err := s.authorize(principal, false); err != nil {
 		return SyncResult{}, err
 	}
-	if s == nil || s.store == nil || s.syncClient == nil {
+	if s == nil || s.store == nil || s.syncScheduler == nil {
 		return SyncResult{}, ErrStoreUnavailable
 	}
 	snapshot, err := s.store.GetVerificationSnapshot(ctx, principal)
@@ -172,15 +173,36 @@ func (s *Service) StartEmployeeSync(ctx context.Context, principal dashboardprin
 	if !snapshot.Verified || strings.TrimSpace(snapshot.WXCorpID) == "" {
 		return SyncResult{}, ErrTenantAccessDenied
 	}
-	data, err := s.syncClient.FullSync(ctx, VerificationRequest{TenantID: principal.TenantID, CorpID: principal.CorpID, WXCorpID: snapshot.WXCorpID, Credentials: snapshot.Credentials})
-	if err != nil {
-		return SyncResult{}, ErrCredentialInvalid
-	}
-	syncStore, ok := s.store.(SyncStore)
+	syncStore, ok := s.store.(EmployeeSyncQueueStore)
 	if !ok {
 		return SyncResult{}, ErrStoreUnavailable
 	}
-	return syncStore.SyncEmployeeData(ctx, principal, data)
+	result := SyncResult{Status: "queued", StartedAt: time.Now().UTC()}
+	// Redis is the queue authority. Do not write SYNC_QUEUED before this
+	// call succeeds; an enqueue failure must not leave a durable queued marker.
+	cursor, err := s.syncScheduler.EnqueueEmployeeSync(ctx, principal.TenantID)
+	if err != nil {
+		result.Status = "failed"
+		result.FinishedAt = time.Now().UTC()
+		result.ErrorCode = "SYNC_FAILED"
+		return result, ErrStoreUnavailable
+	}
+	queueResult, err := syncStore.QueueEmployeeSync(ctx, principal)
+	if err != nil {
+		// The Redis item is already durable. Make the database observable as a
+		// safe failure when the marker transaction cannot be committed; the
+		// worker will move it to syncing before touching business rows.
+		_ = syncStore.RecordEmployeeSyncFailure(ctx, principal)
+		result.Status = "failed"
+		result.FinishedAt = time.Now().UTC()
+		result.ErrorCode = "SYNC_FAILED"
+		return result, err
+	}
+	result.Cursor = queueResult.Cursor
+	if strings.TrimSpace(cursor) != "" {
+		result.Cursor = strings.TrimSpace(cursor)
+	}
+	return result, nil
 }
 
 func (s *Service) GetSyncStatus(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (SyncStatus, error) {

@@ -1,9 +1,13 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +73,9 @@ func TestEmployeeApplyWorkerAcksSuccessfulDelivery(t *testing.T) {
 	if queue.ackedRaw != "raw-job" {
 		t.Fatalf("acked raw = %q", queue.ackedRaw)
 	}
+	if store.beginCalls != 1 || store.failureCalls != 0 {
+		t.Fatalf("lifecycle begin=%d failure=%d", store.beginCalls, store.failureCalls)
+	}
 	if queue.retryRaw != "" {
 		t.Fatalf("unexpected retry raw = %q", queue.retryRaw)
 	}
@@ -113,6 +120,68 @@ func TestEmployeeApplyWorkerRetriesFailedDelivery(t *testing.T) {
 	}
 }
 
+func TestEmployeeApplyWorkerMarksRunningAndSanitizesProviderFailure(t *testing.T) {
+	queue := &fakeEmployeeApplyWorkerQueue{}
+	store := &lifecycleEmployeeApplyWorkerStore{
+		fakeEmployeeApplyWorkerStore: &fakeEmployeeApplyWorkerStore{
+			credentials: map[int]WorkEmployeeSyncCredential{
+				7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+			},
+		},
+	}
+	client := &failingEmployeeApplyWorkerClient{err: fmt.Errorf("provider secret employee-secret failed")}
+	var logs bytes.Buffer
+	worker := NewEmployeeApplyWorker(queue, store, client, log.New(&logs, "", 0))
+
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: "dashboard.company.employee-sync"}})
+
+	if store.beginCalls != 1 || store.queuedCalls != 1 || store.failureCalls != 0 || store.queuedErrorCode != "SYNC_FAILED" {
+		t.Fatalf("lifecycle begin=%d queued=%d failure=%d errorCode=%q", store.beginCalls, store.queuedCalls, store.failureCalls, store.queuedErrorCode)
+	}
+	if queue.retryReason != "SYNC_FAILED" || queue.retryReason == "provider secret employee-secret failed" {
+		t.Fatalf("retry reason = %q", queue.retryReason)
+	}
+	if strings.Contains(logs.String(), "employee-secret") || strings.Contains(logs.String(), "provider secret") {
+		t.Fatalf("worker log leaked provider error: %s", logs.String())
+	}
+}
+
+func TestEmployeeApplyWorkerMarksDeadLetterFailed(t *testing.T) {
+	queue := &fakeEmployeeApplyWorkerQueue{deadLettered: true}
+	store := &lifecycleEmployeeApplyWorkerStore{
+		fakeEmployeeApplyWorkerStore: &fakeEmployeeApplyWorkerStore{
+			credentials: map[int]WorkEmployeeSyncCredential{
+				7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+			},
+		},
+	}
+	worker := NewEmployeeApplyWorker(queue, store, &failingEmployeeApplyWorkerClient{err: errors.New("provider failure")}, log.Default())
+
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: CompanyEmployeeSyncSource}})
+
+	if store.beginCalls != 1 || store.queuedCalls != 0 || store.failureCalls != 1 {
+		t.Fatalf("dead-letter lifecycle begin=%d queued=%d failure=%d", store.beginCalls, store.queuedCalls, store.failureCalls)
+	}
+}
+
+func TestEmployeeApplyWorkerKeepsSyncingWhenQueueRetryFails(t *testing.T) {
+	queue := &fakeEmployeeApplyWorkerQueue{retryErr: errors.New("redis unavailable")}
+	store := &lifecycleEmployeeApplyWorkerStore{
+		fakeEmployeeApplyWorkerStore: &fakeEmployeeApplyWorkerStore{
+			credentials: map[int]WorkEmployeeSyncCredential{
+				7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+			},
+		},
+	}
+	worker := NewEmployeeApplyWorker(queue, store, &failingEmployeeApplyWorkerClient{err: errors.New("provider failure")}, log.Default())
+
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: CompanyEmployeeSyncSource}})
+
+	if store.beginCalls != 1 || store.queuedCalls != 0 || store.failureCalls != 0 {
+		t.Fatalf("retry failure lifecycle begin=%d queued=%d failure=%d", store.beginCalls, store.queuedCalls, store.failureCalls)
+	}
+}
+
 func TestEmployeeApplyWorkerRecordsFailedQueueItemExecution(t *testing.T) {
 	queue := &fakeEmployeeApplyWorkerQueue{}
 	recorder := &fakeWorkerExecutionRecorder{}
@@ -135,6 +204,64 @@ type fakeEmployeeApplyWorkerStore struct {
 	syncedEmployees     []WorkEmployeeSyncEmployee
 	followUserIDs       []string
 	defaultPasswordHash string
+	beginCalls          int
+	queuedCalls         int
+	queuedErrorCode     string
+	failureCalls        int
+}
+
+func (s *fakeEmployeeApplyWorkerStore) BeginCompanyEmployeeSync(context.Context, int) error {
+	s.beginCalls++
+	return nil
+}
+
+func (s *fakeEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailure(context.Context, int) error {
+	s.failureCalls++
+	return nil
+}
+
+func (s *fakeEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueued(_ context.Context, _ int, errorCode string) error {
+	s.queuedCalls++
+	s.queuedErrorCode = errorCode
+	return nil
+}
+
+type lifecycleEmployeeApplyWorkerStore struct {
+	*fakeEmployeeApplyWorkerStore
+	beginCalls   int
+	failureCalls int
+}
+
+func (s *lifecycleEmployeeApplyWorkerStore) BeginCompanyEmployeeSync(context.Context, int) error {
+	s.beginCalls++
+	return nil
+}
+
+func (s *lifecycleEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailure(context.Context, int) error {
+	s.failureCalls++
+	return nil
+}
+
+func (s *lifecycleEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueued(_ context.Context, _ int, errorCode string) error {
+	s.queuedCalls++
+	s.queuedErrorCode = errorCode
+	return nil
+}
+
+type failingEmployeeApplyWorkerClient struct {
+	err error
+}
+
+func (c *failingEmployeeApplyWorkerClient) Departments(context.Context, WorkEmployeeSyncCredential) ([]WorkEmployeeSyncDepartment, error) {
+	return nil, c.err
+}
+
+func (*failingEmployeeApplyWorkerClient) DepartmentUsers(context.Context, WorkEmployeeSyncCredential, int) ([]WorkEmployeeSyncEmployee, error) {
+	return nil, nil
+}
+
+func (*failingEmployeeApplyWorkerClient) FollowUsers(context.Context, WorkEmployeeSyncCredential) ([]string, error) {
+	return nil, nil
 }
 
 func (s *fakeEmployeeApplyWorkerStore) TenantIDByCorpID(_ context.Context, corpID int) (int, error) {
@@ -190,6 +317,7 @@ type fakeEmployeeApplyWorkerQueue struct {
 	retryReason      string
 	retryMaxAttempts int
 	deadLettered     bool
+	retryErr         error
 }
 
 func (q *fakeEmployeeApplyWorkerQueue) DequeueEmployeeApply(_ context.Context, _ time.Duration) (EmployeeApplyDelivery, bool, error) {
@@ -205,6 +333,9 @@ func (q *fakeEmployeeApplyWorkerQueue) RetryEmployeeApply(_ context.Context, del
 	q.retryRaw = delivery.Raw
 	q.retryReason = reason
 	q.retryMaxAttempts = maxAttempts
+	if q.retryErr != nil {
+		return false, q.retryErr
+	}
 	return q.deadLettered, nil
 }
 

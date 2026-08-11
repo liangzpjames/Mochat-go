@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"jiyi/mochat-go/internal/companyprofile"
+	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/wecomcredentials"
 )
@@ -129,6 +130,47 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	agentSecret := "agent-rotated"
 	verifiedPrincipal := principal
 	verifiedPrincipal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
+	queued, err := store.QueueEmployeeSync(ctx, verifiedPrincipal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.AlreadyQueued || queued.Cursor != dashboard.CompanyEmployeeSyncCursor {
+		t.Fatalf("first queue result=%+v", queued)
+	}
+	duplicateQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !duplicateQueue.AlreadyQueued || duplicateQueue.Cursor != dashboard.CompanyEmployeeSyncCursor {
+		t.Fatalf("duplicate queue result=%+v", duplicateQueue)
+	}
+	queuedStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queuedStatus.Status != "queued" || queuedStatus.Cursor != dashboard.CompanyEmployeeSyncCursor {
+		t.Fatalf("queued sync status=%+v", queuedStatus)
+	}
+	if err := store.BeginCompanyEmployeeSync(ctx, verifiedPrincipal.TenantID); err != nil {
+		t.Fatal(err)
+	}
+	runningStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runningStatus.Status != "syncing" || runningStatus.Cursor != dashboard.CompanyEmployeeSyncCursor {
+		t.Fatalf("running sync status=%+v", runningStatus)
+	}
+	if err := store.RecordCompanyEmployeeSyncFailure(ctx, verifiedPrincipal.TenantID); err != nil {
+		t.Fatal(err)
+	}
+	failedStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failedStatus.Status != "failed" || failedStatus.ErrorCode != "SYNC_FAILED" {
+		t.Fatalf("failed sync status=%+v", failedStatus)
+	}
 	if _, err := store.RotateAgentCredentials(ctx, verifiedPrincipal, companyprofile.AgentCredentialsInput{
 		AgentID: 300, WXSecret: &agentSecret, ExpectedVersion: 3, RequestID: "task10-rotate-agent",
 	}); err != nil {

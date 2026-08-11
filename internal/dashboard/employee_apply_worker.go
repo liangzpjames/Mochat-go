@@ -10,8 +10,10 @@ import (
 )
 
 type EmployeeApplyEvent struct {
-	BindingID int    `json:"bindingId"`
-	Source    string `json:"source,omitempty"`
+	// BindingID is a TenantBindingID (the authoritative tenant_id binding
+	// reference), never a client-selected corp_id.
+	BindingID TenantBindingID `json:"bindingId"`
+	Source    string          `json:"source,omitempty"`
 }
 
 type EmployeeApplyDelivery struct {
@@ -118,32 +120,78 @@ func (w *EmployeeApplyWorker) recoverProcessing(ctx context.Context) {
 
 func (w *EmployeeApplyWorker) handleDelivery(ctx context.Context, delivery EmployeeApplyDelivery) {
 	ctx = WithSaaSAlertNotifier(ctx, w.alertNotifier)
-	tenantID, tenantErr := w.store.TenantIDByBindingID(ctx, delivery.Event.BindingID)
+	tenantID, tenantErr := w.store.TenantIDByBindingID(ctx, int(delivery.Event.BindingID))
 	if tenantErr != nil {
 		tenantID = 0
 	}
 	finishExecution := startQueueItemExecution(ctx, w.logger, "employee-apply", w.store, tenantID)
+	if err := w.store.BeginCompanyEmployeeSync(ctx, int(delivery.Event.BindingID)); err != nil {
+		w.retryFailedDelivery(ctx, delivery, finishExecution)
+		return
+	}
 	if err := w.Process(ctx, delivery.Event); err != nil {
-		deadLettered, retryErr := w.queue.RetryEmployeeApply(ctx, delivery, err.Error(), w.maxAttempts)
+		deadLettered, retryErr := w.queue.RetryEmployeeApply(ctx, delivery, "SYNC_FAILED", w.maxAttempts)
 		if retryErr != nil {
-			finishExecution(taskrunner.StatusFailed, fmt.Errorf("%w; retry failed: %v", err, retryErr))
-			w.logger.Printf("employee apply retry failed: binding_id=%d source=%s err=%v retry_err=%v", delivery.Event.BindingID, delivery.Event.Source, err, retryErr)
+			// The delivery is still in Redis processing when retry fails. Begin
+			// already established the durable syncing marker; leave it there.
+			finishExecution(taskrunner.StatusFailed, fmt.Errorf("SYNC_FAILED"))
+			w.logger.Printf("employee apply retry failed: binding_id=%d source=%s code=QUEUE_RETRY_FAILED", delivery.Event.BindingID, delivery.Event.Source)
 			return
 		}
-		finishExecution(taskrunner.StatusFailed, err)
+		finishExecution(taskrunner.StatusFailed, fmt.Errorf("SYNC_FAILED"))
 		if deadLettered {
-			w.logger.Printf("employee apply moved to dead letter: binding_id=%d source=%s attempts=%d err=%v", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1, err)
+			w.recordDeadLetterState(ctx, int(delivery.Event.BindingID))
+			w.logger.Printf("employee apply moved to dead letter: binding_id=%d source=%s attempts=%d code=SYNC_FAILED", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1)
 			return
 		}
-		w.logger.Printf("employee apply requeued: binding_id=%d source=%s attempts=%d err=%v", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1, err)
+		w.recordRequeuedState(ctx, int(delivery.Event.BindingID))
+		w.logger.Printf("employee apply requeued: binding_id=%d source=%s attempts=%d code=SYNC_FAILED", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1)
 		return
 	}
 	if err := w.queue.AckEmployeeApply(ctx, delivery); err != nil {
-		finishExecution(taskrunner.StatusFailed, fmt.Errorf("ack failed: %w", err))
-		w.logger.Printf("employee apply ack failed: binding_id=%d source=%s err=%v", delivery.Event.BindingID, delivery.Event.Source, err)
+		finishExecution(taskrunner.StatusFailed, fmt.Errorf("QUEUE_ACK_FAILED"))
+		w.logger.Printf("employee apply ack failed: binding_id=%d source=%s code=QUEUE_ACK_FAILED", delivery.Event.BindingID, delivery.Event.Source)
 		return
 	}
 	finishExecution(taskrunner.StatusSucceeded, nil)
+}
+
+func (w *EmployeeApplyWorker) retryFailedDelivery(ctx context.Context, delivery EmployeeApplyDelivery, finishExecution func(string, error)) {
+	deadLettered, retryErr := w.queue.RetryEmployeeApply(ctx, delivery, "SYNC_FAILED", w.maxAttempts)
+	if retryErr != nil {
+		// Begin may have failed before the queue operation. Retry the durable
+		// syncing marker once; the item remains in Redis processing on error.
+		if err := w.store.BeginCompanyEmployeeSync(ctx, int(delivery.Event.BindingID)); err != nil {
+			w.logger.Printf("employee apply state reconcile failed: binding_id=%d source=%s code=SYNC_STATE_FAILED", delivery.Event.BindingID, delivery.Event.Source)
+		}
+		finishExecution(taskrunner.StatusFailed, fmt.Errorf("SYNC_FAILED"))
+		w.logger.Printf("employee apply retry failed: binding_id=%d source=%s code=QUEUE_RETRY_FAILED", delivery.Event.BindingID, delivery.Event.Source)
+		return
+	}
+	finishExecution(taskrunner.StatusFailed, fmt.Errorf("SYNC_FAILED"))
+	if deadLettered {
+		w.recordDeadLetterState(ctx, int(delivery.Event.BindingID))
+		w.logger.Printf("employee apply moved to dead letter: binding_id=%d source=%s attempts=%d code=SYNC_FAILED", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1)
+		return
+	}
+	w.recordRequeuedState(ctx, int(delivery.Event.BindingID))
+	w.logger.Printf("employee apply requeued: binding_id=%d source=%s attempts=%d code=SYNC_FAILED", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1)
+}
+
+func (w *EmployeeApplyWorker) recordDeadLetterState(ctx context.Context, bindingID int) {
+	if err := w.store.RecordCompanyEmployeeSyncFailure(ctx, bindingID); err != nil {
+		w.logger.Printf("employee apply state reconcile failed: binding_id=%d code=SYNC_STATE_FAILED", bindingID)
+	}
+}
+
+func (w *EmployeeApplyWorker) recordRequeuedState(ctx context.Context, bindingID int) {
+	if err := w.store.MarkCompanyEmployeeSyncQueued(ctx, bindingID, "SYNC_FAILED"); err != nil {
+		// Keep a processing marker rather than leaving a stale queued state when
+		// the queue move succeeded but the first state write did not.
+		if beginErr := w.store.BeginCompanyEmployeeSync(ctx, bindingID); beginErr != nil {
+			w.logger.Printf("employee apply state reconcile failed: binding_id=%d code=SYNC_STATE_FAILED", bindingID)
+		}
+	}
 }
 
 func (w *EmployeeApplyWorker) Process(ctx context.Context, event EmployeeApplyEvent) error {
@@ -153,7 +201,7 @@ func (w *EmployeeApplyWorker) Process(ctx context.Context, event EmployeeApplyEv
 	if event.BindingID <= 0 {
 		return fmt.Errorf("missing binding id")
 	}
-	if err := syncCompanyEmployeesForBinding(ctx, w.store, w.client, event.BindingID); err != nil {
+	if err := syncCompanyEmployeesForBinding(ctx, w.store, w.client, int(event.BindingID)); err != nil {
 		return fmt.Errorf("binding %d: %w", event.BindingID, err)
 	}
 	return nil

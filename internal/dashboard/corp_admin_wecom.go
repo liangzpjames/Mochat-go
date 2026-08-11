@@ -2,9 +2,12 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net/url"
+	"strings"
 )
+
+const weComCredentialInvalidError = "WECOM_CREDENTIAL_INVALID"
 
 type WeComCompanyVerificationResult struct {
 	WXCorpID string
@@ -14,53 +17,60 @@ type WeComCompanyVerificationResult struct {
 // VerifyCompany validates both company credentials and the provider-returned
 // company name. The caller must persist only the returned name after the
 // binding/version transaction succeeds.
+//
+// The employee secret is probed through the department-list capability. This
+// avoids inventing a member userid, and the name is accepted only from the
+// provider's root department (id=1). The contact secret is probed through the
+// follow-user-list capability, which likewise does not require an arbitrary
+// external_userid.
 func (c *RoomWelcomeWeComClient) VerifyCompany(ctx context.Context, wxCorpID string, employeeSecret string, contactSecret string) (WeComCompanyVerificationResult, error) {
-	employeeToken, err := c.accessToken(ctx, RoomWelcomeCorpCredential{WXCorpID: wxCorpID, ContactSecret: employeeSecret})
+	name, err := c.verifyEmployeeSecret(ctx, wxCorpID, employeeSecret)
 	if err != nil {
-		return WeComCompanyVerificationResult{}, fmt.Errorf("通讯录管理secret或企业ID无效")
+		return WeComCompanyVerificationResult{}, err
 	}
-	var employeeResp struct {
-		weComBaseResponse
-		CorpName     string `json:"corp_name"`
-		CorpFullName string `json:"corp_full_name"`
+	if err := c.verifyContactSecret(ctx, wxCorpID, contactSecret); err != nil {
+		return WeComCompanyVerificationResult{}, err
 	}
-	if err := c.getJSON(ctx, "cgi-bin/user/get", employeeToken, url.Values{"userid": {"1"}}, &employeeResp); err != nil {
-		return WeComCompanyVerificationResult{}, fmt.Errorf("通讯录管理secret或企业ID无效")
-	}
-	contactToken, err := c.accessToken(ctx, RoomWelcomeCorpCredential{WXCorpID: wxCorpID, ContactSecret: contactSecret})
-	if err != nil {
-		return WeComCompanyVerificationResult{}, fmt.Errorf("外部联系人管理secret无效")
-	}
-	var contactResp weComBaseResponse
-	if err := c.getJSON(ctx, "cgi-bin/externalcontact/get", contactToken, url.Values{"external_userid": {"1"}}, &contactResp); err != nil {
-		return WeComCompanyVerificationResult{}, fmt.Errorf("外部联系人管理secret无效")
-	}
-	name := employeeResp.CorpName
-	if name == "" {
-		name = employeeResp.CorpFullName
-	}
-	if name == "" {
-		return WeComCompanyVerificationResult{}, fmt.Errorf("企业微信未返回企业名称")
-	}
-	return WeComCompanyVerificationResult{WXCorpID: wxCorpID, CorpName: name}, nil
+	return WeComCompanyVerificationResult{WXCorpID: strings.TrimSpace(wxCorpID), CorpName: name}, nil
 }
 
 func (c *RoomWelcomeWeComClient) ValidateCorpSecrets(ctx context.Context, wxCorpID string, employeeSecret string, contactSecret string) error {
-	employeeToken, err := c.accessToken(ctx, RoomWelcomeCorpCredential{WXCorpID: wxCorpID, ContactSecret: employeeSecret})
+	if _, err := c.verifyEmployeeSecret(ctx, wxCorpID, employeeSecret); err != nil {
+		return err
+	}
+	return c.verifyContactSecret(ctx, wxCorpID, contactSecret)
+}
+
+func (c *RoomWelcomeWeComClient) verifyEmployeeSecret(ctx context.Context, wxCorpID string, employeeSecret string) (string, error) {
+	if strings.TrimSpace(wxCorpID) == "" || strings.TrimSpace(employeeSecret) == "" {
+		return "", errors.New(weComCredentialInvalidError)
+	}
+	departments, err := c.Departments(ctx, WorkEmployeeSyncCredential{
+		WXCorpID: wxCorpID, EmployeeSecret: employeeSecret,
+	})
 	if err != nil {
-		return fmt.Errorf("通讯录管理secret或企业ID无效")
+		return "", errors.New(weComCredentialInvalidError)
 	}
-	var employeeResp weComBaseResponse
-	if err := c.getJSON(ctx, "cgi-bin/user/get", employeeToken, url.Values{"userid": {"1"}}, &employeeResp); err != nil {
-		return fmt.Errorf("通讯录管理secret或企业ID无效")
+	for _, department := range departments {
+		if department.WXDepartmentID == 1 {
+			name := strings.TrimSpace(department.Name)
+			if name != "" {
+				return name, nil
+			}
+			break
+		}
 	}
-	contactToken, err := c.accessToken(ctx, RoomWelcomeCorpCredential{WXCorpID: wxCorpID, ContactSecret: contactSecret})
-	if err != nil {
-		return fmt.Errorf("外部联系人管理secret无效")
+	return "", fmt.Errorf("%s: provider root department name unavailable", weComCredentialInvalidError)
+}
+
+func (c *RoomWelcomeWeComClient) verifyContactSecret(ctx context.Context, wxCorpID string, contactSecret string) error {
+	if strings.TrimSpace(wxCorpID) == "" || strings.TrimSpace(contactSecret) == "" {
+		return errors.New(weComCredentialInvalidError)
 	}
-	var contactResp weComBaseResponse
-	if err := c.getJSON(ctx, "cgi-bin/externalcontact/get", contactToken, url.Values{"external_userid": {"1"}}, &contactResp); err != nil {
-		return fmt.Errorf("外部联系人管理secret无效")
+	if _, err := c.FollowUsers(ctx, WorkEmployeeSyncCredential{
+		WXCorpID: wxCorpID, ContactSecret: contactSecret,
+	}); err != nil {
+		return errors.New(weComCredentialInvalidError)
 	}
 	return nil
 }

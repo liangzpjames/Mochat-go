@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -17,6 +18,51 @@ var (
 	errCompanyBindingNotUnique   = errors.New("company binding is not unique")
 	errCompanyBindingNotVerified = errors.New("company binding is not verified")
 )
+
+const (
+	companySyncStateQueued  = "SYNC_QUEUED"
+	companySyncStateRunning = "SYNC_RUNNING"
+	companySyncStateFailed  = "SYNC_FAILED"
+)
+
+type companySyncStateMarker struct {
+	Code      string `json:"code"`
+	Cursor    string `json:"cursor,omitempty"`
+	ErrorCode string `json:"errorCode,omitempty"`
+}
+
+func companySyncStateJSON(code string) string {
+	return companySyncStateJSONWithError(code, "")
+}
+
+func companySyncStateJSONWithError(code, errorCode string) string {
+	marker := companySyncStateMarker{Code: code}
+	if code == companySyncStateQueued || code == companySyncStateRunning || code == companySyncStateFailed {
+		marker.Cursor = dashboard.CompanyEmployeeSyncCursor
+	}
+	if errorCode == "SYNC_FAILED" {
+		marker.ErrorCode = errorCode
+	}
+	raw, _ := json.Marshal(marker)
+	return string(raw)
+}
+
+func decodeCompanySyncState(raw string) companySyncStateMarker {
+	var marker companySyncStateMarker
+	if err := json.Unmarshal([]byte(raw), &marker); err != nil {
+		return companySyncStateMarker{Code: companySyncStateFailed}
+	}
+	if marker.Code != companySyncStateQueued && marker.Code != companySyncStateRunning && marker.Code != companySyncStateFailed {
+		return companySyncStateMarker{Code: companySyncStateFailed}
+	}
+	if marker.ErrorCode != "" && marker.ErrorCode != "SYNC_FAILED" {
+		marker.ErrorCode = ""
+	}
+	if marker.Cursor != dashboard.CompanyEmployeeSyncCursor {
+		marker.Cursor = ""
+	}
+	return marker
+}
 
 type companySyncBinding struct {
 	TenantID int
@@ -123,6 +169,166 @@ func (s *MySQLStore) SyncCompanyEmployees(ctx context.Context, bindingID int, de
 	return s.syncCompanyEmployeesTx(ctx, bindingID, 0, 0, departments, employees)
 }
 
+func (s *MySQLStore) QueueEmployeeSync(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (companyprofile.EmployeeSyncQueueResult, error) {
+	if s == nil || s.db == nil || principal.TenantID <= 0 || principal.CorpID <= 0 || principal.UserID <= 0 {
+		return companyprofile.EmployeeSyncQueueResult{}, companyprofile.ErrPermissionDenied
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
+	defer rollbackQuietly(tx)
+	if err := s.checkCompanyActor(ctx, tx, principal, true); err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
+	binding, err := loadSingleCompanySyncBinding(ctx, tx, principal.TenantID, true)
+	if errors.Is(err, errCompanyBindingNotFound) {
+		return companyprofile.EmployeeSyncQueueResult{}, companyprofile.ErrNotFound
+	}
+	if errors.Is(err, errCompanyBindingNotVerified) || errors.Is(err, errCompanyBindingNotUnique) {
+		return companyprofile.EmployeeSyncQueueResult{}, companyprofile.ErrTenantAccessDenied
+	}
+	if err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
+	if binding.CorpID != principal.CorpID {
+		return companyprofile.EmployeeSyncQueueResult{}, companyprofile.ErrNotFound
+	}
+	result, err := queueCompanySyncStateTx(ctx, tx, binding.CorpID)
+	if err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
+	return result, nil
+}
+
+func (s *MySQLStore) BeginCompanyEmployeeSync(ctx context.Context, bindingID int) error {
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, companySyncStateRunning, "")
+}
+
+func (s *MySQLStore) MarkCompanyEmployeeSyncQueued(ctx context.Context, bindingID int, errorCode string) error {
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, companySyncStateQueued, errorCode)
+}
+
+func (s *MySQLStore) RecordCompanyEmployeeSyncFailure(ctx context.Context, bindingID int) error {
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, companySyncStateFailed, "")
+}
+
+func (s *MySQLStore) updateCompanyEmployeeSyncState(ctx context.Context, bindingID int, state, errorCode string) error {
+	if s == nil || s.db == nil || bindingID <= 0 {
+		return errors.New("company binding unavailable")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollbackQuietly(tx)
+	binding, err := loadSingleCompanySyncBinding(ctx, tx, bindingID, true)
+	if err != nil {
+		return err
+	}
+	if err := setCompanySyncStateTx(ctx, tx, binding.CorpID, state, errorCode); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func queueCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int) (companyprofile.EmployeeSyncQueueResult, error) {
+	if corpID <= 0 {
+		return companyprofile.EmployeeSyncQueueResult{}, errors.New("company binding unavailable")
+	}
+	var updateTimeID int
+	var lastUpdate sql.NullTime
+	var errorMessage sql.NullString
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, last_update_time, COALESCE(CAST(error_msg AS CHAR), '')
+		FROM mc_work_update_time
+		WHERE corp_id = ? AND type = 1
+		ORDER BY id DESC LIMIT 1 FOR UPDATE`, corpID).Scan(&updateTimeID, &lastUpdate, &errorMessage)
+	if errors.Is(err, sql.ErrNoRows) {
+		result, insertErr := tx.ExecContext(ctx, `
+			INSERT INTO mc_work_update_time (corp_id, type, last_update_time, error_msg, created_at, updated_at)
+			VALUES (?, 1, NULL, ?, NOW(), NOW())`, corpID, companySyncStateJSON(companySyncStateQueued))
+		if insertErr != nil {
+			return companyprofile.EmployeeSyncQueueResult{}, insertErr
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil || rows != 1 {
+			return companyprofile.EmployeeSyncQueueResult{}, errors.New("company sync queue insert affected unexpected rows")
+		}
+		return companyprofile.EmployeeSyncQueueResult{Cursor: dashboard.CompanyEmployeeSyncCursor}, nil
+	}
+	if err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
+	marker := decodeCompanySyncState(errorMessage.String)
+	if marker.Code == companySyncStateQueued || marker.Code == companySyncStateRunning {
+		return companyprofile.EmployeeSyncQueueResult{Cursor: marker.Cursor, AlreadyQueued: true}, nil
+	}
+	if strings.TrimSpace(errorMessage.String) == "" && lastUpdate.Valid {
+		// A worker may have consumed and completed the Redis item before the
+		// post-enqueue marker write acquired this row. Preserve completion.
+		return companyprofile.EmployeeSyncQueueResult{Cursor: dashboard.CompanyEmployeeSyncCursor, AlreadyQueued: true}, nil
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE mc_work_update_time
+		SET error_msg = ?, updated_at = NOW()
+		WHERE id = ? AND corp_id = ? AND type = 1`, companySyncStateJSON(companySyncStateQueued), updateTimeID, corpID)
+	if err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil || rows != 1 {
+		return companyprofile.EmployeeSyncQueueResult{}, errors.New("company sync queue update affected unexpected rows")
+	}
+	return companyprofile.EmployeeSyncQueueResult{Cursor: dashboard.CompanyEmployeeSyncCursor}, nil
+}
+
+func setCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, state, errorCode string) error {
+	if corpID <= 0 || (state != companySyncStateQueued && state != companySyncStateRunning && state != companySyncStateFailed) {
+		return errors.New("company sync state unavailable")
+	}
+	if errorCode != "" && errorCode != "SYNC_FAILED" {
+		return errors.New("company sync error code unavailable")
+	}
+	var updateTimeID int
+	err := tx.QueryRowContext(ctx, `
+		SELECT id
+		FROM mc_work_update_time
+		WHERE corp_id = ? AND type = 1
+		ORDER BY id DESC LIMIT 1 FOR UPDATE`, corpID).Scan(&updateTimeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		result, insertErr := tx.ExecContext(ctx, `
+			INSERT INTO mc_work_update_time (corp_id, type, last_update_time, error_msg, created_at, updated_at)
+			VALUES (?, 1, NULL, ?, NOW(), NOW())`, corpID, companySyncStateJSONWithError(state, errorCode))
+		if insertErr != nil {
+			return insertErr
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil || rows != 1 {
+			return errors.New("company sync state insert affected unexpected rows")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE mc_work_update_time
+		SET error_msg = ?, updated_at = NOW()
+		WHERE id = ? AND corp_id = ? AND type = 1`, companySyncStateJSONWithError(state, errorCode), updateTimeID, corpID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil || rows != 1 {
+		return errors.New("company sync state update affected unexpected rows")
+	}
+	return nil
+}
+
 func (s *MySQLStore) SyncEmployeeData(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, data companyprofile.EmployeeSyncData) (companyprofile.SyncResult, error) {
 	if principal.TenantID <= 0 || principal.CorpID <= 0 || principal.UserID <= 0 {
 		return companyprofile.SyncResult{}, companyprofile.ErrPermissionDenied
@@ -183,11 +389,12 @@ func (s *MySQLStore) GetSyncStatus(ctx context.Context, principal dashboardprinc
 	}
 	var lastUpdate sql.NullTime
 	var errorMessage sql.NullString
+	var updatedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT last_update_time, COALESCE(CAST(error_msg AS CHAR), '')
+		SELECT last_update_time, COALESCE(CAST(error_msg AS CHAR), ''), updated_at
 		FROM mc_work_update_time
 		WHERE corp_id = ? AND type = 1
-		ORDER BY id DESC LIMIT 1`, corpID).Scan(&lastUpdate, &errorMessage)
+		ORDER BY id DESC LIMIT 1`, corpID).Scan(&lastUpdate, &errorMessage, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return companyprofile.SyncStatus{Status: "idle"}, nil
 	}
@@ -202,6 +409,10 @@ func (s *MySQLStore) GetSyncStatus(ctx context.Context, principal dashboardprinc
 		return companyprofile.SyncStatus{}, err
 	}
 	statusResult := companySyncStatusFromRecord(lastUpdate, errorMessage, departments, employees)
+	if updatedAt.Valid && (statusResult.Status == "queued" || statusResult.Status == "syncing" || statusResult.Status == "failed") {
+		value := updatedAt.Time
+		statusResult.StartedAt = &value
+	}
 	if lastUpdate.Valid {
 		value := lastUpdate.Time
 		statusResult.FinishedAt = &value
@@ -264,7 +475,22 @@ func (s *MySQLStore) syncCompanyEmployeesTx(ctx context.Context, bindingID, acto
 
 func companySyncStatusFromRecord(lastUpdate sql.NullTime, errorMessage sql.NullString, departments, employees int) companyprofile.SyncStatus {
 	status := companyprofile.SyncStatus{Status: "completed", Departments: departments, Employees: employees}
-	if strings.TrimSpace(errorMessage.String) != "" {
+	if strings.TrimSpace(errorMessage.String) == "" {
+		if !lastUpdate.Valid {
+			status.Status = "idle"
+		}
+		return status
+	}
+	marker := decodeCompanySyncState(errorMessage.String)
+	status.Cursor = marker.Cursor
+	switch marker.Code {
+	case companySyncStateQueued:
+		status.Status = "queued"
+		status.ErrorCode = marker.ErrorCode
+	case companySyncStateRunning:
+		status.Status = "syncing"
+		status.ErrorCode = marker.ErrorCode
+	default:
 		status.Status = "failed"
 		status.ErrorCode = "SYNC_FAILED"
 	}
@@ -324,53 +550,21 @@ func (s *MySQLStore) recordCompanySyncFailure(ctx context.Context, principal das
 	if err := s.checkCompanyActor(ctx, tx, principal, true); err != nil {
 		return err
 	}
-	var bindingStatus int
-	var verifiedCorpID string
-	if err := tx.QueryRowContext(ctx, `
-		SELECT status, COALESCE(verified_wx_corpid, '')
-		FROM mochat_go_tenant_corp_bindings
-		WHERE tenant_id = ? AND corp_id = ?
-		LIMIT 1 FOR UPDATE`, principal.TenantID, principal.CorpID).Scan(&bindingStatus, &verifiedCorpID); err != nil {
+	binding, err := loadSingleCompanySyncBinding(ctx, tx, principal.TenantID, true)
+	if err != nil {
 		return err
 	}
-	if bindingStatus != 2 || strings.TrimSpace(verifiedCorpID) == "" {
-		return errors.New("company binding is not verified")
+	if binding.CorpID != principal.CorpID {
+		return companyprofile.ErrNotFound
 	}
-	const safeError = `{"code":"SYNC_FAILED"}`
-	var updateTimeID int
-	err = tx.QueryRowContext(ctx, `
-		SELECT id
-		FROM mc_work_update_time
-		WHERE corp_id = ? AND type = 1
-		ORDER BY id DESC
-		LIMIT 1 FOR UPDATE`, principal.CorpID).Scan(&updateTimeID)
-	if errors.Is(err, sql.ErrNoRows) {
-		result, insertErr := tx.ExecContext(ctx, `
-			INSERT INTO mc_work_update_time (corp_id, type, last_update_time, error_msg, created_at, updated_at)
-			VALUES (?, 1, NULL, ?, NOW(), NOW())`, principal.CorpID, safeError)
-		if insertErr != nil {
-			return insertErr
-		}
-		rows, rowsErr := result.RowsAffected()
-		if rowsErr != nil || rows != 1 {
-			return errors.New("company sync failure status insert affected unexpected rows")
-		}
-	} else if err != nil {
+	if err := setCompanySyncStateTx(ctx, tx, binding.CorpID, companySyncStateFailed, ""); err != nil {
 		return err
-	} else {
-		result, updateErr := tx.ExecContext(ctx, `
-			UPDATE mc_work_update_time
-			SET error_msg = ?, updated_at = NOW()
-			WHERE id = ? AND corp_id = ? AND type = 1`, safeError, updateTimeID, principal.CorpID)
-		if updateErr != nil {
-			return updateErr
-		}
-		rows, rowsErr := result.RowsAffected()
-		if rowsErr != nil || rows != 1 {
-			return errors.New("company sync failure status update affected unexpected rows")
-		}
 	}
 	return tx.Commit()
+}
+
+func (s *MySQLStore) RecordEmployeeSyncFailure(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) error {
+	return s.recordCompanySyncFailure(ctx, principal)
 }
 
 func syncWorkEmployeesWithoutIdentityTx(ctx context.Context, tx *sql.Tx, credential dashboard.WorkEmployeeSyncCredential, departments map[int]workEmployeeSyncDepartmentRow, employees []dashboard.WorkEmployeeSyncEmployee) (dashboard.WorkEmployeeSyncResult, error) {
