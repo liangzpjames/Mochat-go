@@ -162,6 +162,30 @@ func TestDefaultMigrationsDiscoversIncrementalFiles(t *testing.T) {
 	}
 }
 
+func TestDefaultMigrationsRegistersControlledIdentityBackfill(t *testing.T) {
+	migrations := DefaultMigrations(filepath.Join("..", ".."))
+	for _, migration := range migrations {
+		if migration.Version != "0130_identity_realms_single_corp_backfill" {
+			continue
+		}
+		if migration.Kind != MigrationControlled || migration.Controlled == nil {
+			t.Fatalf("0130 migration metadata = %#v, want controlled registry entry", migration)
+		}
+		if migration.Controlled.RequiredCLI != "mochat-identity-migrate" {
+			t.Fatalf("0130 required CLI = %q", migration.Controlled.RequiredCLI)
+		}
+		return
+	}
+	t.Fatal("controlled 0130 identity backfill must be registered in DefaultMigrations")
+}
+
+func TestControlledMigrationPendingErrorIsStable(t *testing.T) {
+	err := ControlledMigrationBlocked("0130_identity_realms_single_corp_backfill")
+	if err == nil || err.Error() != "controlled migration 0130_identity_realms_single_corp_backfill is pending; run mochat-identity-migrate before automatic migrations can continue" {
+		t.Fatalf("controlled migration error = %v", err)
+	}
+}
+
 func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 	projectRoot := filepath.Join("..", "..")
 	migrations := DefaultMigrations(projectRoot)
@@ -172,8 +196,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0129_identity_realms_single_corp_schema" {
-		t.Fatalf("latest migration = %q, want 0129_identity_realms_single_corp_schema", latest.Version)
+	if latest.Version != "0130_identity_realms_single_corp_backfill" {
+		t.Fatalf("latest migration = %q, want 0130_identity_realms_single_corp_backfill", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -232,7 +256,7 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0129_identity_realms_single_corp_schema" {
+	if latest.Version != "0130_identity_realms_single_corp_backfill" {
 		t.Fatalf("latest migration = %q", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))

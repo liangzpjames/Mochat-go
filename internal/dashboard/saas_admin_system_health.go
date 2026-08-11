@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0129_identity_realms_single_corp_schema"
-	SaaSAdminExpectedMigrationCount   = 129
+	SaaSAdminExpectedMigrationVersion = "0130_identity_realms_single_corp_backfill"
+	SaaSAdminExpectedMigrationCount   = 130
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

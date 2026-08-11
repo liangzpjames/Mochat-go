@@ -25,6 +25,8 @@ type Migration struct {
 	Path            string
 	DownPath        string
 	ChecksumAliases []string
+	Kind            MigrationKind
+	Controlled      *ControlledMigration
 }
 
 type AppliedMigration struct {
@@ -105,6 +107,9 @@ func (r *Runner) Apply(ctx context.Context) ([]StatusItem, error) {
 			result = append(result, item)
 			continue
 		}
+		if migration.Kind == MigrationControlled {
+			return result, ControlledMigrationBlocked(migration.Version)
+		}
 		start := r.currentTime()
 		if err := execSQLScript(ctx, r.db, string(body)); err != nil {
 			return result, fmt.Errorf("apply migration %s: %w", migration.Version, err)
@@ -142,7 +147,11 @@ func (r *Runner) Status(ctx context.Context) ([]StatusItem, error) {
 		if err != nil {
 			return nil, err
 		}
-		item := StatusItem{Migration: migration, Checksum: checksum, State: "pending"}
+		state := "pending"
+		if migration.Kind == MigrationControlled {
+			state = "controlled_pending"
+		}
+		item := StatusItem{Migration: migration, Checksum: checksum, State: state}
 		if existing, ok := applied[migration.Version]; ok {
 			item.Applied = &existing
 			item.State = "applied"
@@ -183,6 +192,9 @@ func (r *Runner) Baseline(ctx context.Context) ([]StatusItem, error) {
 			result = append(result, item)
 			continue
 		}
+		if migration.Kind == MigrationControlled {
+			return result, ControlledMigrationBlocked(migration.Version)
+		}
 		if err := r.recordApplied(ctx, migration, checksum, 0); err != nil {
 			return result, err
 		}
@@ -217,6 +229,9 @@ func (r *Runner) RollbackLast(ctx context.Context) (string, error) {
 		}
 		if !checksumMatches(existing.Checksum, checksum, migration.ChecksumAliases) {
 			return "", fmt.Errorf("migration %s checksum mismatch: applied=%s current=%s", migration.Version, existing.Checksum, checksum)
+		}
+		if migration.Kind == MigrationControlled {
+			return "", ControlledMigrationRollbackRequired(migration.Version)
 		}
 		if strings.TrimSpace(migration.DownPath) == "" {
 			return "", fmt.Errorf("rollback is not available for %s; create an explicit down migration before rolling back", migration.Version)
@@ -387,6 +402,7 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 			continue
 		}
 		version := strings.TrimSuffix(name, ".up.sql")
+		kind, controlled := MigrationMetadata(version)
 		path := filepath.Join(migrationDir, name)
 		migrations = append(migrations, Migration{
 			Version:         version,
@@ -394,6 +410,8 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 			Path:            path,
 			DownPath:        filepath.Join(migrationDir, version+".down.sql"),
 			ChecksumAliases: migrationLineEndingChecksumAliases(path),
+			Kind:            kind,
+			Controlled:      controlled,
 		})
 	}
 	return migrations
@@ -463,7 +481,15 @@ func validateMigrations(migrations []Migration) error {
 		return migrations[i].Version < migrations[j].Version
 	})
 	seen := map[string]bool{}
-	for _, migration := range migrations {
+	for i := range migrations {
+		migration := &migrations[i]
+		kind, controlled := MigrationMetadata(migration.Version)
+		if controlled != nil {
+			migration.Kind = kind
+			migration.Controlled = controlled
+		} else if migration.Kind == "" {
+			migration.Kind = MigrationAutomatic
+		}
 		if strings.TrimSpace(migration.Version) == "" {
 			return errors.New("migration version is required")
 		}

@@ -345,11 +345,12 @@ func newIdentitySingleCorpMigrationDB(t *testing.T) *sql.DB {
 func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`CREATE TABLE mc_tenant (id int(10) unsigned NOT NULL AUTO_INCREMENT, name varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', PRIMARY KEY (id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_tenant (id int(10) unsigned NOT NULL AUTO_INCREMENT, name varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', chat_secret varchar(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext text COLLATE utf8mb4_bin NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL DEFAULT 1, phone char(11) NOT NULL DEFAULT '', password varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', status tinyint unsigned NOT NULL DEFAULT 1, deleted_at timestamp NULL, isSuperAdmin tinyint NOT NULL DEFAULT 0, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, data_permission json DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_user_role (id int(11) NOT NULL AUTO_INCREMENT, user_id int(11) NOT NULL, role_id int(11) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_work_agent (id int(10) unsigned NOT NULL AUTO_INCREMENT, corp_id int(11) NOT NULL, wx_agent_id varchar(255) NOT NULL DEFAULT '', wx_secret varchar(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext text COLLATE utf8mb4_bin NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`INSERT INTO mc_tenant (id, name, status) VALUES (1, 'Tenant 1', 1), (2, 'Tenant 2', 1)`,
 		`INSERT INTO mc_corp (id, tenant_id, name) VALUES (100, 1, 'Corp 1'), (200, 2, 'Corp 2')`,
 		`INSERT INTO mc_user (id, tenant_id, phone, status, deleted_at) VALUES (10, 1, '13800000001', 1, NULL)`,
@@ -362,6 +363,7 @@ func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 	}
 	loadRealDashboardPageRBACDDL(t, db)
 	loadSaaSAdminRBACDDL(t, db)
+	loadSaaSAdminHistoryDDL(t, db)
 	for _, statement := range []string{
 		`INSERT INTO mochat_go_dashboard_permissions (id, code, permission_type, path, name) VALUES (900, 'dashboard.test', 'page', '/test', 'Test')`,
 		`INSERT INTO mochat_go_dashboard_permission_resources (id, permission_id, resource_type, http_method, path_pattern) VALUES (901, 900, 'api', 'GET', '/dashboard/test')`,
@@ -384,6 +386,23 @@ func loadSaaSAdminRBACDDL(t *testing.T, db *sql.DB) {
 	}
 	if err := execSQLScript(context.Background(), db, string(body)); err != nil {
 		t.Fatalf("load real SaaS RBAC DDL: %v", err)
+	}
+}
+
+func loadSaaSAdminHistoryDDL(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, name := range []string{
+		"0033_saas_admin_operation_logs.up.sql",
+		"0046_saas_admin_approvals.up.sql",
+		"0047_saas_admin_approval_governance.up.sql",
+	} {
+		body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := execSQLScript(context.Background(), db, string(body)); err != nil {
+			t.Fatalf("load SaaS admin history DDL %s: %v", name, err)
+		}
 	}
 }
 
