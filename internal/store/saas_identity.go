@@ -116,6 +116,36 @@ func (store *SaaSIdentityStore) CheckSession(ctx context.Context, userID int, au
 	return nil
 }
 
+func (store *SaaSIdentityStore) ChangePassword(ctx context.Context, userID int, expectedAuthVersion uint64, passwordHash string) (saasauth.SaaSIdentity, error) {
+	if store == nil || store.db == nil || userID <= 0 || expectedAuthVersion == 0 || strings.TrimSpace(passwordHash) == "" {
+		return saasauth.SaaSIdentity{}, saasauth.ErrPasswordChange
+	}
+	result, err := store.db.ExecContext(ctx, `
+		UPDATE mochat_go_saas_admin_users
+		SET password_hash = ?, must_rotate_password = 0,
+			auth_version = auth_version + 1, updated_at = NOW()
+		WHERE id = ? AND auth_version = ? AND status = 1
+	`, passwordHash, userID, expectedAuthVersion)
+	if err != nil {
+		return saasauth.SaaSIdentity{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil || affected != 1 {
+		return saasauth.SaaSIdentity{}, saasauth.ErrPasswordChange
+	}
+	row, err := store.query(ctx, `
+		SELECT id, login_name, COALESCE(phone, ''), password_hash, name,
+		       status, must_rotate_password, auth_version, mfa_required
+		FROM mochat_go_saas_admin_users
+		WHERE id = ?
+		LIMIT 1
+	`, userID)
+	if err != nil {
+		return saasauth.SaaSIdentity{}, err
+	}
+	return scanSaaSIdentity(row)
+}
+
 func (store *SaaSIdentityStore) Bootstrap(ctx context.Context, input saasauth.BootstrapSaaSAdmin) (saasauth.SaaSIdentity, error) {
 	requestKey := strings.TrimSpace(input.RequestKey)
 	loginName := strings.ToLower(strings.TrimSpace(input.LoginName))

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/authjwt"
+	"jiyi/mochat-go/internal/authrealm"
 	"jiyi/mochat-go/internal/clientip"
 	"jiyi/mochat-go/internal/config"
 	"jiyi/mochat-go/internal/dashboard"
@@ -21,6 +22,7 @@ import (
 	"jiyi/mochat-go/internal/outboundhttp"
 	"jiyi/mochat-go/internal/saasalertcredentials"
 	"jiyi/mochat-go/internal/saasauditanchor"
+	"jiyi/mochat-go/internal/saasauth"
 	"jiyi/mochat-go/internal/saasbackup"
 	"jiyi/mochat-go/internal/saascompliance"
 	compatserver "jiyi/mochat-go/internal/server"
@@ -32,7 +34,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.FromEnv()
+	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
@@ -125,6 +127,43 @@ func main() {
 	var serviceAccountKeyManager *serviceaccountkey.Manager
 	var serviceAccountClientIPResolver *clientip.Resolver
 	if cfg.EnableSaaSAdminDashboard {
+		saasMFAKey, parseErr := saasbackup.ParseEncryptionKey(cfg.SaaSAdminMFAEncryptionKey)
+		if parseErr != nil {
+			log.Fatalf("build SaaS MFA encryption key: %v", parseErr)
+		}
+		saasTokenConfig := authrealm.TokenConfig{
+			Secret: []byte(cfg.SaaSAdminJWTSecret), Issuer: cfg.SaaSAdminJWTIssuer,
+			Audience: cfg.SaaSAdminJWTAudience, TTL: cfg.SaaSAdminJWTTTL,
+			Realm: authrealm.RealmSaaSAdmin, Prefix: cfg.SaaSAdminJWTPrefix,
+		}
+		saasIdentityStore := store.NewSaaSIdentityStore(getMySQLStore().DB())
+		saasIdentityService := saasauth.NewService(saasIdentityStore)
+		saasParser := authrealm.Parser{
+			Config: saasTokenConfig,
+			ValidateSession: func(ctx context.Context, claims authrealm.Claims) error {
+				return saasIdentityService.CheckTokenSession(ctx, claims)
+			},
+		}
+		saasAuthHandler, authErr := saasauth.NewHTTPHandler(saasauth.HTTPConfig{
+			Service:     saasIdentityService,
+			Persistence: saasIdentityStore,
+			Signer:      saasTokenConfig,
+			Parser:      saasParser,
+			MFAKey:      saasMFAKey,
+			MFAKeyID:    cfg.SaaSAdminMFAEncryptionKeyID,
+		})
+		if authErr != nil {
+			log.Fatalf("build SaaS authentication handler: %v", authErr)
+		}
+		saasRequestGuard, authErr := saasauth.NewRequestGuard(saasParser)
+		if authErr != nil {
+			log.Fatalf("build SaaS request guard: %v", authErr)
+		}
+		options = append(options,
+			compatserver.WithSaaSAuthHandler(saasAuthHandler),
+			compatserver.WithSaaSRequestGuard(saasRequestGuard),
+			compatserver.WithSaaSLoginPageHandler(saasauth.NewLoginPageHandler()),
+		)
 		tenantDomainVerifier, err = dashboard.NewSaaSTenantDomainDNSVerifier(cfg.SaaSTenantDomainDNSServer, cfg.SaaSTenantDomainDNSTimeout)
 		if err != nil {
 			log.Fatalf("build SaaS tenant domain DNS verifier: %v", err)

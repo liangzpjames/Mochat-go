@@ -27,7 +27,10 @@ type Server struct {
 	proxy                                           http.Handler
 	moduleRouter                                    ModuleRouter
 	dashboardRequestGuard                           DashboardRequestGuard
+	saasRequestGuard                                SaaSRequestGuard
 	dashboardAccess                                 http.Handler
+	saasAuth                                        http.Handler
+	saasLoginPage                                   http.Handler
 	auth                                            http.Handler
 	authMFA                                         http.Handler
 	identitySelf                                    http.Handler
@@ -715,6 +718,10 @@ type DashboardRequestGuard interface {
 	Authorize(http.ResponseWriter, *http.Request) bool
 }
 
+type SaaSRequestGuard interface {
+	Authorize(http.ResponseWriter, *http.Request) bool
+}
+
 type Option func(*Server)
 
 func WithModuleRouter(router ModuleRouter) Option {
@@ -735,6 +742,24 @@ func WithDashboardRequestGuard(guard DashboardRequestGuard) Option {
 		}
 		server.dashboardRequestGuard = guard
 	}
+}
+
+func WithSaaSRequestGuard(guard SaaSRequestGuard) Option {
+	return func(server *Server) {
+		if nilcheck.IsNil(guard) {
+			server.saasRequestGuard = nil
+			return
+		}
+		server.saasRequestGuard = guard
+	}
+}
+
+func WithSaaSAuthHandler(handler http.Handler) Option {
+	return func(server *Server) { server.saasAuth = handler }
+}
+
+func WithSaaSLoginPageHandler(handler http.Handler) Option {
+	return func(server *Server) { server.saasLoginPage = handler }
 }
 
 func WithDashboardAccessHandler(handler http.Handler) Option {
@@ -4322,6 +4347,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if isDashboardSaaSRequestPath(r.URL.Path) && !nilcheck.IsNil(s.saasRequestGuard) {
+		if !s.saasRequestGuard.Authorize(w, r) {
+			return
+		}
+	}
 	if strings.HasPrefix(r.URL.Path, "/dashboard/access/") && !nilcheck.IsNil(s.dashboardAccess) {
 		if !nilcheck.IsNil(s.moduleRouter) {
 			if handler, ok := s.moduleRouter.Match(r); ok && !nilcheck.IsNil(handler) {
@@ -4342,6 +4372,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case strings.HasPrefix(r.URL.Path, "/saas/auth/") && s.saasAuth != nil:
+		s.saasAuth.ServeHTTP(w, r)
+	case r.URL.Path == "/saas/login" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.saasLoginPage != nil:
+		s.saasLoginPage.ServeHTTP(w, r)
 	case r.URL.Path == "/" && (r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodHead):
 		s.handleRoot(w, r)
 	case r.URL.Path == "/favicon.ico" && r.Method == http.MethodGet:

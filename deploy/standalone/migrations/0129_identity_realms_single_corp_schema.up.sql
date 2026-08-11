@@ -599,6 +599,55 @@ CREATE TABLE IF NOT EXISTS `mochat_go_tenant_corp_bindings` (
   CONSTRAINT `fk_tenant_corp_binding_corp` FOREIGN KEY (`tenant_id`, `corp_id`) REFERENCES `mc_corp` (`tenant_id`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Authoritative one-tenant one-corp binding';
 
+CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_mfa_credentials` (
+  `user_id` int(10) unsigned NOT NULL,
+  `status` tinyint(3) unsigned NOT NULL DEFAULT 0 COMMENT '0=pending,1=active,2=disabled',
+  `secret_ciphertext` longtext COLLATE utf8mb4_bin NOT NULL,
+  `encryption_key_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `last_totp_step` bigint(20) unsigned NOT NULL DEFAULT 0,
+  `verified_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user_id`),
+  CONSTRAINT `fk_saas_admin_mfa_user` FOREIGN KEY (`user_id`) REFERENCES `mochat_go_saas_admin_users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SaaS Admin TOTP credential ciphertext';
+
+CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_mfa_challenges` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `token_digest` binary(32) NOT NULL,
+  `user_id` int(10) unsigned NOT NULL,
+  `auth_version` bigint(20) unsigned NOT NULL,
+  `challenge_type` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` tinyint(3) unsigned NOT NULL DEFAULT 0 COMMENT '0=pending,1=consumed,2=locked',
+  `attempts` int(10) unsigned NOT NULL DEFAULT 0,
+  `max_attempts` int(10) unsigned NOT NULL DEFAULT 5,
+  `expires_at` datetime NOT NULL,
+  `consumed_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uni_saas_admin_mfa_challenge_digest` (`token_digest`),
+  KEY `idx_saas_admin_mfa_challenge_user_status` (`user_id`, `status`, `expires_at`),
+  CONSTRAINT `fk_saas_admin_mfa_challenge_user` FOREIGN KEY (`user_id`) REFERENCES `mochat_go_saas_admin_users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SaaS Admin one-time MFA challenge digests';
+
+CREATE TABLE IF NOT EXISTS `mochat_go_saas_admin_sessions` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `jti_digest` binary(32) NOT NULL,
+  `user_id` int(10) unsigned NOT NULL,
+  `auth_version` bigint(20) unsigned NOT NULL,
+  `status` tinyint(3) unsigned NOT NULL DEFAULT 1 COMMENT '1=active,2=revoked',
+  `issued_at` datetime NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `revoked_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uni_saas_admin_session_jti_digest` (`jti_digest`),
+  KEY `idx_saas_admin_session_user_status` (`user_id`, `status`, `expires_at`),
+  CONSTRAINT `fk_saas_admin_session_user` FOREIGN KEY (`user_id`) REFERENCES `mochat_go_saas_admin_users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='SaaS Admin durable JWT sessions';
+
 -- Intentionally no FK is added to mochat_go_saas_admin_user_access here.
 -- The SaaS actor FK is deferred to 0130, which owns actor backfill and must
 -- preflight/resolve every actor before adding it.

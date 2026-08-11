@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "pnpm run typecheck && vite build",
     "test": "vitest run --config vitest.config.ts",
+    "lint": "pnpm run typecheck",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "preview": "vite preview"
   },
@@ -27,6 +28,7 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "4.7.0",
+    "jsdom": "26.1.0",
     "tailwindcss": "4.1.7",
     "typescript": "5.8.3",
     "vite": "6.4.3",

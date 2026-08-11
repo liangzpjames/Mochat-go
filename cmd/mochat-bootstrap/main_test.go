@@ -87,7 +87,7 @@ func TestLongRunningComposeDoesNotExposeBootstrapPassword(t *testing.T) {
 	for _, forbidden := range []string{
 		"MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE",
 		"mochat_bootstrap_saas_admin_password",
-		"secrets:",
+		"BOOTSTRAP_CONTAINER_FILE",
 	} {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("long-running Compose still exposes bootstrap secret dependency: %s", forbidden)

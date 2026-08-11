@@ -17,7 +17,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-react'
-import { apiRequest, clearStoredToken, hasPermission, loginURL, readStoredToken } from '@/lib/api'
+import { apiRequest, hasPermission, loginURL, logoutSaaS, readStoredToken } from '@/lib/api'
 import type { AccessProfileData, ApprovalPoliciesData, SystemHealthData, ViewKey } from '@/lib/types'
 import { Badge, ErrorState, IconButton, LoadingState, cn } from '@/components/ui'
 import OverviewPage from '@/pages/OverviewPage'
@@ -26,6 +26,7 @@ import PackagesPage from '@/pages/PackagesPage'
 import TeamPage from '@/pages/TeamPage'
 import SystemPage from '@/pages/SystemPage'
 import LaunchPage from '@/pages/LaunchPage'
+import LoginPage from '@/pages/LoginPage'
 
 const views: Array<{
   key: ViewKey
@@ -46,16 +47,12 @@ function currentViewFromURL(): ViewKey {
   return views.some((item) => item.key === value) ? value! : 'overview'
 }
 
-function App() {
+function AuthenticatedApp() {
   const queryClient = useQueryClient()
   const [view, setView] = useState<ViewKey>(currentViewFromURL)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('mochat_saas_admin_sidebar_collapsed') === '1')
-
-  useEffect(() => {
-    if (!readStoredToken()) location.assign(loginURL())
-  }, [])
 
   useEffect(() => {
     localStorage.setItem('mochat_saas_admin_sidebar_collapsed', collapsed ? '1' : '0')
@@ -131,8 +128,7 @@ function App() {
   }[view]
 
   const signOut = () => {
-    clearStoredToken()
-    location.assign('/security/login')
+    void logoutSaaS().finally(() => location.assign('/saas/login'))
   }
 
   return (
@@ -223,6 +219,19 @@ function App() {
       </div>
     </div>
   )
+}
+
+function App() {
+  const loginRoute = location.pathname === '/saas/login' || new URLSearchParams(location.search).get('login') === '1'
+  const hasToken = Boolean(readStoredToken())
+
+  useEffect(() => {
+    if (!hasToken && !loginRoute) location.assign(loginURL())
+  }, [hasToken, loginRoute])
+
+  if (!hasToken && loginRoute) return <LoginPage />
+  if (!hasToken) return <div className="min-h-screen bg-white"><LoadingState label="Loading" /></div>
+  return <AuthenticatedApp />
 }
 
 export default App

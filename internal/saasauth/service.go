@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"jiyi/mochat-go/internal/authpassword"
+	"jiyi/mochat-go/internal/authrealm"
 )
 
 const (
@@ -20,6 +21,8 @@ var (
 	ErrInvalidBootstrap    = errors.New("invalid SaaS bootstrap input")
 	ErrBootstrapConflict   = errors.New("bootstrap request conflict")
 	ErrSessionInvalid      = errors.New("saas session invalid")
+	ErrPasswordChange      = errors.New("saas password change failed")
+	ErrSessionRevoked      = errors.New("saas session revoked")
 )
 
 type SaaSIdentity struct {
@@ -46,6 +49,13 @@ type SaaSIdentityStore interface {
 	Authenticate(ctx context.Context, login string) (SaaSIdentity, error)
 	Bootstrap(ctx context.Context, input BootstrapSaaSAdmin) (SaaSIdentity, error)
 	CheckSession(ctx context.Context, userID int, authVersion uint64) error
+}
+
+// SaaSPasswordStore is deliberately an optional extension. Keeping password
+// rotation out of SaaSIdentityStore preserves the narrow read/session contract
+// used by login and makes callers unable to accidentally use it as a lookup.
+type SaaSPasswordStore interface {
+	ChangePassword(ctx context.Context, userID int, expectedAuthVersion uint64, passwordHash string) (SaaSIdentity, error)
 }
 
 type Service struct {
@@ -114,4 +124,34 @@ func (service *Service) CheckSession(ctx context.Context, userID int, authVersio
 		return ErrSessionInvalid
 	}
 	return nil
+}
+
+func (service *Service) CheckTokenSession(ctx context.Context, claims authrealm.Claims) error {
+	if service == nil || service.store == nil || claims.UserID <= 0 || claims.AuthVersion == 0 || strings.TrimSpace(claims.JWTID) == "" {
+		return ErrSessionInvalid
+	}
+	persistence, ok := service.store.(SaaSAuthPersistence)
+	if !ok {
+		return ErrSessionInvalid
+	}
+	if err := persistence.CheckSessionToken(ctx, claims); err != nil {
+		return ErrSessionInvalid
+	}
+	return nil
+}
+
+func (service *Service) ChangePassword(ctx context.Context, userID int, expectedAuthVersion uint64, passwordHash string) (SaaSIdentity, error) {
+	if service == nil || service.store == nil || userID <= 0 || expectedAuthVersion == 0 || strings.TrimSpace(passwordHash) == "" {
+		return SaaSIdentity{}, ErrPasswordChange
+	}
+	store, ok := service.store.(SaaSPasswordStore)
+	if !ok {
+		return SaaSIdentity{}, ErrPasswordChange
+	}
+	identity, err := store.ChangePassword(ctx, userID, expectedAuthVersion, passwordHash)
+	if err != nil {
+		return SaaSIdentity{}, ErrPasswordChange
+	}
+	identity.PasswordHash = ""
+	return identity, nil
 }

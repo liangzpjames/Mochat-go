@@ -68,6 +68,8 @@ type Config struct {
 	SaaSAdminJWTAudience                               string
 	SaaSAdminJWTPrefix                                 string
 	SaaSAdminJWTTTL                                    time.Duration
+	SaaSAdminMFAEncryptionKey                          string
+	SaaSAdminMFAEncryptionKeyID                        string
 	DashboardJWTSecret                                 string
 	DashboardJWTIssuer                                 string
 	DashboardJWTAudience                               string
@@ -584,6 +586,10 @@ func FromEnv() (Config, error) {
 	}
 	if saasAdminJWTTTL <= 0 {
 		return Config{}, fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_TTL must be a positive integer")
+	}
+	saasAdminMFAEncryptionKey, err := readSecretFile("MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE")
+	if err != nil {
+		return Config{}, err
 	}
 	dashboardJWTTTL, err := envInt("MOCHAT_DASHBOARD_JWT_TTL", "", 60*60*24*7)
 	if err != nil {
@@ -1270,6 +1276,8 @@ func FromEnv() (Config, error) {
 		SaaSAdminJWTAudience:                               strings.TrimSpace(envFirst("MOCHAT_SAAS_ADMIN_JWT_AUDIENCE")),
 		SaaSAdminJWTPrefix:                                 strings.TrimSpace(envDefaultIfUnset("MOCHAT_SAAS_ADMIN_JWT_PREFIX", "mochat_saas_admin_")),
 		SaaSAdminJWTTTL:                                    time.Duration(saasAdminJWTTTL) * time.Second,
+		SaaSAdminMFAEncryptionKey:                          strings.TrimSpace(saasAdminMFAEncryptionKey),
+		SaaSAdminMFAEncryptionKeyID:                        strings.TrimSpace(envFirst("MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID")),
 		DashboardJWTSecret:                                 envFirst("MOCHAT_DASHBOARD_JWT_SECRET"),
 		DashboardJWTIssuer:                                 strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_ISSUER")),
 		DashboardJWTAudience:                               strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_AUDIENCE")),
@@ -2169,6 +2177,12 @@ func (cfg Config) ValidateIdentityRealms() error {
 	if cfg.SaaSAdminJWTTTL <= 0 {
 		return fmt.Errorf("MOCHAT_SAAS_ADMIN_JWT_TTL must be positive")
 	}
+	if cfg.EnableSaaSAdminDashboard && strings.TrimSpace(cfg.SaaSAdminMFAEncryptionKey) == "" {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE is required when SaaS admin authentication is enabled")
+	}
+	if cfg.EnableSaaSAdminDashboard && strings.TrimSpace(cfg.SaaSAdminMFAEncryptionKeyID) == "" {
+		return fmt.Errorf("MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID is required when SaaS admin authentication is enabled")
+	}
 	if cfg.DashboardJWTTTL <= 0 {
 		return fmt.Errorf("MOCHAT_DASHBOARD_JWT_TTL must be positive")
 	}
@@ -2319,6 +2333,22 @@ func envFirst(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func readSecretFile(pathKey string) (string, error) {
+	path := strings.TrimSpace(os.Getenv(pathKey))
+	if path == "" {
+		return "", nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", pathKey, err)
+	}
+	value := strings.TrimSpace(string(content))
+	if value == "" {
+		return "", fmt.Errorf("%s must point to a non-empty secret file", pathKey)
+	}
+	return value, nil
 }
 
 func envInt(primary string, fallback string, defaultValue int) (int, error) {

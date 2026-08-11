@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,9 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/app/modules"
+	"jiyi/mochat-go/internal/authrealm"
 	"jiyi/mochat-go/internal/config"
+	"jiyi/mochat-go/internal/saasauth"
 	"jiyi/mochat-go/internal/taskrunner"
 )
 
@@ -273,6 +276,97 @@ func TestDashboardRequestGuardRunsBeforeModuleRouterAndLegacySwitch(t *testing.T
 				t.Fatalf("status=%d handlerCalled=%v guardCalls=%d", response.Code, handlerCalled, guard.calls)
 			}
 		})
+	}
+}
+
+func TestSaaSRouteRejectsDashboardTokenBeforeBusinessHandler(t *testing.T) {
+	saasConfig := authrealm.TokenConfig{
+		Secret: []byte("saas-server-test-secret"), Issuer: "mochat-go/saas-test",
+		Audience: "saas-admin", TTL: time.Hour, Realm: authrealm.RealmSaaSAdmin, Prefix: "saas-test_",
+	}
+	dashboardConfig := authrealm.TokenConfig{
+		Secret: []byte("dashboard-server-test-secret"), Issuer: "mochat-go/dashboard-test",
+		Audience: "dashboard", TTL: time.Hour, Realm: authrealm.RealmDashboard, Prefix: "dashboard-test_",
+	}
+	guard, err := saasauth.NewRequestGuard(authrealm.Parser{
+		Config: saasConfig,
+		ValidateSession: func(context.Context, authrealm.Claims) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlerCalled := false
+	server, err := New(config.Config{},
+		WithSaaSRequestGuard(guard),
+		WithSaaSAdminOverviewHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handlerCalled = true
+			w.WriteHeader(http.StatusOK)
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dashboardToken, err := authrealm.Sign(dashboardConfig, authrealm.Claims{UserID: 41, AuthVersion: 2}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/overview", nil)
+	request.Header.Set("Authorization", "Bearer "+dashboardToken)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized || handlerCalled {
+		t.Fatalf("Dashboard token crossed into SaaS route: status=%d handlerCalled=%v body=%s", response.Code, handlerCalled, response.Body.String())
+	}
+
+	saasToken, err := authrealm.Sign(saasConfig, authrealm.Claims{UserID: 41, AuthVersion: 2}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/overview", nil)
+	request.Header.Set("Authorization", "Bearer "+saasToken)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !handlerCalled {
+		t.Fatalf("valid SaaS token did not reach SaaS route: status=%d handlerCalled=%v body=%s", response.Code, handlerCalled, response.Body.String())
+	}
+}
+
+func TestSaaSRequestGuardOverwritesClientActorHeader(t *testing.T) {
+	saasConfig := authrealm.TokenConfig{
+		Secret: []byte("saas-header-test-secret"), Issuer: "mochat-go/saas-header-test",
+		Audience: "saas-admin", TTL: time.Hour, Realm: authrealm.RealmSaaSAdmin, Prefix: "saas-header-test_",
+	}
+	guard, err := saasauth.NewRequestGuard(authrealm.Parser{
+		Config: saasConfig,
+		ValidateSession: func(context.Context, authrealm.Claims) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := authrealm.Sign(saasConfig, authrealm.Claims{UserID: 73, AuthVersion: 1}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(config.Config{}, WithSaaSRequestGuard(guard), WithSaaSAdminOverviewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Mochat-Go-User-ID"); got != "73" {
+			t.Errorf("actor header = %q, want authenticated user", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/overview", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("X-Mochat-Go-User-ID", "999")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("request status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 

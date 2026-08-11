@@ -1,3 +1,7 @@
+secrets:
+  saas_admin_mfa_encryption_key:
+    file: "${MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE:?MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE must point to a protected file}"
+
 services:
   app:
     profiles:
@@ -8,6 +12,10 @@ services:
       args:
         NPM_REGISTRY: "${MOCHAT_NPM_REGISTRY:-https://registry.npmmirror.com}"
         GOPROXY: "${MOCHAT_GOPROXY:-https://goproxy.cn,direct}"
+    secrets:
+      - source: saas_admin_mfa_encryption_key
+        target: mochat-saas-admin-mfa-encryption-key
+        mode: 0400
     environment:
       TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
       MOCHAT_GO_RUNTIME_ROLE: "${MOCHAT_GO_RUNTIME_ROLE:-all}"
@@ -24,6 +32,8 @@ services:
       MOCHAT_SAAS_ADMIN_JWT_AUDIENCE: "${MOCHAT_SAAS_ADMIN_JWT_AUDIENCE:-mochat-saas-admin}"
       MOCHAT_SAAS_ADMIN_JWT_PREFIX: "${MOCHAT_SAAS_ADMIN_JWT_PREFIX:-mochat_saas_admin_}"
       MOCHAT_SAAS_ADMIN_JWT_TTL: "${MOCHAT_SAAS_ADMIN_JWT_TTL:-604800}"
+      MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE: "/run/secrets/mochat-saas-admin-mfa-encryption-key"
+      MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID: "${MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID:?MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID must be set}"
       MOCHAT_DASHBOARD_JWT_SECRET: "${MOCHAT_DASHBOARD_JWT_SECRET:?MOCHAT_DASHBOARD_JWT_SECRET must be set}"
       MOCHAT_DASHBOARD_JWT_ISSUER: "${MOCHAT_DASHBOARD_JWT_ISSUER:-mochat-go/dashboard-auth}"
       MOCHAT_DASHBOARD_JWT_AUDIENCE: "${MOCHAT_DASHBOARD_JWT_AUDIENCE:-mochat-dashboard}"

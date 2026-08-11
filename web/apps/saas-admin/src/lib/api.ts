@@ -1,4 +1,5 @@
 import type { ApprovalPoliciesData, GovernedResult } from './types'
+import { clearSaaSSession, readSaaSSession, saasLoginURL, saveSaaSSession, type SaaSSession } from './auth-session'
 
 interface ApiEnvelope<T> {
   code: number
@@ -20,31 +21,87 @@ export class ApiError extends Error {
 }
 
 export function readStoredToken(): string {
-  const values = [
-    localStorage.getItem('mochat_go_saas_admin_token'),
-  ]
-  for (const value of values) {
-    if (!value) continue
-    let normalized = value.trim()
-    try {
-      const parsed: unknown = JSON.parse(normalized)
-      if (typeof parsed === 'string') normalized = parsed.trim()
-    } catch {
-      // Existing dashboard tokens may be stored as plain strings.
-    }
-    if (normalized) return normalized
-  }
-  return ''
+  return readSaaSSession()?.token || ''
 }
 
 export function clearStoredToken() {
-  localStorage.removeItem('mochat_go_saas_admin_token')
-  document.cookie = 'MOCHAT_SAAS_ADMIN_TOKEN=; Path=/saas-admin; Max-Age=0; SameSite=Lax'
+  clearSaaSSession()
 }
 
 export function loginURL() {
-  const redirect = `${location.pathname}${location.search}${location.hash}`
-  return `/security/login?redirect=${encodeURIComponent(redirect)}`
+  return saasLoginURL()
+}
+
+export interface SaaSLoginResult {
+  token?: string
+  userId?: number
+  userName?: string
+  expiresAt?: number
+  challengeToken?: string
+  enrollmentToken?: string
+  enrollmentSecret?: string
+  otpAuthURL?: string
+  expiresIn?: number
+  passwordChangeToken?: string
+  mfaRequired?: boolean
+  mustRotatePassword?: boolean
+}
+
+async function saasAuthRequest<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(init.headers || {}) },
+    credentials: 'same-origin',
+  })
+  let body: ApiEnvelope<T> & { errorCode?: string }
+  try {
+    body = (await response.json()) as ApiEnvelope<T> & { errorCode?: string }
+  } catch {
+    throw new ApiError(`服务响应格式错误（HTTP ${response.status}）`, response.status, response.status)
+  }
+  if (!response.ok) throw new ApiError(body.msg || body.message || '认证失败', response.status, response.status)
+  return body.data
+}
+
+export async function loginSaaS(login: string, password: string): Promise<SaaSLoginResult> {
+  return saasAuthRequest<SaaSLoginResult>('/saas/auth/login', jsonRequest('POST', { login, password }))
+}
+
+export async function completeSaaSMFA(challengeToken: string, code: string): Promise<SaaSLoginResult> {
+  return saasAuthRequest<SaaSLoginResult>('/saas/auth/mfa', jsonRequest('POST', { challengeToken, code }))
+}
+
+export async function changeSaaSPassword(passwordChangeToken: string, newPassword: string): Promise<SaaSLoginResult> {
+  return saasAuthRequest<SaaSLoginResult>('/saas/auth/password', jsonRequest('POST', { passwordChangeToken, newPassword }))
+}
+
+export function persistSaaSLogin(result: SaaSLoginResult): SaaSSession | null {
+  if (!result.token || !result.userId || !result.expiresAt) return null
+  const session: SaaSSession = {
+    token: result.token,
+    userId: result.userId,
+    userName: result.userName || '',
+    expiresAt: result.expiresAt,
+  }
+  if (result.mustRotatePassword !== undefined) session.mustRotatePassword = result.mustRotatePassword
+  saveSaaSSession(session)
+  return session
+}
+
+export async function logoutSaaS() {
+  const token = readStoredToken()
+  try {
+    await fetch('/saas/auth/logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: token.toLowerCase().startsWith('bearer ') ? token : `Bearer ${token}` } : {}),
+      },
+    })
+  } finally {
+    clearSaaSSession()
+  }
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
