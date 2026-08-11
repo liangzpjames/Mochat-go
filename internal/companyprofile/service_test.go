@@ -36,6 +36,8 @@ type companyProfileContractStore struct {
 	queueCalls           int
 	failureCalls         int
 	queueResult          EmployeeSyncQueueResult
+	queueErr             error
+	syncState            string
 	lastWeComInput       WeComCredentialsInput
 	profile              Profile
 	verificationSnapshot VerificationSnapshot
@@ -88,6 +90,13 @@ func (s *companyProfileContractStore) SyncEmployeeData(context.Context, dashboar
 
 func (s *companyProfileContractStore) QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal) (EmployeeSyncQueueResult, error) {
 	s.queueCalls++
+	if s.queueErr != nil {
+		// Model a worker that completed after Redis accepted the job but before
+		// the request-side marker transaction returned its error.
+		s.syncState = "completed"
+		return EmployeeSyncQueueResult{}, s.queueErr
+	}
+	s.syncState = "queued"
 	result := s.queueResult
 	if result.Cursor == "" {
 		result.Cursor = "company-sync"
@@ -97,6 +106,7 @@ func (s *companyProfileContractStore) QueueEmployeeSync(context.Context, dashboa
 
 func (s *companyProfileContractStore) RecordEmployeeSyncFailure(context.Context, dashboardprincipal.DashboardPrincipal) error {
 	s.failureCalls++
+	s.syncState = "failed"
 	return nil
 }
 

@@ -238,7 +238,7 @@ func (s *RedisStore) DequeueEmployeeApply(ctx context.Context, timeout time.Dura
 }
 
 func (s *RedisStore) AckEmployeeApply(ctx context.Context, delivery dashboard.EmployeeApplyDelivery) error {
-	return s.ackReliableQueueItem(ctx, dashboard.EmployeeApplyQueueDescriptor().ProcessingKey, delivery.Raw)
+	return s.ackEmployeeApplyQueueItem(ctx, dashboard.EmployeeApplyQueueDescriptor().ProcessingKey, delivery.Raw)
 }
 
 func (s *RedisStore) RetryEmployeeApply(ctx context.Context, delivery dashboard.EmployeeApplyDelivery, reason string, maxAttempts int) (bool, error) {
@@ -886,6 +886,29 @@ func (s *RedisStore) markReliableQueueProcessing(ctx context.Context, processing
 
 func (s *RedisStore) ackReliableQueueItem(ctx context.Context, processingKey string, raw string) error {
 	removed, err := s.client.LRem(ctx, processingKey, 1, raw).Result()
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
+		return fmt.Errorf("queue delivery is not in processing list")
+	}
+	return nil
+}
+
+const employeeApplyAckScript = `
+local removed = redis.call("LREM", KEYS[1], 1, ARGV[1])
+if removed > 0 and ARGV[2] ~= "" then
+  redis.call("DEL", ARGV[2])
+end
+return removed
+`
+
+func (s *RedisStore) ackEmployeeApplyQueueItem(ctx context.Context, processingKey string, raw string) error {
+	idempotencyKey := ""
+	if envelope, ok := decodeReliableQueueEnvelope(raw); ok {
+		idempotencyKey = envelope.IdempotencyKey
+	}
+	removed, err := s.client.Eval(ctx, employeeApplyAckScript, []string{processingKey}, raw, idempotencyKey).Int()
 	if err != nil {
 		return err
 	}

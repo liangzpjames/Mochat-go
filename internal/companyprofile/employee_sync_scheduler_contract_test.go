@@ -64,3 +64,22 @@ func TestServiceEmployeeSyncRecordsSafeFailureWhenQueueUnavailable(t *testing.T)
 		t.Fatalf("queue error leaked provider material: %v", err)
 	}
 }
+
+func TestServiceKeepsQueuedWhenMarkerFailureRacesWithCompletedWorker(t *testing.T) {
+	store := &companyProfileContractStore{
+		verificationSnapshot: VerificationSnapshot{
+			Verified: true, WXCorpID: "ww-authoritative", BindingVersion: 1,
+		},
+		queueErr: errors.New("marker write failed"),
+	}
+	scheduler := &companyProfileTestScheduler{cursor: "company-sync"}
+	service := NewService(store, &companyProfileTestVerifier{}).WithEmployeeSyncScheduler(scheduler)
+
+	result, err := service.StartEmployeeSync(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive))
+	if err != nil || result.Status != "queued" || result.Cursor != "company-sync" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if store.failureCalls != 0 || store.syncState != "completed" {
+		t.Fatalf("marker failure overwrote worker state: failureCalls=%d syncState=%q", store.failureCalls, store.syncState)
+	}
+}

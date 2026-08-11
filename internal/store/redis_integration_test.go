@@ -66,11 +66,45 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	if delivery.Event.BindingID != 7 || delivery.Event.Source != "queue-idempotency-integration" {
 		t.Fatalf("delivery = %+v", delivery)
 	}
+	if err := store.EnqueueEmployeeApply(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if length, err := store.client.LLen(ctx, descriptor.SourceKey).Result(); err != nil || length != 0 {
+		t.Fatalf("duplicate while processing source queue length = %d err=%v", length, err)
+	}
+	if length, err := store.client.LLen(ctx, descriptor.ProcessingKey).Result(); err != nil || length != 1 {
+		t.Fatalf("processing queue length after duplicate = %d err=%v", length, err)
+	}
 	if err := store.AckEmployeeApply(ctx, delivery); err != nil {
 		t.Fatal(err)
 	}
 	if length, err := store.client.LLen(ctx, descriptor.ProcessingKey).Result(); err != nil || length != 0 {
 		t.Fatalf("processing queue length = %d err=%v", length, err)
+	}
+	if exists, err := store.client.Exists(ctx, idempotencyKey).Result(); err != nil || exists != 0 {
+		t.Fatalf("idempotency key still exists after ack: exists=%d err=%v", exists, err)
+	}
+	if err := store.EnqueueEmployeeApply(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if length, err := store.client.LLen(ctx, descriptor.SourceKey).Result(); err != nil || length != 1 {
+		t.Fatalf("source queue length after ack and re-enqueue = %d err=%v", length, err)
+	}
+	secondDelivery, ok, err := store.DequeueEmployeeApply(ctx, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || secondDelivery.Event != delivery.Event {
+		t.Fatalf("second delivery = %+v ok=%v", secondDelivery, ok)
+	}
+	if err := store.AckEmployeeApply(ctx, secondDelivery); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, descriptor.ProcessingKey, "legacy-employee-raw").Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AckEmployeeApply(ctx, dashboard.EmployeeApplyDelivery{Raw: "legacy-employee-raw"}); err != nil {
+		t.Fatal(err)
 	}
 
 	weworkDescriptor := dashboard.WeWorkCallbackQueueDescriptor()
