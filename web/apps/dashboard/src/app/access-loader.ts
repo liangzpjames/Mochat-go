@@ -2,13 +2,12 @@ import { ApiError } from '@mochat/api-client';
 import type { Session } from '@mochat/auth';
 import { redirect } from 'react-router';
 
-import type { CorpOption } from '../features/corp/corp-api';
-import type { AccessProfile } from '../features/access/access-api';
+import type { AccessProfile, DashboardCompanyContext } from '../features/access/access-api';
 import type { MenuNode } from '../features/navigation/menu-tree';
 
 export type AccessContext = {
   session: Session;
-  corp: CorpOption;
+  corp: DashboardCompanyContext;
   /** Full server profile; optional only for legacy unit-test fixtures. */
   profile?: AccessProfile;
   /** @deprecated navigation no longer derives authorization from legacy menus. */
@@ -57,7 +56,7 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
 
     try {
       const profile = await deps.loadProfile();
-      const corp: CorpOption = {
+      const corp: DashboardCompanyContext = {
         id: String(profile.corpId),
         name: `企业 ${profile.corpId}`,
         authorized: profile.corpId > 0,
@@ -89,6 +88,9 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
         if (error.machineCode === 'TENANT_ACCESS_DENIED') {
           deps.clearSession();
           throwRouterResponse(redirect('/login'));
+        }
+        if (error.machineCode === 'CORP_CONFIGURATION_REQUIRED') {
+          throwRouterResponse(redirect('/company-setting/website'));
         }
         throwRouterResponse(new Response(null, { status: 403 }));
       }

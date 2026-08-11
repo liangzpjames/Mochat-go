@@ -153,7 +153,7 @@ function moduleKey(file) {
   return file.replace(/\\/g, '/').replace(/\.(?:ts|tsx)$/, '').replace(/\/index$/, '');
 }
 
-async function productionDashboardSourceFiles() {
+export async function productionDashboardSourceFiles() {
   const allFiles = await sourceFiles('web/apps/dashboard/src', ['.ts', '.tsx']);
   const byModule = new Map();
   for (const file of allFiles) {
@@ -168,8 +168,7 @@ async function productionDashboardSourceFiles() {
     'web/apps/dashboard/src/app/access-loader',
     'web/apps/dashboard/src/features/auth/auth-api',
     'web/apps/dashboard/src/features/auth/session-actions',
-    'web/apps/dashboard/src/features/corp/corp-api',
-    'web/apps/dashboard/src/features/corp/corp-provider',
+    'web/apps/dashboard/src/features/company-settings/company-profile-api',
     'web/apps/dashboard/src/features/navigation/menu-api',
   ]) {
     const target = byModule.get(moduleKey(path.normalize(shellModule)));
@@ -547,7 +546,10 @@ export function validateDashboardPageRBACCatalog({
     }
   }
   for (const usage of apiUsages) {
-    if (!mapped.has(usage) && !exempt.has(usage)) {
+    // A deny-only endpoint may be consumed by an explicitly protected page;
+    // it remains outside the page permission mapping and is still rejected by
+    // the runtime superadmin/tenant guard.
+    if (!mapped.has(usage) && !exempt.has(usage) && !denied.has(usage)) {
       throw new Error(`unmapped dashboard api usage: ${usage}`);
     }
   }

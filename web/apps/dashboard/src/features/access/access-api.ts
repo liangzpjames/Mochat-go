@@ -4,6 +4,15 @@ type ApiClient = {
   request(input: RequestInfo | URL, init?: RequestInit): Promise<unknown>;
 };
 
+/** Read-only server binding context kept for existing page data scopes. It is
+ * never persisted in Session/localStorage and is not accepted by company
+ * profile mutation payloads. */
+export type DashboardCompanyContext = {
+  id: string;
+  name: string;
+  authorized: boolean;
+};
+
 export type PermissionSource = {
   type: string;
   id: number;

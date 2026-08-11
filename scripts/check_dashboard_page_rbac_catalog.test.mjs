@@ -5,6 +5,7 @@ import {
   extractBackendRegisteredAPIs,
   extractFrontendAPIUsages,
   extractMigrationPermissionResourceMappings,
+  productionDashboardSourceFiles,
   validateDashboardPageRBACCatalog,
 } from './check_dashboard_page_rbac_catalog.mjs';
 
@@ -217,16 +218,20 @@ test('a newly registered backend route fails the gate and reports its source lin
   );
 });
 
-test('deny-only routes are classified without granting a page permission', () => {
+test('deny-only routes can be consumed by an explicitly protected page without granting a page permission', () => {
   const input = fixture();
   input.registeredAPIs.push('DELETE /dashboard/acceptance/phase35');
   input.denyOnly = ['DELETE /dashboard/acceptance/phase35'];
   assert.doesNotThrow(() => validateDashboardPageRBACCatalog(input));
 
   input.apiUsages.push('DELETE /dashboard/acceptance/phase35');
+  assert.doesNotThrow(() => validateDashboardPageRBACCatalog(input));
+
+  input.apiUsages.push('POST /dashboard/acceptance/phase35');
+  input.registeredAPIs.push('POST /dashboard/acceptance/phase35');
   assert.throws(
     () => validateDashboardPageRBACCatalog(input),
-    /unmapped dashboard api usage: DELETE \/dashboard\/acceptance\/phase35/,
+    /unmapped dashboard api usage: POST \/dashboard\/acceptance\/phase35/,
   );
 });
 
@@ -276,6 +281,14 @@ const ReportsPath = "/dashboard/reports/{kind}"`,
     file: 'cmd/mochat-go/scrm.go',
     line: 4,
   }]);
+});
+
+test('production shell follows the single-company profile API instead of the removed corp selector', async () => {
+  const files = await productionDashboardSourceFiles();
+  const normalized = files.map((file) => file.replaceAll('\\', '/'));
+  assert.ok(normalized.some((file) => file.endsWith('/features/company-settings/company-profile-api.ts')));
+  assert.ok(!normalized.some((file) => file.includes('/features/corp/corp-api')));
+  assert.ok(!normalized.some((file) => file.includes('/features/corp/corp-provider')));
 });
 
 test('migration resource seed is independently parsed and must match the catalog', () => {

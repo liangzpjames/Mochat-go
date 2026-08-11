@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ApiError } from '@mochat/api-client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CompanyRolePage } from './role-page';
 import { CompanyStaffPage } from './staff-page';
@@ -8,12 +9,11 @@ import { CompanyAdditionalPage } from './additional-page';
 import { CompanyAuthorizationPage } from './authorization-page';
 import { createRoleApi } from '../role/role-api';
 import { createUserAdminApi } from '../user-admin/user-admin-api';
-import { createCorpAdminApi } from '../corp/corp-admin-api';
 import { createMenuAdminApi } from '../menu-admin/menu-admin-api';
+import type { CompanyProfile, CompanyProfileApi } from './company-profile-api';
 
 type RoleApi = ReturnType<typeof createRoleApi>;
 type UserAdminApi = ReturnType<typeof createUserAdminApi>;
-type CorpAdminApi = ReturnType<typeof createCorpAdminApi>;
 type MenuAdminApi = ReturnType<typeof createMenuAdminApi>;
 
 afterEach(cleanup);
@@ -22,6 +22,37 @@ beforeAll(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {
 function renderPage(node: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
+}
+
+const companyProfile: CompanyProfile = {
+  tenantId: 7,
+  corpId: 11,
+  displayName: '演示企业',
+  authoritativeCorpName: '权威企业名称',
+  wxCorpId: 'wx-corp-11',
+  bindingStatus: 'verified',
+  bindingVersion: 4,
+  credentials: {
+    wecom: { configured: true },
+    agent: { configured: false },
+    archive: { configured: false },
+  },
+  updatedAt: '2026-08-12T00:00:00Z',
+};
+
+function companyApi(overrides: Partial<CompanyProfileApi> = {}): CompanyProfileApi {
+  return {
+    getProfile: vi.fn().mockResolvedValue(companyProfile),
+    updateProfile: vi.fn().mockResolvedValue(companyProfile),
+    rotateWeComCredentials: vi.fn().mockResolvedValue(companyProfile),
+    rotateAgentCredentials: vi.fn().mockResolvedValue(companyProfile),
+    rotateArchiveCredentials: vi.fn().mockResolvedValue(companyProfile),
+    verify: vi.fn().mockResolvedValue(companyProfile),
+    startEmployeeSync: vi.fn().mockResolvedValue({ status: 'queued', departmentsCreated: 0, departmentsUpdated: 0, employeesCreated: 0, employeesUpdated: 0 }),
+    getSyncStatus: vi.fn().mockResolvedValue({ status: 'completed', departments: 3, employees: 8 }),
+    listAudits: vi.fn().mockResolvedValue({ items: [], page: 1, perPage: 20, total: 0 }),
+    ...overrides,
+  };
 }
 
 describe('企业设置页面', () => {
@@ -89,68 +120,128 @@ describe('企业设置页面', () => {
     expect(phoneFilter).toHaveProperty('value', '138');
   });
 
-  it('企业信息：加载并渲染行', async () => {
-    const api = {
-      list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),
-      show: vi.fn(), create: vi.fn(), update: vi.fn(),
-    } as unknown as CorpAdminApi;
+  it('企业信息：只展示唯一企业资料、绑定状态和脱敏凭据状态', async () => {
+    const api = companyApi();
     renderPage(<CompanyWebsitePage api={api} />);
-    expect(await screen.findByText('演示企业')).toBeTruthy();
+
+    expect(await screen.findByText('权威企业名称')).toBeTruthy();
+    expect(screen.getAllByText('已验证').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('已配置（加密保存）')).toBeTruthy();
+    expect(screen.getAllByText('未配置').length).toBe(2);
+    expect(screen.queryByRole('button', { name: '新建企业' })).toBeNull();
+    expect(screen.queryByText('企业列表')).toBeNull();
+    expect(screen.queryByText('分页')).toBeNull();
+    expect(screen.queryByText('employee-plaintext')).toBeNull();
+    expect(screen.queryByText('ciphertext')).toBeNull();
   });
 
-  it('企业信息：新建弹框使用紧凑双列表单', async () => {
-    const api = {
-      list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),
-      show: vi.fn(), create: vi.fn(), update: vi.fn(),
-    } as unknown as CorpAdminApi;
-    renderPage(<CompanyWebsitePage api={api} />);
+  it('企业信息：待配置和暂停状态均 fail closed，不提供错误的同步或验证入口', async () => {
+    const pendingApi = companyApi({ getProfile: vi.fn().mockResolvedValue({ ...companyProfile, bindingStatus: 'pending', wxCorpId: undefined, authoritativeCorpName: undefined }) });
+    renderPage(<CompanyWebsitePage api={pendingApi} />);
+    expect((await screen.findAllByText('待配置')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: '验证企业微信' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: '开始员工同步' })).toHaveProperty('disabled', true);
+    cleanup();
 
-    fireEvent.click(await screen.findByRole('button', { name: '新建企业' }));
-    const dialog = await screen.findByRole('dialog', { name: '新建企业' });
-    expect(dialog.querySelector('form.company-website-form')).not.toBeNull();
+    const suspendedApi = companyApi({ getProfile: vi.fn().mockResolvedValue({ ...companyProfile, bindingStatus: 'suspended' }) });
+    renderPage(<CompanyWebsitePage api={suspendedApi} />);
+    expect((await screen.findAllByText('已暂停')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: '验证企业微信' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: '开始员工同步' })).toHaveProperty('disabled', true);
   });
 
-  it('企业信息：新建字段不接收登录凭据自动填充', async () => {
-    const api = {
-      list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),
-      show: vi.fn(), create: vi.fn(), update: vi.fn(),
-    } as unknown as CorpAdminApi;
-    renderPage(<CompanyWebsitePage api={api} />);
+  it('企业信息：普通用户稳定显示403且不加载企业数据', async () => {
+    const getProfile = vi.fn();
+    const api = companyApi({ getProfile });
+    renderPage(<CompanyWebsitePage api={api} isSuperAdmin={false} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '新建企业' }));
-    const dialog = await screen.findByRole('dialog', { name: '新建企业' });
-    expect(within(dialog).getByLabelText('企业名称').getAttribute('autocomplete')).toBe('organization');
-    expect(within(dialog).getByLabelText('企业微信 CorpId').getAttribute('autocomplete')).toBe('off');
-    expect(within(dialog).getByLabelText('员工密钥').getAttribute('autocomplete')).toBe('new-password');
-    expect(within(dialog).getByLabelText('客户密钥').getAttribute('autocomplete')).toBe('new-password');
+    expect(await screen.findByText('暂无权限查看企业资料')).toBeTruthy();
+    expect(getProfile).not.toHaveBeenCalled();
   });
 
-  it('企业信息：分页信息和右侧按钮组分开排布', async () => {
-    const api = {
-      list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),
-      show: vi.fn(), create: vi.fn(), update: vi.fn(),
-    } as unknown as CorpAdminApi;
+  it('企业信息：加载失败可重试并显示空绑定状态', async () => {
+    const getProfile = vi.fn()
+      .mockRejectedValueOnce(new ApiError('server', 'internal', { status: 500, machineCode: 'INTERNAL_ERROR' }))
+      .mockResolvedValue(companyProfile);
+    const api = companyApi({ getProfile });
     renderPage(<CompanyWebsitePage api={api} />);
 
-    const pagination = await screen.findByRole('navigation', { name: '企业分页' });
-    const actions = pagination.querySelector('.company-website-pagination-actions');
-    expect(actions).not.toBeNull();
-    expect(actions?.querySelectorAll('button')).toHaveLength(2);
+    expect(await screen.findByText('服务暂时不可用，请稍后重试。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
+    expect(await screen.findByText('权威企业名称')).toBeTruthy();
+    expect(getProfile).toHaveBeenCalledTimes(2);
   });
 
-  it('企业信息：编辑时不回填明文密钥', async () => {
-    const api = {
-      list: vi.fn().mockResolvedValue({ list: [{ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', createdAt: '2026-08-07T00:00:00Z' }], page: { perPage: 20, total: 1, totalPage: 1 } }),
-      show: vi.fn().mockResolvedValue({ corpId: 1, corpName: '演示企业', wxCorpId: 'wx-1', employeeSecret: 'employee-plaintext', contactSecret: 'contact-plaintext', eventCallback: '', token: '', encodingAesKey: '' }),
-      create: vi.fn(), update: vi.fn(),
-    } as unknown as CorpAdminApi;
+  it('企业信息：变更摘要确认前不写入，409保留输入并提示刷新', async () => {
+    const updateProfile = vi.fn().mockRejectedValue(new ApiError('validation', 'conflict', { status: 409, code: 409, machineCode: 'VERSION_CONFLICT' }));
+    const api = companyApi({ updateProfile });
     renderPage(<CompanyWebsitePage api={api} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
-    const employeeSecret = await screen.findByLabelText('员工密钥');
-    expect(employeeSecret).toHaveProperty('value', '');
-    expect(employeeSecret.getAttribute('type')).toBe('password');
-    expect(screen.getByText('留空表示不修改')).toBeTruthy();
+    const displayInput = await screen.findByLabelText('展示名称');
+    fireEvent.change(displayInput, { target: { value: '新展示名' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存企业资料' }));
+    expect(updateProfile).not.toHaveBeenCalled();
+    expect(await screen.findByText(/变更摘要：展示名称改为/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => expect(updateProfile).toHaveBeenCalledWith(expect.objectContaining({ displayName: '新展示名', expectedVersion: 4 })));
+    expect(updateProfile.mock.calls[0]?.[0]).not.toHaveProperty('tenantId');
+    expect(updateProfile.mock.calls[0]?.[0]).not.toHaveProperty('corpId');
+    expect(await screen.findByText('资料已被其他操作更新，请刷新后重试；当前填写内容已保留。')).toBeTruthy();
+    expect(displayInput).toHaveProperty('value', '新展示名');
+  });
+
+  it('企业信息：Secret留空不修改，凭据写入也必须确认且成功后清空', async () => {
+    const rotate = vi.fn().mockResolvedValue(companyProfile);
+    const api = companyApi({ rotateWeComCredentials: rotate });
+    renderPage(<CompanyWebsitePage api={api} />);
+
+    const employeeInput = await screen.findByLabelText('员工密钥');
+    fireEvent.change(employeeInput, { target: { value: 'new-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存企业微信凭据' }));
+    expect(rotate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => expect(rotate).toHaveBeenCalledWith(expect.objectContaining({ employeeSecret: 'new-secret', expectedVersion: 4 })));
+    expect(rotate.mock.calls[0]?.[0]).not.toHaveProperty('tenantId');
+    expect(rotate.mock.calls[0]?.[0]).not.toHaveProperty('corpId');
+    await waitFor(() => expect(employeeInput).toHaveProperty('value', ''));
+  });
+
+  it('将会话存档 Secret 只提交到会话存档接口，不与企业微信凭据重复展示', async () => {
+    const rotateArchive = vi.fn().mockResolvedValue(companyProfile);
+    const api = companyApi({ rotateArchiveCredentials: rotateArchive });
+    renderPage(<CompanyWebsitePage api={api} />);
+
+    const archiveInputs = await screen.findAllByLabelText('会话存档 Secret');
+    expect(archiveInputs).toHaveLength(1);
+    const archiveInput = archiveInputs[0];
+    if (archiveInput === undefined) throw new Error('archive secret input is missing');
+    fireEvent.change(archiveInput, { target: { value: 'archive-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存会话存档' }));
+    expect(rotateArchive).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => expect(rotateArchive).toHaveBeenCalledWith(expect.objectContaining({ chatSecret: 'archive-secret', expectedVersion: 4 })));
+  });
+
+  it('企业信息：同步状态明确且同步触发需确认，390px仍为单列可达控件', async () => {
+    const startEmployeeSync = vi.fn().mockResolvedValue({ status: 'queued', departmentsCreated: 0, departmentsUpdated: 0, employeesCreated: 0, employeesUpdated: 0 });
+    const api = companyApi({ startEmployeeSync, getSyncStatus: vi.fn().mockResolvedValue({ status: 'syncing', departments: 2, employees: 5 }) });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    renderPage(<CompanyWebsitePage api={api} />);
+
+    expect(await screen.findByText('同步中')).toBeTruthy();
+    const syncButton = screen.getByRole('button', { name: '开始员工同步' });
+    expect(syncButton).toHaveProperty('disabled', true);
+    expect(document.querySelector('.company-profile-form-grid')).not.toBeNull();
+    expect(document.querySelector('table')).toBeNull();
+  });
+
+  it('企业信息：同步失败状态展示脱敏错误码并保留重试入口', async () => {
+    const api = companyApi({ getSyncStatus: vi.fn().mockResolvedValue({ status: 'failed', departments: 2, employees: 5, errorCode: 'SYNC_FAILED' }) });
+    renderPage(<CompanyWebsitePage api={api} />);
+
+    expect(await screen.findByText('同步失败')).toBeTruthy();
+    expect(screen.getByText('错误：SYNC_FAILED')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '刷新同步状态' })).toBeTruthy();
   });
 
   it('附加权限：状态切换和删除都需确认', async () => {

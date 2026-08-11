@@ -52,6 +52,15 @@ describe('createAccessLoader', () => {
     expect(pageError).toMatchObject({ status: 403 });
   });
 
+  it('keeps the session and redirects CORP_CONFIGURATION_REQUIRED to the company settings page', async () => {
+    const clearSession = vi.fn();
+    await expectRedirect(createAccessLoader(deps({
+      clearSession,
+      loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'configuration required', { status: 403, code: 403, machineCode: 'CORP_CONFIGURATION_REQUIRED' }))),
+    }))({ request: new Request('https://app.test/chat/v2-all') }), '/company-setting/website');
+    expect(clearSession).not.toHaveBeenCalled();
+  });
+
   it('uses the server profile binding without returning an enterprise selection state', async () => {
     await expect(createAccessLoader(deps())({ request: new Request('https://app.test/chat/v2-all') })).resolves.toMatchObject({
       session,

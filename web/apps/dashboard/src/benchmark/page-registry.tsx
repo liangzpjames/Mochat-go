@@ -61,7 +61,7 @@ import { CompanyAdditionalPage } from '../features/company-settings/additional-p
 import { CompanyAuthorizationPage } from '../features/company-settings/authorization-page';
 import type { FileAudioApi } from '../features/phase35/file-audio-api';
 import { FileAudioPage } from '../features/phase35/file-audio-page';
-import { createCorpAdminApi } from '../features/corp/corp-admin-api';
+import type { CompanyProfileApi } from '../features/company-settings/company-profile-api';
 import { createUserAdminApi } from '../features/user-admin/user-admin-api';
 import { createRoleApi } from '../features/role/role-api';
 import { createMenuAdminApi } from '../features/menu-admin/menu-admin-api';
@@ -69,7 +69,6 @@ import { createDashboardAccessAdminApi } from '../features/access/access-admin-a
 
 export type PageRegistry = Readonly<Record<string, ReactNode>>;
 
-type CorpAdminApi = ReturnType<typeof createCorpAdminApi>;
 type UserAdminApi = ReturnType<typeof createUserAdminApi>;
 type RoleApi = ReturnType<typeof createRoleApi>;
 type MenuAdminApi = ReturnType<typeof createMenuAdminApi>;
@@ -86,7 +85,9 @@ export function createBenchmarkP0Pages({
   aiSettingsApi,
   aiInsightApi,
   fileAudioApi,
-  corpAdminApi,
+  companyProfileApi,
+  onTenantAccessDenied,
+  onNavigate,
   userAdminApi,
   roleApi,
   menuAdminApi,
@@ -101,7 +102,9 @@ export function createBenchmarkP0Pages({
   aiSettingsApi?: AISettingsApi;
   aiInsightApi?: AiInsightApi;
   fileAudioApi?: FileAudioApi;
-  corpAdminApi?: CorpAdminApi;
+  companyProfileApi?: CompanyProfileApi;
+  onTenantAccessDenied?: () => void;
+  onNavigate?: (path: string) => void;
   userAdminApi?: UserAdminApi | DashboardAccessAdminApi;
   roleApi?: RoleApi | DashboardAccessAdminApi;
   menuAdminApi?: MenuAdminApi | DashboardAccessAdminApi;
@@ -177,7 +180,13 @@ export function createBenchmarkP0Pages({
       '/ai-insight/employee-score': <AiInsightPage api={aiInsightApi} page="employee-score" />,
       '/ai-insight/communication-keyword': <AiInsightPage api={aiInsightApi} page="communication-keyword" />,
     }),
-    ...(corpAdminApi === undefined ? {} : { '/company-setting/website': <CompanyWebsitePage api={corpAdminApi} /> }),
+    ...(companyProfileApi === undefined ? {} : {
+      '/company-setting/website': <CompanyWebsitePage
+        api={companyProfileApi}
+        {...(onTenantAccessDenied === undefined ? {} : { onTenantAccessDenied })}
+        {...(onNavigate === undefined ? {} : { onNavigate })}
+      />,
+    }),
     ...(userAdminApi === undefined ? {} : { '/company-setting/staff': <CompanyStaffPage api={userAdminApi} /> }),
     ...(roleApi === undefined ? {} : { '/setting/role': <CompanyRolePage api={roleApi} /> }),
     ...(menuAdminApi === undefined ? {} : {

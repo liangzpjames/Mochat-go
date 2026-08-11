@@ -21,7 +21,6 @@ import {
   createLogoutAction,
   DashboardSessionActionsProvider,
 } from './features/auth/session-actions';
-import { createCorpAdminApi } from './features/corp/corp-admin-api';
 import { loadAccessProfile } from './features/access/access-api';
 import { createDashboardAccessAdminApi } from './features/access/access-admin-api';
 import { createPasswordApi } from './features/password/password-api';
@@ -44,9 +43,9 @@ import { createContactApi } from './features/scrm/contact-api';
 import { createAISettingsApi } from './features/ai-settings/ai-settings-api';
 import { createAiInsightApi } from './features/ai-insight/ai-insight-api';
 import { createFileAudioApi } from './features/phase35/file-audio-api';
+import { createCompanyProfileApi } from './features/company-settings/company-profile-api';
 import './styles/index.css';
 
-const CorpPage = lazy(async () => ({ default: (await import('./features/corp/corp-page')).CorpPage }));
 const PasswordPage = lazy(async () => ({ default: (await import('./features/password/password-page')).PasswordPage }));
 const EmployeePage = lazy(async () => ({ default: (await import('./features/employee/employee-page')).EmployeePage }));
 const DepartmentPage = lazy(async () => ({ default: (await import('./features/department/department-page')).DepartmentPage }));
@@ -79,7 +78,7 @@ const loginClient = createApiClient({
   onUnauthorized: () => undefined,
 });
 const queryClient = createDashboardQueryClient();
-const corpAdminApi = createCorpAdminApi(apiClient);
+const companyProfileApi = createCompanyProfileApi(apiClient);
 const passwordApi = createPasswordApi(apiClient);
 const employeeApi = createEmployeeApi(apiClient);
 const departmentApi = createDepartmentApi(apiClient);
@@ -141,10 +140,29 @@ const router = createDashboardRouter({
     ...migratedPages,
     ...createPageRegistry({
       manifest: benchmarkManifest,
-      p0Pages: createBenchmarkP0Pages({ dashboardOverviewApi, conversationGlobalApi, sensitiveWordApi, leadApi, scrmApi, contactApi, businessWorkbenchApi, aiSettingsApi, aiInsightApi, fileAudioApi, corpAdminApi, userAdminApi: dashboardAccessAdminApi, roleApi: dashboardAccessAdminApi, menuAdminApi: dashboardAccessAdminApi }),
+      p0Pages: createBenchmarkP0Pages({
+        dashboardOverviewApi,
+        conversationGlobalApi,
+        sensitiveWordApi,
+        leadApi,
+        scrmApi,
+        contactApi,
+        businessWorkbenchApi,
+        aiSettingsApi,
+        aiInsightApi,
+        fileAudioApi,
+        companyProfileApi,
+        onTenantAccessDenied: () => {
+          authStore.clearSession();
+          void routerRef.current?.navigate('/login');
+        },
+        onNavigate: (path) => void routerRef.current?.navigate(path),
+        userAdminApi: dashboardAccessAdminApi,
+        roleApi: dashboardAccessAdminApi,
+        menuAdminApi: dashboardAccessAdminApi,
+      }),
       p1Pages: {},
     }),
-    '/corp/index': page(<CorpPage api={corpAdminApi} />),
     '/passwordUpdate/index': (
       page(<PasswordPage
         api={passwordApi}
