@@ -27,7 +27,7 @@ func TestCreateLeadReturnsCreatedAndUsesPrincipalTenant(t *testing.T) {
 			Version: 1, CreatedAt: now, UpdatedAt: now,
 		},
 	}}
-	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(nethttp.MethodPost, LeadsPath, strings.NewReader(
@@ -61,7 +61,7 @@ func TestCreateLeadReturnsOKWithSameObjectForIdempotentRetry(t *testing.T) {
 			Source: domain.LeadSourceImport, Status: domain.LeadStatusNew, Version: 1,
 		},
 	}}
-	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 
 	response := httptest.NewRecorder()
 	handler.Create(response, httptest.NewRequest(nethttp.MethodPost, LeadsPath, strings.NewReader(
@@ -96,7 +96,7 @@ func TestCreateLeadRejectsClientTenantAndStrictJSONViolations(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := &fakeLeadService{}
-			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 			response := httptest.NewRecorder()
 
 			handler.Create(response, httptest.NewRequest(nethttp.MethodPost, LeadsPath, strings.NewReader(tc.body)))
@@ -183,7 +183,7 @@ func TestCreateLeadMapsValidationAndUnavailableErrors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := &fakeLeadService{createErr: tc.err}
-			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 			response := httptest.NewRecorder()
 			handler.Create(response, httptest.NewRequest(nethttp.MethodPost, LeadsPath, strings.NewReader(
 				`{"businessKey":"key","name":"Ada","source":"manual"}`,
@@ -205,7 +205,7 @@ func TestListLeadsUsesPrincipalTenantAndReturnsOnlyServiceResults(t *testing.T) 
 		Items:      []domain.Lead{included},
 		NextCursor: "next-41",
 	}}
-	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 	response := httptest.NewRecorder()
 	cursor := base64.RawURLEncoding.EncodeToString([]byte(`{"created_at":"2026-07-30T00:00:00Z","id":"previous"}`))
 
@@ -242,7 +242,7 @@ func TestListLeadsRejectsMalformedCursorAndPageSize(t *testing.T) {
 	} {
 		t.Run(rawQuery, func(t *testing.T) {
 			service := &fakeLeadService{}
-			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 			response := httptest.NewRecorder()
 			handler.List(response, httptest.NewRequest(nethttp.MethodGet, LeadsPath+"?"+rawQuery, nil))
 
@@ -264,7 +264,7 @@ func TestListLeadsRejectsMalformedRawQueryBeforeCallingService(t *testing.T) {
 	} {
 		t.Run(rawQuery, func(t *testing.T) {
 			service := &fakeLeadService{}
-			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+			handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 			request := httptest.NewRequest(nethttp.MethodGet, LeadsPath, nil)
 			request.URL.RawQuery = rawQuery
 			response := httptest.NewRecorder()
@@ -283,7 +283,7 @@ func TestListLeadsRejectsMalformedRawQueryBeforeCallingService(t *testing.T) {
 
 func TestListLeadsMapsRepositoryUnavailable(t *testing.T) {
 	service := &fakeLeadService{listErr: application.ErrUnavailable}
-	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 	response := httptest.NewRecorder()
 
 	handler.List(response, httptest.NewRequest(nethttp.MethodGet, LeadsPath, nil))
@@ -295,7 +295,7 @@ func TestListLeadsMapsRepositoryUnavailable(t *testing.T) {
 
 func TestListLeadsMapsMalformedRepositoryCursorToBadRequest(t *testing.T) {
 	service := &fakeLeadService{listErr: application.ErrInvalidArgument}
-	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 	response := httptest.NewRecorder()
 
 	handler.List(response, httptest.NewRequest(nethttp.MethodGet, LeadsPath+"?cursor=bogus", nil))
@@ -307,7 +307,7 @@ func TestListLeadsMapsMalformedRepositoryCursorToBadRequest(t *testing.T) {
 
 func TestRegisterRoutesRegistersOnlyPostAndGetForLeads(t *testing.T) {
 	router := &recordingRegistrar{}
-	handler := NewLeadHandler(&fakeLeadService{}, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}})
+	handler := NewLeadHandler(&fakeLeadService{}, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 41}})
 	if err := RegisterRoutes(router, handler); err != nil {
 		t.Fatal(err)
 	}

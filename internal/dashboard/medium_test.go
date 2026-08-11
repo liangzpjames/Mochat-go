@@ -24,7 +24,7 @@ func TestMediumIndexReturnsPagedItems(t *testing.T) {
 	}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/medium/index?mediumGroupId=11&type=2&searchStr=image", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/medium/index?mediumGroupId=11&type=2&searchStr=image", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -48,7 +48,7 @@ func TestMediumIndexAppliesPersonalScopeFromSession(t *testing.T) {
 	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, page: MediumPage{PerPage: 10}}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/medium/index?scopeType=personal&scopeId=999", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/medium/index?scopeType=personal&scopeId=999", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -65,7 +65,7 @@ func TestMediumIndexAppliesSidebarVisibilityQuery(t *testing.T) {
 	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, page: MediumPage{PerPage: 10}}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/medium/index?scopeType=public&sidebarVisible=1", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/medium/index?scopeType=public&sidebarVisible=1", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -79,7 +79,7 @@ func TestMediumStoreCreatesScopedTextMedium(t *testing.T) {
 	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, createID: 32}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/medium/store", strings.NewReader(`{"type":1,"mediumGroupId":0,"scopeType":"personal","scopeId":999,"sidebarVisible":true,"content":{"title":"问候","content":"你好"}}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/medium/store", strings.NewReader(`{"type":1,"mediumGroupId":0,"scopeType":"personal","scopeId":999,"sidebarVisible":true,"content":{"title":"问候","content":"你好"}}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
@@ -96,7 +96,7 @@ func TestMediumStoreCreatesTextMedium(t *testing.T) {
 	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, createID: 31}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/medium/store", strings.NewReader(`{"type":1,"mediumGroupId":11,"content":{"title":"问候","content":"你好"}}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/medium/store", strings.NewReader(`{"type":1,"mediumGroupId":11,"content":{"title":"问候","content":"你好"}}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
@@ -117,7 +117,7 @@ func TestMediumGroupUpdateMovesMedium(t *testing.T) {
 	store := &fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/medium/groupUpdate", strings.NewReader(`{"id":21,"mediumGroupId":0}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/medium/groupUpdate", strings.NewReader(`{"id":21,"mediumGroupId":0}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupUpdate(rec, req)
@@ -139,7 +139,7 @@ func TestSidebarMediumIndexFiltersUngrouped(t *testing.T) {
 	handler := NewMediumHandler(store, nil, HeaderUserIDResolver{}, nil, "http://api.example.com").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/medium/index?mediumGroupId=0", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/medium/index?mediumGroupId=0", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarIndex(rec, req)
@@ -173,7 +173,7 @@ func TestSidebarMediumMediaIDUpdateUploadsExpiredMedium(t *testing.T) {
 	handler := NewMediumHandlerWithMediaClient(store, nil, HeaderUserIDResolver{}, nil, "http://api.example.com", root, client).
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/medium/mediaIdUpdate?mediumId=21", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/medium/mediaIdUpdate?mediumId=21", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.MediaIDUpdate(rec, req)
@@ -205,7 +205,7 @@ func TestSidebarMediumMediaIDUpdateKeepsFreshMedium(t *testing.T) {
 	handler := NewMediumHandlerWithMediaClient(store, nil, HeaderUserIDResolver{}, nil, "http://api.example.com", t.TempDir(), client).
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/medium/mediaIdUpdate?mediumId=21", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/medium/mediaIdUpdate?mediumId=21", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.MediaIDUpdate(rec, req)

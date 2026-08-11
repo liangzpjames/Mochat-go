@@ -85,11 +85,11 @@ func (h *CustomerTagHandler) CreateGroup(w http.ResponseWriter, r *http.Request)
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, _, ok := h.readScope(w, r, body.CorpID, tagPermissionAdd)
+	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionAdd)
 	if !ok {
 		return
 	}
-	item, err := h.service.CreateGroup(r.Context(), ports.CreateTagGroupCommand{TenantID: p.TenantID, CorpID: body.CorpID, Name: body.Name, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	item, err := h.service.CreateGroup(r.Context(), ports.CreateTagGroupCommand{TenantID: p.TenantID, CorpID: corpID, Name: body.Name, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -105,11 +105,11 @@ func (h *CustomerTagHandler) RenameGroup(w http.ResponseWriter, r *http.Request)
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, _, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
+	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
 	if !ok {
 		return
 	}
-	item, err := h.service.RenameGroup(r.Context(), ports.RenameTagGroupCommand{TenantID: p.TenantID, CorpID: body.CorpID, GroupID: pathValue(r, "tag-groups", ""), Name: body.Name, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	item, err := h.service.RenameGroup(r.Context(), ports.RenameTagGroupCommand{TenantID: p.TenantID, CorpID: corpID, GroupID: pathValue(r, "tag-groups", ""), Name: body.Name, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -125,11 +125,11 @@ func (h *CustomerTagHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, _, ok := h.readScope(w, r, body.CorpID, tagPermissionAdd)
+	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionAdd)
 	if !ok {
 		return
 	}
-	item, err := h.service.CreateTag(r.Context(), ports.CreateCustomerTagCommand{TenantID: p.TenantID, CorpID: body.CorpID, GroupID: body.GroupID, Name: body.Name, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	item, err := h.service.CreateTag(r.Context(), ports.CreateCustomerTagCommand{TenantID: p.TenantID, CorpID: corpID, GroupID: body.GroupID, Name: body.Name, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -145,11 +145,11 @@ func (h *CustomerTagHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, _, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
+	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
 	if !ok {
 		return
 	}
-	item, err := h.service.RenameTag(r.Context(), ports.RenameCustomerTagCommand{TenantID: p.TenantID, CorpID: body.CorpID, TagID: pathValue(r, "tags", ""), Name: body.Name, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	item, err := h.service.RenameTag(r.Context(), ports.RenameCustomerTagCommand{TenantID: p.TenantID, CorpID: corpID, TagID: pathValue(r, "tags", ""), Name: body.Name, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -165,11 +165,11 @@ func (h *CustomerTagHandler) MoveTag(w http.ResponseWriter, r *http.Request) {
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, _, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
+	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
 	if !ok {
 		return
 	}
-	item, err := h.service.MoveTag(r.Context(), ports.MoveCustomerTagCommand{TenantID: p.TenantID, CorpID: body.CorpID, TagID: pathValue(r, "tags", "move"), GroupID: body.GroupID, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	item, err := h.service.MoveTag(r.Context(), ports.MoveCustomerTagCommand{TenantID: p.TenantID, CorpID: corpID, TagID: pathValue(r, "tags", "move"), GroupID: body.GroupID, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -185,7 +185,7 @@ func (h *CustomerTagHandler) MaintainContacts(w http.ResponseWriter, r *http.Req
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, _, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
+	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
 	if !ok {
 		return
 	}
@@ -196,7 +196,7 @@ func (h *CustomerTagHandler) MaintainContacts(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusForbidden, "contact ownership is outside dashboard scope")
 		return
 	}
-	item, err := h.service.MaintainContacts(r.Context(), ports.MaintainTagContactsCommand{TenantID: p.TenantID, CorpID: body.CorpID, TagID: pathValue(r, "tags", "contacts"), AddContactIDs: body.AddContactIDs, RemoveContactIDs: body.RemoveContactIDs, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	item, err := h.service.MaintainContacts(r.Context(), ports.MaintainTagContactsCommand{TenantID: p.TenantID, CorpID: corpID, TagID: pathValue(r, "tags", "contacts"), AddContactIDs: body.AddContactIDs, RemoveContactIDs: body.RemoveContactIDs, Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -209,11 +209,11 @@ func (h *CustomerTagHandler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, _, ok := h.readScope(w, r, body.CorpID, tagPermissionDelete)
+	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionDelete)
 	if !ok {
 		return
 	}
-	result, err := h.service.DeleteTag(r.Context(), ports.DeleteCustomerTagCommand{TenantID: p.TenantID, CorpID: body.CorpID, TagID: pathValue(r, "tags", ""), Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+	result, err := h.service.DeleteTag(r.Context(), ports.DeleteCustomerTagCommand{TenantID: p.TenantID, CorpID: corpID, TagID: pathValue(r, "tags", ""), Version: body.Version, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		writeSCRMError(w, err)
 		return
@@ -240,12 +240,13 @@ func (h *CustomerTagHandler) readScope(w http.ResponseWriter, r *http.Request, c
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return Principal{}, 0, false
 	}
-	if corpID <= 0 {
-		writeError(w, http.StatusUnprocessableEntity, "corpId is required")
+	resolvedCorpID, err := p.ResolveCorp(corpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
 		return Principal{}, 0, false
 	}
 	if h.authorizer != nil {
-		err := h.authorizer.Authorize(r.Context(), p, corpID, permission)
+		err := h.authorizer.Authorize(r.Context(), p, resolvedCorpID, permission)
 		if errors.Is(err, ErrLeadForbidden) {
 			writeError(w, http.StatusForbidden, "forbidden")
 			return Principal{}, 0, false
@@ -255,7 +256,7 @@ func (h *CustomerTagHandler) readScope(w http.ResponseWriter, r *http.Request, c
 			return Principal{}, 0, false
 		}
 	}
-	return p, corpID, true
+	return p, resolvedCorpID, true
 }
 
 func decodeCustomerTagJSON(w http.ResponseWriter, r *http.Request, destination any) error {

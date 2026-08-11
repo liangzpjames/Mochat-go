@@ -45,7 +45,7 @@ func TestWorkRoomSyncPullsGroupChatsAndStoresWithRBAC(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", authorizer).
 		WithWorkRoomSyncClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoom/syn", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodPut, "/dashboard/workRoom/syn", nil, 1, 1, 7, 88)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomSync(rec, req)
@@ -95,7 +95,7 @@ func TestWorkRoomSyncReturnsSaaSQuotaExceeded(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkRoomSyncClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoom/syn", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoom/syn", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomSync(rec, req)
@@ -109,22 +109,17 @@ func TestWorkRoomSyncReturnsSaaSQuotaExceeded(t *testing.T) {
 	}
 }
 
-func TestWorkRoomSyncRequiresSelectedCorp(t *testing.T) {
+func TestWorkRoomSyncRequiresDashboardPrincipal(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88,8-99"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkRoomSyncClient(&fakeWorkRoomSyncClient{})
 
 	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoom/syn", nil)
-	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomSync(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-	body := decodeBody(t, rec.Body.Bytes())
-	if body["msg"] != "未选择登录企业，不可操作" {
-		t.Fatalf("msg = %#v", body["msg"])
 	}
 }
 
@@ -133,7 +128,7 @@ func TestWorkRoomSyncRequiresCorpCredential(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkRoomSyncClient(&fakeWorkRoomSyncClient{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoom/syn", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoom/syn", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomSync(rec, req)

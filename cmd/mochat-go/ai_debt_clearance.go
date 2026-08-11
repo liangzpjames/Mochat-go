@@ -28,7 +28,7 @@ func registerAIDebtClearanceModules(
 	router *appmodules.Router,
 	cfg config.Config,
 	getMySQLStore func() *store.MySQLStore,
-	buildUserResolver func(string) (dashboard.UserIDResolver, dashboard.LoginCache),
+	principalResolver scrmhttp.PrincipalResolver,
 ) error {
 	if !cfg.EnableAIDebtClearance {
 		return nil
@@ -36,17 +36,12 @@ func registerAIDebtClearanceModules(
 	if router == nil {
 		return errors.New("AI debt clearance route registrar is required")
 	}
-	if getMySQLStore == nil || buildUserResolver == nil {
+	if getMySQLStore == nil || principalResolver == nil {
 		return errors.New("AI debt clearance runtime dependencies are required")
 	}
 	mysqlStore := getMySQLStore()
 	if mysqlStore == nil {
 		return errors.New("AI debt clearance MySQL store is required")
-	}
-	userIDs, _ := buildUserResolver("AI debt clearance")
-	principalResolver, err := appbootstrap.NewSCRMPrincipalResolver(userIDs, mysqlStore)
-	if err != nil {
-		return err
 	}
 	leadAuthorizer, err := appbootstrap.NewSCRMLeadAuthorizer(mysqlStore, dashboard.NewRBACResolver(mysqlStore))
 	if err != nil {
@@ -104,7 +99,7 @@ type aiDebtAuthorizer struct {
 }
 
 func (a aiDebtAuthorizer) Authorize(ctx context.Context, principal aisettingshttp.Principal, corpID int64, permission string) error {
-	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID}, corpID, permission)
+	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID}, corpID, permission)
 }
 
 type aiInsightAuthorizer struct {
@@ -112,7 +107,7 @@ type aiInsightAuthorizer struct {
 }
 
 func (a aiInsightAuthorizer) Authorize(ctx context.Context, principal aiinsighthttp.Principal, corpID int64, permission string) error {
-	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
+	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
 }
 
 type aiSettingsPrincipalResolver struct {
@@ -124,7 +119,7 @@ func (r aiSettingsPrincipalResolver) Resolve(request *http.Request) (aisettingsh
 	if err != nil {
 		return aisettingshttp.Principal{}, err
 	}
-	return aisettingshttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID}, nil
+	return aisettingshttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID}, nil
 }
 
 type aiInsightPrincipalResolver struct {
@@ -146,5 +141,5 @@ func (r aiInsightPrincipalResolver) Resolve(request *http.Request) (aiinsighthtt
 			allowed = append(allowed, int64(id))
 		}
 	}
-	return aiinsighthttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: access.ScopeRequired && access.Scope != dashboard.DataScopeTenant}, nil
+	return aiinsighthttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: access.ScopeRequired && access.Scope != dashboard.DataScopeTenant}, nil
 }

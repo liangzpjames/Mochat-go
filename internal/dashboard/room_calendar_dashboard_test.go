@@ -17,7 +17,7 @@ func TestRoomCalendarStorePreservesFormListPushJSON(t *testing.T) {
 		"form":{"name":"周一提醒","date":"2026-08-01","time":"09:30"},
 		"list":[{"type":"text","content":"今日互动提醒"}]
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomCalendar/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomCalendar/store", strings.NewReader(body))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -49,7 +49,7 @@ func TestRoomCalendarStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewRoomCalendarHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomCalendar/store", strings.NewReader(`{"name":"额度外群日历"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomCalendar/store", strings.NewReader(`{"name":"额度外群日历"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -75,7 +75,7 @@ func TestRoomCalendarStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestRoomCalendarDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeRoomCalendarStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}}
 	handler := NewRoomCalendarHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/roomCalendar/destroy", strings.NewReader(`{"roomCalendarId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomCalendar/destroy", strings.NewReader(`{"roomCalendarId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -95,7 +95,7 @@ func TestRoomCalendarDestroyRefreshesSaaSUsage(t *testing.T) {
 func TestRoomCalendarAddRoomAcceptsScalarRoomID(t *testing.T) {
 	store := &fakeRoomCalendarStore{user: User{ID: 1, IsSuperAdmin: 1}}
 	handler := NewRoomCalendarHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomCalendar/addRoom", strings.NewReader(`{"id":12,"roomId":"wr002"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomCalendar/addRoom", strings.NewReader(`{"id":12,"roomId":"wr002"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

@@ -31,7 +31,7 @@ func TestWorkRoomAutoPullIndexReturnsPHPCompatiblePage(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkRoomAutoPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoomAutoPull/index?qrcodeName=Go&page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoomAutoPull/index?qrcodeName=Go&page=1&perPage=10", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -79,7 +79,7 @@ func TestWorkRoomAutoPullIndexAppliesDataPermission(t *testing.T) {
 	}
 	handler := NewWorkRoomAutoPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoomAutoPull/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoomAutoPull/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -124,7 +124,7 @@ func TestWorkRoomAutoPullShowReturnsDetail(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkRoomAutoPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoomAutoPull/show?workRoomAutoPullId=900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoomAutoPull/show?workRoomAutoPullId=900001", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -162,7 +162,7 @@ func TestWorkRoomAutoPullShowValidatesID(t *testing.T) {
 		{query: "?workRoomAutoPullId=abc", msg: "自动拉群ID 必需为整数"},
 		{query: "?workRoomAutoPullId=0", msg: "自动拉群ID 不可小于1"},
 	} {
-		req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoomAutoPull/show"+tc.query, nil)
+		req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoomAutoPull/show"+tc.query, nil)
 		req.Header.Set("X-Mochat-Go-User-ID", "1")
 		rec := httptest.NewRecorder()
 		handler.Show(rec, req)
@@ -189,7 +189,7 @@ func TestWorkRoomAutoPullStoreCreatesRecordAndQRCode(t *testing.T) {
 	authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 99}}
 	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "", client)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"qrcodeName":"新自动拉群","isVerified":2,"leadingWords":"欢迎","mediumId":45,"employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"qrcodeName":"新自动拉群","isVerified":2,"leadingWords":"欢迎","mediumId":45,"employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -224,7 +224,7 @@ func TestWorkRoomAutoPullStoreUsesSelectedCorpInsteadOfClientCorp(t *testing.T) 
 	client := &fakeWorkRoomAutoPullContactWayClient{qrcode: WorkRoomAutoPullQRCode{ConfigID: "config-910002", QRCodeURL: "https://wecom.example/qrcode.png"}}
 	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 99}}, "", client)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":999,"qrcodeName":"跨企业请求","isVerified":2,"leadingWords":"欢迎","employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":999,"qrcodeName":"跨企业请求","isVerified":2,"leadingWords":"欢迎","employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -250,7 +250,7 @@ func TestWorkRoomAutoPullStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 	}
 	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 99}}, "", client)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"qrcodeName":"新自动拉群","isVerified":2,"leadingWords":"欢迎","employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"qrcodeName":"新自动拉群","isVerified":2,"leadingWords":"欢迎","employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":50}]"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -277,7 +277,7 @@ func TestWorkRoomAutoPullUpdateUpdatesRecordAndQRCode(t *testing.T) {
 	client := &fakeWorkRoomAutoPullContactWayClient{}
 	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{accessSet: true, access: AccessContext{WorkEmployeeID: 99}}, "", client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoomAutoPull/update", strings.NewReader(`{"workRoomAutoPullId":900001,"isVerified":1,"employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":40}]"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoomAutoPull/update", strings.NewReader(`{"workRoomAutoPullId":900001,"isVerified":1,"employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":40}]"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -299,7 +299,7 @@ func TestWorkRoomAutoPullMoveUsesUpdatePermissionAndNoops(t *testing.T) {
 	authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{WorkEmployeeID: 99}}
 	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "", &fakeWorkRoomAutoPullContactWayClient{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoomAutoPull/move", strings.NewReader(`{"workRoomAutoPullId":900001,"groupId":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoomAutoPull/move", strings.NewReader(`{"workRoomAutoPullId":900001,"groupId":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -320,7 +320,7 @@ func TestWorkRoomAutoPullStoreValidatesRequiredName(t *testing.T) {
 	store := &fakeWorkRoomAutoPullStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "", &fakeWorkRoomAutoPullContactWayClient{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"isVerified":2,"leadingWords":"欢迎","employees":"1","tags":"900001","rooms":"[]"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"isVerified":2,"leadingWords":"欢迎","employees":"1","tags":"900001","rooms":"[]"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()

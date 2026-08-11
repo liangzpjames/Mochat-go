@@ -32,7 +32,7 @@ func (s *acceptanceStoreStub) Cleanup(_ context.Context, scope AcceptanceScope) 
 type acceptancePrincipal struct{}
 
 func (acceptancePrincipal) Resolve(*http.Request) (Principal, error) {
-	return Principal{TenantID: 9, UserID: 7}, nil
+	return Principal{TenantID: 9, UserID: 7, CorpID: 42}, nil
 }
 
 func TestAcceptanceHandlerIsDisabledByDefault(t *testing.T) {

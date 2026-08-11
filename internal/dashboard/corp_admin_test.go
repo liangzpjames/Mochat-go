@@ -25,7 +25,7 @@ func TestCorpAdminIndexReturnsPHPCompatiblePage(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewCorpAdminHandler(store, staticAdminCache("7-0"), HeaderUserIDResolver{}, authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corp/index?corpName=迁移&page=2&perPage=5", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/corp/index?corpName=迁移&page=2&perPage=5", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -65,7 +65,7 @@ func TestCorpAdminIndexRestrictsNormalUserToLoginCorpIDs(t *testing.T) {
 	}
 	handler := NewCorpAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corp/index", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corp/index", nil, 2, 10, 5, 99)
 	req.Header.Set("X-Mochat-Go-User-ID", "2")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -100,7 +100,7 @@ func TestCorpAdminShowAppendsCallbackCID(t *testing.T) {
 	}
 	handler := NewCorpAdminHandler(store, staticAdminCache("3-0"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corp/show?corpId=3", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/corp/show?corpId=3", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -130,7 +130,7 @@ func TestCorpAdminShowRejectsCorpOutsideCurrentUserScope(t *testing.T) {
 	}
 	handler := NewCorpAdminHandler(store, staticAdminCache("3-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corp/show?corpId=4", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corp/show?corpId=4", nil, 2, 10, 3, 99)
 	req.Header.Set("X-Mochat-Go-User-ID", "2")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -147,7 +147,7 @@ func TestCorpAdminUpdateWritesEditableFields(t *testing.T) {
 	}
 	handler := NewCorpAdminHandler(store, staticAdminCache("3-0"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/corp/update", bytes.NewBufferString(`{"corpId":3,"corpName":"新企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
+	req := authenticatedDashboardRequestForTestAs(http.MethodPut, "/dashboard/corp/update", bytes.NewBufferString(`{"corpId":3,"corpName":"新企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`), 1, 10, 3, 99)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -171,7 +171,7 @@ func TestCorpAdminUpdateRejectsCorpOutsideTenant(t *testing.T) {
 	}
 	handler := NewCorpAdminHandler(store, staticAdminCache("3-0"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/corp/update", bytes.NewBufferString(`{"corpId":3,"corpName":"updated corp","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/corp/update", bytes.NewBufferString(`{"corpId":3,"corpName":"updated corp","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -192,7 +192,7 @@ func TestCorpAdminUpdateRejectsPermissionDenied(t *testing.T) {
 	}
 	handler := NewCorpAdminHandler(store, staticAdminCache("3-9"), HeaderUserIDResolver{}, &recordingAuthorizer{err: ErrPermissionDenied})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/corp/update", bytes.NewBufferString(`{"corpId":3,"corpName":"新企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
+	req := authenticatedDashboardRequestForTestAs(http.MethodPut, "/dashboard/corp/update", bytes.NewBufferString(`{"corpId":3,"corpName":"新企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`), 2, 10, 3, 99)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "2")
 	rec := httptest.NewRecorder()
@@ -221,7 +221,7 @@ func TestCorpAdminStoreCreatesCorpAndCachesSelection(t *testing.T) {
 		WithWeComValidator(wecom).
 		WithAPIBaseURL("https://api.example.com/")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":" 新企业 ","wxCorpId":" wx-new ","employeeSecret":" employee-secret ","contactSecret":" contact-secret "}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":" 新企业 ","wxCorpId":" wx-new ","employeeSecret":" employee-secret ","contactSecret":" contact-secret "}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -272,7 +272,7 @@ func TestCorpAdminStoreRejectsExistingCorp(t *testing.T) {
 	handler := NewCorpAdminHandler(store, staticAdminCache(""), HeaderUserIDResolver{}, &recordingAuthorizer{}).
 		WithWeComValidator(wecom)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":"新企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":"新企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -306,7 +306,7 @@ func TestCorpAdminStoreUsesTenantSaaSQuotaInsteadOfGlobalCorpLimit(t *testing.T)
 	handler := NewCorpAdminHandler(store, staticAdminCache(""), HeaderUserIDResolver{}, &recordingAuthorizer{}).
 		WithWeComValidator(&fakeCorpWeComValidator{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":"第二企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":"第二企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -335,7 +335,7 @@ func TestCorpAdminStoreRejectsSaaSCorpQuotaExceeded(t *testing.T) {
 	handler := NewCorpAdminHandler(store, staticAdminCache(""), HeaderUserIDResolver{}, &recordingAuthorizer{}).
 		WithWeComValidator(wecom)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":"第三企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":"第三企业","wxCorpId":"wx-new","employeeSecret":"employee-secret","contactSecret":"contact-secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -363,7 +363,7 @@ func TestCorpAdminStoreRejectsInvalidWeComSecrets(t *testing.T) {
 	handler := NewCorpAdminHandler(store, staticAdminCache(""), HeaderUserIDResolver{}, &recordingAuthorizer{}).
 		WithWeComValidator(&fakeCorpWeComValidator{err: errors.New("通讯录管理secret或企业ID无效")})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":"新企业","wxCorpId":"wx-new","employeeSecret":"bad","contactSecret":"contact-secret"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/corp/store", bytes.NewBufferString(`{"corpName":"新企业","wxCorpId":"wx-new","employeeSecret":"bad","contactSecret":"contact-secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()

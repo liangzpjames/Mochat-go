@@ -12,6 +12,7 @@ import (
 	"jiyi/mochat-go/internal/authjwt"
 	"jiyi/mochat-go/internal/config"
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/modules/reporting"
 	reportinghttp "jiyi/mochat-go/internal/modules/reporting/transport/http"
 	scrmhttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
@@ -52,23 +53,18 @@ func newUserResolverBuilder(
 func newSCRMModuleRouter(
 	cfg config.Config,
 	getMySQLStore func() *store.MySQLStore,
-	buildUserResolver func(string) (dashboard.UserIDResolver, dashboard.LoginCache),
+	principalResolver scrmhttp.PrincipalResolver,
 ) (*appmodules.Router, error) {
 	router := appmodules.NewRouter()
 	dependencies := appbootstrap.SCRMDependencies{}
 	var mysqlStore *store.MySQLStore
 	if cfg.EnablePhase22SCRMPilot {
-		if getMySQLStore == nil || buildUserResolver == nil {
+		if getMySQLStore == nil || principalResolver == nil {
 			return nil, errors.New("SCRM runtime dependencies are required")
 		}
 		mysqlStore = getMySQLStore()
 		if mysqlStore == nil {
 			return nil, errors.New("SCRM MySQL store is required")
-		}
-		userIDs, _ := buildUserResolver("SCRM pilot")
-		principalResolver, err := appbootstrap.NewSCRMPrincipalResolver(userIDs, mysqlStore)
-		if err != nil {
-			return nil, fmt.Errorf("build SCRM principal resolver: %w", err)
 		}
 		dependencies.DB = mysqlStore.DB()
 		dependencies.PrincipalResolver = principalResolver
@@ -114,11 +110,44 @@ func (r reportingPrincipalResolver) Resolve(request *http.Request) (reportinghtt
 		}
 	}
 	restricted := access.ScopeRequired && access.Scope != dashboard.DataScopeTenant
-	return reportinghttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: restricted}, nil
+	return reportinghttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: restricted}, nil
 }
 
 type reportingAuthorizer struct{ delegate scrmhttp.LeadAuthorizer }
 
 func (a reportingAuthorizer) Authorize(ctx context.Context, principal reportinghttp.Principal, corpID int64, permission string) error {
-	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
+	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
 }
+
+// dashboardModulePrincipalResolver is the only production bridge from the
+// Dashboard request guard to module transport contracts. It consumes the
+// server-created context facts and never parses request headers, JWTs, or
+// legacy login/corp caches.
+type dashboardModulePrincipalResolver struct{}
+
+func (dashboardModulePrincipalResolver) Resolve(request *http.Request) (scrmhttp.Principal, error) {
+	if request == nil {
+		return scrmhttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
+	principal, err := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+	if err != nil || principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		return scrmhttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
+	access, ok := dashboard.DashboardAccessFromContext(request.Context())
+	if !ok || access.UserID != principal.UserID || access.TenantID != principal.TenantID || access.CorpID != principal.CorpID {
+		return scrmhttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
+	allowed := make([]int64, 0, len(access.AllowedEmployeeIDs))
+	for _, id := range access.AllowedEmployeeIDs {
+		if id > 0 {
+			allowed = append(allowed, int64(id))
+		}
+	}
+	return scrmhttp.Principal{
+		UserID: int64(principal.UserID), TenantID: int64(principal.TenantID), CorpID: int64(principal.CorpID),
+		WorkEmployeeID: int64(access.WorkEmployeeID), AllowedEmployeeIDs: allowed,
+		EmployeeScopeRestricted: access.ScopeRequired && access.Scope != dashboard.DataScopeTenant,
+	}, nil
+}
+
+var _ scrmhttp.PrincipalResolver = dashboardModulePrincipalResolver{}

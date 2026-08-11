@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { runIdentitySingleCorpGate } from './check_identity_realm_single_corp.mjs';
+import { formatIdentitySingleCorpGateEvidence, runIdentitySingleCorpGate } from './check_identity_realm_single_corp.mjs';
 
 async function makeFixtureTree() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'identity-single-corp-'));
@@ -53,6 +53,10 @@ test('identity gate accepts a minimal separated realm and principal tree', async
     assert.equal(result.forbiddenCorpRoutes.length, 0);
     assert.equal(result.forbiddenSessionCorpFields.length, 0);
     assert.equal(result.plaintextSecretReads.length, 0);
+    const evidence = formatIdentitySingleCorpGateEvidence(result);
+    assert.match(evidence, /SaaS identity Store query:.*source:/);
+    assert.match(evidence, /Dashboard identity Store query:.*source:/);
+    assert.match(evidence, /GET \/dashboard\/index -> handler .* source:.* -> .* source:/);
   });
 });
 
@@ -137,9 +141,33 @@ test('GREEN: Dashboard adapter may resolve the server principal through mc_user 
     await fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\ntype Store interface { Authenticate(db DB, login string) }\n');
     await fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\ntype Store interface { Authenticate(db DB, login string) }\n');
     await fs.writeFile(path.join(root, 'internal', 'store', 'saas_identity.go'), 'package store\ntype SaaSIdentityStore struct{}\nfunc (s SaaSIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT id FROM mochat_go_saas_admin_users WHERE login_name = ?", login) }\n');
-    await fs.writeFile(path.join(root, 'internal', 'store', 'dashboard_identity.go'), 'package store\ntype DashboardIdentityStore struct{}\nfunc (s DashboardIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT user_id FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\nfunc (s DashboardIdentityStore) ResolvePrincipal(db DB, userID int) { db.QueryRow("SELECT tenant_id, corp_id FROM mc_user WHERE id = ?", userID) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'dashboard_identity.go'), 'package store\ntype DashboardIdentityStore struct{}\nfunc (s DashboardIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT user_id FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\nfunc (s DashboardIdentityStore) ResolveIdentity(db DB, userID int) { db.QueryRow("SELECT d.user_id, u.tenant_id, u.status FROM mochat_go_dashboard_identities d INNER JOIN mc_user u ON u.id = d.user_id WHERE d.user_id = ?", userID) }\n');
   }, async (root) => {
     assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('GREEN: Dashboard principal identity resolution may read mc_user binding facts', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'store'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'saas_identity.go'), 'package store\ntype SaaSIdentityStore struct{}\nfunc (s SaaSIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT id FROM mochat_go_saas_admin_users WHERE login_name = ?", login) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'dashboard_identity.go'), 'package store\ntype DashboardIdentityStore struct{}\nvar _ dashboardauth.Store = (*DashboardIdentityStore)(nil)\nfunc (s DashboardIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT user_id FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\nfunc (s DashboardIdentityStore) ResolveIdentity(db DB, userID int) { db.QueryRow("SELECT d.user_id, u.tenant_id FROM mochat_go_dashboard_identities d INNER JOIN mc_user u ON u.id = d.user_id WHERE d.user_id = ?", userID) }\n');
+  }, async (root) => {
+    assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('RED: ResolveIdentity is not a blanket mc_user password or corp reader', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'store'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\ntype Store interface { Authenticate(db DB, login string) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'saas_identity.go'), 'package store\ntype SaaSIdentityStore struct{}\nfunc (s SaaSIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT id FROM mochat_go_saas_admin_users WHERE login_name = ?", login) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'store', 'dashboard_identity.go'), 'package store\ntype DashboardIdentityStore struct{}\nfunc (s DashboardIdentityStore) Authenticate(db DB, login string) { db.QueryRow("SELECT user_id FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\nfunc (s DashboardIdentityStore) ResolveIdentity(db DB, userID int) { db.QueryRow("SELECT d.user_id, u.password, u.corp_id FROM mochat_go_dashboard_identities d INNER JOIN mc_user u ON u.id = d.user_id WHERE d.user_id = ?", userID) }\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /Dashboard.*mc_user|password|corp_id/i);
   });
 });
 
@@ -257,5 +285,21 @@ test('RED: comments, tests, fixtures, and JSON are not production evidence', asy
     await fs.writeFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'fixture.json'), '{"text":"新建企业 corpId"}\n');
   }, async (root) => {
     assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('RED: principalCorpID compatibility helpers cannot accept legacy extra arguments', async () => {
+  await withFixture(async (root) => {
+    await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc principalCorpID(request *http.Request, _ ...any) (int, bool) { return 7, true }\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /principalCorpID.*compatibility|variadic|extra argument/i);
+  });
+});
+
+test('RED: production module composition cannot use the legacy SCRM principal resolver', async () => {
+  await withFixture(async (root) => {
+    await fs.appendFile(path.join(root, 'cmd', 'mochat-go', 'main.go'), '\nfunc wire() { appbootstrap.NewSCRMPrincipalResolver(userIDs, users) }\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /legacy SCRM principal resolver|NewSCRMPrincipalResolver/i);
   });
 });

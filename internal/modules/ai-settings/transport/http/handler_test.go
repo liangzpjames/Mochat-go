@@ -108,7 +108,7 @@ func (f fakeAuthorizer) Authorize(_ context.Context, _ Principal, _ int64, _ str
 }
 
 func newTestKBs(authorizer Authorizer) *KnowledgeBaseHandler {
-	return NewKnowledgeBaseHandler(&fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1}}, authorizer, func() string { return "kb-1" })
+	return NewKnowledgeBaseHandler(&fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, authorizer, func() string { return "kb-1" })
 }
 
 func perform(handler http.Handler, method, target, body string) *httptest.ResponseRecorder {
@@ -133,7 +133,7 @@ func TestKnowledgeBaseListScopesTenantAndCorp(t *testing.T) {
 		ports.KnowledgeBase{ID: "a", TenantID: 1, CorpID: 2},
 		ports.KnowledgeBase{ID: "b", TenantID: 9, CorpID: 2},
 	)
-	handler := NewKnowledgeBaseHandler(repo, fakeResolver{principal: Principal{UserID: 7, TenantID: 1}}, nil, func() string { return "x" })
+	handler := NewKnowledgeBaseHandler(repo, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "x" })
 	rec := perform(handler, http.MethodGet, "/dashboard/ai-settings/knowledge-bases?corpId=2", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
@@ -158,7 +158,7 @@ func TestKnowledgeBaseCreateRequiresName(t *testing.T) {
 
 func TestKnowledgeBaseCreatePersistsScopedRecord(t *testing.T) {
 	repo := &fakeKBRepo{}
-	handler := NewKnowledgeBaseHandler(repo, fakeResolver{principal: Principal{UserID: 7, TenantID: 1}}, nil, func() string { return "kb-1" })
+	handler := NewKnowledgeBaseHandler(repo, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" })
 	rec := perform(handler, http.MethodPost, "/dashboard/ai-settings/knowledge-bases?corpId=2", `{"name":"售后话术库","description":"test"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -171,7 +171,7 @@ func TestKnowledgeBaseCreatePersistsScopedRecord(t *testing.T) {
 func TestKnowledgeBaseUpdateAndDelete(t *testing.T) {
 	repo := &fakeKBRepo{}
 	repo.items = append(repo.items, ports.KnowledgeBase{ID: "kb-1", TenantID: 1, CorpID: 2})
-	handler := NewKnowledgeBaseHandler(repo, fakeResolver{principal: Principal{UserID: 7, TenantID: 1}}, nil, func() string { return "x" })
+	handler := NewKnowledgeBaseHandler(repo, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "x" })
 	rec := perform(handler, http.MethodPut, "/dashboard/ai-settings/knowledge-bases/kb-1?corpId=2", `{"name":"改名"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update code = %d, want 200", rec.Code)
@@ -182,11 +182,11 @@ func TestKnowledgeBaseUpdateAndDelete(t *testing.T) {
 	}
 }
 
-func TestKnowledgeBaseRequiresCorpID(t *testing.T) {
+func TestKnowledgeBaseUsesPrincipalCorpWhenClientOmitsCorpID(t *testing.T) {
 	handler := newTestKBs(nil)
 	rec := perform(handler, http.MethodGet, "/dashboard/ai-settings/knowledge-bases", "")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("code = %d, want 400", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
 	}
 }
 
@@ -205,7 +205,7 @@ func TestKnowledgeBaseUnauthorizedAndForbidden(t *testing.T) {
 
 func TestAgentCRUDScopesAndValidates(t *testing.T) {
 	repo := &fakeAgentRepo{}
-	handler := NewAgentHandler(repo, fakeResolver{principal: Principal{UserID: 7, TenantID: 1}}, nil, func() string { return "agent-1" })
+	handler := NewAgentHandler(repo, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" })
 	rec := perform(handler, http.MethodPost, "/dashboard/ai-settings/agents?corpId=2", `{"name":"", "knowledgeBaseIds":["kb-1"]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty name code = %d, want 400", rec.Code)

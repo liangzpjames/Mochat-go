@@ -19,6 +19,7 @@ var (
 type Principal struct {
 	UserID   int64
 	TenantID int64
+	CorpID   int64
 }
 
 type PrincipalResolver interface {
@@ -37,21 +38,29 @@ func writeEnvelope(w http.ResponseWriter, code int, msg string, data any) {
 
 func resolvePrincipal(w http.ResponseWriter, r *http.Request, resolver PrincipalResolver) (Principal, bool) {
 	p, err := resolver.Resolve(r)
-	if err != nil {
+	if err != nil || p.UserID <= 0 || p.TenantID <= 0 || p.CorpID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, "principal unauthorized", nil)
 		return Principal{}, false
 	}
 	return p, true
 }
 
-func corpFromRequest(r *http.Request, body map[string]any) int64 {
-	corp, _ := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)
-	if corp <= 0 {
-		if v, ok := body["corpId"].(float64); ok {
-			corp = int64(v)
+func corpFromRequest(r *http.Request, body map[string]any, principal Principal) (int64, error) {
+	corp := principal.CorpID
+	if raw := r.URL.Query().Get("corpId"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 || parsed != principal.CorpID {
+			return 0, errors.New("corpId does not match dashboard principal")
 		}
+		corp = parsed
+	} else if v, ok := body["corpId"].(float64); ok {
+		parsed := int64(v)
+		if parsed <= 0 || parsed != principal.CorpID {
+			return 0, errors.New("corpId does not match dashboard principal")
+		}
+		corp = parsed
 	}
-	return corp
+	return corp, nil
 }
 
 func pathID(r *http.Request) string {
@@ -85,9 +94,9 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	corp := corpFromRequest(r, body)
-	if corp <= 0 {
-		writeEnvelope(w, http.StatusBadRequest, "corpId required", nil)
+	corp, err := corpFromRequest(r, body, p)
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	permission := "/ai-settings/knowledge-base#get"
@@ -186,9 +195,9 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	corp := corpFromRequest(r, body)
-	if corp <= 0 {
-		writeEnvelope(w, http.StatusBadRequest, "corpId required", nil)
+	corp, err := corpFromRequest(r, body, p)
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	permission := "/ai-settings/agent#get"

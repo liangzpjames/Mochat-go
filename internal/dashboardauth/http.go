@@ -46,28 +46,30 @@ type TenantAccess struct {
 type DashboardTenantGate func(context.Context, int, time.Time) (TenantAccess, error)
 
 type HTTPConfig struct {
-	Service     *Service
-	Persistence DashboardAuthPersistence
-	Signer      authrealm.TokenConfig
-	Parser      authrealm.Parser
-	MFAKey      []byte
-	MFAKeyID    string
-	TenantGate  DashboardTenantGate
-	Now         func() time.Time
+	Service           *Service
+	Persistence       DashboardAuthPersistence
+	PrincipalResolver dashboardprincipal.PrincipalResolver
+	Signer            authrealm.TokenConfig
+	Parser            authrealm.Parser
+	MFAKey            []byte
+	MFAKeyID          string
+	TenantGate        DashboardTenantGate
+	Now               func() time.Time
 }
 
 type HTTPHandler struct {
-	service     *Service
-	persistence DashboardAuthPersistence
-	signer      authrealm.TokenConfig
-	parser      authrealm.Parser
-	protector   *DashboardMFAProtector
-	tenantGate  DashboardTenantGate
-	now         func() time.Time
+	service           *Service
+	persistence       DashboardAuthPersistence
+	principalResolver dashboardprincipal.PrincipalResolver
+	signer            authrealm.TokenConfig
+	parser            authrealm.Parser
+	protector         *DashboardMFAProtector
+	tenantGate        DashboardTenantGate
+	now               func() time.Time
 }
 
 func NewHTTPHandler(config HTTPConfig) (*HTTPHandler, error) {
-	if config.Service == nil || config.Persistence == nil || config.TenantGate == nil {
+	if config.Service == nil || config.Persistence == nil || config.PrincipalResolver == nil || config.TenantGate == nil {
 		return nil, ErrInvalidHTTPConfig
 	}
 	if err := validateDashboardTokenConfig(config.Signer); err != nil {
@@ -87,13 +89,14 @@ func NewHTTPHandler(config HTTPConfig) (*HTTPHandler, error) {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidHTTPConfig, err)
 	}
 	return &HTTPHandler{
-		service:     config.Service,
-		persistence: config.Persistence,
-		signer:      config.Signer,
-		parser:      config.Parser,
-		protector:   protector,
-		tenantGate:  config.TenantGate,
-		now:         config.Now,
+		service:           config.Service,
+		persistence:       config.Persistence,
+		principalResolver: config.PrincipalResolver,
+		signer:            config.Signer,
+		parser:            config.Parser,
+		protector:         protector,
+		tenantGate:        config.TenantGate,
+		now:               config.Now,
 	}, nil
 }
 
@@ -187,21 +190,24 @@ func (handler *HTTPHandler) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *HTTPHandler) authorizeTenant(w http.ResponseWriter, ctx context.Context, userID int) bool {
-	principal, err := handler.persistence.ResolvePrincipal(ctx, userID)
-	if err != nil || principal.UserID != userID || principal.TenantID <= 0 || principal.AuthVersion == 0 {
+	if handler.principalResolver == nil {
+		writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
+		return false
+	}
+	principal, err := handler.principalResolver.ResolveUser(ctx, userID, handler.currentTime())
+	if err != nil {
+		if errors.Is(err, dashboardprincipal.ErrTenantAccessDenied) {
+			writeDashboardAuthEnvelope(w, http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied", nil)
+		} else {
+			writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
+		}
+		return false
+	}
+	if principal.UserID != userID || principal.AuthVersion == 0 {
 		writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
 		return false
 	}
 	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
-		writeDashboardAuthEnvelope(w, http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied", nil)
-		return false
-	}
-	access, err := handler.tenantGate(ctx, principal.TenantID, handler.currentTime())
-	if err != nil {
-		writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
-		return false
-	}
-	if !access.Allowed || access.TenantID != principal.TenantID {
 		writeDashboardAuthEnvelope(w, http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied", nil)
 		return false
 	}
@@ -449,6 +455,7 @@ func (handler *HTTPHandler) currentTime() time.Time {
 type RequestGuard struct {
 	parser               authrealm.Parser
 	persistence          DashboardAuthPersistence
+	principalResolver    dashboardprincipal.PrincipalResolver
 	tenantGate           DashboardTenantGate
 	publicRouteContracts map[string]struct{}
 	next                 interface {
@@ -500,12 +507,23 @@ func (guard *RequestGuard) WithNext(next interface {
 	return guard
 }
 
+func (guard *RequestGuard) WithPrincipalResolver(resolver dashboardprincipal.PrincipalResolver) *RequestGuard {
+	if guard != nil {
+		guard.principalResolver = resolver
+	}
+	return guard
+}
+
 func (guard *RequestGuard) Authorize(w http.ResponseWriter, r *http.Request) bool {
 	if guard == nil {
 		return false
 	}
 	if guard.isPublicRoute(r) {
 		return true
+	}
+	if guard.principalResolver == nil {
+		writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
+		return false
 	}
 	token, ok := dashboardBearerToken(r.Header.Get("Authorization"))
 	if !ok {
@@ -517,17 +535,20 @@ func (guard *RequestGuard) Authorize(w http.ResponseWriter, r *http.Request) boo
 		writeDashboardAuthEnvelope(w, http.StatusUnauthorized, dashboardAuthErrorCode(err), "session invalid", nil)
 		return false
 	}
-	principal, err := guard.persistence.ResolvePrincipal(r.Context(), claims.UserID)
-	if err != nil || principal.UserID != claims.UserID || principal.AuthVersion != claims.AuthVersion {
+	principal, err := guard.principalResolver.ResolveUser(r.Context(), claims.UserID, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, dashboardprincipal.ErrTenantAccessDenied) {
+			writeDashboardAuthEnvelope(w, http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied", nil)
+		} else {
+			writeDashboardAuthEnvelope(w, http.StatusUnauthorized, authrealm.CodeSessionInvalid, "session invalid", nil)
+		}
+		return false
+	}
+	if principal.UserID != claims.UserID || principal.AuthVersion != claims.AuthVersion {
 		writeDashboardAuthEnvelope(w, http.StatusUnauthorized, authrealm.CodeSessionInvalid, "session invalid", nil)
 		return false
 	}
 	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
-		writeDashboardAuthEnvelope(w, http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied", nil)
-		return false
-	}
-	access, err := guard.tenantGate(r.Context(), principal.TenantID, time.Now().UTC())
-	if err != nil || !access.Allowed || access.TenantID != principal.TenantID {
 		writeDashboardAuthEnvelope(w, http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied", nil)
 		return false
 	}

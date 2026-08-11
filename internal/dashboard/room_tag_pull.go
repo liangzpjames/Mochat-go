@@ -271,15 +271,15 @@ func (h *RoomTagPullHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := firstLoginCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -328,15 +328,15 @@ func (h *RoomTagPullHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if _, ok := firstLoginCorpID(w, loginInfo); !ok {
+	if _, ok := principalCorpID(r); !ok {
 		return
 	}
 	id, ok := requiredPositiveQueryInt(w, r, "id", "活动id 必填", "活动id 必须为整型")
@@ -372,15 +372,15 @@ func (h *RoomTagPullHandler) ShowContact(w http.ResponseWriter, r *http.Request)
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if _, ok := firstLoginCorpID(w, loginInfo); !ok {
+	if _, ok := principalCorpID(r); !ok {
 		return
 	}
 	id, ok := requiredPositiveQueryInt(w, r, "id", "活动id 必填", "活动id 必须为整型")
@@ -449,15 +449,15 @@ func (h *RoomTagPullHandler) RoomList(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := firstLoginCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -490,15 +490,15 @@ func (h *RoomTagPullHandler) ChooseContact(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := firstLoginCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -519,15 +519,15 @@ func (h *RoomTagPullHandler) FilterContact(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := firstLoginCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -553,15 +553,15 @@ func (h *RoomTagPullHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := firstLoginCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -624,15 +624,15 @@ func (h *RoomTagPullHandler) RemindSend(w http.ResponseWriter, r *http.Request) 
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := firstLoginCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -700,15 +700,15 @@ func (h *RoomTagPullHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if _, ok := firstLoginCorpID(w, loginInfo); !ok {
+	if _, ok := principalCorpID(r); !ok {
 		return
 	}
 	params, err := parseRequestParams(r)
@@ -740,46 +740,39 @@ func (h *RoomTagPullHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
-func (h *RoomTagPullHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *RoomTagPullHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
-func (h *RoomTagPullHandler) authorizeAccess(ctx context.Context, r *http.Request, userID int, loginInfo LoginCorpInfo) (AccessContext, error) {
+func (h *RoomTagPullHandler) authorizeAccess(ctx context.Context, r *http.Request, userID int, principalScope DashboardRequestScope) (AccessContext, error) {
 	if h.authorizer == nil {
 		return AccessContext{DataPermission: DataPermissionAll}, nil
 	}
 	corpID := 0
-	if len(loginInfo.CorpIDs) > 0 {
-		corpID = loginInfo.CorpIDs[0]
+	if len(principalScope.CorpIDs) > 0 {
+		corpID = principalScope.CorpIDs[0]
 	}
-	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID)
+	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, principalScope.WorkEmployeeID)
 }
 
 func (h *RoomTagPullHandler) fileFullURL(path string) string {
@@ -906,14 +899,6 @@ func (h *RoomTagPullHandler) sendRoomTagPullMessages(w http.ResponseWriter, ctx 
 		}
 	}
 	return tids, true
-}
-
-func firstLoginCorpID(w http.ResponseWriter, loginInfo LoginCorpInfo) (int, bool) {
-	if len(loginInfo.CorpIDs) != 1 {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "未选择登录企业，不可操作", nil)
-		return 0, false
-	}
-	return loginInfo.CorpIDs[0], true
 }
 
 func requiredPositiveQueryInt(w http.ResponseWriter, r *http.Request, key string, requiredMsg string, integerMsg string) (int, bool) {

@@ -27,7 +27,7 @@ func TestRoleAdminIndexReturnsPageAndAuthorizes(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/role/index?name=运营&page=2&perPage=5", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/role/index?name=运营&page=2&perPage=5", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -60,7 +60,7 @@ func TestRoleAdminShowReturnsCorpDataPermission(t *testing.T) {
 	}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/role/show?roleId=8", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/role/show?roleId=8", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -87,7 +87,7 @@ func TestRoleAdminPermissionShowReturnsHalfCheckedTree(t *testing.T) {
 	}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/role/permissionShow?roleId=8", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/role/permissionShow?roleId=8", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.PermissionShow(rec, req)
@@ -117,7 +117,7 @@ func TestRoleAdminShowEmployeeReturnsDepartment(t *testing.T) {
 	}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/role/showEmployee?roleId=8&page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/role/showEmployee?roleId=8&page=1&perPage=10", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ShowEmployee(rec, req)
@@ -143,7 +143,7 @@ func TestRoleAdminIndexRejectsPermissionDenied(t *testing.T) {
 	}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{err: ErrPermissionDenied})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/role/index", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/role/index", nil, 2, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "2")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -162,7 +162,7 @@ func TestRoleAdminStoreCreatesRoleWithCorpPermission(t *testing.T) {
 	}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/role/store", strings.NewReader(`{"name":"运营","remarks":"客户运营","dataPermission":2,"roleId":8}`))
+	req := authenticatedDashboardRequestForTestAs(http.MethodPost, "/dashboard/role/store", strings.NewReader(`{"name":"运营","remarks":"客户运营","dataPermission":2,"roleId":8}`), 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
@@ -185,7 +185,7 @@ func TestRoleAdminPermissionStoreExpandsAndReplacesMenus(t *testing.T) {
 	}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/role/permissionStore", strings.NewReader(`{"roleId":8,"menuIds":[2,8]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/role/permissionStore", strings.NewReader(`{"roleId":8,"menuIds":[2,8]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.PermissionStore(rec, req)
@@ -210,7 +210,7 @@ func TestRoleAdminStatusUpdateRejectsSystemPresetRole(t *testing.T) {
 	}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/role/statusUpdate", strings.NewReader(`{"roleId":1,"status":2}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/role/statusUpdate", strings.NewReader(`{"roleId":1,"status":2}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.StatusUpdate(rec, req)
@@ -232,7 +232,7 @@ func TestRoleAdminDestroyRejectsSystemPresetRole(t *testing.T) {
 	}
 	handler := NewRoleAdminHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/role/destroy", strings.NewReader(`{"roleId":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/role/destroy", strings.NewReader(`{"roleId":1}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Destroy(rec, req)

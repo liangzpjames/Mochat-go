@@ -27,7 +27,7 @@ func (f fakeAIProvider) Status() providers.Status {
 }
 
 func TestRunAnalysisBuildsPageSpecificPrompt(t *testing.T) {
-	handler := NewInsightHandlerWithProvider(insightResolver{principal: Principal{UserID: 1, TenantID: 1}}, nil, nil, fakeAIProvider{text: "摘要：客户咨询套餐"})
+	handler := NewInsightHandlerWithProvider(insightResolver{principal: Principal{UserID: 1, TenantID: 1, CorpID: 2}}, nil, nil, fakeAIProvider{text: "摘要：客户咨询套餐"})
 	text, err := handler.runAnalysis(context.Background(), "session-analysis", []string{"客户问价格"})
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestReadyPageFromPayload(t *testing.T) {
 }
 
 func TestResolvePageKeepsLimitedWithoutProvider(t *testing.T) {
-	handler := NewInsightHandler(insightResolver{principal: Principal{UserID: 1, TenantID: 1}}, nil)
+	handler := NewInsightHandler(insightResolver{principal: Principal{UserID: 1, TenantID: 1, CorpID: 2}}, nil)
 	req := insightRequest(handler, "emotion")
 	if req.Code != 200 {
 		t.Fatalf("code = %d", req.Code)

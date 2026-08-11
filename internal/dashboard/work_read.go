@@ -500,11 +500,11 @@ func (h *WorkReadHandler) SearchCondition(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	syncTime, err := h.store.WorkEmployeeSyncTime(r.Context(), loginInfo.CorpIDs)
+	syncTime, err := h.store.WorkEmployeeSyncTime(r.Context(), principalScope.CorpIDs)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -530,17 +530,17 @@ func (h *WorkReadHandler) DepartmentIndex(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
 
 	search := r.URL.Query().Get("searchKeyWords")
-	corpID := loginInfo.CorpIDs[0]
+	corpID := principalScope.CorpIDs[0]
 	departments, err := h.store.WorkDepartmentsByCorp(r.Context(), corpID, search)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -567,11 +567,11 @@ func (h *WorkReadHandler) MemberIndex(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
@@ -587,7 +587,7 @@ func (h *WorkReadHandler) MemberIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	members, err := h.store.WorkDepartmentMembers(r.Context(), loginInfo.CorpIDs[0], departmentIDs)
+	members, err := h.store.WorkDepartmentMembers(r.Context(), principalScope.CorpIDs[0], departmentIDs)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -600,11 +600,11 @@ func (h *WorkReadHandler) SelectByPhone(w http.ResponseWriter, r *http.Request) 
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if len(loginInfo.CorpIDs) == 0 {
+	if len(principalScope.CorpIDs) == 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
@@ -631,7 +631,7 @@ func (h *WorkReadHandler) SelectByPhone(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	departments, err := h.store.WorkDepartmentsByEmployeeMobile(r.Context(), loginInfo.CorpIDs[0], phone)
+	departments, err := h.store.WorkDepartmentsByEmployeeMobile(r.Context(), principalScope.CorpIDs[0], phone)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -644,20 +644,20 @@ func (h *WorkReadHandler) DepartmentPageIndex(w http.ResponseWriter, r *http.Req
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "未选择登录企业，不可操作", nil)
 		return
 	}
 
-	departments, err := h.store.WorkDepartmentsByCorp(r.Context(), loginInfo.CorpIDs[0], "")
+	departments, err := h.store.WorkDepartmentsByCorp(r.Context(), principalScope.CorpIDs[0], "")
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -672,15 +672,15 @@ func (h *WorkReadHandler) DepartmentShowEmployee(w http.ResponseWriter, r *http.
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "未选择登录企业，不可操作", nil)
 		return
 	}
@@ -696,7 +696,7 @@ func (h *WorkReadHandler) DepartmentShowEmployee(w http.ResponseWriter, r *http.
 	}
 
 	filter := WorkDepartmentEmployeeListFilter{
-		CorpID:       loginInfo.CorpIDs[0],
+		CorpID:       principalScope.CorpIDs[0],
 		DepartmentID: departmentID,
 		Page:         positiveQueryInt(r, "page", 1),
 		PerPage:      positiveQueryInt(r, "perPage", 10),
@@ -731,11 +731,11 @@ func (h *WorkReadHandler) WorkEmployeeIndex(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	access, err := h.authorizeAccess(r.Context(), r, userID, loginInfo)
+	access, err := h.authorizeAccess(r.Context(), r, userID, principalScope)
 	if err != nil {
 		writeAccessError(w, err)
 		return
@@ -744,7 +744,7 @@ func (h *WorkReadHandler) WorkEmployeeIndex(w http.ResponseWriter, r *http.Reque
 	rawCorpID := strings.TrimSpace(r.URL.Query().Get("corpId"))
 	corpIDs := parseIDList(rawCorpID)
 	if rawCorpID == "" {
-		corpIDs = append([]int{}, loginInfo.CorpIDs...)
+		corpIDs = append([]int{}, principalScope.CorpIDs...)
 	}
 	if len(corpIDs) == 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "企业微信不能为空", nil)
@@ -829,12 +829,12 @@ func (h *WorkReadHandler) ContactTagGroupIndex(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
 
-	groups, err := h.store.WorkContactTagGroupsByCorp(r.Context(), loginInfo.CorpIDs)
+	groups, err := h.store.WorkContactTagGroupsByCorp(r.Context(), principalScope.CorpIDs)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -931,13 +931,13 @@ func (h *WorkReadHandler) ContactTagIndex(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
 
 	filter := WorkContactTagFilter{
-		CorpIDs: append([]int{}, loginInfo.CorpIDs...),
+		CorpIDs: append([]int{}, principalScope.CorpIDs...),
 		Page:    positiveQueryInt(r, "page", 1),
 		PerPage: positiveQueryInt(r, "perPage", 20),
 	}
@@ -953,7 +953,7 @@ func (h *WorkReadHandler) ContactTagIndex(w http.ResponseWriter, r *http.Request
 		filter.GroupID = &groupID
 	}
 
-	syncTime, err := h.store.WorkContactTagSyncTime(r.Context(), loginInfo.CorpIDs)
+	syncTime, err := h.store.WorkContactTagSyncTime(r.Context(), principalScope.CorpIDs)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -1023,12 +1023,12 @@ func (h *WorkReadHandler) ContactTagList(w http.ResponseWriter, r *http.Request)
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
 
-	groups, err := h.store.WorkContactTagList(r.Context(), loginInfo.CorpIDs, strings.TrimSpace(r.URL.Query().Get("name")))
+	groups, err := h.store.WorkContactTagList(r.Context(), principalScope.CorpIDs, strings.TrimSpace(r.URL.Query().Get("name")))
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -1059,7 +1059,7 @@ func (h *WorkReadHandler) ContactTagAll(w http.ResponseWriter, r *http.Request) 
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
@@ -1073,7 +1073,7 @@ func (h *WorkReadHandler) ContactTagAll(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	tags, err := h.store.WorkContactTags(r.Context(), loginInfo.CorpIDs, groupID)
+	tags, err := h.store.WorkContactTags(r.Context(), principalScope.CorpIDs, groupID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -1177,11 +1177,11 @@ func (h *WorkReadHandler) WorkContactShow(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -1217,22 +1217,22 @@ func (h *WorkReadHandler) WorkContactIndex(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	access, err := h.authorizeAccess(r.Context(), r, userID, loginInfo)
+	access, err := h.authorizeAccess(r.Context(), r, userID, principalScope)
 	if err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
 	filter := WorkContactIndexFilter{
-		CorpID:            loginInfo.CorpIDs[0],
-		CurrentEmployeeID: loginInfo.WorkEmployeeID,
+		CorpID:            principalScope.CorpIDs[0],
+		CurrentEmployeeID: principalScope.WorkEmployeeID,
 		Remark:            strings.TrimSpace(r.URL.Query().Get("remark")),
 		StartTime:         strings.TrimSpace(r.URL.Query().Get("startTime")),
 		EndTime:           strings.TrimSpace(r.URL.Query().Get("endTime")),
@@ -1299,7 +1299,7 @@ func (h *WorkReadHandler) WorkContactIndex(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	list := make([]map[string]any, 0, len(page.Items))
-	userPayload := workContactIndexUserPayload(user, loginInfo, access)
+	userPayload := workContactIndexUserPayload(user, principalScope, access)
 	for _, item := range page.Items {
 		list = append(list, map[string]any{
 			"id":           item.ID,
@@ -1341,21 +1341,21 @@ func (h *WorkReadHandler) WorkContactLoss(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	access, err := h.authorizeAccess(r.Context(), r, userID, loginInfo)
+	access, err := h.authorizeAccess(r.Context(), r, userID, principalScope)
 	if err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
 	filter := WorkContactLossFilter{
-		CorpID:  loginInfo.CorpIDs[0],
+		CorpID:  principalScope.CorpIDs[0],
 		Page:    positiveQueryInt(r, "page", 1),
 		PerPage: positiveQueryInt(r, "perPage", 20),
 	}
@@ -1379,7 +1379,7 @@ func (h *WorkReadHandler) WorkContactLoss(w http.ResponseWriter, r *http.Request
 		return
 	}
 	list := make([]map[string]any, 0, len(page.Items))
-	userPayload := workContactIndexUserPayload(user, loginInfo, access)
+	userPayload := workContactIndexUserPayload(user, principalScope, access)
 	for _, item := range page.Items {
 		list = append(list, map[string]any{
 			"id":           item.ID,
@@ -1413,15 +1413,15 @@ func (h *WorkReadHandler) WorkContactRoomIndex(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -1495,7 +1495,7 @@ func (h *WorkReadHandler) WorkRoomRoomIndex(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
@@ -1506,7 +1506,7 @@ func (h *WorkReadHandler) WorkRoomRoomIndex(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	page, err := h.store.WorkRoomOptions(r.Context(), WorkRoomOptionFilter{
-		CorpIDs:     append([]int{}, loginInfo.CorpIDs...),
+		CorpIDs:     append([]int{}, principalScope.CorpIDs...),
 		Name:        strings.TrimSpace(r.URL.Query().Get("name")),
 		RoomGroupID: roomGroupID,
 	})
@@ -1534,16 +1534,16 @@ func (h *WorkReadHandler) WorkRoomIndex(w http.ResponseWriter, r *http.Request) 
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	access, err := h.authorizeAccess(r.Context(), r, userID, loginInfo)
+	access, err := h.authorizeAccess(r.Context(), r, userID, principalScope)
 	if err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -1647,11 +1647,11 @@ func (h *WorkReadHandler) WorkRoomStatistics(w http.ResponseWriter, r *http.Requ
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -1677,11 +1677,11 @@ func (h *WorkReadHandler) WorkRoomStatisticsIndex(w http.ResponseWriter, r *http
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -1767,11 +1767,11 @@ func (h *WorkReadHandler) WorkContactTrack(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -1933,7 +1933,7 @@ func workContactAddWayText(addWay int) string {
 	return ""
 }
 
-func workContactIndexUserPayload(user User, loginInfo LoginCorpInfo, access AccessContext) map[string]any {
+func workContactIndexUserPayload(user User, principalScope DashboardRequestScope, access AccessContext) map[string]any {
 	return map[string]any{
 		"id":              user.ID,
 		"phone":           user.Phone,
@@ -1943,9 +1943,9 @@ func workContactIndexUserPayload(user User, loginInfo LoginCorpInfo, access Acce
 		"position":        user.Position,
 		"loginTime":       user.LoginTime,
 		"status":          user.Status,
-		"corpIds":         append([]int{}, loginInfo.CorpIDs...),
-		"workEmployeeId":  loginInfo.WorkEmployeeID,
-		"requestSource":   loginInfo.RequestSource,
+		"corpIds":         append([]int{}, principalScope.CorpIDs...),
+		"workEmployeeId":  principalScope.WorkEmployeeID,
+		"requestSource":   principalScope.RequestSource,
 		"tenantId":        user.TenantID,
 		"roleId":          access.RoleID,
 		"isSuperAdmin":    user.IsSuperAdmin,
@@ -1959,11 +1959,11 @@ func (h *WorkReadHandler) ContactTagGroupStore(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, _, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -1998,11 +1998,11 @@ func (h *WorkReadHandler) ContactTagGroupUpdate(w http.ResponseWriter, r *http.R
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, _, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -2050,11 +2050,11 @@ func (h *WorkReadHandler) ContactTagGroupDestroy(w http.ResponseWriter, r *http.
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, _, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -2094,11 +2094,11 @@ func (h *WorkReadHandler) ContactTagStore(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, _, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -2136,11 +2136,11 @@ func (h *WorkReadHandler) ContactTagUpdate(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, _, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -2200,11 +2200,11 @@ func (h *WorkReadHandler) ContactTagDestroy(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, _, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -2244,11 +2244,11 @@ func (h *WorkReadHandler) ContactTagMove(w http.ResponseWriter, r *http.Request)
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, _, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -2462,36 +2462,28 @@ func (h *WorkReadHandler) tagsByIDs(ctx context.Context, tagIDs []int) ([]WorkCo
 	return tags, nil
 }
 
-func (h *WorkReadHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *WorkReadHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
 func (h *WorkReadHandler) resolveSidebarAccess(w http.ResponseWriter, r *http.Request) (SidebarEmployee, bool) {
@@ -2516,20 +2508,20 @@ func (h *WorkReadHandler) resolveSidebarAccess(w http.ResponseWriter, r *http.Re
 	return employee, true
 }
 
-func (h *WorkReadHandler) authorize(ctx context.Context, r *http.Request, userID int, loginInfo LoginCorpInfo) error {
-	_, err := h.authorizeAccess(ctx, r, userID, loginInfo)
+func (h *WorkReadHandler) authorize(ctx context.Context, r *http.Request, userID int, principalScope DashboardRequestScope) error {
+	_, err := h.authorizeAccess(ctx, r, userID, principalScope)
 	return err
 }
 
-func (h *WorkReadHandler) authorizeAccess(ctx context.Context, r *http.Request, userID int, loginInfo LoginCorpInfo) (AccessContext, error) {
+func (h *WorkReadHandler) authorizeAccess(ctx context.Context, r *http.Request, userID int, principalScope DashboardRequestScope) (AccessContext, error) {
 	if h.authorizer == nil {
 		return AccessContext{DataPermission: DataPermissionAll}, nil
 	}
 	corpID := 0
-	if len(loginInfo.CorpIDs) > 0 {
-		corpID = loginInfo.CorpIDs[0]
+	if len(principalScope.CorpIDs) > 0 {
+		corpID = principalScope.CorpIDs[0]
 	}
-	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID)
+	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, principalScope.WorkEmployeeID)
 }
 
 func (h *WorkReadHandler) fileFullURL(path string) string {

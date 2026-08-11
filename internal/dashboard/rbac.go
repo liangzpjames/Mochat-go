@@ -189,9 +189,6 @@ func legacyAccessContextFromDashboard(dashboardAccess DashboardAccessContext, us
 		access.DataPermission = DataPermissionAll
 		access.DeptEmployeeIDs = []int{}
 	case DataScopeDepartment:
-		if len(dashboardAccess.AllowedEmployeeIDs) == 0 {
-			return AccessContext{}, ErrPermissionDenied
-		}
 		access.DataPermission = DataPermissionDepartment
 		access.DeptEmployeeIDs = append([]int(nil), dashboardAccess.AllowedEmployeeIDs...)
 	case DataScopeSelf:

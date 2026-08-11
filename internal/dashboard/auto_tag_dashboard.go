@@ -329,11 +329,11 @@ func (h *AutoTagHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/autoTag/index#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/autoTag/index#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -404,11 +404,11 @@ func (h *AutoTagHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/autoTag/show#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/autoTag/show#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -455,11 +455,11 @@ func (h *AutoTagHandler) KeyWordTag(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/Task/AutoTag/KeyWordTag#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/Task/AutoTag/KeyWordTag#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -496,11 +496,11 @@ func (h *AutoTagHandler) WorkMessageFromUsers(w http.ResponseWriter, r *http.Req
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/fromUsers#get")
+	_, _, _, access, ok := h.resolveAuthorized(w, r, "/dashboard/workMessage/fromUsers#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -521,16 +521,16 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, workMessageConversationPermissionKey)
+	_, _, principalScope, access, ok := h.resolveAuthorized(w, r, workMessageConversationPermissionKey)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	global := r.URL.Query().Get("view") == "global"
-	if global && !h.workMessageArchiveAllowed(w, r, user.TenantID, corpID) {
+	if global && !h.workMessageArchiveAllowed(w, r, principalScope.Principal.TenantID, corpID) {
 		return
 	}
 	filter := WorkMessageUserFilter{
@@ -583,16 +583,16 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, workMessageConversationPermissionKey)
+	_, _, principalScope, access, ok := h.resolveAuthorized(w, r, workMessageConversationPermissionKey)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	if r.URL.Path == "/dashboard/workMessage/detail" {
-		h.workMessageGlobalDetail(w, r, user.TenantID, corpID, access)
+		h.workMessageGlobalDetail(w, r, principalScope.Principal.TenantID, corpID, access)
 		return
 	}
 	page, err := h.store.WorkMessagePage(r.Context(), WorkMessageFilter{
@@ -958,11 +958,11 @@ func (h *AutoTagHandler) WorkMessageConfigCorpIndex(w http.ResponseWriter, r *ht
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessageConfig/corpIndex#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessageConfig/corpIndex#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -986,11 +986,11 @@ func (h *AutoTagHandler) WorkMessageConfigCorpShow(w http.ResponseWriter, r *htt
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessageConfig/corpShow#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessageConfig/corpShow#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -1033,11 +1033,11 @@ func (h *AutoTagHandler) WorkMessageConfigStepCreate(w http.ResponseWriter, r *h
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessageConfig/stepCreate#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/workMessageConfig/stepCreate#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -1069,11 +1069,11 @@ func (h *AutoTagHandler) showRecordPage(w http.ResponseWriter, r *http.Request, 
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, permissionKey)
+	_, _, _, _, ok := h.resolveAuthorized(w, r, permissionKey)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -1108,11 +1108,11 @@ func (h *AutoTagHandler) writeMutation(w http.ResponseWriter, r *http.Request, m
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, _, ok := h.resolveAuthorized(w, r, permissionKey)
+	userID, _, _, _, ok := h.resolveAuthorized(w, r, permissionKey)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -1136,21 +1136,21 @@ func (h *AutoTagHandler) writeMutation(w http.ResponseWriter, r *http.Request, m
 	writeEnvelope(w, http.StatusOK, 200, "success", data)
 }
 
-func (h *AutoTagHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, LoginCorpInfo, AccessContext, bool) {
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+func (h *AutoTagHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, DashboardRequestScope, AccessContext, bool) {
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	employeeID := loginInfo.WorkEmployeeID
+	employeeID := principalScope.WorkEmployeeID
 	if employeeID <= 0 {
 		resolved, err := h.store.EmployeeIDByUserCorp(r.Context(), userID, corpID)
 		if err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+			return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 		}
 		employeeID = resolved
 	}
@@ -1159,46 +1159,35 @@ func (h *AutoTagHandler) resolveAuthorized(w http.ResponseWriter, r *http.Reques
 		resolved, err := h.authorizer.Resolve(r.Context(), userID, permissionKey, corpID, employeeID)
 		if err != nil {
 			writeAccessError(w, err)
-			return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+			return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 		}
 		access = resolved
 	}
-	return userID, user, loginInfo, access, true
+	return userID, user, principalScope, access, true
 }
 
-func (h *AutoTagHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	if h.resolver == nil {
-		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "user resolver not configured", nil)
-		return 0, User{}, LoginCorpInfo{}, false
-	}
-	userID, err := h.resolver.UserID(r)
-	if err != nil || userID <= 0 {
+func (h *AutoTagHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	principal, err := DashboardPrincipalFromContext(r.Context())
+	if err != nil || principal.UserID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
+	userID := principal.UserID
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	if !found {
+	if !found || user.ID != principal.UserID {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, LoginCorpInfo(loginInfo), true
+	return userID, user, principalScope, true
 }
 
 func autoTagWriteFromParams(params map[string]any, corpID int, userID int) (AutoTagWrite, error) {

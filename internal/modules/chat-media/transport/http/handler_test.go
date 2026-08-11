@@ -91,7 +91,7 @@ func (s *fakeStore) SoftDelete(_ context.Context, id int64, deletedBy int64) err
 type fakeResolver struct{}
 
 func (fakeResolver) Resolve(*http.Request) (scrmhttp.Principal, error) {
-	return scrmhttp.Principal{UserID: 7, TenantID: 1}, nil
+	return scrmhttp.Principal{UserID: 7, TenantID: 1, CorpID: 2}, nil
 }
 
 type fakeAuthorizer struct{}

@@ -29,7 +29,7 @@ func TestRoomSOPInfoReturnsSidebarPayload(t *testing.T) {
 		infoFound: true,
 	}
 	handler := NewRoomSOPHandler(store, HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"}, "http://api.example.com")
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/roomSop/getSopInfo?id=55", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/roomSop/getSopInfo?id=55", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "7")
 	rec := httptest.NewRecorder()
 
@@ -69,7 +69,7 @@ func TestRoomSOPLogStateMarksDone(t *testing.T) {
 		markFound: true,
 	}
 	handler := NewRoomSOPHandler(store, HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"}, "")
-	req := httptest.NewRequest(http.MethodPut, "/sidebar/roomSop/logState", bytes.NewBufferString(`{"id":55}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/roomSop/logState", bytes.NewBufferString(`{"id":55}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-Employee-ID", "7")
 	rec := httptest.NewRecorder()

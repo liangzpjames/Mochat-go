@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +15,7 @@ func TestDashboardAccessHTTPRoutes(t *testing.T) {
 	store.users = DashboardAccessUserPage{List: []DashboardAccessUserSummary{{ID: 7}}, Page: DashboardAccessPage{Page: 1, PerPage: 20, Total: 1, TotalPage: 1}}
 	store.roles = DashboardAccessRolePage{List: []DashboardAccessRoleDetail{store.role}, Page: DashboardAccessPage{Page: 1, PerPage: 20, Total: 1, TotalPage: 1}}
 	store.audits = DashboardPermissionAuditPage{List: []DashboardPermissionAudit{{ID: 1}}, Page: DashboardAccessPage{Page: 1, PerPage: 20, Total: 1, TotalPage: 1}}
-	handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+	handler := NewDashboardAccessHTTP(service)
 	for _, test := range []struct {
 		name, method, path, body string
 		wantStatus               int
@@ -32,7 +33,7 @@ func TestDashboardAccessHTTPRoutes(t *testing.T) {
 		{name: "audits", method: http.MethodGet, path: "/dashboard/access/audits?page=1&perPage=20", wantStatus: http.StatusOK},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(test.method, test.path, bytes.NewBufferString(test.body))
+			request := dashboardAccessHTTPTestRequest(test.method, test.path, bytes.NewBufferString(test.body))
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
 			if response.Code != test.wantStatus {
@@ -49,13 +50,25 @@ func TestDashboardAccessHTTPRoutes(t *testing.T) {
 	}
 }
 
+func TestDashboardAccessHTTPUsesDashboardPrincipalInsteadOfLegacyResolver(t *testing.T) {
+	service, _ := newDashboardAccessAdminFixture()
+	request := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/access/catalog", nil, 1, 9, 12, 81)
+	request.Header.Set("X-Mochat-Go-User-ID", "2")
+	handler := NewDashboardAccessHTTP(service)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestDashboardAccessHTTPRejectsActorAndTenantFields(t *testing.T) {
 	service, _ := newDashboardAccessAdminFixture()
-	handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+	handler := NewDashboardAccessHTTP(service)
 	for _, field := range []string{"tenantId", "tenant_id", "operateId", "operateName", "actorUserId"} {
 		body := `{"name":"销售","status":1,"permissions":[],"` + field + `":99}`
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/dashboard/access/roles", bytes.NewBufferString(body)))
+		handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(http.MethodPost, "/dashboard/access/roles", bytes.NewBufferString(body)))
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("field=%s status=%d body=%s", field, response.Code, response.Body.String())
 		}
@@ -64,7 +77,7 @@ func TestDashboardAccessHTTPRejectsActorAndTenantFields(t *testing.T) {
 
 func TestDashboardAccessHTTPStrictlyDecodesEveryWriteShape(t *testing.T) {
 	service, _ := newDashboardAccessAdminFixture()
-	handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+	handler := NewDashboardAccessHTTP(service)
 	for _, test := range []struct{ method, path, body string }{
 		{http.MethodPut, "/dashboard/access/users/7", `{"expectedVersion":3,"tenantId":9}`},
 		{http.MethodPost, "/dashboard/access/roles", `{"name":"sales","status":1,"actorUserId":1}`},
@@ -73,7 +86,7 @@ func TestDashboardAccessHTTPStrictlyDecodesEveryWriteShape(t *testing.T) {
 		{http.MethodDelete, "/dashboard/access/roles/8", `{"expectedVersion":4,"operateId":1}`},
 	} {
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(test.method, test.path, bytes.NewBufferString(test.body)))
+		handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(test.method, test.path, bytes.NewBufferString(test.body)))
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("%s %s status=%d body=%s", test.method, test.path, response.Code, response.Body.String())
 		}
@@ -83,18 +96,18 @@ func TestDashboardAccessHTTPStrictlyDecodesEveryWriteShape(t *testing.T) {
 func TestDashboardAccessHTTPMapsPermissionNotFoundAndConflicts(t *testing.T) {
 	service, store := newDashboardAccessAdminFixture()
 	t.Run("ordinary management", func(t *testing.T) {
-		handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 2})
+		handler := NewDashboardAccessHTTP(service)
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard/access/catalog", nil))
+		handler.ServeHTTP(response, dashboardAccessHTTPTestRequestAs(http.MethodGet, "/dashboard/access/catalog", nil, 2))
 		if response.Code != http.StatusForbidden || machineCode(t, response) != DashboardPermissionDeniedCode {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
 	})
 	t.Run("cross tenant hidden", func(t *testing.T) {
 		store.userFound = false
-		handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+		handler := NewDashboardAccessHTTP(service)
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard/access/users/7", nil))
+		handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(http.MethodGet, "/dashboard/access/users/7", nil))
 		if response.Code != http.StatusNotFound {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
@@ -102,9 +115,9 @@ func TestDashboardAccessHTTPMapsPermissionNotFoundAndConflicts(t *testing.T) {
 	})
 	t.Run("cross tenant role hidden", func(t *testing.T) {
 		store.writeErr = ErrDashboardAccessAdminNotFound
-		handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+		handler := NewDashboardAccessHTTP(service)
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/dashboard/access/roles/8", bytes.NewBufferString(`{"name":"sales","expectedVersion":4}`)))
+		handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(http.MethodPut, "/dashboard/access/roles/8", bytes.NewBufferString(`{"name":"sales","expectedVersion":4}`)))
 		if response.Code != http.StatusNotFound {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
@@ -112,18 +125,18 @@ func TestDashboardAccessHTTPMapsPermissionNotFoundAndConflicts(t *testing.T) {
 	})
 	t.Run("version conflict", func(t *testing.T) {
 		store.writeErr = ErrDashboardAccessAdminConflict
-		handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+		handler := NewDashboardAccessHTTP(service)
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/dashboard/access/users/7", bytes.NewBufferString(`{"expectedVersion":3}`)))
+		handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(http.MethodPut, "/dashboard/access/users/7", bytes.NewBufferString(`{"expectedVersion":3}`)))
 		if response.Code != http.StatusConflict {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
 	})
 	t.Run("role has members", func(t *testing.T) {
 		store.writeErr = ErrDashboardAccessRoleHasMembers
-		handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+		handler := NewDashboardAccessHTTP(service)
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodDelete, "/dashboard/access/roles/8", bytes.NewBufferString(`{"expectedVersion":4}`)))
+		handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(http.MethodDelete, "/dashboard/access/roles/8", bytes.NewBufferString(`{"expectedVersion":4}`)))
 		if response.Code != http.StatusConflict {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
@@ -133,7 +146,7 @@ func TestDashboardAccessHTTPMapsPermissionNotFoundAndConflicts(t *testing.T) {
 func TestDashboardAccessHTTPStableUnauthorizedAndInternalErrors(t *testing.T) {
 	service, store := newDashboardAccessAdminFixture()
 	response := httptest.NewRecorder()
-	NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{err: ErrUnauthorized}).ServeHTTP(
+	NewDashboardAccessHTTP(service).ServeHTTP(
 		response,
 		httptest.NewRequest(http.MethodGet, "/dashboard/access/profile", nil),
 	)
@@ -143,9 +156,9 @@ func TestDashboardAccessHTTPStableUnauthorizedAndInternalErrors(t *testing.T) {
 
 	store.writeErr = errors.New("database unavailable")
 	response = httptest.NewRecorder()
-	NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1}).ServeHTTP(
+	NewDashboardAccessHTTP(service).ServeHTTP(
 		response,
-		httptest.NewRequest(http.MethodPut, "/dashboard/access/users/7", bytes.NewBufferString(`{"expectedVersion":3}`)),
+		dashboardAccessHTTPTestRequest(http.MethodPut, "/dashboard/access/users/7", bytes.NewBufferString(`{"expectedVersion":3}`)),
 	)
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
@@ -155,9 +168,9 @@ func TestDashboardAccessHTTPStableUnauthorizedAndInternalErrors(t *testing.T) {
 func TestDashboardAccessHTTPWriteResponsesExposeLatestVersionWithoutConflictOverwrite(t *testing.T) {
 	service, store := newDashboardAccessAdminFixture()
 	store.user.Version = 9
-	handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+	handler := NewDashboardAccessHTTP(service)
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/dashboard/access/users/7", bytes.NewBufferString(`{"expectedVersion":3}`)))
+	handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(http.MethodPut, "/dashboard/access/users/7", bytes.NewBufferString(`{"expectedVersion":3}`)))
 	var success struct {
 		Data struct {
 			Version uint64 `json:"version"`
@@ -169,7 +182,7 @@ func TestDashboardAccessHTTPWriteResponsesExposeLatestVersionWithoutConflictOver
 
 	store.writeErr = ErrDashboardAccessAdminConflict
 	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/dashboard/access/users/7", bytes.NewBufferString(`{"expectedVersion":3}`)))
+	handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(http.MethodPut, "/dashboard/access/users/7", bytes.NewBufferString(`{"expectedVersion":3}`)))
 	var conflict struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -180,13 +193,13 @@ func TestDashboardAccessHTTPWriteResponsesExposeLatestVersionWithoutConflictOver
 
 func TestDashboardAccessHTTPRejectsUnknownPathsMethodsAndBadIDs(t *testing.T) {
 	service, _ := newDashboardAccessAdminFixture()
-	handler := NewDashboardAccessHTTP(service, staticDashboardAccessGuardResolver{userID: 1})
+	handler := NewDashboardAccessHTTP(service)
 	for _, request := range []*http.Request{
-		httptest.NewRequest(http.MethodPost, "/dashboard/access/catalog", nil),
-		httptest.NewRequest(http.MethodGet, "/dashboard/access/profile/", nil),
-		httptest.NewRequest(http.MethodGet, "/dashboard/access/users/not-a-number", nil),
-		httptest.NewRequest(http.MethodGet, "/dashboard/access/users/7/extra", nil),
-		httptest.NewRequest(http.MethodGet, "/dashboard/access/unknown", nil),
+		dashboardAccessHTTPTestRequest(http.MethodPost, "/dashboard/access/catalog", nil),
+		dashboardAccessHTTPTestRequest(http.MethodGet, "/dashboard/access/profile/", nil),
+		dashboardAccessHTTPTestRequest(http.MethodGet, "/dashboard/access/users/not-a-number", nil),
+		dashboardAccessHTTPTestRequest(http.MethodGet, "/dashboard/access/users/7/extra", nil),
+		dashboardAccessHTTPTestRequest(http.MethodGet, "/dashboard/access/unknown", nil),
 	} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -194,6 +207,14 @@ func TestDashboardAccessHTTPRejectsUnknownPathsMethodsAndBadIDs(t *testing.T) {
 			t.Fatalf("%s %s status=%d body=%s", request.Method, request.URL.Path, response.Code, response.Body.String())
 		}
 	}
+}
+
+func dashboardAccessHTTPTestRequest(method, target string, body io.Reader) *http.Request {
+	return dashboardAccessHTTPTestRequestAs(method, target, body, 1)
+}
+
+func dashboardAccessHTTPTestRequestAs(method, target string, body io.Reader, userID int) *http.Request {
+	return authenticatedDashboardRequestForTestAs(method, target, body, userID, 9, 12, 81)
 }
 
 func TestRequireTenantSuperAdmin(t *testing.T) {

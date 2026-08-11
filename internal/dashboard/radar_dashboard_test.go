@@ -30,7 +30,7 @@ func TestRadarIndexReturnsLaravelPage(t *testing.T) {
 		},
 	}
 	handler := NewRadarHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/radar/index?page=2&perPage=1&type=1&title=官网", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/radar/index?page=2&perPage=1&type=1&title=官网", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -65,7 +65,7 @@ func TestRadarIndexReturnsLaravelPage(t *testing.T) {
 func TestRadarStorePreservesJSONFields(t *testing.T) {
 	store := &fakeRadarStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, createID: 88}
 	handler := NewRadarHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/radar/store", strings.NewReader(`{"type":3,"title":"文章雷达","link":"https://example.com/a","articleType":2,"article":{"content":"正文"},"employeeCard":1,"actionNotice":1,"dynamicNotice":1,"contactTags":[{"id":9,"name":"意向"}],"tagStatus":1,"contactGrade":[{"score":5}]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/radar/store", strings.NewReader(`{"type":3,"title":"文章雷达","link":"https://example.com/a","articleType":2,"article":{"content":"正文"},"employeeCard":1,"actionNotice":1,"dynamicNotice":1,"contactTags":[{"id":9,"name":"意向"}],"tagStatus":1,"contactGrade":[{"score":5}]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -100,7 +100,7 @@ func TestRadarStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewRadarHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/radar/store", strings.NewReader(`{"type":1,"title":"额度外雷达","link":"https://example.com/extra"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/radar/store", strings.NewReader(`{"type":1,"title":"额度外雷达","link":"https://example.com/extra"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -130,7 +130,7 @@ func TestRadarStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestRadarDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeRadarStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, deleteOK: true}
 	handler := NewRadarHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/radar/destroy", strings.NewReader(`{"radarId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/radar/destroy", strings.NewReader(`{"radarId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -161,7 +161,7 @@ func TestRadarStoreChannelLinkBuildsOperationURL(t *testing.T) {
 		},
 	}
 	handler := NewRadarHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/radar/storeChannelLink", strings.NewReader(`{"radar_id":31,"channel_id":9,"employeeId":99,"type":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/radar/storeChannelLink", strings.NewReader(`{"radar_id":31,"channel_id":9,"employeeId":99,"type":1}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

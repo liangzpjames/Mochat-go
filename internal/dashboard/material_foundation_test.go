@@ -14,7 +14,7 @@ func TestMaterialBatchDestroyRejectsReferencedMaterial(t *testing.T) {
 		references:      []MaterialReference{{SourceType: "greeting", SourceID: 8, SourceName: "新客欢迎语"}},
 	}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/medium/batchDestroy", strings.NewReader(`{"ids":[21]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/medium/batchDestroy", strings.NewReader(`{"ids":[21]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -31,7 +31,7 @@ func TestMaterialSelectorReturnsOnlyVisibleAvailableItems(t *testing.T) {
 		page:  MediumPage{Items: []MediumItem{{ID: 21, Type: 1, Content: map[string]any{"title": "问候", "content": "你好"}, ScopeType: "public", SidebarVisible: true, Status: "available"}}, Total: 1, PerPage: 20},
 	}}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/materialSelector/index?scene=chat&scopeType=public", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/materialSelector/index?scene=chat&scopeType=public", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -48,7 +48,7 @@ func TestMaterialSelectorUsesCurrentUserVisibleScopes(t *testing.T) {
 		page:  MediumPage{PerPage: 20},
 	}}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/materialSelector/index?scene=friends_circle&scopeType=personal&scopeId=999", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/materialSelector/index?scene=friends_circle&scopeType=personal&scopeId=999", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -65,7 +65,7 @@ func TestMaterialSelectorUsesCurrentUserVisibleScopes(t *testing.T) {
 func TestMaterialBatchMoveIsAtomicWithinCorp(t *testing.T) {
 	store := &fakeMaterialFoundationStore{fakeMediumStore: fakeMediumStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}}}
 	handler := NewMediumHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/medium/batchGroupUpdate", strings.NewReader(`{"ids":[21,22],"mediumGroupId":9}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/medium/batchGroupUpdate", strings.NewReader(`{"ids":[21,22],"mediumGroupId":9}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

@@ -54,13 +54,21 @@ func (h *AcceptanceHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Reque
 		return
 	}
 	principal, err := h.principal.Resolve(r)
-	if err != nil {
+	if err != nil || principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 {
 		nethttp.Error(w, "principal unauthorized", nethttp.StatusUnauthorized)
 		return
 	}
-	corpID, err := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)
-	if err != nil || corpID <= 0 {
-		nethttp.Error(w, "corpId required", nethttp.StatusBadRequest)
+	requestedCorpID := int64(0)
+	if raw := r.URL.Query().Get("corpId"); raw != "" {
+		requestedCorpID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || requestedCorpID <= 0 {
+			nethttp.Error(w, "invalid corpId", nethttp.StatusBadRequest)
+			return
+		}
+	}
+	corpID, err := principal.ResolveCorp(requestedCorpID)
+	if err != nil {
+		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
 		return
 	}
 	if h.authorizer != nil {

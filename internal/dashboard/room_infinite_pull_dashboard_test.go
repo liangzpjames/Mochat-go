@@ -20,7 +20,7 @@ func TestRoomInfinitePullStorePreservesQwCodeJSON(t *testing.T) {
 		"describe":"扫码入群",
 		"qwCode":[{"qrcode":"https://example.com/qrcode-a.png","upper_limit":200,"status":1}]
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomInfinitePull/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomInfinitePull/store", strings.NewReader(body))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -52,7 +52,7 @@ func TestRoomInfinitePullStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewRoomInfinitePullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomInfinitePull/store", strings.NewReader(`{"name":"额度外无限拉群"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomInfinitePull/store", strings.NewReader(`{"name":"额度外无限拉群"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -82,7 +82,7 @@ func TestRoomInfinitePullStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestRoomInfinitePullDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeRoomInfinitePullStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, deleteOK: true}
 	handler := NewRoomInfinitePullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/roomInfinitePull/destroy", strings.NewReader(`{"roomInfinitePullId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomInfinitePull/destroy", strings.NewReader(`{"roomInfinitePullId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -106,7 +106,7 @@ func TestRoomInfinitePullInfoBuildsLinkFromRequestHost(t *testing.T) {
 		item:      RoomInfinitePullItem{ID: 12, Name: "无限拉群A", QwCodeRaw: "[]"},
 	}
 	handler := NewRoomInfinitePullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomInfinitePull/info?id=12", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomInfinitePull/info?id=12", nil)
 	req.Host = "mochat.example.com"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")

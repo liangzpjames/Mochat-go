@@ -17,7 +17,7 @@ func TestChannelCodeGroupIndexReturnsPHPCompatibleGroups(t *testing.T) {
 	}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/channelCodeGroup/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/channelCodeGroup/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupIndex(rec, req)
@@ -48,7 +48,7 @@ func TestChannelCodeGroupDetailReturnsPHPCompatibleDetail(t *testing.T) {
 	}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/channelCodeGroup/detail?groupId=900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/channelCodeGroup/detail?groupId=900001", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupDetail(rec, req)
@@ -70,7 +70,7 @@ func TestChannelCodeGroupDetailRequiresGroupID(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/channelCodeGroup/detail", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/channelCodeGroup/detail", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupDetail(rec, req)
@@ -88,7 +88,7 @@ func TestChannelCodeGroupStoreCreatesGroups(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/channelCodeGroup/store", strings.NewReader(`{"name":["渠道A","渠道B"]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/channelCodeGroup/store", strings.NewReader(`{"name":["渠道A","渠道B"]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupStore(rec, req)
@@ -104,21 +104,16 @@ func TestChannelCodeGroupStoreCreatesGroups(t *testing.T) {
 	}
 }
 
-func TestChannelCodeGroupStoreRequiresSingleCorp(t *testing.T) {
+func TestChannelCodeGroupStoreRequiresDashboardPrincipal(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99,8-100"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/channelCodeGroup/store", strings.NewReader(`{"name":["渠道A"]}`))
-	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/channelCodeGroup/store", strings.NewReader(`{"name":["test"]}`))
 	rec := httptest.NewRecorder()
 	handler.GroupStore(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-	body := decodeBody(t, rec.Body.Bytes())
-	if body["msg"] != "请先选择企业" {
-		t.Fatalf("body = %#v", body)
 	}
 }
 
@@ -126,7 +121,7 @@ func TestChannelCodeGroupStoreRejectsDuplicateName(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}, nameExists: true}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/channelCodeGroup/store", strings.NewReader(`{"name":["渠道A"]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/channelCodeGroup/store", strings.NewReader(`{"name":["渠道A"]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupStore(rec, req)
@@ -144,7 +139,7 @@ func TestChannelCodeGroupUpdateRenamesGroup(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/channelCodeGroup/update", strings.NewReader(`{"groupId":900001,"name":"新渠道分组"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/channelCodeGroup/update", strings.NewReader(`{"groupId":900001,"name":"新渠道分组"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupUpdate(rec, req)
@@ -161,7 +156,7 @@ func TestChannelCodeGroupUpdateRejectsUngrouped(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/channelCodeGroup/update", strings.NewReader(`{"groupId":0,"name":"未分组"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/channelCodeGroup/update", strings.NewReader(`{"groupId":0,"name":"未分组"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupUpdate(rec, req)
@@ -179,7 +174,7 @@ func TestChannelCodeGroupMoveUpdatesChannelCodeGroup(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/channelCodeGroup/move", strings.NewReader(`{"channelCodeId":900003,"groupId":900001}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/channelCodeGroup/move", strings.NewReader(`{"channelCodeId":900003,"groupId":900001}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupMove(rec, req)
@@ -196,7 +191,7 @@ func TestChannelCodeGroupMoveRequiresGroupID(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChannelCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/channelCodeGroup/move", strings.NewReader(`{"channelCodeId":900003}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/channelCodeGroup/move", strings.NewReader(`{"channelCodeId":900003}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.GroupMove(rec, req)
@@ -225,7 +220,7 @@ func TestChannelCodeStoreCreatesCodeAndContactWay(t *testing.T) {
 		"drainageEmployee":{"type":1,"employees":[],"specialPeriod":{"status":1,"detail":[{"startDate":"2026-01-01","endDate":"2026-12-31","timeSlot":[{"startTime":"00:00","endTime":"00:00","employeeId":[21]}]}]},"addMax":{"status":2,"employees":[],"spareEmployeeIds":[]}},
 		"welcomeMessage":{"scanCodePush":2,"messageDetail":[]}
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/channelCode/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/channelCode/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -267,7 +262,7 @@ func TestChannelCodeStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		"drainageEmployee":{"type":1,"employees":[],"specialPeriod":{"status":1,"detail":[{"startDate":"2026-01-01","endDate":"2026-12-31","timeSlot":[{"startTime":"00:00","endTime":"00:00","employeeId":[21]}]}]},"addMax":{"status":2,"employees":[],"spareEmployeeIds":[]}},
 		"welcomeMessage":{"scanCodePush":2,"messageDetail":[]}
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/channelCode/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/channelCode/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -304,7 +299,7 @@ func TestChannelCodeUpdatePersistsAndUpdatesContactWay(t *testing.T) {
 		"drainageEmployee":{"type":1,"employees":[],"specialPeriod":{"status":1,"detail":[{"startDate":"2026-01-01","endDate":"2026-12-31","timeSlot":[{"startTime":"00:00","endTime":"00:00","employeeId":[21]}]}]},"addMax":{"status":2,"employees":[],"spareEmployeeIds":[]}},
 		"welcomeMessage":{"scanCodePush":2,"messageDetail":[]}
 	}`
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/channelCode/update", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/channelCode/update", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -345,7 +340,7 @@ func TestChannelCodeIndexReturnsPageAndAppliesDataPermission(t *testing.T) {
 	authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{RoleID: 8, DataPermission: DataPermissionDepartment, DeptEmployeeIDs: []int{99, 100}}}
 	handler := NewChannelCodeHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/channelCode/index?name=Go&type=1&groupId=900001&page=1&perPage=5", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/channelCode/index?name=Go&type=1&groupId=900001&page=1&perPage=5", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -396,7 +391,7 @@ func TestChannelCodeShowReturnsBaseDrainageAndWelcome(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewChannelCodeHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/channelCode/show?channelCodeId=900003", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/channelCode/show?channelCodeId=900003", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -435,7 +430,7 @@ func TestChannelCodeContactReturnsPHPCompatiblePage(t *testing.T) {
 	}
 	handler := NewChannelCodeHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/channelCode/contact?channelCodeId=900003", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/channelCode/contact?channelCodeId=900003", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Contact(rec, req)
@@ -463,7 +458,7 @@ func TestChannelCodeStatisticsReturnsRanges(t *testing.T) {
 	}
 	handler := NewChannelCodeHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/channelCode/statistics?channelCodeId=900003&type=1&startTime=2026-07-01&endTime=2026-07-03", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/channelCode/statistics?channelCodeId=900003&type=1&startTime=2026-07-01&endTime=2026-07-03", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Statistics(rec, req)
@@ -490,7 +485,7 @@ func TestChannelCodeStatisticsIndexPaginatesRows(t *testing.T) {
 	store := &fakeChannelCodeStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChannelCodeHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/channelCode/statisticsIndex?channelCodeId=900003&type=1&startTime=2026-07-01&endTime=2026-07-03&page=2&perPage=2", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/channelCode/statisticsIndex?channelCodeId=900003&type=1&startTime=2026-07-01&endTime=2026-07-03&page=2&perPage=2", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.StatisticsIndex(rec, req)

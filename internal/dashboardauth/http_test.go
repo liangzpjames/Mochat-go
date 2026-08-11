@@ -29,6 +29,21 @@ type dashboardHTTPTestPersistence struct {
 	passwordChangeCalls int
 }
 
+type dashboardHTTPTestPrincipalResolver struct {
+	persistence *dashboardHTTPTestPersistence
+	denied      bool
+}
+
+func (resolver dashboardHTTPTestPrincipalResolver) ResolveUser(_ context.Context, userID int, _ time.Time) (dashboardprincipal.DashboardPrincipal, error) {
+	if resolver.denied {
+		return dashboardprincipal.DashboardPrincipal{}, dashboardprincipal.ErrTenantAccessDenied
+	}
+	if resolver.persistence == nil || resolver.persistence.principal.UserID != userID {
+		return dashboardprincipal.DashboardPrincipal{}, dashboardprincipal.ErrPrincipalUnavailable
+	}
+	return resolver.persistence.principal, nil
+}
+
 func (p *dashboardHTTPTestPersistence) Authenticate(_ context.Context, loginIdentifier string) (DashboardIdentity, error) {
 	p.authenticateCalls++
 	if loginIdentifier != p.identity.LoginIdentifier {
@@ -103,15 +118,46 @@ func dashboardHTTPTestConfig(p *dashboardHTTPTestPersistence) HTTPConfig {
 		Prefix:   "dashboard_test_",
 	}
 	return HTTPConfig{
-		Service:     NewService(p),
-		Persistence: p,
-		Signer:      tokenConfig,
-		Parser:      authrealm.Parser{Config: tokenConfig, ValidateSession: p.CheckSessionToken},
-		MFAKey:      []byte("01234567890123456789012345678901"),
-		MFAKeyID:    "dashboard-test-mfa",
+		Service:           NewService(p),
+		Persistence:       p,
+		Signer:            tokenConfig,
+		Parser:            authrealm.Parser{Config: tokenConfig, ValidateSession: p.CheckSessionToken},
+		MFAKey:            []byte("01234567890123456789012345678901"),
+		MFAKeyID:          "dashboard-test-mfa",
+		PrincipalResolver: dashboardHTTPTestPrincipalResolver{persistence: p},
 		TenantGate: func(_ context.Context, tenantID int, _ time.Time) (TenantAccess, error) {
 			return TenantAccess{TenantID: tenantID, Allowed: true}, nil
 		},
+	}
+}
+
+func TestDashboardIdentityCompositionRequiresPrincipalResolver(t *testing.T) {
+	p := &dashboardHTTPTestPersistence{principal: dashboardprincipal.DashboardPrincipal{
+		UserID: 7, TenantID: 902, CorpID: 77,
+		CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 4,
+	}}
+	config := dashboardHTTPTestConfig(p)
+	config.PrincipalResolver = nil
+	if _, err := NewHTTPHandler(config); err == nil {
+		t.Fatal("HTTP handler accepted missing Dashboard principal resolver")
+	}
+	guard, err := NewRequestGuard(config.Parser, p, config.TenantGate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	token, err := authrealm.Sign(config.Signer, authrealm.Claims{UserID: 7, AuthVersion: 4}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/index", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	if guard.Authorize(response, request) {
+		t.Fatal("request guard authorized without Dashboard principal resolver")
+	}
+	if response.Code != http.StatusServiceUnavailable && response.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 
@@ -221,6 +267,7 @@ func TestDashboardRequestGuardKeepsResetRequestAuthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	guard.WithPrincipalResolver(config.PrincipalResolver)
 	noTokenRequest := httptest.NewRequest(http.MethodPost, "/dashboard/auth/password/reset-request", strings.NewReader(`{}`))
 	noTokenResponse := httptest.NewRecorder()
 	if guard.Authorize(noTokenResponse, noTokenRequest) || noTokenResponse.Code != http.StatusUnauthorized {
@@ -237,10 +284,12 @@ func TestDashboardRequestGuardKeepsResetRequestAuthenticated(t *testing.T) {
 	deniedConfig.TenantGate = func(_ context.Context, tenantID int, _ time.Time) (TenantAccess, error) {
 		return TenantAccess{TenantID: tenantID, Allowed: false}, nil
 	}
+	deniedConfig.PrincipalResolver = dashboardHTTPTestPrincipalResolver{persistence: p, denied: true}
 	deniedGuard, err := NewRequestGuard(deniedConfig.Parser, p, deniedConfig.TenantGate)
 	if err != nil {
 		t.Fatal(err)
 	}
+	deniedGuard.WithPrincipalResolver(deniedConfig.PrincipalResolver)
 	deniedRequest := httptest.NewRequest(http.MethodPost, "/dashboard/auth/password/reset-request", strings.NewReader(`{}`))
 	deniedRequest.Header.Set("Authorization", "Bearer "+token)
 	deniedResponse := httptest.NewRecorder()
@@ -298,6 +347,7 @@ func TestDashboardRequestGuardSeparatesPublicAndAuthenticatedIdentityRoutes(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	guard.WithPrincipalResolver(config.PrincipalResolver)
 
 	for _, route := range []struct {
 		method string
@@ -342,6 +392,7 @@ func TestDashboardRequestGuardUsesExplicitPublicDashboardContracts(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	guard.WithPrincipalResolver(config.PrincipalResolver)
 	guard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
 
 	for _, route := range []struct {
@@ -403,6 +454,7 @@ func TestDashboardRequestGuardLetsExactCallbacksReachServerHandlers(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	guard.WithPrincipalResolver(config.PrincipalResolver)
 	guard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(r.Method + " " + r.URL.Path))
@@ -523,6 +575,7 @@ func TestDashboardSuspendedBindingCannotIssueOrUseDashboardToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	guard.WithPrincipalResolver(config.PrincipalResolver)
 	token, err := authrealm.Sign(config.Signer, authrealm.Claims{UserID: 7, AuthVersion: 5, JWTID: "suspended-jti"}, time.Now())
 	if err != nil {
 		t.Fatal(err)

@@ -77,10 +77,15 @@ func (h *LeadHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
 		}
 		return
 	}
-	if !h.authorize(w, r, principal, request.CorpID, leadPermissionAdd) {
+	corpID, err := principal.ResolveCorp(request.CorpID)
+	if err != nil {
+		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
 		return
 	}
-	result, err := h.service.CreateLead(r.Context(), application.CreateLeadCommand{TenantID: principal.TenantID, CorpID: request.CorpID, BusinessKey: request.BusinessKey, Name: request.Name, Phone: request.Phone, Source: request.Source})
+	if !h.authorize(w, r, principal, corpID, leadPermissionAdd) {
+		return
+	}
+	result, err := h.service.CreateLead(r.Context(), application.CreateLeadCommand{TenantID: principal.TenantID, CorpID: corpID, BusinessKey: request.BusinessKey, Name: request.Name, Phone: request.Phone, Source: request.Source})
 	if err != nil {
 		writeApplicationError(w, err, nethttp.StatusUnprocessableEntity)
 		return
@@ -105,6 +110,11 @@ func (h *LeadHandler) List(w nethttp.ResponseWriter, r *nethttp.Request) {
 	query, err := parseListQuery(values, principal.TenantID)
 	if err != nil {
 		writeError(w, nethttp.StatusBadRequest, "invalid list query")
+		return
+	}
+	query.CorpID, err = principal.ResolveCorp(query.CorpID)
+	if err != nil {
+		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
 		return
 	}
 	if !h.authorize(w, r, principal, query.CorpID, leadPermissionView) {
@@ -142,14 +152,19 @@ func (h *LeadHandler) Assign(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusBadRequest, "invalid request JSON")
 		return
 	}
-	if !h.authorize(w, r, principal, request.CorpID, leadPermissionAssign) {
+	corpID, err := principal.ResolveCorp(request.CorpID)
+	if err != nil {
+		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
+		return
+	}
+	if !h.authorize(w, r, principal, corpID, leadPermissionAssign) {
 		return
 	}
 	if !principal.AllowsEmployee(request.OwnerID) {
 		writeError(w, nethttp.StatusForbidden, "employee is outside dashboard scope")
 		return
 	}
-	results, err := h.service.AssignLeads(r.Context(), application.AssignLeadsCommand{TenantID: principal.TenantID, CorpID: request.CorpID, OwnerID: request.OwnerID, Targets: request.Targets})
+	results, err := h.service.AssignLeads(r.Context(), application.AssignLeadsCommand{TenantID: principal.TenantID, CorpID: corpID, OwnerID: request.OwnerID, Targets: request.Targets})
 	if err != nil {
 		writeApplicationError(w, err, nethttp.StatusUnprocessableEntity)
 		return
@@ -177,10 +192,15 @@ func (h *LeadHandler) Transition(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusBadRequest, "invalid request JSON")
 		return
 	}
-	if !h.authorize(w, r, principal, request.CorpID, leadPermissionEdit) {
+	corpID, err := principal.ResolveCorp(request.CorpID)
+	if err != nil {
+		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
 		return
 	}
-	lead, err := h.service.TransitionLead(r.Context(), application.TransitionLeadCommand{TenantID: principal.TenantID, CorpID: request.CorpID, LeadID: request.ID, ToStatus: request.ToStatus, Version: request.Version, DiscardReason: request.DiscardReason})
+	if !h.authorize(w, r, principal, corpID, leadPermissionEdit) {
+		return
+	}
+	lead, err := h.service.TransitionLead(r.Context(), application.TransitionLeadCommand{TenantID: principal.TenantID, CorpID: corpID, LeadID: request.ID, ToStatus: request.ToStatus, Version: request.Version, DiscardReason: request.DiscardReason})
 	if err != nil {
 		writeApplicationError(w, err, nethttp.StatusUnprocessableEntity)
 		return
@@ -200,6 +220,11 @@ func (h *LeadHandler) Duplicates(w nethttp.ResponseWriter, r *nethttp.Request) {
 	corpID, err := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)
 	if err != nil || corpID <= 0 {
 		writeError(w, nethttp.StatusBadRequest, "invalid duplicate query")
+		return
+	}
+	corpID, err = principal.ResolveCorp(corpID)
+	if err != nil {
+		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
 		return
 	}
 	if !h.authorize(w, r, principal, corpID, leadPermissionView) {
@@ -243,7 +268,7 @@ func (h *LeadHandler) resolvePrincipal(w nethttp.ResponseWriter, r *nethttp.Requ
 		writeError(w, nethttp.StatusServiceUnavailable, "authentication service unavailable")
 		return Principal{}, false
 	}
-	if err != nil || principal.UserID <= 0 || principal.TenantID <= 0 {
+	if err != nil || principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 {
 		writeError(w, nethttp.StatusUnauthorized, "authentication required")
 		return Principal{}, false
 	}

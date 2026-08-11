@@ -32,7 +32,7 @@ func TestContactFieldIndexReturnsPagedFields(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactField/index?status=1&page=2&perPage=5", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactField/index?status=1&page=2&perPage=5", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -75,7 +75,7 @@ func TestContactFieldShowReturnsDetail(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactField/show?id=12", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactField/show?id=12", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -104,7 +104,7 @@ func TestContactFieldShowMissingReturnsPHPMessage(t *testing.T) {
 	store := &fakeContactFieldStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactField/show?id=404", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactField/show?id=404", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -138,7 +138,7 @@ func TestContactFieldPortraitReturnsPHPCompatibleOptions(t *testing.T) {
 	}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactField/portrait", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactField/portrait", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Portrait(rec, req)
@@ -183,7 +183,7 @@ func TestContactFieldPivotIndexReturnsValues(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactFieldPivot/index?contactId=55", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactFieldPivot/index?contactId=55", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.FieldPivotIndex(rec, req)
@@ -236,7 +236,7 @@ func TestSidebarContactFieldPivotIndexUsesEmployeeTokenWithoutRBAC(t *testing.T)
 	handler := NewContactFieldHandler(store, nil, HeaderUserIDResolver{}, authorizer, "http://api.example.com").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/contactFieldPivot/index?contactId=55", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/contactFieldPivot/index?contactId=55", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarFieldPivotIndex(rec, req)
@@ -274,7 +274,7 @@ func TestContactFieldPivotUpdateCreatesUpdatesAndTracks(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/contactFieldPivot/update", strings.NewReader(`{
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/contactFieldPivot/update", strings.NewReader(`{
 		"contactId":55,
 		"userPortrait":"[{\"contactFieldPivotId\":901,\"contactFieldId\":31,\"name\":\"备注\",\"type\":0,\"value\":\"新备注\"},{\"contactFieldPivotId\":\"\",\"contactFieldId\":32,\"name\":\"爱好\",\"type\":2,\"value\":[\"跑步\",\"读书\"]}]"
 	}`))
@@ -314,7 +314,7 @@ func TestSidebarContactFieldPivotUpdateUsesEmployeeContext(t *testing.T) {
 	handler := NewContactFieldHandler(store, nil, HeaderUserIDResolver{}, authorizer, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodPut, "/sidebar/contactFieldPivot/update", strings.NewReader(`{
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/contactFieldPivot/update", strings.NewReader(`{
 		"contactId":66,
 		"userPortrait":[{"contactFieldPivotId":902,"contactFieldId":33,"name":"城市","type":3,"value":"新城市"}]
 	}`))
@@ -345,7 +345,7 @@ func TestContactFieldStoreCreatesCustomField(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactField/store", strings.NewReader(`{"label":"城市","type":3,"options":["上海","杭州"],"order":8,"status":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactField/store", strings.NewReader(`{"label":"城市","type":3,"options":["上海","杭州"],"order":8,"status":1}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
@@ -371,7 +371,7 @@ func TestContactFieldUpdateKeepsSystemFieldDefinition(t *testing.T) {
 	}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/contactField/update", strings.NewReader(`{"id":2,"label":"城市","type":3,"options":["上海"],"order":9,"status":0}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/contactField/update", strings.NewReader(`{"id":2,"label":"城市","type":3,"options":["上海"],"order":9,"status":0}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Update(rec, req)
@@ -394,7 +394,7 @@ func TestContactFieldDestroyRejectsSystemField(t *testing.T) {
 	}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/contactField/destroy", strings.NewReader(`{"id":2}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/contactField/destroy", strings.NewReader(`{"id":2}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Destroy(rec, req)
@@ -418,7 +418,7 @@ func TestContactFieldBatchUpdateUsesTransactionPayload(t *testing.T) {
 	}
 	handler := NewContactFieldHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/contactField/batchUpdate", strings.NewReader(`{"update":[{"id":2,"label":"城市","type":3,"options":["北京"],"order":3,"status":1}],"destroy":[4,5]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/contactField/batchUpdate", strings.NewReader(`{"update":[{"id":2,"label":"城市","type":3,"options":["北京"],"order":3,"status":1}],"destroy":[4,5]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.BatchUpdate(rec, req)

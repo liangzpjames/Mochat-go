@@ -26,7 +26,7 @@ func TestRoomClockInShowContactKeepsZeroStatusFilters(t *testing.T) {
 		},
 	}
 	handler := NewRoomClockInHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomClockIn/showContact?clockInId=12&status=0&writeOff=0&page=1&perPage=15", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomClockIn/showContact?clockInId=12&status=0&writeOff=0&page=1&perPage=15", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -57,7 +57,7 @@ func TestRoomClockInStorePreservesNestedJSON(t *testing.T) {
 	body := `{
 		"clockIn":{"official_account_id":3,"active_name":"群打卡活动","description":"连续打卡说明","type":1,"end_time":"2026-08-01 12:00:00","tasks":[{"count":7,"prize":"优惠券"}],"employee_qrcode":"/upload/qr.png","contact_tags":[11,12],"corp_card_status":1,"corp_card":{"name":"极义"}}
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomClockIn/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomClockIn/store", strings.NewReader(body))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -89,7 +89,7 @@ func TestRoomClockInStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewRoomClockInHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomClockIn/store", strings.NewReader(`{"clockIn":{"active_name":"额度外群打卡"}}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomClockIn/store", strings.NewReader(`{"clockIn":{"active_name":"额度外群打卡"}}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -115,7 +115,7 @@ func TestRoomClockInStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestRoomClockInDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeRoomClockInStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, deleteOK: true}
 	handler := NewRoomClockInHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "")
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/roomClockIn/destroy", strings.NewReader(`{"clockInId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomClockIn/destroy", strings.NewReader(`{"clockInId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -37,7 +38,7 @@ func TestUserAdminIndexReturnsCountsRolesAndDepartments(t *testing.T) {
 	}
 	handler := NewUserAdminHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
 
-	rec := performRequest(handler.Index, "GET", "/dashboard/user/index?phone=138&page=1&perPage=10&status=1", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
+	rec := performAuthenticatedDashboardRequest(handler.Index, "GET", "/dashboard/user/index?phone=138&page=1&perPage=10&status=1", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
 	if rec.Code != 200 {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
@@ -70,7 +71,7 @@ func TestUserAdminStoreHashesPasswordAndSyncsRole(t *testing.T) {
 	handler := NewUserAdminHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
 
 	body := `{"userName":"李四","phone":"13900000000","gender":2,"status":1,"roleId":4,"password":"abc123","department":"5"}`
-	rec := performRequest(handler.Store, "POST", "/dashboard/user/store", strings.NewReader(body), map[string]string{
+	rec := performAuthenticatedDashboardRequest(handler.Store, "POST", "/dashboard/user/store", strings.NewReader(body), map[string]string{
 		"Content-Type":        "application/json",
 		"X-Mochat-Go-User-ID": "1",
 	})
@@ -96,7 +97,7 @@ func TestUserAdminStoreRejectsSaaSUserQuotaExceeded(t *testing.T) {
 	handler := NewUserAdminHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
 
 	body := `{"userName":"李四","phone":"13900000000","gender":2,"status":1,"roleId":4,"password":"abc123","department":"5"}`
-	rec := performRequest(handler.Store, "POST", "/dashboard/user/store", strings.NewReader(body), map[string]string{
+	rec := performAuthenticatedDashboardRequest(handler.Store, "POST", "/dashboard/user/store", strings.NewReader(body), map[string]string{
 		"Content-Type":        "application/json",
 		"X-Mochat-Go-User-ID": "1",
 	})
@@ -124,7 +125,7 @@ func TestUserAdminStoreRefreshesSaaSUserUsage(t *testing.T) {
 	handler := NewUserAdminHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
 
 	body := `{"userName":"李四","phone":"13900000000","gender":2,"status":1,"roleId":4,"password":"abc123","department":"5"}`
-	rec := performRequest(handler.Store, "POST", "/dashboard/user/store", strings.NewReader(body), map[string]string{
+	rec := performAuthenticatedDashboardRequest(handler.Store, "POST", "/dashboard/user/store", strings.NewReader(body), map[string]string{
 		"Content-Type":        "application/json",
 		"X-Mochat-Go-User-ID": "1",
 	})
@@ -143,7 +144,7 @@ func TestUserAdminStatusUpdateRejectsRepeatedStatus(t *testing.T) {
 	}
 	handler := NewUserAdminHandler(store, nil, HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
 
-	rec := performRequest(handler.StatusUpdate, "PUT", "/dashboard/user/statusUpdate", strings.NewReader(`{"userId":"2","status":1}`), map[string]string{
+	rec := performAuthenticatedDashboardRequest(handler.StatusUpdate, "PUT", "/dashboard/user/statusUpdate", strings.NewReader(`{"userId":"2","status":1}`), map[string]string{
 		"Content-Type":        "application/json",
 		"X-Mochat-Go-User-ID": "1",
 	})
@@ -171,7 +172,7 @@ func TestUserAdminPasswordUpdateChecksOldPassword(t *testing.T) {
 	}
 	handler := NewUserAdminHandler(store, nil, HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
 
-	rec := performRequest(handler.PasswordUpdate, "PUT", "/dashboard/user/passwordUpdate", strings.NewReader(`{"oldPassword":"old123","newPassword":"new456","againNewPassword":"new456"}`), map[string]string{
+	rec := performAuthenticatedDashboardRequest(handler.PasswordUpdate, "PUT", "/dashboard/user/passwordUpdate", strings.NewReader(`{"oldPassword":"old123","newPassword":"new456","againNewPassword":"new456"}`), map[string]string{
 		"Content-Type":        "application/json",
 		"X-Mochat-Go-User-ID": "1",
 	})
@@ -186,7 +187,10 @@ func TestUserAdminPasswordUpdateChecksOldPassword(t *testing.T) {
 func TestUserAdminRejectsOrdinaryUserBeforeManagementQueries(t *testing.T) {
 	store := &fakeUserAdminStore{users: map[int]User{2: {ID: 2, TenantID: 8}}}
 	handler := NewUserAdminHandler(store, nil, HeaderUserIDResolver{}, nil, "secret", nil, authjwt.Parser{}, 0)
-	response := performRequest(handler.Index, http.MethodGet, "/dashboard/user/index", nil, map[string]string{"X-Mochat-Go-User-ID": "2"})
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/user/index", nil, 2, 8, 7, 99)
+	req.Header.Set("X-Mochat-Go-User-ID", "2")
+	response := httptest.NewRecorder()
+	handler.Index(response, req)
 	if response.Code != http.StatusForbidden || machineCode(t, response) != DashboardPermissionDeniedCode {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}

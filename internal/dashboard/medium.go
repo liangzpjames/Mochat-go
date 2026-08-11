@@ -144,16 +144,16 @@ func (h *MediumHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	if h.authorizer != nil {
-		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/index#get", corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/index#get", corpID, principalScope.WorkEmployeeID); err != nil {
 			writeAccessError(w, err)
 			return
 		}
@@ -244,16 +244,16 @@ func (h *MediumHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	if h.authorizer != nil {
-		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/show#get", corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/show#get", corpID, principalScope.WorkEmployeeID); err != nil {
 			writeAccessError(w, err)
 			return
 		}
@@ -280,16 +280,16 @@ func (h *MediumHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	if h.authorizer != nil {
-		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/store#post", corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/store#post", corpID, principalScope.WorkEmployeeID); err != nil {
 			writeAccessError(w, err)
 			return
 		}
@@ -311,16 +311,16 @@ func (h *MediumHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	if h.authorizer != nil {
-		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/update#put", corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/update#put", corpID, principalScope.WorkEmployeeID); err != nil {
 			writeAccessError(w, err)
 			return
 		}
@@ -352,16 +352,16 @@ func (h *MediumHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	if h.authorizer != nil {
-		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/destroy#delete", corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/destroy#delete", corpID, principalScope.WorkEmployeeID); err != nil {
 			writeAccessError(w, err)
 			return
 		}
@@ -389,16 +389,16 @@ func (h *MediumHandler) GroupUpdate(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	if h.authorizer != nil {
-		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/groupUpdate#put", corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/medium/groupUpdate#put", corpID, principalScope.WorkEmployeeID); err != nil {
 			writeAccessError(w, err)
 			return
 		}
@@ -526,35 +526,28 @@ func (h *MediumHandler) mediumPayload(item MediumItem, list bool) map[string]any
 	return payload
 }
 
-func (h *MediumHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *MediumHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, LoginCorpInfo(loginInfo), true
+	return userID, user, DashboardRequestScope(principalScope), true
 }
 
 func (h *MediumHandler) sidebarCorpID(w http.ResponseWriter, r *http.Request) (int, bool) {

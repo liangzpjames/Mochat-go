@@ -20,7 +20,7 @@ func TestChatToolConfigReturnsAgentsToolsAndDomains(t *testing.T) {
 	}
 	handler := NewChatToolConfigHandler(store, staticChatToolCache("7-99"), HeaderUserIDResolver{}, "http://sidebar.example.com/", "http://api.example.com/")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/chatTool/config", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/chatTool/config", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -58,7 +58,7 @@ func TestChatToolConfigReturnsEmptyArrayWhenNoAgents(t *testing.T) {
 	store := &fakeChatToolStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChatToolConfigHandler(store, staticChatToolCache("7-99"), HeaderUserIDResolver{}, "http://sidebar.example.com", "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/chatTool/config", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/chatTool/config", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -72,21 +72,17 @@ func TestChatToolConfigReturnsEmptyArrayWhenNoAgents(t *testing.T) {
 	}
 }
 
-func TestChatToolConfigRejectsMissingLoginCorp(t *testing.T) {
+func TestChatToolConfigUsesPrincipalCorpWithoutLoginSelection(t *testing.T) {
 	store := &fakeChatToolStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewChatToolConfigHandler(store, staticChatToolCache(""), HeaderUserIDResolver{}, "http://sidebar.example.com", "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/chatTool/config", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/chatTool/config", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-	body := decodeBody(t, rec.Body.Bytes())
-	if body["msg"] != "未选择登录企业，不可操作" {
-		t.Fatalf("msg = %#v", body["msg"])
 	}
 }
 

@@ -130,6 +130,22 @@ function locationsFor(files, pattern, label = '') {
   return locations;
 }
 
+function principalCorpCompatibilityLocations(files) {
+  const evidence = [];
+  const forbidden = /\bprincipalCorpID\s*\([^\n)]*(?:\.\.\.|,)[^\n)]*\)/g;
+  for (const file of files) {
+    const source = stripComments(fs.readFileSync(file, 'utf8'), GO_EXT);
+    for (const match of source.matchAll(forbidden)) {
+      evidence.push({
+        file: file.replaceAll('\\', '/'),
+        line: lineAt(source, match.index),
+        match: match[0],
+      });
+    }
+  }
+  return evidence;
+}
+
 function productionGoFiles(root) {
   return walk(path.join(root, 'internal'), (file, name) => file.endsWith(GO_EXT) && !ignoredName(name))
     .concat(walk(path.join(root, 'cmd'), (file, name) => file.endsWith(GO_EXT) && !ignoredName(name)));
@@ -744,6 +760,13 @@ function plaintextSecretEvidence(files) {
   return evidence;
 }
 
+function isAllowedDashboardIdentityResolution(functionBody) {
+  if (functionBody.name !== 'ResolveIdentity') return false;
+  const body = functionBody.body;
+  if (!/\bmochat_go_dashboard_identities\b/i.test(body) || !/\bmc_user\b/i.test(body)) return false;
+  return !/\b(?:password|password_hash|phone|corp_id|login_identifier)\b/i.test(body);
+}
+
 function runIdentitySingleCorpGate(root = process.cwd()) {
   const goFiles = productionGoFiles(root);
   const routeFiles = productionRouteGoFiles(root);
@@ -756,6 +779,15 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
     ...frontendProductionFiles(root, 'dashboard'),
   ];
   const allProduction = [...new Set([...goFiles, ...frontend])];
+
+  const principalCorpCompatibility = principalCorpCompatibilityLocations(goFiles);
+  assertNo(principalCorpCompatibility, 'principalCorpID compatibility helper with variadic or extra arguments is forbidden');
+  const legacyModulePrincipalResolver = locationsFor(
+    routeFiles,
+    /\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?NewSCRMPrincipalResolver\s*\(/,
+    'legacy SCRM principal resolver',
+  );
+  assertNo(legacyModulePrincipalResolver, 'legacy SCRM principal resolver cannot be used by production composition');
 
   const saasIdentityTables = identityStoreQueryLocations(
     saasGo,
@@ -783,10 +815,10 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
   assertNo(saasSharedIdentity, 'SaaS identity/auth store must not read mc_user');
   const dashboardSharedIdentity = locationsFor(dashboardAuthGo, /\bmc_user\b/);
   for (const file of dashboardIdentityFiles) {
-    const source = stripComments(fs.readFileSync(file, 'utf8'), GO_EXT);
-    for (const functionBody of goFunctionBodies(file, source)) {
-      const match = functionBody.body.match(/\bmc_user\b/);
-      if (!match || functionBody.name === 'ResolvePrincipal') continue;
+      const source = stripComments(fs.readFileSync(file, 'utf8'), GO_EXT);
+      for (const functionBody of goFunctionBodies(file, source)) {
+        const match = functionBody.body.match(/\bmc_user\b/);
+      if (!match || isAllowedDashboardIdentityResolution(functionBody)) continue;
       dashboardSharedIdentity.push({
         file: functionBody.file,
         line: lineAt(source, functionBody.start + functionBody.body.indexOf(match[0])),
@@ -837,12 +869,38 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
     forbiddenCorpRoutes,
     forbiddenSessionCorpFields,
     plaintextSecretReads,
+    principalCorpCompatibility,
+    legacyModulePrincipalResolver,
   };
 }
 
-export { runIdentitySingleCorpGate };
+function formatIdentitySingleCorpGateEvidence(result) {
+  const lines = [];
+  for (const location of result.saasIdentityTables || []) {
+    lines.push(`SaaS identity Store query: ${location.symbol} source:${location.source}`);
+  }
+  for (const location of result.dashboardIdentityTables || []) {
+    lines.push(`Dashboard identity Store query: ${location.symbol} source:${location.source}`);
+  }
+  for (const route of result.saasPrincipalRoutes || []) {
+    lines.push(`SaaS principal route: ${route.method} ${route.route} -> handler ${route.handlerSymbol} source:${route.handlerSource} -> ${route.consumerSymbol} source:${route.consumerSource}`);
+  }
+  for (const route of result.dashboardPrincipalRoutes || []) {
+    lines.push(`Dashboard principal route: ${route.method} ${route.route} -> handler ${route.handlerSymbol} source:${route.handlerSource} -> ${route.consumerSymbol} source:${route.consumerSource}`);
+  }
+  for (const route of result.publicExactRoutes || []) {
+    lines.push(`public exact route: ${route.method} ${route.route} -> handler ${route.handlerSymbol} source:${route.handlerSource} -> ${route.consumerSymbol} source:${route.consumerSource}`);
+  }
+  for (const route of result.authenticatedExactRoutes || []) {
+    lines.push(`identity-auth exact route: ${route.method} ${route.route} -> handler ${route.handlerSymbol} source:${route.handlerSource} -> ${route.consumerSymbol} source:${route.consumerSource}`);
+  }
+  return lines.join('\n');
+}
+
+export { formatIdentitySingleCorpGateEvidence, runIdentitySingleCorpGate };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const result = runIdentitySingleCorpGate();
+  console.log(formatIdentitySingleCorpGateEvidence(result));
   console.log(`identity single-corp gate PASS: SaaS realm=${result.jwtRealms.saas_admin.length}, Dashboard realm=${result.jwtRealms.dashboard.length}, SaaS Store queries=${result.saasIdentityTables.length}, Dashboard Store queries=${result.dashboardIdentityTables.length}, SaaS principal routes=${result.saasPrincipalRoutes.length}, Dashboard principal routes=${result.dashboardPrincipalRoutes.length}, public exact routes=${result.publicExactRoutes.length}, identity-auth exact routes=${result.authenticatedExactRoutes.length}`);
 }

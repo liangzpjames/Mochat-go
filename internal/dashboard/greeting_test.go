@@ -25,7 +25,7 @@ func TestGreetingIndexAppliesDataPermissionAndReturnsState(t *testing.T) {
 	authz := &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionSelf, WorkEmployeeID: 31, DeptEmployeeIDs: []int{31}}}
 	handler := NewGreetingHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authz, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/greeting/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/greeting/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -53,7 +53,7 @@ func TestGreetingStoreNormalizesTypeAndEmployees(t *testing.T) {
 	authz := &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 31}}
 	handler := NewGreetingHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authz, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/greeting/store", strings.NewReader(`{"rangeType":2,"type":"1,2,1","employees":"31,32","words":"你好","mediumId":21}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/greeting/store", strings.NewReader(`{"rangeType":2,"type":"1,2,1","employees":"31,32","words":"你好","mediumId":21}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
@@ -74,7 +74,7 @@ func TestGreetingDestroyRejectsForeignCorp(t *testing.T) {
 	}
 	handler := NewGreetingHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/greeting/destroy", strings.NewReader(`{"greetingId":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/greeting/destroy", strings.NewReader(`{"greetingId":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Destroy(rec, req)

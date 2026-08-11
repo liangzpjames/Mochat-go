@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	nethttp "net/http"
 	"sort"
@@ -101,28 +100,33 @@ func NewOrderHandler(repo OrderRepository, deps ...any) *OrderHandler {
 	return h
 }
 func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
-	var p Principal
-	if h.principal != nil {
-		var err error
-		p, err = h.principal.Resolve(r)
-		if err != nil {
-			nethttp.Error(w, "principal unauthorized", 401)
-			return
-		}
-		if p.EmployeeScopeRestricted {
-			nethttp.Error(w, "order owner scope cannot be resolved", nethttp.StatusForbidden)
+	if h == nil || h.principal == nil {
+		nethttp.Error(w, "principal unauthorized", nethttp.StatusUnauthorized)
+		return
+	}
+	p, err := h.principal.Resolve(r)
+	if err != nil || p.UserID <= 0 || p.TenantID <= 0 || p.CorpID <= 0 {
+		nethttp.Error(w, "principal unauthorized", nethttp.StatusUnauthorized)
+		return
+	}
+	if p.EmployeeScopeRestricted {
+		nethttp.Error(w, "order owner scope cannot be resolved", nethttp.StatusForbidden)
+		return
+	}
+	requestedCorpID := int64(0)
+	if v := r.URL.Query().Get("corpId"); v != "" {
+		requestedCorpID, err = strconv.ParseInt(v, 10, 64)
+		if err != nil || requestedCorpID <= 0 {
+			nethttp.Error(w, "invalid corpId", nethttp.StatusBadRequest)
 			return
 		}
 	}
-	corpID := int64(0)
-	if v := r.URL.Query().Get("corpId"); v != "" {
-		_, _ = fmt.Sscan(v, &corpID)
+	corpID, err := p.ResolveCorp(requestedCorpID)
+	if err != nil {
+		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
+		return
 	}
 	if r.Method == nethttp.MethodGet {
-		if corpID <= 0 {
-			nethttp.Error(w, "corpId required", 400)
-			return
-		}
 		if h.authorizer != nil {
 			if err := h.authorizer.Authorize(r.Context(), p, corpID, "/scrm/orders#get"); err != nil {
 				nethttp.Error(w, "forbidden", 403)
@@ -210,8 +214,10 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if p.TenantID > 0 {
 		in.TenantID = p.TenantID
 	}
-	if in.CorpID <= 0 {
-		in.CorpID = corpID
+	in.CorpID, err = p.ResolveCorp(in.CorpID)
+	if err != nil {
+		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
+		return
 	}
 	if h.authorizer != nil {
 		if err := h.authorizer.Authorize(r.Context(), p, in.CorpID, "/scrm/orders@add#post"); err != nil {
@@ -255,8 +261,9 @@ func (h *OrderHandler) transition(w nethttp.ResponseWriter, r *nethttp.Request, 
 		nethttp.Error(w, "invalid json", 400)
 		return
 	}
-	if corp <= 0 {
-		nethttp.Error(w, "corpId required", 400)
+	corp, err := p.ResolveCorp(corp)
+	if err != nil {
+		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
 		return
 	}
 	if h.authorizer != nil {
@@ -266,7 +273,6 @@ func (h *OrderHandler) transition(w nethttp.ResponseWriter, r *nethttp.Request, 
 		}
 	}
 	var o domain.Order
-	var err error
 	if cr, ok := h.repo.(orderContextRepository); ok {
 		o, err = cr.TransitionContext(r.Context(), id, p.TenantID, corp, in.Status, in.Version, p.UserID)
 	} else {

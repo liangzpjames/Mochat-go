@@ -30,7 +30,7 @@ func TestRoomWelcomeIndexFiltersCreatorAndReturnsFullPicture(t *testing.T) {
 	}
 	handler := NewRoomWelcomeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, "http://api.example.com", t.TempDir(), nil)
 
-	rec := performRequest(handler.Index, "GET", "/dashboard/roomWelcome/index?text=%E6%AC%A2", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
+	rec := performAuthenticatedDashboardRequest(handler.Index, "GET", "/dashboard/roomWelcome/index?text=%E6%AC%A2", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
 	if rec.Code != 200 {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
@@ -58,7 +58,7 @@ func TestRoomWelcomeStoreCreatesWeComTemplateAndLocalRecord(t *testing.T) {
 	handler := NewRoomWelcomeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", t.TempDir(), client)
 
 	body := `{"msg_text":"你好[用户昵称]","notice":1,"msg_complex":{"type":"link","link":{"title":"官网","desc":"介绍","url":"https://example.com"}}}`
-	rec := performRequest(handler.Store, "POST", "/dashboard/roomWelcome/store", strings.NewReader(body), map[string]string{
+	rec := performAuthenticatedDashboardRequest(handler.Store, "POST", "/dashboard/roomWelcome/store", strings.NewReader(body), map[string]string{
 		"Content-Type":        "application/json",
 		"X-Mochat-Go-User-ID": "1",
 	})
@@ -86,7 +86,7 @@ func TestRoomWelcomeDestroyDeletesWeComTemplateThenLocalRecord(t *testing.T) {
 	client := &fakeRoomWelcomeTemplateClient{}
 	handler := NewRoomWelcomeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", t.TempDir(), client)
 
-	rec := performRequest(handler.Destroy, "DELETE", "/dashboard/roomWelcome/destroy", strings.NewReader(`{"id":11}`), map[string]string{
+	rec := performAuthenticatedDashboardRequest(handler.Destroy, "DELETE", "/dashboard/roomWelcome/destroy", strings.NewReader(`{"id":11}`), map[string]string{
 		"Content-Type":        "application/json",
 		"X-Mochat-Go-User-ID": "1",
 	})
@@ -98,8 +98,8 @@ func TestRoomWelcomeDestroyDeletesWeComTemplateThenLocalRecord(t *testing.T) {
 	}
 }
 
-func performRequest(handler http.HandlerFunc, method string, target string, body io.Reader, headers map[string]string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, body)
+func performAuthenticatedDashboardRequest(handler http.HandlerFunc, method string, target string, body io.Reader, headers map[string]string) *httptest.ResponseRecorder {
+	req := authenticatedDashboardRequestForTest(method, target, body)
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}

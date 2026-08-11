@@ -15,11 +15,11 @@ func (h *WorkReadHandler) WorkContactBatchLabeling(w http.ResponseWriter, r *htt
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.resolveAccess(w, r)
+	_, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if loginInfo.WorkEmployeeID <= 0 {
+	if principalScope.WorkEmployeeID <= 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
@@ -36,7 +36,7 @@ func (h *WorkReadHandler) WorkContactBatchLabeling(w http.ResponseWriter, r *htt
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "标签id必传", nil)
 		return
 	}
-	if _, err := h.store.BatchLabelWorkContacts(r.Context(), values.ContactIDs, values.TagIDs, loginInfo.WorkEmployeeID); err != nil {
+	if _, err := h.store.BatchLabelWorkContacts(r.Context(), values.ContactIDs, values.TagIDs, principalScope.WorkEmployeeID); err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "批量打标签失败", nil)
 		return
 	}

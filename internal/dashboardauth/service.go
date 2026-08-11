@@ -7,7 +7,6 @@ import (
 
 	"jiyi/mochat-go/internal/authpassword"
 	"jiyi/mochat-go/internal/authrealm"
-	"jiyi/mochat-go/internal/dashboardprincipal"
 	"time"
 )
 
@@ -70,7 +69,6 @@ type DashboardMFAChallenge struct {
 // checks; production authentication requires this complete extension.
 type DashboardAuthPersistence interface {
 	DashboardIdentityStore
-	ResolvePrincipal(ctx context.Context, userID int) (dashboardprincipal.DashboardPrincipal, error)
 	MFAStatus(ctx context.Context, userID int) (int, error)
 	BeginMFAEnrollment(ctx context.Context, userID int, authVersion uint64, tokenDigest [32]byte, expiresAt time.Time, secretCiphertext, keyID string) error
 	CreateMFAChallenge(ctx context.Context, userID int, authVersion uint64, challengeType string, tokenDigest [32]byte, expiresAt time.Time) error

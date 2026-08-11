@@ -16,7 +16,7 @@ func TestWorkEmployeeSearchConditionReturnsEnumsAndSyncTime(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workEmployee/searchCondition", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workEmployee/searchCondition", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.SearchCondition(rec, req)
@@ -53,7 +53,7 @@ func TestWorkEmployeeSearchConditionIgnoresCrossTenantCachedCorp(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("8-0"), HeaderUserIDResolver{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workEmployee/searchCondition", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workEmployee/searchCondition", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.SearchCondition(rec, req)
@@ -79,7 +79,7 @@ func TestWorkDepartmentIndexReturnsTreeAndEmployees(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com/")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workDepartment/index?searchKeyWords=销售", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workDepartment/index?searchKeyWords=销售", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.DepartmentIndex(rec, req)
@@ -110,21 +110,16 @@ func TestWorkDepartmentIndexReturnsTreeAndEmployees(t *testing.T) {
 	}
 }
 
-func TestWorkDepartmentIndexRequiresSelectedCorp(t *testing.T) {
+func TestWorkDepartmentIndexRequiresDashboardPrincipal(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandler(store, staticAdminCache(""), HeaderUserIDResolver{}, "http://api.example.com")
 
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/workDepartment/index", nil)
-	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.DepartmentIndex(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-	body := decodeBody(t, rec.Body.Bytes())
-	if body["msg"] != "请先选择企业" {
-		t.Fatalf("msg = %#v", body["msg"])
 	}
 }
 
@@ -138,7 +133,7 @@ func TestWorkEmployeeDepartmentMemberIndexReturnsMembers(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workEmployeeDepartment/memberIndex?departmentIds=10,11,10,abc", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workEmployeeDepartment/memberIndex?departmentIds=10,11,10,abc", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.MemberIndex(rec, req)
@@ -162,7 +157,7 @@ func TestWorkEmployeeDepartmentMemberIndexRequiresDepartmentIDs(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workEmployeeDepartment/memberIndex", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workEmployeeDepartment/memberIndex", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.MemberIndex(rec, req)
@@ -185,7 +180,7 @@ func TestWorkDepartmentSelectByPhoneReturnsDepartments(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workDepartment/selectByPhone?phone=13800000000&type=2", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workDepartment/selectByPhone?phone=13800000000&type=2", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.SelectByPhone(rec, req)
@@ -209,7 +204,7 @@ func TestWorkDepartmentSelectByPhoneValidatesPhone(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workDepartment/selectByPhone?phone=138&type=1", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workDepartment/selectByPhone?phone=138&type=1", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.SelectByPhone(rec, req)
@@ -234,7 +229,7 @@ func TestWorkDepartmentPageIndexReturnsTreeWithAuthorization(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workDepartment/pageIndex?page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workDepartment/pageIndex?page=1&perPage=10", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.DepartmentPageIndex(rec, req)
@@ -298,7 +293,7 @@ func TestWorkDepartmentShowEmployeeReturnsPagedEmployees(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workDepartment/showEmployee?departmentId=10&page=1&perPage=20", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workDepartment/showEmployee?departmentId=10&page=1&perPage=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.DepartmentShowEmployee(rec, req)
@@ -355,7 +350,7 @@ func TestWorkEmployeeIndexReturnsPagedEmployees(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workEmployee/index?status=1&contactAuth=2&page=1&perPage=20", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workEmployee/index?status=1&contactAuth=2&page=1&perPage=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkEmployeeIndex(rec, req)
@@ -395,7 +390,7 @@ func TestWorkEmployeeIndexAppliesDataPermission(t *testing.T) {
 	}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workEmployee/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workEmployee/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkEmployeeIndex(rec, req)
@@ -423,7 +418,7 @@ func TestWorkEmployeeIndexRejectsInvalidQuery(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := authenticatedDashboardRequestForTest(http.MethodGet, tt.path, nil)
 			req.Header.Set("X-Mochat-Go-User-ID", "1")
 			rec := httptest.NewRecorder()
 			handler.WorkEmployeeIndex(rec, req)
@@ -448,7 +443,7 @@ func TestContactTagGroupIndexReturnsGroups(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactTagGroup/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactTagGroup/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagGroupIndex(rec, req)
@@ -481,7 +476,7 @@ func TestSidebarContactTagGroupIndexUsesEmployeeCorp(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workContactTagGroup/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContactTagGroup/index", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarContactTagGroupIndex(rec, req)
@@ -515,7 +510,7 @@ func TestContactTagGroupDetailReturnsGroup(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactTagGroup/detail?groupId=11", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactTagGroup/detail?groupId=11", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagGroupDetail(rec, req)
@@ -537,7 +532,7 @@ func TestContactTagGroupDetailRequiresGroupID(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactTagGroup/detail", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactTagGroup/detail", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagGroupDetail(rec, req)
@@ -555,7 +550,7 @@ func TestContactTagGroupStoreCreatesGroup(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workContactTagGroup/store", strings.NewReader(`{"groupName":"重点客户"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workContactTagGroup/store", strings.NewReader(`{"groupName":"重点客户"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagGroupStore(rec, req)
@@ -579,7 +574,7 @@ func TestContactTagGroupDestroyCascades(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/workContactTagGroup/destroy", strings.NewReader(`{"groupId":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/workContactTagGroup/destroy", strings.NewReader(`{"groupId":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagGroupDestroy(rec, req)
@@ -605,7 +600,7 @@ func TestContactTagIndexReturnsPagedTags(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactTag/index?groupId=11&page=1&perPage=5", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactTag/index?groupId=11&page=1&perPage=5", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagIndex(rec, req)
@@ -639,7 +634,7 @@ func TestContactTagDetailReturnsTag(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactTag/detail?tagId=21", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactTag/detail?tagId=21", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagDetail(rec, req)
@@ -661,7 +656,7 @@ func TestContactTagDetailRequiresTagID(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactTag/detail", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactTag/detail", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagDetail(rec, req)
@@ -691,7 +686,7 @@ func TestContactTagListReturnsGroupsWithTags(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactTag/contactTagList?name=高", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactTag/contactTagList?name=高", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagList(rec, req)
@@ -724,7 +719,7 @@ func TestContactTagAllReturnsTags(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactTag/allTag?groupId=11", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactTag/allTag?groupId=11", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagAll(rec, req)
@@ -747,7 +742,7 @@ func TestContactTagStoreCreatesMultipleTags(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workContactTag/store", strings.NewReader(`{"groupId":11,"tagName":["高意向","复购"]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workContactTag/store", strings.NewReader(`{"groupId":11,"tagName":["高意向","复购"]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagStore(rec, req)
@@ -781,7 +776,7 @@ func TestContactTagStoreSyncsRemoteCorpTags(t *testing.T) {
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "").
 		WithWorkContactTagWriteClient(client)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workContactTag/store", strings.NewReader(`{"groupId":11,"tagName":["高意向","复购"]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workContactTag/store", strings.NewReader(`{"groupId":11,"tagName":["高意向","复购"]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagStore(rec, req)
@@ -812,7 +807,7 @@ func TestContactTagUpdateSyncsRemoteRename(t *testing.T) {
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "").
 		WithWorkContactTagWriteClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContactTag/update", strings.NewReader(`{"tagId":21,"groupId":11,"tagName":"高意向Plus","isUpdate":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workContactTag/update", strings.NewReader(`{"tagId":21,"groupId":11,"tagName":"高意向Plus","isUpdate":1}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagUpdate(rec, req)
@@ -845,7 +840,7 @@ func TestContactTagMoveSyncsRemoteDeleteAndAdd(t *testing.T) {
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "").
 		WithWorkContactTagWriteClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContactTag/move", strings.NewReader(`{"tagId":"21","groupId":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workContactTag/move", strings.NewReader(`{"tagId":"21","groupId":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagMove(rec, req)
@@ -876,7 +871,7 @@ func TestContactTagGroupDestroySyncsRemoteGroupDelete(t *testing.T) {
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "").
 		WithWorkContactTagWriteClient(client)
 
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/workContactTagGroup/destroy", strings.NewReader(`{"groupId":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/workContactTagGroup/destroy", strings.NewReader(`{"groupId":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagGroupDestroy(rec, req)
@@ -898,7 +893,7 @@ func TestContactTagMoveRejectsDuplicateName(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContactTag/move", strings.NewReader(`{"tagId":"21","groupId":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workContactTag/move", strings.NewReader(`{"tagId":"21","groupId":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagMove(rec, req)
@@ -928,7 +923,7 @@ func TestSidebarContactTagAllUsesEmployeeCorp(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workContactTag/allTag?groupId=11", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContactTag/allTag?groupId=11", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarContactTagAll(rec, req)
@@ -964,7 +959,7 @@ func TestSidebarWorkContactDetailReturnsContact(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "http://api.example.com").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workContact/detail?wxExternalUserid=external-user-900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/detail?wxExternalUserid=external-user-900001", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkContactDetail(rec, req)
@@ -992,7 +987,7 @@ func TestSidebarWorkContactDetailRequiresExternalUserID(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workContact/detail", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/detail", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkContactDetail(rec, req)
@@ -1031,7 +1026,7 @@ func TestSidebarWorkContactShowReturnsBasicInfo(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "http://api.example.com").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workContact/show?contactId=900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/show?contactId=900001", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkContactShow(rec, req)
@@ -1077,7 +1072,7 @@ func TestSidebarWorkContactShowRequiresContactID(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workContact/show", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/show", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkContactShow(rec, req)
@@ -1116,7 +1111,7 @@ func TestWorkContactShowReturnsBasicInfoWithAuthorization(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/show?contactId=900001&employeeId=1", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContact/show?contactId=900001&employeeId=1", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactShow(rec, req)
@@ -1147,7 +1142,7 @@ func TestWorkContactShowRequiresEmployeeID(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/show?contactId=900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContact/show?contactId=900001", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactShow(rec, req)
@@ -1196,7 +1191,7 @@ func TestWorkContactIndexReturnsPHPCompatiblePage(t *testing.T) {
 	authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{RoleID: 8, DataPermission: DataPermissionAll}}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/index?keyWords=Go&remark=%E8%BF%81%E7%A7%BB&fieldId=900001&fieldValue=A&gender=1&addWay=1&roomId=900001&groupNum=1&employeeId=99&startTime=2026-07-01&endTime=2026-07-03&businessNo=GO-900001&page=1&perPage=20", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContact/index?keyWords=Go&remark=%E8%BF%81%E7%A7%BB&fieldId=900001&fieldValue=A&gender=1&addWay=1&roomId=900001&groupNum=1&employeeId=99&startTime=2026-07-01&endTime=2026-07-03&businessNo=GO-900001&page=1&perPage=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactIndex(rec, req)
@@ -1262,7 +1257,7 @@ func TestWorkContactIndexAppliesDepartmentDataPermission(t *testing.T) {
 	}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/index?employeeId=10,30", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContact/index?employeeId=10,30", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactIndex(rec, req)
@@ -1301,7 +1296,7 @@ func TestWorkContactLossReturnsPHPCompatiblePage(t *testing.T) {
 	authorizer := &recordingAuthorizer{accessSet: true, access: AccessContext{RoleID: 8, DataPermission: DataPermissionAll}}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/lossContact?employeeId=99&page=1&perPage=20", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContact/lossContact?employeeId=99&page=1&perPage=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactLoss(rec, req)
@@ -1357,7 +1352,7 @@ func TestWorkContactLossAppliesDepartmentDataPermission(t *testing.T) {
 	}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/lossContact?employeeId=10,30", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContact/lossContact?employeeId=10,30", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactLoss(rec, req)
@@ -1403,7 +1398,7 @@ func TestWorkContactRoomIndexReturnsMembersWithAuthorization(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "http://api.example.com", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactRoom/index?workRoomId=900001&status=1&name=Go&page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactRoom/index?workRoomId=900001&status=1&name=Go&page=1&perPage=10", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactRoomIndex(rec, req)
@@ -1449,7 +1444,7 @@ func TestWorkContactRoomIndexIgnoresZeroStatus(t *testing.T) {
 	}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContactRoom/index?workRoomId=900001&status=0", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContactRoom/index?workRoomId=900001&status=0", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactRoomIndex(rec, req)
@@ -1475,7 +1470,7 @@ func TestWorkRoomRoomIndexReturnsOptions(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoom/roomIndex?name=Go&roomGroupId=9", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoom/roomIndex?name=Go&roomGroupId=9", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomRoomIndex(rec, req)
@@ -1524,7 +1519,7 @@ func TestWorkRoomIndexReturnsPHPCompatibleList(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoom/index?workRoomName=Go&workRoomOwnerId=99&roomGroupId=0&workRoomStatus=0&startTime=2026-07-01&endTime=2026-07-03&page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoom/index?workRoomName=Go&workRoomOwnerId=99&roomGroupId=0&workRoomStatus=0&startTime=2026-07-01&endTime=2026-07-03&page=1&perPage=10", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomIndex(rec, req)
@@ -1578,7 +1573,7 @@ func TestWorkRoomIndexAppliesDataPermissionToOwners(t *testing.T) {
 	}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoom/index?workRoomOwnerId=10,30", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoom/index?workRoomOwnerId=10,30", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomIndex(rec, req)
@@ -1600,7 +1595,7 @@ func TestSidebarWorkRoomManageReturnsEmptyWhenRoomExists(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workRoom/roomManage?roomId=go-room-900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workRoom/roomManage?roomId=go-room-900001", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkRoomManage(rec, req)
@@ -1624,7 +1619,7 @@ func TestSidebarWorkRoomManageRequiresRoomID(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workRoom/roomManage", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workRoom/roomManage", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkRoomManage(rec, req)
@@ -1645,7 +1640,7 @@ func TestSidebarWorkRoomManageRejectsMissingRoom(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workRoom/roomManage?roomId=missing-room", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workRoom/roomManage?roomId=missing-room", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkRoomManage(rec, req)
@@ -1676,7 +1671,7 @@ func TestWorkRoomStatisticsReturnsPHPCompatibleSummary(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoom/statistics?workRoomId=900001&type=1&startTime="+twoDaysText+"&endTime="+todayText, nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoom/statistics?workRoomId=900001&type=1&startTime="+twoDaysText+"&endTime="+todayText, nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomStatistics(rec, req)
@@ -1725,7 +1720,7 @@ func TestWorkRoomStatisticsIndexReturnsCumulativePage(t *testing.T) {
 	}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoom/statisticsIndex?workRoomId=900001&type=1&startTime="+twoDaysText+"&endTime="+todayText+"&page=1&perPage=2", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoom/statisticsIndex?workRoomId=900001&type=1&startTime="+twoDaysText+"&endTime="+todayText+"&page=1&perPage=2", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomStatisticsIndex(rec, req)
@@ -1757,7 +1752,7 @@ func TestWorkRoomStatisticsRequiresDayRange(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoom/statistics?workRoomId=900001&type=1", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoom/statistics?workRoomId=900001&type=1", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkRoomStatistics(rec, req)
@@ -1781,7 +1776,7 @@ func TestSidebarWorkContactTrackReturnsTracks(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workContact/track?contactId=900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/track?contactId=900001", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkContactTrack(rec, req)
@@ -1813,7 +1808,7 @@ func TestWorkContactTrackReturnsTracksWithAuthorization(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "", authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/track?contactId=900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContact/track?contactId=900001", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactTrack(rec, req)
@@ -1841,7 +1836,7 @@ func TestWorkContactSourceReturnsPHPAddWayEnum(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/source", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workContact/source", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactSource(rec, req)
@@ -1879,7 +1874,7 @@ func TestSidebarContactProcessStatusIndexReturnsExistingStatuses(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/contactProcessStatus/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/contactProcessStatus/index", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarContactProcessStatusIndex(rec, req)
@@ -1905,7 +1900,7 @@ func TestSidebarContactProcessStatusIndexCreatesDefaultsWhenEmpty(t *testing.T) 
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/contactProcessStatus/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/contactProcessStatus/index", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarContactProcessStatusIndex(rec, req)
@@ -1936,7 +1931,7 @@ func TestSidebarContactProcessStatusUpdateWritesTrackAndStatus(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodPut, "/sidebar/contactProcessStatus/update", strings.NewReader(`{"contactId":21,"statusId":3}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/contactProcessStatus/update", strings.NewReader(`{"contactId":21,"statusId":3}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
@@ -1968,7 +1963,7 @@ func TestSidebarContactProcessStatusUpdateRequiresStatusID(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodPut, "/sidebar/contactProcessStatus/update", strings.NewReader(`{"contactId":21}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/contactProcessStatus/update", strings.NewReader(`{"contactId":21}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
@@ -1990,7 +1985,7 @@ func TestSidebarWorkContactTrackRequiresContactID(t *testing.T) {
 	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/workContact/track", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/track", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarWorkContactTrack(rec, req)

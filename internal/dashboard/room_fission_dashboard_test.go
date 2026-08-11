@@ -27,7 +27,7 @@ func TestRoomFissionShowContactKeepsZeroStatusFilters(t *testing.T) {
 		},
 	}
 	handler := NewRoomFissionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomFission/showContact?fissionId=12&status=0&writeOff=0&joinStatus=0&receiveStatus=0&page=1&perPage=15", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomFission/showContact?fissionId=12&status=0&writeOff=0&joinStatus=0&receiveStatus=0&page=1&perPage=15", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -62,7 +62,7 @@ func TestRoomFissionStorePreservesNestedJSON(t *testing.T) {
 		"welcome":{"text":"欢迎入群","link_title":"领取奖品","link_desc":"完成任务","link_pic":"/upload/welcome.png"},
 		"invite":{"type":1,"employees":[11],"choose_contact":{"is_all":0,"gender":3},"text":"邀请文案","link_title":"参与活动","link_desc":"快来参加","link_pic":"/upload/invite.png"}
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomFission/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomFission/store", strings.NewReader(body))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -97,7 +97,7 @@ func TestRoomFissionStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewRoomFissionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomFission/store", strings.NewReader(`{"fission":{"active_name":"额度外群裂变"}}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomFission/store", strings.NewReader(`{"fission":{"active_name":"额度外群裂变"}}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -127,7 +127,7 @@ func TestRoomFissionStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestRoomFissionDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeRoomFissionStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, deleteOK: true}
 	handler := NewRoomFissionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "")
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/roomFission/destroy", strings.NewReader(`{"fissionId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomFission/destroy", strings.NewReader(`{"fissionId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

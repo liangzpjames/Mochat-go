@@ -29,7 +29,7 @@ func TestDashboardAgentStoreCreatesWorkAgentFromWeComDetail(t *testing.T) {
 	}
 	handler := NewDashboardAgentHandler(store, staticDashboardAgentCache("7-11"), HeaderUserIDResolver{}, wecom)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"1000003","wxSecret":"agent-secret-created","type":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"1000003","wxSecret":"agent-secret-created","type":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -68,7 +68,7 @@ func TestDashboardAgentStoreRejectsSaaSAgentQuotaExceeded(t *testing.T) {
 	wecom := &fakeDashboardAgentWeCom{}
 	handler := NewDashboardAgentHandler(store, staticDashboardAgentCache("7-11"), HeaderUserIDResolver{}, wecom)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"1000003","wxSecret":"agent-secret-created","type":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"1000003","wxSecret":"agent-secret-created","type":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -103,7 +103,7 @@ func TestDashboardAgentStoreRefreshesSaaSAgentUsage(t *testing.T) {
 	}
 	handler := NewDashboardAgentHandler(store, staticDashboardAgentCache("7-11"), HeaderUserIDResolver{}, &fakeDashboardAgentWeCom{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"1000003","wxSecret":"agent-secret-created","type":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"1000003","wxSecret":"agent-secret-created","type":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -122,11 +122,10 @@ func TestDashboardAgentStoreRequiresSelectedCorp(t *testing.T) {
 	handler := NewDashboardAgentHandler(store, staticDashboardAgentCache(""), HeaderUserIDResolver{}, &fakeDashboardAgentWeCom{})
 
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"1000003","wxSecret":"agent-secret-created","type":1}`))
-	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	if store.created.WXAgentID != "" {
@@ -141,7 +140,7 @@ func TestDashboardAgentStoreDoesNotCreateWhenWeComFails(t *testing.T) {
 	}
 	handler := NewDashboardAgentHandler(store, staticDashboardAgentCache("7-11"), HeaderUserIDResolver{}, &fakeDashboardAgentWeCom{err: fmt.Errorf("not found")})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"bad-agent","wxSecret":"bad-secret","type":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/agent/store", strings.NewReader(`{"wxAgentId":"bad-agent","wxSecret":"bad-secret","type":1}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)

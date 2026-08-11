@@ -22,7 +22,7 @@ func TestMenuAdminIndexReturnsPagedTreeAndAuthorizes(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewMenuAdminHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{}, authorizer)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/menu/index?name=菜单&page=1&perPage=1", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/menu/index?name=菜单&page=1&perPage=1", nil, 1, 10, 7, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -84,7 +84,7 @@ func TestMenuAdminShowReturnsPHPCompatibleDetail(t *testing.T) {
 	}
 	handler := NewMenuAdminHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/menu/show?menuId=4", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/menu/show?menuId=4", nil, 1, 10, 7, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -112,7 +112,7 @@ func TestMenuAdminShowRejectsPermissionDenied(t *testing.T) {
 	}
 	handler := NewMenuAdminHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{}, &recordingAuthorizer{err: ErrPermissionDenied})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/menu/show?menuId=4", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/menu/show?menuId=4", nil, 2, 10, 7, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "2")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -131,7 +131,7 @@ func TestMenuAdminStoreCreatesThirdLevelMenu(t *testing.T) {
 	}
 	handler := NewMenuAdminHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/menu/store", strings.NewReader(`{"name":"客户列表","level":3,"firstMenuId":1,"secondMenuId":2,"linkType":1,"linkUrl":"/dashboard/workContact/index","dataPermission":2}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/menu/store", strings.NewReader(`{"name":"客户列表","level":3,"firstMenuId":1,"secondMenuId":2,"linkType":1,"linkUrl":"/dashboard/workContact/index","dataPermission":2}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
@@ -153,7 +153,7 @@ func TestMenuAdminStatusUpdateDisablesCascade(t *testing.T) {
 	}
 	handler := NewMenuAdminHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/menu/statusUpdate", strings.NewReader(`{"menuId":4,"status":2}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/menu/statusUpdate", strings.NewReader(`{"menuId":4,"status":2}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.StatusUpdate(rec, req)

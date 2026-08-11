@@ -18,7 +18,7 @@ func TestMediumGroupIndexReturnsGroupsAndAuthorizes(t *testing.T) {
 	authz := &recordingAuthorizer{}
 	handler := NewMediumGroupHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authz)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/mediumGroup/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/mediumGroup/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -45,7 +45,7 @@ func TestMediumGroupStoreCreatesGroup(t *testing.T) {
 	store := &fakeMediumGroupStore{users: map[int]User{1: {ID: 1}}, createID: 22}
 	handler := NewMediumGroupHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/mediumGroup/store", strings.NewReader(`{"name":"图片素材"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/mediumGroup/store", strings.NewReader(`{"name":"图片素材"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
@@ -70,7 +70,7 @@ func TestMediumGroupDestroyReassignsMedia(t *testing.T) {
 	store := &fakeMediumGroupStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewMediumGroupHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/mediumGroup/destroy", strings.NewReader(`{"id":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/mediumGroup/destroy", strings.NewReader(`{"id":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Destroy(rec, req)
@@ -91,7 +91,7 @@ func TestSidebarMediumGroupIndexUsesEmployeeCorp(t *testing.T) {
 	handler := NewMediumGroupHandler(store, nil, HeaderUserIDResolver{}, nil).
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/mediumGroup/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/mediumGroup/index", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
 	handler.SidebarIndex(rec, req)

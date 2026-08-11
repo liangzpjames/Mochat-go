@@ -60,7 +60,7 @@ func TestWorkEmployeeSyncPullsDepartmentsUsersAndStoresWithoutRBAC(t *testing.T)
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", authorizer).
 		WithWorkEmployeeSyncClient(client, "secret")
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workEmployee/synEmployee", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workEmployee/synEmployee", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkEmployeeSync(rec, req)
@@ -104,7 +104,7 @@ func TestWorkEmployeeSyncRequiresCorpCredential(t *testing.T) {
 	handler := NewWorkReadHandler(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "").
 		WithWorkEmployeeSyncClient(&fakeWorkEmployeeSyncClient{}, "secret")
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workEmployee/synEmployee", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workEmployee/synEmployee", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkEmployeeSync(rec, req)
@@ -119,11 +119,11 @@ func TestWorkEmployeeSyncRequiresCorpCredential(t *testing.T) {
 }
 
 func TestWorkEmployeeSyncAllowsEmptyCorpScope(t *testing.T) {
-	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}, corpIDsByUser: []int{}}
+	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1, TenantID: 1, IsSuperAdmin: 1}}, corpIDsByUser: []int{}, corpIDsByTenant: []int{}}
 	handler := NewWorkReadHandler(store, staticAdminCache(""), HeaderUserIDResolver{}, "").
 		WithWorkEmployeeSyncClient(&fakeWorkEmployeeSyncClient{}, "secret")
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workEmployee/synEmployee", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workEmployee/synEmployee", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkEmployeeSync(rec, req)

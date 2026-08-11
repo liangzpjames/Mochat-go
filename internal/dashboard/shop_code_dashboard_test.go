@@ -31,7 +31,7 @@ func TestShopCodeIndexReturnsLaravelPage(t *testing.T) {
 		},
 	}
 	handler := NewShopCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/shopCode/index?page=2&perPage=1&name=杭州&type=1", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/shopCode/index?page=2&perPage=1&name=杭州&type=1", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -66,7 +66,7 @@ func TestShopCodeIndexReturnsLaravelPage(t *testing.T) {
 func TestShopCodeStorePreservesJSONFields(t *testing.T) {
 	store := &fakeShopCodeStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, createID: 66}
 	handler := NewShopCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/shopCode/store", strings.NewReader(`{"name":"杭州门店","type":1,"employee":[{"id":31,"name":"店主"}],"qrcode":{"url":"/qrcode/a.png"},"qwCode":[{"id":88}],"searchKeyword":"西湖","address":"杭州市西湖区","city":"杭州","lat":"30.1","lng":"120.1"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/shopCode/store", strings.NewReader(`{"name":"杭州门店","type":1,"employee":[{"id":31,"name":"店主"}],"qrcode":{"url":"/qrcode/a.png"},"qwCode":[{"id":88}],"searchKeyword":"西湖","address":"杭州市西湖区","city":"杭州","lat":"30.1","lng":"120.1"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -98,7 +98,7 @@ func TestShopCodeStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewShopCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/shopCode/store", strings.NewReader(`{"name":"额度外门店","type":1,"employee":[{"id":31,"name":"店主"}]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/shopCode/store", strings.NewReader(`{"name":"额度外门店","type":1,"employee":[{"id":31,"name":"店主"}]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -128,7 +128,7 @@ func TestShopCodeStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestShopCodeDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeShopCodeStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, deleteOK: true}
 	handler := NewShopCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/shopCode/destroy", strings.NewReader(`{"shopCodeId":66}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/shopCode/destroy", strings.NewReader(`{"shopCodeId":66}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -148,7 +148,7 @@ func TestShopCodeDestroyRefreshesSaaSUsage(t *testing.T) {
 func TestShopCodePageSetUpsertsSettings(t *testing.T) {
 	store := &fakeShopCodeStore{user: User{ID: 1, IsSuperAdmin: 1}, pageSettingID: 90}
 	handler := NewShopCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/shopCode/pageSet", strings.NewReader(`{"type":2,"title":"门店群","showType":2,"default":{"guide":"扫码入群"},"poster":"/poster.png","autoPass":1}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/shopCode/pageSet", strings.NewReader(`{"type":2,"title":"门店群","showType":2,"default":{"guide":"扫码入群"},"poster":"/poster.png","autoPass":1}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -171,7 +171,7 @@ func TestShopCodeShareBuildsOperationURL(t *testing.T) {
 		item: ShopCodeItem{ID: 11, Name: "杭州门店", Type: 3, CorpID: 7},
 	}
 	handler := NewShopCodeHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "http://operation.example.com")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/shopCode/share?id=11", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/shopCode/share?id=11", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

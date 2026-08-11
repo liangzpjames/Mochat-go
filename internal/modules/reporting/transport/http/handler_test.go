@@ -12,7 +12,9 @@ import (
 
 type resolverStub struct{}
 
-func (resolverStub) Resolve(*http.Request) (Principal, error) { return Principal{TenantID: 7}, nil }
+func (resolverStub) Resolve(*http.Request) (Principal, error) {
+	return Principal{UserID: 7, TenantID: 7, CorpID: 9}, nil
+}
 
 type serviceStub struct{}
 
@@ -62,7 +64,7 @@ func TestParseQueryEmployeeDepartmentFilters(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/reports/customer?"+tc.query, nil)
-			query, err := parseQuery(req, Principal{TenantID: 7})
+			query, err := parseQuery(req, Principal{TenantID: 7, CorpID: 9})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,7 +90,7 @@ func TestParseQueryEmployeeDepartmentFilters(t *testing.T) {
 
 func TestParseQueryConversionStage(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/reports/conversion?corpId=9&timezone=Asia%2FShanghai&startAt=2026-08-01T00:00:00Z&endAt=2026-08-02T00:00:00Z&stage=won&page=2&pageSize=10", nil)
-	query, err := parseQuery(req, Principal{TenantID: 7})
+	query, err := parseQuery(req, Principal{TenantID: 7, CorpID: 9})
 	if err != nil {
 		t.Fatal(err)
 	}

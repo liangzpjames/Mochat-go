@@ -23,7 +23,7 @@ func NewSettingsHandler(repo settingsRepository, p PrincipalResolver, a LeadAuth
 }
 func (h *SettingsHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 	p, e := h.principal.Resolve(r)
-	if e != nil {
+	if e != nil || p.UserID <= 0 || p.TenantID <= 0 || p.CorpID <= 0 {
 		nethttp.Error(w, "principal unauthorized", 401)
 		return
 	}
@@ -37,12 +37,17 @@ func (h *SettingsHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request
 			return
 		}
 	}
-	corp, _ := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)
-	if corp <= 0 {
-		corp = payload.CorpID
+	requestedCorpID := payload.CorpID
+	if raw := r.URL.Query().Get("corpId"); raw != "" {
+		requestedCorpID, e = strconv.ParseInt(raw, 10, 64)
+		if e != nil || requestedCorpID <= 0 {
+			nethttp.Error(w, "invalid corpId", nethttp.StatusBadRequest)
+			return
+		}
 	}
-	if corp <= 0 {
-		nethttp.Error(w, "corpId required", 400)
+	corp, e := p.ResolveCorp(requestedCorpID)
+	if e != nil {
+		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
 		return
 	}
 	perm := "/scrm/settings#get"

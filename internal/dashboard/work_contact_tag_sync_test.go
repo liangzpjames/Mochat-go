@@ -25,7 +25,7 @@ func TestContactTagSyncPullsWeComTagsAndStores(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", authorizer).
 		WithWorkContactTagSyncClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContactTag/synContactTag", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodPut, "/dashboard/workContactTag/synContactTag", nil, 1, 1, 7, 88)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagSync(rec, req)
@@ -47,22 +47,17 @@ func TestContactTagSyncPullsWeComTagsAndStores(t *testing.T) {
 	}
 }
 
-func TestContactTagSyncRequiresSelectedCorp(t *testing.T) {
+func TestContactTagSyncRequiresDashboardPrincipal(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88,8-99"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkContactTagSyncClient(&fakeContactTagSyncClient{})
 
 	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContactTag/synContactTag", nil)
-	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagSync(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-	body := decodeBody(t, rec.Body.Bytes())
-	if body["msg"] != "请先选择企业" {
-		t.Fatalf("msg = %#v", body["msg"])
 	}
 }
 
@@ -73,7 +68,7 @@ func TestContactTagSyncRequiresCorpCredential(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkContactTagSyncClient(&fakeContactTagSyncClient{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContactTag/synContactTag", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workContactTag/synContactTag", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ContactTagSync(rec, req)

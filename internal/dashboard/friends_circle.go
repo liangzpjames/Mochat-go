@@ -556,7 +556,8 @@ func (h *FriendsCircleHandler) authorized(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, 405, 405, "method not allowed", nil)
 		return 0, 0, User{}, false
 	}
-	userID, err := h.resolver.UserID(r)
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, 401, 401, "unauthorized", nil)
 		return 0, 0, User{}, false
@@ -566,21 +567,13 @@ func (h *FriendsCircleHandler) authorized(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, 401, 401, "user not found", nil)
 		return 0, 0, User{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, 500, 500, err.Error(), nil)
-			return 0, 0, User{}, false
-		}
-	}
-	login, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	login, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, 500, 500, err.Error(), nil)
 		return 0, 0, User{}, false
 	}
-	info := LoginCorpInfo(login)
-	corpID, ok := selectedCorpID(w, info)
+	info := login
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return 0, 0, User{}, false
 	}

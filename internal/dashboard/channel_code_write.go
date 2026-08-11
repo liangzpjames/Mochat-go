@@ -15,19 +15,19 @@ func (h *ChannelCodeHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	values, ok := h.channelCodeWriteValues(w, r, loginInfo.CorpIDs[0], loginInfo.WorkEmployeeID)
+	values, ok := h.channelCodeWriteValues(w, r, principalScope.CorpIDs[0], principalScope.WorkEmployeeID)
 	if !ok {
 		return
 	}
@@ -67,15 +67,15 @@ func (h *ChannelCodeHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -93,7 +93,7 @@ func (h *ChannelCodeHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "渠道码id必须为整型", nil)
 		return
 	}
-	values, ok := channelCodeWriteValuesFromParams(w, params, loginInfo.CorpIDs[0], loginInfo.WorkEmployeeID)
+	values, ok := channelCodeWriteValuesFromParams(w, params, principalScope.CorpIDs[0], principalScope.WorkEmployeeID)
 	if !ok {
 		return
 	}

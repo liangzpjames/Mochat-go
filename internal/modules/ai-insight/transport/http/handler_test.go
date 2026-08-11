@@ -34,7 +34,7 @@ func insightRequest(handler http.Handler, page string) *httptest.ResponseRecorde
 }
 
 func TestAllPagesReturnStructuredLimitations(t *testing.T) {
-	handler := NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1}}, nil)
+	handler := NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil)
 	for _, page := range []string{"session-analysis", "smart-analysis", "emotion", "employee-score", "communication-keyword"} {
 		rec := insightRequest(handler, page)
 		if rec.Code != http.StatusOK {
@@ -58,13 +58,13 @@ func TestAllPagesReturnStructuredLimitations(t *testing.T) {
 	}
 }
 
-func TestInsightRequiresCorpID(t *testing.T) {
-	handler := NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1}}, nil)
+func TestInsightUsesPrincipalCorpWhenClientOmitsCorpID(t *testing.T) {
+	handler := NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/emotion", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("code = %d, want 400", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
 	}
 }
 
@@ -73,13 +73,13 @@ func TestInsightUnauthorizedForbiddenAndUnknownPage(t *testing.T) {
 	if rec := insightRequest(unauth, "emotion"); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized code = %d, want 401", rec.Code)
 	}
-	denied := NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1}}, insightAuthorizer{err: errors.New("denied")})
+	denied := NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, insightAuthorizer{err: errors.New("denied")})
 	if rec := insightRequest(denied, "emotion"); rec.Code != http.StatusForbidden {
 		t.Fatalf("forbidden code = %d, want 403", rec.Code)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/nope?corpId=2", nil)
 	rec := httptest.NewRecorder()
-	NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1}}, nil).ServeHTTP(rec, req)
+	NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil).ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown page code = %d, want 404", rec.Code)
 	}

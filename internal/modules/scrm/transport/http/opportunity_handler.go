@@ -111,7 +111,11 @@ func (h *OpportunityHandler) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "authentication required")
 		return
 	}
-	corpID := queryInt(r, "corpId")
+	corpID, err := p.ResolveCorp(queryInt(r, "corpId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return
+	}
 	if !h.authorize(w, r, p, corpID, opportunityPermissionView) {
 		return
 	}
@@ -143,6 +147,11 @@ func (h *OpportunityHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	q.TenantID = p.TenantID
 	q.IdempotencyKey = r.Header.Get("Idempotency-Key")
+	q.CorpID, err = p.ResolveCorp(q.CorpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return
+	}
 	if !h.authorize(w, r, p, q.CorpID, opportunityPermissionEdit) {
 		return
 	}
@@ -169,6 +178,11 @@ func (h *OpportunityHandler) Stage(w http.ResponseWriter, r *http.Request) {
 	}
 	var q changeOpportunityStageRequest
 	if decodeOpportunityRequestJSON(w, r, &q) != nil {
+		return
+	}
+	q.CorpID, err = p.ResolveCorp(q.CorpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
 		return
 	}
 	if !h.authorize(w, r, p, q.CorpID, opportunityPermissionEdit) {
@@ -204,7 +218,11 @@ func (h *OpportunityHandler) ListTags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "authentication required")
 		return
 	}
-	corpID := queryInt(r, "corpId")
+	corpID, err := p.ResolveCorp(queryInt(r, "corpId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return
+	}
 	if !h.authorize(w, r, p, corpID, tagPermissionView) {
 		return
 	}
@@ -232,6 +250,11 @@ func (h *OpportunityHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
+	q.CorpID, err = p.ResolveCorp(q.CorpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return
+	}
 	if !h.authorize(w, r, p, q.CorpID, tagPermissionAdd) {
 		return
 	}
@@ -249,7 +272,11 @@ func (h *OpportunityHandler) ListFollowUps(w http.ResponseWriter, r *http.Reques
 		writeError(w, 401, "authentication required")
 		return
 	}
-	corpID := queryInt(r, "corpId")
+	corpID, err := p.ResolveCorp(queryInt(r, "corpId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return
+	}
 	if !h.authorize(w, r, p, corpID, contactPermissionView) {
 		return
 	}
@@ -273,6 +300,11 @@ func (h *OpportunityHandler) AppendFollowUp(w http.ResponseWriter, r *http.Reque
 	}
 	var q appendFollowUpRequest
 	if decodeOpportunityRequestJSON(w, r, &q) != nil {
+		return
+	}
+	q.CorpID, err = p.ResolveCorp(q.CorpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
 		return
 	}
 	if !h.authorizeAny(w, r, p, q.CorpID, contactPermissionEdit, opportunityPermissionEdit) {
@@ -304,6 +336,11 @@ func (h *OpportunityHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
 	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
+	q.CorpID, err = p.ResolveCorp(q.CorpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return
+	}
 	if !h.authorize(w, r, p, q.CorpID, tagPermissionEdit) {
 		return
 	}
@@ -328,6 +365,11 @@ func (h *OpportunityHandler) BindTags(w http.ResponseWriter, r *http.Request) {
 	if decodeOpportunityRequestJSON(w, r, &q) != nil {
 		return
 	}
+	q.CorpID, err = p.ResolveCorp(q.CorpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return
+	}
 	if !h.authorize(w, r, p, q.CorpID, contactPermissionEdit) {
 		return
 	}
@@ -339,14 +381,15 @@ func (h *OpportunityHandler) BindTags(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OpportunityHandler) authorize(w http.ResponseWriter, r *http.Request, p Principal, corpID int64, permission string) bool {
+	resolvedCorpID, err := p.ResolveCorp(corpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return false
+	}
 	if h.authorizer == nil {
 		return true
 	}
-	if corpID <= 0 {
-		writeError(w, http.StatusUnprocessableEntity, "corpId is required")
-		return false
-	}
-	err := h.authorizer.Authorize(r.Context(), p, corpID, permission)
+	err = h.authorizer.Authorize(r.Context(), p, resolvedCorpID, permission)
 	if errors.Is(err, ErrLeadForbidden) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return false
@@ -359,15 +402,16 @@ func (h *OpportunityHandler) authorize(w http.ResponseWriter, r *http.Request, p
 }
 
 func (h *OpportunityHandler) authorizeAny(w http.ResponseWriter, r *http.Request, p Principal, corpID int64, permissions ...string) bool {
+	resolvedCorpID, err := p.ResolveCorp(corpID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+		return false
+	}
 	if h.authorizer == nil {
 		return true
 	}
-	if corpID <= 0 {
-		writeError(w, http.StatusUnprocessableEntity, "corpId is required")
-		return false
-	}
 	for _, permission := range permissions {
-		err := h.authorizer.Authorize(r.Context(), p, corpID, permission)
+		err := h.authorizer.Authorize(r.Context(), p, resolvedCorpID, permission)
 		if err == nil {
 			return true
 		}

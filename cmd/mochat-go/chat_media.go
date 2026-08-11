@@ -17,22 +17,17 @@ func registerChatMediaModule(
 	router *appmodules.Router,
 	cfg config.Config,
 	getMySQLStore func() *store.MySQLStore,
-	buildUserResolver func(string) (dashboard.UserIDResolver, dashboard.LoginCache),
+	principalResolver scrmhttp.PrincipalResolver,
 ) error {
 	if router == nil {
 		return errors.New("chat media route registrar is required")
 	}
-	if getMySQLStore == nil || buildUserResolver == nil {
+	if getMySQLStore == nil || principalResolver == nil {
 		return errors.New("chat media runtime dependencies are required")
 	}
 	mysqlStore := getMySQLStore()
 	if mysqlStore == nil {
 		return errors.New("chat media MySQL store is required")
-	}
-	userIDs, _ := buildUserResolver("chat media")
-	principalResolver, err := appbootstrap.NewSCRMPrincipalResolver(userIDs, mysqlStore)
-	if err != nil {
-		return err
 	}
 	leadAuthorizer, err := appbootstrap.NewSCRMLeadAuthorizer(mysqlStore, dashboard.NewRBACResolver(mysqlStore))
 	if err != nil {

@@ -17,6 +17,7 @@ const ReportsPath = "/dashboard/reports/{kind}"
 type Principal struct {
 	UserID                  int64
 	TenantID                int64
+	CorpID                  int64
 	AllowedEmployeeIDs      []int64
 	EmployeeScopeRestricted bool
 }
@@ -58,7 +59,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	principal, err := h.resolver.Resolve(r)
-	if err != nil {
+	if err != nil || principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 {
 		write(w, http.StatusUnauthorized, "unauthorized", nil)
 		return
 	}
@@ -91,9 +92,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func parseQuery(r *http.Request, principal Principal) (reporting.ReportQuery, error) {
 	values := r.URL.Query()
-	corpID, err := strconv.ParseInt(values.Get("corpId"), 10, 64)
-	if err != nil {
-		return reporting.ReportQuery{}, err
+	corpID := principal.CorpID
+	if raw := values.Get("corpId"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 || parsed != principal.CorpID {
+			return reporting.ReportQuery{}, errors.New("corpId does not match dashboard principal")
+		}
+		corpID = parsed
 	}
 	startAt, err := time.Parse(time.RFC3339, values.Get("startAt"))
 	if err != nil {

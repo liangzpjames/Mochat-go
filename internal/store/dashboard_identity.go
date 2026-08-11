@@ -171,42 +171,35 @@ func (store *DashboardIdentityStore) Activate(ctx context.Context, tokenDigest [
 	return nil
 }
 
-func (store *DashboardIdentityStore) ResolvePrincipal(ctx context.Context, userID int) (dashboardprincipal.DashboardPrincipal, error) {
+// ResolveIdentity returns only the authenticated Dashboard identity facts
+// needed by the principal resolver. Corp ownership is deliberately resolved
+// by TenantCorpBindingStore after the SaaS tenant gate, not by this query.
+func (store *DashboardIdentityStore) ResolveIdentity(ctx context.Context, userID int) (dashboardprincipal.AuthenticatedIdentity, error) {
 	if store == nil || userID <= 0 {
-		return dashboardprincipal.DashboardPrincipal{}, dashboardprincipal.ErrPrincipalUnavailable
+		return dashboardprincipal.AuthenticatedIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
 	}
 	row, err := store.query(ctx, `
-		SELECT d.user_id, u.tenant_id, b.corp_id, b.status,
-		       COALESCE(u.isSuperAdmin, 0), d.auth_version
+		SELECT d.user_id, u.tenant_id, COALESCE(u.isSuperAdmin, 0),
+		       u.status, d.auth_version
 		FROM mochat_go_dashboard_identities d
 		INNER JOIN mc_user u ON u.id = d.user_id AND u.deleted_at IS NULL
-		INNER JOIN mochat_go_tenant_corp_bindings b ON b.tenant_id = u.tenant_id
-		WHERE d.user_id = ? AND d.status = 1 AND u.status = 1
+		WHERE d.user_id = ? AND d.status = 1
 		LIMIT 1
 	`, userID)
 	if err != nil {
-		return dashboardprincipal.DashboardPrincipal{}, err
+		return dashboardprincipal.AuthenticatedIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
 	}
-	var principal dashboardprincipal.DashboardPrincipal
-	var bindingStatus, isSuperAdmin int
-	if err := row.Scan(&principal.UserID, &principal.TenantID, &principal.CorpID, &bindingStatus, &isSuperAdmin, &principal.AuthVersion); err != nil {
-		return dashboardprincipal.DashboardPrincipal{}, err
+	var identity dashboardprincipal.AuthenticatedIdentity
+	var isSuperAdmin, userStatus int
+	if err := row.Scan(&identity.UserID, &identity.TenantID, &isSuperAdmin, &userStatus, &identity.AuthVersion); err != nil {
+		return dashboardprincipal.AuthenticatedIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
 	}
-	principal.IsSuperAdmin = isSuperAdmin == 1
-	switch bindingStatus {
-	case 1:
-		principal.CorpStatus = dashboardprincipal.CorpBindingStatusPending
-	case 2:
-		principal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
-	case 3:
-		principal.CorpStatus = dashboardprincipal.CorpBindingStatusSuspended
-	default:
-		return dashboardprincipal.DashboardPrincipal{}, dashboardprincipal.ErrPrincipalUnavailable
+	identity.IsSuperAdmin = isSuperAdmin == 1
+	identity.Active = userStatus == 1 && identity.UserID == userID && identity.TenantID > 0 && identity.AuthVersion > 0
+	if !identity.Active {
+		return dashboardprincipal.AuthenticatedIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
 	}
-	if principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 || principal.AuthVersion == 0 {
-		return dashboardprincipal.DashboardPrincipal{}, dashboardprincipal.ErrPrincipalUnavailable
-	}
-	return principal, nil
+	return identity, nil
 }
 
 func (store *DashboardIdentityStore) MFAStatus(ctx context.Context, userID int) (int, error) {

@@ -24,7 +24,7 @@ func TestStatisticIndexBuildsModeTable(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewStatisticHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com", nil)
 
-	rec := performRequest(handler.Index, "GET", "/dashboard/statistic/index?startTime=2026-07-01&endTime=2026-07-02&mode=4&employeeId=5,6", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
+	rec := performAuthenticatedDashboardRequest(handler.Index, "GET", "/dashboard/statistic/index?startTime=2026-07-01&endTime=2026-07-02&mode=4&employeeId=5,6", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
 	if rec.Code != 200 {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
@@ -62,7 +62,7 @@ func TestStatisticEmployeesUsesWeComBehavior(t *testing.T) {
 	}}
 	handler := NewStatisticHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, "http://api.example.com", client)
 
-	rec := performRequest(handler.Employees, "GET", "/dashboard/statistic/employees?startTime=2026-07-01&endTime=2026-07-02", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
+	rec := performAuthenticatedDashboardRequest(handler.Employees, "GET", "/dashboard/statistic/employees?startTime=2026-07-01&endTime=2026-07-02", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
 	if rec.Code != 200 {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
@@ -97,7 +97,7 @@ func TestStatisticEmployeeCountsPaginatesAndFormatsAvatar(t *testing.T) {
 	}}
 	handler := NewStatisticHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, "http://api.example.com", client)
 
-	rec := performRequest(handler.EmployeeCounts, "GET", "/dashboard/statistic/employeeCounts?startTime=2026-07-01&endTime=2026-07-02&page=1", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
+	rec := performAuthenticatedDashboardRequest(handler.EmployeeCounts, "GET", "/dashboard/statistic/employeeCounts?startTime=2026-07-01&endTime=2026-07-02&page=1", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
 	if rec.Code != 200 {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
@@ -129,7 +129,7 @@ func TestStatisticEmployeesTrendFiltersEmployeesAndMode(t *testing.T) {
 	}}
 	handler := NewStatisticHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, "http://api.example.com", client)
 
-	rec := performRequest(handler.EmployeesTrend, "GET", "/dashboard/statistic/employeesTrend?startTime=2026-07-01&endTime=2026-07-02&mode=2&employees=%5B2%5D", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
+	rec := performAuthenticatedDashboardRequest(handler.EmployeesTrend, "GET", "/dashboard/statistic/employeesTrend?startTime=2026-07-01&endTime=2026-07-02&mode=2&employees=%5B2%5D", nil, map[string]string{"X-Mochat-Go-User-ID": "1"})
 	if rec.Code != 200 {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}

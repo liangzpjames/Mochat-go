@@ -8,7 +8,20 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"jiyi/mochat-go/internal/dashboardprincipal"
 )
+
+func withAutoTagTestPrincipal(request *http.Request, userID, tenantID, corpID int) *http.Request {
+	ctx := dashboardprincipal.WithPrincipal(request.Context(), dashboardprincipal.DashboardPrincipal{
+		UserID: userID, TenantID: tenantID, CorpID: corpID,
+		CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1,
+	})
+	return request.WithContext(WithDashboardAccessContext(ctx, DashboardAccessContext{
+		UserID: userID, TenantID: tenantID, CorpID: corpID,
+		WorkEmployeeID: 99, Scope: DataScopeTenant,
+	}))
+}
 
 func TestAutoTagIndexReturnsListAndPagination(t *testing.T) {
 	store := &fakeAutoTagStore{
@@ -34,6 +47,7 @@ func TestAutoTagIndexReturnsListAndPagination(t *testing.T) {
 	handler := NewAutoTagHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/autoTag/index?type=1&name=关键&tags=7&page=1&perPage=15", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.Index(rec, req)
@@ -67,6 +81,7 @@ func TestAutoTagStorePreservesRuleJSONAndFlattensTags(t *testing.T) {
 	handler := NewAutoTagHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/autoTag/store", strings.NewReader(`{"type":1,"name":"关键词规则","employees":["zhangsan"],"fuzzy_match_keyword":["报价"],"exact_match_keyword":["下单"],"tag_rule":[{"time_type":1,"trigger_count":2,"tags":[{"tagid":7,"tagname":"意向"}]}]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.Store(rec, req)
@@ -103,6 +118,7 @@ func TestAutoTagShowReturnsDetailAndStatistics(t *testing.T) {
 	handler := NewAutoTagHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/autoTag/show?id=31", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.Show(rec, req)
@@ -145,6 +161,7 @@ func TestWorkMessageIndexReturnsMessageList(t *testing.T) {
 	handler := NewAutoTagHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/index?workEmployeeId=99&toUserType=1&toUserId=31&page=1&perPage=100", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageIndex(rec, req)
@@ -197,6 +214,7 @@ func TestWorkMessageGlobalSearchReturnsExplicitPageAndForwardsAllFilters(t *test
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&corpId=7&keyword=报价&employeeId=9&customerId=31&from=2026-07-01&to=2026-07-31&page=2&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -233,6 +251,7 @@ func TestWorkMessageGlobalSearchIgnoresClientCorpScope(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&corpId=99&page=1&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -254,6 +273,7 @@ func TestWorkMessageGlobalSearchSupportsRoomFilterAndEmptyResults(t *testing.T) 
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&corpId=7&roomId=44&page=1&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -285,6 +305,7 @@ func TestWorkMessageGlobalSearchCapsPageSize(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&corpId=7&page=1&pageSize=1000000", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -311,6 +332,7 @@ func TestWorkMessageGlobalSearchRejectsMalformedNumericFilters(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet,
 				"/dashboard/workMessage/toUsers?view=global&corpId=7&"+query, nil)
 			req.Header.Set("X-Mochat-Go-User-ID", "1")
+			req = withAutoTagTestPrincipal(req, 1, 10, 7)
 			rec := httptest.NewRecorder()
 
 			handler.WorkMessageToUsers(rec, req)
@@ -340,6 +362,7 @@ func TestWorkMessageGlobalSearchAppliesEmployeeDataPermission(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&corpId=7&page=1&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -366,6 +389,7 @@ func TestWorkMessageGlobalSearchIntersectsRequestedEmployeesAndUsesExclusiveEndB
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&keyword=报价&conversationType=customer&employeeIds=9&employeeIds=999&startAt=2026-07-01&endAt=2026-07-31&page=2&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -392,6 +416,7 @@ func TestWorkMessageGlobalSearchReturnsZeroForEmptyEmployeeIntersection(t *testi
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&employeeIds=999&page=1&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -409,6 +434,7 @@ func TestWorkMessageGlobalSearchRejectsInvalidConversationType(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&conversationType=channel&page=1&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -428,6 +454,7 @@ func TestWorkMessageGlobalSearchReturnsArchiveUnauthorized(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/toUsers?view=global&page=1&pageSize=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageToUsers(rec, req)
@@ -478,6 +505,7 @@ func TestWorkMessageGlobalListAndDetailUseSameRBACPermissionKey(t *testing.T) {
 			handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
 			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
 			req.Header.Set("X-Mochat-Go-User-ID", "1")
+			req = withAutoTagTestPrincipal(req, 1, 10, 7)
 			rec := httptest.NewRecorder()
 
 			tc.call(handler, rec, req)
@@ -511,6 +539,7 @@ func TestWorkMessageGlobalDetailReturnsConversationMessages(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/detail?id=msg%3Aarchive-31", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageIndex(rec, req)
@@ -550,6 +579,7 @@ func TestWorkMessageGlobalDetailReturnsNotFoundWithoutCrossCorpData(t *testing.T
 	req := httptest.NewRequest(http.MethodGet,
 		"/dashboard/workMessage/detail?id=msg%3Amissing", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageIndex(rec, req)
@@ -570,6 +600,7 @@ func TestWorkMessageGlobalDetailUsesSameEmployeeScopeAndReturnsNotFound(t *testi
 	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/detail?id=msg%3Arestricted", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageIndex(rec, req)
@@ -590,6 +621,7 @@ func TestWorkMessageGlobalDetailReturnsArchiveUnauthorized(t *testing.T) {
 	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/detail?id=msg%3Aarchive-31", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageIndex(rec, req)
@@ -611,6 +643,7 @@ func TestWorkMessageGlobalDetailReturnsRBACForbiddenBeforeArchiveAccess(t *testi
 	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/detail?id=msg%3Aarchive-31", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageIndex(rec, req)
@@ -649,6 +682,7 @@ func TestWorkMessageConfigStepCreateReturnsCorpConfig(t *testing.T) {
 	handler := NewAutoTagHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessageConfig/stepCreate", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = withAutoTagTestPrincipal(req, 1, 10, 7)
 	rec := httptest.NewRecorder()
 
 	handler.WorkMessageConfigStepCreate(rec, req)
@@ -698,7 +732,11 @@ func (s *fakeAutoTagStore) UserByID(_ context.Context, userID int) (User, bool, 
 	if userID != s.user.ID {
 		return User{}, false, nil
 	}
-	return s.user, true, nil
+	user := s.user
+	if user.TenantID == 0 {
+		user.TenantID = 10
+	}
+	return user, true, nil
 }
 
 func (s *fakeAutoTagStore) EmployeeIDByUserCorp(context.Context, int, int) (int, error) {

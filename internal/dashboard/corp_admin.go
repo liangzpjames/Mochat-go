@@ -123,18 +123,18 @@ func (h *CorpAdminHandler) Index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
 
 	filter := CorpListFilter{
 		TenantID:   user.TenantID,
-		CorpIDs:    loginInfo.CorpIDs,
+		CorpIDs:    principalScope.CorpIDs,
 		CorpName:   strings.TrimSpace(r.URL.Query().Get("corpName")),
 		Page:       positiveQueryInt(r, "page", 1),
 		PerPage:    positiveQueryInt(r, "perPage", 10),
@@ -175,11 +175,11 @@ func (h *CorpAdminHandler) Show(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -189,7 +189,7 @@ func (h *CorpAdminHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "企业授信ID 必填", nil)
 		return
 	}
-	if !userCanAccessCorpID(user, loginInfo, corpID) {
+	if !userCanAccessCorpID(user, principalScope, corpID) {
 		writeAccessError(w, ErrPermissionDenied)
 		return
 	}
@@ -217,11 +217,11 @@ func (h *CorpAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -235,7 +235,7 @@ func (h *CorpAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	if !userCanAccessCorpID(user, loginInfo, values.CorpID) {
+	if !userCanAccessCorpID(user, principalScope, values.CorpID) {
 		writeAccessError(w, ErrPermissionDenied)
 		return
 	}
@@ -268,11 +268,11 @@ func (h *CorpAdminHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -344,56 +344,48 @@ func (h *CorpAdminHandler) Store(w http.ResponseWriter, r *http.Request) {
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
-func (h *CorpAdminHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *CorpAdminHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
-func (h *CorpAdminHandler) authorize(ctx context.Context, r *http.Request, userID int, loginInfo LoginCorpInfo) (AccessContext, error) {
+func (h *CorpAdminHandler) authorize(ctx context.Context, r *http.Request, userID int, principalScope DashboardRequestScope) (AccessContext, error) {
 	if h.authorizer == nil {
 		return AccessContext{}, nil
 	}
 	corpID := 0
-	if len(loginInfo.CorpIDs) > 0 {
-		corpID = loginInfo.CorpIDs[0]
+	if len(principalScope.CorpIDs) > 0 {
+		corpID = principalScope.CorpIDs[0]
 	}
-	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID)
+	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, principalScope.WorkEmployeeID)
 }
 
-func userCanAccessCorpID(user User, loginInfo LoginCorpInfo, corpID int) bool {
+func userCanAccessCorpID(user User, principalScope DashboardRequestScope, corpID int) bool {
 	if user.IsSuperAdmin == 1 {
 		return true
 	}
-	for _, allowedCorpID := range loginInfo.CorpIDs {
+	for _, allowedCorpID := range principalScope.CorpIDs {
 		if allowedCorpID == corpID {
 			return true
 		}

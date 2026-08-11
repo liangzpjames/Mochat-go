@@ -17,15 +17,15 @@ func (h *WorkReadHandler) WorkRoomBatchUpdate(w http.ResponseWriter, r *http.Req
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}

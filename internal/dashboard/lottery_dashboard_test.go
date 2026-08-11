@@ -27,7 +27,7 @@ func TestLotteryShowContactKeepsZeroStatusFilters(t *testing.T) {
 		},
 	}
 	handler := NewLotteryHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/lottery/showContact?lotteryId=12&status=0&writeOff=0&page=1&perPage=15", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/lottery/showContact?lotteryId=12&status=0&writeOff=0&page=1&perPage=15", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -56,7 +56,7 @@ func TestLotteryStorePreservesPrizeJSON(t *testing.T) {
 	store := &fakeLotteryStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, createID: 88}
 	handler := NewLotteryHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "https://op.example")
 	body := `{"name":"抽奖活动","description":"活动说明","contactTags":[7,8],"prizeSet":[{"name":"一等奖"}],"exchangeSet":{"type":1},"drawSet":{"daily":1},"winSet":{"limit":1},"corpCard":{"name":"企业名片"},"isShow":1}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/lottery/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/lottery/store", strings.NewReader(body))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -88,7 +88,7 @@ func TestLotteryStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewLotteryHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "https://op.example")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/lottery/store", strings.NewReader(`{"name":"额度外抽奖活动"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/lottery/store", strings.NewReader(`{"name":"额度外抽奖活动"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -118,7 +118,7 @@ func TestLotteryStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestLotteryDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeLotteryStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, deleteOK: true}
 	handler := NewLotteryHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil, "https://op.example")
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/lottery/destroy", strings.NewReader(`{"lotteryId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/lottery/destroy", strings.NewReader(`{"lotteryId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

@@ -111,7 +111,7 @@ func TestOrderHandlerReturnsInternalServerErrorWhenAuditQueryFails(t *testing.T)
 
 func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	r := NewMemoryOrderRepository()
-	h := NewOrderHandler(r)
+	h := NewOrderHandler(r, routingPrincipalResolver{corpID: 1})
 	req := httptest.NewRequest("POST", "/scrm/orders", strings.NewReader(`{"id":"o1","tenantId":1,"corpId":1,"contactId":"c1","opportunityId":"opp1","title":"年度续费","note":"客户确认","amountCents":100,"status":"pending"}`))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -126,7 +126,7 @@ func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	if created.ID != "o1" || created.Title != "年度续费" || created.Note != "客户确认" || created.OpportunityID != "opp1" {
 		t.Fatalf("created order = %#v", created)
 	}
-	if len(r.List(1, 1)) != 1 {
+	if len(r.List(7, 1)) != 1 {
 		t.Fatal("not persisted")
 	}
 	autoReq := httptest.NewRequest("POST", "/scrm/orders", strings.NewReader(`{"tenantId":1,"corpId":1,"contactId":"c1","title":"auto id","amountCents":50,"status":"pending"}`))
@@ -143,7 +143,7 @@ func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	if autoCreated.ID == "" || strings.HasPrefix(autoCreated.ID, "P35-ORDER-") {
 		t.Fatalf("auto id = %q, want server-side non-acceptance id", autoCreated.ID)
 	}
-	if len(r.List(1, 1)) != 2 {
+	if len(r.List(7, 1)) != 2 {
 		t.Fatal("auto order not persisted")
 	}
 	generated, err := domain.NewOrder(domain.NewOrderInput{TenantID: 1, CorpID: 1, ContactID: "c", Title: "auto id", AmountCents: 1, Status: domain.OrderPending})
@@ -191,10 +191,14 @@ func assertOrderEnvelope(t *testing.T, recorder *httptest.ResponseRecorder, stat
 	return response
 }
 
-type routingPrincipalResolver struct{}
+type routingPrincipalResolver struct{ corpID int64 }
 
-func (routingPrincipalResolver) Resolve(*http.Request) (Principal, error) {
-	return Principal{TenantID: 7, UserID: 11}, nil
+func (r routingPrincipalResolver) Resolve(*http.Request) (Principal, error) {
+	corpID := r.corpID
+	if corpID == 0 {
+		corpID = 1536612155
+	}
+	return Principal{TenantID: 7, UserID: 11, CorpID: corpID}, nil
 }
 
 type routingOrderRepository struct {

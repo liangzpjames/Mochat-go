@@ -67,14 +67,10 @@ func TestNewSCRMModuleRouterDisabledDoesNotResolveDependencies(t *testing.T) {
 func TestNewSCRMModuleRouterEnabledInstallsBothRoutes(t *testing.T) {
 	db := mainTestDB(t)
 	mysqlStore := store.NewMySQLStore(db)
-	buildUserResolver := func(string) (dashboard.UserIDResolver, dashboard.LoginCache) {
-		return mainFixedUserIDResolver{userID: 7}, nil
-	}
-
 	router, err := newSCRMModuleRouter(
 		config.Config{EnablePhase22SCRMPilot: true},
 		func() *store.MySQLStore { return mysqlStore },
-		buildUserResolver,
+		dashboardModulePrincipalResolver{},
 	)
 	if err != nil {
 		t.Fatal(err)

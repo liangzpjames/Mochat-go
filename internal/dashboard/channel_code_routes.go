@@ -13,18 +13,18 @@ func (h *ChannelCodeHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	access, err := h.authorizeAccess(r.Context(), r, userID, loginInfo)
+	access, err := h.authorizeAccess(r.Context(), r, userID, principalScope)
 	if err != nil {
 		writeAccessError(w, err)
 		return
 	}
 
 	filter := ChannelCodeListFilter{
-		CorpIDs: append([]int{}, loginInfo.CorpIDs...),
+		CorpIDs: append([]int{}, principalScope.CorpIDs...),
 		Name:    strings.TrimSpace(r.URL.Query().Get("name")),
 		Page:    positiveQueryInt(r, "page", 1),
 		PerPage: positiveQueryInt(r, "perPage", 20),
@@ -70,7 +70,7 @@ func (h *ChannelCodeHandler) Index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userPayload := workContactIndexUserPayload(user, loginInfo, access)
+	userPayload := workContactIndexUserPayload(user, principalScope, access)
 	list := make([]map[string]any, 0, len(page.Items))
 	for _, item := range page.Items {
 		list = append(list, map[string]any{
@@ -102,11 +102,11 @@ func (h *ChannelCodeHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -119,11 +119,11 @@ func (h *ChannelCodeHandler) Show(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		channelCodeID = 0
 	}
-	if len(loginInfo.CorpIDs) == 0 {
+	if len(principalScope.CorpIDs) == 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
-	info, found, err := h.store.ChannelCodeShowByID(r.Context(), channelCodeID, loginInfo.CorpIDs[0])
+	info, found, err := h.store.ChannelCodeShowByID(r.Context(), channelCodeID, principalScope.CorpIDs[0])
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -151,11 +151,11 @@ func (h *ChannelCodeHandler) Contact(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -257,11 +257,11 @@ func (h *ChannelCodeHandler) validateStatisticsParams(w http.ResponseWriter, r *
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return channelCodeStatisticsParams{}, false
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return channelCodeStatisticsParams{}, false
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return channelCodeStatisticsParams{}, false
 	}
@@ -467,15 +467,15 @@ func channelCodeDateKey(raw string, statType int) string {
 	return raw
 }
 
-func (h *ChannelCodeHandler) authorizeAccess(ctx context.Context, r *http.Request, userID int, loginInfo LoginCorpInfo) (AccessContext, error) {
+func (h *ChannelCodeHandler) authorizeAccess(ctx context.Context, r *http.Request, userID int, principalScope DashboardRequestScope) (AccessContext, error) {
 	if h.authorizer == nil {
 		return AccessContext{DataPermission: DataPermissionAll}, nil
 	}
 	corpID := 0
-	if len(loginInfo.CorpIDs) > 0 {
-		corpID = loginInfo.CorpIDs[0]
+	if len(principalScope.CorpIDs) > 0 {
+		corpID = principalScope.CorpIDs[0]
 	}
-	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID)
+	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, principalScope.WorkEmployeeID)
 }
 
 func (h *ChannelCodeHandler) fileFullURL(path string) string {

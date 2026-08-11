@@ -350,11 +350,11 @@ func (h *ContactMessageBatchSendHandler) Store(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAuthorized(w, r)
+	userID, user, _, ok := h.resolveAuthorized(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -655,53 +655,46 @@ func (h *ContactMessageBatchSendHandler) Destroy(w http.ResponseWriter, r *http.
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
-func (h *ContactMessageBatchSendHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+func (h *ContactMessageBatchSendHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if h.authorizer != nil {
 		corpID := 0
-		if len(loginInfo.CorpIDs) > 0 {
-			corpID = loginInfo.CorpIDs[0]
+		if len(principalScope.CorpIDs) > 0 {
+			corpID = principalScope.CorpIDs[0]
 		}
-		if _, err := h.authorizer.Resolve(r.Context(), userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, PermissionKeyFromRequest(r), corpID, principalScope.WorkEmployeeID); err != nil {
 			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
+			return 0, User{}, DashboardRequestScope{}, false
 		}
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
-func (h *ContactMessageBatchSendHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *ContactMessageBatchSendHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
 func (h *ContactMessageBatchSendHandler) loadOwnedBatch(w http.ResponseWriter, r *http.Request, userID int, batchID int, prechecked ...bool) (ContactMessageBatchSendItem, bool) {

@@ -19,7 +19,7 @@ func TestContactTransferInfoReturnsAssignedContacts(t *testing.T) {
 	}
 	handler := NewContactTransferHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, nil)
 
-	req := httptest.NewRequest(http.MethodGet, `/dashboard/contactTransfer/info?contactName=%E5%AE%A2%E6%88%B7&employeeId=[21]&addTimeStart=2026-07-01&addTimeEnd=2026-07-04`, nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, `/dashboard/contactTransfer/info?contactName=%E5%AE%A2%E6%88%B7&employeeId=[21]&addTimeStart=2026-07-01&addTimeEnd=2026-07-04`, nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Info(rec, req)
@@ -47,7 +47,7 @@ func TestContactTransferSaveUnassignedListSyncsWeComData(t *testing.T) {
 	}
 	handler := NewContactTransferHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, client)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactTransfer/saveUnassignedList", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactTransfer/saveUnassignedList", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.SaveUnassignedList(rec, req)
@@ -70,7 +70,7 @@ func TestContactTransferTransferCustomerWritesSuccessLog(t *testing.T) {
 	handler := NewContactTransferHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, client)
 
 	body := `{"type":1,"takeoverUserId":"employee-99","list":"[{\"contactWxId\":\"external-31\",\"employeeWxId\":\"employee-21\"}]"}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactTransfer/index", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactTransfer/index", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -97,7 +97,7 @@ func TestContactTransferTransferRoomSkipsFailedChats(t *testing.T) {
 	handler := NewContactTransferHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, client)
 
 	body := `{"takeoverUserId":"employee-99","list":"[\"chat-ok\",\"chat-failed\"]"}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactTransfer/room", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactTransfer/room", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()

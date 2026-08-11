@@ -127,11 +127,11 @@ func (h *UserAdminHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, user, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/user/index#get")
+	_, user, _, access, ok := h.resolveAuthorized(w, r, "/dashboard/user/index#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -197,11 +197,11 @@ func (h *UserAdminHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/user/show#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/user/show#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -232,11 +232,11 @@ func (h *UserAdminHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, currentUser, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/user/store#post")
+	_, currentUser, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/user/store#post")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -283,11 +283,11 @@ func (h *UserAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, currentUser, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/user/update#put")
+	_, currentUser, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/user/update#put")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -575,59 +575,52 @@ func (h *UserAdminHandler) listLookups(ctx context.Context, corpID int, userIDs 
 	return roles, departments, nil
 }
 
-func (h *UserAdminHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, LoginCorpInfo, AccessContext, bool) {
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+func (h *UserAdminHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, DashboardRequestScope, AccessContext, bool) {
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	access := AccessContext{User: user, CorpID: corpID, WorkEmployeeID: loginInfo.WorkEmployeeID, DataPermission: DataPermissionAll}
+	access := AccessContext{User: user, CorpID: corpID, WorkEmployeeID: principalScope.WorkEmployeeID, DataPermission: DataPermissionAll}
 	if h.authorizer != nil {
 		var err error
-		access, err = h.authorizer.Resolve(r.Context(), userID, permissionKey, corpID, loginInfo.WorkEmployeeID)
+		access, err = h.authorizer.Resolve(r.Context(), userID, permissionKey, corpID, principalScope.WorkEmployeeID)
 		if err != nil {
 			writeAccessError(w, err)
-			return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+			return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 		}
 	}
-	return userID, user, loginInfo, access, true
+	return userID, user, principalScope, access, true
 }
 
-func (h *UserAdminHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *UserAdminHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !requireTenantSuperAdmin(w, user) {
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, LoginCorpInfo(loginInfo), true
+	return userID, user, DashboardRequestScope(principalScope), true
 }
 
 func (h *UserAdminHandler) logoutCurrentToken(r *http.Request) {

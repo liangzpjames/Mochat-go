@@ -108,16 +108,16 @@ func (h *MediumHandler) Selector(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
 	if h.authorizer != nil {
-		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/materialSelector/index#get", corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, "/dashboard/materialSelector/index#get", corpID, principalScope.WorkEmployeeID); err != nil {
 			writeAccessError(w, err)
 			return
 		}
@@ -151,31 +151,31 @@ func (h *MediumHandler) Selector(w http.ResponseWriter, r *http.Request) {
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{"list": items, "total": page.Total})
 }
 
-func (h *MediumHandler) materialWriteAccess(w http.ResponseWriter, r *http.Request, permission string) (MaterialFoundationStore, int, int, LoginCorpInfo, bool) {
+func (h *MediumHandler) materialWriteAccess(w http.ResponseWriter, r *http.Request, permission string) (MaterialFoundationStore, int, int, DashboardRequestScope, bool) {
 	if r.Method != http.MethodPost {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
-		return nil, 0, 0, LoginCorpInfo{}, false
+		return nil, 0, 0, DashboardRequestScope{}, false
 	}
 	store, ok := h.store.(MaterialFoundationStore)
 	if !ok {
 		writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "素材 Provider 未配置", nil)
-		return nil, 0, 0, LoginCorpInfo{}, false
+		return nil, 0, 0, DashboardRequestScope{}, false
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
-		return nil, 0, 0, LoginCorpInfo{}, false
+		return nil, 0, 0, DashboardRequestScope{}, false
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
-		return nil, 0, 0, LoginCorpInfo{}, false
+		return nil, 0, 0, DashboardRequestScope{}, false
 	}
 	if h.authorizer != nil {
-		if _, err := h.authorizer.Resolve(r.Context(), userID, permission, corpID, loginInfo.WorkEmployeeID); err != nil {
+		if _, err := h.authorizer.Resolve(r.Context(), userID, permission, corpID, principalScope.WorkEmployeeID); err != nil {
 			writeAccessError(w, err)
-			return nil, 0, 0, LoginCorpInfo{}, false
+			return nil, 0, 0, DashboardRequestScope{}, false
 		}
 	}
-	return store, userID, corpID, loginInfo, true
+	return store, userID, corpID, principalScope, true
 }
 
 func positiveIDs(value any) []int {

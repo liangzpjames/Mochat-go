@@ -18,7 +18,7 @@ func TestOfficialAccountIndexListsAccounts(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewOfficialAccountHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/officialAccount/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/officialAccount/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -46,7 +46,7 @@ func TestOfficialAccountIndexFindsOrCreatesModuleSet(t *testing.T) {
 	}
 	handler := NewOfficialAccountHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/officialAccount/index?type=2", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/officialAccount/index?type=2", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -59,7 +59,7 @@ func TestOfficialAccountIndexFindsOrCreatesModuleSet(t *testing.T) {
 	}
 
 	delete(store.sets, 2)
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/officialAccount/index?type=2", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/officialAccount/index?type=2", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -75,7 +75,7 @@ func TestOfficialAccountSetUpsertsModuleAccount(t *testing.T) {
 	}
 	handler := NewOfficialAccountHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/officialAccount/set?type=3&official_account_id=9", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/officialAccount/set?type=3&official_account_id=9", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Set(rec, req)

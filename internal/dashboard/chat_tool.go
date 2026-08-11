@@ -53,13 +53,14 @@ func (h *ChatToolConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	userID, err := h.resolver.UserID(r)
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
 		return
 	}
 
-	user, found, err := h.store.UserByID(r.Context(), userID)
+	_, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -68,26 +69,17 @@ func (h *ChatToolConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
 		return
 	}
-
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
-	if len(loginInfo.CorpIDs) == 0 || loginInfo.CorpIDs[0] <= 0 {
+	if len(principalScope.CorpIDs) == 0 || principalScope.CorpIDs[0] <= 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "未选择登录企业，不可操作", nil)
 		return
 	}
 
-	agents, err := h.store.WorkAgentsByCorpID(r.Context(), loginInfo.CorpIDs[0])
+	agents, err := h.store.WorkAgentsByCorpID(r.Context(), principalScope.CorpIDs[0])
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return

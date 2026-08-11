@@ -11,17 +11,18 @@ func restrictOwnerIDs(requested, allowed []int64, restricted bool) []int64 {
 		return []int64{0}
 	}
 	set := make(map[int64]struct{}, len(allowed))
+	orderedAllowed := make([]int64, 0, len(allowed))
 	for _, id := range allowed {
 		if id > 0 {
+			if _, exists := set[id]; exists {
+				continue
+			}
 			set[id] = struct{}{}
+			orderedAllowed = append(orderedAllowed, id)
 		}
 	}
 	if len(requested) == 0 {
-		result := make([]int64, 0, len(set))
-		for id := range set {
-			result = append(result, id)
-		}
-		return result
+		return orderedAllowed
 	}
 	result := make([]int64, 0, len(requested))
 	for _, id := range requested {

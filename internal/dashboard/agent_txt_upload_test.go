@@ -17,7 +17,7 @@ func TestAgentTxtVerifyUploadWritesTextFile(t *testing.T) {
 	handler := NewAgentTxtVerifyUploadHandler(root)
 	body, contentType := multipartBody(t, "WW_verify_ABCDEF1234567890.txt", "text/plain", "ABCDEF1234567890")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/agent/txtVerifyUpload", body)
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/agent/txtVerifyUpload", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -42,7 +42,7 @@ func TestAgentTxtVerifyUploadRejectsNonTextFile(t *testing.T) {
 	handler := NewAgentTxtVerifyUploadHandler(t.TempDir())
 	body, contentType := multipartBody(t, "WW_verify_ABCDEF1234567890.txt", "application/octet-stream", "ABCDEF1234567890")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/agent/txtVerifyUpload", body)
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/agent/txtVerifyUpload", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

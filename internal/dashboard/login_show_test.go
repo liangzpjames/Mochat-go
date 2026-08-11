@@ -25,7 +25,7 @@ func TestLoginShowReturnsPHPCompatibleEnvelope(t *testing.T) {
 	}
 	handler := NewLoginShowHandler(store, staticCache("12-34"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/user/loginShow", nil, 7, 1, 12, 34)
 	req.Header.Set("X-Mochat-Go-User-ID", "7")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -66,7 +66,7 @@ func TestLoginShowIgnoresCrossTenantCachedCorp(t *testing.T) {
 	}
 	handler := NewLoginShowHandler(store, staticCache("99-0"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/user/loginShow", nil, 7, 10, 12, 34)
 	req.Header.Set("X-Mochat-Go-User-ID", "7")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -107,7 +107,7 @@ func TestLoginShowRejectsDisabledTenant(t *testing.T) {
 	}
 	handler := NewLoginShowHandler(store, nil, HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/user/loginShow", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "7")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -132,7 +132,7 @@ func TestLoginShowRejectsExpiredTenantPackage(t *testing.T) {
 	}
 	handler := NewLoginShowHandler(store, nil, HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/user/loginShow", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "7")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -158,7 +158,7 @@ func TestLoginShowRejectsBlockedManagedSubscription(t *testing.T) {
 		TenantSubscriptionAccessAllowed: false,
 	}}
 	handler := NewLoginShowHandler(store, nil, HeaderUserIDResolver{})
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/user/loginShow", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "7")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

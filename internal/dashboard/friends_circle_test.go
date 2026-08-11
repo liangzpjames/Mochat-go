@@ -23,7 +23,7 @@ func TestEmployeeIDsWithinDashboardScopeRejectsEmptyAndForeignTargets(t *testing
 func TestFriendsCircleTaskIndexUsesSelectedCorpAndFilters(t *testing.T) {
 	store := &fakeFriendsCircleStore{users: map[int]User{1: {ID: 1}}, tasks: FriendsCircleTaskPage{Items: []FriendsCircleTask{{ID: 9, TaskName: "夏日活动", Status: "draft"}}, Total: 1, Page: 1, PerPage: 20}}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/friendsCircle/taskIndex?taskName=%E5%A4%8F%E6%97%A5&status=draft&page=1&perPage=20", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/friendsCircle/taskIndex?taskName=%E5%A4%8F%E6%97%A5&status=draft&page=1&perPage=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.TaskIndex(rec, req)
@@ -38,7 +38,7 @@ func TestFriendsCircleTaskIndexUsesSelectedCorpAndFilters(t *testing.T) {
 func TestFriendsCircleMaterialIndexUsesSelectedCorp(t *testing.T) {
 	store := &fakeFriendsCircleStore{users: map[int]User{1: {ID: 1}}, materials: FriendsCircleMaterialPage{Items: []FriendsCircleMaterial{{ID: 3, Name: "新品海报", Type: "image", Status: "available"}}, Total: 1, Page: 1, PerPage: 20}}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/friendsCircle/materialIndex?keyword=%E6%96%B0%E5%93%81&type=image", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/friendsCircle/materialIndex?keyword=%E6%96%B0%E5%93%81&type=image", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.MaterialIndex(rec, req)
@@ -51,7 +51,7 @@ func TestFriendsCircleStoresRealDraftsWithServerOwnedCorp(t *testing.T) {
 	store := &fakeFriendsCircleStore{users: map[int]User{1: {ID: 1}}, taskID: 11, materialID: 12}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/taskStore", strings.NewReader(`{"taskName":"夏日活动","sendWay":"manual","content":"欢迎参加","mediumId":21,"corpId":999}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/friendsCircle/taskStore", strings.NewReader(`{"taskName":"夏日活动","sendWay":"manual","content":"欢迎参加","mediumId":21,"corpId":999}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.TaskStore(rec, req)
@@ -59,7 +59,7 @@ func TestFriendsCircleStoresRealDraftsWithServerOwnedCorp(t *testing.T) {
 		t.Fatalf("status=%d task=%#v body=%s", rec.Code, store.createdTask, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/materialStore", strings.NewReader(`{"name":"新品海报","type":"image","content":{"url":"/storage/a.png"}}`))
+	req = authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/friendsCircle/materialStore", strings.NewReader(`{"name":"新品海报","type":"image","content":{"url":"/storage/a.png"}}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.MaterialStore(rec, req)
@@ -75,7 +75,7 @@ func TestFriendsCircleRejectsUnavailableMaterial(t *testing.T) {
 		mediumAvailable:    false,
 	}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/taskStore", strings.NewReader(`{"taskName":"夏日活动","sendWay":"manual","content":"欢迎参加","mediumId":21}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/friendsCircle/taskStore", strings.NewReader(`{"taskName":"夏日活动","sendWay":"manual","content":"欢迎参加","mediumId":21}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.TaskStore(rec, req)
@@ -87,7 +87,7 @@ func TestFriendsCircleRejectsUnavailableMaterial(t *testing.T) {
 func TestFriendsCirclePublishReturns503WithoutPublisherAndPreservesDraft(t *testing.T) {
 	store := &fakeFriendsCircleStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/publish", strings.NewReader(`{"taskId":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/friendsCircle/publish", strings.NewReader(`{"taskId":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Publish(rec, req)
@@ -102,7 +102,7 @@ func TestFriendsCircleUnavailablePublisherPersistsFailedState(t *testing.T) {
 		tasks: FriendsCircleTaskPage{Items: []FriendsCircleTask{{ID: 11, TaskName: "夏日活动", Status: "draft"}}},
 	}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, NewUnavailableFriendsCirclePublisher())
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/publish", strings.NewReader(`{"taskId":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/friendsCircle/publish", strings.NewReader(`{"taskId":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Publish(rec, req)
@@ -114,7 +114,7 @@ func TestFriendsCircleUnavailablePublisherPersistsFailedState(t *testing.T) {
 func TestFriendsCircleProviderCallbackPersistsProgressAndFailureDetails(t *testing.T) {
 	store := &fakeFriendsCircleStore{}
 	handler := NewFriendsCircleHandlerWithCallbackToken(store, nil, HeaderUserIDResolver{}, nil, nil, "callback-secret")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/friendsCircle/providerCallback", strings.NewReader(`{"corpId":7,"externalTaskId":"external-11","status":"partially_succeeded","completedTotal":1,"targetTotal":2,"failureReason":"部分失败","results":[{"targetEmployeeId":99,"status":"failed","failureCode":"E_TIMEOUT","failureReason":"发送超时"}]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/friendsCircle/providerCallback", strings.NewReader(`{"corpId":7,"externalTaskId":"external-11","status":"partially_succeeded","completedTotal":1,"targetTotal":2,"failureReason":"部分失败","results":[{"targetEmployeeId":99,"status":"failed","failureCode":"E_TIMEOUT","failureReason":"发送超时"}]}`))
 	req.Header.Set("X-Mochat-Friends-Circle-Callback-Token", "callback-secret")
 	rec := httptest.NewRecorder()
 	handler.ProviderCallback(rec, req)
@@ -129,7 +129,7 @@ func TestFriendsCircleTaskResultIndexAndExportUseSelectedCorp(t *testing.T) {
 		results: FriendsCircleTaskResultPage{Items: []FriendsCircleTaskResult{{ID: 31, TaskID: 11, TargetEmployeeID: 99, Status: "failed", FailureCode: "E_TIMEOUT", FailureReason: "发送超时"}}, Total: 1, Page: 1, PerPage: 20},
 	}
 	handler := NewFriendsCircleHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/friendsCircle/taskResultIndex?taskId=11&status=failed", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/friendsCircle/taskResultIndex?taskId=11&status=failed", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.TaskResultIndex(rec, req)
@@ -137,7 +137,7 @@ func TestFriendsCircleTaskResultIndexAndExportUseSelectedCorp(t *testing.T) {
 		t.Fatalf("status=%d filter=%#v body=%s", rec.Code, store.resultFilter, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/friendsCircle/export?taskId=11", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/friendsCircle/export?taskId=11", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.Export(rec, req)

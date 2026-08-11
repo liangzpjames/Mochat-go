@@ -8,27 +8,33 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
 type DashboardAccessHTTP struct {
-	service  *DashboardAccessAdminService
-	resolver UserIDResolver
+	service *DashboardAccessAdminService
 }
 
-func NewDashboardAccessHTTP(service *DashboardAccessAdminService, resolver UserIDResolver) *DashboardAccessHTTP {
-	return &DashboardAccessHTTP{service: service, resolver: resolver}
+func NewDashboardAccessHTTP(service *DashboardAccessAdminService) *DashboardAccessHTTP {
+	return &DashboardAccessHTTP{service: service}
 }
 
 func (handler *DashboardAccessHTTP) ServeHTTP(w http.ResponseWriter, request *http.Request) {
-	if handler == nil || handler.service == nil || handler.resolver == nil {
+	if handler == nil || handler.service == nil || request == nil {
 		writeMachineEnvelope(w, http.StatusInternalServerError, "DASHBOARD_ACCESS_ERROR", "dashboard access unavailable", nil)
 		return
 	}
-	actorUserID, err := handler.resolver.UserID(request)
-	if err != nil || actorUserID <= 0 {
+	principal, err := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+	if err != nil || principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 {
 		writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
+	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		writeMachineEnvelope(w, http.StatusForbidden, DashboardTenantAccessDeniedCode, "tenant access denied", nil)
+		return
+	}
+	actorUserID := principal.UserID
 
 	path := request.URL.Path
 	switch path {

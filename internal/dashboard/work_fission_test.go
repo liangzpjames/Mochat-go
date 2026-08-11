@@ -32,7 +32,7 @@ func TestWorkFissionIndexReturnsCompatibleList(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkFissionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com", "http://op.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workFission/index?active_name=裂变&page=2&perPage=20", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workFission/index?active_name=裂变&page=2&perPage=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -90,7 +90,7 @@ func TestWorkFissionShowAndInfoReturnPHPFieldNames(t *testing.T) {
 	}
 	handler := NewWorkFissionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "http://op.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workFission/show?id=9", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workFission/show?id=9", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -102,7 +102,7 @@ func TestWorkFissionShowAndInfoReturnPHPFieldNames(t *testing.T) {
 		t.Fatalf("show=%#v", show)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/workFission/info?id=9", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workFission/info?id=9", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.Info(rec, req)
@@ -141,7 +141,7 @@ func TestWorkFissionStatisticsDeduplicatesEmployeesAndRates(t *testing.T) {
 	}
 	handler := NewWorkFissionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "http://op.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workFission/statistics?fission_ids=[9,10,9]", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workFission/statistics?fission_ids=[9,10,9]", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Statistics(rec, req)
@@ -196,7 +196,7 @@ func TestWorkFissionInviteDataDetailAndDestroy(t *testing.T) {
 	}
 	handler := NewWorkFissionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "http://op.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workFission/inviteData?fission_ids=[9]&status=1&loss=1", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workFission/inviteData?fission_ids=[9]&status=1&loss=1", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.InviteData(rec, req)
@@ -208,7 +208,7 @@ func TestWorkFissionInviteDataDetailAndDestroy(t *testing.T) {
 		t.Fatalf("row=%#v", row)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/workFission/inviteDetail?id=21", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workFission/inviteDetail?id=21", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.InviteDetail(rec, req)
@@ -220,7 +220,7 @@ func TestWorkFissionInviteDataDetailAndDestroy(t *testing.T) {
 		t.Fatalf("detail=%#v", detail)
 	}
 
-	req = httptest.NewRequest(http.MethodDelete, "/dashboard/workFission/destroy?id=9", strings.NewReader(""))
+	req = authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/workFission/destroy?id=9", strings.NewReader(""))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.Destroy(rec, req)
@@ -245,7 +245,7 @@ func TestWorkFissionInviteSendsMessageAndUpsertsConfig(t *testing.T) {
 	handler := NewWorkFissionHandlerWithMessageClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "http://op.example.com", "/tmp/mochat-go-test", client)
 
 	body := `{"fission_id":9,"text":"邀请文案","link_title":"邀请标题","link_desc":"邀请描述","link_pic":"invite/pic.png","filter":{"employee_ids":[21],"is_all":1,"start_time":"2026-07-01","end_time":"2026-07-04","gender":1}}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workFission/invite", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workFission/invite", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -303,7 +303,7 @@ func TestWorkFissionStoreCreatesActivityBundle(t *testing.T) {
 		"push":{"push_employee":true,"push_contact":false,"msg_text":"推送","msg_complex":{"msg_complex_type":"image","image":"push/image.png"}},
 		"invite":{"text":"邀请","link_title":"邀请标题","link_desc":"邀请描述","link_pic":"invite/pic.png"}
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workFission/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workFission/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -349,7 +349,7 @@ func TestWorkFissionStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 	handler := NewWorkFissionHandlerWithMessageClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "http://op.example.com", "/tmp/mochat-go-test", client)
 
 	body := `{"fission":{"active_name":"新增裂变"},"welcome":{},"poster":{},"push":{},"invite":{}}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workFission/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workFission/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -387,7 +387,7 @@ func TestWorkFissionUpdateWritesExistingActivity(t *testing.T) {
 		"poster":{"poster_type":0,"cover_pic":"","foward_text":"转发更新","avatar_show":false,"nickname_show":true,"nickname_color":"#111111","card_corp_image_name":"","card_corp_name":"","card_corp_logo":"","qrcode_w":"90","qrcode_h":"90","qrcode_x":"1","qrcode_y":"2"},
 		"push":{"push_employee":false,"push_contact":true,"msg_text":"推送更新","msg_complex_type":"","msg_complex":{}}
 	}`
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workFission/update", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workFission/update", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()

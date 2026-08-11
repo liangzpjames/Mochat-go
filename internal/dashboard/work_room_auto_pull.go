@@ -149,17 +149,17 @@ func (h *WorkRoomAutoPullHandler) Index(w http.ResponseWriter, r *http.Request) 
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	access, err := h.authorizeAccess(r.Context(), r, userID, loginInfo)
+	access, err := h.authorizeAccess(r.Context(), r, userID, principalScope)
 	if err != nil {
 		writeAccessError(w, err)
 		return
 	}
 	filter := WorkRoomAutoPullFilter{
-		CorpIDs:    append([]int{}, loginInfo.CorpIDs...),
+		CorpIDs:    append([]int{}, principalScope.CorpIDs...),
 		QRCodeName: strings.TrimSpace(r.URL.Query().Get("qrcodeName")),
 		Page:       positiveQueryInt(r, "page", 1),
 		PerPage:    positiveQueryInt(r, "perPage", 10),
@@ -216,11 +216,11 @@ func (h *WorkRoomAutoPullHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
@@ -268,16 +268,16 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	access, err := h.authorizeAccess(r.Context(), r, userID, loginInfo)
+	access, err := h.authorizeAccess(r.Context(), r, userID, principalScope)
 	if err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -349,16 +349,16 @@ func (h *WorkRoomAutoPullHandler) Update(w http.ResponseWriter, r *http.Request)
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	access, err := h.authorizeAccess(r.Context(), r, userID, loginInfo)
+	access, err := h.authorizeAccess(r.Context(), r, userID, principalScope)
 	if err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -420,57 +420,50 @@ func (h *WorkRoomAutoPullHandler) Move(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), requestWithPermissionPath(r, "/dashboard/workRoomAutoPull/update"), userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), requestWithPermissionPath(r, "/dashboard/workRoomAutoPull/update"), userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
-func (h *WorkRoomAutoPullHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *WorkRoomAutoPullHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
-func (h *WorkRoomAutoPullHandler) authorizeAccess(ctx context.Context, r *http.Request, userID int, loginInfo LoginCorpInfo) (AccessContext, error) {
+func (h *WorkRoomAutoPullHandler) authorizeAccess(ctx context.Context, r *http.Request, userID int, principalScope DashboardRequestScope) (AccessContext, error) {
 	if h.authorizer == nil {
 		return AccessContext{DataPermission: DataPermissionAll}, nil
 	}
 	corpID := 0
-	if len(loginInfo.CorpIDs) > 0 {
-		corpID = loginInfo.CorpIDs[0]
+	if len(principalScope.CorpIDs) > 0 {
+		corpID = principalScope.CorpIDs[0]
 	}
-	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID)
+	return h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, principalScope.WorkEmployeeID)
 }
 
 func (h *WorkRoomAutoPullHandler) fileFullURL(path string) string {

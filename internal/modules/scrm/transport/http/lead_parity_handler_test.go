@@ -16,7 +16,7 @@ import (
 func TestLeadListParsesCombinedCorpFilterAndAuthorizes(t *testing.T) {
 	service := &parityLeadService{}
 	authorizer := &fakeLeadAuthorizer{}
-	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}}, authorizer)
+	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 8}}, authorizer)
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(nethttp.MethodGet, FormalLeadsPath+"?corpId=8&keyword=Ada&status=new&status=qualified&source=manual&ownerId=12&createdFrom=2026-08-01T00:00:00Z&createdTo=2026-08-02T00:00:00Z&pageSize=30", nil)
 	handler.List(response, request)
@@ -34,7 +34,7 @@ func TestLeadListParsesCombinedCorpFilterAndAuthorizes(t *testing.T) {
 
 func TestLeadHandlersReturn403BeforeServiceWhenRBACDenies(t *testing.T) {
 	service := &parityLeadService{}
-	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}}, &fakeLeadAuthorizer{err: ErrLeadForbidden})
+	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 8}}, &fakeLeadAuthorizer{err: ErrLeadForbidden})
 	response := httptest.NewRecorder()
 	handler.List(response, httptest.NewRequest(nethttp.MethodGet, FormalLeadsPath+"?corpId=8", nil))
 	if response.Code != nethttp.StatusForbidden {
@@ -47,7 +47,7 @@ func TestLeadHandlersReturn403BeforeServiceWhenRBACDenies(t *testing.T) {
 
 func TestLeadBatchAssignmentReturnsPerTargetPartialFailure(t *testing.T) {
 	service := &parityLeadService{assignResults: []application.LeadMutationResult{{ID: "ok", Status: "succeeded"}, {ID: "stale", Status: "failed", ErrorCode: "CONFLICT"}}}
-	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}}, &fakeLeadAuthorizer{})
+	handler := NewLeadHandler(service, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 8}}, &fakeLeadAuthorizer{})
 	response := httptest.NewRecorder()
 	handler.Assign(response, httptest.NewRequest(nethttp.MethodPost, LeadAssignmentsPath, strings.NewReader(`{"corpId":8,"ownerId":12,"targets":[{"id":"ok","version":1},{"id":"stale","version":2}]}`)))
 	if response.Code != nethttp.StatusOK {
@@ -73,7 +73,7 @@ func TestLeadTransitionMapsConflictAndValidation(t *testing.T) {
 		want int
 	}{{"conflict", application.ErrConflict, nethttp.StatusConflict}, {"validation", application.ErrInvalidArgument, nethttp.StatusUnprocessableEntity}} {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := NewLeadHandler(&parityLeadService{transitionErr: tc.err}, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41}}, &fakeLeadAuthorizer{})
+			handler := NewLeadHandler(&parityLeadService{transitionErr: tc.err}, fakePrincipalResolver{principal: Principal{UserID: 7, TenantID: 41, CorpID: 8}}, &fakeLeadAuthorizer{})
 			response := httptest.NewRecorder()
 			handler.Transition(response, httptest.NewRequest(nethttp.MethodPost, LeadTransitionPath, strings.NewReader(`{"corpId":8,"id":"lead-1","toStatus":"qualified","version":1}`)))
 			if response.Code != tc.want {

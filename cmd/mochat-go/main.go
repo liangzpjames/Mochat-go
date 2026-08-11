@@ -19,6 +19,7 @@ import (
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardadmin"
 	"jiyi/mochat-go/internal/dashboardauth"
+	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/frontend"
 	"jiyi/mochat-go/internal/identitysecurity"
 	"jiyi/mochat-go/internal/mysqlconn"
@@ -342,6 +343,7 @@ func main() {
 		log.Printf("go migrated route enabled: GET /dashboard/user/loginShow")
 	}
 
+	var dashboardPrincipalResolver dashboardprincipal.PrincipalResolver
 	if cfg.MigrateAuth {
 		mysqlStore := getMySQLStore()
 		dashboardMFAKey, parseErr := saasbackup.ParseEncryptionKey(cfg.DashboardMFAEncryptionKey)
@@ -359,6 +361,22 @@ func main() {
 			access, err := mysqlStore.DashboardTenantAccess(ctx, tenantID, now)
 			return dashboardauth.TenantAccess{TenantID: access.TenantID, Allowed: access.Allowed, Reason: access.Reason}, err
 		})
+		dashboardBindingStore := store.NewTenantCorpBindingStore(mysqlStore.DB())
+		var principalErr error
+		dashboardPrincipalResolver, principalErr = dashboardprincipal.NewResolverWithIdentity(
+			dashboardIdentityStore,
+			dashboardprincipal.TenantGateFunc(func(ctx context.Context, tenantID int, now time.Time) (bool, error) {
+				access, err := dashboardTenantGate(ctx, tenantID, now)
+				if err != nil {
+					return false, err
+				}
+				return access.Allowed && access.TenantID == tenantID, nil
+			}),
+			dashboardBindingStore,
+		)
+		if principalErr != nil {
+			log.Fatalf("build Dashboard principal resolver: %v", principalErr)
+		}
 		dashboardParser := authrealm.Parser{
 			Config: dashboardTokenConfig,
 			ValidateSession: func(ctx context.Context, claims authrealm.Claims) error {
@@ -369,7 +387,7 @@ func main() {
 			Service: dashboardIdentityService, Persistence: dashboardIdentityStore,
 			Signer: dashboardTokenConfig, Parser: dashboardParser,
 			MFAKey: dashboardMFAKey, MFAKeyID: cfg.DashboardMFAEncryptionKeyID,
-			TenantGate: dashboardTenantGate,
+			TenantGate: dashboardTenantGate, PrincipalResolver: dashboardPrincipalResolver,
 		})
 		if authErr != nil {
 			log.Fatalf("build Dashboard authentication handler: %v", authErr)
@@ -378,6 +396,7 @@ func main() {
 		if authErr != nil {
 			log.Fatalf("build Dashboard request guard: %v", authErr)
 		}
+		dashboardIdentityGuard.WithPrincipalResolver(dashboardPrincipalResolver)
 		dashboardIdentityGuard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
 		options = append(options, compatserver.WithDashboardAuthHandler(dashboardAuthHandler))
 		log.Printf("go Dashboard identity routes enabled: POST /dashboard/user/auth POST /dashboard/user/authMFA POST /dashboard/auth/activate POST /dashboard/auth/password/reset-request POST /dashboard/auth/password/reset GET /dashboard/auth/session")
@@ -3342,27 +3361,22 @@ func main() {
 		return
 	}
 
-	moduleRouter, err := newSCRMModuleRouter(cfg, getMySQLStore, buildUserResolver)
+	modulePrincipalResolver := dashboardModulePrincipalResolver{}
+	moduleRouter, err := newSCRMModuleRouter(cfg, getMySQLStore, modulePrincipalResolver)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := registerAIDebtClearanceModules(moduleRouter, cfg, getMySQLStore, buildUserResolver); err != nil {
+	if err := registerAIDebtClearanceModules(moduleRouter, cfg, getMySQLStore, modulePrincipalResolver); err != nil {
 		log.Fatal(err)
 	}
-	if err := registerChatMediaModule(moduleRouter, cfg, getMySQLStore, buildUserResolver); err != nil {
+	if err := registerChatMediaModule(moduleRouter, cfg, getMySQLStore, modulePrincipalResolver); err != nil {
 		log.Fatal(err)
 	}
 	dashboardAccessStore := getMySQLStore()
-	dashboardAccessResolver, dashboardAccessCache := buildUserResolver("dashboardAccessGuard")
 	dashboardAccessService := dashboard.NewDashboardAccessService(dashboardAccessStore)
-	dashboardAccessGuard := dashboard.NewDashboardAccessGuard(
-		dashboardAccessStore,
-		dashboardAccessCache,
-		dashboardAccessResolver,
-		dashboardAccessService,
-	)
+	dashboardAccessGuard := dashboard.NewDashboardAccessGuard(dashboardAccessStore, dashboardAccessService)
 	dashboardAccessAdminService := dashboard.NewDashboardAccessAdminService(dashboardAccessStore, dashboardAccessService)
-	dashboardAccessHTTP := dashboard.NewDashboardAccessHTTP(dashboardAccessAdminService, dashboardAccessResolver)
+	dashboardAccessHTTP := dashboard.NewDashboardAccessHTTP(dashboardAccessAdminService)
 	if err := registerDashboardAccessRoutes(moduleRouter, dashboardAccessHTTP); err != nil {
 		log.Fatalf("register Dashboard access administration routes: %v", err)
 	}

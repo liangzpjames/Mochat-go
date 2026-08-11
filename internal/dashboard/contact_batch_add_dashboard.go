@@ -184,11 +184,11 @@ func (h *ContactBatchAddDashboardHandler) Index(w http.ResponseWriter, r *http.R
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/index#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/index#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -230,11 +230,11 @@ func (h *ContactBatchAddDashboardHandler) ImportIndex(w http.ResponseWriter, r *
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/importIndex#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/importIndex#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -260,11 +260,11 @@ func (h *ContactBatchAddDashboardHandler) SettingEdit(w http.ResponseWriter, r *
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/settingEdit#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/settingEdit#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -294,11 +294,11 @@ func (h *ContactBatchAddDashboardHandler) SettingUpdate(w http.ResponseWriter, r
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/settingUpdate#post")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/settingUpdate#post")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -323,11 +323,11 @@ func (h *ContactBatchAddDashboardHandler) ImportStore(w http.ResponseWriter, r *
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/importStore#post")
+	userID, user, _, access, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/importStore#post")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -348,11 +348,11 @@ func (h *ContactBatchAddDashboardHandler) Allot(w http.ResponseWriter, r *http.R
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, access, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/allot#post")
+	_, _, _, access, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/allot#post")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -384,11 +384,11 @@ func (h *ContactBatchAddDashboardHandler) Destroy(w http.ResponseWriter, r *http
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/destroy#delete")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/destroy#delete")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -415,11 +415,11 @@ func (h *ContactBatchAddDashboardHandler) ImportDestroy(w http.ResponseWriter, r
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/importDestroy#delete")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/importDestroy#delete")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -446,11 +446,11 @@ func (h *ContactBatchAddDashboardHandler) DataStatistic(w http.ResponseWriter, r
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/dataStatistic#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/contactBatchAdd/dataStatistic#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -736,21 +736,21 @@ func (h *ContactBatchAddDashboardHandler) contactBatchAddRecordLookups(ctx conte
 	return h.contactBatchAddLookups(ctx, corpID, nil, records)
 }
 
-func (h *ContactBatchAddDashboardHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, LoginCorpInfo, AccessContext, bool) {
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+func (h *ContactBatchAddDashboardHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, DashboardRequestScope, AccessContext, bool) {
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	employeeID := loginInfo.WorkEmployeeID
+	employeeID := principalScope.WorkEmployeeID
 	if employeeID <= 0 {
 		resolved, err := h.store.EmployeeIDByUserCorp(r.Context(), userID, corpID)
 		if err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+			return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 		}
 		employeeID = resolved
 	}
@@ -759,46 +759,39 @@ func (h *ContactBatchAddDashboardHandler) resolveAuthorized(w http.ResponseWrite
 		resolved, err := h.authorizer.Resolve(r.Context(), userID, permissionKey, corpID, employeeID)
 		if err != nil {
 			writeAccessError(w, err)
-			return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+			return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 		}
 		access = resolved
 	}
-	return userID, user, loginInfo, access, true
+	return userID, user, principalScope, access, true
 }
 
-func (h *ContactBatchAddDashboardHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
+func (h *ContactBatchAddDashboardHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
 	if h.resolver == nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "user resolver not configured", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	userID, err := h.resolver.UserID(r)
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, LoginCorpInfo(loginInfo), true
+	return userID, user, DashboardRequestScope(principalScope), true
 }
 
 func contactBatchAddItemPayload(item ContactBatchAddItem, employees map[int]ContactBatchAddEmployee, tags map[int]ContactBatchAddTag) map[string]any {

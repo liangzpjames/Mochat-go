@@ -30,7 +30,7 @@ func TestOpportunityHandlerAuthorizesPageAndTagOperationsInRequestedCorp(t *test
 		t.Run(tc.name, func(t *testing.T) {
 			authorizer := &contactAuthorizerFake{}
 			service := &opportunityServiceFake{}
-			handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}}, authorizer)
+			handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}}, authorizer)
 			req := httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", "key-1")
@@ -56,16 +56,16 @@ func TestOpportunityHandlerRejectsSameTenantSecondCorpBeforeRepository(t *testin
 		body   string
 		invoke func(*OpportunityHandler, http.ResponseWriter, *http.Request)
 	}{
-		{http.MethodGet, OpportunitiesPath + "?corpId=23", "", (*OpportunityHandler).List},
-		{http.MethodPost, OpportunitiesPath, `{"corpId":23,"contactId":"c1","stage":"proposal","amount":1,"startDate":"2026-08-01","endDate":"2026-08-02"}`, (*OpportunityHandler).Create},
-		{http.MethodPost, OpportunitiesPath + "/o1/stage", `{"corpId":23,"stageId":"won","version":1}`, (*OpportunityHandler).Stage},
-		{http.MethodGet, TagsPath + "?corpId=23", "", (*OpportunityHandler).ListTags},
-		{http.MethodPost, TagsPath, `{"corpId":23,"name":"VIP"}`, (*OpportunityHandler).CreateTag},
-		{http.MethodPut, TagsPath + "/t1", `{"corpId":23,"name":"Key","version":1}`, (*OpportunityHandler).RenameTag},
+		{http.MethodGet, OpportunitiesPath + "?corpId=22", "", (*OpportunityHandler).List},
+		{http.MethodPost, OpportunitiesPath, `{"corpId":22,"contactId":"c1","stage":"proposal","amount":1,"startDate":"2026-08-01","endDate":"2026-08-02"}`, (*OpportunityHandler).Create},
+		{http.MethodPost, OpportunitiesPath + "/o1/stage", `{"corpId":22,"stageId":"won","version":1}`, (*OpportunityHandler).Stage},
+		{http.MethodGet, TagsPath + "?corpId=22", "", (*OpportunityHandler).ListTags},
+		{http.MethodPost, TagsPath, `{"corpId":22,"name":"VIP"}`, (*OpportunityHandler).CreateTag},
+		{http.MethodPut, TagsPath + "/t1", `{"corpId":22,"name":"Key","version":1}`, (*OpportunityHandler).RenameTag},
 	}
 	for _, tc := range tests {
 		service := &opportunityServiceFake{}
-		handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}}, &contactAuthorizerFake{err: ErrLeadForbidden})
+		handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}}, &contactAuthorizerFake{err: ErrLeadForbidden})
 		req := httptest.NewRequest(tc.method, tc.url, strings.NewReader(tc.body))
 		req.Header.Set("Content-Type", "application/json")
 		res := httptest.NewRecorder()
@@ -95,7 +95,7 @@ func (s *opportunityServiceFake) ListOpportunities(_ context.Context, filter por
 
 func TestOpportunityHandlerParsesCombinedFiltersAndMapsMutationErrors(t *testing.T) {
 	service := &opportunityServiceFake{}
-	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}}, &contactAuthorizerFake{})
+	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}}, &contactAuthorizerFake{})
 	req := httptest.NewRequest(http.MethodGet, OpportunitiesPath+"?corpId=22&stage=proposal&status=open&ownerId=9&cursor=o9&pageSize=25", nil)
 	res := httptest.NewRecorder()
 	handler.List(res, req)
@@ -128,7 +128,7 @@ func TestOpportunityHandlerParsesCombinedFiltersAndMapsMutationErrors(t *testing
 func TestOpportunityFollowUpAllowsOpportunityEditWhenContactEditIsUnavailable(t *testing.T) {
 	service := &opportunityServiceFake{}
 	authorizer := &opportunityFollowUpAuthorizer{}
-	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}}, authorizer)
+	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}}, authorizer)
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/scrm/contacts/c1/follow-ups", strings.NewReader(`{"corpId":22,"content":"已发送方案"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", "follow-1")

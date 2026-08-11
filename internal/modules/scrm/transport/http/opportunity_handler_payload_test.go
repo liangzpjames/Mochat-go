@@ -23,7 +23,7 @@ func TestOpportunityHandlerAcceptsFrontendStagePayloads(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			service := &opportunityServiceFake{}
-			handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}})
+			handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}})
 			req := httptest.NewRequest(http.MethodPost, OpportunitiesPath+"/o1/stage", strings.NewReader(test.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", "stage-1")
@@ -44,7 +44,7 @@ func TestOpportunityHandlerAcceptsFrontendStagePayloads(t *testing.T) {
 
 func TestOpportunityHandlerAcceptsFrontendFollowUpPayload(t *testing.T) {
 	service := &opportunityServiceFake{}
-	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}})
+	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}})
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/scrm/contacts/c1/follow-ups", strings.NewReader(`{"corpId":22,"content":"sent proposal"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", "follow-1")
@@ -63,7 +63,7 @@ func TestOpportunityHandlerAcceptsFrontendFollowUpPayload(t *testing.T) {
 
 func TestOpportunityHandlerAcceptsFollowUpBodyIdempotencyKey(t *testing.T) {
 	service := &opportunityServiceFake{}
-	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}})
+	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}})
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/scrm/contacts/c1/follow-ups", strings.NewReader(`{"corpId":22,"content":"sent proposal","idempotencyKey":"follow-body-1"}`))
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
@@ -77,7 +77,7 @@ func TestOpportunityHandlerAcceptsFollowUpBodyIdempotencyKey(t *testing.T) {
 
 func TestOpportunityHandlerRejectsMismatchedPathAndBodyOpportunityID(t *testing.T) {
 	service := &opportunityServiceFake{}
-	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}})
+	handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}})
 	req := httptest.NewRequest(http.MethodPost, OpportunitiesPath+"/o1/stage", strings.NewReader(`{"corpId":22,"opportunityId":"o2","stageId":"won","version":2,"idempotencyKey":"stage-1"}`))
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
@@ -101,7 +101,7 @@ func TestOpportunityHandlerRejectsMissingOrMismatchedIdempotencyKey(t *testing.T
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			service := &opportunityServiceFake{}
-			handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}})
+			handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}})
 			req := httptest.NewRequest(http.MethodPost, OpportunitiesPath+"/o1/stage", strings.NewReader(test.body))
 			req.Header.Set("Content-Type", "application/json")
 			if test.header != "" {
@@ -132,7 +132,7 @@ func TestOpportunityHandlerWritesErrorsForUnknownJSONFields(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			service := &opportunityServiceFake{}
-			handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}})
+			handler := NewOpportunityHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}})
 			req := httptest.NewRequest(http.MethodPost, test.url, strings.NewReader(test.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", "mutation-1")

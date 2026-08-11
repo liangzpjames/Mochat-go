@@ -14,7 +14,7 @@ func TestWorkContactBatchLabelingWritesMissingPivots(t *testing.T) {
 	}
 	handler := NewWorkReadHandler(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workContact/batchLabeling", strings.NewReader(`{"contactId":"21,22,21","tagId":"3,4,0,3"}`))
+	req := authenticatedDashboardRequestForTestAs(http.MethodPost, "/dashboard/workContact/batchLabeling", strings.NewReader(`{"contactId":"21,22,21","tagId":"3,4,0,3"}`), 1, 1, 7, 88)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -55,7 +55,7 @@ func TestWorkContactBatchLabelingValidatesRequiredParams(t *testing.T) {
 		{name: "tag", body: `{"contactId":"21"}`, msg: "标签id必传"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/dashboard/workContact/batchLabeling", strings.NewReader(tc.body))
+			req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workContact/batchLabeling", strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Mochat-Go-User-ID", "1")
 			rec := httptest.NewRecorder()

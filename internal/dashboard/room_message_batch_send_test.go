@@ -33,7 +33,7 @@ func TestRoomMessageBatchSendIndexAndShow(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewRoomMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com", t.TempDir(), nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomMessageBatchSend/index?batchTitle=%E7%BE%A4%E5%8F%91&page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomMessageBatchSend/index?batchTitle=%E7%BE%A4%E5%8F%91&page=1&perPage=10", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -50,7 +50,7 @@ func TestRoomMessageBatchSendIndexAndShow(t *testing.T) {
 		t.Fatalf("item=%#v content=%#v", item, content)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/roomMessageBatchSend/show?batchId=810001", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomMessageBatchSend/show?batchId=810001", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -81,7 +81,7 @@ func TestRoomMessageBatchSendStoreCreatesTasksAndSubmitsWeCom(t *testing.T) {
 	handler := NewRoomMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "/tmp/mochat-go-test", client)
 
 	body := `{"batchTitle":"Go 客户群群发","employeeIds":[21],"content":[{"msgType":"text","content":"hello"},{"msgType":"image","pic_url":"image/a.jpg"}],"mediumId":45,"sendWay":1}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomMessageBatchSend/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomMessageBatchSend/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -119,7 +119,7 @@ func TestRoomMessageBatchSendStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 	handler := NewRoomMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "/tmp/mochat-go-test", nil)
 
 	body := `{"batchTitle":"Go 客户群群发","employeeIds":[21],"content":[{"msgType":"text","content":"hello"}],"sendWay":2,"definiteTime":"2026-07-04 10:00:00"}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomMessageBatchSend/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomMessageBatchSend/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -154,7 +154,7 @@ func TestRoomMessageBatchSendDetailListsRemindAndDestroy(t *testing.T) {
 	client := &fakeRoomMessageBatchSendClient{}
 	handler := NewRoomMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", t.TempDir(), client)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomMessageBatchSend/roomOwnerSendIndex?batchId=810003&sendStatus=0&page=1&perPage=15", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomMessageBatchSend/roomOwnerSendIndex?batchId=810003&sendStatus=0&page=1&perPage=15", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.RoomOwnerSendIndex(rec, req)
@@ -166,7 +166,7 @@ func TestRoomMessageBatchSendDetailListsRemindAndDestroy(t *testing.T) {
 		t.Fatalf("owner=%#v", owner)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/roomMessageBatchSend/roomReceiveIndex?batchId=810003&sendStatus=0&keyWords=%E5%AE%A2%E6%88%B7&page=1&perPage=15", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomMessageBatchSend/roomReceiveIndex?batchId=810003&sendStatus=0&keyWords=%E5%AE%A2%E6%88%B7&page=1&perPage=15", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.RoomReceiveIndex(rec, req)
@@ -178,7 +178,7 @@ func TestRoomMessageBatchSendDetailListsRemindAndDestroy(t *testing.T) {
 		t.Fatalf("room=%#v", room)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/roomMessageBatchSend/remind?batchId=810003&batchEmployId=21", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomMessageBatchSend/remind?batchId=810003&batchEmployId=21", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.Remind(rec, req)
@@ -186,7 +186,7 @@ func TestRoomMessageBatchSendDetailListsRemindAndDestroy(t *testing.T) {
 		t.Fatalf("remind status=%d messages=%#v body=%s", rec.Code, client.agentMessages, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodDelete, "/dashboard/roomMessageBatchSend/destroy", strings.NewReader(`{"batchId":810003}`))
+	req = authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomMessageBatchSend/destroy", strings.NewReader(`{"batchId":810003}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()

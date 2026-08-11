@@ -31,7 +31,7 @@ func TestSOPDashboardContactIndexReturnsLaravelPage(t *testing.T) {
 		},
 	}
 	handler := NewSOPDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactSop/index?page=2&perPage=1&name=欢迎", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactSop/index?page=2&perPage=1&name=欢迎", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	req.Host = "api.example.com"
 	rec := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestSOPDashboardContactIndexReturnsLaravelPage(t *testing.T) {
 func TestSOPDashboardContactStorePreservesJSONRules(t *testing.T) {
 	store := &fakeSOPDashboardStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}, createContactID: 66}
 	handler := NewSOPDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactSop/store", strings.NewReader(`{"name":"欢迎SOP","setting":[{"name":"首条规则","content":[{"type":"text","value":"你好"}]}],"employeeIds":[31,32],"contactIds":"88,89"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactSop/store", strings.NewReader(`{"name":"欢迎SOP","setting":[{"name":"首条规则","content":[{"type":"text","value":"你好"}]}],"employeeIds":[31,32],"contactIds":"88,89"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -99,7 +99,7 @@ func TestSOPDashboardContactStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewSOPDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactSop/store", strings.NewReader(`{"name":"额度外个人SOP"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactSop/store", strings.NewReader(`{"name":"额度外个人SOP"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -125,7 +125,7 @@ func TestSOPDashboardContactStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestSOPDashboardContactDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeSOPDashboardStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}}
 	handler := NewSOPDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/contactSop/destroy", strings.NewReader(`{"contactSopId":66}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/contactSop/destroy", strings.NewReader(`{"contactSopId":66}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -145,7 +145,7 @@ func TestSOPDashboardContactDestroyRefreshesSaaSUsage(t *testing.T) {
 func TestSOPDashboardRoomSetRoomUpdatesRoomIDs(t *testing.T) {
 	store := &fakeSOPDashboardStore{user: User{ID: 1, IsSuperAdmin: 1}}
 	handler := NewSOPDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/roomSop/setRoom", strings.NewReader(`{"roomSopId":88,"roomIds":[900001,900002]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/roomSop/setRoom", strings.NewReader(`{"roomSopId":88,"roomIds":[900001,900002]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -171,7 +171,7 @@ func TestSOPDashboardRoomStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewSOPDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomSop/store", strings.NewReader(`{"name":"额度外群SOP"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomSop/store", strings.NewReader(`{"name":"额度外群SOP"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -197,7 +197,7 @@ func TestSOPDashboardRoomStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestSOPDashboardRoomDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeSOPDashboardStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}}
 	handler := NewSOPDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/roomSop/destroy", strings.NewReader(`{"roomSopId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomSop/destroy", strings.NewReader(`{"roomSopId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -217,7 +217,7 @@ func TestSOPDashboardRoomDestroyRefreshesSaaSUsage(t *testing.T) {
 func TestSOPDashboardContactUpdateDoesNotDefaultState(t *testing.T) {
 	store := &fakeSOPDashboardStore{user: User{ID: 1, IsSuperAdmin: 1}}
 	handler := NewSOPDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/contactSop/update", strings.NewReader(`{"contactSopId":66,"name":"只改名称"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/contactSop/update", strings.NewReader(`{"contactSopId":66,"name":"只改名称"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

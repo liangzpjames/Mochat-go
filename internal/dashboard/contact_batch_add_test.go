@@ -26,7 +26,7 @@ func TestContactBatchAddDetailReturnsSidebarPayload(t *testing.T) {
 		},
 	}
 	handler := NewContactBatchAddHandler(store, HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
-	req := httptest.NewRequest(http.MethodGet, "/sidebar/contactBatchAdd/detail?batchId=55&status=4", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/contactBatchAdd/detail?batchId=55&status=4", nil)
 	req.Header.Set("X-Mochat-Go-Employee-ID", "7")
 	rec := httptest.NewRecorder()
 
@@ -77,7 +77,7 @@ func TestContactBatchAddDashboardIndexReturnsLaravelPage(t *testing.T) {
 		tags:      map[int]ContactBatchAddTag{5: {ID: 5, Name: "重点客户"}},
 	}
 	handler := NewContactBatchAddDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactBatchAdd/index?page=2&perPage=1&status=1&searchKey=138", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactBatchAdd/index?page=2&perPage=1&status=1&searchKey=138", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	req.Host = "api.example.com"
 	rec := httptest.NewRecorder()
@@ -113,7 +113,7 @@ func TestContactBatchAddDashboardIndexReturnsLaravelPage(t *testing.T) {
 func TestContactBatchAddDashboardImportStoreAcceptsJSONContacts(t *testing.T) {
 	store := &fakeContactBatchAddDashboardStore{user: User{ID: 1, IsSuperAdmin: 1}}
 	handler := NewContactBatchAddDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactBatchAdd/importStore", strings.NewReader(`{"title":"导入任务","allotEmployee":[31],"tags":[5],"contacts":[{"phone":"13800000001","remark":"张三"},{"phone":"bad"}]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactBatchAdd/importStore", strings.NewReader(`{"title":"导入任务","allotEmployee":[31],"tags":[5],"contacts":[{"phone":"13800000001","remark":"张三"},{"phone":"bad"}]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -169,7 +169,7 @@ func TestContactBatchAddDashboardImportStoreRecordsMultipartFileStorage(t *testi
 	handler := NewContactBatchAddDashboardHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil).
 		WithFileStorage(root, "http://api.example.com")
 	handler.now = func() time.Time { return time.Date(2026, 7, 6, 19, 45, 0, 0, time.UTC) }
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactBatchAdd/importStore", &body)
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactBatchAdd/importStore", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()

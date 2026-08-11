@@ -10,19 +10,19 @@ import (
 )
 
 type AudioObject struct {
-	ID              int64     `json:"id"`
-	TenantID        int64     `json:"tenantId"`
-	UserID          int64     `json:"userId"`
-	EmployeeID      int64     `json:"employeeId"`
-	CorpID          int64     `json:"corpId"`
-	OriginalName    string    `json:"originalName"`
-	RelativePath    string    `json:"-"`
-	ContentType     string    `json:"contentType"`
-	SizeBytes       int64     `json:"sizeBytes"`
-	DurationSeconds int64     `json:"durationSeconds"`
-	SHA256          string    `json:"sha256"`
-	CreatedAt       time.Time `json:"createdAt"`
-	PlayURL         string    `json:"playUrl"`
+	ID              int64      `json:"id"`
+	TenantID        int64      `json:"tenantId"`
+	UserID          int64      `json:"userId"`
+	EmployeeID      int64      `json:"employeeId"`
+	CorpID          int64      `json:"corpId"`
+	OriginalName    string     `json:"originalName"`
+	RelativePath    string     `json:"-"`
+	ContentType     string     `json:"contentType"`
+	SizeBytes       int64      `json:"sizeBytes"`
+	DurationSeconds int64      `json:"durationSeconds"`
+	SHA256          string     `json:"sha256"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	PlayURL         string     `json:"playUrl"`
 	DeletedAt       *time.Time `json:"-"`
 	DeletedBy       int64      `json:"-"`
 }

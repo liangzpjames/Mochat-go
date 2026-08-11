@@ -23,7 +23,7 @@ func TestPhase34UnavailableExternalProviderIsExplicitlyFailClosed(t *testing.T) 
 func TestPhase34AcquisitionLinkStoreUsesSelectedCorpAndCreatesDraft(t *testing.T) {
 	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1, Name: "管理员"}}, linkID: 17}
 	handler := NewPhase34AcquisitionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/acquisitionLink/store", strings.NewReader(`{"name":"官网落地页","targetUrl":"/customer/contact","corpId":999}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/acquisitionLink/store", strings.NewReader(`{"name":"官网落地页","targetUrl":"/customer/contact","corpId":999}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -37,7 +37,7 @@ func TestPhase34AcquisitionLinkStoreUsesSelectedCorpAndCreatesDraft(t *testing.T
 func TestPhase34AcquisitionLinkAuthorizeFailsClosedWithoutExternalProvider(t *testing.T) {
 	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewPhase34AcquisitionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/acquisitionLink/authorize", strings.NewReader(`{}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/acquisitionLink/authorize", strings.NewReader(`{}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -52,7 +52,7 @@ func TestPhase34AcquisitionAuthorizePersistsAuthorizedState(t *testing.T) {
 	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}, linkID: 17}
 	external := &fakePhase34AcquisitionExternal{authorizeURL: "https://wecom.example/authorize"}
 	handler := NewPhase34AcquisitionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, external)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/acquisitionLink/authorize", strings.NewReader(`{}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/acquisitionLink/authorize", strings.NewReader(`{}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -67,7 +67,7 @@ func TestPhase34AcquisitionAuthorizePersistsFailedStateWhenProviderErrors(t *tes
 	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}, linkID: 17}
 	external := &fakePhase34AcquisitionExternal{authorizeErr: errors.New("企业微信凭据未配置")}
 	handler := NewPhase34AcquisitionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, external)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/acquisitionLink/authorize", strings.NewReader(`{}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/acquisitionLink/authorize", strings.NewReader(`{}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -82,7 +82,7 @@ func TestPhase34CustomerServiceSyncPersistsFailureReason(t *testing.T) {
 	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}}
 	external := &fakePhase34AcquisitionExternal{syncErr: errors.New("customer-service credentials rejected")}
 	handler := NewPhase34AcquisitionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, external)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/customerService/sync", strings.NewReader(`{}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/customerService/sync", strings.NewReader(`{}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -99,7 +99,7 @@ func TestPhase34CustomerServiceIndexUsesSelectedCorp(t *testing.T) {
 		customerServices: Phase34CustomerServicePage{Items: []Phase34CustomerService{{ID: 3, Name: "售前客服", Status: "draft"}}, Total: 1, Page: 1, PerPage: 20},
 	}
 	handler := NewPhase34AcquisitionHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/customerService/index?name=%E5%94%AE%E5%89%8D", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/customerService/index?name=%E5%94%AE%E5%89%8D", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -113,9 +113,9 @@ func TestPhase34CustomerServiceIndexUsesSelectedCorp(t *testing.T) {
 func TestPhase34CustomerServiceRestrictedScopeFlowsToPage(t *testing.T) {
 	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}}
 	h := NewPhase34AcquisitionHandler(store, staticCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, NewPhase34UnavailableExternalProvider())
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/customerService/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/customerService/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
-	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{11, 12}}))
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{UserID: 1, TenantID: 1, CorpID: 7, WorkEmployeeID: 99, ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{11, 12}}))
 	rec := httptest.NewRecorder()
 	h.CustomerServiceIndex(rec, req)
 	if rec.Code != http.StatusOK || !store.customerServiceFilter.RestrictEmployeeIDs || !reflect.DeepEqual(store.customerServiceFilter.AllowedEmployeeIDs, []int{11, 12}) {
@@ -126,9 +126,9 @@ func TestPhase34CustomerServiceRestrictedScopeFlowsToPage(t *testing.T) {
 func TestPhase34CustomerServiceStoreRejectsOutOfScopeEmployees(t *testing.T) {
 	store := &fakePhase34AcquisitionStore{users: map[int]User{1: {ID: 1}}}
 	h := NewPhase34AcquisitionHandler(store, staticCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, NewPhase34UnavailableExternalProvider())
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/customerService/store", strings.NewReader(`{"name":"客服","account":"acct","employeeIds":[99]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/customerService/store", strings.NewReader(`{"name":"客服","account":"acct","employeeIds":[99]}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
-	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeSelf, AllowedEmployeeIDs: []int{11}}))
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{UserID: 1, TenantID: 1, CorpID: 7, WorkEmployeeID: 99, ScopeRequired: true, Scope: DataScopeSelf, AllowedEmployeeIDs: []int{11}}))
 	rec := httptest.NewRecorder()
 	h.CustomerServiceStore(rec, req)
 	if rec.Code != http.StatusForbidden || store.customerServiceCreateCalls != 0 {

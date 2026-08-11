@@ -454,7 +454,8 @@ func (h *Phase34AcquisitionHandler) authorized(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
 		return 0, 0, User{}, false
 	}
-	userID, err := h.resolver.UserID(r)
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
 		return 0, 0, User{}, false
@@ -464,20 +465,12 @@ func (h *Phase34AcquisitionHandler) authorized(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
 		return 0, 0, User{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, 0, User{}, false
-		}
-	}
-	login, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	login, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return 0, 0, User{}, false
 	}
-	corpID, ok := selectedCorpID(w, login)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return 0, 0, User{}, false
 	}

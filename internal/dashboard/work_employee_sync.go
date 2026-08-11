@@ -92,7 +92,7 @@ func (h *WorkReadHandler) WorkEmployeeSync(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
@@ -100,7 +100,7 @@ func (h *WorkReadHandler) WorkEmployeeSync(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "企业微信成员同步客户端未配置", nil)
 		return
 	}
-	corpIDs, err := h.workEmployeeSyncCorpIDs(r.Context(), userID, user, loginInfo)
+	corpIDs, err := h.workEmployeeSyncCorpIDs(r.Context(), userID, user, principalScope)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -148,7 +148,7 @@ func (h *WorkReadHandler) WorkEmployeeSync(w http.ResponseWriter, r *http.Reques
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
-func (h *WorkReadHandler) workEmployeeSyncCorpIDs(ctx context.Context, userID int, user User, loginInfo LoginCorpInfo) ([]int, error) {
+func (h *WorkReadHandler) workEmployeeSyncCorpIDs(ctx context.Context, userID int, user User, principalScope DashboardRequestScope) ([]int, error) {
 	if user.IsSuperAdmin == 1 && user.TenantID > 0 {
 		corpIDs, err := h.store.CorpIDsByTenant(ctx, user.TenantID)
 		if err != nil {
@@ -161,7 +161,7 @@ func (h *WorkReadHandler) workEmployeeSyncCorpIDs(ctx context.Context, userID in
 		return nil, err
 	}
 	if len(corpIDs) == 0 {
-		corpIDs = loginInfo.CorpIDs
+		corpIDs = principalScope.CorpIDs
 	}
 	return uniquePositiveIntsLocal(corpIDs), nil
 }

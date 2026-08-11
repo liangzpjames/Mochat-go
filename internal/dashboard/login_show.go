@@ -90,7 +90,8 @@ func (h *LoginShowHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := h.resolver.UserID(r)
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
 		return
@@ -118,21 +119,12 @@ func (h *LoginShowHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return
-		}
-	}
-
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
-	payload := h.payload(r.Context(), user, loginInfo.CorpIDs, loginInfo.WorkEmployeeID)
+	payload := h.payload(r.Context(), user, principalScope.CorpIDs, principalScope.WorkEmployeeID)
 	writeEnvelope(w, http.StatusOK, 200, "success", payload)
 }
 

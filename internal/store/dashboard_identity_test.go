@@ -10,7 +10,6 @@ import (
 
 	"jiyi/mochat-go/internal/authrealm"
 	"jiyi/mochat-go/internal/dashboardauth"
-	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
 var _ dashboardauth.DashboardIdentityStore = (*DashboardIdentityStore)(nil)
@@ -93,26 +92,6 @@ func TestDashboardIdentityStoreActivationConsumesDigestAndUpdatesOnlyIdentitySta
 	}
 	if execCount != 2 || tx.commits != 1 {
 		t.Fatal("activation did not atomically update identity and consume the digest")
-	}
-}
-
-func TestDashboardIdentityStoreResolvesPrincipalFromServerBinding(t *testing.T) {
-	var query string
-	store := &DashboardIdentityStore{
-		queryRow: func(_ context.Context, statement string, _ ...any) identityRowScanner {
-			query = statement
-			return identityTestRow{values: []any{7, 902, 77, 1, 1, uint64(4)}}
-		},
-	}
-	principal, err := store.ResolvePrincipal(context.Background(), 7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if principal != (dashboardprincipal.DashboardPrincipal{UserID: 7, TenantID: 902, CorpID: 77, CorpStatus: dashboardprincipal.CorpBindingStatusPending, IsSuperAdmin: true, AuthVersion: 4}) {
-		t.Fatalf("principal=%+v", principal)
-	}
-	if !strings.Contains(query, "mochat_go_dashboard_identities") || !strings.Contains(query, "mochat_go_tenant_corp_bindings") || !strings.Contains(query, "mc_user") || strings.Contains(strings.ToLower(query), "password") {
-		t.Fatalf("principal query crossed the Dashboard identity boundary: %s", query)
 	}
 }
 

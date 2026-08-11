@@ -26,7 +26,7 @@ func TestRoomTagPullIndexReturnsPHPCompatiblePage(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewRoomTagPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomTagPull/index?name=%E6%A0%87%E7%AD%BE", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomTagPull/index?name=%E6%A0%87%E7%AD%BE", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -63,7 +63,7 @@ func TestRoomTagPullShowReturnsDetail(t *testing.T) {
 	}
 	handler := NewRoomTagPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomTagPull/show?id=900001", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomTagPull/show?id=900001", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -101,7 +101,7 @@ func TestRoomTagPullShowContactReturnsContactAndEmployeeViews(t *testing.T) {
 	}
 	handler := NewRoomTagPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomTagPull/showContact?id=900001&type=1&contact_name=%E5%AE%A2%E6%88%B7&send_status=1", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomTagPull/showContact?id=900001&type=1&contact_name=%E5%AE%A2%E6%88%B7&send_status=1", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.ShowContact(rec, req)
@@ -117,7 +117,7 @@ func TestRoomTagPullShowContactReturnsContactAndEmployeeViews(t *testing.T) {
 		t.Fatalf("contact item = %#v", item)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/roomTagPull/showContact?id=900001&type=2&wx_user_id=wx-a&is_send=0", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomTagPull/showContact?id=900001&type=2&wx_user_id=wx-a&is_send=0", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.ShowContact(rec, req)
@@ -142,7 +142,7 @@ func TestRoomTagPullRoomListAndChooseContact(t *testing.T) {
 	}
 	handler := NewRoomTagPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomTagPull/roomList?employees[]=21&type=2&name=%E5%AE%A2%E6%88%B7", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomTagPull/roomList?employees[]=21&type=2&name=%E5%AE%A2%E6%88%B7", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.RoomList(rec, req)
@@ -157,7 +157,7 @@ func TestRoomTagPullRoomListAndChooseContact(t *testing.T) {
 		t.Fatalf("room = %#v", room)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/roomTagPull/chooseContact?employees[]=21&is_all=1&gender=2&tag_ids[]=31", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomTagPull/chooseContact?employees[]=21&is_all=1&gender=2&tag_ids[]=31", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.ChooseContact(rec, req)
@@ -180,7 +180,7 @@ func TestRoomTagPullFilterContactCountsFilteredContacts(t *testing.T) {
 	}
 	handler := NewRoomTagPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "")
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomTagPull/filterContact", strings.NewReader(`{"employees":[21],"choose_contact":{"is_all":1,"gender":2,"tag_ids":[31]},"rooms":[{"id":11,"num":50}]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomTagPull/filterContact", strings.NewReader(`{"employees":[21],"choose_contact":{"is_all":1,"gender":2,"tag_ids":[31]},"rooms":[{"id":11,"num":50}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -217,7 +217,7 @@ func TestRoomTagPullStoreCreatesActivityAndSendsMessage(t *testing.T) {
 	handler := NewRoomTagPullHandlerWithMessageClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "", "/tmp/mochat-go-test", client)
 
 	body := `{"name":"标签建群","employees":[21],"choose_contact":{"is_all":1,"gender":1,"tag_ids":[31]},"guide":"请扫码入群","rooms":[{"id":11,"name":"客户群A","num":50,"image":"image/local.jpg"}],"filter_contact":1}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomTagPull/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomTagPull/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -255,7 +255,7 @@ func TestRoomTagPullStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 	handler := NewRoomTagPullHandlerWithMessageClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "", "/tmp/mochat-go-test", client)
 
 	body := `{"name":"标签建群","employees":[21],"choose_contact":{"is_all":1},"guide":"请扫码入群","rooms":[{"id":11,"name":"客户群A","num":50,"image":"image/local.jpg"}],"filter_contact":1}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomTagPull/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomTagPull/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -299,7 +299,7 @@ func TestRoomTagPullRemindSendSendsAgentMessageForPendingTask(t *testing.T) {
 	client := &fakeRoomTagPullMessageClient{}
 	handler := NewRoomTagPullHandlerWithMessageClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "", "/tmp/mochat-go-test", client)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomTagPull/remindSend?id=900001&wxUserId=wx-user-21", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomTagPull/remindSend?id=900001&wxUserId=wx-user-21", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.RemindSend(rec, req)
@@ -331,7 +331,7 @@ func TestRoomTagPullDestroyDeletesActivity(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewRoomTagPullHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "")
 
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/roomTagPull/destroy", strings.NewReader(`{"id":900001}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomTagPull/destroy", strings.NewReader(`{"id":900001}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()

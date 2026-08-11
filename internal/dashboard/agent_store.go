@@ -55,11 +55,11 @@ func (h *DashboardAgentHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "企业微信客户端未配置", nil)
 		return
 	}
-	_, user, loginInfo, ok := h.resolveAccess(w, r)
+	_, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "未选择登录企业，不可操作", nil)
 		return
 	}
@@ -68,7 +68,7 @@ func (h *DashboardAgentHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
 		return
 	}
-	values, ok := dashboardAgentWriteValues(w, params, loginInfo.CorpIDs[0])
+	values, ok := dashboardAgentWriteValues(w, params, principalScope.CorpIDs[0])
 	if !ok {
 		return
 	}
@@ -100,35 +100,28 @@ func (h *DashboardAgentHandler) Store(w http.ResponseWriter, r *http.Request) {
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
-func (h *DashboardAgentHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *DashboardAgentHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
 func dashboardAgentWriteValues(w http.ResponseWriter, params map[string]any, corpID int) (WorkAgentWriteValues, bool) {

@@ -29,7 +29,7 @@ func TestCustomerTagHandlerUsesScopedRBACAndCompletePayloads(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			service := &customerTagServiceFake{}
 			authorizer := &contactAuthorizerFake{}
-			handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}}, authorizer)
+			handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}}, authorizer)
 			request := httptest.NewRequest(test.method, test.url, strings.NewReader(test.body))
 			request.Header.Set("Content-Type", "application/json")
 			if test.name != "delete preview" {
@@ -64,7 +64,7 @@ func TestCustomerTagHandlerMapsForbiddenNotFoundConflictAndDuplicate(t *testing.
 		{ports.ErrDuplicateTagName, http.StatusUnprocessableEntity},
 	} {
 		service.err = test.err
-		handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}}, &contactAuthorizerFake{})
+		handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}}, &contactAuthorizerFake{})
 		request := httptest.NewRequest(http.MethodGet, TagsPath+"?corpId=22", nil)
 		response := httptest.NewRecorder()
 		handler.ListCatalog(response, request)
@@ -73,8 +73,8 @@ func TestCustomerTagHandlerMapsForbiddenNotFoundConflictAndDuplicate(t *testing.
 		}
 	}
 
-	handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11}}, &contactAuthorizerFake{err: ErrLeadForbidden})
-	request := httptest.NewRequest(http.MethodGet, TagsPath+"?corpId=23", nil)
+	handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22}}, &contactAuthorizerFake{err: ErrLeadForbidden})
+	request := httptest.NewRequest(http.MethodGet, TagsPath+"?corpId=22", nil)
 	response := httptest.NewRecorder()
 	handler.ListCatalog(response, request)
 	if response.Code != http.StatusForbidden || service.calls != 3 {
@@ -84,7 +84,7 @@ func TestCustomerTagHandlerMapsForbiddenNotFoundConflictAndDuplicate(t *testing.
 
 func TestCustomerTagMaintainContactsRestrictedScopeFailsClosed(t *testing.T) {
 	service := &customerTagServiceFake{}
-	handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{7}}}, &contactAuthorizerFake{})
+	handler := NewCustomerTagHandler(service, fakePrincipalResolver{principal: Principal{UserID: 3, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{7}}}, &contactAuthorizerFake{})
 	request := httptest.NewRequest(http.MethodPut, TagsPath+"/t1/contacts", strings.NewReader(`{"corpId":22,"addContactIds":["c1"],"version":2}`))
 	request.Header.Set("Idempotency-Key", "tag-scope")
 	response := httptest.NewRecorder()

@@ -21,6 +21,7 @@ var (
 type Principal struct {
 	UserID                  int64
 	TenantID                int64
+	CorpID                  int64
 	AllowedEmployeeIDs      []int64
 	EmployeeScopeRestricted bool
 }
@@ -110,14 +111,18 @@ func NewInsightHandlerWithProvider(p PrincipalResolver, a Authorizer, db *sql.DB
 
 func (h *InsightHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p, err := h.principal.Resolve(r)
-	if err != nil {
+	if err != nil || p.UserID <= 0 || p.TenantID <= 0 || p.CorpID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, ErrPrincipalUnauthorized.Error(), nil)
 		return
 	}
-	corp, _ := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)
-	if corp <= 0 {
-		writeEnvelope(w, http.StatusBadRequest, "corpId required", nil)
-		return
+	corp := p.CorpID
+	if raw := r.URL.Query().Get("corpId"); raw != "" {
+		parsed, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || parsed <= 0 || parsed != p.CorpID {
+			writeEnvelope(w, http.StatusBadRequest, "corpId does not match dashboard principal", nil)
+			return
+		}
+		corp = parsed
 	}
 	page := pathPage(r.URL.Path)
 	config, ok := pageCatalog[page]

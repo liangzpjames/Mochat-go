@@ -25,7 +25,7 @@ func TestRoomQualityShowContactKeepsZeroStatusFilter(t *testing.T) {
 		},
 	}
 	handler := NewRoomQualityHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomQuality/showContact?roomQualityId=12&status=0&page=1&perPage=15", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomQuality/showContact?roomQualityId=12&status=0&page=1&perPage=15", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -56,7 +56,7 @@ func TestRoomQualityStorePreservesRuleJSON(t *testing.T) {
 	body := `{
 		"quality":{"name":"群质检规则","description":"敏感动作提醒","rule":[{"num":3,"time_type":1,"showEmployee":[11,12]}],"rooms":[101,102],"status":0}
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomQuality/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomQuality/store", strings.NewReader(body))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -88,7 +88,7 @@ func TestRoomQualityStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewRoomQualityHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomQuality/store", strings.NewReader(`{"quality":{"name":"额度外群质检"}}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomQuality/store", strings.NewReader(`{"quality":{"name":"额度外群质检"}}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -114,7 +114,7 @@ func TestRoomQualityStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestRoomQualityDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeRoomQualityStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}}
 	handler := NewRoomQualityHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/roomQuality/destroy", strings.NewReader(`{"roomQualityId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomQuality/destroy", strings.NewReader(`{"roomQualityId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

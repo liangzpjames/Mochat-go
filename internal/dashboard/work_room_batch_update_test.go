@@ -17,7 +17,7 @@ func TestWorkRoomBatchUpdateUpdatesSelectedCorpRooms(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", authorizer)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoom/batchUpdate", strings.NewReader(`{"workRoomIds":"101,102,101,0","workRoomGroupId":9}`))
+	req := authenticatedDashboardRequestForTestAs(http.MethodPut, "/dashboard/workRoom/batchUpdate", strings.NewReader(`{"workRoomIds":"101,102,101,0","workRoomGroupId":9}`), 1, 1, 7, 88)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -52,7 +52,7 @@ func TestWorkRoomBatchUpdateAllowsZeroGroupWithoutLookup(t *testing.T) {
 	}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", &recordingAuthorizer{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoom/batchUpdate", strings.NewReader(`{"workRoomIds":"101","workRoomGroupId":0}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoom/batchUpdate", strings.NewReader(`{"workRoomIds":"101","workRoomGroupId":0}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -94,7 +94,7 @@ func TestWorkRoomBatchUpdateValidatesGroup(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := NewWorkReadHandlerWithAuthorizer(tc.store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", &recordingAuthorizer{})
-			req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoom/batchUpdate", strings.NewReader(`{"workRoomIds":"101","workRoomGroupId":9}`))
+			req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoom/batchUpdate", strings.NewReader(`{"workRoomIds":"101","workRoomGroupId":9}`))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Mochat-Go-User-ID", "1")
 			rec := httptest.NewRecorder()
@@ -114,7 +114,7 @@ func TestWorkRoomBatchUpdateValidatesGroup(t *testing.T) {
 	}
 }
 
-func TestWorkRoomBatchUpdateValidatesParamsAndSelectedCorp(t *testing.T) {
+func TestWorkRoomBatchUpdateValidatesParams(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		cache staticAdminCache
@@ -125,7 +125,6 @@ func TestWorkRoomBatchUpdateValidatesParamsAndSelectedCorp(t *testing.T) {
 		{name: "room-id-string", cache: staticAdminCache("7-88"), body: `{"workRoomIds":101,"workRoomGroupId":9}`, msg: "客户群ID 必需为字符串"},
 		{name: "group-required", cache: staticAdminCache("7-88"), body: `{"workRoomIds":"101"}`, msg: "客户群分组ID 必填"},
 		{name: "group-integer", cache: staticAdminCache("7-88"), body: `{"workRoomIds":"101","workRoomGroupId":"x"}`, msg: "客户群分组ID 必需为整数"},
-		{name: "select-corp", cache: staticAdminCache("7-88,8-99"), body: `{"workRoomIds":"101","workRoomGroupId":0}`, msg: "未选择登录企业，不可操作"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := NewWorkReadHandlerWithAuthorizer(
@@ -135,7 +134,7 @@ func TestWorkRoomBatchUpdateValidatesParamsAndSelectedCorp(t *testing.T) {
 				"",
 				&recordingAuthorizer{},
 			)
-			req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoom/batchUpdate", strings.NewReader(tc.body))
+			req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoom/batchUpdate", strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Mochat-Go-User-ID", "1")
 			rec := httptest.NewRecorder()

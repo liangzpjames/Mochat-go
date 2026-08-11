@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
 type fakeDashboardAccessGuardStore struct {
@@ -42,7 +45,7 @@ func (store *fakeDashboardAccessGuardStore) DashboardTenantAccess(_ context.Cont
 
 func TestDashboardAccessGuardProfileRequiresAuthenticationAndTenantGate(t *testing.T) {
 	guard, store := newDashboardAccessGuardFixture(false)
-	request := httptest.NewRequest(http.MethodGet, "/dashboard/access/profile", nil)
+	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/access/profile", nil)
 	response := httptest.NewRecorder()
 	if !guard.Authorize(response, request) {
 		t.Fatalf("profile rejected: status=%d body=%s", response.Code, response.Body.String())
@@ -51,15 +54,18 @@ func TestDashboardAccessGuardProfileRequiresAuthenticationAndTenantGate(t *testi
 	if !ok || access.UserID != 7 || access.TenantID != 9 || access.CorpID != 12 || access.IsSuperAdmin {
 		t.Fatalf("access=%+v ok=%v", access, ok)
 	}
-	if store.tenantCalls != 1 || store.resourceCalls != 0 || store.grantCalls != 0 {
+	if store.tenantCalls != 0 || store.resourceCalls != 0 || store.grantCalls != 0 {
 		t.Fatalf("tenant=%d resource=%d grants=%d", store.tenantCalls, store.resourceCalls, store.grantCalls)
 	}
 
 	guard, store = newDashboardAccessGuardFixture(false)
-	store.tenantAccess = DashboardTenantAccess{TenantID: 9, Allowed: false}
 	response = httptest.NewRecorder()
-	if guard.Authorize(response, httptest.NewRequest(http.MethodGet, "/dashboard/access/profile", nil)) {
-		t.Fatal("profile accepted for denied tenant")
+	request = dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/access/profile", nil)
+	principal, _ := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+	principal.CorpStatus = dashboardprincipal.CorpBindingStatusSuspended
+	request = request.WithContext(dashboardprincipal.WithPrincipal(request.Context(), principal))
+	if guard.Authorize(response, request) {
+		t.Fatal("profile accepted for suspended binding")
 	}
 	if response.Code != http.StatusForbidden || machineCode(t, response) != DashboardTenantAccessDeniedCode {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
@@ -79,7 +85,7 @@ func TestDashboardAccessGuardManagementRoutesAreSuperadminOnly(t *testing.T) {
 		t.Run(contract.method+" "+contract.path, func(t *testing.T) {
 			ordinary, _ := newDashboardAccessGuardFixture(false)
 			ordinaryResponse := httptest.NewRecorder()
-			if ordinary.Authorize(ordinaryResponse, httptest.NewRequest(contract.method, contract.path, nil)) {
+			if ordinary.Authorize(ordinaryResponse, dashboardAccessGuardRequest(ordinary, contract.method, contract.path, nil)) {
 				t.Fatal("ordinary user accepted")
 			}
 			if ordinaryResponse.Code != http.StatusForbidden || machineCode(t, ordinaryResponse) != DashboardPermissionDeniedCode {
@@ -87,7 +93,7 @@ func TestDashboardAccessGuardManagementRoutesAreSuperadminOnly(t *testing.T) {
 			}
 
 			superadmin, _ := newDashboardAccessGuardFixture(true)
-			superadminRequest := httptest.NewRequest(contract.method, contract.path, nil)
+			superadminRequest := dashboardAccessGuardRequest(superadmin, contract.method, contract.path, nil)
 			if !superadmin.Authorize(httptest.NewRecorder(), superadminRequest) {
 				t.Fatal("superadmin rejected")
 			}
@@ -139,19 +145,23 @@ func (store *fakeDashboardAccessGuardStore) CorpIDsByUser(context.Context, int) 
 	return append([]int(nil), store.allowedCorpIDs...), nil
 }
 
-type staticDashboardAccessGuardCache string
-
-func (cache staticDashboardAccessGuardCache) UserCorpCache(context.Context, int) (string, error) {
-	return string(cache), nil
-}
-
-type staticDashboardAccessGuardResolver struct {
-	userID int
-	err    error
-}
-
-func (resolver staticDashboardAccessGuardResolver) UserID(*http.Request) (int, error) {
-	return resolver.userID, resolver.err
+func dashboardAccessGuardRequest(guard *DashboardAccessGuard, method, target string, body io.Reader) *http.Request {
+	request := httptest.NewRequest(method, target, body)
+	tenantID, corpID := 9, 12
+	isSuperAdmin := false
+	if store, ok := guard.store.(*fakeDashboardAccessGuardStore); ok {
+		tenantID = store.identity.TenantID
+		isSuperAdmin = store.identity.IsSuperAdmin
+		if len(store.allowedCorpIDs) == 1 {
+			corpID = store.allowedCorpIDs[0]
+		}
+	}
+	principal := dashboardprincipal.DashboardPrincipal{
+		UserID: 7, TenantID: tenantID, CorpID: corpID,
+		CorpStatus:   dashboardprincipal.CorpBindingStatusActive,
+		IsSuperAdmin: isSuperAdmin, AuthVersion: 1,
+	}
+	return request.WithContext(dashboardprincipal.WithPrincipal(request.Context(), principal))
 }
 
 func newDashboardAccessGuardFixture(superadmin bool) (*DashboardAccessGuard, *fakeDashboardAccessGuardStore) {
@@ -176,18 +186,12 @@ func newDashboardAccessGuardFixture(superadmin bool) (*DashboardAccessGuard, *fa
 		employeeFound:  true,
 		allowedCorpIDs: []int{12},
 	}
-	guard := NewDashboardAccessGuard(
-		store,
-		staticDashboardAccessGuardCache("12-81"),
-		staticDashboardAccessGuardResolver{userID: 7},
-		NewDashboardAccessService(store),
-	)
+	guard := NewDashboardAccessGuard(store, NewDashboardAccessService(store))
 	return guard, store
 }
 
 func TestDashboardAccessGuardRejectsMissingAuthentication(t *testing.T) {
 	guard, store := newDashboardAccessGuardFixture(false)
-	guard.resolver = staticDashboardAccessGuardResolver{err: ErrUnauthorized}
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/123", nil)
 
@@ -203,23 +207,20 @@ func TestDashboardAccessGuardChecksTenantBeforeResourceAndPermission(t *testing.
 	guard, store := newDashboardAccessGuardFixture(false)
 	store.tenantAccess = DashboardTenantAccess{TenantID: 9, Reason: DashboardTenantAccessReasonSubscriptionDenied}
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/123", nil)
+	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/workContact/123", nil)
 
-	if guard.Authorize(recorder, request) {
-		t.Fatal("Authorize returned true for denied tenant")
+	if !guard.Authorize(recorder, request) {
+		t.Fatalf("principal-authenticated request rejected: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if recorder.Code != http.StatusForbidden || machineCode(t, recorder) != DashboardTenantAccessDeniedCode {
-		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
-	}
-	if store.resourceCalls != 0 || store.grantCalls != 0 {
-		t.Fatalf("resourceCalls=%d grantCalls=%d, tenant gate must run first", store.resourceCalls, store.grantCalls)
+	if store.tenantCalls != 0 {
+		t.Fatalf("tenant gate was re-read after principal resolution: calls=%d", store.tenantCalls)
 	}
 }
 
 func TestDashboardAccessGuardAllowsMappedPermissionAndWritesScopeContext(t *testing.T) {
 	guard, _ := newDashboardAccessGuardFixture(false)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/123", nil)
+	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/workContact/123", nil)
 
 	if !guard.Authorize(recorder, request) {
 		t.Fatalf("Authorize returned false: status=%d body=%s", recorder.Code, recorder.Body.String())
@@ -256,7 +257,7 @@ func TestDashboardAccessGuardDeniesMissingPermissionAndUnclassifiedAPI(t *testin
 				test.mutate(store)
 			}
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request := dashboardAccessGuardRequest(guard, http.MethodGet, test.path, nil)
 			if guard.Authorize(recorder, request) {
 				t.Fatal("Authorize returned true")
 			}
@@ -281,7 +282,7 @@ func TestDashboardAccessGuardSuperadminAndDenyOnlyPolicy(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			guard, _ := newDashboardAccessGuardFixture(test.superadmin)
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request := dashboardAccessGuardRequest(guard, http.MethodGet, test.path, nil)
 			got := guard.Authorize(recorder, request)
 			if got != test.want {
 				t.Fatalf("Authorize=%v status=%d body=%s", got, recorder.Code, recorder.Body.String())
@@ -308,7 +309,7 @@ func TestDashboardAccessGuardExemptionsAreExactAndProtectedOnSessionRoutes(t *te
 		{method: http.MethodGet, path: "/dashboard/officialAccount/authRedirect", want: false},
 	} {
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(test.method, test.path, nil)
+		request := dashboardAccessGuardRequest(guard, test.method, test.path, nil)
 		got := guard.Authorize(recorder, request)
 		if got != test.want {
 			t.Fatalf("%s %s Authorize=%v status=%d body=%s", test.method, test.path, got, recorder.Code, recorder.Body.String())
@@ -318,12 +319,11 @@ func TestDashboardAccessGuardExemptionsAreExactAndProtectedOnSessionRoutes(t *te
 		t.Fatalf("resourceCalls=%d, only similar unclassified paths should reach mapping", store.resourceCalls)
 	}
 
-	guard, store = newDashboardAccessGuardFixture(false)
-	store.tenantAccess = DashboardTenantAccess{TenantID: 9, Reason: DashboardTenantAccessReasonPackageExpired}
+	guard, _ = newDashboardAccessGuardFixture(false)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
-	if guard.Authorize(recorder, request) || machineCode(t, recorder) != DashboardTenantAccessDeniedCode {
-		t.Fatalf("protected exemption bypassed tenant gate: status=%d body=%s", recorder.Code, recorder.Body.String())
+	if guard.Authorize(recorder, request) || recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("protected exemption bypassed identity principal: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -377,7 +377,7 @@ func TestDashboardAccessGuardReplacesUntrustedCorpWithTenantValidatedCorp(t *tes
 	guard, store := newDashboardAccessGuardFixture(false)
 	store.allowedCorpIDs = []int{13}
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/123?corpId=12", nil)
+	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/workContact/123?corpId=12", nil)
 	if !guard.Authorize(recorder, request) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
@@ -392,7 +392,7 @@ func TestDashboardAccessGuardRejectsMissingEmployeeForScopedResource(t *testing.
 	store.employee = DashboardEmployeeScope{}
 	store.employeeFound = false
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/dashboard/workContact/123", nil)
+	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/workContact/123", nil)
 	if guard.Authorize(recorder, request) || machineCode(t, recorder) != DashboardPermissionDeniedCode {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
@@ -508,7 +508,7 @@ func TestDashboardAccessGuardProvidesScopeContextForEveryCatalogScopedResource(t
 				employeeFound:  true,
 				allowedCorpIDs: []int{12},
 			}
-			guard := NewDashboardAccessGuard(store, staticDashboardAccessGuardCache("12-81"), staticDashboardAccessGuardResolver{userID: 7}, NewDashboardAccessService(store))
+			guard := NewDashboardAccessGuard(store, NewDashboardAccessService(store))
 			path := resource.PathPattern
 			for strings.Contains(path, "{") {
 				start := strings.Index(path, "{")
@@ -519,7 +519,7 @@ func TestDashboardAccessGuardProvidesScopeContextForEveryCatalogScopedResource(t
 				path = path[:start] + "123" + path[start+end+1:]
 			}
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(resource.Method, path, nil)
+			request := dashboardAccessGuardRequest(guard, resource.Method, path, nil)
 			if !guard.Authorize(recorder, request) {
 				t.Fatalf("%s %s (%s): status=%d body=%s", resource.Method, path, page.Code, recorder.Code, recorder.Body.String())
 			}

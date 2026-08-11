@@ -140,11 +140,11 @@ func (h *ContactTransferHandler) Info(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.authorized(w, r)
+	_, _, principalScope, ok := h.authorized(w, r)
 	if !ok {
 		return
 	}
-	filter, ok := h.contactFilterFromQuery(w, r, loginInfo)
+	filter, ok := h.contactFilterFromQuery(w, r, principalScope)
 	if !ok {
 		return
 	}
@@ -161,11 +161,11 @@ func (h *ContactTransferHandler) UnassignedList(w http.ResponseWriter, r *http.R
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.authorized(w, r)
+	_, _, principalScope, ok := h.authorized(w, r)
 	if !ok {
 		return
 	}
-	filter, ok := h.unassignedFilterFromQuery(w, r, loginInfo)
+	filter, ok := h.unassignedFilterFromQuery(w, r, principalScope)
 	if !ok {
 		return
 	}
@@ -185,11 +185,11 @@ func (h *ContactTransferHandler) Room(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.authorized(w, r)
+	_, _, _, ok := h.authorized(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := singleCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -219,11 +219,11 @@ func (h *ContactTransferHandler) Log(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.authorized(w, r)
+	_, _, _, ok := h.authorized(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := singleCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -274,11 +274,11 @@ func (h *ContactTransferHandler) SaveUnassignedList(w http.ResponseWriter, r *ht
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.authorized(w, r)
+	_, _, _, ok := h.authorized(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := singleCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -303,11 +303,11 @@ func (h *ContactTransferHandler) TransferCustomer(w http.ResponseWriter, r *http
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.authorized(w, r)
+	_, _, _, ok := h.authorized(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := singleCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -372,11 +372,11 @@ func (h *ContactTransferHandler) TransferRoom(w http.ResponseWriter, r *http.Req
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, ok := h.authorized(w, r)
+	_, _, _, ok := h.authorized(w, r)
 	if !ok {
 		return
 	}
-	corpID, ok := singleCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -430,8 +430,8 @@ func (h *ContactTransferHandler) TransferRoom(w http.ResponseWriter, r *http.Req
 	writeEnvelope(w, http.StatusOK, 200, "success", failed)
 }
 
-func (h *ContactTransferHandler) contactFilterFromQuery(w http.ResponseWriter, r *http.Request, loginInfo LoginCorpInfo) (ContactTransferContactFilter, bool) {
-	corpID, ok := singleCorpID(w, loginInfo)
+func (h *ContactTransferHandler) contactFilterFromQuery(w http.ResponseWriter, r *http.Request, principalScope DashboardRequestScope) (ContactTransferContactFilter, bool) {
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return ContactTransferContactFilter{}, false
 	}
@@ -455,8 +455,8 @@ func (h *ContactTransferHandler) contactFilterFromQuery(w http.ResponseWriter, r
 	}, true
 }
 
-func (h *ContactTransferHandler) unassignedFilterFromQuery(w http.ResponseWriter, r *http.Request, loginInfo LoginCorpInfo) (ContactTransferUnassignedFilter, bool) {
-	corpID, ok := singleCorpID(w, loginInfo)
+func (h *ContactTransferHandler) unassignedFilterFromQuery(w http.ResponseWriter, r *http.Request, principalScope DashboardRequestScope) (ContactTransferUnassignedFilter, bool) {
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return ContactTransferUnassignedFilter{}, false
 	}
@@ -480,58 +480,51 @@ func (h *ContactTransferHandler) unassignedFilterFromQuery(w http.ResponseWriter
 	}, true
 }
 
-func (h *ContactTransferHandler) authorized(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+func (h *ContactTransferHandler) authorized(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
-func (h *ContactTransferHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
-	userID, err := h.resolver.UserID(r)
+func (h *ContactTransferHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
-func (h *ContactTransferHandler) authorize(ctx context.Context, r *http.Request, userID int, loginInfo LoginCorpInfo) error {
+func (h *ContactTransferHandler) authorize(ctx context.Context, r *http.Request, userID int, principalScope DashboardRequestScope) error {
 	if h.authorizer == nil {
 		return nil
 	}
 	corpID := 0
-	if len(loginInfo.CorpIDs) > 0 {
-		corpID = loginInfo.CorpIDs[0]
+	if len(principalScope.CorpIDs) > 0 {
+		corpID = principalScope.CorpIDs[0]
 	}
-	_, err := h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, loginInfo.WorkEmployeeID)
+	_, err := h.authorizer.Resolve(ctx, userID, PermissionKeyFromRequest(r), corpID, principalScope.WorkEmployeeID)
 	return err
 }
 
@@ -546,14 +539,6 @@ func (h *ContactTransferHandler) resolveCredential(w http.ResponseWriter, ctx co
 		return RoomWelcomeCorpCredential{}, false
 	}
 	return credential, true
-}
-
-func singleCorpID(w http.ResponseWriter, loginInfo LoginCorpInfo) (int, bool) {
-	if len(loginInfo.CorpIDs) != 1 || loginInfo.CorpIDs[0] <= 0 {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
-		return 0, false
-	}
-	return loginInfo.CorpIDs[0], true
 }
 
 func contactTransferContactPayloads(items []ContactTransferContactItem, includeTransferState bool) []map[string]any {

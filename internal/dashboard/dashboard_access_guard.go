@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
+
+	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
 const DashboardPermissionDeniedCode = "DASHBOARD_PERMISSION_DENIED"
@@ -47,27 +48,22 @@ type DashboardAccessGuardStore interface {
 	DashboardAccessStore
 	DashboardTenantAccessStore
 	DashboardPermissionResourceStore
-	loginCorpEmployeeStore
-	loginCorpAccessStore
 }
 
 type DashboardAccessGuard struct {
-	store    DashboardAccessGuardStore
-	cache    LoginCache
-	resolver UserIDResolver
-	access   *DashboardAccessService
-	now      func() time.Time
+	store  DashboardAccessGuardStore
+	access *DashboardAccessService
 }
 
-func NewDashboardAccessGuard(store DashboardAccessGuardStore, cache LoginCache, resolver UserIDResolver, access *DashboardAccessService) *DashboardAccessGuard {
+func NewDashboardAccessGuard(store DashboardAccessGuardStore, access *DashboardAccessService) *DashboardAccessGuard {
 	if access == nil {
 		access = NewDashboardAccessService(store)
 	}
-	return &DashboardAccessGuard{store: store, cache: cache, resolver: resolver, access: access, now: time.Now}
+	return &DashboardAccessGuard{store: store, access: access}
 }
 
 func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *http.Request) bool {
-	if guard == nil || guard.store == nil || guard.resolver == nil || guard.access == nil {
+	if guard == nil || guard.store == nil || guard.access == nil || request == nil {
 		writeMachineEnvelope(w, http.StatusInternalServerError, "DASHBOARD_ACCESS_ERROR", "dashboard access unavailable", nil)
 		return false
 	}
@@ -80,60 +76,38 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 		return true
 	}
 
-	userID, err := guard.resolver.UserID(request)
-	if err != nil || userID <= 0 {
+	principal, err := DashboardPrincipalFromContext(request.Context())
+	if err != nil || principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 {
 		writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return false
 	}
-	identity, found, err := guard.store.DashboardAccessIdentity(request.Context(), userID)
-	if err != nil {
-		writeMachineEnvelope(w, http.StatusInternalServerError, "DASHBOARD_ACCESS_ERROR", "dashboard access unavailable", nil)
-		return false
-	}
-	if !found || identity.UserID != userID || identity.TenantID <= 0 || identity.Status != 1 {
-		writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
-		return false
-	}
-	now := time.Now()
-	if guard.now != nil {
-		now = guard.now()
-	}
-	tenantAccess, err := guard.store.DashboardTenantAccess(request.Context(), identity.TenantID, now)
-	if err != nil {
-		writeMachineEnvelope(w, http.StatusInternalServerError, "DASHBOARD_ACCESS_ERROR", "dashboard access unavailable", nil)
-		return false
-	}
-	if !tenantAccess.Allowed || tenantAccess.TenantID != identity.TenantID {
+	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
 		writeMachineEnvelope(w, http.StatusForbidden, DashboardTenantAccessDeniedCode, "tenant access denied", nil)
 		return false
 	}
+	userID := principal.UserID
 
 	if contract == "GET /dashboard/access/profile" {
-		corpID, err := guard.validatedCorpID(request, identity)
-		if err != nil {
-			writeMachineEnvelope(w, http.StatusInternalServerError, "DASHBOARD_ACCESS_ERROR", "dashboard access unavailable", nil)
-			return false
-		}
-		guard.attachIdentityContext(request, identity, corpID)
+		guard.attachIdentityContext(request, principal)
 		return true
 	}
 	if dashboardContractContains(ExactExemptDashboardRouteContracts(), contract) {
 		return true
 	}
 	if dashboardContractContains(DenyOnlyDashboardRouteContracts(), contract) {
-		if !identity.IsSuperAdmin {
+		if !principal.IsSuperAdmin {
 			writeDashboardPermissionDenied(w)
 			return false
 		}
-		guard.attachIdentityContext(request, identity)
+		guard.attachIdentityContext(request, principal)
 		return true
 	}
 	if isDashboardAccessManagementRoute(contract) {
-		if !identity.IsSuperAdmin {
+		if !principal.IsSuperAdmin {
 			writeDashboardPermissionDenied(w)
 			return false
 		}
-		guard.attachIdentityContext(request, identity)
+		guard.attachIdentityContext(request, principal)
 		return true
 	}
 
@@ -148,11 +122,7 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 		return false
 	}
 
-	corpID, err := guard.validatedCorpID(request, identity)
-	if err != nil {
-		writeMachineEnvelope(w, http.StatusInternalServerError, "DASHBOARD_ACCESS_ERROR", "dashboard access unavailable", nil)
-		return false
-	}
+	corpID := principal.CorpID
 	if corpID <= 0 {
 		writeDashboardPermissionDenied(w)
 		return false
@@ -183,34 +153,10 @@ func isDashboardAccessManagementRoute(contract string) bool {
 	return method == http.MethodGet || method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete
 }
 
-func (guard *DashboardAccessGuard) validatedCorpID(request *http.Request, identity DashboardAccessIdentity) (int, error) {
-	cacheValue := ""
-	if guard.cache != nil {
-		value, err := guard.cache.UserCorpCache(request.Context(), identity.UserID)
-		if err != nil {
-			return 0, err
-		}
-		cacheValue = value
-	}
-	user := User{ID: identity.UserID, Name: identity.UserName, TenantID: identity.TenantID, Status: identity.Status}
-	if identity.IsSuperAdmin {
-		user.IsSuperAdmin = 1
-	}
-	info, err := ResolveValidatedLoginCorpInfoFromStore(request.Context(), request.Header, user, cacheValue, guard.store)
-	if err != nil || len(info.CorpIDs) != 1 {
-		return 0, err
-	}
-	return info.CorpIDs[0], nil
-}
-
-func (guard *DashboardAccessGuard) attachIdentityContext(request *http.Request, identity DashboardAccessIdentity, corpIDs ...int) {
-	corpID := 0
-	if len(corpIDs) > 0 {
-		corpID = corpIDs[0]
-	}
+func (guard *DashboardAccessGuard) attachIdentityContext(request *http.Request, principal dashboardprincipal.DashboardPrincipal) {
 	access := DashboardAccessContext{
-		UserID: identity.UserID, UserName: identity.UserName, TenantID: identity.TenantID,
-		CorpID: corpID, Scope: DataScopeTenant, IsSuperAdmin: identity.IsSuperAdmin,
+		UserID: principal.UserID, TenantID: principal.TenantID,
+		CorpID: principal.CorpID, Scope: DataScopeTenant, IsSuperAdmin: principal.IsSuperAdmin,
 	}
 	*request = *request.WithContext(WithDashboardAccessContext(request.Context(), access))
 }

@@ -32,7 +32,7 @@ func TestSensitiveWordIndexReturnsPage(t *testing.T) {
 		},
 	}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/sensitiveWord/index?keyWords=A&page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/sensitiveWord/index?keyWords=A&page=1&perPage=10", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -59,7 +59,7 @@ func TestSensitiveWordIndexReturnsPage(t *testing.T) {
 func TestSensitiveWordStoreSplitsNames(t *testing.T) {
 	store := &fakeSensitiveWordStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/sensitiveWord/store", strings.NewReader(`{"groupId":3,"name":"敏感词A，敏感词B、敏感词A","version":"0","idempotencyKey":"word-create-1"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/sensitiveWord/store", strings.NewReader(`{"groupId":3,"name":"敏感词A，敏感词B、敏感词A","version":"0","idempotencyKey":"word-create-1"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -97,7 +97,7 @@ func TestSensitiveWordStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/sensitiveWord/store", strings.NewReader(`{"groupId":3,"name":"敏感词A，敏感词B","version":"0","idempotencyKey":"quota-1"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/sensitiveWord/store", strings.NewReader(`{"groupId":3,"name":"敏感词A，敏感词B","version":"0","idempotencyKey":"quota-1"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -127,7 +127,7 @@ func TestSensitiveWordStoreReplaysIdempotentCreateBeforeQuotaCheck(t *testing.T)
 		quota:        SaaSQuotaStatus{Metric: SaaSMetricSensitiveWords, TenantID: 8, Current: 20, Limit: 20},
 	}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/sensitiveWord/store", strings.NewReader(`{"groupId":3,"name":"敏感词A","version":"0","idempotencyKey":"replay-at-limit"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/sensitiveWord/store", strings.NewReader(`{"groupId":3,"name":"敏感词A","version":"0","idempotencyKey":"replay-at-limit"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -142,7 +142,7 @@ func TestSensitiveWordStoreReplaysIdempotentCreateBeforeQuotaCheck(t *testing.T)
 func TestSensitiveWordDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeSensitiveWordStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/sensitiveWord/destroy", strings.NewReader(`{"sensitiveWordId":11,"version":"word-v1","idempotencyKey":"word-delete-1","confirmed":true}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/sensitiveWord/destroy", strings.NewReader(`{"sensitiveWordId":11,"version":"word-v1","idempotencyKey":"word-delete-1","confirmed":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -175,7 +175,7 @@ func TestSensitiveWordMutationsRequireVersionAndIdempotencyKey(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			req := httptest.NewRequest(test.method, "/dashboard/sensitive-word", strings.NewReader(test.body))
+			req := authenticatedDashboardRequestForTest(test.method, "/dashboard/sensitive-word", strings.NewReader(test.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Mochat-Go-User-ID", "1")
 			rec := httptest.NewRecorder()
@@ -196,7 +196,7 @@ func TestSensitiveWordMutationMapsVersionConflictAndCarriesAuditScope(t *testing
 		mutationErr: NewSensitiveWordConflict("敏感词版本已变化，请刷新后重试"),
 	}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/sensitiveWord/statusUpdate", strings.NewReader(`{"sensitiveWordId":11,"status":2,"version":"word-v1","idempotencyKey":"toggle-1"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/sensitiveWord/statusUpdate", strings.NewReader(`{"sensitiveWordId":11,"status":2,"version":"word-v1","idempotencyKey":"toggle-1"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -214,7 +214,7 @@ func TestSensitiveWordMutationMapsVersionConflictAndCarriesAuditScope(t *testing
 func TestSensitiveWordsMonitorIndexAppliesRecordFilters(t *testing.T) {
 	store := &fakeSensitiveWordStore{user: User{ID: 1, TenantID: 1, IsSuperAdmin: 1}}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/index?employeeId=3,5&workRoomId=9&intelligentGroupId=4&triggerStart=2026-07-01%2000:00:00&triggerEnd=2026-07-02%2000:00:00&page=2&perPage=20", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/index?employeeId=3,5&workRoomId=9&intelligentGroupId=4&triggerStart=2026-07-01%2000:00:00&triggerEnd=2026-07-02%2000:00:00&page=2&perPage=20", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -232,7 +232,7 @@ func TestSensitiveWordsMonitorIndexAppliesRecordFilters(t *testing.T) {
 func TestSensitiveWordIndexRejectsForbiddenRBAC(t *testing.T) {
 	store := &fakeSensitiveWordStore{user: User{ID: 1, TenantID: 1}}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, &recordingAuthorizer{err: ErrPermissionDenied})
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/sensitiveWord/index", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/sensitiveWord/index", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -246,7 +246,7 @@ func TestSensitiveWordIndexRejectsForbiddenRBAC(t *testing.T) {
 func TestSensitiveWordsMonitorShowReportsArchiveConnectionFailure(t *testing.T) {
 	store := &fakeSensitiveWordStore{user: User{ID: 1, TenantID: 1, IsSuperAdmin: 1}, messageErr: errors.New("archive connection unavailable")}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/show?id=9", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/show?id=9", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -269,7 +269,7 @@ func TestSensitiveWordsMonitorShowReturnsMessages(t *testing.T) {
 		}},
 	}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/show?sensitiveWordsMonitorId=9", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/show?sensitiveWordsMonitorId=9", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -305,7 +305,7 @@ func TestSensitiveWordsMonitorShowRestrictsMessagesToAuthorizedEmployees(t *test
 		},
 	}
 	handler := NewSensitiveWordHandler(store, staticAdminCache("7-81"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, authorizer)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/show?id=9", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/sensitiveWordsMonitor/show?id=9", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -331,7 +331,7 @@ func intSliceStrings(values []int) []string {
 func TestSensitiveWordPageServesStandaloneConsole(t *testing.T) {
 	handler := NewSensitiveWordPageHandler()
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/sensitiveWords/page", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/sensitiveWords/page", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -364,7 +364,7 @@ func TestSensitiveWordPageServesStandaloneConsole(t *testing.T) {
 func TestSensitiveWordPageRejectsPost(t *testing.T) {
 	handler := NewSensitiveWordPageHandler()
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/sensitiveWords/page", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/sensitiveWords/page", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

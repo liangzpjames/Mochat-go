@@ -60,15 +60,15 @@ func (h *WorkReadHandler) WorkContactUpdate(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if _, err := h.authorizeAccess(r.Context(), r, userID, loginInfo); err != nil {
+	if _, err := h.authorizeAccess(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
@@ -85,7 +85,7 @@ func (h *WorkReadHandler) WorkContactUpdate(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "员工id必传", nil)
 		return
 	}
-	values.CorpID = loginInfo.CorpIDs[0]
+	values.CorpID = principalScope.CorpIDs[0]
 	h.writeWorkContactUpdate(w, r, values)
 }
 

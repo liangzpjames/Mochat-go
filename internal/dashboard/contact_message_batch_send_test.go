@@ -37,7 +37,7 @@ func TestContactMessageBatchSendIndexAndShow(t *testing.T) {
 	authorizer := &recordingAuthorizer{}
 	handler := NewContactMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, authorizer, "http://api.example.com", t.TempDir(), nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactMessageBatchSend/index?page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactMessageBatchSend/index?page=1&perPage=10", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -54,7 +54,7 @@ func TestContactMessageBatchSendIndexAndShow(t *testing.T) {
 		t.Fatalf("content=%#v", content)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/contactMessageBatchSend/show?batchId=800001", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactMessageBatchSend/show?batchId=800001", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.Show(rec, req)
@@ -66,7 +66,7 @@ func TestContactMessageBatchSendIndexAndShow(t *testing.T) {
 		t.Fatalf("show=%#v", show)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/contactMessageBatchSend/messageShow?batchId=800001", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactMessageBatchSend/messageShow?batchId=800001", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.MessageShow(rec, req)
@@ -104,7 +104,7 @@ func TestContactMessageBatchSendStoreCreatesTasksAndSubmitsWeCom(t *testing.T) {
 	handler := NewContactMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "/tmp/mochat-go-test", client)
 
 	body := `{"employeeIds":[21],"filterParams":{"gender":1,"rooms":[11],"tags":[31],"excludeContacts":[41],"addTimeStart":"2026-07-01","addTimeEnd":"2026-07-02"},"content":[{"msgType":"text","content":"hello"},{"msgType":"image","pic_url":"image/a.jpg"}],"mediumId":45,"sendWay":1}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactMessageBatchSend/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactMessageBatchSend/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -145,7 +145,7 @@ func TestContactMessageBatchSendStoreUploadsMiniProgramCoverBeforeSubmit(t *test
 	handler := NewContactMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "/tmp/mochat-go-test", client)
 
 	body := `{"employeeIds":[21],"filterParams":{},"content":[{"msgType":"miniprogram","title":"小程序","pic_media_id":"image/mini.jpg","appid":"wx123","page":"pages/index"}],"sendWay":1}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactMessageBatchSend/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactMessageBatchSend/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -178,7 +178,7 @@ func TestContactMessageBatchSendStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 	handler := NewContactMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", "/tmp/mochat-go-test", nil)
 
 	body := `{"employeeIds":[21],"filterParams":{},"content":[{"msgType":"text","content":"hello"}],"sendWay":2,"definiteTime":"2026-07-04 10:00:00"}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/contactMessageBatchSend/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactMessageBatchSend/store", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -214,7 +214,7 @@ func TestContactMessageBatchSendDetailListsRemindAndDestroy(t *testing.T) {
 	client := &fakeContactMessageBatchSendClient{}
 	handler := NewContactMessageBatchSendHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{}, "http://api.example.com", t.TempDir(), client)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/contactMessageBatchSend/employeeSendIndex?batchId=800003&sendStatus=0&keyWords=%E5%91%98%E5%B7%A5", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactMessageBatchSend/employeeSendIndex?batchId=800003&sendStatus=0&keyWords=%E5%91%98%E5%B7%A5", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.EmployeeSendIndex(rec, req)
@@ -226,7 +226,7 @@ func TestContactMessageBatchSendDetailListsRemindAndDestroy(t *testing.T) {
 		t.Fatalf("employee=%#v", employee)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/dashboard/contactMessageBatchSend/contactReceiveIndex?batchId=800003", nil)
+	req = authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/contactMessageBatchSend/contactReceiveIndex?batchId=800003", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
 	handler.ContactReceiveIndex(rec, req)
@@ -238,7 +238,7 @@ func TestContactMessageBatchSendDetailListsRemindAndDestroy(t *testing.T) {
 		t.Fatalf("contact=%#v", contact)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/contactMessageBatchSend/remind", strings.NewReader(`{"batchId":800003}`))
+	req = authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactMessageBatchSend/remind", strings.NewReader(`{"batchId":800003}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()
@@ -247,7 +247,7 @@ func TestContactMessageBatchSendDetailListsRemindAndDestroy(t *testing.T) {
 		t.Fatalf("remind status=%d messages=%#v body=%s", rec.Code, client.agentMessages, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodDelete, "/dashboard/contactMessageBatchSend/destroy", strings.NewReader(`{"batchId":800003}`))
+	req = authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/contactMessageBatchSend/destroy", strings.NewReader(`{"batchId":800003}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec = httptest.NewRecorder()

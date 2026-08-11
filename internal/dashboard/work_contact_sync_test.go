@@ -42,7 +42,7 @@ func TestWorkContactSyncPullsContactsAndStoresWithRBAC(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", authorizer).
 		WithWorkContactSyncClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContact/synContact", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodPut, "/dashboard/workContact/synContact", nil, 1, 1, 7, 88)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactSync(rec, req)
@@ -100,7 +100,7 @@ func TestWorkContactSyncReturnsSaaSQuotaExceeded(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkContactSyncClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContact/synContact", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workContact/synContact", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactSync(rec, req)
@@ -114,22 +114,17 @@ func TestWorkContactSyncReturnsSaaSQuotaExceeded(t *testing.T) {
 	}
 }
 
-func TestWorkContactSyncRequiresSelectedCorp(t *testing.T) {
+func TestWorkContactSyncRequiresDashboardPrincipal(t *testing.T) {
 	store := &fakeWorkReadStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88,8-99"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkContactSyncClient(&fakeWorkContactSyncClient{})
 
 	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContact/synContact", nil)
-	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactSync(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-	body := decodeBody(t, rec.Body.Bytes())
-	if body["msg"] != "请先选择企业" {
-		t.Fatalf("msg = %#v", body["msg"])
 	}
 }
 
@@ -142,7 +137,7 @@ func TestWorkContactSyncRequiresEmployees(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkContactSyncClient(&fakeWorkContactSyncClient{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContact/synContact", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workContact/synContact", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.WorkContactSync(rec, req)

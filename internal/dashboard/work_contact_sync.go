@@ -86,15 +86,15 @@ func (h *WorkReadHandler) WorkContactSync(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, ok := h.resolveAccess(w, r)
+	userID, _, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
 		return
 	}
-	if err := h.authorize(r.Context(), r, userID, loginInfo); err != nil {
+	if err := h.authorize(r.Context(), r, userID, principalScope); err != nil {
 		writeAccessError(w, err)
 		return
 	}
-	if len(loginInfo.CorpIDs) != 1 {
+	if len(principalScope.CorpIDs) != 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请先选择企业", nil)
 		return
 	}
@@ -102,7 +102,7 @@ func (h *WorkReadHandler) WorkContactSync(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "企业微信客户同步客户端未配置", nil)
 		return
 	}
-	corpID := loginInfo.CorpIDs[0]
+	corpID := principalScope.CorpIDs[0]
 	credential, found, err := h.store.RoomWelcomeCorpCredentialByID(r.Context(), corpID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)

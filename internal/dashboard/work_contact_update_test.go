@@ -25,7 +25,7 @@ func TestWorkContactUpdateWritesProfileAndSyncsWeCom(t *testing.T) {
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", authorizer).
 		WithWorkContactUpdateClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContact/update", strings.NewReader(`{"contactId":21,"employeeId":99,"remark":"新备注","description":"新描述","businessNo":"B-2","tag":[2,2,0]}`))
+	req := authenticatedDashboardRequestForTestAs(http.MethodPut, "/dashboard/workContact/update", strings.NewReader(`{"contactId":21,"employeeId":99,"remark":"新备注","description":"新描述","businessNo":"B-2","tag":[2,2,0]}`), 1, 1, 7, 88)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -76,7 +76,7 @@ func TestWorkContactUpdateMissingRelationReturnsSuccessWithoutWeCom(t *testing.T
 	handler := NewWorkReadHandlerWithAuthorizer(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "", &recordingAuthorizer{}).
 		WithWorkContactUpdateClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workContact/update", strings.NewReader(`{"contactId":21,"employeeId":99,"remark":"新备注"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workContact/update", strings.NewReader(`{"contactId":21,"employeeId":99,"remark":"新备注"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -108,7 +108,7 @@ func TestWorkContactUpdateValidatesRequiredIDs(t *testing.T) {
 		{name: "employee", body: `{"contactId":21}`, msg: "员工id必传"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPut, "/dashboard/workContact/update", strings.NewReader(tc.body))
+			req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workContact/update", strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Mochat-Go-User-ID", "1")
 			rec := httptest.NewRecorder()
@@ -142,7 +142,7 @@ func TestSidebarWorkContactUpdateUsesSidebarEmployee(t *testing.T) {
 		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"}).
 		WithWorkContactUpdateClient(client)
 
-	req := httptest.NewRequest(http.MethodPut, "/sidebar/workContact/update", strings.NewReader(`{"contactId":21,"employeeId":99,"remark":"侧边栏备注","tag":[2]}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/workContact/update", strings.NewReader(`{"contactId":21,"employeeId":99,"remark":"侧边栏备注","tag":[2]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()
@@ -174,7 +174,7 @@ func TestSidebarWorkContactUpdateRequiresContactID(t *testing.T) {
 		"",
 	).WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
 
-	req := httptest.NewRequest(http.MethodPut, "/sidebar/workContact/update", strings.NewReader(`{"remark":"侧边栏备注"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/workContact/update", strings.NewReader(`{"remark":"侧边栏备注"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
 	rec := httptest.NewRecorder()

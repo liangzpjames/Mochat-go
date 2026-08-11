@@ -17,7 +17,7 @@ import (
 func TestContactHandlerAuthorizesAndParsesCombinedFilter(t *testing.T) {
 	service := &contactLifecycleServiceFake{page: ports.ContactPage{Items: []ports.ContactSummary{{ID: "c1", Name: "Ada"}}}}
 	authorizer := &contactAuthorizerFake{}
-	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 5, TenantID: 7}}, authorizer)
+	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 5, TenantID: 7, CorpID: 9}}, authorizer)
 	req := httptest.NewRequest(http.MethodGet, ContactsPath+"?corpId=9&keyword=Ada&ownerId=11&tagId=tag-1&status=owned&pageSize=30", nil)
 	res := httptest.NewRecorder()
 	handler.ListContacts(res, req)
@@ -34,14 +34,14 @@ func TestContactHandlerAuthorizesAndParsesCombinedFilter(t *testing.T) {
 
 func TestContactHandlerHidesSecondCorpAndMapsNotFound(t *testing.T) {
 	service := &contactLifecycleServiceFake{detailErr: application.ErrNotFound}
-	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 5, TenantID: 7}}, &contactAuthorizerFake{err: ErrLeadForbidden})
+	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 5, TenantID: 7, CorpID: 9}}, &contactAuthorizerFake{err: ErrLeadForbidden})
 	res := httptest.NewRecorder()
 	handler.GetContact(res, httptest.NewRequest(http.MethodGet, ContactsPath+"/c1?corpId=10", nil))
-	if res.Code != http.StatusForbidden {
-		t.Fatalf("forbidden status=%d", res.Code)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("corp assertion status=%d", res.Code)
 	}
 
-	handler = NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 5, TenantID: 7}}, &contactAuthorizerFake{})
+	handler = NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 5, TenantID: 7, CorpID: 9}}, &contactAuthorizerFake{})
 	res = httptest.NewRecorder()
 	handler.GetContact(res, httptest.NewRequest(http.MethodGet, ContactsPath+"/c1?corpId=9", nil))
 	if res.Code != http.StatusNotFound {
@@ -51,7 +51,7 @@ func TestContactHandlerHidesSecondCorpAndMapsNotFound(t *testing.T) {
 
 func TestCreateContactUsesAuthenticatedTenantAndActor(t *testing.T) {
 	service := &contactLifecycleServiceFake{}
-	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{TenantID: 7, UserID: 4}}, &contactAuthorizerFake{})
+	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{TenantID: 7, UserID: 4, CorpID: 9}}, &contactAuthorizerFake{})
 	req := httptest.NewRequest(http.MethodPost, ContactsPath, strings.NewReader(`{"corpId":9,"name":"订单联系人","phone":"13800138000"}`))
 	res := httptest.NewRecorder()
 	handler.CreateContact(res, req)

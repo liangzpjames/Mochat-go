@@ -19,7 +19,7 @@ func TestRoomRemindStoreParsesFlagsAndRooms(t *testing.T) {
 		"keyword":"报价",
 		"status":1
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomRemind/store", strings.NewReader(body))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomRemind/store", strings.NewReader(body))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -51,7 +51,7 @@ func TestRoomRemindStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 		},
 	}
 	handler := NewRoomRemindHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/roomRemind/store", strings.NewReader(`{"name":"额度外客户群提醒"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/roomRemind/store", strings.NewReader(`{"name":"额度外客户群提醒"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -77,7 +77,7 @@ func TestRoomRemindStoreRejectsSaaSQuotaExceeded(t *testing.T) {
 func TestRoomRemindDestroyRefreshesSaaSUsage(t *testing.T) {
 	store := &fakeRoomRemindStore{user: User{ID: 1, TenantID: 8, IsSuperAdmin: 1}}
 	handler := NewRoomRemindHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/roomRemind/destroy", strings.NewReader(`{"roomRemindId":88}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/roomRemind/destroy", strings.NewReader(`{"roomRemindId":88}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -97,7 +97,7 @@ func TestRoomRemindDestroyRefreshesSaaSUsage(t *testing.T) {
 func TestRoomRemindStatusUsesGetQuery(t *testing.T) {
 	store := &fakeRoomRemindStore{user: User{ID: 1, IsSuperAdmin: 1}}
 	handler := NewRoomRemindHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/roomRemind/status?id=12&status=0", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/roomRemind/status?id=12&status=0", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

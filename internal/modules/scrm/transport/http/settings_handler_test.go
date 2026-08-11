@@ -15,7 +15,7 @@ import (
 type settingsPrincipal struct{}
 
 func (settingsPrincipal) Resolve(*nethttp.Request) (Principal, error) {
-	return Principal{UserID: 7, TenantID: 9}, nil
+	return Principal{UserID: 7, TenantID: 9, CorpID: 42}, nil
 }
 
 type settingsAuth struct{}

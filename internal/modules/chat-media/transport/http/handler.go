@@ -79,7 +79,11 @@ func (h *MediaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveContent(w, r, principal)
 		return
 	}
-	corpID, err := parseCorpID(r)
+	if principal.CorpID <= 0 {
+		writeEnvelope(w, http.StatusUnauthorized, "principal unauthorized", nil)
+		return
+	}
+	corpID, err := parseCorpID(r, principal.CorpID)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -269,12 +273,19 @@ func detectAudioFormat(payload []byte) (audioFormat, bool) {
 	return audioFormat{}, false
 }
 
-func parseCorpID(r *http.Request) (int64, error) {
-	corpID, err := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)
-	if err != nil || corpID <= 0 {
-		return 0, errors.New("corpId required")
+func parseCorpID(r *http.Request, principalCorpID int64) (int64, error) {
+	if principalCorpID <= 0 {
+		return 0, errors.New("principal corp unavailable")
 	}
-	return corpID, nil
+	raw := r.URL.Query().Get("corpId")
+	if raw == "" {
+		return principalCorpID, nil
+	}
+	corpID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || corpID <= 0 || corpID != principalCorpID {
+		return 0, errors.New("corpId does not match dashboard principal")
+	}
+	return principalCorpID, nil
 }
 
 func mediaIDFromPath(path string) (int64, bool) {

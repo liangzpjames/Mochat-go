@@ -37,10 +37,10 @@ func TestCorpDataIndexReturnsSummary(t *testing.T) {
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
 	handler.now = func() time.Time { return time.Date(2026, 7, 2, 12, 0, 0, 0, time.Local) }
 
-	req := httptest.NewRequest(
+	req := authenticatedDashboardRequestForTestAs(
 		http.MethodGet,
 		"/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
-		nil,
+		nil, 1, 10, 5, 9,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -97,10 +97,10 @@ func TestCorpDataLineChatReturnsPoints(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(
+	req := authenticatedDashboardRequestForTestAs(
 		http.MethodGet,
 		"/dashboard/corpData/lineChat?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
-		nil,
+		nil, 1, 10, 5, 9,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -133,11 +133,10 @@ func TestCorpDataIndexRequiresSelectedCorp(t *testing.T) {
 	handler := NewCorpDataHandler(store, staticAdminCache(""), HeaderUserIDResolver{})
 
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil)
-	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
@@ -149,7 +148,7 @@ func TestCorpDataIndexRequiresCompleteOverviewQuery(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -175,7 +174,7 @@ func TestCorpDataIndexIgnoresCrossTenantCachedCorp(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("99-0"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corpData/index?startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -195,10 +194,10 @@ func TestCorpDataIndexRejectsRequestedCorpOutsideSelectedScope(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(
+	req := authenticatedDashboardRequestForTestAs(
 		http.MethodGet,
 		"/dashboard/corpData/index?corpId=99&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
-		nil,
+		nil, 1, 10, 5, 9,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -219,10 +218,10 @@ func TestCorpDataIndexRejectsInvalidDateRange(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(
+	req := authenticatedDashboardRequestForTestAs(
 		http.MethodGet,
 		"/dashboard/corpData/index?corpId=5&startDate=2026-07-03&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
-		nil,
+		nil, 1, 10, 5, 9,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -243,10 +242,10 @@ func TestCorpDataIndexReturnsEmptyArraysForEmptyCorpData(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(
+	req := authenticatedDashboardRequestForTestAs(
 		http.MethodGet,
 		"/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20",
-		nil,
+		nil, 1, 10, 5, 9,
 	)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
@@ -275,7 +274,7 @@ func TestCorpDataIndexGroupsWeeklyTrendAndReturnsPaginationMetadata(t *testing.T
 		},
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-31&employeeIds=&departmentIds=&period=week&page=1&pageSize=1", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-31&employeeIds=&departmentIds=&period=week&page=1&pageSize=1", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -311,8 +310,9 @@ func TestCorpDataIndexPassesProductionRBACIntersectionAndDepartmentScope(t *test
 		deptEmployeeID: []int{3, 4, 5},
 	})
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}, authorizer)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=4&employeeIds=7&departmentIds=12&period=day&page=1&pageSize=20", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=4&employeeIds=7&departmentIds=12&period=day&page=1&pageSize=20", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{UserID: 1, TenantID: 10, CorpID: 5, WorkEmployeeID: 9, ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{3, 4, 5}}))
 	rec := httptest.NewRecorder()
 
 	handler.Index(rec, req)
@@ -342,8 +342,9 @@ func TestCorpDataIndexPreservesEmptyProductionRBACScope(t *testing.T) {
 		roleMenu: []RoleMenu{{RoleID: 8, MenuID: 20}},
 	})
 	handler := NewCorpDataHandler(store, staticAdminCache("5-0"), HeaderUserIDResolver{}, authorizer)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{UserID: 1, TenantID: 10, CorpID: 5, WorkEmployeeID: 9, ScopeRequired: true, Scope: DataScopeDepartment}))
 	rec := httptest.NewRecorder()
 
 	handler.Index(rec, req)
@@ -370,7 +371,7 @@ func TestCorpDataIndexUsesConfiguredTimezoneAtUTCDateBoundary(t *testing.T) {
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{}).WithLocation(location)
 	handler.now = func() time.Time { return time.Date(2026, 8, 1, 16, 30, 0, 0, time.UTC) }
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-08-02&endDate=2026-08-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-08-02&endDate=2026-08-02&employeeIds=&departmentIds=&period=day&page=1&pageSize=20", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 
@@ -393,7 +394,7 @@ func TestCorpDataIndexRejectsPageThatWouldOverflowOffset(t *testing.T) {
 		corpIDsByTenant: []int{5},
 	}
 	handler := NewCorpDataHandler(store, staticAdminCache("5-9"), HeaderUserIDResolver{})
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=9223372036854775807&pageSize=100", nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/corpData/index?corpId=5&startDate=2026-07-01&endDate=2026-07-02&employeeIds=&departmentIds=&period=day&page=9223372036854775807&pageSize=100", nil, 1, 10, 5, 9)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 

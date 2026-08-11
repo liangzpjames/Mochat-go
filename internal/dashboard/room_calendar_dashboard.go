@@ -104,11 +104,11 @@ func (h *RoomCalendarHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/roomCalendar/index#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/roomCalendar/index#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -138,11 +138,11 @@ func (h *RoomCalendarHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, user, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/roomCalendar/store#post")
+	userID, user, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/roomCalendar/store#post")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -206,11 +206,11 @@ func (h *RoomCalendarHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, user, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/roomCalendar/destroy#delete")
+	_, user, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/roomCalendar/destroy#delete")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -245,11 +245,11 @@ func (h *RoomCalendarHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, loginInfo, _, ok := h.resolveAuthorized(w, r, "/dashboard/roomCalendar/show#get")
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/roomCalendar/show#get")
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -326,11 +326,11 @@ func (h *RoomCalendarHandler) writeMutation(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, loginInfo, _, ok := h.resolveAuthorized(w, r, permission)
+	userID, _, _, _, ok := h.resolveAuthorized(w, r, permission)
 	if !ok {
 		return
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
 		return
 	}
@@ -353,21 +353,21 @@ func (h *RoomCalendarHandler) writeMutation(w http.ResponseWriter, r *http.Reque
 	writeEnvelope(w, http.StatusOK, 200, "success", data)
 }
 
-func (h *RoomCalendarHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, LoginCorpInfo, AccessContext, bool) {
-	userID, user, loginInfo, ok := h.resolveAccess(w, r)
+func (h *RoomCalendarHandler) resolveAuthorized(w http.ResponseWriter, r *http.Request, permissionKey string) (int, User, DashboardRequestScope, AccessContext, bool) {
+	userID, user, principalScope, ok := h.resolveAccess(w, r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := selectedCorpID(w, loginInfo)
+	corpID, ok := principalCorpID(r)
 	if !ok {
-		return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	employeeID := loginInfo.WorkEmployeeID
+	employeeID := principalScope.WorkEmployeeID
 	if employeeID <= 0 {
 		resolved, err := h.store.EmployeeIDByUserCorp(r.Context(), userID, corpID)
 		if err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+			return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 		}
 		employeeID = resolved
 	}
@@ -376,46 +376,39 @@ func (h *RoomCalendarHandler) resolveAuthorized(w http.ResponseWriter, r *http.R
 		resolved, err := h.authorizer.Resolve(r.Context(), userID, permissionKey, corpID, employeeID)
 		if err != nil {
 			writeAccessError(w, err)
-			return 0, User{}, LoginCorpInfo{}, AccessContext{}, false
+			return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 		}
 		access = resolved
 	}
-	return userID, user, loginInfo, access, true
+	return userID, user, principalScope, access, true
 }
 
-func (h *RoomCalendarHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, LoginCorpInfo, bool) {
+func (h *RoomCalendarHandler) resolveAccess(w http.ResponseWriter, r *http.Request) (int, User, DashboardRequestScope, bool) {
 	if h.resolver == nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "user resolver not configured", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	userID, err := h.resolver.UserID(r)
+	requestPrincipal, err := DashboardPrincipalFromContext(r.Context())
+	userID := requestPrincipal.UserID
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	user, found, err := h.store.UserByID(r.Context(), userID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
 	if !found {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	cacheValue := ""
-	if h.cache != nil {
-		cacheValue, err = h.cache.UserCorpCache(r.Context(), userID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, User{}, LoginCorpInfo{}, false
-		}
-	}
-	loginInfo, err := ResolveValidatedLoginCorpInfoFromStore(r.Context(), r.Header, user, cacheValue, h.store)
+	principalScope, err := DashboardRequestScopeFromContext(r.Context())
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return 0, User{}, LoginCorpInfo{}, false
+		return 0, User{}, DashboardRequestScope{}, false
 	}
-	return userID, user, loginInfo, true
+	return userID, user, principalScope, true
 }
 
 func roomCalendarWriteFromParams(params map[string]any, corpID int, userID int, requireName bool) (RoomCalendarWrite, error) {

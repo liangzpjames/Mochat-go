@@ -18,7 +18,7 @@ func TestWorkRoomGroupIndexReturnsPagedGroups(t *testing.T) {
 	}
 	handler := NewWorkRoomGroupHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/workRoomGroup/index?page=1&perPage=10", nil)
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/dashboard/workRoomGroup/index?page=1&perPage=10", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Index(rec, req)
@@ -41,7 +41,7 @@ func TestWorkRoomGroupStoreCreatesGroup(t *testing.T) {
 	store := &fakeWorkRoomGroupStore{users: map[int]User{1: {ID: 1}}}
 	handler := NewWorkRoomGroupHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/workRoomGroup/store", strings.NewReader(`{"corpId":7,"workRoomGroupName":"成交群"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workRoomGroup/store", strings.NewReader(`{"corpId":7,"workRoomGroupName":"成交群"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Store(rec, req)
@@ -66,7 +66,7 @@ func TestWorkRoomGroupUpdateRejectsDuplicateName(t *testing.T) {
 	}
 	handler := NewWorkRoomGroupHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodPut, "/dashboard/workRoomGroup/update", strings.NewReader(`{"workRoomGroupId":11,"workRoomGroupName":"重复群"}`))
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoomGroup/update", strings.NewReader(`{"workRoomGroupId":11,"workRoomGroupName":"重复群"}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Update(rec, req)
@@ -91,7 +91,7 @@ func TestWorkRoomGroupDestroyReassignsRooms(t *testing.T) {
 	}
 	handler := NewWorkRoomGroupHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{})
 
-	req := httptest.NewRequest(http.MethodDelete, "/dashboard/workRoomGroup/destroy", strings.NewReader(`{"workRoomGroupId":11}`))
+	req := authenticatedDashboardRequestForTest(http.MethodDelete, "/dashboard/workRoomGroup/destroy", strings.NewReader(`{"workRoomGroupId":11}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.Destroy(rec, req)
