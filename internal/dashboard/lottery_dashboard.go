@@ -165,7 +165,7 @@ func (h *LotteryHandler) Index(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -198,7 +198,7 @@ func (h *LotteryHandler) Store(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -266,7 +266,7 @@ func (h *LotteryHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -313,7 +313,7 @@ func (h *LotteryHandler) Share(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -348,7 +348,7 @@ func (h *LotteryHandler) ShowContact(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -384,7 +384,7 @@ func (h *LotteryHandler) WriteOff(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -440,7 +440,7 @@ func (h *LotteryHandler) showLottery(w http.ResponseWriter, r *http.Request, per
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -470,7 +470,7 @@ func (h *LotteryHandler) writeMutation(w http.ResponseWriter, r *http.Request, m
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -498,7 +498,7 @@ func (h *LotteryHandler) resolveAuthorized(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

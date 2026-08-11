@@ -220,7 +220,7 @@ func (h *ShopCodeHandler) Index(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -256,7 +256,7 @@ func (h *ShopCodeHandler) Store(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -316,7 +316,7 @@ func (h *ShopCodeHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -355,7 +355,7 @@ func (h *ShopCodeHandler) Info(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -403,7 +403,7 @@ func (h *ShopCodeHandler) SearchCity(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -435,7 +435,7 @@ func (h *ShopCodeHandler) AddressKeyWordList(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -474,7 +474,7 @@ func (h *ShopCodeHandler) Location(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -518,7 +518,7 @@ func (h *ShopCodeHandler) Share(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -566,7 +566,7 @@ func (h *ShopCodeHandler) PageInfo(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -605,7 +605,7 @@ func (h *ShopCodeHandler) Show(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -635,7 +635,7 @@ func (h *ShopCodeHandler) ShowContact(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -680,7 +680,7 @@ func (h *ShopCodeHandler) ShowShop(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -781,7 +781,7 @@ func (h *ShopCodeHandler) writeMutation(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -810,7 +810,7 @@ func (h *ShopCodeHandler) resolveAuthorized(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

@@ -131,7 +131,7 @@ func (h *UserAdminHandler) Index(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -201,7 +201,7 @@ func (h *UserAdminHandler) Show(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -236,7 +236,7 @@ func (h *UserAdminHandler) Store(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -287,7 +287,7 @@ func (h *UserAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -580,7 +580,7 @@ func (h *UserAdminHandler) resolveAuthorized(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

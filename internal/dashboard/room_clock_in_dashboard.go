@@ -172,7 +172,7 @@ func (h *RoomClockInHandler) Index(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -208,7 +208,7 @@ func (h *RoomClockInHandler) Store(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -276,7 +276,7 @@ func (h *RoomClockInHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -323,7 +323,7 @@ func (h *RoomClockInHandler) ShowContact(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -359,7 +359,7 @@ func (h *RoomClockInHandler) DayDetail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -421,7 +421,7 @@ func (h *RoomClockInHandler) show(w http.ResponseWriter, r *http.Request, permis
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -451,7 +451,7 @@ func (h *RoomClockInHandler) writeMutation(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -479,7 +479,7 @@ func (h *RoomClockInHandler) resolveAuthorized(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

@@ -112,7 +112,7 @@ func (h *MediumHandler) Selector(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -165,7 +165,7 @@ func (h *MediumHandler) materialWriteAccess(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return nil, 0, 0, DashboardRequestScope{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return nil, 0, 0, DashboardRequestScope{}, false
 	}

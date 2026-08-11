@@ -277,7 +277,7 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -358,7 +358,7 @@ func (h *WorkRoomAutoPullHandler) Update(w http.ResponseWriter, r *http.Request)
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}

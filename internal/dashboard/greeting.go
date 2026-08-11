@@ -97,7 +97,7 @@ func (h *GreetingHandler) Index(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -151,7 +151,7 @@ func (h *GreetingHandler) Show(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -198,7 +198,7 @@ func (h *GreetingHandler) Store(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -222,7 +222,7 @@ func (h *GreetingHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -257,7 +257,7 @@ func (h *GreetingHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -340,7 +340,7 @@ func (h *GreetingHandler) resolveAuthorized(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

@@ -96,7 +96,7 @@ func (h *RoomInfinitePullHandler) Index(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -129,7 +129,7 @@ func (h *RoomInfinitePullHandler) Store(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -197,7 +197,7 @@ func (h *RoomInfinitePullHandler) Destroy(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -236,7 +236,7 @@ func (h *RoomInfinitePullHandler) Info(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -266,7 +266,7 @@ func (h *RoomInfinitePullHandler) writeMutation(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -294,7 +294,7 @@ func (h *RoomInfinitePullHandler) resolveAuthorized(w http.ResponseWriter, r *ht
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

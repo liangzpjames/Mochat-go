@@ -40,13 +40,19 @@ func DashboardRequestScopeFromContext(ctx context.Context) (DashboardRequestScop
 	return scope, nil
 }
 
-func principalCorpID(request *http.Request) (int, bool) {
+func principalCorpID(w http.ResponseWriter, request *http.Request) (int, bool) {
 	if request == nil {
+		writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return 0, false
 	}
-	principal, err := DashboardPrincipalFromContext(request.Context())
-	if err != nil || principal.CorpID <= 0 || principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+	scope, err := DashboardRequestScopeFromContext(request.Context())
+	if err != nil {
+		writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return 0, false
 	}
-	return principal.CorpID, true
+	if scope.Principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		writeMachineEnvelope(w, http.StatusForbidden, DashboardTenantAccessDeniedCode, "tenant access denied", nil)
+		return 0, false
+	}
+	return scope.Principal.CorpID, true
 }

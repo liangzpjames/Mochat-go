@@ -296,6 +296,14 @@ test('RED: principalCorpID compatibility helpers cannot accept legacy extra argu
   });
 });
 
+test('GREEN: principalCorpID fixed writer/request arguments are accepted', async () => {
+  await withFixture(async (root) => {
+    await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc principalCorpID(w http.ResponseWriter, request *http.Request) (int, bool) { return 7, true }\n');
+  }, async (root) => {
+    assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
 test('RED: production module composition cannot use the legacy SCRM principal resolver', async () => {
   await withFixture(async (root) => {
     await fs.appendFile(path.join(root, 'cmd', 'mochat-go', 'main.go'), '\nfunc wire() { appbootstrap.NewSCRMPrincipalResolver(userIDs, users) }\n');

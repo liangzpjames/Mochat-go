@@ -139,7 +139,7 @@ func (h *RoomWelcomeHandler) Index(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -199,7 +199,7 @@ func (h *RoomWelcomeHandler) Store(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = userID
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -242,7 +242,7 @@ func (h *RoomWelcomeHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -298,7 +298,7 @@ func (h *RoomWelcomeHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -352,7 +352,7 @@ func (h *RoomWelcomeHandler) showOrSelect(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -620,7 +620,7 @@ func (h *RoomWelcomeHandler) resolveAuthorized(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

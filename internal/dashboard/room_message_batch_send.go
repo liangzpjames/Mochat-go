@@ -269,7 +269,7 @@ func (h *RoomMessageBatchSendHandler) Store(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}

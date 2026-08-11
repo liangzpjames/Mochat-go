@@ -189,7 +189,7 @@ func (h *ContactTransferHandler) Room(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -223,7 +223,7 @@ func (h *ContactTransferHandler) Log(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -278,7 +278,7 @@ func (h *ContactTransferHandler) SaveUnassignedList(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -307,7 +307,7 @@ func (h *ContactTransferHandler) TransferCustomer(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -376,7 +376,7 @@ func (h *ContactTransferHandler) TransferRoom(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -431,7 +431,7 @@ func (h *ContactTransferHandler) TransferRoom(w http.ResponseWriter, r *http.Req
 }
 
 func (h *ContactTransferHandler) contactFilterFromQuery(w http.ResponseWriter, r *http.Request, principalScope DashboardRequestScope) (ContactTransferContactFilter, bool) {
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return ContactTransferContactFilter{}, false
 	}
@@ -456,7 +456,7 @@ func (h *ContactTransferHandler) contactFilterFromQuery(w http.ResponseWriter, r
 }
 
 func (h *ContactTransferHandler) unassignedFilterFromQuery(w http.ResponseWriter, r *http.Request, principalScope DashboardRequestScope) (ContactTransferUnassignedFilter, bool) {
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return ContactTransferUnassignedFilter{}, false
 	}

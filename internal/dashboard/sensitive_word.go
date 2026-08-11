@@ -194,7 +194,7 @@ func (h *SensitiveWordHandler) Index(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -319,7 +319,7 @@ func (h *SensitiveWordHandler) GroupSelect(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -374,7 +374,7 @@ func (h *SensitiveWordHandler) MonitorIndex(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -418,7 +418,7 @@ func (h *SensitiveWordHandler) MonitorShow(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -466,7 +466,7 @@ func (h *SensitiveWordHandler) writeWordMutation(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -510,7 +510,7 @@ func (h *SensitiveWordHandler) resolveAuthorized(w http.ResponseWriter, r *http.
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

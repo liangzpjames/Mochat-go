@@ -25,7 +25,7 @@ func (h *WorkReadHandler) WorkRoomBatchUpdate(w http.ResponseWriter, r *http.Req
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}

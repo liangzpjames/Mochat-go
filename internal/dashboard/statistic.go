@@ -367,7 +367,7 @@ func (h *StatisticHandler) resolveAuthorized(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return 0, User{}, 0, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, 0, false
 	}

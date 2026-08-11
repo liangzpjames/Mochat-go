@@ -188,7 +188,7 @@ func (h *ContactBatchAddDashboardHandler) Index(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -234,7 +234,7 @@ func (h *ContactBatchAddDashboardHandler) ImportIndex(w http.ResponseWriter, r *
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -264,7 +264,7 @@ func (h *ContactBatchAddDashboardHandler) SettingEdit(w http.ResponseWriter, r *
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -298,7 +298,7 @@ func (h *ContactBatchAddDashboardHandler) SettingUpdate(w http.ResponseWriter, r
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -327,7 +327,7 @@ func (h *ContactBatchAddDashboardHandler) ImportStore(w http.ResponseWriter, r *
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -352,7 +352,7 @@ func (h *ContactBatchAddDashboardHandler) Allot(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -388,7 +388,7 @@ func (h *ContactBatchAddDashboardHandler) Destroy(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -419,7 +419,7 @@ func (h *ContactBatchAddDashboardHandler) ImportDestroy(w http.ResponseWriter, r
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -450,7 +450,7 @@ func (h *ContactBatchAddDashboardHandler) DataStatistic(w http.ResponseWriter, r
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -741,7 +741,7 @@ func (h *ContactBatchAddDashboardHandler) resolveAuthorized(w http.ResponseWrite
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

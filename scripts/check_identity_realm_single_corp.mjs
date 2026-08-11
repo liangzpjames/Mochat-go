@@ -132,10 +132,13 @@ function locationsFor(files, pattern, label = '') {
 
 function principalCorpCompatibilityLocations(files) {
   const evidence = [];
-  const forbidden = /\bprincipalCorpID\s*\([^\n)]*(?:\.\.\.|,)[^\n)]*\)/g;
+  const candidates = /\bprincipalCorpID\s*\(([^\n)]*)\)/g;
   for (const file of files) {
     const source = stripComments(fs.readFileSync(file, 'utf8'), GO_EXT);
-    for (const match of source.matchAll(forbidden)) {
+    for (const match of source.matchAll(candidates)) {
+      const argumentsText = match[1].trim();
+      const argumentCount = argumentsText === '' ? 0 : argumentsText.split(',').length;
+      if (!argumentsText.includes('...') && argumentCount <= 2) continue;
       evidence.push({
         file: file.replaceAll('\\', '/'),
         line: lineAt(source, match.index),

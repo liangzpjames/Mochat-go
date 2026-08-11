@@ -133,7 +133,7 @@ func (h *SOPDashboardHandler) ContactIndex(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -222,7 +222,7 @@ func (h *SOPDashboardHandler) ContactInfo(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -287,7 +287,7 @@ func (h *SOPDashboardHandler) RoomIndex(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -376,7 +376,7 @@ func (h *SOPDashboardHandler) RoomInfo(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -449,7 +449,7 @@ func (h *SOPDashboardHandler) writeSOPMutation(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -481,7 +481,7 @@ func (h *SOPDashboardHandler) resolveAuthorized(w http.ResponseWriter, r *http.R
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}

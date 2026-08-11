@@ -279,7 +279,7 @@ func (h *RoomTagPullHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -336,7 +336,7 @@ func (h *RoomTagPullHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	if _, ok := principalCorpID(r); !ok {
+	if _, ok := principalCorpID(w, r); !ok {
 		return
 	}
 	id, ok := requiredPositiveQueryInt(w, r, "id", "活动id 必填", "活动id 必须为整型")
@@ -380,7 +380,7 @@ func (h *RoomTagPullHandler) ShowContact(w http.ResponseWriter, r *http.Request)
 		writeAccessError(w, err)
 		return
 	}
-	if _, ok := principalCorpID(r); !ok {
+	if _, ok := principalCorpID(w, r); !ok {
 		return
 	}
 	id, ok := requiredPositiveQueryInt(w, r, "id", "活动id 必填", "活动id 必须为整型")
@@ -457,7 +457,7 @@ func (h *RoomTagPullHandler) RoomList(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -498,7 +498,7 @@ func (h *RoomTagPullHandler) ChooseContact(w http.ResponseWriter, r *http.Reques
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -527,7 +527,7 @@ func (h *RoomTagPullHandler) FilterContact(w http.ResponseWriter, r *http.Reques
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -561,7 +561,7 @@ func (h *RoomTagPullHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -632,7 +632,7 @@ func (h *RoomTagPullHandler) RemindSend(w http.ResponseWriter, r *http.Request) 
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -708,7 +708,7 @@ func (h *RoomTagPullHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	if _, ok := principalCorpID(r); !ok {
+	if _, ok := principalCorpID(w, r); !ok {
 		return
 	}
 	params, err := parseRequestParams(r)

@@ -126,7 +126,7 @@ func (h *RoleAdminHandler) Index(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -178,7 +178,7 @@ func (h *RoleAdminHandler) Show(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -250,7 +250,7 @@ func (h *RoleAdminHandler) ShowEmployee(w http.ResponseWriter, r *http.Request) 
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -305,7 +305,7 @@ func (h *RoleAdminHandler) Store(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -368,7 +368,7 @@ func (h *RoleAdminHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -503,7 +503,7 @@ func (h *RoleAdminHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}

@@ -1421,7 +1421,7 @@ func (h *WorkReadHandler) WorkContactRoomIndex(w http.ResponseWriter, r *http.Re
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -1543,7 +1543,7 @@ func (h *WorkReadHandler) WorkRoomIndex(w http.ResponseWriter, r *http.Request) 
 		writeAccessError(w, err)
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -1963,7 +1963,7 @@ func (h *WorkReadHandler) ContactTagGroupStore(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -2002,7 +2002,7 @@ func (h *WorkReadHandler) ContactTagGroupUpdate(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -2054,7 +2054,7 @@ func (h *WorkReadHandler) ContactTagGroupDestroy(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -2098,7 +2098,7 @@ func (h *WorkReadHandler) ContactTagStore(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -2140,7 +2140,7 @@ func (h *WorkReadHandler) ContactTagUpdate(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -2204,7 +2204,7 @@ func (h *WorkReadHandler) ContactTagDestroy(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}
@@ -2248,7 +2248,7 @@ func (h *WorkReadHandler) ContactTagMove(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
 	}

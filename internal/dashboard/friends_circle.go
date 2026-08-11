@@ -573,7 +573,7 @@ func (h *FriendsCircleHandler) authorized(w http.ResponseWriter, r *http.Request
 		return 0, 0, User{}, false
 	}
 	info := login
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, 0, User{}, false
 	}

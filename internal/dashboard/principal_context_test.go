@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
@@ -19,7 +20,7 @@ func TestPrincipalCorpIDIgnoresClientCorpInputs(t *testing.T) {
 		UserID: 7, TenantID: 902, CorpID: 77, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 4,
 	}))
 
-	corpID, ok := principalCorpID(req)
+	corpID, ok := principalCorpID(httptest.NewRecorder(), req)
 	if !ok || corpID != 77 {
 		t.Fatalf("corpID=%d ok=%v, want server principal corp 77", corpID, ok)
 	}
@@ -30,8 +31,43 @@ func TestPrincipalCorpIDFailsClosedWithoutPrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if corpID, ok := principalCorpID(req); ok || corpID != 0 {
+	recorder := httptest.NewRecorder()
+	if corpID, ok := principalCorpID(recorder, req); ok || corpID != 0 {
 		t.Fatalf("corpID=%d ok=%v, want fail closed", corpID, ok)
+	}
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s, want stable 401", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPrincipalCorpIDWritesForbiddenForSuspendedPrincipal(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/index", nil)
+	req = req.WithContext(dashboardprincipal.WithPrincipal(req.Context(), dashboardprincipal.DashboardPrincipal{
+		UserID: 7, TenantID: 902, CorpID: 77, CorpStatus: dashboardprincipal.CorpBindingStatusSuspended, AuthVersion: 4,
+	}))
+	recorder := httptest.NewRecorder()
+	if corpID, ok := principalCorpID(recorder, req); ok || corpID != 0 {
+		t.Fatalf("corpID=%d ok=%v, want suspended principal rejected", corpID, ok)
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s, want stable 403", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPrincipalCorpIDRejectsInconsistentAccessContext(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/index", nil)
+	req = req.WithContext(dashboardprincipal.WithPrincipal(req.Context(), dashboardprincipal.DashboardPrincipal{
+		UserID: 7, TenantID: 902, CorpID: 77, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 4,
+	}))
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{
+		UserID: 7, TenantID: 902, CorpID: 88, WorkEmployeeID: 31,
+	}))
+	recorder := httptest.NewRecorder()
+	if corpID, ok := principalCorpID(recorder, req); ok || corpID != 0 {
+		t.Fatalf("corpID=%d ok=%v, want inconsistent access context rejected", corpID, ok)
+	}
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s, want stable 401", recorder.Code, recorder.Body.String())
 	}
 }
 

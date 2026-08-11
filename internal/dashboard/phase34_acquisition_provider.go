@@ -470,7 +470,7 @@ func (h *Phase34AcquisitionHandler) authorized(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return 0, 0, User{}, false
 	}
-	corpID, ok := principalCorpID(r)
+	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return 0, 0, User{}, false
 	}
