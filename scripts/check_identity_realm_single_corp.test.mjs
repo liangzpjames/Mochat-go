@@ -11,13 +11,15 @@ async function makeFixtureTree() {
     fs.mkdir(path.join(root, 'internal', 'saasauth'), { recursive: true }),
     fs.mkdir(path.join(root, 'internal', 'dashboardauth'), { recursive: true }),
     fs.mkdir(path.join(root, 'internal', 'dashboard'), { recursive: true }),
+    fs.mkdir(path.join(root, 'internal', 'server'), { recursive: true }),
     fs.mkdir(path.join(root, 'web', 'apps', 'saas-admin', 'src'), { recursive: true }),
     fs.mkdir(path.join(root, 'web', 'apps', 'dashboard', 'src'), { recursive: true }),
   ]);
   await Promise.all([
-    fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\n\nfunc Authenticate() { _ = "mochat_go_saas_admin_users" }\n'),
-    fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\n\nfunc Authenticate() { _ = "mochat_go_dashboard_identities" }\n'),
-    fs.writeFile(path.join(root, 'internal', 'dashboard', 'handler.go'), 'package dashboard\n\nfunc Handler() { _ = DashboardPrincipalFromContext() }\n'),
+    fs.writeFile(path.join(root, 'internal', 'saasauth', 'store.go'), 'package saasauth\n\nfunc Authenticate(db DB, login string) { db.QueryRow("SELECT id, password_hash FROM mochat_go_saas_admin_users WHERE login_name = ?", login) }\n'),
+    fs.writeFile(path.join(root, 'internal', 'dashboardauth', 'store.go'), 'package dashboardauth\n\nfunc Authenticate(db DB, login string) { db.QueryRow("SELECT user_id, password_hash FROM mochat_go_dashboard_identities WHERE login_identifier = ?", login) }\n'),
+    fs.writeFile(path.join(root, 'internal', 'dashboard', 'handler.go'), 'package dashboard\n\ntype Handler struct{}\n\nfunc (h Handler) Index() { _ = DashboardPrincipalFromContext() }\n'),
+    fs.writeFile(path.join(root, 'internal', 'server', 'routes.go'), 'package server\n\nfunc register(router Router, handler Handler) { router.Handle("GET", "/dashboard/index", handler.Index) }\n'),
     fs.writeFile(path.join(root, 'web', 'apps', 'saas-admin', 'src', 'main.tsx'), 'export { login } from "./auth";\n'),
     fs.writeFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'main.tsx'), 'export { dashboard } from "./dashboard";\n'),
     fs.writeFile(path.join(root, 'web', 'apps', 'saas-admin', 'src', 'auth.ts'), 'export const realm = "saas_admin";\nexport const jwt = "saas-jwt";\n'),
@@ -41,6 +43,10 @@ test('identity gate accepts a minimal separated realm and principal tree', async
     const result = runIdentitySingleCorpGate(root);
     assert.ok(result.jwtRealms.saas_admin.length >= 1);
     assert.ok(result.jwtRealms.dashboard.length >= 1);
+    assert.match(result.dashboardPrincipalConsumers[0].evidence, /GET \/dashboard\/index/);
+    assert.match(result.dashboardPrincipalConsumers[0].handlerSymbol, /handler\.Index/);
+    assert.match(result.dashboardPrincipalConsumers[0].handlerSource, /handler\.go:\d+/);
+    assert.match(result.dashboardPrincipalConsumers[0].consumerSource, /handler\.go:\d+/);
     assert.equal(result.forbiddenCorpRoutes.length, 0);
     assert.equal(result.forbiddenSessionCorpFields.length, 0);
     assert.equal(result.plaintextSecretReads.length, 0);
@@ -75,7 +81,8 @@ test('RED: Dashboard session and corp selection routes are forbidden in producti
 
 test('RED: Dashboard handlers must consume DashboardPrincipal from their request context', async () => {
   await withFixture(async (root) => {
-    await fs.writeFile(path.join(root, 'internal', 'dashboard', 'unbound.go'), 'package dashboard\nfunc UnboundHandler() { println("business") }\n');
+    await fs.writeFile(path.join(root, 'internal', 'dashboard', 'unbound.go'), 'package dashboard\n\ntype UnboundHandler struct{}\nfunc (h UnboundHandler) Unbound() { println("business") }\n');
+    await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerUnbound(router Router, handler UnboundHandler) { router.Handle("POST", "/dashboard/unbound", handler.Unbound) }\n');
   }, async (root) => {
     assert.throws(() => runIdentitySingleCorpGate(root), /principal.*consumer|DashboardPrincipal/i);
   });
@@ -90,11 +97,38 @@ test('RED: production UI cannot expose new company or selector controls', async 
   });
 });
 
-test('RED: production code cannot read plaintext credentials', async () => {
+test('GREEN: a request credential is accepted when encrypted immediately', async () => {
   await withFixture(async (root) => {
-    await fs.writeFile(path.join(root, 'internal', 'dashboard', 'secret.go'), 'package dashboard\nfunc Secret() { _ = credential.EmployeeSecret }\n');
+    await fs.mkdir(path.join(root, 'internal', 'companyprofile'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'companyprofile', 'service.go'), 'package companyprofile\nfunc Save(input Request) { ciphertext, _ := Encrypt(input.EmployeeSecret); _ = ciphertext }\ntype Request struct { EmployeeSecret string `json:"employeeSecret"` }\n');
   }, async (root) => {
-    assert.throws(() => runIdentitySingleCorpGate(root), /plaintext secret|EmployeeSecret|secret read/i);
+    assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('RED: production code cannot select plaintext credentials or expose them in logs/responses', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'companyprofile'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'companyprofile', 'secret.go'), 'package companyprofile\nconst query = "SELECT employee_secret FROM mc_corp"\nfunc Leak(secret string) { log.Printf("employeeSecret=%s", secret); writeJSON(map[string]string{"employeeSecret": secret}) }\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /plaintext secret|secret response|secret log/i);
+  });
+});
+
+test('RED: side-effect imports and re-exports are part of the production graph', async () => {
+  await withFixture(async (root) => {
+    await fs.writeFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'side-effect.ts'), 'export const forbidden = "新建企业";\n');
+    await fs.appendFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'main.tsx'), '\nimport "./side-effect";\nexport * from "./side-effect";\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /新建企业|company selector/i);
+  });
+});
+
+test('RED: a missing explicit production entry is not replaced by scanning the whole tree', async () => {
+  await withFixture(async (root) => {
+    await fs.rm(path.join(root, 'web', 'apps', 'dashboard', 'src', 'main.tsx'));
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /production entry/i);
   });
 });
 
