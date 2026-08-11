@@ -1,0 +1,9 @@
+{
+  "saasIdentityTables": ["mochat_go_saas_admin_users"],
+  "dashboardIdentityTables": ["mochat_go_dashboard_identities"],
+  "jwtRealms": ["saas_admin", "dashboard"],
+  "dashboardPrincipalConsumers": ["DashboardPrincipalFromContext"],
+  "forbiddenCorpRoutes": [],
+  "forbiddenSessionCorpFields": [],
+  "plaintextSecretReads": []
+}
