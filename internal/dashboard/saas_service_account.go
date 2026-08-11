@@ -1355,9 +1355,7 @@ func decodeSaaSServiceAccountJSON(w http.ResponseWriter, r *http.Request, target
 }
 
 func writeOneTimeServiceAccountKey(w http.ResponseWriter, status int, payload map[string]any) {
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Pragma", "no-cache")
-	writeEnvelope(w, status, status, "API key 仅在本次响应中展示，请立即存入密钥管理器", payload)
+	writeOneTimeSecretEnvelope(w, status, "API key 仅在本次响应中展示，请立即存入密钥管理器", payload)
 }
 
 func saasServiceAccountPayloads(items []SaaSServiceAccount) []map[string]any {

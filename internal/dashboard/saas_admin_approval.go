@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/authjwt"
+	"jiyi/mochat-go/internal/dashboardadmin"
 	"jiyi/mochat-go/internal/identitysecurity"
 	"jiyi/mochat-go/internal/saasbackup"
 	"jiyi/mochat-go/internal/saascompliance"
@@ -54,6 +55,11 @@ const (
 	SaaSAdminApprovalActionServiceAccountUpdate       = "service_account.update"
 	SaaSAdminApprovalActionServiceAccountKeyRotate    = "service_account.key.rotate"
 	SaaSAdminApprovalActionServiceAccountKeyRevoke    = "service_account.key.revoke"
+
+	SaaSAdminApprovalActionDashboardTenantProvision   = dashboardadmin.ApprovalActionTenantProvision
+	SaaSAdminApprovalActionDashboardActivationResend  = dashboardadmin.ApprovalActionActivationResend
+	SaaSAdminApprovalActionDashboardSuperAdminReplace = dashboardadmin.ApprovalActionSuperAdminReplace
+	SaaSAdminApprovalActionDashboardSuperAdminStatus  = dashboardadmin.ApprovalActionSuperAdminStatus
 
 	SaaSAdminApprovalStatusAll       = "all"
 	SaaSAdminApprovalStatusPending   = "pending"
@@ -377,6 +383,10 @@ type SaaSAdminApprovalGovernanceStore interface {
 
 func SaaSAdminApprovalPolicies() []SaaSAdminApprovalPolicy {
 	policies := []SaaSAdminApprovalPolicy{
+		{ActionType: SaaSAdminApprovalActionDashboardTenantProvision, Name: "开通 Dashboard 管理员租户", RiskLevel: SaaSAdminApprovalRiskCritical, RequiredPermission: SaaSAdminPermissionTenantsManage, TargetType: "dashboard_tenant", Description: "双人复核后原子创建 SaaS 租户、绑定和首个 Dashboard 管理员", Enabled: true, RequiredApprovals: 2, SLAMinutes: 120, ReminderMinutes: 30, ExpiryHours: 12, Version: 1},
+		{ActionType: SaaSAdminApprovalActionDashboardActivationResend, Name: "重发 Dashboard 激活", RiskLevel: SaaSAdminApprovalRiskCritical, RequiredPermission: SaaSAdminPermissionTenantsManage, TargetType: "dashboard_identity_activation", Description: "双人复核后重新生成一次性激活凭据", Enabled: true, RequiredApprovals: 2, SLAMinutes: 120, ReminderMinutes: 30, ExpiryHours: 12, Version: 1},
+		{ActionType: SaaSAdminApprovalActionDashboardSuperAdminReplace, Name: "替换 Dashboard 超级管理员", RiskLevel: SaaSAdminApprovalRiskCritical, RequiredPermission: SaaSAdminPermissionTenantsManage, TargetType: "dashboard_superadmin", Description: "新主体激活后经双人复核原子替换旧超管", Enabled: true, RequiredApprovals: 2, SLAMinutes: 120, ReminderMinutes: 30, ExpiryHours: 12, Version: 1},
+		{ActionType: SaaSAdminApprovalActionDashboardSuperAdminStatus, Name: "变更 Dashboard 超级管理员状态", RiskLevel: SaaSAdminApprovalRiskCritical, RequiredPermission: SaaSAdminPermissionTenantsManage, TargetType: "dashboard_superadmin", Description: "双人复核后停用或恢复 SaaS 治理的 Dashboard 超管", Enabled: true, RequiredApprovals: 2, SLAMinutes: 120, ReminderMinutes: 30, ExpiryHours: 12, Version: 1},
 		{ActionType: SaaSAdminApprovalActionTenantDisable, Name: "停用业务租户", RiskLevel: SaaSAdminApprovalRiskCritical, RequiredPermission: SaaSAdminPermissionTenantsManage, TargetType: "tenant", Description: "停用后会立即阻断该租户新登录和旧 token 访问", Enabled: true, RequiredApprovals: 2, SLAMinutes: 240, ReminderMinutes: 60, ExpiryHours: 24, Version: 1},
 		{ActionType: SaaSAdminApprovalActionTenantEnable, Name: "启用业务租户", RiskLevel: SaaSAdminApprovalRiskCritical, RequiredPermission: SaaSAdminPermissionTenantsManage, TargetType: "tenant", Description: "冻结停用租户和订阅快照，双人复核后恢复登录、访问与订阅状态", Enabled: true, RequiredApprovals: 2, SLAMinutes: 240, ReminderMinutes: 60, ExpiryHours: 24, Version: 1},
 		{ActionType: SaaSAdminApprovalActionTenantProvision, Name: "开通业务租户", RiskLevel: SaaSAdminApprovalRiskCritical, RequiredPermission: SaaSAdminPermissionTenantsManage, TargetType: "tenant", Description: "冻结管理员凭据哈希、运营任务版本、套餐定义版本和开户预览，双人复核后原子创建租户、管理员、权限、套餐与订阅", Enabled: true, RequiredApprovals: 2, SLAMinutes: 120, ReminderMinutes: 30, ExpiryHours: 12, Version: 1},
@@ -779,6 +789,10 @@ func (h *SaaSAdminHandler) ApprovalExecute(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	response := map[string]any{"approval": saasAdminApprovalPayload(finish), "result": resultPayload}
+	if activationToken, ok := resultPayload["activationToken"].(string); ok && strings.TrimSpace(activationToken) != "" {
+		writeOneTimeSecretEnvelope(w, http.StatusOK, "激活令牌仅在本次响应中展示，请立即通过受控渠道交付", response)
+		return
+	}
 	if plainTextKey, ok := resultPayload["plainTextKey"].(string); ok && strings.TrimSpace(plainTextKey) != "" {
 		writeOneTimeServiceAccountKey(w, http.StatusOK, response)
 		return
@@ -786,9 +800,30 @@ func (h *SaaSAdminHandler) ApprovalExecute(w http.ResponseWriter, r *http.Reques
 	writeEnvelope(w, http.StatusOK, http.StatusOK, "success", response)
 }
 
+func writeOneTimeSecretEnvelope(w http.ResponseWriter, status int, message string, payload map[string]any) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	writeEnvelope(w, status, status, message, payload)
+}
+
 func saasAdminApprovalPersistentResult(actionType string, result map[string]any) map[string]any {
 	if result == nil {
 		return result
+	}
+	if actionType == SaaSAdminApprovalActionDashboardTenantProvision || actionType == SaaSAdminApprovalActionDashboardActivationResend {
+		persistent := make(map[string]any, len(result)+1)
+		delivered := false
+		for key, value := range result {
+			if key != "activationToken" {
+				persistent[key] = value
+				continue
+			}
+			if token, ok := value.(string); ok && strings.TrimSpace(token) != "" {
+				delivered = true
+			}
+		}
+		persistent["activationTokenDelivered"] = delivered
+		return persistent
 	}
 	if actionType == SaaSAdminApprovalActionTenantDomainCreate {
 		persistent := make(map[string]any, len(result))
@@ -843,6 +878,13 @@ func (h *SaaSAdminHandler) normalizeSaaSAdminApprovalPayload(ctx context.Context
 	}
 	if len(raw) == 0 || len(raw) > 1<<20 {
 		return SaaSAdminApprovalPolicy{}, nil, "", "", NewSaaSAdminBadRequest("payload 必填且不能超过 1 MiB")
+	}
+	if actionType == SaaSAdminApprovalActionDashboardTenantProvision || actionType == SaaSAdminApprovalActionDashboardActivationResend || actionType == SaaSAdminApprovalActionDashboardSuperAdminReplace || actionType == SaaSAdminApprovalActionDashboardSuperAdminStatus {
+		plan, err := dashboardadmin.NormalizeSaaSAdminApprovalPayload(actionType, raw)
+		if err != nil {
+			return SaaSAdminApprovalPolicy{}, nil, "", "", NewSaaSAdminBadRequest("Dashboard 审批载荷无效")
+		}
+		return policy, plan.NormalizedJSON, plan.TargetID, plan.TargetName, nil
 	}
 	requestFromJSON := func() *http.Request {
 		return &http.Request{Method: http.MethodPost, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(raw))}
@@ -1559,6 +1601,12 @@ func (h *SaaSAdminHandler) normalizeSaaSAdminApprovalPayload(ctx context.Context
 }
 
 func (h *SaaSAdminHandler) executeSaaSAdminApproval(ctx context.Context, approval SaaSAdminApproval, actor User) (map[string]any, error) {
+	if approval.ActionType == SaaSAdminApprovalActionDashboardTenantProvision || approval.ActionType == SaaSAdminApprovalActionDashboardActivationResend || approval.ActionType == SaaSAdminApprovalActionDashboardSuperAdminReplace || approval.ActionType == SaaSAdminApprovalActionDashboardSuperAdminStatus {
+		if h.dashboardAdminApprovalExecutor == nil {
+			return nil, errors.New("Dashboard 管理审批执行器未配置")
+		}
+		return h.dashboardAdminApprovalExecutor(ctx, actor.ID, approval.ID, approval.Version, approval.ActionType, json.RawMessage(approval.RequestJSON))
+	}
 	switch approval.ActionType {
 	case SaaSAdminApprovalActionTenantDisable, SaaSAdminApprovalActionTenantEnable:
 		var plan SaaSAdminTenantStatusApprovalPlan

@@ -18,8 +18,21 @@ func TestSaaSAdminCriticalApprovalPoliciesUseLockedTwoPersonBaseline(t *testing.
 			t.Fatalf("critical policy is not locked: %+v", policy)
 		}
 	}
-	if criticalCount != 31 {
+	const lockedCriticalPolicyCount = 35
+	if criticalCount != lockedCriticalPolicyCount {
 		t.Fatalf("critical policy count = %d", criticalCount)
+	}
+	for _, action := range []string{
+		SaaSAdminApprovalActionDashboardTenantProvision,
+		SaaSAdminApprovalActionDashboardActivationResend,
+		SaaSAdminApprovalActionDashboardSuperAdminReplace,
+		SaaSAdminApprovalActionDashboardSuperAdminStatus,
+	} {
+		policy, found := SaaSAdminApprovalPolicyByAction(action)
+		if !found || !policy.Enabled || policy.RequiredPermission != SaaSAdminPermissionTenantsManage ||
+			policy.RequiredApprovals != 2 || policy.RiskLevel != SaaSAdminApprovalRiskCritical {
+			t.Fatalf("Dashboard governance policy %q is not in the locked two-person baseline: %+v found=%t", action, policy, found)
+		}
 	}
 	tenantEnable, found := SaaSAdminApprovalPolicyByAction(SaaSAdminApprovalActionTenantEnable)
 	if !found || tenantEnable.RiskLevel != SaaSAdminApprovalRiskCritical ||

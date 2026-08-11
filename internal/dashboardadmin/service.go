@@ -10,11 +10,48 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const PermissionTenantsManage = "platform.tenants.manage"
+
+const (
+	ApprovalActionTenantProvision   = "dashboard.tenant.provision"
+	ApprovalActionActivationResend  = "dashboard.activation.resend"
+	ApprovalActionSuperAdminReplace = "dashboard.superadmin.replace"
+	ApprovalActionSuperAdminStatus  = "dashboard.superadmin.status"
+)
+
+type ApprovalGateResult struct {
+	Required          bool
+	ActionType        string
+	RequiredApprovals int
+	ExpiryHours       int
+}
+
+type ApprovalGate func(context.Context, string) (ApprovalGateResult, error)
+
+// NewSaaSApprovalExecutionActor carries the permission projection already
+// established by the SaaS approval handler's resolvePlatformSuperAdmin call.
+// The SQL Store must still resolve and recheck the live SaaS identity and
+// permission inside the business transaction; this projection is only the
+// service-layer fail-closed guard.
+func NewSaaSApprovalExecutionActor(userID int) Actor {
+	return Actor{UserID: userID, Active: true, Permissions: []string{PermissionTenantsManage}}
+}
+
+// ApprovalPayloadPlan is the server-normalized, credential-free snapshot
+// stored by the SaaS approval center. Actor identity is deliberately absent;
+// the execution actor is always taken from the authenticated approval call.
+type ApprovalPayloadPlan struct {
+	ActionType     string
+	TargetType     string
+	TargetID       string
+	TargetName     string
+	NormalizedJSON []byte
+}
 
 var (
 	ErrInvalidRequest                = errors.New("dashboard admin request is invalid")
@@ -145,15 +182,17 @@ type SubscriptionInput struct {
 }
 
 type ProvisionDashboardTenant struct {
-	TenantName           string                 `json:"tenantName"`
-	PackageID            int                    `json:"packageId"`
-	Limits               SaaSAdminPackageLimits `json:"limits"`
-	Subscription         SubscriptionInput      `json:"subscription"`
-	AdminLoginIdentifier string                 `json:"adminLoginIdentifier"`
-	AdminName            string                 `json:"adminName"`
-	IdempotencyKey       string                 `json:"idempotencyKey"`
-	ExpectedVersion      uint64                 `json:"expectedVersion"`
-	RequestID            string                 `json:"-"`
+	TenantName               string                 `json:"tenantName"`
+	PackageID                int                    `json:"packageId"`
+	Limits                   SaaSAdminPackageLimits `json:"limits"`
+	Subscription             SubscriptionInput      `json:"subscription"`
+	AdminLoginIdentifier     string                 `json:"adminLoginIdentifier"`
+	AdminName                string                 `json:"adminName"`
+	IdempotencyKey           string                 `json:"idempotencyKey"`
+	ExpectedVersion          uint64                 `json:"expectedVersion"`
+	RequestID                string                 `json:"-"`
+	ApprovalExecutionID      int64                  `json:"-"`
+	ApprovalExecutionVersion int                    `json:"-"`
 
 	// These fields are populated only by a decoder contract test to ensure
 	// caller-supplied scope cannot be smuggled into the service. They are not
@@ -171,12 +210,14 @@ type ProvisionResult struct {
 }
 
 type ResendActivationInput struct {
-	TenantID        int    `json:"-"`
-	TargetUserID    int    `json:"targetUserId"`
-	ExpectedVersion uint64 `json:"expectedVersion"`
-	RequestID       string `json:"-"`
-	BodyTenantID    int    `json:"-"`
-	BodyActorID     int    `json:"-"`
+	TenantID                 int    `json:"-"`
+	TargetUserID             int    `json:"targetUserId"`
+	ExpectedVersion          uint64 `json:"expectedVersion"`
+	RequestID                string `json:"-"`
+	ApprovalExecutionID      int64  `json:"-"`
+	ApprovalExecutionVersion int    `json:"-"`
+	BodyTenantID             int    `json:"-"`
+	BodyActorID              int    `json:"-"`
 }
 
 type ResendActivationResult struct {
@@ -188,23 +229,27 @@ type ResendActivationResult struct {
 }
 
 type ReplaceSuperAdminInput struct {
-	TenantID        int    `json:"-"`
-	CurrentAdminID  int    `json:"currentAdminId"`
-	NewAdminID      int    `json:"newAdminId"`
-	ExpectedVersion uint64 `json:"expectedVersion"`
-	RequestID       string `json:"-"`
-	BodyTenantID    int    `json:"-"`
-	BodyActorID     int    `json:"-"`
+	TenantID                 int    `json:"-"`
+	CurrentAdminID           int    `json:"currentAdminId"`
+	NewAdminID               int    `json:"newAdminId"`
+	ExpectedVersion          uint64 `json:"expectedVersion"`
+	RequestID                string `json:"-"`
+	ApprovalExecutionID      int64  `json:"-"`
+	ApprovalExecutionVersion int    `json:"-"`
+	BodyTenantID             int    `json:"-"`
+	BodyActorID              int    `json:"-"`
 }
 
 type SuperAdminStatusInput struct {
-	TenantID        int    `json:"-"`
-	TargetUserID    int    `json:"targetUserId"`
-	Enabled         bool   `json:"enabled"`
-	ExpectedVersion uint64 `json:"expectedVersion"`
-	RequestID       string `json:"-"`
-	BodyTenantID    int    `json:"-"`
-	BodyActorID     int    `json:"-"`
+	TenantID                 int    `json:"-"`
+	TargetUserID             int    `json:"targetUserId"`
+	Enabled                  bool   `json:"enabled"`
+	ExpectedVersion          uint64 `json:"expectedVersion"`
+	RequestID                string `json:"-"`
+	ApprovalExecutionID      int64  `json:"-"`
+	ApprovalExecutionVersion int    `json:"-"`
+	BodyTenantID             int    `json:"-"`
+	BodyActorID              int    `json:"-"`
 }
 
 type GovernanceResult struct {
@@ -256,6 +301,161 @@ func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
+type dashboardActivationResendApprovalPayload struct {
+	TenantID        int    `json:"tenantId"`
+	TargetUserID    int    `json:"targetUserId"`
+	ExpectedVersion uint64 `json:"expectedVersion"`
+}
+
+type dashboardSuperAdminReplaceApprovalPayload struct {
+	TenantID        int    `json:"tenantId"`
+	CurrentAdminID  int    `json:"currentAdminId"`
+	NewAdminID      int    `json:"newAdminId"`
+	ExpectedVersion uint64 `json:"expectedVersion"`
+}
+
+type dashboardSuperAdminStatusApprovalPayload struct {
+	TenantID        int    `json:"tenantId"`
+	TargetUserID    int    `json:"targetUserId"`
+	Enabled         bool   `json:"enabled"`
+	ExpectedVersion uint64 `json:"expectedVersion"`
+}
+
+func decodeApprovalJSON(raw json.RawMessage, target any) error {
+	if len(raw) == 0 || len(raw) > 1<<20 {
+		return ErrInvalidRequest
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return ErrInvalidRequest
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return ErrInvalidRequest
+	}
+	return nil
+}
+
+func normalizeApprovalJSON(value any) ([]byte, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, ErrInvalidRequest
+	}
+	return encoded, nil
+}
+
+// NormalizeSaaSAdminApprovalPayload validates and canonicalizes the four
+// Dashboard governance actions. Unknown actor/credential fields and trailing
+// JSON are rejected before a request can become durable approval state.
+func NormalizeSaaSAdminApprovalPayload(action string, raw json.RawMessage) (ApprovalPayloadPlan, error) {
+	switch strings.TrimSpace(action) {
+	case ApprovalActionTenantProvision:
+		var input ProvisionDashboardTenant
+		if err := decodeApprovalJSON(raw, &input); err != nil || validateProvision(input) != nil {
+			return ApprovalPayloadPlan{}, ErrInvalidRequest
+		}
+		normalized, err := normalizeApprovalJSON(input)
+		if err != nil {
+			return ApprovalPayloadPlan{}, err
+		}
+		return ApprovalPayloadPlan{ActionType: action, TargetType: "dashboard_tenant", TargetID: "new", TargetName: strings.TrimSpace(input.TenantName), NormalizedJSON: normalized}, nil
+	case ApprovalActionActivationResend:
+		var input dashboardActivationResendApprovalPayload
+		if err := decodeApprovalJSON(raw, &input); err != nil || input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 {
+			return ApprovalPayloadPlan{}, ErrInvalidRequest
+		}
+		normalized, err := normalizeApprovalJSON(input)
+		if err != nil {
+			return ApprovalPayloadPlan{}, err
+		}
+		return ApprovalPayloadPlan{ActionType: action, TargetType: "dashboard_identity_activation", TargetID: strconv.Itoa(input.TargetUserID), NormalizedJSON: normalized}, nil
+	case ApprovalActionSuperAdminReplace:
+		var input dashboardSuperAdminReplaceApprovalPayload
+		if err := decodeApprovalJSON(raw, &input); err != nil || input.TenantID <= 0 || input.CurrentAdminID <= 0 || input.NewAdminID <= 0 || input.CurrentAdminID == input.NewAdminID || input.ExpectedVersion == 0 {
+			return ApprovalPayloadPlan{}, ErrInvalidRequest
+		}
+		normalized, err := normalizeApprovalJSON(input)
+		if err != nil {
+			return ApprovalPayloadPlan{}, err
+		}
+		return ApprovalPayloadPlan{ActionType: action, TargetType: "dashboard_superadmin", TargetID: strconv.Itoa(input.NewAdminID), NormalizedJSON: normalized}, nil
+	case ApprovalActionSuperAdminStatus:
+		var input dashboardSuperAdminStatusApprovalPayload
+		if err := decodeApprovalJSON(raw, &input); err != nil || input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 {
+			return ApprovalPayloadPlan{}, ErrInvalidRequest
+		}
+		normalized, err := normalizeApprovalJSON(input)
+		if err != nil {
+			return ApprovalPayloadPlan{}, err
+		}
+		return ApprovalPayloadPlan{ActionType: action, TargetType: "dashboard_superadmin", TargetID: strconv.Itoa(input.TargetUserID), NormalizedJSON: normalized}, nil
+	default:
+		return ApprovalPayloadPlan{}, ErrInvalidRequest
+	}
+}
+
+// ExecuteApproval is the only adapter from the generic SaaS approval center
+// into Dashboard governance. It supplies the approval execution reference to
+// the Service; the MySQL Store then marks the effect in the same business Tx.
+func (service *Service) ExecuteApproval(ctx context.Context, actor Actor, action string, raw json.RawMessage, approvalID int64, approvalVersion int) (map[string]any, error) {
+	if approvalID <= 0 || approvalVersion <= 0 {
+		return nil, ErrInvalidRequest
+	}
+	plan, err := NormalizeSaaSAdminApprovalPayload(action, raw)
+	if err != nil {
+		return nil, err
+	}
+	requestID := "approval:" + strconv.FormatInt(approvalID, 10) + ":" + strconv.Itoa(approvalVersion)
+	switch action {
+	case ApprovalActionTenantProvision:
+		var input ProvisionDashboardTenant
+		if err := decodeApprovalJSON(plan.NormalizedJSON, &input); err != nil {
+			return nil, err
+		}
+		input.RequestID = requestID
+		input.ApprovalExecutionID = approvalID
+		input.ApprovalExecutionVersion = approvalVersion
+		result, err := service.ProvisionDashboardTenant(ctx, actor, input)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"tenantId": result.TenantID, "dashboardUserId": result.DashboardUserID, "bindingCorpId": result.BindingCorpID, "activationToken": result.ActivationToken, "idempotent": result.Idempotent}, nil
+	case ApprovalActionActivationResend:
+		var payload dashboardActivationResendApprovalPayload
+		if err := decodeApprovalJSON(plan.NormalizedJSON, &payload); err != nil {
+			return nil, err
+		}
+		result, err := service.ResendActivation(ctx, actor, ResendActivationInput{TenantID: payload.TenantID, TargetUserID: payload.TargetUserID, ExpectedVersion: payload.ExpectedVersion, RequestID: requestID, ApprovalExecutionID: approvalID, ApprovalExecutionVersion: approvalVersion})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"tenantId": result.TenantID, "dashboardUserId": result.DashboardUserID, "version": result.Version, "activationToken": result.ActivationToken, "idempotent": result.Idempotent}, nil
+	case ApprovalActionSuperAdminReplace:
+		var payload dashboardSuperAdminReplaceApprovalPayload
+		if err := decodeApprovalJSON(plan.NormalizedJSON, &payload); err != nil {
+			return nil, err
+		}
+		result, err := service.ReplaceDashboardSuperAdmin(ctx, actor, ReplaceSuperAdminInput{TenantID: payload.TenantID, CurrentAdminID: payload.CurrentAdminID, NewAdminID: payload.NewAdminID, ExpectedVersion: payload.ExpectedVersion, RequestID: requestID, ApprovalExecutionID: approvalID, ApprovalExecutionVersion: approvalVersion})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"tenantId": result.TenantID, "dashboardUserId": result.DashboardUserID, "version": result.Version, "idempotent": result.Idempotent}, nil
+	case ApprovalActionSuperAdminStatus:
+		var payload dashboardSuperAdminStatusApprovalPayload
+		if err := decodeApprovalJSON(plan.NormalizedJSON, &payload); err != nil {
+			return nil, err
+		}
+		result, err := service.SetDashboardSuperAdminStatus(ctx, actor, SuperAdminStatusInput{TenantID: payload.TenantID, TargetUserID: payload.TargetUserID, Enabled: payload.Enabled, ExpectedVersion: payload.ExpectedVersion, RequestID: requestID, ApprovalExecutionID: approvalID, ApprovalExecutionVersion: approvalVersion})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"tenantId": result.TenantID, "dashboardUserId": result.DashboardUserID, "version": result.Version, "idempotent": result.Idempotent}, nil
+	default:
+		return nil, ErrInvalidRequest
+	}
+}
+
 func (service *Service) ProvisionDashboardTenant(ctx context.Context, actor Actor, input ProvisionDashboardTenant) (ProvisionResult, error) {
 	if err := validateActor(actor); err != nil {
 		return ProvisionResult{}, err
@@ -295,7 +495,7 @@ func (service *Service) ResendActivation(ctx context.Context, actor Actor, input
 	if err := validateActor(actor); err != nil {
 		return ResendActivationResult{}, err
 	}
-	if input.BodyTenantID != 0 || input.BodyActorID != 0 || input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 {
+	if !validApprovalExecutionReference(input.ApprovalExecutionID, input.ApprovalExecutionVersion) || input.BodyTenantID != 0 || input.BodyActorID != 0 || input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 {
 		return ResendActivationResult{}, ErrInvalidRequest
 	}
 	if requestID := strings.TrimSpace(input.RequestID); requestID == "" || len([]rune(requestID)) > 80 {
@@ -311,7 +511,7 @@ func (service *Service) ReplaceDashboardSuperAdmin(ctx context.Context, actor Ac
 	if err := validateActor(actor); err != nil {
 		return GovernanceResult{}, err
 	}
-	if input.BodyTenantID != 0 || input.BodyActorID != 0 || input.TenantID <= 0 || input.CurrentAdminID <= 0 || input.NewAdminID <= 0 || input.CurrentAdminID == input.NewAdminID || input.ExpectedVersion == 0 {
+	if !validApprovalExecutionReference(input.ApprovalExecutionID, input.ApprovalExecutionVersion) || input.BodyTenantID != 0 || input.BodyActorID != 0 || input.TenantID <= 0 || input.CurrentAdminID <= 0 || input.NewAdminID <= 0 || input.CurrentAdminID == input.NewAdminID || input.ExpectedVersion == 0 {
 		return GovernanceResult{}, ErrInvalidRequest
 	}
 	if !validGovernanceRequestKey(input.RequestID) {
@@ -327,7 +527,7 @@ func (service *Service) SetDashboardSuperAdminStatus(ctx context.Context, actor 
 	if err := validateActor(actor); err != nil {
 		return GovernanceResult{}, err
 	}
-	if input.BodyTenantID != 0 || input.BodyActorID != 0 || input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 {
+	if !validApprovalExecutionReference(input.ApprovalExecutionID, input.ApprovalExecutionVersion) || input.BodyTenantID != 0 || input.BodyActorID != 0 || input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 {
 		return GovernanceResult{}, ErrInvalidRequest
 	}
 	if !validGovernanceRequestKey(input.RequestID) {
@@ -342,6 +542,10 @@ func (service *Service) SetDashboardSuperAdminStatus(ctx context.Context, actor 
 func validGovernanceRequestKey(value string) bool {
 	value = strings.TrimSpace(value)
 	return value != "" && len([]rune(value)) <= 80
+}
+
+func validApprovalExecutionReference(id int64, version int) bool {
+	return (id == 0 && version == 0) || (id > 0 && version > 0)
 }
 
 func ValidateDashboardUserMutation(input DashboardUserMutation) error {
@@ -366,7 +570,7 @@ func validateActor(actor Actor) error {
 }
 
 func validateProvision(input ProvisionDashboardTenant) error {
-	if input.BodyTenantID != 0 || input.BodyActorID != 0 {
+	if !validApprovalExecutionReference(input.ApprovalExecutionID, input.ApprovalExecutionVersion) || input.BodyTenantID != 0 || input.BodyActorID != 0 {
 		return ErrInvalidRequest
 	}
 	if strings.TrimSpace(input.TenantName) == "" || len([]rune(strings.TrimSpace(input.TenantName))) > 255 {

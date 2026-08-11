@@ -22,11 +22,13 @@ const (
 	codeActivationRequired  = "ACTIVATION_REQUIRED"
 	codeLastSuperAdmin      = "LAST_SUPER_ADMIN"
 	codeGovernanceOnly      = "SUPER_ADMIN_GOVERNANCE_ONLY"
+	codeApprovalRequired    = "APPROVAL_REQUIRED"
 	codeUnavailable         = "DASHBOARD_ADMIN_UNAVAILABLE"
 )
 
 type HTTPHandler struct {
-	service *Service
+	service      *Service
+	approvalGate ApprovalGate
 }
 
 func actorFromSaaSPrincipal(principal saasauth.Principal) Actor {
@@ -35,6 +37,29 @@ func actorFromSaaSPrincipal(principal saasauth.Principal) Actor {
 
 func NewHTTPHandler(service *Service) *HTTPHandler {
 	return &HTTPHandler{service: service}
+}
+
+func (handler *HTTPHandler) WithApprovalGate(gate ApprovalGate) *HTTPHandler {
+	if handler != nil {
+		handler.approvalGate = gate
+	}
+	return handler
+}
+
+func (handler *HTTPHandler) requireDirectApproval(w http.ResponseWriter, r *http.Request, actionType string) bool {
+	if handler == nil || handler.approvalGate == nil {
+		return false
+	}
+	decision, err := handler.approvalGate(r.Context(), actionType)
+	if err != nil {
+		writeDashboardAdminServiceError(w, err)
+		return true
+	}
+	if !decision.Required {
+		return false
+	}
+	writeDashboardAdminApprovalRequired(w, decision)
+	return true
 }
 
 func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +131,9 @@ func (handler *HTTPHandler) replaceSuperAdmin(w http.ResponseWriter, r *http.Req
 	}
 	input.TenantID = tenantID
 	input.RequestID = r.Header.Get("X-Request-ID")
+	if handler.requireDirectApproval(w, r, ApprovalActionSuperAdminReplace) {
+		return
+	}
 	result, err := handler.service.ReplaceDashboardSuperAdmin(r.Context(), actorFromSaaSPrincipal(principal), input)
 	if err != nil {
 		writeDashboardAdminServiceError(w, err)
@@ -129,6 +157,9 @@ func (handler *HTTPHandler) superAdminStatus(w http.ResponseWriter, r *http.Requ
 	}
 	input.TenantID = tenantID
 	input.RequestID = r.Header.Get("X-Request-ID")
+	if handler.requireDirectApproval(w, r, ApprovalActionSuperAdminStatus) {
+		return
+	}
 	result, err := handler.service.SetDashboardSuperAdminStatus(r.Context(), actorFromSaaSPrincipal(principal), input)
 	if err != nil {
 		writeDashboardAdminServiceError(w, err)
@@ -152,6 +183,9 @@ func (handler *HTTPHandler) resendActivation(w http.ResponseWriter, r *http.Requ
 	}
 	input.TenantID = tenantID
 	input.RequestID = r.Header.Get("X-Request-ID")
+	if handler.requireDirectApproval(w, r, ApprovalActionActivationResend) {
+		return
+	}
 	result, err := handler.service.ResendActivation(r.Context(), actorFromSaaSPrincipal(principal), input)
 	if err != nil {
 		writeDashboardAdminServiceError(w, err)
@@ -199,6 +233,9 @@ func (handler *HTTPHandler) provision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.RequestID = r.Header.Get("X-Request-ID")
+	if handler.requireDirectApproval(w, r, ApprovalActionTenantProvision) {
+		return
+	}
 	result, err := handler.service.ProvisionDashboardTenant(r.Context(), actorFromSaaSPrincipal(principal), input)
 	if err != nil {
 		writeDashboardAdminServiceError(w, err)
@@ -242,13 +279,27 @@ func writeDashboardAdminJSON(w http.ResponseWriter, status int, data any) {
 }
 
 func writeDashboardAdminError(w http.ResponseWriter, status int, errorCode string) {
+	writeDashboardAdminErrorData(w, status, errorCode, nil)
+}
+
+func writeDashboardAdminApprovalRequired(w http.ResponseWriter, decision ApprovalGateResult) {
+	writeDashboardAdminErrorData(w, http.StatusPreconditionRequired, codeApprovalRequired, map[string]any{
+		"actionType":        decision.ActionType,
+		"requestPath":       "/dashboard/saasAdmin/approvalRequest",
+		"required":          true,
+		"requiredApprovals": decision.RequiredApprovals,
+		"expiryHours":       decision.ExpiryHours,
+	})
+}
+
+func writeDashboardAdminErrorData(w http.ResponseWriter, status int, errorCode string, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(struct {
 		Code      int    `json:"code"`
 		ErrorCode string `json:"errorCode"`
 		Data      any    `json:"data"`
-	}{Code: status, ErrorCode: errorCode, Data: nil})
+	}{Code: status, ErrorCode: errorCode, Data: data})
 }
 
 func writeDashboardAdminServiceError(w http.ResponseWriter, err error) {

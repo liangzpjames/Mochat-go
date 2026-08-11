@@ -21,6 +21,11 @@ import {
 import type { PageProps } from './shared'
 import { queryKeys } from './shared'
 
+interface ApprovalExecuteResponse {
+  approval: Record<string, unknown>
+  result: Record<string, unknown>
+}
+
 export default function TeamPage({ profile, approvalMode }: PageProps) {
   const queryClient = useQueryClient()
   const [editingMember, setEditingMember] = useState<AccessAssignment | null>(null)
@@ -28,6 +33,8 @@ export default function TeamPage({ profile, approvalMode }: PageProps) {
   const [decisionItem, setDecisionItem] = useState<ApprovalItem | null>(null)
   const [decision, setDecision] = useState<'approve' | 'reject'>('approve')
   const [decisionReason, setDecisionReason] = useState('')
+  const [activationToken, setActivationToken] = useState('')
+  const [activationTokenOpen, setActivationTokenOpen] = useState(false)
 
   const assignmentsQuery = useQuery({
     queryKey: queryKeys.accessAssignments,
@@ -93,10 +100,15 @@ export default function TeamPage({ profile, approvalMode }: PageProps) {
     onError: (error) => toast.error(error instanceof Error ? error.message : '审批处理失败'),
   })
 
-  const executeMutation = useMutation({
-    mutationFn: (item: ApprovalItem) => apiRequest<Record<string, unknown>>('/dashboard/saasAdmin/approvalExecute', jsonRequest('POST', { approvalId: item.id, expectedVersion: item.version })),
-    onSuccess: async () => {
-      toast.success('已批准操作执行完成')
+  const executeMutation = useMutation<ApprovalExecuteResponse, unknown, ApprovalItem>({
+    mutationFn: (item) => apiRequest<ApprovalExecuteResponse>('/dashboard/saasAdmin/approvalExecute', jsonRequest('POST', { approvalId: item.id, expectedVersion: item.version })),
+    onSuccess: async (result) => {
+      const token = typeof result.result.activationToken === 'string' ? result.result.activationToken : ''
+      if (token) {
+        setActivationToken(token)
+        setActivationTokenOpen(true)
+      }
+      toast.success(token ? '已批准操作执行完成，请安全记录一次性激活令牌' : '已批准操作执行完成')
       await invalidate()
       await queryClient.invalidateQueries({ queryKey: queryKeys.overview })
     },
@@ -184,6 +196,10 @@ export default function TeamPage({ profile, approvalMode }: PageProps) {
 
       <Dialog open={Boolean(decisionItem)} onOpenChange={(open) => !open && setDecisionItem(null)} title={decision === 'approve' ? '批准审批' : '驳回审批'} description={decisionItem?.requestNo} size="sm" footer={<><Button variant="secondary" onClick={() => setDecisionItem(null)}>取消</Button><Button variant={decision === 'approve' ? 'primary' : 'danger'} loading={decisionMutation.isPending} onClick={() => decisionMutation.mutate()}>{decision === 'approve' ? '确认批准' : '确认驳回'}</Button></>}>
         <Field label="复核意见"><textarea className={textareaClassName} value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} autoFocus /></Field>
+      </Dialog>
+
+      <Dialog open={activationTokenOpen} onOpenChange={(open) => { setActivationTokenOpen(open); if (!open) setActivationToken('') }} title="一次性激活令牌" description="该令牌只在本次审批执行响应后显示，关闭后无法再次查看。" size="sm">
+        <div className="space-y-3"><p className="text-sm text-amber-800">请使用受控交付渠道传给对应管理员；不要写入审批意见、日志或截图。</p><code className="block break-all rounded-md bg-zinc-950 px-3 py-3 text-xs text-emerald-300">{activationToken}</code><Button type="button" variant="secondary" onClick={() => { setActivationTokenOpen(false); setActivationToken('') }}>我已记录并关闭</Button></div>
       </Dialog>
     </div>
   )

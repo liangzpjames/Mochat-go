@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Building2, Eye, Plus, RefreshCw, Search, ShieldCheck, UserRoundCog, UserRoundPlus, UserX } from 'lucide-react'
 import { toast } from 'sonner'
-import { ApiError, apiRequest, hasPermission, jsonRequest } from '@/lib/api'
+import { ApiError, apiRequest, executeGoverned, hasPermission } from '@/lib/api'
 import type {
   DashboardAdminGovernanceResult,
   DashboardAdminProvisionResult,
@@ -13,6 +13,7 @@ import type {
   TenantDetailData,
   TenantSummary,
 } from '@/lib/types'
+import type { GovernedResult } from '@/lib/types'
 import {
   Badge,
   Button,
@@ -85,7 +86,7 @@ function isoEndOfDate(date: string) {
   return Number.isNaN(value.getTime()) ? '' : value.toISOString()
 }
 
-export default function TenantsPage({ profile }: PageProps) {
+export default function TenantsPage({ profile, approvalMode }: PageProps) {
   const queryClient = useQueryClient()
   const canManage = hasPermission(profile.permissions, 'platform.tenants.manage')
   const requestKeys = useRef<Record<string, string>>({})
@@ -128,7 +129,7 @@ export default function TenantsPage({ profile }: PageProps) {
     ])
   }
 
-  const createMutation = useMutation<DashboardAdminProvisionResult, unknown>({
+  const createMutation = useMutation<GovernedResult<DashboardAdminProvisionResult>, unknown>({
     mutationFn: async () => {
       const plan = (packagesQuery.data?.packages || []).find((item) => String(item.id) === createForm.packageId && item.status === 1)
       if (!plan) throw new Error('请选择已启用套餐')
@@ -136,8 +137,7 @@ export default function TenantsPage({ profile }: PageProps) {
       if (!/^1\d{10}$/.test(createForm.adminLoginIdentifier.trim())) throw new Error('管理员手机号格式不正确')
       const expiresAt = isoEndOfDate(createForm.expiresAt)
       if (!expiresAt) throw new Error('请填写有效到期日期')
-      return apiRequest<DashboardAdminProvisionResult>('/dashboard/saasAdmin/tenants/provision', {
-        ...jsonRequest('POST', {
+      const payload = {
           tenantName: createForm.tenantName.trim(),
           packageId: plan.id,
           limits: packageLimitsSnapshot(plan),
@@ -152,49 +152,75 @@ export default function TenantsPage({ profile }: PageProps) {
           adminName: createForm.adminName.trim(),
           idempotencyKey: createForm.idempotencyKey,
           expectedVersion: plan.version,
-        }),
-        headers: { 'X-Request-ID': createForm.idempotencyKey },
+      }
+      return executeGoverned<DashboardAdminProvisionResult>({
+        approvalMode,
+        actionType: 'dashboard.tenant.provision',
+        payload,
+        approvalPayload: payload,
+        approvalIdempotencyKey: createForm.idempotencyKey,
+        reason: `开通客户租户 ${createForm.tenantName.trim()}`,
+        directPath: '/dashboard/saasAdmin/tenants/provision',
+        directHeaders: { 'X-Request-ID': createForm.idempotencyKey },
       })
     },
     onSuccess: async (result) => {
+      if (result.approvalRequested) {
+        setCreateOpen(false)
+        toast.success('开户申请已提交审批，待独立复核后执行')
+        await queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
+        return
+      }
       setCreateOpen(false)
       setCreateForm(emptyCreateForm())
-      if (result.activationToken) {
-        setActivationToken(result.activationToken)
+      if (result.data.activationToken) {
+        setActivationToken(result.data.activationToken)
         setActivationTokenOpen(true)
       }
-      toast.success(result.idempotent ? '开户请求已确认，未重复发放激活令牌' : '租户已开通，请安全交付一次性激活令牌')
+      toast.success(result.data.idempotent ? '开户请求已确认，未重复发放激活令牌' : '租户已开通，请安全交付一次性激活令牌')
       await invalidateTenantData()
     },
     onError: (error) => toast.error(errorMessage(error, '开户失败，表单内容已保留')),
   })
 
-  const resendMutation = useMutation<DashboardAdminGovernanceResult & { activationToken?: string }, unknown>({
+  const resendMutation = useMutation<GovernedResult<DashboardAdminGovernanceResult & { activationToken?: string }>, unknown>({
     mutationFn: async () => {
       const tenantId = selectedTenantId
       const userId = Number(targetAdminId)
       const version = governanceQuery.data?.bindingVersion || 0
       if (tenantId <= 0 || userId <= 0 || version <= 0) throw new Error('治理列表尚未加载完成')
       const requestKey = requestKeys.current.resend || (requestKeys.current.resend = makeRequestKey('dashboard-resend'))
-      return apiRequest<DashboardAdminGovernanceResult & { activationToken?: string }>(`/dashboard/saasAdmin/tenants/${tenantId}/activation/resend`, {
-        ...jsonRequest('POST', { targetUserId: userId, expectedVersion: version }),
-        headers: { 'X-Request-ID': requestKey },
+      const payload = { targetUserId: userId, expectedVersion: version }
+      return executeGoverned<DashboardAdminGovernanceResult & { activationToken?: string }>({
+        approvalMode,
+        actionType: 'dashboard.activation.resend',
+        payload,
+        approvalPayload: { tenantId, ...payload },
+        approvalIdempotencyKey: requestKey,
+        reason: `重发租户 ${tenantId} 的 Dashboard 激活`,
+        directPath: `/dashboard/saasAdmin/tenants/${tenantId}/activation/resend`,
+        directHeaders: { 'X-Request-ID': requestKey },
       })
     },
     onSuccess: async (result) => {
+      if (result.approvalRequested) {
+        toast.success('重发激活申请已提交审批，待独立复核后执行')
+        await queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
+        return
+      }
       delete requestKeys.current.resend
-      if (result.activationToken) {
-        setActivationToken(result.activationToken)
+      if (result.data.activationToken) {
+        setActivationToken(result.data.activationToken)
         setActivationTokenOpen(true)
       }
-      toast.success(result.idempotent ? '重发请求已确认，激活令牌不会重复显示' : '已生成新的激活令牌')
+      toast.success(result.data.idempotent ? '重发请求已确认，激活令牌不会重复显示' : '已生成新的激活令牌')
       await governanceQuery.refetch()
       await invalidateTenantData()
     },
     onError: (error) => toast.error(errorMessage(error, '重发激活失败，目标信息已保留')),
   })
 
-  const replaceMutation = useMutation<DashboardAdminGovernanceResult, unknown>({
+  const replaceMutation = useMutation<GovernedResult<DashboardAdminGovernanceResult>, unknown>({
     mutationFn: async () => {
       const tenantId = selectedTenantId
       const currentId = Number(currentAdminId)
@@ -202,21 +228,33 @@ export default function TenantsPage({ profile }: PageProps) {
       const version = governanceQuery.data?.bindingVersion || 0
       if (tenantId <= 0 || currentId <= 0 || nextId <= 0 || currentId === nextId || version <= 0) throw new Error('请选择有效的当前超管、替换候选')
       const requestKey = requestKeys.current.replace || (requestKeys.current.replace = makeRequestKey('dashboard-replace'))
-      return apiRequest<DashboardAdminGovernanceResult>(`/dashboard/saasAdmin/tenants/${tenantId}/super-admin/replace`, {
-        ...jsonRequest('POST', { currentAdminId: currentId, newAdminId: nextId, expectedVersion: version }),
-        headers: { 'X-Request-ID': requestKey },
+      const payload = { currentAdminId: currentId, newAdminId: nextId, expectedVersion: version }
+      return executeGoverned<DashboardAdminGovernanceResult>({
+        approvalMode,
+        actionType: 'dashboard.superadmin.replace',
+        payload,
+        approvalPayload: { tenantId, ...payload },
+        approvalIdempotencyKey: requestKey,
+        reason: `替换租户 ${tenantId} 的 Dashboard 超级管理员`,
+        directPath: `/dashboard/saasAdmin/tenants/${tenantId}/super-admin/replace`,
+        directHeaders: { 'X-Request-ID': requestKey },
       })
     },
     onSuccess: async (result) => {
+      if (result.approvalRequested) {
+        toast.success('超管替换申请已提交审批，待独立复核后执行')
+        await queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
+        return
+      }
       delete requestKeys.current.replace
       await governanceQuery.refetch()
-      toast.success(result.idempotent ? '替换请求已确认' : '超级管理员已替换')
+      toast.success(result.data.idempotent ? '替换请求已确认' : '超级管理员已替换')
       await invalidateTenantData()
     },
     onError: (error) => toast.error(errorMessage(error, '替换超级管理员失败，表单内容已保留')),
   })
 
-  const statusMutation = useMutation<DashboardAdminGovernanceResult, unknown, boolean>({
+  const statusMutation = useMutation<GovernedResult<DashboardAdminGovernanceResult>, unknown, boolean>({
     mutationFn: async (enabled) => {
       const tenantId = selectedTenantId
       const userId = Number(targetAdminId)
@@ -224,15 +262,27 @@ export default function TenantsPage({ profile }: PageProps) {
       if (tenantId <= 0 || userId <= 0 || version <= 0) throw new Error('治理列表尚未加载完成')
       const operation = enabled ? 'restore' : 'disable'
       const requestKey = requestKeys.current[operation] || (requestKeys.current[operation] = makeRequestKey(`dashboard-${operation}`))
-      return apiRequest<DashboardAdminGovernanceResult>(`/dashboard/saasAdmin/tenants/${tenantId}/super-admin/status`, {
-        ...jsonRequest('POST', { targetUserId: userId, enabled, expectedVersion: version }),
-        headers: { 'X-Request-ID': requestKey },
+      const payload = { targetUserId: userId, enabled, expectedVersion: version }
+      return executeGoverned<DashboardAdminGovernanceResult>({
+        approvalMode,
+        actionType: 'dashboard.superadmin.status',
+        payload,
+        approvalPayload: { tenantId, ...payload },
+        approvalIdempotencyKey: requestKey,
+        reason: `${enabled ? '恢复' : '停用'}租户 ${tenantId} 的 Dashboard 超级管理员`,
+        directPath: `/dashboard/saasAdmin/tenants/${tenantId}/super-admin/status`,
+        directHeaders: { 'X-Request-ID': requestKey },
       })
     },
     onSuccess: async (result, enabled) => {
+      if (result.approvalRequested) {
+        toast.success(`${enabled ? '恢复' : '停用'}超管申请已提交审批，待独立复核后执行`)
+        await queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
+        return
+      }
       delete requestKeys.current[enabled ? 'restore' : 'disable']
       await governanceQuery.refetch()
-      toast.success(result.idempotent ? '状态请求已确认' : enabled ? '超级管理员已恢复' : '超级管理员已停用')
+      toast.success(result.data.idempotent ? '状态请求已确认' : enabled ? '超级管理员已恢复' : '超级管理员已停用')
       await invalidateTenantData()
     },
     onError: (error) => toast.error(errorMessage(error, '超级管理员状态变更失败，表单内容已保留')),

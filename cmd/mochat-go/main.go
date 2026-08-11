@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -129,7 +130,9 @@ func main() {
 	var dashboardIdentityGuard *dashboardauth.RequestGuard
 	var serviceAccountKeyManager *serviceaccountkey.Manager
 	var serviceAccountClientIPResolver *clientip.Resolver
+	var dashboardAdminService *dashboardadmin.Service
 	if cfg.EnableSaaSAdminDashboard {
+		dashboardAdminService = dashboardadmin.NewService(getMySQLStore())
 		saasMFAKey, parseErr := saasbackup.ParseEncryptionKey(cfg.SaaSAdminMFAEncryptionKey)
 		if parseErr != nil {
 			log.Fatalf("build SaaS MFA encryption key: %v", parseErr)
@@ -166,7 +169,6 @@ func main() {
 			compatserver.WithSaaSAuthHandler(saasAuthHandler),
 			compatserver.WithSaaSRequestGuard(saasRequestGuard),
 			compatserver.WithSaaSLoginPageHandler(saasauth.NewLoginPageHandler()),
-			compatserver.WithSaaSAdminDashboardProvisioningHandler(dashboardadmin.NewHTTPHandler(dashboardadmin.NewService(getMySQLStore()))),
 		)
 		tenantDomainVerifier, err = dashboard.NewSaaSTenantDomainDNSVerifier(cfg.SaaSTenantDomainDNSServer, cfg.SaaSTenantDomainDNSTimeout)
 		if err != nil {
@@ -2470,7 +2472,21 @@ func main() {
 		resolver, _ := buildUserResolver("saasAdmin")
 		saasAdminHandler = newSaaSAdminHandler(resolver)
 		saasAdmin := saasAdminHandler
+		if dashboardAdminService == nil {
+			dashboardAdminService = dashboardadmin.NewService(getMySQLStore())
+		}
+		saasAdmin.WithDashboardAdminApprovalExecutor(func(ctx context.Context, actorUserID int, approvalID int64, approvalVersion int, actionType string, payload json.RawMessage) (map[string]any, error) {
+			return dashboardAdminService.ExecuteApproval(ctx, dashboardadmin.NewSaaSApprovalExecutionActor(actorUserID), actionType, payload, approvalID, approvalVersion)
+		})
+		dashboardAdminHTTP := dashboardadmin.NewHTTPHandler(dashboardAdminService).WithApprovalGate(func(ctx context.Context, actionType string) (dashboardadmin.ApprovalGateResult, error) {
+			policy, required, err := saasAdmin.DirectSaaSAdminApprovalRequired(ctx, actionType)
+			if err != nil {
+				return dashboardadmin.ApprovalGateResult{}, err
+			}
+			return dashboardadmin.ApprovalGateResult{Required: required, ActionType: policy.ActionType, RequiredApprovals: policy.RequiredApprovals, ExpiryHours: policy.ExpiryHours}, nil
+		})
 		options = append(options,
+			compatserver.WithSaaSAdminDashboardProvisioningHandler(dashboardAdminHTTP),
 			compatserver.WithSaaSAdminPageHandler(dashboard.NewSaaSAdminPageHandler()),
 			compatserver.WithSaaSAdminOverviewHandler(http.HandlerFunc(saasAdmin.Overview)),
 			compatserver.WithSaaSAdminTenantReadinessHandler(http.HandlerFunc(saasAdmin.TenantReadiness)),

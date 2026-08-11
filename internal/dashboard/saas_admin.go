@@ -2252,6 +2252,7 @@ type SaaSAdminHandler struct {
 	auditAnchorManager                  *saasauditanchor.Manager
 	complianceManager                   *saascompliance.Manager
 	identitySecurityManager             *identitysecurity.Manager
+	dashboardAdminApprovalExecutor      func(context.Context, int, int64, int, string, json.RawMessage) (map[string]any, error)
 	tenantDomainVerifier                SaaSTenantDomainOwnershipVerifier
 	releaseSourceFingerprint            string
 	releaseSourceFingerprintSource      string
@@ -2261,6 +2262,11 @@ type SaaSAdminHandler struct {
 
 func (h *SaaSAdminHandler) WithHighRiskApprovalRequired(required bool) *SaaSAdminHandler {
 	h.highRiskApproval = required
+	return h
+}
+
+func (h *SaaSAdminHandler) WithDashboardAdminApprovalExecutor(executor func(context.Context, int, int64, int, string, json.RawMessage) (map[string]any, error)) *SaaSAdminHandler {
+	h.dashboardAdminApprovalExecutor = executor
 	return h
 }
 

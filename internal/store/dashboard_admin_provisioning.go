@@ -123,7 +123,7 @@ func (s *MySQLStore) ResendDashboardActivation(ctx context.Context, actor dashbo
 	if s == nil || s.db == nil {
 		return dashboardadmin.ResendActivationResult{}, dashboardadmin.ErrStoreUnavailable
 	}
-	if input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 || strings.TrimSpace(input.RequestID) == "" {
+	if !validDashboardApprovalExecutionReference(input.ApprovalExecutionID, input.ApprovalExecutionVersion) || input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 || strings.TrimSpace(input.RequestID) == "" {
 		return dashboardadmin.ResendActivationResult{}, dashboardadmin.ErrInvalidRequest
 	}
 	fingerprint, err := dashboardResendActivationFingerprint(input)
@@ -164,6 +164,9 @@ func (s *MySQLStore) resendDashboardActivationTx(ctx context.Context, actor dash
 	if existing != nil {
 		if existing.Status != 1 || !bytes.Equal(existing.Fingerprint, fingerprint) || existing.TenantID != input.TenantID || existing.TargetID != input.TargetUserID {
 			return dashboardadmin.ResendActivationResult{}, dashboardadmin.ErrIdempotencyConflict
+		}
+		if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actor.UserID, 0); err != nil {
+			return dashboardadmin.ResendActivationResult{}, err
 		}
 		if err := tx.Commit(); err != nil {
 			return dashboardadmin.ResendActivationResult{}, err
@@ -222,7 +225,11 @@ func (s *MySQLStore) resendDashboardActivationTx(ctx context.Context, actor dash
 		"dashboardUserId":  input.TargetUserID,
 		"activationIssued": true,
 	}
-	if err := insertDashboardGovernanceAuditsTx(ctx, tx, actor.UserID, input.TenantID, "saas.admin.dashboard_activation.resend", fmt.Sprintf("%d", input.TargetUserID), after, input.ExpectedVersion, resultVersion, dashboardResendAuditRequestID(input.RequestID)); err != nil {
+	operationID, err := insertDashboardGovernanceAuditsTx(ctx, tx, actor.UserID, input.TenantID, "saas.admin.dashboard_activation.resend", fmt.Sprintf("%d", input.TargetUserID), after, input.ExpectedVersion, resultVersion, dashboardResendAuditRequestID(input.RequestID))
+	if err != nil {
+		return dashboardadmin.ResendActivationResult{}, err
+	}
+	if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actor.UserID, operationID); err != nil {
 		return dashboardadmin.ResendActivationResult{}, err
 	}
 	updated, err := tx.ExecContext(ctx, `
@@ -312,6 +319,9 @@ func (s *MySQLStore) provisionDashboardTenantTx(ctx context.Context, actor dashb
 	if result, found, err := loadDashboardProvisionReceiptTx(ctx, tx, input.IdempotencyKey, fingerprint); err != nil {
 		return dashboardadmin.ProvisionResult{}, err
 	} else if found {
+		if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actor.UserID, 0); err != nil {
+			return dashboardadmin.ProvisionResult{}, err
+		}
 		return result, tx.Commit()
 	}
 
@@ -683,7 +693,7 @@ func insertDashboardProvisionArtifactsTx(ctx context.Context, tx *sql.Tx, actorU
 	if err != nil {
 		return dashboardadmin.ProvisionResult{}, err
 	}
-	if _, err := insertSaaSAdminOperationLogTx(ctx, tx, dashboard.SaaSAdminOperationLog{
+	operationID, err := insertSaaSAdminOperationLogTx(ctx, tx, dashboard.SaaSAdminOperationLog{
 		TenantID:      tenantID,
 		ActorUserID:   actorUserID,
 		ActorTenantID: 0,
@@ -693,10 +703,14 @@ func insertDashboardProvisionArtifactsTx(ctx context.Context, tx *sql.Tx, actorU
 		TargetName:    strings.TrimSpace(input.TenantName),
 		AfterJSON:     string(afterJSON),
 		Remark:        "dashboard tenant provisioned",
-	}); err != nil {
+	})
+	if err != nil {
 		return dashboardadmin.ProvisionResult{}, err
 	}
 	if err := insertDashboardAdminGovernanceAuditTx(ctx, tx, tenantID, actorUserID, "dashboard.tenant.provision", "tenant", fmt.Sprintf("%d", tenantID), nil, after, input.ExpectedVersion, 1, requestID); err != nil {
+		return dashboardadmin.ProvisionResult{}, err
+	}
+	if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actorUserID, operationID); err != nil {
 		return dashboardadmin.ProvisionResult{}, err
 	}
 	return dashboardadmin.ProvisionResult{TenantID: tenantID, DashboardUserID: userID, BindingCorpID: corpID, ActivationToken: activationToken}, nil
@@ -716,7 +730,7 @@ func dashboardAdminProvisionTime(raw string) (any, error) {
 }
 
 func validateDashboardProvisionStoreInput(input dashboardadmin.ProvisionDashboardTenant) error {
-	if input.BodyTenantID != 0 || input.BodyActorID != 0 || input.PackageID <= 0 || input.ExpectedVersion == 0 {
+	if !validDashboardApprovalExecutionReference(input.ApprovalExecutionID, input.ApprovalExecutionVersion) || input.BodyTenantID != 0 || input.BodyActorID != 0 || input.PackageID <= 0 || input.ExpectedVersion == 0 {
 		return dashboardadmin.ErrInvalidRequest
 	}
 	if strings.TrimSpace(input.TenantName) == "" || len([]rune(strings.TrimSpace(input.TenantName))) > 255 ||
@@ -771,7 +785,7 @@ func (s *MySQLStore) ReplaceDashboardSuperAdmin(ctx context.Context, actor dashb
 	if s == nil || s.db == nil {
 		return dashboardadmin.GovernanceResult{}, dashboardadmin.ErrStoreUnavailable
 	}
-	if input.TenantID <= 0 || input.CurrentAdminID <= 0 || input.NewAdminID <= 0 || input.CurrentAdminID == input.NewAdminID || input.ExpectedVersion == 0 || !validDashboardGovernanceRequestKey(input.RequestID) {
+	if !validDashboardApprovalExecutionReference(input.ApprovalExecutionID, input.ApprovalExecutionVersion) || input.TenantID <= 0 || input.CurrentAdminID <= 0 || input.NewAdminID <= 0 || input.CurrentAdminID == input.NewAdminID || input.ExpectedVersion == 0 || !validDashboardGovernanceRequestKey(input.RequestID) {
 		return dashboardadmin.GovernanceResult{}, dashboardadmin.ErrInvalidRequest
 	}
 	for attempt := 0; attempt < 3; attempt++ {
@@ -806,6 +820,9 @@ func (s *MySQLStore) replaceDashboardSuperAdminTx(ctx context.Context, actor das
 	if existing != nil {
 		if !dashboardGovernanceReceiptMatches(existing, fingerprint, input.TenantID, input.NewAdminID) {
 			return dashboardadmin.GovernanceResult{}, dashboardadmin.ErrIdempotencyConflict
+		}
+		if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actor.UserID, 0); err != nil {
+			return dashboardadmin.GovernanceResult{}, err
 		}
 		if err := tx.Commit(); err != nil {
 			return dashboardadmin.GovernanceResult{}, err
@@ -843,7 +860,11 @@ func (s *MySQLStore) replaceDashboardSuperAdminTx(ctx context.Context, actor das
 	}
 	requestID := dashboardGovernanceRequestID(input.RequestID, "replace", input.TenantID, input.NewAdminID)
 	after := map[string]any{"tenantId": input.TenantID, "oldAdminId": input.CurrentAdminID, "newAdminId": input.NewAdminID, "isSuperAdmin": true}
-	if err := insertDashboardGovernanceAuditsTx(ctx, tx, actor.UserID, input.TenantID, "saas.admin.dashboard_superadmin.replace", fmt.Sprintf("%d", input.NewAdminID), after, input.ExpectedVersion, resultVersion, requestID); err != nil {
+	operationID, err := insertDashboardGovernanceAuditsTx(ctx, tx, actor.UserID, input.TenantID, "saas.admin.dashboard_superadmin.replace", fmt.Sprintf("%d", input.NewAdminID), after, input.ExpectedVersion, resultVersion, requestID)
+	if err != nil {
+		return dashboardadmin.GovernanceResult{}, err
+	}
+	if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actor.UserID, operationID); err != nil {
 		return dashboardadmin.GovernanceResult{}, err
 	}
 	if err := completeDashboardIdempotencyReceiptTx(ctx, tx, receiptID, resultVersion); err != nil {
@@ -859,7 +880,7 @@ func (s *MySQLStore) SetDashboardSuperAdminStatus(ctx context.Context, actor das
 	if s == nil || s.db == nil {
 		return dashboardadmin.GovernanceResult{}, dashboardadmin.ErrStoreUnavailable
 	}
-	if input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 || !validDashboardGovernanceRequestKey(input.RequestID) {
+	if !validDashboardApprovalExecutionReference(input.ApprovalExecutionID, input.ApprovalExecutionVersion) || input.TenantID <= 0 || input.TargetUserID <= 0 || input.ExpectedVersion == 0 || !validDashboardGovernanceRequestKey(input.RequestID) {
 		return dashboardadmin.GovernanceResult{}, dashboardadmin.ErrInvalidRequest
 	}
 	for attempt := 0; attempt < 3; attempt++ {
@@ -892,6 +913,9 @@ func (s *MySQLStore) setDashboardSuperAdminStatusTx(ctx context.Context, actor d
 		if !dashboardGovernanceReceiptMatches(existing, fingerprint, input.TenantID, input.TargetUserID) {
 			return dashboardadmin.GovernanceResult{}, dashboardadmin.ErrIdempotencyConflict
 		}
+		if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actor.UserID, 0); err != nil {
+			return dashboardadmin.GovernanceResult{}, err
+		}
 		if err := tx.Commit(); err != nil {
 			return dashboardadmin.GovernanceResult{}, err
 		}
@@ -916,6 +940,9 @@ func (s *MySQLStore) setDashboardSuperAdminStatusTx(ctx context.Context, actor d
 	}
 	currentlySuperAdmin := dashboardAdminSubjectIsActiveSuperAdmin(subject)
 	if input.Enabled == currentlySuperAdmin {
+		if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actor.UserID, 0); err != nil {
+			return dashboardadmin.GovernanceResult{}, err
+		}
 		if err := completeDashboardIdempotencyReceiptTx(ctx, tx, receiptID, input.ExpectedVersion); err != nil {
 			return dashboardadmin.GovernanceResult{}, err
 		}
@@ -948,7 +975,11 @@ func (s *MySQLStore) setDashboardSuperAdminStatusTx(ctx context.Context, actor d
 	}
 	requestID := dashboardGovernanceRequestID(input.RequestID, "status", input.TenantID, input.TargetUserID)
 	after := map[string]any{"tenantId": input.TenantID, "targetUserId": input.TargetUserID, "enabled": input.Enabled, "isSuperAdmin": true}
-	if err := insertDashboardGovernanceAuditsTx(ctx, tx, actor.UserID, input.TenantID, "saas.admin.dashboard_superadmin.status", fmt.Sprintf("%d", input.TargetUserID), after, input.ExpectedVersion, resultVersion, requestID); err != nil {
+	operationID, err := insertDashboardGovernanceAuditsTx(ctx, tx, actor.UserID, input.TenantID, "saas.admin.dashboard_superadmin.status", fmt.Sprintf("%d", input.TargetUserID), after, input.ExpectedVersion, resultVersion, requestID)
+	if err != nil {
+		return dashboardadmin.GovernanceResult{}, err
+	}
+	if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actor.UserID, operationID); err != nil {
 		return dashboardadmin.GovernanceResult{}, err
 	}
 	if err := completeDashboardIdempotencyReceiptTx(ctx, tx, receiptID, resultVersion); err != nil {
@@ -1143,12 +1174,12 @@ func lockActiveDashboardSuperAdminsTx(ctx context.Context, tx *sql.Tx, tenantID 
 	return ids, rows.Err()
 }
 
-func insertDashboardGovernanceAuditsTx(ctx context.Context, tx *sql.Tx, actorUserID, tenantID int, action, targetID string, after any, expected, resultVersion uint64, requestID string) error {
+func insertDashboardGovernanceAuditsTx(ctx context.Context, tx *sql.Tx, actorUserID, tenantID int, action, targetID string, after any, expected, resultVersion uint64, requestID string) (int64, error) {
 	afterJSON, err := json.Marshal(after)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if _, err := insertSaaSAdminOperationLogTx(ctx, tx, dashboard.SaaSAdminOperationLog{
+	operationID, err := insertSaaSAdminOperationLogTx(ctx, tx, dashboard.SaaSAdminOperationLog{
 		TenantID:      tenantID,
 		ActorUserID:   actorUserID,
 		ActorTenantID: 0,
@@ -1157,10 +1188,24 @@ func insertDashboardGovernanceAuditsTx(ctx context.Context, tx *sql.Tx, actorUse
 		TargetID:      targetID,
 		AfterJSON:     string(afterJSON),
 		Remark:        "dashboard super administrator governance",
-	}); err != nil {
-		return err
+	})
+	if err != nil {
+		return 0, err
 	}
-	return insertDashboardAdminGovernanceAuditTx(ctx, tx, tenantID, actorUserID, action, "dashboard_superadmin", targetID, nil, after, expected, resultVersion, requestID)
+	if err := insertDashboardAdminGovernanceAuditTx(ctx, tx, tenantID, actorUserID, action, "dashboard_superadmin", targetID, nil, after, expected, resultVersion, requestID); err != nil {
+		return 0, err
+	}
+	return operationID, nil
+}
+
+func markDashboardAdminApprovalEffectTx(ctx context.Context, tx *sql.Tx, approvalID int64, approvalVersion int, actorUserID int, operationID int64) error {
+	if approvalID == 0 && approvalVersion == 0 {
+		return nil
+	}
+	if approvalID <= 0 || approvalVersion <= 0 {
+		return dashboardadmin.ErrInvalidRequest
+	}
+	return markSaaSAdminApprovalEffectTx(ctx, tx, approvalID, approvalVersion, actorUserID, operationID)
 }
 
 func insertDashboardAdminGovernanceAuditTx(ctx context.Context, tx *sql.Tx, tenantID, actorUserID int, action, targetType, targetID string, before, after any, expected, resultVersion uint64, requestID string) error {
@@ -1191,6 +1236,10 @@ func dashboardGovernanceRequestID(requestID, operation string, tenantID, targetI
 func validDashboardGovernanceRequestKey(value string) bool {
 	value = strings.TrimSpace(value)
 	return value != "" && len([]rune(value)) <= 80
+}
+
+func validDashboardApprovalExecutionReference(id int64, version int) bool {
+	return (id == 0 && version == 0) || (id > 0 && version > 0)
 }
 
 func dashboardGovernanceFingerprint(operation string, tenantID, currentAdminID, newAdminID, targetUserID int, enabled bool, expectedVersion uint64) ([]byte, error) {

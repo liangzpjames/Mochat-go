@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardadmin"
 	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/saasauth"
@@ -20,6 +23,373 @@ import (
 )
 
 var dashboardAdminSchemaSequence atomic.Int64
+
+func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	seedDashboardAdminProvisioningPackageAndActor(t, db)
+
+	ctx := context.Background()
+	store := NewMySQLStore(db)
+	actor := dashboardadmin.NewSaaSApprovalExecutionActor(700)
+
+	provisionRaw, err := json.Marshal(dashboardAdminProvisioningInput("approval-real-provision", "13800000101", "Approval real provision"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provisionResult := executeRealDashboardAdminApproval(t, ctx, db, store, actor, dashboardadmin.ApprovalActionTenantProvision, provisionRaw, "dashboard_tenant", "new")
+	if !realApprovalResultHasPositiveID(provisionResult, "tenantId") || !realApprovalResultHasPositiveID(provisionResult, "dashboardUserId") {
+		t.Fatal("provision approval result omitted business identifiers")
+	}
+	assertRealApprovalEffectAndAudits(t, db, provisionResult, "saas.admin.dashboard_tenant.provision", "dashboard.tenant.provision")
+
+	resendSeed := dashboardAdminProvisioningInput("approval-real-resend-seed", "13800000102", "Approval real resend")
+	resendSeedResult, err := store.ProvisionDashboardTenant(ctx, actor, resendSeed)
+	if err != nil {
+		t.Fatalf("seed resend target: %v", err)
+	}
+	resendRaw, err := json.Marshal(map[string]any{
+		"tenantId":        resendSeedResult.TenantID,
+		"targetUserId":    resendSeedResult.DashboardUserID,
+		"expectedVersion": 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resendResult := executeRealDashboardAdminApproval(t, ctx, db, store, actor, dashboardadmin.ApprovalActionActivationResend, resendRaw, "dashboard_identity_activation", fmt.Sprintf("%d", resendSeedResult.DashboardUserID))
+	if !realApprovalResultHasPositiveID(resendResult, "dashboardUserId") || !realApprovalResultHasPositiveVersion(resendResult, 2) {
+		t.Fatal("resend approval result omitted result version")
+	}
+	assertRealApprovalEffectAndAudits(t, db, resendResult, "saas.admin.dashboard_activation.resend", "saas.admin.dashboard_activation.resend")
+
+	replaceSeed := dashboardAdminProvisioningInput("approval-real-replace-seed", "13800000103", "Approval real replace")
+	replaceSeedResult, err := store.ProvisionDashboardTenant(ctx, actor, replaceSeed)
+	if err != nil {
+		t.Fatalf("seed replacement target: %v", err)
+	}
+	activateProvisionedSubjectForGovernance(t, db, replaceSeedResult.DashboardUserID)
+	replacementCandidateID := insertActivatedDashboardUser(t, db, replaceSeedResult.TenantID, "13800000104", "Approval replacement candidate", false)
+	replaceRaw, err := json.Marshal(map[string]any{
+		"tenantId":        replaceSeedResult.TenantID,
+		"currentAdminId":  replaceSeedResult.DashboardUserID,
+		"newAdminId":      replacementCandidateID,
+		"expectedVersion": 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceResult := executeRealDashboardAdminApproval(t, ctx, db, store, actor, dashboardadmin.ApprovalActionSuperAdminReplace, replaceRaw, "dashboard_superadmin", fmt.Sprintf("%d", replacementCandidateID))
+	if !realApprovalResultHasPositiveID(replaceResult, "dashboardUserId") || !realApprovalResultHasPositiveVersion(replaceResult, 2) {
+		t.Fatal("replace approval result omitted result version")
+	}
+	assertRealApprovalEffectAndAudits(t, db, replaceResult, "saas.admin.dashboard_superadmin.replace", "saas.admin.dashboard_superadmin.replace")
+
+	statusSeed := dashboardAdminProvisioningInput("approval-real-status-seed", "13800000105", "Approval real status")
+	statusSeedResult, err := store.ProvisionDashboardTenant(ctx, actor, statusSeed)
+	if err != nil {
+		t.Fatalf("seed status target: %v", err)
+	}
+	activateProvisionedSubjectForGovernance(t, db, statusSeedResult.DashboardUserID)
+	statusRaw, err := json.Marshal(map[string]any{
+		"tenantId":        statusSeedResult.TenantID,
+		"targetUserId":    statusSeedResult.DashboardUserID,
+		"enabled":         false,
+		"expectedVersion": 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusResult := executeRealDashboardAdminApproval(t, ctx, db, store, actor, dashboardadmin.ApprovalActionSuperAdminStatus, statusRaw, "dashboard_superadmin", fmt.Sprintf("%d", statusSeedResult.DashboardUserID))
+	if !realApprovalResultHasPositiveID(statusResult, "dashboardUserId") || !realApprovalResultHasPositiveVersion(statusResult, 2) {
+		t.Fatal("status approval result omitted result version")
+	}
+	assertRealApprovalEffectAndAudits(t, db, statusResult, "saas.admin.dashboard_superadmin.status", "saas.admin.dashboard_superadmin.status")
+}
+
+func TestDashboardAdminApprovalEffectUpdateFailureRollsBackBusinessTransactionRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	seedDashboardAdminProvisioningPackageAndActor(t, db)
+
+	ctx := context.Background()
+	store := NewMySQLStore(db)
+	actor := dashboardadmin.NewSaaSApprovalExecutionActor(700)
+	seedInput := dashboardAdminProvisioningInput("approval-real-rollback-seed", "13800000106", "Approval rollback")
+	seed, err := store.ProvisionDashboardTenant(ctx, actor, seedInput)
+	if err != nil {
+		t.Fatalf("seed rollback target: %v", err)
+	}
+	activateProvisionedSubjectForGovernance(t, db, seed.DashboardUserID)
+	raw, err := json.Marshal(map[string]any{
+		"tenantId":        seed.TenantID,
+		"targetUserId":    seed.DashboardUserID,
+		"enabled":         false,
+		"expectedVersion": 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, dashboardadmin.ApprovalActionSuperAdminStatus, raw, "dashboard_superadmin", fmt.Sprintf("%d", seed.DashboardUserID))
+
+	beforeCounts := dashboardAdminCounts(t, db)
+	var beforeVersion uint64
+	if err := db.QueryRow(`SELECT version FROM mochat_go_tenant_corp_bindings WHERE tenant_id=?`, seed.TenantID).Scan(&beforeVersion); err != nil {
+		t.Fatal(err)
+	}
+	var beforeUserStatus, beforeIdentityStatus, beforeSuperAdmin int
+	if err := db.QueryRow(`SELECT dashboard_user.status, identity_row.status, dashboard_user.isSuperAdmin FROM mc_user dashboard_user INNER JOIN mochat_go_dashboard_identities identity_row ON identity_row.user_id=dashboard_user.id WHERE dashboard_user.id=?`, seed.DashboardUserID).Scan(&beforeUserStatus, &beforeIdentityStatus, &beforeSuperAdmin); err != nil {
+		t.Fatal(err)
+	}
+	var beforeOperationCount, beforeAuditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_saas_admin_operation_logs WHERE tenant_id=? AND action=?`, seed.TenantID, "saas.admin.dashboard_superadmin.status").Scan(&beforeOperationCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits WHERE tenant_id=? AND action=?`, seed.TenantID, "saas.admin.dashboard_superadmin.status").Scan(&beforeAuditCount); err != nil {
+		t.Fatal(err)
+	}
+
+	triggerName := "task7_approval_effect_failure"
+	if _, err := db.Exec("CREATE TRIGGER `" + triggerName + "` AFTER INSERT ON mochat_go_dashboard_permission_audits FOR EACH ROW UPDATE mochat_go_saas_admin_approvals SET version = version + 1 WHERE id = " + fmt.Sprintf("%d", started.ID) + " AND status = 'executing'"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = db.Exec("DROP TRIGGER IF EXISTS `" + triggerName + "`") }()
+
+	if _, err := dashboardadmin.NewService(store).ExecuteApproval(ctx, actor, dashboardadmin.ApprovalActionSuperAdminStatus, raw, started.ID, started.Version); err == nil {
+		t.Fatal("effect update failure unexpectedly committed")
+	}
+
+	afterCounts := dashboardAdminCounts(t, db)
+	if !sameDashboardAdminCounts(afterCounts, beforeCounts) {
+		t.Fatal("effect update failure left business artifacts behind")
+	}
+	var afterVersion uint64
+	if err := db.QueryRow(`SELECT version FROM mochat_go_tenant_corp_bindings WHERE tenant_id=?`, seed.TenantID).Scan(&afterVersion); err != nil {
+		t.Fatal(err)
+	}
+	if afterVersion != beforeVersion {
+		t.Fatalf("binding version=%d, want unchanged %d", afterVersion, beforeVersion)
+	}
+	var afterUserStatus, afterIdentityStatus, afterSuperAdmin int
+	if err := db.QueryRow(`SELECT dashboard_user.status, identity_row.status, dashboard_user.isSuperAdmin FROM mc_user dashboard_user INNER JOIN mochat_go_dashboard_identities identity_row ON identity_row.user_id=dashboard_user.id WHERE dashboard_user.id=?`, seed.DashboardUserID).Scan(&afterUserStatus, &afterIdentityStatus, &afterSuperAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if afterUserStatus != beforeUserStatus || afterIdentityStatus != beforeIdentityStatus || afterSuperAdmin != beforeSuperAdmin {
+		t.Fatal("effect update failure left status mutation behind")
+	}
+	var afterOperationCount, afterAuditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_saas_admin_operation_logs WHERE tenant_id=? AND action=?`, seed.TenantID, "saas.admin.dashboard_superadmin.status").Scan(&afterOperationCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits WHERE tenant_id=? AND action=?`, seed.TenantID, "saas.admin.dashboard_superadmin.status").Scan(&afterAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if afterOperationCount != beforeOperationCount || afterAuditCount != beforeAuditCount {
+		t.Fatal("effect update failure left audit mutation behind")
+	}
+	var status string
+	var version int
+	var effectApplied sql.NullTime
+	if err := db.QueryRow(`SELECT status, version, effect_applied_at FROM mochat_go_saas_admin_approvals WHERE id=?`, started.ID).Scan(&status, &version, &effectApplied); err != nil {
+		t.Fatal(err)
+	}
+	if status != dashboard.SaaSAdminApprovalStatusExecuting || version != started.Version || effectApplied.Valid {
+		t.Fatal("failed effect did not leave approval lease unchanged")
+	}
+}
+
+func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context, store *MySQLStore, action string, raw []byte, targetType, targetID string) dashboard.SaaSAdminApproval {
+	t.Helper()
+	digest := sha256.Sum256(raw)
+	requestKey := fmt.Sprintf("task7-real-%d", time.Now().UnixNano())
+	now := time.Now()
+	created, err := store.CreateSaaSAdminApproval(ctx, dashboard.SaaSAdminApprovalCreate{
+		RequestNo:          requestKey,
+		ActionType:         action,
+		RiskLevel:          "critical",
+		RequiredPermission: dashboardadmin.PermissionTenantsManage,
+		TargetType:         targetType,
+		TargetID:           targetID,
+		TargetName:         targetID,
+		RequesterUserID:    10,
+		RequesterTenantID:  1,
+		IdempotencyKey:     requestKey,
+		RequestSHA256:      fmt.Sprintf("%x", digest[:]),
+		RequestJSON:        string(raw),
+		Reason:             "Task7 real transaction effect test",
+		ExpiresAt:          now.Add(time.Hour),
+		PolicyVersion:      1,
+		RequiredApprovals:  1,
+		ReminderMinutes:    30,
+		SLADueAt:           now.Add(30 * time.Minute),
+		NextReminderAt:     now.Add(30 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("create real approval action=%s: %v", action, err)
+	}
+	decided, err := store.DecideSaaSAdminApproval(ctx, dashboard.SaaSAdminApprovalDecision{
+		ApprovalID:      created.Approval.ID,
+		Decision:        dashboard.SaaSAdminApprovalDecisionApprove,
+		Reason:          "independent reviewer approval",
+		ExpectedVersion: created.Approval.Version,
+		ActorUserID:     700,
+		ActorTenantID:   1,
+	})
+	if err != nil {
+		t.Fatalf("decide real approval action=%s: %v", action, err)
+	}
+	started, err := store.BeginSaaSAdminApprovalExecution(ctx, dashboard.SaaSAdminApprovalExecutionStart{
+		ApprovalID:      decided.ID,
+		ExpectedVersion: decided.Version,
+		ActorUserID:     700,
+		ActorTenantID:   1,
+	})
+	if err != nil {
+		t.Fatalf("begin real approval action=%s: %v", action, err)
+	}
+	if started.Status != dashboard.SaaSAdminApprovalStatusExecuting || started.ExecutionUserID != 700 {
+		t.Fatalf("started approval action=%s status=%s executor=%d", action, started.Status, started.ExecutionUserID)
+	}
+	return started
+}
+
+func executeRealDashboardAdminApproval(t *testing.T, ctx context.Context, db *sql.DB, store *MySQLStore, actor dashboardadmin.Actor, action string, raw []byte, targetType, targetID string) map[string]any {
+	t.Helper()
+	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, action, raw, targetType, targetID)
+	result, err := dashboardadmin.NewService(store).ExecuteApproval(ctx, actor, action, raw, started.ID, started.Version)
+	if err != nil {
+		t.Fatalf("execute real approval action=%s: %v", action, err)
+	}
+	persistent := make(map[string]any, len(result))
+	for key, value := range result {
+		if key == "activationToken" {
+			if token, ok := value.(string); ok && strings.TrimSpace(token) != "" {
+				persistent["activationTokenDelivered"] = true
+			}
+			continue
+		}
+		persistent[key] = value
+	}
+	persistentJSON, err := json.Marshal(persistent)
+	if err != nil {
+		t.Fatalf("marshal persistent approval result action=%s: %v", action, err)
+	}
+	finished, err := store.FinishSaaSAdminApprovalExecution(ctx, dashboard.SaaSAdminApprovalExecutionFinish{
+		ApprovalID:      started.ID,
+		ExpectedVersion: started.Version,
+		ActorUserID:     actor.UserID,
+		ActorTenantID:   1,
+		Success:         true,
+		ResultJSON:      string(persistentJSON),
+	})
+	if err != nil {
+		t.Fatalf("finish real approval action=%s: %v", action, err)
+	}
+	if finished.Status != dashboard.SaaSAdminApprovalStatusExecuted || finished.EffectOperationID <= 0 || finished.EffectAppliedAtValue.IsZero() {
+		t.Fatalf("finished approval action=%s status=%s effectOperation=%d effectApplied=%t", action, finished.Status, finished.EffectOperationID, !finished.EffectAppliedAtValue.IsZero())
+	}
+	var persisted string
+	if err := db.QueryRow(`SELECT COALESCE(CAST(result_json AS CHAR), '') FROM mochat_go_saas_admin_approvals WHERE id=?`, started.ID).Scan(&persisted); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(persisted, "activationToken") && !strings.Contains(persisted, "activationTokenDelivered") {
+		t.Fatal("persistent approval result contains a raw activation field")
+	}
+	result["_approvalID"] = started.ID
+	return result
+}
+
+func realApprovalResultHasPositiveID(result map[string]any, key string) bool {
+	value, ok := result[key]
+	if !ok {
+		return false
+	}
+	switch number := value.(type) {
+	case int:
+		return number > 0
+	case int64:
+		return number > 0
+	case float64:
+		return number > 0
+	default:
+		return false
+	}
+}
+
+func realApprovalResultHasPositiveVersion(result map[string]any, expected int) bool {
+	value, ok := result["version"]
+	if !ok {
+		return false
+	}
+	switch number := value.(type) {
+	case int:
+		return number == expected
+	case int64:
+		return number == int64(expected)
+	case float64:
+		return int(number) == expected
+	default:
+		return false
+	}
+}
+
+func assertRealApprovalEffectAndAudits(t *testing.T, db *sql.DB, result map[string]any, operationAction, auditAction string) {
+	t.Helper()
+	approvalID, ok := result["_approvalID"].(int64)
+	if !ok || approvalID <= 0 {
+		t.Fatal("real approval result missing test approval id")
+	}
+	tenantID, ok := realApprovalResultInt(result, "tenantId")
+	if !ok || tenantID <= 0 {
+		t.Fatal("real approval result missing tenant id")
+	}
+	var effectOperationID int64
+	var effectApplied sql.NullTime
+	var status string
+	if err := db.QueryRow(`SELECT status, effect_applied_at, effect_operation_id FROM mochat_go_saas_admin_approvals WHERE id=?`, approvalID).Scan(&status, &effectApplied, &effectOperationID); err != nil {
+		t.Fatal(err)
+	}
+	if status != dashboard.SaaSAdminApprovalStatusExecuted || !effectApplied.Valid || effectOperationID <= 0 {
+		t.Fatalf("approval effect status=%s applied=%t operation=%d", status, effectApplied.Valid, effectOperationID)
+	}
+	var operationCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_saas_admin_operation_logs WHERE id=? AND tenant_id=? AND action=?`, effectOperationID, tenantID, operationAction).Scan(&operationCount); err != nil {
+		t.Fatal(err)
+	}
+	if operationCount != 1 {
+		t.Fatalf("effect operation count=%d, want 1", operationCount)
+	}
+	var auditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits WHERE tenant_id=? AND action=?`, tenantID, auditAction).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("dashboard audit count=%d, want 1", auditCount)
+	}
+	var dashboardRealmActorCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits WHERE tenant_id=? AND action=? AND actor_user_id IS NOT NULL`, tenantID, auditAction).Scan(&dashboardRealmActorCount); err != nil {
+		t.Fatal(err)
+	}
+	if dashboardRealmActorCount != 0 {
+		t.Fatal("SaaS actor was written into the Dashboard mc_user audit foreign-key column")
+	}
+}
+
+func realApprovalResultInt(result map[string]any, key string) (int, bool) {
+	value, ok := result[key]
+	if !ok {
+		return 0, false
+	}
+	switch number := value.(type) {
+	case int:
+		return number, true
+	case int64:
+		return int(number), true
+	case float64:
+		return int(number), true
+	default:
+		return 0, false
+	}
+}
 
 func TestDashboardAdminProvisioningRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
@@ -544,7 +914,7 @@ func createDashboardAdminProvisioningFixture(t *testing.T, db *sql.DB) {
 		t.Fatal("0127 DDL boundaries not found")
 	}
 	applyDashboardAdminSQL(t, db, pageScript[start:end])
-	for _, migrationName := range []string{"0003_saas_provisioning.up.sql", "0024_saas_package_extended_limits.up.sql", "0025_saas_radar_limit.up.sql", "0026_saas_lottery_limit.up.sql", "0027_saas_room_infinite_pull_limit.up.sql", "0028_saas_room_fission_limit.up.sql", "0029_saas_room_clock_in_limit.up.sql", "0030_saas_room_operation_limits.up.sql", "0031_saas_sop_limits.up.sql", "0032_saas_sensitive_word_limit.up.sql", "0033_saas_admin_operation_logs.up.sql", "0039_saas_subscription_lifecycle.up.sql", "0045_saas_admin_rbac.up.sql", "0084_saas_package_definition_guard.up.sql", "0085_saas_tenant_package_assignment_guard.up.sql"} {
+	for _, migrationName := range []string{"0003_saas_provisioning.up.sql", "0024_saas_package_extended_limits.up.sql", "0025_saas_radar_limit.up.sql", "0026_saas_lottery_limit.up.sql", "0027_saas_room_infinite_pull_limit.up.sql", "0028_saas_room_fission_limit.up.sql", "0029_saas_room_clock_in_limit.up.sql", "0030_saas_room_operation_limits.up.sql", "0031_saas_sop_limits.up.sql", "0032_saas_sensitive_word_limit.up.sql", "0033_saas_admin_operation_logs.up.sql", "0039_saas_subscription_lifecycle.up.sql", "0045_saas_admin_rbac.up.sql", "0046_saas_admin_approvals.up.sql", "0047_saas_admin_approval_governance.up.sql", "0084_saas_package_definition_guard.up.sql", "0085_saas_tenant_package_assignment_guard.up.sql"} {
 		body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", migrationName))
 		if err != nil {
 			t.Fatal(err)

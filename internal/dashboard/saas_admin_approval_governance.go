@@ -117,6 +117,21 @@ func (h *SaaSAdminHandler) effectiveSaaSAdminApprovalPolicy(ctx context.Context,
 	return enforceSaaSAdminApprovalPolicyGovernance(definition), nil
 }
 
+// SaaSAdminApprovalPolicyForAction is used by the Dashboard governance HTTP
+// adapter so direct writes and the generic approval center consult the same
+// effective catalog and persisted policy version.
+func (h *SaaSAdminHandler) SaaSAdminApprovalPolicyForAction(ctx context.Context, actionType string) (SaaSAdminApprovalPolicy, error) {
+	return h.effectiveSaaSAdminApprovalPolicy(ctx, actionType)
+}
+
+func (h *SaaSAdminHandler) DirectSaaSAdminApprovalRequired(ctx context.Context, actionType string) (SaaSAdminApprovalPolicy, bool, error) {
+	policy, err := h.effectiveSaaSAdminApprovalPolicy(ctx, actionType)
+	if err != nil {
+		return SaaSAdminApprovalPolicy{}, false, err
+	}
+	return policy, h.highRiskApproval && saasAdminApprovalPolicyRequires(policy, 0), nil
+}
+
 func (h *SaaSAdminHandler) ApprovalPolicy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost && r.Method != http.MethodPut {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)

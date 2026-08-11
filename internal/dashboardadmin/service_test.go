@@ -8,19 +8,22 @@ import (
 )
 
 type recordingStore struct {
-	provisionCalls int
-	provision      ProvisionResult
-	provisionErr   error
-	resend         ResendActivationResult
-	resendErr      error
-	replace        GovernanceResult
-	replaceErr     error
-	status         GovernanceResult
-	statusErr      error
-	governance     DashboardAdminGovernanceView
-	governanceErr  error
-	seenActor      Actor
-	seenInput      ProvisionDashboardTenant
+	provisionCalls   int
+	provision        ProvisionResult
+	provisionErr     error
+	resend           ResendActivationResult
+	resendErr        error
+	replace          GovernanceResult
+	replaceErr       error
+	status           GovernanceResult
+	statusErr        error
+	governance       DashboardAdminGovernanceView
+	governanceErr    error
+	seenActor        Actor
+	seenInput        ProvisionDashboardTenant
+	seenResendInput  ResendActivationInput
+	seenReplaceInput ReplaceSuperAdminInput
+	seenStatusInput  SuperAdminStatusInput
 }
 
 func (s *recordingStore) ProvisionDashboardTenant(_ context.Context, actor Actor, input ProvisionDashboardTenant) (ProvisionResult, error) {
@@ -40,16 +43,19 @@ func (s *recordingStore) DashboardAdminGovernance(_ context.Context, actor Actor
 
 func (s *recordingStore) ResendDashboardActivation(_ context.Context, actor Actor, input ResendActivationInput) (ResendActivationResult, error) {
 	s.seenActor = actor
+	s.seenResendInput = input
 	return s.resend, s.resendErr
 }
 
 func (s *recordingStore) ReplaceDashboardSuperAdmin(_ context.Context, actor Actor, input ReplaceSuperAdminInput) (GovernanceResult, error) {
 	s.seenActor = actor
+	s.seenReplaceInput = input
 	return s.replace, s.replaceErr
 }
 
 func (s *recordingStore) SetDashboardSuperAdminStatus(_ context.Context, actor Actor, input SuperAdminStatusInput) (GovernanceResult, error) {
 	s.seenActor = actor
+	s.seenStatusInput = input
 	return s.status, s.statusErr
 }
 

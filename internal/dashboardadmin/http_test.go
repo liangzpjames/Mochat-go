@@ -277,3 +277,62 @@ func mustProvisionJSON(t *testing.T) []byte {
 	}
 	return body
 }
+
+func TestDashboardAdminHTTPHighRiskApprovalRequiredRejectsAllDirectGovernanceWrites(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		body       string
+		wantAction string
+	}{
+		{name: "provision", path: "/dashboard/saasAdmin/tenants/provision", body: string(mustProvisionJSON(t)), wantAction: ApprovalActionTenantProvision},
+		{name: "resend", path: "/dashboard/saasAdmin/tenants/41/activation/resend", body: `{"targetUserId":52,"expectedVersion":4}`, wantAction: ApprovalActionActivationResend},
+		{name: "replace", path: "/dashboard/saasAdmin/tenants/41/super-admin/replace", body: `{"currentAdminId":52,"newAdminId":63,"expectedVersion":4}`, wantAction: ApprovalActionSuperAdminReplace},
+		{name: "status", path: "/dashboard/saasAdmin/tenants/41/super-admin/status", body: `{"targetUserId":52,"enabled":false,"expectedVersion":4}`, wantAction: ApprovalActionSuperAdminStatus},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &dashboardAdminHTTPStore{}
+			var seenAction string
+			handler := NewHTTPHandler(NewService(store)).WithApprovalGate(func(_ context.Context, action string) (ApprovalGateResult, error) {
+				seenAction = action
+				return ApprovalGateResult{Required: true, ActionType: action, RequiredApprovals: 2}, nil
+			})
+			request := httptest.NewRequest(http.MethodPost, test.path, bytes.NewBufferString(test.body)).WithContext(saasauth.WithPrincipal(context.Background(), saasauth.Principal{UserID: 700, AuthVersion: 9}))
+			request.Header.Set("X-Request-ID", "approval-gate-red")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusPreconditionRequired {
+				t.Fatalf("status=%d body=%s, want 428", response.Code, response.Body.String())
+			}
+			if seenAction != test.wantAction {
+				t.Fatalf("approval gate action=%q, want %q", seenAction, test.wantAction)
+			}
+			if store.provisionCalls != 0 || store.resendCalls != 0 || store.replaceCalls != 0 || store.statusCalls != 0 {
+				t.Fatalf("direct write reached store: provision=%d resend=%d replace=%d status=%d", store.provisionCalls, store.resendCalls, store.replaceCalls, store.statusCalls)
+			}
+			var envelope struct {
+				ErrorCode string `json:"errorCode"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.ErrorCode != codeApprovalRequired {
+				t.Fatalf("errorCode=%q, want %q", envelope.ErrorCode, codeApprovalRequired)
+			}
+		})
+	}
+}
+
+func TestDashboardAdminHTTPApprovalGateDisabledPreservesDirectWriteContract(t *testing.T) {
+	store := &dashboardAdminHTTPStore{provisionResult: ProvisionResult{TenantID: 41, DashboardUserID: 52, BindingCorpID: 63}}
+	handler := NewHTTPHandler(NewService(store)).WithApprovalGate(func(context.Context, string) (ApprovalGateResult, error) {
+		return ApprovalGateResult{Required: false}, nil
+	})
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/saasAdmin/tenants/provision", bytes.NewReader(mustProvisionJSON(t))).WithContext(saasauth.WithPrincipal(context.Background(), saasauth.Principal{UserID: 700, AuthVersion: 9}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || store.provisionCalls != 1 {
+		t.Fatalf("status=%d calls=%d, want disabled policy to preserve direct write", response.Code, store.provisionCalls)
+	}
+}

@@ -18,9 +18,23 @@ const mocks = vi.hoisted(() => {
       this.machineCode = machineCode
     }
   }
+  const apiRequest = vi.fn()
+  const executeGoverned = vi.fn(async (options: { approvalMode?: { required: boolean; policies: Array<{ actionType: string; enabled: boolean; expiryHours: number }> }; actionType: string; payload: unknown; approvalPayload?: unknown; approvalIdempotencyKey?: string; reason: string; directPath: string; directHeaders?: HeadersInit }) => {
+    const policy = options.approvalMode?.policies.find((item) => item.actionType === options.actionType)
+    if (options.approvalMode?.required && policy?.enabled) {
+      const data = await apiRequest('/dashboard/saasAdmin/approvalRequest', {
+        method: 'POST',
+        body: JSON.stringify({ actionType: options.actionType, payload: options.approvalPayload ?? options.payload, reason: options.reason, idempotencyKey: options.approvalIdempotencyKey || 'approval-test', expiresInHours: policy.expiryHours }),
+      })
+      return { approvalRequested: true, data }
+    }
+    const data = await apiRequest(options.directPath, { method: 'POST', body: JSON.stringify(options.payload), headers: options.directHeaders })
+    return { approvalRequested: false, data }
+  })
   return {
     ApiError: MockApiError,
-    apiRequest: vi.fn(),
+    apiRequest,
+    executeGoverned,
     hasPermission: vi.fn(() => true),
     jsonRequest: vi.fn((method: string, payload?: unknown) => payload === undefined ? { method } : { method, body: JSON.stringify(payload) }),
   }
@@ -91,6 +105,7 @@ describe('SaaS 客户租户治理页面', () => {
       if (path.startsWith('/dashboard/saasAdmin/tenant?')) return { tenant, metrics: [], operations: [], platformAdminTenantId: 0, summary: {}, tenantId: 41 }
       if (path === '/dashboard/saasAdmin/tenants/41/dashboard-admins') return { tenantId: 41, bindingVersion: governanceVersion, identities: [{ id: 900, name: '待激活超管', loginIdentifier: '13800000002', userStatus: 1, identityStatus: 1, activatedAt: '', isSuperAdmin: true }, { id: 902, name: '已停用超管', loginIdentifier: '13800000004', userStatus: 2, identityStatus: 2, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: true }, { id: 901, name: '替换候选', loginIdentifier: '13800000003', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: false }] }
       if (path === '/dashboard/saasAdmin/tenants/provision') return { tenantId: 42, dashboardUserId: 900, bindingCorpId: 901, activationToken: 'opaque-activation-value', idempotent: false }
+      if (path === '/dashboard/saasAdmin/approvalRequest') return { approval: { id: 101, status: 'pending' }, idempotent: false }
       if (path.includes('/activation/resend')) { governanceVersion = 2; return { tenantId: 41, dashboardUserId: 900, version: 2, activationToken: 'opaque-resend-value', idempotent: false } }
       if (path.includes('/super-admin/replace') || path.includes('/super-admin/status')) return { tenantId: 41, dashboardUserId: 900, version: 2, idempotent: false }
       throw new Error(`unexpected request ${path} ${JSON.stringify(init)}`)
@@ -191,6 +206,33 @@ describe('SaaS 客户租户治理页面', () => {
     expect(governance?.querySelector('.flex.flex-wrap')).not.toBeNull()
     clickButton('重发激活')
     expect(document.querySelector('[role="dialog"]')?.className).toContain('w-[calc(100vw-2rem)]')
+  })
+
+  it('审批策略开启时开户只提交规范化审批申请，不直写且不显示令牌', async () => {
+    act(() => root.unmount())
+    root = createRoot(container)
+    const requiredApprovalMode: ApprovalPoliciesData = {
+      required: true,
+      policies: [{ actionType: 'dashboard.tenant.provision', enabled: true, expiryHours: 12, name: '开户', requiredApprovals: 2 }],
+    }
+    act(() => root.render(<QueryClientProvider client={client}><TenantsPage profile={profile} approvalMode={requiredApprovalMode} navigate={() => undefined} /></QueryClientProvider>))
+    await settle()
+    clickButton('开通客户')
+    setValue('客户公司名称', '审批客户')
+    setValue('超级管理员', '审批管理员')
+    setValue('11 位手机号', '13800000001')
+    setValue('销售套餐', '11')
+    setValue('到期日期', '2026-09-11')
+    clickButton('提交开户')
+    clickButton('确认开户')
+    await settle()
+    expect(mocks.apiRequest.mock.calls.some(([path]) => path === '/dashboard/saasAdmin/approvalRequest')).toBe(true)
+    expect(mocks.apiRequest.mock.calls.some(([path]) => path === '/dashboard/saasAdmin/tenants/provision')).toBe(false)
+    const request = mocks.apiRequest.mock.calls.find(([path]) => path === '/dashboard/saasAdmin/approvalRequest')
+    const body = JSON.parse(String(request?.[1]?.body)) as { actionType: string; payload: Record<string, unknown> }
+    expect(body.actionType).toBe('dashboard.tenant.provision')
+    expect(body.payload).not.toHaveProperty('password')
+    expect(document.body.textContent).not.toContain('opaque-activation-value')
   })
 })
 

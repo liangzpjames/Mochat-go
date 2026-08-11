@@ -159,24 +159,26 @@ export async function executeGoverned<T>(options: {
   approvalMode: ApprovalPoliciesData | undefined
   actionType: string
   payload: unknown
+  approvalPayload?: unknown
+  approvalIdempotencyKey?: string
   reason: string
   directPath: string
   directMethod?: 'POST' | 'PUT'
+  directHeaders?: HeadersInit
 }): Promise<GovernedResult<T>> {
   if (policyRequiresApproval(options.approvalMode, options.actionType)) {
     const policy = options.approvalMode?.policies.find((item) => item.actionType === options.actionType)
     const data = await apiRequest<T>('/dashboard/saasAdmin/approvalRequest', jsonRequest('POST', {
       actionType: options.actionType,
-      payload: options.payload,
+      payload: options.approvalPayload ?? options.payload,
       reason: options.reason,
       expiresInHours: Number(policy?.expiryHours || 24),
-      idempotencyKey: `saas-admin:${options.actionType}:${Date.now()}`,
+      idempotencyKey: options.approvalIdempotencyKey || `saas-admin:${options.actionType}:${Date.now()}`,
     }))
     return { approvalRequested: true, data }
   }
-  const data = await apiRequest<T>(
-    options.directPath,
-    jsonRequest(options.directMethod || 'POST', options.payload),
-  )
+  const directRequest = jsonRequest(options.directMethod || 'POST', options.payload)
+  if (options.directHeaders) directRequest.headers = options.directHeaders
+  const data = await apiRequest<T>(options.directPath, directRequest)
   return { approvalRequested: false, data }
 }
