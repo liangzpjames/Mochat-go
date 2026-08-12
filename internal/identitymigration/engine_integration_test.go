@@ -3,6 +3,7 @@ package identitymigration
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -198,6 +199,9 @@ func TestIdentityBackfillEngineRealMariaDBRequestScopesValidatedBatches(t *testi
 	if err := stageIntegrationBatch(t, db, oldRequest, strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO mochat_go_identity_migration_corp_map (request_id, tenant_id, corp_id, status) VALUES (?, 999, 999, 'validated')`, oldRequest); err != nil {
+		t.Fatal(err)
+	}
 
 	schema := currentIdentityBackfillSchema(t, db)
 	upPath := filepath.Join("..", "..", "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql")
@@ -208,7 +212,11 @@ func TestIdentityBackfillEngineRealMariaDBRequestScopesValidatedBatches(t *testi
 		RequestID:         currentRequest,
 		CredentialManager: newCredentialIntegrationManager(t),
 	}, upPath); err != nil {
-		t.Fatalf("current request was affected by an unrelated validated batch: %v", err)
+		var phaseErr *PhaseError
+		if errors.As(err, &phaseErr) && phaseErr.Cause != nil {
+			t.Fatalf("current request failed: %v; statement=%d db_error=%v", err, phaseErr.StatementIndex, phaseErr.Cause)
+		}
+		t.Fatalf("current request failed: %v", err)
 	}
 	var oldStatus, oldChecksum string
 	if err := db.QueryRow(`SELECT status, script_checksum FROM mochat_go_identity_migration_batches WHERE request_id=?`, oldRequest).Scan(&oldStatus, &oldChecksum); err != nil {
@@ -216,6 +224,13 @@ func TestIdentityBackfillEngineRealMariaDBRequestScopesValidatedBatches(t *testi
 	}
 	if oldStatus != "validated" || oldChecksum != strings.Repeat("a", 64) {
 		t.Fatalf("old validated batch changed: status=%q checksum=%q", oldStatus, oldChecksum)
+	}
+	var oldMapStatus string
+	if err := db.QueryRow(`SELECT status FROM mochat_go_identity_migration_corp_map WHERE request_id=? AND tenant_id=999 AND corp_id=999`, oldRequest).Scan(&oldMapStatus); err != nil {
+		t.Fatal(err)
+	}
+	if oldMapStatus != "validated" {
+		t.Fatalf("old validated mapping changed: status=%q", oldMapStatus)
 	}
 }
 

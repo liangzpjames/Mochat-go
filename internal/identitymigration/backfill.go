@@ -91,8 +91,10 @@ func validatedBatchCompatible(existing, expected validatedBatchContract) bool {
 // may expose beyond its generic failure line. Its fields are constrained to
 // stable, non-sensitive phase labels.
 type PhaseError struct {
-	Phase string
-	Label string
+	Phase          string
+	Label          string
+	StatementIndex int
+	Cause          error
 }
 
 func (e *PhaseError) Error() string {
@@ -100,6 +102,13 @@ func (e *PhaseError) Error() string {
 		return "identity migration phase=unknown label=unknown failed"
 	}
 	return fmt.Sprintf("identity migration phase=%s label=%s failed", safePhaseName(e.Phase), safePhaseName(e.Label))
+}
+
+func (e *PhaseError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
 }
 
 type queryer interface {
@@ -789,6 +798,9 @@ func ApplyBackfill(ctx context.Context, db *sql.DB, options DatabaseOptions, upP
 		return BackfillResult{}, errors.New("identity backfill connection is unavailable")
 	}
 	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `SET @identity_0130_requested_request_id = ?`, options.RequestID); err != nil {
+		return BackfillResult{}, phaseFailure("preflight", "request_binding")
+	}
 	if _, err := preflight(ctx, conn, options); err != nil {
 		if errors.Is(err, errPlatformTenantPreflight) {
 			return BackfillResult{}, phaseFailure("preflight", "platform_tenant")
@@ -802,12 +814,9 @@ func ApplyBackfill(ctx context.Context, db *sql.DB, options DatabaseOptions, upP
 	if err != nil {
 		return BackfillResult{}, phaseFailure("backfill", "script_parse")
 	}
-	if _, err := conn.ExecContext(ctx, `SET @identity_0130_requested_request_id = ?`, options.RequestID); err != nil {
-		return BackfillResult{}, phaseFailure("preflight", "request_binding")
-	}
-	for _, statement := range statements {
+	for index, statement := range statements {
 		if _, err := conn.ExecContext(ctx, statement); err != nil {
-			return BackfillResult{}, phaseFailure(statementPhase(statement), statementLabel(statement))
+			return BackfillResult{}, phaseFailureWithCause(statementPhase(statement), statementLabel(statement), index, err)
 		}
 	}
 	return BackfillResult{RequestID: options.RequestID}, nil
@@ -1101,7 +1110,16 @@ func credentialJournalBeforeJSON(ciphertext, keyID string) ([]byte, error) {
 }
 
 func phaseFailure(phase, label string) error {
-	return &PhaseError{Phase: safePhaseName(phase), Label: safePhaseName(label)}
+	return &PhaseError{Phase: safePhaseName(phase), Label: safePhaseName(label), StatementIndex: -1}
+}
+
+func phaseFailureWithCause(phase, label string, statementIndex int, cause error) error {
+	return &PhaseError{
+		Phase:          safePhaseName(phase),
+		Label:          safePhaseName(label),
+		StatementIndex: statementIndex,
+		Cause:          cause,
+	}
 }
 
 func phaseWrap(phase, label string, _ error) error {

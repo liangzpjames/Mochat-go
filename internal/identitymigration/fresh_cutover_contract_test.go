@@ -1,10 +1,13 @@
 package identitymigration
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"jiyi/mochat-go/internal/migration"
 )
 
 func TestFreshSplitIdentityPlatformTenantGuardContract(t *testing.T) {
@@ -118,5 +121,37 @@ func TestBackfillSQLBindsAndValidatesTheRequestedBatchContract(t *testing.T) {
 	}
 	if strings.Contains(sql, "ORDER BY request_id") {
 		t.Fatal("0130 must not guess the migration request with ORDER BY request_id")
+	}
+	statements, err := migration.SplitSQLStatements(sql)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, statement := range statements {
+		lower := strings.ToLower(statement)
+		stagingQuery := strings.Contains(lower, "from mochat_go_identity_migration_batches") ||
+			strings.Contains(lower, "from mochat_go_identity_migration_corp_map") ||
+			strings.Contains(lower, "join mochat_go_identity_migration_corp_map") ||
+			strings.Contains(lower, "update mochat_go_identity_migration_batches")
+		if stagingQuery && !strings.Contains(statement, "@identity_0130_request_id") && !strings.Contains(statement, "@identity_0130_requested_request_id") {
+			t.Fatalf("0130 staging query statement %d is not request-scoped: %s", index, statement)
+		}
+	}
+}
+
+func TestBackfillStatementFailureRetainsSafeDiagnostics(t *testing.T) {
+	cause := errors.New("SIGNAL SQLSTATE 45000 secret-value")
+	err := phaseFailureWithCause("backfill", "statement", 42, cause)
+	var phaseErr *PhaseError
+	if !errors.As(err, &phaseErr) {
+		t.Fatal("statement failure did not retain phase error")
+	}
+	if phaseErr.StatementIndex != 42 {
+		t.Fatalf("statement index=%d, want 42", phaseErr.StatementIndex)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatal("statement failure did not retain the underlying database error for tests")
+	}
+	if strings.Contains(err.Error(), "secret-value") {
+		t.Fatal("public phase error exposed the underlying database error")
 	}
 }
