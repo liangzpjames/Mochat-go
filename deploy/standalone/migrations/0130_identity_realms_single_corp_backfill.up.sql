@@ -2,9 +2,9 @@
 --
 -- This script is intentionally not a generic migration runner shortcut. The
 -- maintenance CLI verifies the signed mapping and credentials, writes the
--- normalized facts to the durable staging tables, and only then executes this
--- script. SQL validates those durable facts; it never trusts a caller-owned
--- session flag or a mapping boolean.
+-- normalized facts to the durable staging tables, binds the exact request id
+-- on this same session, and only then executes this script. SQL validates
+-- those durable facts and never guesses a request from staging-table order.
 --
 -- MariaDB DDL implicitly commits. Every consistency check below is therefore
 -- before the first DDL, and the migration ledger is written only after every
@@ -119,42 +119,55 @@ PREPARE identity_0130_stage_index_guard_stmt FROM @identity_0130_stage_index_gua
 EXECUTE identity_0130_stage_index_guard_stmt;
 DEALLOCATE PREPARE identity_0130_stage_index_guard_stmt;
 
-SET @identity_0130_validated_batch_count := (
+SET @identity_0130_requested_request_id := COALESCE(
+  NULLIF(TRIM(CONVERT(@identity_0130_requested_request_id USING utf8mb4)), ''),
+  ''
+);
+SET @identity_0130_requested_batch_count := (
   SELECT COUNT(*)
   FROM mochat_go_identity_migration_batches
-  WHERE status = 'validated'
+  WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_requested_request_id COLLATE utf8mb4_unicode_ci
+);
+SET @identity_0130_requested_validated_batch_count := (
+  SELECT COUNT(*)
+  FROM mochat_go_identity_migration_batches
+  WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_requested_request_id COLLATE utf8mb4_unicode_ci
+    AND migration_source COLLATE utf8mb4_unicode_ci = '0130_identity_realms_single_corp_backfill' COLLATE utf8mb4_unicode_ci
+    AND status = 'validated'
+    AND platform_tenant_id IS NOT NULL
+    AND mapping_digest <> ''
+    AND CHAR_LENGTH(mapping_digest) = 64
+    AND mapping_digest REGEXP '^[0-9A-Fa-f]{64}$'
     AND preflight_status = 'passed'
     AND credential_status = 'verified'
+    AND actor_inventory_status = 'verified'
     AND script_checksum <> ''
     AND CHAR_LENGTH(script_checksum) = 64
+    AND script_checksum REGEXP '^[0-9A-Fa-f]{64}$'
 );
 SET @identity_0130_validated_batch_guard_sql := IF(
-  @identity_0130_validated_batch_count = 1,
+  @identity_0130_requested_request_id <> ''
+    AND @identity_0130_requested_batch_count = 1
+    AND @identity_0130_requested_validated_batch_count = 1,
   'SELECT 1',
-  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0130 exactly one validated staging batch is required'''
+  'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0130 requested validated staging batch is required'''
 );
 PREPARE identity_0130_validated_batch_guard_stmt FROM @identity_0130_validated_batch_guard_sql;
 EXECUTE identity_0130_validated_batch_guard_stmt;
 DEALLOCATE PREPARE identity_0130_validated_batch_guard_stmt;
 
-SET @identity_0130_request_id := (
-  SELECT CONVERT(request_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
-  FROM mochat_go_identity_migration_batches
-  WHERE status = 'validated'
-    AND preflight_status = 'passed'
-    AND credential_status = 'verified'
-  ORDER BY request_id
-  LIMIT 1
-);
+SET @identity_0130_request_id := @identity_0130_requested_request_id;
 SET @identity_0130_platform_tenant_id := (
   SELECT platform_tenant_id
   FROM mochat_go_identity_migration_batches
   WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
+    AND migration_source COLLATE utf8mb4_unicode_ci = '0130_identity_realms_single_corp_backfill' COLLATE utf8mb4_unicode_ci
 );
 SET @identity_0130_script_checksum := (
   SELECT script_checksum
   FROM mochat_go_identity_migration_batches
   WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
+    AND migration_source COLLATE utf8mb4_unicode_ci = '0130_identity_realms_single_corp_backfill' COLLATE utf8mb4_unicode_ci
 );
 SET @identity_0130_script_checksum_guard_sql := IF(
   @identity_0130_script_checksum IS NOT NULL
@@ -171,6 +184,7 @@ SET @identity_0130_actor_inventory_count := (
   SELECT COUNT(*)
   FROM mochat_go_identity_migration_batches
   WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
+    AND migration_source COLLATE utf8mb4_unicode_ci = '0130_identity_realms_single_corp_backfill' COLLATE utf8mb4_unicode_ci
     AND actor_inventory_status = 'verified'
 );
 SET @identity_0130_actor_inventory_guard_sql := IF(

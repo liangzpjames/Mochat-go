@@ -802,6 +802,9 @@ func ApplyBackfill(ctx context.Context, db *sql.DB, options DatabaseOptions, upP
 	if err != nil {
 		return BackfillResult{}, phaseFailure("backfill", "script_parse")
 	}
+	if _, err := conn.ExecContext(ctx, `SET @identity_0130_requested_request_id = ?`, options.RequestID); err != nil {
+		return BackfillResult{}, phaseFailure("preflight", "request_binding")
+	}
 	for _, statement := range statements {
 		if _, err := conn.ExecContext(ctx, statement); err != nil {
 			return BackfillResult{}, phaseFailure(statementPhase(statement), statementLabel(statement))

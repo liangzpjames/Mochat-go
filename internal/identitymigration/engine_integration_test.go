@@ -3,6 +3,7 @@ package identitymigration
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,6 +186,133 @@ func TestIdentityBackfillEngineRealMariaDBFreshSplitIdentityRejectsLegacyResidue
 	if stagingTables != 0 {
 		t.Fatalf("legacy residue created staging tables before preflight, count=%d", stagingTables)
 	}
+}
+
+func TestIdentityBackfillEngineRealMariaDBRequestScopesValidatedBatches(t *testing.T) {
+	db := newCredentialIntegrationDB(t)
+	createFreshIdentityBackfillEngineFixture(t, db)
+	execIdentityBackfillTestFile(t, db, "0129_identity_realms_single_corp_schema.up.sql")
+	insertFreshSaaSBootstrapRoot(t, db)
+
+	oldRequest := "fresh-split-identity-old-validated"
+	if err := stageIntegrationBatch(t, db, oldRequest, strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+
+	schema := currentIdentityBackfillSchema(t, db)
+	upPath := filepath.Join("..", "..", "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql")
+	currentRequest := "fresh-split-identity-current"
+	if _, err := ApplyBackfill(context.Background(), db, DatabaseOptions{
+		Schema:            schema,
+		PlatformTenantID:  1,
+		RequestID:         currentRequest,
+		CredentialManager: newCredentialIntegrationManager(t),
+	}, upPath); err != nil {
+		t.Fatalf("current request was affected by an unrelated validated batch: %v", err)
+	}
+	var oldStatus, oldChecksum string
+	if err := db.QueryRow(`SELECT status, script_checksum FROM mochat_go_identity_migration_batches WHERE request_id=?`, oldRequest).Scan(&oldStatus, &oldChecksum); err != nil {
+		t.Fatal(err)
+	}
+	if oldStatus != "validated" || oldChecksum != strings.Repeat("a", 64) {
+		t.Fatalf("old validated batch changed: status=%q checksum=%q", oldStatus, oldChecksum)
+	}
+}
+
+func TestIdentityBackfillSQLRealMariaDBRejectsUnboundUnknownAndIncompleteRequestsBeforeDDL(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		requestID     string
+		boundRequest  string
+		mutateBatch   bool
+		wantBatchRows int
+	}{
+		{name: "unbound", requestID: "fresh-unbound", wantBatchRows: 1},
+		{name: "unknown request", requestID: "fresh-known", boundRequest: "fresh-unknown", wantBatchRows: 1},
+		{name: "incomplete request", requestID: "fresh-incomplete", boundRequest: "fresh-incomplete", mutateBatch: true, wantBatchRows: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newCredentialIntegrationDB(t)
+			createFreshIdentityBackfillEngineFixture(t, db)
+			execIdentityBackfillTestFile(t, db, "0129_identity_realms_single_corp_schema.up.sql")
+			insertFreshSaaSBootstrapRoot(t, db)
+			if err := stageIntegrationBatch(t, db, tc.requestID, strings.Repeat("b", 64)); err != nil {
+				t.Fatal(err)
+			}
+			if tc.mutateBatch {
+				if _, err := db.Exec(`UPDATE mochat_go_identity_migration_batches SET credential_status='pending' WHERE request_id=?`, tc.requestID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			beforeLedgerTables := countIdentityMigrationTables(t, db, "mochat_go_identity_migration_ledger")
+			err := execIdentityBackfillSQLWithRequest(t, db, tc.boundRequest)
+			if err == nil {
+				t.Fatal("unbound, unknown, or incomplete request unexpectedly passed the SQL guard")
+			}
+			if got := countIdentityMigrationTables(t, db, "mochat_go_identity_migration_ledger"); got != beforeLedgerTables {
+				t.Fatalf("SQL guard created ledger table before validation: before=%d after=%d", beforeLedgerTables, got)
+			}
+			var batchRows int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_identity_migration_batches WHERE request_id=?`, tc.requestID).Scan(&batchRows); err != nil {
+				t.Fatal(err)
+			}
+			if batchRows != tc.wantBatchRows {
+				t.Fatalf("request batch rows=%d, want %d", batchRows, tc.wantBatchRows)
+			}
+		})
+	}
+}
+
+func stageIntegrationBatch(t *testing.T, db *sql.DB, requestID, checksum string) error {
+	t.Helper()
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return StageValidatedBatchOnConn(context.Background(), conn, DatabaseOptions{
+		PlatformTenantID: 1,
+		RequestID:        requestID,
+		ScriptChecksum:   checksum,
+		Mapping:          MappingDocument{},
+	})
+}
+
+func execIdentityBackfillSQLWithRequest(t *testing.T, db *sql.DB, requestID string) error {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	statements, err := migration.SplitSQLStatements(string(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if requestID != "" {
+		if _, err := conn.ExecContext(context.Background(), `SET @identity_0130_requested_request_id = ?`, requestID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index, statement := range statements {
+		if _, err := conn.ExecContext(context.Background(), statement); err != nil {
+			return fmt.Errorf("identity up statement %d failed: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func countIdentityMigrationTables(t *testing.T, db *sql.DB, table string) int {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?`, table).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
 }
 
 func insertFreshSaaSBootstrapRoot(t *testing.T, db *sql.DB) {

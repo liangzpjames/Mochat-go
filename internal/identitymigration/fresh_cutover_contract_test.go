@@ -98,3 +98,25 @@ func TestFreshSplitIdentitySQLGuardContract(t *testing.T) {
 		t.Fatalf("fresh split-identity mode must be computed before the platform tenant guard: mode=%d guard=%d", freshModeIndex, guardIndex)
 	}
 }
+
+func TestBackfillSQLBindsAndValidatesTheRequestedBatchContract(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(body)
+	for _, required := range []string{
+		"@identity_0130_requested_request_id",
+		"@identity_0130_requested_batch_count",
+		"@identity_0130_requested_validated_batch_count",
+		"@identity_0130_requested_batch_count = 1",
+		"@identity_0130_requested_validated_batch_count = 1",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("0130 request-scoped batch guard is missing %q", required)
+		}
+	}
+	if strings.Contains(sql, "ORDER BY request_id") {
+		t.Fatal("0130 must not guess the migration request with ORDER BY request_id")
+	}
+}
