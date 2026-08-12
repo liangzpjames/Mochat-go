@@ -573,10 +573,10 @@ func (panicRBACStore) DepartmentEmployeeIDs(context.Context, int) ([]int, error)
 func machineCode(t *testing.T, recorder *httptest.ResponseRecorder) string {
 	t.Helper()
 	var body struct {
-		Code string `json:"code"`
+		ErrorCode string `json:"errorCode"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v body=%s", err, recorder.Body.String())
 	}
-	return body.Code
+	return body.ErrorCode
 }

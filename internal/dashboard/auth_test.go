@@ -46,13 +46,14 @@ func TestAuthDashboardTenantGateDeniesBeforeToken(t *testing.T) {
 		t.Fatalf("status=%d gate=%+v body=%s", response.Code, gate, response.Body.String())
 	}
 	var body struct {
-		Code string         `json:"code"`
-		Data map[string]any `json:"data"`
+		Code      int            `json:"code"`
+		ErrorCode string         `json:"errorCode"`
+		Data      map[string]any `json:"data"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Code != DashboardTenantAccessDeniedCode || body.Data != nil || strings.Contains(response.Body.String(), `"token"`) {
+	if body.Code != http.StatusForbidden || body.ErrorCode != DashboardTenantAccessDeniedCode || body.Data != nil || strings.Contains(response.Body.String(), `"token"`) {
 		t.Fatalf("body=%s", response.Body.String())
 	}
 }
@@ -145,10 +146,11 @@ func TestMFADashboardTenantGateDeniesBeforeToken(t *testing.T) {
 		t.Fatalf("status=%d gate=%+v body=%s", response.Code, gate, response.Body.String())
 	}
 	var body struct {
-		Code string `json:"code"`
+		Code      int    `json:"code"`
+		ErrorCode string `json:"errorCode"`
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Code != DashboardTenantAccessDeniedCode {
-		t.Fatalf("code=%q err=%v body=%s", body.Code, err, response.Body.String())
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Code != http.StatusForbidden || body.ErrorCode != DashboardTenantAccessDeniedCode {
+		t.Fatalf("code=%d errorCode=%q err=%v body=%s", body.Code, body.ErrorCode, err, response.Body.String())
 	}
 }
 

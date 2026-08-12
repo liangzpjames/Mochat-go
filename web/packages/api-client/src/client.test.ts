@@ -266,6 +266,30 @@ describe('createApiClient', () => {
     expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
+  it('preserves dashboard permission denial as a numeric status plus machine code', async () => {
+    server.use(
+      http.get('https://api.example.test/dashboard/reports/overview', () =>
+        HttpResponse.json(
+          { code: 403, errorCode: 'DASHBOARD_PERMISSION_DENIED', msg: 'dashboard permission denied', data: null },
+          { status: 403 },
+        ),
+      ),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/',
+      getToken: () => 'dashboard-token',
+      onUnauthorized: vi.fn(),
+    });
+
+    await expectApiError(client.request('/dashboard/reports/overview'), {
+      kind: 'forbidden',
+      status: 403,
+      code: 403,
+      machineCode: 'DASHBOARD_PERMISSION_DENIED',
+      message: 'dashboard permission denied',
+    });
+  });
+
   it('exposes backend errorCode as a machine code without replacing the numeric HTTP code', async () => {
     server.use(
       http.post('https://api.example.test/dashboard/user/authMFA', () =>

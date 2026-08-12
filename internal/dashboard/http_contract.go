@@ -93,8 +93,9 @@ func writeMachineEnvelope(w http.ResponseWriter, httpStatus int, code, msg strin
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(httpStatus)
 	_ = json.NewEncoder(w).Encode(struct {
-		Code string `json:"code"`
-		Msg  string `json:"msg"`
-		Data any    `json:"data"`
-	}{Code: code, Msg: msg, Data: data})
+		Code      int    `json:"code"`
+		ErrorCode string `json:"errorCode"`
+		Msg       string `json:"msg"`
+		Data      any    `json:"data"`
+	}{Code: httpStatus, ErrorCode: code, Msg: msg, Data: data})
 }
