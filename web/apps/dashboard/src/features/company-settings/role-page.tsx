@@ -77,7 +77,7 @@ function LegacyCompanyRolePage({ api }: { api: RoleApi }) {
   });
   const items = query.data?.list ?? [];
   const total = query.data?.page?.total ?? 0;
-  const totalPage = query.data?.page?.totalPage ?? 1;
+  const totalPage = Math.max(1, query.data?.page?.totalPage ?? 1);
   const permissions = useQuery({
     queryKey: ["role-permissions", permissionTarget?.roleId],
     queryFn: () => api.permissions(Number(permissionTarget?.roleId)),

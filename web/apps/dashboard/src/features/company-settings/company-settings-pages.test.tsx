@@ -78,6 +78,14 @@ describe('企业设置页面', () => {
     unmount();
   });
 
+  it('role pagination clamps an empty response to one page', async () => {
+    const api = { list: vi.fn().mockResolvedValue({ list: [], page: { page: 1, perPage: 20, total: 0, totalPage: 0 } }) } as unknown as RoleApi;
+    renderPage(<CompanyRolePage api={api} />);
+    await screen.findByText('暂无角色');
+    expect(screen.queryByText(/1\/0/)).toBeNull();
+    expect(await screen.findByText(/1\/1/)).toBeTruthy();
+  });
+
   it('员工权限：加载并渲染行，含状态切换按钮', async () => {
     const api = {
       list: vi.fn().mockResolvedValue({ list: [{ userId: 3, userName: '张三', phone: '18600000000', gender: 1, roleId: 1, roleName: '管理员', status: 1, statusText: '启用', createdAt: '', department: [] }], normalNum: 1, notEnabledNum: 0, disableNum: 0, page: { perPage: 20, total: 1, totalPage: 1 } }),
