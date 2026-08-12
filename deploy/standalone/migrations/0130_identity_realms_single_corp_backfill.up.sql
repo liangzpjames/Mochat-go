@@ -432,6 +432,10 @@ SET @identity_0130_unmapped_actor_count := (
     UNION SELECT created_by FROM mochat_go_saas_admin_roles WHERE created_by > 0
     UNION SELECT updated_by FROM mochat_go_saas_admin_roles WHERE updated_by > 0
     UNION SELECT actor_user_id FROM mochat_go_saas_admin_operation_logs WHERE actor_user_id > 0
+    UNION SELECT actor_user_id FROM mochat_go_saas_admin_audit_anchor_checkpoints WHERE actor_user_id > 0
+    UNION SELECT actor_user_id FROM mochat_go_saas_admin_audit_verifications WHERE actor_user_id > 0
+    UNION SELECT actor_user_id FROM mochat_go_saas_admin_health_scans WHERE actor_user_id > 0
+    UNION SELECT actor_user_id FROM mochat_go_saas_admin_tasks WHERE actor_user_id > 0
     UNION SELECT requester_user_id FROM mochat_go_saas_admin_approvals WHERE requester_user_id > 0
     UNION SELECT reviewer_user_id FROM mochat_go_saas_admin_approvals WHERE reviewer_user_id > 0
     UNION SELECT execution_user_id FROM mochat_go_saas_admin_approvals WHERE execution_user_id > 0

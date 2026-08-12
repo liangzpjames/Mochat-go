@@ -15,6 +15,8 @@ import (
 
 var identitySingleCorpSchemaSequence atomic.Int64
 
+const identitySingleCorpSchemaPrefix = "mochat_identity_single_corp_migration"
+
 func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 	root := filepath.Join("..", "..")
 	upPath := filepath.Join(root, "deploy", "standalone", "migrations", "0129_identity_realms_single_corp_schema.up.sql")
@@ -308,7 +310,7 @@ func newIdentitySingleCorpMigrationDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema := fmt.Sprintf("mochat_identity_single_corp_%d_%d", os.Getpid(), identitySingleCorpSchemaSequence.Add(1))
+	schema := fmt.Sprintf("%s_%d_%d", identitySingleCorpSchemaPrefix, os.Getpid(), identitySingleCorpSchemaSequence.Add(1))
 	var schemaExists int
 	if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?", schema).Scan(&schemaExists); err != nil {
 		_ = admin.Close()
@@ -397,8 +399,12 @@ func loadSaaSAdminHistoryDDL(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, name := range []string{
 		"0033_saas_admin_operation_logs.up.sql",
+		"0035_saas_admin_tasks.up.sql",
 		"0046_saas_admin_approvals.up.sql",
 		"0047_saas_admin_approval_governance.up.sql",
+		"0048_saas_admin_system_health.up.sql",
+		"0062_saas_audit_integrity.up.sql",
+		"0063_saas_audit_anchor_signatures.up.sql",
 	} {
 		body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", name))
 		if err != nil {

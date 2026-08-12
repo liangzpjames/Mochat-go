@@ -147,7 +147,16 @@ func loadIdentityBackfillTestDDL(t *testing.T, db *sql.DB) {
 		t.Fatal("0127 DDL boundaries not found")
 	}
 	execIdentityBackfillTestSQL(t, db, pageSQL[start:end])
-	for _, name := range []string{"0045_saas_admin_rbac.up.sql", "0033_saas_admin_operation_logs.up.sql", "0046_saas_admin_approvals.up.sql", "0047_saas_admin_approval_governance.up.sql"} {
+	for _, name := range []string{
+		"0045_saas_admin_rbac.up.sql",
+		"0033_saas_admin_operation_logs.up.sql",
+		"0035_saas_admin_tasks.up.sql",
+		"0046_saas_admin_approvals.up.sql",
+		"0047_saas_admin_approval_governance.up.sql",
+		"0048_saas_admin_system_health.up.sql",
+		"0062_saas_audit_integrity.up.sql",
+		"0063_saas_audit_anchor_signatures.up.sql",
+	} {
 		body, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)

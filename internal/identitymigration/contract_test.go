@@ -109,6 +109,10 @@ func TestActorSchemaInventoryRejectsUnknownActorColumn(t *testing.T) {
 	known := []ActorColumn{
 		{Table: "mochat_go_saas_admin_user_access", Column: "user_id"},
 		{Table: "mochat_go_saas_admin_approvals", Column: "requester_user_id"},
+		{Table: "mochat_go_saas_admin_audit_anchor_checkpoints", Column: "actor_user_id"},
+		{Table: "mochat_go_saas_admin_audit_verifications", Column: "actor_user_id"},
+		{Table: "mochat_go_saas_admin_health_scans", Column: "actor_user_id"},
+		{Table: "mochat_go_saas_admin_tasks", Column: "actor_user_id"},
 	}
 	if err := ValidateActorSchemaInventory(known); err != nil {
 		t.Fatalf("known actor inventory rejected: %v", err)

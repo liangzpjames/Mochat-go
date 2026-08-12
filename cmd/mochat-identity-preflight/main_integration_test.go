@@ -16,6 +16,8 @@ import (
 
 var preflightIntegrationSchemaSequence atomic.Int64
 
+const preflightIntegrationSchemaPrefix = "mochat_identity_single_corp_preflight"
+
 func TestRunPreflightRealMariaDBIsReadOnlyAndReportsHealthyCounts(t *testing.T) {
 	db, dsn, schema := newPreflightIntegrationDB(t)
 	createPreflightIntegrationFixture(t, db)
@@ -119,12 +121,16 @@ func newPreflightIntegrationDB(t *testing.T) (*sql.DB, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var baseline int
-	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'`).Scan(&baseline); err != nil {
+	schema := fmt.Sprintf("%s_%d_%d", preflightIntegrationSchemaPrefix, os.Getpid(), preflightIntegrationSchemaSequence.Add(1))
+	var schemaExists int
+	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&schemaExists); err != nil {
 		_ = admin.Close()
 		t.Fatal(err)
 	}
-	schema := fmt.Sprintf("mochat_identity_single_corp_%d_%d", os.Getpid(), preflightIntegrationSchemaSequence.Add(1))
+	if schemaExists != 0 {
+		_ = admin.Close()
+		t.Fatalf("isolated schema already exists: %s", schema)
+	}
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		_ = admin.Close()
 		t.Fatal(err)
@@ -132,15 +138,16 @@ func newPreflightIntegrationDB(t *testing.T) (*sql.DB, string, string) {
 	t.Cleanup(func() {
 		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
 		var leftovers int
-		if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'`).Scan(&leftovers); err != nil {
+		if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&leftovers); err != nil {
 			t.Errorf("check isolated schema leftovers: %v", err)
-		} else if leftovers != baseline {
-			t.Errorf("isolated schema leftovers changed from baseline=%d to %d", baseline, leftovers)
+		} else if leftovers != 0 {
+			t.Errorf("isolated schema %s still exists after cleanup", schema)
 		}
 		_ = admin.Close()
 	})
 	testCfg := *cfg
 	testCfg.DBName = schema
+	testDSN := testCfg.FormatDSN()
 	db, err := sql.Open("mysql", testCfg.FormatDSN())
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +157,7 @@ func newPreflightIntegrationDB(t *testing.T) (*sql.DB, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return db, dsn, schema
+	return db, testDSN, schema
 }
 
 func createPreflightIntegrationFixture(t *testing.T, db *sql.DB) {
@@ -201,7 +208,16 @@ func loadPreflightIntegrationDDL(t *testing.T, db *sql.DB) {
 		t.Fatal("0127 DDL boundaries not found")
 	}
 	execPreflightIntegrationSQL(t, db, script[start:end])
-	for _, name := range []string{"0045_saas_admin_rbac.up.sql", "0033_saas_admin_operation_logs.up.sql", "0046_saas_admin_approvals.up.sql", "0047_saas_admin_approval_governance.up.sql"} {
+	for _, name := range []string{
+		"0045_saas_admin_rbac.up.sql",
+		"0033_saas_admin_operation_logs.up.sql",
+		"0035_saas_admin_tasks.up.sql",
+		"0046_saas_admin_approvals.up.sql",
+		"0047_saas_admin_approval_governance.up.sql",
+		"0048_saas_admin_system_health.up.sql",
+		"0062_saas_audit_integrity.up.sql",
+		"0063_saas_audit_anchor_signatures.up.sql",
+	} {
 		body, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)

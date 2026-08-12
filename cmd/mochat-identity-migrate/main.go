@@ -280,7 +280,7 @@ func runMigration(args []string, output io.Writer) error {
 		bindStatement := "SET @identity_0130_requested_down_request_id = ?"
 		bindArgs := []any{options.RequestID}
 		if downAction == "cutover-down" {
-			bindStatement = "SET @identity_0131_request_id = ?, @identity_0131_platform_tenant_id = ?"
+			bindStatement = "SET @identity_0131_request_id = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, @identity_0131_platform_tenant_id = ?"
 			bindArgs = []any{options.RequestID, options.PlatformTenantID}
 		}
 		if _, err := conn.ExecContext(ctx, bindStatement, bindArgs...); err != nil {
@@ -314,7 +314,7 @@ func executeControlledScript(ctx context.Context, db *sql.DB, path, schema strin
 	if err := identitymigration.VerifyTargetSchemaOnConn(ctx, conn, schema); err != nil {
 		return &identitymigration.PhaseError{Phase: "preflight", Label: "schema_target"}
 	}
-	if _, err := conn.ExecContext(ctx, "SET @identity_0131_platform_tenant_id = ?, @identity_0131_request_id = ?", platformTenantID, requestID); err != nil {
+	if _, err := conn.ExecContext(ctx, "SET @identity_0131_platform_tenant_id = ?, @identity_0131_request_id = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci", platformTenantID, requestID); err != nil {
 		return &identitymigration.PhaseError{Phase: "preflight", Label: "session_bind"}
 	}
 	body, err := os.ReadFile(path)

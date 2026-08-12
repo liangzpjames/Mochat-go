@@ -659,7 +659,6 @@ func requireCompanyAgentRowsOrMatched(ctx context.Context, tx *sql.Tx, result sq
 				ON b.tenant_id = c.tenant_id AND b.corp_id = a.corp_id
 			WHERE b.tenant_id = ? AND b.corp_id = ? AND b.version = ? AND b.status = ? AND b.status IN (1, 2)
 			  AND a.id = ? AND a.corp_id = ? AND a.deleted_at IS NULL
-			  AND a.wx_secret = ''
 			  AND COALESCE(CAST(a.wecom_credentials_ciphertext AS CHAR), '') = ?
 			  AND COALESCE(a.wecom_credentials_key_id, '') = ?`,
 		binding.TenantID, binding.TenantID, binding.CorpID, binding.Version, binding.Status, agentID, binding.CorpID, storage.Ciphertext, storage.KeyID).Scan(&matched); scanErr == nil && matched == 1 {

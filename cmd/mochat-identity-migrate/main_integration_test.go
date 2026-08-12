@@ -16,6 +16,8 @@ import (
 
 var migrateIntegrationSchemaSequence atomic.Int64
 
+const migrateIntegrationSchemaPrefix = "mochat_identity_single_corp_migrate"
+
 func TestRunMigrationCLIRealMariaDBLifecycle(t *testing.T) {
 	db, dsn, schema := newMigrateIntegrationDB(t)
 	createMigrateIntegrationFixture(t, db)
@@ -357,12 +359,16 @@ func newMigrateIntegrationDB(t *testing.T) (*sql.DB, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var baseline int
-	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'`).Scan(&baseline); err != nil {
+	schema := fmt.Sprintf("%s_%d_%d", migrateIntegrationSchemaPrefix, os.Getpid(), migrateIntegrationSchemaSequence.Add(1))
+	var schemaExists int
+	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&schemaExists); err != nil {
 		_ = admin.Close()
 		t.Fatal(err)
 	}
-	schema := fmt.Sprintf("mochat_identity_single_corp_%d_%d", os.Getpid(), migrateIntegrationSchemaSequence.Add(1))
+	if schemaExists != 0 {
+		_ = admin.Close()
+		t.Fatalf("isolated schema already exists: %s", schema)
+	}
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		_ = admin.Close()
 		t.Fatal(err)
@@ -370,16 +376,17 @@ func newMigrateIntegrationDB(t *testing.T) (*sql.DB, string, string) {
 	t.Cleanup(func() {
 		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
 		var leftovers int
-		if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'`).Scan(&leftovers); err != nil {
+		if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&leftovers); err != nil {
 			t.Errorf("check isolated schema leftovers: %v", err)
-		} else if leftovers != baseline {
-			t.Errorf("isolated schema leftovers changed from baseline=%d to %d", baseline, leftovers)
+		} else if leftovers != 0 {
+			t.Errorf("isolated schema %s still exists after cleanup", schema)
 		}
 		_ = admin.Close()
 	})
 	testCfg := *cfg
 	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
+	testDSN := testCfg.FormatDSN()
+	db, err := sql.Open("mysql", testDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,14 +395,14 @@ func newMigrateIntegrationDB(t *testing.T) (*sql.DB, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return db, dsn, schema
+	return db, testDSN, schema
 }
 
 func createMigrateIntegrationFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, statement := range []string{
 		`CREATE TABLE mc_tenant (id int(10) unsigned NOT NULL AUTO_INCREMENT, name varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', chat_secret varchar(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext text NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', chat_secret varchar(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext text NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP, updated_at timestamp NULL DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL DEFAULT 1, phone char(11) NOT NULL DEFAULT '', password varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', status tinyint unsigned NOT NULL DEFAULT 1, deleted_at timestamp NULL, isSuperAdmin tinyint NOT NULL DEFAULT 0, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, data_permission json DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_user_role (id int(11) NOT NULL AUTO_INCREMENT, user_id int(11) NOT NULL, role_id int(11) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
@@ -441,7 +448,16 @@ func loadMigrateIntegrationDDL(t *testing.T, db *sql.DB) {
 		t.Fatal("0127 DDL boundaries not found")
 	}
 	execMigrateIntegrationSQL(t, db, script[start:end])
-	for _, name := range []string{"0045_saas_admin_rbac.up.sql", "0033_saas_admin_operation_logs.up.sql", "0046_saas_admin_approvals.up.sql", "0047_saas_admin_approval_governance.up.sql"} {
+	for _, name := range []string{
+		"0045_saas_admin_rbac.up.sql",
+		"0033_saas_admin_operation_logs.up.sql",
+		"0035_saas_admin_tasks.up.sql",
+		"0046_saas_admin_approvals.up.sql",
+		"0047_saas_admin_approval_governance.up.sql",
+		"0048_saas_admin_system_health.up.sql",
+		"0062_saas_audit_integrity.up.sql",
+		"0063_saas_audit_anchor_signatures.up.sql",
+	} {
 		body, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)

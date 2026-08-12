@@ -18,6 +18,8 @@ import (
 
 var credentialIntegrationSchemaSequence atomic.Int64
 
+const credentialIntegrationSchemaPrefix = "mochat_identity_single_corp_identitymigration"
+
 func TestEncryptCredentialsRealMariaDBReadsLockedRowsBeforeWritesAndSkipsEmptyRows(t *testing.T) {
 	db := newCredentialIntegrationDB(t)
 	for _, statement := range []string{
@@ -130,12 +132,18 @@ func TestEncryptCredentialsRealMariaDBRollsBackAllWritesWhenAgentUpdateFails(t *
 	if corpCiphertext != "" || corpKeyID != "" || agentCiphertext != "" || agentKeyID != "" {
 		t.Fatal("credential ciphertext writes survived a failed transaction")
 	}
-	var successLedgerCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_identity_migration_ledger WHERE request_id='task8-rollback' AND status='success'`).Scan(&successLedgerCount); err != nil {
+	var baseSuccessLedgerCount, encryptSuccessLedgerCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_identity_migration_ledger WHERE migration_name=? AND request_id='task8-rollback' AND phase='backfill' AND status='success'`, migrationSource).Scan(&baseSuccessLedgerCount); err != nil {
 		t.Fatal(err)
 	}
-	if successLedgerCount != 0 {
-		t.Fatalf("success ledger rows=%d after rollback, want 0", successLedgerCount)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_identity_migration_ledger WHERE migration_name=? AND request_id='task8-rollback' AND phase='encrypt-credentials' AND status='success'`, migrationSource+"/encrypt-credentials").Scan(&encryptSuccessLedgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if baseSuccessLedgerCount != 1 {
+		t.Fatalf("base success ledger rows=%d after rollback, want 1", baseSuccessLedgerCount)
+	}
+	if encryptSuccessLedgerCount != 0 {
+		t.Fatalf("encrypt success ledger rows=%d after rollback, want 0", encryptSuccessLedgerCount)
 	}
 	var employeeSecret, contactSecret, callbackToken, encodingAESKey, chatSecret, agentSecret string
 	if err := db.QueryRow(`SELECT employee_secret, contact_secret, token, encoding_aes_key, chat_secret FROM mc_corp WHERE id=100`).Scan(&employeeSecret, &contactSecret, &callbackToken, &encodingAESKey, &chatSecret); err != nil {
@@ -326,9 +334,9 @@ func execIdentityDownScript(t *testing.T, db *sql.DB, requestID string) error {
 	if _, err := conn.ExecContext(context.Background(), `SET @identity_0130_requested_down_request_id = ?`, requestID); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range statements {
+	for index, statement := range statements {
 		if _, err := conn.ExecContext(context.Background(), statement); err != nil {
-			return err
+			return fmt.Errorf("identity down statement %d failed: %w", index, err)
 		}
 	}
 	return nil
@@ -361,12 +369,16 @@ func newCredentialIntegrationDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var baseline int
-	if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'").Scan(&baseline); err != nil {
+	schema := fmt.Sprintf("%s_%d_%d", credentialIntegrationSchemaPrefix, os.Getpid(), credentialIntegrationSchemaSequence.Add(1))
+	var schemaExists int
+	if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?", schema).Scan(&schemaExists); err != nil {
 		_ = admin.Close()
 		t.Fatal(err)
 	}
-	schema := fmt.Sprintf("mochat_identity_single_corp_%d_%d", os.Getpid(), credentialIntegrationSchemaSequence.Add(1))
+	if schemaExists != 0 {
+		_ = admin.Close()
+		t.Fatalf("isolated schema already exists: %s", schema)
+	}
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		_ = admin.Close()
 		t.Fatal(err)
@@ -374,10 +386,10 @@ func newCredentialIntegrationDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
 		var leftovers int
-		if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'").Scan(&leftovers); err != nil {
+		if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?", schema).Scan(&leftovers); err != nil {
 			t.Errorf("check isolated schema leftovers: %v", err)
-		} else if leftovers != baseline {
-			t.Errorf("isolated schema leftovers changed from baseline=%d to %d", baseline, leftovers)
+		} else if leftovers != 0 {
+			t.Errorf("isolated schema %s still exists after cleanup", schema)
 		}
 		_ = admin.Close()
 	})

@@ -296,7 +296,9 @@ FROM mc_user u
 WHERE u.status = 1 AND u.deleted_at IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM mochat_go_identity_cutover_journal j
-    WHERE j.request_id = @identity_0131_request_id AND j.entity_type = 'legacy_password' AND j.entity_id = CAST(u.id AS CHAR)
+    WHERE j.request_id COLLATE utf8mb4_unicode_ci = @identity_0131_request_id COLLATE utf8mb4_unicode_ci
+      AND j.entity_type COLLATE utf8mb4_unicode_ci = 'legacy_password' COLLATE utf8mb4_unicode_ci
+      AND j.entity_id COLLATE utf8mb4_unicode_ci = CAST(u.id AS CHAR) COLLATE utf8mb4_unicode_ci
   );
 
 INSERT INTO mochat_go_identity_cutover_journal (request_id, entity_type, entity_id, before_json)
@@ -309,7 +311,9 @@ WHERE (
   ) AND COALESCE(CAST(c.wecom_credentials_ciphertext AS CHAR), '') <> ''
   AND NOT EXISTS (
     SELECT 1 FROM mochat_go_identity_cutover_journal j
-    WHERE j.request_id = @identity_0131_request_id AND j.entity_type = 'corp_credentials' AND j.entity_id = CAST(c.id AS CHAR)
+    WHERE j.request_id COLLATE utf8mb4_unicode_ci = @identity_0131_request_id COLLATE utf8mb4_unicode_ci
+      AND j.entity_type COLLATE utf8mb4_unicode_ci = 'corp_credentials' COLLATE utf8mb4_unicode_ci
+      AND j.entity_id COLLATE utf8mb4_unicode_ci = CAST(c.id AS CHAR) COLLATE utf8mb4_unicode_ci
   );
 
 INSERT INTO mochat_go_identity_cutover_journal (request_id, entity_type, entity_id, before_json)
@@ -318,17 +322,23 @@ FROM mc_work_agent a
 WHERE COALESCE(a.wx_secret, '') <> '' AND COALESCE(CAST(a.wecom_credentials_ciphertext AS CHAR), '') <> ''
   AND NOT EXISTS (
     SELECT 1 FROM mochat_go_identity_cutover_journal j
-    WHERE j.request_id = @identity_0131_request_id AND j.entity_type = 'agent_credentials' AND j.entity_id = CAST(a.id AS CHAR)
+    WHERE j.request_id COLLATE utf8mb4_unicode_ci = @identity_0131_request_id COLLATE utf8mb4_unicode_ci
+      AND j.entity_type COLLATE utf8mb4_unicode_ci = 'agent_credentials' COLLATE utf8mb4_unicode_ci
+      AND j.entity_id COLLATE utf8mb4_unicode_ci = CAST(a.id AS CHAR) COLLATE utf8mb4_unicode_ci
   );
 
 UPDATE mc_corp c
 INNER JOIN mochat_go_identity_cutover_journal j
-  ON j.request_id = @identity_0131_request_id AND j.entity_type = 'corp_credentials' AND CAST(j.entity_id AS UNSIGNED) = c.id
+  ON j.request_id COLLATE utf8mb4_unicode_ci = @identity_0131_request_id COLLATE utf8mb4_unicode_ci
+ AND j.entity_type COLLATE utf8mb4_unicode_ci = 'corp_credentials' COLLATE utf8mb4_unicode_ci
+ AND CAST(j.entity_id AS UNSIGNED) = c.id
 SET c.employee_secret = '', c.contact_secret = '', c.token = '', c.encoding_aes_key = '', c.chat_secret = '';
 
 UPDATE mc_work_agent a
 INNER JOIN mochat_go_identity_cutover_journal j
-  ON j.request_id = @identity_0131_request_id AND j.entity_type = 'agent_credentials' AND CAST(j.entity_id AS UNSIGNED) = a.id
+  ON j.request_id COLLATE utf8mb4_unicode_ci = @identity_0131_request_id COLLATE utf8mb4_unicode_ci
+ AND j.entity_type COLLATE utf8mb4_unicode_ci = 'agent_credentials' COLLATE utf8mb4_unicode_ci
+ AND CAST(j.entity_id AS UNSIGNED) = a.id
 SET a.wx_secret = '';
 
 SET @identity_0131_drop_password_sql := IF(
@@ -342,11 +352,12 @@ DEALLOCATE PREPARE identity_0131_drop_password_stmt;
 
 UPDATE mochat_go_identity_cutover_batches
 SET status = 'completed', preflight_status = 'passed'
-WHERE request_id = @identity_0131_request_id;
+WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0131_request_id COLLATE utf8mb4_unicode_ci;
 
 INSERT INTO mochat_go_identity_migration_ledger (migration_name, request_id, phase, status, result_json)
 SELECT '0131_identity_realms_single_corp_cutover', @identity_0131_request_id, 'cutover', 'success', JSON_OBJECT('scriptChecksum', COALESCE(@identity_0131_script_checksum, ''))
 WHERE NOT EXISTS (
   SELECT 1 FROM mochat_go_identity_migration_ledger
-  WHERE migration_name = '0131_identity_realms_single_corp_cutover' AND request_id = @identity_0131_request_id
+  WHERE migration_name COLLATE utf8mb4_unicode_ci = '0131_identity_realms_single_corp_cutover' COLLATE utf8mb4_unicode_ci
+    AND request_id COLLATE utf8mb4_unicode_ci = @identity_0131_request_id COLLATE utf8mb4_unicode_ci
 );
