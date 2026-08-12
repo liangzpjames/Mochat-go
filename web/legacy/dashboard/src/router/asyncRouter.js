@@ -1,10 +1,4 @@
 export const routeList = {
-  '/corp/index': {
-    path: '/corp/index',
-    name: 'corpIndex',
-    component: () => import(/* webpackChunkName: "corp" */ '@/views/corp/index'),
-    meta: { title: '企业微信授权' }
-  },
   '/user/index': {
     path: '/user/index',
     name: 'user',

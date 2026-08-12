@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,7 +63,6 @@ func (h *LeadHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	var request struct {
-		CorpID      int64             `json:"corpId"`
 		BusinessKey string            `json:"businessKey"`
 		Name        string            `json:"name"`
 		Phone       string            `json:"phone"`
@@ -77,11 +77,7 @@ func (h *LeadHandler) Create(w nethttp.ResponseWriter, r *nethttp.Request) {
 		}
 		return
 	}
-	corpID, err := principal.ResolveCorp(request.CorpID)
-	if err != nil {
-		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
+	corpID := principal.CorpID
 	if !h.authorize(w, r, principal, corpID, leadPermissionAdd) {
 		return
 	}
@@ -107,14 +103,9 @@ func (h *LeadHandler) List(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusBadRequest, "invalid list query")
 		return
 	}
-	query, err := parseListQuery(values, principal.TenantID)
+	query, err := parseListQuery(values, principal.TenantID, principal.CorpID)
 	if err != nil {
 		writeError(w, nethttp.StatusBadRequest, "invalid list query")
-		return
-	}
-	query.CorpID, err = principal.ResolveCorp(query.CorpID)
-	if err != nil {
-		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
 		return
 	}
 	if !h.authorize(w, r, principal, query.CorpID, leadPermissionView) {
@@ -144,7 +135,6 @@ func (h *LeadHandler) Assign(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	var request struct {
-		CorpID  int64                            `json:"corpId"`
 		OwnerID int64                            `json:"ownerId"`
 		Targets []application.LeadMutationTarget `json:"targets"`
 	}
@@ -152,11 +142,7 @@ func (h *LeadHandler) Assign(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusBadRequest, "invalid request JSON")
 		return
 	}
-	corpID, err := principal.ResolveCorp(request.CorpID)
-	if err != nil {
-		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
+	corpID := principal.CorpID
 	if !h.authorize(w, r, principal, corpID, leadPermissionAssign) {
 		return
 	}
@@ -182,7 +168,6 @@ func (h *LeadHandler) Transition(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	var request struct {
-		CorpID        int64             `json:"corpId"`
 		ID            string            `json:"id"`
 		ToStatus      domain.LeadStatus `json:"toStatus"`
 		Version       int64             `json:"version"`
@@ -192,11 +177,7 @@ func (h *LeadHandler) Transition(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusBadRequest, "invalid request JSON")
 		return
 	}
-	corpID, err := principal.ResolveCorp(request.CorpID)
-	if err != nil {
-		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
+	corpID := principal.CorpID
 	if !h.authorize(w, r, principal, corpID, leadPermissionEdit) {
 		return
 	}
@@ -217,16 +198,7 @@ func (h *LeadHandler) Duplicates(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusForbidden, "lead owner scope cannot be resolved")
 		return
 	}
-	corpID, err := strconv.ParseInt(r.URL.Query().Get("corpId"), 10, 64)
-	if err != nil || corpID <= 0 {
-		writeError(w, nethttp.StatusBadRequest, "invalid duplicate query")
-		return
-	}
-	corpID, err = principal.ResolveCorp(corpID)
-	if err != nil {
-		writeError(w, nethttp.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
+	corpID := principal.CorpID
 	if !h.authorize(w, r, principal, corpID, leadPermissionView) {
 		return
 	}
@@ -277,9 +249,9 @@ func (h *LeadHandler) resolvePrincipal(w nethttp.ResponseWriter, r *nethttp.Requ
 
 func decodeRequestJSON(w nethttp.ResponseWriter, r *nethttp.Request, destination any) error {
 	r.Body = nethttp.MaxBytesReader(w, r.Body, MaxRequestBodyBytes)
+	var raw map[string]json.RawMessage
 	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
+	if err := decoder.Decode(&raw); err != nil {
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
@@ -288,11 +260,24 @@ func decodeRequestJSON(w nethttp.ResponseWriter, r *nethttp.Request, destination
 		}
 		return err
 	}
-	return nil
+	// Realm selectors are deliberately ignored at the transport boundary. The
+	// only authority for tenant/corp/actor is the server-created principal;
+	// stripping these legacy client fields preserves strict decoding for every
+	// real business field without allowing a client value to affect scope.
+	for _, key := range []string{"tenantId", "tenant_id", "corpId", "corp_id", "actorId", "actor_id"} {
+		delete(raw, key)
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	strict := json.NewDecoder(bytes.NewReader(payload))
+	strict.DisallowUnknownFields()
+	return strict.Decode(destination)
 }
 
-func parseListQuery(values url.Values, tenantID int64) (application.ListLeadsQuery, error) {
-	for _, key := range []string{"cursor", "pageSize", "corpId", "keyword", "createdFrom", "createdTo"} {
+func parseListQuery(values url.Values, tenantID, corpID int64) (application.ListLeadsQuery, error) {
+	for _, key := range []string{"cursor", "pageSize", "keyword", "createdFrom", "createdTo"} {
 		if len(values[key]) > 1 {
 			return application.ListLeadsQuery{}, errors.New("duplicate list parameter")
 		}
@@ -308,14 +293,6 @@ func parseListQuery(values url.Values, tenantID int64) (application.ListLeadsQue
 			return application.ListLeadsQuery{}, errors.New("invalid page size")
 		}
 		pageSize = parsed
-	}
-	var corpID int64
-	if raw := values.Get("corpId"); raw != "" {
-		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || parsed <= 0 {
-			return application.ListLeadsQuery{}, errors.New("invalid corp ID")
-		}
-		corpID = parsed
 	}
 	statuses := make([]domain.LeadStatus, 0, len(values["status"]))
 	for _, raw := range values["status"] {

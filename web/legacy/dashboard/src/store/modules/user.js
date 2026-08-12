@@ -1,10 +1,8 @@
 import storage from 'store'
-import { login, getInfo } from '@/api/login'
+import { login } from '@/api/auth'
 
 const user = {
   state: {
-    corpId: undefined,
-    corpName: '',
     token: '',
     roles: [],
     userInfo: null
@@ -19,12 +17,6 @@ const user = {
     },
     SET_USER_INFO: (state, userInfo) => {
       state.userInfo = userInfo
-    },
-    SET_CORP_ID: (state, corpId) => {
-      state.corpId = corpId
-    },
-    SET_CORP_NAME: (state, corpName) => {
-      state.corpName = corpName
     }
   },
 
@@ -44,21 +36,8 @@ const user = {
       })
     },
 
-    // 获取用户信息
-    GetInfo ({ commit }) {
-      return new Promise((resolve, reject) => {
-        getInfo().then(response => {
-          const data = response.data
-          commit('SET_USER_INFO', data)
-          resolve(response)
-        }).catch(error => {
-          reject(error)
-        })
-      })
-    },
-
     // 登出
-    Logout ({ commit, state }) {
+    Logout ({ commit }) {
       return new Promise((resolve) => {
         commit('SET_TOKEN', '')
         storage.remove('ACCESS_TOKEN')

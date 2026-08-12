@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"jiyi/mochat-go/internal/modules/ai-settings/ports"
@@ -45,24 +44,6 @@ func resolvePrincipal(w http.ResponseWriter, r *http.Request, resolver Principal
 	return p, true
 }
 
-func corpFromRequest(r *http.Request, body map[string]any, principal Principal) (int64, error) {
-	corp := principal.CorpID
-	if raw := r.URL.Query().Get("corpId"); raw != "" {
-		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || parsed <= 0 || parsed != principal.CorpID {
-			return 0, errors.New("corpId does not match dashboard principal")
-		}
-		corp = parsed
-	} else if v, ok := body["corpId"].(float64); ok {
-		parsed := int64(v)
-		if parsed <= 0 || parsed != principal.CorpID {
-			return 0, errors.New("corpId does not match dashboard principal")
-		}
-		corp = parsed
-	}
-	return corp, nil
-}
-
 func pathID(r *http.Request) string {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) == 0 {
@@ -94,11 +75,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	corp, err := corpFromRequest(r, body, p)
-	if err != nil {
-		writeEnvelope(w, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
+	corp := p.CorpID
 	permission := "/ai-settings/knowledge-base#get"
 	if r.Method != http.MethodGet {
 		permission = "/ai-settings/knowledge-base@edit#put"
@@ -195,11 +172,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	corp, err := corpFromRequest(r, body, p)
-	if err != nil {
-		writeEnvelope(w, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
+	corp := p.CorpID
 	permission := "/ai-settings/agent#get"
 	if r.Method != http.MethodGet {
 		permission = "/ai-settings/agent@edit#put"

@@ -32,13 +32,13 @@ func TestContactHandlerAuthorizesAndParsesCombinedFilter(t *testing.T) {
 	}
 }
 
-func TestContactHandlerHidesSecondCorpAndMapsNotFound(t *testing.T) {
+func TestContactHandlerUsesPrincipalCorpAndMapsNotFound(t *testing.T) {
 	service := &contactLifecycleServiceFake{detailErr: application.ErrNotFound}
 	handler := NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 5, TenantID: 7, CorpID: 9}}, &contactAuthorizerFake{err: ErrLeadForbidden})
 	res := httptest.NewRecorder()
 	handler.GetContact(res, httptest.NewRequest(http.MethodGet, ContactsPath+"/c1?corpId=10", nil))
-	if res.Code != http.StatusBadRequest {
-		t.Fatalf("corp assertion status=%d", res.Code)
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("principal corp authorization status=%d", res.Code)
 	}
 
 	handler = NewCustomerLifecycleHandler(service, fakePrincipalResolver{principal: Principal{UserID: 5, TenantID: 7, CorpID: 9}}, &contactAuthorizerFake{})

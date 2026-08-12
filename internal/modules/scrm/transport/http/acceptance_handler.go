@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	nethttp "net/http"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -58,19 +57,7 @@ func (h *AcceptanceHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Reque
 		nethttp.Error(w, "principal unauthorized", nethttp.StatusUnauthorized)
 		return
 	}
-	requestedCorpID := int64(0)
-	if raw := r.URL.Query().Get("corpId"); raw != "" {
-		requestedCorpID, err = strconv.ParseInt(raw, 10, 64)
-		if err != nil || requestedCorpID <= 0 {
-			nethttp.Error(w, "invalid corpId", nethttp.StatusBadRequest)
-			return
-		}
-	}
-	corpID, err := principal.ResolveCorp(requestedCorpID)
-	if err != nil {
-		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
-		return
-	}
+	corpID := principal.CorpID
 	if h.authorizer != nil {
 		if err = h.authorizer.Authorize(r.Context(), principal, corpID, "/acceptance/phase35#"+strings.ToLower(r.Method)); err != nil {
 			nethttp.Error(w, "forbidden", nethttp.StatusForbidden)

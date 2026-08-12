@@ -24,7 +24,7 @@ Usage: MOCHAT_REAL_WECOM_BASE_URL=https://mochat-prod.your-domain.cn ./scripts/c
 
 默认请求路径，可用同名环境变量覆盖，值为空格或逗号分隔：
   MOCHAT_REAL_WECOM_AUTH_PATHS
-      默认 /dashboard/user/loginShow
+      默认 /dashboard/auth/session
   MOCHAT_REAL_WECOM_DIRECTORY_PATHS
       默认 /dashboard/workEmployee/searchCondition /dashboard/workDepartment/index
   MOCHAT_REAL_WECOM_CONTACT_PATHS
@@ -197,7 +197,7 @@ async function main() {
   const groups = [
     {
       label: '授权',
-      paths: parseList(env('MOCHAT_REAL_WECOM_AUTH_PATHS', '/dashboard/user/loginShow')),
+      paths: parseList(env('MOCHAT_REAL_WECOM_AUTH_PATHS', '/dashboard/auth/session')),
     },
     {
       label: '通讯录',

@@ -141,34 +141,6 @@ body {
   padding: 9px 11px;
 }
 
-.dashboard-corp-frame {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 100vh;
-  overflow: hidden;
-}
-
-.dashboard-corp-switcher {
-  align-items: center;
-  background: #fff;
-  border-bottom: 1px solid #e8e8e8;
-  color: #59647a;
-  display: flex;
-  font-size: 0.85rem;
-  gap: 10px;
-  padding: 8px 16px;
-}
-
-.dashboard-corp-switcher select {
-  background: #fff;
-  border: 1px solid #dfe4ee;
-  border-radius: 8px;
-  color: #293042;
-  font: inherit;
-  min-width: 180px;
-  padding: 7px 32px 7px 10px;
-}
-
 .dashboard-shell {
   height: 100%;
   min-height: 0;
@@ -419,11 +391,6 @@ body {
     overflow: visible;
   }
 
-  .dashboard-corp-frame {
-    display: block;
-    height: auto;
-    overflow: visible;
-  }
 }
 
 .sr-only {
@@ -1518,7 +1485,6 @@ body {
 .phase34-material-drawer .phase34-detail-panel > footer > span { color: #969daa; font-size: .68rem; }.phase34-material-drawer .phase34-detail-panel > footer > div { display: flex; gap: 9px; }
 
 @media (max-width: 768px) {
-  .dashboard-corp-frame { height: auto; min-height: 100vh; overflow: visible; }
   .dashboard-shell { height: auto; min-height: 100vh; overflow: visible; }
   .dashboard-header { flex-wrap: wrap; gap: 10px; height: auto; min-height: 72px; padding: 12px 16px; }
   .dashboard-menu-toggle { align-items: center; background: #f2f4ff; border: 1px solid #dde2ff; border-radius: 8px; color: #465fdc; cursor: pointer; display: inline-flex; font: inherit; font-size: 1.2rem; height: 36px; justify-content: center; padding: 0; width: 36px; }

@@ -84,7 +84,7 @@ docker compose -f deploy/standalone/docker-compose.yml --profile app exec app \
 
 ```
 
-旧的 tenant bootstrap smoke 已删除；历史业务 smoke 尚未切换到 SaaS-only bootstrap，本阶段不作为身份验收，必须由 Task12 更新后才能恢复使用。
+旧的 tenant bootstrap、Dashboard 旧登录和企业选择 smoke 已物理退役；身份验收统一使用 identity-single-corp contract、受保护 SaaS API 与新的 Dashboard company API。
 
 手动启动 Go standalone：
 
@@ -215,7 +215,7 @@ env -u GOROOT \
 | `MOCHAT_GO_SAAS_SYSTEM_HEALTH_CRON_RUN_ON_START` | 空 | 设为 `1` 时 Go 进程启动后立即执行一次平台健康扫描 |
 | `MOCHAT_GO_SAAS_SYSTEM_HEALTH_FAILURE_WINDOW_HOURS` | `24` | 失败执行、结算同步等检查的回看窗口，允许 1 至 720 小时 |
 | `MOCHAT_GO_SAAS_SYSTEM_HEALTH_NOTIFICATION_STALE_MINUTES` | `15` | 待发通知被视为积压的滞留阈值，允许 1 至 10080 分钟 |
-| `MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY` | 空 | 设为 `1` 时启用租户身份安全策略、账号锁定、IP/CIDR 门禁、TOTP/恢复码、可撤销持久会话、登录事件、安全事故、`/security/login` 和总后台身份安全中心；要求 MySQL 和身份加密密钥 |
+| `MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY` | 空 | 设为 `1` 时启用租户身份安全策略、账号锁定、IP/CIDR 门禁、TOTP/恢复码、可撤销持久会话、登录事件、安全事故和总后台身份安全中心；要求 MySQL 和身份加密密钥 |
 | `MOCHAT_GO_SAAS_IDENTITY_ENFORCE_SESSIONS` | 空 | 设为 `1` 时每个 dashboard JWT 都必须匹配活动持久会话；从关闭切换为开启会使切换前签发的无会话 JWT 失效，生产应安排重新登录窗口 |
 | `MOCHAT_GO_SAAS_IDENTITY_TRUST_PROXY_HEADERS` | 空 | 设为 `1` 时，身份登录和会话风险判定才会在 TCP 对端命中受信 CIDR 后解析 `X-Forwarded-For`/`X-Real-IP`；必须同时配置 `MOCHAT_GO_SAAS_TRUSTED_PROXY_CIDRS` |
 | `MOCHAT_GO_SAAS_SERVICE_ACCOUNT_TRUST_PROXY_HEADERS` | 空 | 设为 `1` 时，服务账号 IP/CIDR 白名单、用量账本和最近来源 IP 使用受信代理链中的客户端 IP；必须同时配置 `MOCHAT_GO_SAAS_TRUSTED_PROXY_CIDRS` |
@@ -317,15 +317,8 @@ env -u GOROOT \
 
 支付结算 Bridge 的请求、响应、幂等和安全边界见 [`docs/reference/protocols/payment-settlement-bridge.md`](docs/reference/protocols/payment-settlement-bridge.md)。
 | `MOCHAT_GO_MIGRATE_AUTH` | 空 | 设为 `1` 时接管 `POST /dashboard/user/auth` |
-| `MOCHAT_GO_MIGRATE_LOGIN_SHOW` | 空 | 设为 `1` 时接管 `GET /dashboard/user/loginShow` |
 | `MOCHAT_GO_MIGRATE_LOGOUT` | 空 | 设为 `1` 时接管 `PUT /dashboard/user/logout` |
 | `MOCHAT_GO_MIGRATE_PERMISSION_BY_USER` | 空 | 设为 `1` 时接管 `GET /dashboard/role/permissionByUser` |
-| `MOCHAT_GO_MIGRATE_CORP_SELECT` | 空 | 设为 `1` 时接管 `GET /dashboard/corp/select` |
-| `MOCHAT_GO_MIGRATE_CORP_BIND` | 空 | 设为 `1` 时接管 `POST /dashboard/corp/bind` |
-| `MOCHAT_GO_MIGRATE_CORP_INDEX` | 空 | 设为 `1` 时接管 `GET /dashboard/corp/index` |
-| `MOCHAT_GO_MIGRATE_CORP_SHOW` | 空 | 设为 `1` 时接管 `GET /dashboard/corp/show` |
-| `MOCHAT_GO_MIGRATE_CORP_STORE` | 空 | 设为 `1` 时接管 `POST /dashboard/corp/store` |
-| `MOCHAT_GO_MIGRATE_CORP_UPDATE` | 空 | 设为 `1` 时接管 `PUT /dashboard/corp/update` |
 | `MOCHAT_GO_MIGRATE_WEWORK_CALLBACK` | 空 | 设为 `1` 时接管 `GET/POST /weWork/callback` 和 `GET/POST /dashboard/corp/weWorkCallback` |
 | `MOCHAT_GO_MIGRATE_CHAT_TOOL_CONFIG` | 空 | 设为 `1` 时接管 `GET /dashboard/chatTool/config` |
 | `MOCHAT_GO_MIGRATE_AGENT_TXT_VERIFY` | 空 | 设为 `1` 时接管 `GET /WW_verify_*.txt` |
@@ -443,14 +436,13 @@ env -u GOROOT \
 | `MOCHAT_GO_MIGRATE_CONTACT_FIELD_PIVOT_UPDATE` | 空 | 设为 `1` 时接管 `PUT /dashboard/contactFieldPivot/update` |
 | `MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_FIELD_PIVOT_INDEX` | 空 | 设为 `1` 时接管 `GET /sidebar/contactFieldPivot/index` |
 | `MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_FIELD_PIVOT_UPDATE` | 空 | 设为 `1` 时接管 `PUT /sidebar/contactFieldPivot/update` |
-| `MOCHAT_MYSQL_DSN` | 空 | MoChat MySQL DSN，接管 `loginShow` 时必填 |
-| `MOCHAT_SIMPLE_JWT_SECRET` / `SIMPLE_JWT_SECRET` | 空 | PHP `qbhy/simple-jwt` secret；正式接管 `loginShow` 时必填 |
 | `MOCHAT_SIMPLE_JWT_PREFIX` / `SIMPLE_JWT_PREFIX` | `default` | PHP JWT Redis 黑名单前缀 |
 | `MOCHAT_SIMPLE_JWT_TTL` / `SIMPLE_JWT_TTL` | `604800` | 登录签发 token 的 TTL，单位秒，保持 PHP 配置口径 |
 | `MOCHAT_SIMPLE_JWT_REFRESH_TTL` / `SIMPLE_JWT_REFRESH_TTL` | `604800` | logout 写入 JWT 黑名单的 TTL，单位秒 |
 | `MOCHAT_SIDEBAR_JWT_SECRET` / `SIDEBAR_JWT_SECRET` | `Br3LXhp&Ysha1zRDh` | PHP 侧边栏 `sidebar` guard 的 JWT secret |
 | `MOCHAT_SIDEBAR_JWT_PREFIX` / `SIDEBAR_JWT_PREFIX` | `default` | 侧边栏 JWT Redis 黑名单前缀 |
-| `MOCHAT_REDIS_ADDR` | `REDIS_HOST:REDIS_PORT` 或 `localhost:6379` | Redis 地址；正式接管 `loginShow` 时用于读取 `mc:user.{id}` 和 JWT 黑名单 |
+| `MOCHAT_MYSQL_DSN` | 空 | MoChat MySQL DSN；用于需要数据库的已迁移服务 |
+| `MOCHAT_SIMPLE_JWT_SECRET` / `SIMPLE_JWT_SECRET` | 空 | PHP 兼容链路的 secret；新 SaaS/Dashboard 身份域使用各自独立 secret |
 | `MOCHAT_REDIS_PASSWORD` / `REDIS_AUTH` | 空 | Redis 密码 |
 | `MOCHAT_REDIS_DB` / `REDIS_DB` | `0` | Redis DB |
 | `MOCHAT_GO_SKIP_JWT_BLACKLIST` | 空 | 设为 `1` 时跳过 Redis JWT 黑名单检查，仅用于本地临时验证 |
@@ -467,7 +459,7 @@ env -u GOROOT \
 | `GET` | `/compat/status` | 迁移状态 |
 | `GET` | `/compat/routes` | 当前完整路由、数据表、异步任务清单 |
 | `POST` | `/dashboard/user/auth` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_AUTH=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go。启用身份安全后会执行账号锁定、IP/CIDR、MFA 和并发会话策略；需要二次认证时返回 `202` 和短时挑战，不直接签发 JWT |
-| `GET/HEAD` | `/security/login` | 仅启用 `MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY=1` 时挂载，提供密码、TOTP/恢复码二段登录页；成功后以旧 Vue 前端兼容格式写入本地 token 并进入业务后台 |
+| `GET` | `/saas/login` | SaaS 专用登录页；完成密码、TOTP/恢复码二段认证后进入 SaaS 管理后台 |
 | `POST` | `/dashboard/user/authMFA` | 仅启用身份安全时挂载，使用一次性 `challengeToken` 和 TOTP 或恢复码完成二次认证；挑战、动态码时间步和恢复码均禁止重放，成功后签发 JWT 并创建持久会话 |
 | `GET/POST/PUT` | `/dashboard/user/securityMFA` | 仅启用身份安全时挂载并要求真实 dashboard JWT；查看本人安全状态和策略，或执行 `begin/verify` 自助绑定 TOTP。明文密钥与恢复码只在开始绑定的单次响应显示 |
 | `GET` | `/dashboard/saasAlert/page` | 可选启用。只有设置 `MOCHAT_GO_ENABLE_SAAS_ALERT_DASHBOARD=1` 时走 Go，提供独立托管的 SaaS 告警管理页面，可用 dashboard JWT 查询和解决告警 |
@@ -619,15 +611,8 @@ env -u GOROOT \
 | `POST/PUT` | `/dashboard/saasAdmin/tenantProvisionTaskApply` | 可选启用。只有设置 `MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD=1` 时走 Go，平台租户超级管理员可按 `taskId` 应用平台开户任务；应用前会复核套餐仍启用，成功后复用开户链接逻辑写入租户、管理员、角色授权、套餐快照、用量计数、开通记录和任务应用结果，失败会把任务更新为 `failed` |
 | `POST/PUT` | `/dashboard/saasAdmin/tenantProvisionTaskBulkApply` | 可选启用。只有设置 `MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD=1` 时走 Go，平台租户超级管理员可按 `taskId`、`taskType=tenant_provision`、`status`、`tenantId`、`packageCode` 和 `limit` 筛选批量应用平台开户任务；每条任务应用前都会复核套餐仍启用，成功任务复用开户链接逻辑创建租户、管理员、角色授权、套餐快照、用量计数和开通记录并置为 `applied`，坏请求或执行失败置为 `failed`，响应返回应用、阻断、失败和跳过数量，任务请求仍只返回脱敏字段 |
 | `POST/PUT` | `/dashboard/saasAdmin/tenantPackage` | 可选启用。只有设置 `MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD=1` 时走 Go，平台租户超级管理员可给指定租户调整套餐和到期时间，服务端会写入租户套餐快照并刷新全部 SaaS 用量额度 |
-| `GET` | `/dashboard/user/loginShow` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_LOGIN_SHOW=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
 | `PUT` | `/dashboard/user/logout` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_LOGOUT=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
 | `GET` | `/dashboard/role/permissionByUser` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_PERMISSION_BY_USER=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
-| `GET` | `/dashboard/corp/select` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_CORP_SELECT=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
-| `POST` | `/dashboard/corp/bind` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_CORP_BIND=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
-| `GET` | `/dashboard/corp/index` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_CORP_INDEX=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
-| `GET` | `/dashboard/corp/show` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_CORP_SHOW=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
-| `POST` | `/dashboard/corp/store` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_CORP_STORE=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
-| `PUT` | `/dashboard/corp/update` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_CORP_UPDATE=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
 | `GET/POST` | `/dashboard/corp/weWorkCallback` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_WEWORK_CALLBACK=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
 | `GET/POST` | `/weWork/callback` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_WEWORK_CALLBACK=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
 | `GET` | `/dashboard/chatTool/config` | 可选接管。兼容模式下设置 `MOCHAT_GO_MIGRATE_CHAT_TOOL_CONFIG=1` 时走 Go；生产 standalone 且启用全量已迁移路由时默认走 Go |
@@ -826,17 +811,11 @@ env -u GOROOT \
 ./scripts/standalone_route_coverage.sh
 ./scripts/audit_saas_storage_reclaim_coverage.sh
 ./scripts/audit_wework_callback_event_coverage.sh
-./scripts/smoke_saas_storage_reconcile.sh
-./scripts/smoke_saas_storage_reclaim.sh
-./scripts/smoke_saas_usage_refresh.sh
-./scripts/smoke_official_account_ticket.sh
 ./scripts/smoke_queue_idempotency.sh
 ./scripts/smoke_async_file_upload_worker.sh
 ./scripts/smoke_mark_tags_worker.sh
 ./scripts/smoke_auto_tag_keyword_task.sh
-./scripts/smoke_auto_tag_dashboard.sh
 ./scripts/smoke_wework_callback_worker.sh
-./scripts/smoke_employee_apply_worker.sh
 ./scripts/smoke_pull_agent_cron.sh
 ./scripts/smoke_employee_statistic_cron.sh
 ./scripts/smoke_channel_code_cron.sh
@@ -851,32 +830,25 @@ env -u GOROOT \
 ./scripts/smoke_work_message_archive_sync_cron.sh
 ./scripts/smoke_sensitive_word_monitor_cron.sh
 ./scripts/smoke_frontend_static_browser.sh
-./scripts/smoke_admin_core_dashboard.sh
-./scripts/smoke_dashboard_frontend_login.sh
 ./scripts/smoke_sidebar_frontend_contact.sh
 ./scripts/smoke_operation_frontend_work_fission.sh
 ```
 
 完整独立项目的历史缺口记录在 `docs/phases/phase-pre0-standalone/reports/standalone-gap.md`，当前开发进度统一查看 `docs/PROJECT_PROGRESS.zh-CN.md`。
 
-## 可选接管 loginShow
+## 身份域切换说明
 
-当前 `loginShow` 已具备 Go 业务实现、MySQL 仓储、PHP `qbhy/simple-jwt` 兼容解析和 Redis 黑名单检查。为了避免未完成环境联调时破坏生产流量，默认不接管该接口。
+0131 cutover 已物理退役旧登录资料与企业选择/绑定接口。Dashboard 登录后的身份资料由 `/dashboard/auth/session` 与 `/dashboard/access/profile` 提供；企业资料、验证、凭据和员工同步仅通过 `/dashboard/company/*`，不会从客户端选择企业。
 
-正式接管需要沿用 PHP 的 `SIMPLE_JWT_SECRET` 和 Redis：
+新部署只配置独立的 SaaS 与 Dashboard JWT/MFA 密钥，并按受控迁移流程完成 0129→0130→0131；不再设置旧登录资料或企业选择开关。
+
+现有业务路由的迁移开关仍可按兼容清单配置：
 
 ```bash
 env -u GOROOT \
   MOCHAT_GO_MIGRATE_AUTH=1 \
-  MOCHAT_GO_MIGRATE_LOGIN_SHOW=1 \
   MOCHAT_GO_MIGRATE_LOGOUT=1 \
   MOCHAT_GO_MIGRATE_PERMISSION_BY_USER=1 \
-  MOCHAT_GO_MIGRATE_CORP_SELECT=1 \
-  MOCHAT_GO_MIGRATE_CORP_BIND=1 \
-  MOCHAT_GO_MIGRATE_CORP_INDEX=1 \
-  MOCHAT_GO_MIGRATE_CORP_SHOW=1 \
-  MOCHAT_GO_MIGRATE_CORP_STORE=1 \
-  MOCHAT_GO_MIGRATE_CORP_UPDATE=1 \
   MOCHAT_GO_MIGRATE_WEWORK_CALLBACK=1 \
   MOCHAT_GO_MIGRATE_CHAT_TOOL_CONFIG=1 \
   MOCHAT_GO_MIGRATE_AGENT_TXT_VERIFY=1 \
@@ -1036,28 +1008,28 @@ Go 会按 PHP 规则读取：
 - `menu/show` 输出菜单详情，并按 PHP 规则把 `path` 拆为 `firstMenuId`、`secondMenuId`、`thirdMenuId`、`fourthMenuId`。
 - 菜单写接口 `store/update/statusUpdate/destroy` 已接管到 Go；这些是状态变更接口，不能搭配 `MOCHAT_GO_DEV_AUTH_HEADER=1` 或 `MOCHAT_GO_SKIP_JWT_BLACKLIST=1`。
 
-`corp/select` 接管后会：
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 
 - 校验 PHP JWT 并读取 `uid`。
 - 超级管理员按当前用户 `tenant_id` 返回租户内企业。
 - 普通用户按 `mc_work_employee.log_user_id` 返回归属企业。
 - 支持 `corpName` 企业名称过滤。
 
-`corp/bind` 接管后会：
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 
 - 校验 PHP JWT 并读取 `uid`。
 - 超级管理员直接写入 `mc:user.{userId}={corpId}-0`。
 - 普通用户先校验企业归属，再写入 `mc:user.{userId}={corpId}-{workEmployeeId}`。
 
-`corp/index`、`corp/show`、`corp/store`、`corp/update` 接管后会：
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 
 - 校验 PHP JWT 并读取 `uid`。
 - 复用 `RBACResolver` 校验 PHP `PermissionMiddleware` 使用的 `path#method` 权限键。
-- `corp/index` 按租户、企业名、分页和当前用户企业范围返回 PHP 兼容的 `page/list` 数据。
-- `corp/show` 返回企业授权详情，并保持 `eventCallback?cid={corpId}` 的 PHP 输出口径。
-- `corp/store` 保持 PHP 版单企业限制，调用企业微信通讯录和外部联系人接口校验 `wxCorpId`、`employeeSecret`、`contactSecret`，写入 `mc_corp` 的回调地址、token、encodingAESKey，并设置 `mc:user.{userId}={corpId}-0`。创建成功后会向 Redis list `mochat-go:employee-apply` 写入 `EmployeeApply` 通讯录同步任务。
-- `corp/update` 只更新 PHP 页面允许编辑的 `corpName`、`wxCorpId`、`employeeSecret`、`contactSecret`。
-- `corp/store` 和 `corp/update` 是写接口，不能搭配 `MOCHAT_GO_DEV_AUTH_HEADER=1` 或 `MOCHAT_GO_SKIP_JWT_BLACKLIST=1`。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 
 设置 `MOCHAT_GO_ENABLE_EMPLOYEE_APPLY_WORKER=1` 后，Go 进程会启动 `EmployeeApply` Redis 消费 worker，消费 `mochat-go:employee-apply` 后执行部门和成员同步，替代 PHP `EmployeeApply` 队列的第一批核心行为。
 
@@ -1121,27 +1093,27 @@ Go 会按 PHP 规则读取：
 - `sidebar/contactProcessStatus/index` 使用 sidebar 员工 token 的企业上下文读取 `mc_contact_process`；若当前企业没有跟进状态，按 PHP 行为创建“新客户/初步沟通/意向客户/付款客户/无意向客户”五个默认项后再返回。
 - `sidebar/contactProcessStatus/update` 使用 sidebar 员工 token 做身份校验，按 PHP 行为记录“编辑用户跟进状态：{状态名}”轨迹，并在同一事务内更新 `mc_work_contact.follow_up_status`。
 - `dashboard/contactBatchAdd/index/importIndex/importStore/allot/dataStatistic/destroy/importDestroy/settingEdit/settingUpdate/remind` 使用 dashboard token 和 RBAC resolver 接管批量加好友后台链路；列表、导入记录、设置和统计直接读取 MySQL，导入支持 JSON/表单/CSV/简单 XLSX 手机号解析，multipart 导入会把原文件写入 `MOCHAT_FILE_STORAGE_ROOT`、回填 `fileUrl`、记录 `mochat_go_saas_storage_objects` 并刷新 `storage_mb`，`importDestroy` 会软删导入记录和明细并回收对应原文件账本；分配会轮询写入成员、递增分配次数并记录 `mc_contact_batch_add_allot`，删除使用软删除，`0009_contact_batch_add_rbac` 补齐普通管理员所需菜单和接口权限。
-- `dashboard/sensitiveWord/index/store/destroy/statusUpdate/move`、`dashboard/sensitiveWordGroup/select/store/update` 和 `dashboard/sensitiveWordsMonitor/index/show` 使用 dashboard token 和 RBAC resolver 接管敏感词词库与监控第一批后台链路；`0010_sensitive_words` 会创建分组、词库和触发监控表，词库列表按监控记录聚合员工/客户触发次数，新增支持中文逗号、顿号、换行和英文逗号批量拆词，删除使用软删除。新增 Go 原生 `/dashboard/sensitiveWords/page` 页面，使用 dashboard JWT 直接管理分组、词库和触发监控，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_sensitive_word_dashboard.sh` 已用真实 Go standalone 覆盖敏感词分组批量新建、更新、下拉选择，词库批量拆词去重、新增、移动、状态更新、删除、监控列表、监控详情会话展开和 `sensitive_words` SaaS 用量刷新，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`；新增敏感词会按 `sensitive_words` SaaS 套餐额度拦截，创建和删除后会刷新对应用量。`MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON=1` 会启动 Go 内置 `cron-work-message-archive-sync`，从 `MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL` 指向的官方 SDK bridge 拉取已解密会话消息，按 `seq` 分表写入 `mc_work_message_1` 至 `mc_work_message_10`，并用 `mc_work_message_id.type=40` 维护拉取游标；`MOCHAT_GO_ENABLE_SENSITIVE_WORD_MONITOR_CRON=1` 会启动 Go 内置 `cron-sensitive-word-monitor`，扫描 10 张会话存档分表的新增消息，按启用敏感词写入 `mc_sensitive_words_monitor`，并用 `mc_work_message_id.type=21..30` 维护分表游标；`scripts/smoke_work_message_archive_sync_cron.sh` 会用 fake SDK bridge + 真实 MySQL 验证会话同步、分表入库、游标推进、幂等和敏感词消费，`scripts/smoke_sensitive_word_monitor_cron.sh` 会继续验证监控扫描本身。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `dashboard/contactSop/index/store/setEmployee/state/info/destroy/update` 和 `dashboard/roomSop/index/store/setRoom/state/info/destroy/update` 使用 dashboard token 和 RBAC resolver 接管个人 SOP 与群 SOP 管理端第一批链路；规则名称、推送设置、员工/客户/群范围按原表 JSON 字段保存，删除会硬删无 `deleted_at` 的 SOP 主表和触达日志，`0011_sop_rbac` 确保 SOP 主表/触达日志表存在并补齐普通管理员所需接口权限。新增 Go 原生 `/dashboard/contactSop/page` 与 `/dashboard/roomSop/page` 页面，使用 dashboard JWT 直接管理个人 SOP 规则、员工范围、客户范围、群 SOP 规则、客户群范围和启停状态，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；新增个人/群 SOP 会按 `contact_sops`、`room_sops` SaaS 套餐额度拦截，创建和删除后会刷新对应用量。
-- `scripts/smoke_sop_dashboard.sh` 已用真实 Go standalone 覆盖个人/群 SOP 新建、列表、详情、设置员工/群聊、启停、更新、删除、触达日志级联删除和 `contact_sops` / `room_sops` SaaS 用量刷新，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `MOCHAT_GO_ENABLE_SOP_LOG_CRON=1` 会启动 Go 内置 `cron-sop-log`，按 `mc_contact_sop` / `mc_room_sop` 中启用的规则解析 `setting`、员工/客户/群 JSON 范围，向 `mc_contact_sop_log` 和 `mc_room_sop_log` 幂等生成已到期的个人 SOP 和群 SOP 提醒；规则支持绝对提醒时间，也支持 `baseTime` / `startTime` / `anchorTime` / `createdAt` 等任务内锚点叠加 `delayMinutes`、`delayHours`、`delayDays`、`delay`、`after` 等相对延迟字段；纯相对延迟规则没有任务内锚点时，会按个人 SOP 的客户添加时间 `mc_work_contact_employee.create_time` 或群 SOP 的客户群创建时间 `mc_work_room.create_time` 逐目标计算到期状态；群 SOP 纯相对延迟可通过 `targetAnchor` / `target_anchor` / `anchor` / `event` / `trigger` 配置 `room_join`、`customer_join_room`、`客户入群` 等值，按 `mc_work_contact_room.join_time` 为每个外部联系人入群记录生成 contact 级群 SOP 日志，并把 `mc_room_sop_log.contact` 纳入幂等条件；周期规则支持 `cycle` / `period` / `repeat` / `frequency` 的 `daily`、`weekly`、`monthly`，并可用 `weekdays`、`monthDays`、`repeatDates` 等字段限定触发日期，生成日志时会写入内部 `_mochatGoOccurrence`，确保同一周期幂等且不同日期可再次触达；同一套解析和幂等逻辑也会被 `wework-callback` worker 在 `change_external_contact.add_external_contact` 后按员工/客户目标触发个人 SOP，在 `change_external_chat.create/update` 后按 `ChatId` 触发 `room_join` 群 SOP；可用 `MOCHAT_GO_SOP_LOG_CRON_INTERVAL_SECONDS` 和 `MOCHAT_GO_SOP_LOG_CRON_RUN_ON_START` 控制周期和启动即跑。
 - `dashboard/shopCode/location/addressKeyWordList/store/update/destroy/info/status/index/searchCity/share/pageInfo/pageSet/show/showContact/showShop/updateEmployee/updateQrcode/batchContactTags` 使用 dashboard token 和 RBAC resolver 接管门店活码后台链路；`0012_shop_code` 会创建 `mc_shop_code`、`mc_shop_code_page`、`mc_shop_code_record` 并补齐门店活码页面菜单和 18 个接口权限，门店、页面设置、地址检索、分享链接和统计读取均由 Go 独立服务承接；新增 Go 原生 `/dashboard/shopCode/page` 页面，使用 dashboard JWT 直接管理门店、页面设置、分享链接、地址/城市建议、访问客户和门店统计，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；新增门店活码会按 `shop_codes` SaaS 套餐额度拦截，创建和删除后会刷新对应用量；更新、删除门店活码或通过 `pageSet` 替换页面设置时，会回收 `employee_qrcode`、`qw_code` 活码 JSON 和 `mc_shop_code_page.default` / `poster` 中的本地二维码/海报账本并刷新 `storage_mb`。
-- `dashboard/radar/store/update/index/destroy/info/storeChannel/storeChannelLink/indexChannel/indexChannelLink/show/showContact/showChannel/radarArticle` 使用 dashboard token 和 RBAC resolver 接管互动雷达后台链路；`0013_radar` 会创建 `mc_radar`、`mc_radar_channel`、`mc_radar_channel_link`、`mc_radar_record` 并补齐互动雷达页面菜单和 13 个接口权限，雷达 CRUD、渠道、渠道链接、分享链接和点击统计均由 Go 独立服务承接；新增 Go 原生 `/dashboard/radar/page` 页面，使用 dashboard JWT 直接管理雷达素材、渠道、渠道链接和客户点击明细，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_radar_dashboard.sh` 已用真实 Go standalone 覆盖雷达新建、列表、详情、渠道、渠道链接、客户点击明细、渠道统计、文章元数据回显、更新、删除和 `radars` SaaS 用量刷新；新增互动雷达会按 `radars` SaaS 套餐额度拦截，创建和删除后会刷新对应用量；更新或删除雷达会回收 `link_cover`、`pdf` 指向的本地上传文件账本并刷新 `storage_mb`。
-- `dashboard/autoTag/store/index/destroy/onOff/show/showContactKeyWord/showContactRoom/showContactTime`、`Task/AutoTag/KeyWordTag`、`dashboard/Task/AutoTag/KeyWordTag`、`dashboard/workMessage/fromUsers/toUsers/index` 和 `dashboard/workMessageConfig/corpStore/corpShow/corpIndex/stepCreate/stepUpdate` 使用 dashboard token 和 RBAC resolver 接管自动标签与消息存档后台链路；`0014_auto_tag` 会创建 `mc_auto_tag`、`mc_auto_tag_record`、`mc_work_message_id`、`mc_work_message_1` 至 `mc_work_message_10`，并补齐 `mc_corp` 会话存档配置字段、自动标签和消息存档页面菜单及接口权限，`0022_work_message_archive_sync` 会把会话存档游标扩展为 bigint 并增加消息分表同步索引，规则 CRUD、触发记录、会话列表、会话存档配置和会话同步入库均由 Go 独立服务承接。关键词任务会扫描会话存档消息、按员工范围和精确/模糊关键词命中规则、写入待打标签记录、入队 `mark-tags`，并由 worker 回写记录状态和标签统计；入群行为自动标签已接入企微 `change_external_chat.create/update` 事件，单群同步后按 `mc_auto_tag.type=2` 的 `tag_rule.rooms/tags` 匹配外部联系人成员，幂等写入待打标签记录并入队 `mark-tags`；分时段自动标签已接入企微 `change_external_contact.add_external_contact` 事件，客户关系同步后按 `mc_auto_tag.type=3` 的成员范围和时间段规则匹配客户添加时间，幂等写入待打标签记录并入队 `mark-tags`；`scripts/smoke_auto_tag_dashboard.sh` 已用真实 Go standalone 覆盖三类自动标签规则新建、列表、详情、触发记录、启停、删除、会话成员筛选、会话列表和会话存档配置读写，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`；`scripts/smoke_auto_tag_keyword_task.sh` 覆盖新消息触发和 pending 记录重投递，`scripts/smoke_wework_callback_worker.sh` 覆盖新增客户分时段自动标签、客户群入群自动标签和 `mark-tags` 入队。
-- `dashboard/lottery/index/store/showContact/show/destroy/share/update/info/writeOff/batchContactTags` 使用 dashboard token 和 RBAC resolver 接管抽奖活动后台链路；`0015_lottery` 会创建 `mc_lottery`、`mc_lottery_contact`、`mc_lottery_contact_record`、`mc_lottery_prize` 并补齐抽奖活动页面菜单和 10 个接口权限，活动 CRUD、客户列表、分享链接、核销和批量打标签均由 Go 独立服务承接；新增 Go 原生 `/dashboard/lottery/page` 页面，使用 dashboard JWT 直接管理抽奖活动、奖品详情、分享链接和中奖客户，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_lottery_dashboard.sh` 已用真实 Go standalone 覆盖抽奖活动新建、列表、详情、分享、中奖客户、核销、批量打标签、更新、删除、级联软删和 `lotteries` SaaS 用量刷新；新增抽奖活动会按 `lotteries` SaaS 套餐额度拦截，创建和删除后会刷新对应用量；更新或删除抽奖活动会回收 `prize_set`、`exchange_set`、`draw_set`、`win_set`、`corp_card` 和中奖记录 `receive_qr` 中的本地上传文件账本并刷新 `storage_mb`。
-- `dashboard/roomFission/index/store/info/update/destroy/invite/show/showRoom/showContact/writeOff` 使用 dashboard token 和 RBAC resolver 接管群裂变后台链路；`0016_room_fission` 会创建 `mc_room_fission`、`mc_room_fission_contact`、`mc_room_fission_invite`、`mc_room_fission_poster`、`mc_room_fission_room`、`mc_room_fission_welcome` 并补齐群裂变页面菜单和 10 个接口权限，活动 CRUD、四步编辑数据、邀请配置、群聊数据、客户数据、分享链接和核销均由 Go 独立服务承接；新增 Go 原生 `/dashboard/roomFission/page` 页面，使用 dashboard JWT 直接管理群裂变活动、海报欢迎语、邀请配置、群聊数据、参与客户和核销状态，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_room_fission_dashboard.sh` 已用真实 Go standalone 覆盖群裂变新建、列表、详情、群聊、客户、邀请、更新、核销、删除、级联软删和 `room_fissions` SaaS 用量刷新，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`；新增群裂变会按 `room_fissions` SaaS 套餐额度拦截，创建和删除后会刷新对应用量。
-- `dashboard/roomClockIn/index/store/update/destroy/show/showContact/batchContactTags/info/dayDetail` 使用 dashboard token 和 RBAC resolver 接管群打卡后台链路；`0017_room_clock_in` 会创建 `mc_room_clock_in`、`mc_room_clock_in_contact`、`mc_room_clock_in_record` 并补齐群打卡页面菜单和 9 个接口权限，活动 CRUD、客户列表、打卡天数明细和批量打标签均由 Go 独立服务承接；新增 Go 原生 `/dashboard/roomClockIn/page` 页面，使用 dashboard JWT 直接管理群打卡活动、参与客户和打卡明细，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_room_clock_in_dashboard.sh` 已用真实 Go standalone 覆盖群打卡新建、列表、详情、客户列表、天数明细、批量打标签、更新、停用状态、删除、级联软删和 `room_clock_ins` SaaS 用量刷新，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`；新增群打卡会按 `room_clock_ins` SaaS 套餐额度拦截，创建和删除后会刷新对应用量；更新或删除群打卡会回收 `employee_qrcode` 指向的本地上传文件账本并刷新 `storage_mb`。
-- `dashboard/roomQuality/index/store/status/info/update/showContact/destroy/contactDetail` 使用 dashboard token 和 RBAC resolver 接管群质检后台链路；`0018_room_quality` 会创建 `mc_room_quality`、`mc_room_quality_contact` 并补齐群质检页面菜单和 8 个接口权限，规则 CRUD、启停、触发客户列表和客户触发详情均由 Go 独立服务承接；新增 Go 原生 `/dashboard/roomQuality/page` 页面，使用 dashboard JWT 直接管理质检规则、启停和触发客户记录，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_room_quality_dashboard.sh` 已用真实 Go standalone 覆盖群质检新建、列表、弹窗详情、触发客户列表、触发客户详情、启停、更新、删除、触发记录级联软删和 `room_qualities` SaaS 用量刷新，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`；新增群质检规则会按 `room_qualities` SaaS 套餐额度拦截，创建和删除后会刷新对应用量。
-- `dashboard/roomCalendar/index/addRoom/destroyRoom/store/destroy/show/update` 使用 dashboard token 和 RBAC resolver 接管群日历后台链路；`0019_room_calendar` 会创建 `mc_room_calendar`、`mc_room_calendar_push`、`mc_room_calendar_record` 并补齐群日历页面菜单和 7 个接口权限，日历 CRUD、群聊增删和推送内容保存均由 Go 独立服务承接；新增 Go 原生 `/dashboard/roomCalendar/page` 页面，使用 dashboard JWT 直接管理群日历列表、启停和推送计划，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_room_calendar_dashboard.sh` 已用真实 Go standalone 覆盖群日历新建、列表、详情、增加群聊、移除群聊、更新推送计划、删除、推送和记录级联软删、`room_calendar_push.room_calendar_id` 字符串兼容查询和 `room_calendars` SaaS 用量刷新，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`；列表推送数查询已改为数值比较，避免 `mc_room_calendar_push.room_calendar_id` 与 `CAST(c.id AS CHAR)` 在 MariaDB/MySQL 下出现 collation 冲突；新增群日历会按 `room_calendars` SaaS 套餐额度拦截，创建和删除后会刷新对应用量。
-- `dashboard/roomRemind/index/destroy/info/status/store/update` 和 `dashboard/task/roomRemind` 使用 dashboard token 接管客户群提醒后台链路；`0020_room_remind` 会创建 `mc_room_remind`、`mc_room_remind_record` 并补齐客户群提醒页面菜单和 6 个接口权限，规则 CRUD、GET 启停、任务查询和触发记录统计均由 Go 独立服务承接；新增 Go 原生 `/dashboard/roomRemind/page` 页面，使用 dashboard JWT 直接管理提醒规则、启停和启用任务视图，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_room_remind_dashboard.sh` 已用真实 Go standalone 覆盖客户群提醒新建、列表、详情、任务视图、启停、更新、删除、提醒记录级联软删和 `room_reminds` SaaS 用量刷新，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`；新增客户群提醒会按 `room_reminds` SaaS 套餐额度拦截，创建和删除后会刷新对应用量。
-- `dashboard/roomInfinitePull/index/info/update/destroy/store` 使用 dashboard token 和 RBAC resolver 接管无限拉群后台链路；`0021_room_infinite_pull` 会创建 `mc_room_infinite` 并补齐无限拉群页面菜单和 5 个接口权限，活动 CRUD、企微活码 JSON、扫码人数和详情二维码链接均由 Go 独立服务承接；新增 Go 原生 `/dashboard/roomInfinitePull/page` 页面，使用 dashboard JWT 直接管理无限拉群活动、群名称/引导语显示配置和企微活码 JSON，不依赖原 MoChat 前端源码或 dashboard dist 中的旧页面；`scripts/smoke_room_infinite_pull_dashboard.sh` 已用真实 Go standalone 覆盖无限拉群新建、列表、详情、更新、删除、企微活码 JSON、详情链接和 `room_infinite_pulls` SaaS 用量刷新，并已接入 `MOCHAT_ACCEPTANCE_SUITE=frontend`；新增无限拉群会按 `room_infinite_pulls` SaaS 套餐额度拦截，创建和删除后会刷新对应用量；更新或删除无限拉群会回收 `avatar`、`logo` 和 `qw_code` 活码 JSON 二维码字段指向的本地上传文件账本并刷新 `storage_mb`。2026-07-05 复算 dashboard 前端源码 API 去重口径已达到 `316/316`，`missing=0`；旧前端别名 `dashboard/clockIn/index`、`dashboard/workDepartment/memberIndex`、预览接口 `dashboard/contactMessageBatchSend/messageShow` 和自动拉群兼容 `dashboard/workRoomAutoPull/move` 已纳入 Go 接管清单。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `sidebar/contactBatchAdd/detail` 使用 sidebar 员工 token 读取当前员工被分配的批量加好友导入手机号，`batchId` 对应 `mc_contact_batch_add_import.record_id`，`status=4` 返回全部，`0/1/2/3` 分别返回待分配、待添加、待通过、已添加。
 - `sidebar/contactSop/getSopInfo` 和 `sidebar/contactSop/getSopTipInfo` 使用 sidebar 员工 token 读取当前员工的个人 SOP 提醒日志，补齐客户信息和本地素材完整 URL；`scripts/smoke_sidebar_frontend_contact.sh` 会同时验证客户页个人 SOP 提醒弹窗和 `/contactSop?id=900001&agentId=1` 详情页渲染，内置 sidebar dist 也已补齐个人 SOP 详情页初始空 `task/contact` 结构，避免页面加载期出现 `task.content` 运行时错误。
 - `sidebar/roomSop/getSopInfo` 和 `sidebar/roomSop/logState` 使用 sidebar 员工 token 读取并完成当前员工的群 SOP 提醒日志；`getSopInfo` 输出前端 `roomSop` 页面需要的创建人、提醒时间、群聊信息、任务内容和完成状态，`logState` 会在 `mc_room_sop_log` 中把当前员工对应日志标记为已完成。
 - `dashboard/workContact/index` 使用 dashboard token 和 RBAC resolver 校验 `/dashboard/workContact/index#get`，按当前企业、数据权限、客户名、备注、画像、性别、来源、所在群、持群数、所属员工、添加时间和客户编号分页读取客户列表，并补齐客户资料、群名、归属成员、标签、同步时间和当前用户是否持有该客户。
 - `dashboard/workContact/lossContact` 使用 dashboard token 和 RBAC resolver 校验 `/dashboard/workContact/lossContact#get`，按当前企业、数据权限和所属员工分页读取已删除/被动删除客户关系，包含软删除客户关系、软删除联系人和软删除标签 pivot，并补齐客户头像、客户名、员工企业名、员工备注和标签。
 - `dashboard/channelCode/index/show/contact/statistics/statisticsIndex/store/update` 使用 dashboard token 和 RBAC resolver 校验对应权限，按 PHP 行为读取渠道活码列表、详情、扫码客户、统计折线和统计分页；新增/编辑会写入 `mc_channel_code`、`mc_business_log`，调用企业微信联系我二维码接口，并回写 `qrcode_url` / `wx_config_id`。渠道码创建或定时刷新 contact_way 失败触发软删回滚时，会同步刷新 `channel_codes` SaaS 用量，避免失败记录继续占用套餐额度；创建失败回滚还会解析 `welcome_message.messageDetail` 中的本地欢迎语素材路径，回收 `mochat_go_saas_storage_objects` 并刷新 `storage_mb`。
-- 客户群发、客户群群发、标签建群、自动拉群和裂变活动删除或失败回滚后，会刷新对应 SaaS 业务资源用量；`scripts/smoke_saas_storage_reclaim.sh` 会同时验证文件账本回收和这些业务计数下降。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `dashboard/channelCodeGroup/index/detail/store/update/move` 使用 dashboard token 的企业上下文读写渠道活码分组；列表按 PHP 行为追加 `{groupId:0,name:"未分组"}`，详情缺少 `groupId` 时返回“分组id必传”，创建要求唯一当前企业，更新禁止修改“未分组”，移动会更新 `mc_channel_code.group_id`。
 - `sidebar/agent/auth` 和 `sidebar/agent/oauth` 按 PHP 行为生成企业微信 OAuth URL、用 code 换取企微 `userid`，分别签发 sidebar 员工 JWT 和 dashboard 用户 JWT；`sidebar/agent/jssdkConfig` 与 `sidebar/wxJsSdk/config` 会读取企业/应用密钥，获取企微 jsapi ticket 并返回 JSSDK 签名配置。
 - `dashboard/workContact/track` 使用 dashboard token 和 RBAC resolver 校验 `/dashboard/workContact/track#get`，复用同一条互动轨迹查询链路。
@@ -1189,13 +1161,12 @@ Go 会按 PHP 规则读取：
 - 数据权限按菜单 `data_permission` 和角色 `data_permission` 的当前企业配置计算。
 - 本部门权限会通过 `mc_work_employee_department` 和 `mc_work_department.path` 解析同部门及子部门员工。
 
-该 resolver 目前已用于 `corp/index`、`corp/show`、`corp/update`、`role/index`、`role/show`、`role/permissionShow`、`role/showEmployee`、`menu/index`、`menu/show`、`workEmployee/index`、`workDepartment/pageIndex` 和 `workDepartment/showEmployee`；后续迁移更多业务接口时仍需抽成统一中间件，避免在 handler 内重复接线。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 
 开发期启用示例：
 
 ```bash
 env -u GOROOT \
-  MOCHAT_GO_MIGRATE_LOGIN_SHOW=1 \
   MOCHAT_GO_DEV_AUTH_HEADER=1 \
   MOCHAT_MYSQL_DSN='user:pass@tcp(127.0.0.1:3306)/mochat?parseTime=true&loc=Local' \
   go run ./cmd/mochat-go
@@ -1209,7 +1180,7 @@ X-Mochat-Go-User-ID: 1
 
 如果本机没有 Redis、但只想验证 JWT 验签和字段映射，可临时设置 `MOCHAT_GO_SKIP_JWT_BLACKLIST=1`。该模式不会读取 Redis 黑名单，也不会读取 `mc:user.{id}` 企业选择缓存，不能用于生产接管。
 
-`MOCHAT_GO_MIGRATE_LOGOUT=1`、`MOCHAT_GO_MIGRATE_CORP_BIND=1`、`MOCHAT_GO_MIGRATE_CORP_STORE=1`、`MOCHAT_GO_MIGRATE_CORP_UPDATE=1`、`MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_PROCESS_STATUS_UPDATE=1`、`MOCHAT_GO_MIGRATE_SIDEBAR_ROOM_SOP_LOG_STATE=1`、`MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_STORE=1`、`MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_REMIND=1`、`MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_DESTROY=1`、`MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_STORE=1`、`MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_REMIND=1`、`MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_DESTROY=1`、`MOCHAT_GO_MIGRATE_OFFICIAL_ACCOUNT_SET=1`、`MOCHAT_GO_MIGRATE_SHOP_CODE_DASHBOARD=1` 不能搭配 `MOCHAT_GO_SKIP_JWT_BLACKLIST=1` 或 `MOCHAT_GO_DEV_AUTH_HEADER=1`，因为这些写接口必须使用真实 PHP JWT/侧边栏 JWT 和 Redis 黑名单检查。
+`MOCHAT_GO_MIGRATE_LOGOUT=1`、`MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_PROCESS_STATUS_UPDATE=1`、`MOCHAT_GO_MIGRATE_SIDEBAR_ROOM_SOP_LOG_STATE=1`、`MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_STORE=1`、`MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_REMIND=1`、`MOCHAT_GO_MIGRATE_CONTACT_MESSAGE_BATCH_SEND_DESTROY=1`、`MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_STORE=1`、`MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_REMIND=1`、`MOCHAT_GO_MIGRATE_ROOM_MESSAGE_BATCH_SEND_DESTROY=1`、`MOCHAT_GO_MIGRATE_OFFICIAL_ACCOUNT_SET=1`、`MOCHAT_GO_MIGRATE_SHOP_CODE_DASHBOARD=1` 不能搭配 `MOCHAT_GO_SKIP_JWT_BLACKLIST=1` 或 `MOCHAT_GO_DEV_AUTH_HEADER=1`，因为这些写接口必须使用真实 PHP JWT/侧边栏 JWT 和 Redis 黑名单检查。旧 Dashboard 企业选择和旧登录接口已在 Task12 切换中物理删除，不再有对应迁移开关。
 
 ## 测试
 
@@ -1230,77 +1201,44 @@ env -u GOROOT go test -race ./...
 ./scripts/audit_goal_completion.sh
 ./scripts/source_fingerprint.py
 ./scripts/smoke_production_evidence_gate.sh
-./scripts/smoke_saas_provisioning.sh
-./scripts/smoke_saas_tenant_isolation.sh
-./scripts/smoke_saas_quota_enforcement.sh
-./scripts/smoke_saas_storage_reconcile.sh
-./scripts/smoke_saas_storage_reclaim.sh
-./scripts/smoke_saas_usage_refresh.sh
 ./scripts/smoke_queue_idempotency.sh
 ./scripts/smoke_async_file_upload_worker.sh
 ./scripts/smoke_mark_tags_worker.sh
 ./scripts/lint_mysql57_schema.sh
 ./scripts/smoke_mysql57_schema_migrate.sh
 ./scripts/smoke_wework_callback_worker.sh
-./scripts/smoke_employee_apply_worker.sh
-./scripts/smoke_fallback.sh
 ./scripts/local_stack_check.sh
-./scripts/smoke_real_php_auth_chain.sh
 ./scripts/smoke_frontend_static_browser.sh
-./scripts/smoke_sensitive_word_dashboard.sh
-./scripts/smoke_channel_code_dashboard.sh
-./scripts/smoke_shop_code_dashboard.sh
-./scripts/smoke_radar_dashboard.sh
-./scripts/smoke_lottery_dashboard.sh
-./scripts/smoke_room_fission_dashboard.sh
-./scripts/smoke_room_infinite_pull_dashboard.sh
-./scripts/smoke_room_clock_in_dashboard.sh
-./scripts/smoke_room_quality_dashboard.sh
-./scripts/smoke_room_calendar_dashboard.sh
-./scripts/smoke_room_remind_dashboard.sh
-./scripts/smoke_sop_dashboard.sh
-./scripts/smoke_auto_tag_dashboard.sh
-./scripts/smoke_greeting_dashboard.sh
-./scripts/smoke_room_welcome_dashboard.sh
-./scripts/smoke_work_room_auto_pull_dashboard.sh
-./scripts/smoke_room_tag_pull_dashboard.sh
-./scripts/smoke_contact_message_batch_send_dashboard.sh
-./scripts/smoke_room_message_batch_send_dashboard.sh
-./scripts/smoke_contact_batch_add_dashboard.sh
-./scripts/smoke_contact_transfer_dashboard.sh
-./scripts/smoke_room_fission_dashboard.sh
-./scripts/smoke_work_fission_dashboard.sh
-./scripts/smoke_dashboard_frontend_login.sh
 ./scripts/smoke_sidebar_frontend_contact.sh
 ./scripts/smoke_operation_frontend_work_fission.sh
 ```
 
 说明：
 
-- `scripts/standalone_acceptance.sh` 是独立 Go 版的长验收入口，默认执行 `all` 套件，串联快速门禁、迁移期清单对齐、schema migration、standalone 容器、路由覆盖、SaaS、worker、cron、前端和 MySQL 5.7 验证，并强制 `MOCHAT_ROUTE_COVERAGE_MAX_MISSING=0`；它默认不运行 PHP fallback/真实 PHP 对照，避免把迁移期依赖当成独立版验收。`core` 套件会在本地存在 `MOCHAT_SOURCE_ROOT` 或默认 `../mochat` 源码时运行 `standalone_inventory_parity.sh`，没有源码时跳过该迁移期清单门禁，不影响 Go standalone 运行时独立性；独立交付证据包可设置 `MOCHAT_ACCEPTANCE_SKIP_INVENTORY_PARITY=1` 强制跳过 PHP 清单对齐，只用 Go 内置 manifest 和 standalone smoke 自证；core 还会运行生产证据门禁规则自测，确认模板证据和 MySQL 5.7 arm64 skip 日志不会被误判为有效生产证据。`frontend` 套件会额外运行 `scripts/smoke_greeting_dashboard.sh`、`scripts/smoke_room_welcome_dashboard.sh`、`scripts/smoke_work_room_auto_pull_dashboard.sh`、`scripts/smoke_room_tag_pull_dashboard.sh`、`scripts/smoke_contact_message_batch_send_dashboard.sh`、`scripts/smoke_room_message_batch_send_dashboard.sh`、`scripts/smoke_room_fission_dashboard.sh` 和 `scripts/smoke_work_fission_dashboard.sh`，验证好友欢迎语全员/指定员工新增、列表、详情、编辑、删除、业务日志和素材静态 URL，入群欢迎语新增、列表、详情、选择、编辑、删除、企业微信图片上传、临时素材上传和模板 add/edit/del 请求，自动拉群新增、列表、详情、更新、兼容 move、企业微信 `contact_way/create`/`contact_way/update` 和 SaaS 用量刷新，标签建群客户筛选、新建、列表、详情、客户明细、员工任务、提醒发送、删除、企业微信 `media/uploadimg`、`externalcontact/add_msg_template`、`message/send` 和 `room_tag_pulls` 用量刷新，客户群发立即发送、列表、详情、消息预览、客户群详情、员工发送明细、客户接收明细、提醒、删除、企业微信 `media/upload`、`externalcontact/add_msg_template`、`message/send` 和 `contact_message_batches` 用量刷新，客户群群发立即发送、列表、详情、群主发送明细、群接收明细、提醒、删除、企业微信 `media/upload`、`externalcontact/add_msg_template`、`message/send` 和 `room_message_batches` 用量刷新，群裂变活动新建、列表、详情、群聊、客户、邀请、更新、核销、删除和 `room_fissions` 用量刷新，以及任务宝裂变活动新建、列表、详情、配置、统计、邀请、更新、删除、企业微信 `media/uploadimg`、`externalcontact/add_contact_way`、`externalcontact/add_msg_template` 和 `work_fissions` 用量刷新。可用 `MOCHAT_ACCEPTANCE_SUITE=core|saas|workers|cron|frontend|mysql57` 分段执行；确需迁移期对照时设置 `MOCHAT_ACCEPTANCE_SUITE=php MOCHAT_ACCEPTANCE_INCLUDE_PHP=1`。
-- `frontend` 套件还会运行 `scripts/smoke_sensitive_word_dashboard.sh`，覆盖敏感词分组批量新建、更新、下拉选择，词库批量拆词去重、新增、移动、状态更新、删除、监控列表、监控详情会话展开和 `sensitive_words` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_channel_code_dashboard.sh`，覆盖渠道活码分组新建、详情、更新、移动，渠道活码新建、更新、列表、详情、客户明细、统计，企业微信 `externalcontact/add_contact_way` / `externalcontact/update_contact_way`，业务日志、扫码客户统计和 `channel_codes` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_shop_code_dashboard.sh`，覆盖门店活码新建、列表、详情、位置、城市/地址检索、分享、页面设置、统计、客户明细、门店统计、员工更新、二维码更新、状态切换、批量打标签、删除和 `shop_codes` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_radar_dashboard.sh`，覆盖互动雷达新建、列表、详情、渠道、渠道链接、客户点击明细、渠道统计、文章元数据回显、更新、删除和 `radars` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_lottery_dashboard.sh`，覆盖抽奖活动新建、列表、详情、分享、中奖客户、核销、批量打标签、更新、删除、级联软删和 `lotteries` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_room_infinite_pull_dashboard.sh`，覆盖无限拉群新建、列表、详情、更新、删除、企微活码 JSON、详情链接和 `room_infinite_pulls` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_room_clock_in_dashboard.sh`，覆盖群打卡新建、列表、详情、客户列表、天数明细、批量打标签、更新、停用状态、删除、级联软删和 `room_clock_ins` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_room_quality_dashboard.sh`，覆盖群质检新建、列表、弹窗详情、触发客户列表、触发客户详情、启停、更新、删除、触发记录级联软删和 `room_qualities` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_room_calendar_dashboard.sh`，覆盖群日历新建、列表、详情、增加群聊、移除群聊、更新推送计划、删除、推送和记录级联软删、`room_calendar_push.room_calendar_id` 字符串兼容查询和 `room_calendars` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_room_remind_dashboard.sh`，覆盖客户群提醒新建、列表、详情、任务视图、启停、更新、删除、提醒记录级联软删和 `room_reminds` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_sop_dashboard.sh`，覆盖个人/群 SOP 新建、列表、详情、设置员工/群聊、启停、更新、删除、触达日志级联删除和 `contact_sops` / `room_sops` SaaS 用量刷新。
-- `frontend` 套件还会运行 `scripts/smoke_auto_tag_dashboard.sh`，覆盖三类自动标签规则新建、列表、详情、触发记录、启停、删除、会话成员筛选、会话列表和会话存档配置读写。
-- `frontend` 套件还会运行 `scripts/smoke_contact_batch_add_dashboard.sh`，覆盖批量加好友设置、CSV 导入、导入记录、客户列表筛选、员工统计、二次分配、提醒、单条删除、导入批次删除和 `storage_mb` 账本回收。
-- `frontend` 套件还会运行 `scripts/smoke_contact_transfer_dashboard.sh`，覆盖在职转接/离职继承待分配同步、在职客户列表、离职待分配客户列表、待分配群列表、客户接替、群接替、分配记录和企业微信 `get_unassigned_list` / `transfer_customer` / `groupchat/transfer` 请求口径。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `scripts/test.sh` 会先执行 `scripts/audit_standalone_independence.sh`、`scripts/audit_acceptance_suite_coverage.sh`、`scripts/audit_manifest_route_smoke_coverage.sh`、`scripts/audit_functional_module_matrix.sh`、`scripts/audit_login_corp_validation.sh`、队列注解覆盖、worker SaaS 用量断言、SaaS 指标覆盖、SaaS 存储回收覆盖审计和生产证据门禁自测，再执行 `go test ./...`、`go vet ./...` 和 `cmd/mochat-go`、`cmd/mochat-inventory`、`cmd/mochat-migrate`、`cmd/mochat-bootstrap`、`cmd/mochat-saas-maintenance` 五个入口的 `go build`。
 - `scripts/audit_standalone_independence.sh` 会静态审计独立交付包和核心 standalone smoke，阻止 `deploy/standalone` 定义 PHP 服务、挂载原 `../mochat`、配置 PHP fallback，阻止核心 standalone smoke 重新依赖 fake PHP、原项目路径、外部 manifest 或逐路由迁移开关。
-- `scripts/audit_acceptance_suite_coverage.sh` 会静态扫描当前 smoke（明确排除 Task12 deferred 的旧 `smoke_standalone_compose_app.sh`），确保其余每个 smoke 都已纳入 `scripts/standalone_acceptance.sh`，并反查验收入口没有引用已删除的 smoke，防止新增验收脚本游离在独立版总验收之外。
+- `scripts/audit_acceptance_suite_coverage.sh` 会静态扫描当前 smoke，确保每个 smoke 都已纳入 `scripts/standalone_acceptance.sh`，并反查验收入口没有引用已删除的 smoke，防止新增验收脚本游离在独立版总验收之外。
 - `scripts/audit_manifest_route_smoke_coverage.sh` 会读取内置 `compat_manifest_embedded.json`，要求 224 条原 PHP manifest 路由都能在 `scripts/smoke_*.sh` 中找到直接覆盖痕迹；动态路由会按 `{appId}`、`{params?}` 和 `WW_verify_*.txt` 生成可匹配变体。
 - `scripts/audit_functional_module_matrix.sh` 会把内置 manifest 的 224 条 method+path 路由和 `internal/server/server.go` 中的 Go 运行时迁移路由归入 29 个业务功能模块，并检查每个模块是否具备 Go 源码、已纳入 `standalone_acceptance.sh` 的 smoke 证据，以及关键 SaaS 指标、上传账本回收、队列或企微回调门禁 token；它用于防止只用路由覆盖数误判“全功能迁移完成”，也防止新增 Go 兼容路由游离在模块验收之外。
 - `scripts/audit_frontend_dist_api_coverage.sh` 会扫描 `web/dashboard/dist`、`web/sidebar/dist` 和 `web/operation/dist` 内置旧前端构建产物中的静态 API 声明，并与 `internal/server/server.go` 的 Go runtime dispatch/routes 对比；默认只报告，设置 `MOCHAT_FRONTEND_DIST_API_STRICT=1` 后发现缺失 API 会返回非 0。该脚本用于防止 `manifest 224/224` 已通过但旧前端真实调用的 API 仍未被 Go 承接。
 - `scripts/audit_login_corp_validation.sh` 会静态审计 dashboard 业务 handler，禁止绕过 `ResolveValidatedLoginCorpInfoFromStore` 直接信任 `mc:user.{userId}` 企业选择缓存，防止脏 Redis 缓存重新造成跨租户读数据。
 - `scripts/audit_saas_metric_coverage.sh` 会静态审计 26 个 SaaS 指标，确保 `saas_quota.go`、`cmd/mochat-bootstrap`、`internal/store/mysql.go`、额度拦截 smoke 和用量重刷 smoke 保持同一套指标，防止新增套餐资源后漏计、漏刷或漏验收。
-- `scripts/audit_saas_storage_reclaim_coverage.sh` 会静态抽取 `internal/store` 中调用 `reclaimSaaSStorageObjects` 的 26 个业务函数，并检查 `scripts/smoke_saas_storage_reclaim.sh` 是否仍覆盖 14 类触发式账本回收链路；新增上传文件引用入口时，需要同步补真实 smoke 断言。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `scripts/audit_wework_callback_event_coverage.sh` 会静态抽取 `WeWorkCallbackWorker.Process` 中的企微事件路径，要求每个事件都出现在 `scripts/smoke_wework_callback_worker.sh`，并要求 PHP 兼容 no-op 事件同时保留单测和 smoke 覆盖，防止新增或改动回调 case 后漏掉独立栈回归。
 - `scripts/smoke_standalone.sh` 会故意注入无效 `MOCHAT_PHP_UPSTREAM`、不存在的 `MOCHAT_SOURCE_ROOT` 和 `MOCHAT_COMPAT_MANIFEST`，验证 `MOCHAT_GO_STANDALONE=1` 时不会读取这些迁移期依赖，dashboard `/login` 可由 Go 服务从 `web/dashboard/dist` 返回，`/favicon.ico` 可由 Go 独立服务响应，且未迁移路由返回 501。
 - `docs/phases/phase-pre0-standalone/plans/release-candidate.md` 是独立交付候选说明，串联 `deploy/standalone/.env.example`、standalone compose 启动、migration baseline、`mochat-bootstrap` 初始化、本地短验收、生产证据采集和发布前检查；它用于把“本地能跑”收口成可交给部署/验收人员执行的 Go standalone RC。
@@ -1323,14 +1261,12 @@ env -u GOROOT go test -race ./...
 - `scripts/capture_real_saas_tenants_evidence.sh` 会用两个真实生产租户的 dashboard token 访问配置的读路径，校验各自响应包含租户标识，并用跨租户资源路径验证 A token 访问 B 资源、B token 访问 A 资源会被拒绝；同时要求传入额度拦截、上传账本、异步任务和告警处置证据摘要或文件，全部满足后生成符合生产证据规则的 `docs/phases/phase-pre0-standalone/evidence/production/real-saas-tenants.md`。该脚本只采集生产证据，不启动 24 小时持续运行。
 - `scripts/capture_prod_frontend_evidence.sh` 会用 Playwright 访问真实生产 `MOCHAT_PROD_FRONTEND_BASE_URL` 下配置的 dashboard、sidebar 和 operation 路径，采集截图、console error、同源请求失败和非预期 4xx/5xx，生成符合生产证据规则的 `docs/phases/phase-pre0-standalone/evidence/production/prod-frontend.md`；生产页面需要登录时可传入 `MOCHAT_PROD_FRONTEND_AUTH_STATE`。该脚本只做浏览器证据采集，不启动 24 小时持续运行。
 - `scripts/capture_stability_evidence.sh` 会解析目标部署环境已有短稳回归、健康检查、外部监控摘要，或 legacy `soak.ndjson`，校验时间范围、standalone 模式、路由覆盖和资源使用，并生成符合生产证据规则的 `docs/phases/phase-pre0-standalone/evidence/production/stability.md`；外部监控摘要不能只写“monitor ok”，需要给出 route_total/missing_route_total 或等价路由覆盖、`/readyz`/health 结果、RSS/CPU/连接等资源记录和起止时间范围。默认最小时长为 300 秒，不再默认要求 24 小时；另行要求满 24 小时长稳时再设置 `MOCHAT_STABILITY_MIN_DURATION_SECONDS=86400`。该脚本只读取已有记录，不启动 24 小时持续运行。
-- `scripts/smoke_standalone_compose_app.sh` 会使用 `deploy/standalone/docker-compose.yml --profile app` 构建并启动 Go app + MySQL + Redis 容器栈，验证容器内 Go standalone `/readyz`、内置 manifest、dashboard/sidebar/operation 前端入口、SaaS 总后台页面、`0033` 至 `0053` 初始化、订阅、支付订单、退款、开票资料、发票单、渠道结算批次/明细、结算同步状态/运行记录、平台角色/授权、审批单/事件/策略/会签/委托、健康扫描/系统事故、服务账号/API Key、备份/恢复、合规生命周期和身份安全台账与支付回调表、MariaDB 客户端实际加密备份、通知健康自动恢复和审批 SLA 提醒 task runner、容器内 `mochat-migrate baseline`、`mochat-bootstrap`、真实 `POST /dashboard/user/auth` 登录、`loginShow`、`permissionByUser`、`corp/select`、`corp/bind`、Redis 企业选择缓存、`corpData/index`、`corpData/lineChat`、`workEmployee/searchCondition`、`workDepartment/index` 和 `workEmployee/index` 闭环。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `scripts/smoke_sidebar_frontend_contact.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，在故意污染 `MOCHAT_PHP_UPSTREAM`、`MOCHAT_SOURCE_ROOT`、`MOCHAT_COMPAT_MANIFEST` 的情况下先用真实浏览器访问 sidebar `/login?agentId=1&target=/contact?agentId=1`，验证旧 dist 会进入 Go `/sidebar/agent/auth`、生成企业微信 OAuth 外跳、用 code 回调 `auth/getuserinfo` 签发 sidebar 员工 JWT，并由前端 `/auth` 写入 `token/agentId` cookie 后落回 `/contact?agentId=1`；随后继续访问 `/contactSop?id=900001&agentId=1`、`/roomSop?id=900001`、`/contactBatchAdd?batchId=900001` 和 `/medium?agentId=1`，验证 `agent/jssdkConfig`、`workContact/detail/show/track`、`contactFieldPivot/index`、`contactSop/getSopTipInfo`、`contactSop/getSopInfo`、`roomSop/getSopInfo`、`roomSop/logState`、`contactBatchAdd/detail`、`mediumGroup/index`、`medium/index`、本地 `/static/*` 头像/画像资源，以及旧 dist 里 `/undefined/sidebar/*` API 前缀能被 Go runtime 兼容归一化；脚本会开启 `cron-sop-log` 并等待 Go 自动生成普通和周期个人/群 SOP 日志，以及 `targetAnchor=room_join` 入群后群 SOP 日志，断言周期日志带 `_mochatGoOccurrence`、入群后群 SOP 写入 `mc_room_sop_log.contact`，再断言个人 SOP 弹窗、个人 SOP 详情页、群 SOP 页面和 `mc_room_sop_log.state` 均可独立闭环。
 - `scripts/smoke_operation_frontend_work_fission.sh` 会启动独立 MySQL/Redis、fake 微信开放平台 API 和 Go standalone，在无 PHP、无原源码、无外部 manifest 的情况下先验证 operation `/auth/workFission` 生成公众号 OAuth 外跳参数，再用 code 回调调用 fake 微信 `api_component_token`、`sns/oauth2/component/access_token`、`sns/userinfo` 写入 Go operation session；同一脚本也会验证兼容 `/load/{params?}` 的 GET OAuth 外跳和 POST code 回调。随后脚本用真实浏览器访问 `/workFission?id=900001` 和助力进度页，验证 `openUserInfo/workFission` 同源别名、`workFission/poster`、`taskData`、`inviteFriends`、`receive`、本地 `/static/*` 海报/头像/二维码资源，以及旧 dist 里 `/undefined/operation/*` API 前缀归一化。
 - `scripts/standalone_inventory_parity.sh` 会从 `MOCHAT_SOURCE_ROOT` 指向的 PHP 原项目重新扫描路由、表、定时任务、事件处理器和队列注解，并和 Go 内置 `compat_manifest_embedded.json` 对比，防止迁移清单漏收原 PHP 功能；默认读取 `../mochat`，只作为迁移期清单门禁，不是 Go standalone 运行时依赖。
-- 注意：下方仍保留的 `scripts/smoke_standalone_compose_app.sh` 是历史业务 smoke，当前未切换到 SaaS-only bootstrap，已从本阶段 acceptance/matrix 入口移除，不得作为身份验收或部署步骤执行；必须由 Task12 更新后才能恢复使用。
-- `cmd/mochat-bootstrap` 只创建一个 SaaS 平台管理员并只写入 `mochat_go_saas_admin_users`；不会创建 tenant、corp、`mc_user`、Dashboard identity、套餐或 RBAC 业务数据。真实隔离 MariaDB contract 由 `internal/migration` integration gate 覆盖，密码只通过受限 `PasswordFile` 读取，`RequestKey` 持久化用于幂等判定。
-- `scripts/smoke_saas_provisioning.sh` 是历史 tenant provisioning smoke，依赖已废弃的 batch bootstrap 口径；本阶段不作为可执行身份验收，必须由 Task12 切换到受保护 SaaS API 后才能恢复使用。
-- `scripts/smoke_saas_admin_dashboard.sh` 会启动独立 Go + MySQL，验证 SaaS 总后台页面、平台 overview、租户 overview、单租户详情、租户生命周期审计、租户用量明细、运营日报、经营指标、经营趋势、风险看板、客户成功队列、风险跟进、风险跟进任务列表、负责人工作台、风险跟进批量关闭、告警处置和批量解决、通知重试、批量重试、通知关闭和批量关闭、套餐列表、套餐维护、套餐变更影响、套餐快照同步、套餐同步任务、续费任务、平台开户、租户开停、套餐到期拦截、续费账单、账单筛选汇总、告警/通知筛选汇总、告警/通知 CSV 导出、操作记录、租户/生命周期审计/用量/风险/经营指标/经营趋势/风险跟进任务/风险负责人/运营日报/操作/账单/账单跟进/账单负责人 CSV 导出、平台调整租户套餐、调整后 26 项额度刷新，以及普通租户越权访问平台总览/生命周期审计/用量明细/运营日报/经营指标/风险看板/客户成功队列/风险跟进/风险跟进任务/负责人工作台/风险跟进批量关闭/告警/批量告警解决/通知/批量通知重试/批量通知关闭/套餐/操作记录/账单/CSV 导出/平台开户/租户开停/租户套餐调整均返回 `403`；页面断言包含经营指标、经营趋势、导出经营指标 CSV、导出经营趋势 CSV、日报日期、统计天数、刷新日报、运营日报明细、日报负责人、日报通知、日报操作动作、日报账单流水、客户成功队列、生命周期审计、生命周期筛选、导出审计 CSV、套餐变更影响、套餐快照同步入口、套餐同步任务入口和续费任务入口；脚本会真实调用 `GET /dashboard/saasAdmin/businessMetrics` 并通过 `GET /dashboard/saasAdmin/export?type=businessMetrics` 导出经营指标 CSV，断言最近续费账单会进入估算 MRR/ARR、近期账单金额和套餐收入分布；脚本会真实调用 `GET /dashboard/saasAdmin/risk`，断言租户风险等级、风险分、风险原因、建议动作和 Top 风险指标，并调用 `GET /dashboard/saasAdmin/customerSuccess` 断言待处理租户的优先级、健康分、原因、下一步动作和失败通知数量，再用 `GET /dashboard/saasAdmin/export?type=risk` 导出风险 CSV；真实调用 `POST /dashboard/saasAdmin/riskFollowUp`，断言写入 `tenant.risk.follow_up` 操作日志，并再次读取风险看板、`GET /dashboard/saasAdmin/riskFollowUps` 任务列表、`GET /dashboard/saasAdmin/riskFollowUpOwners` 负责人工作台、显式带 `date` 和 `days` 的 `GET /dashboard/saasAdmin/dailyReport` 运营日报、`GET /dashboard/saasAdmin/export?type=dailyReport` 日报 CSV、`GET /dashboard/saasAdmin/export?type=riskFollowUps` 跟进任务 CSV、`GET /dashboard/saasAdmin/export?type=riskFollowUpOwners` 风险负责人 CSV 和风险 CSV，确认最新跟进状态、负责人、下次跟进时间、备注、到期状态、操作 ID、负责人任务分布、打开跟进、打开告警、失败通知、日报窗口日期、日报 CSV summary 和当日操作已回显；随后真实调用 `POST /dashboard/saasAdmin/riskFollowUpBulkClose`，断言按筛选条件把最新任务置为 `resolved`、任务列表进入 `closed`、并追加新的 `tenant.risk.follow_up` 操作日志；后段还会调用 `GET /dashboard/saasAdmin/export?type=usage` 导出目标租户用量 CSV，断言 users 指标、额度、状态和打开告警数字段；脚本还会断言套餐保存 `impact` 返回额度变化、分配租户数、降额后的超新额度租户和租户套餐快照未自动改写口径，并调用 `POST /dashboard/saasAdmin/packageSync` 验证 dry-run 预览不写入、实际同步遇到超额会阻断、显式允许超额后会写入租户快照并刷新 26 项额度，再调用 `POST /dashboard/saasAdmin/packageSyncTask` 和 `POST /dashboard/saasAdmin/packageSyncTaskApply` 验证套餐同步任务可创建 `blocked/pending` 状态、应用后变为 `applied`，并可通过 `GET /dashboard/saasAdmin/tasks` 回看任务；调用 `POST /dashboard/saasAdmin/tenantRenewalTask` 和 `POST /dashboard/saasAdmin/tenantRenewalTaskApply` 验证续费任务先生成预览、应用后写入账单事件并变为 `applied`，并通过 `GET /dashboard/saasAdmin/tasks?taskType=tenant_renewal` 回看任务；还会真实调用 `POST /dashboard/saasAdmin/alertResolve`，断言告警转为 resolved、用量明细打开告警数归零，并生成 `tenant.alert.resolve` 操作日志；真实调用 `POST /dashboard/saasAdmin/alertBulkResolve`，断言匹配筛选条件的 open 告警批量转为 resolved，并为每条告警生成带 `bulkResolve=true` 的 `tenant.alert.resolve` 操作日志；真实调用 `POST /dashboard/saasAdmin/notificationRetry`，断言 dead 通知回到 pending、失败原因清空，并生成 `tenant.notification.retry` 操作日志；真实调用 `POST /dashboard/saasAdmin/notificationBulkRetry`，断言匹配筛选条件的 failed 通知批量回到 pending、失败原因清空，并为每条通知生成 `tenant.notification.retry` 操作日志；随后真实调用 `POST /dashboard/saasAdmin/notificationClose` 和 `POST /dashboard/saasAdmin/notificationBulkClose`，断言 pending 通知进入 `closed`、`nextRetryAt` 清空、失败原因写入关闭备注，并生成带 `tenant.notification.close` 和 `bulkClose=true` 的操作日志。
+- 旧的 tenant bootstrap、Dashboard 旧登录和企业选择 smoke 已物理退役，不再作为 acceptance 或部署步骤；`cmd/mochat-bootstrap` 只创建一个 SaaS 平台管理员并只写入 `mochat_go_saas_admin_users`，密码只通过受限 `PasswordFile` 读取，`RequestKey` 持久化用于幂等判定。身份切换验收统一使用 identity-single-corp contract、受保护 SaaS API 与新的 Dashboard company API。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - SaaS 总后台 smoke 在关闭通知后还会重新读取显式日期窗口的 `GET /dashboard/saasAdmin/dailyReport` 和 `GET /dashboard/saasAdmin/export?type=dailyReport`，断言关闭通知进入 `notifications.closedItems`，`closedNotificationCount`、`windowNotificationCloseCount`、`notifications.summary.closedCount` 和日报 CSV 的 `closedNotification` section 均回显关闭备注；在运营待办认领后还会断言 `operationQueueAssignments?dueState=future`、认领 CSV、日报 `operationQueueAssignments` 分区、`windowQueueAssignmentCount/windowTaskSlaAssignCount`、日报 CSV 的 `operationQueueAssignment` section、`tenantLifecycle?source=operation&status=contacted` 和生命周期审计 CSV 都能回显任务 SLA 认领负责人、来源、状态、到期状态和备注。
 - SaaS 总后台 smoke 还会断言页面包含“经营趋势”、`businessTrends`、`businessRenewalFunnel` 和“导出经营趋势 CSV”，普通租户访问 `GET /dashboard/saasAdmin/businessTrends` 与 `GET /dashboard/saasAdmin/export?type=businessTrends` 返回 `403`；平台管理员在续费任务应用并写入账单后读取趋势接口并导出经营趋势 CSV，确认最近账单进入月度趋势、scale 套餐流水和续费任务漏斗。
 - SaaS 总后台 smoke 还会断言页面包含“续费预测”、`renewalForecast`、`renewalForecastBuckets`、`renewalForecastOwners`、“续费预测筛选”、“续费预测分派”、“续费预测提醒”、“续费预测负责人工作台”、“导出续费预测 CSV”和“导出续费预测负责人 CSV”，普通租户访问 `GET /dashboard/saasAdmin/renewalForecast`、`POST/PUT /dashboard/saasAdmin/renewalForecastAssign`、`POST/PUT /dashboard/saasAdmin/renewalForecastNotifications`、`GET /dashboard/saasAdmin/export?type=renewalForecast` 与 `GET /dashboard/saasAdmin/export?type=renewalForecastOwners` 返回 `403`；平台管理员在续费任务应用并写入账单后读取预测接口，确认目标租户进入到期预测、最近续费价格用于预测收入、负责人工作台按负责人聚合预测金额/到期窗口/任务状态/Top 租户，并回显负责人和最新续费任务；随后会用目标租户自身的 `bucket`、`priced`、`packageCode`、`owner` 和 `taskStatus` 再读取一次筛选后的预测接口，确认筛选口径收窄但仍命中目标租户且负责人聚合同步收窄；平台管理员按同一筛选调用 `renewalForecastAssign` 后会写入 `renewal_pending` 跟进、负责人和下次跟进时间；创建续费预测任务后还会按负责人生成续费预测提醒、导出续费预测 CSV 和续费预测负责人 CSV，断言目标租户的提醒 outbox、套餐、预测金额、定价状态、最近账单、任务计数、分派负责人、最新跟进状态、最新待处理任务状态，以及负责人 CSV 的预测金额、待处理任务、下次跟进和 Top 租户。
@@ -1346,18 +1282,18 @@ env -u GOROOT go test -race ./...
 - 统一运营任务中心支持 `GET /dashboard/saasAdmin/export?type=tasks` 导出任务 CSV，也支持 `GET /dashboard/saasAdmin/export?type=taskSla` 导出活跃任务 SLA CSV，复用 `taskId`、`taskType`、`status`、`tenantId`、`packageCode`、`limit`、`warningHours` 和 `overdueHours` 筛选；任务 CSV 包含任务请求、预览和结果，SLA CSV 额外包含负责人、SLA 状态、任务年龄和超时小时数，平台开户任务请求导出时仍会去除明文密码和 `adminPasswordHash`。
 - 统一运营任务中心支持 `POST/PUT /dashboard/saasAdmin/taskCancel` 取消未应用任务；页面行内会对 `pending/blocked/failed` 任务显示“取消”，取消后任务状态变为 `canceled`，不会再允许应用。页面也支持 `POST/PUT /dashboard/saasAdmin/taskBulkCancel` 按当前任务筛选批量取消最多 100 条未应用任务，接口会跳过已应用和已取消任务并返回跳过数；`POST/PUT /dashboard/saasAdmin/taskBulkReset` 可按当前任务筛选批量把 `failed/blocked` 任务重置为 `pending`，跳过待应用、已应用和已取消任务；`POST/PUT /dashboard/saasAdmin/taskReset` 可把单条 `failed/blocked` 任务重置为 `pending` 以便重新应用；`POST/PUT /dashboard/saasAdmin/packageSyncTaskBulkApply` 可按当前任务筛选批量应用套餐同步任务，逐条重算超额风险后写入租户套餐快照和用量额度、阻断或失败结果；`POST/PUT /dashboard/saasAdmin/tenantRenewalTaskBulkApply` 可按当前任务筛选批量应用续费任务，逐条复核当前租户和套餐状态后写入账单、阻断或失败结果；`POST/PUT /dashboard/saasAdmin/tenantProvisionTaskBulkApply` 可按当前任务筛选批量应用平台开户任务，逐条复核套餐状态后创建租户和管理员、写入套餐快照、用量计数、开通记录和任务结果。任务创建、应用、阻断、取消、批量取消、批量重置和重置会写入 `admin_task` 操作记录。任务行内“追溯”按钮会自动把操作记录筛选设为 `targetType=admin_task` 和当前任务 ID，smoke 会分别通过 `operations?action=saas.admin.task.cancel&targetType=admin_task`、`operations?action=saas.admin.task.bulk_cancel&targetType=admin_task`、`operations?action=saas.admin.task.bulk_reset&targetType=admin_task` 和 `operations?action=saas.admin.task.reset&targetType=admin_task` 追溯任务动作，并校验操作记录 `before.status` 与 `after.status`。
 - SaaS 总后台操作记录表支持展开 before/after JSON 变更详情；配合任务行内“追溯”按钮，平台管理员可以直接在页面核对运营任务创建、阻断、应用、取消、批量取消和批量重置的前后状态。
-- `scripts/smoke_saas_tenant_isolation.sh` 会启动真实 MySQL/Redis/Go standalone，批量开通两个租户并种入各自企业、员工、部门和首页数据，验证超级管理员不能 `corp/bind` 其他租户企业、拒绝后不会写 Redis 企业选择缓存；脚本还会主动污染 `mc:user.{userId}` 为其他租户企业，断言 `loginShow`、`corpData/index` 和 `workEmployee/searchCondition` 会回退到当前租户企业；绑定本租户企业后 `corp/select`、`corpData/index`、`workEmployee/searchCondition`、`workDepartment/index` 和 `workEmployee/index` 只返回当前租户数据，并继续验证 `role/index` 只返回当前租户角色、`permissionByUser` 可正常返回当前租户权限菜单、两个租户分别上传文件后 `mochat_go_saas_storage_objects` 与 `storage_mb` 用量只归属各自租户。
-- `scripts/smoke_saas_quota_enforcement.sh` 会启动真实 MySQL/Redis、fake 企业微信/微信开放平台 API 和 Go standalone，登录额度已满租户后分别调用企业、子账号、应用、渠道活码、门店活码、互动雷达、抽奖活动、无限拉群、群裂变、群打卡、群质检、群日历、客户群提醒、个人 SOP、群 SOP、敏感词、客户同步、客户群同步、客户群发、客户群群发、标签建群、自动拉群、裂变活动、公众号授权和上传写入口，验证这些资源达到套餐上限时返回 400 且业务表或上传目录不会新增记录。
-- `scripts/smoke_admin_core_dashboard.sh` 会启动真实 MySQL/Redis/Go standalone，登录并绑定企业后覆盖 `WW_verify_*.txt` 校验文本、管理端基础写链路：`common/uploadFile`、`sidebar/common/upload`、素材分组和素材移动、客户群分组、客户画像字段新增/更新/状态/批量/删除、菜单新增/更新/状态/删除、角色新增/更新/授权/状态/删除、子账号新增/详情/更新/状态/重置密码和当前账号改密，并用 MySQL 表状态和上传文件账本断言副作用。
-- `scripts/smoke_work_contact_tag_remote_write.sh` 会启动真实 MySQL/Redis、fake 企业微信 API 和 Go standalone，覆盖客户标签组新建/改名/删除、客户标签新建/改名/移动/删除，并断言本地表与企业微信标签 API 副作用。
-- `cmd/mochat-saas-maintenance -action reconcile-storage` 可按上传存储根目录扫描 `mochat_go_saas_storage_objects`，把丢失文件和危险路径标记为软删除，修正漂移的 `size_bytes`，并刷新受影响租户的 `storage_mb` 用量；设置 `MOCHAT_GO_ENABLE_SAAS_STORAGE_RECONCILE_CRON=1` 后，Go standalone 会启动 `cron-saas-storage-reconcile` 定时任务。`scripts/smoke_saas_storage_reconcile.sh` 会用真实 MySQL 同时验证手动命令和 run-on-start 定时任务闭环。
-- `PUT /dashboard/medium/update` 替换素材文件路径时会回收旧路径账本，`DELETE /dashboard/medium/destroy` 软删素材时会回收当前路径账本，路径字段包括 `imagePath`、`voicePath`、`videoPath` 和 `filePath`；`POST /dashboard/channelCode/store` 在企业微信 contact_way 创建失败回滚时会解析 `welcome_message.messageDetail`，回收 `pic_url`、`imagePath`、`linkPic`、`coverPath` 等本地欢迎语素材账本；`PUT /dashboard/shopCode/update` 和 `POST /dashboard/shopCode/updateQrcode` 替换或移除门店活码 `employee_qrcode`、`qw_code` 本地二维码时会回收旧路径账本，`POST /dashboard/shopCode/pageSet` 替换或移除页面设置 `default` / `poster` 中的本地二维码或海报时会回收旧路径账本，`DELETE /dashboard/shopCode/destroy` 软删门店活码时会回收当前二维码账本；`PUT /dashboard/radar/update` 替换互动雷达 `link_cover` 或 `pdf` 本地文件时会回收旧路径账本，`DELETE /dashboard/radar/destroy` 软删互动雷达时会回收当前雷达封面和 PDF 文件账本；`PUT /dashboard/lottery/update` 替换抽奖活动奖品、兑奖、限制或企业名片 JSON 中的本地素材时会回收旧路径账本，`DELETE /dashboard/lottery/destroy` 软删抽奖活动时会回收奖品设置和中奖记录客服二维码里的本地素材账本；`PUT /dashboard/roomClockIn/update` 替换群打卡 `employee_qrcode` 本地二维码时会回收旧路径账本，`DELETE /dashboard/roomClockIn/destroy` 软删群打卡时会回收当前领奖客服二维码账本；`PUT /dashboard/roomInfinitePull/update` 替换无限拉群 `avatar`、`logo` 或 `qw_code` 活码 JSON 中的本地二维码时会回收旧路径账本，`DELETE /dashboard/roomInfinitePull/destroy` 软删无限拉群时会回收当前头像、logo 和活码二维码账本；`PUT /dashboard/roomWelcome/update` 和 `DELETE /dashboard/roomWelcome/destroy` 会回收入群欢迎语 `msg_complex.pic` 本地图片账本；`DELETE /dashboard/contactMessageBatchSend/destroy` 和 `DELETE /dashboard/roomMessageBatchSend/destroy` 会回收群发内容里的本地 `pic_url` 图片账本；`DELETE /dashboard/contactBatchAdd/importDestroy` 会回收批量加好友导入记录 `file_url` 对应的本地原文件账本；`DELETE /dashboard/roomTagPull/destroy` 会回收标签建群 `rooms.image` 本地图片账本；`PUT /dashboard/roomFission/update` 替换群裂变海报、群二维码或欢迎语时会回收旧本地路径，`POST /dashboard/roomFission/invite` 替换群裂变邀请封面时会回收旧邀请图账本，`DELETE /dashboard/roomFission/destroy` 会在级联软删群裂变活动时回收 poster、room、welcome、invite 里的本地图片账本；`PUT /dashboard/workRoomAutoPull/update` 替换或移除自动拉群 `rooms.roomQrcodeUrl` 本地群二维码时会回收旧路径账本，`POST /dashboard/workRoomAutoPull/store` 在企业微信 contact_way 创建失败回滚时也会回收已写入记录里的本地群二维码；`DELETE /dashboard/workFission/destroy` 会在级联软删裂变活动时回收 poster、welcome、push、invite 里的本地图片账本。`scripts/smoke_saas_storage_reclaim.sh` 会用真实 Go standalone 验证这些触发式回收闭环。
-- `cmd/mochat-saas-maintenance -action refresh-usage` 可按当前业务表和租户套餐配置重刷企业数、子账号数、客户数、客户群数、应用数、渠道活码数、门店活码数、互动雷达数、抽奖活动数、无限拉群数、群裂变数、群打卡数、群质检规则数、群日历数、客户群提醒数、个人 SOP 规则数、群 SOP 规则数、敏感词词库数、素材存储、客户群发任务数、客户群群发任务数、标签建群任务数、自动拉群活码数、裂变活动数、公众号授权数和异步执行量 26 个 lifetime 用量指标；`scripts/smoke_saas_usage_refresh.sh` 会制造脏计数器、缺失指标和套餐额度变化，并验证 `used_value`、`limit_value`、`updated_by` 都被修正。
-- `cmd/mochat-saas-maintenance -action cleanup-service-account-usage` 按合规策略中的保留天数分批删除过期 OpenAPI 日聚合行，并报告候选、法律保留保护、删除和剩余行数。`-action evaluate-service-account-usage-alerts` 可按账号或批次立即评估用量和拒绝预警。设置对应 cleanup/alert cron 可分别启动每日清理和周期预警；`scripts/smoke_saas_service_accounts.sh` 使用真实 MariaDB 验证维护命令、cron 执行账本、冷却去重、通知 outbox、自动恢复和法律保留保护。
-- `scripts/smoke_official_account_ticket.sh` 会启动真实 MySQL/Redis/Go standalone 和 fake 微信开放平台 API，先覆盖微信开放平台 AES 加密 GET `echostr` URL 校验，再以 AES 加密回调形式向 `authEventCallback` 推送 `component_verify_ticket`，随后在不设置静态 `MOCHAT_WECHAT_COMPONENT_VERIFY_TICKET` 的情况下调用 `getPreAuthUrl`，并继续验证 `authRedirect` 调用 `api_query_auth` 和 `api_get_authorizer_info` 写入授权公众号资料、租户归属、`official_accounts` 用量、列表头像静态 URL、模块默认绑定和 `officialAccount/set` 手动绑定；之后投递 AES 加密的开放平台测试消息 `QUERY_AUTH_CODE`，验证 Go 会验签、解密、从 `mochat_go_wechat_component_tickets` 读取 ticket，完成预授权 URL、`api_query_auth`、`api_authorizer_token` 和客服文本发送闭环；同一 smoke 也会断言 AES 回调缺失或伪造 `msg_signature` 时返回 400，且不会覆盖 ticket 或触发客服消息，并验证 `unauthorized` 取消授权回调会把公众号从列表隐藏、刷新 `official_accounts` 用量。
-- `cmd/mochat-saas-maintenance -action list-alerts` 可按租户、指标和状态列出 `mochat_go_saas_alerts` SaaS 告警，`-action resolve-alert -tenant-id <id> -metric <metric>` 可把当前打开告警标记为 resolved；`-action dispatch-alert-notifications` 会读取 `mochat_go_saas_alert_notifications` 的 pending/failed 到期通知，优先使用 `mochat_go_saas_alert_settings` 的租户级 webhook URL、签名、模板、HTTP/outbox retry、事件订阅、最低严重级别、免打扰和每小时限流配置，未配置租户项时再使用全局环境变量兜底。租户 Webhook URL 与 Secret 在 0066 后可由独立 AES-256-GCM 密钥环加密落库，`-action rotate-alert-credentials` 可按租户批量清理旧明文并重加密历史 Key。策略拒绝写为 `suppressed`；免打扰或限流保持 `pending` 并推迟 `next_retry_at`，不消耗发送尝试次数；维护命令和 cron 输出 delivered、deferred、suppressed、failed、dead。设置 `MOCHAT_GO_ENABLE_SAAS_ALERT_NOTIFICATION_DISPATCH_CRON=1` 后，Go standalone 会启动 `cron-saas-alert-notification-dispatch`，按间隔自动扫描并重发 outbox 到期通知。设置 `MOCHAT_GO_ENABLE_SAAS_ALERT_DASHBOARD=1` 后，租户超管还可访问 Go 自带的 `GET /dashboard/saasAlert/page` 告警管理页面，通过 `GET /dashboard/saasAlert/index` 查看本租户告警，通过 `PUT/POST /dashboard/saasAlert/resolve` 解决当前打开告警，并通过 `GET/PUT/POST /dashboard/saasAlert/setting` 查看和保存本租户通知策略。设置 `MOCHAT_GO_SAAS_ALERT_WEBHOOK_URL` 后，worker 在租户未配置 webhook 时仍可用全局兜底发送 `saas.quota_alert` JSON webhook；设置 `MOCHAT_GO_SAAS_ALERT_WEBHOOK_SECRET` 后会附带 HMAC-SHA256 签名头。`scripts/smoke_employee_apply_worker.sh` 会验证异步执行量超额时写入告警账本、outbox 标记送达、fake webhook 首次 502 后重试成功、模板化标题正文、真实 JWT 可查询 dashboard 告警列表、Go 自带告警页面可访问、维护命令可列出和解决该告警，并验证维护命令可重发 outbox 到期通知；`scripts/smoke_saas_alert_notification_cron.sh` 会验证内置 cron 可自动重发 pending 通知并写入后台任务执行历史；`scripts/smoke_saas_alert_setting_dispatch.sh` 会验证签名投递、策略控制、SSRF 防护、明文兼容、密文投递、历史密钥缺失拒绝和跨 Key 轮换。
-- `0067_wecom_credential_encryption` 将 `mc_corp` 的企业 Secret、通讯录 Secret、回调 Token/AES Key、会话存档 Secret 和 `mc_work_agent` 的应用 Secret 作为 AES-256-GCM 密文保存。总后台 `wecomCredentialProtection` 只返回保护统计和非敏感 Key ID，`wecomCredentialRotation` 按平台集成治理 RBAC 轮换并写脱敏审计；维护动作 `rotate-wecom-credentials` 支持按租户分批轮换。`scripts/smoke_wecom_credential_encryption.sh` 使用真实 JWT、MariaDB 和 Redis 验证明文兼容、明文清空、历史 Key 缺失关键告警、跨 Key 重加密、新写入不落明文及只读角色拒绝。
-- `0068_wechat_open_credential_encryption` 将组件 Ticket、组件 Secret/Token/AES Key、公众号授权码、预授权码和 `authorizer_refresh_token` 作为 AES-256-GCM 密文保存。总后台 `wechatOpenCredentialProtection` 只返回保护统计和非敏感 Key ID，`wechatOpenCredentialRotation` 按平台集成治理 RBAC 轮换并写脱敏审计；维护动作 `rotate-wechat-open-credentials` 支持按租户分批轮换。`scripts/smoke_official_account_ticket.sh` 使用真实 JWT、MariaDB、Redis 和 fake 微信开放平台覆盖旧明文轮换、加密回调写入、授权刷新、缺历史 Key 安全失败、跨 Key 重加密及解密后字段一致性。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `0069_saas_release_candidate_approval` 将发布候选门禁纳入高风险审批中心。发布运营只能提交携带当前构建指纹的申请，默认需两名不同审批人会签且 6 小时内执行；执行器重新下载并校验六类生产证据，候选写入与审批副作用操作 ID 在同一数据库事务提交，单人直连接口返回 `428 Precondition Required`。
 - `0070_saas_approval_policy_change_guard` 将审批策略的启停、会签人数、SLA、提醒和有效期变更纳入固定双人会签。治理策略自身必须保持启用且不得低于两人会签；审批执行、策略更新、操作审计与副作用标记在同一事务提交，关闭任一业务高风险门禁也不能由单个管理员直接完成。
 - `0071_saas_backup_policy_change_guard` 将平台数据库备份策略变更纳入固定双人会签。备份启停、加密、异地副本、执行频率和保留参数不再允许单个管理员直接修改；审批执行、策略更新、操作审计与副作用标记在同一事务提交。
@@ -1386,19 +1322,19 @@ env -u GOROOT go test -race ./...
 - `0094_saas_tenant_domain_command_guard` 将主域名切换、域名启停、DNS 校验令牌轮换和域名删除纳入不可绕过的 critical 双人会签。直接操作返回 `428`；申请冻结目标域名与租户全部未删除域名的路由快照，批准执行时按固定顺序锁定并逐项校验，再原子提交域名状态、交付任务、操作审计和审批效果。轮换令牌只在批准执行时生成，不进入审批载荷。
 - `0095_saas_tenant_domain_create_guard` 将租户域名新增纳入不可绕过的 critical 双人会签。直接新增返回 `428`；申请只冻结标准化后的租户和域名，不生成令牌，批准执行时重新锁定并复核租户状态、域名唯一性和 10 个域名配额，才生成一次性交付的 DNS 校验令牌，并把域名、初始交付状态、操作审计和审批效果原子提交。持久化审批结果不保存令牌明文。
 - `0096_saas_tenant_enable_approval_guard` 将已停用业务租户的重新启用纳入不可绕过的 critical 双人会签。直接启用返回 `428`；申请冻结租户名称、状态及订阅 ID、状态和版本，批准执行时重新锁定并完整复核，再把租户恢复、订阅同步、操作审计和审批效果原子提交。任一快照漂移返回 `409`，恢复快照后可重试同一审批。
-- SaaS 总后台的“租户通知策略”已把租户自助配置提升为平台运维工作台：平台超管可查看已启用、已停用和未配置租户，代管 Webhook URL、Secret、模板、两级重试、事件订阅、最低严重级别、免打扰与小时限流，并生成不绕过 outbox 的测试通知。策略读取、保存、测试、密钥脱敏和 `suppressed` 结果均已加入 `scripts/smoke_saas_admin_dashboard.sh`，保存与测试分别写入 `tenant.notification_policy.update` 和 `tenant.notification_policy.test` 审计日志。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - SaaS 总后台“通知送达健康度”按时间窗口把 outbox 聚合到租户维度：重试耗尽、超过积压阈值或足够样本下成功率低于 80% 标为严重，失败待重试、到期待投递或成功率低于 95% 标为预警；策略抑制和未来延期单独统计，不误算为真实发送失败。页面支持窗口、状态、积压阈值和租户搜索，并展示 Top 失败原因及同口径 CSV。
-- `scripts/smoke_saas_notification_slo.sh`、订阅、收款、退款、发票和结算专项 smoke 均从独立空库执行当前 96 个迁移，使用真实 Go + MySQL/MariaDB + Redis 保持原有幂等、租户隔离、事务、审计、CSV、页面和 cron 验收。
-- `scripts/smoke_saas_payment_settlement_sync.sh` 会使用真实 Go + MySQL + Redis 和 fake Bridge 验证启动即同步、Bearer/查询协议、游标推进、重复批次幂等、dry-run 不写入、同渠道并发 `409`、失败运行、差异/失败通知 outbox、task runner 持久化、平台/租户权限、总后台页面和运行时路由。
-- `scripts/smoke_saas_admin_access_rbac.sh` 会从独立空库执行 96 个迁移，验证六个内置角色、平台集成治理等权限依赖、运营可管理、审计只读、财务与业务租户越权拒绝。
-- `scripts/smoke_saas_admin_approvals.sh`、`scripts/smoke_saas_admin_approval_governance.sh`、`scripts/smoke_saas_package_definition_approval.sh`、`scripts/smoke_saas_tenant_package_assignment_approval.sh`、`scripts/smoke_saas_tenant_provision_approval.sh`、`scripts/smoke_saas_tenant_renewal_approval.sh`、`scripts/smoke_saas_subscription_transition_approval.sh`、`scripts/smoke_saas_invoice_issue_approval.sh`、`scripts/smoke_saas_payment_order_create_approval.sh`、`scripts/smoke_saas_payment_settlement_close_approval.sh`、`scripts/smoke_saas_payment_settlement_reopen_approval.sh`、`scripts/smoke_saas_payment_settlement_resolve_approval.sh`、`scripts/smoke_saas_tenant_domain_approval.sh` 与发布准备 smoke 在 96 个迁移上验证 31 类高风险策略全部为 critical 双人会签，以及租户停用后重新启用的租户/订阅快照漂移保护、域名新增执行期令牌生成、租户/唯一性/配额复核、完整路由快照漂移保护、平台开户密码脱敏、续费任务与订阅版本漂移、订阅状态迁移冻结与漂移保护、发票开具单据及订单账务冻结与漂移保护、收款订单套餐快照与结算权益冻结、结算关账、重开、差异处理、任务版本冲突、策略变更自保护、备份策略、合规生命周期策略、保留清理、合规导出提前删除、法律保留解除、服务账号配置变更、Key 创建/轮换/吊销、MFA 重置、套餐定义、租户套餐分配和续费保护、委托、SLA、业务副作用事务标记和恢复幂等。
-- `scripts/smoke_saas_admin_system_health.sh` 验证身份安全关闭时的 24 项基础健康检查与 10 类事故聚合；审计签名锚点、域名交付队列和 TLS 生命周期作为独立检查。启用身份安全后增加配置探针，配置对象存储或域名 Bridge 后分别增加连通性或配置探针。
-- `scripts/smoke_saas_audit_anchor.sh` 使用真实 Go + MariaDB + Redis 验证 legacy 锚点、租户摘要链、HMAC 签名检查点、独立证据文件、历史密钥状态、启动即跑 cron、读写 RBAC、文件篡改、孤儿证据、恢复校验、维护命令、页面和运行时路由。
-- `scripts/smoke_saas_service_accounts.sh` 与 `scripts/smoke_saas_backup_recovery.sh` 均执行 96 个迁移，继续验证独立 pepper 与旧 JWT pepper 切换、Key 生命周期、服务账号创建/配置变更、API Key 创建/轮换/吊销双人审批、一次性明文交付、原子限流、429 响应头、路由用量、异地副本、回源、隔离恢复，以及审批后可续跑的保留清理 Saga。
-- `scripts/smoke_saas_compliance_lifecycle.sh` 使用真实 Go + MariaDB + Redis 验证 96 个迁移、158 项租户数据清单覆盖、合规策略变更双人审批与原子生效、加密导出/解密/篡改拒绝、合规导出提前删除与法律保留解除的双人审批、法律保留与未终结擦除阻断、工件删除失败检查点和重试恢复，并继续覆盖精确确认、财务保留期阻断、161 步可恢复擦除、物理文件删除、脱敏审计、墓碑和维护命令。摘要链、校验历史和签名检查点按审计留存策略保留。
-- `scripts/smoke_saas_identity_security.sh` 使用真实 Go + MariaDB + Redis 验证 96 个迁移、第三次失败触发锁定、管理员解锁、IP/CIDR 门禁、TOTP 与一次性恢复码、挑战和动态码防重放、并发会话淘汰、单会话撤销、登出失效、事件/事故、审计脱敏和保留清理。
-- `scripts/smoke_saas_branding.sh` 使用真实 Go + MariaDB + Redis 验证 96 个迁移、品牌查看/管理 RBAC、乐观锁、审计、租户回显、安全登录页、本地资产 URL 限制和旧 `api.mo.chat`/`oss.mo.chat` 运行时依赖清理。
-- `scripts/smoke_saas_tenant_domains.sh` 使用真实 Go + MariaDB + Redis 与本地权威 DNS TXT 服务验证审批关闭时的兼容直写、域名唯一绑定、所有权校验、主域名、停用/启用、令牌轮换、RBAC、审计，以及按 Host 绑定登录品牌、账号租户和 MFA 挑战；`scripts/smoke_saas_tenant_domain_approval.sh` 在审批开启时验证新增与五类路由操作的直接阻断、双人复核、租户/唯一性/配额复核、完整路由快照漂移、执行期令牌生成、持久化脱敏和事务原子性。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - 通知健康度已接入统一运营待办：`warning/critical` 租户会成为 `notification_health` 来源，页面可直接填写负责人和复查时间后分派；负责人工作台、认领记录、认领提醒、运营日报和 CSV 复用现有审计链。`notificationHealthRecovery` 只对重新核验为 `healthy` 且当前窗口至少有一次成功送达的认领自动结案，`no_data` 或只有抑制、关闭、延期的租户不会被误判为恢复。
 - `0047_saas_admin_approval_governance` 将审批升级为持久化策略；`0052` 在原五类动作上增加 `tenant.data.erase`，共六类，擦除默认两人复核。申请使用策略快照，逐票只追加一次，达到法定票数后才允许执行。
 - `0048_saas_admin_system_health` 新增健康扫描和系统事故台账，以稳定检查键聚合反复异常，保留首次/最近检测、发生次数、严重度、负责人、处置结论和乐观锁版本。`platform.system.read` 控制查看，`platform.system.manage` 控制扫描和事故处置；恢复检查自动结案，人工解决但仍异常的事故会在下次扫描重开。
@@ -1426,9 +1362,9 @@ env -u GOROOT go test -race ./...
 - 生产反向代理后的来源 IP 判定使用共享受信边界。只有 TCP 对端命中 `MOCHAT_GO_SAAS_TRUSTED_PROXY_CIDRS` 时，身份安全或服务账号才会采信转发头；`X-Forwarded-For` 按右到左跳过可信代理，首个不可信地址才是客户端。未命中可信网段的请求始终使用直连 IP，无法靠伪造转发头绕过 IP/CIDR 白名单。
 - Docker 交付镜像会在构建阶段计算当前源码与验收配置指纹，并通过 linker 写入所有 Go 二进制。发布准备 API 以运行二进制的内置指纹为准，拒绝客户端提交的其他指纹；未内置指纹时不能把证据标记为通过，也不能生成发布候选。本地 `go run` 可用 `MOCHAT_GO_RELEASE_SOURCE_FINGERPRINT` 注入同一指纹，正式镜像的构建值不可被环境变量覆盖。
 - 发布证据保存为 `passed` 前必须远端下载工件并校验实际 SHA-256 与字节数；发布候选会并行重验六项工件，`metadataReady` 只表示元数据完整。准备状态会继续把候选不可变快照与当前六项证据的 ID、版本、状态、URL、摘要、大小和复核信息逐项绑定；任一证据变化都会把旧候选的 `effectiveStatus` 降为 `stale`，恢复证据后仍需重新运行门禁，只有当前源码指纹下最近候选快照完整且与现行证据一致时才返回 `ready`。校验器默认超时 30 秒、单工件最大 64 MiB，并启用 HTTPS、私网/云元数据阻断、DNS 绑定、禁用环境代理和同源重定向限制。内部证据库需用 `MOCHAT_GO_SAAS_RELEASE_EVIDENCE_ALLOWED_CIDRS` 显式放行最小网段，自有 CA 通过 `MOCHAT_GO_SAAS_RELEASE_EVIDENCE_CA_FILE` 提供。
-- `scripts/smoke_saas_release_readiness.sh` 使用真实 Go + MariaDB + Redis 和临时私有 CA HTTPS 工件库，覆盖发布准备 RBAC、危险地址和凭据拒绝、保存时远端校验、候选时内容篡改阻断、恢复后六证据放行、不可变复核快照、审计，以及 `0096` 至 `0057` 顺序回滚再应用。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - 启用域名交付时设置 `MOCHAT_GO_ENABLE_SAAS_TENANT_DOMAIN_DELIVERY_CRON=1`、`MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_BRIDGE_BASE_URL`和至少 16 字符的 `MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_BRIDGE_TOKEN`。异步控制面还需同时设置公网 `MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_URL` 与至少 32 字符的 `MOCHAT_GO_SAAS_TENANT_DOMAIN_DELIVERY_CALLBACK_SECRET`；回调入口固定为 `POST /webhooks/saas/domain-delivery`。Bridge 实现 ACME/云证书与 Ingress 编排，Go 业务库不接收或保存证书私钥。
-- 设置 `MOCHAT_GO_ENABLE_SAAS_APPROVAL_REMINDER_CRON=1` 后，Go standalone 会启动 `cron-saas-admin-approval-reminder`，默认每 5 分钟扫描一次待复核审批并按策略快照的 `next_reminder_at` 生成 `approval_sla_reminder` 通知 outbox。手动 `approvalReminders` 和自动任务复用同一事务服务，同一审批提醒次数幂等，任务状态与 periodic tick 写入后台任务账本；`scripts/smoke_saas_admin_approval_governance.sh` 会验证手动提醒、启动即跑和第二次提醒。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - 设置 `MOCHAT_GO_ENABLE_SAAS_SYSTEM_HEALTH_CRON=1` 后，Go standalone 会启动 `cron-saas-admin-system-health`。扫描覆盖 MySQL/Redis、当前 96 个迁移、API Key pepper 密钥环、后台任务、通知、审批、运营、结算、备份/恢复、备份保留清理队列、合规导出删除队列、合规、审计签名锚点、域名交付队列和 TLS 生命周期；配置企微或微信开放平台凭据加密后还会校验旧明文、历史 Key 与待轮换状态。身份安全、各凭据保护、备份、审计锚点异地对象存储和域名 Bridge 按实际配置增加对应探针。
 - 设置 `MOCHAT_GO_ENABLE_SAAS_AUDIT_INTEGRITY_CRON=1` 后，Go standalone 会启动 `cron-saas-admin-audit-integrity`。默认每小时最多校验 100 个租户链，可通过 `MOCHAT_GO_SAAS_AUDIT_INTEGRITY_CRON_INTERVAL_SECONDS`、`MOCHAT_GO_SAAS_AUDIT_INTEGRITY_CRON_RUN_ON_START` 和 `MOCHAT_GO_SAAS_AUDIT_INTEGRITY_LIMIT` 调整；发现断链或结构字段篡改时，校验记录和后台任务执行都会标记失败。
 - 审计签名锚点使用独立密钥配置：`MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEY` 接受 32 字节 base64 或 64 位 hex；轮换时改用 `MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEYS='{"旧key-id":"...","新key-id":"..."}'` 并将 `MOCHAT_GO_SAAS_AUDIT_ANCHOR_HMAC_KEY_ID` 指向新密钥，历史密钥必须继续保留。证据目录由 `MOCHAT_GO_SAAS_AUDIT_ANCHOR_ARTIFACT_ROOT` 指定；standalone Compose 默认挂到独立 `audit-anchor-storage` 卷。生产环境应把该目录映射到数据库管理员无法改写的独立或 WORM 存储，否则 HMAC 仍能防伪造，但不能防同时删除数据库和同机证据文件。
@@ -1444,12 +1380,12 @@ env -u GOROOT go test -race ./...
 - `scripts/standalone_route_coverage.sh` 会在 standalone + MySQL + Redis + JWT secret 下验证默认启用的已迁移业务路由，并同时断言 PHP/source/manifest 环境残留不会出现在 `/readyz`，输出 `route_total`、`migrated_manifest_route_total`、`missing_route_total` 和缺失样例。设置 `MOCHAT_ROUTE_COVERAGE_MAX_MISSING=0` 可把它变成最终全量迁移门禁。
 - `scripts/smoke_queue_idempotency.sh` 会启动独立 Redis，运行 `internal/store` 的 Redis 集成测试，验证 `EmployeeApply`、`wework-callback`、`contact-welcome`、`async-file-upload`、`mark-tags`、`message-remind` 和 `work-room-sync` 队列新 envelope 会写入 `queue/payloadType/idempotencyKey/enqueuedAt`，同一 payload 或同一企微业务事件在幂等窗口内只入队一次，并可正常 dequeue/ack。
 - `scripts/audit_worker_saas_usage_assertions.sh` 会静态检查 11 个语义队列对应 smoke，要求同时包含租户 `queue_item` 执行历史和 `async_executions` SaaS 用量计数器断言，并已接入 `scripts/test.sh`。
-- `scripts/smoke_async_file_upload_worker.sh` 会启动独立 Redis、Go standalone 和临时 HTTP 文件源，不启动 PHP/MySQL，也不读取原 MoChat 源码或外部 manifest，向 `mochat-go:async-file-upload` 写入 PHP `file_upload_queue` 旧数组 payload，验证 Go worker 可复制本地文件和 HTTP URL 到 `MOCHAT_FILE_STORAGE_ROOT` 下的目标相对路径、按 `unlink` 删除本地源文件，并清空 source/processing/dead 队列。`scripts/smoke_async_file_upload_saas_usage.sh` 会额外启动 MySQL 和两个 bootstrap 租户，分别投递带 `tenantId` 和带 `corpId` 的结构化 payload，验证 `async-file-upload` 会写入当前租户的 `queue_item` 执行历史、刷新 `async_executions` 和 `storage_mb` 用量；A 租户超额时只写入 A 租户的 `mochat_go_saas_alerts`，B 租户不产生 A 租户的执行记录、存储账本或告警。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `scripts/smoke_mark_tags_worker.sh` 会启动独立 MySQL/Redis、Go standalone 和 fake 企业微信 API，不启动 PHP，也不读取原 MoChat 源码或外部 manifest，向 `mochat-go:mark-tags` 写入 PHP `MarkTags::handle(corpId, contactId, employeeId, tagIds)` 位置参数 payload，验证 Go worker 过滤已有标签、写入 `mc_work_contact_tag_pivot.type=1`、写入 `mc_contact_employee_track.event=2`、调用企业微信 `externalcontact/mark_tag`，并记录带 `tenant_id` 的 `queue_item/succeeded` 执行历史。
 - `scripts/smoke_message_remind_worker.sh` 会启动独立 MySQL/Redis、Go standalone 和 fake 企业微信 API，不启动 PHP，也不读取原 MoChat 源码或外部 manifest，向 `mochat-go:message-remind` 写入 PHP `MessageRemind` 同口径 payload，验证 Go worker 读取 `mc_work_agent` 提醒应用、发送企业微信 `message/send` 应用消息、清空 source/processing/dead 队列，并记录带 `tenant_id` 的 `queue_item/succeeded` 执行历史。
 - `scripts/smoke_work_room_sync_worker.sh` 会启动独立 MySQL/Redis、Go standalone 和 fake 企业微信 API，不启动 PHP，也不读取原 MoChat 源码或外部 manifest，向 `mochat-go:work-room-sync` 写入 PHP `UpdateCallback::handle(wxResponse)` 同口径 payload，验证 Go worker 通过 `ToUserName` 定位企业、拉取企业微信 `groupchat/get/list`、写入客户群和群成员，并记录带 `tenant_id` 的 `queue_item/succeeded` 执行历史。
 - `scripts/smoke_wework_callback_worker.sh` 会启动独立 MySQL/Redis、Go standalone 和 fake 企业微信 API，断言 `/compat/status.background_tasks` 中 `wework-callback` 和 `contact-welcome` 为 `running`，先向 `mochat-go:wework-callback` 写入 `change_contact.create_user/update_user` 事件，验证 Go worker 能按 `UserID` 拉单员工并写入部门、员工、员工账号、员工部门关系和同步时间；再写入 `change_contact.create_party/update_party/delete_party` 事件，验证 Go worker 能按部门 `Id` 新增、修改和软删本地部门；随后写入 `change_external_tag.create/update/delete` 事件，验证 Go worker 能按标签 `Id` 新增、修改和软删本地客户标签且不误删标签组；新增客户事件会分别带 `State=channelCode-900`、`State=workRoomAutoPullId-901`、`State=fission-903` 和 `WelcomeCode`，验证 Go worker 读取 `mc_channel_code.welcome_message` 发送渠道欢迎语，并读取 `mc_work_room_auto_pull.leading_words/rooms` 跳过满群、上传可用群二维码后通过 `contact-welcome` 调用企业微信 `send_welcome_msg`，同时读取 `mc_work_room_auto_pull.tags` 和 `mc_work_fission.contact_tags` 写入标签 pivot、客户互动轨迹并调用企业微信 `externalcontact/mark_tag`；裂变事件还会验证 `mc_work_fission_welcome` 图文欢迎语发送、子参与人创建、上级 `invite_count/level/status` 更新、完成后企业应用员工提醒，以及 `push_contact=1` 时通过 `externalcontact/add_msg_template` 给上级客户创建客户群发消息；随后删除该裂变客户，验证参与人 `loss=1`、上级 `invite_count` 回退、客户员工关系软删和员工删除提醒；再写入 `change_external_chat.create/update/dismiss` 事件，验证 Go worker 只按回调 `ChatId` upsert 或软删单个客户群、幂等触发入群自动标签记录，并保留其他既有客户群不被误删；最后写入 `change_contact.delete_user` 事件，验证员工、员工部门关系和同手机号子账户状态按 PHP listener 口径更新，并断言 `queue_item` 执行历史带 `tenant_id` 且 `async_executions` 运行时计数器已刷新。
-- `scripts/smoke_employee_apply_worker.sh` 会启动独立 MySQL/Redis、Go standalone、fake 企业微信 API 和 fake SaaS 告警 webhook，断言 `/compat/status.background_tasks` 中 `employee-apply` 为 `running` 且带 `run_id`，先向 `mochat-go:employee-apply:processing` 写入一条带 `queue/payloadType/idempotencyKey/enqueuedAt` 元数据的过期 envelope，验证 Go worker 能恢复并消费该任务，写入部门、员工、员工账号、员工部门关系和同步时间，并在 `mochat_go_background_task_executions` 写入带 `tenant_id` 的 `queue_item/succeeded`，同步刷新 `async_executions` 运行时计数器；随后设置低额度并写入第二条有效任务，验证超额不阻断队列处理但会写入 `mochat_go_saas_alerts` 和 `mochat_go_saas_alert_notifications`、fake webhook 首次 502 后按配置重试成功并发送带 HMAC-SHA256 签名和模板化 `title/body` 的 `saas.quota_alert`，可用真实 dashboard JWT 查询 `/dashboard/saasAlert/index`，再用 `cmd/mochat-saas-maintenance` 列出和解决告警，并通过 `dispatch-alert-notifications` 验证 outbox 到期通知可重发；同时写入一条失败任务，验证 3 次重试后进入 `mochat-go:employee-apply:dead`，并写入 `queue_item/failed` 执行历史。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `scripts/smoke_pull_agent_cron.sh` 会启动独立 MySQL、Go standalone 和 fake 企业微信 API，断言 `/compat/status.background_tasks` 中 `cron-pull-agent` 为 `running`，并验证 Go 定时任务能按 PHP `pullAgent` 口径刷新 `mc_work_agent` 的名称、头像、描述、停用状态、可信域名、上报配置和主页 URL。
 - `scripts/smoke_employee_statistic_cron.sh` 会启动独立 MySQL/Redis、Go standalone 和 fake 企业微信 API，断言 `/compat/status.background_tasks` 中 `cron-employee-statistic` 为 `running`，并验证 Go 定时任务能按 PHP `employeeStatistic` 口径拉取前一天成员统计、写入 `mc_work_employee_statistic` 并设置 Redis 去重 key。
 - `scripts/smoke_channel_code_cron.sh` 会启动独立 MySQL、Go standalone 和 fake 企业微信 API，断言 `/compat/status.background_tasks` 中 `cron-channel-code` 为 `running`，并验证 Go 定时任务能按 PHP `channelCode` 口径创建企业微信 contact_way、写回 `mc_channel_code.qrcode_url` 和 `wx_config_id`。
@@ -1463,24 +1399,24 @@ env -u GOROOT go test -race ./...
 - `scripts/smoke_transfer_state_refresh_cron.sh` 会启动独立 MySQL/Redis、Go standalone 和 fake 企业微信 API，断言 `/compat/status.background_tasks` 中 `cron-transfer-state-refresh` 为 `running`，并验证 Go 定时任务能按 Redis `log_id` 游标查询转接结果、刷新 `mc_work_transfer_log.state`。
 - `scripts/smoke_sensitive_word_monitor_cron.sh` 会启动独立 MySQL 和 Go standalone，不启动 PHP/Redis，断言 `/compat/status.background_tasks` 中 `cron-sensitive-word-monitor` 为 `running`，并验证 Go 定时任务能扫描会话存档分表、命中启用敏感词、写入 `mc_sensitive_words_monitor`、推进 `mc_work_message_id.type=21` 游标，并在重复 tick 下保持幂等。
 - `scripts/smoke_work_message_archive_sync_cron.sh` 会启动独立 MySQL、fake 会话存档 SDK bridge 和 Go standalone，断言 `/compat/status.background_tasks` 中 `cron-work-message-archive-sync` 为 `running`，并验证 Go 定时任务能按 `mc_corp.chat_status/chat_secret` 拉取启用企业、调用 bridge 获取已解密消息、按 `seq` 写入对应 `mc_work_message_*` 分表、推进 `mc_work_message_id.type=40` 游标、重复 tick 不重复入库，且入库消息能被敏感词监控继续消费。
-- `scripts/smoke_fallback.sh` 会启动 fake PHP upstream，并显式设置 `MOCHAT_PHP_UPSTREAM` 验证迁移期 fallback 仍可用。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `scripts/local_stack_check.sh` 会启动 MariaDB/Redis 容器，验证初始化 SQL、Redis、当前迁移路由、TXT 验证/上传和 `/compat/status` 的迁移计数，默认退出时清理容器和卷。
-- `scripts/smoke_real_php_auth_chain.sh` 会复用本地已构建 PHP 镜像或构建/启动真实 PHP Hyperf 容器，验证 Go 签发的 token 可被 PHP 识别，Go logout 写入的黑名单会被 PHP 拒绝，并覆盖普通用户企业归属限制、企业授权创建/列表/详情/更新、企业微信回调 GET 校验/POST 解密入队、首页统计/折线图、员工列表与 PHP 原接口字段对照、员工搜索条件、企微成员/部门同步、企微客户同步、企微客户群同步、部门成员选择树、部门成员列表、手机号匹配部门下拉、组织架构分页树、组织架构员工列表、客户标签分组列表/详情与 PHP 原接口字段对照、客户标签分页/详情/标签分组树/标签下拉与 PHP 原接口字段对照、客户列表、客户来源枚举、客户资料更新、客户批量打标签、客户群成员列表、客户群列表、客户群下拉、客户群统计折线和分页统计、客户群批量修改分组、侧边栏客户群管理校验、自动拉群列表/详情/新建/更新、标签建群列表/详情/客户明细/员工任务/客户群下拉/客户筛选/筛选客户对照/新建/提醒发送/删除、客户群发列表/详情/明细/新建/提醒/删除、客户群群发列表/详情/群主明细/群接收明细/新建/提醒/删除、公众号授权列表/模块配置读取/设置更新、裂变 dashboard 列表/详情/配置详情/统计/选择客户/邀请数据/邀请明细/删除、裂变 operation 授权跳转/code 回调/openUserInfo/任务数据/邀请好友/海报/领奖、侧边栏素材临时 media_id 更新、侧边栏跟进状态默认项创建和跟进状态更新事务、dashboard/sidebar 客户详情基本信息、dashboard/sidebar 客户互动轨迹、侧边栏客户详情和侧边栏客户资料更新与 PHP 原接口字段或共用数据库结果对照、客户画像字段列表/详情/画像下拉/画像值与 PHP 原接口字段对照、角色下拉/列表/详情/权限树/成员列表、菜单下拉/图标/列表/详情、侧边栏工具配置、企业应用创建、OAuth/JSSDK 配置和 TXT 验证/上传。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 - `scripts/sync_frontend_dist.sh` 会把本机已构建的 `dashboard/sidebar/operation/dist` 同步到本项目 `web/` 目录。
 - `scripts/smoke_frontend_static_browser.sh` 会启动 Go standalone 和 sidebar/operation 独立前端监听地址，用真实浏览器加载 dashboard `/login`、主端口前缀入口 `/sidebar-app/contact`、`/operation-app/workFission`，以及独立端口 sidebar `/contact` 和 operation `/workFission`，验证三套内置 `web/*/dist` 的同源 JS/CSS 资源都由 Go 项目独立托管成功；该脚本不替代带真实登录态和企微环境的业务页面回归。
-- `scripts/smoke_channel_code_dashboard.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，登录后调用 `dashboard/channelCodeGroup/store/detail/update/move/index` 与 `dashboard/channelCode/store/update/index/show/contact/statistics/statisticsIndex`，验证渠道活码分组、渠道码新建/更新、企业微信 `externalcontact/add_contact_way` / `externalcontact/update_contact_way`、`mc_channel_code` / `mc_business_log` 写入、客户明细、扫码统计和 `channel_codes` SaaS 用量刷新。
-- `scripts/smoke_shop_code_dashboard.sh` 会启动独立 MySQL/Redis 和 Go standalone，登录后调用 `dashboard/shopCode/store/index/info/location/searchCity/addressKeyWordList/share/pageSet/pageInfo/show/showContact/showShop/updateEmployee/updateQrcode/update/status/batchContactTags/destroy`，验证门店活码 CRUD、页面设置、地址/城市检索、分享链接、扫码记录统计、员工/二维码 JSON 字段更新、`mc_shop_code` / `mc_shop_code_page` / `mc_shop_code_record` 写入和 `shop_codes` SaaS 用量刷新。
-- `scripts/smoke_greeting_dashboard.sh` 会启动独立 MySQL/Redis 和 Go standalone，登录后调用 `dashboard/greeting/store/index/show/update/destroy`，验证好友欢迎语全员/指定员工新建、列表状态、详情员工和素材展开、编辑、删除、`mc_greeting` 写入、`mc_business_log` 创建/更新日志和本地素材静态 URL 回显。
-- `scripts/smoke_room_welcome_dashboard.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，登录后调用 `dashboard/roomWelcome/store/index/show/select/update/destroy`，验证链接封面走 `media/uploadimg`、小程序封面走 `media/upload`、入群欢迎语模板走 `group_welcome_template/add/edit/del`，并断言 `mc_room_welcome_template` 创建、更新和软删除闭环。
-- `scripts/smoke_work_room_auto_pull_dashboard.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，登录后调用 `dashboard/workRoomAutoPull/store/index/show/update/move`，验证自动拉群创建写入 `mc_work_room_auto_pull`、刷新 `work_room_auto_pulls` SaaS 用量、列表/详情反查员工/标签/客户群和拉人状态、更新群二维码配置，并断言企业微信 `externalcontact/contact_way/create` 与 `externalcontact/contact_way/update` 的 `skip_verify`、`state`、`user` 和 `config_id` 请求口径。
-- `scripts/smoke_room_tag_pull_dashboard.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，登录后调用 `dashboard/roomTagPull/chooseContact/filterContact/store/index/show/showContact/roomList/remindSend/destroy`，验证标签建群筛客、新建、列表、详情、客户明细、员工任务、客户群下拉、提醒发送和软删除闭环，断言 `mc_room_tag_pull`、`mc_room_tag_pull_contact` 和 `room_tag_pulls` SaaS 用量刷新，并校验企业微信 `media/uploadimg`、`externalcontact/add_msg_template` 与 `message/send` 请求口径。
-- `scripts/smoke_contact_message_batch_send_dashboard.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，登录后调用 `dashboard/contactMessageBatchSend/store/index/show/messageShow/showRoom/employeeSendIndex/contactReceiveIndex/remind/destroy`，验证客户群发立即发送、列表、详情、消息预览、客户群详情、员工发送明细、客户接收明细、提醒发送和软删除闭环，断言 `mc_contact_message_batch_send`、员工/客户发送任务和 `contact_message_batches` SaaS 用量刷新，并校验企业微信 `media/upload`、`externalcontact/add_msg_template` 与 `message/send` 请求口径。
-- `scripts/smoke_room_message_batch_send_dashboard.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，登录后调用 `dashboard/roomMessageBatchSend/store/index/show/roomOwnerSendIndex/roomReceiveIndex/remind/destroy`，验证客户群群发立即发送、列表、详情、群主发送明细、群接收明细、提醒发送和软删除闭环，断言 `mc_room_message_batch_send`、群主/客户群发送任务和 `room_message_batches` SaaS 用量刷新，并校验企业微信 `media/upload`、`externalcontact/add_msg_template` 与 `message/send` 请求口径。
-- `scripts/smoke_sop_dashboard.sh` 会启动独立 MySQL/Redis 和 Go standalone，登录后调用 `dashboard/contactSop/store/index/info/setEmployee/state/update/destroy` 与 `dashboard/roomSop/store/index/info/setRoom/state/update/destroy`，验证个人/群 SOP 规则 JSON 字段、范围字段、启停状态、触达日志级联删除和 `contact_sops` / `room_sops` SaaS 用量刷新。
-- `scripts/smoke_contact_batch_add_dashboard.sh` 会启动独立 MySQL/Redis 和 Go standalone，登录后调用 `dashboard/contactBatchAdd/settingEdit/settingUpdate/importStore/importIndex/index/dataStatistic/remind/allot/destroy/importDestroy`，验证批量加好友配置、multipart CSV 去重导入、导入记录文件 URL、客户列表筛选、标签/员工反查、员工分配统计、二次分配记录、提醒接口、单条软删、批次软删和导入原文件 `storage_mb` 账本回收。
-- `scripts/smoke_contact_transfer_dashboard.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，登录后调用 `dashboard/contactTransfer/saveUnassignedList/info/unassignedList/room/index/log` 以及 POST 版 `dashboard/contactTransfer/room`，验证离职待分配同步、在职客户列表、离职待分配客户列表、待分配群列表、客户接替、群接替、分配记录、`mc_work_unassigned` / `mc_work_transfer_log` 落库，并校验企业微信 `externalcontact/get_unassigned_list`、`externalcontact/transfer_customer` 和 `externalcontact/groupchat/transfer` 请求口径。
-- `scripts/smoke_work_fission_dashboard.sh` 会启动独立 MySQL/Redis、fake 企业微信 API 和 Go standalone，登录后调用 `dashboard/workFission/store/index/show/info/statistics/chooseContact/inviteData/inviteDetail/invite/update/destroy`，验证裂变活动新建、配置读取、统计、筛选客户、邀请数据、邀请明细、二次邀请、更新和删除闭环，断言 `mc_work_fission` 及 poster/welcome/push/invite 子表、`work_fissions` SaaS 用量刷新，并校验企业微信 `media/uploadimg`、`externalcontact/add_contact_way` 与 `externalcontact/add_msg_template` 请求口径。
-- `scripts/smoke_dashboard_frontend_login.sh` 会启动 MariaDB/Redis 和 Go standalone，不启动 PHP、不读取原 MoChat 源码或外部 manifest，用 Go 服务自身托管的 `web/dashboard/dist` 运行真实浏览器登录验证，覆盖菜单加载、首页 `corpData/index`/`lineChat`、`loginShow`、`corp/select`、超级管理员企业切换 `corp/bind`，并继续访问 `/corpData/index`、`/corp/index`、`/user/index`、`/passwordUpdate/index`、`/role/index`、`/role/permissionShow?roleId=910001`、`/menu/index`、`/department/index`、`/workEmployee/index`、`/workContact/index`、`/workContact/contactFieldPivot?contactId=910001&employeeId=2&isContact=1`、`/lossContact/index`、`/workContactTag/index`、`/workRoom/index`、`/workRoom/detail?workRoomId=910001`、`/workRoom/statistics?workRoomId=910001`、`/channelCode/index`、`/channelCode/statistics?channelCodeId=910001`、`/channelCode/store`、`/mediumGroup/index`、`/greeting/index`、`/greeting/store`、`/roomWelcome/index`、`/roomWelcome/create`、`/workRoomAutoPull/index`、`/workRoomAutoPull/store`、`/roomTagPull/index`、`/roomTagPull/create`、`/roomTagPull/detail?id=917001`、`/roomTagPull/contactDetail?id=917001`、`/autoTag/keywordIndex`、`/autoTag/keywordCreate`、`/autoTag/keywordShow?idRow=918001`、`/autoTag/joinRoomIndex`、`/autoTag/joinRoomCreate`、`/autoTag/joinRoomShow?idRow=918002`、`/autoTag/dayPartIndex`、`/autoTag/dayPartCreate`、`/autoTag/dayPartShow?idRow=918003`、`/contactMessageBatchSend/index`、`/contactMessageBatchSend/store`、`/contactMessageBatchSend/show?batchId=915001`、`/roomMessageBatchSend/index`、`/roomMessageBatchSend/store`、`/roomMessageBatchSend/show?batchId=916001`、`/workFission/taskpage`、`/workFission/create`、`/workFission/edit?id=985001`、`/workFission/invite?id=985001`、`/workFission/dataShow?id=985001`、`/officialAccount/index`、`/officialAccount/create`、`/contactField/index`、`/chatTool/customer`、`/chatTool/enhance`、`/statistics/contact`、`/statistics/employee`、`/contactTransfer/resignIndex`、`/contactTransfer/workIndex`、`/contactTransfer/workAllotRecord` 和 `/contactTransfer/resignAllotRecord` 共 61 个 dashboard 业务页面，并额外访问 Go 原生 `/dashboard/sensitiveWords/page` 敏感词管理页、`/dashboard/lottery/page` 抽奖活动页、`/dashboard/radar/page` 互动雷达页、`/dashboard/shopCode/page` 门店活码页、`/dashboard/contactSop/page` 个人 SOP 页、`/dashboard/roomSop/page` 群 SOP 页、`/dashboard/roomFission/page` 群裂变页、`/dashboard/roomQuality/page` 群质检页、`/dashboard/roomCalendar/page` 群日历页、`/dashboard/roomRemind/page` 客户群提醒页、`/dashboard/roomInfinitePull/page` 无限拉群页、`/dashboard/roomClockIn/page` 群打卡页和 `/dashboard/saasAlert/page` SaaS 告警管理页，等待对应 Go dashboard API 返回 200；脚本会把页面渲染到 `/404`、同源 dashboard 接口 4xx/5xx、非导航取消类本地请求失败和本地静态资源 4xx/5xx 视为失败。脚本直接调用 Node `playwright` 模块；如 Playwright 不在默认全局模块目录，可设置 `PLAYWRIGHT_NODE_PATH`。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
+旧身份/企业选择 smoke 与旧 Dashboard 登录/企业选择接口已在 0131 cutover 中物理退役；当前由现存 acceptance 脚本、身份单企业门禁和 Phase4 门禁覆盖。
 
 smoke 脚本会先构建临时 `mochat-go` 二进制再后台运行，避免 `go run` 包装进程退出后遗留真实服务进程。
 

@@ -12,6 +12,7 @@ import (
 	appmodules "jiyi/mochat-go/internal/app/modules"
 	"jiyi/mochat-go/internal/config"
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/dashboardprincipal"
 	aiinsighthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
 	aisettingshttp "jiyi/mochat-go/internal/modules/ai-settings/transport/http"
 	"jiyi/mochat-go/internal/modules/providers"
@@ -49,7 +50,7 @@ func registerAIDebtClearanceModules(
 	}
 	if err := appbootstrap.RegisterAISettings(router, true, appbootstrap.AISettingsDependencies{
 		DB:                mysqlStore.DB(),
-		PrincipalResolver: aiSettingsPrincipalResolver{delegate: principalResolver},
+		PrincipalResolver: aiSettingsPrincipalResolver{},
 		Authorizer:        aiDebtAuthorizer{delegate: leadAuthorizer},
 	}); err != nil {
 		return err
@@ -62,7 +63,7 @@ func registerAIDebtClearanceModules(
 		}
 	}
 	return appbootstrap.RegisterAIInsight(router, true, appbootstrap.AIInsightDependencies{
-		PrincipalResolver: aiInsightPrincipalResolver{delegate: principalResolver},
+		PrincipalResolver: aiInsightPrincipalResolver{},
 		Authorizer:        aiInsightAuthorizer{delegate: leadAuthorizer},
 		DB:                mysqlStore.DB(),
 		AIProvider:        aiProvider,
@@ -110,29 +111,35 @@ func (a aiInsightAuthorizer) Authorize(ctx context.Context, principal aiinsighth
 	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
 }
 
-type aiSettingsPrincipalResolver struct {
-	delegate scrmhttp.PrincipalResolver
-}
+type aiSettingsPrincipalResolver struct{}
 
 func (r aiSettingsPrincipalResolver) Resolve(request *http.Request) (aisettingshttp.Principal, error) {
-	principal, err := r.delegate.Resolve(request)
-	if err != nil {
-		return aisettingshttp.Principal{}, err
+	if request == nil {
+		return aisettingshttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
 	}
-	return aisettingshttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID}, nil
-}
-
-type aiInsightPrincipalResolver struct {
-	delegate scrmhttp.PrincipalResolver
-}
-
-func (r aiInsightPrincipalResolver) Resolve(request *http.Request) (aiinsighthttp.Principal, error) {
-	principal, err := r.delegate.Resolve(request)
-	if err != nil {
-		return aiinsighthttp.Principal{}, err
+	principal, err := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+	if err != nil || principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		return aisettingshttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
 	}
 	access, ok := dashboard.DashboardAccessFromContext(request.Context())
-	if !ok || access.UserID != int(principal.UserID) || access.TenantID != int(principal.TenantID) {
+	if !ok || access.UserID != principal.UserID || access.TenantID != principal.TenantID || access.CorpID != principal.CorpID {
+		return aisettingshttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
+	return aisettingshttp.Principal{UserID: int64(principal.UserID), TenantID: int64(principal.TenantID), CorpID: int64(principal.CorpID)}, nil
+}
+
+type aiInsightPrincipalResolver struct{}
+
+func (r aiInsightPrincipalResolver) Resolve(request *http.Request) (aiinsighthttp.Principal, error) {
+	if request == nil {
+		return aiinsighthttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
+	principal, err := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+	if err != nil || principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		return aiinsighthttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
+	}
+	access, ok := dashboard.DashboardAccessFromContext(request.Context())
+	if !ok || access.UserID != principal.UserID || access.TenantID != principal.TenantID || access.CorpID != principal.CorpID {
 		return aiinsighthttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
 	}
 	allowed := make([]int64, 0, len(access.AllowedEmployeeIDs))
@@ -141,5 +148,5 @@ func (r aiInsightPrincipalResolver) Resolve(request *http.Request) (aiinsighthtt
 			allowed = append(allowed, int64(id))
 		}
 	}
-	return aiinsighthttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: access.ScopeRequired && access.Scope != dashboard.DataScopeTenant}, nil
+	return aiinsighthttp.Principal{UserID: int64(principal.UserID), TenantID: int64(principal.TenantID), CorpID: int64(principal.CorpID), AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: access.ScopeRequired && access.Scope != dashboard.DataScopeTenant}, nil
 }

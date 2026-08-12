@@ -2086,42 +2086,6 @@ func (s *MySQLStore) CorpList(ctx context.Context, filter dashboard.CorpListFilt
 	}, nil
 }
 
-func (s *MySQLStore) UpdateCorp(ctx context.Context, corpID int, values dashboard.CorpUpdateValues) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer rollbackQuietly(tx)
-	current, found, err := s.loadCorpCredentialByID(ctx, tx, corpID, true)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return sql.ErrNoRows
-	}
-	credential, err := s.decodeCorpCredential(current)
-	if err != nil {
-		return err
-	}
-	credential.EmployeeSecret = values.EmployeeSecret
-	credential.ContactSecret = values.ContactSecret
-	storage, err := s.encodeCorpCredential(current.TenantID, values.WxCorpID, credential)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `
-		UPDATE mc_corp
-		SET name = ?, wx_corpid = ?, employee_secret = ?, contact_secret = ?, token = ?, encoding_aes_key = ?, chat_secret = ?,
-		    wecom_credentials_ciphertext = ?, wecom_credentials_key_id = ?, updated_at = NOW()
-		WHERE id = ? AND deleted_at IS NULL
-	`, values.Name, values.WxCorpID, storage.EmployeeSecret, storage.ContactSecret, storage.CallbackToken, storage.EncodingAESKey,
-		storage.ChatSecret, storage.Ciphertext, storage.KeyID, corpID)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 func (s *MySQLStore) CountCorps(ctx context.Context) (int, error) {
 	var total int
 	err := s.db.QueryRowContext(ctx, `
@@ -2153,32 +2117,6 @@ func (s *MySQLStore) ActiveCorpIDs(ctx context.Context) ([]int, error) {
 		corpIDs = append(corpIDs, corpID)
 	}
 	return corpIDs, rows.Err()
-}
-
-func (s *MySQLStore) CreateCorp(ctx context.Context, values dashboard.CorpCreateValues) (int, error) {
-	storage, err := s.encodeCorpCredential(values.TenantID, values.WxCorpID, wecomcredentials.CorpCredential{
-		EmployeeSecret: values.EmployeeSecret,
-		ContactSecret:  values.ContactSecret,
-		CallbackToken:  values.Token,
-		EncodingAESKey: values.EncodingAESKey,
-	})
-	if err != nil {
-		return 0, err
-	}
-	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO mc_corp (
-			name, wx_corpid, social_code, employee_secret, event_callback, contact_secret,
-			token, encoding_aes_key, chat_secret, wecom_credentials_ciphertext, wecom_credentials_key_id,
-			tenant_id, created_at, updated_at
-		)
-		VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-	`, values.Name, values.WxCorpID, storage.EmployeeSecret, values.EventCallback, storage.ContactSecret,
-		storage.CallbackToken, storage.EncodingAESKey, storage.ChatSecret, storage.Ciphertext, storage.KeyID, values.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	id, err := result.LastInsertId()
-	return int(id), err
 }
 
 func (s *MySQLStore) CorpDataSummary(ctx context.Context, scope dashboard.CorpDataScope, now time.Time) (dashboard.CorpDataSummary, error) {
@@ -8249,12 +8187,12 @@ func (s *MySQLStore) CreateWorkAgent(ctx context.Context, values dashboard.WorkA
 	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO mc_work_agent (
-			corp_id, wx_agent_id, wx_secret, wecom_credentials_ciphertext, wecom_credentials_key_id,
+			corp_id, wx_agent_id, wecom_credentials_ciphertext, wecom_credentials_key_id,
 			name, square_logo_url, description, close,
 			redirect_domain, report_location_flag, is_reportenter, home_url, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-	`, values.CorpID, values.WXAgentID, storage.WXSecret, storage.Ciphertext, storage.KeyID,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+	`, values.CorpID, values.WXAgentID, storage.Ciphertext, storage.KeyID,
 		detail.Name, detail.SquareLogoURL, detail.Description, detail.Close, detail.RedirectDomain, detail.ReportLocationFlag, detail.IsReportEnter, detail.HomeURL)
 	if err != nil {
 		return 0, err
@@ -25697,12 +25635,10 @@ func (s *MySQLStore) UpsertOfficialAccountAuthEvent(ctx context.Context, values 
 		}
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO mc_official_account
-				(appid, authorized_status, authorizer_appid, authorization_code, pre_auth_code,
-				 encoding_aes_key, token, secret, wechat_credentials_ciphertext, wechat_credentials_key_id,
+				(appid, authorized_status, authorizer_appid, wechat_credentials_ciphertext, wechat_credentials_key_id,
 				 create_time, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-		`, values.ComponentAppID, values.AuthorizedStatus, values.AuthorizerAppID, storage.AuthorizationCode, storage.PreAuthCode,
-			storage.ComponentAESKey, storage.ComponentToken, storage.ComponentSecret, storage.Ciphertext, storage.KeyID, values.CreateTime)
+			VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+		`, values.ComponentAppID, values.AuthorizedStatus, values.AuthorizerAppID, storage.Ciphertext, storage.KeyID, values.CreateTime)
 		if err != nil {
 			return 0, err
 		}
@@ -25752,12 +25688,10 @@ func (s *MySQLStore) UpsertOfficialAccountAuthEvent(ctx context.Context, values 
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE mc_official_account
-		SET appid = ?, authorized_status = ?, authorizer_appid = ?, authorization_code = ?, pre_auth_code = ?,
-		    encoding_aes_key = ?, token = ?, secret = ?, wechat_credentials_ciphertext = ?,
+		SET appid = ?, authorized_status = ?, authorizer_appid = ?, wechat_credentials_ciphertext = ?,
 		    wechat_credentials_key_id = ?, create_time = ?, updated_at = NOW()
 		WHERE id = ?
-	`, values.ComponentAppID, values.AuthorizedStatus, values.AuthorizerAppID, storage.AuthorizationCode, storage.PreAuthCode,
-		storage.ComponentAESKey, storage.ComponentToken, storage.ComponentSecret, storage.Ciphertext, storage.KeyID, values.CreateTime, id); err != nil {
+	`, values.ComponentAppID, values.AuthorizedStatus, values.AuthorizerAppID, storage.Ciphertext, storage.KeyID, values.CreateTime, id); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -25857,12 +25791,10 @@ func (s *MySQLStore) UpsertOfficialAccountAuthorization(ctx context.Context, val
 		}
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO mc_official_account
-				(appid, authorized_status, authorizer_appid, authorization_code, pre_auth_code,
-				 encoding_aes_key, token, secret, wechat_credentials_ciphertext, wechat_credentials_key_id,
+				(appid, authorized_status, authorizer_appid, wechat_credentials_ciphertext, wechat_credentials_key_id,
 				 func_info, tenant_id, corp_id, create_time, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-		`, values.ComponentAppID, values.AuthorizedStatus, values.AuthorizerAppID, storage.AuthorizationCode, storage.PreAuthCode,
-			storage.ComponentAESKey, storage.ComponentToken, storage.ComponentSecret, storage.Ciphertext, storage.KeyID,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+		`, values.ComponentAppID, values.AuthorizedStatus, values.AuthorizerAppID, storage.Ciphertext, storage.KeyID,
 			nullJSONString(values.FuncInfo), tenantID, values.CorpID, values.CreateTime)
 		if err != nil {
 			return 0, err
@@ -25902,12 +25834,10 @@ func (s *MySQLStore) UpsertOfficialAccountAuthorization(ctx context.Context, val
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE mc_official_account
-		SET appid = ?, authorized_status = ?, authorizer_appid = ?, authorization_code = ?, pre_auth_code = ?,
-		    encoding_aes_key = ?, token = ?, secret = ?, wechat_credentials_ciphertext = ?, wechat_credentials_key_id = ?,
+		SET appid = ?, authorized_status = ?, authorizer_appid = ?, wechat_credentials_ciphertext = ?, wechat_credentials_key_id = ?,
 		    func_info = ?, tenant_id = ?, corp_id = ?, create_time = ?, updated_at = NOW()
 		WHERE id = ?
-	`, values.ComponentAppID, values.AuthorizedStatus, values.AuthorizerAppID, storage.AuthorizationCode, storage.PreAuthCode,
-		storage.ComponentAESKey, storage.ComponentToken, storage.ComponentSecret, storage.Ciphertext, storage.KeyID,
+	`, values.ComponentAppID, values.AuthorizedStatus, values.AuthorizerAppID, storage.Ciphertext, storage.KeyID,
 		nullJSONString(values.FuncInfo), tenantID, values.CorpID, values.CreateTime, id); err != nil {
 		return 0, err
 	}

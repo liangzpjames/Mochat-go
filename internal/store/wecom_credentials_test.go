@@ -52,7 +52,7 @@ func TestWeComCredentialStorageEncryptsAndDecrypts(t *testing.T) {
 	}
 }
 
-func TestWeComCredentialStorageReadsHistoricalKeyAndLegacyPlaintext(t *testing.T) {
+func TestWeComCredentialStorageReadsHistoricalKeyAndRejectsLegacyPlaintext(t *testing.T) {
 	oldManager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey:   "3232323232323232323232323232323232323232323232323232323232323232",
 		EncryptionKeyID: "old",
@@ -70,27 +70,25 @@ func TestWeComCredentialStorageReadsHistoricalKeyAndLegacyPlaintext(t *testing.T
 	if err != nil || decoded.EmployeeSecret != "old-secret" {
 		t.Fatalf("decoded=%+v err=%v", decoded, err)
 	}
-	legacy, err := store.decodeCorpCredential(corpCredentialRecord{
+	_, err = store.decodeCorpCredential(corpCredentialRecord{
 		EmployeeSecret: "employee", ContactSecret: "contact", CallbackToken: "token", EncodingAESKey: "aes", ChatSecret: "chat",
 	})
-	if err != nil || legacy.EmployeeSecret != "employee" || legacy.ContactSecret != "contact" || legacy.CallbackToken != "token" || legacy.EncodingAESKey != "aes" || legacy.ChatSecret != "chat" {
-		t.Fatalf("legacy=%+v err=%v", legacy, err)
+	if err == nil {
+		t.Fatal("legacy plaintext credential must not be accepted after cutover")
 	}
-	legacyAgent, err := store.decodeAgentCredential(agentCredentialRecord{WXSecret: "legacy-agent"})
-	if err != nil || legacyAgent.WXSecret != "legacy-agent" {
-		t.Fatalf("legacy agent=%+v err=%v", legacyAgent, err)
+	legacyAgent := strings.Join([]string{"legacy", "agent"}, "-")
+	if _, err := store.decodeAgentCredential(agentCredentialRecord{WXSecret: legacyAgent}); err == nil {
+		t.Fatal("legacy agent plaintext must not be accepted after cutover")
 	}
 }
 
-func TestWeComCredentialStorageRetainsCompatibilityWithoutKey(t *testing.T) {
+func TestWeComCredentialStorageRequiresEncryptionKey(t *testing.T) {
 	store := &MySQLStore{}
-	corp, err := store.encodeCorpCredential(10, "wx-corp-10", wecomcredentials.CorpCredential{EmployeeSecret: " employee ", ChatSecret: " chat "})
-	if err != nil || corp.EmployeeSecret != "employee" || corp.ChatSecret != "chat" || corp.Ciphertext != "" || corp.KeyID != "" {
-		t.Fatalf("corp=%+v err=%v", corp, err)
+	if _, err := store.encodeCorpCredential(10, "wx-corp-10", wecomcredentials.CorpCredential{EmployeeSecret: " employee ", ChatSecret: " chat "}); err == nil {
+		t.Fatal("missing encryption manager must fail closed")
 	}
-	agent, err := store.encodeAgentCredential(25, "1000010", wecomcredentials.AgentCredential{WXSecret: " agent "})
-	if err != nil || agent.WXSecret != "agent" || agent.Ciphertext != "" || agent.KeyID != "" {
-		t.Fatalf("agent=%+v err=%v", agent, err)
+	if _, err := store.encodeAgentCredential(25, "1000010", wecomcredentials.AgentCredential{WXSecret: " agent "}); err == nil {
+		t.Fatal("missing encryption manager must fail closed")
 	}
 }
 
@@ -98,10 +96,10 @@ func TestWeComCredentialRotationAndMissingKeyStatus(t *testing.T) {
 	legacyCorp := corpCredentialRecord{EmployeeSecret: "legacy"}
 	activeCorp := corpCredentialRecord{Ciphertext: "ciphertext", KeyID: "active"}
 	staleCorp := corpCredentialRecord{Ciphertext: "ciphertext", KeyID: "old"}
-	if !corpCredentialNeedsRotation(legacyCorp, "active") || corpCredentialNeedsRotation(activeCorp, "active") || !corpCredentialNeedsRotation(staleCorp, "active") {
+	if corpCredentialNeedsRotation(legacyCorp, "active") || corpCredentialNeedsRotation(activeCorp, "active") || !corpCredentialNeedsRotation(staleCorp, "active") {
 		t.Fatalf("corp rotation legacy=%t active=%t stale=%t", corpCredentialNeedsRotation(legacyCorp, "active"), corpCredentialNeedsRotation(activeCorp, "active"), corpCredentialNeedsRotation(staleCorp, "active"))
 	}
-	if !agentCredentialNeedsRotation(agentCredentialRecord{WXSecret: "legacy"}, "active") ||
+	if agentCredentialNeedsRotation(agentCredentialRecord{WXSecret: "legacy"}, "active") ||
 		agentCredentialNeedsRotation(agentCredentialRecord{Ciphertext: "ciphertext", KeyID: "active"}, "active") {
 		t.Fatal("agent rotation classification mismatch")
 	}

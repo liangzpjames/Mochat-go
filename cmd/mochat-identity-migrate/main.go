@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,13 +31,14 @@ type migrateOptions struct {
 	MappingKeyFile              string
 	CredentialKeyFile           string
 	CredentialKeyID             string
+	MigrationVersion            string
 	ProjectRoot                 string
 	Timeout                     time.Duration
 }
 
 func parseMigrateOptions(args []string) (migrateOptions, error) {
 	if len(args) == 0 {
-		return migrateOptions{}, errors.New("migration action is required")
+		return migrateOptions{}, errors.New("usage: mochat-identity-migrate <action> [flags]")
 	}
 	options := migrateOptions{Action: strings.TrimSpace(args[0])}
 	flags := flag.NewFlagSet("mochat-identity-migrate", flag.ContinueOnError)
@@ -49,6 +53,7 @@ func parseMigrateOptions(args []string) (migrateOptions, error) {
 	flags.StringVar(&options.MappingKeyFile, "mapping-key-file", "", "mapping signature key file")
 	flags.StringVar(&options.CredentialKeyFile, "credential-key-file", "", "dedicated WeCom credential encryption key file")
 	flags.StringVar(&options.CredentialKeyID, "credential-key-id", "", "dedicated WeCom credential encryption key id")
+	flags.StringVar(&options.MigrationVersion, "migration-version", "", "explicit controlled migration version for down")
 	flags.StringVar(&options.ProjectRoot, "project-root", ".", "project root containing the controlled migration")
 	flags.DurationVar(&options.Timeout, "timeout", 30*time.Minute, "maintenance operation timeout")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -63,9 +68,17 @@ func parseMigrateOptions(args []string) (migrateOptions, error) {
 	return options, nil
 }
 
+func readMaintenanceConfirmation(path, schema, requestID string) error {
+	confirmation, err := identitymigration.ReadSecretFile(path)
+	if err != nil || identitymigration.VerifyMaintenanceConfirmation(confirmation, schema, requestID) != nil {
+		return errors.New("maintenance confirmation is invalid")
+	}
+	return nil
+}
+
 func validateMigrateOptions(options migrateOptions) error {
 	switch options.Action {
-	case "up", "down", "backfill", "encrypt-credentials":
+	case "up", "down", "backfill", "encrypt-credentials", "cutover", "cutover-down", "restore-legacy-credentials":
 	default:
 		return errors.New("unknown migration action")
 	}
@@ -95,6 +108,9 @@ func validateMigrateOptions(options migrateOptions) error {
 	}
 	if options.Timeout <= 0 {
 		return errors.New("--timeout must be positive")
+	}
+	if strings.TrimSpace(options.MigrationVersion) != "" && options.MigrationVersion != "0130_identity_realms_single_corp_backfill" && options.MigrationVersion != "0131_identity_realms_single_corp_cutover" {
+		return errors.New("--migration-version is not a supported controlled migration")
 	}
 	if options.Action != "down" && (strings.TrimSpace(options.CredentialKeyFile) == "" || strings.TrimSpace(options.CredentialKeyID) == "") {
 		return errors.New("--credential-key-file and --credential-key-id are required for this action")
@@ -130,9 +146,8 @@ func runMigration(args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	confirmation, err := identitymigration.ReadSecretFile(options.MaintenanceConfirmationFile)
-	if err != nil || identitymigration.VerifyMaintenanceConfirmation(confirmation, options.Schema, options.RequestID) != nil {
-		return errors.New("maintenance confirmation is invalid")
+	if err := readMaintenanceConfirmation(options.MaintenanceConfirmationFile, options.Schema, options.RequestID); err != nil {
+		return err
 	}
 	dsn, err := identitymigration.ReadSecretFile(options.DSNFile)
 	if err != nil {
@@ -196,8 +211,60 @@ func runMigration(args []string, output io.Writer) error {
 		}
 		_, err = fmt.Fprintf(output, "%s\t%d\t%d\n", options.Action, result.CorpRowsWritten, result.AgentRowsWritten)
 		return err
+	case "cutover", "cutover-down", "restore-legacy-credentials":
+		manager, err := identitymigration.NewCredentialManagerFromFile(options.CredentialKeyFile, options.CredentialKeyID)
+		if err != nil {
+			return errors.New("identity migration could not configure credential encryption")
+		}
+		switch options.Action {
+		case "cutover":
+			cutoverPath, pathErr := identitymigration.ControlledMigrationPath(root, "cutover")
+			if pathErr != nil {
+				return errors.New("identity migration path is invalid")
+			}
+			if _, err := identitymigration.PreflightCutover(ctx, db, identitymigration.DatabaseOptions{Schema: options.Schema, PlatformTenantID: options.PlatformTenantID, RequestID: options.RequestID, CredentialManager: manager}); err != nil {
+				return preservePhaseError(err, "identity cutover preflight failed")
+			}
+			if err := executeControlledScript(ctx, db, cutoverPath, options.Schema, options.PlatformTenantID, options.RequestID); err != nil {
+				return err
+			}
+			if err := migration.RecordControlledMigration(ctx, db, root, "0131_identity_realms_single_corp_cutover", options.RequestID); err != nil {
+				return &identitymigration.PhaseError{Phase: "ledger", Label: "standard_record"}
+			}
+			_, err = fmt.Fprintln(output, "cutover\tcompleted")
+			return err
+		case "cutover-down":
+			path, pathErr := identitymigration.ControlledMigrationPath(root, "cutover-down")
+			if pathErr != nil {
+				return errors.New("identity migration path is invalid")
+			}
+			if err := executeControlledScript(ctx, db, path, options.Schema, options.PlatformTenantID, options.RequestID); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, `DELETE FROM `+migration.VersionTable+` WHERE version = ?`, "0131_identity_realms_single_corp_cutover"); err != nil {
+				return &identitymigration.PhaseError{Phase: "rollback", Label: "standard_record"}
+			}
+			_, err = fmt.Fprintln(output, "cutover-down\tcompleted")
+			return err
+		case "restore-legacy-credentials":
+			result, restoreErr := identitymigration.RestoreLegacyCredentials(ctx, db, manager, options.RequestID)
+			if restoreErr != nil {
+				return restoreErr
+			}
+			_, err = fmt.Fprintf(output, "restore-legacy-credentials\t%d\n", result.RowsRestored)
+			return err
+		}
+		return errors.New("unknown identity maintenance action")
 	case "down":
-		downPath, err := identitymigration.ControlledMigrationPath(root, options.Action)
+		version := options.MigrationVersion
+		if strings.TrimSpace(version) == "" {
+			version = "0130_identity_realms_single_corp_backfill"
+		}
+		downAction := "down"
+		if version == "0131_identity_realms_single_corp_cutover" {
+			downAction = "cutover-down"
+		}
+		downPath, err := identitymigration.ControlledMigrationPath(root, downAction)
 		if err != nil {
 			return errors.New("identity migration path is invalid")
 		}
@@ -210,7 +277,13 @@ func runMigration(args []string, output io.Writer) error {
 			return errors.New("identity migration rollback connection is unavailable")
 		}
 		defer conn.Close()
-		if _, err := conn.ExecContext(ctx, "SET @identity_0130_requested_down_request_id = ?", options.RequestID); err != nil {
+		bindStatement := "SET @identity_0130_requested_down_request_id = ?"
+		bindArgs := []any{options.RequestID}
+		if downAction == "cutover-down" {
+			bindStatement = "SET @identity_0131_request_id = ?, @identity_0131_platform_tenant_id = ?"
+			bindArgs = []any{options.RequestID, options.PlatformTenantID}
+		}
+		if _, err := conn.ExecContext(ctx, bindStatement, bindArgs...); err != nil {
 			return &identitymigration.PhaseError{Phase: "rollback", Label: "request_bind"}
 		}
 		statements, err := migration.SplitSQLStatements(string(body))
@@ -222,7 +295,7 @@ func runMigration(args []string, output io.Writer) error {
 				return &identitymigration.PhaseError{Phase: "rollback", Label: "statement"}
 			}
 		}
-		if _, err := db.ExecContext(ctx, `DELETE FROM `+migration.VersionTable+` WHERE version = ?`, "0130_identity_realms_single_corp_backfill"); err != nil {
+		if _, err := db.ExecContext(ctx, `DELETE FROM `+migration.VersionTable+` WHERE version = ?`, version); err != nil {
 			return &identitymigration.PhaseError{Phase: "rollback", Label: "standard_record"}
 		}
 		_, err = fmt.Fprintln(output, "down\tcompleted")
@@ -230,4 +303,36 @@ func runMigration(args []string, output io.Writer) error {
 	default:
 		return errors.New("unknown migration action")
 	}
+}
+
+func executeControlledScript(ctx context.Context, db *sql.DB, path, schema string, platformTenantID int64, requestID string) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return &identitymigration.PhaseError{Phase: "cutover", Label: "connection"}
+	}
+	defer conn.Close()
+	if err := identitymigration.VerifyTargetSchemaOnConn(ctx, conn, schema); err != nil {
+		return &identitymigration.PhaseError{Phase: "preflight", Label: "schema_target"}
+	}
+	if _, err := conn.ExecContext(ctx, "SET @identity_0131_platform_tenant_id = ?, @identity_0131_request_id = ?", platformTenantID, requestID); err != nil {
+		return &identitymigration.PhaseError{Phase: "preflight", Label: "session_bind"}
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return &identitymigration.PhaseError{Phase: "cutover", Label: "script_read"}
+	}
+	scriptChecksum := sha256.Sum256(body)
+	if _, err := conn.ExecContext(ctx, "SET @identity_0131_script_checksum = ?", hex.EncodeToString(scriptChecksum[:])); err != nil {
+		return &identitymigration.PhaseError{Phase: "preflight", Label: "script_checksum"}
+	}
+	statements, err := migration.SplitSQLStatements(string(body))
+	if err != nil {
+		return &identitymigration.PhaseError{Phase: "cutover", Label: "script_parse"}
+	}
+	for _, statement := range statements {
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
+			return &identitymigration.PhaseError{Phase: "cutover", Label: "statement"}
+		}
+	}
+	return nil
 }

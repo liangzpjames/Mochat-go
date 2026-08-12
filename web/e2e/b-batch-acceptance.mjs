@@ -72,21 +72,19 @@ const b3 = Object.entries(primary).map(([name, key]) => {
 });
 results.push({ step: 'B3-primary-metrics', items: b3 });
 
-// B4: SaaS identity login has no prefill and issues no asset 404s.
+// B4: SaaS identity login is the only login entry and issues no asset 404s.
 const assetRequests = [];
 page.on('response', (response) => {
   if (response.status() >= 400 && (response.url().includes('/favicon.ico') || response.url().includes('/img/'))) {
     assetRequests.push(`${response.status()} ${response.url()}`);
   }
 });
-await page.goto(`${base}/security/login`, { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(1500);
-const phoneValue = await page.locator('#phone').inputValue();
-const passwordValue = await page.locator('#password').inputValue();
+const saasLoginResponse = await page.goto(`${base}/saas/login`, { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(500);
 results.push({
   step: 'B4-identity-login',
-  phonePrefill: phoneValue,
-  passwordPrefill: passwordValue,
+  status: saasLoginResponse?.status() ?? 0,
+  redirectedToSaaSAdmin: page.url().includes('/saas-admin/'),
   asset404s: assetRequests,
   inlineAssets: (await page.locator('html').innerHTML()).includes('data:image/svg+xml'),
 });
@@ -105,14 +103,16 @@ console.log(JSON.stringify(results, null, 2));
 const failed = results.some((r) =>
   (Array.isArray(r.items) ? r.items.some((i) => !i.match) : false) ||
   r.onDeepLink === false || r.onReturnTo === false ||
-  (r.phonePrefill !== undefined && r.phonePrefill !== '') ||
+  (r.status !== undefined && r.status >= 400) ||
+  r.redirectedToSaaSAdmin === false ||
   (r.asset404s && r.asset404s.length > 0) || r.unifiedCopy === false || r.hasActionLink === false);
 console.log('HITS=', JSON.stringify(results.map((r) => ({
   step: r.step,
   itemFail: Array.isArray(r.items) ? r.items.some((i) => !i.match) : false,
   deep: r.onDeepLink === false,
   ret: r.onReturnTo === false,
-  prefill: r.phonePrefill !== '',
+  status: r.status,
+  redirectedToSaaSAdmin: r.redirectedToSaaSAdmin === false,
   assets: !!(r.asset404s && r.asset404s.length > 0),
   copy: r.unifiedCopy === false,
   link: r.hasActionLink === false,

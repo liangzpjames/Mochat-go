@@ -113,19 +113,7 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 		nethttp.Error(w, "order owner scope cannot be resolved", nethttp.StatusForbidden)
 		return
 	}
-	requestedCorpID := int64(0)
-	if v := r.URL.Query().Get("corpId"); v != "" {
-		requestedCorpID, err = strconv.ParseInt(v, 10, 64)
-		if err != nil || requestedCorpID <= 0 {
-			nethttp.Error(w, "invalid corpId", nethttp.StatusBadRequest)
-			return
-		}
-	}
-	corpID, err := p.ResolveCorp(requestedCorpID)
-	if err != nil {
-		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
-		return
-	}
+	corpID := p.CorpID
 	if r.Method == nethttp.MethodGet {
 		if h.authorizer != nil {
 			if err := h.authorizer.Authorize(r.Context(), p, corpID, "/scrm/orders#get"); err != nil {
@@ -197,8 +185,6 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 	var in struct {
 		ID            string             `json:"id"`
-		TenantID      int64              `json:"tenantId"`
-		CorpID        int64              `json:"corpId"`
 		ContactID     string             `json:"contactId"`
 		OpportunityID string             `json:"opportunityId"`
 		Title         string             `json:"title"`
@@ -211,21 +197,14 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 		nethttp.Error(w, "invalid json", 400)
 		return
 	}
-	if p.TenantID > 0 {
-		in.TenantID = p.TenantID
-	}
-	in.CorpID, err = p.ResolveCorp(in.CorpID)
-	if err != nil {
-		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
-		return
-	}
+	inTenantID, inCorpID := p.TenantID, p.CorpID
 	if h.authorizer != nil {
-		if err := h.authorizer.Authorize(r.Context(), p, in.CorpID, "/scrm/orders@add#post"); err != nil {
+		if err := h.authorizer.Authorize(r.Context(), p, inCorpID, "/scrm/orders@add#post"); err != nil {
 			nethttp.Error(w, "forbidden", 403)
 			return
 		}
 	}
-	o, e := domain.NewOrder(domain.NewOrderInput{ID: strings.TrimSpace(in.ID), TenantID: in.TenantID, CorpID: in.CorpID, ContactID: in.ContactID, OpportunityID: in.OpportunityID, Title: in.Title, Note: in.Note, AmountCents: in.AmountCents, Currency: in.Currency, Status: in.Status})
+	o, e := domain.NewOrder(domain.NewOrderInput{ID: strings.TrimSpace(in.ID), TenantID: inTenantID, CorpID: inCorpID, ContactID: in.ContactID, OpportunityID: in.OpportunityID, Title: in.Title, Note: in.Note, AmountCents: in.AmountCents, Currency: in.Currency, Status: in.Status})
 	if e != nil {
 		nethttp.Error(w, e.Error(), 422)
 		return
@@ -261,11 +240,8 @@ func (h *OrderHandler) transition(w nethttp.ResponseWriter, r *nethttp.Request, 
 		nethttp.Error(w, "invalid json", 400)
 		return
 	}
-	corp, err := p.ResolveCorp(corp)
-	if err != nil {
-		nethttp.Error(w, "corpId does not match dashboard principal", nethttp.StatusBadRequest)
-		return
-	}
+	var err error
+	corp = p.CorpID
 	if h.authorizer != nil {
 		if err := h.authorizer.Authorize(r.Context(), p, corp, "/scrm/orders@edit#put"); err != nil {
 			nethttp.Error(w, "forbidden", 403)

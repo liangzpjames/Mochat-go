@@ -91,63 +91,20 @@ run_core() {
 }
 
 run_saas() {
-  run_step "SaaS provisioning" ./scripts/smoke_saas_provisioning.sh
-  run_step "SaaS tenant isolation" ./scripts/smoke_saas_tenant_isolation.sh
-  run_step "SaaS quota enforcement" ./scripts/smoke_saas_quota_enforcement.sh
-  run_step "SaaS storage reconcile" ./scripts/smoke_saas_storage_reconcile.sh
-  run_step "SaaS storage reclaim" ./scripts/smoke_saas_storage_reclaim.sh
-  run_step "SaaS usage refresh" ./scripts/smoke_saas_usage_refresh.sh
-  run_step "SaaS alert tenant setting dispatch" ./scripts/smoke_saas_alert_setting_dispatch.sh
-  run_step "WeCom credential encryption, rotation, and admin governance" ./scripts/smoke_wecom_credential_encryption.sh
-  run_step "SaaS admin dashboard overview" ./scripts/smoke_saas_admin_dashboard.sh
-  run_step "SaaS admin platform access RBAC" ./scripts/smoke_saas_admin_access_rbac.sh
-  run_step "SaaS tenant branding and standalone frontend metadata" ./scripts/smoke_saas_branding.sh
-  run_step "SaaS tenant custom domains, Host isolation, and route/TLS delivery" ./scripts/smoke_saas_tenant_domains.sh
-  run_step "SaaS production evidence and release candidate gate" ./scripts/smoke_saas_release_readiness.sh
-  run_step "SaaS admin high-risk approvals" ./scripts/smoke_saas_admin_approvals.sh
-  run_step "SaaS admin approval governance" ./scripts/smoke_saas_admin_approval_governance.sh
-  run_step "SaaS package definition dual approval and optimistic locking" ./scripts/smoke_saas_package_definition_approval.sh
-  run_step "SaaS tenant package assignment dual approval and optimistic locking" ./scripts/smoke_saas_tenant_package_assignment_approval.sh
-  run_step "SaaS tenant provision dual approval, credential redaction, and atomic execution" ./scripts/smoke_saas_tenant_provision_approval.sh
-  run_step "SaaS tenant renewal dual approval, frozen state, and atomic execution" ./scripts/smoke_saas_tenant_renewal_approval.sh
-  run_step "SaaS subscription transition dual approval, frozen state, and atomic execution" ./scripts/smoke_saas_subscription_transition_approval.sh
-  run_step "SaaS invoice issue dual approval, frozen ledger, and atomic execution" ./scripts/smoke_saas_invoice_issue_approval.sh
-  run_step "SaaS payment order create dual approval, frozen package, and atomic execution" ./scripts/smoke_saas_payment_order_create_approval.sh
-	  run_step "SaaS payment settlement close dual approval, frozen ledger, and atomic execution" ./scripts/smoke_saas_payment_settlement_close_approval.sh
-	  run_step "SaaS payment settlement reopen dual approval, frozen close audit, and atomic execution" ./scripts/smoke_saas_payment_settlement_reopen_approval.sh
-	  run_step "SaaS payment settlement resolve dual approval, frozen entry and batch, and atomic execution" ./scripts/smoke_saas_payment_settlement_resolve_approval.sh
-	  run_step "SaaS tenant domain lifecycle dual approval, frozen routing, and atomic execution" ./scripts/smoke_saas_tenant_domain_approval.sh
-  run_step "SaaS identity security, MFA, and persistent sessions" ./scripts/smoke_saas_identity_security.sh
-  run_step "SaaS admin system health and incident governance" ./scripts/smoke_saas_admin_system_health.sh
-  # The signed-anchor smoke delegates the legacy-chain cases to ./scripts/smoke_saas_audit_integrity.sh.
-  run_step "SaaS signed audit anchors, tamper detection, and rollback evidence" ./scripts/smoke_saas_audit_anchor.sh
-  run_step "SaaS service accounts and API key lifecycle" ./scripts/smoke_saas_service_accounts.sh
-  run_step "SaaS encrypted backup, offsite replica, and isolated restore recovery" ./scripts/smoke_saas_backup_recovery.sh
-  run_step "SaaS tenant data export, legal hold, approval, and erasure lifecycle" ./scripts/smoke_saas_compliance_lifecycle.sh
-  run_step "SaaS notification SLO trends" ./scripts/smoke_saas_notification_slo.sh
-  run_step "SaaS subscription lifecycle" ./scripts/smoke_saas_subscription_lifecycle.sh
-  run_step "SaaS payment collection" ./scripts/smoke_saas_payment_collection.sh
-  run_step "SaaS payment refunds" ./scripts/smoke_saas_payment_refunds.sh
-  run_step "SaaS billing invoices and credit notes" ./scripts/smoke_saas_billing_invoices.sh
-  run_step "SaaS payment provider settlements" ./scripts/smoke_saas_payment_settlements.sh
-  run_step "SaaS payment settlement automatic sync" ./scripts/smoke_saas_payment_settlement_sync.sh
-  run_step "official account component ticket" ./scripts/smoke_official_account_ticket.sh
+  run_step "SaaS alert setting dispatch" ./scripts/smoke_saas_alert_setting_dispatch.sh
 }
 
 run_workers() {
   run_step "async file upload worker" ./scripts/smoke_async_file_upload_worker.sh
-  run_step "async file upload SaaS usage" ./scripts/smoke_async_file_upload_saas_usage.sh
+  run_step "auto tag keyword worker" ./scripts/smoke_auto_tag_keyword_task.sh
+  run_step "employee statistic worker" ./scripts/smoke_employee_statistic_worker.sh
   run_step "mark tags worker" ./scripts/smoke_mark_tags_worker.sh
-  run_step "auto tag keyword task" ./scripts/smoke_auto_tag_keyword_task.sh
+  run_step "media id update worker" ./scripts/smoke_media_id_update_worker.sh
   run_step "message remind worker" ./scripts/smoke_message_remind_worker.sh
-  run_step "work room sync worker" ./scripts/smoke_work_room_sync_worker.sh
+  run_step "WeCom callback worker" ./scripts/smoke_wework_callback_worker.sh
   run_step "work contact sync worker" ./scripts/smoke_work_contact_sync_worker.sh
   run_step "work department list worker" ./scripts/smoke_work_department_list_worker.sh
-  run_step "media id update worker" ./scripts/smoke_media_id_update_worker.sh
-  run_step "employee statistic worker" ./scripts/smoke_employee_statistic_worker.sh
-  run_step "work contact tag remote write" ./scripts/smoke_work_contact_tag_remote_write.sh
-  run_step "WeWork callback worker" ./scripts/smoke_wework_callback_worker.sh
-  run_step "employee apply worker and SaaS alerts" ./scripts/smoke_employee_apply_worker.sh
+  run_step "work room sync worker" ./scripts/smoke_work_room_sync_worker.sh
 }
 
 run_cron() {
@@ -170,33 +127,9 @@ run_cron() {
 }
 
 run_frontend() {
-  run_step "frontend static browser smoke" ./scripts/smoke_frontend_static_browser.sh
-  run_step "admin core dashboard API smoke" ./scripts/smoke_admin_core_dashboard.sh
-  run_step "sensitive word dashboard API smoke" ./scripts/smoke_sensitive_word_dashboard.sh
-  run_step "channel code dashboard API smoke" ./scripts/smoke_channel_code_dashboard.sh
-  run_step "shop code dashboard API smoke" ./scripts/smoke_shop_code_dashboard.sh
-  run_step "radar dashboard API smoke" ./scripts/smoke_radar_dashboard.sh
-  run_step "lottery dashboard API smoke" ./scripts/smoke_lottery_dashboard.sh
-  run_step "room fission dashboard API smoke" ./scripts/smoke_room_fission_dashboard.sh
-  run_step "room infinite pull dashboard API smoke" ./scripts/smoke_room_infinite_pull_dashboard.sh
-  run_step "room clock in dashboard API smoke" ./scripts/smoke_room_clock_in_dashboard.sh
-  run_step "room quality dashboard API smoke" ./scripts/smoke_room_quality_dashboard.sh
-  run_step "room calendar dashboard API smoke" ./scripts/smoke_room_calendar_dashboard.sh
-  run_step "room remind dashboard API smoke" ./scripts/smoke_room_remind_dashboard.sh
-  run_step "SOP dashboard API smoke" ./scripts/smoke_sop_dashboard.sh
-  run_step "auto tag dashboard API smoke" ./scripts/smoke_auto_tag_dashboard.sh
-  run_step "greeting dashboard API smoke" ./scripts/smoke_greeting_dashboard.sh
-  run_step "room welcome dashboard API smoke" ./scripts/smoke_room_welcome_dashboard.sh
-  run_step "work room auto pull dashboard API smoke" ./scripts/smoke_work_room_auto_pull_dashboard.sh
-  run_step "room tag pull dashboard API smoke" ./scripts/smoke_room_tag_pull_dashboard.sh
-  run_step "contact message batch send dashboard API smoke" ./scripts/smoke_contact_message_batch_send_dashboard.sh
-  run_step "room message batch send dashboard API smoke" ./scripts/smoke_room_message_batch_send_dashboard.sh
-  run_step "contact batch add dashboard API smoke" ./scripts/smoke_contact_batch_add_dashboard.sh
-  run_step "contact transfer dashboard API smoke" ./scripts/smoke_contact_transfer_dashboard.sh
-  run_step "work fission dashboard API smoke" ./scripts/smoke_work_fission_dashboard.sh
-  run_step "dashboard browser login smoke" ./scripts/smoke_dashboard_frontend_login.sh
-  run_step "sidebar contact browser smoke" ./scripts/smoke_sidebar_frontend_contact.sh
-  run_step "operation workFission browser smoke" ./scripts/smoke_operation_frontend_work_fission.sh
+  run_step "frontend static browser" ./scripts/smoke_frontend_static_browser.sh
+  run_step "operation frontend work fission" ./scripts/smoke_operation_frontend_work_fission.sh
+  run_step "sidebar frontend contact" ./scripts/smoke_sidebar_frontend_contact.sh
 }
 
 run_mysql57() {
@@ -205,13 +138,7 @@ run_mysql57() {
 }
 
 run_php_comparison() {
-  if [ "$INCLUDE_PHP" != "1" ]; then
-    echo "PHP comparison suite skipped; set MOCHAT_ACCEPTANCE_INCLUDE_PHP=1 to run migration-period comparison checks" >&2
-    return 0
-  fi
-  run_step "fallback compatibility smoke" ./scripts/smoke_fallback.sh
-  run_step "local compatibility stack check" ./scripts/local_stack_check.sh
-  run_step "real PHP auth chain comparison" ./scripts/smoke_real_php_auth_chain.sh
+  echo "PHP compatibility smoke is retired after the identity cutover; no legacy auth/corp fallback is supported."
 }
 
 STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"

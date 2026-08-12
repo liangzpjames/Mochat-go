@@ -81,7 +81,7 @@ func newSCRMModuleRouter(
 	}
 	if cfg.EnablePhase22SCRMPilot {
 		reportingService := reporting.NewSQLService(mysqlStore.DB())
-		reportingHandler := reportinghttp.NewHandler(reportingService, reportingPrincipalResolver{delegate: dependencies.PrincipalResolver}, reportingAuthorizer{delegate: dependencies.LeadAuthorizer})
+		reportingHandler := reportinghttp.NewHandler(reportingService, reportingPrincipalResolver{}, reportingAuthorizer{delegate: dependencies.LeadAuthorizer})
 		if err := router.Handle(http.MethodGet, reportinghttp.ReportsPath, reportingHandler); err != nil {
 			return nil, fmt.Errorf("register reporting module: %w", err)
 		}
@@ -89,18 +89,18 @@ func newSCRMModuleRouter(
 	return router, nil
 }
 
-type reportingPrincipalResolver struct{ delegate scrmhttp.PrincipalResolver }
+type reportingPrincipalResolver struct{}
 
 func (r reportingPrincipalResolver) Resolve(request *http.Request) (reportinghttp.Principal, error) {
 	if request == nil {
 		return reportinghttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
 	}
-	principal, err := r.delegate.Resolve(request)
-	if err != nil {
-		return reportinghttp.Principal{}, err
+	principal, err := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+	if err != nil || principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		return reportinghttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
 	}
 	access, ok := dashboard.DashboardAccessFromContext(request.Context())
-	if !ok || access.UserID != int(principal.UserID) || access.TenantID != int(principal.TenantID) {
+	if !ok || access.UserID != principal.UserID || access.TenantID != principal.TenantID || access.CorpID != principal.CorpID {
 		return reportinghttp.Principal{}, scrmhttp.ErrPrincipalUnauthorized
 	}
 	allowed := make([]int64, 0, len(access.AllowedEmployeeIDs))
@@ -110,7 +110,7 @@ func (r reportingPrincipalResolver) Resolve(request *http.Request) (reportinghtt
 		}
 	}
 	restricted := access.ScopeRequired && access.Scope != dashboard.DataScopeTenant
-	return reportinghttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: restricted}, nil
+	return reportinghttp.Principal{UserID: int64(principal.UserID), TenantID: int64(principal.TenantID), CorpID: int64(principal.CorpID), AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: restricted}, nil
 }
 
 type reportingAuthorizer struct{ delegate scrmhttp.LeadAuthorizer }

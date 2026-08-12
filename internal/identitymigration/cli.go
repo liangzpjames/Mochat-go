@@ -78,7 +78,13 @@ func ControlledMigrationPath(projectRoot, action string) (string, error) {
 		return filepath.Join(root, "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql"), nil
 	case "down":
 		return filepath.Join(root, "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.down.sql"), nil
+	case "cutover":
+		return filepath.Join(root, "deploy", "standalone", "migrations", "0131_identity_realms_single_corp_cutover.up.sql"), nil
+	case "cutover-down":
+		return filepath.Join(root, "deploy", "standalone", "migrations", "0131_identity_realms_single_corp_cutover.down.sql"), nil
 	case "encrypt-credentials":
+		return "", nil
+	case "restore-legacy-credentials":
 		return "", nil
 	default:
 		return "", fmt.Errorf("unknown controlled migration action %q", action)

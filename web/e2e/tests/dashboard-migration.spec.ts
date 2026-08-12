@@ -78,7 +78,7 @@ for (const [app, routes] of [
 }
 
 test('API requests never return the SPA document', async ({ page }) => {
-  await page.goto('/corp/index');
+  await page.goto('/index');
   const response = await page.evaluate(async () => {
     const result = await fetch('/api/not-found');
     return {

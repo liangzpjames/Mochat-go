@@ -1,6 +1,6 @@
 import { dealPermissionData } from '@/router/router.config'
 import { errorPage } from '@/router/base/error'
-import { permissionByUser } from '@/api/login'
+import { permissionByUser } from '@/api/permission'
 
 const permission = {
   state: {

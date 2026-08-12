@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SUPERADMIN_ONLY_PATHS = new Set([
+  '/company-setting/website',
   '/company-setting/staff',
   '/setting/role',
   '/setting/additional',
@@ -445,6 +446,14 @@ export function extractMigrationPermissionResourceMappings(source) {
   return mappings;
 }
 
+export function extractCutoverPermissionResourceMappings(source) {
+  const mappings = [];
+  for (const match of source.matchAll(/(?:SELECT|UNION ALL SELECT)\s+'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS\s+\w+)?\s*,\s*'(\/dashboard\/company\/[^']+)'/g)) {
+    mappings.push(`dashboard.company_setting.website\t${match[1]} ${match[2]}\t0`);
+  }
+  return mappings;
+}
+
 export async function scanBackendRegisteredAPIs() {
   const internalFiles = await sourceFiles('internal', ['.go']);
   const compositionFiles = await sourceFiles(path.join('cmd', 'mochat-go'), ['.go']);
@@ -514,6 +523,7 @@ export function validateDashboardPageRBACCatalog({
 
   const mappedResources = [];
   const catalogMappings = [];
+  const resourceOwners = new Map();
   for (const page of catalog) {
     if (!Array.isArray(page.resources)) {
       throw new Error(`catalog page resources must be an array: ${page.path}`);
@@ -522,6 +532,9 @@ export function validateDashboardPageRBACCatalog({
     assertUnique(pageResources, 'resource mapping');
     for (const resource of pageResources) {
       mappedResources.push(resource);
+      const owners = resourceOwners.get(resource) ?? [];
+      owners.push({ path: page.path, superadminOnly: page.superadminOnly === true });
+      resourceOwners.set(resource, owners);
       const source = page.resources.find((candidate) => resourceKey(candidate) === resource);
       catalogMappings.push(`${page.code}\t${resource}\t${source.scopeRequired ? 1 : 0}`);
     }
@@ -537,11 +550,21 @@ export function validateDashboardPageRBACCatalog({
   const registered = new Set(registeredAPIs);
   const exempt = new Set(exemptions);
   const denied = new Set(denyOnly);
+  const companyPage = catalog.find((page) => page.path === '/company-setting/website');
+  const mayBeConsumedByProtectedCompanyPage = (route) => {
+    if (!/^\w+ \/dashboard\/company\//i.test(route) || companyPage?.superadminOnly !== true) return false;
+    const matchingOwners = [...resourceOwners.entries()]
+      .filter(([resource]) => routePatternCovers(route, resource))
+      .flatMap(([, owners]) => owners);
+    return matchingOwners.length > 0
+      && matchingOwners.every((owner) => owner.path === '/company-setting/website' && owner.superadminOnly);
+  };
   for (const route of exempt) {
     if (denied.has(route)) throw new Error(`dashboard route has conflicting policy classes: ${route}`);
   }
   for (const route of denied) {
-    if ([...mapped].some((resource) => routePatternCovers(route, resource))) {
+    if ([...mapped].some((resource) => routePatternCovers(route, resource))
+      && !mayBeConsumedByProtectedCompanyPage(route)) {
       throw new Error(`deny-only dashboard route is mapped to a page: ${route}`);
     }
   }
@@ -588,9 +611,15 @@ async function main() {
   const routePolicy = extractGoDashboardRoutePolicy(
     await readFile('internal/dashboard/dashboard_route_policy.go', 'utf8'),
   );
-  const seededMappings = extractMigrationPermissionResourceMappings(
+  const legacySeededMappings = extractMigrationPermissionResourceMappings(
     await readFile('deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql', 'utf8'),
   );
+  const cutoverSeededMappings = extractCutoverPermissionResourceMappings(
+    await readFile('deploy/standalone/migrations/0131_identity_realms_single_corp_cutover.up.sql', 'utf8'),
+  );
+  const seededMappings = legacySeededMappings
+    .filter((mapping) => !mapping.startsWith('dashboard.company_setting.website\t'))
+    .concat(cutoverSeededMappings);
   const apiUsages = await scanFrontendAPIUsages();
   const backendRoutes = (await scanBackendRegisteredAPIs())
     .filter((route) => isDashboardRBACRoute(route.contract));

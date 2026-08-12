@@ -42,17 +42,17 @@ func TestWeChatOpenCredentialStorageEncryptsAndDecrypts(t *testing.T) {
 	}
 }
 
-func TestWeChatOpenCredentialStorageLegacyAndMerge(t *testing.T) {
+func TestWeChatOpenCredentialStorageRejectsLegacyAndMergesEncrypted(t *testing.T) {
 	store := &MySQLStore{}
 	legacyTicket, err := store.decodeWeChatComponentTicketCredential(weChatComponentTicketCredentialRecord{Ticket: " legacy-ticket "})
 	if err != nil || legacyTicket.ComponentVerifyTicket != "legacy-ticket" {
 		t.Fatalf("ticket=%+v err=%v", legacyTicket, err)
 	}
-	legacyAccount, err := store.decodeOfficialAccountCredential(officialAccountCredentialRecord{
+	_, err = store.decodeOfficialAccountCredential(officialAccountCredentialRecord{
 		ComponentSecret: "secret", ComponentToken: "token", ComponentAESKey: "aes", AuthorizationCode: "auth", PreAuthCode: "pre",
 	})
-	if err != nil || legacyAccount.ComponentSecret != "secret" || legacyAccount.ComponentToken != "token" {
-		t.Fatalf("account=%+v err=%v", legacyAccount, err)
+	if err == nil {
+		t.Fatal("legacy official-account plaintext must not be accepted after cutover")
 	}
 	merged := mergeOfficialAccountCredential(
 		wechatopencredentials.OfficialAccountCredential{ComponentSecret: "old-secret", AuthorizerRefreshToken: "long-lived-refresh"},
@@ -61,9 +61,8 @@ func TestWeChatOpenCredentialStorageLegacyAndMerge(t *testing.T) {
 	if merged.ComponentSecret != "new-secret" || merged.AuthorizationCode != "new-auth" || merged.AuthorizerRefreshToken != "long-lived-refresh" {
 		t.Fatalf("merged=%+v", merged)
 	}
-	plaintext, err := store.encodeOfficialAccountCredential(10, "authorizer", merged)
-	if err != nil || plaintext.ComponentSecret != "new-secret" || plaintext.Ciphertext != "" {
-		t.Fatalf("plaintext=%+v err=%v", plaintext, err)
+	if _, err := store.encodeOfficialAccountCredential(10, "authorizer", merged); err == nil {
+		t.Fatal("missing encryption manager must fail closed")
 	}
 }
 
@@ -72,7 +71,7 @@ func TestWeChatOpenCredentialRotationClassification(t *testing.T) {
 		weChatComponentTicketCredentialNeedsRotation(weChatComponentTicketCredentialRecord{Ciphertext: "cipher", KeyID: "active"}, "active") {
 		t.Fatal("ticket rotation classification mismatch")
 	}
-	if !officialAccountCredentialNeedsRotation(officialAccountCredentialRecord{ComponentSecret: "legacy"}, "active") ||
+	if officialAccountCredentialNeedsRotation(officialAccountCredentialRecord{ComponentSecret: "legacy"}, "active") ||
 		officialAccountCredentialNeedsRotation(officialAccountCredentialRecord{Ciphertext: "cipher", KeyID: "active"}, "active") {
 		t.Fatal("official account rotation classification mismatch")
 	}

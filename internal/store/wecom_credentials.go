@@ -63,8 +63,6 @@ func (s *MySQLStore) loadCorpCredentialByID(ctx context.Context, queryer queryRo
 	}
 	row := queryer.QueryRowContext(ctx, `
 		SELECT id, COALESCE(tenant_id, 0), COALESCE(wx_corpid, ''),
-		       COALESCE(employee_secret, ''), COALESCE(contact_secret, ''),
-		       COALESCE(token, ''), COALESCE(encoding_aes_key, ''), COALESCE(chat_secret, ''),
 		       COALESCE(wecom_credentials_ciphertext, ''), COALESCE(wecom_credentials_key_id, '')
 		FROM mc_corp
 		WHERE id = ? AND deleted_at IS NULL`+suffix, corpID)
@@ -74,8 +72,6 @@ func (s *MySQLStore) loadCorpCredentialByID(ctx context.Context, queryer queryRo
 func (s *MySQLStore) loadCorpCredentialByWXCorpID(ctx context.Context, wxCorpID string) (corpCredentialRecord, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, COALESCE(tenant_id, 0), COALESCE(wx_corpid, ''),
-		       COALESCE(employee_secret, ''), COALESCE(contact_secret, ''),
-		       COALESCE(token, ''), COALESCE(encoding_aes_key, ''), COALESCE(chat_secret, ''),
 		       COALESCE(wecom_credentials_ciphertext, ''), COALESCE(wecom_credentials_key_id, '')
 		FROM mc_corp
 		WHERE wx_corpid = ? AND deleted_at IS NULL
@@ -86,8 +82,7 @@ func (s *MySQLStore) loadCorpCredentialByWXCorpID(ctx context.Context, wxCorpID 
 
 func scanCorpCredentialRecord(scanner rowScanner) (corpCredentialRecord, bool, error) {
 	var item corpCredentialRecord
-	if err := scanner.Scan(&item.ID, &item.TenantID, &item.WXCorpID, &item.EmployeeSecret, &item.ContactSecret,
-		&item.CallbackToken, &item.EncodingAESKey, &item.ChatSecret, &item.Ciphertext, &item.KeyID); err != nil {
+	if err := scanner.Scan(&item.ID, &item.TenantID, &item.WXCorpID, &item.Ciphertext, &item.KeyID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return corpCredentialRecord{}, false, nil
 		}
@@ -96,21 +91,15 @@ func scanCorpCredentialRecord(scanner rowScanner) (corpCredentialRecord, bool, e
 	return item, true, nil
 }
 
-// decodeCorpCredential resolves encrypted rows while retaining read compatibility with legacy plaintext rows.
+// decodeCorpCredential only resolves the post-cutover encrypted credential copy.
 func (s *MySQLStore) decodeCorpCredential(item corpCredentialRecord) (wecomcredentials.CorpCredential, error) {
-	if strings.TrimSpace(item.Ciphertext) != "" {
-		if s.weComCredentialCipher == nil {
-			return wecomcredentials.CorpCredential{}, errors.New("WeCom credential encryption manager is not configured")
-		}
-		return s.weComCredentialCipher.DecryptCorp(item.TenantID, item.WXCorpID, item.KeyID, item.Ciphertext)
+	if strings.TrimSpace(item.Ciphertext) == "" {
+		return wecomcredentials.CorpCredential{}, errors.New("encrypted WeCom credential is unavailable")
 	}
-	return wecomcredentials.CorpCredential{
-		EmployeeSecret: item.EmployeeSecret,
-		ContactSecret:  item.ContactSecret,
-		CallbackToken:  item.CallbackToken,
-		EncodingAESKey: item.EncodingAESKey,
-		ChatSecret:     item.ChatSecret,
-	}, nil
+	if s.weComCredentialCipher == nil {
+		return wecomcredentials.CorpCredential{}, errors.New("WeCom credential encryption manager is not configured")
+	}
+	return s.weComCredentialCipher.DecryptCorp(item.TenantID, item.WXCorpID, item.KeyID, item.Ciphertext)
 }
 
 func (s *MySQLStore) encodeCorpCredential(tenantID int, wxCorpID string, credential wecomcredentials.CorpCredential) (corpCredentialStorage, error) {
@@ -121,13 +110,7 @@ func (s *MySQLStore) encodeCorpCredential(tenantID int, wxCorpID string, credent
 		}
 		return corpCredentialStorage{Ciphertext: ciphertext, KeyID: keyID}, nil
 	}
-	return corpCredentialStorage{
-		EmployeeSecret: strings.TrimSpace(credential.EmployeeSecret),
-		ContactSecret:  strings.TrimSpace(credential.ContactSecret),
-		CallbackToken:  strings.TrimSpace(credential.CallbackToken),
-		EncodingAESKey: strings.TrimSpace(credential.EncodingAESKey),
-		ChatSecret:     strings.TrimSpace(credential.ChatSecret),
-	}, nil
+	return corpCredentialStorage{}, errors.New("WeCom credential encryption manager is not configured")
 }
 
 func (s *MySQLStore) loadAgentCredentialByID(ctx context.Context, queryer queryRower, agentID int, forUpdate bool) (agentCredentialRecord, bool, error) {
@@ -137,13 +120,13 @@ func (s *MySQLStore) loadAgentCredentialByID(ctx context.Context, queryer queryR
 	}
 	row := queryer.QueryRowContext(ctx, `
 		SELECT a.id, a.corp_id, COALESCE(c.tenant_id, 0), COALESCE(c.wx_corpid, ''),
-		       COALESCE(a.wx_agent_id, ''), COALESCE(a.wx_secret, ''),
+		       COALESCE(a.wx_agent_id, ''),
 		       COALESCE(a.wecom_credentials_ciphertext, ''), COALESCE(a.wecom_credentials_key_id, '')
 		FROM mc_work_agent a
 		JOIN mc_corp c ON c.id = a.corp_id AND c.deleted_at IS NULL
 		WHERE a.id = ? AND a.deleted_at IS NULL`+suffix, agentID)
 	var item agentCredentialRecord
-	if err := row.Scan(&item.ID, &item.CorpID, &item.TenantID, &item.WXCorpID, &item.WXAgentID, &item.WXSecret, &item.Ciphertext, &item.KeyID); err != nil {
+	if err := row.Scan(&item.ID, &item.CorpID, &item.TenantID, &item.WXCorpID, &item.WXAgentID, &item.Ciphertext, &item.KeyID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return agentCredentialRecord{}, false, nil
 		}
@@ -153,13 +136,13 @@ func (s *MySQLStore) loadAgentCredentialByID(ctx context.Context, queryer queryR
 }
 
 func (s *MySQLStore) decodeAgentCredential(item agentCredentialRecord) (wecomcredentials.AgentCredential, error) {
-	if strings.TrimSpace(item.Ciphertext) != "" {
-		if s.weComCredentialCipher == nil {
-			return wecomcredentials.AgentCredential{}, errors.New("WeCom credential encryption manager is not configured")
-		}
-		return s.weComCredentialCipher.DecryptAgent(item.CorpID, item.WXAgentID, item.KeyID, item.Ciphertext)
+	if strings.TrimSpace(item.Ciphertext) == "" {
+		return wecomcredentials.AgentCredential{}, errors.New("encrypted WeCom agent credential is unavailable")
 	}
-	return wecomcredentials.AgentCredential{WXSecret: strings.TrimSpace(item.WXSecret)}, nil
+	if s.weComCredentialCipher == nil {
+		return wecomcredentials.AgentCredential{}, errors.New("WeCom credential encryption manager is not configured")
+	}
+	return s.weComCredentialCipher.DecryptAgent(item.CorpID, item.WXAgentID, item.KeyID, item.Ciphertext)
 }
 
 func (s *MySQLStore) encodeAgentCredential(corpID int, wxAgentID string, credential wecomcredentials.AgentCredential) (agentCredentialStorage, error) {
@@ -170,7 +153,7 @@ func (s *MySQLStore) encodeAgentCredential(corpID int, wxAgentID string, credent
 		}
 		return agentCredentialStorage{Ciphertext: ciphertext, KeyID: keyID}, nil
 	}
-	return agentCredentialStorage{WXSecret: strings.TrimSpace(credential.WXSecret)}, nil
+	return agentCredentialStorage{}, errors.New("WeCom credential encryption manager is not configured")
 }
 
 func (s *MySQLStore) SaaSWeComCredentialProtection(ctx context.Context) (dashboard.SaaSWeComCredentialProtectionStatus, error) {
@@ -186,8 +169,6 @@ func (s *MySQLStore) SaaSWeComCredentialProtection(ctx context.Context) (dashboa
 	unavailable := map[string]struct{}{}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, COALESCE(tenant_id, 0), COALESCE(wx_corpid, ''),
-		       COALESCE(employee_secret, ''), COALESCE(contact_secret, ''),
-		       COALESCE(token, ''), COALESCE(encoding_aes_key, ''), COALESCE(chat_secret, ''),
 		       COALESCE(wecom_credentials_ciphertext, ''), COALESCE(wecom_credentials_key_id, '')
 		FROM mc_corp
 		WHERE deleted_at IS NULL
@@ -221,7 +202,7 @@ func (s *MySQLStore) SaaSWeComCredentialProtection(ctx context.Context) (dashboa
 
 	agentRows, err := s.db.QueryContext(ctx, `
 		SELECT a.id, a.corp_id, COALESCE(c.tenant_id, 0), COALESCE(c.wx_corpid, ''),
-		       COALESCE(a.wx_agent_id, ''), COALESCE(a.wx_secret, ''),
+		       COALESCE(a.wx_agent_id, ''),
 		       COALESCE(a.wecom_credentials_ciphertext, ''), COALESCE(a.wecom_credentials_key_id, '')
 		FROM mc_work_agent a
 		JOIN mc_corp c ON c.id = a.corp_id AND c.deleted_at IS NULL
@@ -233,7 +214,7 @@ func (s *MySQLStore) SaaSWeComCredentialProtection(ctx context.Context) (dashboa
 	}
 	for agentRows.Next() {
 		var item agentCredentialRecord
-		if err := agentRows.Scan(&item.ID, &item.CorpID, &item.TenantID, &item.WXCorpID, &item.WXAgentID, &item.WXSecret, &item.Ciphertext, &item.KeyID); err != nil {
+		if err := agentRows.Scan(&item.ID, &item.CorpID, &item.TenantID, &item.WXCorpID, &item.WXAgentID, &item.Ciphertext, &item.KeyID); err != nil {
 			agentRows.Close()
 			return dashboard.SaaSWeComCredentialProtectionStatus{}, err
 		}
@@ -332,16 +313,16 @@ func (s *MySQLStore) RotateSaaSWeComCredentials(ctx context.Context, tenantID in
 			FROM mc_corp c
 			WHERE c.deleted_at IS NULL
 			  AND (? = 0 OR c.tenant_id = ?)
-			  AND (c.employee_secret <> '' OR c.contact_secret <> '' OR c.token <> '' OR c.encoding_aes_key <> '' OR c.chat_secret <> '' OR COALESCE(c.wecom_credentials_ciphertext, '') <> '')
-			  AND (COALESCE(c.wecom_credentials_ciphertext, '') = '' OR c.wecom_credentials_key_id <> ? OR c.employee_secret <> '' OR c.contact_secret <> '' OR c.token <> '' OR c.encoding_aes_key <> '' OR c.chat_secret <> '')
+			  AND COALESCE(c.wecom_credentials_ciphertext, '') <> ''
+			  AND c.wecom_credentials_key_id <> ?
 			UNION ALL
 			SELECT 'agent' AS resource_type, a.id AS resource_id, a.id AS sort_id
 			FROM mc_work_agent a
 			JOIN mc_corp c ON c.id = a.corp_id AND c.deleted_at IS NULL
 			WHERE a.deleted_at IS NULL
 			  AND (? = 0 OR c.tenant_id = ?)
-			  AND (a.wx_secret <> '' OR COALESCE(a.wecom_credentials_ciphertext, '') <> '')
-			  AND (COALESCE(a.wecom_credentials_ciphertext, '') = '' OR a.wecom_credentials_key_id <> ? OR a.wx_secret <> '')
+			  AND COALESCE(a.wecom_credentials_ciphertext, '') <> ''
+			  AND a.wecom_credentials_key_id <> ?
 		) candidates
 		ORDER BY resource_type ASC, sort_id ASC
 		LIMIT ?
@@ -425,11 +406,9 @@ func (s *MySQLStore) rotateCorpCredential(ctx context.Context, corpID int, tenan
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE mc_corp
-		SET employee_secret = ?, contact_secret = ?, token = ?, encoding_aes_key = ?, chat_secret = ?,
-		    wecom_credentials_ciphertext = ?, wecom_credentials_key_id = ?, updated_at = NOW()
+		SET wecom_credentials_ciphertext = ?, wecom_credentials_key_id = ?, updated_at = NOW()
 		WHERE id = ? AND deleted_at IS NULL
-	`, storage.EmployeeSecret, storage.ContactSecret, storage.CallbackToken, storage.EncodingAESKey, storage.ChatSecret,
-		storage.Ciphertext, storage.KeyID, item.ID); err != nil {
+	`, storage.Ciphertext, storage.KeyID, item.ID); err != nil {
 		return false, legacy, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -465,9 +444,9 @@ func (s *MySQLStore) rotateAgentCredential(ctx context.Context, agentID int, ten
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE mc_work_agent
-		SET wx_secret = ?, wecom_credentials_ciphertext = ?, wecom_credentials_key_id = ?, updated_at = NOW()
+		SET wecom_credentials_ciphertext = ?, wecom_credentials_key_id = ?, updated_at = NOW()
 		WHERE id = ? AND deleted_at IS NULL
-	`, storage.WXSecret, storage.Ciphertext, storage.KeyID, item.ID); err != nil {
+	`, storage.Ciphertext, storage.KeyID, item.ID); err != nil {
 		return false, legacy, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -477,7 +456,7 @@ func (s *MySQLStore) rotateAgentCredential(ctx context.Context, agentID int, ten
 }
 
 func corpCredentialConfigured(item corpCredentialRecord) bool {
-	return strings.TrimSpace(item.Ciphertext) != "" || corpLegacyPlaintextPresent(item)
+	return strings.TrimSpace(item.Ciphertext) != ""
 }
 
 func corpLegacyPlaintextPresent(item corpCredentialRecord) bool {
@@ -486,13 +465,13 @@ func corpLegacyPlaintextPresent(item corpCredentialRecord) bool {
 }
 
 func corpCredentialNeedsRotation(item corpCredentialRecord, activeKeyID string) bool {
-	return strings.TrimSpace(item.Ciphertext) == "" || strings.TrimSpace(item.KeyID) != strings.TrimSpace(activeKeyID) || corpLegacyPlaintextPresent(item)
+	return strings.TrimSpace(item.Ciphertext) != "" && strings.TrimSpace(item.KeyID) != strings.TrimSpace(activeKeyID)
 }
 
 func agentCredentialConfigured(item agentCredentialRecord) bool {
-	return strings.TrimSpace(item.Ciphertext) != "" || strings.TrimSpace(item.WXSecret) != ""
+	return strings.TrimSpace(item.Ciphertext) != ""
 }
 
 func agentCredentialNeedsRotation(item agentCredentialRecord, activeKeyID string) bool {
-	return strings.TrimSpace(item.Ciphertext) == "" || strings.TrimSpace(item.KeyID) != strings.TrimSpace(activeKeyID) || strings.TrimSpace(item.WXSecret) != ""
+	return strings.TrimSpace(item.Ciphertext) != "" && strings.TrimSpace(item.KeyID) != strings.TrimSpace(activeKeyID)
 }

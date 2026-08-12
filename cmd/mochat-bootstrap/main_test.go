@@ -156,7 +156,7 @@ func TestBootstrapReadmeUsesUniqueTemporaryPasswordFileAndTruthfulContract(t *te
 	for _, required := range []string{
 		"mktemp /tmp/mochat-bootstrap-saas-admin.XXXXXX",
 		"mochat_go_saas_admin_users",
-		"Task12",
+		"identity-single-corp",
 	} {
 		if !strings.Contains(readme, required) {
 			t.Fatalf("standalone README is missing bootstrap contract marker: %s", required)

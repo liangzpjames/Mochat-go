@@ -36,7 +36,7 @@ Usage: MOCHAT_REAL_SAAS_BASE_URL=https://mochat-prod.your-domain.cn ./scripts/ca
       证据中展示的租户名称，默认 tenant-a / tenant-b。
   MOCHAT_REAL_SAAS_READ_PATHS
       两租户都要访问的读路径，默认：
-      /dashboard/user/loginShow /dashboard/corpData/index /dashboard/role/index /dashboard/workEmployee/searchCondition
+      /dashboard/auth/session /dashboard/corpData/index /dashboard/role/index /dashboard/workEmployee/searchCondition
   MOCHAT_REAL_SAAS_AUTH_HEADER
       认证头名，默认 Authorization。
   MOCHAT_REAL_SAAS_AUTH_PREFIX
@@ -210,7 +210,7 @@ async function main() {
 
   const readPaths = parseList(env(
     'MOCHAT_REAL_SAAS_READ_PATHS',
-    '/dashboard/user/loginShow /dashboard/corpData/index /dashboard/role/index /dashboard/workEmployee/searchCondition',
+    '/dashboard/auth/session /dashboard/corpData/index /dashboard/role/index /dashboard/workEmployee/searchCondition',
   ));
 
   const quotaEvidence = loadEvidenceValue(env('MOCHAT_REAL_SAAS_QUOTA_EVIDENCE'));

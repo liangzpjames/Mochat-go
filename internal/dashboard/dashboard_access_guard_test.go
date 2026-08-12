@@ -303,8 +303,8 @@ func TestDashboardAccessGuardExemptionsAreExactAndProtectedOnSessionRoutes(t *te
 	}{
 		{method: http.MethodPost, path: "/dashboard/user/auth", want: true},
 		{method: http.MethodPost, path: "/dashboard/officialAccount/authEventCallback", want: true},
-		{method: http.MethodGet, path: "/dashboard/user/loginShow", want: true},
-		{method: http.MethodGet, path: "/dashboard/user/loginShowExtra", want: false},
+		{method: http.MethodGet, path: "/dashboard/user/securityMFA", want: true},
+		{method: http.MethodGet, path: "/dashboard/user/securityMFAExtra", want: false},
 		{method: http.MethodPost, path: "/dashboard/user/authExtra", want: false},
 		{method: http.MethodGet, path: "/dashboard/officialAccount/authRedirect", want: false},
 	} {
@@ -321,7 +321,7 @@ func TestDashboardAccessGuardExemptionsAreExactAndProtectedOnSessionRoutes(t *te
 
 	guard, _ = newDashboardAccessGuardFixture(false)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/user/securityMFA", nil)
 	if guard.Authorize(recorder, request) || recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("protected exemption bypassed identity principal: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}

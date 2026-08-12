@@ -63,7 +63,7 @@ $deploySource = Get-Content -LiteralPath $deployScript -Raw
 Assert-Matches $deploySource '"--database=\$database"' '迁移/管理员数据库校验未显式指定目标 database'
 Assert-Matches $deploySource '12,64' '容器 ID 未执行 12-64 位长度校验'
 Assert-Matches $deploySource '2> \$stderrPath' 'Docker Capture 未分离 stderr'
-Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/security/login' '未检查 SaaS 身份登录入口'
+Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/saas/login' '未检查 SaaS 身份登录入口'
 if ($deploySource -match 'mochat-bootstrap|AdminPassword|AdminPhone') {
     throw '生产部署入口仍包含旧 bootstrap 命令行密码或旧管理员参数'
 }

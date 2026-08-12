@@ -350,16 +350,6 @@ func main() {
 		log.Printf("go SaaS alert webhook enabled: endpoint_configured=true timeout=%s signed=%t retry_attempts=%d retry_delay=%s templated=true outbox=%t outbox_max_attempts=%d outbox_retry_delay=%s", cfg.SaaSAlertWebhookTimeout, strings.TrimSpace(cfg.SaaSAlertWebhookSecret) != "", cfg.SaaSAlertWebhookRetryAttempts, cfg.SaaSAlertWebhookRetryDelay, persistentOutbox, cfg.SaaSAlertNotificationMaxAttempts, cfg.SaaSAlertNotificationRetryDelay)
 	}
 
-	if cfg.MigrateLoginShow {
-		mysqlStore := getMySQLStore()
-		resolver, loginCache := buildUserResolver("loginShow")
-
-		options = append(options, compatserver.WithLoginShowHandler(
-			dashboard.NewLoginShowHandler(mysqlStore, loginCache, resolver),
-		))
-		log.Printf("go migrated route enabled: GET /dashboard/user/loginShow")
-	}
-
 	var dashboardPrincipalResolver dashboardprincipal.PrincipalResolver
 	if cfg.MigrateAuth {
 		mysqlStore := getMySQLStore()
@@ -427,21 +417,6 @@ func main() {
 		log.Printf("go Dashboard company profile routes enabled: GET/PUT /dashboard/company/profile PUT /dashboard/company/wecom-credentials PUT /dashboard/company/agent-credentials PUT /dashboard/company/archive-credentials POST /dashboard/company/verify POST /dashboard/company/employee-sync GET /dashboard/company/sync-status GET /dashboard/company/audits")
 	}
 
-	if cfg.MigrateLogout && dashboardIdentityGuard == nil {
-		redisStore := getRedisStore()
-		logoutHandler := dashboard.NewLogoutHandler(redisStore, authjwt.Parser{
-			Secret:    cfg.SimpleJWTSecret,
-			Prefix:    cfg.SimpleJWTPrefix,
-			Blacklist: redisStore,
-			Sessions:  identitySessionChecker,
-		}, cfg.SimpleJWTRefreshTTL)
-		if identityManager != nil {
-			logoutHandler.WithIdentitySessions(identityManager)
-		}
-		options = append(options, compatserver.WithLogoutHandler(logoutHandler))
-		log.Printf("go migrated route enabled: PUT /dashboard/user/logout")
-	}
-
 	if cfg.MigrateUserIndex || cfg.MigrateUserShow || cfg.MigrateUserStore || cfg.MigrateUserUpdate || cfg.MigrateUserStatusUpdate || cfg.MigrateUserPasswordReset || cfg.MigrateUserPasswordUpdate {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("userAdmin")
@@ -494,55 +469,6 @@ func main() {
 			dashboard.NewPermissionByUserHandler(mysqlStore, resolver),
 		))
 		log.Printf("go migrated route enabled: GET /dashboard/role/permissionByUser")
-	}
-
-	if cfg.MigrateCorpSelect {
-		mysqlStore := getMySQLStore()
-		resolver, _ := buildUserResolver("corpSelect")
-		options = append(options, compatserver.WithCorpSelectHandler(
-			dashboard.NewCorpSelectHandler(mysqlStore, resolver),
-		))
-		log.Printf("go migrated route enabled: GET /dashboard/corp/select")
-	}
-
-	if cfg.MigrateCorpBind {
-		mysqlStore := getMySQLStore()
-		redisStore := getRedisStore()
-		resolver, _ := buildUserResolver("corpBind")
-		options = append(options, compatserver.WithCorpBindHandler(
-			dashboard.NewCorpBindHandler(mysqlStore, redisStore, resolver),
-		))
-		log.Printf("go migrated route enabled: POST /dashboard/corp/bind")
-	}
-
-	if cfg.MigrateCorpIndex || cfg.MigrateCorpShow || cfg.MigrateCorpStore || cfg.MigrateCorpUpdate {
-		mysqlStore := getMySQLStore()
-		resolver, loginCache := buildUserResolver("corpAdmin")
-		corpAdmin := dashboard.NewCorpAdminHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
-		if cfg.MigrateCorpStore {
-			redisStore := getRedisStore()
-			corpAdmin.
-				WithCacheWriter(redisStore).
-				WithEmployeeApplyQueue(redisStore).
-				WithWeComValidator(dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL)).
-				WithAPIBaseURL(cfg.APIBaseURL)
-		}
-		if cfg.MigrateCorpIndex {
-			options = append(options, compatserver.WithCorpIndexHandler(http.HandlerFunc(corpAdmin.Index)))
-			log.Printf("go migrated route enabled: GET /dashboard/corp/index")
-		}
-		if cfg.MigrateCorpShow {
-			options = append(options, compatserver.WithCorpShowHandler(http.HandlerFunc(corpAdmin.Show)))
-			log.Printf("go migrated route enabled: GET /dashboard/corp/show")
-		}
-		if cfg.MigrateCorpStore {
-			options = append(options, compatserver.WithCorpStoreHandler(http.HandlerFunc(corpAdmin.Store)))
-			log.Printf("go migrated route enabled: POST /dashboard/corp/store")
-		}
-		if cfg.MigrateCorpUpdate {
-			options = append(options, compatserver.WithCorpUpdateHandler(http.HandlerFunc(corpAdmin.Update)))
-			log.Printf("go migrated route enabled: PUT /dashboard/corp/update")
-		}
 	}
 
 	if cfg.MigrateWeWorkCallback {
@@ -3404,12 +3330,11 @@ func main() {
 	if err := registerDashboardAccessRoutes(moduleRouter, dashboardAccessHTTP); err != nil {
 		log.Fatalf("register Dashboard access administration routes: %v", err)
 	}
-	if dashboardIdentityGuard != nil {
-		dashboardIdentityGuard.WithNext(dashboardAccessGuard)
-		options = append(options, compatserver.WithDashboardRequestGuard(dashboardIdentityGuard))
-	} else {
-		options = append(options, compatserver.WithDashboardRequestGuard(dashboardAccessGuard))
+	if dashboardIdentityGuard == nil {
+		log.Fatal("Dashboard identity request guard is required")
 	}
+	dashboardIdentityGuard.WithNext(dashboardAccessGuard)
+	options = append(options, compatserver.WithDashboardRequestGuard(dashboardIdentityGuard))
 	options = append(options,
 		compatserver.WithDashboardAccessHandler(dashboardAccessHTTP),
 		compatserver.WithModuleRouter(moduleRouter),

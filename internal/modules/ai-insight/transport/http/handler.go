@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"jiyi/mochat-go/internal/modules/providers"
@@ -116,14 +115,6 @@ func (h *InsightHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corp := p.CorpID
-	if raw := r.URL.Query().Get("corpId"); raw != "" {
-		parsed, parseErr := strconv.ParseInt(raw, 10, 64)
-		if parseErr != nil || parsed <= 0 || parsed != p.CorpID {
-			writeEnvelope(w, http.StatusBadRequest, "corpId does not match dashboard principal", nil)
-			return
-		}
-		corp = parsed
-	}
 	page := pathPage(r.URL.Path)
 	config, ok := pageCatalog[page]
 	if !ok {

@@ -3,8 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const manifestPath = path.resolve('web/apps/dashboard/src/benchmark/manifest.json');
-const requiredAccounts = ['tenantDenied', 'noPermission', 'direct', 'twoRole', 'roleDisabledDirectRetained', 'ordinary49', 'superadmin'];
-const protectedRoutes = new Set(['/company-setting/staff', '/setting/role', '/setting/additional', '/setting/authorization']);
+const requiredAccounts = ['tenantDenied', 'noPermission', 'direct', 'twoRole', 'roleDisabledDirectRetained', 'ordinary48', 'superadmin'];
+const protectedRoutes = new Set(['/company-setting/website', '/company-setting/staff', '/setting/role', '/setting/additional', '/setting/authorization']);
 const sameSet = (left, right) => left.length === right.length && [...new Set(left)].length === right.length && [...new Set(left)].every((item) => right.includes(item));
 
 export function validateFixture(fixture, manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))) {
@@ -18,7 +18,7 @@ export function validateFixture(fixture, manifest = JSON.parse(fs.readFileSync(m
     for (const route of account.exactAllowedRoutes) if (!routes.includes(route)) throw new Error(`${name} contains unknown route ${route}`);
     if (name === 'tenantDenied' && account.exactAllowedRoutes.length !== 0) throw new Error('tenantDenied must have no routes');
     if (name === 'noPermission' && account.exactAllowedRoutes.length !== 0) throw new Error('noPermission must have no routes');
-    if (name === 'ordinary49' && !sameSet(account.exactAllowedRoutes, routes.filter((route) => !protectedRoutes.has(route)))) throw new Error('ordinary49 must be exactly the 49 ordinary routes');
+    if (name === 'ordinary48' && !sameSet(account.exactAllowedRoutes, routes.filter((route) => !protectedRoutes.has(route)))) throw new Error('ordinary48 must be exactly the 48 ordinary routes');
     if (name === 'superadmin' && !sameSet(account.exactAllowedRoutes, routes)) throw new Error('superadmin must have every manifest route exactly once');
     if (account.expectedSources && (!Array.isArray(account.expectedSources) || account.expectedSources.some((source) => typeof source.code !== 'string' || !['direct', 'role', 'inherited'].includes(source.type)))) throw new Error(`${name}.expectedSources requires permission code and valid source type`);
     if (name === 'direct' && (!account.directPermissionCode || !account.expectedSources?.some((source) => source.code === account.directPermissionCode && source.type === 'direct'))) throw new Error('direct requires directPermissionCode and a matching direct source');

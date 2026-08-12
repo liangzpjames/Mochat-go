@@ -1462,26 +1462,51 @@
       "name": "企业信息",
       "groupCode": "company-settings",
       "sort": 49,
-      "superadminOnly": false,
+      "superadminOnly": true,
       "resources": [
         {
           "method": "GET",
-          "pathPattern": "/dashboard/corp/index",
-          "scopeRequired": false
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/corp/show",
-          "scopeRequired": false
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/corp/store",
+          "pathPattern": "/dashboard/company/profile",
           "scopeRequired": false
         },
         {
           "method": "PUT",
-          "pathPattern": "/dashboard/corp/update",
+          "pathPattern": "/dashboard/company/profile",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/company/verify",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/company/employee-sync",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/company/sync-status",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/company/wecom-credentials",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/company/agent-credentials",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/company/archive-credentials",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/company/audits",
           "scopeRequired": false
         }
       ]

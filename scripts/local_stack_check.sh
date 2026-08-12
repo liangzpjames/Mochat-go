@@ -128,15 +128,8 @@ env \
   MOCHAT_SIDEBAR_JWT_SECRET='Br3LXhp&Ysha1zRDh' \
   MOCHAT_SIDEBAR_JWT_PREFIX=default \
   MOCHAT_GO_MIGRATE_AUTH=1 \
-  MOCHAT_GO_MIGRATE_LOGIN_SHOW=1 \
   MOCHAT_GO_MIGRATE_LOGOUT=1 \
   MOCHAT_GO_MIGRATE_PERMISSION_BY_USER=1 \
-  MOCHAT_GO_MIGRATE_CORP_SELECT=1 \
-  MOCHAT_GO_MIGRATE_CORP_BIND=1 \
-  MOCHAT_GO_MIGRATE_CORP_INDEX=1 \
-  MOCHAT_GO_MIGRATE_CORP_SHOW=1 \
-  MOCHAT_GO_MIGRATE_CORP_STORE=1 \
-  MOCHAT_GO_MIGRATE_CORP_UPDATE=1 \
   MOCHAT_GO_MIGRATE_WEWORK_CALLBACK=1 \
   MOCHAT_GO_MIGRATE_CHAT_TOOL_CONFIG=1 \
   MOCHAT_GO_MIGRATE_AGENT_TXT_VERIFY=1 \
@@ -291,15 +284,8 @@ with open(sys.argv[1], encoding="utf-8") as f:
 
 expected = {
     "POST /dashboard/user/auth",
-    "GET /dashboard/user/loginShow",
     "PUT /dashboard/user/logout",
     "GET /dashboard/role/permissionByUser",
-    "GET /dashboard/corp/select",
-    "POST /dashboard/corp/bind",
-    "GET /dashboard/corp/index",
-    "GET /dashboard/corp/show",
-    "POST /dashboard/corp/store",
-    "PUT /dashboard/corp/update",
     "GET /dashboard/corp/weWorkCallback",
     "POST /dashboard/corp/weWorkCallback",
     "GET /weWork/callback",

@@ -25,9 +25,8 @@
 
 <script>
 import { Modal } from 'ant-design-vue'
-import store from '@/store'
 import { mapGetters } from 'vuex'
-import { logout, corpSelect, corpBind } from '@/api/login'
+import { logout } from '@/api/auth'
 export default {
   name: 'AvatarDropdown',
   props: {
@@ -38,43 +37,18 @@ export default {
   },
   data () {
     return {
-      avatar: '',
-      userName: ''
     }
   },
-  created () {
-    this.getInfo()
-  },
   computed: {
-    ...mapGetters(['userInfo'])
+    ...mapGetters(['userInfo']),
+    avatar () {
+      return this.userInfo && this.userInfo.employeeThumbAvatar
+    },
+    userName () {
+      return this.userInfo && (this.userInfo.userName || this.userInfo.loginIdentifier)
+    }
   },
   methods: {
-    async getInfo () {
-      try {
-        await store.dispatch('GetInfo')
-        this.avatar = this.userInfo.employeeThumbAvatar
-        this.userName = this.userInfo.userName || 'user'
-        let corpId = ''
-        let corpName = ''
-        if (this.userInfo.corpId) {
-          corpId = this.userInfo.corpId
-          corpName = this.userInfo.corpName
-        } else {
-          const { data } = await corpSelect()
-          if (data[0]) {
-            corpName = data[0].corpName
-            corpId = data[0].corpId
-            await corpBind({ corpId })
-          } else {
-            this.$router.push('/corp/index')
-          }
-        }
-        store.commit('SET_CORP_ID', corpId)
-        store.commit('SET_CORP_NAME', corpName)
-      } catch (e) {
-        console.log(e)
-      }
-    },
     handleLogout (e) {
       Modal.confirm({
         title: '提示',

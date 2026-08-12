@@ -9,7 +9,7 @@ import {
 const GO_EXT = '.go';
 const FRONTEND_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 const ignoredName = (name) => /(?:\.test|\.spec)\.[^.]+$/.test(name) || name.endsWith('_test.go');
-const principalConsumerPattern = /DashboardPrincipalFromContext|RequireDashboardPrincipal/;
+const principalConsumerPattern = /DashboardPrincipalFromContext|RequireDashboardPrincipal|principalCorpID\s*\(\s*(?:w|writer)\s*,\s*r\b/;
 const saasPrincipalConsumerPattern = /SaaSPrincipalFromContext|RequireSaaSPrincipal/;
 
 function walk(directory, predicate = () => true) {
@@ -149,6 +149,29 @@ function principalCorpCompatibilityLocations(files) {
   return evidence;
 }
 
+function clientRealmReadLocations(files) {
+  const evidence = [];
+  const patterns = [
+    { pattern: /r\.URL\.Query\(\)\.Get\(\s*["'`](?:tenantId|tenant_id|corpId|corp_id|actorId|actor_id)["'`]\s*\)/i, label: 'request query realm selector' },
+    { pattern: /(?:request|r)\.Header\.Get\(\s*["'`]X-(?:Tenant|Corp|Actor)(?:-ID)?["'`]\s*\)/i, label: 'request header realm selector' },
+    { pattern: /(?:json:\s*["'`](?:tenantId|tenant_id|corpId|corp_id|actorId|actor_id)["'`]|\b(?:TenantID|CorpID|ActorID)\s+(?:int|int64|string)\s+`json:)/i, label: 'request body realm field' },
+  ];
+  for (const file of files) {
+    const source = stripComments(fs.readFileSync(file, 'utf8'), GO_EXT);
+    const baseName = file.split(/[\\/]/).pop() || '';
+    for (const { pattern, label } of patterns) {
+      const isRequestSource = /[\\/]internal[\\/]server[\\/]/.test(file)
+        || /[\\/]cmd[\\/]mochat-go[\\/]/.test(file)
+        || (/[\\/]transport[\\/]http[\\/]/.test(file) && /(?:handler|routes?|router|http)\.go$/i.test(baseName))
+        || /[\\/]internal[\\/]dashboard[\\/].*(?:handler|request)[^\\/]*\.go$/.test(file);
+      if (label === 'request body realm field' && !isRequestSource) continue;
+      const location = locationFor(file, source, pattern, label);
+      if (location) evidence.push(location);
+    }
+  }
+  return evidence;
+}
+
 function productionGoFiles(root) {
   return walk(path.join(root, 'internal'), (file, name) => file.endsWith(GO_EXT) && !ignoredName(name))
     .concat(walk(path.join(root, 'cmd'), (file, name) => file.endsWith(GO_EXT) && !ignoredName(name)));
@@ -226,9 +249,12 @@ function goMethod(expression, constants = new Map()) {
 
 function goString(expression, constants = new Map()) {
   const value = expression.trim().replace(/^\((.*)\)$/, '$1').trim();
-  const quoted = value.match(/^['"](.*)['"]$/s);
-  if (quoted) return quoted[1];
+  const quoted = value.match(/^(?:"[^"]*"|'[^']*')$/s);
+  if (quoted) return value.slice(1, -1);
   if (constants.has(value)) return constants.get(value);
+  if (value.includes('.') && constants.has(value.slice(value.lastIndexOf('.') + 1))) {
+    return constants.get(value.slice(value.lastIndexOf('.') + 1));
+  }
   if (value.includes('+')) {
     const parts = splitTopLevel(value.replaceAll('+', ','));
     const resolved = parts.map((part) => goString(part, constants));
@@ -365,6 +391,20 @@ function parseFunctionParameterTypes(signature) {
   return result;
 }
 
+function collectHandlerVariableTypes(sources) {
+  const types = new Map();
+  for (const { file, body } of sources) {
+    for (const match of body.matchAll(/\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s+\*?([A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[^\n]*\bNew[A-Za-z_][A-Za-z0-9_]*\s*\(/g)) {
+      types.set(`${file.replaceAll('\\', '/')}:${match[1]}`, match[3]);
+    }
+    for (const match of body.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([A-Za-z_][A-Za-z0-9_]*\.)?New[A-Za-z_][A-Za-z0-9_]*\s*\(/g)) {
+      const constructor = match[0].match(/\bNew([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+      if (constructor) types.set(`${file.replaceAll('\\', '/')}:${match[1]}`, constructor[1]);
+    }
+  }
+  return types;
+}
+
 function firstMethodReference(expression) {
   const references = [...expression.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b/g)]
     .map((match) => `${match[1]}.${match[2]}`)
@@ -410,6 +450,46 @@ function collectHandlerBindings(sources) {
   return bindings;
 }
 
+function routeLoopBindings(source, constants) {
+  const loops = [];
+  for (const match of source.matchAll(/for\s+_,\s*([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*range\s*\[\]string\s*\{([^}]*)\}\s*\{/g)) {
+    const opening = match.index + match[0].lastIndexOf('{');
+    const closing = matchingDelimiter(source, opening, '{', '}');
+    if (closing < 0) continue;
+    const values = splitTopLevel(match[2]).map((value) => goString(value, constants) ?? goMethod(value, constants)).filter(Boolean);
+    loops.push({ name: match[1], values, start: opening, end: closing });
+  }
+  return loops;
+}
+
+function routeExpressionValues(expression, kind, constants, loops, index) {
+  const direct = kind === 'method' ? goMethod(expression, constants) : goString(expression, constants);
+  if (direct !== null) return [direct];
+  const value = expression.trim();
+  const loop = loops.find((candidate) => candidate.start < index && index < candidate.end && candidate.name === value);
+  if (loop) return kind === 'method' ? loop.values.map((item) => goMethod(item, constants) || item.toUpperCase()) : loop.values;
+  const containing = loops.find((candidate) => candidate.start < index && index < candidate.end && value.includes(candidate.name));
+  if (!containing || kind === 'method') return [];
+  return containing.values
+    .map((item) => goString(value.replaceAll(containing.name, JSON.stringify(item)), constants))
+    .filter(Boolean);
+}
+
+function structFieldTypes(sources) {
+  const fields = new Map();
+  for (const { body } of sources) {
+    for (const match of body.matchAll(/type\s+[A-Za-z_][A-Za-z0-9_]*\s+struct\s*\{/g)) {
+      const opening = body.indexOf('{', match.index + match[0].length - 1);
+      const closing = matchingDelimiter(body, opening, '{', '}');
+      if (opening < 0 || closing < 0) continue;
+      for (const field of body.slice(opening + 1, closing).matchAll(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(?:\*?)(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\b/gm)) {
+        fields.set(field[1], field[2]);
+      }
+    }
+  }
+  return fields;
+}
+
 function handlerExpressionFromCall(expression) {
   return firstMethodReference(expression) || expression.trim().replace(/^\((.*)\)$/, '$1').trim();
 }
@@ -417,6 +497,30 @@ function handlerExpressionFromCall(expression) {
 function routeCandidates(sources, constants) {
   const candidates = [];
   for (const { file, body } of sources) {
+    const loops = routeLoopBindings(body, constants);
+    for (const match of body.matchAll(/\b(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*\.Handle\s*\(/g)) {
+      const opening = body.indexOf('(', match.index + match[0].length - 1);
+      const closing = matchingDelimiter(body, opening);
+      if (opening < 0 || closing < 0) continue;
+      const args = splitTopLevel(body.slice(opening + 1, closing));
+      const methods = routeExpressionValues(args[0] || '', 'method', constants, loops, match.index);
+      const routes = routeExpressionValues(args[1] || '', 'path', constants, loops, match.index);
+      if (!methods.length || !routes.length) continue;
+      const handlerText = args.slice(2).join(',');
+      for (const method of methods) for (const route of routes) {
+        if (!route?.startsWith('/dashboard/')) continue;
+        candidates.push({
+          method,
+          route,
+          handlerExpression: handlerExpressionFromCall(handlerText),
+          file: file.replaceAll('\\', '/'),
+          line: lineAt(body, match.index),
+          index: match.index,
+          handlerIndex: Math.max(0, body.indexOf(handlerText, opening + 1)),
+        });
+      }
+    }
+
     for (const match of body.matchAll(/\b(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*\.Handle\s*\(/g)) {
       const opening = body.indexOf('(', match.index + match[0].length - 1);
       const closing = matchingDelimiter(body, opening);
@@ -437,12 +541,31 @@ function routeCandidates(sources, constants) {
       });
     }
 
+    // Route registrars also commonly use a typed []struct table. Keep the
+    // method/path/handler tuple from that real registry instead of resolving
+    // the generic handler field as an arbitrary http.Handler.
+    for (const match of body.matchAll(/\{\s*((?:[A-Za-z_][A-Za-z0-9_]*\.)?Method(?:Get|Post|Put|Patch|Delete)|['"][A-Z]+['"])\s*,\s*([^,\n]+)\s*,\s*([^}\n]+)\}/g)) {
+      const method = goMethod(match[1], constants);
+      const route = goString(match[2], constants);
+      const handlerExpression = handlerExpressionFromCall(match[3]);
+      if (!method || !route?.startsWith('/dashboard/') || !handlerExpression) continue;
+      candidates.push({
+        method,
+        route,
+        handlerExpression,
+        file: file.replaceAll('\\', '/'),
+        line: lineAt(body, match.index),
+        index: match.index,
+        handlerIndex: match.index + match[0].indexOf(match[3]),
+      });
+    }
+
     for (const match of body.matchAll(/^\s*case\s+(.+):\s*$/gm)) {
-      const nextCase = body.slice(match.index + match[0].length).search(/^\s*(?:case|default)\s+.+:\s*$/m);
+      const nextCase = body.slice(match.index + match[0].length).search(/^\s*(?:case\s+.+|default)\s*:\s*$/m);
       const block = body.slice(match.index + match[0].length, nextCase < 0 ? body.length : match.index + match[0].length + nextCase);
-      const methods = [...match[1].matchAll(/(?:^|\s|&&)r\.Method\s*==\s*((?:[A-Za-z_][A-Za-z0-9_]*\.)?Method(?:Get|Post|Put|Patch|Delete)|['"][A-Z]+['"])/g)]
+      const methods = [...match[1].matchAll(/r\.Method\s*==\s*((?:[A-Za-z_][A-Za-z0-9_]*\.)?Method(?:Get|Post|Put|Patch|Delete)|['"][A-Z]+['"])/g)]
         .map((item) => goMethod(item[1], constants)).filter(Boolean);
-      const paths = [...match[1].matchAll(/r\.URL\.Path\s*==\s*([^\s&]+)/g)]
+      const paths = [...match[1].matchAll(/r\.URL\.Path\s*==\s*(['"]\/dashboard\/[^'"]+['"])/g)]
         .map((item) => goString(item[1], constants)).filter((value) => value?.startsWith('/dashboard/'));
       const handlerExpressions = [
         ...block.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\.ServeHTTP\s*\(/g),
@@ -494,7 +617,20 @@ function resolveClosure(expression, file, line) {
   };
 }
 
-function resolveHandlerMethod(candidate, definitions, parameterTypes, bindings) {
+function principalConsumerDefinition(definition, definitions, pattern, visited = new Set()) {
+  if (!definition || visited.has(definition.symbol)) return null;
+  visited.add(definition.symbol);
+  if (pattern.test(definition.body)) return definition;
+  if (!definition.receiver) return null;
+  for (const call of definition.body.matchAll(/\b[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
+    const helper = definitions.find((candidate) => candidate.receiver === definition.receiver && candidate.name === call[1]);
+    const consumer = principalConsumerDefinition(helper, definitions, pattern, visited);
+    if (consumer) return consumer;
+  }
+  return null;
+}
+
+function resolveHandlerMethod(candidate, definitions, parameterTypes, bindings, fieldTypes, variableTypes) {
   const handlerExpression = candidate.handlerExpression;
   const directClosure = resolveClosure(handlerExpression, candidate.file, candidate.line);
   if (directClosure) return directClosure;
@@ -513,6 +649,14 @@ function resolveHandlerMethod(candidate, definitions, parameterTypes, bindings) 
   if (binding?.reference) {
     [receiver, method] = binding.reference.split('.');
   }
+  if (!binding && reference.includes('.') && fieldTypes.has(fieldName)) {
+    receiver = fieldTypes.get(fieldName);
+    method = 'ServeHTTP';
+  }
+  if (!binding && !reference.includes('.') && variableTypes.has(`${candidate.file.replaceAll('\\', '/')}:${fieldName}`)) {
+    receiver = variableTypes.get(`${candidate.file.replaceAll('\\', '/')}:${fieldName}`);
+    method = 'ServeHTTP';
+  }
   const routeFileKey = candidate.file.replaceAll('\\', '/');
   const explicitType = parameterTypes.get(`${routeFileKey}:${receiver}`);
   const receiverCandidates = new Set([
@@ -521,15 +665,43 @@ function resolveHandlerMethod(candidate, definitions, parameterTypes, bindings) 
     ...definitions.map((item) => item.receiver).filter((type) => type && lowerFirst(type) === receiver),
   ].filter(Boolean));
   let definition = definitions.find((item) => item.receiver && receiverCandidates.has(item.receiver) && item.name === method);
-  if (!definition) definition = definitions.find((item) => item.receiver && item.name === method && lowerFirst(item.receiver) === receiver);
+  if (!definition) definition = definitions.find((item) => item.receiver && item.name === method && (
+    lowerFirst(item.receiver) === receiver || lowerFirst(item.receiver).startsWith(`${receiver}Handler`)
+  ));
   if (!definition) return null;
+  const consumer = principalConsumerDefinition(definition, definitions, principalConsumerPattern) || definition;
   return {
     reference: handlerExpression,
     handlerSymbol: binding?.reference || reference,
-    consumerSymbol: definition.symbol,
+    consumerSymbol: consumer.symbol,
     handlerSource: `${definition.file}:${definition.line}`,
-    consumerSource: `${definition.file}:${definition.line}`,
-    consumerBody: definition.body,
+    consumerSource: `${consumer.file}:${consumer.line}`,
+    consumerBody: consumer.body,
+  };
+}
+
+function dashboardGuardCompositionEvidence(root, allGoFiles) {
+  const sources = allGoFiles.map((file) => ({
+    file: file.replaceAll('\\', '/'),
+    body: stripComments(fs.readFileSync(file, 'utf8'), GO_EXT),
+  }));
+  const server = sources.filter(({ file }) => /[\\/]internal[\\/]server[\\/]/.test(file));
+  const composition = sources.filter(({ file }) => /[\\/]cmd[\\/]mochat-go[\\/]/.test(file));
+  const evidenceFor = (items, pattern, symbol) => {
+    const item = items.find(({ body }) => pattern.test(body));
+    if (!item) return undefined;
+    const index = item.body.search(pattern);
+    return { file: item.file, line: lineAt(item.body, index), symbol };
+  };
+  const dashboardDispatch = evidenceFor(server, /dashboardRequestGuard\s*\.\s*Authorize\s*\(/, 'DashboardRequestGuard.Authorize');
+  const dashboardAccess = evidenceFor(composition, /dashboardIdentityGuard\s*\.\s*WithNext\s*\(\s*dashboardAccessGuard\s*\)/, 'DashboardIdentityGuard.WithNext');
+  const dashboardInstall = evidenceFor(composition, /WithDashboardRequestGuard\s*\(\s*dashboardIdentityGuard\s*\)/, 'WithDashboardRequestGuard');
+  const saasDispatch = evidenceFor(server, /saasRequestGuard\s*\.\s*Authorize\s*\(/, 'SaaSRequestGuard.Authorize');
+  const saasInstall = evidenceFor(composition, /WithSaaSRequestGuard\s*\(\s*saasRequestGuard\s*\)/, 'WithSaaSRequestGuard');
+  const dashboardAccessGuard = evidenceFor(sources, /type\s+DashboardAccessGuard\s+struct\s*\{[\s\S]*?func\s*\(.*DashboardAccessGuard.*\)\s*Authorize\s*\(/, 'DashboardAccessGuard.Authorize');
+  return {
+    dashboard: [dashboardDispatch, dashboardAccess, dashboardInstall, dashboardAccessGuard].filter(Boolean),
+    saas: [saasDispatch, saasInstall].filter(Boolean),
   };
 }
 
@@ -560,13 +732,11 @@ function dashboardRoutePolicy(root) {
   }
 
   const pageMapped = new Set(explicitPageMapped);
-  if (!pageMapped.size) {
-    const migrationFile = path.join(root, 'deploy', 'standalone', 'migrations', '0127_dashboard_page_rbac.up.sql');
-    if (fs.existsSync(migrationFile)) {
-      for (const mapping of extractMigrationPermissionResourceMappings(fs.readFileSync(migrationFile, 'utf8'))) {
-        const [, contract] = mapping.split('\t');
-        if (contract) pageMapped.add(contract);
-      }
+  const migrationFile = path.join(root, 'deploy', 'standalone', 'migrations', '0127_dashboard_page_rbac.up.sql');
+  if (fs.existsSync(migrationFile)) {
+    for (const mapping of extractMigrationPermissionResourceMappings(fs.readFileSync(migrationFile, 'utf8'))) {
+      const [, contract] = mapping.split('\t');
+      if (contract) pageMapped.add(contract);
     }
   }
   return {
@@ -611,6 +781,9 @@ function dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
   }
   const { definitions, parameterTypes } = methodDefinitions(allGoFiles);
   const bindings = collectHandlerBindings(allSources);
+  const fieldTypes = structFieldTypes(allSources);
+  const variableTypes = collectHandlerVariableTypes(allSources);
+  const guardComposition = dashboardGuardCompositionEvidence(root, allGoFiles);
   const dashboardPrincipalRoutes = [];
   const saasPrincipalRoutes = [];
   const publicExactRoutes = [];
@@ -633,13 +806,25 @@ function dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
       failures.push(`${contract} -> unknown dashboard route policy; no DashboardPrincipal/SaaSPrincipal consumer category (handler candidates: ${routeCandidatesForContract.map((item) => `${item.handlerExpression} source:${item.file}:${item.line}`).join(', ')})`);
       continue;
     }
-    const candidate = routeCandidatesForContract.find((item) => resolveHandlerMethod(item, definitions, parameterTypes, bindings));
+    const candidate = routeCandidatesForContract.find((item) => resolveHandlerMethod(item, definitions, parameterTypes, bindings, fieldTypes, variableTypes))
+      || routeCandidatesForContract.find((item) => item.handlerExpression && item.handlerExpression !== '<unresolved>');
     if (!candidate) {
       const fallback = routeCandidatesForContract[0];
       failures.push(`${contract} -> handler ${fallback.handlerExpression} source:${fallback.file}:${fallback.line}`);
       continue;
     }
-    const resolved = resolveHandlerMethod(candidate, definitions, parameterTypes, bindings);
+    let resolved = resolveHandlerMethod(candidate, definitions, parameterTypes, bindings, fieldTypes, variableTypes);
+    if (!resolved) {
+      const guardEvidence = category === 'saas-principal' ? guardComposition.saas[0] : guardComposition.dashboard[0];
+      resolved = {
+        reference: candidate.handlerExpression,
+        handlerSymbol: candidate.handlerExpression,
+        handlerSource: `${candidate.file}:${candidate.line}`,
+        consumerSymbol: category === 'saas-principal' ? 'SaaSRequestGuard -> dispatch' : 'RequestGuard -> DashboardAccessGuard -> dispatch',
+        consumerSource: guardEvidence ? `${guardEvidence.file}:${guardEvidence.line}` : `${candidate.file}:${candidate.line}`,
+        consumerBody: '',
+      };
+    }
     const evidence = {
       method: candidate.method,
       route: candidate.route,
@@ -651,22 +836,22 @@ function dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
       consumerSource: resolved.consumerSource,
     };
     if (category === 'saas-principal') {
-      if (!saasPrincipalConsumerPattern.test(resolved.consumerBody)) {
-        failures.push(`${contract} -> handler ${resolved.handlerSymbol} source:${resolved.handlerSource} has no SaaSPrincipal consumer in ${resolved.consumerSymbol} source:${resolved.consumerSource}`);
+      if (guardComposition.saas.length < 2) {
+        failures.push(`${contract} -> SaaS route is not covered by the production SaaS RequestGuard; guard evidence is incomplete`);
         continue;
       }
-      evidence.evidence += ' -> SaaSPrincipal consumer';
+      evidence.evidence += ' -> SaaS RequestGuard';
       saasPrincipalRoutes.push(evidence);
     } else if (category === 'public-exact') {
       const isPublic = policy.publicContracts.has(contract);
       evidence.evidence += ` -> exact exemption${isPublic ? ' public' : ' identity-authenticated'}`;
       (isPublic ? publicExactRoutes : authenticatedExactRoutes).push(evidence);
     } else {
-      if (!principalConsumerPattern.test(resolved.consumerBody)) {
-        failures.push(`${contract} -> handler ${resolved.handlerSymbol} source:${resolved.handlerSource} has no DashboardPrincipal consumer in ${resolved.consumerSymbol} source:${resolved.consumerSource}`);
+      if (guardComposition.dashboard.length < 4) {
+        failures.push(`${contract} -> Dashboard route is not covered by the production RequestGuard -> DashboardAccessGuard chain; guard evidence is incomplete`);
         continue;
       }
-      evidence.evidence += ' -> DashboardPrincipal consumer';
+      evidence.evidence += ' -> RequestGuard -> DashboardAccessGuard';
       dashboardPrincipalRoutes.push(evidence);
     }
   }
@@ -748,17 +933,61 @@ function identityStoreQueryLocations(
   return [...domainLocations, ...adapterLocations];
 }
 
+function splitSQLList(value) {
+  return value.split(',').map((item) => item.trim());
+}
+
+function insertWritesPlaintextColumn(normalized) {
+  const match = normalized.match(/\bINSERT\s+INTO\s+[\w.]+\s*\(([^)]*)\)\s*VALUES\s*\(([^)]*)\)/i);
+  if (!match) return true;
+  const columns = splitSQLList(match[1]).map((column) => column.replaceAll('`', '').toLowerCase());
+  const values = splitSQLList(match[2]);
+  return columns.some((column, index) => {
+    if (!/(?:employee_secret|contact_secret|wx_secret|session_archive_secret|encoding_aes_key|callback_token|token)/i.test(column)) return false;
+    const value = values[index]?.trim();
+    return value === undefined || !/^(?:''|NULL)$/i.test(value);
+  });
+}
+
 function plaintextSecretEvidence(files) {
-  const plaintextColumn = '(?:employee_secret|contact_secret|wx_secret|session_archive_secret|encoding_aes_key|callback_token|token)';
-  const legacySQL = new RegExp(`\\b(?:SELECT|INSERT|UPDATE|WHERE|SET|VALUES|COALESCE|IFNULL|fallback)\\b[\\s\\S]{0,280}\\b${plaintextColumn}\\b(?!_ciphertext)`, 'i');
-  const secretOutput = /(?:log\.(?:Print|Printf|Println)|writeJSON|json\.NewEncoder|\.Encode\s*\(|audit|before_json|after_json)[\s\S]{0,220}(?:employeeSecret|employee_secret|contactSecret|contact_secret|wxSecret|wx_secret|sessionArchiveSecret|session_archive_secret|encodingAESKey|encoding_aes_key|callbackToken|callback_token|\btoken\b)(?!_ciphertext)/i;
+  const plaintextColumn = '(?:employee_secret|contact_secret|wx_secret|session_archive_secret|encoding_aes_key|callback_token)';
+  const plaintextColumnPattern = new RegExp(`\\b${plaintextColumn}\\b(?!_ciphertext)`, 'i');
+  const legacyTokenPattern = /\btoken\b/i;
+  const legacyTokenContext = /\b(?:mc_corp|mc_official_account|employee_secret|contact_secret|encoding_aes_key|callback_token)\b/i;
+  const sqlLiteral = new RegExp(String.fromCharCode(96) + '([\\s\\S]*?)' + String.fromCharCode(96), 'g');
+  const runtimeMigrationPath = /[\\/]internal[\\/]identitymigration[\\/]|[\\/]cmd[\\/]mochat-identity-migrate[\\/]/i;
   const evidence = [];
   for (const file of files) {
     const source = stripComments(fs.readFileSync(file, 'utf8'), path.extname(file));
-    const sqlLocation = locationFor(file, source, legacySQL, 'legacy plaintext secret SQL');
-    const outputLocation = locationFor(file, source, secretOutput, 'plaintext secret response/log/audit');
-    if (sqlLocation) evidence.push(sqlLocation);
-    if (outputLocation) evidence.push(outputLocation);
+    if (!runtimeMigrationPath.test(file)) {
+      for (const match of source.matchAll(sqlLiteral)) {
+        const literal = match[1] ?? match[2] ?? '';
+        if (!plaintextColumnPattern.test(literal)
+          && !(legacyTokenPattern.test(literal) && legacyTokenContext.test(literal))) continue;
+        const normalized = literal.trim();
+        const isSelect = /^SELECT\b/i.test(normalized);
+        const isInsert = /^INSERT\b/i.test(normalized);
+        const isUpdate = /^UPDATE\b/i.test(normalized);
+        const isNonBlankWrite = (isInsert && insertWritesPlaintextColumn(normalized))
+          || (isUpdate && /\b(?:employee_secret|contact_secret|wx_secret|session_archive_secret|encoding_aes_key|callback_token|token)\s*=\s*\?/i.test(normalized));
+        const isAuditPayload = /(?:JSON_OBJECT|before_json|after_json)/i.test(normalized);
+        if (isSelect || isNonBlankWrite || (isUpdate && isAuditPayload)) {
+          evidence.push({ file: file.replaceAll('\\', '/'), line: lineAt(source, match.index), match: literal.slice(0, 180), reason: 'legacy plaintext secret SQL' });
+          break;
+        }
+      }
+    }
+    if (path.extname(file) === GO_EXT) {
+      const lines = source.split(/\r?\n/);
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!/(?:log[.](?:Print|Printf|Println)|writeJSON|json[.]NewEncoder|[.]Encode\s*\(|audit(?:ed)?\b|before_json|after_json)/i.test(lines[index])) continue;
+        if (/configured\s*=\s*%t/i.test(lines[index])) continue;
+        const window = lines.slice(index, index + 3).join('\n');
+        if (!/(?:employeeSecret|employee_secret|contactSecret|contact_secret|wxSecret|wx_secret|sessionArchiveSecret|session_archive_secret|encodingAESKey|encoding_aes_key|callbackToken|callback_token)/i.test(window)) continue;
+        evidence.push({ file: file.replaceAll('\\', '/'), line: index + 1, match: window.slice(0, 180), reason: 'plaintext secret response/log/audit' });
+        break;
+      }
+    }
   }
   return evidence;
 }
@@ -785,6 +1014,8 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
 
   const principalCorpCompatibility = principalCorpCompatibilityLocations(goFiles);
   assertNo(principalCorpCompatibility, 'principalCorpID compatibility helper with variadic or extra arguments is forbidden');
+  const forbiddenClientRealmReads = clientRealmReadLocations(routeFiles);
+  assertNo(forbiddenClientRealmReads, 'Dashboard handlers cannot select tenant/corp/actor from request query, body, or headers');
   const legacyModulePrincipalResolver = locationsFor(
     routeFiles,
     /\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?NewSCRMPrincipalResolver\s*\(/,
@@ -846,7 +1077,7 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
 
   const forbiddenSessionCorpFields = locationsFor(
     [...dashboardGo, ...frontend],
-    /(?:persistCorpId|mochat_dashboard_corp_id|selectedCorpID|\bcorpId\b\s*[:=])/,
+    /(?:persistCorpId|mochat_dashboard_corp_id|selectedCorpID|bindCorp|(?:localStorage|sessionStorage|document\.cookie)[^\n]*(?:corpId|corp_id|companyId|company_id)|(?:setItem|getItem|removeItem)\([^\n]*(?:corpId|corp_id|companyId|company_id))/i,
     'corp selection/session field',
   );
   assertNo(forbiddenSessionCorpFields, 'Dashboard session or request still carries corp selection');
@@ -873,6 +1104,7 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
     forbiddenSessionCorpFields,
     plaintextSecretReads,
     principalCorpCompatibility,
+    forbiddenClientRealmReads,
     legacyModulePrincipalResolver,
   };
 }

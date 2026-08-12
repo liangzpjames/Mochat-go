@@ -63,16 +63,10 @@ func (s *MySQLStore) SaaSAdminTenantReadinessFacts(ctx context.Context, options 
 		LEFT JOIN (
 			SELECT tenant_id,
 				SUM(CASE WHEN TRIM(COALESCE(wx_corpid, '')) <> '' THEN 1 ELSE 0 END) AS bound_corp_count,
-				SUM(CASE WHEN TRIM(COALESCE(wx_corpid, '')) <> '' AND (
-					TRIM(COALESCE(employee_secret, '')) <> '' OR TRIM(COALESCE(contact_secret, '')) <> '' OR
-					TRIM(COALESCE(token, '')) <> '' OR TRIM(COALESCE(encoding_aes_key, '')) <> '' OR
-					TRIM(COALESCE(chat_secret, '')) <> '' OR COALESCE(wecom_credentials_ciphertext, '') <> ''
-				) THEN 1 ELSE 0 END) AS configured_credential_count,
+				SUM(CASE WHEN TRIM(COALESCE(wx_corpid, '')) <> '' AND COALESCE(wecom_credentials_ciphertext, '') <> ''
+					THEN 1 ELSE 0 END) AS configured_credential_count,
 				SUM(CASE WHEN TRIM(COALESCE(wx_corpid, '')) <> '' AND
-					COALESCE(wecom_credentials_ciphertext, '') <> '' AND TRIM(COALESCE(wecom_credentials_key_id, '')) <> '' AND
-					TRIM(COALESCE(employee_secret, '')) = '' AND TRIM(COALESCE(contact_secret, '')) = '' AND
-					TRIM(COALESCE(token, '')) = '' AND TRIM(COALESCE(encoding_aes_key, '')) = '' AND
-					TRIM(COALESCE(chat_secret, '')) = ''
+					COALESCE(wecom_credentials_ciphertext, '') <> '' AND TRIM(COALESCE(wecom_credentials_key_id, '')) <> ''
 				THEN 1 ELSE 0 END) AS protected_credential_count
 			FROM mc_corp
 			WHERE deleted_at IS NULL

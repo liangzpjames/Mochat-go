@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -448,7 +447,7 @@ func TestDashboardRequestGuardSkipsSaaSAndRunsOnceAfterBundledNormalization(t *t
 
 func TestUnknownRouteFallsBackToPHP(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/dashboard/user/loginShow" {
+		if r.URL.Path != "/dashboard/unregistered-route" {
 			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
 		}
 		if got := r.Header.Get("X-Mochat-Go-Compat"); got != "fallback-proxy" {
@@ -460,7 +459,7 @@ func TestUnknownRouteFallsBackToPHP(t *testing.T) {
 	defer upstream.Close()
 
 	srv := newTestServer(t, upstream.URL)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/unregistered-route", nil)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 
@@ -481,7 +480,7 @@ func TestUnknownRouteFallsBackToPHP(t *testing.T) {
 func TestUnknownRouteWithoutPHPFallbackReturnsBadGateway(t *testing.T) {
 	srv := newTestServer(t, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/unregistered-route", nil)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 
@@ -497,38 +496,6 @@ func TestUnknownRouteWithoutPHPFallbackReturnsBadGateway(t *testing.T) {
 	}
 	if payload["message"] != "no PHP upstream configured for unmigrated route" {
 		t.Fatalf("payload = %+v", payload)
-	}
-}
-
-func TestIdentityLoginPageHandlerTakesPrecedenceOverFallback(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("identity login page unexpectedly reached fallback: %s", r.URL.Path)
-	}))
-	defer upstream.Close()
-
-	srv, err := New(config.Config{
-		ListenAddr:   ":0",
-		PHPUpstream:  upstream.URL,
-		SourceRoot:   t.TempDir(),
-		ManifestPath: writeManifest(t),
-		ProxyTimeout: time.Second,
-	}, WithIdentityLoginPageHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`<form id="password-form"></form>`))
-	})))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, method := range []string{http.MethodGet, http.MethodHead} {
-		req := httptest.NewRequest(method, "/security/login", nil)
-		rec := httptest.NewRecorder()
-		srv.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("%s status = %d, want %d", method, rec.Code, http.StatusOK)
-		}
-		if method == http.MethodGet && !strings.Contains(rec.Body.String(), `id="password-form"`) {
-			t.Fatalf("GET body = %q", rec.Body.String())
-		}
 	}
 }
 
@@ -747,7 +714,7 @@ func TestStandaloneUnknownRouteReturnsNotMigrated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/unregistered-route", nil)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 
@@ -802,78 +769,6 @@ func TestBundledFrontendUndefinedAPIPrefixRoutesToMigratedHandlers(t *testing.T)
 		if rec.Body.String() != tc.want {
 			t.Fatalf("%s body = %q, want %q", tc.path, rec.Body.String(), tc.want)
 		}
-	}
-}
-
-func TestLoginShowFallsBackWhenNotMigrated(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/dashboard/user/loginShow" {
-			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte("php loginShow"))
-	}))
-	defer upstream.Close()
-
-	srv := newTestServer(t, upstream.URL)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "php loginShow" {
-		t.Fatalf("body = %q", rec.Body.String())
-	}
-}
-
-func TestAuthFallsBackWhenNotMigrated(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/dashboard/user/auth" {
-			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte("php auth"))
-	}))
-	defer upstream.Close()
-
-	srv := newTestServer(t, upstream.URL)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "php auth" {
-		t.Fatalf("body = %q", rec.Body.String())
-	}
-}
-
-func TestAuthUsesMigratedHandlerWhenConfigured(t *testing.T) {
-	migrated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("go auth"))
-	})
-	sourceRoot := t.TempDir()
-	srv, err := New(config.Config{
-		ListenAddr:   ":0",
-		PHPUpstream:  "http://127.0.0.1:9501",
-		SourceRoot:   sourceRoot,
-		ManifestPath: writeManifest(t),
-		ProxyTimeout: time.Second,
-	}, WithAuthHandler(migrated))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "go auth" {
-		t.Fatalf("body = %q", rec.Body.String())
 	}
 }
 
@@ -2514,34 +2409,6 @@ func TestRoomSOPPageRouteDispatchWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestLoginShowUsesMigratedHandlerWhenConfigured(t *testing.T) {
-	migrated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("go loginShow"))
-	})
-	sourceRoot := t.TempDir()
-	srv, err := New(config.Config{
-		ListenAddr:   ":0",
-		PHPUpstream:  "http://127.0.0.1:9501",
-		SourceRoot:   sourceRoot,
-		ManifestPath: writeManifest(t),
-		ProxyTimeout: time.Second,
-	}, WithLoginShowHandler(migrated))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "go loginShow" {
-		t.Fatalf("body = %q", rec.Body.String())
-	}
-}
-
 func TestWorkFissionRoutesUseMigratedHandlersWhenConfigured(t *testing.T) {
 	index := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("go workFission index"))
@@ -2873,158 +2740,51 @@ func TestPermissionByUserUsesMigratedHandlerWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestCorpSelectFallsBackWhenNotMigrated(t *testing.T) {
+func TestRetiredDashboardEndpointsNeverFallback(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/dashboard/corp/select" {
-			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte("php corp select"))
+		t.Fatalf("retired endpoint reached PHP fallback: %s", r.URL.Path)
 	}))
 	defer upstream.Close()
 
 	srv := newTestServer(t, upstream.URL)
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corp/select", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "php corp select" {
-		t.Fatalf("body = %q", rec.Body.String())
-	}
-}
-
-func TestCorpSelectUsesMigratedHandlerWhenConfigured(t *testing.T) {
-	migrated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("go corp select"))
-	})
-	sourceRoot := t.TempDir()
-	srv, err := New(config.Config{
-		ListenAddr:   ":0",
-		PHPUpstream:  "http://127.0.0.1:9501",
-		SourceRoot:   sourceRoot,
-		ManifestPath: writeManifest(t),
-		ProxyTimeout: time.Second,
-	}, WithCorpSelectHandler(migrated))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/corp/select", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "go corp select" {
-		t.Fatalf("body = %q", rec.Body.String())
-	}
-}
-
-func TestCorpBindFallsBackWhenNotMigrated(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/dashboard/corp/bind" {
-			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte("php corp bind"))
-	}))
-	defer upstream.Close()
-
-	srv := newTestServer(t, upstream.URL)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/corp/bind", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "php corp bind" {
-		t.Fatalf("body = %q", rec.Body.String())
-	}
-}
-
-func TestCorpBindUsesMigratedHandlerWhenConfigured(t *testing.T) {
-	migrated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("go corp bind"))
-	})
-	sourceRoot := t.TempDir()
-	srv, err := New(config.Config{
-		ListenAddr:   ":0",
-		PHPUpstream:  "http://127.0.0.1:9501",
-		SourceRoot:   sourceRoot,
-		ManifestPath: writeManifest(t),
-		ProxyTimeout: time.Second,
-	}, WithCorpBindHandler(migrated))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/corp/bind", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if rec.Body.String() != "go corp bind" {
-		t.Fatalf("body = %q", rec.Body.String())
-	}
-}
-
-func TestCorpAdminRoutesUseMigratedHandlersWhenConfigured(t *testing.T) {
-	sourceRoot := t.TempDir()
-	srv, err := New(config.Config{
-		ListenAddr:   ":0",
-		PHPUpstream:  "http://127.0.0.1:9501",
-		SourceRoot:   sourceRoot,
-		ManifestPath: writeManifest(t),
-		ProxyTimeout: time.Second,
-	},
-		WithCorpIndexHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("go corp index"))
-		})),
-		WithCorpShowHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("go corp show"))
-		})),
-		WithCorpStoreHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("go corp store"))
-		})),
-		WithCorpUpdateHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("go corp update"))
-		})),
-		WithWeWorkCallbackHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("go wework callback"))
-		})),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, tc := range []struct {
-		method string
-		path   string
-		body   string
-	}{
-		{method: http.MethodGet, path: "/dashboard/corp/index", body: "go corp index"},
-		{method: http.MethodGet, path: "/dashboard/corp/show", body: "go corp show"},
-		{method: http.MethodPost, path: "/dashboard/corp/store", body: "go corp store"},
-		{method: http.MethodPut, path: "/dashboard/corp/update", body: "go corp update"},
-		{method: http.MethodGet, path: "/dashboard/corp/weWorkCallback", body: "go wework callback"},
-		{method: http.MethodPost, path: "/dashboard/corp/weWorkCallback", body: "go wework callback"},
-		{method: http.MethodGet, path: "/weWork/callback", body: "go wework callback"},
-		{method: http.MethodPost, path: "/weWork/callback", body: "go wework callback"},
+	for _, path := range []string{
+		"/security/login",
+		"/dashboard/corp/select",
+		"/dashboard/corp/bind",
+		"/dashboard/corp/index",
+		"/dashboard/corp/show",
+		"/dashboard/corp/store",
+		"/dashboard/corp/update",
 	} {
-		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("%s %s status = %d", tc.method, tc.path, rec.Code)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusNotFound)
 		}
-		if rec.Body.String() != tc.body {
-			t.Fatalf("%s %s body = %q", tc.method, tc.path, rec.Body.String())
+	}
+}
+
+func TestCorpCallbackRoutesRemainAvailableAfterLegacyCutover(t *testing.T) {
+	srv, err := New(config.Config{
+		ListenAddr:   ":0",
+		PHPUpstream:  "http://127.0.0.1:9501",
+		SourceRoot:   t.TempDir(),
+		ManifestPath: writeManifest(t),
+		ProxyTimeout: time.Second,
+	}, WithWeWorkCallbackHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("go wework callback"))
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/dashboard/corp/weWorkCallback", "/weWork/callback"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "go wework callback" {
+			t.Fatalf("%s status=%d body=%q", path, rec.Code, rec.Body.String())
 		}
 	}
 }

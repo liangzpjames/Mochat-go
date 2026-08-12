@@ -1,6 +1,8 @@
 package identitymigration
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -48,6 +50,27 @@ func TestSafePreflightReportContainsOnlyCountsIDsAndRepairClasses(t *testing.T) 
 	for _, required := range []string{"active_dashboard_users=3", "duplicate_login_user_ids=[10 11]", "repair_classes=[DASHBOARD_LOGIN_DUPLICATE TENANT_CORP_MAPPING_REQUIRED]"} {
 		if !strings.Contains(output, required) {
 			t.Fatalf("safe preflight output missing %q: %s", required, output)
+		}
+	}
+}
+
+func TestSafeCutoverReportContainsNoCredentialMaterialLabels(t *testing.T) {
+	report := CutoverPreflightReport{
+		MissingDashboardIdentityIDs: []int64{10},
+		MissingCorpCiphertextIDs:    []int64{20},
+		UndecryptableAgentIDs:       []int64{30},
+		MissingPrerequisiteFacts:    []string{"backfill_success"},
+		LegacyPasswordColumnPresent: true,
+	}
+	output := report.SafeText()
+	for _, forbidden := range []string{"phone", "password", "secret", "token", "ciphertext"} {
+		if strings.Contains(strings.ToLower(output), forbidden) {
+			t.Fatalf("safe cutover output leaked %q: %s", forbidden, output)
+		}
+	}
+	for _, required := range []string{"missing_dashboard_identity_ids=[10]", "missing_corp_credential_copy_ids=[20]", "missing_agent_credential_copy_ids=[]"} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("safe cutover output missing %q: %s", required, output)
 		}
 	}
 }
@@ -123,5 +146,28 @@ func TestPreflightRejectsPlatformPhoneConflictAndUnknownInventory(t *testing.T) 
 	report = PreflightReport{UnknownActorColumns: []ActorColumn{{Table: "unknown", Column: "actor_user_id"}}}
 	if err := report.Validate(Options{PlatformTenantID: 1}); err == nil || !strings.Contains(err.Error(), "unknown actor") {
 		t.Fatalf("inventory error=%v", err)
+	}
+}
+
+func TestRestoreLegacyCredentialsIsScopedToTheCutoverJournal(t *testing.T) {
+	root := filepath.Join("..", "..")
+	body, err := os.ReadFile(filepath.Join(root, "internal", "identitymigration", "cutover.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, required := range []string{
+		"INNER JOIN mochat_go_identity_cutover_journal j",
+		"j.request_id=?",
+		"j.entity_type='corp_credentials'",
+		"j.entity_type='agent_credentials'",
+		"legacy credential restore journal entity is missing",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("restore implementation missing journal scope contract %q", required)
+		}
+	}
+	if strings.Contains(text, "DELETE FROM mochat_go_identity_cutover_journal") {
+		t.Fatal("restore must retain the cutover journal as immutable scope evidence")
 	}
 }

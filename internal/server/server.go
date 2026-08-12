@@ -34,11 +34,7 @@ type Server struct {
 	saasLoginPage                                   http.Handler
 	dashboardAuth                                   http.Handler
 	companyProfile                                  http.Handler
-	auth                                            http.Handler
-	authMFA                                         http.Handler
 	identitySelf                                    http.Handler
-	identityLoginPage                               http.Handler
-	loginShow                                       http.Handler
 	logout                                          http.Handler
 	userIndex                                       http.Handler
 	userShow                                        http.Handler
@@ -48,12 +44,6 @@ type Server struct {
 	userPasswordReset                               http.Handler
 	userPasswordUpdate                              http.Handler
 	permissionByUser                                http.Handler
-	corpSelect                                      http.Handler
-	corpBind                                        http.Handler
-	corpIndex                                       http.Handler
-	corpShow                                        http.Handler
-	corpStore                                       http.Handler
-	corpUpdate                                      http.Handler
 	weWorkCallback                                  http.Handler
 	corpDataIndex                                   http.Handler
 	corpDataLineChat                                http.Handler
@@ -776,21 +766,9 @@ func WithDashboardAccessHandler(handler http.Handler) Option {
 	}
 }
 
-func WithLoginShowHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.loginShow = handler
-	}
-}
-
 func WithBackgroundTasks(snapshot func() []taskrunner.Snapshot) Option {
 	return func(server *Server) {
 		server.backgroundTasks = snapshot
-	}
-}
-
-func WithAuthHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.auth = handler
 	}
 }
 
@@ -806,21 +784,9 @@ func WithCompanyProfileHandler(handler http.Handler) Option {
 	}
 }
 
-func WithAuthMFAHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.authMFA = handler
-	}
-}
-
 func WithIdentitySelfHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.identitySelf = handler
-	}
-}
-
-func WithIdentityLoginPageHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.identityLoginPage = handler
 	}
 }
 
@@ -875,42 +841,6 @@ func WithUserPasswordUpdateHandler(handler http.Handler) Option {
 func WithPermissionByUserHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.permissionByUser = handler
-	}
-}
-
-func WithCorpSelectHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.corpSelect = handler
-	}
-}
-
-func WithCorpBindHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.corpBind = handler
-	}
-}
-
-func WithCorpIndexHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.corpIndex = handler
-	}
-}
-
-func WithCorpShowHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.corpShow = handler
-	}
-}
-
-func WithCorpStoreHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.corpStore = handler
-	}
-}
-
-func WithCorpUpdateHandler(handler http.Handler) Option {
-	return func(server *Server) {
-		server.corpUpdate = handler
 	}
 }
 
@@ -4396,6 +4326,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.ServeHTTP(w, normalized)
 		return
 	}
+	if isRetiredDashboardEndpoint(r.URL.Path) {
+		http.NotFound(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/dashboard/") && !isDashboardSaaSRequestPath(r.URL.Path) && !nilcheck.IsNil(s.dashboardRequestGuard) {
 		if !s.dashboardRequestGuard.Authorize(w, r) {
 			return
@@ -4460,18 +4394,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.status())
 	case r.URL.Path == "/compat/routes" && r.Method == http.MethodGet:
 		s.handleRoutes(w)
-	case r.URL.Path == "/dashboard/user/auth" && r.Method == http.MethodPost && s.auth != nil:
-		if s.dashboardAuth != nil {
-			s.dashboardAuth.ServeHTTP(w, r)
-			break
-		}
-		s.auth.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/user/authMFA" && r.Method == http.MethodPost && s.authMFA != nil:
-		if s.dashboardAuth != nil {
-			s.dashboardAuth.ServeHTTP(w, r)
-			break
-		}
-		s.authMFA.ServeHTTP(w, r)
 	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/user/auth" && r.Method == http.MethodPost:
 		s.dashboardAuth.ServeHTTP(w, r)
 	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/user/authMFA" && r.Method == http.MethodPost:
@@ -4506,10 +4428,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.companyProfile.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/securityMFA" && (r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodPut) && s.identitySelf != nil:
 		s.identitySelf.ServeHTTP(w, r)
-	case r.URL.Path == "/security/login" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.identityLoginPage != nil:
-		s.identityLoginPage.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/user/loginShow" && r.Method == http.MethodGet && s.loginShow != nil:
-		s.loginShow.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/logout" && r.Method == http.MethodPut && s.logout != nil:
 		s.logout.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/index" && r.Method == http.MethodGet && s.userIndex != nil:
@@ -4528,18 +4446,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.userPasswordUpdate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/role/permissionByUser" && r.Method == http.MethodGet && s.permissionByUser != nil:
 		s.permissionByUser.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/corp/select" && r.Method == http.MethodGet && s.corpSelect != nil:
-		s.corpSelect.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/corp/bind" && r.Method == http.MethodPost && s.corpBind != nil:
-		s.corpBind.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/corp/index" && r.Method == http.MethodGet && s.corpIndex != nil:
-		s.corpIndex.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/corp/show" && r.Method == http.MethodGet && s.corpShow != nil:
-		s.corpShow.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/corp/store" && r.Method == http.MethodPost && s.corpStore != nil:
-		s.corpStore.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/corp/update" && r.Method == http.MethodPut && s.corpUpdate != nil:
-		s.corpUpdate.ServeHTTP(w, r)
 	case (r.URL.Path == "/weWork/callback" || r.URL.Path == "/dashboard/corp/weWorkCallback") && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.weWorkCallback != nil:
 		s.weWorkCallback.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/corpData/index" && r.Method == http.MethodGet && s.corpDataIndex != nil:
@@ -5803,6 +5709,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func isRetiredDashboardEndpoint(path string) bool {
+	securityParts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(securityParts) == 2 && securityParts[0] == "security" && securityParts[1] == "login" {
+		return true
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/dashboard/"), "/")
+	if len(parts) != 2 || parts[0] != "corp" {
+		return false
+	}
+	switch parts[1] {
+	case "select", "bind", "index", "show", "store", "update":
+		return true
+	default:
+		return false
+	}
+}
+
 func isDashboardSaaSRequestPath(path string) bool {
 	return strings.HasPrefix(path, "/dashboard/saasAdmin/") ||
 		strings.HasPrefix(path, "/dashboard/saasAlert/") ||
@@ -5997,31 +5920,19 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.companyProfile != nil {
 		routes = append(routes,
-		"GET /dashboard/company/profile",
-		"PUT /dashboard/company/profile",
-		"PUT /dashboard/company/wecom-credentials",
-		"PUT /dashboard/company/agent-credentials",
-		"PUT /dashboard/company/archive-credentials",
-		"POST /dashboard/company/verify",
-		"POST /dashboard/company/employee-sync",
-		"GET /dashboard/company/sync-status",
-		"GET /dashboard/company/audits",
-	)
-	}
-	if s.auth != nil {
-		routes = append(routes, "POST /dashboard/user/auth")
-	}
-	if s.authMFA != nil {
-		routes = append(routes, "POST /dashboard/user/authMFA")
+			"GET /dashboard/company/profile",
+			"PUT /dashboard/company/profile",
+			"PUT /dashboard/company/wecom-credentials",
+			"PUT /dashboard/company/agent-credentials",
+			"PUT /dashboard/company/archive-credentials",
+			"POST /dashboard/company/verify",
+			"POST /dashboard/company/employee-sync",
+			"GET /dashboard/company/sync-status",
+			"GET /dashboard/company/audits",
+		)
 	}
 	if s.identitySelf != nil {
 		routes = append(routes, "GET /dashboard/user/securityMFA", "POST /dashboard/user/securityMFA", "PUT /dashboard/user/securityMFA")
-	}
-	if s.identityLoginPage != nil {
-		routes = append(routes, "GET /security/login", "HEAD /security/login")
-	}
-	if s.loginShow != nil {
-		routes = append(routes, "GET /dashboard/user/loginShow")
 	}
 	if s.logout != nil {
 		routes = append(routes, "PUT /dashboard/user/logout")
@@ -6049,24 +5960,6 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.permissionByUser != nil {
 		routes = append(routes, "GET /dashboard/role/permissionByUser")
-	}
-	if s.corpSelect != nil {
-		routes = append(routes, "GET /dashboard/corp/select")
-	}
-	if s.corpBind != nil {
-		routes = append(routes, "POST /dashboard/corp/bind")
-	}
-	if s.corpIndex != nil {
-		routes = append(routes, "GET /dashboard/corp/index")
-	}
-	if s.corpShow != nil {
-		routes = append(routes, "GET /dashboard/corp/show")
-	}
-	if s.corpStore != nil {
-		routes = append(routes, "POST /dashboard/corp/store")
-	}
-	if s.corpUpdate != nil {
-		routes = append(routes, "PUT /dashboard/corp/update")
 	}
 	if s.weWorkCallback != nil {
 		routes = append(routes,

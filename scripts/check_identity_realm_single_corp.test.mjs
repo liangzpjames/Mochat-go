@@ -27,6 +27,8 @@ async function makeFixtureTree() {
     fs.writeFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'main.tsx'), 'export { dashboard } from "./dashboard";\n'),
     fs.writeFile(path.join(root, 'web', 'apps', 'saas-admin', 'src', 'auth.ts'), 'export const realm = "saas_admin";\nexport const jwt = "saas-jwt";\n'),
     fs.writeFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'dashboard.ts'), 'export const realm = "dashboard";\nexport const jwt = "dashboard-jwt";\n'),
+    fs.writeFile(path.join(root, 'internal', 'server', 'dispatch.go'), 'package server\n\ntype DashboardAccessGuard struct{}\nfunc (*DashboardAccessGuard) Authorize(W, R) bool { return true }\nfunc (s *Server) ServeHTTP(w W, r R) {\n  if strings.HasPrefix(r.URL.Path, "/dashboard/saasAdmin/") { if !saasRequestGuard.Authorize(w, r) { return } }\n  if !s.dashboardRequestGuard.Authorize(w, r) { return }\n  dashboardAccessGuard.Authorize(w, r)\n  switch { case r.URL.Path == "/dashboard/index": s.handler.ServeHTTP(w, r) }\n}\n'),
+    fs.writeFile(path.join(root, 'cmd', 'mochat-go', 'main.go'), 'package main\nfunc compose() { dashboardIdentityGuard.WithNext(dashboardAccessGuard); WithDashboardRequestGuard(dashboardIdentityGuard); WithSaaSRequestGuard(saasRequestGuard) }\n'),
   ]);
   return root;
 }
@@ -86,12 +88,39 @@ test('RED: Dashboard session and corp selection routes are forbidden in producti
   });
 });
 
-test('RED: Dashboard handlers must consume DashboardPrincipal from their request context', async () => {
+test('RED: browser-persisted corp selection remains forbidden', async () => {
+  await withFixture(async (root) => {
+    await fs.writeFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'session.ts'), 'export function persist(value) { localStorage.setItem("mochat_dashboard_corp_id", value); }\n');
+    await fs.appendFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'main.tsx'), '\nimport "./session";\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /corp selection\/session field/i);
+  });
+});
+
+test('GREEN: business corp fields are not mistaken for browser selection state', async () => {
+  await withFixture(async (root) => {
+    await fs.writeFile(path.join(root, 'internal', 'dashboard', 'event.go'), 'package dashboard\ntype Event struct { CorpID int `json:"corpId"` }\n');
+    await fs.writeFile(path.join(root, 'web', 'apps', 'dashboard', 'src', 'business.ts'), 'export function query(corpId: number) { return { corpId }; }\n');
+  }, async (root) => {
+    assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('RED: a dashboard route without the production guard chain is rejected', async () => {
   await withFixture(async (root) => {
     await fs.writeFile(path.join(root, 'internal', 'dashboard', 'unbound.go'), 'package dashboard\n\ntype UnboundHandler struct{}\nfunc (h UnboundHandler) Unbound() { println("business") }\n');
     await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerUnbound(router Router, handler UnboundHandler) { router.Handle("POST", "/dashboard/unbound", handler.Unbound) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'server', 'dispatch.go'), 'package server\nfunc (s *Server) ServeHTTP(w W, r R) { s.handler.ServeHTTP(w, r) }\n');
   }, async (root) => {
-    assert.throws(() => runIdentitySingleCorpGate(root), /principal.*consumer|DashboardPrincipal/i);
+    assert.throws(() => runIdentitySingleCorpGate(root), /RequestGuard|DashboardAccessGuard|guard chain/i);
+  });
+});
+
+test('RED: handlers cannot read client query, body, or header realm selectors', async () => {
+  await withFixture(async (root) => {
+    await fs.writeFile(path.join(root, 'internal', 'server', 'handler.go'), 'package server\ntype Request struct { CorpID int64 `json:"corpId"` }\nfunc bad(r *http.Request) { _ = r.URL.Query().Get("corpId"); _ = r.Header.Get("X-Corp-ID") }\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /client|query|body|header|realm/i);
   });
 });
 
@@ -225,21 +254,22 @@ test('RED: an unclassified dashboard route cannot be treated as page-mapped', as
   });
 });
 
-test('RED: a principal token in another same-file handler cannot back the registered handler', async () => {
+test('RED: a principal token in another same-file handler cannot replace the guard chain', async () => {
   await withFixture(async (root) => {
     await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc (h Handler) SameFile() { println("business") }\nfunc (h Handler) Unrelated() { _ = DashboardPrincipalFromContext() }\n');
     await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerSameFile(router Router, handler Handler) { router.Handle("GET", "/dashboard/same-file", handler.SameFile) }\n');
+    await fs.writeFile(path.join(root, 'internal', 'server', 'dispatch.go'), 'package server\nfunc (s *Server) ServeHTTP(w W, r R) { s.handler.ServeHTTP(w, r) }\n');
   }, async (root) => {
-    assert.throws(() => runIdentitySingleCorpGate(root), /DashboardPrincipal.*consumer|principal.*consumer/i);
+    assert.throws(() => runIdentitySingleCorpGate(root), /RequestGuard|DashboardAccessGuard|guard chain/i);
   });
 });
 
 test('GREEN: server switch, cmd composition, and module registrar resolve concrete handlers', async () => {
   await withFixture(async (root) => {
     await fs.appendFile(path.join(root, 'internal', 'dashboard', 'handler.go'), '\nfunc (h Handler) Server() { _ = DashboardPrincipalFromContext() }\nfunc (h Handler) Cmd() { _ = DashboardPrincipalFromContext() }\nfunc (h Handler) Module() { _ = DashboardPrincipalFromContext() }\n');
-    await fs.writeFile(path.join(root, 'internal', 'server', 'dispatch.go'), 'package server\nfunc (s *Server) ServeHTTP(w W, r R) {\n  switch {\n  case r.URL.Path == "/dashboard/server" && r.Method == http.MethodGet:\n    s.server.ServeHTTP(w, r)\n  case r.URL.Path == "/dashboard/cmd" && r.Method == http.MethodGet:\n    s.cmd.ServeHTTP(w, r)\n  }\n}\n');
+    await fs.writeFile(path.join(root, 'internal', 'server', 'dispatch.go'), 'package server\ntype DashboardAccessGuard struct{}\nfunc (*DashboardAccessGuard) Authorize(W, R) bool { return true }\nfunc (s *Server) ServeHTTP(w W, r R) {\n  if !s.dashboardRequestGuard.Authorize(w, r) { return }\n  dashboardAccessGuard.Authorize(w, r)\n  switch {\n  case r.URL.Path == "/dashboard/server" && r.Method == http.MethodGet:\n    s.server.ServeHTTP(w, r)\n  case r.URL.Path == "/dashboard/cmd" && r.Method == http.MethodGet:\n    s.cmd.ServeHTTP(w, r)\n  }\n}\n');
     await fs.writeFile(path.join(root, 'internal', 'server', 'composition.go'), 'package server\nfunc build(handler Handler) { WithServerHandler(http.HandlerFunc(handler.Server)) }\n');
-    await fs.writeFile(path.join(root, 'cmd', 'mochat-go', 'main.go'), 'package main\nfunc options(handler Handler) { compatserver.WithCmdHandler(http.HandlerFunc(handler.Cmd)) }\n');
+    await fs.writeFile(path.join(root, 'cmd', 'mochat-go', 'main.go'), 'package main\nfunc compose() { dashboardIdentityGuard.WithNext(dashboardAccessGuard); WithDashboardRequestGuard(dashboardIdentityGuard); WithSaaSRequestGuard(saasRequestGuard) }\nfunc options(handler Handler) { compatserver.WithCmdHandler(http.HandlerFunc(handler.Cmd)) }\n');
     await fs.writeFile(path.join(root, 'internal', 'modules', 'module.go'), 'package modules\nfunc Register(registrar Registrar, handler Handler) { registrar.Handle(http.MethodPost, "/dashboard/module", handler.Module) }\n');
     await fs.appendFile(path.join(root, 'internal', 'modules', 'module.go'), '\nfunc RegisterClosure(registrar Registrar) { registrar.Handle("POST", "/dashboard/closure", func(w W, r R) { _ = DashboardPrincipalFromContext() }) }\n');
   }, async (root) => {
@@ -255,7 +285,34 @@ test('RED: production code cannot select plaintext credentials or expose them in
     await fs.mkdir(path.join(root, 'internal', 'companyprofile'), { recursive: true });
     await fs.writeFile(path.join(root, 'internal', 'companyprofile', 'secret.go'), 'package companyprofile\nconst query = "SELECT employee_secret FROM mc_corp"\nfunc Leak(secret string) { log.Printf("employeeSecret=%s", secret); writeJSON(map[string]string{"employeeSecret": secret}) }\n');
   }, async (root) => {
-    assert.throws(() => runIdentitySingleCorpGate(root), /plaintext secret|secret response|secret log/i);
+    assert.throws(() => runIdentitySingleCorpGate(root), /plaintext credential|secret response|secret log/i);
+  });
+});
+
+test('GREEN: migration-only plaintext preflight and blanking are not runtime evidence', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'identitymigration'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'identitymigration', 'cutover.go'), 'package identitymigration\nconst preflight = `SELECT employee_secret FROM mc_corp`\nconst blank = `UPDATE mc_corp SET employee_secret = \'\'`\n');
+  }, async (root) => {
+    assert.doesNotThrow(() => runIdentitySingleCorpGate(root));
+  });
+});
+
+test('RED: runtime plaintext SELECT remains forbidden even when the migration path is absent', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'store'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'store', 'legacy.go'), 'package store\nconst query = `SELECT employee_secret FROM mc_corp`\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /plaintext credential/i);
+  });
+});
+
+test('RED: runtime COALESCE fallback and non-empty legacy writes remain forbidden', async () => {
+  await withFixture(async (root) => {
+    await fs.mkdir(path.join(root, 'internal', 'store'), { recursive: true });
+    await fs.writeFile(path.join(root, 'internal', 'store', 'legacy.go'), 'package store\nconst read = `SELECT COALESCE(wecom_credentials_ciphertext, employee_secret) FROM mc_corp`\nconst write = `UPDATE mc_corp SET employee_secret = ? WHERE id = ?`\n');
+  }, async (root) => {
+    assert.throws(() => runIdentitySingleCorpGate(root), /plaintext credential/i);
   });
 });
 

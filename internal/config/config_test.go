@@ -492,8 +492,8 @@ func TestStandaloneWithMySQLDefaultsToAllMigratedRoutes(t *testing.T) {
 	if !cfg.EnableAllMigratedRoutes {
 		t.Fatalf("EnableAllMigratedRoutes = false")
 	}
-	if !cfg.MigrateAuth || !cfg.MigrateCorpIndex || !cfg.MigrateChannelCodeStore || !cfg.MigrateOperationWorkFissionAuth || !cfg.MigrateSidebarContactUpdate || !cfg.MigrateSidebarContactSOPTipInfo || !cfg.MigrateSidebarRoomSOPLogState || !cfg.MigrateContactBatchAddDashboard || !cfg.MigrateSensitiveWordsDashboard || !cfg.MigrateRadarDashboard || !cfg.MigrateAutoTagDashboard || !cfg.MigrateLotteryDashboard || !cfg.MigrateRoomFissionDashboard || !cfg.MigrateRoomClockInDashboard || !cfg.MigrateRoomQualityDashboard || !cfg.MigrateRoomCalendarDashboard || !cfg.MigrateRoomRemindDashboard || !cfg.MigrateRoomInfinitePullDashboard || !cfg.MigrateSidebarContactBatchAddDetail {
-		t.Fatalf("representative migrated routes not enabled: auth=%v corpIndex=%v channelCodeStore=%v operationAuth=%v sidebarContactUpdate=%v sidebarContactSOPTipInfo=%v sidebarRoomSOPLogState=%v contactBatchAddDashboard=%v sensitiveWordsDashboard=%v radarDashboard=%v autoTagDashboard=%v lotteryDashboard=%v roomFissionDashboard=%v roomClockInDashboard=%v roomQualityDashboard=%v roomCalendarDashboard=%v roomRemindDashboard=%v roomInfinitePullDashboard=%v sidebarContactBatchAddDetail=%v", cfg.MigrateAuth, cfg.MigrateCorpIndex, cfg.MigrateChannelCodeStore, cfg.MigrateOperationWorkFissionAuth, cfg.MigrateSidebarContactUpdate, cfg.MigrateSidebarContactSOPTipInfo, cfg.MigrateSidebarRoomSOPLogState, cfg.MigrateContactBatchAddDashboard, cfg.MigrateSensitiveWordsDashboard, cfg.MigrateRadarDashboard, cfg.MigrateAutoTagDashboard, cfg.MigrateLotteryDashboard, cfg.MigrateRoomFissionDashboard, cfg.MigrateRoomClockInDashboard, cfg.MigrateRoomQualityDashboard, cfg.MigrateRoomCalendarDashboard, cfg.MigrateRoomRemindDashboard, cfg.MigrateRoomInfinitePullDashboard, cfg.MigrateSidebarContactBatchAddDetail)
+	if !cfg.MigrateAuth || !cfg.MigrateChannelCodeStore || !cfg.MigrateOperationWorkFissionAuth || !cfg.MigrateSidebarContactUpdate || !cfg.MigrateSidebarContactSOPTipInfo || !cfg.MigrateSidebarRoomSOPLogState || !cfg.MigrateContactBatchAddDashboard || !cfg.MigrateSensitiveWordsDashboard || !cfg.MigrateRadarDashboard || !cfg.MigrateAutoTagDashboard || !cfg.MigrateLotteryDashboard || !cfg.MigrateRoomFissionDashboard || !cfg.MigrateRoomClockInDashboard || !cfg.MigrateRoomQualityDashboard || !cfg.MigrateRoomCalendarDashboard || !cfg.MigrateRoomRemindDashboard || !cfg.MigrateRoomInfinitePullDashboard || !cfg.MigrateSidebarContactBatchAddDetail {
+		t.Fatalf("representative migrated routes not enabled: auth=%v channelCodeStore=%v operationAuth=%v sidebarContactUpdate=%v sidebarContactSOPTipInfo=%v sidebarRoomSOPLogState=%v contactBatchAddDashboard=%v sensitiveWordsDashboard=%v radarDashboard=%v autoTagDashboard=%v lotteryDashboard=%v roomFissionDashboard=%v roomClockInDashboard=%v roomQualityDashboard=%v roomCalendarDashboard=%v roomRemindDashboard=%v roomInfinitePullDashboard=%v sidebarContactBatchAddDetail=%v", cfg.MigrateAuth, cfg.MigrateChannelCodeStore, cfg.MigrateOperationWorkFissionAuth, cfg.MigrateSidebarContactUpdate, cfg.MigrateSidebarContactSOPTipInfo, cfg.MigrateSidebarRoomSOPLogState, cfg.MigrateContactBatchAddDashboard, cfg.MigrateSensitiveWordsDashboard, cfg.MigrateRadarDashboard, cfg.MigrateAutoTagDashboard, cfg.MigrateLotteryDashboard, cfg.MigrateRoomFissionDashboard, cfg.MigrateRoomClockInDashboard, cfg.MigrateRoomQualityDashboard, cfg.MigrateRoomCalendarDashboard, cfg.MigrateRoomRemindDashboard, cfg.MigrateRoomInfinitePullDashboard, cfg.MigrateSidebarContactBatchAddDetail)
 	}
 }
 
@@ -508,8 +508,8 @@ func TestStandaloneAllMigratedRoutesCanBeDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.EnableAllMigratedRoutes || cfg.MigrateAuth || cfg.MigrateCorpIndex {
-		t.Fatalf("routes should be disabled: all=%v auth=%v corpIndex=%v", cfg.EnableAllMigratedRoutes, cfg.MigrateAuth, cfg.MigrateCorpIndex)
+	if cfg.EnableAllMigratedRoutes || cfg.MigrateAuth || cfg.MigrateChannelCodeStore {
+		t.Fatalf("routes should be disabled: all=%v auth=%v channelCodeStore=%v", cfg.EnableAllMigratedRoutes, cfg.MigrateAuth, cfg.MigrateChannelCodeStore)
 	}
 }
 
@@ -527,8 +527,8 @@ func TestStandaloneAllMigratedRoutesAllowsPerRouteOverride(t *testing.T) {
 	if !cfg.EnableAllMigratedRoutes {
 		t.Fatalf("EnableAllMigratedRoutes = false")
 	}
-	if cfg.MigrateAuth || !cfg.MigrateCorpIndex {
-		t.Fatalf("per-route override failed: auth=%v corpIndex=%v", cfg.MigrateAuth, cfg.MigrateCorpIndex)
+	if cfg.MigrateAuth || !cfg.MigrateChannelCodeStore {
+		t.Fatalf("per-route override failed: auth=%v channelCodeStore=%v", cfg.MigrateAuth, cfg.MigrateChannelCodeStore)
 	}
 }
 
@@ -606,30 +606,6 @@ func TestAuthRequiresMySQLAndJWTSecret(t *testing.T) {
 	requireErrorContains(t, err, "SIMPLE_JWT_SECRET")
 }
 
-func TestLoginShowDevHeaderDoesNotRequireJWTSecret(t *testing.T) {
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_LOGIN_SHOW", "1")
-	t.Setenv("MOCHAT_GO_DEV_AUTH_HEADER", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-
-	cfg, err := FromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.MigrateLoginShow || !cfg.DevAuthHeader {
-		t.Fatalf("unexpected flags: %+v", cfg)
-	}
-}
-
-func TestLoginShowJWTRequiresSecret(t *testing.T) {
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_LOGIN_SHOW", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-
-	_, err := FromEnv()
-	requireErrorContains(t, err, "SIMPLE_JWT_SECRET")
-}
-
 func TestUserAdminReadRoutesAllowDevHeader(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_GO_MIGRATE_USER_INDEX", "1")
@@ -683,46 +659,8 @@ func TestPermissionByUserRequiresMySQL(t *testing.T) {
 	requireErrorContains(t, err, "MOCHAT_MYSQL_DSN")
 }
 
-func TestCorpSelectRequiresMySQLAndJWTSecret(t *testing.T) {
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_SELECT", "1")
-	t.Setenv("MOCHAT_GO_DEV_AUTH_HEADER", "1")
-
-	_, err := FromEnv()
-	requireErrorContains(t, err, "MOCHAT_MYSQL_DSN")
-
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_SELECT", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-
-	_, err = FromEnv()
-	requireErrorContains(t, err, "SIMPLE_JWT_SECRET")
-}
-
-func TestCorpBindRequiresRedisAndRealJWT(t *testing.T) {
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_BIND", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "secret")
-	t.Setenv("MOCHAT_GO_DEV_AUTH_HEADER", "1")
-
-	_, err := FromEnv()
-	requireErrorContains(t, err, "state-changing migrated routes require PHP JWT auth")
-
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_BIND", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "secret")
-	t.Setenv("MOCHAT_GO_SKIP_JWT_BLACKLIST", "1")
-
-	_, err = FromEnv()
-	requireErrorContains(t, err, "state-changing migrated routes cannot skip JWT blacklist checks")
-}
-
 func TestCorpAdminReadRoutesAllowDevHeader(t *testing.T) {
 	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_INDEX", "1")
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_SHOW", "1")
 	t.Setenv("MOCHAT_GO_MIGRATE_CORP_DATA_INDEX", "1")
 	t.Setenv("MOCHAT_GO_MIGRATE_CORP_DATA_LINE_CHAT", "1")
 	t.Setenv("MOCHAT_GO_DEV_AUTH_HEADER", "1")
@@ -732,7 +670,7 @@ func TestCorpAdminReadRoutesAllowDevHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.MigrateCorpIndex || !cfg.MigrateCorpShow || !cfg.MigrateCorpDataIndex || !cfg.MigrateCorpDataLineChat || !cfg.DevAuthHeader {
+	if !cfg.MigrateCorpDataIndex || !cfg.MigrateCorpDataLineChat || !cfg.DevAuthHeader {
 		t.Fatalf("unexpected flags: %+v", cfg)
 	}
 }
@@ -2601,26 +2539,6 @@ func TestAgentTxtVerifyUploadDoesNotRequireBackends(t *testing.T) {
 	}
 }
 
-func TestCorpUpdateRequiresRealJWT(t *testing.T) {
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_UPDATE", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "secret")
-	t.Setenv("MOCHAT_GO_DEV_AUTH_HEADER", "1")
-
-	_, err := FromEnv()
-	requireErrorContains(t, err, "state-changing migrated routes require PHP JWT auth")
-
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_UPDATE", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "secret")
-	t.Setenv("MOCHAT_GO_SKIP_JWT_BLACKLIST", "1")
-
-	_, err = FromEnv()
-	requireErrorContains(t, err, "state-changing migrated routes cannot skip JWT blacklist checks")
-}
-
 func TestWorkEmployeeSyncRequiresRealJWT(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_GO_MIGRATE_WORK_EMPLOYEE_SYNC", "1")
@@ -2652,31 +2570,6 @@ func TestWorkEmployeeSyncRequiresRealJWT(t *testing.T) {
 	}
 	if !cfg.MigrateWorkEmployeeSync {
 		t.Fatalf("MigrateWorkEmployeeSync = false")
-	}
-}
-
-func TestCorpStoreRequiresRealJWT(t *testing.T) {
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_STORE", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "secret")
-	t.Setenv("MOCHAT_GO_DEV_AUTH_HEADER", "1")
-
-	_, err := FromEnv()
-	requireErrorContains(t, err, "state-changing migrated routes require PHP JWT auth")
-
-	clearEnv(t)
-	t.Setenv("MOCHAT_GO_MIGRATE_CORP_STORE", "1")
-	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
-	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "secret")
-	t.Setenv("MOCHAT_REDIS_ADDR", "127.0.0.1:6379")
-
-	cfg, err := FromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.MigrateCorpStore {
-		t.Fatalf("MigrateCorpStore = false")
 	}
 }
 
@@ -3637,7 +3530,6 @@ func clearEnv(t *testing.T) {
 		"MOCHAT_GO_ENABLE_MEDIA_ID_UPDATE_WORKER",
 		"MOCHAT_GO_ENABLE_EMPLOYEE_STATISTIC_WORKER",
 		"MOCHAT_GO_MIGRATE_AUTH",
-		"MOCHAT_GO_MIGRATE_LOGIN_SHOW",
 		"MOCHAT_GO_MIGRATE_LOGOUT",
 		"MOCHAT_GO_MIGRATE_USER_INDEX",
 		"MOCHAT_GO_MIGRATE_USER_SHOW",
@@ -3647,12 +3539,6 @@ func clearEnv(t *testing.T) {
 		"MOCHAT_GO_MIGRATE_USER_PASSWORD_RESET",
 		"MOCHAT_GO_MIGRATE_USER_PASSWORD_UPDATE",
 		"MOCHAT_GO_MIGRATE_PERMISSION_BY_USER",
-		"MOCHAT_GO_MIGRATE_CORP_SELECT",
-		"MOCHAT_GO_MIGRATE_CORP_BIND",
-		"MOCHAT_GO_MIGRATE_CORP_INDEX",
-		"MOCHAT_GO_MIGRATE_CORP_SHOW",
-		"MOCHAT_GO_MIGRATE_CORP_STORE",
-		"MOCHAT_GO_MIGRATE_CORP_UPDATE",
 		"MOCHAT_GO_MIGRATE_WEWORK_CALLBACK",
 		"MOCHAT_GO_MIGRATE_CORP_DATA_INDEX",
 		"MOCHAT_GO_MIGRATE_CORP_DATA_LINE_CHAT",

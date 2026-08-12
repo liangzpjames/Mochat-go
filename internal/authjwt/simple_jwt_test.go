@@ -26,7 +26,7 @@ func TestParserExtractsUserIDFromBearerToken(t *testing.T) {
 		"jti": "jti-7",
 	}, true)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/auth/session", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	userID, err := Parser{
@@ -51,7 +51,7 @@ func TestParserExtractsUserIDFromTokenParameter(t *testing.T) {
 		"jti": "jti-8",
 	}, false)
 
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow?token="+token, nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/auth/session?token="+token, nil)
 
 	userID, err := Parser{
 		Secret:        "secret",

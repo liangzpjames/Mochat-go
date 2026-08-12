@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   extractBackendRegisteredAPIs,
+  extractCutoverPermissionResourceMappings,
   extractFrontendAPIUsages,
   extractMigrationPermissionResourceMappings,
   productionDashboardSourceFiles,
@@ -10,6 +11,7 @@ import {
 } from './check_dashboard_page_rbac_catalog.mjs';
 
 const adminPaths = [
+  '/company-setting/website',
   '/company-setting/staff',
   '/setting/role',
   '/setting/additional',
@@ -23,7 +25,7 @@ function fixture() {
     groupId: index === 0 ? null : 'group',
   }));
   adminPaths.forEach((path, index) => {
-    pages[49 + index] = { path, title: `管理页 ${index}`, groupId: 'company-settings' };
+    pages[48 + index] = { path, title: `管理页 ${index}`, groupId: 'company-settings' };
   });
   const catalog = pages.map((page, index) => ({
     code: `dashboard.page.${index}`,
@@ -45,11 +47,11 @@ function fixture() {
   };
 }
 
-test('accepts exactly 53 pages, 49 ordinary pages and four protected management pages', () => {
+test('accepts exactly 53 pages, 48 ordinary pages and five protected management pages', () => {
   const result = validateDashboardPageRBACCatalog(fixture());
   assert.equal(result.pageCount, 53);
-  assert.equal(result.ordinaryPageCount, 49);
-  assert.equal(result.superadminOnlyCount, 4);
+  assert.equal(result.ordinaryPageCount, 48);
+  assert.equal(result.superadminOnlyCount, 5);
   assert.equal(result.resourceCount, 1);
 });
 
@@ -235,6 +237,23 @@ test('deny-only routes can be consumed by an explicitly protected page without g
   );
 });
 
+test('company deny-only routes may be consumed only by the protected company page', () => {
+  const input = fixture();
+  const companyPage = input.catalog.find((page) => page.path === '/company-setting/website');
+  companyPage.resources = [{ method: 'GET', pathPattern: '/dashboard/company/profile', scopeRequired: false }];
+  input.apiUsages.push('GET /dashboard/company/profile');
+  input.registeredAPIs.push('GET /dashboard/company/profile');
+  input.denyOnly = ['GET /dashboard/company/profile'];
+  assert.doesNotThrow(() => validateDashboardPageRBACCatalog(input));
+
+  companyPage.resources = [];
+  input.catalog[1].resources = [{ method: 'GET', pathPattern: '/dashboard/company/profile', scopeRequired: false }];
+  assert.throws(
+    () => validateDashboardPageRBACCatalog(input),
+    /deny-only dashboard route is mapped to a page: GET \/dashboard\/company\/profile/,
+  );
+});
+
 test('rejects routes assigned to both exact-exempt and deny-only classes', () => {
   const input = fixture();
   input.exemptions = ['GET /dashboard/corp/select'];
@@ -304,6 +323,19 @@ test('migration resource seed is independently parsed and must match the catalog
     () => validateDashboardPageRBACCatalog(input),
     /migration permission resource seed must exactly match catalog/,
   );
+});
+
+test('0131 cutover resource seed replaces the deployed legacy company mappings', () => {
+  const mappings = extractCutoverPermissionResourceMappings(`
+    INNER JOIN (
+      SELECT 'GET', '/dashboard/company/profile'
+      UNION ALL SELECT 'PUT', '/dashboard/company/profile'
+    ) resource_seed
+  `);
+  assert.deepEqual(mappings, [
+    'dashboard.company_setting.website\tGET /dashboard/company/profile\t0',
+    'dashboard.company_setting.website\tPUT /dashboard/company/profile\t0',
+  ]);
 });
 
 test('a non-manifest legacy browser route cannot become a 54th permission unit', () => {

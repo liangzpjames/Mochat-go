@@ -85,8 +85,6 @@ dashboard,GET,/contactSop/info,response,no-static-response-fields,internal/serve
 dashboard,GET,/contactTransfer/info,response,indirect-response-shape,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/Info.php#L52
 dashboard,GET,/contactTransfer/log,response,indirect-response-shape,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/Log.php#L53
 dashboard,GET,/contactTransfer/room,response,indirect-response-shape,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/Room.php#L53
-dashboard,GET,/corp/select,corp_scope,no-static-corp-scope,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/app/core/corp/src/Action/Dashboard/Select.php#L50
-dashboard,GET,/corp/select,response,indirect-response-shape,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/app/core/corp/src/Action/Dashboard/Select.php#L50
 dashboard,GET,/corpData/lineChat,response,indirect-response-shape,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/app/core/index/src/Action/Dashboard/LineChat.php#L42
 dashboard,GET,/external/tenantIndex,corp_scope,no-static-corp-scope,internal/server/server.go
 dashboard,GET,/greeting/index,corp_scope,no-static-corp-scope,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/plugin/mochat/greeting/src/Action/Dashboard/Index.php#L41
@@ -301,7 +299,6 @@ dashboard,POST,/contactSop/store,corp_scope,no-static-corp-scope,internal/server
 dashboard,POST,/contactSop/store,response,no-static-response-fields,internal/server/server.go
 dashboard,POST,/contactTransfer/index,response,indirect-response-shape,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/Index.php#L53
 dashboard,POST,/contactTransfer/room,response,indirect-response-shape,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/TransferRoom.php#L74
-dashboard,POST,/corp/bind,response,indirect-response-shape,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/app/core/corp/src/Action/Dashboard/Bind.php#L46
 dashboard,POST,/mediumGroup/store,corp_scope,no-static-corp-scope,git:3dcd216c188df34f2c3ed489b8e8b9473e635488:api-server/app/core/medium/src/Action/Dashboard/Group/Store.php#L38
 dashboard,POST,/radar/store,corp_scope,no-static-corp-scope,internal/server/server.go
 dashboard,POST,/radar/store,response,no-static-response-fields,internal/server/server.go

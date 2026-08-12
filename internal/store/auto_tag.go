@@ -2088,11 +2088,9 @@ func (s *MySQLStore) UpdateWorkMessageStepConfig(ctx context.Context, corpID int
 			return false, err
 		}
 		setSQL = append(setSQL,
-			"employee_secret = ?", "contact_secret = ?", "token = ?", "encoding_aes_key = ?", "chat_secret = ?",
 			"wecom_credentials_ciphertext = ?", "wecom_credentials_key_id = ?",
 		)
-		args = append(args, storage.EmployeeSecret, storage.ContactSecret, storage.CallbackToken, storage.EncodingAESKey,
-			storage.ChatSecret, storage.Ciphertext, storage.KeyID)
+		args = append(args, storage.Ciphertext, storage.KeyID)
 	}
 	args = append(args, time.Now(), corpID)
 	result, err := tx.ExecContext(ctx, `
@@ -2495,7 +2493,6 @@ func workMessageConfigSelect() string {
 			COALESCE(c.chat_admin_idcard, ''),
 			COALESCE(c.chat_apply_status, 0),
 			COALESCE(c.chat_status, 0),
-			COALESCE(c.chat_secret, ''),
 			COALESCE(c.tenant_id, 0),
 			COALESCE(c.wecom_credentials_ciphertext, ''),
 			COALESCE(c.wecom_credentials_key_id, ''),
@@ -2511,16 +2508,16 @@ func workMessageConfigSelect() string {
 func (s *MySQLStore) scanWorkMessageConfig(scanner rowScanner) (dashboard.WorkMessageConfigItem, error) {
 	var item dashboard.WorkMessageConfigItem
 	var createdAt, updatedAt sql.NullTime
-	var legacyChatSecret, ciphertext, keyID string
+	var ciphertext, keyID string
 	var tenantID int
 	err := scanner.Scan(&item.ID, &item.CorpID, &item.CorpName, &item.WXCorpID, &item.SocialCode, &item.ChatAdmin, &item.ChatAdminPhone, &item.ChatAdminIDCard, &item.ChatApplyStatus, &item.ChatStatus,
-		&legacyChatSecret, &tenantID, &ciphertext, &keyID, &item.ServiceContactURL, &item.ChatWhitelistIPRaw, &item.ChatRSAKeyRaw, &createdAt, &updatedAt)
+		&tenantID, &ciphertext, &keyID, &item.ServiceContactURL, &item.ChatWhitelistIPRaw, &item.ChatRSAKeyRaw, &createdAt, &updatedAt)
 	if err != nil {
 		return dashboard.WorkMessageConfigItem{}, err
 	}
 	credential, err := s.decodeCorpCredential(corpCredentialRecord{
 		ID: item.CorpID, TenantID: tenantID, WXCorpID: item.WXCorpID,
-		ChatSecret: legacyChatSecret, Ciphertext: ciphertext, KeyID: keyID,
+		Ciphertext: ciphertext, KeyID: keyID,
 	})
 	if err != nil {
 		return dashboard.WorkMessageConfigItem{}, err

@@ -57,7 +57,7 @@ func customerTagView(item ports.CustomerTag) customerTagJSON {
 }
 
 func (h *CustomerTagHandler) ListCatalog(w http.ResponseWriter, r *http.Request) {
-	p, corpID, ok := h.readScope(w, r, queryInt(r, "corpId"), tagPermissionView)
+	p, corpID, ok := h.readScope(w, r, tagPermissionView)
 	if !ok {
 		return
 	}
@@ -79,13 +79,12 @@ func (h *CustomerTagHandler) ListCatalog(w http.ResponseWriter, r *http.Request)
 
 func (h *CustomerTagHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CorpID int64  `json:"corpId"`
-		Name   string `json:"name"`
+		Name string `json:"name"`
 	}
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionAdd)
+	p, corpID, ok := h.readScope(w, r, tagPermissionAdd)
 	if !ok {
 		return
 	}
@@ -99,13 +98,13 @@ func (h *CustomerTagHandler) CreateGroup(w http.ResponseWriter, r *http.Request)
 
 func (h *CustomerTagHandler) RenameGroup(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CorpID, Version int64
-		Name            string
+		Version int64
+		Name    string
 	}
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
+	p, corpID, ok := h.readScope(w, r, tagPermissionEdit)
 	if !ok {
 		return
 	}
@@ -119,13 +118,12 @@ func (h *CustomerTagHandler) RenameGroup(w http.ResponseWriter, r *http.Request)
 
 func (h *CustomerTagHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CorpID        int64 `json:"corpId"`
 		GroupID, Name string
 	}
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionAdd)
+	p, corpID, ok := h.readScope(w, r, tagPermissionAdd)
 	if !ok {
 		return
 	}
@@ -139,13 +137,13 @@ func (h *CustomerTagHandler) CreateTag(w http.ResponseWriter, r *http.Request) {
 
 func (h *CustomerTagHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CorpID, Version int64
-		Name            string
+		Version int64
+		Name    string
 	}
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
+	p, corpID, ok := h.readScope(w, r, tagPermissionEdit)
 	if !ok {
 		return
 	}
@@ -159,13 +157,13 @@ func (h *CustomerTagHandler) RenameTag(w http.ResponseWriter, r *http.Request) {
 
 func (h *CustomerTagHandler) MoveTag(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CorpID, Version int64
-		GroupID         string
+		Version int64
+		GroupID string
 	}
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
+	p, corpID, ok := h.readScope(w, r, tagPermissionEdit)
 	if !ok {
 		return
 	}
@@ -179,13 +177,13 @@ func (h *CustomerTagHandler) MoveTag(w http.ResponseWriter, r *http.Request) {
 
 func (h *CustomerTagHandler) MaintainContacts(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CorpID, Version                 int64
+		Version                         int64
 		AddContactIDs, RemoveContactIDs []string
 	}
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionEdit)
+	p, corpID, ok := h.readScope(w, r, tagPermissionEdit)
 	if !ok {
 		return
 	}
@@ -205,11 +203,11 @@ func (h *CustomerTagHandler) MaintainContacts(w http.ResponseWriter, r *http.Req
 }
 
 func (h *CustomerTagHandler) DeleteTag(w http.ResponseWriter, r *http.Request) {
-	var body struct{ CorpID, Version int64 }
+	var body struct{ Version int64 }
 	if decodeCustomerTagJSON(w, r, &body) != nil {
 		return
 	}
-	p, corpID, ok := h.readScope(w, r, body.CorpID, tagPermissionDelete)
+	p, corpID, ok := h.readScope(w, r, tagPermissionDelete)
 	if !ok {
 		return
 	}
@@ -222,7 +220,7 @@ func (h *CustomerTagHandler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CustomerTagHandler) PreviewDeleteTag(w http.ResponseWriter, r *http.Request) {
-	p, corpID, ok := h.readScope(w, r, queryInt(r, "corpId"), tagPermissionDelete)
+	p, corpID, ok := h.readScope(w, r, tagPermissionDelete)
 	if !ok {
 		return
 	}
@@ -234,17 +232,17 @@ func (h *CustomerTagHandler) PreviewDeleteTag(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
-func (h *CustomerTagHandler) readScope(w http.ResponseWriter, r *http.Request, corpID int64, permission string) (Principal, int64, bool) {
+func (h *CustomerTagHandler) readScope(w http.ResponseWriter, r *http.Request, permission string) (Principal, int64, bool) {
 	p, err := h.principal.Resolve(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return Principal{}, 0, false
 	}
-	resolvedCorpID, err := p.ResolveCorp(corpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
+	if p.UserID <= 0 || p.TenantID <= 0 || p.CorpID <= 0 {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return Principal{}, 0, false
 	}
+	resolvedCorpID := p.CorpID
 	if h.authorizer != nil {
 		err := h.authorizer.Authorize(r.Context(), p, resolvedCorpID, permission)
 		if errors.Is(err, ErrLeadForbidden) {

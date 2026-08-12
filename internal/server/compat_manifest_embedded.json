@@ -227,36 +227,6 @@
       "file": "api-server/plugin/mochat/contact-transfer/src/Action/Dashboard/UnassignedList.php"
     },
     {
-      "method": "POST",
-      "path": "/dashboard/corp/bind",
-      "file": "api-server/app/core/corp/src/Action/Dashboard/Bind.php"
-    },
-    {
-      "method": "GET",
-      "path": "/dashboard/corp/index",
-      "file": "api-server/app/core/corp/src/Action/Dashboard/Index.php"
-    },
-    {
-      "method": "GET",
-      "path": "/dashboard/corp/select",
-      "file": "api-server/app/core/corp/src/Action/Dashboard/Select.php"
-    },
-    {
-      "method": "GET",
-      "path": "/dashboard/corp/show",
-      "file": "api-server/app/core/corp/src/Action/Dashboard/Show.php"
-    },
-    {
-      "method": "POST",
-      "path": "/dashboard/corp/store",
-      "file": "api-server/app/core/corp/src/Action/Dashboard/Store.php"
-    },
-    {
-      "method": "PUT",
-      "path": "/dashboard/corp/update",
-      "file": "api-server/app/core/corp/src/Action/Dashboard/Update.php"
-    },
-    {
       "method": "GET",
       "path": "/dashboard/corp/weWorkCallback",
       "file": "api-server/app/core/corp/src/Action/Dashboard/WeWorkCallback.php"
@@ -625,11 +595,6 @@
       "method": "GET",
       "path": "/dashboard/user/index",
       "file": "api-server/app/core/user/src/Action/Dashboard/Index.php"
-    },
-    {
-      "method": "GET",
-      "path": "/dashboard/user/loginShow",
-      "file": "api-server/app/core/user/src/Action/Dashboard/LoginShow.php"
     },
     {
       "method": "PUT",

@@ -21,7 +21,6 @@ export type BusinessRouteConfig = {
 
 export const specializedDashboardRoutes = new Set([
   '/contactField/index',
-  '/corp/index',
   '/department/index',
   '/menu/index',
   '/passwordUpdate/index',

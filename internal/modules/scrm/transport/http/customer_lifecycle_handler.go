@@ -39,20 +39,15 @@ func (h *CustomerLifecycleHandler) CreateContact(w http.ResponseWriter, r *http.
 		return
 	}
 	var req struct {
-		CorpID int64  `json:"corpId"`
-		Name   string `json:"name"`
-		Phone  string `json:"phone"`
+		Name  string `json:"name"`
+		Phone string `json:"phone"`
 	}
 	if decodeRequestJSON(w, r, &req) != nil {
 		writeError(w, 400, "invalid request JSON")
 		return
 	}
-	corpID, err := principal.ResolveCorp(req.CorpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
-	if !h.authorize(w, r, principal, corpID, contactPermissionEdit) {
+	corpID := principal.CorpID
+	if !h.authorize(w, r, principal, contactPermissionEdit) {
 		return
 	}
 	item, err := h.service.CreateContact(r.Context(), ports.CreateContactCommand{TenantID: principal.TenantID, CorpID: corpID, ActorID: principal.UserID, Name: req.Name, Phone: req.Phone})
@@ -87,17 +82,8 @@ func (h *CustomerLifecycleHandler) ListContacts(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, "invalid contact query")
 		return
 	}
-	requestedCorpID, err := parseOptionalPositiveInt64(values.Get("corpId"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid corpId")
-		return
-	}
-	corpID, err := principal.ResolveCorp(requestedCorpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
-	if !h.authorize(w, r, principal, corpID, contactPermissionView) {
+	corpID := principal.CorpID
+	if !h.authorize(w, r, principal, contactPermissionView) {
 		return
 	}
 	pageSize, err := parseOptionalNonNegativeInt(values.Get("pageSize"))
@@ -132,17 +118,8 @@ func (h *CustomerLifecycleHandler) GetContact(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusForbidden, "contact owner scope cannot be resolved")
 		return
 	}
-	requestedCorpID, err := parseOptionalPositiveInt64(r.URL.Query().Get("corpId"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid corpId")
-		return
-	}
-	corpID, err := principal.ResolveCorp(requestedCorpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
-	if !h.authorize(w, r, principal, corpID, contactPermissionView) {
+	corpID := principal.CorpID
+	if !h.authorize(w, r, principal, contactPermissionView) {
 		return
 	}
 	detail, err := h.service.GetContact(r.Context(), principal.TenantID, corpID, pathValue(r, "contacts", ""))
@@ -163,17 +140,8 @@ func (h *CustomerLifecycleHandler) ListPublicPool(w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, "invalid list query")
 		return
 	}
-	requestedCorpID, err := parseOptionalPositiveInt64(values.Get("corpId"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid corpId")
-		return
-	}
-	corpID, err := principal.ResolveCorp(requestedCorpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
-	if !h.authorize(w, r, principal, corpID, contactPermissionView) {
+	corpID := principal.CorpID
+	if !h.authorize(w, r, principal, contactPermissionView) {
 		return
 	}
 	pageSize, err := parseOptionalNonNegativeInt(values.Get("pageSize"))
@@ -212,7 +180,6 @@ func (h *CustomerLifecycleHandler) UpdateAssignment(w http.ResponseWriter, r *ht
 		return
 	}
 	var req struct {
-		CorpID          int64   `json:"corpId"`
 		ContactID       string  `json:"contactId"`
 		OwnerID         *int64  `json:"ownerId"`
 		CollaboratorIDs []int64 `json:"collaboratorIds"`
@@ -222,12 +189,8 @@ func (h *CustomerLifecycleHandler) UpdateAssignment(w http.ResponseWriter, r *ht
 		writeError(w, http.StatusBadRequest, "invalid request JSON")
 		return
 	}
-	corpID, err := principal.ResolveCorp(req.CorpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
-	if !h.authorize(w, r, principal, corpID, contactPermissionEdit) {
+	corpID := principal.CorpID
+	if !h.authorize(w, r, principal, contactPermissionEdit) {
 		return
 	}
 	if req.OwnerID != nil && !principal.AllowsEmployee(*req.OwnerID) {
@@ -258,7 +221,6 @@ func (h *CustomerLifecycleHandler) ReleaseToPublicPool(w http.ResponseWriter, r 
 		return
 	}
 	var req struct {
-		CorpID    int64  `json:"corpId"`
 		ContactID string `json:"contactId"`
 		Version   int64  `json:"version"`
 		Action    string `json:"action"`
@@ -268,12 +230,8 @@ func (h *CustomerLifecycleHandler) ReleaseToPublicPool(w http.ResponseWriter, r 
 		writeError(w, http.StatusBadRequest, "invalid request JSON")
 		return
 	}
-	corpID, err := principal.ResolveCorp(req.CorpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
-	if !h.authorize(w, r, principal, corpID, contactPermissionEdit) {
+	corpID := principal.CorpID
+	if !h.authorize(w, r, principal, contactPermissionEdit) {
 		return
 	}
 	item, err := h.service.MoveToPublicPool(r.Context(), ports.MoveToPublicPoolCommand{TenantID: principal.TenantID, CorpID: corpID, ContactID: req.ContactID, ActorID: principal.UserID, Version: req.Version, Action: req.Action, Reason: req.Reason, IdempotencyKey: r.Header.Get("Idempotency-Key")})
@@ -289,7 +247,6 @@ func (h *CustomerLifecycleHandler) ClaimFromPublicPool(w http.ResponseWriter, r 
 		return
 	}
 	var req struct {
-		CorpID    int64  `json:"corpId"`
 		ContactID string `json:"contactId"`
 		Version   int64  `json:"version"`
 		UserID    int64  `json:"userId"`
@@ -298,12 +255,8 @@ func (h *CustomerLifecycleHandler) ClaimFromPublicPool(w http.ResponseWriter, r 
 		writeError(w, http.StatusBadRequest, "invalid request JSON")
 		return
 	}
-	corpID, err := principal.ResolveCorp(req.CorpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
-	if !h.authorize(w, r, principal, corpID, contactPermissionEdit) {
+	corpID := principal.CorpID
+	if !h.authorize(w, r, principal, contactPermissionEdit) {
 		return
 	}
 	if req.UserID != principal.UserID {
@@ -324,7 +277,6 @@ func (h *CustomerLifecycleHandler) BatchClaimFromPublicPool(w http.ResponseWrite
 		return
 	}
 	var req struct {
-		CorpID  int64                               `json:"corpId"`
 		UserID  int64                               `json:"userId"`
 		Targets []application.PublicPoolClaimTarget `json:"targets"`
 	}
@@ -332,12 +284,8 @@ func (h *CustomerLifecycleHandler) BatchClaimFromPublicPool(w http.ResponseWrite
 		writeError(w, http.StatusBadRequest, "invalid request JSON")
 		return
 	}
-	corpID, err := principal.ResolveCorp(req.CorpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return
-	}
-	if !h.authorize(w, r, principal, corpID, contactPermissionEdit) {
+	corpID := principal.CorpID
+	if !h.authorize(w, r, principal, contactPermissionEdit) {
 		return
 	}
 	if req.UserID != principal.UserID {
@@ -352,16 +300,11 @@ func (h *CustomerLifecycleHandler) BatchClaimFromPublicPool(w http.ResponseWrite
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"results": results}})
 }
 
-func (h *CustomerLifecycleHandler) authorize(w http.ResponseWriter, r *http.Request, principal Principal, corpID int64, permission string) bool {
-	resolvedCorpID, err := principal.ResolveCorp(corpID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpId does not match dashboard principal")
-		return false
-	}
+func (h *CustomerLifecycleHandler) authorize(w http.ResponseWriter, r *http.Request, principal Principal, permission string) bool {
 	if h.authorizer == nil {
 		return true
 	}
-	err = h.authorizer.Authorize(r.Context(), principal, resolvedCorpID, permission)
+	err := h.authorizer.Authorize(r.Context(), principal, principal.CorpID, permission)
 	if errors.Is(err, ErrLeadForbidden) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return false

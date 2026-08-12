@@ -86,6 +86,257 @@ func TestRunMigrationCLIRealMariaDBLifecycle(t *testing.T) {
 	}
 }
 
+func TestRunMigrationCLICutoverDownRestoreAndReapplyRealMariaDB(t *testing.T) {
+	db, dsn, schema := newMigrateIntegrationDB(t)
+	createMigrateIntegrationFixture(t, db)
+	execMigrateIntegrationFile(t, db, "0129_identity_realms_single_corp_schema.up.sql")
+	ensureMigrateIntegrationStandardLedger(t, db)
+
+	dir := t.TempDir()
+	dsnFile := filepath.Join(dir, "dsn")
+	keyFile := filepath.Join(dir, "credential-key")
+	if err := os.WriteFile(dsnFile, []byte(dsn), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, []byte(strings.Repeat("01", 32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("..", "..")
+	writeConfirmation := func(requestID string) string {
+		path := filepath.Join(dir, "maintenance-"+requestID)
+		body := "MOCHAT_IDENTITY_MAINTENANCE_V1\nschema=" + schema + "\nrequest_id=" + requestID
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	args := func(action, requestID, confirmation string, withKey bool) []string {
+		result := []string{action, "--execute", "--request-id", requestID, "--dsn-file", dsnFile, "--schema", schema, "--platform-tenant-id", "1", "--maintenance-confirmation-file", confirmation, "--project-root", root, "--timeout", "5m"}
+		if withKey {
+			result = append(result, "--credential-key-file", keyFile, "--credential-key-id", "task12-wecom-v1")
+		}
+		return result
+	}
+
+	backfillRequest := "task12-cutover-backfill"
+	var output strings.Builder
+	if err := runMigration(args("up", backfillRequest, writeConfirmation(backfillRequest), true), &output); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if err := runMigration(args("encrypt-credentials", backfillRequest, writeConfirmation(backfillRequest), true), &output); err != nil {
+		t.Fatal(err)
+	}
+	var originalCiphertext, originalKeyID string
+	if err := db.QueryRow(`SELECT COALESCE(CAST(wecom_credentials_ciphertext AS CHAR),''), COALESCE(wecom_credentials_key_id,'') FROM mc_corp WHERE id=?`, 100).Scan(&originalCiphertext, &originalKeyID); err != nil {
+		t.Fatal(err)
+	}
+	if originalCiphertext == "" || originalKeyID == "" {
+		t.Fatal("credential copy was not created")
+	}
+	if _, err := db.Exec(`UPDATE mc_corp SET wecom_credentials_ciphertext=?, wecom_credentials_key_id=? WHERE id=?`, "tampered-copy", originalKeyID, 100); err != nil {
+		t.Fatal(err)
+	}
+	badCutoverRequest := "task12-cutover-preflight-failure"
+	output.Reset()
+	if err := runMigration(args("cutover", badCutoverRequest, writeConfirmation(badCutoverRequest), true), &output); err == nil {
+		t.Fatal("tampered credential cutover unexpectedly succeeded")
+	}
+	assertMigrateIntegrationColumn(t, db, "mc_user", "password", true)
+	assertMigrateIntegrationValue(t, db, "mc_corp", "employee_secret", 100, "employee-value")
+	assertMigrateIntegrationTable(t, db, "mochat_go_identity_cutover_batches", false)
+	if _, err := db.Exec(`UPDATE mc_corp SET wecom_credentials_ciphertext=?, wecom_credentials_key_id=? WHERE id=?`, originalCiphertext, originalKeyID, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	cutoverRequest := "task12-cutover-first"
+	output.Reset()
+	if err := runMigration(args("cutover", cutoverRequest, writeConfirmation(cutoverRequest), true), &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "cutover\tcompleted") {
+		t.Fatalf("cutover output=%q", output.String())
+	}
+	assertMigrateIntegrationColumn(t, db, "mc_user", "password", false)
+	assertMigrateIntegrationBlank(t, db, "mc_corp", "employee_secret", 100)
+	assertMigrateIntegrationBlank(t, db, "mc_work_agent", "wx_secret", 300)
+	assertMigrateIntegrationCompanyPermission(t, db)
+	assertMigrateIntegrationStandardCutoverLedger(t, db, true)
+
+	output.Reset()
+	downArgs := args("down", cutoverRequest, writeConfirmation(cutoverRequest), false)
+	downArgs = append(downArgs, "--migration-version", "0131_identity_realms_single_corp_cutover")
+	if err := runMigration(downArgs, &output); err != nil {
+		t.Fatal(err)
+	}
+	assertMigrateIntegrationColumn(t, db, "mc_user", "password", true)
+	assertMigrateIntegrationBlank(t, db, "mc_corp", "employee_secret", 100)
+	assertMigrateIntegrationLegacyCompanyPermission(t, db)
+	assertMigrateIntegrationStandardCutoverLedger(t, db, false)
+	assertMigrateIntegrationTable(t, db, "mochat_go_identity_cutover_journal", true)
+	assertMigrateIntegrationCutoverBatchStatus(t, db, cutoverRequest, "rolled_back")
+	output.Reset()
+	if err := runMigration(args("restore-legacy-credentials", cutoverRequest, writeConfirmation(cutoverRequest), true), &output); err != nil {
+		t.Fatal(err)
+	}
+	assertMigrateIntegrationValue(t, db, "mc_corp", "employee_secret", 100, "employee-value")
+	assertMigrateIntegrationValue(t, db, "mc_work_agent", "wx_secret", 300, "agent-value")
+	assertMigrateIntegrationTable(t, db, "mochat_go_identity_cutover_journal", true)
+	assertMigrateIntegrationCutoverBatchStatus(t, db, cutoverRequest, "restored")
+
+	reapplyRequest := "task12-cutover-reapply"
+	output.Reset()
+	if err := runMigration(args("cutover", reapplyRequest, writeConfirmation(reapplyRequest), true), &output); err != nil {
+		t.Fatal(err)
+	}
+	assertMigrateIntegrationColumn(t, db, "mc_user", "password", false)
+}
+
+func ensureMigrateIntegrationStandardLedger(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`CREATE TABLE mochat_go_schema_migrations (version varchar(64) NOT NULL, description varchar(255) NOT NULL DEFAULT '', checksum char(64) NOT NULL DEFAULT '', applied_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, execution_ms int unsigned NOT NULL DEFAULT 0, PRIMARY KEY (version)) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mochat_go_schema_migrations (version, description, checksum) VALUES ('0129_identity_realms_single_corp_schema', 'identity schema', ?)`, strings.Repeat("1", 64)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertMigrateIntegrationColumn(t *testing.T, db *sql.DB, table, column string, wantPresent bool) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name=?`, table, column).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if (count == 1) != wantPresent {
+		t.Fatalf("%s.%s present=%t want=%t", table, column, count == 1, wantPresent)
+	}
+}
+
+func assertMigrateIntegrationBlank(t *testing.T, db *sql.DB, table, column string, id int64) {
+	t.Helper()
+	var value string
+	if err := db.QueryRow(`SELECT COALESCE(`+column+`, '') FROM `+table+` WHERE id=?`, id).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	if value != "" {
+		t.Fatalf("%s.%s was not cleared", table, column)
+	}
+}
+
+func assertMigrateIntegrationValue(t *testing.T, db *sql.DB, table, column string, id int64, want string) {
+	t.Helper()
+	var value string
+	if err := db.QueryRow(`SELECT COALESCE(`+column+`, '') FROM `+table+` WHERE id=?`, id).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	if value != want {
+		t.Fatalf("%s.%s restore mismatch", table, column)
+	}
+}
+
+func assertMigrateIntegrationCompanyPermission(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var superadminOnly int
+	if err := db.QueryRow(`SELECT superadmin_only FROM mochat_go_dashboard_permissions WHERE code=?`, "dashboard.company_setting.website").Scan(&superadminOnly); err != nil {
+		t.Fatal(err)
+	}
+	if superadminOnly != 1 {
+		t.Fatalf("company permission superadmin_only=%d", superadminOnly)
+	}
+	var oldResources int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM mochat_go_dashboard_permission_resources resource
+		INNER JOIN mochat_go_dashboard_permissions permission ON permission.id=resource.permission_id
+		WHERE permission.code=? AND resource.path_pattern LIKE '/dashboard/corp/%'`, "dashboard.company_setting.website").Scan(&oldResources); err != nil {
+		t.Fatal(err)
+	}
+	if oldResources != 0 {
+		t.Fatalf("legacy company permission resources=%d", oldResources)
+	}
+	var newResources int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM mochat_go_dashboard_permission_resources resource
+		INNER JOIN mochat_go_dashboard_permissions permission ON permission.id=resource.permission_id
+		WHERE permission.code=? AND resource.path_pattern LIKE '/dashboard/company/%'`, "dashboard.company_setting.website").Scan(&newResources); err != nil {
+		t.Fatal(err)
+	}
+	if newResources != 9 {
+		t.Fatalf("company permission resources=%d want=9", newResources)
+	}
+}
+
+func assertMigrateIntegrationLegacyCompanyPermission(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var restriction string
+	var superadminOnly int
+	if err := db.QueryRow(`SELECT restriction, superadmin_only FROM mochat_go_dashboard_permissions WHERE code=?`, "dashboard.company_setting.website").Scan(&restriction, &superadminOnly); err != nil {
+		t.Fatal(err)
+	}
+	if restriction != "grantable" || superadminOnly != 0 {
+		t.Fatalf("restored company permission restriction=%q superadmin_only=%d", restriction, superadminOnly)
+	}
+	var oldResources int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM mochat_go_dashboard_permission_resources resource
+		INNER JOIN mochat_go_dashboard_permissions permission ON permission.id=resource.permission_id
+		WHERE permission.code=? AND resource.path_pattern IN (
+			'/dashboard/corp/index', '/dashboard/corp/show', '/dashboard/corp/store', '/dashboard/corp/update'
+		)`, "dashboard.company_setting.website").Scan(&oldResources); err != nil {
+		t.Fatal(err)
+	}
+	if oldResources != 4 {
+		t.Fatalf("restored legacy company resources=%d want=4", oldResources)
+	}
+	var newResources int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM mochat_go_dashboard_permission_resources resource
+		INNER JOIN mochat_go_dashboard_permissions permission ON permission.id=resource.permission_id
+		WHERE permission.code=? AND resource.path_pattern LIKE '/dashboard/company/%'`, "dashboard.company_setting.website").Scan(&newResources); err != nil {
+		t.Fatal(err)
+	}
+	if newResources != 0 {
+		t.Fatalf("restored company resources still include cutover paths=%d", newResources)
+	}
+}
+
+func assertMigrateIntegrationStandardCutoverLedger(t *testing.T, db *sql.DB, wantPresent bool) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version=?`, "0131_identity_realms_single_corp_cutover").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if (count == 1) != wantPresent {
+		t.Fatalf("0131 standard ledger present=%t want=%t", count == 1, wantPresent)
+	}
+}
+
+func assertMigrateIntegrationCutoverBatchStatus(t *testing.T, db *sql.DB, requestID, want string) {
+	t.Helper()
+	var status string
+	if err := db.QueryRow(`SELECT status FROM mochat_go_identity_cutover_batches WHERE request_id=?`, requestID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != want {
+		t.Fatalf("cutover batch status=%q want=%q", status, want)
+	}
+}
+
+func assertMigrateIntegrationTable(t *testing.T, db *sql.DB, table string, wantPresent bool) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?`, table).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if (count == 1) != wantPresent {
+		t.Fatalf("%s present=%t want=%t", table, count == 1, wantPresent)
+	}
+}
+
 func migrationSourceForMigrateIntegration() string {
 	return "0130_identity_realms_single_corp_backfill"
 }
@@ -162,7 +413,9 @@ func createMigrateIntegrationFixture(t *testing.T, db *sql.DB) {
 	loadMigrateIntegrationDDL(t, db)
 	for _, statement := range []string{
 		`INSERT INTO mochat_go_dashboard_permissions (id, code, permission_type, path, name) VALUES (900, 'dashboard.test', 'page', '/test', 'Test')`,
+		`INSERT INTO mochat_go_dashboard_permissions (id, code, permission_type, path, name, restriction, superadmin_only) VALUES (902, 'dashboard.company_setting.website', 'page', '/company-setting/website', '企业信息', 'grantable', 0)`,
 		`INSERT INTO mochat_go_dashboard_permission_resources (id, permission_id, resource_type, http_method, path_pattern) VALUES (901, 900, 'api', 'GET', '/dashboard/test')`,
+		`INSERT INTO mochat_go_dashboard_permission_resources (id, permission_id, resource_type, http_method, path_pattern) VALUES (902, 902, 'api', 'GET', '/dashboard/corp/index'), (903, 902, 'api', 'GET', '/dashboard/corp/show'), (904, 902, 'api', 'POST', '/dashboard/corp/store'), (905, 902, 'api', 'PUT', '/dashboard/corp/update')`,
 		`INSERT INTO mochat_go_dashboard_user_roles (tenant_id, user_id, role_id) VALUES (1, 11, 20)`,
 		`INSERT INTO mochat_go_dashboard_role_permissions (tenant_id, role_id, permission_id) VALUES (1, 20, 900)`,
 		`INSERT INTO mochat_go_dashboard_user_permissions (tenant_id, user_id, permission_id) VALUES (1, 11, 900)`,

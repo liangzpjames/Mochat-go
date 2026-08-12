@@ -109,8 +109,7 @@ func (s *MySQLStore) loadOfficialAccountCredentialByID(ctx context.Context, quer
 func officialAccountCredentialSelect(suffix string) string {
 	return `
 		SELECT id, COALESCE(tenant_id, 0), COALESCE(corp_id, 0), COALESCE(appid, ''), COALESCE(authorizer_appid, ''),
-		       COALESCE(authorization_code, ''), COALESCE(pre_auth_code, ''), COALESCE(encoding_aes_key, ''),
-		       COALESCE(token, ''), COALESCE(secret, ''), COALESCE(wechat_credentials_ciphertext, ''),
+		       COALESCE(wechat_credentials_ciphertext, ''),
 		       COALESCE(wechat_credentials_key_id, '')
 		FROM mc_official_account
 	` + suffix
@@ -119,7 +118,6 @@ func officialAccountCredentialSelect(suffix string) string {
 func scanOfficialAccountCredentialRecord(scanner rowScanner) (officialAccountCredentialRecord, bool, error) {
 	var item officialAccountCredentialRecord
 	if err := scanner.Scan(&item.ID, &item.TenantID, &item.CorpID, &item.ComponentAppID, &item.AuthorizerAppID,
-		&item.AuthorizationCode, &item.PreAuthCode, &item.ComponentAESKey, &item.ComponentToken, &item.ComponentSecret,
 		&item.Ciphertext, &item.KeyID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return officialAccountCredentialRecord{}, false, nil
@@ -130,16 +128,13 @@ func scanOfficialAccountCredentialRecord(scanner rowScanner) (officialAccountCre
 }
 
 func (s *MySQLStore) decodeOfficialAccountCredential(item officialAccountCredentialRecord) (wechatopencredentials.OfficialAccountCredential, error) {
-	if strings.TrimSpace(item.Ciphertext) != "" {
-		if s.weChatOpenCredentialCipher == nil {
-			return wechatopencredentials.OfficialAccountCredential{}, errors.New("WeChat Open credential encryption manager is not configured")
-		}
-		return s.weChatOpenCredentialCipher.DecryptOfficialAccount(item.TenantID, item.AuthorizerAppID, item.KeyID, item.Ciphertext)
+	if strings.TrimSpace(item.Ciphertext) == "" {
+		return wechatopencredentials.OfficialAccountCredential{}, errors.New("encrypted WeChat Open credential is unavailable")
 	}
-	return wechatopencredentials.OfficialAccountCredential{
-		ComponentSecret: item.ComponentSecret, ComponentToken: item.ComponentToken, ComponentAESKey: item.ComponentAESKey,
-		AuthorizationCode: item.AuthorizationCode, PreAuthCode: item.PreAuthCode,
-	}, nil
+	if s.weChatOpenCredentialCipher == nil {
+		return wechatopencredentials.OfficialAccountCredential{}, errors.New("WeChat Open credential encryption manager is not configured")
+	}
+	return s.weChatOpenCredentialCipher.DecryptOfficialAccount(item.TenantID, item.AuthorizerAppID, item.KeyID, item.Ciphertext)
 }
 
 func (s *MySQLStore) encodeOfficialAccountCredential(tenantID int, authorizerAppID string, credential wechatopencredentials.OfficialAccountCredential) (officialAccountCredentialStorage, error) {
@@ -150,13 +145,7 @@ func (s *MySQLStore) encodeOfficialAccountCredential(tenantID int, authorizerApp
 		}
 		return officialAccountCredentialStorage{Ciphertext: ciphertext, KeyID: keyID}, nil
 	}
-	return officialAccountCredentialStorage{
-		AuthorizationCode: strings.TrimSpace(credential.AuthorizationCode),
-		PreAuthCode:       strings.TrimSpace(credential.PreAuthCode),
-		ComponentAESKey:   strings.TrimSpace(credential.ComponentAESKey),
-		ComponentToken:    strings.TrimSpace(credential.ComponentToken),
-		ComponentSecret:   strings.TrimSpace(credential.ComponentSecret),
-	}, nil
+	return officialAccountCredentialStorage{}, errors.New("WeChat Open credential encryption manager is not configured")
 }
 
 func officialAccountCredentialFromAuthorization(values dashboard.OfficialAccountAuthorization) wechatopencredentials.OfficialAccountCredential {
@@ -389,8 +378,8 @@ func (s *MySQLStore) RotateSaaSWeChatOpenCredentials(ctx context.Context, tenant
 			FROM mc_official_account
 			WHERE deleted_at IS NULL
 			  AND (? = 0 OR tenant_id = ?)
-			  AND (authorization_code <> '' OR pre_auth_code <> '' OR encoding_aes_key <> '' OR token <> '' OR secret <> '' OR COALESCE(wechat_credentials_ciphertext, '') <> '')
-			  AND (COALESCE(wechat_credentials_ciphertext, '') = '' OR wechat_credentials_key_id <> ? OR authorization_code <> '' OR pre_auth_code <> '' OR encoding_aes_key <> '' OR token <> '' OR secret <> '')
+			  AND COALESCE(wechat_credentials_ciphertext, '') <> ''
+			  AND wechat_credentials_key_id <> ?
 			ORDER BY id ASC
 			LIMIT ?
 		`, tenantID, tenantID, result.ActiveKeyID, remaining)
@@ -508,11 +497,9 @@ func (s *MySQLStore) rotateOfficialAccountCredential(ctx context.Context, id int
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE mc_official_account
-		SET authorization_code = ?, pre_auth_code = ?, encoding_aes_key = ?, token = ?, secret = ?,
-		    wechat_credentials_ciphertext = ?, wechat_credentials_key_id = ?, updated_at = NOW()
+		SET wechat_credentials_ciphertext = ?, wechat_credentials_key_id = ?, updated_at = NOW()
 		WHERE id = ? AND deleted_at IS NULL
-	`, storage.AuthorizationCode, storage.PreAuthCode, storage.ComponentAESKey, storage.ComponentToken, storage.ComponentSecret,
-		storage.Ciphertext, storage.KeyID, item.ID); err != nil {
+	`, storage.Ciphertext, storage.KeyID, item.ID); err != nil {
 		return false, legacy, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -530,7 +517,7 @@ func weChatComponentTicketCredentialNeedsRotation(item weChatComponentTicketCred
 }
 
 func officialAccountCredentialConfigured(item officialAccountCredentialRecord) bool {
-	return strings.TrimSpace(item.Ciphertext) != "" || officialAccountLegacyPlaintextPresent(item)
+	return strings.TrimSpace(item.Ciphertext) != ""
 }
 
 func officialAccountLegacyPlaintextPresent(item officialAccountCredentialRecord) bool {
@@ -539,5 +526,5 @@ func officialAccountLegacyPlaintextPresent(item officialAccountCredentialRecord)
 }
 
 func officialAccountCredentialNeedsRotation(item officialAccountCredentialRecord, activeKeyID string) bool {
-	return strings.TrimSpace(item.Ciphertext) == "" || strings.TrimSpace(item.KeyID) != strings.TrimSpace(activeKeyID) || officialAccountLegacyPlaintextPresent(item)
+	return strings.TrimSpace(item.Ciphertext) != "" && strings.TrimSpace(item.KeyID) != strings.TrimSpace(activeKeyID)
 }

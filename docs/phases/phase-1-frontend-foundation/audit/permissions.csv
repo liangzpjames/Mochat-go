@@ -24,7 +24,6 @@ dashboard,/contactTransfer/resignAllotRecord,/contactTransfer/resignAllotRecord,
 dashboard,/contactTransfer/resignIndex,/contactTransfer/resignIndex,implicit-route-access,web/legacy/dashboard/src/views/contactTransfer/resignIndex.vue
 dashboard,/contactTransfer/workAllotRecord,/contactTransfer/workAllotRecord,implicit-route-access,web/legacy/dashboard/src/views/contactTransfer/workAllotRecord.vue
 dashboard,/contactTransfer/workIndex,/contactTransfer/workIndex,implicit-route-access,web/legacy/dashboard/src/views/contactTransfer/workIndex.vue
-dashboard,/corp/index,/corp/index,addwx;check;edit;search,web/legacy/dashboard/src/views/corp/index.vue
 dashboard,/corpData/index,/corpData/index,implicit-route-access,web/legacy/dashboard/src/views/corpData/index.vue
 dashboard,/department/index,/department/index,check;search;sync,web/legacy/dashboard/src/views/department/index.vue
 dashboard,/greeting/index,/greeting/index,delete;edit,web/legacy/dashboard/src/views/greeting/index.vue

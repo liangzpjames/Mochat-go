@@ -82,8 +82,8 @@ func TestWrapDashboardPassesAPIPathsToNext(t *testing.T) {
 	}), DashboardConfig{DistDir: dir})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil))
-	if rec.Code != http.StatusAccepted || rec.Body.String() != "/dashboard/user/loginShow" {
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/auth/session", nil))
+	if rec.Code != http.StatusAccepted || rec.Body.String() != "/dashboard/auth/session" {
 		t.Fatalf("api path = %d %q", rec.Code, rec.Body.String())
 	}
 
@@ -231,8 +231,8 @@ func TestWrapAppCanMountFrontendUnderPrefix(t *testing.T) {
 	handler := WrapApp(next, AppConfig{DistDir: dir, MountPath: "/sidebar-app"})
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil))
-	if rec.Code != http.StatusAccepted || rec.Body.String() != "/dashboard/user/loginShow" {
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/auth/session", nil))
+	if rec.Code != http.StatusAccepted || rec.Body.String() != "/dashboard/auth/session" {
 		t.Fatalf("non-mounted path = %d %q", rec.Code, rec.Body.String())
 	}
 

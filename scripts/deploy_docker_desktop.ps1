@@ -285,7 +285,7 @@ try {
     Wait-HttpEndpoint -Name '应用就绪状态' -Url "http://127.0.0.1:$DashboardPort/readyz"
     Wait-HttpEndpoint -Name 'Dashboard' -Url $dashboardUrl
     Wait-HttpEndpoint -Name 'SaaS Admin' -Url $saasAdminUrl
-    Wait-HttpEndpoint -Name 'SaaS 身份登录' -Url "http://127.0.0.1:$DashboardPort/security/login"
+    Wait-HttpEndpoint -Name 'SaaS 身份登录' -Url "http://127.0.0.1:$DashboardPort/saas/login"
     Wait-HttpEndpoint -Name 'Sidebar' -Url $sidebarUrl
     Wait-HttpEndpoint -Name 'Operation' -Url $operationUrl
 

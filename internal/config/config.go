@@ -305,7 +305,6 @@ type Config struct {
 	SaaSAlertNotificationMaxAttempts                   int
 	SaaSAlertNotificationRetryDelay                    time.Duration
 	MigrateAuth                                        bool
-	MigrateLoginShow                                   bool
 	MigrateLogout                                      bool
 	MigrateUserIndex                                   bool
 	MigrateUserShow                                    bool
@@ -315,12 +314,6 @@ type Config struct {
 	MigrateUserPasswordReset                           bool
 	MigrateUserPasswordUpdate                          bool
 	MigratePermissionByUser                            bool
-	MigrateCorpSelect                                  bool
-	MigrateCorpBind                                    bool
-	MigrateCorpIndex                                   bool
-	MigrateCorpShow                                    bool
-	MigrateCorpStore                                   bool
-	MigrateCorpUpdate                                  bool
 	MigrateWeWorkCallback                              bool
 	MigrateCorpDataIndex                               bool
 	MigrateCorpDataLineChat                            bool
@@ -1519,7 +1512,6 @@ func FromEnv() (Config, error) {
 		SaaSAlertNotificationMaxAttempts:                   saasAlertNotificationMaxAttempts,
 		SaaSAlertNotificationRetryDelay:                    time.Duration(saasAlertNotificationRetryDelaySeconds) * time.Second,
 		MigrateAuth:                                        envBoolDefault("MOCHAT_GO_MIGRATE_AUTH", enableAllMigratedRoutes),
-		MigrateLoginShow:                                   envBoolDefault("MOCHAT_GO_MIGRATE_LOGIN_SHOW", enableAllMigratedRoutes),
 		MigrateLogout:                                      envBoolDefault("MOCHAT_GO_MIGRATE_LOGOUT", enableAllMigratedRoutes),
 		MigrateUserIndex:                                   envBoolDefault("MOCHAT_GO_MIGRATE_USER_INDEX", enableAllMigratedRoutes),
 		MigrateUserShow:                                    envBoolDefault("MOCHAT_GO_MIGRATE_USER_SHOW", enableAllMigratedRoutes),
@@ -1529,12 +1521,6 @@ func FromEnv() (Config, error) {
 		MigrateUserPasswordReset:                           envBoolDefault("MOCHAT_GO_MIGRATE_USER_PASSWORD_RESET", enableAllMigratedRoutes),
 		MigrateUserPasswordUpdate:                          envBoolDefault("MOCHAT_GO_MIGRATE_USER_PASSWORD_UPDATE", enableAllMigratedRoutes),
 		MigratePermissionByUser:                            envBoolDefault("MOCHAT_GO_MIGRATE_PERMISSION_BY_USER", enableAllMigratedRoutes),
-		MigrateCorpSelect:                                  envBoolDefault("MOCHAT_GO_MIGRATE_CORP_SELECT", enableAllMigratedRoutes),
-		MigrateCorpBind:                                    envBoolDefault("MOCHAT_GO_MIGRATE_CORP_BIND", enableAllMigratedRoutes),
-		MigrateCorpIndex:                                   envBoolDefault("MOCHAT_GO_MIGRATE_CORP_INDEX", enableAllMigratedRoutes),
-		MigrateCorpShow:                                    envBoolDefault("MOCHAT_GO_MIGRATE_CORP_SHOW", enableAllMigratedRoutes),
-		MigrateCorpStore:                                   envBoolDefault("MOCHAT_GO_MIGRATE_CORP_STORE", enableAllMigratedRoutes),
-		MigrateCorpUpdate:                                  envBoolDefault("MOCHAT_GO_MIGRATE_CORP_UPDATE", enableAllMigratedRoutes),
 		MigrateWeWorkCallback:                              envBoolDefault("MOCHAT_GO_MIGRATE_WEWORK_CALLBACK", enableAllMigratedRoutes),
 		MigrateCorpDataIndex:                               envBoolDefault("MOCHAT_GO_MIGRATE_CORP_DATA_INDEX", enableAllMigratedRoutes),
 		MigrateCorpDataLineChat:                            envBoolDefault("MOCHAT_GO_MIGRATE_CORP_DATA_LINE_CHAT", enableAllMigratedRoutes),
@@ -1988,11 +1974,9 @@ func FromEnv() (Config, error) {
 	if cfg.EnableSaaSPaymentSettlementSyncCron && !settlementBridgeConfigured {
 		return Config{}, fmt.Errorf("payment settlement bridge URL and providers are required when payment settlement sync cron is enabled")
 	}
-	mysqlBacked := cfg.EnablePhase22SCRMPilot || cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSAdminDashboard || cfg.EnableSaaSBillingPortal || cfg.EnableSaaSIdentitySecurity || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentWebhook || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron || cfg.MigrateAuth || cfg.MigrateLoginShow ||
+	mysqlBacked := cfg.EnablePhase22SCRMPilot || cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSAdminDashboard || cfg.EnableSaaSBillingPortal || cfg.EnableSaaSIdentitySecurity || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentWebhook || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron || cfg.MigrateAuth ||
 		cfg.MigrateUserIndex || cfg.MigrateUserShow || cfg.MigrateUserStore || cfg.MigrateUserUpdate || cfg.MigrateUserStatusUpdate || cfg.MigrateUserPasswordReset || cfg.MigrateUserPasswordUpdate ||
 		cfg.MigratePermissionByUser ||
-		cfg.MigrateCorpSelect || cfg.MigrateCorpBind ||
-		cfg.MigrateCorpIndex || cfg.MigrateCorpShow || cfg.MigrateCorpStore || cfg.MigrateCorpUpdate ||
 		cfg.MigrateWeWorkCallback ||
 		cfg.MigrateCorpDataIndex || cfg.MigrateCorpDataLineChat ||
 		cfg.MigrateStatisticIndex || cfg.MigrateStatisticTopList || cfg.MigrateStatisticEmployeeCounts || cfg.MigrateStatisticEmployees || cfg.MigrateStatisticEmployeesTrend ||
@@ -2028,8 +2012,7 @@ func FromEnv() (Config, error) {
 		cfg.MigrateMenuIndex || cfg.MigrateMenuShow ||
 		cfg.MigrateMenuStore || cfg.MigrateMenuUpdate ||
 		cfg.MigrateMenuStatusUpdate || cfg.MigrateMenuDestroy
-	jwtBackedRead := cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSAdminDashboard || cfg.EnableSaaSBillingPortal || cfg.MigrateLoginShow || cfg.MigrateUserIndex || cfg.MigrateUserShow || cfg.MigratePermissionByUser ||
-		cfg.MigrateCorpSelect || cfg.MigrateCorpIndex || cfg.MigrateCorpShow ||
+	jwtBackedRead := cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSAdminDashboard || cfg.EnableSaaSBillingPortal || cfg.MigrateUserIndex || cfg.MigrateUserShow || cfg.MigratePermissionByUser ||
 		cfg.MigrateCorpDataIndex || cfg.MigrateCorpDataLineChat ||
 		cfg.MigrateStatisticIndex || cfg.MigrateStatisticTopList || cfg.MigrateStatisticEmployeeCounts || cfg.MigrateStatisticEmployees || cfg.MigrateStatisticEmployeesTrend ||
 		cfg.MigrateWorkEmployeeIndex || cfg.MigrateWorkEmployeeCond || cfg.MigrateWorkEmployeeSync || cfg.MigrateWorkDeptIndex || cfg.MigrateWorkDeptMember ||
@@ -2057,7 +2040,6 @@ func FromEnv() (Config, error) {
 		cfg.MigrateMenuIndex || cfg.MigrateMenuShow
 	dashboardStateChanging := cfg.EnablePhase22SCRMPilot || cfg.EnableSaaSAlertDashboard || cfg.EnableSaaSBillingPortal || cfg.MigrateLogout || cfg.MigrateUserStore || cfg.MigrateUserUpdate || cfg.MigrateUserStatusUpdate || cfg.MigrateUserPasswordReset || cfg.MigrateUserPasswordUpdate ||
 		cfg.MigrateCommonUpload || cfg.MigrateCommonUploadFile ||
-		cfg.MigrateCorpBind || cfg.MigrateCorpStore || cfg.MigrateCorpUpdate ||
 		cfg.MigrateWorkTagGroupStore || cfg.MigrateWorkTagGroupUpdate || cfg.MigrateWorkTagGroupDestroy ||
 		cfg.MigrateWorkEmployeeSync ||
 		cfg.MigrateWorkContactTagStore || cfg.MigrateWorkContactTagUpdate || cfg.MigrateWorkContactTagDestroy || cfg.MigrateWorkContactTagMove || cfg.MigrateWorkContactTagSync || cfg.MigrateWorkContactSync ||

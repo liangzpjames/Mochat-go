@@ -88,8 +88,9 @@ func TestCreateLeadRejectsClientTenantAndStrictJSONViolations(t *testing.T) {
 		name       string
 		body       string
 		wantStatus int
+		wantCalls  int
 	}{
-		{name: "tenant ID", body: `{"tenantId":99,"businessKey":"key","name":"Ada","source":"manual"}`, wantStatus: nethttp.StatusBadRequest},
+		{name: "tenant ID is ignored", body: `{"tenantId":99,"businessKey":"key","name":"Ada","source":"manual"}`, wantStatus: nethttp.StatusOK, wantCalls: 1},
 		{name: "unknown field", body: `{"businessKey":"key","name":"Ada","source":"manual","extra":true}`, wantStatus: nethttp.StatusBadRequest},
 		{name: "trailing JSON", body: `{"businessKey":"key","name":"Ada","source":"manual"} {}`, wantStatus: nethttp.StatusBadRequest},
 		{name: "too large", body: tooLarge, wantStatus: nethttp.StatusRequestEntityTooLarge},
@@ -104,8 +105,8 @@ func TestCreateLeadRejectsClientTenantAndStrictJSONViolations(t *testing.T) {
 			if response.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d, body = %s", response.Code, tc.wantStatus, response.Body)
 			}
-			if service.createCalls != 0 {
-				t.Fatalf("service create calls = %d, want 0", service.createCalls)
+			if service.createCalls != tc.wantCalls {
+				t.Fatalf("service create calls = %d, want %d", service.createCalls, tc.wantCalls)
 			}
 		})
 	}

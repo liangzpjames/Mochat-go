@@ -1,5 +1,4 @@
 app,source_file,route,status,risk,batch
-dashboard,web/legacy/dashboard/src/views/corp/index.vue,/corp/index,react,medium,phase1-batch1
 dashboard,web/legacy/dashboard/src/router/base/error.js,*,react,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/router/router.config.js,/,react,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/autoTag/dayPartCreate.vue,/autoTag/dayPartCreate,react,high,dashboard-batch4

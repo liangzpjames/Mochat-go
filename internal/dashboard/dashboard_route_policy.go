@@ -4,13 +4,10 @@ package dashboard
 // extracts reachable registrations from production Go dispatch and composition code.
 var exactExemptDashboardRouteContracts = []string{
 	"GET /dashboard/access/profile",
-	"GET /dashboard/corp/select",
 	"GET /dashboard/corp/weWorkCallback",
 	"GET /dashboard/officialAccount/authEventCallback",
 	"GET /dashboard/officialAccount/authRedirect/",
-	"GET /dashboard/user/loginShow",
 	"GET /dashboard/user/securityMFA",
-	"POST /dashboard/corp/bind",
 	"POST /dashboard/corp/weWorkCallback",
 	"POST /dashboard/officialAccount/authEventCallback",
 	"POST /dashboard/officialAccount/authRedirect/",
@@ -49,6 +46,19 @@ var publicDashboardRouteContracts = []string{
 
 func PublicDashboardRouteContracts() []string {
 	return append([]string(nil), publicDashboardRouteContracts...)
+}
+
+// pageMappedDashboardRouteContracts contains registered route templates whose
+// page-RBAC mapping is expressed by the catalog/migration rather than by an
+// individual permission constant in this package.
+var pageMappedDashboardRouteContracts = []string{
+	"GET /dashboard/reports/{kind}",
+	"GET /dashboard/scrm/contacts/{contactId}/follow-ups",
+	"POST /dashboard/scrm/contacts/{contactId}/follow-ups",
+}
+
+func PageMappedDashboardRouteContracts() []string {
+	return append([]string(nil), pageMappedDashboardRouteContracts...)
 }
 
 // denyOnlyDashboardRouteContracts are registered endpoints that are intentionally

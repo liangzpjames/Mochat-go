@@ -25,20 +25,33 @@ const (
 // ControlledMigration is the durable contract between the migration registry,
 // the ordinary runner, and the dedicated maintenance CLI.
 type ControlledMigration struct {
-	Version       string
-	LedgerTable   string
-	LedgerName    string
-	RequiredCLI   string
-	SuccessStatus string
+	Version         string
+	LedgerTable     string
+	LedgerName      string
+	SuccessPhase    string
+	CompletionTable string
+	RequiredCLI     string
+	SuccessStatus   string
 }
 
 var controlledMigrationRegistry = map[string]ControlledMigration{
 	"0130_identity_realms_single_corp_backfill": {
-		Version:       "0130_identity_realms_single_corp_backfill",
-		LedgerTable:   "mochat_go_identity_migration_ledger",
-		LedgerName:    "0130_identity_realms_single_corp_backfill",
-		RequiredCLI:   "mochat-identity-migrate",
-		SuccessStatus: "success",
+		Version:         "0130_identity_realms_single_corp_backfill",
+		LedgerTable:     "mochat_go_identity_migration_ledger",
+		LedgerName:      "0130_identity_realms_single_corp_backfill",
+		SuccessPhase:    "backfill",
+		CompletionTable: "mochat_go_identity_migration_batches",
+		RequiredCLI:     "mochat-identity-migrate",
+		SuccessStatus:   "success",
+	},
+	"0131_identity_realms_single_corp_cutover": {
+		Version:         "0131_identity_realms_single_corp_cutover",
+		LedgerTable:     "mochat_go_identity_migration_ledger",
+		LedgerName:      "0131_identity_realms_single_corp_cutover",
+		SuccessPhase:    "cutover",
+		CompletionTable: "mochat_go_identity_cutover_batches",
+		RequiredCLI:     "mochat-identity-migrate",
+		SuccessStatus:   "success",
 	},
 }
 
@@ -122,8 +135,8 @@ func RecordControlledMigration(ctx context.Context, db *sql.DB, projectRoot, ver
 	if err := db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM `+metadata.LedgerTable+`
-		WHERE migration_name = ? AND request_id = ? AND phase = 'backfill' AND status = ?
-	`, metadata.LedgerName, requestID, metadata.SuccessStatus).Scan(&successCount); err != nil {
+		WHERE migration_name = ? AND request_id = ? AND phase = ? AND status = ?
+	`, metadata.LedgerName, requestID, metadata.SuccessPhase, metadata.SuccessStatus).Scan(&successCount); err != nil {
 		return err
 	}
 	if successCount != 1 {
@@ -133,9 +146,9 @@ func RecordControlledMigration(ctx context.Context, db *sql.DB, projectRoot, ver
 	if err := db.QueryRowContext(ctx, `
 		SELECT result_json
 		FROM `+metadata.LedgerTable+`
-		WHERE migration_name = ? AND request_id = ? AND phase = 'backfill' AND status = ?
+		WHERE migration_name = ? AND request_id = ? AND phase = ? AND status = ?
 		ORDER BY id DESC LIMIT 1
-	`, metadata.LedgerName, requestID, metadata.SuccessStatus).Scan(&resultJSON); err != nil {
+	`, metadata.LedgerName, requestID, metadata.SuccessPhase, metadata.SuccessStatus).Scan(&resultJSON); err != nil {
 		return err
 	}
 	var result struct {
@@ -148,8 +161,8 @@ func RecordControlledMigration(ctx context.Context, db *sql.DB, projectRoot, ver
 	if err := db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM information_schema.tables
-		WHERE table_schema = DATABASE() AND table_name = 'mochat_go_identity_migration_batches'
-	`).Scan(&batchTableCount); err != nil {
+		WHERE table_schema = DATABASE() AND table_name = ?
+	`, metadata.CompletionTable).Scan(&batchTableCount); err != nil {
 		return err
 	}
 	if batchTableCount != 1 {
@@ -158,7 +171,7 @@ func RecordControlledMigration(ctx context.Context, db *sql.DB, projectRoot, ver
 	var completedBatchCount int
 	if err := db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
-		FROM mochat_go_identity_migration_batches
+		FROM `+metadata.CompletionTable+`
 		WHERE request_id = ? AND status = 'completed'
 	`, requestID).Scan(&completedBatchCount); err != nil {
 		return err

@@ -26,7 +26,7 @@ func (s *MySQLStore) WorkMessageArchiveEnabledCorps(ctx context.Context) ([]dash
 		SELECT id
 		FROM mc_corp
 		WHERE chat_status = 1
-		  AND (chat_secret <> '' OR COALESCE(wecom_credentials_ciphertext, '') <> '')
+		  AND COALESCE(wecom_credentials_ciphertext, '') <> ''
 		  AND wx_corpid <> ''
 		  AND deleted_at IS NULL
 		ORDER BY id ASC

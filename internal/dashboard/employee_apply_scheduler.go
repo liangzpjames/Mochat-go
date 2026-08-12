@@ -15,6 +15,10 @@ const (
 // server-resolved tenant principal.
 type TenantBindingID int
 
+type EmployeeApplyEnqueuer interface {
+	EnqueueEmployeeApply(ctx context.Context, event EmployeeApplyEvent) error
+}
+
 func NewCompanyEmployeeApplyEvent(tenantID int) (EmployeeApplyEvent, error) {
 	if tenantID <= 0 {
 		return EmployeeApplyEvent{}, errors.New("missing tenant binding id")

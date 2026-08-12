@@ -93,7 +93,7 @@ func TestMigrationManifestLegacyHandlerAllowsKnownRoutesAndAssets(t *testing.T) 
 	}
 
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/user/loginShow", nil))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/auth/session", nil))
 	if rec.Code != http.StatusTeapot {
 		t.Fatalf("api status = %d", rec.Code)
 	}

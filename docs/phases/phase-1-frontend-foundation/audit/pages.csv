@@ -27,7 +27,6 @@ dashboard,web/legacy/dashboard/src/views/contactTransfer/resignAllotRecord.vue,/
 dashboard,web/legacy/dashboard/src/views/contactTransfer/resignIndex.vue,/contactTransfer/resignIndex,react,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/contactTransfer/workAllotRecord.vue,/contactTransfer/workAllotRecord,react,high,dashboard-batch4
 dashboard,web/legacy/dashboard/src/views/contactTransfer/workIndex.vue,/contactTransfer/workIndex,react,high,dashboard-batch4
-dashboard,web/legacy/dashboard/src/views/corp/index.vue,/corp/index,react,medium,phase1-batch1
 dashboard,web/legacy/dashboard/src/views/corpData/index.vue,/corpData/index,react,high,dashboard-batch3
 dashboard,web/legacy/dashboard/src/views/department/index.vue,/department/index,react,medium,dashboard-batch2
 dashboard,web/legacy/dashboard/src/views/error/404.vue,/404,react,high,dashboard-batch4

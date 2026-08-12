@@ -91,7 +91,7 @@ describe('createApiClient', () => {
 
   it('accepts the dashboard API success code', async () => {
     server.use(
-      http.get('https://api.example.test/dashboard/user/loginShow', () =>
+      http.get('https://api.example.test/dashboard/access/profile', () =>
         HttpResponse.json({ code: 200, msg: 'success', data: { userId: 7 } }),
       ),
     );
@@ -101,7 +101,7 @@ describe('createApiClient', () => {
       onUnauthorized: vi.fn(),
     });
 
-    const result = await client.request<{ userId: number }>('/user/loginShow');
+    const result = await client.request<{ userId: number }>('/access/profile');
 
     expect(result).toEqual({ userId: 7 });
   });

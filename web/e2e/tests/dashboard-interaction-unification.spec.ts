@@ -14,7 +14,6 @@ const dashboardRoutes = manifest.pages.map(({ path, title }) => ({ path, title }
 const shellRequestPaths = new Set([
   '/dashboard/user/auth',
   '/dashboard/user/logout',
-  '/dashboard/corp/select',
   '/dashboard/role/permissionByUser',
 ]);
 
