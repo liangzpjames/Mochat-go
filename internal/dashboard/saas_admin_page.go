@@ -12405,11 +12405,8 @@ const saasAdminPageHTML = `<!doctype html>
         const data = body.data || {};
         renderTenantDetail(data);
         loadTenantUsage(tenantId);
-		if (data.canPlatformScope && tenantId !== String(data.platformAdminTenantId || 0)) {
+		if (data.canPlatformScope) {
 		  loadTenantLifecycle(tenantId);
-		} else if (data.canPlatformScope) {
-		  tenantLifecycleCountEl.textContent = '';
-		  tenantLifecycleEl.innerHTML = '<tr><td colspan="5" class="empty">平台管理租户不需要生命周期审计</td></tr>';
 		} else {
           tenantLifecycleCountEl.textContent = '';
           tenantLifecycleEl.innerHTML = '<tr><td colspan="5" class="empty">仅平台管理员可查看</td></tr>';
@@ -12508,8 +12505,7 @@ const saasAdminPageHTML = `<!doctype html>
     function renderTenantStatusApprovalState() {
       const tenantId = Number(statusTenantInput.value.trim() || 0);
       const status = Number(tenantStatusInput.value || '1');
-      const isPlatformTenant = tenantId > 0 && currentPlatformTenantID > 0 && tenantId === currentPlatformTenantID;
-      const actionType = status === 2 ? 'tenant.disable' : (status === 1 && !isPlatformTenant ? 'tenant.enable' : '');
+		const actionType = status === 2 ? 'tenant.disable' : (status === 1 ? 'tenant.enable' : '');
       if (actionType && approvalActionRequired(actionType, 0)) {
         tenantStatusButton.textContent = actionType === 'tenant.disable' ? '提交停用审批' : '提交启用审批';
         return;
@@ -12526,8 +12522,7 @@ const saasAdminPageHTML = `<!doctype html>
       statusEl.textContent = '正在更新租户状态';
       try {
 	    const payload = { tenantId, status, remark: tenantStatusRemarkInput.value.trim() };
-	    const isPlatformTenant = currentPlatformTenantID > 0 && tenantId === currentPlatformTenantID;
-	    const actionType = status === 2 ? 'tenant.disable' : (status === 1 && !isPlatformTenant ? 'tenant.enable' : '');
+	    const actionType = status === 2 ? 'tenant.disable' : (status === 1 ? 'tenant.enable' : '');
 	    if (actionType && approvalActionRequired(actionType, 0)) {
 	      const actionLabel = actionType === 'tenant.disable' ? '停用' : '启用';
 	      await requestHighRiskApproval(actionType, payload, payload.remark || (actionLabel + '租户 ' + tenantId));

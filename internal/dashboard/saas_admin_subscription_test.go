@@ -106,7 +106,7 @@ func TestSaaSAdminSubscriptionTransitionCarriesConcurrencyAndAuditFields(t *test
 	}
 }
 
-func TestSaaSAdminSubscriptionTransitionProtectsPlatformTenant(t *testing.T) {
+func TestSaaSAdminSubscriptionTransitionAllowsBusinessTenantOne(t *testing.T) {
 	store := &fakeSaaSAdminStore{users: map[int]User{1: {ID: 1, TenantID: 1, IsSuperAdmin: 1}}}
 	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/saasAdmin/subscriptionTransition", strings.NewReader(`{"tenantId":1,"status":"suspended","reason":"bad"}`))
@@ -114,7 +114,7 @@ func TestSaaSAdminSubscriptionTransitionProtectsPlatformTenant(t *testing.T) {
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
 	rec := httptest.NewRecorder()
 	handler.TransitionSubscription(rec, req)
-	if rec.Code != http.StatusBadRequest || store.subscriptionTransitionCalls != 0 {
+	if rec.Code != http.StatusOK || store.subscriptionTransitionCalls != 1 {
 		t.Fatalf("status=%d calls=%d body=%s", rec.Code, store.subscriptionTransitionCalls, rec.Body.String())
 	}
 }
@@ -131,7 +131,7 @@ func TestSaaSAdminSubscriptionReconcileAndCSV(t *testing.T) {
 	req.Header.Set("X-Mochat-Go-User-ID", "11")
 	rec := httptest.NewRecorder()
 	handler.ReconcileSubscriptions(rec, req)
-	if rec.Code != http.StatusOK || store.lastSubscriptionReconcile.ExcludedTenantID != 1 || !store.lastSubscriptionReconcile.DryRun || store.lastSubscriptionReconcile.ActorUserID != 11 {
+	if rec.Code != http.StatusOK || store.lastSubscriptionReconcile.ExcludedTenantID != 0 || !store.lastSubscriptionReconcile.DryRun || store.lastSubscriptionReconcile.ActorUserID != 11 {
 		t.Fatalf("status=%d reconcile=%+v body=%s", rec.Code, store.lastSubscriptionReconcile, rec.Body.String())
 	}
 
@@ -154,7 +154,7 @@ func TestSaaSAdminSubscriptionReconcileCron(t *testing.T) {
 	if err := cron.RunOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if store.lastSubscriptionReconcile.Limit != 250 || store.lastSubscriptionReconcile.ExcludedTenantID != 9 || store.lastSubscriptionReconcile.ActorTenantID != 9 {
+	if store.lastSubscriptionReconcile.Limit != 250 || store.lastSubscriptionReconcile.ExcludedTenantID != 0 || store.lastSubscriptionReconcile.ActorTenantID != 9 {
 		t.Fatalf("reconcile = %+v", store.lastSubscriptionReconcile)
 	}
 	if !strings.Contains(output.String(), "changed=2") {

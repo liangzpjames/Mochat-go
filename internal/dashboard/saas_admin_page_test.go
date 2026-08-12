@@ -526,7 +526,6 @@ func TestSaaSAdminPageIncludesDailyReportWindowControls(t *testing.T) {
 		`function cancelPaymentRefund(button)`,
 		`function renderPaymentWebhookEvents(items)`,
 		`function loadPaymentOrders()`,
-		`tenantId !== String(data.platformAdminTenantId || 0)`,
 		`function createPaymentOrder()`,
 		`approvalActionRequired('payment.order.create', 0)`,
 		`'payment.order.create'`,
@@ -1078,6 +1077,25 @@ func TestSaaSAdminPageIncludesDailyReportWindowControls(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in page", want)
 		}
+	}
+}
+
+func TestSaaSAdminPageDoesNotHideSyntheticTenantOneFromBusinessActions(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/page", nil)
+	rec := httptest.NewRecorder()
+
+	ServeSaaSAdminLegacyPage(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "tenantId !== String(data.platformAdminTenantId || 0)") ||
+		strings.Contains(body, "tenantId === currentPlatformTenantID") {
+		t.Fatal("synthetic platform tenant id is still used to hide tenant business actions")
+	}
+	if !strings.Contains(body, "const actionType = status === 2 ? 'tenant.disable' : (status === 1 ? 'tenant.enable' : '')") {
+		t.Fatal("tenant status approval does not treat tenant one as a business tenant")
 	}
 }
 

@@ -2311,9 +2311,6 @@ func NewSaaSAdminHandler(store SaaSAdminOverviewStore, resolver UserIDResolver, 
 }
 
 func (h *SaaSAdminHandler) saasAdminOverview(ctx context.Context, options SaaSAdminOverviewOptions) (SaaSAdminOverview, error) {
-	if options.Scope == SaaSAdminScopePlatform {
-		options.ExcludedTenantID = h.platformAdminTenantID
-	}
 	return h.store.SaaSAdminOverview(ctx, options)
 }
 
@@ -3730,7 +3727,7 @@ func (h *SaaSAdminHandler) OperationQueueAssign(w http.ResponseWriter, r *http.R
 		assignItem := SaaSAdminOperationQueueAssignItem{QueueItem: queueItem}
 		switch queueItem.Source {
 		case SaaSAdminOperationQueueSourceCustomerSuccess:
-			if queueItem.TenantID <= 0 || queueItem.TenantID == h.platformAdminTenantID {
+			if queueItem.TenantID <= 0 {
 				assignItem.SkippedReason = "invalid_tenant"
 				result.SkippedCount++
 				result.Items = append(result.Items, assignItem)
@@ -3905,8 +3902,7 @@ func (h *SaaSAdminHandler) buildOperationQueue(ctx context.Context, options SaaS
 	}
 
 	taskOptions := SaaSAdminTaskOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            saasAdminExportMaxLimit,
+		Limit: saasAdminExportMaxLimit,
 	}
 	taskSummary, err := h.store.SaaSAdminTaskSummary(ctx, taskOptions)
 	if err != nil {
@@ -3923,22 +3919,19 @@ func (h *SaaSAdminHandler) buildOperationQueue(ctx context.Context, options SaaS
 	}, taskSummary, tasks, time.Now(), 3)
 
 	billingSnapshots, err := h.store.SaaSAdminBillingReconciliationFollowUpSnapshots(ctx, SaaSAdminBillingReconciliationFollowUpOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		DueState:         SaaSAdminRiskFollowUpDueStateAll,
-		Limit:            saasAdminExportMaxLimit,
+		DueState: SaaSAdminRiskFollowUpDueStateAll,
+		Limit:    saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminOperationQueueReport{}, err
 	}
 	billingTasks, _ := saasAdminBuildBillingReconciliationFollowUpTasks(billingSnapshots, SaaSAdminBillingReconciliationFollowUpOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		DueState:         SaaSAdminRiskFollowUpDueStateAll,
-		Limit:            saasAdminExportMaxLimit,
+		DueState: SaaSAdminRiskFollowUpDueStateAll,
+		Limit:    saasAdminExportMaxLimit,
 	}, time.Now())
 
 	notifications, err := h.store.SaaSAdminAlertNotifications(ctx, SaaSAdminAlertNotificationOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            saasAdminExportMaxLimit,
+		Limit: saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminOperationQueueReport{}, err
@@ -3946,12 +3939,11 @@ func (h *SaaSAdminHandler) buildOperationQueue(ctx context.Context, options SaaS
 	notificationHealth := []SaaSAdminNotificationHealthTenant{}
 	if options.Source == "" || options.Source == SaaSAdminOperationQueueSourceNotificationHealth {
 		healthOptions := SaaSAdminNotificationHealthOptions{
-			ExcludedTenantID: h.platformAdminTenantID,
-			Channel:          SaaSAlertNotificationChannelWebhook,
-			State:            SaaSAdminNotificationHealthStateAll,
-			WindowHours:      options.HealthWindowHours,
-			StaleMinutes:     options.HealthStaleMinutes,
-			Limit:            saasAdminExportMaxLimit,
+			Channel:      SaaSAlertNotificationChannelWebhook,
+			State:        SaaSAdminNotificationHealthStateAll,
+			WindowHours:  options.HealthWindowHours,
+			StaleMinutes: options.HealthStaleMinutes,
+			Limit:        saasAdminExportMaxLimit,
 		}
 		healthSource, err := h.store.SaaSAdminNotificationHealth(ctx, healthOptions)
 		if err != nil {
@@ -4053,23 +4045,20 @@ func (h *SaaSAdminHandler) buildDailyReport(ctx context.Context, options SaaSAdm
 		return SaaSAdminDailyReportData{}, err
 	}
 	snapshots, err := h.store.SaaSAdminRiskFollowUpSnapshots(ctx, SaaSAdminRiskFollowUpTaskOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		DueState:         SaaSAdminRiskFollowUpDueStateAll,
-		Limit:            saasAdminExportMaxLimit,
+		DueState: SaaSAdminRiskFollowUpDueStateAll,
+		Limit:    saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminDailyReportData{}, err
 	}
 	riskTasks, riskTaskSummary := saasAdminBuildRiskFollowUpTasks(snapshots, SaaSAdminRiskFollowUpTaskOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		DueState:         SaaSAdminRiskFollowUpDueStateAll,
-		Limit:            saasAdminExportMaxLimit,
+		DueState: SaaSAdminRiskFollowUpDueStateAll,
+		Limit:    saasAdminExportMaxLimit,
 	}, time.Now())
 	riskOwners := saasAdminBuildRiskFollowUpOwnerSummaries(riskTasks)
 	taskSLAOptions := SaaSAdminTaskSLAOptions{
 		SaaSAdminTaskOptions: SaaSAdminTaskOptions{
-			ExcludedTenantID: h.platformAdminTenantID,
-			Limit:            options.ItemLimit,
+			Limit: options.ItemLimit,
 		},
 		WarningHours: saasAdminDefaultTaskSLAWarningHours,
 		OverdueHours: saasAdminDefaultTaskSLAOverdueHours,
@@ -4086,31 +4075,27 @@ func (h *SaaSAdminHandler) buildDailyReport(ctx context.Context, options SaaSAdm
 	}
 	taskSLAReport := saasAdminBuildTaskSLAReport(taskSLAOptions, taskSummary, tasks, time.Now(), 3)
 	alertPage, err := h.store.ListSaaSAlerts(ctx, SaaSAlertListOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Status:           SaaSAlertStatusOpen,
-		Page:             1,
-		PerPage:          options.ItemLimit,
+		Status:  SaaSAlertStatusOpen,
+		Page:    1,
+		PerPage: options.ItemLimit,
 	})
 	if err != nil {
 		return SaaSAdminDailyReportData{}, err
 	}
 	notifications, err := h.store.SaaSAdminAlertNotifications(ctx, SaaSAdminAlertNotificationOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            saasAdminExportMaxLimit,
+		Limit: saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminDailyReportData{}, err
 	}
 	operations, err := h.store.SaaSAdminOperationLogs(ctx, SaaSAdminOperationLogOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            saasAdminExportMaxLimit,
+		Limit: saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminDailyReportData{}, err
 	}
 	billingEvents, err := h.store.SaaSAdminBillingEvents(ctx, SaaSAdminBillingEventOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            saasAdminExportMaxLimit,
+		Limit: saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminDailyReportData{}, err
@@ -4173,8 +4158,7 @@ func (h *SaaSAdminHandler) buildBusinessMetrics(ctx context.Context, options Saa
 		return SaaSAdminBusinessMetricsReport{}, err
 	}
 	billingEvents, err := h.store.SaaSAdminBillingEvents(ctx, SaaSAdminBillingEventOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            options.BillingLimit,
+		Limit: options.BillingLimit,
 	})
 	if err != nil {
 		return SaaSAdminBusinessMetricsReport{}, err
@@ -4184,16 +4168,14 @@ func (h *SaaSAdminHandler) buildBusinessMetrics(ctx context.Context, options Saa
 
 func (h *SaaSAdminHandler) buildBusinessTrends(ctx context.Context, options SaaSAdminBusinessTrendOptions) (SaaSAdminBusinessTrendReport, error) {
 	billingEvents, err := h.store.SaaSAdminBillingEvents(ctx, SaaSAdminBillingEventOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            options.BillingLimit,
+		Limit: options.BillingLimit,
 	})
 	if err != nil {
 		return SaaSAdminBusinessTrendReport{}, err
 	}
 	taskOptions := SaaSAdminTaskOptions{
-		TaskType:         SaaSAdminTaskTypeTenantRenewal,
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            options.TaskLimit,
+		TaskType: SaaSAdminTaskTypeTenantRenewal,
+		Limit:    options.TaskLimit,
 	}
 	taskSummary, err := h.store.SaaSAdminTaskSummary(ctx, taskOptions)
 	if err != nil {
@@ -4225,17 +4207,15 @@ func (h *SaaSAdminHandler) buildRenewalForecast(ctx context.Context, options Saa
 		}
 	}
 	billingEvents, err := h.store.SaaSAdminBillingEvents(ctx, SaaSAdminBillingEventOptions{
-		EventType:        "renewal",
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            options.BillingLimit,
+		EventType: "renewal",
+		Limit:     options.BillingLimit,
 	})
 	if err != nil {
 		return SaaSAdminRenewalForecastReport{}, err
 	}
 	taskOptions := SaaSAdminTaskOptions{
-		TaskType:         SaaSAdminTaskTypeTenantRenewal,
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            options.TaskLimit,
+		TaskType: SaaSAdminTaskTypeTenantRenewal,
+		Limit:    options.TaskLimit,
 	}
 	taskSummary, err := h.store.SaaSAdminTaskSummary(ctx, taskOptions)
 	if err != nil {
@@ -4948,10 +4928,6 @@ func (h *SaaSAdminHandler) TenantLifecycle(w http.ResponseWriter, r *http.Reques
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "tenantId required", nil)
 		return
 	}
-	if tenantID == h.platformAdminTenantID {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "平台管理租户不需要生命周期审计", nil)
-		return
-	}
 	limit := positiveQueryInt(r, "limit", 30)
 	if limit > saasAdminListMaxLimit {
 		limit = saasAdminListMaxLimit
@@ -4972,9 +4948,6 @@ func (h *SaaSAdminHandler) TenantLifecycle(w http.ResponseWriter, r *http.Reques
 func (h *SaaSAdminHandler) buildTenantLifecycle(ctx context.Context, tenantID int, limit int, expiringDays int, filter SaaSAdminTenantLifecycleFilter) (SaaSAdminTenantLifecycle, error) {
 	if tenantID <= 0 {
 		return SaaSAdminTenantLifecycle{}, NewSaaSAdminBadRequest("tenantId required")
-	}
-	if tenantID == h.platformAdminTenantID {
-		return SaaSAdminTenantLifecycle{}, NewSaaSAdminBadRequest("平台管理租户不需要生命周期审计")
 	}
 	if limit <= 0 {
 		limit = 30
@@ -5269,7 +5242,7 @@ func (h *SaaSAdminHandler) RenewalForecastTasks(w http.ResponseWriter, r *http.R
 	now := time.Now()
 	for _, item := range report.Items {
 		tenantID := item.Tenant.TenantID
-		if tenantID <= 0 || tenantID == h.platformAdminTenantID {
+		if tenantID <= 0 {
 			result.SkippedInvalidCount++
 			result.Skipped = append(result.Skipped, SaaSAdminCustomerSuccessRenewalTaskSkipped{
 				TenantID:   tenantID,
@@ -5412,7 +5385,7 @@ func (h *SaaSAdminHandler) RenewalForecastNotifications(w http.ResponseWriter, r
 	now := time.Now()
 	for _, item := range report.Items {
 		tenantID := item.Tenant.TenantID
-		if tenantID <= 0 || tenantID == h.platformAdminTenantID {
+		if tenantID <= 0 {
 			result.SkippedInvalidCount++
 			result.Skipped = append(result.Skipped, SaaSAdminCustomerSuccessRenewalTaskSkipped{
 				TenantID:   tenantID,
@@ -5516,7 +5489,7 @@ func (h *SaaSAdminHandler) RenewalForecastAssign(w http.ResponseWriter, r *http.
 		FollowUps:      make([]SaaSAdminRiskFollowUpResult, 0, len(report.Items)),
 	}
 	for _, item := range report.Items {
-		if item.Tenant.TenantID <= 0 || item.Tenant.TenantID == h.platformAdminTenantID {
+		if item.Tenant.TenantID <= 0 {
 			continue
 		}
 		followUp := SaaSAdminRiskFollowUp{
@@ -5614,7 +5587,7 @@ func (h *SaaSAdminHandler) CustomerSuccessAssign(w http.ResponseWriter, r *http.
 		Remark:         assign.Remark,
 	}
 	for _, item := range report.Items {
-		if item.Tenant.TenantID <= 0 || item.Tenant.TenantID == h.platformAdminTenantID {
+		if item.Tenant.TenantID <= 0 {
 			continue
 		}
 		followUp := SaaSAdminRiskFollowUp{
@@ -5681,7 +5654,7 @@ func (h *SaaSAdminHandler) CustomerSuccessRenewalTasks(w http.ResponseWriter, r 
 	now := time.Now()
 	for _, item := range report.Items {
 		tenantID := item.Tenant.TenantID
-		if tenantID <= 0 || tenantID == h.platformAdminTenantID {
+		if tenantID <= 0 {
 			result.SkippedInvalidCount++
 			result.Skipped = append(result.Skipped, SaaSAdminCustomerSuccessRenewalTaskSkipped{
 				TenantID:   tenantID,
@@ -5820,7 +5793,7 @@ func (h *SaaSAdminHandler) CustomerSuccessRenewalNotifications(w http.ResponseWr
 	now := time.Now()
 	for _, item := range report.Items {
 		tenantID := item.Tenant.TenantID
-		if tenantID <= 0 || tenantID == h.platformAdminTenantID {
+		if tenantID <= 0 {
 			result.SkippedInvalidCount++
 			result.Skipped = append(result.Skipped, SaaSAdminCustomerSuccessRenewalTaskSkipped{
 				TenantID:   tenantID,
@@ -5900,7 +5873,7 @@ func (h *SaaSAdminHandler) buildCustomerSuccessReport(ctx context.Context, optio
 	}
 	usageByTenant := make(map[int][]SaaSAdminUsageMetric, len(overview.Tenants))
 	for _, tenant := range overview.Tenants {
-		if tenant.TenantID <= 0 || tenant.TenantID == h.platformAdminTenantID {
+		if tenant.TenantID <= 0 {
 			continue
 		}
 		metrics, err := h.store.SaaSAdminTenantUsage(ctx, tenant.TenantID)
@@ -5914,41 +5887,35 @@ func (h *SaaSAdminHandler) buildCustomerSuccessReport(ctx context.Context, optio
 		return SaaSAdminCustomerSuccessReport{}, err
 	}
 	riskSnapshots, err := h.store.SaaSAdminRiskFollowUpSnapshots(ctx, SaaSAdminRiskFollowUpTaskOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		DueState:         SaaSAdminRiskFollowUpDueStateAll,
-		Limit:            saasAdminExportMaxLimit,
+		DueState: SaaSAdminRiskFollowUpDueStateAll,
+		Limit:    saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminCustomerSuccessReport{}, err
 	}
 	riskTasks, _ := saasAdminBuildRiskFollowUpTasks(riskSnapshots, SaaSAdminRiskFollowUpTaskOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		DueState:         SaaSAdminRiskFollowUpDueStateAll,
-		Limit:            saasAdminExportMaxLimit,
+		DueState: SaaSAdminRiskFollowUpDueStateAll,
+		Limit:    saasAdminExportMaxLimit,
 	}, time.Now())
 	billingSnapshots, err := h.store.SaaSAdminBillingReconciliationFollowUpSnapshots(ctx, SaaSAdminBillingReconciliationFollowUpOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		DueState:         SaaSAdminRiskFollowUpDueStateAll,
-		Limit:            saasAdminExportMaxLimit,
+		DueState: SaaSAdminRiskFollowUpDueStateAll,
+		Limit:    saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminCustomerSuccessReport{}, err
 	}
 	billingTasks, _ := saasAdminBuildBillingReconciliationFollowUpTasks(billingSnapshots, SaaSAdminBillingReconciliationFollowUpOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		DueState:         SaaSAdminRiskFollowUpDueStateAll,
-		Limit:            saasAdminExportMaxLimit,
+		DueState: SaaSAdminRiskFollowUpDueStateAll,
+		Limit:    saasAdminExportMaxLimit,
 	}, time.Now())
 	adminTasks, err := h.store.SaaSAdminTasks(ctx, SaaSAdminTaskOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            saasAdminExportMaxLimit,
+		Limit: saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminCustomerSuccessReport{}, err
 	}
 	notifications, err := h.store.SaaSAdminAlertNotifications(ctx, SaaSAdminAlertNotificationOptions{
-		ExcludedTenantID: h.platformAdminTenantID,
-		Limit:            saasAdminExportMaxLimit,
+		Limit: saasAdminExportMaxLimit,
 	})
 	if err != nil {
 		return SaaSAdminCustomerSuccessReport{}, err
@@ -6674,14 +6641,10 @@ func (h *SaaSAdminHandler) UpdateTenantStatus(w http.ResponseWriter, r *http.Req
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	if update.TenantID == h.platformAdminTenantID && update.Status != 1 {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "platform tenant cannot be disabled", nil)
-		return
-	}
 	if update.Status == 2 && h.rejectDirectHighRiskAction(r.Context(), w, SaaSAdminApprovalActionTenantDisable, 0) {
 		return
 	}
-	if update.Status == 1 && update.TenantID != h.platformAdminTenantID && h.rejectDirectHighRiskAction(r.Context(), w, SaaSAdminApprovalActionTenantEnable, 0) {
+	if update.Status == 1 && h.rejectDirectHighRiskAction(r.Context(), w, SaaSAdminApprovalActionTenantEnable, 0) {
 		return
 	}
 	update.ActorUserID = user.ID
@@ -18572,7 +18535,7 @@ func saasAdminBuildCustomerSuccessQueue(input saasAdminCustomerSuccessBuildInput
 	}
 	for _, risk := range input.RiskReport.Items {
 		tenantID := risk.Tenant.TenantID
-		if tenantID <= 0 || tenantID == input.PlatformAdminTenantID {
+		if tenantID <= 0 {
 			continue
 		}
 		riskTask := riskTasksByTenant[tenantID]

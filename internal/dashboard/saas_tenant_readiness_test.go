@@ -120,11 +120,16 @@ func TestSaaSAdminTenantReadinessHandler(t *testing.T) {
 	}
 }
 
-func TestSaaSAdminTenantReadinessHandlerRejectsPlatformTenant(t *testing.T) {
+func TestSaaSAdminTenantReadinessHandlerIncludesTenantOne(t *testing.T) {
 	base := &fakeSaaSAdminStore{users: map[int]User{
 		1: {ID: 1, TenantID: 1, IsSuperAdmin: 1, Status: 1},
 	}}
-	store := &fakeSaaSAdminTenantReadinessStore{fakeSaaSAdminStore: base}
+	store := &fakeSaaSAdminTenantReadinessStore{
+		fakeSaaSAdminStore: base,
+		page: SaaSAdminTenantReadinessFactPage{Facts: []SaaSAdminTenantReadinessFacts{
+			completeSaaSAdminTenantReadinessFacts(1, "首个业务租户"),
+		}},
+	}
 	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/tenantReadiness?tenantId=1", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "1")
@@ -132,17 +137,17 @@ func TestSaaSAdminTenantReadinessHandlerRejectsPlatformTenant(t *testing.T) {
 
 	handler.TenantReadiness(rec, req)
 
-	if rec.Code != http.StatusBadRequest || store.calls != 0 {
+	if rec.Code != http.StatusOK || store.calls != 1 || store.lastOptions.TenantID != 1 {
 		t.Fatalf("status=%d calls=%d body=%s", rec.Code, store.calls, rec.Body.String())
 	}
 	var body struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
+		Code int                            `json:"code"`
+		Data SaaSAdminTenantReadinessReport `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Code != http.StatusBadRequest || body.Msg != "平台管理租户不参与上线准备度" {
+	if body.Code != http.StatusOK || len(body.Data.Tenants) != 1 || body.Data.Tenants[0].TenantID != 1 {
 		t.Fatalf("body = %+v", body)
 	}
 }

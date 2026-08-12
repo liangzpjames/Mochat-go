@@ -32,9 +32,8 @@ func (c *SaaSAdminSubscriptionReconcileCron) RunOnce(ctx context.Context) error 
 		return fmt.Errorf("SaaS subscription reconcile cron dependencies are not configured")
 	}
 	result, err := c.handler.store.ReconcileSaaSAdminSubscriptions(ctx, SaaSAdminSubscriptionReconcile{
-		Limit:            c.limit,
-		ExcludedTenantID: c.handler.platformAdminTenantID,
-		ActorTenantID:    c.handler.platformAdminTenantID,
+		Limit:         c.limit,
+		ActorTenantID: c.handler.platformAdminTenantID,
 	})
 	if err != nil {
 		return err

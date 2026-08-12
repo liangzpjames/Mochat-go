@@ -12,10 +12,6 @@ const saasTenantReadinessQueryMaxLimit = 5000
 func (s *MySQLStore) SaaSAdminTenantReadinessFacts(ctx context.Context, options dashboard.SaaSAdminTenantReadinessOptions) (dashboard.SaaSAdminTenantReadinessFactPage, error) {
 	where := []string{"t.deleted_at IS NULL"}
 	args := make([]any, 0, 5)
-	if options.PlatformAdminTenantID > 0 {
-		where = append(where, "t.id <> ?")
-		args = append(args, options.PlatformAdminTenantID)
-	}
 	if options.TenantID > 0 {
 		where = append(where, "t.id = ?")
 		args = append(args, options.TenantID)

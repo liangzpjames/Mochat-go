@@ -144,10 +144,6 @@ func (h *SaaSAdminHandler) TenantReadiness(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	options.PlatformAdminTenantID = h.platformAdminTenantID
-	if options.TenantID == options.PlatformAdminTenantID {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "平台管理租户不参与上线准备度", nil)
-		return
-	}
 	page, err := store.SaaSAdminTenantReadinessFacts(r.Context(), options)
 	if err != nil {
 		writeSaaSAdminError(w, err)

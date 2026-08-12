@@ -84,12 +84,40 @@ func TestSaaSAdminOverviewAllowsPlatformScopeForPlatformTenant(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	if store.lastOptions.Scope != SaaSAdminScopePlatform || store.lastOptions.TenantID != 12 || store.lastOptions.ExcludedTenantID != 1 {
+	if store.lastOptions.Scope != SaaSAdminScopePlatform || store.lastOptions.TenantID != 12 || store.lastOptions.ExcludedTenantID != 0 {
 		t.Fatalf("options = %+v", store.lastOptions)
 	}
 	data := decodeSaaSAdminResponse(t, rec)
 	if data["scope"] != SaaSAdminScopePlatform || data["tenantPopulation"] != SaaSAdminTenantPopulationBusiness || data["canPlatformScope"] != true {
 		t.Fatalf("scope payload = %+v", data)
+	}
+}
+
+func TestSaaSAdminOverviewPlatformScopeKeepsTenantOneVisible(t *testing.T) {
+	store := &fakeSaaSAdminStore{
+		users: map[int]User{
+			1: {ID: 1, TenantID: 1, IsSuperAdmin: 1},
+		},
+		overview: SaaSAdminOverview{
+			Summary: SaaSAdminSummary{TenantCount: 1},
+			Tenants: []SaaSAdminTenantOverview{{TenantID: 1, TenantName: "首个业务租户"}},
+		},
+	}
+	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/overview?scope=platform&limit=20", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Overview(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastOptions.ExcludedTenantID != 0 {
+		t.Fatalf("synthetic platform tenant must not be used as business exclusion: options=%+v", store.lastOptions)
+	}
+	data := decodeSaaSAdminResponse(t, rec)
+	tenants := data["tenants"].([]any)
+	if len(tenants) != 1 || tenants[0].(map[string]any)["tenantId"].(float64) != 1 {
+		t.Fatalf("tenant one was hidden from platform overview: %+v", tenants)
 	}
 }
 
@@ -111,7 +139,7 @@ func TestSaaSAdminOverviewParsesTenantListFilters(t *testing.T) {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 	if store.lastOptions.Scope != SaaSAdminScopePlatform ||
-		store.lastOptions.ExcludedTenantID != 1 ||
+		store.lastOptions.ExcludedTenantID != 0 ||
 		store.lastOptions.Keyword != "新开" ||
 		store.lastOptions.TenantStatus != 1 ||
 		store.lastOptions.PackageCode != "growth" ||
@@ -1072,16 +1100,16 @@ func TestSaaSAdminDailyReportAllowsPlatformAdmin(t *testing.T) {
 	if store.overviewCalls != 1 || store.usageCalls != 2 || store.alertCalls != 1 || store.notificationCalls != 1 || store.operationCalls != 1 || store.billingCalls != 1 || store.riskFollowUpSnapshotCalls != 1 || store.taskCalls != 1 {
 		t.Fatalf("calls overview=%d usage=%d alerts=%d notifications=%d operations=%d billing=%d followups=%d tasks=%d", store.overviewCalls, store.usageCalls, store.alertCalls, store.notificationCalls, store.operationCalls, store.billingCalls, store.riskFollowUpSnapshotCalls, store.taskCalls)
 	}
-	if store.lastOptions.Scope != SaaSAdminScopePlatform || store.lastOptions.ExcludedTenantID != 1 || store.lastOptions.Limit != 50 || store.lastOptions.ExpiringDays != 15 || store.lastOptions.DueState != SaaSAdminDueStateAll {
+	if store.lastOptions.Scope != SaaSAdminScopePlatform || store.lastOptions.ExcludedTenantID != 0 || store.lastOptions.Limit != 50 || store.lastOptions.ExpiringDays != 15 || store.lastOptions.DueState != SaaSAdminDueStateAll {
 		t.Fatalf("overview options = %+v", store.lastOptions)
 	}
-	if store.lastAlertOptions.ExcludedTenantID != 1 || store.lastAlertOptions.Status != SaaSAlertStatusOpen || store.lastAlertOptions.PerPage != 2 {
+	if store.lastAlertOptions.ExcludedTenantID != 0 || store.lastAlertOptions.Status != SaaSAlertStatusOpen || store.lastAlertOptions.PerPage != 2 {
 		t.Fatalf("alert options = %+v", store.lastAlertOptions)
 	}
-	if store.lastNotificationOptions.ExcludedTenantID != 1 || store.lastNotificationOptions.Limit != saasAdminExportMaxLimit ||
-		store.lastOperationOptions.ExcludedTenantID != 1 || store.lastOperationOptions.Limit != saasAdminExportMaxLimit ||
-		store.lastBillingOptions.ExcludedTenantID != 1 || store.lastBillingOptions.Limit != saasAdminExportMaxLimit ||
-		store.lastRiskFollowUpTaskOptions.ExcludedTenantID != 1 || store.lastTaskOptions.ExcludedTenantID != 1 {
+	if store.lastNotificationOptions.ExcludedTenantID != 0 || store.lastNotificationOptions.Limit != saasAdminExportMaxLimit ||
+		store.lastOperationOptions.ExcludedTenantID != 0 || store.lastOperationOptions.Limit != saasAdminExportMaxLimit ||
+		store.lastBillingOptions.ExcludedTenantID != 0 || store.lastBillingOptions.Limit != saasAdminExportMaxLimit ||
+		store.lastRiskFollowUpTaskOptions.ExcludedTenantID != 0 || store.lastTaskOptions.ExcludedTenantID != 0 {
 		t.Fatalf("list options notification=%+v operation=%+v billing=%+v", store.lastNotificationOptions, store.lastOperationOptions, store.lastBillingOptions)
 	}
 	data := decodeSaaSAdminResponse(t, rec)
@@ -3596,13 +3624,13 @@ func TestSaaSAdminCustomerSuccessAllowsPlatformAdmin(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	if store.lastOptions.Scope != SaaSAdminScopePlatform ||
-		store.lastOptions.ExcludedTenantID != 1 ||
+		store.lastOptions.ExcludedTenantID != 0 ||
 		store.lastOptions.Limit != 10 ||
 		store.lastOptions.ExpiringDays != 10 ||
 		store.lastOptions.DueState != SaaSAdminDueStateAll {
 		t.Fatalf("overview options = %+v", store.lastOptions)
 	}
-	if store.usageCalls != 2 ||
+	if store.usageCalls != 3 ||
 		store.latestRiskFollowUpCalls != 1 ||
 		store.riskFollowUpSnapshotCalls != 1 ||
 		store.billingFollowUpCalls != 1 ||
@@ -3610,10 +3638,10 @@ func TestSaaSAdminCustomerSuccessAllowsPlatformAdmin(t *testing.T) {
 		store.notificationCalls != 1 {
 		t.Fatalf("calls usage=%d latest=%d riskTasks=%d billing=%d tasks=%d notifications=%d", store.usageCalls, store.latestRiskFollowUpCalls, store.riskFollowUpSnapshotCalls, store.billingFollowUpCalls, store.taskCalls, store.notificationCalls)
 	}
-	if store.lastRiskFollowUpTaskOptions.ExcludedTenantID != 1 || store.lastRiskFollowUpTaskOptions.Limit != saasAdminExportMaxLimit ||
-		store.lastBillingFollowUpOptions.ExcludedTenantID != 1 || store.lastBillingFollowUpOptions.Limit != saasAdminExportMaxLimit ||
-		store.lastTaskOptions.ExcludedTenantID != 1 || store.lastTaskOptions.Limit != saasAdminExportMaxLimit ||
-		store.lastNotificationOptions.ExcludedTenantID != 1 || store.lastNotificationOptions.Limit != saasAdminExportMaxLimit {
+	if store.lastRiskFollowUpTaskOptions.ExcludedTenantID != 0 || store.lastRiskFollowUpTaskOptions.Limit != saasAdminExportMaxLimit ||
+		store.lastBillingFollowUpOptions.ExcludedTenantID != 0 || store.lastBillingFollowUpOptions.Limit != saasAdminExportMaxLimit ||
+		store.lastTaskOptions.ExcludedTenantID != 0 || store.lastTaskOptions.Limit != saasAdminExportMaxLimit ||
+		store.lastNotificationOptions.ExcludedTenantID != 0 || store.lastNotificationOptions.Limit != saasAdminExportMaxLimit {
 		t.Fatalf("limits risk=%+v billing=%+v tasks=%+v notifications=%+v", store.lastRiskFollowUpTaskOptions, store.lastBillingFollowUpOptions, store.lastTaskOptions, store.lastNotificationOptions)
 	}
 	data := decodeSaaSAdminResponse(t, rec)
@@ -3788,12 +3816,12 @@ func TestSaaSAdminOperationQueueAllowsPlatformAdmin(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if store.lastOptions.ExcludedTenantID != 1 ||
-		store.lastRiskFollowUpTaskOptions.ExcludedTenantID != 1 ||
-		store.lastBillingFollowUpOptions.ExcludedTenantID != 1 ||
-		store.lastTaskOptions.ExcludedTenantID != 1 ||
-		store.lastNotificationOptions.ExcludedTenantID != 1 ||
-		store.lastNotificationHealthOptions.ExcludedTenantID != 1 {
+	if store.lastOptions.ExcludedTenantID != 0 ||
+		store.lastRiskFollowUpTaskOptions.ExcludedTenantID != 0 ||
+		store.lastBillingFollowUpOptions.ExcludedTenantID != 0 ||
+		store.lastTaskOptions.ExcludedTenantID != 0 ||
+		store.lastNotificationOptions.ExcludedTenantID != 0 ||
+		store.lastNotificationHealthOptions.ExcludedTenantID != 0 {
 		t.Fatalf("business tenant scope overview=%+v risk=%+v billing=%+v task=%+v notification=%+v health=%+v", store.lastOptions, store.lastRiskFollowUpTaskOptions, store.lastBillingFollowUpOptions, store.lastTaskOptions, store.lastNotificationOptions, store.lastNotificationHealthOptions)
 	}
 	data := decodeSaaSAdminResponse(t, rec)
@@ -4837,6 +4865,24 @@ func TestSaaSAdminExportCSVOperationQueueAssignmentsAllowsPlatformAdmin(t *testi
 	}
 }
 
+func TestSaaSAdminCustomerSuccessQueueKeepsTenantOneVisible(t *testing.T) {
+	items, _ := saasAdminBuildCustomerSuccessQueue(saasAdminCustomerSuccessBuildInput{
+		PlatformAdminTenantID: 1,
+		RiskReport: SaaSAdminRiskReport{
+			Summary: SaaSAdminRiskSummary{EvaluatedTenantCount: 1, RiskTenantCount: 1},
+			Items: []SaaSAdminRiskTenant{{
+				Tenant:    SaaSAdminTenantOverview{TenantID: 1, TenantName: "业务租户"},
+				RiskLevel: SaaSAdminCustomerSuccessPriorityCritical,
+				RiskScore: 90,
+			}},
+		},
+		Options: SaaSAdminCustomerSuccessOptions{Priority: "all"},
+	})
+	if len(items) != 1 || items[0].Tenant.TenantID != 1 {
+		t.Fatalf("tenant one was hidden from customer success queue: %+v", items)
+	}
+}
+
 func TestSaaSAdminCustomerSuccessOwnersSummarizesFullQueue(t *testing.T) {
 	store := &fakeSaaSAdminStore{
 		users: map[int]User{
@@ -5123,10 +5169,10 @@ func TestSaaSAdminBusinessMetricsSummarizesEstimatedRevenue(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if store.lastOptions.Scope != SaaSAdminScopePlatform || store.lastOptions.ExcludedTenantID != 1 || store.lastOptions.Limit != 20 || store.lastOptions.ExpiringDays != 10 || store.lastOptions.DueState != SaaSAdminDueStateAll {
+	if store.lastOptions.Scope != SaaSAdminScopePlatform || store.lastOptions.ExcludedTenantID != 0 || store.lastOptions.Limit != 20 || store.lastOptions.ExpiringDays != 10 || store.lastOptions.DueState != SaaSAdminDueStateAll {
 		t.Fatalf("overview options = %+v", store.lastOptions)
 	}
-	if store.usageCalls != 4 || store.packageCalls != 1 || store.billingCalls != 1 || store.lastBillingOptions.ExcludedTenantID != 1 || store.lastBillingOptions.Limit != 100 {
+	if store.usageCalls != 4 || store.packageCalls != 1 || store.billingCalls != 1 || store.lastBillingOptions.ExcludedTenantID != 0 || store.lastBillingOptions.Limit != 100 {
 		t.Fatalf("calls usage=%d package=%d billing=%d billingOptions=%+v", store.usageCalls, store.packageCalls, store.billingCalls, store.lastBillingOptions)
 	}
 	data := decodeSaaSAdminResponse(t, rec)
@@ -5233,8 +5279,8 @@ func TestSaaSAdminBusinessTrendsSummarizesMonthlyBillingAndRenewalFunnel(t *test
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if store.billingCalls != 1 || store.lastBillingOptions.ExcludedTenantID != 1 || store.lastBillingOptions.Limit != 10 ||
-		store.taskCalls != 1 || store.lastTaskOptions.TaskType != SaaSAdminTaskTypeTenantRenewal || store.lastTaskOptions.ExcludedTenantID != 1 || store.lastTaskOptions.Limit != 20 {
+	if store.billingCalls != 1 || store.lastBillingOptions.ExcludedTenantID != 0 || store.lastBillingOptions.Limit != 10 ||
+		store.taskCalls != 1 || store.lastTaskOptions.TaskType != SaaSAdminTaskTypeTenantRenewal || store.lastTaskOptions.ExcludedTenantID != 0 || store.lastTaskOptions.Limit != 20 {
 		t.Fatalf("calls billing=%d billingOptions=%+v taskCalls=%d taskOptions=%+v", store.billingCalls, store.lastBillingOptions, store.taskCalls, store.lastTaskOptions)
 	}
 	data := decodeSaaSAdminResponse(t, rec)
@@ -5465,11 +5511,11 @@ func TestSaaSAdminRenewalForecastSummarizesExpiringRevenueAndTasks(t *testing.T)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if store.lastOptions.Scope != SaaSAdminScopePlatform || store.lastOptions.ExcludedTenantID != 1 || store.lastOptions.Limit != 20 || store.lastOptions.ExpiringDays != 90 || store.lastOptions.DueState != SaaSAdminDueStateAll {
+	if store.lastOptions.Scope != SaaSAdminScopePlatform || store.lastOptions.ExcludedTenantID != 0 || store.lastOptions.Limit != 20 || store.lastOptions.ExpiringDays != 90 || store.lastOptions.DueState != SaaSAdminDueStateAll {
 		t.Fatalf("overview options = %+v", store.lastOptions)
 	}
-	if store.lastBillingOptions.EventType != "renewal" || store.lastBillingOptions.ExcludedTenantID != 1 || store.lastBillingOptions.Limit != 100 ||
-		store.lastTaskOptions.TaskType != SaaSAdminTaskTypeTenantRenewal || store.lastTaskOptions.ExcludedTenantID != 1 || store.lastTaskOptions.Limit != 50 {
+	if store.lastBillingOptions.EventType != "renewal" || store.lastBillingOptions.ExcludedTenantID != 0 || store.lastBillingOptions.Limit != 100 ||
+		store.lastTaskOptions.TaskType != SaaSAdminTaskTypeTenantRenewal || store.lastTaskOptions.ExcludedTenantID != 0 || store.lastTaskOptions.Limit != 50 {
 		t.Fatalf("billing=%+v task=%+v", store.lastBillingOptions, store.lastTaskOptions)
 	}
 	data := decodeSaaSAdminResponse(t, rec)
@@ -7784,7 +7830,7 @@ func TestSaaSAdminUpdateTenantStatusRejectsTenantAdmin(t *testing.T) {
 	}
 }
 
-func TestSaaSAdminUpdateTenantStatusRejectsPlatformDisable(t *testing.T) {
+func TestSaaSAdminUpdateTenantStatusAllowsBusinessTenantOne(t *testing.T) {
 	store := &fakeSaaSAdminStore{
 		users: map[int]User{
 			1: {ID: 1, TenantID: 1, IsSuperAdmin: 1},
@@ -7798,10 +7844,10 @@ func TestSaaSAdminUpdateTenantStatusRejectsPlatformDisable(t *testing.T) {
 
 	handler.UpdateTenantStatus(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if store.statusCalls != 0 {
+	if store.statusCalls != 1 {
 		t.Fatalf("status calls = %d", store.statusCalls)
 	}
 }

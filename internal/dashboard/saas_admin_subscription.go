@@ -474,10 +474,6 @@ func (h *SaaSAdminHandler) TransitionSubscription(w http.ResponseWriter, r *http
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	if transition.TenantID == h.platformAdminTenantID && !SaaSAdminSubscriptionAllowsAccess(transition.Status) {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "platform tenant subscription cannot be blocked", nil)
-		return
-	}
 	if h.rejectDirectHighRiskAction(r.Context(), w, SaaSAdminApprovalActionSubscriptionTransition, 0) {
 		return
 	}
@@ -493,9 +489,6 @@ func (h *SaaSAdminHandler) TransitionSubscription(w http.ResponseWriter, r *http
 }
 
 func (h *SaaSAdminHandler) planSaaSAdminSubscriptionTransition(ctx context.Context, transition SaaSAdminSubscriptionTransition) (SaaSAdminSubscriptionTransitionApprovalPlan, error) {
-	if transition.TenantID == h.platformAdminTenantID && !SaaSAdminSubscriptionAllowsAccess(transition.Status) {
-		return SaaSAdminSubscriptionTransitionApprovalPlan{}, NewSaaSAdminBadRequest("platform tenant subscription cannot be blocked")
-	}
 	report, err := h.store.SaaSAdminSubscriptions(ctx, SaaSAdminSubscriptionOptions{
 		TenantID: transition.TenantID,
 		Status:   SaaSAdminSubscriptionStatusAll,
@@ -566,7 +559,6 @@ func (h *SaaSAdminHandler) ReconcileSubscriptions(w http.ResponseWriter, r *http
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	reconcile.ExcludedTenantID = h.platformAdminTenantID
 	reconcile.ActorUserID = user.ID
 	reconcile.ActorTenantID = user.TenantID
 	result, err := h.store.ReconcileSaaSAdminSubscriptions(r.Context(), reconcile)

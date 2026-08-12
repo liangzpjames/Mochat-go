@@ -900,13 +900,13 @@ func (h *SaaSAdminHandler) normalizeSaaSAdminApprovalPayload(ctx context.Context
 		}
 		requestedStatus := 1
 		currentStatus := 2
-		message := "审批动作 tenant.enable 只能启用非平台的停用业务租户"
+		message := "审批动作 tenant.enable 只能启用停用业务租户"
 		if actionType == SaaSAdminApprovalActionTenantDisable {
 			requestedStatus = 2
 			currentStatus = 1
-			message = "审批动作 tenant.disable 只能停用非平台的正常业务租户"
+			message = "审批动作 tenant.disable 只能停用正常业务租户"
 		}
-		if input.Status != requestedStatus || input.TenantID == h.platformAdminTenantID {
+		if input.Status != requestedStatus {
 			return SaaSAdminApprovalPolicy{}, nil, "", "", NewSaaSAdminBadRequest(message)
 		}
 		planner, ok := h.store.(SaaSAdminTenantStatusApprovalStore)
