@@ -225,6 +225,7 @@ func reservedPath(path string) bool {
 		"/api/",
 		"/r/",
 		"/dashboard/",
+		"/saas/",
 		"/security/",
 		"/sidebar/",
 		"/operation/",

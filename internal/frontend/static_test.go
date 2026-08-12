@@ -130,6 +130,41 @@ func TestWrapDashboardPassesAPIPathsToNext(t *testing.T) {
 	}
 }
 
+func TestWrapDashboardLeavesSaaSLoginAndAuthWithServerAndKeepsMountedSaaSDist(t *testing.T) {
+	dashboardDir := t.TempDir()
+	writeFile(t, filepath.Join(dashboardDir, "index.html"), "dashboard")
+	saasDir := t.TempDir()
+	writeFile(t, filepath.Join(saasDir, "index.html"), "saas")
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/saas/login" {
+			http.Redirect(w, r, "/saas-admin/?login=1", http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(r.URL.Path))
+	})
+	handler := WrapDashboard(next, DashboardConfig{DistDir: dashboardDir})
+	handler = WrapApp(handler, AppConfig{DistDir: saasDir, MountPath: "/saas-admin/"})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/saas/login", nil))
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/saas-admin/?login=1" {
+		t.Fatalf("SaaS login route = %d location=%q body=%q", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/saas/auth/session", nil))
+	if rec.Code != http.StatusAccepted || rec.Body.String() != "/saas/auth/session" {
+		t.Fatalf("SaaS auth route = %d body=%q", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/saas-admin/", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != "saas" {
+		t.Fatalf("mounted SaaS dist = %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestWrapDashboardPassesShortLinkRedirectsToNext(t *testing.T) {
 
 	dir := t.TempDir()
