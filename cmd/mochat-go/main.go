@@ -2184,8 +2184,7 @@ func main() {
 
 	if cfg.EnableSaaSAlertDashboard {
 		mysqlStore := getMySQLStore()
-		resolver, _ := buildUserResolver("saasAlert")
-		saasAlert := dashboard.NewSaaSAlertHandler(mysqlStore, resolver).WithWebhookGuard(saasAlertWebhookGuard)
+		saasAlert := dashboard.NewSaaSAlertHandler(mysqlStore, nil, cfg.SaaSPlatformAdminTenantID).WithWebhookGuard(saasAlertWebhookGuard)
 		options = append(options,
 			compatserver.WithSaaSAlertPageHandler(dashboard.NewSaaSAlertPageHandler()),
 			compatserver.WithSaaSAlertIndexHandler(http.HandlerFunc(saasAlert.Index)),
@@ -2200,8 +2199,7 @@ func main() {
 
 	if cfg.EnableSaaSBillingPortal {
 		mysqlStore := getMySQLStore()
-		resolver, _ := buildUserResolver("saasBilling")
-		saasBilling := dashboard.NewSaaSBillingHandler(mysqlStore, resolver)
+		saasBilling := dashboard.NewSaaSBillingHandler(mysqlStore, nil, cfg.SaaSPlatformAdminTenantID)
 		options = append(options,
 			compatserver.WithSaaSBillingPageHandler(dashboard.NewSaaSBillingPageHandler()),
 			compatserver.WithSaaSBillingSummaryHandler(http.HandlerFunc(saasBilling.Summary)),
@@ -2340,8 +2338,8 @@ func main() {
 	}
 
 	healthRedisStore := store.NewRedisStore(store.RedisConfig{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB})
-	newSaaSAdminHandler := func(resolver dashboard.UserIDResolver) *dashboard.SaaSAdminHandler {
-		handler := dashboard.NewSaaSAdminHandler(getMySQLStore(), resolver, cfg.SaaSPlatformAdminTenantID, cfg.SimpleJWTSecret).
+	newSaaSAdminHandler := func() *dashboard.SaaSAdminHandler {
+		handler := dashboard.NewSaaSAdminHandler(getMySQLStore(), nil, cfg.SaaSPlatformAdminTenantID, cfg.SimpleJWTSecret).
 			WithPaymentSettlementSyncService(paymentSettlementSyncService).
 			WithBackupManager(backupManager).
 			WithAuditAnchorManager(auditAnchorManager).
@@ -2439,8 +2437,7 @@ func main() {
 
 	var saasAdminHandler *dashboard.SaaSAdminHandler
 	if cfg.EnableSaaSAdminDashboard {
-		resolver, _ := buildUserResolver("saasAdmin")
-		saasAdminHandler = newSaaSAdminHandler(resolver)
+		saasAdminHandler = newSaaSAdminHandler()
 		saasAdmin := saasAdminHandler
 		if dashboardAdminService == nil {
 			dashboardAdminService = dashboardadmin.NewService(getMySQLStore())
@@ -3117,7 +3114,7 @@ func main() {
 	}
 	if cfg.EnableSaaSOperationQueueAssignmentReminderCron {
 		if saasAdminHandler == nil {
-			saasAdminHandler = newSaaSAdminHandler(dashboard.HeaderUserIDResolver{})
+			saasAdminHandler = newSaaSAdminHandler()
 		}
 		cron := dashboard.NewSaaSAdminOperationQueueAssignmentReminderCron(
 			saasAdminHandler,
@@ -3135,7 +3132,7 @@ func main() {
 	}
 	if cfg.EnableSaaSApprovalReminderCron {
 		if saasAdminHandler == nil {
-			saasAdminHandler = newSaaSAdminHandler(dashboard.HeaderUserIDResolver{})
+			saasAdminHandler = newSaaSAdminHandler()
 		}
 		cron := dashboard.NewSaaSAdminApprovalReminderCron(saasAdminHandler, cfg.SaaSApprovalReminderLimit, cfg.SaaSAlertNotificationMaxAttempts, log.Default())
 		workerGroup.Add(dashboard.SaaSAdminApprovalReminderCronTaskName, taskrunner.Periodic(taskrunner.PeriodicConfig{
@@ -3221,7 +3218,7 @@ func main() {
 	}
 	if cfg.EnableSaaSSystemHealthCron {
 		if saasAdminHandler == nil {
-			saasAdminHandler = newSaaSAdminHandler(dashboard.HeaderUserIDResolver{})
+			saasAdminHandler = newSaaSAdminHandler()
 		}
 		cron := dashboard.NewSaaSAdminSystemHealthCron(
 			saasAdminHandler, cfg.SaaSSystemHealthFailureWindowHours, cfg.SaaSSystemHealthNotificationStaleMinutes,
@@ -3237,7 +3234,7 @@ func main() {
 	}
 	if cfg.EnableSaaSNotificationHealthRecoveryCron {
 		if saasAdminHandler == nil {
-			saasAdminHandler = newSaaSAdminHandler(dashboard.HeaderUserIDResolver{})
+			saasAdminHandler = newSaaSAdminHandler()
 		}
 		cron := dashboard.NewSaaSAdminNotificationHealthRecoveryCron(
 			saasAdminHandler,
@@ -3255,7 +3252,7 @@ func main() {
 	}
 	if cfg.EnableSaaSSubscriptionReconcileCron {
 		if saasAdminHandler == nil {
-			saasAdminHandler = newSaaSAdminHandler(dashboard.HeaderUserIDResolver{})
+			saasAdminHandler = newSaaSAdminHandler()
 		}
 		cron := dashboard.NewSaaSAdminSubscriptionReconcileCron(saasAdminHandler, cfg.SaaSSubscriptionReconcileLimit, log.Default())
 		workerGroup.Add(dashboard.SaaSAdminSubscriptionReconcileCronTaskName, taskrunner.Periodic(taskrunner.PeriodicConfig{

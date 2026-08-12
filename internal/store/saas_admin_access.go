@@ -24,18 +24,31 @@ func (s *MySQLStore) SaaSAdminAccessProfile(ctx context.Context, userID int, pla
 	var isSuperAdmin int
 	var accessVersion sql.NullInt64
 	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.name, u.phone, u.tenant_id, u.isSuperAdmin, ua.version
-		FROM mc_user u
+		SELECT u.id, COALESCE(u.name, ''), COALESCE(u.phone, ''),
+			CASE WHEN EXISTS (
+				SELECT 1
+				FROM mochat_go_saas_admin_user_roles ur
+				INNER JOIN mochat_go_saas_admin_roles r ON r.id = ur.role_id
+				INNER JOIN mochat_go_saas_admin_role_permissions rp ON rp.role_id = r.id
+				WHERE ur.user_id = u.id
+				  AND r.code = 'platform_root'
+				  AND r.status = 1
+				  AND r.is_system = 1
+				  AND rp.permission_code = '*'
+			) THEN 1 ELSE 0 END AS is_platform_super_admin,
+			ua.version
+		FROM mochat_go_saas_admin_users u
 		LEFT JOIN mochat_go_saas_admin_user_access ua ON ua.user_id = u.id
-		WHERE u.id = ? AND u.deleted_at IS NULL
+		WHERE u.id = ? AND u.status = 1
 		LIMIT 1
-	`, userID).Scan(&profile.UserID, &profile.UserName, &profile.Phone, &profile.TenantID, &isSuperAdmin, &accessVersion)
+	`, userID).Scan(&profile.UserID, &profile.UserName, &profile.Phone, &isSuperAdmin, &accessVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.SaaSAdminAccessProfile{}, dashboard.NewSaaSAdminNotFound("平台用户不存在")
 	}
 	if err != nil {
 		return dashboard.SaaSAdminAccessProfile{}, err
 	}
+	profile.TenantID = platformTenantID
 	if profile.TenantID != platformTenantID {
 		return dashboard.SaaSAdminAccessProfile{}, &dashboard.SaaSAdminOperationError{Status: 403, Message: "用户不属于平台管理租户"}
 	}
@@ -191,8 +204,11 @@ func (s *MySQLStore) SaaSAdminAccessAssignments(ctx context.Context, platformTen
 	if options.Limit <= 0 || options.Limit > 100 {
 		options.Limit = 100
 	}
-	where := []string{"u.tenant_id = ?", "u.deleted_at IS NULL"}
-	args := []any{platformTenantID}
+	if platformTenantID <= 0 {
+		return nil, dashboard.NewSaaSAdminBadRequest("platformTenantId 鏃犳晥")
+	}
+	where := []string{"1 = 1"}
+	args := []any{}
 	if keyword := strings.TrimSpace(options.Keyword); keyword != "" {
 		where = append(where, "(u.name LIKE ? OR u.phone LIKE ? OR CAST(u.id AS CHAR) = ?)")
 		like := "%" + keyword + "%"
@@ -200,12 +216,23 @@ func (s *MySQLStore) SaaSAdminAccessAssignments(ctx context.Context, platformTen
 	}
 	args = append(args, options.Limit)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT u.id, u.name, u.phone, u.status, u.isSuperAdmin,
+		SELECT u.id, COALESCE(u.name, ''), COALESCE(u.phone, ''), u.status,
+			CASE WHEN EXISTS (
+				SELECT 1
+				FROM mochat_go_saas_admin_user_roles ur
+				INNER JOIN mochat_go_saas_admin_roles r ON r.id = ur.role_id
+				INNER JOIN mochat_go_saas_admin_role_permissions rp ON rp.role_id = r.id
+				WHERE ur.user_id = u.id
+				  AND r.code = 'platform_root'
+				  AND r.status = 1
+				  AND r.is_system = 1
+				  AND rp.permission_code = '*'
+			) THEN 1 ELSE 0 END AS is_platform_super_admin,
 			COALESCE(ua.version, 0), COALESCE(ua.updated_by, 0), ua.updated_at
-		FROM mc_user u
+		FROM mochat_go_saas_admin_users u
 		LEFT JOIN mochat_go_saas_admin_user_access ua ON ua.user_id = u.id
 		WHERE `+strings.Join(where, " AND ")+`
-		ORDER BY u.isSuperAdmin DESC, u.status ASC, u.id ASC
+		ORDER BY is_platform_super_admin DESC, u.status ASC, u.id ASC
 		LIMIT ?
 	`, args...)
 	if err != nil {
@@ -254,20 +281,32 @@ func (s *MySQLStore) UpdateSaaSAdminAccessAssignment(ctx context.Context, platfo
 	}
 	defer tx.Rollback()
 
-	var targetTenantID int
 	var targetName, targetPhone string
 	var targetStatus, targetSuper int
 	err = tx.QueryRowContext(ctx, `
-		SELECT tenant_id, name, phone, status, isSuperAdmin
-		FROM mc_user WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE
-	`, input.UserID).Scan(&targetTenantID, &targetName, &targetPhone, &targetStatus, &targetSuper)
+		SELECT COALESCE(u.name, ''), COALESCE(u.phone, ''), u.status,
+			CASE WHEN EXISTS (
+				SELECT 1
+				FROM mochat_go_saas_admin_user_roles ur
+				INNER JOIN mochat_go_saas_admin_roles r ON r.id = ur.role_id
+				INNER JOIN mochat_go_saas_admin_role_permissions rp ON rp.role_id = r.id
+				WHERE ur.user_id = u.id
+				  AND r.code = 'platform_root'
+				  AND r.status = 1
+				  AND r.is_system = 1
+				  AND rp.permission_code = '*'
+			) THEN 1 ELSE 0 END
+		FROM mochat_go_saas_admin_users u
+		WHERE u.id = ?
+		LIMIT 1 FOR UPDATE
+	`, input.UserID).Scan(&targetName, &targetPhone, &targetStatus, &targetSuper)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.SaaSAdminAccessAssignmentUpdateResult{}, dashboard.NewSaaSAdminNotFound("平台用户不存在")
 	}
 	if err != nil {
 		return dashboard.SaaSAdminAccessAssignmentUpdateResult{}, err
 	}
-	if targetTenantID != platformTenantID {
+	if platformTenantID <= 0 {
 		return dashboard.SaaSAdminAccessAssignmentUpdateResult{}, &dashboard.SaaSAdminOperationError{Status: 403, Message: "目标用户不属于平台管理租户"}
 	}
 	if targetSuper == 1 {

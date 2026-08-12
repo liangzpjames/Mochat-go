@@ -19,6 +19,7 @@ import (
 	"jiyi/mochat-go/internal/identitysecurity"
 	"jiyi/mochat-go/internal/outboundhttp"
 	"jiyi/mochat-go/internal/saasauditanchor"
+	"jiyi/mochat-go/internal/saasauth"
 	"jiyi/mochat-go/internal/saasbackup"
 	"jiyi/mochat-go/internal/saascompliance"
 	"jiyi/mochat-go/internal/serviceaccountkey"
@@ -8701,19 +8702,45 @@ func (h *SaaSAdminHandler) notificationOptions(w http.ResponseWriter, r *http.Re
 }
 
 func (h *SaaSAdminHandler) resolveSuperAdmin(w http.ResponseWriter, r *http.Request) (User, bool) {
-	userID, err := h.resolver.UserID(r)
-	if err != nil || userID <= 0 {
-		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
-		return User{}, false
-	}
-	user, found, err := h.store.UserByID(r.Context(), userID)
-	if err != nil {
-		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-		return User{}, false
-	}
-	if !found {
-		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
-		return User{}, false
+	var user User
+	if _, principalErr := saasauth.PrincipalFromContext(r.Context()); principalErr == nil {
+		resolved, found, err := resolveSaaSAdminActor(r.Context(), h.store, h.platformAdminTenantID)
+		if errors.Is(err, ErrSaaSAdminActorStoreUnavailable) {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, err.Error(), nil)
+			return User{}, false
+		}
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return User{}, false
+		}
+		if !found || resolved.Status != 1 {
+			writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
+			return User{}, false
+		}
+		user = resolved
+	} else {
+		// The production SaaS route is constructed with a nil resolver. This
+		// compatibility branch keeps direct legacy unit-test construction
+		// isolated from the verified SaaS principal path.
+		if h.resolver == nil {
+			writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
+			return User{}, false
+		}
+		userID, err := h.resolver.UserID(r)
+		if err != nil || userID <= 0 {
+			writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
+			return User{}, false
+		}
+		resolved, found, err := h.store.UserByID(r.Context(), userID)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return User{}, false
+		}
+		if !found {
+			writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
+			return User{}, false
+		}
+		user = resolved
 	}
 	if user.TenantID <= 0 {
 		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, ErrPermissionDenied.Error(), nil)

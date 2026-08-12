@@ -3,12 +3,14 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"jiyi/mochat-go/internal/outboundhttp"
+	"jiyi/mochat-go/internal/saasauth"
 )
 
 type SaaSAlertDashboardStore interface {
@@ -20,13 +22,18 @@ type SaaSAlertDashboardStore interface {
 }
 
 type SaaSAlertHandler struct {
-	store        SaaSAlertDashboardStore
-	resolver     UserIDResolver
-	webhookGuard *outboundhttp.Guard
+	store                 SaaSAlertDashboardStore
+	resolver              UserIDResolver
+	platformAdminTenantID int
+	webhookGuard          *outboundhttp.Guard
 }
 
-func NewSaaSAlertHandler(store SaaSAlertDashboardStore, resolver UserIDResolver) *SaaSAlertHandler {
-	return &SaaSAlertHandler{store: store, resolver: resolver, webhookGuard: defaultSaaSAlertWebhookGuard}
+func NewSaaSAlertHandler(store SaaSAlertDashboardStore, resolver UserIDResolver, platformTenantID ...int) *SaaSAlertHandler {
+	platformID := 1
+	if len(platformTenantID) > 0 && platformTenantID[0] > 0 {
+		platformID = platformTenantID[0]
+	}
+	return &SaaSAlertHandler{store: store, resolver: resolver, platformAdminTenantID: platformID, webhookGuard: defaultSaaSAlertWebhookGuard}
 }
 
 func (h *SaaSAlertHandler) WithWebhookGuard(guard *outboundhttp.Guard) *SaaSAlertHandler {
@@ -201,6 +208,30 @@ func (h *SaaSAlertHandler) saveSetting(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SaaSAlertHandler) resolveSuperAdmin(w http.ResponseWriter, r *http.Request) (User, bool) {
+	if _, principalErr := saasauth.PrincipalFromContext(r.Context()); principalErr == nil {
+		user, found, err := resolveSaaSAdminActor(r.Context(), h.store, h.platformAdminTenantID)
+		if errors.Is(err, ErrSaaSAdminActorStoreUnavailable) {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, err.Error(), nil)
+			return User{}, false
+		}
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return User{}, false
+		}
+		if !found || user.Status != 1 {
+			writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
+			return User{}, false
+		}
+		if user.IsSuperAdmin != 1 {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, ErrPermissionDenied.Error(), nil)
+			return User{}, false
+		}
+		return user, true
+	}
+	if h.resolver == nil {
+		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
+		return User{}, false
+	}
 	userID, err := h.resolver.UserID(r)
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)

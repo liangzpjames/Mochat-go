@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"jiyi/mochat-go/internal/saasauth"
 )
 
 type SaaSBillingStore interface {
@@ -15,12 +17,17 @@ type SaaSBillingStore interface {
 }
 
 type SaaSBillingHandler struct {
-	store    SaaSBillingStore
-	resolver UserIDResolver
+	store                 SaaSBillingStore
+	resolver              UserIDResolver
+	platformAdminTenantID int
 }
 
-func NewSaaSBillingHandler(store SaaSBillingStore, resolver UserIDResolver) *SaaSBillingHandler {
-	return &SaaSBillingHandler{store: store, resolver: resolver}
+func NewSaaSBillingHandler(store SaaSBillingStore, resolver UserIDResolver, platformTenantID ...int) *SaaSBillingHandler {
+	platformID := 1
+	if len(platformTenantID) > 0 && platformTenantID[0] > 0 {
+		platformID = platformTenantID[0]
+	}
+	return &SaaSBillingHandler{store: store, resolver: resolver, platformAdminTenantID: platformID}
 }
 
 func (h *SaaSBillingHandler) Summary(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +245,30 @@ func (h *SaaSBillingHandler) CancelInvoice(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *SaaSBillingHandler) resolveSuperAdmin(w http.ResponseWriter, r *http.Request) (User, bool) {
+	if _, principalErr := saasauth.PrincipalFromContext(r.Context()); principalErr == nil {
+		user, found, err := resolveSaaSAdminActor(r.Context(), h.store, h.platformAdminTenantID)
+		if errors.Is(err, ErrSaaSAdminActorStoreUnavailable) {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, err.Error(), nil)
+			return User{}, false
+		}
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return User{}, false
+		}
+		if !found || user.Status != 1 {
+			writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "user not found", nil)
+			return User{}, false
+		}
+		if user.IsSuperAdmin != 1 {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, ErrPermissionDenied.Error(), nil)
+			return User{}, false
+		}
+		return user, true
+	}
+	if h.resolver == nil {
+		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
+		return User{}, false
+	}
 	userID, err := h.resolver.UserID(r)
 	if err != nil || userID <= 0 {
 		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
