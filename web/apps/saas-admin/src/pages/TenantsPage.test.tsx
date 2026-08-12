@@ -134,7 +134,8 @@ describe('SaaS 客户租户治理页面', () => {
     const provision = mocks.apiRequest.mock.calls.find(([path]) => path === '/dashboard/saasAdmin/tenants/provision')
     expect(provision).toBeTruthy()
     const payload = JSON.parse(String(provision?.[1]?.body)) as Record<string, unknown>
-    expect(payload.packageId).toBe(11)
+    expect(plan.id).toBe(11)
+    expect(payload.packageId).toBe(plan.id)
     expect(payload.expectedVersion).toBe(3)
     expect(Object.keys(payload.limits as Record<string, unknown>)).toHaveLength(26)
     expect(payload).not.toHaveProperty('password')

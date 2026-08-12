@@ -13900,6 +13900,7 @@ func saasAdminPackagePayloads(packages []SaaSAdminPackage) []map[string]any {
 
 func saasAdminPackagePayload(item SaaSAdminPackage) map[string]any {
 	return map[string]any{
+		"id":          item.ID,
 		"code":        item.Code,
 		"name":        item.Name,
 		"description": item.Description,

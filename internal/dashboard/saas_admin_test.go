@@ -183,6 +183,7 @@ func TestSaaSAdminPackagesRequiresPlatformAdmin(t *testing.T) {
 			7: {ID: 7, TenantID: 10, IsSuperAdmin: 1},
 		},
 		packages: []SaaSAdminPackage{{
+			ID:   41,
 			Code: "growth",
 			Name: "增长版",
 			Limits: SaaSAdminPackageLimits{
@@ -216,7 +217,11 @@ func TestSaaSAdminPackagesRequiresPlatformAdmin(t *testing.T) {
 	if len(packages) != 1 {
 		t.Fatalf("packages = %+v", packages)
 	}
-	limits := packages[0].(map[string]any)["limits"].(map[string]any)
+	packagePayload := packages[0].(map[string]any)
+	if packagePayload["id"] != float64(41) {
+		t.Fatalf("package id = %v, want 41", packagePayload["id"])
+	}
+	limits := packagePayload["limits"].(map[string]any)
 	if limits["maxUsers"].(float64) != 10 || limits["channelCodes"].(float64) != 12 {
 		t.Fatalf("limits = %+v", limits)
 	}
@@ -7606,6 +7611,7 @@ func TestSaaSAdminUpsertPackageAllowsPlatformAdmin(t *testing.T) {
 			}},
 		},
 		upsertPackageResult: SaaSAdminPackage{
+			ID:     42,
 			Code:   "scale",
 			Name:   "规模版",
 			Status: 1,
@@ -7644,7 +7650,7 @@ func TestSaaSAdminUpsertPackageAllowsPlatformAdmin(t *testing.T) {
 	}
 	data := decodeSaaSAdminResponse(t, rec)
 	limits := data["limits"].(map[string]any)
-	if data["code"] != "scale" || limits["maxUsers"].(float64) != 120 {
+	if data["id"] != float64(42) || data["code"] != "scale" || limits["maxUsers"].(float64) != 120 {
 		t.Fatalf("data = %+v", data)
 	}
 	impact := data["impact"].(map[string]any)
