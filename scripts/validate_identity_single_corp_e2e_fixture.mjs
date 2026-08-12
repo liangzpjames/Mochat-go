@@ -17,9 +17,8 @@ const TOP_LEVEL_KEYS = new Set([
   'expectedTenantId',
   'expectedCorpId',
   'expectedWxCorpId',
-  // Optional, non-credential metadata that lets a release fixture prove the
-  // database snapshot contains exactly one tenant-corp binding.
   'tenantCorpBindings',
+  'expectedSaasGovernance',
 ]);
 const SENSITIVE_KEY_PATTERN = /(?:^|_)(?:password|jwt|secret|token|phone|authorization|cookie)(?:$|_)/i;
 const JWT_PATTERN = /(?:^Bearer\s+)?eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/;
@@ -73,7 +72,6 @@ function validateCredentialReference(value, accountName) {
 }
 
 function validateBindingSnapshot(value, expectedTenantId, expectedCorpId) {
-  if (value === undefined) return;
   if (!Array.isArray(value) || value.length !== 1) {
     fail('tenantCorpBindings must contain exactly one unique binding');
   }
@@ -93,6 +91,22 @@ function validateBindingSnapshot(value, expectedTenantId, expectedCorpId) {
   if (seenTenants.size !== value.length || seenCorps.size !== value.length) fail('tenant-corp bindings must be unique');
   if (binding.tenantId !== expectedTenantId || binding.corpId !== expectedCorpId) {
     fail('tenant-corp binding must match expected tenant and corp');
+  }
+}
+
+function validateExpectedSaasGovernance(value) {
+  if (!isRecord(value)) fail('expectedSaasGovernance is required as non-credential metadata');
+  const allowedKeys = new Set(['dashboardProvisionOperationId', 'dashboardProvisionRequestId']);
+  const unknownKeys = Object.keys(value).filter((key) => !allowedKeys.has(key));
+  if (unknownKeys.length > 0) fail(`expectedSaasGovernance contains unsupported fields: ${unknownKeys.join(', ')}`);
+  if (!Number.isInteger(value.dashboardProvisionOperationId) || value.dashboardProvisionOperationId <= 0) {
+    fail('expectedSaasGovernance.dashboardProvisionOperationId must be positive');
+  }
+  if (typeof value.dashboardProvisionRequestId !== 'string' || value.dashboardProvisionRequestId.trim() === '') {
+    fail('expectedSaasGovernance.dashboardProvisionRequestId is required');
+  }
+  if (value.dashboardProvisionRequestId.length > 96) {
+    fail('expectedSaasGovernance.dashboardProvisionRequestId is too long');
   }
 }
 
@@ -125,6 +139,7 @@ export function validateFixture(fixture) {
   if (!Number.isInteger(fixture.expectedCorpId) || fixture.expectedCorpId <= 0) fail('expectedCorpId must be a positive integer');
   if (typeof fixture.expectedWxCorpId !== 'string' || fixture.expectedWxCorpId.trim() === '') fail('expectedWxCorpId is required');
   validateBindingSnapshot(fixture.tenantCorpBindings, fixture.expectedTenantId, fixture.expectedCorpId);
+  validateExpectedSaasGovernance(fixture.expectedSaasGovernance);
 
   return {
     accounts: REQUIRED_ACCOUNT_NAMES.length,

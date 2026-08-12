@@ -28,6 +28,10 @@ function validFixture() {
     expectedCorpId: 701,
     expectedWxCorpId: 'ww_identity_single_corp',
     tenantCorpBindings: [{ tenantId: 41, corpId: 701, status: 'verified' }],
+    expectedSaasGovernance: {
+      dashboardProvisionOperationId: 9001,
+      dashboardProvisionRequestId: 'identity-single-corp-dashboard-provision',
+    },
   };
 }
 
@@ -50,6 +54,22 @@ test('requires all five account references and positive single-corp identifiers'
   const invalidIDs = validFixture();
   invalidIDs.expectedTenantId = 0;
   assert.throws(() => validateFixture(invalidIDs), /expectedTenantId.*positive/i);
+});
+
+test('requires exactly one tenant-corp binding matching the expected identifiers', () => {
+  const fixture = validFixture();
+  delete fixture.tenantCorpBindings;
+  assert.throws(() => validateFixture(fixture), /tenantCorpBindings.*exactly one/i);
+});
+
+test('requires SaaS governance operation metadata and rejects unknown metadata fields', () => {
+  const missing = validFixture();
+  delete missing.expectedSaasGovernance;
+  assert.throws(() => validateFixture(missing), /expectedSaasGovernance.*required/i);
+
+  const unknown = validFixture();
+  unknown.expectedSaasGovernance.auditToken = 'must-not-be-accepted';
+  assert.throws(() => validateFixture(unknown), /expectedSaasGovernance.*unsupported/i);
 });
 
 test('rejects plaintext password, JWT, Secret, and phone fields anywhere in fixture JSON', () => {

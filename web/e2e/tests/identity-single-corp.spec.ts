@@ -1,8 +1,15 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { parseStoredToken } from '../../../scripts/identity_single_corp_auth_storage.mjs';
+import { resolveFixtureCredentials, validateFixture } from '../../../scripts/validate_identity_single_corp_e2e_fixture.mjs';
 
 type LoginCredentialRef = {
   loginEnvKey: string;
   passwordEnvKey: string;
+};
+
+type ExpectedSaasGovernance = {
+  dashboardProvisionOperationId: number;
+  dashboardProvisionRequestId: string;
 };
 
 type IdentitySingleCorpFixture = {
@@ -14,7 +21,8 @@ type IdentitySingleCorpFixture = {
   expectedTenantId: number;
   expectedCorpId: number;
   expectedWxCorpId: string;
-  tenantCorpBindings?: Array<{ tenantId: number; corpId: number; status?: string }>;
+  tenantCorpBindings: Array<{ tenantId: number; corpId: number; status?: string }>;
+  expectedSaasGovernance: ExpectedSaasGovernance;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -22,6 +30,7 @@ type NetworkAudit = {
   consoleErrors: string[];
   pageErrors: string[];
   unexpectedResponses: string[];
+  pendingResponseChecks: Array<Promise<void>>;
 };
 
 const liveBase = (process.env.MOCHAT_E2E_LIVE_BASE || '').replace(/\/$/, '');
@@ -32,20 +41,9 @@ const saasTokenKey = 'mochat_saas_admin_token';
 function readFixture(): IdentitySingleCorpFixture | undefined {
   const source = process.env.MOCHAT_E2E_IDENTITY_SINGLE_CORP_FIXTURE_JSON;
   if (!source) return undefined;
-  const value = JSON.parse(source) as JsonObject;
-  const required = ['saasAdmin', 'dashboardSuperAdmin', 'dashboardOrdinary', 'tenantDenied', 'secondTenantAdmin'];
-  for (const name of required) {
-    const reference = value[name] as JsonObject | undefined;
-    if (!reference || typeof reference.loginEnvKey !== 'string' || typeof reference.passwordEnvKey !== 'string') {
-      throw new Error(`live fixture ${name} must contain loginEnvKey/passwordEnvKey`);
-    }
-    const unsupported = Object.keys(reference).filter((key) => !['loginEnvKey', 'passwordEnvKey'].includes(key));
-    if (unsupported.length > 0) throw new Error(`live fixture ${name} contains unsupported credential fields`);
-  }
-  if (!Number.isInteger(value.expectedTenantId) || !Number.isInteger(value.expectedCorpId) || typeof value.expectedWxCorpId !== 'string') {
-    throw new Error('live fixture expected tenant/corp facts are incomplete');
-  }
-  return value as unknown as IdentitySingleCorpFixture;
+  const value: unknown = JSON.parse(source);
+  validateFixture(value);
+  return value as IdentitySingleCorpFixture;
 }
 
 function requireLiveFixture(): IdentitySingleCorpFixture {
@@ -54,10 +52,11 @@ function requireLiveFixture(): IdentitySingleCorpFixture {
 }
 
 function credentialsFor(reference: LoginCredentialRef, accountName: string) {
-  const login = process.env[reference.loginEnvKey];
-  const password = process.env[reference.passwordEnvKey];
-  if (!login || !password) throw new Error(`${accountName} credential environment keys are not set`);
-  return { login, password };
+  try {
+    return resolveFixtureCredentials(reference, process.env);
+  } catch (error) {
+    throw new Error(`${accountName} credential environment keys are not set: ${error instanceof Error ? error.message : 'invalid reference'}`);
+  }
 }
 
 function asObject(value: unknown): JsonObject {
@@ -69,6 +68,18 @@ function asObject(value: unknown): JsonObject {
 function responseData(value: unknown): JsonObject {
   const body = asObject(value);
   return asObject(body.data);
+}
+
+function machineCode(value: unknown): string {
+  const body = asObject(value);
+  for (const key of ['machineCode', 'errorCode']) {
+    if (typeof body[key] === 'string' && body[key] !== '') return body[key];
+  }
+  const data = asObject(body.data);
+  for (const key of ['machineCode', 'errorCode']) {
+    if (typeof data[key] === 'string' && data[key] !== '') return data[key];
+  }
+  return '';
 }
 
 function tokenHeader(token: string): string {
@@ -84,7 +95,7 @@ function tokenClaims(token: string): JsonObject {
 }
 
 function attachNetworkAudit(page: Page): NetworkAudit {
-  const audit: NetworkAudit = { consoleErrors: [], pageErrors: [], unexpectedResponses: [] };
+  const audit: NetworkAudit = { consoleErrors: [], pageErrors: [], unexpectedResponses: [], pendingResponseChecks: [] };
   page.on('console', (message) => {
     if (message.type() === 'error') audit.consoleErrors.push(message.text());
   });
@@ -92,24 +103,37 @@ function attachNetworkAudit(page: Page): NetworkAudit {
   page.on('response', (response) => {
     if (response.status() < 400) return;
     const pathname = new URL(response.url()).pathname;
-    const expectedConfigurationGate = response.status() === 403 && pathname === '/dashboard/access/profile';
-    if (!expectedConfigurationGate && pathname !== '/favicon.ico') {
+    const check = (async () => {
+      if (response.status() === 403 && pathname === '/dashboard/access/profile') {
+        try {
+          await response.finished();
+          const body = await response.json() as unknown;
+          if (machineCode(body) !== 'CORP_CONFIGURATION_REQUIRED') {
+            audit.unexpectedResponses.push(`${response.status()} ${pathname} machineCode=${machineCode(body) || 'missing'}`);
+          }
+        } catch {
+          audit.unexpectedResponses.push(`${response.status()} ${pathname} machineCode=unreadable`);
+        }
+        return;
+      }
+      if (response.status() === 404 && pathname === '/favicon.ico') return;
       audit.unexpectedResponses.push(`${response.status()} ${pathname}`);
-    }
+    })();
+    audit.pendingResponseChecks.push(check);
   });
   return audit;
 }
 
-function assertCleanNetwork(audit: NetworkAudit, label: string) {
+async function assertCleanNetwork(audit: NetworkAudit, label: string) {
+  await Promise.all(audit.pendingResponseChecks);
   expect(audit.consoleErrors, `${label} console errors`).toEqual([]);
   expect(audit.pageErrors, `${label} page errors`).toEqual([]);
   expect(audit.unexpectedResponses, `${label} unexpected HTTP errors`).toEqual([]);
 }
 
-async function readStorage(page: Page, key: string): Promise<string> {
+async function readStorage(page: Page, key: string, realm: 'dashboard' | 'saas'): Promise<string> {
   const value = await page.evaluate((storageKey) => window.localStorage.getItem(storageKey), key);
-  if (!value) throw new Error(`live login did not persist ${key}`);
-  return tokenHeader(value);
+  return tokenHeader(parseStoredToken(value, realm));
 }
 
 async function loginSaaS(page: Page, fixture: IdentitySingleCorpFixture): Promise<string> {
@@ -123,7 +147,7 @@ async function loginSaaS(page: Page, fixture: IdentitySingleCorpFixture): Promis
   await page.getByRole('button', { name: '登录' }).click();
   expect((await loginResponse).status()).toBe(200);
   await expect.poll(() => page.url()).toMatch(/\/saas-admin\/?(?:\?.*)?$/);
-  return readStorage(page, saasTokenKey);
+  return readStorage(page, saasTokenKey, 'saas');
 }
 
 async function loginDashboard(page: Page, fixture: IdentitySingleCorpFixture, accountName: 'dashboardSuperAdmin' | 'dashboardOrdinary'): Promise<string> {
@@ -137,7 +161,7 @@ async function loginDashboard(page: Page, fixture: IdentitySingleCorpFixture, ac
   await page.getByRole('button', { name: '登录' }).click();
   expect((await loginResponse).status()).toBe(200);
   await expect.poll(() => page.url()).not.toMatch(/\/login(?:\?|$)/);
-  return readStorage(page, dashboardTokenKey);
+  return readStorage(page, dashboardTokenKey, 'dashboard');
 }
 
 async function loginDashboardByAPI(request: APIRequestContext, fixture: IdentitySingleCorpFixture, accountName: 'tenantDenied' | 'secondTenantAdmin') {
@@ -224,6 +248,30 @@ test.describe('Identity single-corp live acceptance', () => {
     const tenant = asObject(tenantDetailData.tenant);
     expect(Number(tenantDetailData.tenantId || tenant.tenantId)).toBe(fixture.expectedTenantId);
 
+    const governanceExpectation = fixture.expectedSaasGovernance;
+    const provisionAuditResponse = await request.get(
+      `${liveBase}/dashboard/saasAdmin/operations?tenantId=${fixture.expectedTenantId}`
+        + `&action=saas.admin.dashboard_tenant.provision&targetType=tenant`
+        + `&keyword=${encodeURIComponent(governanceExpectation.dashboardProvisionRequestId)}&limit=20`,
+      { headers: { Authorization: saasToken } },
+    );
+    expect(provisionAuditResponse.status()).toBe(200);
+    const provisionAuditData = responseData(await provisionAuditResponse.json() as JsonObject);
+    const provisionAudits = Array.isArray(provisionAuditData.operations) ? provisionAuditData.operations : [];
+    expect(provisionAudits).toHaveLength(1);
+    const provisionAudit = asObject(provisionAudits[0]);
+    expect(Number(provisionAudit.id)).toBe(governanceExpectation.dashboardProvisionOperationId);
+    expect(Number(provisionAudit.tenantId)).toBe(fixture.expectedTenantId);
+    expect(provisionAudit.action).toBe('saas.admin.dashboard_tenant.provision');
+    expect(provisionAudit.targetType).toBe('tenant');
+    expect(String(provisionAudit.targetId)).toBe(String(fixture.expectedTenantId));
+    const provisionAfter = asObject(provisionAudit.after);
+    expect(Number(provisionAfter.tenantId)).toBe(fixture.expectedTenantId);
+    expect(Number(provisionAfter.corpId)).toBe(fixture.expectedCorpId);
+    expect(provisionAfter.activationIssued).toBe(true);
+    expect(provisionAfter.isSuperAdmin).toBe(true);
+    expect(provisionAfter.requestId).toBe(governanceExpectation.dashboardProvisionRequestId);
+
     const governance = await request.get(`${liveBase}/dashboard/saasAdmin/tenants/${fixture.expectedTenantId}/dashboard-admins`, { headers: { Authorization: saasToken } });
     expect(governance.status()).toBe(200);
     const governanceData = responseData(await governance.json() as JsonObject);
@@ -238,10 +286,12 @@ test.describe('Identity single-corp live acceptance', () => {
     });
     expect(activeSuperAdmins).toHaveLength(1);
     expect(identities).toHaveLength(1);
+    expect(Number(asObject(activeSuperAdmins[0]).id)).toBe(Number(provisionAfter.dashboardUserId));
+    expect(String(asObject(activeSuperAdmins[0]).activatedAt)).not.toBe('');
 
     await dashboardContext.close();
-    assertCleanNetwork(saasAudit, 'SaaS login');
-    assertCleanNetwork(dashboardAudit, 'Dashboard login');
+    await assertCleanNetwork(saasAudit, 'SaaS login');
+    await assertCleanNetwork(dashboardAudit, 'Dashboard login');
   });
 
   test('real Dashboard tenant isolation, pending-to-verified company flow, sync state, desktop and 390px surface', async ({ page, browser, request }) => {
@@ -253,7 +303,7 @@ test.describe('Identity single-corp live acceptance', () => {
     const deniedResponse = await loginDashboardByAPI(request, fixture, 'tenantDenied');
     expect(deniedResponse.status()).toBe(403);
     const deniedBody = asObject(await deniedResponse.json());
-    expect(deniedBody.errorCode || deniedBody.machineCode || deniedBody.code).toMatch(/TENANT_ACCESS_DENIED|403/);
+    expect(machineCode(deniedBody)).toBe('TENANT_ACCESS_DENIED');
 
     const secondTenantResponse = await loginDashboardByAPI(request, fixture, 'secondTenantAdmin');
     expect(secondTenantResponse.status()).toBe(200);
@@ -274,9 +324,9 @@ test.describe('Identity single-corp live acceptance', () => {
     const ordinaryCompany = await getCompanyProfile(request, ordinaryToken);
     expect(ordinaryCompany.response.status()).toBe(403);
     const ordinaryBody = ordinaryCompany.body;
-    expect(ordinaryBody.errorCode || ordinaryBody.machineCode || ordinaryBody.code).toMatch(/DASHBOARD_PERMISSION_DENIED|403/);
+    expect(machineCode(ordinaryBody)).toBe('DASHBOARD_PERMISSION_DENIED');
     await ordinaryContext.close();
-    assertCleanNetwork(ordinaryAudit, 'ordinary Dashboard login');
+    await assertCleanNetwork(ordinaryAudit, 'ordinary Dashboard login');
 
     const initialProfile = await getCompanyProfile(request, dashboardToken);
     expect(initialProfile.response.status()).toBe(200);
@@ -323,6 +373,6 @@ test.describe('Identity single-corp live acceptance', () => {
 
     await assertNoSaaSLinks(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-    assertCleanNetwork(audit, 'Dashboard company settings');
+    await assertCleanNetwork(audit, 'Dashboard company settings');
   });
 });

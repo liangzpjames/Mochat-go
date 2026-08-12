@@ -44,11 +44,15 @@ fixture JSON 只存环境变量键名，不存凭据值。每个账号必须具�
   "expectedTenantId": 41,
   "expectedCorpId": 701,
   "expectedWxCorpId": "ww_example",
-  "tenantCorpBindings": [{ "tenantId": 41, "corpId": 701, "status": "pending" }]
+  "tenantCorpBindings": [{ "tenantId": 41, "corpId": 701, "status": "pending" }],
+  "expectedSaasGovernance": {
+    "dashboardProvisionOperationId": 9001,
+    "dashboardProvisionRequestId": "identity-single-corp-dashboard-provision"
+  }
 }
 ```
 
-五个账号必须齐全，凭据环境键必须互不重复；`tenantCorpBindings` 如提供必须恰好一条且与 expected ID 一致。`password`、`phone`、JWT、Secret、Token、Authorization 和 Cookie 原文均禁止出现在 JSON。SaaS/Dashboard Token 不写入 fixture；由真实登录产生，并在浏览器合同中验证两个 Token 不同且 `realm` 分别为 `saas_admin`、`dashboard`。
+五个账号必须齐全，凭据环境键必须互不重复；`tenantCorpBindings` 必须恰好一条且与 expected ID 一致；`expectedSaasGovernance` 必须只引用已存在的 SaaS 治理 operation ID/request ID 元数据。任何未知字段、重复 env key、重复 binding 或敏感字段都必须在 Playwright 启动前失败。`password`、`phone`、JWT、Secret、Token、Authorization 和 Cookie 原文均禁止出现在 JSON。SaaS/Dashboard Token 不写入 fixture；由真实登录产生，并在浏览器合同中验证两个 Token 不同且 `realm` 分别为 `saas_admin`、`dashboard`。
 
 运行 live 验收前，设置 `MOCHAT_E2E_LIVE_BASE`、`MOCHAT_E2E_IDENTITY_SINGLE_CORP_FIXTURE_JSON` 以及 fixture 引用的环境变量。没有 live 环境时，`identity-single-corp.spec.ts` 只报告带 `SKIP` 原因的 live describe；它不以 route mock 伪造产品验收。
 
@@ -58,7 +62,7 @@ corepack pnpm --filter @mochat/e2e lint
 corepack pnpm test:e2e:identity-single-corp
 ```
 
-真实矩阵必须覆盖：SaaS/Dashboard 登录、双向跨 realm 401、SaaS 已授权且 Dashboard 超管已激活、无企业选择、普通用户企业设置 403、超管唯一企业、待配置企业仅能进入设置、企业微信验证、员工同步状态、Desktop/390px、凭据确认、Secret 不回显、Dashboard 无 SaaS 链接以及 console/network 预期外错误为 0。E2E 不得调用创建第二企业的 route。
+真实矩阵必须覆盖：SaaS/Dashboard 登录、双向跨 realm 401、SaaS 已授权且 Dashboard 超管已激活、无企业选择、普通用户企业设置 403、超管唯一企业、待配置企业仅能进入设置、企业微信验证、员工同步状态、Desktop/390px、凭据确认、Secret 不回显、Dashboard 无 SaaS 链接以及 console/network 预期外错误为 0。第一条用例必须以 SaaS 只读 `/dashboard/saasAdmin/operations` 的固定 operation ID/request ID 核对 `saas.admin.dashboard_tenant.provision`、tenant/corp 和激活发放记录，再以 Dashboard 治理只读 API 核对同一 `dashboardUserId` 的 `activatedAt`，不能用当前 `isSuperAdmin` 行自证。E2E 不得调用创建第二企业的 route。
 
 ## 4. PowerShell smoke
 
@@ -66,7 +70,7 @@ smoke 强制 project `mochat-go-desktop`，默认地址为 `http://localhost:180
 
 ### 4.1 ReadOnly
 
-ReadOnly 只能使用预先放入受保护环境变量 `MOCHAT_IDENTITY_SINGLE_CORP_DASHBOARD_TOKEN` 的 Dashboard Token；这样不会为了诊断触发登录写入。脚本只读取健康、权限、企业资料、同步状态和审计接口，读取容器内 `MARIADB_USER`、`MARIADB_PASSWORD`、`MARIADB_DATABASE`，并对关键表执行精确 `COUNT(*)` 前后比较。
+ReadOnly 只能使用预先放入受保护环境变量 `MOCHAT_IDENTITY_SINGLE_CORP_DASHBOARD_TOKEN` 的 Dashboard Token；这样不会为了诊断触发登录写入。脚本只读取健康、权限、企业资料、同步状态和审计接口，读取容器内 `MARIADB_USER`、`MARIADB_PASSWORD`、`MARIADB_DATABASE`，并对 `mc_tenant`、`mc_user`、`mc_corp`、`tenant_corp_bindings`、`saas_admin_users`、`dashboard_identities`、`identity_activations`、`tenant_provision_runs`、`saas_admin_operation_logs`、`dashboard_permission_audits` 执行精确 `COUNT(*)` 前后比较；所有 delta 必须严格为 0。
 
 ```powershell
 .\scripts\smoke_identity_single_corp.ps1 `
@@ -76,7 +80,7 @@ ReadOnly 只能使用预先放入受保护环境变量 `MOCHAT_IDENTITY_SINGLE_C
   -ReadOnly
 ```
 
-ReadOnly 任何业务 count 变化、非 GET 请求、MySQL/Redis container ID 变化、四卷 name/mountpoint 变化或预期外 4xx/5xx 都是阻断条件。
+ReadOnly 任何业务 count 变化、非 GET 请求、MySQL/Redis container ID 变化、四卷 name/mountpoint 变化或预期外 4xx/5xx 都是阻断条件；`/dashboard/access/profile` 的 403 只有明确的 `CORP_CONFIGURATION_REQUIRED` 才可作为配置门槛处理。
 
 ### 4.2 ExerciseFixtureWrites
 
@@ -92,7 +96,7 @@ full smoke 只能通过受保护 API 验证：跨租户资源 404、`expectedVer
   -ExerciseFixtureWrites
 ```
 
-Secret 文件只在内存中组装受保护 API 请求；响应、审计和 evidence 只保存 `configured`、`keyId`、`updatedAt`、版本、状态码和长度等元数据。脚本不输出 JWT、密码、Secret、密文、哈希或请求正文。
+Secret 文件只在内存中组装受保护 API 请求；响应、审计和 evidence 只保存 `configured`、`keyId`、`updatedAt`、版本、状态码和长度等元数据。full smoke 必须断言身份事实（`mc_user`、`mc_corp`、binding、identity、activation、provision run 等）delta 为 0，两个成功受保护 mutation 使 `dashboard_permission_audits` 精确 `+2`；按 `requestId`、`action`、`resultVersion` 读取并核对两条成功审计，stale `409 VERSION_CONFLICT` 不得新增审计或覆盖 version。profile mutation 使用当前 `displayName` 做幂等受保护写，不得永久写入 `identity-single-corp-smoke-*`。脚本不输出 JWT、密码、Secret、密文、哈希或请求正文。
 
 每次 smoke 都记录四个精确卷的 `Name`/`Mountpoint` 以及 `app`、`mysql`、`redis` container ID。允许 app-only 部署后 app ID 改变；MySQL、Redis ID 和四卷必须保持不变。禁止 `down -v`、`docker volume rm`、`docker system prune`、`docker volume prune` 以及重建 MySQL/Redis。
 
