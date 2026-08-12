@@ -182,6 +182,61 @@ PREPARE identity_0130_actor_inventory_guard_stmt FROM @identity_0130_actor_inven
 EXECUTE identity_0130_actor_inventory_guard_stmt;
 DEALLOCATE PREPARE identity_0130_actor_inventory_guard_stmt;
 
+-- A fresh split-identity install has no legacy platform tenant. It is only
+-- allowed when the legacy business facts are completely empty and the one
+-- active, rotated, MFA-complete SaaS bootstrap root is backed by the SaaS
+-- role/permission catalog. Any legacy residue keeps the historical tenant
+-- requirement fail-closed.
+SET @identity_0130_legacy_user_count := (SELECT COUNT(*) FROM mc_user);
+SET @identity_0130_legacy_tenant_fact_count := (
+  SELECT COUNT(*) FROM mc_tenant
+)
++ (
+  SELECT COUNT(*) FROM mc_corp
+)
++ (
+  SELECT COUNT(*) FROM mc_rbac_role
+);
+SET @identity_0130_dangling_saas_actor_count := (
+  SELECT COUNT(*)
+  FROM mochat_go_saas_admin_user_access a
+  LEFT JOIN mochat_go_saas_admin_users u ON u.id = a.user_id
+  WHERE u.id IS NULL OR u.status <> 1
+)
++ (
+  SELECT COUNT(*)
+  FROM mochat_go_saas_admin_user_roles ur
+  LEFT JOIN mochat_go_saas_admin_users u ON u.id = ur.user_id
+  WHERE u.id IS NULL OR u.status <> 1
+);
+SET @identity_0130_active_bootstrap_root_count := (
+  SELECT COUNT(*)
+  FROM mochat_go_saas_admin_users u
+  WHERE u.status = 1
+    AND u.must_rotate_password = 0
+    AND u.mfa_required = 1
+    AND NULLIF(TRIM(COALESCE(u.bootstrap_request_key, '')), '') IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM mochat_go_saas_admin_user_roles ur
+      INNER JOIN mochat_go_saas_admin_roles r ON r.id = ur.role_id
+      INNER JOIN mochat_go_saas_admin_role_permissions rp ON rp.role_id = r.id
+      WHERE ur.user_id = u.id
+        AND r.code = 'platform_root'
+        AND r.status = 1
+        AND r.is_system = 1
+        AND rp.permission_code = '*'
+    )
+);
+SET @identity_0130_fresh_split_identity_mode := IF(
+  @identity_0130_legacy_user_count = 0
+  AND @identity_0130_legacy_tenant_fact_count = 0
+  AND @identity_0130_dangling_saas_actor_count = 0
+  AND @identity_0130_active_bootstrap_root_count = 1,
+  1,
+  0
+);
+
 SET @identity_0130_platform_tenant_count := (
   SELECT COUNT(*)
   FROM mc_tenant
@@ -190,7 +245,8 @@ SET @identity_0130_platform_tenant_count := (
     AND deleted_at IS NULL
 );
 SET @identity_0130_platform_tenant_guard_sql := IF(
-  @identity_0130_platform_tenant_id > 0 AND @identity_0130_platform_tenant_count = 1,
+  @identity_0130_fresh_split_identity_mode = 1
+    OR (@identity_0130_platform_tenant_id > 0 AND @identity_0130_platform_tenant_count = 1),
   'SELECT 1',
   'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0130 explicit platform tenant is invalid'''
 );

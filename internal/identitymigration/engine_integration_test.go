@@ -87,6 +87,147 @@ func TestIdentityBackfillEngineRealMariaDBLifecycle(t *testing.T) {
 	}
 }
 
+func TestIdentityBackfillEngineRealMariaDBFreshSplitIdentityLifecycle(t *testing.T) {
+	db := newCredentialIntegrationDB(t)
+	createFreshIdentityBackfillEngineFixture(t, db)
+	execIdentityBackfillTestFile(t, db, "0129_identity_realms_single_corp_schema.up.sql")
+	insertFreshSaaSBootstrapRoot(t, db)
+
+	manager := newCredentialIntegrationManager(t)
+	schema := currentIdentityBackfillSchema(t, db)
+	upPath := filepath.Join("..", "..", "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql")
+	result, err := ApplyBackfill(context.Background(), db, DatabaseOptions{
+		Schema:            schema,
+		PlatformTenantID:  1,
+		RequestID:         "fresh-split-identity-success",
+		CredentialManager: manager,
+	}, upPath)
+	if err != nil {
+		t.Fatalf("fresh split-identity 0130 failed: %v", err)
+	}
+	if result.Idempotent {
+		t.Fatal("fresh split-identity first backfill unexpectedly reported idempotent")
+	}
+	assertFreshSplitIdentityState(t, db, "fresh-split-identity-success")
+}
+
+func TestIdentityBackfillEngineRealMariaDBFreshRetryReusesExactStagingFacts(t *testing.T) {
+	db := newCredentialIntegrationDB(t)
+	createFreshIdentityBackfillEngineFixture(t, db)
+	execIdentityBackfillTestFile(t, db, "0129_identity_realms_single_corp_schema.up.sql")
+	insertFreshSaaSBootstrapRoot(t, db)
+
+	schema := currentIdentityBackfillSchema(t, db)
+	upPath := filepath.Join("..", "..", "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql")
+	requestID := "fresh-split-identity-retry"
+	manager := newCredentialIntegrationManager(t)
+	_, err := db.Exec(`CREATE TABLE mochat_go_identity_migration_journal (id bigint unsigned NOT NULL AUTO_INCREMENT, PRIMARY KEY (id)) ENGINE=InnoDB`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyBackfill(context.Background(), db, DatabaseOptions{
+		Schema:            schema,
+		PlatformTenantID:  1,
+		RequestID:         requestID,
+		CredentialManager: manager,
+	}, upPath); err == nil {
+		t.Fatal("malformed journal unexpectedly allowed the first cutover attempt")
+	}
+	var stagedStatus string
+	if err := db.QueryRow(`SELECT status FROM mochat_go_identity_migration_batches WHERE request_id=?`, requestID).Scan(&stagedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if stagedStatus != "validated" {
+		t.Fatalf("failed cutover staging status=%q, want validated", stagedStatus)
+	}
+	if _, err := db.Exec(`DROP TABLE mochat_go_identity_migration_journal`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ApplyBackfill(context.Background(), db, DatabaseOptions{
+		Schema:            schema,
+		PlatformTenantID:  1,
+		RequestID:         requestID,
+		CredentialManager: manager,
+	}, upPath)
+	if err != nil {
+		t.Fatalf("same-request retry did not recover after the schema fault: %v", err)
+	}
+	if result.Idempotent {
+		t.Fatal("same-request retry unexpectedly reported idempotent before completion")
+	}
+	assertFreshSplitIdentityState(t, db, requestID)
+}
+
+func TestIdentityBackfillEngineRealMariaDBFreshSplitIdentityRejectsLegacyResidue(t *testing.T) {
+	db := newCredentialIntegrationDB(t)
+	createFreshIdentityBackfillEngineFixture(t, db)
+	execIdentityBackfillTestFile(t, db, "0129_identity_realms_single_corp_schema.up.sql")
+	insertFreshSaaSBootstrapRoot(t, db)
+	if _, err := db.Exec(`INSERT INTO mc_user (id, tenant_id, phone, password, name, status, isSuperAdmin) VALUES (901, 1, '13800000901', 'legacy', 'Legacy residue', 1, 0)`); err != nil {
+		t.Fatal(err)
+	}
+
+	schema := currentIdentityBackfillSchema(t, db)
+	upPath := filepath.Join("..", "..", "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql")
+	_, err := ApplyBackfill(context.Background(), db, DatabaseOptions{
+		Schema:            schema,
+		PlatformTenantID:  1,
+		RequestID:         "fresh-split-identity-dirty",
+		CredentialManager: newCredentialIntegrationManager(t),
+	}, upPath)
+	if err == nil || err.Error() != "identity migration phase=preflight label=platform_tenant failed" {
+		t.Fatalf("legacy residue error=%v, want stable platform_tenant preflight failure", err)
+	}
+	var stagingTables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('mochat_go_identity_migration_batches','mochat_go_identity_migration_corp_map')`).Scan(&stagingTables); err != nil {
+		t.Fatal(err)
+	}
+	if stagingTables != 0 {
+		t.Fatalf("legacy residue created staging tables before preflight, count=%d", stagingTables)
+	}
+}
+
+func insertFreshSaaSBootstrapRoot(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, statement := range []string{
+		`INSERT INTO mochat_go_saas_admin_users (id, login_name, phone, password_hash, name, status, must_rotate_password, auth_version, mfa_required, bootstrap_request_key) VALUES (700, 'fresh-root', '13900000700', 'hash', 'Fresh root', 1, 0, 1, 1, 'fresh-bootstrap-700')`,
+		`INSERT INTO mochat_go_saas_admin_roles (code, name, description, status, is_system, version, created_by, updated_by) VALUES ('platform_root', 'Platform root', 'Fresh integration root', 1, 1, 1, 700, 700)`,
+		`INSERT INTO mochat_go_saas_admin_role_permissions (role_id, permission_code) SELECT id, '*' FROM mochat_go_saas_admin_roles WHERE code='platform_root'`,
+		`INSERT INTO mochat_go_saas_admin_user_roles (user_id, role_id, assigned_by) SELECT 700, id, 700 FROM mochat_go_saas_admin_roles WHERE code='platform_root'`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func assertFreshSplitIdentityState(t *testing.T, db *sql.DB, requestID string) {
+	t.Helper()
+	for _, table := range []string{"mc_tenant", "mc_corp", "mc_user", "mc_rbac_role"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("fresh split-identity %s count=%d, want 0", table, count)
+		}
+	}
+	var status string
+	if err := db.QueryRow(`SELECT status FROM mochat_go_identity_migration_batches WHERE request_id=?`, requestID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "completed" {
+		t.Fatalf("fresh split-identity batch status=%q, want completed", status)
+	}
+	var ledgerCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_identity_migration_ledger WHERE migration_name=? AND request_id=? AND phase='backfill' AND status='success'`, migrationSource, requestID).Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerCount != 1 {
+		t.Fatalf("fresh split-identity success ledger count=%d, want 1", ledgerCount)
+	}
+}
+
 func currentIdentityBackfillSchema(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	var schema string
@@ -97,6 +238,35 @@ func currentIdentityBackfillSchema(t *testing.T, db *sql.DB) string {
 		t.Fatal("isolated integration schema is empty")
 	}
 	return schema
+}
+
+func createFreshIdentityBackfillEngineFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
+	createIdentityBackfillEngineFixture(t, db)
+	if _, err := db.Exec(`SET FOREIGN_KEY_CHECKS=0`); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{
+		"mochat_go_dashboard_permission_audits",
+		"mochat_go_dashboard_user_permissions",
+		"mochat_go_dashboard_role_permissions",
+		"mochat_go_dashboard_user_roles",
+		"mochat_go_dashboard_permission_resources",
+		"mochat_go_dashboard_permissions",
+		"mc_rbac_user_role",
+		"mc_rbac_role",
+		"mc_work_agent",
+		"mc_corp",
+		"mc_user",
+		"mc_tenant",
+	} {
+		if _, err := db.Exec(`DELETE FROM ` + table); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`SET FOREIGN_KEY_CHECKS=1`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func createIdentityBackfillEngineFixture(t *testing.T, db *sql.DB) {

@@ -20,6 +20,8 @@ const migrationSource = "0130_identity_realms_single_corp_backfill"
 
 const saasAdminUsersTable = "mochat_go_saas_admin_users"
 
+var errPlatformTenantPreflight = errors.New("identity preflight platform tenant is invalid")
+
 var requiredSaaSAdminUsersColumns = []string{
 	"id",
 	"login_name",
@@ -54,6 +56,35 @@ type CredentialEncryptionResult struct {
 	CorpRowsWritten  int
 	AgentRowsWritten int
 	Idempotent       bool
+}
+
+type validatedBatchContract struct {
+	PlatformTenantID int64
+	Status           string
+	MappingDigest    string
+	ScriptChecksum   string
+	PreflightStatus  string
+	CredentialStatus string
+	ActorStatus      string
+	MigrationSource  string
+}
+
+func platformTenantGuardAllowed(platformTenantID, platformTenantCount, legacyUserCount, legacyTenantFactCount, danglingActorCount, activeBootstrapRootCount int64) bool {
+	if platformTenantID <= 0 {
+		return false
+	}
+	if platformTenantCount == 1 {
+		return true
+	}
+	return platformTenantCount == 0 &&
+		legacyUserCount == 0 &&
+		legacyTenantFactCount == 0 &&
+		danglingActorCount == 0 &&
+		activeBootstrapRootCount == 1
+}
+
+func validatedBatchCompatible(existing, expected validatedBatchContract) bool {
+	return existing == expected
 }
 
 // PhaseError is the only migration execution error that the maintenance CLI
@@ -100,6 +131,9 @@ func preflight(ctx context.Context, db queryer, options DatabaseOptions) (Prefli
 	}
 	saasIdentityTablePresent, err := inspectSaaSAdminUsersTable(ctx, db)
 	if err != nil {
+		return PreflightReport{}, err
+	}
+	if err := validatePlatformTenantContext(ctx, db, options.PlatformTenantID, saasIdentityTablePresent); err != nil {
 		return PreflightReport{}, err
 	}
 
@@ -224,6 +258,79 @@ func preflight(ctx context.Context, db queryer, options DatabaseOptions) (Prefli
 		}
 	}
 	return report, nil
+}
+
+func validatePlatformTenantContext(ctx context.Context, db queryer, platformTenantID int64, saasIdentityTablePresent bool) error {
+	platformTenantCount, err := queryCount(ctx, db, `
+		SELECT COUNT(*) FROM mc_tenant
+		WHERE id = ? AND status = 1 AND deleted_at IS NULL`, platformTenantID)
+	if err != nil {
+		return fmt.Errorf("%w: platform tenant inspection failed", errPlatformTenantPreflight)
+	}
+	legacyUserCount, err := queryCount(ctx, db, `SELECT COUNT(*) FROM mc_user`)
+	if err != nil {
+		return fmt.Errorf("%w: legacy user inspection failed", errPlatformTenantPreflight)
+	}
+	legacyTenantCount, err := queryCount(ctx, db, `SELECT COUNT(*) FROM mc_tenant`)
+	if err != nil {
+		return fmt.Errorf("%w: legacy tenant inspection failed", errPlatformTenantPreflight)
+	}
+	legacyCorpCount, err := queryCount(ctx, db, `SELECT COUNT(*) FROM mc_corp`)
+	if err != nil {
+		return fmt.Errorf("%w: legacy corp inspection failed", errPlatformTenantPreflight)
+	}
+	legacyRoleCount, err := queryCount(ctx, db, `SELECT COUNT(*) FROM mc_rbac_role`)
+	if err != nil {
+		return fmt.Errorf("%w: legacy role inspection failed", errPlatformTenantPreflight)
+	}
+	legacyTenantFactCount := int64(legacyTenantCount + legacyCorpCount + legacyRoleCount)
+	danglingActorCount := int64(0)
+	activeBootstrapRootCount := int64(0)
+	if saasIdentityTablePresent {
+		accessDangling, queryErr := queryCount(ctx, db, `
+			SELECT COUNT(*)
+			FROM mochat_go_saas_admin_user_access a
+			LEFT JOIN mochat_go_saas_admin_users u ON u.id = a.user_id
+			WHERE u.id IS NULL OR u.status <> 1`)
+		if queryErr != nil {
+			return fmt.Errorf("%w: SaaS access actor inspection failed", errPlatformTenantPreflight)
+		}
+		roleDangling, queryErr := queryCount(ctx, db, `
+			SELECT COUNT(*)
+			FROM mochat_go_saas_admin_user_roles ur
+			LEFT JOIN mochat_go_saas_admin_users u ON u.id = ur.user_id
+			WHERE u.id IS NULL OR u.status <> 1`)
+		if queryErr != nil {
+			return fmt.Errorf("%w: SaaS role actor inspection failed", errPlatformTenantPreflight)
+		}
+		danglingActorCount = int64(accessDangling + roleDangling)
+		bootstrapRootCount, queryErr := queryCount(ctx, db, `
+			SELECT COUNT(*)
+			FROM mochat_go_saas_admin_users u
+			WHERE u.status = 1
+			  AND u.must_rotate_password = 0
+			  AND u.mfa_required = 1
+			  AND NULLIF(TRIM(COALESCE(u.bootstrap_request_key, '')), '') IS NOT NULL
+			  AND EXISTS (
+				SELECT 1
+				FROM mochat_go_saas_admin_user_roles ur
+				INNER JOIN mochat_go_saas_admin_roles r ON r.id = ur.role_id
+				INNER JOIN mochat_go_saas_admin_role_permissions rp ON rp.role_id = r.id
+				WHERE ur.user_id = u.id
+				  AND r.code = 'platform_root'
+				  AND r.status = 1
+				  AND r.is_system = 1
+				  AND rp.permission_code = '*'
+			)`)
+		if queryErr != nil {
+			return fmt.Errorf("%w: SaaS bootstrap actor inspection failed", errPlatformTenantPreflight)
+		}
+		activeBootstrapRootCount = int64(bootstrapRootCount)
+	}
+	if !platformTenantGuardAllowed(platformTenantID, int64(platformTenantCount), int64(legacyUserCount), legacyTenantFactCount, danglingActorCount, activeBootstrapRootCount) {
+		return errPlatformTenantPreflight
+	}
+	return nil
 }
 
 func inspectSaaSAdminUsersTable(ctx context.Context, db queryer) (bool, error) {
@@ -645,13 +752,8 @@ func StageValidatedBatch(ctx context.Context, db *sql.DB, options DatabaseOption
 		return errors.New("identity staging transaction failed")
 	}
 	defer rollbackQuietly(tx)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_identity_migration_batches (request_id, platform_tenant_id, status, mapping_digest, script_checksum, preflight_status, credential_status, actor_inventory_status) VALUES (?, ?, 'validated', ?, ?, 'passed', 'verified', 'verified')`, options.RequestID, options.PlatformTenantID, digest, options.ScriptChecksum); err != nil {
-		return errors.New("identity staging batch conflict")
-	}
-	for _, entry := range options.Mapping.Entries {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_identity_migration_corp_map (request_id, tenant_id, corp_id, status) VALUES (?, ?, ?, 'validated')`, options.RequestID, entry.TenantID, entry.CorpID); err != nil {
-			return errors.New("identity staging mapping conflict")
-		}
+	if err := stageValidatedBatchRows(ctx, tx, options, digest); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return errors.New("identity staging commit failed")
@@ -688,6 +790,9 @@ func ApplyBackfill(ctx context.Context, db *sql.DB, options DatabaseOptions, upP
 	}
 	defer conn.Close()
 	if _, err := preflight(ctx, conn, options); err != nil {
+		if errors.Is(err, errPlatformTenantPreflight) {
+			return BackfillResult{}, phaseFailure("preflight", "platform_tenant")
+		}
 		return BackfillResult{}, phaseWrap("preflight", "consistency", err)
 	}
 	if err := StageValidatedBatchOnConn(ctx, conn, options); err != nil {
@@ -739,13 +844,106 @@ func StageValidatedBatchOnConn(ctx context.Context, conn execer, options Databas
 	if err := validateStagingSchema(ctx, conn); err != nil {
 		return err
 	}
-	if _, err := conn.ExecContext(ctx, `INSERT INTO mochat_go_identity_migration_batches (request_id, platform_tenant_id, status, mapping_digest, script_checksum, preflight_status, credential_status, actor_inventory_status) VALUES (?, ?, 'validated', ?, ?, 'passed', 'verified', 'verified')`, options.RequestID, options.PlatformTenantID, digest, options.ScriptChecksum); err != nil {
+	return stageValidatedBatchRows(ctx, conn, options, digest)
+}
+
+func stageValidatedBatchRows(ctx context.Context, conn execer, options DatabaseOptions, digest string) error {
+	expected := validatedBatchContract{
+		PlatformTenantID: options.PlatformTenantID,
+		Status:           "validated",
+		MappingDigest:    digest,
+		ScriptChecksum:   options.ScriptChecksum,
+		PreflightStatus:  "passed",
+		CredentialStatus: "verified",
+		ActorStatus:      "verified",
+		MigrationSource:  migrationSource,
+	}
+	var existing validatedBatchContract
+	err := conn.QueryRowContext(ctx, `
+		SELECT platform_tenant_id, status, mapping_digest, script_checksum,
+			preflight_status, credential_status, actor_inventory_status, migration_source
+		FROM mochat_go_identity_migration_batches
+		WHERE request_id = ?
+		LIMIT 1
+		FOR UPDATE
+	`, options.RequestID).Scan(
+		&existing.PlatformTenantID, &existing.Status, &existing.MappingDigest, &existing.ScriptChecksum,
+		&existing.PreflightStatus, &existing.CredentialStatus, &existing.ActorStatus, &existing.MigrationSource,
+	)
+	if err == nil {
+		if !validatedBatchCompatible(existing, expected) {
+			return errors.New("identity staging batch conflict")
+		}
+		if err := validateStagedMappingRows(ctx, conn, options); err != nil {
+			return err
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return errors.New("identity staging batch lookup failed")
+	}
+	var existingMappingCount int
+	if err := conn.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM mochat_go_identity_migration_corp_map WHERE request_id = ?
+	`, options.RequestID).Scan(&existingMappingCount); err != nil {
+		return errors.New("identity staging mapping lookup failed")
+	}
+	if existingMappingCount != 0 {
+		return errors.New("identity staging mapping conflict")
+	}
+	if _, err := conn.ExecContext(ctx, `
+		INSERT INTO mochat_go_identity_migration_batches
+			(request_id, platform_tenant_id, status, mapping_digest, script_checksum, preflight_status, credential_status, actor_inventory_status)
+		VALUES (?, ?, 'validated', ?, ?, 'passed', 'verified', 'verified')
+	`, options.RequestID, options.PlatformTenantID, digest, options.ScriptChecksum); err != nil {
 		return errors.New("identity staging batch conflict")
 	}
 	for _, entry := range options.Mapping.Entries {
-		if _, err := conn.ExecContext(ctx, `INSERT INTO mochat_go_identity_migration_corp_map (request_id, tenant_id, corp_id, status) VALUES (?, ?, ?, 'validated')`, options.RequestID, entry.TenantID, entry.CorpID); err != nil {
+		if _, err := conn.ExecContext(ctx, `
+			INSERT INTO mochat_go_identity_migration_corp_map (request_id, tenant_id, corp_id, status)
+			VALUES (?, ?, ?, 'validated')
+		`, options.RequestID, entry.TenantID, entry.CorpID); err != nil {
 			return errors.New("identity staging mapping conflict")
 		}
+	}
+	return nil
+}
+
+func validateStagedMappingRows(ctx context.Context, conn queryer, options DatabaseOptions) error {
+	expected := append([]CorpMapping(nil), options.Mapping.Entries...)
+	sort.Slice(expected, func(i, j int) bool {
+		if expected[i].TenantID == expected[j].TenantID {
+			return expected[i].CorpID < expected[j].CorpID
+		}
+		return expected[i].TenantID < expected[j].TenantID
+	})
+	rows, err := conn.QueryContext(ctx, `
+		SELECT tenant_id, corp_id, status, migration_source
+		FROM mochat_go_identity_migration_corp_map
+		WHERE request_id = ?
+		ORDER BY tenant_id, corp_id
+	`, options.RequestID)
+	if err != nil {
+		return errors.New("identity staging mapping lookup failed")
+	}
+	defer rows.Close()
+	index := 0
+	for rows.Next() {
+		var tenantID, corpID int64
+		var status, source string
+		if err := rows.Scan(&tenantID, &corpID, &status, &source); err != nil {
+			return errors.New("identity staging mapping lookup failed")
+		}
+		if index >= len(expected) || tenantID != expected[index].TenantID || corpID != expected[index].CorpID || status != "validated" || source != migrationSource {
+			return errors.New("identity staging mapping conflict")
+		}
+		index++
+	}
+	if err := rows.Err(); err != nil {
+		return errors.New("identity staging mapping lookup failed")
+	}
+	if index != len(expected) {
+		return errors.New("identity staging mapping conflict")
 	}
 	return nil
 }
@@ -923,6 +1121,8 @@ func safePhaseName(value string) string {
 func statementPhase(statement string) string {
 	upper := strings.ToUpper(strings.TrimSpace(statement))
 	switch {
+	case strings.Contains(upper, "PLATFORM_TENANT"):
+		return "preflight"
 	case strings.Contains(upper, "FOREIGN KEY") && strings.Contains(upper, "SAAS_ADMIN_USER_ACCESS"):
 		return "fk_access"
 	case strings.Contains(upper, "FOREIGN KEY") && (strings.Contains(upper, "SAAS_ADMIN_USER_ROLES") || strings.Contains(upper, "RBAC_ROLE")):
@@ -937,6 +1137,8 @@ func statementPhase(statement string) string {
 func statementLabel(statement string) string {
 	upper := strings.ToUpper(strings.TrimSpace(statement))
 	switch {
+	case strings.Contains(upper, "PLATFORM_TENANT"):
+		return "platform_tenant"
 	case strings.Contains(upper, "FOREIGN KEY") && strings.Contains(upper, "SAAS_ADMIN_USER_ACCESS"):
 		return "access_fk"
 	case strings.Contains(upper, "FOREIGN KEY") && (strings.Contains(upper, "SAAS_ADMIN_USER_ROLES") || strings.Contains(upper, "RBAC_ROLE")):
