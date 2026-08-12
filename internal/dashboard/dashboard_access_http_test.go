@@ -70,13 +70,15 @@ func TestDashboardAccessHTTPProfilePublishesBindingStatus(t *testing.T) {
 	var envelope struct {
 		Data struct {
 			CorpBindingStatus string `json:"corpBindingStatus"`
+			CorpName          string `json:"corpName"`
+			UserName          string `json:"userName"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Data.CorpBindingStatus != "pending" {
-		t.Fatalf("corpBindingStatus=%q body=%s", envelope.Data.CorpBindingStatus, response.Body.String())
+	if envelope.Data.CorpBindingStatus != "pending" || envelope.Data.CorpName != "极义科技" || envelope.Data.UserName != "管理员" {
+		t.Fatalf("profile=%+v body=%s", envelope.Data, response.Body.String())
 	}
 }
 

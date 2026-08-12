@@ -48,6 +48,9 @@ export function DashboardLayout() {
     ...navigation.flatMap((group) => group.items),
   ];
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase('zh-CN');
+  const accountName = access?.profile?.userName.trim()
+    || sessionActions.userName?.trim()
+    || '未命名用户';
   const searchResults = normalizedSearch === ''
     ? []
     : searchableNavigation.filter((item) => (
@@ -150,7 +153,7 @@ export function DashboardLayout() {
         </div>
         <div className="dashboard-account-actions">
           {access !== null && <span className="dashboard-corp-badge">{access.corp.name}</span>}
-          {sessionActions.userId !== null && <span>{sessionActions.userName ?? `账号 ${sessionActions.userId}`}</span>}
+          {sessionActions.userId !== null && <span>{accountName}</span>}
           <button
             className="dashboard-logout-button"
             disabled={sessionActions.isLoggingOut}

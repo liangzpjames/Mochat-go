@@ -44,6 +44,7 @@ export type AccessProfile = {
   userName: string;
   tenantId: number;
   corpId: number;
+  corpName: string;
   workEmployeeId: number;
   departmentIds: number[];
   departmentEmployeeIds: number[];

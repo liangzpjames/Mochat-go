@@ -72,12 +72,38 @@ describe('Dashboard shell', () => {
 
   it('renders the header, sidebar, and content for a valid session', async () => {
     const onLogout = vi.fn(() => Promise.resolve());
-    renderDashboard({ session: true, onLogout });
+    renderDashboard({
+      session: true,
+      onLogout,
+      accessLoader: () => Promise.resolve({
+        session: { token: 'Bearer test', userId: '7', expiresAt: null },
+        corp: { id: '12', name: '极义科技', authorized: true },
+        profile: {
+          userId: 7,
+          userName: '王管理员',
+          tenantId: 1,
+          corpId: 12,
+          corpName: '极义科技',
+          workEmployeeId: 0,
+          departmentIds: [],
+          departmentEmployeeIds: [],
+          isSuperAdmin: true,
+          corpBindingStatus: 'verified',
+          catalog: [],
+          effectivePermissions: [],
+          allowedRoutes: [],
+        },
+        allowedRoutes: new Set(),
+        allowedActions: new Set(),
+      }),
+    });
 
     expect(await screen.findByRole('banner')).toBeTruthy();
     expect(screen.getByRole('navigation', { name: '主菜单' })).toBeTruthy();
     expect(screen.getByRole('main')).toBeTruthy();
-    expect(screen.getByText('账号 7')).toBeTruthy();
+    expect(screen.getByText('极义科技')).toBeTruthy();
+    expect(screen.getByText('王管理员')).toBeTruthy();
+    expect(screen.queryByText('账号 7')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
     await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
   });

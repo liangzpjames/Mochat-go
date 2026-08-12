@@ -58,7 +58,7 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
       const profile = await deps.loadProfile();
       const corp: DashboardCompanyContext = {
         id: String(profile.corpId),
-        name: `企业 ${profile.corpId}`,
+        name: profile.corpName.trim() || '未命名企业',
         authorized: profile.corpId > 0,
       };
       if (profile.corpBindingStatus === 'suspended') {

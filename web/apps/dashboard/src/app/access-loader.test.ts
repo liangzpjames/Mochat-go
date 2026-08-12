@@ -6,14 +6,14 @@ import { createAccessLoader } from './access-loader';
 import type { AccessProfile } from '../features/access/access-api';
 
 const session: Session = { token: 'token', userId: '7', expiresAt: Date.now() + 60_000 };
-const profile: AccessProfile = {
-  userId: 7, userName: '用户', tenantId: 1, corpId: 3, workEmployeeId: 9,
+const profile = {
+  userId: 7, userName: '王管理员', tenantId: 1, corpId: 3, corpName: '极义科技', workEmployeeId: 9,
   departmentIds: [], departmentEmployeeIds: [], isSuperAdmin: false,
   corpBindingStatus: 'verified',
   catalog: [{ id: 1, code: 'contacts', path: '/chat/v2-all', name: '会话', groupCode: 'conversation', sort: 1, superadminOnly: false, scopeRequired: false }],
   effectivePermissions: [{ code: 'contacts', path: '/chat/v2-all', name: '会话', scope: 'self', sources: [] }],
   allowedRoutes: ['/chat/v2-all'],
-};
+} as AccessProfile;
 
 function deps(overrides: Partial<Parameters<typeof createAccessLoader>[0]> = {}) {
   return {
@@ -65,7 +65,7 @@ describe('createAccessLoader', () => {
   it('uses the server profile binding without returning an enterprise selection state', async () => {
     await expect(createAccessLoader(deps())({ request: new Request('https://app.test/chat/v2-all') })).resolves.toMatchObject({
       session,
-      corp: { id: '3', name: '企业 3', authorized: true },
+      corp: { id: '3', name: '极义科技', authorized: true },
       profile,
     });
   });
@@ -78,7 +78,7 @@ describe('createAccessLoader', () => {
 
   it('returns the complete AccessProfile and grouped-route set for an allowed route', async () => {
     const result = await createAccessLoader(deps())({ request: new Request('https://app.test/chat/v2-all') });
-    expect(result).toMatchObject({ session, corp: { id: '3', name: '企业 3', authorized: true }, profile });
+    expect(result).toMatchObject({ session, corp: { id: '3', name: '极义科技', authorized: true }, profile });
     expect((result as { allowedRoutes: ReadonlySet<string> }).allowedRoutes).toEqual(new Set(['/chat/v2-all']));
   });
 

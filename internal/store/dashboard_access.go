@@ -71,11 +71,16 @@ func (s *MySQLStore) DashboardAccessIdentity(ctx context.Context, userID int) (d
 	var identity dashboard.DashboardAccessIdentity
 	var isSuperAdmin int
 	err := queryRow(ctx, `
-		SELECT id, tenant_id, COALESCE(name, ''), status, COALESCE(isSuperAdmin, 0)
-		FROM mc_user
-		WHERE id = ? AND deleted_at IS NULL
+		SELECT account.id, account.tenant_id, COALESCE(account.name, ''), account.status,
+			COALESCE(account.isSuperAdmin, 0), COALESCE(corp.name, '')
+		FROM mc_user account
+		LEFT JOIN mochat_go_tenant_corp_bindings binding
+			ON binding.tenant_id = account.tenant_id
+		LEFT JOIN mc_corp corp
+			ON corp.id = binding.corp_id AND corp.tenant_id = account.tenant_id AND corp.deleted_at IS NULL
+		WHERE account.id = ? AND account.deleted_at IS NULL
 		LIMIT 1
-	`, userID).Scan(&identity.UserID, &identity.TenantID, &identity.UserName, &identity.Status, &isSuperAdmin)
+	`, userID).Scan(&identity.UserID, &identity.TenantID, &identity.UserName, &identity.Status, &isSuperAdmin, &identity.CorpName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.DashboardAccessIdentity{}, false, nil
 	}

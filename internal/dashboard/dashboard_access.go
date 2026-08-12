@@ -25,6 +25,7 @@ type DashboardAccessIdentity struct {
 	UserID       int
 	TenantID     int
 	UserName     string
+	CorpName     string
 	Status       int
 	IsSuperAdmin bool
 }
@@ -84,6 +85,7 @@ type DashboardAccessProfile struct {
 	UserName              string                          `json:"userName"`
 	TenantID              int                             `json:"tenantId"`
 	CorpID                int                             `json:"corpId"`
+	CorpName              string                          `json:"corpName"`
 	WorkEmployeeID        int                             `json:"workEmployeeId"`
 	DepartmentIDs         []int                           `json:"departmentIds"`
 	DepartmentEmployeeIDs []int                           `json:"departmentEmployeeIds"`
@@ -128,8 +130,8 @@ func (service *DashboardAccessService) Resolve(ctx context.Context, userID, corp
 		return catalog[left].Sort < catalog[right].Sort
 	})
 	profile := DashboardAccessProfile{
-		UserID: identity.UserID, UserName: identity.UserName, TenantID: identity.TenantID,
-		CorpID: corpID, IsSuperAdmin: identity.IsSuperAdmin, Catalog: catalog,
+		UserID: identity.UserID, UserName: strings.TrimSpace(identity.UserName), TenantID: identity.TenantID,
+		CorpID: corpID, CorpName: strings.TrimSpace(identity.CorpName), IsSuperAdmin: identity.IsSuperAdmin, Catalog: catalog,
 		EffectivePermissions: []EffectivePermission{}, AllowedRoutes: []string{},
 		DepartmentIDs: []int{}, DepartmentEmployeeIDs: []int{},
 	}

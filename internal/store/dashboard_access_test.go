@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -46,7 +47,7 @@ func TestMySQLStoreDashboardAccessIdentityUsesJWTUserID(t *testing.T) {
 	var args []any
 	store := &MySQLStore{dashboardAccessQueryRow: func(_ context.Context, gotQuery string, gotArgs ...any) dashboardTenantAccessRow {
 		query, args = gotQuery, gotArgs
-		return fakeDashboardTenantAccessRow{values: []any{7, 9, "普通用户", 1, 0}}
+		return fakeDashboardTenantAccessRow{values: []any{7, 9, "普通用户", 1, 0, "极义科技"}}
 	}}
 	identity, found, err := store.DashboardAccessIdentity(context.Background(), 7)
 	if err != nil {
@@ -55,7 +56,16 @@ func TestMySQLStoreDashboardAccessIdentityUsesJWTUserID(t *testing.T) {
 	if !found || identity.UserID != 7 || identity.TenantID != 9 || identity.IsSuperAdmin {
 		t.Fatalf("identity=%+v found=%v", identity, found)
 	}
-	if !strings.Contains(query, "WHERE id = ?") || !reflect.DeepEqual(args, []any{7}) {
+	identityJSON, err := json.Marshal(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(identityJSON), `"CorpName":"极义科技"`) {
+		t.Fatalf("identity=%s, want filled company name", identityJSON)
+	}
+	if !strings.Contains(query, "binding.tenant_id = account.tenant_id") ||
+		!strings.Contains(query, "corp.id = binding.corp_id") ||
+		!strings.Contains(query, "WHERE account.id = ?") || !reflect.DeepEqual(args, []any{7}) {
 		t.Fatalf("query=%q args=%v", query, args)
 	}
 }

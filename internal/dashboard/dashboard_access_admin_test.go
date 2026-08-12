@@ -103,7 +103,7 @@ func (store *fakeDashboardAccessAdminStore) DeleteDashboardRole(_ context.Contex
 func newDashboardAccessAdminFixture() (*DashboardAccessAdminService, *fakeDashboardAccessAdminStore) {
 	store := &fakeDashboardAccessAdminStore{
 		identities: map[int]DashboardAccessIdentity{
-			1: {UserID: 1, TenantID: 9, UserName: "管理员", Status: 1, IsSuperAdmin: true},
+			1: {UserID: 1, TenantID: 9, UserName: "管理员", CorpName: "极义科技", Status: 1, IsSuperAdmin: true},
 			2: {UserID: 2, TenantID: 9, UserName: "普通用户", Status: 1},
 		},
 		catalog: []DashboardPermissionDefinition{

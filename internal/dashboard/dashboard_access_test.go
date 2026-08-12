@@ -50,7 +50,7 @@ func TestDashboardAccessResolvesDirectAndAllEnabledRoles(t *testing.T) {
 	}
 	store := &fakeDashboardAccessStore{
 		identityFound: true,
-		identity:      DashboardAccessIdentity{UserID: 7, TenantID: 9, UserName: "普通用户", Status: 1},
+		identity:      DashboardAccessIdentity{UserID: 7, TenantID: 9, UserName: "普通用户", CorpName: "极义科技", Status: 1},
 		catalog:       catalog,
 		employeeFound: true,
 		employeeScope: DashboardEmployeeScope{EmployeeID: 31, DepartmentIDs: []int{2}, DepartmentEmployeeIDs: []int{31, 32}},
@@ -72,7 +72,7 @@ func TestDashboardAccessResolvesDirectAndAllEnabledRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.UserID != 7 || profile.TenantID != 9 || profile.CorpID != 21 || profile.WorkEmployeeID != 31 || profile.IsSuperAdmin {
+	if profile.UserID != 7 || profile.UserName != "普通用户" || profile.TenantID != 9 || profile.CorpID != 21 || profile.CorpName != "极义科技" || profile.WorkEmployeeID != 31 || profile.IsSuperAdmin {
 		t.Fatalf("profile = %+v", profile)
 	}
 	if !reflect.DeepEqual(profile.DepartmentIDs, []int{2}) || !reflect.DeepEqual(profile.DepartmentEmployeeIDs, []int{31, 32}) {
