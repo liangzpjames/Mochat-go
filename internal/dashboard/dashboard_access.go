@@ -88,6 +88,7 @@ type DashboardAccessProfile struct {
 	DepartmentIDs         []int                           `json:"departmentIds"`
 	DepartmentEmployeeIDs []int                           `json:"departmentEmployeeIds"`
 	IsSuperAdmin          bool                            `json:"isSuperAdmin"`
+	CorpBindingStatus     string                          `json:"corpBindingStatus"`
 	Catalog               []DashboardPermissionDefinition `json:"catalog"`
 	EffectivePermissions  []EffectivePermission           `json:"effectivePermissions"`
 	AllowedRoutes         []string                        `json:"allowedRoutes"`

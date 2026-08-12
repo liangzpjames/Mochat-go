@@ -72,6 +72,48 @@ func TestDashboardAccessGuardProfileRequiresAuthenticationAndTenantGate(t *testi
 	}
 }
 
+func TestDashboardAccessGuardPendingBindingAllowsOnlyConfigurationContracts(t *testing.T) {
+	tests := []struct {
+		name        string
+		method      string
+		path        string
+		superadmin  bool
+		wantAllowed bool
+		wantCode    string
+	}{
+		{name: "business page", method: http.MethodGet, path: "/dashboard/workContact/123", wantCode: "CORP_CONFIGURATION_REQUIRED"},
+		{name: "profile", method: http.MethodGet, path: "/dashboard/access/profile", superadmin: true, wantAllowed: true},
+		{name: "company profile for superadmin", method: http.MethodGet, path: "/dashboard/company/profile", superadmin: true, wantAllowed: true},
+		{name: "company profile for ordinary user", method: http.MethodGet, path: "/dashboard/company/profile", wantCode: DashboardPermissionDeniedCode},
+		{name: "employee sync remains blocked", method: http.MethodPost, path: "/dashboard/company/employee-sync", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
+		{name: "sync status remains blocked", method: http.MethodGet, path: "/dashboard/company/sync-status", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
+		{name: "unknown api remains blocked", method: http.MethodGet, path: "/dashboard/not-classified", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
+		{name: "session", method: http.MethodGet, path: "/dashboard/auth/session", superadmin: true, wantAllowed: true},
+		{name: "security MFA is not a configuration contract", method: http.MethodGet, path: "/dashboard/user/securityMFA", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
+		{name: "logout", method: http.MethodPost, path: "/dashboard/auth/logout", superadmin: true, wantAllowed: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			guard, _ := newDashboardAccessGuardFixture(test.superadmin)
+			request := dashboardAccessGuardRequest(guard, test.method, test.path, nil)
+			principal, err := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			principal.CorpStatus = dashboardprincipal.CorpBindingStatusPending
+			request = request.WithContext(dashboardprincipal.WithPrincipal(request.Context(), principal))
+			response := httptest.NewRecorder()
+			got := guard.Authorize(response, request)
+			if got != test.wantAllowed {
+				t.Fatalf("Authorize=%v status=%d body=%s", got, response.Code, response.Body.String())
+			}
+			if !test.wantAllowed && (response.Code != http.StatusForbidden || machineCode(t, response) != test.wantCode) {
+				t.Fatalf("status=%d body=%s wantCode=%s", response.Code, response.Body.String(), test.wantCode)
+			}
+		})
+	}
+}
+
 func TestDashboardAccessGuardManagementRoutesAreSuperadminOnly(t *testing.T) {
 	for _, contract := range []struct{ method, path string }{
 		{http.MethodGet, "/dashboard/access/catalog"},

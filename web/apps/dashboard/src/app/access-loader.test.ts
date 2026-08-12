@@ -9,6 +9,7 @@ const session: Session = { token: 'token', userId: '7', expiresAt: Date.now() + 
 const profile: AccessProfile = {
   userId: 7, userName: '用户', tenantId: 1, corpId: 3, workEmployeeId: 9,
   departmentIds: [], departmentEmployeeIds: [], isSuperAdmin: false,
+  corpBindingStatus: 'verified',
   catalog: [{ id: 1, code: 'contacts', path: '/chat/v2-all', name: '会话', groupCode: 'conversation', sort: 1, superadminOnly: false, scopeRequired: false }],
   effectivePermissions: [{ code: 'contacts', path: '/chat/v2-all', name: '会话', scope: 'self', sources: [] }],
   allowedRoutes: ['/chat/v2-all'],
@@ -79,6 +80,27 @@ describe('createAccessLoader', () => {
     const result = await createAccessLoader(deps())({ request: new Request('https://app.test/chat/v2-all') });
     expect(result).toMatchObject({ session, corp: { id: '3', name: '企业 3', authorized: true }, profile });
     expect((result as { allowedRoutes: ReadonlySet<string> }).allowedRoutes).toEqual(new Set(['/chat/v2-all']));
+  });
+
+  it('redirects a pending binding to settings and keeps the session', async () => {
+    const pendingProfile = { ...profile, corpBindingStatus: 'pending' as const };
+    const loadProfile = vi.fn(() => Promise.resolve(pendingProfile));
+    const pendingDeps = deps({
+      loadProfile,
+      knownRoutes: new Set(['/index', '/company-setting/website', '/chat/v2-all']),
+      manifestRoutes: new Set(['/index', '/company-setting/website', '/chat/v2-all']),
+    });
+    await expectRedirect(
+      createAccessLoader(pendingDeps)({ request: new Request('https://app.test/index') }),
+      '/company-setting/website',
+    );
+    expect(pendingDeps.clearSession).not.toHaveBeenCalled();
+    await expect(createAccessLoader(pendingDeps)({
+      request: new Request('https://app.test/company-setting/website'),
+    })).resolves.toMatchObject({
+      profile: pendingProfile,
+      allowedRoutes: new Set(['/company-setting/website']),
+    });
   });
 
   it('does not let a flat benchmark route set grant access', async () => {

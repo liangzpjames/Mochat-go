@@ -9,7 +9,10 @@ import (
 	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
-const DashboardPermissionDeniedCode = "DASHBOARD_PERMISSION_DENIED"
+const (
+	DashboardPermissionDeniedCode          = "DASHBOARD_PERMISSION_DENIED"
+	DashboardCorpConfigurationRequiredCode = "CORP_CONFIGURATION_REQUIRED"
+)
 
 type DashboardAccessContext struct {
 	UserID             int
@@ -86,6 +89,9 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 		return false
 	}
 	userID := principal.UserID
+	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusPending {
+		return guard.authorizePendingBinding(w, request, principal, contract)
+	}
 
 	if contract == "GET /dashboard/access/profile" {
 		guard.attachIdentityContext(request, principal)
@@ -143,6 +149,44 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 	}
 	*request = *request.WithContext(WithDashboardAccessContext(request.Context(), access))
 	return true
+}
+
+func (guard *DashboardAccessGuard) authorizePendingBinding(w http.ResponseWriter, request *http.Request, principal dashboardprincipal.DashboardPrincipal, contract string) bool {
+	if contract == "GET /dashboard/access/profile" || contract == "GET /dashboard/auth/session" ||
+		contract == "POST /dashboard/auth/logout" || contract == "PUT /dashboard/user/logout" {
+		guard.attachIdentityContext(request, principal)
+		return true
+	}
+	if isPendingCompanySyncContract(contract) {
+		writeDashboardCorpConfigurationRequired(w)
+		return false
+	}
+	if isPendingCompanyConfigurationContract(contract) {
+		if !principal.IsSuperAdmin {
+			writeDashboardPermissionDenied(w)
+			return false
+		}
+		guard.attachIdentityContext(request, principal)
+		return true
+	}
+	writeDashboardCorpConfigurationRequired(w)
+	return false
+}
+
+func isPendingCompanyConfigurationContract(contract string) bool {
+	switch contract {
+	case "GET /dashboard/company/profile", "PUT /dashboard/company/profile",
+		"PUT /dashboard/company/wecom-credentials", "PUT /dashboard/company/agent-credentials",
+		"PUT /dashboard/company/archive-credentials", "POST /dashboard/company/verify",
+		"GET /dashboard/company/audits":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPendingCompanySyncContract(contract string) bool {
+	return contract == "POST /dashboard/company/employee-sync" || contract == "GET /dashboard/company/sync-status"
 }
 
 func isDashboardAccessManagementRoute(contract string) bool {
@@ -290,6 +334,10 @@ func isDashboardSaaSPath(path string) bool {
 
 func writeDashboardPermissionDenied(w http.ResponseWriter) {
 	writeMachineEnvelope(w, http.StatusForbidden, DashboardPermissionDeniedCode, "dashboard permission denied", nil)
+}
+
+func writeDashboardCorpConfigurationRequired(w http.ResponseWriter) {
+	writeMachineEnvelope(w, http.StatusForbidden, DashboardCorpConfigurationRequiredCode, "corp configuration required", nil)
 }
 
 func uniqueStrings(values []string) []string {

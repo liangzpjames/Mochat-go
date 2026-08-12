@@ -48,6 +48,7 @@ func (handler *DashboardAccessHTTP) ServeHTTP(w http.ResponseWriter, request *ht
 			corpID = access.CorpID
 		}
 		result, err := handler.service.Profile(request.Context(), actorUserID, corpID)
+		result.CorpBindingStatus = dashboardCorpBindingStatus(principal.CorpStatus)
 		handler.writeResult(w, http.StatusOK, result, err)
 		return
 	case "/dashboard/access/catalog":
@@ -82,6 +83,19 @@ func (handler *DashboardAccessHTTP) ServeHTTP(w http.ResponseWriter, request *ht
 		return
 	}
 	writeDashboardAccessNotFound(w)
+}
+
+func dashboardCorpBindingStatus(status dashboardprincipal.CorpBindingStatus) string {
+	switch status {
+	case dashboardprincipal.CorpBindingStatusPending:
+		return "pending"
+	case dashboardprincipal.CorpBindingStatusActive:
+		return "verified"
+	case dashboardprincipal.CorpBindingStatusSuspended:
+		return "suspended"
+	default:
+		return ""
+	}
 }
 
 func (handler *DashboardAccessHTTP) serveUsers(w http.ResponseWriter, request *http.Request, actorUserID int) {

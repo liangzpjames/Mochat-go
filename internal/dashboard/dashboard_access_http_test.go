@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
 func TestDashboardAccessHTTPRoutes(t *testing.T) {
@@ -47,6 +49,34 @@ func TestDashboardAccessHTTPRoutes(t *testing.T) {
 				t.Fatalf("envelope=%+v error=%v body=%s", envelope, err, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestDashboardAccessHTTPProfilePublishesBindingStatus(t *testing.T) {
+	service, _ := newDashboardAccessAdminFixture()
+	handler := NewDashboardAccessHTTP(service)
+	request := dashboardAccessHTTPTestRequest(http.MethodGet, "/dashboard/access/profile", nil)
+	principal, err := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal.CorpStatus = dashboardprincipal.CorpBindingStatusPending
+	request = request.WithContext(dashboardprincipal.WithPrincipal(request.Context(), principal))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			CorpBindingStatus string `json:"corpBindingStatus"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.CorpBindingStatus != "pending" {
+		t.Fatalf("corpBindingStatus=%q body=%s", envelope.Data.CorpBindingStatus, response.Body.String())
 	}
 }
 

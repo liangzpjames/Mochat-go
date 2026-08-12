@@ -61,6 +61,23 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
         name: `企业 ${profile.corpId}`,
         authorized: profile.corpId > 0,
       };
+      if (profile.corpBindingStatus === 'suspended') {
+        deps.clearSession();
+        throwRouterResponse(redirect('/login'));
+      }
+      if (profile.corpBindingStatus === 'pending') {
+        const settingsPath = '/company-setting/website';
+        if (pathname !== settingsPath) {
+          throwRouterResponse(redirect(settingsPath));
+        }
+        return {
+          session,
+          corp,
+          profile,
+          allowedRoutes: new Set([settingsPath]),
+          allowedActions: new Set(),
+        };
+      }
       const routes = new Set<string>();
       const actions = new Set<string>();
       const catalogByPath = new Map(profile.catalog.map((item) => [item.path, item]));

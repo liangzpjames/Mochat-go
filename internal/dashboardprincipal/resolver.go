@@ -107,7 +107,7 @@ func (resolver *Resolver) Resolve(ctx context.Context, identity AuthenticatedIde
 	}
 
 	binding, err := resolver.bindings.ResolveBinding(ctx, identity.TenantID)
-	if err != nil || !validBindingForTenant(binding, identity.TenantID) || binding.Status == CorpBindingStatusSuspended {
+	if err != nil || !validBindingForTenant(binding, identity.TenantID) {
 		return DashboardPrincipal{}, ErrPrincipalUnavailable
 	}
 

@@ -105,7 +105,6 @@ func TestResolverRejectsMissingDuplicateSuspendedAndMismatchedBindings(t *testin
 	}{
 		{name: "missing", err: ErrBindingUnavailable},
 		{name: "duplicate", binding: Binding{TenantID: 902, CorpID: 77, Status: CorpBindingStatusActive, Version: 2, Count: 2}},
-		{name: "suspended", binding: Binding{TenantID: 902, CorpID: 77, Status: CorpBindingStatusSuspended, Version: 2}},
 		{name: "tenant mismatch", binding: Binding{TenantID: 903, CorpID: 77, Status: CorpBindingStatusActive, Version: 2}},
 		{name: "corp missing", binding: Binding{TenantID: 902, CorpID: 0, Status: CorpBindingStatusActive, Version: 2}},
 	}
@@ -122,6 +121,25 @@ func TestResolverRejectsMissingDuplicateSuspendedAndMismatchedBindings(t *testin
 				t.Fatalf("err = %v, want ErrPrincipalUnavailable", err)
 			}
 		})
+	}
+}
+
+func TestResolverCarriesSuspendedBindingForTenantGuard(t *testing.T) {
+	resolver, err := NewResolver(
+		&resolverTenantGate{allowed: true},
+		&resolverBindingStore{binding: Binding{TenantID: 902, CorpID: 77, Status: CorpBindingStatusSuspended, Version: 2}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, err := resolver.Resolve(context.Background(), AuthenticatedIdentity{
+		UserID: 7, TenantID: 902, AuthVersion: 1, Active: true,
+	}, time.Unix(123, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if principal.CorpStatus != CorpBindingStatusSuspended {
+		t.Fatalf("CorpStatus=%q", principal.CorpStatus)
 	}
 }
 

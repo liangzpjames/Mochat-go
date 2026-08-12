@@ -48,6 +48,7 @@ export type AccessProfile = {
   departmentIds: number[];
   departmentEmployeeIds: number[];
   isSuperAdmin: boolean;
+  corpBindingStatus: 'pending' | 'verified' | 'suspended';
   catalog: AccessCatalogItem[];
   effectivePermissions: EffectivePermission[];
   allowedRoutes: string[];
