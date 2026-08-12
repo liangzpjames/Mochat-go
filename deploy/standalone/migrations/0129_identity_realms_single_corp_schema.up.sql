@@ -120,7 +120,7 @@ EXECUTE identity_unknown_tenant_fk_guard_stmt;
 DEALLOCATE PREPARE identity_unknown_tenant_fk_guard_stmt;
 
 -- Index dependencies are allowlisted by table, name and ordered columns. This
--- includes the indexes created by 0127 and the target indexes used by 0129.
+-- includes 0127 indexes, the legacy 0067 credential index, and 0129 targets.
 SET @identity_unknown_tenant_index_count := (
   SELECT COUNT(*)
   FROM (
@@ -149,6 +149,7 @@ SET @identity_unknown_tenant_index_count := (
   WHERE NOT (
     (`table_name` = 'mc_user' AND `index_name` = 'uni_dashboard_user_tenant_id_id' AND `signature` = 'tenant_id,id')
     OR (`table_name` = 'mc_corp' AND `index_name` = 'uni_mc_corp_tenant_id_id' AND `signature` = 'tenant_id,id')
+    OR (`table_name` = 'mc_corp' AND `index_name` = 'idx_mc_corp_wecom_credential_key' AND `signature` = 'wecom_credentials_key_id,tenant_id,id')
     OR (`table_name` = 'mc_rbac_role' AND `index_name` = 'uni_dashboard_role_tenant_id_id' AND `signature` = 'tenant_id,id')
     OR (`table_name` = 'mochat_go_dashboard_user_roles' AND `index_name` = 'uni_dashboard_user_roles' AND `signature` = 'tenant_id,user_id,role_id')
     OR (`table_name` = 'mochat_go_dashboard_user_roles' AND `index_name` = 'idx_dashboard_user_roles_role' AND `signature` = 'tenant_id,role_id,user_id')

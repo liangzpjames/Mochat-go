@@ -122,6 +122,22 @@ func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 	}
 }
 
+func TestIdentityRealmsSingleCorpTenantDependencyIndexAllowlistContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0129_identity_realms_single_corp_schema.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := strings.ReplaceAll(strings.ToLower(string(body)), "`", "")
+	known := "or (table_name = 'mc_corp' and index_name = 'idx_mc_corp_wecom_credential_key' and signature = 'wecom_credentials_key_id,tenant_id,id')"
+	if !strings.Contains(normalized, known) {
+		t.Fatalf("0129 allowlist missing legacy mc_corp credential index signature: %s", known)
+	}
+	if !strings.Contains(normalized, "0129 unknown tenant dependency index") {
+		t.Fatal("0129 must retain the fail-closed unknown tenant dependency index guard")
+	}
+}
+
 func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 	db := newIdentitySingleCorpMigrationDB(t)
 
@@ -243,6 +259,30 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		}
 		assertIdentityTableMissing(t, db, "mochat_go_saas_admin_users")
 		assertIdentityColumnType(t, db, "mc_user", "tenant_id", "int(11)")
+	})
+
+	t.Run("fresh compose-like schema allows the legacy mc_corp credential index", func(t *testing.T) {
+		db := newIdentitySingleCorpMigrationDB(t)
+		createIdentitySingleCorpBaseFixture(t, db)
+		if _, err := db.Exec("ALTER TABLE mc_corp ADD INDEX idx_mc_corp_wecom_credential_key (wecom_credentials_key_id, tenant_id, id)"); err != nil {
+			t.Fatal(err)
+		}
+		execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false)
+		assertIdentityTableExists(t, db, "mochat_go_saas_admin_users")
+		assertIdentityIndexExists(t, db, "mc_corp", "idx_mc_corp_wecom_credential_key")
+	})
+
+	t.Run("preflight rejects an unknown mc_corp tenant index", func(t *testing.T) {
+		db := newIdentitySingleCorpMigrationDB(t)
+		createIdentitySingleCorpBaseFixture(t, db)
+		if _, err := db.Exec("ALTER TABLE mc_corp ADD INDEX idx_unknown_tenant_dependency (tenant_id)"); err != nil {
+			t.Fatal(err)
+		}
+		err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", true)
+		if !strings.Contains(strings.ToLower(err.Error()), "unknown tenant dependency index") {
+			t.Fatalf("error=%v", err)
+		}
+		assertIdentityTableMissing(t, db, "mochat_go_saas_admin_users")
 	})
 
 	t.Run("preflight rejects dangling known relation when its FK was removed", func(t *testing.T) {
