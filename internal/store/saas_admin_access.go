@@ -205,7 +205,7 @@ func (s *MySQLStore) SaaSAdminAccessAssignments(ctx context.Context, platformTen
 		options.Limit = 100
 	}
 	if platformTenantID <= 0 {
-		return nil, dashboard.NewSaaSAdminBadRequest("platformTenantId 鏃犳晥")
+		return nil, dashboard.NewSaaSAdminBadRequest("platformTenantId 无效")
 	}
 	where := []string{"1 = 1"}
 	args := []any{}
