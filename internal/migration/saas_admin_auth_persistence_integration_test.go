@@ -222,6 +222,7 @@ func newRealSaaSHTTPHandler(t *testing.T, service *saasauth.Service, persistence
 	handler, err := saasauth.NewHTTPHandler(saasauth.HTTPConfig{
 		Service: service, Persistence: persistence, Signer: tokens, Parser: parser,
 		MFAKey: make([]byte, 32), MFAKeyID: "task5-real-mfa",
+		MFARequired: true,
 	})
 	if err != nil {
 		t.Fatal(err)

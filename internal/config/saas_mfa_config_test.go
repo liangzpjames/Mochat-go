@@ -106,6 +106,65 @@ func TestDashboardMFAUsesProtectedSecretFileInDeploymentContract(t *testing.T) {
 	}
 }
 
+func TestRealmMFARequiredConfigDefaultsOffAndParsesStrictly(t *testing.T) {
+	cases := []struct {
+		name           string
+		saasValue      string
+		dashboardValue string
+		wantSaaS       bool
+		wantDashboard  bool
+		wantError      bool
+	}{
+		{name: "default", wantSaaS: false, wantDashboard: false},
+		{name: "explicit zero", saasValue: "0", dashboardValue: "0", wantSaaS: false, wantDashboard: false},
+		{name: "explicit one", saasValue: "1", dashboardValue: "1", wantSaaS: true, wantDashboard: true},
+		{name: "SaaS only", saasValue: "1", dashboardValue: "0", wantSaaS: true, wantDashboard: false},
+		{name: "Dashboard only", saasValue: "0", dashboardValue: "1", wantSaaS: false, wantDashboard: true},
+		{name: "invalid SaaS value", saasValue: "maybe", wantError: true},
+		{name: "invalid Dashboard value", dashboardValue: "maybe", wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			if tc.saasValue != "" {
+				t.Setenv("MOCHAT_SAAS_ADMIN_MFA_REQUIRED", tc.saasValue)
+			}
+			if tc.dashboardValue != "" {
+				t.Setenv("MOCHAT_DASHBOARD_MFA_REQUIRED", tc.dashboardValue)
+			}
+			cfg, err := FromEnv()
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("invalid MFA requirement value was accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.SaaSAdminMFARequired != tc.wantSaaS || cfg.DashboardMFARequired != tc.wantDashboard {
+				t.Fatalf("MFA requirements = SaaS %t Dashboard %t", cfg.SaaSAdminMFARequired, cfg.DashboardMFARequired)
+			}
+		})
+	}
+}
+
+func TestStandaloneComposeDocumentsIndependentMFARequirementDefaults(t *testing.T) {
+	compose, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	composeText := string(compose)
+	for _, expression := range []string{
+		`MOCHAT_SAAS_ADMIN_MFA_REQUIRED: "${MOCHAT_SAAS_ADMIN_MFA_REQUIRED:-0}"`,
+		`MOCHAT_DASHBOARD_MFA_REQUIRED: "${MOCHAT_DASHBOARD_MFA_REQUIRED:-0}"`,
+	} {
+		if !strings.Contains(composeText, expression) {
+			t.Fatalf("Compose is missing independent MFA default %q", expression)
+		}
+	}
+}
+
 func TestIdentityRealmValidationRejectsSharedMFAKeyOrKeyID(t *testing.T) {
 	base := Config{
 		EnableSaaSAdminDashboard: true,

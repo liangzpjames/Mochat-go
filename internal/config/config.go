@@ -70,6 +70,7 @@ type Config struct {
 	SaaSAdminJWTTTL                                    time.Duration
 	SaaSAdminMFAEncryptionKey                          string
 	SaaSAdminMFAEncryptionKeyID                        string
+	SaaSAdminMFARequired                               bool
 	DashboardJWTSecret                                 string
 	DashboardJWTIssuer                                 string
 	DashboardJWTAudience                               string
@@ -77,6 +78,7 @@ type Config struct {
 	DashboardJWTTTL                                    time.Duration
 	DashboardMFAEncryptionKey                          string
 	DashboardMFAEncryptionKeyID                        string
+	DashboardMFARequired                               bool
 	SidebarJWTSecret                                   string
 	SidebarJWTPrefix                                   string
 	RedisAddr                                          string
@@ -586,7 +588,15 @@ func FromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	saasAdminMFARequired, err := envBoolStrictDefault("MOCHAT_SAAS_ADMIN_MFA_REQUIRED", false)
+	if err != nil {
+		return Config{}, err
+	}
 	dashboardMFAEncryptionKey, err := readSecretFile("MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE")
+	if err != nil {
+		return Config{}, err
+	}
+	dashboardMFARequired, err := envBoolStrictDefault("MOCHAT_DASHBOARD_MFA_REQUIRED", false)
 	if err != nil {
 		return Config{}, err
 	}
@@ -1277,6 +1287,7 @@ func FromEnv() (Config, error) {
 		SaaSAdminJWTTTL:                                    time.Duration(saasAdminJWTTTL) * time.Second,
 		SaaSAdminMFAEncryptionKey:                          strings.TrimSpace(saasAdminMFAEncryptionKey),
 		SaaSAdminMFAEncryptionKeyID:                        strings.TrimSpace(envFirst("MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID")),
+		SaaSAdminMFARequired:                               saasAdminMFARequired,
 		DashboardJWTSecret:                                 envFirst("MOCHAT_DASHBOARD_JWT_SECRET"),
 		DashboardJWTIssuer:                                 strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_ISSUER")),
 		DashboardJWTAudience:                               strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_JWT_AUDIENCE")),
@@ -1284,6 +1295,7 @@ func FromEnv() (Config, error) {
 		DashboardJWTTTL:                                    time.Duration(dashboardJWTTTL) * time.Second,
 		DashboardMFAEncryptionKey:                          strings.TrimSpace(dashboardMFAEncryptionKey),
 		DashboardMFAEncryptionKeyID:                        strings.TrimSpace(envFirst("MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID")),
+		DashboardMFARequired:                               dashboardMFARequired,
 		SidebarJWTSecret:                                   envOrDefault("MOCHAT_SIDEBAR_JWT_SECRET", envOrDefault("SIDEBAR_JWT_SECRET", "Br3LXhp&Ysha1zRDh")),
 		SidebarJWTPrefix:                                   envOrDefault("MOCHAT_SIDEBAR_JWT_PREFIX", envOrDefault("SIDEBAR_JWT_PREFIX", "default")),
 		RedisAddr:                                          redisAddrFromEnv(),
@@ -2286,6 +2298,21 @@ func envDefaultIfUnset(key, fallback string) string {
 func envBool(key string) bool {
 	value := os.Getenv(key)
 	return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES"
+}
+
+func envBoolStrictDefault(key string, defaultValue bool) (bool, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		return defaultValue, nil
+	}
+	switch value {
+	case "1", "true", "TRUE", "yes", "YES":
+		return true, nil
+	case "0", "false", "FALSE", "no", "NO":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be one of 0, 1, true, false, yes, or no", key)
+	}
 }
 
 func envBoolDefault(key string, defaultValue bool) bool {

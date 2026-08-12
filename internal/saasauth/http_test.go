@@ -177,7 +177,40 @@ func testSaaSHTTPConfig(identityStore SaaSIdentityStore, persistence SaaSAuthPer
 	}
 	return HTTPConfig{
 		Service: service, Persistence: persistence, Signer: tokens, MFAKey: []byte("01234567890123456789012345678901"), MFAKeyID: "test-mfa",
-		Parser: authrealm.Parser{Config: tokens, ValidateSession: persistence.CheckSessionToken},
+		MFARequired: true,
+		Parser:      authrealm.Parser{Config: tokens, ValidateSession: persistence.CheckSessionToken},
+	}
+}
+
+func TestSaaSAuthMFARequirementOffIssuesTokenEvenWithActiveCredential(t *testing.T) {
+	passwordHash, err := HashPassword("saas-mfa-off-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := SaaSIdentity{ID: 19, LoginName: "mfa-off-admin", PasswordHash: passwordHash, Status: SaaSIdentityStatusActive, AuthVersion: 3, MFARequired: 1}
+	persistence := newMemorySaaSAuthPersistence(identity)
+	persistence.statuses[identity.ID] = SaaSMFAStatusActive
+	identityStore := &fakeSaaSIdentityStore{authenticate: func(_ context.Context, login string) (SaaSIdentity, error) {
+		if login != identity.LoginName {
+			return SaaSIdentity{}, ErrIdentityNotFound
+		}
+		return identity, nil
+	}}
+	config := testSaaSHTTPConfig(identityStore, persistence)
+	config.MFARequired = false
+	handler, err := NewHTTPHandler(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/saas/auth/login", strings.NewReader(`{"login":"mfa-off-admin","password":"saas-mfa-off-password"}`)))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"token"`) {
+		t.Fatalf("MFA-off login status=%d bodyBytes=%d", response.Code, response.Body.Len())
+	}
+	persistence.mu.Lock()
+	defer persistence.mu.Unlock()
+	if len(persistence.challenges) != 0 || len(persistence.sessions) != 1 {
+		t.Fatalf("MFA-off created challenges=%d sessions=%d", len(persistence.challenges), len(persistence.sessions))
 	}
 }
 

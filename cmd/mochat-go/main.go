@@ -64,6 +64,7 @@ func main() {
 		log.Fatalf("load application timezone: %v", err)
 	}
 	log.Printf("runtime mode: role=%s standalone=%t all_migrated_routes_default=%t php_fallback_enabled=%t", cfg.RuntimeRole, cfg.Standalone, cfg.EnableAllMigratedRoutes, strings.TrimSpace(cfg.PHPUpstream) != "")
+	log.Printf("identity MFA requirements: saas_admin_required=%t dashboard_required=%t", cfg.SaaSAdminMFARequired, cfg.DashboardMFARequired)
 	alertCredentialManager, err := saasalertcredentials.NewManager(saasalertcredentials.Config{
 		EncryptionKey:       cfg.SaaSAlertCredentialEncryptionKey,
 		EncryptionKeys:      cfg.SaaSAlertCredentialEncryptionKeys,
@@ -175,6 +176,7 @@ func main() {
 			Parser:      saasParser,
 			MFAKey:      saasMFAKey,
 			MFAKeyID:    cfg.SaaSAdminMFAEncryptionKeyID,
+			MFARequired: cfg.SaaSAdminMFARequired,
 		})
 		if authErr != nil {
 			log.Fatalf("build SaaS authentication handler: %v", authErr)
@@ -394,7 +396,8 @@ func main() {
 			Service: dashboardIdentityService, Persistence: dashboardIdentityStore,
 			Signer: dashboardTokenConfig, Parser: dashboardParser,
 			MFAKey: dashboardMFAKey, MFAKeyID: cfg.DashboardMFAEncryptionKeyID,
-			TenantGate: dashboardTenantGate, PrincipalResolver: dashboardPrincipalResolver,
+			MFARequired: cfg.DashboardMFARequired,
+			TenantGate:  dashboardTenantGate, PrincipalResolver: dashboardPrincipalResolver,
 		})
 		if authErr != nil {
 			log.Fatalf("build Dashboard authentication handler: %v", authErr)

@@ -53,6 +53,7 @@ type HTTPConfig struct {
 	Parser            authrealm.Parser
 	MFAKey            []byte
 	MFAKeyID          string
+	MFARequired       bool
 	TenantGate        DashboardTenantGate
 	Now               func() time.Time
 }
@@ -64,6 +65,7 @@ type HTTPHandler struct {
 	signer            authrealm.TokenConfig
 	parser            authrealm.Parser
 	protector         *DashboardMFAProtector
+	mfaRequired       bool
 	tenantGate        DashboardTenantGate
 	now               func() time.Time
 }
@@ -95,6 +97,7 @@ func NewHTTPHandler(config HTTPConfig) (*HTTPHandler, error) {
 		signer:            config.Signer,
 		parser:            config.Parser,
 		protector:         protector,
+		mfaRequired:       config.MFARequired,
 		tenantGate:        config.TenantGate,
 		now:               config.Now,
 	}, nil
@@ -169,7 +172,7 @@ func (handler *HTTPHandler) login(w http.ResponseWriter, r *http.Request) {
 	if !handler.authorizeTenant(w, r.Context(), identity.UserID) {
 		return
 	}
-	if identity.MFARequired != 0 {
+	if handler.mfaRequired && identity.MFARequired != 0 {
 		status, err := handler.persistence.MFAStatus(r.Context(), identity.UserID)
 		if err != nil {
 			writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)

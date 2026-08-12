@@ -29,6 +29,7 @@ type HTTPConfig struct {
 	Parser      authrealm.Parser
 	MFAKey      []byte
 	MFAKeyID    string
+	MFARequired bool
 }
 
 type HTTPHandler struct {
@@ -37,6 +38,7 @@ type HTTPHandler struct {
 	signer      authrealm.TokenConfig
 	parser      authrealm.Parser
 	protector   *MFAProtector
+	mfaRequired bool
 	now         func() time.Time
 }
 
@@ -66,6 +68,7 @@ func NewHTTPHandler(config HTTPConfig) (*HTTPHandler, error) {
 		signer:      config.Signer,
 		parser:      config.Parser,
 		protector:   protector,
+		mfaRequired: config.MFARequired,
 		now:         time.Now,
 	}, nil
 }
@@ -125,7 +128,7 @@ func (handler *HTTPHandler) login(w http.ResponseWriter, r *http.Request) {
 		writeSaaSAuthEnvelope(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "authentication unavailable", nil)
 		return
 	}
-	if identity.MFARequired == 0 {
+	if !handler.mfaRequired || identity.MFARequired == 0 {
 		if identity.MustRotatePassword != 0 {
 			handler.beginPasswordChange(w, r.Context(), identity)
 			return

@@ -12,6 +12,10 @@ Docker 构建会用 `scripts/source_fingerprint.py` 计算源码与验收配置�
 
 ## 启动
 
+### SaaS 与 Dashboard MFA 开关
+
+`MOCHAT_SAAS_ADMIN_MFA_REQUIRED` 与 `MOCHAT_DASHBOARD_MFA_REQUIRED` 是彼此独立的 realm 级配置，默认均为 `0`。关闭时，密码验证成功后直接签发对应 realm 的 session/token；不会新建 MFA enrollment 或 login challenge，即使历史上存在 active MFA credential 也不会删除或触碰它。设为 `1` 后恢复该 realm 现有的 TOTP、replay 防护和恢复码流程；另一个 realm 的开关不受影响。Compose 默认通过 `${MOCHAT_SAAS_ADMIN_MFA_REQUIRED:-0}` 与 `${MOCHAT_DASHBOARD_MFA_REQUIRED:-0}` 传入。应用启动日志只记录两个开关的布尔状态，不记录任何密钥或 token。
+
 只启动依赖栈，供本机 `go run ./cmd/mochat-go` 或 smoke 脚本使用：
 
 ```bash

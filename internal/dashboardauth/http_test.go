@@ -27,6 +27,8 @@ type dashboardHTTPTestPersistence struct {
 	resetDigest         [32]byte
 	resetCalls          int
 	passwordChangeCalls int
+	mfaStatus           int
+	mfaStatusSet        bool
 }
 
 type dashboardHTTPTestPrincipalResolver struct {
@@ -69,6 +71,9 @@ func (p *dashboardHTTPTestPersistence) ResolvePrincipal(context.Context, int) (d
 }
 
 func (p *dashboardHTTPTestPersistence) MFAStatus(context.Context, int) (int, error) {
+	if p.mfaStatusSet {
+		return p.mfaStatus, nil
+	}
 	return DashboardMFAStatusActive, nil
 }
 func (p *dashboardHTTPTestPersistence) BeginMFAEnrollment(context.Context, int, uint64, [32]byte, time.Time, string, string) error {
@@ -120,6 +125,7 @@ func dashboardHTTPTestConfig(p *dashboardHTTPTestPersistence) HTTPConfig {
 	return HTTPConfig{
 		Service:           NewService(p),
 		Persistence:       p,
+		MFARequired:       true,
 		Signer:            tokenConfig,
 		Parser:            authrealm.Parser{Config: tokenConfig, ValidateSession: p.CheckSessionToken},
 		MFAKey:            []byte("01234567890123456789012345678901"),
@@ -128,6 +134,62 @@ func dashboardHTTPTestConfig(p *dashboardHTTPTestPersistence) HTTPConfig {
 		TenantGate: func(_ context.Context, tenantID int, _ time.Time) (TenantAccess, error) {
 			return TenantAccess{TenantID: tenantID, Allowed: true}, nil
 		},
+	}
+}
+
+func TestDashboardAuthMFARequirementOffIssuesTokenEvenWithActiveCredential(t *testing.T) {
+	p := &dashboardHTTPTestPersistence{
+		identity:  DashboardIdentity{UserID: 19, LoginIdentifier: "13900000019", PasswordHash: mustDashboardPasswordHash(t, "dashboard-mfa-off-password"), Status: DashboardIdentityStatusActive, AuthVersion: 3, MFARequired: 1},
+		principal: dashboardprincipal.DashboardPrincipal{UserID: 19, TenantID: 902, CorpID: 77, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 3},
+	}
+	config := dashboardHTTPTestConfig(p)
+	config.MFARequired = false
+	handler, err := NewHTTPHandler(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", strings.NewReader(`{"phone":"13900000019","password":"dashboard-mfa-off-password"}`)))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"token"`) || p.sessionCalls != 1 {
+		t.Fatalf("MFA-off login status=%d sessionCalls=%d bodyBytes=%d", response.Code, p.sessionCalls, response.Body.Len())
+	}
+}
+
+func TestDashboardAuthMFARequirementOnKeepsLoginChallenge(t *testing.T) {
+	p := &dashboardHTTPTestPersistence{
+		identity:  DashboardIdentity{UserID: 20, LoginIdentifier: "13900000020", PasswordHash: mustDashboardPasswordHash(t, "dashboard-mfa-on-password"), Status: DashboardIdentityStatusActive, AuthVersion: 4, MFARequired: 1},
+		principal: dashboardprincipal.DashboardPrincipal{UserID: 20, TenantID: 902, CorpID: 77, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 4},
+	}
+	config := dashboardHTTPTestConfig(p)
+	config.MFARequired = true
+	handler, err := NewHTTPHandler(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", strings.NewReader(`{"phone":"13900000020","password":"dashboard-mfa-on-password"}`)))
+	if response.Code != http.StatusAccepted || p.sessionCalls != 0 || !strings.Contains(response.Body.String(), `"challengeToken"`) {
+		t.Fatalf("MFA-on login status=%d sessionCalls=%d bodyBytes=%d", response.Code, p.sessionCalls, response.Body.Len())
+	}
+}
+
+func TestDashboardAuthMFARequirementOnKeepsEnrollment(t *testing.T) {
+	p := &dashboardHTTPTestPersistence{
+		identity:     DashboardIdentity{UserID: 21, LoginIdentifier: "13900000021", PasswordHash: mustDashboardPasswordHash(t, "dashboard-mfa-enrollment-password"), Status: DashboardIdentityStatusActive, AuthVersion: 4, MFARequired: 1},
+		principal:    dashboardprincipal.DashboardPrincipal{UserID: 21, TenantID: 902, CorpID: 77, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 4},
+		mfaStatus:    DashboardMFAStatusPending,
+		mfaStatusSet: true,
+	}
+	config := dashboardHTTPTestConfig(p)
+	config.MFARequired = true
+	handler, err := NewHTTPHandler(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/dashboard/user/auth", strings.NewReader(`{"phone":"13900000021","password":"dashboard-mfa-enrollment-password"}`)))
+	if response.Code != http.StatusAccepted || p.sessionCalls != 0 || !strings.Contains(response.Body.String(), `"enrollmentToken"`) {
+		t.Fatalf("MFA-on enrollment status=%d sessionCalls=%d bodyBytes=%d", response.Code, p.sessionCalls, response.Body.Len())
 	}
 }
 
