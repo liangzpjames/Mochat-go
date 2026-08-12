@@ -102,7 +102,7 @@ func TestSaaSAdminPackageReadModelCarriesStablePackageID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := string(body)
+	source := strings.ReplaceAll(string(body), "\r\n", "\n")
 	start := strings.Index(source, "func (s *MySQLStore) SaaSAdminPackages")
 	if start < 0 {
 		t.Fatal("SaaSAdminPackages implementation was not found")
