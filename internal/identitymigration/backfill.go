@@ -18,6 +18,23 @@ import (
 
 const migrationSource = "0130_identity_realms_single_corp_backfill"
 
+const saasAdminUsersTable = "mochat_go_saas_admin_users"
+
+var requiredSaaSAdminUsersColumns = []string{
+	"id",
+	"login_name",
+	"phone",
+	"password_hash",
+	"name",
+	"status",
+	"must_rotate_password",
+	"auth_version",
+	"mfa_required",
+	"bootstrap_request_key",
+	"created_at",
+	"updated_at",
+}
+
 type DatabaseOptions struct {
 	Schema            string
 	PlatformTenantID  int64
@@ -81,9 +98,12 @@ func preflight(ctx context.Context, db queryer, options DatabaseOptions) (Prefli
 			return PreflightReport{}, errors.New("database schema does not match the maintenance target")
 		}
 	}
+	saasIdentityTablePresent, err := inspectSaaSAdminUsersTable(ctx, db)
+	if err != nil {
+		return PreflightReport{}, err
+	}
 
 	var report PreflightReport
-	var err error
 	if report.ActiveDashboardUsers, report.DuplicateLoginUserIDs, report.InvalidContactIDs, err = businessContactFindings(ctx, db, options.PlatformTenantID); err != nil {
 		return PreflightReport{}, err
 	}
@@ -93,7 +113,7 @@ func preflight(ctx context.Context, db queryer, options DatabaseOptions) (Prefli
 		return PreflightReport{}, err
 	}
 	report.InvalidContactIDs = appendUniqueIDs(report.InvalidContactIDs, invalidPlatformContacts...)
-	if report.SaaSPhoneConflictUserIDs, err = saasContactConflicts(ctx, db, platformPhones); err != nil {
+	if report.SaaSPhoneConflictUserIDs, err = saasContactConflicts(ctx, db, platformPhones, saasIdentityTablePresent); err != nil {
 		return PreflightReport{}, err
 	}
 	if report.ZeroCorpTenantIDs, err = queryIDs(ctx, db, `
@@ -175,7 +195,7 @@ func preflight(ctx context.Context, db queryer, options DatabaseOptions) (Prefli
 		}
 		return report, inventoryErr
 	}
-	actorQuery, actorArgs, err := buildActorReferenceQuery(actorColumns, options.PlatformTenantID)
+	actorQuery, actorArgs, err := buildActorReferenceQuery(actorColumns, options.PlatformTenantID, saasIdentityTablePresent)
 	if err != nil {
 		return PreflightReport{}, err
 	}
@@ -204,6 +224,71 @@ func preflight(ctx context.Context, db queryer, options DatabaseOptions) (Prefli
 		}
 	}
 	return report, nil
+}
+
+func inspectSaaSAdminUsersTable(ctx context.Context, db queryer) (bool, error) {
+	var tableType sql.NullString
+	err := db.QueryRowContext(ctx, `
+		SELECT table_type
+		FROM information_schema.tables
+		WHERE table_schema=DATABASE() AND table_name=?`, saasAdminUsersTable).Scan(&tableType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.New("SaaS identity table preflight inspection failed")
+	}
+	if !tableType.Valid || tableType.String != "BASE TABLE" {
+		return false, errors.New("SaaS identity table preflight schema failed")
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT column_name
+		FROM information_schema.columns
+		WHERE table_schema=DATABASE() AND table_name=?
+		ORDER BY ordinal_position`, saasAdminUsersTable)
+	if err != nil {
+		return false, errors.New("SaaS identity table preflight inspection failed")
+	}
+	defer rows.Close()
+	columns := make([]string, 0, len(requiredSaaSAdminUsersColumns))
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			return false, errors.New("SaaS identity table preflight schema scan failed")
+		}
+		columns = append(columns, column)
+	}
+	if err := rows.Err(); err != nil {
+		return false, errors.New("SaaS identity table preflight inspection failed")
+	}
+	if err := validateSaaSAdminUsersColumns(columns); err != nil {
+		return false, fmt.Errorf("SaaS identity table preflight schema failed: %w", err)
+	}
+	return true, nil
+}
+
+func validateSaaSAdminUsersColumns(columns []string) error {
+	available := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		column = strings.TrimSpace(column)
+		if column == "" {
+			return errors.New("SaaS identity table contains an empty column")
+		}
+		if _, exists := available[column]; exists {
+			return fmt.Errorf("SaaS identity table contains duplicate column %s", column)
+		}
+		available[column] = struct{}{}
+	}
+	missing := make([]string, 0)
+	for _, required := range requiredSaaSAdminUsersColumns {
+		if _, exists := available[required]; !exists {
+			missing = append(missing, required)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("SaaS identity table is missing required columns: %s", strings.Join(missing, ","))
+	}
+	return nil
 }
 
 type contactRow struct {
@@ -282,8 +367,8 @@ func platformContactFindings(ctx context.Context, db queryer, platformTenantID i
 	return duplicateContactIDs(contacts), phones, invalid, nil
 }
 
-func saasContactConflicts(ctx context.Context, db queryer, platformPhones map[string][]int64) ([]int64, error) {
-	if len(platformPhones) == 0 {
+func saasContactConflicts(ctx context.Context, db queryer, platformPhones map[string][]int64, saasIdentityTablePresent bool) ([]int64, error) {
+	if !saasIdentityTablePresent || len(platformPhones) == 0 {
 		return nil, nil
 	}
 	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(phone,'') FROM mochat_go_saas_admin_users WHERE TRIM(COALESCE(phone,''))<>'' ORDER BY id`)
@@ -423,7 +508,7 @@ func actorInventory(ctx context.Context, db queryer) ([]ActorColumn, error) {
 	return items, nil
 }
 
-func buildActorReferenceQuery(columns []ActorColumn, platformTenantID int64) (string, []any, error) {
+func buildActorReferenceQuery(columns []ActorColumn, platformTenantID int64, saasIdentityTablePresent bool) (string, []any, error) {
 	if platformTenantID <= 0 {
 		return "", nil, errors.New("platform tenant id must be explicit and positive")
 	}
@@ -443,11 +528,16 @@ func buildActorReferenceQuery(columns []ActorColumn, platformTenantID int64) (st
 	if len(actors) == 0 {
 		return `SELECT CAST(NULL AS UNSIGNED) AS actor_id WHERE 1=0`, nil, nil
 	}
+	identityJoin := ""
+	identityFilter := "(u.id IS NULL OR u.tenant_id<>? OR u.status<>1 OR u.deleted_at IS NOT NULL)"
+	if saasIdentityTablePresent {
+		identityJoin = "LEFT JOIN mochat_go_saas_admin_users s ON s.id=actors.actor_id\n"
+		identityFilter = "s.id IS NULL AND " + identityFilter
+	}
 	return `SELECT DISTINCT actors.actor_id
 FROM (` + strings.Join(actors, " UNION ") + `) actors
-LEFT JOIN mochat_go_saas_admin_users s ON s.id=actors.actor_id
-LEFT JOIN mc_user u ON u.id=actors.actor_id
-WHERE s.id IS NULL AND (u.id IS NULL OR u.tenant_id<>? OR u.status<>1 OR u.deleted_at IS NOT NULL)
+` + identityJoin + `LEFT JOIN mc_user u ON u.id=actors.actor_id
+WHERE ` + identityFilter + `
 ORDER BY actors.actor_id`, []any{platformTenantID}, nil
 }
 

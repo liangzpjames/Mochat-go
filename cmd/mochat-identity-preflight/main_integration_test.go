@@ -51,6 +51,58 @@ func TestRunPreflightRealMariaDBIsReadOnlyAndReportsHealthyCounts(t *testing.T) 
 	}
 }
 
+func TestRunPreflightRealMariaDBPre0129SucceedsWithoutCreatingIdentityTables(t *testing.T) {
+	db, dsn, schema := newPreflightIntegrationDB(t)
+	createPreflightIntegrationFixture(t, db)
+
+	dir := t.TempDir()
+	dsnFile := filepath.Join(dir, "dsn")
+	keyFile := filepath.Join(dir, "credential-key")
+	if err := os.WriteFile(dsnFile, []byte(dsn), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, []byte(strings.Repeat("01", 32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var beforeUsers, beforeCorps, beforeAudits, beforeIdentityTables int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM mc_user`:                               &beforeUsers,
+		`SELECT COUNT(*) FROM mc_corp`:                               &beforeCorps,
+		`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits`: &beforeAudits,
+		`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('mochat_go_saas_admin_users', 'mochat_go_identity_migration_ledger', 'mochat_go_identity_migration_batches', 'mochat_go_identity_migration_journal')`: &beforeIdentityTables,
+	} {
+		if err := db.QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if beforeIdentityTables != 0 {
+		t.Fatalf("pre-0129 fixture unexpectedly has identity tables=%d", beforeIdentityTables)
+	}
+
+	var output strings.Builder
+	args := []string{"--dsn-file", dsnFile, "--schema", schema, "--platform-tenant-id", "1", "--credential-key-file", keyFile, "--credential-key-id", "task8-wecom-v1"}
+	if err := runPreflight(args, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "active_dashboard_users=1") || strings.Contains(output.String(), strings.Repeat("01", 32)) {
+		t.Fatalf("pre-0129 CLI output=%q, want safe successful counts", output.String())
+	}
+	var afterUsers, afterCorps, afterAudits, afterIdentityTables int
+	for query, target := range map[string]*int{
+		`SELECT COUNT(*) FROM mc_user`:                               &afterUsers,
+		`SELECT COUNT(*) FROM mc_corp`:                               &afterCorps,
+		`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits`: &afterAudits,
+		`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('mochat_go_saas_admin_users', 'mochat_go_identity_migration_ledger', 'mochat_go_identity_migration_batches', 'mochat_go_identity_migration_journal')`: &afterIdentityTables,
+	} {
+		if err := db.QueryRow(query).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if beforeUsers != afterUsers || beforeCorps != afterCorps || beforeAudits != afterAudits || beforeIdentityTables != afterIdentityTables || afterIdentityTables != 0 {
+		t.Fatalf("pre-0129 CLI changed read-only state users=%d/%d corps=%d/%d audits=%d/%d identity_tables=%d/%d", beforeUsers, afterUsers, beforeCorps, afterCorps, beforeAudits, afterAudits, beforeIdentityTables, afterIdentityTables)
+	}
+}
+
 func newPreflightIntegrationDB(t *testing.T) (*sql.DB, string, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))

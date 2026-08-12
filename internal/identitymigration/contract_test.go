@@ -149,6 +149,29 @@ func TestPreflightRejectsPlatformPhoneConflictAndUnknownInventory(t *testing.T) 
 	}
 }
 
+func TestSaaSAdminUsersSchemaContractDistinguishesLegacyAbsenceFromBrokenSchema(t *testing.T) {
+	if err := validateSaaSAdminUsersColumns([]string{
+		"id", "login_name", "phone", "password_hash", "name", "status",
+		"must_rotate_password", "auth_version", "mfa_required", "bootstrap_request_key",
+		"created_at", "updated_at",
+	}); err != nil {
+		t.Fatalf("complete 0129 SaaS identity schema rejected: %v", err)
+	}
+	if err := validateSaaSAdminUsersColumns([]string{"id", "login_name", "password_hash", "name", "status"}); err == nil || !strings.Contains(err.Error(), "phone") {
+		t.Fatalf("broken SaaS identity schema error=%v, want missing phone contract", err)
+	}
+}
+
+func TestBuildActorReferenceQueryUsesLegacyIdentityWhenSaaSIdentityTableIsAbsent(t *testing.T) {
+	query, args, err := buildActorReferenceQuery([]ActorColumn{{Table: "mochat_go_saas_admin_user_access", Column: "user_id"}}, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(query, "mochat_go_saas_admin_users") || len(args) != 1 || args[0] != int64(1) {
+		t.Fatalf("legacy actor query=%q args=%v, must not reference missing 0129 table", query, args)
+	}
+}
+
 func TestRestoreLegacyCredentialsIsScopedToTheCutoverJournal(t *testing.T) {
 	root := filepath.Join("..", "..")
 	body, err := os.ReadFile(filepath.Join(root, "internal", "identitymigration", "cutover.go"))
