@@ -27,11 +27,11 @@ var dashboardAdminSchemaSequence atomic.Int64
 func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
-	seedDashboardAdminProvisioningPackageAndActor(t, db)
+	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
 	ctx := context.Background()
 	store := NewMySQLStore(db)
-	actor := dashboardadmin.NewSaaSApprovalExecutionActor(700)
+	actor := dashboardadmin.NewSaaSApprovalExecutionActor(rootUserID)
 
 	provisionRaw, err := json.Marshal(dashboardAdminProvisioningInput("approval-real-provision", "13800000101", "Approval real provision"))
 	if err != nil {
@@ -109,11 +109,11 @@ func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 func TestDashboardAdminApprovalEffectUpdateFailureRollsBackBusinessTransactionRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
-	seedDashboardAdminProvisioningPackageAndActor(t, db)
+	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
 	ctx := context.Background()
 	store := NewMySQLStore(db)
-	actor := dashboardadmin.NewSaaSApprovalExecutionActor(700)
+	actor := dashboardadmin.NewSaaSApprovalExecutionActor(rootUserID)
 	seedInput := dashboardAdminProvisioningInput("approval-real-rollback-seed", "13800000106", "Approval rollback")
 	seed, err := store.ProvisionDashboardTenant(ctx, actor, seedInput)
 	if err != nil {
@@ -394,11 +394,11 @@ func realApprovalResultInt(result map[string]any, key string) (int, bool) {
 func TestDashboardAdminProvisioningRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
-	seedDashboardAdminProvisioningPackageAndActor(t, db)
+	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
 	ctx := context.Background()
 	store := NewMySQLStore(db)
-	actor := dashboardadmin.Actor{UserID: 700, Active: true, Permissions: []string{dashboardadmin.PermissionTenantsManage}}
+	actor := dashboardadmin.Actor{UserID: rootUserID, Active: true, Permissions: []string{dashboardadmin.PermissionTenantsManage}}
 	input := dashboardAdminProvisioningInput("provision-task7-1", "13800000099", "Task 7 Tenant")
 
 	before := dashboardAdminCounts(t, db)
@@ -682,13 +682,14 @@ func TestDashboardAdminProvisioningRealMariaDB(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE mochat_go_dashboard_permission_audits`); err != nil {
 		t.Fatal(err)
 	}
+	rollbackBefore := dashboardAdminCountsWithoutDashboardAudit(t, db)
 	rollbackInput := dashboardAdminProvisioningInput("provision-task7-rollback", "13800000096", "Rollback tenant")
 	if _, err := store.ProvisionDashboardTenant(ctx, actor, rollbackInput); err == nil {
 		t.Fatal("missing second audit table unexpectedly allowed a partial provisioning commit")
 	}
 	countsAfterRollback := dashboardAdminCountsWithoutDashboardAudit(t, db)
-	if countsAfterRollback["mc_tenant"] != after["mc_tenant"] || countsAfterRollback["mc_user"] != after["mc_user"]+2 {
-		t.Fatal("failed transaction left tenant or user artifacts behind")
+	if !sameDashboardAdminCounts(countsAfterRollback, rollbackBefore) {
+		t.Fatalf("failed transaction changed durable artifacts: before=%v after=%v", rollbackBefore, countsAfterRollback)
 	}
 }
 
@@ -712,7 +713,7 @@ func dashboardAdminIntegrationLimits() dashboardadmin.SaaSAdminPackageLimits {
 
 var packageLimitJSONKeysForIntegration = []string{"maxCorps", "maxUsers", "maxContacts", "maxRooms", "maxAgents", "channelCodes", "shopCodes", "radars", "lotteries", "roomInfinitePulls", "roomFissions", "roomClockIns", "roomQualities", "roomCalendars", "roomReminds", "contactSops", "roomSops", "sensitiveWords", "storageMb", "contactMessageBatches", "roomMessageBatches", "roomTagPulls", "workRoomAutoPulls", "workFissions", "officialAccounts", "asyncExecutions"}
 
-func seedDashboardAdminProvisioningPackageAndActor(t *testing.T, db *sql.DB) {
+func seedDashboardAdminProvisioningPackageAndActor(t *testing.T, db *sql.DB) int {
 	t.Helper()
 	limits := dashboardAdminIntegrationLimits()
 	if _, err := db.Exec(`INSERT INTO mochat_go_saas_packages (id, code, name, status, version, max_corps, max_users, max_contacts, max_rooms, max_agents, channel_codes, shop_codes, radars, lotteries, room_infinite_pulls, room_fissions, room_clock_ins, room_qualities, room_calendars, room_reminds, contact_sops, room_sops, sensitive_words, storage_mb, contact_message_batches, room_message_batches, room_tag_pulls, work_room_auto_pulls, work_fissions, official_accounts, async_executions) VALUES (11, 'pro', 'Pro', 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, limits.MaxCorps, limits.MaxUsers, limits.MaxContacts, limits.MaxRooms, limits.MaxAgents, limits.ChannelCodes, limits.ShopCodes, limits.Radars, limits.Lotteries, limits.RoomInfinitePulls, limits.RoomFissions, limits.RoomClockIns, limits.RoomQualities, limits.RoomCalendars, limits.RoomReminds, limits.ContactSOPs, limits.RoomSOPs, limits.SensitiveWords, limits.StorageMB, limits.ContactMessageBatches, limits.RoomMessageBatches, limits.RoomTagPulls, limits.WorkRoomAutoPulls, limits.WorkFissions, limits.OfficialAccounts, limits.AsyncExecutions); err != nil {
@@ -727,9 +728,10 @@ func seedDashboardAdminProvisioningPackageAndActor(t *testing.T, db *sql.DB) {
 	if err != nil {
 		t.Fatalf("create SaaS root fixture: %v", err)
 	}
-	if identity.ID != 700 {
-		t.Fatalf("fixture SaaS root id=%d, want 700", identity.ID)
+	if identity.ID <= 0 {
+		t.Fatalf("fixture SaaS root id=%d, want a persisted auto-increment identity", identity.ID)
 	}
+	return identity.ID
 }
 
 func activateProvisionedSubjectForGovernance(t *testing.T, db *sql.DB, userID int) {
@@ -830,19 +832,29 @@ func newDashboardAdminProvisioningDB(t *testing.T) *sql.DB {
 		_ = admin.Close()
 		t.Fatal(err)
 	}
-	baseline := dashboardAdminSchemaLeftoversWithDB(t, admin)
 	schema := fmt.Sprintf("mochat_identity_single_corp_task7_%d_%d", os.Getpid(), dashboardAdminSchemaSequence.Add(1))
+	var schemaExists int
+	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&schemaExists); err != nil {
+		_ = admin.Close()
+		t.Fatalf("check isolated schema collision: %v", err)
+	}
+	if schemaExists != 0 {
+		_ = admin.Close()
+		t.Fatalf("isolated schema already exists: %s", schema)
+	}
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		_ = admin.Close()
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		leftovers := dashboardAdminSchemaLeftoversWithDB(t, admin)
-		if leftovers != baseline {
-			t.Errorf("schema leftovers changed from baseline=%d to %d", baseline, leftovers)
+		var leftovers int
+		if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&leftovers); err != nil {
+			t.Errorf("check isolated schema cleanup: %v", err)
+		} else if leftovers != 0 {
+			t.Errorf("isolated schema %s still exists after cleanup", schema)
 		}
-		t.Logf("schema leftovers=0 (task schema dropped; baseline=%d)", baseline)
+		t.Logf("isolated schema cleanup=0 (%s)", schema)
 		_ = admin.Close()
 	})
 	testCfg := *cfg

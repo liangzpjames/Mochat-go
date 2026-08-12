@@ -308,6 +308,67 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	}
 }
 
+func TestCompanyProfileAgentNoopFallbackRequiresFullOwnershipRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey: testCompanyCredentialKey(19), EncryptionKeyID: "task10-agent-fallback-key", RequireEncryption: true, DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	var ciphertext, keyID string
+	if err := db.QueryRow(`SELECT COALESCE(CAST(wecom_credentials_ciphertext AS CHAR),''), COALESCE(wecom_credentials_key_id,'') FROM mc_work_agent WHERE id=300`).Scan(&ciphertext, &keyID); err != nil {
+		t.Fatal(err)
+	}
+	storage := agentCredentialStorage{Ciphertext: ciphertext, KeyID: keyID}
+	baseBinding := companyBindingRecord{TenantID: 1, CorpID: 100, Status: 1, Version: 1}
+
+	cases := []struct {
+		name    string
+		mutate  string
+		binding companyBindingRecord
+		result  fixedCompanySQLResult
+		wantOK  bool
+	}{
+		{name: "exact desired state", binding: baseBinding, result: fixedCompanySQLResult{rows: 0}, wantOK: true},
+		{name: "wrong tenant", binding: companyBindingRecord{TenantID: 2, CorpID: 100, Status: 1, Version: 1}, result: fixedCompanySQLResult{rows: 0}},
+		{name: "wrong version", binding: companyBindingRecord{TenantID: 1, CorpID: 100, Status: 1, Version: 2}, result: fixedCompanySQLResult{rows: 0}},
+		{name: "wrong binding status", binding: companyBindingRecord{TenantID: 1, CorpID: 100, Status: 3, Version: 1}, result: fixedCompanySQLResult{rows: 0}},
+		{name: "deleted agent", binding: baseBinding, mutate: `UPDATE mc_work_agent SET deleted_at=NOW() WHERE id=300`, result: fixedCompanySQLResult{rows: 0}},
+		{name: "wrong desired ciphertext", binding: baseBinding, mutate: `UPDATE mc_work_agent SET wecom_credentials_key_id='other-key' WHERE id=300`, result: fixedCompanySQLResult{rows: 0}},
+		{name: "driver rows error", binding: baseBinding, result: fixedCompanySQLResult{rows: 0, err: errors.New("rows affected unavailable")}},
+		{name: "too many rows", binding: baseBinding, result: fixedCompanySQLResult{rows: 2}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, err := db.BeginTx(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if tc.mutate != "" {
+				if _, err := tx.Exec(tc.mutate); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err = requireCompanyAgentRowsOrMatched(context.Background(), tx, tc.result, tc.binding, 300, storage)
+			if tc.wantOK && err != nil {
+				t.Fatalf("fallback error=%v, want exact desired state accepted", err)
+			}
+			if !tc.wantOK && err == nil {
+				t.Fatal("fallback accepted a row outside tenant/version/status/deleted/desired-state contract")
+			}
+		})
+	}
+}
+
+type fixedCompanySQLResult struct {
+	rows int64
+	err  error
+}
+
+func (r fixedCompanySQLResult) LastInsertId() (int64, error) { return 0, nil }
+func (r fixedCompanySQLResult) RowsAffected() (int64, error) { return r.rows, r.err }
+
 type companyCredentialFixtureRow struct {
 	KeyID      string
 	Ciphertext string

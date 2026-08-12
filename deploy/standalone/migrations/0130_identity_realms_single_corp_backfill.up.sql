@@ -138,7 +138,7 @@ EXECUTE identity_0130_validated_batch_guard_stmt;
 DEALLOCATE PREPARE identity_0130_validated_batch_guard_stmt;
 
 SET @identity_0130_request_id := (
-  SELECT request_id
+  SELECT CONVERT(request_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
   FROM mochat_go_identity_migration_batches
   WHERE status = 'validated'
     AND preflight_status = 'passed'
@@ -149,12 +149,12 @@ SET @identity_0130_request_id := (
 SET @identity_0130_platform_tenant_id := (
   SELECT platform_tenant_id
   FROM mochat_go_identity_migration_batches
-  WHERE request_id = @identity_0130_request_id
+  WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
 );
 SET @identity_0130_script_checksum := (
   SELECT script_checksum
   FROM mochat_go_identity_migration_batches
-  WHERE request_id = @identity_0130_request_id
+  WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
 );
 SET @identity_0130_script_checksum_guard_sql := IF(
   @identity_0130_script_checksum IS NOT NULL
@@ -170,7 +170,7 @@ DEALLOCATE PREPARE identity_0130_script_checksum_guard_stmt;
 SET @identity_0130_actor_inventory_count := (
   SELECT COUNT(*)
   FROM mochat_go_identity_migration_batches
-  WHERE request_id = @identity_0130_request_id
+  WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
     AND actor_inventory_status = 'verified'
 );
 SET @identity_0130_actor_inventory_guard_sql := IF(
@@ -212,7 +212,7 @@ SET @identity_0130_mapping_ownership_count := (
     WHERE deleted_at IS NULL
     GROUP BY tenant_id
   ) ownership ON ownership.tenant_id = m.tenant_id
-  WHERE m.request_id = @identity_0130_request_id
+  WHERE m.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
     AND m.status = 'validated'
     AND (t.id IS NULL OR selected_corp.id IS NULL OR ownership.corp_count <= 1)
 );
@@ -230,7 +230,7 @@ SET @identity_0130_duplicate_mapping_count := (
   FROM (
     SELECT tenant_id, COUNT(*) AS mapping_count
     FROM mochat_go_identity_migration_corp_map
-    WHERE request_id = @identity_0130_request_id AND status = 'validated'
+    WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci AND status = 'validated'
     GROUP BY tenant_id
     HAVING COUNT(*) <> 1
   ) duplicate_mapping
@@ -255,7 +255,7 @@ SET @identity_0130_multi_corp_count := (
     HAVING COUNT(*) > 1
   ) multiple_corp
   LEFT JOIN mochat_go_identity_migration_corp_map m
-    ON m.request_id = @identity_0130_request_id
+    ON m.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
    AND m.tenant_id = multiple_corp.tenant_id
    AND m.status = 'validated'
   WHERE m.tenant_id IS NULL
@@ -371,7 +371,7 @@ SET @identity_0130_negative_tenant_count := (
 + (SELECT COUNT(*) FROM mc_rbac_role
     WHERE CAST(tenant_id AS DECIMAL(20,0)) < 0 OR CAST(tenant_id AS DECIMAL(20,0)) > 4294967295)
 + (SELECT COUNT(*) FROM mochat_go_identity_migration_corp_map
-    WHERE request_id = @identity_0130_request_id
+    WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
       AND (CAST(tenant_id AS DECIMAL(20,0)) < 0 OR CAST(tenant_id AS DECIMAL(20,0)) > 4294967295));
 SET @identity_0130_negative_tenant_guard_sql := IF(
   @identity_0130_negative_tenant_count = 0,
@@ -574,7 +574,7 @@ SET @identity_0130_binding_conflict_count := (
     UNION ALL
     SELECT tenant_id, corp_id
     FROM mochat_go_identity_migration_corp_map
-    WHERE request_id = @identity_0130_request_id AND status = 'validated'
+    WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci AND status = 'validated'
   ) selected ON selected.tenant_id = b.tenant_id
   WHERE selected.tenant_id IS NULL
      OR selected.corp_id <> b.corp_id
@@ -628,11 +628,11 @@ CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_ledger (
   KEY idx_identity_migration_ledger_status (migration_name, phase, status, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='0130 migration ledger success only';
 
-CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_journal (
-  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  request_id varchar(128) NOT NULL,
-  entity_type varchar(48) NOT NULL,
-  entity_id varchar(128) NOT NULL,
+  CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_journal (
+    id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+    request_id varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    entity_type varchar(48) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    entity_id varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   before_json json DEFAULT NULL,
   created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -655,7 +655,9 @@ WHERE u.tenant_id = @identity_0130_platform_tenant_id
   AND NOT EXISTS (SELECT 1 FROM mochat_go_saas_admin_users existing WHERE existing.id = u.id)
   AND NOT EXISTS (
     SELECT 1 FROM mochat_go_identity_migration_journal j
-    WHERE j.request_id = @identity_0130_request_id AND j.entity_type = 'saas_identity' AND j.entity_id = CAST(u.id AS CHAR)
+    WHERE j.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
+      AND j.entity_type COLLATE utf8mb4_unicode_ci = 'saas_identity' COLLATE utf8mb4_unicode_ci
+      AND j.entity_id COLLATE utf8mb4_unicode_ci = CAST(u.id AS CHAR) COLLATE utf8mb4_unicode_ci
   );
 
 INSERT INTO mochat_go_saas_admin_users
@@ -700,7 +702,9 @@ WHERE u.deleted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM mochat_go_dashboard_identities existing WHERE existing.user_id = u.id)
   AND NOT EXISTS (
     SELECT 1 FROM mochat_go_identity_migration_journal j
-    WHERE j.request_id = @identity_0130_request_id AND j.entity_type = 'dashboard_identity' AND j.entity_id = CAST(u.id AS CHAR)
+    WHERE j.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
+      AND j.entity_type COLLATE utf8mb4_unicode_ci = 'dashboard_identity' COLLATE utf8mb4_unicode_ci
+      AND j.entity_id COLLATE utf8mb4_unicode_ci = CAST(u.id AS CHAR) COLLATE utf8mb4_unicode_ci
   );
 
 INSERT INTO mochat_go_dashboard_identities
@@ -756,7 +760,9 @@ LEFT JOIN mc_corp c ON c.tenant_id = t.id AND c.deleted_at IS NULL
 WHERE t.status = 1 AND t.deleted_at IS NULL AND c.id IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM mochat_go_identity_migration_journal j
-    WHERE j.request_id = @identity_0130_request_id AND j.entity_type = 'corp_placeholder' AND j.entity_id = CAST(t.id AS CHAR)
+    WHERE j.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
+      AND j.entity_type COLLATE utf8mb4_unicode_ci = 'corp_placeholder' COLLATE utf8mb4_unicode_ci
+      AND j.entity_id COLLATE utf8mb4_unicode_ci = CAST(t.id AS CHAR) COLLATE utf8mb4_unicode_ci
   );
 
 INSERT INTO mc_corp
@@ -785,17 +791,20 @@ FROM (
   HAVING COUNT(*) = 1
     AND NOT EXISTS (
       SELECT 1 FROM mochat_go_identity_migration_corp_map one_corp_map
-      WHERE one_corp_map.request_id = @identity_0130_request_id
+      WHERE one_corp_map.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
         AND one_corp_map.tenant_id = c.tenant_id
         AND one_corp_map.status = 'validated'
     )
   UNION ALL
   SELECT m.tenant_id, m.corp_id
   FROM mochat_go_identity_migration_corp_map m
-  WHERE m.request_id = @identity_0130_request_id AND m.status = 'validated'
+  WHERE m.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci AND m.status = 'validated'
 ) selected
 WHERE NOT EXISTS (SELECT 1 FROM mochat_go_tenant_corp_bindings existing WHERE existing.tenant_id = selected.tenant_id)
-  AND NOT EXISTS (SELECT 1 FROM mochat_go_identity_migration_journal j WHERE j.request_id = @identity_0130_request_id AND j.entity_type = 'tenant_corp_binding' AND j.entity_id = CAST(selected.tenant_id AS CHAR));
+  AND NOT EXISTS (SELECT 1 FROM mochat_go_identity_migration_journal j
+    WHERE j.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci
+      AND j.entity_type COLLATE utf8mb4_unicode_ci = 'tenant_corp_binding' COLLATE utf8mb4_unicode_ci
+      AND j.entity_id COLLATE utf8mb4_unicode_ci = CAST(selected.tenant_id AS CHAR) COLLATE utf8mb4_unicode_ci);
 
 INSERT INTO mochat_go_tenant_corp_bindings
   (tenant_id, corp_id, status, version, verified_wx_corpid, verified_corp_name)
@@ -809,12 +818,12 @@ FROM (
   HAVING COUNT(*) = 1
     AND NOT EXISTS (
       SELECT 1 FROM mochat_go_identity_migration_corp_map one_corp_map
-      WHERE one_corp_map.request_id = @identity_0130_request_id AND one_corp_map.tenant_id = c.tenant_id AND one_corp_map.status = 'validated'
+      WHERE one_corp_map.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci AND one_corp_map.tenant_id = c.tenant_id AND one_corp_map.status = 'validated'
     )
   UNION ALL
   SELECT m.tenant_id, m.corp_id
   FROM mochat_go_identity_migration_corp_map m
-  WHERE m.request_id = @identity_0130_request_id AND m.status = 'validated'
+  WHERE m.request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci AND m.status = 'validated'
 ) selected
 WHERE NOT EXISTS (SELECT 1 FROM mochat_go_tenant_corp_bindings existing WHERE existing.tenant_id = selected.tenant_id);
 
@@ -842,7 +851,7 @@ DEALLOCATE PREPARE identity_0130_binding_verify_guard_stmt;
 -- migration record may only be written after both facts are durable.
 UPDATE mochat_go_identity_migration_batches
 SET status = 'completed'
-WHERE request_id = @identity_0130_request_id AND status = 'validated';
+WHERE request_id COLLATE utf8mb4_unicode_ci = @identity_0130_request_id COLLATE utf8mb4_unicode_ci AND status = 'validated';
 COMMIT;
 
 -- The actor ids are preserved, so these FKs are added only after all identities

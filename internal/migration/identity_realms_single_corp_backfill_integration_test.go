@@ -5,11 +5,14 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
 func TestIdentityRealmsSingleCorpBackfillRealMariaDB(t *testing.T) {
@@ -123,9 +126,7 @@ func TestIdentityRealmsSingleCorpBackfillRejectsSaaSIdentityConflictBeforeDDL(t 
 	}
 	stageIdentityMigrationBatch(t, db, "task8-conflict", 1, nil)
 	err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", true)
-	if !strings.Contains(strings.ToLower(err.Error()), "identity conflict") {
-		t.Fatalf("error=%v, want identity conflict", err)
-	}
+	assertIdentityBackfillError(t, err, "0130 SaaS platform identity phone/login conflict")
 	assertIdentityTableMissing(t, db, "mochat_go_identity_migration_ledger")
 	assertIdentityForeignKeyMissing(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
 }
@@ -204,13 +205,18 @@ func TestIdentityRealmsSingleCorpBackfillRejectsMultipleCorpsBeforeDDL(t *testin
 	if err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false); err != nil {
 		t.Fatal(err)
 	}
+	stageIdentityMigrationBatch(t, db, "task8-multiple-corps", 1, nil)
 	err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", true)
-	if !strings.Contains(strings.ToLower(err.Error()), "multiple valid corp") {
-		t.Fatalf("error=%v, want explicit mapping failure", err)
-	}
+	assertIdentityBackfillError(t, err, "0130 multiple valid corp requires signed mapping")
 	assertIdentityTableMissing(t, db, "mochat_go_identity_migration_ledger")
 	assertIdentityForeignKeyMissing(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
 
+	if _, err := db.Exec(`DELETE FROM mochat_go_identity_migration_corp_map WHERE request_id=?`, "task8-multiple-corps"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM mochat_go_identity_migration_batches WHERE request_id=?`, "task8-multiple-corps"); err != nil {
+		t.Fatal(err)
+	}
 	stageIdentityMigrationBatch(t, db, "task8-real-multi", 1, []CorpMappingFixture{{TenantID: 1, CorpID: 101}})
 	if err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", false); err != nil {
 		t.Fatal(err)
@@ -253,8 +259,8 @@ type CorpMappingFixture struct {
 func stageIdentityMigrationBatch(t *testing.T, db *sql.DB, requestID string, platformTenantID int64, mappings []CorpMappingFixture) {
 	t.Helper()
 	for _, statement := range []string{
-		`CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_batches (request_id varchar(128) NOT NULL, platform_tenant_id int(10) unsigned NOT NULL, status varchar(16) NOT NULL, mapping_digest char(64) NOT NULL DEFAULT '', script_checksum char(64) NOT NULL, preflight_status varchar(16) NOT NULL DEFAULT 'passed', credential_status varchar(16) NOT NULL DEFAULT 'verified', actor_inventory_status varchar(16) NOT NULL DEFAULT 'verified', migration_source varchar(96) NOT NULL DEFAULT '0130_identity_realms_single_corp_backfill', PRIMARY KEY (request_id)) ENGINE=InnoDB`,
-		`CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_corp_map (request_id varchar(128) NOT NULL, tenant_id int(10) unsigned NOT NULL, corp_id int(10) unsigned NOT NULL, status varchar(16) NOT NULL, migration_source varchar(96) NOT NULL DEFAULT '0130_identity_realms_single_corp_backfill', PRIMARY KEY (request_id, tenant_id), UNIQUE KEY uni_task8_stage_corp (request_id, corp_id)) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_batches (request_id varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, platform_tenant_id int(10) unsigned NOT NULL, status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, mapping_digest char(64) NOT NULL DEFAULT '', script_checksum char(64) NOT NULL, preflight_status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'passed', credential_status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'verified', actor_inventory_status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'verified', migration_source varchar(96) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '0130_identity_realms_single_corp_backfill', PRIMARY KEY (request_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_corp_map (request_id varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, tenant_id int(10) unsigned NOT NULL, corp_id int(10) unsigned NOT NULL, status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, migration_source varchar(96) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '0130_identity_realms_single_corp_backfill', PRIMARY KEY (request_id, tenant_id), UNIQUE KEY uni_task8_stage_corp (request_id, corp_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -267,6 +273,17 @@ func stageIdentityMigrationBatch(t *testing.T, db *sql.DB, requestID string, pla
 		if _, err := db.Exec(`INSERT INTO mochat_go_identity_migration_corp_map (request_id, tenant_id, corp_id, status) VALUES (?, ?, ?, 'validated')`, requestID, mapping.TenantID, mapping.CorpID); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func assertIdentityBackfillError(t *testing.T, err error, wantMessage string) {
+	t.Helper()
+	var mysqlErr *mysqldriver.MySQLError
+	if !errors.As(err, &mysqlErr) {
+		t.Fatalf("error=%v, want MariaDB SIGNAL SQLSTATE 45000", err)
+	}
+	if mysqlErr.Number != 1644 || string(mysqlErr.SQLState[:]) != "45000" || mysqlErr.Message != wantMessage {
+		t.Fatalf("error number=%d sqlstate=%q message=%q, want 1644/45000/%q", mysqlErr.Number, string(mysqlErr.SQLState[:]), mysqlErr.Message, wantMessage)
 	}
 }
 

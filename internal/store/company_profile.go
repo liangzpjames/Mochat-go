@@ -371,7 +371,7 @@ func (s *MySQLStore) RotateAgentCredentials(ctx context.Context, principal dashb
 			if execErr != nil {
 				return execErr
 			}
-			return requireCompanyRows(updated, 1)
+			return requireCompanyAgentRowsOrMatched(ctx, tx, updated, binding, agent.ID, storage)
 		}, "dashboard.company.agent_credentials.rotate", "company_agent", strconv.Itoa(agent.ID), changedFields, input.RequestID)
 	if err != nil {
 		return companyprofile.Profile{}, err
@@ -634,6 +634,38 @@ func requireCompanyRows(result sql.Result, expected int64) error {
 		return fmt.Errorf("company profile mutation affected %d rows, want %d", rows, expected)
 	}
 	return nil
+}
+
+func requireCompanyAgentRowsOrMatched(ctx context.Context, tx *sql.Tx, result sql.Result, binding companyBindingRecord, agentID int, storage agentCredentialStorage) error {
+	if result == nil {
+		return errors.New("company profile mutation returned no result")
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 1 {
+		return nil
+	}
+	if rows != 0 {
+		return fmt.Errorf("company profile mutation affected %d rows, want 1", rows)
+	}
+	var matched int
+	if scanErr := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM mc_work_agent a
+			INNER JOIN mc_corp c ON c.id = a.corp_id AND c.tenant_id = ? AND c.deleted_at IS NULL
+			INNER JOIN mochat_go_tenant_corp_bindings b
+				ON b.tenant_id = c.tenant_id AND b.corp_id = a.corp_id
+			WHERE b.tenant_id = ? AND b.corp_id = ? AND b.version = ? AND b.status = ? AND b.status IN (1, 2)
+			  AND a.id = ? AND a.corp_id = ? AND a.deleted_at IS NULL
+			  AND a.wx_secret = ''
+			  AND COALESCE(CAST(a.wecom_credentials_ciphertext AS CHAR), '') = ?
+			  AND COALESCE(a.wecom_credentials_key_id, '') = ?`,
+		binding.TenantID, binding.TenantID, binding.CorpID, binding.Version, binding.Status, agentID, binding.CorpID, storage.Ciphertext, storage.KeyID).Scan(&matched); scanErr == nil && matched == 1 {
+		return nil
+	}
+	return fmt.Errorf("company profile mutation affected 0 rows, want 1")
 }
 
 type companyAgentCredentialRecord struct {

@@ -531,11 +531,32 @@ func upsertCompanySyncUpdateTimeTx(ctx context.Context, tx *sql.Tx, corpID int, 
 	if err != nil {
 		return err
 	}
+	return requireCompanySyncStatusRowsOrMatched(ctx, tx, result, updateTimeID, corpID, updateType)
+}
+
+func requireCompanySyncStatusRowsOrMatched(ctx context.Context, tx *sql.Tx, result sql.Result, updateTimeID, corpID, updateType int) error {
+	if result == nil {
+		return errors.New("company sync status update returned no result")
+	}
 	rows, err := result.RowsAffected()
-	if err != nil || rows != 1 {
+	if err != nil {
+		return err
+	}
+	if rows == 1 {
+		return nil
+	}
+	if rows != 0 {
 		return errors.New("company sync status update affected unexpected rows")
 	}
-	return nil
+	var matched int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mc_work_update_time
+		WHERE id = ? AND corp_id = ? AND type = ?
+		  AND last_update_time IS NOT NULL AND error_msg IS NULL`, updateTimeID, corpID, updateType).Scan(&matched); err == nil && matched == 1 {
+		return nil
+	}
+	return errors.New("company sync status update affected unexpected rows")
 }
 
 func (s *MySQLStore) recordCompanySyncFailure(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) error {

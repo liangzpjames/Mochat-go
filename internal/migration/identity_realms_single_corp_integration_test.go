@@ -308,12 +308,16 @@ func newIdentitySingleCorpMigrationDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var schemaLeftoversBefore int
-	if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'").Scan(&schemaLeftoversBefore); err != nil {
-		_ = admin.Close()
-		t.Fatalf("check isolated schema baseline: %v", err)
-	}
 	schema := fmt.Sprintf("mochat_identity_single_corp_%d_%d", os.Getpid(), identitySingleCorpSchemaSequence.Add(1))
+	var schemaExists int
+	if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?", schema).Scan(&schemaExists); err != nil {
+		_ = admin.Close()
+		t.Fatalf("check isolated schema collision: %v", err)
+	}
+	if schemaExists != 0 {
+		_ = admin.Close()
+		t.Fatalf("isolated schema already exists: %s", schema)
+	}
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		_ = admin.Close()
 		t.Fatalf("create isolated migration schema: %v", err)
@@ -321,10 +325,10 @@ func newIdentitySingleCorpMigrationDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
 		var leftovers int
-		if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_%'").Scan(&leftovers); err != nil {
-			t.Errorf("check isolated schema leftovers: %v", err)
-		} else if leftovers != schemaLeftoversBefore {
-			t.Errorf("isolated schema leftovers changed from baseline=%d to %d", schemaLeftoversBefore, leftovers)
+		if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?", schema).Scan(&leftovers); err != nil {
+			t.Errorf("check isolated schema cleanup: %v", err)
+		} else if leftovers != 0 {
+			t.Errorf("isolated schema %s still exists after cleanup", schema)
 		}
 		_ = admin.Close()
 	})
@@ -346,7 +350,7 @@ func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
 		`CREATE TABLE mc_tenant (id int(10) unsigned NOT NULL AUTO_INCREMENT, name varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', chat_secret varchar(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext text COLLATE utf8mb4_bin NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', chat_secret varchar(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext text COLLATE utf8mb4_bin NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL DEFAULT 1, phone char(11) NOT NULL DEFAULT '', password varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', status tinyint unsigned NOT NULL DEFAULT 1, deleted_at timestamp NULL, isSuperAdmin tinyint NOT NULL DEFAULT 0, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, data_permission json DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_rbac_user_role (id int(11) NOT NULL AUTO_INCREMENT, user_id int(11) NOT NULL, role_id int(11) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
