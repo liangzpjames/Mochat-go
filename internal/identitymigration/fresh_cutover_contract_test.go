@@ -136,6 +136,13 @@ func TestBackfillSQLBindsAndValidatesTheRequestedBatchContract(t *testing.T) {
 			t.Fatalf("0130 staging query statement %d is not request-scoped: %s", index, statement)
 		}
 	}
+	placeholderComparison := "existing.name = CONCAT('Migration placeholder [0130:', @identity_0130_request_id, '] tenant ', t.id)"
+	if strings.Contains(sql, placeholderComparison) {
+		t.Fatalf("0130 placeholder comparison still relies on implicit collation: %q", placeholderComparison)
+	}
+	if !strings.Contains(sql, "existing.name COLLATE utf8mb4_unicode_ci = CONCAT('Migration placeholder [0130:', @identity_0130_request_id, '] tenant ', t.id) COLLATE utf8mb4_unicode_ci") {
+		t.Fatal("0130 placeholder name comparison must explicitly use utf8mb4_unicode_ci on both sides")
+	}
 }
 
 func TestBackfillStatementFailureRetainsSafeDiagnostics(t *testing.T) {

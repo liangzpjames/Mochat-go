@@ -192,8 +192,13 @@ func TestIdentityBackfillEngineRealMariaDBFreshSplitIdentityRejectsLegacyResidue
 func TestIdentityBackfillEngineRealMariaDBRequestScopesValidatedBatches(t *testing.T) {
 	db := newCredentialIntegrationDB(t)
 	createFreshIdentityBackfillEngineFixture(t, db)
+	if _, err := db.Exec(`ALTER TABLE mc_corp MODIFY name varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT ''`); err != nil {
+		t.Fatal(err)
+	}
 	execIdentityBackfillTestFile(t, db, "0129_identity_realms_single_corp_schema.up.sql")
 	insertFreshSaaSBootstrapRoot(t, db)
+	assertColumnCollation(t, db, "mc_corp", "name", "utf8mb4_general_ci")
+	assertColumnCollation(t, db, "mochat_go_saas_admin_users", "login_name", "utf8mb4_unicode_ci")
 
 	oldRequest := "fresh-split-identity-old-validated"
 	if err := stageIntegrationBatch(t, db, oldRequest, strings.Repeat("a", 64)); err != nil {
@@ -328,6 +333,17 @@ func countIdentityMigrationTables(t *testing.T, db *sql.DB, table string) int {
 		t.Fatal(err)
 	}
 	return count
+}
+
+func assertColumnCollation(t *testing.T, db *sql.DB, table, column, want string) {
+	t.Helper()
+	var got sql.NullString
+	if err := db.QueryRow(`SELECT collation_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name=?`, table, column).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Valid || got.String != want {
+		t.Fatalf("%s.%s collation=%q, want %q", table, column, got.String, want)
+	}
 }
 
 func insertFreshSaaSBootstrapRoot(t *testing.T, db *sql.DB) {

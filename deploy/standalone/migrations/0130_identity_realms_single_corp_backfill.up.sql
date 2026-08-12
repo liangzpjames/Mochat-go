@@ -850,7 +850,7 @@ WHERE t.status = 1 AND t.deleted_at IS NULL AND c.id IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM mc_corp existing
     WHERE existing.tenant_id = t.id
-      AND existing.name = CONCAT('Migration placeholder [0130:', @identity_0130_request_id, '] tenant ', t.id)
+      AND existing.name COLLATE utf8mb4_unicode_ci = CONCAT('Migration placeholder [0130:', @identity_0130_request_id, '] tenant ', t.id) COLLATE utf8mb4_unicode_ci
       AND existing.wx_corpid = ''
   );
 
