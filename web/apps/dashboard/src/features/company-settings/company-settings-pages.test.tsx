@@ -159,6 +159,36 @@ describe('企业设置页面', () => {
     expect(screen.getByRole('button', { name: '开始员工同步' })).toHaveProperty('disabled', true);
   });
 
+  it('企业信息：待配置同步状态显示中性提示而非故障重试', async () => {
+    const getSyncStatus = vi.fn().mockRejectedValue(
+      new ApiError('forbidden', 'configuration required', {
+        status: 403,
+        code: 403,
+        machineCode: 'CORP_CONFIGURATION_REQUIRED',
+      }),
+    );
+    const api = companyApi({
+      getProfile: vi.fn().mockResolvedValue({ ...companyProfile, bindingStatus: 'pending', wxCorpId: undefined, authoritativeCorpName: undefined }),
+      getSyncStatus,
+    });
+    renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
+
+    expect(await screen.findByText('完成企业微信验证后即可同步员工')).toBeTruthy();
+    expect(screen.queryByText('同步状态读取失败。')).toBeNull();
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
+    expect(screen.getByRole('button', { name: '开始员工同步' })).toHaveProperty('disabled', true);
+  });
+
+  it('企业信息：同步状态网络错误仍显示故障重试', async () => {
+    const api = companyApi({
+      getSyncStatus: vi.fn().mockRejectedValue(new ApiError('server', 'internal', { status: 500, code: 500, machineCode: 'INTERNAL_ERROR' })),
+    });
+    renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
+
+    expect(await screen.findByText('同步状态读取失败。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+  });
+
   it('企业信息：普通用户稳定显示403且不加载企业数据', async () => {
     const getProfile = vi.fn();
     const api = companyApi({ getProfile });

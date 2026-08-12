@@ -236,6 +236,10 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   const hasArchiveChanges = archiveChatSecret !== '';
   const syncStatus = syncQuery.data;
   const syncIsRunning = syncStatus?.status === 'queued' || syncStatus?.status === 'syncing' || syncMutation.isPending;
+  const syncConfigurationRequired =
+    syncQuery.isError &&
+    syncQuery.error instanceof ApiError &&
+    syncQuery.error.machineCode === 'CORP_CONFIGURATION_REQUIRED';
 
   return (
     <Phase35PageShell title="唯一企业资料" description="企业绑定由服务端确定，当前页面不提供新建、切换或删除企业。">
@@ -355,7 +359,11 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
             <span>员工：{syncStatus?.employees ?? 0}</span>
             {syncStatus?.errorCode && <span role="alert">错误：{syncStatus.errorCode}</span>}
           </div>
-          {syncQuery.isError && <div className="company-inline-error"><span>同步状态读取失败。</span><button type="button" onClick={() => void syncQuery.refetch()}>重试</button></div>}
+          {syncConfigurationRequired ? (
+            <p className="company-profile-help">完成企业微信验证后即可同步员工</p>
+          ) : syncQuery.isError ? (
+            <div className="company-inline-error"><span>同步状态读取失败。</span><button type="button" onClick={() => void syncQuery.refetch()}>重试</button></div>
+          ) : null}
           <div className="company-profile-actions">
             <ConfirmAction
               title="确认发起员工同步？"
