@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	action := flag.String("action", "apply", "migration action: apply, status, baseline, rollback")
+	action := flag.String("action", "apply", "migration action: apply, status, baseline, baseline-compose-init, rollback")
 	dsn := flag.String("dsn", os.Getenv("MOCHAT_MYSQL_DSN"), "MySQL DSN; defaults to MOCHAT_MYSQL_DSN")
 	projectRoot := flag.String("project-root", ".", "project root used to resolve default migrations")
 	timeout := flag.Duration("timeout", 5*time.Minute, "migration timeout")
@@ -48,6 +48,8 @@ func main() {
 	switch *action {
 	case "apply", "up":
 		status, err = runner.Apply(ctx)
+	case "baseline-compose-init":
+		status, err = runner.BaselineComposeInit(ctx)
 	case "status":
 		status, err = runner.Status(ctx)
 	case "baseline":

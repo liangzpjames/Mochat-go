@@ -211,7 +211,32 @@ function Test-MigrationLedgerExists {
         'mariadb', '--batch', '--skip-column-names',
         "-u$user", "-p$password", "--database=$database", '-e', $query
     ) -Capture -Secrets @($password)
-    return (Test-CapturedScalar -Output $output -Expected '1')
+    if (-not (Test-CapturedScalar -Output $output -Expected '1')) {
+        return $false
+    }
+
+    $rowQuery = 'SELECT IF(COUNT(*) > 0, 1, 0) FROM mochat_go_schema_migrations'
+    $rowOutput = Invoke-Compose -Arguments @(
+        'exec', '-T', 'mysql',
+        'mariadb', '--batch', '--skip-column-names',
+        "-u$user", "-p$password", "--database=$database", '-e', $rowQuery
+    ) -Capture -Secrets @($password)
+    return (Test-CapturedScalar -Output $rowOutput -Expected '1')
+}
+
+function Invoke-AutomaticMigrations {
+    try {
+        Invoke-Compose -Arguments @(
+            'exec', '-T', 'app',
+            'mochat-migrate', '-action', 'up', '-project-root', '/app'
+        ) -Capture
+    } catch {
+        $message = $_.Exception.Message
+        if ($message -notmatch 'controlled migration (0130_identity_realms_single_corp_backfill|0131_identity_realms_single_corp_cutover) is pending') {
+            throw
+        }
+        Write-Host '普通迁移已完成至下一个 controlled migration；0130/0131 必须按维护流程显式执行。' -ForegroundColor Yellow
+    }
 }
 
 if (-not (Test-Path -LiteralPath $composeFile)) {
@@ -266,15 +291,24 @@ try {
     if (Test-MigrationLedgerExists) {
         Write-Host '检测到迁移账本，跳过 baseline。'
     } else {
-        Invoke-Compose -Arguments @(
-            'exec', '-T', 'app',
-            'mochat-migrate', '-action', 'baseline', '-project-root', '/app'
-        )
+        try {
+            Invoke-Compose -Arguments @(
+                'exec', '-T', 'app',
+                'mochat-migrate', '-action', 'baseline', '-project-root', '/app'
+            ) -Capture
+        } catch {
+            if ($_.Exception.Message -notmatch 'baseline requires complete 0129 schema') {
+                throw
+            }
+            Write-Host '检测到 Compose fresh schema：以 0104 为实际 init 边界，禁止虚假 baseline，随后按真实 DDL 顺序补齐至 0129。' -ForegroundColor Yellow
+            Invoke-Compose -Arguments @(
+                'exec', '-T', 'app',
+                'mochat-migrate', '-action', 'baseline-compose-init', '-project-root', '/app'
+            ) -Capture
+        }
     }
-    Invoke-Compose -Arguments @(
-        'exec', '-T', 'app',
-        'mochat-migrate', '-action', 'up', '-project-root', '/app'
-    )
+    Invoke-AutomaticMigrations
+    Write-Host '空业务库安全顺序：先显式 bootstrap SaaS Admin，再通过受保护 SaaS API 完成平台/企业事实；只读 preflight 通过后执行 0130 backfill，随后 encrypt-credentials，最后执行 0131 cutover。脚本不会自动执行 controlled migration。' -ForegroundColor Yellow
     Write-Host 'SaaS 管理员初始化未自动执行；请按 deploy/standalone/README.md 的一次性 PasswordFile + RequestKey 流程显式执行。' -ForegroundColor Yellow
 
     $dashboardUrl = "http://127.0.0.1:$DashboardPort/"

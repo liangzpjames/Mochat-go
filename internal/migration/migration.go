@@ -17,6 +17,15 @@ import (
 
 const VersionTable = "mochat_go_schema_migrations"
 
+const composeInitBaselineVersion = "0104_scrm_opportunity_owner"
+
+const composeInitPhase32Index = "idx_mc_corp_day_data_corp_date"
+
+var composeInitCrossStageTables = []string{
+	"mc_corp_day_data",
+	"mochat_go_scrm_opportunities",
+}
+
 const knownLegacyInitialSchemaChecksum = "b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9"
 
 type Migration struct {
@@ -42,6 +51,17 @@ type StatusItem struct {
 	Checksum  string
 	Applied   *AppliedMigration
 	State     string
+}
+
+type composeInitBaselineFacts struct {
+	TenantCount             int64
+	CorpCount               int64
+	UserCount               int64
+	MigrationLedgerCount    int64
+	IdentityTableCount      int64
+	HasOpportunityOwner     bool
+	HasPhase32CorpDateIndex bool
+	HasCrossStageTables     bool
 }
 
 type Runner struct {
@@ -165,20 +185,57 @@ func (r *Runner) Status(ctx context.Context) ([]StatusItem, error) {
 }
 
 func (r *Runner) Baseline(ctx context.Context) ([]StatusItem, error) {
-	if err := r.ensureVersionTable(ctx); err != nil {
+	return r.baseline(ctx, "")
+}
+
+// BaselineComposeInit records only the migrations already executed by the
+// standalone MariaDB init scripts. Later migrations must be applied by the
+// runner so their DDL is actually present before they are ledgered.
+func (r *Runner) BaselineComposeInit(ctx context.Context) ([]StatusItem, error) {
+	return r.baseline(ctx, composeInitBaselineVersion)
+}
+
+func (r *Runner) baseline(ctx context.Context, throughVersion string) ([]StatusItem, error) {
+	var schemaReady bool
+	var err error
+	if throughVersion == composeInitBaselineVersion {
+		schemaReady, err = r.schemaHasComposeInitTables(ctx)
+	} else {
+		if err := r.ensureVersionTable(ctx); err != nil {
+			return nil, err
+		}
+		schemaReady, err = r.schemaLooksInitialized(ctx)
+	}
+	if err != nil {
 		return nil, err
 	}
-	if ok, err := r.schemaLooksInitialized(ctx); err != nil {
-		return nil, err
-	} else if !ok {
+	if !schemaReady {
 		return nil, errors.New("baseline requires an existing MoChat schema; run apply on empty databases")
+	}
+	if throughVersion == composeInitBaselineVersion {
+		if err := r.ensureVersionTable(ctx); err != nil {
+			return nil, err
+		}
 	}
 	applied, err := r.applied(ctx)
 	if err != nil {
 		return nil, err
 	}
 	result := make([]StatusItem, 0, len(r.migrations))
+	foundThroughVersion := throughVersion == ""
+	type pendingRecord struct {
+		migration Migration
+		checksum  string
+	}
+	pending := make([]pendingRecord, 0, len(r.migrations))
+	var blockedErr error
 	for _, migration := range r.migrations {
+		if throughVersion != "" && migration.Version > throughVersion {
+			break
+		}
+		if migration.Version == throughVersion {
+			foundThroughVersion = true
+		}
 		_, checksum, err := migrationBodyAndChecksum(migration)
 		if err != nil {
 			return nil, err
@@ -193,11 +250,10 @@ func (r *Runner) Baseline(ctx context.Context) ([]StatusItem, error) {
 			continue
 		}
 		if migration.Kind == MigrationControlled {
-			return result, ControlledMigrationBlocked(migration.Version)
+			blockedErr = ControlledMigrationBlocked(migration.Version)
+			break
 		}
-		if err := r.recordApplied(ctx, migration, checksum, 0); err != nil {
-			return result, err
-		}
+		pending = append(pending, pendingRecord{migration: migration, checksum: checksum})
 		appliedItem := AppliedMigration{
 			Version:     migration.Version,
 			Description: migration.Description,
@@ -206,7 +262,25 @@ func (r *Runner) Baseline(ctx context.Context) ([]StatusItem, error) {
 		}
 		result = append(result, StatusItem{Migration: migration, Checksum: checksum, Applied: &appliedItem, State: "baselined"})
 	}
-	return result, nil
+	if !foundThroughVersion {
+		return nil, fmt.Errorf("baseline cutoff migration %s is not configured", throughVersion)
+	}
+	if len(pending) > 0 {
+		tx, err := r.db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("begin baseline transaction: %w", err)
+		}
+		for _, record := range pending {
+			if err := recordAppliedWith(ctx, tx, record.migration, record.checksum, 0); err != nil {
+				_ = tx.Rollback()
+				return nil, fmt.Errorf("record baseline migration %s: %w", record.migration.Version, err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit baseline transaction: %w", err)
+		}
+	}
+	return result, blockedErr
 }
 
 func (r *Runner) RollbackLast(ctx context.Context) (string, error) {
@@ -287,7 +361,15 @@ func (r *Runner) applied(ctx context.Context) (map[string]AppliedMigration, erro
 }
 
 func (r *Runner) recordApplied(ctx context.Context, migration Migration, checksum string, executionMS int) error {
-	_, err := r.db.ExecContext(ctx, `
+	return recordAppliedWith(ctx, r.db, migration, checksum, executionMS)
+}
+
+type migrationExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func recordAppliedWith(ctx context.Context, execer migrationExecer, migration Migration, checksum string, executionMS int) error {
+	_, err := execer.ExecContext(ctx, `
 		INSERT INTO `+VersionTable+` (version, description, checksum, applied_at, execution_ms)
 		VALUES (?, ?, ?, NOW(), ?)
 	`, migration.Version, migration.Description, checksum, executionMS)
@@ -295,21 +377,219 @@ func (r *Runner) recordApplied(ctx context.Context, migration Migration, checksu
 }
 
 func (r *Runner) schemaLooksInitialized(ctx context.Context) (bool, error) {
-	required := []string{"mc_user", "mc_rbac_menu"}
-	for _, table := range required {
-		var count int
-		if err := r.db.QueryRowContext(ctx, `
-			SELECT COUNT(*)
-			FROM information_schema.tables
-			WHERE table_schema = DATABASE() AND table_name = ?
-		`, table).Scan(&count); err != nil {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT table_name
+		FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name IN (`+placeholders(len(baselineSchemaTables))+`)
+	`, baselineSchemaTableArgs()...)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	present := make([]string, 0, len(baselineSchemaTables))
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
 			return false, err
 		}
-		if count == 0 {
-			return false, nil
-		}
+		present = append(present, table)
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	if !containsString(present, "mc_user") || !containsString(present, "mc_rbac_menu") {
+		return false, nil
+	}
+	if err := validateBaselineSchemaTables(present); err != nil {
+		return false, err
 	}
 	return true, nil
+}
+
+func (r *Runner) schemaHasComposeInitTables(ctx context.Context) (bool, error) {
+	facts := composeInitBaselineFacts{}
+	var err error
+	if facts.TenantCount, err = r.tableRowCount(ctx, "mc_tenant"); err != nil {
+		return false, err
+	}
+	if facts.CorpCount, err = r.tableRowCount(ctx, "mc_corp"); err != nil {
+		return false, err
+	}
+	if facts.UserCount, err = r.tableRowCount(ctx, "mc_user"); err != nil {
+		return false, err
+	}
+	var ledgerTableCount int64
+	if ledgerTableCount, err = r.informationSchemaTableCount(ctx, []string{VersionTable}); err != nil {
+		return false, err
+	}
+	if ledgerTableCount > 1 {
+		return false, fmt.Errorf("inspect %s returned invalid table count %d", VersionTable, ledgerTableCount)
+	}
+	if ledgerTableCount == 1 {
+		if facts.MigrationLedgerCount, err = r.tableRowCount(ctx, VersionTable); err != nil {
+			return false, err
+		}
+	}
+	if facts.IdentityTableCount, err = r.informationSchemaTableCount(ctx, []string{"mochat_go_saas_admin_users"}); err != nil {
+		return false, err
+	}
+	if facts.HasOpportunityOwner, err = r.informationSchemaColumnExists(ctx, "mochat_go_scrm_opportunities", "owner_id", "bigint(20) unsigned"); err != nil {
+		return false, err
+	}
+	if facts.HasPhase32CorpDateIndex, err = r.informationSchemaPhase32IndexExists(ctx); err != nil {
+		return false, err
+	}
+	var crossStageTableCount int64
+	if crossStageTableCount, err = r.informationSchemaTableCount(ctx, composeInitCrossStageTables); err != nil {
+		return false, err
+	}
+	facts.HasCrossStageTables = crossStageTableCount == int64(len(composeInitCrossStageTables))
+	if err := validateComposeInitBaselineFacts(facts); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func validateComposeInitBaselineFacts(facts composeInitBaselineFacts) error {
+	if facts.TenantCount != 0 || facts.CorpCount != 0 || facts.UserCount != 0 {
+		return fmt.Errorf("baseline compose init requires an empty business schema: mc_tenant=%d mc_corp=%d mc_user=%d", facts.TenantCount, facts.CorpCount, facts.UserCount)
+	}
+	if !facts.HasOpportunityOwner || !facts.HasPhase32CorpDateIndex || !facts.HasCrossStageTables {
+		return errors.New("baseline compose init requires the 0104 schema sentinels: opportunity owner, 0103 index, and cross-stage tables")
+	}
+	if facts.IdentityTableCount != 0 {
+		return fmt.Errorf("baseline compose init cannot run when 0129 identity tables exist: tables=%d", facts.IdentityTableCount)
+	}
+	if facts.MigrationLedgerCount != 0 {
+		return fmt.Errorf("baseline compose init requires an empty migration ledger: rows=%d", facts.MigrationLedgerCount)
+	}
+	return nil
+}
+
+func (r *Runner) tableRowCount(ctx context.Context, table string) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count %s: %w", table, err)
+	}
+	return count, nil
+}
+
+func (r *Runner) informationSchemaTableCount(ctx context.Context, tables []string) (int64, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name IN (`+placeholders(len(tables))+`)
+	`, stringArgs(tables)...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("inspect information_schema.tables: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Runner) informationSchemaColumnExists(ctx context.Context, table, column, columnType string) (bool, error) {
+	var count int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = DATABASE()
+		  AND table_name = ?
+		  AND column_name = ?
+		  AND column_type = ?
+	`, table, column, columnType).Scan(&count); err != nil {
+		return false, fmt.Errorf("inspect %s.%s: %w", table, column, err)
+	}
+	return count == 1, nil
+}
+
+func (r *Runner) informationSchemaPhase32IndexExists(ctx context.Context) (bool, error) {
+	var count, matchingFirst, matchingSecond int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN seq_in_index = 1 AND column_name = 'corp_id' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN seq_in_index = 2 AND column_name = 'date' THEN 1 ELSE 0 END), 0)
+		FROM information_schema.statistics
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'mc_corp_day_data'
+		  AND index_name = ?
+	`, composeInitPhase32Index).Scan(&count, &matchingFirst, &matchingSecond); err != nil {
+		return false, fmt.Errorf("inspect %s: %w", composeInitPhase32Index, err)
+	}
+	return count == 2 && matchingFirst == 1 && matchingSecond == 1, nil
+}
+
+// baselineSchemaTables is the minimum schema contract for baseline. A
+// baseline is only valid for a database that already has the latest
+// automatic schema through 0129; it must never turn a compose init schema
+// (which stops at 0104) into a false ledger claim for 0127/0129.
+var baselineSchemaTables = []string{
+	"mc_user",
+	"mc_rbac_menu",
+	"mochat_go_dashboard_permissions",
+	"mochat_go_dashboard_permission_resources",
+	"mochat_go_dashboard_user_roles",
+	"mochat_go_dashboard_role_permissions",
+	"mochat_go_dashboard_user_permissions",
+	"mochat_go_dashboard_permission_audits",
+	"mochat_go_saas_admin_users",
+	"mochat_go_saas_idempotency_receipts",
+	"mochat_go_dashboard_identities",
+	"mochat_go_dashboard_identity_activations",
+	"mochat_go_tenant_corp_bindings",
+	"mochat_go_dashboard_mfa_credentials",
+	"mochat_go_dashboard_mfa_challenges",
+	"mochat_go_dashboard_sessions",
+	"mochat_go_dashboard_password_resets",
+	"mochat_go_saas_admin_mfa_credentials",
+	"mochat_go_saas_admin_mfa_challenges",
+	"mochat_go_saas_admin_sessions",
+}
+
+func validateBaselineSchemaTables(present []string) error {
+	available := make(map[string]struct{}, len(present))
+	for _, table := range present {
+		available[table] = struct{}{}
+	}
+	missing := make([]string, 0)
+	for _, required := range baselineSchemaTables {
+		if _, ok := available[required]; !ok {
+			missing = append(missing, required)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("baseline requires complete 0129 schema; missing tables: %s", strings.Join(missing, ","))
+	}
+	return nil
+}
+
+func baselineSchemaTableArgs() []any {
+	return stringArgs(baselineSchemaTables)
+}
+
+func stringArgs(values []string) []any {
+	args := make([]any, 0, len(values))
+	for _, value := range values {
+		args = append(args, value)
+	}
+	return args
+}
+
+func placeholders(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	result := strings.Repeat("?,", count)
+	return strings.TrimSuffix(result, ",")
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) currentTime() time.Time {

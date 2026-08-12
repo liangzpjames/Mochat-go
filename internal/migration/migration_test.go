@@ -179,6 +179,117 @@ func TestDefaultMigrationsRegistersControlledIdentityBackfill(t *testing.T) {
 	t.Fatal("controlled 0130 identity backfill must be registered in DefaultMigrations")
 }
 
+func TestBaselineRejectsComposeLikeSchemaBeforeRecordingMissing0129Tables(t *testing.T) {
+	present := []string{"mc_user", "mc_rbac_menu"}
+	err := validateBaselineSchemaTables(present)
+	if err == nil {
+		t.Fatal("baseline accepted a compose-like 0104 schema without the 0129 identity tables")
+	}
+	for _, required := range []string{
+		"mochat_go_saas_admin_users",
+		"mochat_go_dashboard_identities",
+		"mochat_go_dashboard_permission_audits",
+	} {
+		if !strings.Contains(err.Error(), required) {
+			t.Fatalf("baseline compatibility error=%q, missing required table %q", err, required)
+		}
+	}
+}
+
+func TestComposeInitBaselineFactsRequireFreshComplete0104Schema(t *testing.T) {
+	complete := composeInitBaselineFacts{
+		TenantCount:             0,
+		CorpCount:               0,
+		UserCount:               0,
+		MigrationLedgerCount:    0,
+		IdentityTableCount:      0,
+		HasOpportunityOwner:     true,
+		HasPhase32CorpDateIndex: true,
+		HasCrossStageTables:     true,
+	}
+	if err := validateComposeInitBaselineFacts(complete); err != nil {
+		t.Fatalf("complete compose-init facts rejected: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		facts   composeInitBaselineFacts
+		wantErr string
+	}{
+		{
+			name:    "populated legacy",
+			facts:   completeWith(func(f *composeInitBaselineFacts) { f.CorpCount = 1 }),
+			wantErr: "empty business schema",
+		},
+		{
+			name:    "missing 0104 sentinel",
+			facts:   completeWith(func(f *composeInitBaselineFacts) { f.HasOpportunityOwner = false }),
+			wantErr: "0104 schema sentinels",
+		},
+		{
+			name:    "missing phase 3.2 index",
+			facts:   completeWith(func(f *composeInitBaselineFacts) { f.HasPhase32CorpDateIndex = false }),
+			wantErr: "0104 schema sentinels",
+		},
+		{
+			name:    "identity table already exists",
+			facts:   completeWith(func(f *composeInitBaselineFacts) { f.IdentityTableCount = 1 }),
+			wantErr: "0129 identity tables",
+		},
+		{
+			name:    "ledger already exists",
+			facts:   completeWith(func(f *composeInitBaselineFacts) { f.MigrationLedgerCount = 1 }),
+			wantErr: "empty migration ledger",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateComposeInitBaselineFacts(test.facts)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("facts error = %v, want text containing %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func completeWith(change func(*composeInitBaselineFacts)) composeInitBaselineFacts {
+	facts := composeInitBaselineFacts{
+		TenantCount:             0,
+		CorpCount:               0,
+		UserCount:               0,
+		MigrationLedgerCount:    0,
+		IdentityTableCount:      0,
+		HasOpportunityOwner:     true,
+		HasPhase32CorpDateIndex: true,
+		HasCrossStageTables:     true,
+	}
+	change(&facts)
+	return facts
+}
+
+func TestComposeInitBaselineCutoffPrecedes0129(t *testing.T) {
+	if composeInitBaselineVersion != "0104_scrm_opportunity_owner" {
+		t.Fatalf("compose init baseline cutoff=%q", composeInitBaselineVersion)
+	}
+	migrations := DefaultMigrations(filepath.Join("..", ".."))
+	seenCutoff := false
+	seen0129 := false
+	for _, migration := range migrations {
+		if migration.Version == composeInitBaselineVersion {
+			seenCutoff = true
+		}
+		if migration.Version == "0129_identity_realms_single_corp_schema" {
+			seen0129 = true
+			if !seenCutoff {
+				t.Fatal("0129 identity schema precedes the compose init baseline cutoff")
+			}
+		}
+	}
+	if !seenCutoff || !seen0129 {
+		t.Fatalf("migration registry missing compose cutoff or 0129: cutoff=%t 0129=%t", seenCutoff, seen0129)
+	}
+}
+
 func TestControlledMigrationPendingErrorIsStable(t *testing.T) {
 	err := ControlledMigrationBlocked("0130_identity_realms_single_corp_backfill")
 	if err == nil || err.Error() != "controlled migration 0130_identity_realms_single_corp_backfill is pending; run mochat-identity-migrate before automatic migrations can continue" {
