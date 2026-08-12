@@ -3,8 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-python3 - "$(pwd)" <<'PY'
+AUDIT_PYTHON="${MOCHAT_PYTHON_BIN:-python3}"
+"$AUDIT_PYTHON" - "$(pwd)" <<'PY'
 from pathlib import Path
+import json
 import re
 import sys
 
@@ -17,16 +19,21 @@ existing = {
     for path in (repo / "scripts").glob("smoke_*.sh")
     if path.is_file()
 }
-referenced = set(re.findall(r"(?:\./scripts/)?(smoke_[A-Za-z0-9_]+\.sh)", acceptance))
+inventory = json.loads((repo / "scripts/acceptance_smoke_inventory.json").read_text(encoding="utf-8"))
+deferred = set(inventory.get("deferredHistorical", []))
+active = set(re.findall(r'^\s*run_step\s+"[^"]+"\s+\./scripts/(smoke_[A-Za-z0-9_]+\.sh)', acceptance, re.MULTILINE))
 
 failures = []
-missing_from_acceptance = sorted(existing - referenced)
-stale_references = sorted(referenced - existing)
+missing_from_inventory = sorted(existing - active - deferred)
+stale_references = sorted((active | deferred) - existing)
+overlapping_references = sorted(active & deferred)
 
-for name in missing_from_acceptance:
-    failures.append(f"scripts/{name}: smoke script is not referenced by scripts/standalone_acceptance.sh")
+for name in missing_from_inventory:
+    failures.append(f"scripts/{name}: smoke script is absent from active acceptance and deferred inventory")
 for name in stale_references:
-    failures.append(f"scripts/standalone_acceptance.sh: references missing smoke script scripts/{name}")
+    failures.append(f"acceptance smoke inventory references missing script scripts/{name}")
+for name in overlapping_references:
+    failures.append(f"scripts/{name}: cannot be both active acceptance and deferred historical")
 
 if failures:
     print("acceptance suite coverage audit failed:", file=sys.stderr)
@@ -34,5 +41,9 @@ if failures:
         print(f"- {failure}", file=sys.stderr)
     sys.exit(1)
 
-print(f"acceptance suite coverage audit passed: smoke_scripts={len(existing)} referenced={len(referenced)}")
+print(f"acceptance suite coverage audit passed: smoke_scripts={len(existing)} active={len(active)} deferred_historical={len(deferred)}")
+if deferred:
+    print("deferred historical smoke scripts (restored; excluded from Task12 cutover execution):")
+    for name in sorted(deferred):
+        print(f"- scripts/{name}")
 PY

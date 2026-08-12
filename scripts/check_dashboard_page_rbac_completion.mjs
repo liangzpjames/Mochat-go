@@ -1,7 +1,11 @@
 ﻿import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { scanBackendRegisteredAPIs, scanFrontendAPIUsages } from './check_dashboard_page_rbac_catalog.mjs';
+import {
+  applyCutoverPermissionResourceOverlay,
+  scanBackendRegisteredAPIs,
+  scanFrontendAPIUsages,
+} from './check_dashboard_page_rbac_catalog.mjs';
 
 export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource, smokeSource, packageJSON, frontendSource = '', backendEvidence = '', scopeMappings = '' }) {
   if (!/^53 pages, 48 ordinary, 5 superadmin_only, 0 unmapped dashboard API usages$/.test(catalogOutput.trim())) {
@@ -53,7 +57,17 @@ export async function runCompletionGate(root = process.cwd()) {
   const manifest = JSON.parse(await readFile(path.join(root, 'web/apps/dashboard/src/benchmark/manifest.json'), 'utf8'));
   const pageCatalog = JSON.parse(await readFile(path.join(root, 'internal/dashboard/dashboard_page_catalog.json'), 'utf8'));
   const routePolicy = catalog.extractGoDashboardRoutePolicy(await readFile(path.join(root, 'internal/dashboard/dashboard_route_policy.go'), 'utf8'));
-  const seededMappings = catalog.extractMigrationPermissionResourceMappings(await readFile(path.join(root, 'deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql'), 'utf8'));
+  const legacySeededMappings = catalog.extractMigrationPermissionResourceMappings(
+    await readFile(path.join(root, 'deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql'), 'utf8'),
+  );
+  const overlaySource = await readFile(
+    path.join(root, 'deploy/standalone/migrations/0131_identity_realms_single_corp_cutover.up.sql'),
+    'utf8',
+  );
+  const seededMappings = applyCutoverPermissionResourceOverlay({
+    legacyMappings: legacySeededMappings,
+    overlaySource,
+  });
   const frontend = await scanFrontendAPIUsages();
   const backend = (await scanBackendRegisteredAPIs()).filter((route) => {
     const routePath = route.contract.slice(route.contract.indexOf(' ') + 1);

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -179,7 +180,10 @@ func TestActiveAcceptanceEntrypointsDoNotInvokeRetiredIdentitySmokes(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	references := regexp.MustCompile(`(?:\./scripts/)?(smoke_[A-Za-z0-9_]+\.sh)`).FindAllStringSubmatch(string(acceptanceBytes), -1)
+	// Only run_step calls are active acceptance. Historical scripts are listed
+	// in scripts/acceptance_smoke_inventory.json and must not be reintroduced
+	// into the post-cutover execution path merely to satisfy coverage counts.
+	references := regexp.MustCompile(`(?m)^\s*run_step\s+"[^"]+"\s+\./scripts/(smoke_[A-Za-z0-9_]+\.sh)`).FindAllStringSubmatch(string(acceptanceBytes), -1)
 	for _, reference := range references {
 		if len(reference) < 2 {
 			continue
@@ -199,6 +203,51 @@ func TestActiveAcceptanceEntrypointsDoNotInvokeRetiredIdentitySmokes(t *testing.
 			if strings.Contains(text, forbidden) {
 				t.Fatalf("active acceptance smoke %s still invokes retired identity contract %q", reference[1], forbidden)
 			}
+		}
+	}
+}
+
+func TestRestoredAcceptanceInventoryRetainsBusinessSmokes(t *testing.T) {
+	root := task12RepositoryRoot(t)
+	var inventory struct {
+		DeferredHistorical []string `json:"deferredHistorical"`
+	}
+	inventoryBytes, err := os.ReadFile(filepath.Join(root, "scripts", "acceptance_smoke_inventory.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(inventoryBytes, &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.DeferredHistorical) < 60 {
+		t.Fatalf("restored smoke inventory is unexpectedly small: %d", len(inventory.DeferredHistorical))
+	}
+	seen := make(map[string]struct{}, len(inventory.DeferredHistorical))
+	for _, name := range inventory.DeferredHistorical {
+		if _, duplicate := seen[name]; duplicate {
+			t.Fatalf("duplicate deferred historical smoke: %s", name)
+		}
+		seen[name] = struct{}{}
+		if _, err := os.Stat(filepath.Join(root, "scripts", name)); err != nil {
+			t.Fatalf("deferred historical smoke %s is not restored: %v", name, err)
+		}
+	}
+	for _, name := range []string{
+		"smoke_saas_backup_recovery.sh",
+		"smoke_saas_billing_invoices.sh",
+		"smoke_saas_compliance_lifecycle.sh",
+		"smoke_saas_payment_collection.sh",
+		"smoke_saas_admin_access_rbac.sh",
+		"smoke_channel_code_dashboard.sh",
+		"smoke_room_calendar_dashboard.sh",
+		"smoke_sop_dashboard.sh",
+	} {
+		body, err := os.ReadFile(filepath.Join(root, "scripts", name))
+		if err != nil {
+			t.Fatalf("representative business smoke %s is missing: %v", name, err)
+		}
+		if len(body) < 200 || !strings.HasPrefix(string(body), "#!/usr/bin/env bash") {
+			t.Fatalf("representative business smoke %s was replaced with a stub", name)
 		}
 	}
 }

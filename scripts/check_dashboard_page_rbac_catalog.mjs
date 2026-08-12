@@ -40,6 +40,18 @@ function sameSet(left, right) {
   return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
+export const CUTOVER_COMPANY_RESOURCE_MAPPINGS = [
+  'dashboard.company_setting.website\tGET /dashboard/company/profile\t0',
+  'dashboard.company_setting.website\tPUT /dashboard/company/profile\t0',
+  'dashboard.company_setting.website\tPUT /dashboard/company/wecom-credentials\t0',
+  'dashboard.company_setting.website\tPUT /dashboard/company/agent-credentials\t0',
+  'dashboard.company_setting.website\tPUT /dashboard/company/archive-credentials\t0',
+  'dashboard.company_setting.website\tPOST /dashboard/company/verify\t0',
+  'dashboard.company_setting.website\tPOST /dashboard/company/employee-sync\t0',
+  'dashboard.company_setting.website\tGET /dashboard/company/sync-status\t0',
+  'dashboard.company_setting.website\tGET /dashboard/company/audits\t0',
+];
+
 async function sourceFiles(root, extensions) {
   const files = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -447,11 +459,49 @@ export function extractMigrationPermissionResourceMappings(source) {
 }
 
 export function extractCutoverPermissionResourceMappings(source) {
+  const seedBlock = source.match(/INSERT\s+INTO\s+mochat_go_dashboard_permission_resources[\s\S]*?INNER\s+JOIN\s*\(([\s\S]*?)\)\s*resource_seed/i);
+  if (!seedBlock) return [];
   const mappings = [];
-  for (const match of source.matchAll(/(?:SELECT|UNION ALL SELECT)\s+'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS\s+\w+)?\s*,\s*'(\/dashboard\/company\/[^']+)'/g)) {
+  for (const match of seedBlock[1].matchAll(/(?:SELECT|UNION ALL SELECT)\s+'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS\s+\w+)?\s*,\s*'(\/dashboard\/company\/[^']+)'/g)) {
     mappings.push(`dashboard.company_setting.website\t${match[1]} ${match[2]}\t0`);
   }
   return mappings;
+}
+
+export function applyCutoverPermissionResourceOverlay({
+  legacyMappings,
+  overlaySource,
+  expectedMappings = CUTOVER_COMPANY_RESOURCE_MAPPINGS,
+}) {
+  if (!Array.isArray(legacyMappings) || typeof overlaySource !== 'string') {
+    throw new Error('0131 cutover overlay inputs are invalid');
+  }
+  const hasCompanyUpdate = /UPDATE\s+mochat_go_dashboard_permissions[\s\S]*?WHERE\s+code\s*=\s*'dashboard\.company_setting\.website'/i.test(overlaySource);
+  if (!hasCompanyUpdate) {
+    throw new Error('0131 cutover overlay must explicitly restrict company permission');
+  }
+  const hasSuperadminRestriction = /UPDATE\s+mochat_go_dashboard_permissions\s+SET\s+restriction\s*=\s*'superadmin_only'\s*,\s*superadmin_only\s*=\s*1[\s\S]*?WHERE\s+code\s*=\s*'dashboard\.company_setting\.website'/i.test(overlaySource);
+  if (!hasSuperadminRestriction) {
+    throw new Error('0131 company permission must remain superadmin_only');
+  }
+  if (!/INSERT\s+INTO\s+mochat_go_dashboard_permission_resources\b/i.test(overlaySource)) {
+    throw new Error('0131 cutover overlay must insert company resources');
+  }
+  const deleteBlock = overlaySource.match(/DELETE[\s\S]*?resource\.path_pattern\s+IN\s*\(([^)]*)\)/i);
+  if (!deleteBlock) {
+    throw new Error('0131 cutover overlay must delete legacy company resources');
+  }
+  const deletedPaths = new Set([...deleteBlock[1].matchAll(/'([^']+)'/g)].map((match) => match[1]));
+  const legacyCompanyMappings = legacyMappings.filter((mapping) => mapping.startsWith('dashboard.company_setting.website\t'));
+  const legacyCompanyPaths = legacyCompanyMappings.map((mapping) => mapping.split('\t')[1].split(' ')[1]);
+  if (legacyCompanyPaths.some((pathPattern) => !deletedPaths.has(pathPattern))) {
+    throw new Error('0131 cutover overlay must delete every seeded legacy company resource');
+  }
+  const overlayMappings = extractCutoverPermissionResourceMappings(overlaySource);
+  if (!sameSet(new Set(overlayMappings), new Set(expectedMappings))) {
+    throw new Error('0131 cutover overlay must replace all company resources');
+  }
+  return legacyMappings.filter((mapping) => !mapping.startsWith('dashboard.company_setting.website\t')).concat(overlayMappings);
 }
 
 export async function scanBackendRegisteredAPIs() {
@@ -614,12 +664,13 @@ async function main() {
   const legacySeededMappings = extractMigrationPermissionResourceMappings(
     await readFile('deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql', 'utf8'),
   );
-  const cutoverSeededMappings = extractCutoverPermissionResourceMappings(
-    await readFile('deploy/standalone/migrations/0131_identity_realms_single_corp_cutover.up.sql', 'utf8'),
-  );
-  const seededMappings = legacySeededMappings
-    .filter((mapping) => !mapping.startsWith('dashboard.company_setting.website\t'))
-    .concat(cutoverSeededMappings);
+  const seededMappings = applyCutoverPermissionResourceOverlay({
+    legacyMappings: legacySeededMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0131_identity_realms_single_corp_cutover.up.sql',
+      'utf8',
+    ),
+  });
   const apiUsages = await scanFrontendAPIUsages();
   const backendRoutes = (await scanBackendRegisteredAPIs())
     .filter((route) => isDashboardRBACRoute(route.contract));

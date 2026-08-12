@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   extractBackendRegisteredAPIs,
   extractCutoverPermissionResourceMappings,
+  applyCutoverPermissionResourceOverlay,
   extractFrontendAPIUsages,
   extractMigrationPermissionResourceMappings,
   productionDashboardSourceFiles,
@@ -327,6 +328,10 @@ test('migration resource seed is independently parsed and must match the catalog
 
 test('0131 cutover resource seed replaces the deployed legacy company mappings', () => {
   const mappings = extractCutoverPermissionResourceMappings(`
+    INSERT INTO mochat_go_dashboard_permission_resources
+      (permission_id, http_method, path_pattern)
+    SELECT permission.id, resource_seed.http_method, resource_seed.path_pattern
+    FROM mochat_go_dashboard_permissions permission
     INNER JOIN (
       SELECT 'GET', '/dashboard/company/profile'
       UNION ALL SELECT 'PUT', '/dashboard/company/profile'
@@ -337,6 +342,75 @@ test('0131 cutover resource seed replaces the deployed legacy company mappings',
     'dashboard.company_setting.website\tPUT /dashboard/company/profile\t0',
   ]);
 });
+
+test('RED: 0131 overlay is required before legacy mappings can be compared', () => {
+  const legacyMappings = extractMigrationPermissionResourceMappings(`
+    SELECT 'dashboard.company_setting.website', 'GET', '/dashboard/corp/index', 0
+  `);
+  assert.throws(
+    () => applyCutoverPermissionResourceOverlay({ legacyMappings, overlaySource: '' }),
+    /0131 cutover overlay must explicitly restrict company permission/,
+  );
+});
+
+test('RED: 0131 overlay must contain every catalog company resource', () => {
+  const legacyMappings = extractMigrationPermissionResourceResourceMappingsForTest();
+  const overlaySource = cutoverSourceForTest([
+    ['GET', '/dashboard/company/profile'],
+  ]);
+  assert.throws(
+    () => applyCutoverPermissionResourceOverlay({ legacyMappings, overlaySource }),
+    /0131 cutover overlay must replace all company resources/,
+  );
+});
+
+test('RED: 0131 overlay cannot leave the company permission grantable', () => {
+  const legacyMappings = extractMigrationPermissionResourceResourceMappingsForTest();
+  const overlaySource = cutoverSourceForTest([
+    ['GET', '/dashboard/company/profile'],
+    ['PUT', '/dashboard/company/profile'],
+    ['POST', '/dashboard/company/verify'],
+    ['POST', '/dashboard/company/employee-sync'],
+    ['GET', '/dashboard/company/sync-status'],
+    ['PUT', '/dashboard/company/wecom-credentials'],
+    ['PUT', '/dashboard/company/agent-credentials'],
+    ['PUT', '/dashboard/company/archive-credentials'],
+    ['GET', '/dashboard/company/audits'],
+  ]).replace("restriction = 'superadmin_only', superadmin_only = 1", "restriction = 'ordinary', superadmin_only = 0");
+  assert.throws(
+    () => applyCutoverPermissionResourceOverlay({ legacyMappings, overlaySource }),
+    /0131 company permission must remain superadmin_only/,
+  );
+});
+
+function extractMigrationPermissionResourceResourceMappingsForTest() {
+  return extractMigrationPermissionResourceMappings(`
+    SELECT 'dashboard.company_setting.website', 'GET', '/dashboard/corp/index', 0
+    UNION ALL SELECT 'dashboard.company_setting.website', 'PUT', '/dashboard/corp/update', 0
+  `);
+}
+
+function cutoverSourceForTest(resources) {
+  const values = resources.map(([method, path], index) =>
+    index === 0 ? `SELECT '${method}' AS http_method, '${path}' AS path_pattern` : `UNION ALL SELECT '${method}', '${path}'`,
+  ).join('\n  ');
+  return `
+    UPDATE mochat_go_dashboard_permissions
+    SET restriction = 'superadmin_only', superadmin_only = 1
+    WHERE code = 'dashboard.company_setting.website';
+    DELETE resource FROM mochat_go_dashboard_permission_resources resource
+    INNER JOIN mochat_go_dashboard_permissions permission ON permission.id = resource.permission_id
+    WHERE permission.code = 'dashboard.company_setting.website'
+      AND resource.path_pattern IN ('/dashboard/corp/index', '/dashboard/corp/update');
+    INSERT INTO mochat_go_dashboard_permission_resources (permission_id, http_method, path_pattern)
+    SELECT permission.id, resource_seed.http_method, resource_seed.path_pattern
+    FROM mochat_go_dashboard_permissions permission
+    INNER JOIN (
+      ${values}
+    ) resource_seed ON 1 = 1
+    WHERE permission.code = 'dashboard.company_setting.website';
+  `;
+}
 
 test('a non-manifest legacy browser route cannot become a 54th permission unit', () => {
   const input = fixture();
