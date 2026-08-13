@@ -90,7 +90,7 @@ export type VerifyCompanyInput = {
   requestId?: string;
 };
 
-export type EmployeeSyncStatus = 'queued' | 'syncing' | 'failed' | 'completed';
+export type EmployeeSyncStatus = 'idle' | 'queued' | 'syncing' | 'failed' | 'completed';
 
 export type EmployeeSyncResult = {
   status: EmployeeSyncStatus;
@@ -269,9 +269,11 @@ function normalizeCredentialState(value: unknown): SecretConfiguredState {
 function normalizeProfile(value: unknown): CompanyProfile {
   const source = record(value);
   const credentials = record(source.credentials);
-  const status = source.bindingStatus === 'verified' || source.bindingStatus === 'suspended'
-    ? source.bindingStatus
-    : 'pending';
+  const status = source.bindingStatus === 'active'
+    ? 'verified'
+    : source.bindingStatus === 'verified' || source.bindingStatus === 'suspended'
+      ? source.bindingStatus
+      : 'pending';
   const result: CompanyProfile = {
     tenantId: numberValue(source.tenantId),
     corpId: numberValue(source.corpId),
@@ -335,7 +337,7 @@ function normalizeSyncStatus(value: unknown): EmployeeSyncSnapshot {
 }
 
 function syncStatus(value: unknown): EmployeeSyncStatus {
-  return value === 'syncing' || value === 'failed' || value === 'completed' ? value : 'queued';
+  return value === 'idle' || value === 'syncing' || value === 'failed' || value === 'completed' ? value : 'queued';
 }
 
 function normalizeAuditPage(value: unknown): CompanyAuditPage {

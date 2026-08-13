@@ -31,6 +31,7 @@ const statusText: Record<CompanyProfile['bindingStatus'], string> = {
 };
 
 const syncStatusText: Record<EmployeeSyncSnapshot['status'], string> = {
+  idle: '尚未同步',
   queued: '排队中',
   syncing: '同步中',
   failed: '同步失败',

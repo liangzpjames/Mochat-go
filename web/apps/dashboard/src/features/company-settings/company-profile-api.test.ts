@@ -14,6 +14,30 @@ function callInit(request: ReturnType<typeof vi.fn>, index: number): RequestInit
 }
 
 describe('company profile api', () => {
+  it('treats the backend active binding state as a verified company', async () => {
+    const request = vi.fn().mockResolvedValue({
+      tenantId: 7,
+      corpId: 11,
+      displayName: 'Acme',
+      bindingStatus: 'active',
+      bindingVersion: 4,
+      verifiedAt: '2026-08-13T00:00:00Z',
+      credentials: { wecom: { configured: true }, agent: { configured: true }, archive: { configured: false } },
+    });
+
+    const profile = await createCompanyProfileApi({ request }).getProfile();
+
+    expect(profile.bindingStatus).toBe('verified');
+  });
+
+  it('keeps an idle employee sync state idle instead of turning it into queued', async () => {
+    const request = vi.fn().mockResolvedValue({ status: 'idle', departments: 0, employees: 0 });
+
+    const status = await createCompanyProfileApi({ request }).getSyncStatus();
+
+    expect(status.status).toBe('idle');
+  });
+
   it('loads the unique company profile without exposing secret fields', async () => {
     const request = vi.fn().mockResolvedValue({
       tenantId: 7,
