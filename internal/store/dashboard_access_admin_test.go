@@ -123,6 +123,11 @@ func TestProvisionDashboardEmployeeAccountWritesRolesDirectPermissionsAndAuditAt
 			t.Fatalf("missing exec %q: %v", contract, tx.execs)
 		}
 	}
+	for _, query := range tx.execs {
+		if strings.Contains(query, "INSERT INTO mc_user") && strings.Contains(query, "password") {
+			t.Fatalf("mc_user insert still writes removed legacy password column: %s", query)
+		}
+	}
 }
 
 func TestDashboardAccessRolesLoadsPermissionsForEveryListedRole(t *testing.T) {

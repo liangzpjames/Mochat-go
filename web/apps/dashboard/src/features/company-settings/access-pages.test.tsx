@@ -524,6 +524,31 @@ describe("access management pages", () => {
     expect(screen.getByText(/首次登录必须修改密码/)).toBeTruthy();
   });
 
+  it("shows a prominent specific error above the provisioning form", async () => {
+    const provisionEmployeeAccount = vi.fn().mockRejectedValue({ status: 500 });
+    const api = {
+      employees: vi.fn().mockResolvedValue({
+        list: [{ id: 4, wxUserId: "zhangsan", name: "张三", mobile: "13800000004", status: 1, account: null }],
+        page: { total: 1, totalPage: 1 },
+      }),
+      provisionEmployeeAccount,
+      updateEmployeeAccountStatus: vi.fn(),
+      resetEmployeePassword: vi.fn(),
+      user: vi.fn(),
+      replaceUser: vi.fn(),
+      roles: vi.fn().mockResolvedValue({ list: [], page: { total: 0, totalPage: 1 } }),
+      catalog: vi.fn().mockResolvedValue([]),
+    };
+    wrap(<AccessStaffPage api={api} />);
+    fireEvent.click(await screen.findByRole("button", { name: "开通账号" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认开通" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("账号创建服务暂时不可用，请稍后重试");
+    expect(alert.classList.contains("phase35-notice-error")).toBe(true);
+    expect(alert.nextElementSibling?.classList.contains("access-provision-basics")).toBe(true);
+  });
+
   it("confirms employee disable and password reset operations", async () => {
     const employee = {
       id: 4,

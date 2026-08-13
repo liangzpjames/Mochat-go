@@ -172,8 +172,8 @@ func (s *MySQLStore) ProvisionDashboardEmployeeAccount(ctx context.Context, comm
 		return dashboard.DashboardAccessEmployee{}, err
 	}
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO mc_user (phone,password,name,gender,department,position,status,tenant_id,isSuperAdmin,dashboard_access_version,created_at,updated_at)
-		VALUES (?,'',?,0,'','',1,?,0,1,NOW(),NOW())
+		INSERT INTO mc_user (phone,name,gender,department,position,status,tenant_id,isSuperAdmin,dashboard_access_version,created_at,updated_at)
+		VALUES (?,?,0,'','',1,?,0,1,NOW(),NOW())
 	`, command.LoginIdentifier, employee.Name, command.TenantID)
 	if err != nil {
 		return dashboard.DashboardAccessEmployee{}, err

@@ -63,6 +63,15 @@ async function loadAllRoles(api: Api) {
   return [...byID.values()];
 }
 
+function provisionErrorMessage(error: unknown) {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 409) return "该手机号已被其他账号使用，或员工账号已经开通。";
+  if (status === 400) return "手机号或授权内容无效，请检查后重试。";
+  if (status === 403) return "当前账号没有开通员工账号的权限。";
+  if (status === 500) return "账号创建服务暂时不可用，请稍后重试。";
+  return "账号开通失败，请检查网络后重试。";
+}
+
 export function AccessStaffPage({ api }: { api: Api }) {
   const client = useQueryClient();
   const [page, setPage] = React.useState(1);
@@ -324,6 +333,11 @@ export function AccessStaffPage({ api }: { api: Api }) {
               </div>
               <small>登录后仅能访问下方已选角色与直授权限</small>
             </div>
+            {provision.isError ? (
+              <p role="alert" className="phase35-notice-error access-provision-error">
+                {provisionErrorMessage(provision.error)}
+              </p>
+            ) : null}
             <div className="access-provision-basics">
               <label className="phase35-field">
                 <span>登录手机号</span>
@@ -348,7 +362,6 @@ export function AccessStaffPage({ api }: { api: Api }) {
               value={direct}
               onChange={setDirect}
             />
-            {provision.isError ? <p role="alert">账号开通失败，手机号可能已被使用。</p> : null}
           </DashboardDialog>
         ) : null}
 
