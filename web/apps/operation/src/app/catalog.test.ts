@@ -1,17 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
-import manifest from '../migration-routes.json';
-import { operationRoutes } from './catalog';
+import { operationCatalog } from './catalog';
 
-describe('Operation functional route catalog', () => {
-  it('covers every activity route with stages and a primary interaction', () => {
-    expect(Object.keys(operationRoutes).sort()).toEqual(
-      manifest.map((route) => route.path).sort(),
-    );
-    for (const config of Object.values(operationRoutes)) {
-      expect(config.title.length).toBeGreaterThan(1);
-      expect(config.stages.length).toBeGreaterThan(1);
-      expect(config.primaryAction.length).toBeGreaterThan(1);
-    }
+describe('Operation route catalog', () => {
+  it('keeps the approved Chinese title for every historical activity URL', () => {
+    expect(Object.fromEntries(
+      Object.entries(operationCatalog).map(([path, entry]) => [path, entry.title]),
+    )).toEqual({
+      '/': '营销活动中心',
+      '/explain': '活动说明',
+      '/lottery': '抽奖活动',
+      '/roomClockIn': '群打卡',
+      '/roomFission': '群裂变活动',
+      '/fissionSpeed': '群裂变进度',
+      '/roomInfinitePull': '无限拉群',
+      '/shopCode': '门店活码',
+      '/workFission': '任务宝活动',
+      '/speed': '任务宝进度',
+    });
   });
 });

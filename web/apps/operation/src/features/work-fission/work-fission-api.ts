@@ -1,0 +1,107 @@
+import { MobileApiError } from '@mochat/mobile-foundation';
+
+export type WorkFissionReward = {
+  type: number;
+  url: string | null;
+};
+
+export type WorkFissionTask = {
+  level: number;
+  target: number;
+  completed: boolean;
+  received: boolean;
+  reward: WorkFissionReward;
+};
+
+export type WorkFissionProgress = {
+  inviteCount: number;
+  differCount: number;
+  endTime: number | null;
+  tasks: WorkFissionTask[];
+};
+
+export type WorkFissionRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
+
+type RawWorkFissionTask = {
+  count: number;
+  status: 0 | 1;
+  receive_status: 0 | 1;
+  gift_type: number;
+  gift_url: string;
+};
+
+type RawWorkFissionProgress = {
+  invite_count: number;
+  differ_count: number;
+  end_time: number;
+  task: RawWorkFissionTask[];
+};
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function isBinaryStatus(value: unknown): value is 0 | 1 {
+  return value === 0 || value === 1;
+}
+
+function isRawTask(value: unknown): value is RawWorkFissionTask {
+  if (typeof value !== 'object' || value === null) return false;
+  const task = value as Record<string, unknown>;
+  return (
+    isNonNegativeInteger(task.count)
+    && isBinaryStatus(task.status)
+    && isBinaryStatus(task.receive_status)
+    && isBinaryStatus(task.gift_type)
+    && typeof task.gift_url === 'string'
+  );
+}
+
+function isRawProgress(value: unknown): value is RawWorkFissionProgress {
+  if (typeof value !== 'object' || value === null) return false;
+  const progress = value as Record<string, unknown>;
+  return (
+    isNonNegativeInteger(progress.invite_count)
+    && isNonNegativeInteger(progress.differ_count)
+    && isNonNegativeInteger(progress.end_time)
+    && Array.isArray(progress.task)
+    && progress.task.every(isRawTask)
+  );
+}
+
+export async function loadWorkFissionProgress(
+  request: WorkFissionRequest,
+  params: { unionId: string; fissionId: number },
+): Promise<WorkFissionProgress> {
+  if (params.unionId.trim() === '') {
+    throw new MobileApiError('validation', '缺少 union_id');
+  }
+  if (!Number.isInteger(params.fissionId) || params.fissionId <= 0) {
+    throw new MobileApiError('validation', 'fission_id 必须为正整数');
+  }
+  const query = new URLSearchParams({
+    union_id: params.unionId.trim(),
+    fission_id: String(params.fissionId),
+  });
+  const payload = await request<unknown>(`/workFission/taskData?${query.toString()}`, {
+    method: 'GET',
+  });
+  if (!isRawProgress(payload)) {
+    throw new MobileApiError('validation', '任务进度响应格式无效。');
+  }
+  return {
+    inviteCount: payload.invite_count,
+    differCount: payload.differ_count,
+    endTime: payload.end_time === 0 ? null : payload.end_time,
+    tasks: payload.task.map((task, index) => ({
+      level: index + 1,
+      target: task.count,
+      completed: task.status === 1,
+      received: task.receive_status === 1,
+      reward: {
+        type: task.gift_type,
+        url: task.gift_url.trim() === '' ? null : task.gift_url,
+      },
+    })),
+  };
+}

@@ -1,0 +1,60 @@
+import { MobileShell, MobileState } from '@mochat/mobile-foundation';
+import type { ReactNode } from 'react';
+import { createBrowserRouter } from 'react-router';
+
+import { type WorkFissionRequest } from '../features/work-fission/work-fission-api';
+import { WorkFissionPage } from '../features/work-fission/work-fission-page';
+import {
+  operationRouteRegistry,
+  type OperationRouteRegistration,
+} from '../routes/registry';
+
+export type OperationRuntime = {
+  basename: string;
+  request: WorkFissionRequest;
+};
+
+function PendingActivityPage({ route }: { route: OperationRouteRegistration }) {
+  return (
+    <MobileShell
+      appName="MoChat 营销活动"
+      title={route.title}
+      subtitle={route.description}
+    >
+      <MobileState
+        kind="empty"
+        title={`${route.title}模块待迁移`}
+        description="该历史入口已由新路由承接，业务功能将在后续迁移。"
+      />
+    </MobileShell>
+  );
+}
+
+function routeElement(route: OperationRouteRegistration, runtime: OperationRuntime): ReactNode {
+  if (route.moduleKey === 'work-fission-activity') {
+    return <WorkFissionPage request={runtime.request} />;
+  }
+  return <PendingActivityPage route={route} />;
+}
+
+function OperationNotFoundPage() {
+  return (
+    <MobileShell appName="MoChat 营销活动" title="未找到活动页面">
+      <MobileState
+        kind="not-found"
+        title="页面不存在"
+        description="请检查活动访问地址。"
+      />
+    </MobileShell>
+  );
+}
+
+export function createOperationRouter(runtime: OperationRuntime) {
+  return createBrowserRouter([
+    ...operationRouteRegistry.map((route) => ({
+      path: route.path,
+      element: routeElement(route, runtime),
+    })),
+    { path: '*', element: <OperationNotFoundPage /> },
+  ], { basename: runtime.basename });
+}
