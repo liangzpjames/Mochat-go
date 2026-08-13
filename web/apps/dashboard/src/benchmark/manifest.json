@@ -968,7 +968,7 @@
     },
     {
       "path": "/company-setting/staff",
-      "title": "员工权限",
+      "title": "员工账号与权限",
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
@@ -1006,7 +1006,7 @@
     },
     {
       "path": "/setting/additional",
-      "title": "附加权限",
+      "title": "权限目录",
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
@@ -1025,7 +1025,7 @@
     },
     {
       "path": "/setting/authorization",
-      "title": "授权管理",
+      "title": "权限审计",
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
