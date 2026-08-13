@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -95,9 +97,66 @@ func newInterceptHandler() (*MessageInterceptHandler, *interceptProvider) {
 	return NewMessageInterceptHandler(p, staticCache("5-9"), riskHandlerResolver{}, nil), p
 }
 
+func authenticatedInterceptRequest(method, target string, body io.Reader) *http.Request {
+	return authenticatedDashboardRequestForTestAs(method, target, body, 7, 23, 5, 9)
+}
+
+func TestMessageInterceptHandlerIgnoresLegacyLoginCache(t *testing.T) {
+	provider := &interceptProvider{tenantID: 23}
+	handler := NewMessageInterceptHandler(provider, panicLoginCache{}, riskHandlerResolver{}, nil)
+
+	readRequest := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/keyword-library/libraries?corpId=999", nil, 7, 23, 5, 9)
+	readResponse := httptest.NewRecorder()
+	handler.Libraries(readResponse, readRequest)
+	if readResponse.Code != http.StatusOK {
+		t.Fatalf("read status=%d body=%s", readResponse.Code, readResponse.Body.String())
+	}
+	filter, ok := provider.filter.(KeywordLibraryFilter)
+	if !ok || filter.TenantID != 23 || filter.CorpID != 5 {
+		t.Fatalf("read filter=%#v", provider.filter)
+	}
+
+	writeRequest := authenticatedDashboardRequestForTestAs(http.MethodPost, "/dashboard/keyword-library/libraries?corpId=999", strings.NewReader(`{"name":"营销词库","description":"营销关键词","matchMode":"contains","status":"enabled"}`), 7, 23, 5, 9)
+	writeResponse := httptest.NewRecorder()
+	handler.SaveLibrary(writeResponse, writeRequest)
+	if writeResponse.Code != http.StatusOK {
+		t.Fatalf("write status=%d body=%s", writeResponse.Code, writeResponse.Body.String())
+	}
+	if provider.library.TenantID != 23 || provider.library.CorpID != 5 {
+		t.Fatalf("write library=%+v", provider.library)
+	}
+}
+
+func TestMessageInterceptHandlerAuthSemantics(t *testing.T) {
+	t.Run("missing context is machine unauthorized", func(t *testing.T) {
+		handler := NewMessageInterceptHandler(&interceptProvider{}, panicLoginCache{}, riskHandlerResolver{}, nil)
+		response := httptest.NewRecorder()
+		handler.Libraries(response, httptest.NewRequest(http.MethodGet, "/dashboard/keyword-library/libraries", nil))
+		body := decodeBody(t, response.Body.Bytes())
+		if response.Code != http.StatusUnauthorized || body["errorCode"] != "UNAUTHORIZED" {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+	})
+
+	t.Run("permission denial uses context identity and machine code", func(t *testing.T) {
+		authorizer := &recordingAuthorizer{err: errors.New("denied")}
+		handler := NewMessageInterceptHandler(&interceptProvider{}, panicLoginCache{}, riskHandlerResolver{}, authorizer)
+		request := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/keyword-library/libraries?corpId=999", nil, 7, 23, 5, 9)
+		response := httptest.NewRecorder()
+		handler.Libraries(response, request)
+		body := decodeBody(t, response.Body.Bytes())
+		if response.Code != http.StatusForbidden || body["errorCode"] != DashboardPermissionDeniedCode {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		if authorizer.corpID != 5 || authorizer.workEmployeeID != 9 || authorizer.permissionKey != "/ai-insight/v2/keyword-library#read" {
+			t.Fatalf("authorizer=%+v", authorizer)
+		}
+	})
+}
+
 func TestMessageInterceptLibrariesScopesTenantAndCorp(t *testing.T) {
 	h, p := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/keyword-library/libraries?name=%E8%90%A5%E9%94%80&page=1&perPage=50", nil)
+	req := authenticatedInterceptRequest(http.MethodGet, "/dashboard/keyword-library/libraries?name=%E8%90%A5%E9%94%80&page=1&perPage=50", nil)
 	rec := httptest.NewRecorder()
 	h.Libraries(rec, req)
 	if rec.Code != http.StatusOK {
@@ -117,7 +176,7 @@ func TestMessageInterceptLibrariesScopesTenantAndCorp(t *testing.T) {
 
 func TestMessageInterceptSaveLibraryPersistsScope(t *testing.T) {
 	h, p := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/keyword-library/libraries",
+	req := authenticatedInterceptRequest(http.MethodPost, "/dashboard/keyword-library/libraries",
 		strings.NewReader(`{"name":"营销词库","description":"营销关键词","matchMode":"contains","status":"enabled"}`))
 	rec := httptest.NewRecorder()
 	h.SaveLibrary(rec, req)
@@ -134,7 +193,7 @@ func TestMessageInterceptSaveLibraryPersistsScope(t *testing.T) {
 
 func TestMessageInterceptSaveLibraryRejectsInvalid(t *testing.T) {
 	h, _ := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/keyword-library/libraries",
+	req := authenticatedInterceptRequest(http.MethodPost, "/dashboard/keyword-library/libraries",
 		strings.NewReader(`{"name":"","matchMode":"contains","status":"enabled"}`))
 	rec := httptest.NewRecorder()
 	h.SaveLibrary(rec, req)
@@ -145,7 +204,7 @@ func TestMessageInterceptSaveLibraryRejectsInvalid(t *testing.T) {
 
 func TestMessageInterceptPublishLibrary(t *testing.T) {
 	h, _ := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/keyword-library/libraries/publish",
+	req := authenticatedInterceptRequest(http.MethodPost, "/dashboard/keyword-library/libraries/publish",
 		strings.NewReader(`{"id":1}`))
 	rec := httptest.NewRecorder()
 	h.PublishLibrary(rec, req)
@@ -159,7 +218,7 @@ func TestMessageInterceptPublishLibrary(t *testing.T) {
 
 func TestMessageInterceptSaveEntry(t *testing.T) {
 	h, p := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/keyword-library/entries",
+	req := authenticatedInterceptRequest(http.MethodPost, "/dashboard/keyword-library/entries",
 		strings.NewReader(`{"libraryId":1,"keyword":"加微信","status":"enabled"}`))
 	rec := httptest.NewRecorder()
 	h.SaveEntry(rec, req)
@@ -176,7 +235,7 @@ func TestMessageInterceptSaveEntry(t *testing.T) {
 
 func TestMessageInterceptSaveRulePersistsScope(t *testing.T) {
 	h, p := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/message-intercept/rules",
+	req := authenticatedInterceptRequest(http.MethodPost, "/dashboard/message-intercept/rules",
 		strings.NewReader(`{"name":"营销拦截","libraryId":1,"libraryVersion":2,"conversationScopes":["single","group"],"decision":"blocked","status":"enabled"}`))
 	rec := httptest.NewRecorder()
 	h.SaveRule(rec, req)
@@ -193,7 +252,7 @@ func TestMessageInterceptSaveRulePersistsScope(t *testing.T) {
 
 func TestMessageInterceptEvaluateReturnsDecision(t *testing.T) {
 	h, _ := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/message-intercept/evaluate",
+	req := authenticatedInterceptRequest(http.MethodPost, "/dashboard/message-intercept/evaluate",
 		strings.NewReader(`{"conversationType":"single","conversationId":"c1","messageId":"m1","senderId":"e1","senderName":"张三","content":"加微信","occurredAt":"2026-08-01T10:00:00+08:00"}`))
 	rec := httptest.NewRecorder()
 	h.Evaluate(rec, req)
@@ -207,7 +266,7 @@ func TestMessageInterceptEvaluateReturnsDecision(t *testing.T) {
 
 func TestMessageInterceptRecordsScopesFilter(t *testing.T) {
 	h, p := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/message-intercept/records?keyword=%E5%8A%A0&decision=blocked&ruleId=1&page=1&perPage=20", nil)
+	req := authenticatedInterceptRequest(http.MethodGet, "/dashboard/message-intercept/records?keyword=%E5%8A%A0&decision=blocked&ruleId=1&page=1&perPage=20", nil)
 	rec := httptest.NewRecorder()
 	h.Records(rec, req)
 	if rec.Code != http.StatusOK {
@@ -224,29 +283,31 @@ func TestMessageInterceptRecordsScopesFilter(t *testing.T) {
 
 func TestMessageInterceptRecordsRestrictedScopeFailsClosed(t *testing.T) {
 	h, p := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/message-intercept/records", nil)
-	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeSelf, AllowedEmployeeIDs: []int{9}}))
+	req := authenticatedInterceptRequest(http.MethodGet, "/dashboard/message-intercept/records", nil)
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{UserID: 7, TenantID: 23, CorpID: 5, WorkEmployeeID: 9, ScopeRequired: true, Scope: DataScopeSelf, AllowedEmployeeIDs: []int{9}}))
 	rec := httptest.NewRecorder()
 	h.Records(rec, req)
-	if rec.Code != http.StatusForbidden || p.filter != nil {
+	body := decodeBody(t, rec.Body.Bytes())
+	if rec.Code != http.StatusForbidden || body["errorCode"] != DashboardPermissionDeniedCode || p.filter != nil {
 		t.Fatalf("status=%d filter=%#v body=%s", rec.Code, p.filter, rec.Body.String())
 	}
 }
 
 func TestMessageInterceptAuditRestrictedScopeFailsClosed(t *testing.T) {
 	h, p := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/message-intercept/records/audit", strings.NewReader(`{"ids":[1],"action":"confirmed"}`))
-	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{9}}))
+	req := authenticatedInterceptRequest(http.MethodPost, "/dashboard/message-intercept/records/audit", strings.NewReader(`{"ids":[1],"action":"confirmed"}`))
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{UserID: 7, TenantID: 23, CorpID: 5, WorkEmployeeID: 9, ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{9}}))
 	rec := httptest.NewRecorder()
 	h.Audit(rec, req)
-	if rec.Code != http.StatusForbidden || p.auditCalls != 0 {
+	body := decodeBody(t, rec.Body.Bytes())
+	if rec.Code != http.StatusForbidden || body["errorCode"] != DashboardPermissionDeniedCode || p.auditCalls != 0 {
 		t.Fatalf("status=%d auditCalls=%d body=%s", rec.Code, p.auditCalls, rec.Body.String())
 	}
 }
 
 func TestMessageInterceptAudit(t *testing.T) {
 	h, _ := newInterceptHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/message-intercept/records/audit",
+	req := authenticatedInterceptRequest(http.MethodPost, "/dashboard/message-intercept/records/audit",
 		strings.NewReader(`{"ids":[1,2],"action":"confirmed","remark":"复核通过"}`))
 	rec := httptest.NewRecorder()
 	h.Audit(rec, req)
@@ -261,10 +322,11 @@ func TestMessageInterceptAudit(t *testing.T) {
 func TestMessageInterceptPermissionDenied(t *testing.T) {
 	p := &interceptProvider{tenantID: 23}
 	h := NewMessageInterceptHandler(p, staticCache("5-9"), riskHandlerResolver{}, denyAuthorizer{})
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/keyword-library/libraries", nil)
+	req := authenticatedInterceptRequest(http.MethodGet, "/dashboard/keyword-library/libraries", nil)
 	rec := httptest.NewRecorder()
 	h.Libraries(rec, req)
-	if rec.Code != http.StatusForbidden {
+	body := decodeBody(t, rec.Body.Bytes())
+	if rec.Code != http.StatusForbidden || body["errorCode"] != DashboardPermissionDeniedCode {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

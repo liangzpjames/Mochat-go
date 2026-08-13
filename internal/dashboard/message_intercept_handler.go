@@ -4,54 +4,29 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 type MessageInterceptHandler struct {
 	provider   MessageInterceptProvider
-	cache      LoginCache
-	resolver   UserIDResolver
 	authorizer CorpAdminAuthorizer
 }
 
-func NewMessageInterceptHandler(p MessageInterceptProvider, c LoginCache, r UserIDResolver, a CorpAdminAuthorizer) *MessageInterceptHandler {
-	return &MessageInterceptHandler{p, c, r, a}
+func NewMessageInterceptHandler(provider MessageInterceptProvider, _ LoginCache, _ UserIDResolver, authorizer CorpAdminAuthorizer) *MessageInterceptHandler {
+	return &MessageInterceptHandler{provider: provider, authorizer: authorizer}
 }
 func (h *MessageInterceptHandler) resolve(w http.ResponseWriter, r *http.Request, permission string) (int, int, int64, bool) {
-	uid, e := h.resolver.UserID(r)
+	identity, e := ResolveDashboardHandlerIdentity(r.Context())
 	if e != nil {
-		writeEnvelope(w, 401, 401, e.Error(), nil)
+		writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return 0, 0, 0, false
-	}
-	cached, e := h.cache.UserCorpCache(r.Context(), uid)
-	if e != nil {
-		writeEnvelope(w, 401, 401, "登录已失效", nil)
-		return 0, 0, 0, false
-	}
-	parts := strings.Split(cached, "-")
-	corp, _ := strconv.Atoi(r.URL.Query().Get("corpId"))
-	emp := 0
-	if corp <= 0 && len(parts) > 0 {
-		corp, _ = strconv.Atoi(parts[0])
-	}
-	if len(parts) > 1 {
-		emp, _ = strconv.Atoi(parts[1])
 	}
 	if h.authorizer != nil {
-		if _, e = h.authorizer.Resolve(r.Context(), uid, permission, corp, emp); e != nil {
-			writeEnvelope(w, 403, 403, "无权访问消息拦截与关键词库", nil)
+		if _, e = h.authorizer.Resolve(r.Context(), identity.UserID, permission, identity.CorpID, identity.WorkEmployeeID); e != nil {
+			writeMachineEnvelope(w, http.StatusForbidden, DashboardPermissionDeniedCode, "dashboard permission denied", nil)
 			return 0, 0, 0, false
 		}
 	}
-	tenant := 0
-	if tr, ok := h.provider.(RiskTenantResolver); ok {
-		tenant, e = tr.TenantIDByCorpID(r.Context(), corp)
-		if e != nil {
-			writeEnvelope(w, 500, 500, e.Error(), nil)
-			return 0, 0, 0, false
-		}
-	}
-	return tenant, corp, int64(emp), true
+	return identity.TenantID, identity.CorpID, int64(identity.WorkEmployeeID), true
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if e := json.NewDecoder(r.Body).Decode(v); e != nil {
@@ -329,7 +304,7 @@ func (h *MessageInterceptHandler) Records(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
-		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "message intercept records are not safely employee-scoped", map[string]any{"code": DashboardPermissionDeniedCode})
+		writeMachineEnvelope(w, http.StatusForbidden, DashboardPermissionDeniedCode, "dashboard permission denied", nil)
 		return
 	}
 	p, n := pageQuery(r)
@@ -368,7 +343,7 @@ func (h *MessageInterceptHandler) Audit(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if access, scoped := DashboardAccessFromContext(r.Context()); scoped && access.ScopeRequired && access.Scope != DataScopeTenant {
-		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "message intercept audit is not safely employee-scoped", map[string]any{"code": DashboardPermissionDeniedCode})
+		writeMachineEnvelope(w, http.StatusForbidden, DashboardPermissionDeniedCode, "dashboard permission denied", nil)
 		return
 	}
 	var v struct {

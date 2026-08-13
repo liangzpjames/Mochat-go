@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,11 +72,12 @@ func (p *closureProvider) ActSilentRecords(context.Context, int, int, int64, []i
 func TestSilentActRejectsRestrictedScopeBeforeMutation(t *testing.T) {
 	p := &closureProvider{}
 	h := NewPhase33ClosureHandler(p, staticCache("5-9"), riskHandlerResolver{}, nil)
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/silent-customer/records/action", strings.NewReader(`{"ids":[1],"action":"assign","assignedEmployeeId":99}`))
-	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{9}}))
+	req := authenticatedClosureRequest(http.MethodPost, "/dashboard/silent-customer/records/action", strings.NewReader(`{"ids":[1],"action":"assign","assignedEmployeeId":99}`))
+	req = req.WithContext(WithDashboardAccessContext(req.Context(), DashboardAccessContext{UserID: 7, TenantID: 23, CorpID: 5, WorkEmployeeID: 9, ScopeRequired: true, Scope: DataScopeDepartment, AllowedEmployeeIDs: []int{9}}))
 	rec := httptest.NewRecorder()
 	h.ActSilent(rec, req)
-	if rec.Code != http.StatusForbidden {
+	body := decodeBody(t, rec.Body.Bytes())
+	if rec.Code != http.StatusForbidden || body["errorCode"] != DashboardPermissionDeniedCode {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
@@ -98,6 +100,10 @@ func newClosureHandler() (*Phase33ClosureHandler, *closureProvider) {
 	return NewPhase33ClosureHandler(p, staticCache("5-9"), riskHandlerResolver{}, nil), p
 }
 
+func authenticatedClosureRequest(method, target string, body io.Reader) *http.Request {
+	return authenticatedDashboardRequestForTestAs(method, target, body, 7, 23, 5, 9)
+}
+
 func envelopeData(t *testing.T, body string) map[string]any {
 	t.Helper()
 	var envelope struct {
@@ -116,7 +122,7 @@ func envelopeData(t *testing.T, body string) map[string]any {
 
 func TestPhase33ClosureSilentRulesScopesTenantAndCorp(t *testing.T) {
 	h, p := newClosureHandler()
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/silent-customer/rules?name=%E6%B2%89%E9%BB%98&page=1&perPage=50", nil)
+	req := authenticatedClosureRequest(http.MethodGet, "/dashboard/silent-customer/rules?name=%E6%B2%89%E9%BB%98&page=1&perPage=50", nil)
 	rec := httptest.NewRecorder()
 	h.SilentRules(rec, req)
 	if rec.Code != http.StatusOK {
@@ -136,7 +142,7 @@ func TestPhase33ClosureSilentRulesScopesTenantAndCorp(t *testing.T) {
 
 func TestPhase33ClosureSaveSilentRuleWritesTenantCorp(t *testing.T) {
 	h, p := newClosureHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/silent-customer/rules",
+	req := authenticatedClosureRequest(http.MethodPost, "/dashboard/silent-customer/rules",
 		strings.NewReader(`{"name":"沉默30天","silentDays":30,"status":"enabled"}`))
 	rec := httptest.NewRecorder()
 	h.SaveSilentRule(rec, req)
@@ -153,7 +159,7 @@ func TestPhase33ClosureSaveSilentRuleWritesTenantCorp(t *testing.T) {
 
 func TestPhase33ClosureSaveSilentRuleRejectsInvalid(t *testing.T) {
 	h, _ := newClosureHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/silent-customer/rules",
+	req := authenticatedClosureRequest(http.MethodPost, "/dashboard/silent-customer/rules",
 		strings.NewReader(`{"name":"","silentDays":0,"status":"enabled"}`))
 	rec := httptest.NewRecorder()
 	h.SaveSilentRule(rec, req)
@@ -164,7 +170,7 @@ func TestPhase33ClosureSaveSilentRuleRejectsInvalid(t *testing.T) {
 
 func TestPhase33ClosureSaveSilentRuleBadJSON(t *testing.T) {
 	h, _ := newClosureHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/silent-customer/rules", strings.NewReader(`{`))
+	req := authenticatedClosureRequest(http.MethodPost, "/dashboard/silent-customer/rules", strings.NewReader(`{`))
 	rec := httptest.NewRecorder()
 	h.SaveSilentRule(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -174,7 +180,7 @@ func TestPhase33ClosureSaveSilentRuleBadJSON(t *testing.T) {
 
 func TestPhase33ClosureEvaluateSilentReturnsMatchCount(t *testing.T) {
 	h, _ := newClosureHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/silent-customer/evaluate",
+	req := authenticatedClosureRequest(http.MethodPost, "/dashboard/silent-customer/evaluate",
 		strings.NewReader(`{"customerId":"c1","customerName":"李雷","lastInteractionAt":"2026-08-01T00:00:00+08:00"}`))
 	rec := httptest.NewRecorder()
 	h.EvaluateSilent(rec, req)
@@ -188,7 +194,7 @@ func TestPhase33ClosureEvaluateSilentReturnsMatchCount(t *testing.T) {
 
 func TestPhase33ClosureActSilentRecords(t *testing.T) {
 	h, _ := newClosureHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/silent-customer/records/action",
+	req := authenticatedClosureRequest(http.MethodPost, "/dashboard/silent-customer/records/action",
 		strings.NewReader(`{"ids":[1,2],"action":"assign","assignedEmployeeId":9,"remark":"跟进"}`))
 	rec := httptest.NewRecorder()
 	h.ActSilent(rec, req)
@@ -202,7 +208,7 @@ func TestPhase33ClosureActSilentRecords(t *testing.T) {
 
 func TestPhase33ClosureRefuseRecordsScopesFilter(t *testing.T) {
 	h, p := newClosureHandler()
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/refuse-archive/records?subject=%E5%BC%A0&authorizationStatus=refused&page=1&perPage=50", nil)
+	req := authenticatedClosureRequest(http.MethodGet, "/dashboard/refuse-archive/records?subject=%E5%BC%A0&authorizationStatus=refused&page=1&perPage=50", nil)
 	rec := httptest.NewRecorder()
 	h.RefuseRecords(rec, req)
 	if rec.Code != http.StatusOK {
@@ -219,7 +225,7 @@ func TestPhase33ClosureRefuseRecordsScopesFilter(t *testing.T) {
 
 func TestPhase33ClosureSyncRefuseUpserts(t *testing.T) {
 	h, p := newClosureHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/refuse-archive/sync",
+	req := authenticatedClosureRequest(http.MethodPost, "/dashboard/refuse-archive/sync",
 		strings.NewReader(`{"subjectType":"customer","subjectId":"c1","subjectName":"李雷","authorizationStatus":"refused"}`))
 	rec := httptest.NewRecorder()
 	h.SyncRefuse(rec, req)
@@ -236,7 +242,7 @@ func TestPhase33ClosureSyncRefuseUpserts(t *testing.T) {
 
 func TestPhase33ClosureFollowRefuse(t *testing.T) {
 	h, _ := newClosureHandler()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/refuse-archive/follow-up",
+	req := authenticatedClosureRequest(http.MethodPost, "/dashboard/refuse-archive/follow-up",
 		strings.NewReader(`{"id":1,"status":"contacted","note":"已电话沟通"}`))
 	rec := httptest.NewRecorder()
 	h.FollowRefuse(rec, req)
@@ -251,10 +257,11 @@ func TestPhase33ClosureFollowRefuse(t *testing.T) {
 func TestPhase33ClosurePermissionDenied(t *testing.T) {
 	p := &closureProvider{tenantID: 23}
 	h := NewPhase33ClosureHandler(p, staticCache("5-9"), riskHandlerResolver{}, denyAuthorizer{})
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/silent-customer/rules", nil)
+	req := authenticatedClosureRequest(http.MethodGet, "/dashboard/silent-customer/rules", nil)
 	rec := httptest.NewRecorder()
 	h.SilentRules(rec, req)
-	if rec.Code != http.StatusForbidden {
+	body := decodeBody(t, rec.Body.Bytes())
+	if rec.Code != http.StatusForbidden || body["errorCode"] != DashboardPermissionDeniedCode {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

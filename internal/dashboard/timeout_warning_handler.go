@@ -4,54 +4,29 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 type TimeoutWarningHandler struct {
 	provider   TimeoutWarningProvider
-	cache      LoginCache
-	resolver   UserIDResolver
 	authorizer CorpAdminAuthorizer
 }
 
-func NewTimeoutWarningHandler(provider TimeoutWarningProvider, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer) *TimeoutWarningHandler {
-	return &TimeoutWarningHandler{provider: provider, cache: cache, resolver: resolver, authorizer: authorizer}
+func NewTimeoutWarningHandler(provider TimeoutWarningProvider, _ LoginCache, _ UserIDResolver, authorizer CorpAdminAuthorizer) *TimeoutWarningHandler {
+	return &TimeoutWarningHandler{provider: provider, authorizer: authorizer}
 }
 func (h *TimeoutWarningHandler) resolve(w http.ResponseWriter, r *http.Request, permission string) (int, int, bool) {
-	userID, err := h.resolver.UserID(r)
+	identity, err := ResolveDashboardHandlerIdentity(r.Context())
 	if err != nil {
-		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, err.Error(), nil)
+		writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return 0, 0, false
-	}
-	cached, err := h.cache.UserCorpCache(r.Context(), userID)
-	if err != nil {
-		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "登录已失效", nil)
-		return 0, 0, false
-	}
-	parts := strings.Split(cached, "-")
-	corpID, _ := strconv.Atoi(r.URL.Query().Get("corpId"))
-	employeeID := 0
-	if len(parts) > 0 && corpID <= 0 {
-		corpID, _ = strconv.Atoi(parts[0])
-	}
-	if len(parts) > 1 {
-		employeeID, _ = strconv.Atoi(parts[1])
 	}
 	if h.authorizer != nil {
-		if _, err = h.authorizer.Resolve(r.Context(), userID, permission, corpID, employeeID); err != nil {
-			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权访问超时预警", nil)
+		if _, err = h.authorizer.Resolve(r.Context(), identity.UserID, permission, identity.CorpID, identity.WorkEmployeeID); err != nil {
+			writeMachineEnvelope(w, http.StatusForbidden, DashboardPermissionDeniedCode, "dashboard permission denied", nil)
 			return 0, 0, false
 		}
 	}
-	tenantID := 0
-	if resolver, ok := h.provider.(RiskTenantResolver); ok {
-		tenantID, err = resolver.TenantIDByCorpID(r.Context(), corpID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return 0, 0, false
-		}
-	}
-	return tenantID, corpID, true
+	return identity.TenantID, identity.CorpID, true
 }
 func (h *TimeoutWarningHandler) Rules(w http.ResponseWriter, r *http.Request) {
 	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/timeout#read")
@@ -223,7 +198,7 @@ func (h *TimeoutWarningHandler) SaveSettings(w http.ResponseWriter, r *http.Requ
 }
 func (h *TimeoutWarningHandler) AuditRecords(w http.ResponseWriter, r *http.Request) {
 	if access, ok := DashboardAccessFromContext(r.Context()); ok && access.ScopeRequired && access.Scope != DataScopeTenant {
-		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		writeMachineEnvelope(w, http.StatusForbidden, DashboardPermissionDeniedCode, "dashboard permission denied", nil)
 		return
 	}
 	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/timeout#manage")
@@ -235,7 +210,8 @@ func (h *TimeoutWarningHandler) AuditRecords(w http.ResponseWriter, r *http.Requ
 		writeEnvelope(w, 501, 501, "超时记录处置能力未启用", nil)
 		return
 	}
-	actor, _ := h.resolver.UserID(r)
+	identity, _ := ResolveDashboardHandlerIdentity(r.Context())
+	actor := identity.UserID
 	var input struct {
 		IDs    []int64 `json:"ids"`
 		Action string  `json:"action"`
@@ -254,7 +230,7 @@ func (h *TimeoutWarningHandler) AuditRecords(w http.ResponseWriter, r *http.Requ
 }
 func (h *TimeoutWarningHandler) AssignRecords(w http.ResponseWriter, r *http.Request) {
 	if access, ok := DashboardAccessFromContext(r.Context()); ok && access.ScopeRequired && access.Scope != DataScopeTenant {
-		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "employee scope denied", nil)
+		writeMachineEnvelope(w, http.StatusForbidden, DashboardPermissionDeniedCode, "dashboard permission denied", nil)
 		return
 	}
 	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/timeout#manage")
@@ -266,7 +242,8 @@ func (h *TimeoutWarningHandler) AssignRecords(w http.ResponseWriter, r *http.Req
 		writeEnvelope(w, 501, 501, "超时记录处置能力未启用", nil)
 		return
 	}
-	actor, _ := h.resolver.UserID(r)
+	identity, _ := ResolveDashboardHandlerIdentity(r.Context())
+	actor := identity.UserID
 	var input struct {
 		IDs        []int64 `json:"ids"`
 		EmployeeID int64   `json:"employeeId"`
