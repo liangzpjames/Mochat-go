@@ -99,19 +99,23 @@ function compareRegistryToManifest(label, registry, manifest, errors) {
   }
 }
 
-function specCasePaths(source, variable, errors) {
+function specArrayBody(source, variable, errors) {
   const declaration = new RegExp(`const\\s+${variable}\\s*=\\s*\\[`).exec(source);
   if (declaration === null) {
     errors.push(`browser spec must declare ${variable}`);
-    return [];
+    return '';
   }
   const start = declaration.index + declaration[0].length;
   const end = source.indexOf('] as const', start);
   if (end === -1) {
     errors.push(`browser spec ${variable} must be an as const array`);
-    return [];
+    return '';
   }
-  return [...source.slice(start, end).matchAll(/\bpath\s*:\s*(['"])(\/[^'"]*)\1/g)]
+  return source.slice(start, end);
+}
+
+function specCasePaths(source, variable, errors) {
+  return [...specArrayBody(source, variable, errors).matchAll(/\bpath\s*:\s*(['"])(\/[^'"]*)\1/g)]
     .map((match) => match[2]);
 }
 
@@ -144,6 +148,22 @@ function countMatches(source, pattern) {
   return [...source.matchAll(pattern)].length;
 }
 
+function braceBody(source, openingPattern) {
+  const opening = openingPattern.exec(source);
+  if (opening === null) return null;
+  const openingBrace = source.indexOf('{', opening.index);
+  if (openingBrace === -1) return null;
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(openingBrace + 1, index);
+    }
+  }
+  return null;
+}
+
 function validatePackageScripts(root, errors) {
   const rootPackage = readJSON(root, 'package.json');
   const e2ePackage = readJSON(root, 'web/e2e/package.json');
@@ -152,6 +172,112 @@ function validatePackageScripts(root, errors) {
   }
   if (e2ePackage.scripts?.['test:mobile-clients-foundation'] !== E2E_SCRIPT) {
     errors.push('test:mobile-clients-foundation E2E package script is missing or incorrect');
+  }
+}
+
+function validateRawGoBrowserFixtures(source, errors) {
+  if (!/contact\s*:\s*['"]\*\*\/sidebar\/workContact\/detail\?\*['"]/.test(source)) {
+    errors.push('contact raw Go envelope fixture endpoint is missing');
+  }
+  if (!/taskData\s*:\s*['"]\*\*\/operation\/workFission\/taskData\?\*['"]/.test(source)) {
+    errors.push('taskData raw Go envelope fixture endpoint is missing');
+  }
+  if (!/JSON\.stringify\(\{\s*code\s*:\s*200\s*,\s*msg\s*:\s*['"]ok['"]\s*,\s*data\b[\s\S]{0,120}?\}\)/.test(source)) {
+    errors.push('raw Go envelope helper must preserve code, msg and data fields');
+  }
+  if (
+    !/const\s+rawContactData\s*=\s*\{[\s\S]{0,400}?\bid\s*:[\s\S]{0,200}?\bname\s*:[\s\S]{0,200}?\bavatar\s*:[\s\S]{0,200}?\bcorpId\s*:/.test(source)
+    || !/page\.route\(\s*browserContract\.fixtures\.contact[\s\S]{0,700}?body\s*:\s*rawGoEnvelope\(\s*rawContactData\b/.test(source)
+  ) {
+    errors.push('contact route must return a raw Go envelope');
+  }
+  if (
+    !/const\s+rawTaskData\s*=\s*\{[\s\S]{0,900}?\binvite_count\s*:[\s\S]{0,240}?\bdiffer_count\s*:[\s\S]{0,240}?\bend_time\s*:[\s\S]{0,300}?\btask\s*:[\s\S]{0,500}?\breceive_status\s*:[\s\S]{0,240}?\bgift_type\s*:[\s\S]{0,240}?\bgift_url\s*:/.test(source)
+    || !/page\.route\(\s*browserContract\.fixtures\.taskData[\s\S]{0,700}?body\s*:\s*rawGoEnvelope\(\s*rawTaskData\b/.test(source)
+  ) {
+    errors.push('taskData route must return a raw Go envelope');
+  }
+}
+
+function validateBrowserAudit(source, errors) {
+  const collectors = [
+    [/page\.on\(\s*['"]console['"][\s\S]{0,260}?message\.type\(\)\s*===\s*['"]error['"][\s\S]{0,180}?audit\.consoleErrors\.push\(/, 'console error audit collector is missing'],
+    [/page\.on\(\s*['"]pageerror['"][\s\S]{0,220}?audit\.pageErrors\.push\(/, 'pageerror audit collector is missing'],
+    [/page\.on\(\s*['"]requestfailed['"][\s\S]{0,260}?audit\.requestFailures\.push\(/, 'requestfailed audit collector is missing'],
+    [/page\.on\(\s*['"]response['"][\s\S]{0,260}?response\.status\(\)\s*>=\s*400[\s\S]{0,220}?audit\.unexpectedResponses\.push\(/, '400 response audit collector is missing'],
+  ];
+  for (const [pattern, message] of collectors) {
+    if (!pattern.test(source)) errors.push(message);
+  }
+  if ((source.match(/audit\.unexpectedRequests\.push\(/g) ?? []).length < 2) {
+    errors.push('unexpected request audit collectors are missing');
+  }
+
+  const assertions = [
+    ['consoleErrors', 'console error'],
+    ['pageErrors', 'pageerror'],
+    ['requestFailures', 'requestfailed'],
+    ['unexpectedResponses', '400 response'],
+    ['unexpectedRequests', 'unexpected request'],
+  ];
+  for (const [field, label] of assertions) {
+    const assertion = new RegExp(`expect\\(audit\\.${field}(?:\\s*,[^)]*)?\\)\\.toEqual\\(\\[\\]\\)`);
+    if (!assertion.test(source)) errors.push(`${label} clean-audit final assertion is missing`);
+  }
+
+  const stableAudit = /async\s+function\s+assertStableCleanAudit\s*\([^)]*\)\s*(?::\s*Promise<\s*void\s*>\s*)?\{[\s\S]{0,500}?await\s+page\.waitForLoadState\(\s*['"]networkidle['"]\s*\)[\s\S]{0,220}?await\s+page\.waitForTimeout\(\s*0\s*\)[\s\S]{0,220}?assertCleanAudit\(\s*audit/.test(source);
+  if (!stableAudit) errors.push('networkidle and event-loop stabilization must precede clean audit assertions');
+  if ((source.match(/await\s+assertStableCleanAudit\(/g) ?? []).length < 4) {
+    errors.push('all known and unknown route groups must execute the stable clean audit');
+  }
+}
+
+function validateBrowserLayout(source, sidebarCasesBody, operationCasesBody, errors) {
+  if (
+    !/clientWidth\s*:\s*document\.documentElement\.clientWidth/.test(source)
+    || !/scrollWidth\s*:\s*document\.documentElement\.scrollWidth/.test(source)
+    || !/expect\(pageShape\.scrollWidth(?:\s*,[^)]*)?\)\.toBeLessThanOrEqual\(pageShape\.clientWidth\)/.test(source)
+  ) {
+    errors.push('browser layout audit must assert scrollWidth is no greater than clientWidth');
+  }
+
+  const caseCount = countMatches(sidebarCasesBody, /\bpath\s*:/g)
+    + countMatches(operationCasesBody, /\bpath\s*:/g);
+  const actionFlagCount = countMatches(`${sidebarCasesBody}\n${operationCasesBody}`, /\bexpectsAction\s*:\s*(?:true|false)/g);
+  if (actionFlagCount !== caseCount) errors.push('every browser route case must declare expectsAction');
+  if (!/path\s*:\s*['"]\/login['"][^\n]*expectsAction\s*:\s*true/.test(sidebarCasesBody)) {
+    errors.push('Sidebar login browser case must declare expectsAction true');
+  }
+  if (!/minimumActionHeight\s*:\s*44\b/.test(source)) {
+    errors.push('browser contract must declare a 44px minimum action height');
+  }
+  if (!/if\s*\(\s*expectsAction\s*\)[\s\S]{0,180}?expect\(await\s+controls\.count\(\)\)\.toBeGreaterThanOrEqual\(1\)/.test(source)) {
+    errors.push('expectsAction routes must enforce a visible control count of at least one');
+  }
+  if (!/expect\(box\?\.height\s*\?\?\s*0(?:\s*,[^)]*)?\)\.toBeGreaterThanOrEqual\(browserContract\.minimumActionHeight\)/.test(source)) {
+    errors.push('visible action controls must enforce the 44px browser contract');
+  }
+}
+
+function validateViewportRouteLoops(source, errors) {
+  const viewportBody = braceBody(source, /for\s*\(const\s+viewport\s+of\s+viewports\)\s*\{/);
+  if (viewportBody === null) {
+    errors.push('viewport loop must cover all viewports and both route case arrays');
+    return;
+  }
+  const sidebarBody = braceBody(viewportBody, /for\s*\(const\s+routeCase\s+of\s+sidebarCases\)\s*\{/);
+  const operationBody = braceBody(viewportBody, /for\s*\(const\s+routeCase\s+of\s+operationCases\)\s*\{/);
+  if (sidebarBody === null || operationBody === null) {
+    errors.push('viewport loop must cover all viewports and both route case arrays');
+    return;
+  }
+  for (const [label, loopBody] of [['Sidebar', sidebarBody], ['Operation', operationBody]]) {
+    if (!/assertVisiblePage\([^;]+routeCase\.expectsAction\s*\)/.test(loopBody)) {
+      errors.push(`${label} viewport loop must pass expectsAction to the layout assertion`);
+    }
+    if (!/await\s+assertStableCleanAudit\(/.test(loopBody)) {
+      errors.push(`${label} viewport loop must execute the stable clean audit`);
+    }
   }
 }
 
@@ -226,6 +352,8 @@ export function auditMobileClientsFoundation(root = process.cwd()) {
     join(resolvedRoot, 'web/e2e/tests/mobile-clients-foundation.spec.ts'),
     'utf8',
   );
+  const sidebarCasesBody = specArrayBody(e2eSource, 'sidebarCases', errors);
+  const operationCasesBody = specArrayBody(e2eSource, 'operationCases', errors);
   const sidebarCases = specCasePaths(e2eSource, 'sidebarCases', errors);
   const operationCases = specCasePaths(e2eSource, 'operationCases', errors);
   compareBrowserCases('Sidebar', sidebarCases, sidebarManifest, errors);
@@ -235,6 +363,10 @@ export function auditMobileClientsFoundation(root = process.cwd()) {
   const hasDesktopViewport = /width\s*:\s*1280\b[\s\S]{0,80}?height\s*:\s*900\b/.test(e2eSource);
   if (!hasMobileViewport) errors.push('browser spec must include the 390 by 844 viewport');
   if (!hasDesktopViewport) errors.push('browser spec must include the 1280 by 900 viewport');
+  validateRawGoBrowserFixtures(e2eSource, errors);
+  validateBrowserAudit(e2eSource, errors);
+  validateBrowserLayout(e2eSource, sidebarCasesBody, operationCasesBody, errors);
+  validateViewportRouteLoops(e2eSource, errors);
   if (
     !e2eSource.includes('/sidebar-app/not-a-sidebar-page')
     || !e2eSource.includes('/operation-app/not-an-operation-page')

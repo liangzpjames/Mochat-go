@@ -58,7 +58,7 @@ function registry(name, paths) {
 }
 
 function routeCases(name, paths) {
-  return `const ${name}Cases = [\n${paths.map((path) => `  { path: ${JSON.stringify(path)}, title: ${JSON.stringify(`${name}-${path}`)} },`).join('\n')}\n] as const;`;
+  return `const ${name}Cases = [\n${paths.map((path) => `  { path: ${JSON.stringify(path)}, title: ${JSON.stringify(`${name}-${path}`)}, expectsAction: ${name === 'sidebar' && path === '/login'} },`).join('\n')}\n] as const;`;
 }
 
 function validE2E() {
@@ -70,25 +70,97 @@ const viewports = [
   { name: 'mobile-390', width: 390, height: 844 },
   { name: 'desktop-1280', width: 1280, height: 900 },
 ] as const;
+const browserContract = {
+  fixtures: {
+    contact: '**/sidebar/workContact/detail?*',
+    taskData: '**/operation/workFission/taskData?*',
+  },
+  minimumActionHeight: 44,
+} as const;
+const rawContactData = { id: 1, name: 'Fixture Contact', avatar: null, corpId: 2 };
+const rawTaskData = {
+  invite_count: 2,
+  differ_count: 1,
+  end_time: 0,
+  task: [{ count: 3, status: 0, receive_status: 0, gift_type: 1, gift_url: '/reward' }],
+};
+function rawGoEnvelope(data, requestId) {
+  return JSON.stringify({ code: 200, msg: 'ok', data, requestId });
+}
+async function installRawGoFixtures(page) {
+  const audit = {
+    consoleErrors: [], pageErrors: [], requestFailures: [], unexpectedResponses: [], unexpectedRequests: [],
+  };
+  page.on('console', (message) => { if (message.type() === 'error') audit.consoleErrors.push(message.text()); });
+  page.on('pageerror', (error) => audit.pageErrors.push(error.message));
+  page.on('requestfailed', (request) => audit.requestFailures.push(request.url()));
+  page.on('response', (response) => { if (response.status() >= 400) audit.unexpectedResponses.push(response.url()); });
+  await page.route('**/sidebar/**', async (route) => { audit.unexpectedRequests.push(route.request().url()); await route.fulfill({ status: 500 }); });
+  await page.route('**/operation/**', async (route) => { audit.unexpectedRequests.push(route.request().url()); await route.fulfill({ status: 500 }); });
+  await page.route(browserContract.fixtures.contact, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: rawGoEnvelope(rawContactData, 'contact-request') });
+  });
+  await page.route(browserContract.fixtures.taskData, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: rawGoEnvelope(rawTaskData, 'task-request') });
+  });
+  return audit;
+}
+async function assertVisiblePage(page, routeCase, expectsAction) {
+  await expect(page.getByRole('heading', { name: routeCase.title })).toBeVisible();
+  const pageShape = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(pageShape.scrollWidth).toBeLessThanOrEqual(pageShape.clientWidth);
+  const controls = page.locator('a.primary:visible, button.retry:visible');
+  if (expectsAction) expect(await controls.count()).toBeGreaterThanOrEqual(1);
+  for (let index = 0; index < await controls.count(); index += 1) {
+    const box = await controls.nth(index).boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(browserContract.minimumActionHeight);
+  }
+}
+function assertCleanAudit(audit) {
+  expect(audit.consoleErrors).toEqual([]);
+  expect(audit.pageErrors).toEqual([]);
+  expect(audit.requestFailures).toEqual([]);
+  expect(audit.unexpectedResponses).toEqual([]);
+  expect(audit.unexpectedRequests).toEqual([]);
+}
+async function assertStableCleanAudit(page, audit): Promise<void> {
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(0);
+  assertCleanAudit(audit);
+}
 for (const viewport of viewports) {
-  for (const routeCase of [...sidebarCases, ...operationCases]) {
-    test(
-      \`${'${viewport.name}'} ${'${routeCase.path}'} renders its route title\`,
-      async ({ page }) => {
-        await page.setViewportSize(viewport);
-        await page.goto(routeCase.path);
-        await expect(page.getByRole('heading', { name: routeCase.title })).toBeVisible();
-      },
-    );
+  for (const routeCase of sidebarCases) {
+    test(\`${'${viewport.name}'} Sidebar ${'${routeCase.path}'}\`, async ({ page }) => {
+      const audit = await installRawGoFixtures(page);
+      await page.setViewportSize(viewport);
+      await page.goto(routeCase.path);
+      await assertVisiblePage(page, routeCase, routeCase.expectsAction);
+      await assertStableCleanAudit(page, audit);
+    });
+  }
+  for (const routeCase of operationCases) {
+    test(\`${'${viewport.name}'} Operation ${'${routeCase.path}'}\`, async ({ page }) => {
+      const audit = await installRawGoFixtures(page);
+      await page.setViewportSize(viewport);
+      await page.goto(routeCase.path);
+      await assertVisiblePage(page, routeCase, routeCase.expectsAction);
+      await assertStableCleanAudit(page, audit);
+    });
   }
 }
 test('unknown paths show 404 and do not render home content', async ({ page }) => {
+  const audit = await installRawGoFixtures(page);
   await page.goto('/sidebar-app/not-a-sidebar-page');
   await expect(page.getByRole('heading', { name: '页面不存在' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '客户侧边栏' })).toHaveCount(0);
+  await assertStableCleanAudit(page, audit);
   await page.goto('/operation-app/not-an-operation-page');
   await expect(page.getByRole('heading', { name: '页面不存在' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '营销活动中心' })).toHaveCount(0);
+  await assertStableCleanAudit(page, audit);
 });
 `;
 }
@@ -210,6 +282,106 @@ test('rejects a missing 390 by 844 browser viewport independently', (t) => {
     validE2E().replace("{ name: 'mobile-390', width: 390, height: 844 },", ''),
   );
   expectDefect(root, /390.*844.*viewport/i);
+});
+
+test('rejects a missing contact raw Go envelope independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("body: rawGoEnvelope(rawContactData, 'contact-request')", "body: JSON.stringify({ contact: rawContactData })"),
+  );
+  expectDefect(root, /contact.*raw Go envelope/i);
+});
+
+test('rejects a missing taskData raw Go envelope independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("body: rawGoEnvelope(rawTaskData, 'task-request')", "body: JSON.stringify({ taskData: rawTaskData })"),
+  );
+  expectDefect(root, /taskData.*raw Go envelope/i);
+});
+
+test('rejects a missing clean-audit event collector independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("  page.on('requestfailed', (request) => audit.requestFailures.push(request.url()));\n", ''),
+  );
+  expectDefect(root, /requestfailed.*audit/i);
+});
+
+test('rejects a missing clean-audit final assertion independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace('  expect(audit.unexpectedRequests).toEqual([]);\n', ''),
+  );
+  expectDefect(root, /unexpected request.*assertion/i);
+});
+
+test('rejects a missing 4xx and 5xx response collector independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace('if (response.status() >= 400)', 'if (false)'),
+  );
+  expectDefect(root, /400.*response audit/i);
+});
+
+test('rejects a missing overflow assertion independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace('  expect(pageShape.scrollWidth).toBeLessThanOrEqual(pageShape.clientWidth);\n', ''),
+  );
+  expectDefect(root, /scrollWidth.*clientWidth/i);
+});
+
+test('rejects a missing mandatory 44px action assertion independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace('  if (expectsAction) expect(await controls.count()).toBeGreaterThanOrEqual(1);\n', ''),
+  );
+  expectDefect(root, /expectsAction.*control count/i);
+});
+
+test('rejects a route matrix without an applicable action case independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replaceAll('expectsAction: true', 'expectsAction: false'),
+  );
+  expectDefect(root, /login.*expectsAction.*true/i);
+});
+
+test('rejects an only-mobile route loop independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace('for (const viewport of viewports)', 'for (const viewport of [viewports[0]]'),
+  );
+  expectDefect(root, /viewport loop.*all viewports/i);
+});
+
+test('rejects an unstable audit assertion independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("  await page.waitForLoadState('networkidle');\n", ''),
+  );
+  expectDefect(root, /networkidle.*audit/i);
 });
 
 test('rejects an unknown route that falls back to home independently', (t) => {

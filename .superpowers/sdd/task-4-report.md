@@ -42,7 +42,7 @@ fail 14
 8. 伪成功文案。
 9. 随机奖品。
 10. 固定进度。
-11. 缁濇棤 `390×844` viewport。
+11. 缺少 `390×844` viewport。
 12. 未知路由回落首页。
 13. 根 package script 缺失。
 14. E2E package script 缺失。
@@ -179,10 +179,118 @@ Task 4 只删除这两个尾部空行；由于 `main...HEAD` 只检查已提交�
 - 未修改 Sidebar、Operation、mobile-foundation 的 Task1-3 生产逻辑；浏览器未暴露需补 RED 的生产缺陷。
 - E2E fallback route 在具体 API route 之前注册、具体 route 后注册；Playwright 使用后注册者优先，因此已知 API 命中原始 envelope fixture，其他 API 必定失败。
 - `cmd/mochat-frontend-e2e/main.go` 无无谓改动。
-- 未发现 Critical 或 Important 问题。
+- Task 4 初始自审未发现 Critical 或 Important 问题；父线程后续独立 review 发现的两个 Important 及修复证据见第 7 节。
 
 ## 6. 边界与疑虑
 
 - 本次 22 路由验收证明 URL 承接、页面状态、两个真实纵切面 mock 契约与移动布局；不证明其余 20 个待迁移模块已经实现真实业务闭环。
 - 未连接真实 OAuth、Go API 或数据库；这符合设计中“本阶段非 Docker、确定性 raw envelope browser fixture”的范围。
 - 主工作区在任务开始/结束时均有既存 dirty/untracked 文件；本任务未清理、覆盖或提交它们。
+
+## 7. 父线程 Review Important 修复追加记录
+
+### 7.1 Review 结论
+
+父线程在 `0f697c1` 后发现两个 Important：
+
+1. 原 completion gate 只统计 E2E case/viewport 声明，不能阻止删除 raw Go envelope、错误采集、overflow、44px 或真实双 viewport 循环。
+2. 原 E2E 在页面断言后立即检查 audit，并且只检查“已有控件”的高度；迟到的网络事件可能漏报，`/login` 控件被删除时也可能因为控件数为 `0` 而通过。
+
+修复保持 `0f697c1` 不变，使用独立追加 commit。
+
+### 7.2 Review RED
+
+先只扩展坏 fixture，再执行：
+
+```powershell
+node --test scripts/check_mobile_clients_foundation.test.mjs
+```
+
+结果：退出码 `1`，精确汇总：
+
+```text
+tests 26
+pass 16
+fail 10
+```
+
+新增 10 个 fixture 均以 `Missing expected exception` 独立失败：
+
+1. contact route 不使用 raw Go envelope。
+2. taskData route 不使用 raw Go envelope。
+3. 缺少 `requestfailed` audit collector。
+4. 缺少 `unexpectedRequests` 最终空数组断言。
+5. 缺少 `response.status() >= 400` collector。
+6. 缺少 `scrollWidth <= clientWidth` 断言。
+7. 缺少 `expectsAction` 的强制控件数断言。
+8. `/login` 没有任何 `expectsAction: true` case。
+9. viewport 声明仍有两个，但路由循环只运行 mobile。
+10. clean audit 前缺少 `networkidle` 稳定点。
+
+### 7.3 Gate GREEN
+
+completion gate 现在交叉验证：
+
+- `browserContract.fixtures.contact` 与 `browserContract.fixtures.taskData` endpoint；
+- `rawGoEnvelope` 保留原始 `code`、`msg`、`data`，且两个 `page.route` 确实调用它；
+- contact raw data 保留 `id/name/avatar/corpId`；taskData 保留 `invite_count/differ_count/end_time/task/receive_status/gift_type/gift_url`，不预计算最终 view model；
+- console error、`pageerror`、`requestfailed`、`response >= 400`、unexpected request 的 collector 和最终空数组断言；
+- `scrollWidth <= clientWidth`；
+- 每条 route case 都声明 `expectsAction`，`/login=true`，且 true case 强制 `controls.count() >= 1`；所有可见控件高度使用 `minimumActionHeight: 44`；
+- 精确的 `for (const viewport of viewports)` 外层 block 内同时存在完整 Sidebar 与 Operation case loop；两个 loop 均调用布局断言和稳定 clean audit；
+- stable audit 先等待 `networkidle`，再等待一个事件循环，最后执行 clean assertion；两个 unknown route 同样走 stable audit。
+
+最终 fixture：
+
+```powershell
+node --test scripts/check_mobile_clients_foundation.test.mjs
+```
+
+结果：退出码 `0`，`26/26` 通过。
+
+真实源码 gate：
+
+```powershell
+node scripts/check_mobile_clients_foundation.mjs
+```
+
+输出保持：
+
+```text
+sidebar routes=12
+operation routes=10
+direct fetch=0
+dashboard session references=0
+mojibake markers=0
+fake business outcomes=0
+mobile viewport cases>=22
+```
+
+### 7.4 E2E GREEN
+
+每条 route case 新增显式 `expectsAction`；`/login` 为 `true`。`assertVisiblePage` 对 true case 强制至少一个可见主/重试控件，并对所有找到的控件验证不小于 `44px`。
+
+`assertStableCleanAudit` 在最终 audit 前执行：
+
+```text
+await page.waitForLoadState('networkidle')
+await page.waitForTimeout(0)
+assertCleanAudit(...)
+```
+
+最终执行：
+
+```powershell
+corepack pnpm --filter @mochat/e2e test:mobile-clients-foundation
+```
+
+结果：退出码 `0`，`48 passed (31.6s)`；runner 正常结束，没有挂起。
+
+同时通过：
+
+```powershell
+corepack pnpm --filter @mochat/e2e typecheck
+corepack pnpm --filter @mochat/e2e lint
+```
+
+两条命令均退出 `0`。
