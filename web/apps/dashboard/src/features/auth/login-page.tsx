@@ -108,8 +108,9 @@ export function LoginPage({
 
   const finishResult = (result: DashboardAuthResult) => {
     if (isSession(result)) {
+      const completedPasswordChange = pending?.kind === 'password-change';
       setSession(result);
-      navigate(safeReturnTo(returnTo));
+      navigate(completedPasswordChange ? '/' : safeReturnTo(returnTo));
       return;
     }
     setPending(result);

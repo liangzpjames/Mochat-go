@@ -336,6 +336,10 @@ func (service *DashboardAccessAdminService) ProvisionEmployeeAccount(ctx context
 	if employeeID <= 0 || !validDashboardLoginIdentifier(loginIdentifier) {
 		return DashboardEmployeeAccountMutationResult{}, ErrDashboardAccessAdminInvalid
 	}
+	roleIDs := uniquePositiveInts(input.RoleIDs)
+	if len(roleIDs) == 0 && len(input.DirectPermissions) == 0 {
+		return DashboardEmployeeAccountMutationResult{}, ErrDashboardAccessAdminInvalid
+	}
 	permissions, err := service.validateAssignments(ctx, input.DirectPermissions)
 	if err != nil {
 		return DashboardEmployeeAccountMutationResult{}, err
@@ -350,7 +354,7 @@ func (service *DashboardAccessAdminService) ProvisionEmployeeAccount(ctx context
 	}
 	employee, err := service.store.ProvisionDashboardEmployeeAccount(ctx, ProvisionDashboardEmployeeAccountCommand{
 		TenantID: actor.TenantID, ActorUserID: actor.UserID, ActorName: actor.UserName,
-		EmployeeID: employeeID, LoginIdentifier: loginIdentifier, RoleIDs: uniquePositiveInts(input.RoleIDs), DirectPermissions: permissions, PasswordHash: hash,
+		EmployeeID: employeeID, LoginIdentifier: loginIdentifier, RoleIDs: roleIDs, DirectPermissions: permissions, PasswordHash: hash,
 		RequestID: strings.TrimSpace(input.RequestID),
 	})
 	if err != nil {

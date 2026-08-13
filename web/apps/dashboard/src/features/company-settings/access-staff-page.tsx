@@ -85,6 +85,7 @@ export function AccessStaffPage({ api }: { api: Api }) {
     [],
   );
   const [temporaryPassword, setTemporaryPassword] = React.useState("");
+  const hasProvisioningAccess = roleIds.length > 0 || direct.length > 0;
 
   const employees = useQuery({
     queryKey: ["access-employees", page],
@@ -314,7 +315,7 @@ export function AccessStaffPage({ api }: { api: Api }) {
                 >
                   <button
                     type="button"
-                    disabled={!/^\d{11}$/.test(loginIdentifier) || !roles.isSuccess || !catalog.isSuccess || provision.isPending}
+                    disabled={!/^\d{11}$/.test(loginIdentifier) || !roles.isSuccess || !catalog.isSuccess || !hasProvisioningAccess || provision.isPending}
                   >
                     确认开通
                   </button>
@@ -336,6 +337,11 @@ export function AccessStaffPage({ api }: { api: Api }) {
             {provision.isError ? (
               <p role="alert" className="phase35-notice-error access-provision-error">
                 {provisionErrorMessage(provision.error)}
+              </p>
+            ) : null}
+            {!hasProvisioningAccess ? (
+              <p className="phase35-notice-error access-provision-error">
+                至少选择一个角色或一项直接权限后才能开通账号
               </p>
             ) : null}
             <div className="access-provision-basics">

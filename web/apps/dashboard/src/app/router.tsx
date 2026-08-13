@@ -13,7 +13,10 @@ import {
 } from 'react-router';
 
 import type { AccessContext } from './access-loader';
-import { DashboardAccessProvider } from './access-context';
+import {
+  DashboardAccessProvider,
+  useOptionalDashboardAccess,
+} from './access-context';
 import { DashboardLayout } from '../layout/dashboard-layout';
 import { NotFoundPage } from '../pages/not-found-page';
 import { RoutedActivationPage } from '../features/auth/activation-page';
@@ -85,6 +88,17 @@ function DashboardAccessShell({ renderAccess }: {
   return renderAccess?.(data, shell) ?? shell;
 }
 
+export function dashboardLandingRoute(allowedRoutes: ReadonlySet<string>): string | null {
+  if (allowedRoutes.has('/index')) return '/index';
+  return allowedRoutes.values().next().value ?? null;
+}
+
+function DashboardLandingPage() {
+  const access = useOptionalDashboardAccess();
+  const target = dashboardLandingRoute(access?.allowedRoutes ?? new Set());
+  return target === null ? <ForbiddenPage /> : <Navigate replace to={target} />;
+}
+
 export function createDashboardRouter(deps: DashboardRouterDeps) {
   const reactRoutes = Object.entries(deps.reactPages ?? {}).map(([path, element]) => ({
     path,
@@ -131,7 +145,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps) {
       errorElement: <DashboardRouteError />,
       HydrateFallback: DashboardHydrateFallback,
       children: [
-        { index: true, element: <Navigate replace to="/index" /> },
+        { index: true, element: <DashboardLandingPage /> },
         { path: 'corpData/index', element: <Navigate replace to="/index" /> },
         ...reactRoutes,
         { path: '*', element: <NotFoundPage /> },

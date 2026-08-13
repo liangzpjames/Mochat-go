@@ -54,22 +54,24 @@ export function buildYuanhuNavigation(
   }
 
   const seenPaths = new Set<string>();
-  return manifest.groups.map((group) => ({
-    ...group,
-    items: manifest.pages.flatMap((page) => {
-      if (
-        page.groupId !== group.id
-        || !access.allowedRoutes.has(page.path)
-        || seenPaths.has(page.path)
-      ) {
-        return [];
-      }
-      seenPaths.add(page.path);
-      return [{
-        title: page.title,
-        path: page.path,
-        activePath: page.path === access.pathname ? page.path : null,
-      }];
-    }),
-  }));
+  return manifest.groups
+    .map((group) => ({
+      ...group,
+      items: manifest.pages.flatMap((page) => {
+        if (
+          page.groupId !== group.id
+          || !access.allowedRoutes.has(page.path)
+          || seenPaths.has(page.path)
+        ) {
+          return [];
+        }
+        seenPaths.add(page.path);
+        return [{
+          title: page.title,
+          path: page.path,
+          activePath: page.path === access.pathname ? page.path : null,
+        }];
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
 }

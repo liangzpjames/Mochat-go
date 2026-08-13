@@ -265,6 +265,9 @@ func TestDashboardEmployeeAccountLifecycleRejectsInvalidInputAndOrdinaryActor(t 
 	if _, err := service.ProvisionEmployeeAccount(context.Background(), 1, 4, ProvisionDashboardEmployeeAccountInput{LoginIdentifier: "not-a-phone"}); !errors.Is(err, ErrDashboardAccessAdminInvalid) {
 		t.Fatalf("invalid login error=%v", err)
 	}
+	if _, err := service.ProvisionEmployeeAccount(context.Background(), 1, 4, ProvisionDashboardEmployeeAccountInput{LoginIdentifier: "13800000004"}); !errors.Is(err, ErrDashboardAccessAdminInvalid) {
+		t.Fatalf("zero-access provisioning error=%v", err)
+	}
 	if _, err := service.ProvisionEmployeeAccount(context.Background(), 2, 4, ProvisionDashboardEmployeeAccountInput{LoginIdentifier: "13800000004"}); !errors.Is(err, ErrDashboardAccessAdminForbidden) {
 		t.Fatalf("ordinary actor error=%v", err)
 	}

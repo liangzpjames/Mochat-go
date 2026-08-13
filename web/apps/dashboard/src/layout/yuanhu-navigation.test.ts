@@ -34,11 +34,11 @@ describe('buildYuanhuNavigation', () => {
     }, manifest);
 
     expect(navigation.map((group) => group.title)).toEqual([
-      '会话', '风险预警', 'AI 洞察', '营销工具', 'SCRM', '数据报表', 'AI 设置', '企业设置',
+      '会话', '风险预警',
     ]);
     expect(navigation[0]?.items).toEqual([{ title: '全部消息', path: '/chat/v2-all', activePath: '/chat/v2-all' }]);
     expect(navigation[1]?.items).toEqual([{ title: '风险行为', path: '/ai-insight/v2/risk', activePath: null }]);
-    expect(navigation.slice(2).every((group) => group.items.length === 0)).toBe(true);
+    expect(navigation.every((group) => group.items.length > 0)).toBe(true);
   });
 
   it('returns a stable empty tree when access is unavailable', () => {

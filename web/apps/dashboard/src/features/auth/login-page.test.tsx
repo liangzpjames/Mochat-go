@@ -150,6 +150,7 @@ describe('LoginPage', () => {
     const props = renderLogin({
       authenticate: vi.fn(() => Promise.resolve(enrollment)),
       completeMFA,
+      returnTo: '/company-setting/staff',
     });
 
     submitCredentials();
@@ -173,7 +174,7 @@ describe('LoginPage', () => {
       newPassword: 'rotated-password',
     }));
     await waitFor(() => expect(props.setSession).toHaveBeenCalledWith(session));
-    expect(props.navigate).toHaveBeenCalledWith('/index');
+    expect(props.navigate).toHaveBeenCalledWith('/');
   });
 
   it('completes a normal MFA challenge and only then enters the Dashboard', async () => {

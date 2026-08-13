@@ -502,6 +502,8 @@ describe("access management pages", () => {
     expect(screen.getByDisplayValue("13800000004")).toBeTruthy();
     expect(screen.getByText("企微账号：zhangsan")).toBeTruthy();
     expect(screen.getByText("同步手机号：13800000004")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "确认开通" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("至少选择一个角色或一项直接权限后才能开通账号")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("销售（启用）"));
     fireEvent.click(screen.getByLabelText("选择 数据概览"));
     fireEvent.change(
@@ -536,11 +538,15 @@ describe("access management pages", () => {
       resetEmployeePassword: vi.fn(),
       user: vi.fn(),
       replaceUser: vi.fn(),
-      roles: vi.fn().mockResolvedValue({ list: [], page: { total: 0, totalPage: 1 } }),
+      roles: vi.fn().mockResolvedValue({
+        list: [{ id: 8, name: "Test Role", status: 1, version: 1 }],
+        page: { total: 1, totalPage: 1 },
+      }),
       catalog: vi.fn().mockResolvedValue([]),
     };
     wrap(<AccessStaffPage api={api} />);
     fireEvent.click(await screen.findByRole("button", { name: "开通账号" }));
+    fireEvent.click(screen.getByLabelText("Test Role（启用）"));
     fireEvent.click(screen.getByRole("button", { name: "确认开通" }));
     fireEvent.click(await screen.findByRole("button", { name: "确认" }));
     const alert = await screen.findByRole("alert");
