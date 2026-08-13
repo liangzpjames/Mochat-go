@@ -523,6 +523,31 @@ func TestDashboardAccessContextAllowsTenantScopeWithoutEmployeeBinding(t *testin
 	}
 }
 
+func TestDashboardGuardAllowsSuperadminTenantScopeWithoutEmployeeBinding(t *testing.T) {
+	profile := DashboardAccessProfile{
+		UserID: 7, TenantID: 9, CorpID: 12, IsSuperAdmin: true,
+		EffectivePermissions: []EffectivePermission{{Code: "dashboard.chat.staff", Scope: DataScopeTenant}},
+	}
+	access, ok := dashboardContextForMatches(profile, []DashboardPermissionResource{{
+		PermissionCode: "dashboard.chat.staff", Method: http.MethodGet,
+		PathPattern: "/dashboard/workMessage/fromUsers", ScopeRequired: true,
+	}})
+	if !ok {
+		t.Fatal("superadmin tenant scope was rejected without an employee binding")
+	}
+	if !access.IsSuperAdmin || access.Scope != DataScopeTenant || access.WorkEmployeeID != 0 || len(access.AllowedEmployeeIDs) != 0 {
+		t.Fatalf("access=%+v", access)
+	}
+
+	profile.IsSuperAdmin = false
+	if _, allowed := dashboardContextForMatches(profile, []DashboardPermissionResource{{
+		PermissionCode: "dashboard.chat.staff", Method: http.MethodGet,
+		PathPattern: "/dashboard/workMessage/fromUsers", ScopeRequired: true,
+	}}); allowed {
+		t.Fatal("ordinary tenant-scoped user bypassed the employee binding requirement")
+	}
+}
+
 func equalInts(left, right []int) bool {
 	if len(left) != len(right) {
 		return false

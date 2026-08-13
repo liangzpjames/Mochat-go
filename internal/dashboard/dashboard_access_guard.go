@@ -231,13 +231,14 @@ func dashboardContextForMatches(profile DashboardAccessProfile, matches []Dashbo
 	codes = uniqueStrings(codes)
 	allowedEmployeeIDs := []int{}
 	if scopeRequired {
-		if profile.CorpID <= 0 || profile.WorkEmployeeID <= 0 {
+		allowsUnboundSuperadmin := profile.IsSuperAdmin && scope == DataScopeTenant
+		if profile.CorpID <= 0 || (profile.WorkEmployeeID <= 0 && !allowsUnboundSuperadmin) {
 			return DashboardAccessContext{}, false
 		}
 		switch scope {
 		case DataScopeTenant:
-			// Tenant scope still requires a tenant-validated employee fact, but does
-			// not constrain the employee set.
+			// Tenant scope does not constrain the employee set. Superadmins may be
+			// provisioned by SaaS without a matching WeCom employee record.
 		case DataScopeDepartment:
 			allowedEmployeeIDs = uniquePositiveInts(profile.DepartmentEmployeeIDs)
 			if len(allowedEmployeeIDs) == 0 {
