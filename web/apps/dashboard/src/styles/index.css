@@ -2526,6 +2526,7 @@ body {
 .company-readonly-field input { background: #f7f8fb; color: #475066; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .company-readonly-field button { min-width: 64px; }
 .company-profile-notice { background: #f0fff4; border: 1px solid #c6f6d5; border-radius: 8px; color: #2f855a; font-size: .8rem; margin: 0; padding: 10px 12px; }
+.company-profile-inline-feedback { margin-top: 12px; }
 .company-profile-help { color: #8991a1; font-size: .76rem; line-height: 1.5; margin: 12px 0 0; }
 .company-sync-summary { color: #65708a; display: flex; flex-wrap: wrap; font-size: .8rem; gap: 16px; margin-top: 18px; }
 .company-sync-summary span:last-child { color: #cf4c4c; overflow-wrap: anywhere; }

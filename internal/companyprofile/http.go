@@ -189,7 +189,14 @@ func decodeEmptyJSON(r *http.Request) bool {
 	if r == nil || r.Body == nil {
 		return true
 	}
-	return decodeJSON(r, &struct{}{})
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	var input struct{}
+	if err := decoder.Decode(&input); err != nil {
+		return errors.Is(err, io.EOF)
+	}
+	var trailing json.RawMessage
+	return errors.Is(decoder.Decode(&trailing), io.EOF)
 }
 
 func auditFilterFromQuery(values url.Values) AuditFilter {

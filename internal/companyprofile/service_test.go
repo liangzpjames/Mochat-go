@@ -534,11 +534,19 @@ func TestHTTPEmployeeSyncQueuesBindingScopedJobAndRejectsClientRealmFields(t *te
 		t.Fatalf("scheduler=%+v queueCalls=%d", scheduler, store.queueCalls)
 	}
 
+	emptyRequest := httptest.NewRequest(http.MethodPost, "/dashboard/company/employee-sync", strings.NewReader(""))
+	emptyRequest = emptyRequest.WithContext(dashboardprincipal.WithPrincipal(emptyRequest.Context(), principal))
+	emptyResponse := httptest.NewRecorder()
+	handler.ServeHTTP(emptyResponse, emptyRequest)
+	if emptyResponse.Code != http.StatusOK || scheduler.calls != 2 || store.queueCalls != 2 {
+		t.Fatalf("empty body status=%d body=%s queueCalls=%d schedulerCalls=%d", emptyResponse.Code, emptyResponse.Body.String(), store.queueCalls, scheduler.calls)
+	}
+
 	badRequest := httptest.NewRequest(http.MethodPost, "/dashboard/company/employee-sync", strings.NewReader(`{"tenantId":999,"corpId":888}`))
 	badRequest = badRequest.WithContext(dashboardprincipal.WithPrincipal(badRequest.Context(), principal))
 	badResponse := httptest.NewRecorder()
 	handler.ServeHTTP(badResponse, badRequest)
-	if badResponse.Code != http.StatusBadRequest || store.queueCalls != 1 || scheduler.calls != 1 {
+	if badResponse.Code != http.StatusBadRequest || store.queueCalls != 2 || scheduler.calls != 2 {
 		t.Fatalf("realm selector request status=%d body=%s queueCalls=%d schedulerCalls=%d", badResponse.Code, badResponse.Body.String(), store.queueCalls, scheduler.calls)
 	}
 }

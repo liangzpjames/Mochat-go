@@ -38,6 +38,9 @@ const syncStatusText: Record<EmployeeSyncSnapshot['status'], string> = {
   completed: '已完成',
 };
 
+type FeedbackScope = 'profile' | 'application' | 'callback' | 'archive' | 'verify' | 'sync';
+type OperationFeedback = { scope: FeedbackScope; tone: 'error' | 'notice'; message: string };
+
 export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, onNavigate }: CompanyWebsitePageProps) {
   const access = useOptionalDashboardAccess();
   const queryClient = useQueryClient();
@@ -49,8 +52,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 	const [archiveRSAPrivateKey, setArchiveRSAPrivateKey] = useState('');
   const [wxAgentId, setWxAgentId] = useState('');
   const [wxSecret, setWxSecret] = useState('');
-  const [operationError, setOperationError] = useState('');
-	const [operationNotice, setOperationNotice] = useState('');
+  const [operationFeedback, setOperationFeedback] = useState<OperationFeedback | null>(null);
   const requestSequence = useRef(0);
 	const applicationInputRef = useRef<ConfigureApplicationInput | null>(null);
   const archiveInputRef = useRef<RotateArchiveCredentialsInput | null>(null);
@@ -93,37 +95,40 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     return `${kind}-${Date.now()}-${requestSequence.current}`;
   };
 
-  const refreshProfile = (nextProfile: CompanyProfile) => {
+  const refreshProfile = (nextProfile: CompanyProfile, scope: FeedbackScope, message: string) => {
     queryClient.setQueryData(['company-profile'], nextProfile);
     void queryClient.invalidateQueries({ queryKey: ['company-sync-status'] });
     void queryClient.invalidateQueries({ queryKey: ['company-audits'] });
-    setOperationError('');
-	setOperationNotice('');
+    setOperationFeedback({ scope, tone: 'notice', message });
     setArchiveChatSecret('');
 	setArchiveRSAPublicKey('');
 	setArchiveRSAPrivateKey('');
     setWxSecret('');
   };
 
-  const showMutationError = (error: unknown, fallback: string) => {
+  const showMutationError = (error: unknown, fallback: string, scope: FeedbackScope) => {
     if (error instanceof ApiError && error.machineCode === 'TENANT_ACCESS_DENIED') {
       onTenantAccessDenied?.();
       return;
     }
     if (error instanceof ApiError && error.machineCode === 'CORP_CONFIGURATION_REQUIRED') {
       onNavigate?.('/company-setting/website');
-      setOperationError('请先完成企业配置，当前登录状态已保留。');
+      setOperationFeedback({ scope, tone: 'error', message: '请先完成企业配置，当前登录状态已保留。' });
       return;
     }
     if (error instanceof ApiError && error.machineCode === 'VERSION_CONFLICT') {
-      setOperationError('资料已被其他操作更新，请刷新后重试；当前填写内容已保留。');
+      setOperationFeedback({ scope, tone: 'error', message: '资料已被其他操作更新，请刷新后重试；当前填写内容已保留。' });
       return;
     }
     if (error instanceof ApiError && error.machineCode === 'WECOM_CREDENTIAL_INVALID') {
-      setOperationError('企业微信凭据校验失败，请检查后重试。');
+      setOperationFeedback({ scope, tone: 'error', message: '企业微信凭据校验失败，请检查后重试。' });
       return;
     }
-    setOperationError(fallback);
+    if (error instanceof ApiError && error.machineCode === 'INVALID_REQUEST') {
+      setOperationFeedback({ scope, tone: 'error', message: scope === 'sync' ? '同步请求格式不正确，任务未创建，请刷新页面后重试。' : '提交内容格式不正确，请检查后重试。' });
+      return;
+    }
+    setOperationFeedback({ scope, tone: 'error', message: fallback });
   };
 
   useEffect(() => {
@@ -134,8 +139,8 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 
   const profileMutation = useMutation({
     mutationFn: (input: UpdateCompanyProfileInput) => api.updateProfile(input),
-    onSuccess: refreshProfile,
-    onError: (error) => showMutationError(error, '企业资料保存失败，请稍后重试。'),
+    onSuccess: (nextProfile) => refreshProfile(nextProfile, 'profile', '企业资料已保存。'),
+    onError: (error) => showMutationError(error, '企业资料保存失败，请稍后重试。', 'profile'),
   });
 	const applicationMutation = useMutation({
     mutationFn: () => {
@@ -145,12 +150,12 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     },
     onSuccess: (nextProfile) => {
 	  applicationInputRef.current = null;
-      refreshProfile(nextProfile);
+      refreshProfile(nextProfile, 'application', '应用配置已保存。');
 	  void queryClient.invalidateQueries({ queryKey: ['company-callback-configuration'] });
     },
     onError: (error) => {
 	  applicationInputRef.current = null;
-	  showMutationError(error, '应用配置保存失败，请稍后重试。');
+	  showMutationError(error, '应用配置保存失败，请稍后重试。', 'application');
     },
   });
 	const callbackMutation = useMutation({
@@ -159,10 +164,9 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 		queryClient.setQueryData(['company-callback-configuration'], configuration);
 		queryClient.setQueryData<CompanyProfile>(['company-profile'], (current) => current === undefined ? current : { ...current, bindingVersion: configuration.bindingVersion });
 		void queryClient.invalidateQueries({ queryKey: ['company-audits'] });
-		setOperationError('');
-		setOperationNotice('回调 Token 和 EncodingAESKey 已重新生成，请及时更新企业微信后台。');
+		setOperationFeedback({ scope: 'callback', tone: 'notice', message: '回调 Token 和 EncodingAESKey 已重新生成，请及时更新企业微信后台。' });
 	  },
-	  onError: (error) => showMutationError(error, '回调配置重新生成失败，请稍后重试。'),
+	  onError: (error) => showMutationError(error, '回调配置重新生成失败，请稍后重试。', 'callback'),
 	});
   const archiveMutation = useMutation({
     mutationFn: () => {
@@ -172,17 +176,17 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     },
     onSuccess: (nextProfile) => {
       archiveInputRef.current = null;
-      refreshProfile(nextProfile);
+      refreshProfile(nextProfile, 'archive', '会话存档配置已保存。');
     },
     onError: (error) => {
       archiveInputRef.current = null;
-      showMutationError(error, '会话存档配置保存失败，请稍后重试。');
+      showMutationError(error, '会话存档配置保存失败，请稍后重试。', 'archive');
     },
   });
   const verifyMutation = useMutation({
     mutationFn: (input: VerifyCompanyInput) => api.verify(input),
-    onSuccess: refreshProfile,
-    onError: (error) => showMutationError(error, '企业微信验证失败，请稍后重试。'),
+    onSuccess: (nextProfile) => refreshProfile(nextProfile, 'verify', '企业微信验证成功。'),
+    onError: (error) => showMutationError(error, '企业微信验证失败，请稍后重试。', 'verify'),
   });
   const syncMutation = useMutation({
     mutationFn: () => api.startEmployeeSync(),
@@ -198,9 +202,9 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
       });
       void queryClient.invalidateQueries({ queryKey: ['company-sync-status'] });
       void queryClient.invalidateQueries({ queryKey: ['company-audits'] });
-      setOperationError('');
+      setOperationFeedback({ scope: 'sync', tone: 'notice', message: '员工同步任务已进入队列。' });
     },
-    onError: (error) => showMutationError(error, '员工同步任务未能排队，请稍后重试。'),
+    onError: (error) => showMutationError(error, '同步服务暂时不可用，任务未创建，请稍后重试。', 'sync'),
   });
 
   if (!canView) {
@@ -246,9 +250,6 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   return (
     <Phase35PageShell title="唯一企业资料" description="企业绑定由服务端确定，当前页面不提供新建、切换或删除企业。">
       <div className="phase35-page company-profile-page">
-        {operationError && <p className="phase35-notice-error" role="alert">{operationError}</p>}
-		{operationNotice && <p className="company-profile-notice" role="status">{operationNotice}</p>}
-
         <section className="phase35-card company-profile-card" aria-labelledby="company-identity-heading">
           <header className="company-profile-card-header">
             <div>
@@ -274,6 +275,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
               <button type="button" disabled={!hasProfileChanges || profileMutation.isPending}>保存企业资料</button>
             </ConfirmAction>
           </div>
+          <ScopedFeedback feedback={operationFeedback} scope="profile" />
         </section>
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-application-heading">
@@ -311,6 +313,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 		  >
 			<button type="button" disabled={!hasApplicationChanges || applicationMutation.isPending}>保存应用配置</button>
 		  </ConfirmAction>
+		  <ScopedFeedback feedback={operationFeedback} scope="application" />
 		</section>
 
 		<section className="phase35-card company-profile-card" aria-labelledby="company-callback-heading">
@@ -326,9 +329,9 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 			<div className="company-inline-error"><span>回调配置读取失败。</span><button type="button" onClick={() => void callbackQuery.refetch()}>重试</button></div>
 		  ) : callbackConfiguration === undefined ? <PageState state="empty" title="尚未生成回调配置" /> : (
 			<div className="company-readonly-config" aria-label="回调配置（系统生成，只读）">
-			  <ReadonlyCopyField label="回调 URL" value={callbackConfiguration.callbackUrl} onCopied={() => setOperationNotice('回调 URL 已复制。')} />
-			  <ReadonlyCopyField label="Token" value={callbackConfiguration.token} onCopied={() => setOperationNotice('Token 已复制。')} />
-			  <ReadonlyCopyField label="EncodingAESKey" value={callbackConfiguration.encodingAESKey} onCopied={() => setOperationNotice('EncodingAESKey 已复制。')} />
+			  <ReadonlyCopyField label="回调 URL" value={callbackConfiguration.callbackUrl} onCopied={() => setOperationFeedback({ scope: 'callback', tone: 'notice', message: '回调 URL 已复制。' })} />
+			  <ReadonlyCopyField label="Token" value={callbackConfiguration.token} onCopied={() => setOperationFeedback({ scope: 'callback', tone: 'notice', message: 'Token 已复制。' })} />
+			  <ReadonlyCopyField label="EncodingAESKey" value={callbackConfiguration.encodingAESKey} onCopied={() => setOperationFeedback({ scope: 'callback', tone: 'notice', message: 'EncodingAESKey 已复制。' })} />
 			</div>
 		  )}
 		  <ConfirmAction
@@ -338,6 +341,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 		  >
 			<button type="button" disabled={callbackQuery.isPending || callbackMutation.isPending}>重新生成回调配置</button>
 		  </ConfirmAction>
+		  <ScopedFeedback feedback={operationFeedback} scope="callback" />
 		</section>
 
 		<section className="phase35-card company-profile-card" aria-labelledby="company-archive-heading">
@@ -369,6 +373,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 		  >
 			<button type="button" disabled={!hasArchiveChanges || !archiveKeyPairComplete || archiveMutation.isPending}>保存会话存档</button>
 		  </ConfirmAction>
+		  <ScopedFeedback feedback={operationFeedback} scope="archive" />
 		</section>
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-verify-heading">
@@ -385,6 +390,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
               <button type="button" disabled={profile.bindingStatus !== 'pending' || verifyCorpId.trim() === '' || verifyMutation.isPending}>验证企业微信</button>
             </ConfirmAction>
           </div>
+          <ScopedFeedback feedback={operationFeedback} scope="verify" />
         </section>
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-sync-heading">
@@ -412,6 +418,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
             </ConfirmAction>
             <button type="button" onClick={() => void syncQuery.refetch()}>刷新同步状态</button>
           </div>
+          <ScopedFeedback feedback={operationFeedback} scope="sync" />
         </section>
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-audit-heading">
@@ -420,6 +427,15 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
         </section>
       </div>
     </Phase35PageShell>
+  );
+}
+
+function ScopedFeedback({ feedback, scope }: { feedback: OperationFeedback | null; scope: FeedbackScope }) {
+  if (feedback === null || feedback.scope !== scope) return null;
+  return feedback.tone === 'error' ? (
+    <p className="phase35-notice-error company-profile-inline-feedback" role="alert">{feedback.message}</p>
+  ) : (
+    <p className="company-profile-notice company-profile-inline-feedback" role="status">{feedback.message}</p>
   );
 }
 

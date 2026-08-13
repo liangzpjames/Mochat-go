@@ -430,6 +430,31 @@ describe('企业设置页面', () => {
     expect(screen.getByRole('button', { name: '刷新同步状态' })).toBeTruthy();
   });
 
+  it('企业信息：员工同步失败提示只显示在员工同步卡片内', async () => {
+    const startEmployeeSync = vi.fn().mockRejectedValue(
+      new ApiError('validation', 'invalid request', {
+        status: 400,
+        code: 400,
+        machineCode: 'INVALID_REQUEST',
+      }),
+    );
+    const api = companyApi({
+      startEmployeeSync,
+      getSyncStatus: vi.fn().mockResolvedValue({ status: 'idle', departments: 0, employees: 0 }),
+    });
+    const { container } = renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '开始员工同步' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    await waitFor(() => expect(startEmployeeSync).toHaveBeenCalledTimes(1));
+
+    const alert = await screen.findByRole('alert');
+    const syncSection = screen.getByRole('heading', { name: '从企业微信同步员工' }).closest('section');
+    expect(syncSection?.contains(alert)).toBe(true);
+    expect(alert.textContent).toContain('同步请求格式不正确');
+    expect(container.querySelector('.company-profile-page > .phase35-notice-error')).toBeNull();
+  });
+
   it('附加权限：状态切换和删除都需确认', async () => {
     const updateStatus = vi.fn().mockResolvedValue({});
     const remove = vi.fn().mockResolvedValue({});
