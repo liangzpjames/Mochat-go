@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import manifest from '../migration-routes.json';
-import { sidebarRoutes } from './catalog';
+import { sidebarCatalog } from './catalog';
 
-describe('Sidebar functional route catalog', () => {
-  it('covers every migrated route with route-specific content and actions', () => {
-    expect(Object.keys(sidebarRoutes).sort()).toEqual(
+describe('Sidebar route catalog', () => {
+  it('provides valid Chinese metadata without fake business claims', () => {
+    expect(Object.keys(sidebarCatalog).sort()).toEqual(
       manifest.map((route) => route.path).sort(),
     );
-    for (const config of Object.values(sidebarRoutes)) {
-      expect(config.title.length).toBeGreaterThan(1);
-      expect(config.sections.length).toBeGreaterThan(0);
-      expect(config.actions.length).toBeGreaterThan(0);
+
+    for (const entry of Object.values(sidebarCatalog)) {
+      expect(entry.title).toMatch(/[\u4e00-\u9fff]/u);
+      expect(entry.description).not.toMatch(/fake|已完成|已加载|成功/u);
     }
   });
 });
