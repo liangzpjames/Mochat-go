@@ -1,0 +1,2 @@
+-- Intentionally non-destructive. These tables, columns and indexes are the
+-- physical schema promised by already-applied SCRM migrations.
