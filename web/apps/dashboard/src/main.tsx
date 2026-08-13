@@ -11,6 +11,7 @@ import {
 import { createAccessLoader } from './app/access-loader';
 import { createDashboardQueryClient, DashboardProviders } from './app/providers';
 import { createDashboardRouter } from './app/router';
+import { createDashboardUnauthorizedHandler } from './app/unauthorized-handler';
 import {
   activate,
   authenticate,
@@ -65,19 +66,27 @@ if (rootElement === null) {
 }
 
 const authStore = createAuthStore();
+const queryClient = createDashboardQueryClient();
+const routerRef: { current?: ReturnType<typeof createDashboardRouter> } = {};
+const handleUnauthorized = createDashboardUnauthorizedHandler({
+  clearQueries: () => queryClient.clear(),
+  clearSession: () => authStore.clearSession(),
+  getCurrentPath: () => `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  navigateToLogin: (target) => {
+    void routerRef.current?.navigate(target);
+  },
+});
 const apiClient = createApiClient({
   baseUrl: new URL('/dashboard/', window.location.origin).toString(),
   getToken: () => authStore.getSession()?.token ?? null,
-  onUnauthorized: () => {
-    authStore.clearSession();
-  },
+  onTenantAccessDenied: handleUnauthorized,
+  onUnauthorized: handleUnauthorized,
 });
 const loginClient = createApiClient({
   baseUrl: new URL('/dashboard/', window.location.origin).toString(),
   getToken: () => null,
   onUnauthorized: () => undefined,
 });
-const queryClient = createDashboardQueryClient();
 const companyProfileApi = createCompanyProfileApi(apiClient);
 const passwordApi = createPasswordApi(apiClient);
 const employeeApi = createEmployeeApi(apiClient);
@@ -120,7 +129,6 @@ const loadAccess = createAccessLoader({
   loadProfile: () => loadAccessProfile(apiClient),
 });
 const accessLoader = ({ request }: { request: Request }) => loadAccess({ request });
-const routerRef: { current?: ReturnType<typeof createDashboardRouter> } = {};
 const performLogout = createLogoutAction({
   clearQueries: () => queryClient.clear(),
   clearSession: () => authStore.clearSession(),
@@ -152,10 +160,7 @@ const router = createDashboardRouter({
         aiInsightApi,
         fileAudioApi,
         companyProfileApi,
-        onTenantAccessDenied: () => {
-          authStore.clearSession();
-          void routerRef.current?.navigate('/login');
-        },
+        onTenantAccessDenied: handleUnauthorized,
         onNavigate: (path) => void routerRef.current?.navigate(path),
         userAdminApi: dashboardAccessAdminApi,
         roleApi: dashboardAccessAdminApi,

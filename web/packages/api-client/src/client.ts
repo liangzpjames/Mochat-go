@@ -5,6 +5,7 @@ export type ApiClientOptions = {
   baseUrl: string;
   getToken: () => string | null;
   onUnauthorized: () => void;
+  onTenantAccessDenied?: () => void;
 };
 
 function bearerToken(token: string): string {
@@ -80,6 +81,9 @@ export function createApiClient(options: ApiClientOptions): {
         });
       }
       if (response.status === 403) {
+        if (envelope.errorCode === 'TENANT_ACCESS_DENIED') {
+          options.onTenantAccessDenied?.();
+        }
         throw new ApiError('forbidden', envelope.msg, {
           ...errorDetails,
         });

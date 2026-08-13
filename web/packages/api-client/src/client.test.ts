@@ -250,10 +250,12 @@ describe('createApiClient', () => {
       ),
     );
     const onUnauthorized = vi.fn();
+    const onTenantAccessDenied = vi.fn();
     const client = createApiClient({
       baseUrl: 'https://api.example.test/',
       getToken: () => 'session-token',
       onUnauthorized,
+      onTenantAccessDenied,
     });
 
     await expectApiError(client.request('/tenant-denied'), {
@@ -264,6 +266,7 @@ describe('createApiClient', () => {
       message: 'tenant access denied',
     });
     expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(onTenantAccessDenied).toHaveBeenCalledOnce();
   });
 
   it('preserves dashboard permission denial as a numeric status plus machine code', async () => {
@@ -275,10 +278,13 @@ describe('createApiClient', () => {
         ),
       ),
     );
+    const onUnauthorized = vi.fn();
+    const onTenantAccessDenied = vi.fn();
     const client = createApiClient({
       baseUrl: 'https://api.example.test/',
       getToken: () => 'dashboard-token',
-      onUnauthorized: vi.fn(),
+      onUnauthorized,
+      onTenantAccessDenied,
     });
 
     await expectApiError(client.request('/dashboard/reports/overview'), {
@@ -288,6 +294,8 @@ describe('createApiClient', () => {
       machineCode: 'DASHBOARD_PERMISSION_DENIED',
       message: 'dashboard permission denied',
     });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(onTenantAccessDenied).not.toHaveBeenCalled();
   });
 
   it('exposes backend errorCode as a machine code without replacing the numeric HTTP code', async () => {
