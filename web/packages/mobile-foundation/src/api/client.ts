@@ -117,8 +117,9 @@ export function createMobileApiClient(options: MobileApiClientOptions): {
     async request<T>(path: string, init?: RequestInit): Promise<T> {
       const requestPath = scopedRequestPath(options.basePath, path);
       const headers = new Headers(init?.headers);
+      headers.delete('Authorization');
       const token = options.getToken?.();
-      if (token && !headers.has('Authorization')) {
+      if (token) {
         headers.set('Authorization', bearerToken(token));
       }
 

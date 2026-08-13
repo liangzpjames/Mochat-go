@@ -55,6 +55,29 @@ describe('createMobileApiClient', () => {
     expect(new Headers(anonymousInit?.headers).has('Authorization')).toBe(false);
   });
 
+  it('isolates authorization from caller headers', async () => {
+    const fetchMock = stubFetch(jsonResponse({ code: 0, msg: 'ok', data: null }));
+    const anonymousClient = createMobileApiClient({ basePath: '/operation' });
+
+    await anonymousClient.request('/session', {
+      headers: { Authorization: 'Bearer caller-token' },
+    });
+    const [, anonymousInit] = fetchMock.mock.calls[0] as FetchCall;
+    expect(new Headers(anonymousInit?.headers).has('Authorization')).toBe(false);
+
+    const authenticatedClient = createMobileApiClient({
+      basePath: '/sidebar',
+      getToken: () => 'scoped-token',
+    });
+    await authenticatedClient.request('/contacts/current', {
+      headers: { Authorization: 'Bearer caller-token' },
+    });
+    const [, authenticatedInit] = fetchMock.mock.calls[1] as FetchCall;
+    expect(new Headers(authenticatedInit?.headers).get('Authorization')).toBe(
+      'Bearer scoped-token',
+    );
+  });
+
   it('unwraps { code, msg, data, errorCode, requestId }', async () => {
     stubFetch(jsonResponse({
       code: 0,
