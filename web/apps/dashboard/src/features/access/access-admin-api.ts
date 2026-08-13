@@ -90,7 +90,11 @@ export function createDashboardAccessAdminApi(client: Client) {
       ) as Promise<Page<AccessEmployee>>,
     provisionEmployeeAccount: (
       id: number,
-      input: { loginIdentifier: string; roleIds: number[] },
+      input: {
+        loginIdentifier: string;
+        roleIds: number[];
+        directPermissions: { code: string; scope: string }[];
+      },
     ) =>
       client.request(
         `/access/employees/${id}/account`,

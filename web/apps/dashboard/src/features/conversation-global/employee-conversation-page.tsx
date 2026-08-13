@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { updateSearch } from '../../shared/query-state';
 import { ConversationArchiveUnavailableState, isConversationArchiveUnavailable } from './conversation-archive-state';
 import type { ConversationGlobalApi, ConversationMessage, ConversationTargetType } from './conversation-global-api';
@@ -72,7 +73,6 @@ export function EmployeeConversationPage({ api }: { api: ConversationGlobalApi }
   }
 
   const selectedEmployee = employeeQuery.data?.find((item) => String(item.id) === selectedEmployeeId);
-  const totalPages = Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / pageSize));
   const employeeArchiveUnavailable = isConversationArchiveUnavailable(employeeQuery.error);
   const listArchiveUnavailable = isConversationArchiveUnavailable(listQuery.error);
   const detailArchiveUnavailable = isConversationArchiveUnavailable(detailQuery.error);
@@ -124,7 +124,7 @@ export function EmployeeConversationPage({ api }: { api: ConversationGlobalApi }
           <div className="employee-conversation-items">
             {listQuery.data?.list.map((conversation) => <button className={conversation.id === selectedConversationId ? 'is-selected' : ''} key={conversation.id} onClick={() => selectConversation(conversation.id)} type="button"><strong>{conversation.targetName}</strong><span>{targetLabel(conversation.targetType)} · {conversation.sentAt}</span><p>{conversation.lastMessage || '暂无消息'}</p></button>)}
           </div>
-          {selectedEmployeeId && listQuery.data && <footer className="employee-conversation-pagination"><span>共 {listQuery.data.total} 条 · 第 {page}/{totalPages} 页</span><div><button disabled={page <= 1} onClick={() => setSearchParams(updateSearch(searchParams, { page: page - 1, conversationId: undefined }))} type="button">上一页</button><button disabled={page >= totalPages} onClick={() => setSearchParams(updateSearch(searchParams, { page: page + 1, conversationId: undefined }))} type="button">下一页</button></div></footer>}
+          {selectedEmployeeId && listQuery.data && <DashboardPagination page={page} pageSize={pageSize} total={listQuery.data.total} onPageChange={(nextPage) => setSearchParams(updateSearch(searchParams, { page: nextPage, conversationId: undefined }))} />}
         </section>
 
         <section className="employee-conversation-detail dashboard-data-card" aria-label="会话详情">

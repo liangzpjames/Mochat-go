@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -233,6 +234,9 @@ func TestDashboardEmployeeAccountLifecycleDerivesTenantAndReturnsPasswordOnce(t 
 
 	result, err := service.ProvisionEmployeeAccount(context.Background(), 1, 4, ProvisionDashboardEmployeeAccountInput{
 		LoginIdentifier: "13800000004", RoleIDs: []int{8, 8}, RequestID: "employee-create-4",
+		DirectPermissions: []DashboardPermissionAssignment{
+			{Code: "dashboard.index", Scope: DataScopeDepartment},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +245,7 @@ func TestDashboardEmployeeAccountLifecycleDerivesTenantAndReturnsPasswordOnce(t 
 		t.Fatalf("result=%+v", result)
 	}
 	command := store.lastEmployeeCommand.(ProvisionDashboardEmployeeAccountCommand)
-	if command.TenantID != 9 || command.ActorUserID != 1 || command.EmployeeID != 4 || len(command.RoleIDs) != 1 || command.PasswordHash == "DemoPass2026" {
+	if command.TenantID != 9 || command.ActorUserID != 1 || command.EmployeeID != 4 || len(command.RoleIDs) != 1 || command.PasswordHash == "DemoPass2026" || !reflect.DeepEqual(command.DirectPermissions, []DashboardPermissionAssignment{{Code: "dashboard.index", Scope: DataScopeDepartment}}) {
 		t.Fatalf("command=%+v", command)
 	}
 

@@ -139,6 +139,65 @@ describe("access management pages", () => {
     expect(screen.getByLabelText("选择 全局消息")).toBeTruthy();
   });
 
+  it("selects multiple role permissions in one action and applies one scope to the selection", () => {
+    function SelectorHarness() {
+      const [value, setValue] = React.useState<
+        { code: string; scope: string }[]
+      >([]);
+      return (
+        <AccessPermissionSelector
+          ariaLabel="角色页面权限"
+          catalog={[
+            {
+              id: 1,
+              code: "dashboard.report.overview",
+              path: "/reports/overview",
+              name: "数据概览",
+              groupCode: "data-reports",
+              sort: 1,
+              scopeRequired: true,
+              superadminOnly: false,
+            },
+            {
+              id: 2,
+              code: "dashboard.report.customer",
+              path: "/reports/customer",
+              name: "客户分析",
+              groupCode: "data-reports",
+              sort: 2,
+              scopeRequired: true,
+              superadminOnly: false,
+            },
+          ]}
+          value={value}
+          onChange={setValue}
+        />
+      );
+    }
+
+    wrap(<SelectorHarness />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "全选 数据报表 组权限" }),
+    );
+    expect(screen.getByText("已选 2 / 2")).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>("选择 数据概览").checked).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>("选择 客户分析").checked).toBe(true);
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "数据报表 批量数据范围" }),
+      { target: { value: "tenant" } },
+    );
+    expect(
+      screen.getByRole<HTMLSelectElement>("combobox", {
+        name: "数据概览 数据范围",
+      }).value,
+    ).toBe("tenant");
+    expect(
+      screen.getByRole<HTMLSelectElement>("combobox", {
+        name: "客户分析 数据范围",
+      }).value,
+    ).toBe("tenant");
+  });
+
   it("loads summary then detail and requires confirmation before expectedVersion payload", async () => {
     const replaceUser = vi.fn().mockResolvedValue({});
     const api = {
@@ -423,12 +482,28 @@ describe("access management pages", () => {
         list: [{ id: 2, name: "销售", status: 1, version: 1 }],
         page: { total: 1, totalPage: 1 },
       }),
-      catalog: vi.fn().mockResolvedValue([]),
+      catalog: vi.fn().mockResolvedValue([
+        {
+          id: 1,
+          code: "dashboard.report.overview",
+          path: "/reports/overview",
+          name: "数据概览",
+          groupCode: "data-reports",
+          sort: 1,
+          scopeRequired: true,
+          superadminOnly: false,
+        },
+      ]),
     };
     wrap(<AccessStaffPage api={api} />);
     fireEvent.click(await screen.findByRole("button", { name: "开通账号" }));
     expect(screen.getByDisplayValue("13800000004")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("销售（启用）"));
+    fireEvent.click(screen.getByLabelText("选择 数据概览"));
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "数据概览 数据范围" }),
+      { target: { value: "department" } },
+    );
     fireEvent.click(screen.getByRole("button", { name: "确认开通" }));
     expect(provisionEmployeeAccount).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("button", { name: "确认" }));
@@ -436,6 +511,9 @@ describe("access management pages", () => {
       expect(provisionEmployeeAccount).toHaveBeenCalledWith(4, {
         loginIdentifier: "13800000004",
         roleIds: [2],
+        directPermissions: [
+          { code: "dashboard.report.overview", scope: "department" },
+        ],
       }),
     );
     expect(await screen.findByText("DemoPass2026")).toBeTruthy();

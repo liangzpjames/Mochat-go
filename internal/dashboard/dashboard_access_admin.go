@@ -101,9 +101,10 @@ type DashboardAccessEmployeePage struct {
 }
 
 type ProvisionDashboardEmployeeAccountInput struct {
-	LoginIdentifier string `json:"loginIdentifier"`
-	RoleIDs         []int  `json:"roleIds"`
-	RequestID       string `json:"requestId"`
+	LoginIdentifier   string                          `json:"loginIdentifier"`
+	RoleIDs           []int                           `json:"roleIds"`
+	DirectPermissions []DashboardPermissionAssignment `json:"directPermissions"`
+	RequestID         string                          `json:"requestId"`
 }
 
 type UpdateDashboardEmployeeAccountStatusInput struct {
@@ -256,14 +257,15 @@ type DeleteDashboardRoleCommand struct {
 }
 
 type ProvisionDashboardEmployeeAccountCommand struct {
-	TenantID        int
-	ActorUserID     int
-	ActorName       string
-	EmployeeID      int
-	LoginIdentifier string
-	RoleIDs         []int
-	PasswordHash    string
-	RequestID       string
+	TenantID          int
+	ActorUserID       int
+	ActorName         string
+	EmployeeID        int
+	LoginIdentifier   string
+	RoleIDs           []int
+	DirectPermissions []DashboardPermissionAssignment
+	PasswordHash      string
+	RequestID         string
 }
 
 type UpdateDashboardEmployeeAccountStatusCommand struct {
@@ -334,6 +336,10 @@ func (service *DashboardAccessAdminService) ProvisionEmployeeAccount(ctx context
 	if employeeID <= 0 || !validDashboardLoginIdentifier(loginIdentifier) {
 		return DashboardEmployeeAccountMutationResult{}, ErrDashboardAccessAdminInvalid
 	}
+	permissions, err := service.validateAssignments(ctx, input.DirectPermissions)
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
 	password, err := service.temporaryPassword()
 	if err != nil {
 		return DashboardEmployeeAccountMutationResult{}, err
@@ -344,7 +350,7 @@ func (service *DashboardAccessAdminService) ProvisionEmployeeAccount(ctx context
 	}
 	employee, err := service.store.ProvisionDashboardEmployeeAccount(ctx, ProvisionDashboardEmployeeAccountCommand{
 		TenantID: actor.TenantID, ActorUserID: actor.UserID, ActorName: actor.UserName,
-		EmployeeID: employeeID, LoginIdentifier: loginIdentifier, RoleIDs: uniquePositiveInts(input.RoleIDs), PasswordHash: hash,
+		EmployeeID: employeeID, LoginIdentifier: loginIdentifier, RoleIDs: uniquePositiveInts(input.RoleIDs), DirectPermissions: permissions, PasswordHash: hash,
 		RequestID: strings.TrimSpace(input.RequestID),
 	})
 	if err != nil {

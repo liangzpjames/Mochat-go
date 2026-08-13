@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { ConfirmAction } from '../../components/confirm-action';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { SensitiveWordApi, SensitiveWordMatchFilters } from './sensitive-word-api';
 
@@ -199,7 +200,7 @@ export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
 			<div className="sensitive-word-record-results dashboard-data-card"><div className="dashboard-table-scroll"><table>
 			  <thead><tr><th>敏感词</th><th>来源</th><th>触发人</th><th>场景</th><th>触发时间</th><th>操作</th></tr></thead>
 			  <tbody>{records.data?.items.map((item) => <tr key={item.id}><td><strong className="sensitive-word-trigger">{item.sensitiveWordName}</strong></td><td>{item.sourceText}</td><td>{item.triggerName}</td><td>{item.triggerScenario}</td><td>{item.triggerTime}</td><td><button type="button" onClick={(event) => { detailTriggerRef.current = event.currentTarget; setSelectedMatchID(item.id); detail.mutate(item.id); }}>查看详情</button></td></tr>)}</tbody>
-			</table></div><footer className="sensitive-word-pagination dashboard-table-actions"><span>共 {records.data?.total ?? 0} 条记录</span><div><button disabled={recordFilters.page <= 1} onClick={() => changeRecordPage(recordFilters.page - 1)} type="button">上一页</button><button disabled={recordFilters.page >= recordTotalPages} onClick={() => changeRecordPage(recordFilters.page + 1)} type="button">下一页</button></div></footer></div>
+			</table></div><DashboardPagination page={recordFilters.page} pageSize={recordFilters.perPage} total={records.data?.total ?? 0} onPageChange={changeRecordPage} /></div>
 		  )}
 		  {selectedMatchID !== null && (
 			<div className="sensitive-word-detail-backdrop">

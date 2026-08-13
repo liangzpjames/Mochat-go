@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { ConfirmAction } from "../../components/confirm-action";
 import { DashboardDialog } from "../../components/dashboard-dialog";
+import { DashboardPagination } from "../../components/dashboard-pagination";
 import { Phase35PageShell } from "../phase35/components/phase35-page-shell";
 import { Phase35DataState } from "../phase35/components/data-state";
 import {
@@ -216,22 +217,7 @@ function LegacyCompanyAdditionalPage({ api }: { api: MenuAdminApi }) {
                 </tbody>
               </table>
             </div>
-            <div className="dashboard-pagination">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((value) => value - 1)}
-              >
-                上一页
-              </button>
-              <button
-                type="button"
-                disabled={page >= totalPage}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                下一页
-              </button>
-            </div>
+            <DashboardPagination page={page} pageSize={20} total={total} onPageChange={setPage} />
           </Phase35DataState>
         </section>
 

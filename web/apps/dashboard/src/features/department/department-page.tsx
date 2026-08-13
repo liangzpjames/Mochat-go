@@ -3,6 +3,7 @@ import { Alert, Button, Card, Input, Modal, Space, Table } from 'antd';
 import { useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import type { EmployeeConditions } from '../employee/employee-api';
 import type {
   DepartmentListInput, DepartmentListResult, DepartmentMemberInput,
@@ -78,12 +79,11 @@ export function DepartmentPage({ api }: { api: DepartmentPageApi }) {
       ]}
       dataSource={listQuery.data?.list ?? []}
       loading={listQuery.isLoading}
-      pagination={{ current: page, pageSize: perPage, total: listQuery.data?.page.total ?? 0,
-        showSizeChanger: true, onChange: (next, size) => {
-          setPage(size === perPage ? next : 1); setPerPage(size);
-        } }}
+      pagination={false}
       rowKey="departmentId"
     />
+    <DashboardPagination page={page} pageSize={perPage} total={listQuery.data?.page.total ?? 0}
+      onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPerPage(size); }} />
     <Modal footer={null} open={departmentId !== null} title="查看人员" onCancel={() => setDepartmentId(null)}>
       <Table
         columns={[
@@ -93,12 +93,11 @@ export function DepartmentPage({ api }: { api: DepartmentPageApi }) {
         ]}
         dataSource={memberQuery.data?.list ?? []}
         loading={memberQuery.isLoading}
-        pagination={{ current: memberPage, pageSize: memberPerPage,
-          total: memberQuery.data?.page.total ?? 0, onChange: (next, size) => {
-            setMemberPage(size === memberPerPage ? next : 1); setMemberPerPage(size);
-          } }}
+        pagination={false}
         rowKey="employeeId"
       />
+      <DashboardPagination page={memberPage} pageSize={memberPerPage} total={memberQuery.data?.page.total ?? 0}
+        onPageChange={setMemberPage} onPageSizeChange={(size) => { setMemberPage(1); setMemberPerPage(size); }} />
     </Modal>
   </Card>;
 }

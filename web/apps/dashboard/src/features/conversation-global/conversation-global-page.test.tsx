@@ -155,7 +155,7 @@ describe('ConversationGlobalPage', () => {
     expect(container.querySelector('.dashboard-filter-bar')).not.toBeNull();
     expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
     expect(container.querySelector('.dashboard-table-scroll')).not.toBeNull();
-    expect(container.querySelector('.dashboard-table-actions')).not.toBeNull();
+    expect(screen.getByRole('navigation', { name: '分页' })).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('page=3'));

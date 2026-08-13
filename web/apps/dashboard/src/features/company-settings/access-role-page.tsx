@@ -2,6 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DashboardDialog } from "../../components/dashboard-dialog";
 import { ConfirmAction } from "../../components/confirm-action";
+import { DashboardPagination } from "../../components/dashboard-pagination";
 import { Phase35PageShell } from "../phase35/components/phase35-page-shell";
 import type { AccessCatalogItem } from "../access/access-api";
 import type { AccessRole } from "../access/access-admin-api";
@@ -193,25 +194,12 @@ export function AccessRolePage({ api }: { api: Api }) {
             </table>
           </div>
           {error && <p role="alert">{error}</p>}
-          <div className="dashboard-pagination">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage((value) => value - 1)}
-            >
-              上一页
-            </button>
-            <span>
-              第 {page}/{roles.data?.page.totalPage ?? 1} 页
-            </span>
-            <button
-              type="button"
-              disabled={page >= (roles.data?.page.totalPage ?? 1)}
-              onClick={() => setPage((value) => value + 1)}
-            >
-              下一页
-            </button>
-          </div>
+          <DashboardPagination
+            page={page}
+            pageSize={50}
+            total={roles.data?.page.total ?? 0}
+            onPageChange={setPage}
+          />
         </section>
         {editing && (
           <DashboardDialog

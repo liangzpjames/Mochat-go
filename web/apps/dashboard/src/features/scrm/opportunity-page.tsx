@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useDashboardAccess } from '../../app/access-context';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
+import { DashboardCursorPagination } from '../../components/dashboard-pagination';
 import type { Opportunity, ScrmApi } from './scrm-api';
 
 type OpportunityApi = Pick<ScrmApi, 'listOpportunities' | 'createOpportunity' | 'changeOpportunityStage' | 'appendFollowUp' | 'listContactOptions' | 'listEmployeeOptions' | 'listStageOptions'>;
@@ -110,7 +111,7 @@ export function OpportunityPage({ api }: { api: OpportunityApi }) {
         {canEdit && item.status === 'open' && <><div className="dashboard-table-actions"><select aria-label={`目标阶段 ${item.id}`} value={targetStages[item.id] ?? ''} onChange={(event) => setTargetStages((current) => ({ ...current, [item.id]: event.target.value }))}><option value="">选择目标阶段</option>{(stages.data ?? []).filter((stage) => stage.id !== item.stage).map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}</select><button type="button" aria-label={`推进阶段 ${item.id}`} disabled={!(targetStages[item.id] ?? '').trim() || change.isPending} onClick={() => change.mutate({ item, stageId: (targetStages[item.id] ?? '').trim() })}>推进阶段</button><button type="button" aria-label={`赢单 ${item.id}`} disabled={change.isPending} onClick={() => change.mutate({ item, stageId: 'won' })}>赢单</button></div><div className="dashboard-table-actions"><input aria-label={`输单原因 ${item.id}`} value={lostReasons[item.id] ?? ''} placeholder="输单原因" onChange={(event) => setLostReasons((current) => ({ ...current, [item.id]: event.target.value }))} /><button type="button" aria-label={`输单 ${item.id}`} disabled={!(lostReasons[item.id] ?? '').trim() || change.isPending} onClick={() => change.mutate({ item, stageId: 'lost' })}>输单</button></div></>}
         {canEdit && <div className="dashboard-table-actions"><input aria-label={`跟进内容 ${item.id}`} value={followUps[item.id] ?? ''} placeholder="追加跟进" onChange={(event) => { setFollowUps((current) => ({ ...current, [item.id]: event.target.value })); setFollowKeys((current) => ({ ...current, [item.id]: newOperationKey('opportunity-follow') })); }} /><button type="button" aria-label={`追加跟进 ${item.id}`} disabled={!(followUps[item.id] ?? '').trim() || follow.isPending} onClick={() => follow.mutate(item)}>追加跟进</button></div>}
       </div></td></tr>)}</tbody></table></div>}
-      {opportunities.data?.nextCursor && <div className="dashboard-table-actions"><button type="button" onClick={() => setSearchParams(opportunitySearch(searchParams, applied, opportunities.data.nextCursor))}>下一页</button></div>}
+      {(cursor || opportunities.data?.nextCursor) && <DashboardCursorPagination cursor={cursor} nextCursor={opportunities.data?.nextCursor} onCursorChange={(nextCursor) => setSearchParams(opportunitySearch(searchParams, applied, nextCursor))} />}
     </div>
   </section>;
 }

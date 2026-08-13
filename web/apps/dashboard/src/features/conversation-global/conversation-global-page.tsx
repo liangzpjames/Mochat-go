@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { updateSearch } from '../../shared/query-state';
 import {
   ConversationArchiveUnavailableState,
@@ -393,19 +394,7 @@ export function ConversationGlobalPage({
               </tbody>
             </table>
           </div>
-          <footer className="conversation-global-pagination dashboard-table-actions">
-            <span>共 {listQuery.data.total} 条，第 {page}/{totalPages} 页</span>
-            <div>
-              <button disabled={page <= 1} onClick={() => changePage(page - 1)} type="button">上一页</button>
-              <button
-                disabled={page >= totalPages}
-                onClick={() => changePage(page + 1)}
-                type="button"
-              >
-                下一页
-              </button>
-            </div>
-          </footer>
+          <DashboardPagination page={page} pageSize={pageSize} total={listQuery.data.total} onPageChange={changePage} />
         </div>
       )}
 

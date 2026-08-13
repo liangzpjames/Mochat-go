@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { DateRangeFields } from '../../components/date-range-fields';
 import { records, text, type Phase35Api } from '../phase35/api';
 import { updateSearch } from '../../shared/query-state';
@@ -136,7 +137,6 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
   current: FilterDraft;
 }) {
   const total = data.total ?? data.trend.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const archiveUnavailable = data.limitations.some((item) => item.provider === 'conversation_archive');
 
   return <div className="overview-dashboard">
@@ -172,7 +172,12 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
     <section className="overview-module overview-detail-table dashboard-data-card">
       <ModuleHeader title="经营趋势明细" description="与当前筛选和导出范围保持一致" />
       {data.trend.length === 0 ? <EmptyVisual /> : <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>新增客户</th></tr></thead><tbody>{data.trend.map((point) => <tr key={point.date}><td>{point.date}</td><td>{point.addCustomerNum}</td></tr>)}</tbody></table></div>}
-      <footer className="dashboard-table-actions"><span>共 {total} 条，第 {page}/{totalPages} 页</span><div><button disabled={page <= 1} onClick={() => setSearchParams(overviewSearch(searchParams, current, page - 1, pageSize))} type="button">上一页</button><button disabled={page >= totalPages} onClick={() => setSearchParams(overviewSearch(searchParams, current, page + 1, pageSize))} type="button">下一页</button></div></footer>
+      <DashboardPagination
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={(nextPage) => setSearchParams(overviewSearch(searchParams, current, nextPage, pageSize))}
+      />
     </section>
   </div>;
 }

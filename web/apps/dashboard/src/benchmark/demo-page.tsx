@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { DashboardPagination } from '../components/dashboard-pagination';
 
 import type { DemoPageConfig, DemoRow } from './demo-fixtures';
 
@@ -64,11 +65,7 @@ export function DemoPage({ config }: { config: DemoPageConfig }) {
       </div>
 
       {rows.length > 0 && (
-        <nav className="benchmark-demo-pagination" aria-label="分页">
-          {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => (
-            <button key={number} type="button" aria-label={`第 ${number} 页`} aria-current={currentPage === number ? 'page' : undefined} onClick={() => setPage(number)}>{number}</button>
-          ))}
-        </nav>
+        <DashboardPagination page={currentPage} pageSize={pageSize} total={rows.length} onPageChange={setPage} />
       )}
 
       {detail !== null && (

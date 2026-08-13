@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ConfirmAction } from "../../components/confirm-action";
+import { DashboardPagination } from "../../components/dashboard-pagination";
 import { Phase35PageShell } from "../phase35/components/phase35-page-shell";
 import { Phase35DataState } from "../phase35/components/data-state";
 import {
@@ -198,25 +199,12 @@ function AuditPage({ api }: { api: AuditApi }) {
                 </tbody>
               </table>
             </div>
-            <div className="dashboard-pagination">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((value) => value - 1)}
-              >
-                上一页
-              </button>
-              <span>
-                第 {page}/{query.data?.page.totalPage ?? 1} 页
-              </span>
-              <button
-                type="button"
-                disabled={page >= (query.data?.page.totalPage ?? 1)}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                下一页
-              </button>
-            </div>
+            <DashboardPagination
+              page={page}
+              pageSize={50}
+              total={query.data?.page.total ?? 0}
+              onPageChange={setPage}
+            />
           </Phase35DataState>
         </section>
       </div>

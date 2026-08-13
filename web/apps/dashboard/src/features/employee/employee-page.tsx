@@ -3,6 +3,7 @@ import { Alert, Avatar, Button, Card, Drawer, Input, Space, Table } from 'antd';
 import { useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import type {
   EmployeeConditions,
   EmployeeListInput,
@@ -82,17 +83,12 @@ export function EmployeePage({ api }: { api: EmployeePageApi }) {
         dataSource={listQuery.data?.list ?? []}
         loading={listQuery.isLoading}
         locale={{ emptyText: '暂无企业成员' }}
-        pagination={{
-          current: page, pageSize: perPage, showSizeChanger: true,
-          total: listQuery.data?.page.total ?? 0,
-          onChange: (nextPage, nextSize) => {
-            setPage(nextSize === perPage ? nextPage : 1);
-            setPerPage(nextSize);
-          },
-        }}
+        pagination={false}
         rowKey="id"
         scroll={{ x: 1200 }}
       />
+      <DashboardPagination page={page} pageSize={perPage} total={listQuery.data?.page.total ?? 0}
+        onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPerPage(size); }} />
       <Drawer open={drawerOpen} size="default" title="条件筛选" onClose={() => setDrawerOpen(false)}>
         <Space orientation="vertical" style={{ width: '100%' }}>
           <label htmlFor="employee-name">成员姓名</label>

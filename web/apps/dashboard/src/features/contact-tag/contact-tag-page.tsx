@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, Input, Modal, Popconfirm, Select, Space, Table } from 'antd';
 import { useState } from 'react';
 import { useDashboardAccess } from '../../app/access-context';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import type { TagDetail, TagGroup, TagListResult } from './contact-tag-api';
 export type ContactTagPageApi = {
   list(v: { groupId: number; page: number; perPage: number }): Promise<TagListResult>;
@@ -58,8 +59,9 @@ export function ContactTagPage({ api }: { api: ContactTagPageApi }) {
           {can('delete') && <Popconfirm title="确认删除？" onConfirm={() => mutation.mutate(() => api.removeTags([row.id]))}>
             <Button type="link" danger>删除</Button></Popconfirm>}
         </Space> }]}
-      pagination={{ current: page, pageSize: perPage, total: tags.data?.page.total ?? 0,
-        onChange: (p, s) => { setPage(s === perPage ? p : 1); setPerPage(s); } }} />
+      pagination={false} />
+    <DashboardPagination page={page} pageSize={perPage} total={tags.data?.page.total ?? 0}
+      onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPerPage(size); }} />
     <Modal title={dialog === 'add-tag' ? '新增标签' : dialog === 'edit-tag' ? '修改标签名称' : ''}
       open={dialog === 'add-tag' || dialog === 'edit-tag'} onCancel={close}
       onOk={() => dialog === 'add-tag' ? saveTags() : editTag && mutation.mutate(async () => {

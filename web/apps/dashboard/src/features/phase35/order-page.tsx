@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useOptionalDashboardAccess } from '../../app/access-context';
 import { DashboardDialog } from '../../components/dashboard-dialog';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import type { Phase35Api, Row } from './api';
 import { records, text } from './api';
 import { Phase35PageShell } from './components/phase35-page-shell';
@@ -156,11 +157,7 @@ export function OrderPage({ api }: { api: Phase35Api }) {
                   ))}
                 </tbody>
               </table>
-              <div className="dashboard-pagination">
-                <span>共 {total} 条，第 {page} 页</span>
-                <button type="button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
-                <button type="button" disabled={page * 20 >= total} onClick={() => setPage((value) => value + 1)}>下一页</button>
-              </div>
+              <DashboardPagination page={page} pageSize={20} total={total} onPageChange={setPage} />
             </Phase35DataState>
           </div>
         </section>

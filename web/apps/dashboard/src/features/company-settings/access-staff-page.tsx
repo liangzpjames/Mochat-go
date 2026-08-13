@@ -2,6 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DashboardDialog } from "../../components/dashboard-dialog";
 import { ConfirmAction } from "../../components/confirm-action";
+import { DashboardPagination } from "../../components/dashboard-pagination";
 import { Phase35PageShell } from "../phase35/components/phase35-page-shell";
 import type { AccessCatalogItem } from "../access/access-api";
 import type {
@@ -19,7 +20,11 @@ type Api = {
   }>;
   provisionEmployeeAccount: (
     id: number,
-    input: { loginIdentifier: string; roleIds: number[] },
+    input: {
+      loginIdentifier: string;
+      roleIds: number[];
+      directPermissions: { code: string; scope: string }[];
+    },
   ) => Promise<AccessEmployeeMutationResult>;
   updateEmployeeAccountStatus: (
     id: number,
@@ -106,11 +111,13 @@ export function AccessStaffPage({ api }: { api: Api }) {
       return api.provisionEmployeeAccount(provisioning.id, {
         loginIdentifier,
         roleIds,
+        directPermissions: direct,
       });
     },
     onSuccess: (result) => {
       setProvisioning(null);
       setRoleIds([]);
+      setDirect([]);
       setTemporaryPassword(result.temporaryPassword ?? "");
       void refreshEmployees();
     },
@@ -204,6 +211,7 @@ export function AccessStaffPage({ api }: { api: Api }) {
                           onClick={() => {
                             provision.reset();
                             setRoleIds([]);
+                            setDirect([]);
                             setLoginIdentifier(employee.mobile);
                             setProvisioning(employee);
                           }}
@@ -256,22 +264,12 @@ export function AccessStaffPage({ api }: { api: Api }) {
           {!employees.isLoading && (employees.data?.list.length ?? 0) === 0 ? (
             <p>尚未同步到企业微信员工，请先在企业设置中执行员工同步。</p>
           ) : null}
-          <p>共 {employees.data?.page.total ?? 0} 名员工</p>
-          <div className="dashboard-pagination">
-            <button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>
-              上一页
-            </button>
-            <span>
-              第 {page}/{employees.data?.page.totalPage || 1} 页
-            </span>
-            <button
-              type="button"
-              disabled={page >= (employees.data?.page.totalPage || 1)}
-              onClick={() => setPage((value) => value + 1)}
-            >
-              下一页
-            </button>
-          </div>
+          <DashboardPagination
+            page={page}
+            pageSize={50}
+            total={employees.data?.page.total ?? 0}
+            onPageChange={setPage}
+          />
           {statusMutation.isError || resetPassword.isError ? (
             <p role="alert">账号操作失败，请刷新后重试。</p>
           ) : null}
@@ -281,25 +279,31 @@ export function AccessStaffPage({ api }: { api: Api }) {
           <DashboardDialog
             open
             title={`为 ${provisioning.name} 开通账号`}
-            width={620}
+            width={920}
             onCancel={() => {
               setProvisioning(null);
               setRoleIds([]);
+              setDirect([]);
               provision.reset();
             }}
             footer={
               <>
-                <button type="button" onClick={() => setProvisioning(null)}>
+                <button type="button" onClick={() => {
+                  setProvisioning(null);
+                  setRoleIds([]);
+                  setDirect([]);
+                  provision.reset();
+                }}>
                   取消
                 </button>
                 <ConfirmAction
                   title={`确认开通 ${provisioning.name} 的 Dashboard 账号？`}
-                  description="系统将生成一次性初始密码，员工首次登录必须修改。"
+                  description={`将授予 ${roleIds.length} 个角色和 ${direct.length} 项直接权限；系统会生成一次性初始密码。`}
                   onConfirm={() => provision.mutate()}
                 >
                   <button
                     type="button"
-                    disabled={!/^\d{11}$/.test(loginIdentifier) || !roles.isSuccess || provision.isPending}
+                    disabled={!/^\d{11}$/.test(loginIdentifier) || !roles.isSuccess || !catalog.isSuccess || provision.isPending}
                   >
                     确认开通
                   </button>
@@ -307,16 +311,40 @@ export function AccessStaffPage({ api }: { api: Api }) {
               </>
             }
           >
-            <label className="phase35-field">
-              <span>登录手机号</span>
-              <input
-                inputMode="numeric"
-                maxLength={11}
-                value={loginIdentifier}
-                onChange={(event) => setLoginIdentifier(event.target.value.replace(/\D/g, ""))}
-              />
-            </label>
+            <div className="access-provision-intro">
+              <div className="access-provision-avatar" aria-hidden="true">
+                {provisioning.name.slice(0, 1)}
+              </div>
+              <div>
+                <strong>{provisioning.name}</strong>
+                <span>{provisioning.mobile || provisioning.wxUserId}</span>
+              </div>
+              <small>登录后仅能访问下方已选角色与直授权限</small>
+            </div>
+            <div className="access-provision-basics">
+              <label className="phase35-field">
+                <span>登录手机号</span>
+                <input
+                  aria-label="员工登录手机号"
+                  inputMode="numeric"
+                  maxLength={11}
+                  value={loginIdentifier}
+                  onChange={(event) => setLoginIdentifier(event.target.value.replace(/\D/g, ""))}
+                />
+                <small>员工使用该手机号登录，首次登录必须修改初始密码。</small>
+              </label>
+              <div className="access-provision-selection-summary" role="status">
+                <span>当前授权</span>
+                <strong>{roleIds.length} 个角色 · {direct.length} 项直接权限</strong>
+              </div>
+            </div>
             <RoleSelector roles={roles.data ?? []} value={roleIds} onChange={setRoleIds} />
+            <AccessPermissionSelector
+              ariaLabel="员工直接权限"
+              catalog={catalog.data ?? []}
+              value={direct}
+              onChange={setDirect}
+            />
             {provision.isError ? <p role="alert">账号开通失败，手机号可能已被使用。</p> : null}
           </DashboardDialog>
         ) : null}

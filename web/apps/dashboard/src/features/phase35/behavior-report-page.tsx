@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { reportEndpoint, text, type Phase35Api } from './api';
 import { ReportFilters, useReportFilters } from './report-query';
 import type { ReportItem, ReportResult } from './report-types';
@@ -70,11 +71,7 @@ export function BehaviorReportPage({ api }: { api: Phase35Api }) {
                   ))}
                 </tbody>
               </table>
-              <div className="dashboard-pagination">
-                <span>共 {pagination.total} 条，第 {pagination.page} 页</span>
-                <button type="button" disabled={pagination.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button>
-                <button type="button" disabled={pagination.page * pagination.pageSize >= pagination.total} onClick={() => setPage((value) => value + 1)}>下一页</button>
-              </div>
+              <DashboardPagination page={pagination.page} pageSize={pagination.pageSize} total={pagination.total} onPageChange={setPage} />
             </Phase35DataState>
           </div>
         </section>

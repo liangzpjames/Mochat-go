@@ -75,6 +75,56 @@ func TestDashboardEmployeeAccountsUseActiveTenantCorpBindingStatus(t *testing.T)
 	}
 }
 
+func TestProvisionDashboardEmployeeAccountWritesRolesDirectPermissionsAndAuditAtomically(t *testing.T) {
+	tx := &fakeDashboardAccessAdminTx{}
+	tx.row = func(query string, _ ...any) dashboardAccessAdminRow {
+		switch {
+		case strings.Contains(query, "FROM mc_work_employee"):
+			return fakeDashboardTenantAccessRow{values: []any{4, 3, "wx-4", "张三", "13800000004", 1, 0}}
+		case strings.Contains(query, "COUNT(*) FROM mochat_go_dashboard_identities"):
+			return fakeDashboardTenantAccessRow{values: []any{0}}
+		case strings.Contains(query, "COUNT(*) FROM mc_rbac_role"):
+			return fakeDashboardTenantAccessRow{values: []any{1}}
+		default:
+			return fakeDashboardTenantAccessRow{err: errors.New("unexpected row query: " + query)}
+		}
+	}
+	tx.rows = func(query string, _ ...any) (dashboardAccessRows, error) {
+		if strings.Contains(query, "mochat_go_dashboard_permissions") {
+			return &fakeDashboardAccessRows{rows: [][]any{{int64(11), "dashboard.index", 0}}}, nil
+		}
+		return nil, errors.New("unexpected rows query: " + query)
+	}
+	tx.exec = func(query string, _ ...any) (sql.Result, error) {
+		if strings.Contains(query, "INSERT INTO mc_user") {
+			return fakeDashboardAccessAdminResult{id: 22, affected: 1}, nil
+		}
+		return fakeDashboardAccessAdminResult{affected: 1}, nil
+	}
+	store := dashboardAccessAdminStoreWithTx(tx)
+	result, err := store.ProvisionDashboardEmployeeAccount(context.Background(), dashboard.ProvisionDashboardEmployeeAccountCommand{
+		TenantID: 9, ActorUserID: 1, ActorName: "管理员", EmployeeID: 4,
+		LoginIdentifier: "13800000004", PasswordHash: "hashed", RoleIDs: []int{8},
+		DirectPermissions: []dashboard.DashboardPermissionAssignment{{Code: "dashboard.index", Scope: dashboard.DataScopeDepartment}},
+		RequestID:         "employee-create-4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Account == nil || result.Account.UserID != 22 || tx.commits != 1 {
+		t.Fatalf("result=%+v commits=%d", result, tx.commits)
+	}
+	for _, contract := range []string{
+		"INSERT INTO mc_user", "INSERT INTO mochat_go_dashboard_identities",
+		"INSERT INTO mochat_go_dashboard_user_roles", "INSERT INTO mochat_go_dashboard_user_permissions",
+		"INSERT INTO mochat_go_dashboard_permission_audits",
+	} {
+		if !containsSQL(tx.execs, contract) {
+			t.Fatalf("missing exec %q: %v", contract, tx.execs)
+		}
+	}
+}
+
 func TestDashboardAccessRolesLoadsPermissionsForEveryListedRole(t *testing.T) {
 	queries := make([]string, 0, 2)
 	queryArgs := make([][]any, 0, 2)

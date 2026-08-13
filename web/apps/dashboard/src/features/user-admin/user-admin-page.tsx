@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, Form, Input, Modal, Radio, Select, Space, Table } from 'antd';
 import { useEffect, useState } from 'react';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { useDashboardAccess } from '../../app/access-context';
 import type { Department, RoleOption, UserCreate, UserItem, UserListResult, UserWrite } from './user-admin-api';
 
@@ -49,8 +50,9 @@ export function UserAdminPage({ api }: { api: UserAdminPageApi }) {
       { title: '状态', dataIndex: 'statusText' }, { title: '时间', dataIndex: 'createdAt' },
       { title: '操作', render: (_, r) => <Space><Button type="link" onClick={() => void edit(r.userId)}>修改</Button>
         <Button type="link" onClick={() => setResetId(r.userId)}>重置密码</Button></Space> }]}
-    pagination={{ current: page, pageSize: perPage, total: query.data?.page.total ?? 0,
-      onChange: (p, s) => { setPage(s === perPage ? p : 1); setPerPage(s); } }} />
+    pagination={false} />
+  <DashboardPagination page={page} pageSize={perPage} total={query.data?.page.total ?? 0}
+    onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPerPage(size); }} />
   <UserEditor editor={editor} roles={roles.data ?? []} loading={mutation.isPending}
     onCancel={() => setEditor(null)} onSave={values => mutation.mutate(async () => {
       if (editor?.id) await api.update(editor.id, values);

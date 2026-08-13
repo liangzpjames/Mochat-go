@@ -1,6 +1,6 @@
 import { ApiError } from '@mochat/api-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -75,6 +75,20 @@ function renderPage(
 }
 
 describe('DashboardOverviewPage', () => {
+  it('uses the shared accessible dashboard pagination contract', async () => {
+    const api = {
+      load: vi.fn().mockResolvedValue({
+        ...overview,
+        total: 25,
+        trend: [{ date: '2026-08-13', addCustomerNum: 2 }],
+      }),
+      exportCsv: vi.fn(() => Promise.resolve(new Blob())),
+    };
+    renderPage(api);
+    const pagination = await screen.findByRole('navigation', { name: '分页' });
+    expect(within(pagination).getByText('共 25 条')).toBeTruthy();
+    expect(within(pagination).getByRole('button', { name: '第 1 页' }).getAttribute('aria-current')).toBe('page');
+  });
   it('uses real employee and department names instead of ID text fields', async () => {
     const optionsApi = { read: vi.fn().mockImplementation((path: string) => Promise.resolve(path.includes('workEmployee') ? { list: [{ id: 9, name: '销售小王' }] } : { list: [{ departmentId: 3, name: '华东销售部' }] })), write: vi.fn() };
     renderPage({ load: vi.fn().mockResolvedValue(overview) }, '/index', optionsApi);

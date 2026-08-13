@@ -16,6 +16,7 @@ import {
 import { useMemo, useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import type { BusinessField, BusinessRouteConfig } from './catalog';
 
 type QueryValues = Record<string, string | number>;
@@ -239,16 +240,12 @@ export function BusinessWorkbenchPage({
           rowKey={recordKey}
           columns={columns}
           dataSource={normalized.rows}
-          pagination={{
-            current: page,
-            pageSize: perPage,
-            total: normalized.total,
-            onChange: (nextPage, nextPerPage) => {
-              setPage(nextPerPage === perPage ? nextPage : 1);
-              setPerPage(nextPerPage);
-            },
-          }}
+          pagination={false}
         />
+      )}
+      {query.isSuccess && normalized.rows.length > 0 && (
+        <DashboardPagination page={page} pageSize={perPage} total={normalized.total}
+          onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPerPage(size); }} />
       )}
     </Card>
   );

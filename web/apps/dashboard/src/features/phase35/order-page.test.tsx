@@ -100,10 +100,11 @@ test('paginates the order list with small phase35 controls', async () => {
   };
   render(<DashboardAccessProvider value={access}><QueryClientProvider client={new QueryClient()}><OrderPage api={api} /></QueryClientProvider></DashboardAccessProvider>);
   expect(await screen.findByRole('cell', { name: '张三' })).not.toBeNull();
-  expect(screen.getByText('共 25 条，第 1 页')).not.toBeNull();
+  expect(screen.getByRole('navigation', { name: '分页' }).textContent).toContain('共 25 条');
+  expect(screen.getByRole('navigation', { name: '分页' }).textContent).toContain('第 1/2 页');
   fireEvent.click(screen.getByRole('button', { name: '下一页' }));
   expect(await screen.findByRole('cell', { name: '李四' })).not.toBeNull();
-  expect(screen.getByText('共 25 条，第 2 页')).not.toBeNull();
+  expect(screen.getByRole('navigation', { name: '分页' }).textContent).toContain('第 2/2 页');
   await waitFor(() => {
     const pageTwoCalls = api.read.mock.calls.filter(([, params]) => params.page === 2);
     expect(pageTwoCalls.length).toBeGreaterThan(0);

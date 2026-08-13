@@ -5,6 +5,7 @@ import {
 import { useEffect, useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import type {
   RoleDetail, RoleItem, RoleMember, RolePageResult, RoleWrite,
 } from './role-api';
@@ -99,12 +100,11 @@ export function RolePage({ api, navigate }: {
       ]}
       dataSource={query.data?.list ?? []}
       loading={query.isLoading}
-      pagination={{ current: page, pageSize: perPage, total: query.data?.page.total ?? 0,
-        showSizeChanger: true, onChange: (next, size) => {
-          setPage(size === perPage ? next : 1); setPerPage(size);
-        } }}
+      pagination={false}
       rowKey="roleId"
     />
+    <DashboardPagination page={page} pageSize={perPage} total={query.data?.page.total ?? 0}
+      onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPerPage(size); }} />
     <RoleEditor editor={editor} loading={mutation.isPending} onCancel={() => setEditor(null)}
       onSave={(values) => mutation.mutate(async () => {
         if (editor?.kind === 'add') await api.create(values);
@@ -118,10 +118,9 @@ export function RolePage({ api, navigate }: {
         { title: '姓名', dataIndex: 'employeeName' }, { title: '手机号码', dataIndex: 'phone' },
         { title: '邮箱地址', dataIndex: 'email' }, { title: '部门', dataIndex: 'department' },
       ]} dataSource={memberQuery.data?.list ?? []} loading={memberQuery.isLoading}
-      pagination={{ current: memberPage, pageSize: memberPerPage,
-        total: memberQuery.data?.page.total ?? 0, onChange: (next, size) => {
-          setMemberPage(size === memberPerPage ? next : 1); setMemberPerPage(size);
-        } }} rowKey="employeeId" />
+      pagination={false} rowKey="employeeId" />
+      <DashboardPagination page={memberPage} pageSize={memberPerPage} total={memberQuery.data?.page.total ?? 0}
+        onPageChange={setMemberPage} onPageSizeChange={(size) => { setMemberPage(1); setMemberPerPage(size); }} />
     </Modal>
   </Card>;
 }

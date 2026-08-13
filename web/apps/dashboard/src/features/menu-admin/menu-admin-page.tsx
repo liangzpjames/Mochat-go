@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Space, Table } from 'antd';
 import { useEffect, useState } from 'react';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { useDashboardAccess } from '../../app/access-context';
 import type { MenuDetail, MenuListResult, MenuOption, MenuWrite } from './menu-admin-api';
 
@@ -42,8 +43,9 @@ export function MenuAdminPage({ api }: { api: MenuAdminPageApi }) {
       { title: '最后操作人', dataIndex: 'operateName' }, { title: '最后操作时间', dataIndex: 'updatedAt' },
       { title: '操作', render: (_, r) => can('edit') &&
         <Button type="link" onClick={() => void edit(r.menuId)}>编辑</Button> }]}
-    pagination={{ current: page, pageSize: perPage, total: query.data?.page.total ?? 0,
-      onChange: (p, s) => { setPage(s === perPage ? p : 1); setPerPage(s); } }} />
+    pagination={false} />
+  <DashboardPagination page={page} pageSize={perPage} total={query.data?.page.total ?? 0}
+    onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPerPage(size); }} />
   <MenuEditor editor={editor} options={options.data ?? []} loading={mutation.isPending}
     onCancel={() => setEditor(null)}
     onSave={v => mutation.mutate(async () => {

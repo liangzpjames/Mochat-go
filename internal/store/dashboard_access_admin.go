@@ -167,6 +167,10 @@ func (s *MySQLStore) ProvisionDashboardEmployeeAccount(ctx context.Context, comm
 	if err = validateDashboardRoleIDsTx(ctx, tx, command.TenantID, command.RoleIDs); err != nil {
 		return dashboard.DashboardAccessEmployee{}, err
 	}
+	permissionIDs, err := validateDashboardAssignmentsTx(ctx, tx, command.DirectPermissions)
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO mc_user (phone,password,name,gender,department,position,status,tenant_id,isSuperAdmin,dashboard_access_version,created_at,updated_at)
 		VALUES (?,'',?,0,'','',1,?,0,1,NOW(),NOW())
@@ -193,9 +197,14 @@ func (s *MySQLStore) ProvisionDashboardEmployeeAccount(ctx context.Context, comm
 			return dashboard.DashboardAccessEmployee{}, err
 		}
 	}
+	for _, assignment := range command.DirectPermissions {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_dashboard_user_permissions (tenant_id,user_id,permission_id,effect,data_scope,created_at,updated_at) VALUES (?,?,?,'allow',?,NOW(),NOW())`, command.TenantID, userID, permissionIDs[assignment.Code], assignment.Scope); err != nil {
+			return dashboard.DashboardAccessEmployee{}, err
+		}
+	}
 	employee.Account = &dashboard.DashboardEmployeeAccount{UserID: userID, LoginIdentifier: command.LoginIdentifier, Status: 1, MustRotatePassword: true, AuthVersion: 1}
 	if err = insertDashboardAccessAuditTx(ctx, tx, command.TenantID, command.ActorUserID, "employee_account.provision", "employee", strconv.Itoa(command.EmployeeID), nil, map[string]any{
-		"userId": userID, "loginIdentifier": command.LoginIdentifier, "roleIds": uniqueSortedInts(command.RoleIDs), "status": 1, "mustRotatePassword": true,
+		"userId": userID, "loginIdentifier": command.LoginIdentifier, "roleIds": uniqueSortedInts(command.RoleIDs), "directPermissions": command.DirectPermissions, "status": 1, "mustRotatePassword": true,
 	}, nil, 1, command.RequestID); err != nil {
 		return dashboard.DashboardAccessEmployee{}, err
 	}

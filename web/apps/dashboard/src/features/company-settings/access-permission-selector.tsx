@@ -51,6 +51,27 @@ export function AccessPermissionSelector({
     const code = groupCode(item);
     groups.set(code, [...(groups.get(code) ?? []), item]);
   }
+  const grantableTotal = catalog.filter((item) => !item.superadminOnly).length;
+
+  const selectItems = (items: AccessCatalogItem[], selected: boolean) => {
+    const itemCodes = new Set(items.map((item) => item.code));
+    const existing = new Map(value.map((permission) => [permission.code, permission]));
+    const retained = value.filter((permission) => !itemCodes.has(permission.code));
+    onChange(
+      selected
+        ? [...retained, ...items.map((item) => existing.get(item.code) ?? { code: item.code, scope: "self" })]
+        : retained,
+    );
+  };
+
+  const applyScope = (items: AccessCatalogItem[], scope: string) => {
+    const itemCodes = new Set(items.map((item) => item.code));
+    onChange(
+      value.map((permission) =>
+        itemCodes.has(permission.code) ? { ...permission, scope } : permission,
+      ),
+    );
+  };
 
   return (
     <fieldset className="access-permission-editor" aria-label={ariaLabel}>
@@ -66,22 +87,52 @@ export function AccessPermissionSelector({
             onChange={(event) => setKeyword(event.target.value)}
           />
         </label>
-        <span className="access-permission-total">
-          已选 {value.length} / {catalog.filter((item) => !item.superadminOnly).length}
-        </span>
+        <div className="access-permission-toolbar-actions">
+          <span className="access-permission-total">已选 {value.length} / {grantableTotal}</span>
+          <button type="button" onClick={() => selectItems(grantable, true)}>全选当前结果</button>
+          {value.length > 0 ? <button type="button" onClick={() => selectItems(grantable, false)}>清空当前结果</button> : null}
+        </div>
       </div>
       <div className="access-permission-groups">
         {[...groups].map(([code, items]) => {
+          const groupName = groupNames[code] ?? code;
           const selectedCount = items.filter((item) =>
             value.some((permission) => permission.code === item.code),
           ).length;
+          const allSelected = selectedCount === items.length;
           return (
             <section className="access-permission-group" key={code}>
               <header>
-                <h3>{groupNames[code] ?? code}</h3>
-                <span>
-                  {selectedCount}/{items.length}
-                </span>
+                <div>
+                  <h3>{groupName}</h3>
+                  <span>{selectedCount}/{items.length}</span>
+                </div>
+                <div className="access-permission-group-actions">
+                  {selectedCount > 0 ? (
+                    <select
+                      aria-label={`${groupName} 批量数据范围`}
+                      defaultValue=""
+                      onChange={(event) => {
+                        if (event.target.value) {
+                          applyScope(items, event.target.value);
+                          event.target.value = "";
+                        }
+                      }}
+                    >
+                      <option value="" disabled>批量范围</option>
+                      <option value="self">本人</option>
+                      <option value="department">部门</option>
+                      <option value="tenant">全企业</option>
+                    </select>
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-label={`${allSelected ? "取消全选" : "全选"} ${groupName} 组权限`}
+                    onClick={() => selectItems(items, !allSelected)}
+                  >
+                    {allSelected ? "取消全选" : "全选本组"}
+                  </button>
+                </div>
               </header>
               <div className="access-permission-list">
                 {items.map((item) => {

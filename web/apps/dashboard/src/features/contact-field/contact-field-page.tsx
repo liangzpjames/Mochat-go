@@ -3,6 +3,7 @@ import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Selec
 import { useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import type {
   ContactFieldBatchInput, ContactFieldItem, ContactFieldListResult, ContactFieldWrite,
 } from './contact-field-api';
@@ -83,12 +84,11 @@ export function ContactFieldPage({ api }: { api: ContactFieldPageApi }) {
       ]}
       dataSource={rows}
       loading={query.isLoading}
-      pagination={{ current: page, pageSize: perPage, total: query.data?.page.total ?? 0,
-        showSizeChanger: true, onChange: (next, size) => {
-          setPage(size === perPage ? next : 1); setPerPage(size);
-        } }}
+      pagination={false}
       rowKey="id"
     />
+    <DashboardPagination page={page} pageSize={perPage} total={query.data?.page.total ?? 0}
+      onPageChange={setPage} onPageSizeChange={(size) => { setPage(1); setPerPage(size); }} />
     <FieldEditor editor={editor} loading={mutation.isPending} onCancel={() => setEditor(null)}
       onSave={(values) => mutation.mutate(async () => {
         const normalized = { ...defaults, ...values };

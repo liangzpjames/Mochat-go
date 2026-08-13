@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 
 import { useOptionalDashboardAccess } from '../../app/access-context';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { Phase35DataState } from './components/data-state';
 import { Phase35PageShell } from './components/phase35-page-shell';
 import type { AudioObject, FileAudioApi } from './file-audio-api';
@@ -113,7 +114,6 @@ export function FileAudioPage({ api }: { api: FileAudioApi }) {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <Phase35PageShell
@@ -236,17 +236,7 @@ export function FileAudioPage({ api }: { api: FileAudioApi }) {
                 ))}
               </tbody>
             </table>
-            <div className="dashboard-pagination">
-              <span>
-                共 {total} 条，第 {page} / {totalPages} 页
-              </span>
-              <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                上一页
-              </button>
-              <button type="button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                下一页
-              </button>
-            </div>
+            <DashboardPagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
           </Phase35DataState>
         </section>
       </div>
