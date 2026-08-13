@@ -31,7 +31,11 @@ export const documentCookieAdapter: CookieAdapter = {
       .map((part) => part.trim())
       .find((part) => part.startsWith(prefix));
     if (cookie === undefined) return null;
-    return decodeURIComponent(cookie.slice(prefix.length));
+    try {
+      return decodeURIComponent(cookie.slice(prefix.length));
+    } catch {
+      return null;
+    }
   },
   set(serializedCookie) {
     document.cookie = serializedCookie;

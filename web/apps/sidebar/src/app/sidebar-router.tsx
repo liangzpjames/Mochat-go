@@ -3,7 +3,7 @@ import {
   MobileState,
   safeInternalTarget,
 } from '@mochat/mobile-foundation';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   createBrowserRouter,
   Navigate,
@@ -17,6 +17,7 @@ import {
   completeSidebarAuthCallback,
   readSidebarSession,
   sidebarLoginHref,
+  type SidebarAuthCallbackResult,
   type CookieAdapter,
 } from '../auth/sidebar-session';
 import { ContactPage } from '../features/contact/contact-page';
@@ -83,12 +84,40 @@ function SidebarLoginPage() {
 
 function SidebarAuthCallbackPage({ runtime }: { runtime: SidebarRuntime }) {
   const [params] = useSearchParams();
-  const result = completeSidebarAuthCallback(
-    params,
-    runtime.cookies,
-    runtime.secure,
-    runtime.origin,
-  );
+  const callbackKey = params.toString();
+  const completedCallback = useRef<string | null>(null);
+  const [outcome, setOutcome] = useState<{
+    key: string;
+    result: SidebarAuthCallbackResult;
+  } | null>(null);
+
+  useEffect(() => {
+    if (completedCallback.current === callbackKey) return;
+    completedCallback.current = callbackKey;
+    setOutcome({
+      key: callbackKey,
+      result: completeSidebarAuthCallback(
+        params,
+        runtime.cookies,
+        runtime.secure,
+        runtime.origin,
+      ),
+    });
+  }, [callbackKey, params, runtime.cookies, runtime.origin, runtime.secure]);
+
+  if (outcome === null || outcome.key !== callbackKey) {
+    return (
+      <MobileShell appName="MoChat 客户侧边栏" title="企业微信授权回调">
+        <MobileState
+          kind="loading"
+          title="正在处理授权"
+          description="正在验证企业微信员工登录状态。"
+        />
+      </MobileShell>
+    );
+  }
+
+  const { result } = outcome;
   if (result.ok) return <Navigate replace to={result.target} />;
 
   const agentId = params.get('agentId')?.trim() ?? '';

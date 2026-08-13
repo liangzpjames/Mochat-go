@@ -1,13 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   clearSidebarSession,
   completeSidebarAuthCallback,
+  documentCookieAdapter,
   readSidebarSession,
   sidebarLoginHref,
   writeSidebarSession,
   type CookieAdapter,
 } from './sidebar-session';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function cookieAdapter(values: Record<string, string> = {}): {
   adapter: CookieAdapter;
@@ -24,6 +29,12 @@ function authState(data: unknown, code = 200, msg = ''): string {
 }
 
 describe('Sidebar session', () => {
+  it('returns null instead of throwing for a malformed percent-encoded cookie', () => {
+    vi.spyOn(document, 'cookie', 'get').mockReturnValue('token=%E0%A4%A');
+
+    expect(documentCookieAdapter.get('token')).toBeNull();
+  });
+
   it('reads only the Sidebar token and agentId cookies', () => {
     const { adapter, get } = cookieAdapter({ token: 'sidebar-token', agentId: '7' });
 

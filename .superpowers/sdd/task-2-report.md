@@ -191,3 +191,66 @@ forbidden scan: 0 matches
 - 按任务约束未启动 Docker、真实 Go 服务、企业微信 OAuth、数据库或浏览器，因此本报告不宣称真实企业微信/数据库业务闭环已验收。
 - Go 回调回传同源绝对 target 的兼容已由单元测试覆盖，但仍需后续真实 OAuth 浏览器验收确认运行环境中的实际 Sidebar origin 配置。
 - 其余 11 个历史路由在本任务只建立可辨识、无假数据的模块边界；不宣称这些业务模块已经迁移完成。
+
+## 7. 审阅后 hardening（独立追加提交）
+
+### 7.1 畸形 cookie 解码
+
+聚焦 RED 命令：
+
+```powershell
+corepack pnpm --filter @mochat/sidebar test -- src/auth/sidebar-session.test.ts
+```
+
+关键输出：
+
+```text
+Sidebar session > returns null instead of throwing for a malformed percent-encoded cookie
+URIError: URI malformed
+Test Files 1 failed | 4 passed
+Tests 1 failed | 28 passed
+```
+
+根因是 `documentCookieAdapter.get` 直接执行 `decodeURIComponent`。最小修复仅捕获该解码异常并返回 `null`，避免畸形浏览器 cookie 阻断 Sidebar 入口。GREEN 关键输出：
+
+```text
+src/auth/sidebar-session.test.ts (7 tests)
+Test Files 5 passed
+Tests 29 passed
+```
+
+### 7.2 授权回调 render 副作用
+
+聚焦 RED 命令：
+
+```powershell
+corepack pnpm --filter @mochat/sidebar test -- src/app/sidebar-router.test.tsx
+```
+
+关键输出：
+
+```text
+renders callback loading without writing cookies during render
+expected '' to contain '正在处理授权'
+writes a successful callback session once under repeated StrictMode effects
+expected spy to be called 2 times, but got 4 times
+Test Files 1 failed | 4 passed
+Tests 2 failed | 29 passed
+```
+
+根因是 `SidebarAuthCallbackPage` 在函数组件 render 阶段直接调用带 cookie 写入的 `completeSidebarAuthCallback`。修复后：
+
+- render 阶段只输出“正在处理授权” loading 状态。
+- cookie 写入在 `useEffect` 中发生。
+- 使用 callback query key 的 `useRef` 幂等保护，StrictMode 重复 effect 不重复写入。
+- effect 完成后才进入成功 `Navigate` 或错误状态。
+
+GREEN 关键输出：
+
+```text
+src/app/sidebar-router.test.tsx (5 tests)
+Test Files 5 passed
+Tests 31 passed
+```
+
+hardening 最终门禁仍执行 Sidebar `lint`、`typecheck`、`test`、`build` 与 `git diff --check`；最终输出以追加提交前的新鲜终端记录为准。

@@ -1,4 +1,6 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
+import { renderToString } from 'react-dom/server';
 import { RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +13,25 @@ const emptyCookies: CookieAdapter = {
   get: vi.fn(() => null),
   set: vi.fn(),
 };
+
+function successfulAuthPath(target = '/login?agentId=7'): string {
+  const state = btoa(JSON.stringify({
+    code: 200,
+    msg: '',
+    data: { token: 'sidebar-token', expire: 7200 },
+  }));
+  return `/auth?${new URLSearchParams({ agentId: '7', state, target }).toString()}`;
+}
+
+function authRuntime(cookies: CookieAdapter) {
+  return {
+    basename: '/',
+    cookies,
+    origin: window.location.origin,
+    request: vi.fn(),
+    secure: false,
+  };
+}
 
 function renderPath(path: string) {
   window.history.replaceState(null, '', path);
@@ -57,6 +78,36 @@ describe('Sidebar route registry', () => {
     expect(screen.getByRole('link', { name: '继续授权' }).getAttribute('href')).toContain(
       '/sidebar/agent/auth?agentId=7&target=',
     );
+    router.dispose();
+  });
+
+  it('renders callback loading without writing cookies during render', () => {
+    const set = vi.fn();
+    const cookies: CookieAdapter = { get: vi.fn(() => null), set };
+    window.history.replaceState(null, '', successfulAuthPath());
+    const router = createSidebarRouter(authRuntime(cookies));
+
+    const markup = renderToString(<RouterProvider router={router} />);
+
+    expect(markup).toContain('正在处理授权');
+    expect(set).not.toHaveBeenCalled();
+    router.dispose();
+  });
+
+  it('writes a successful callback session once under repeated StrictMode effects', async () => {
+    const set = vi.fn();
+    const cookies: CookieAdapter = { get: vi.fn(() => null), set };
+    window.history.replaceState(null, '', successfulAuthPath());
+    const router = createSidebarRouter(authRuntime(cookies));
+
+    render(
+      <StrictMode>
+        <RouterProvider router={router} />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(set).toHaveBeenCalledTimes(2);
     router.dispose();
   });
 });
