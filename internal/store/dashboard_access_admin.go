@@ -221,9 +221,12 @@ func (s *MySQLStore) UpdateDashboardEmployeeAccountStatus(ctx context.Context, c
 		}
 		return dashboard.DashboardAccessEmployee{}, err
 	}
-	account, err := lockDashboardIdentityTx(ctx, tx, command.TenantID, userID)
+	account, isSuperAdmin, err := lockDashboardIdentityTx(ctx, tx, command.TenantID, userID)
 	if err != nil {
 		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if isSuperAdmin {
+		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminInvalid
 	}
 	before := map[string]any{"status": account.Status, "authVersion": account.AuthVersion}
 	if _, err = tx.ExecContext(ctx, `UPDATE mc_user SET status=?,updated_at=NOW() WHERE tenant_id=? AND id=? AND deleted_at IS NULL`, command.Status, command.TenantID, userID); err != nil {
@@ -266,9 +269,12 @@ func (s *MySQLStore) ResetDashboardEmployeePassword(ctx context.Context, command
 		}
 		return dashboard.DashboardAccessEmployee{}, err
 	}
-	account, err := lockDashboardIdentityTx(ctx, tx, command.TenantID, userID)
+	account, isSuperAdmin, err := lockDashboardIdentityTx(ctx, tx, command.TenantID, userID)
 	if err != nil {
 		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if isSuperAdmin {
+		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminInvalid
 	}
 	if account.Status != 1 {
 		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminConflict
@@ -306,20 +312,20 @@ func lockDashboardEmployeeAccountTargetTx(ctx context.Context, tx dashboardAcces
 	return employee, corpID, linkedUserID, err
 }
 
-func lockDashboardIdentityTx(ctx context.Context, tx dashboardAccessAdminTx, tenantID, userID int) (dashboard.DashboardEmployeeAccount, error) {
+func lockDashboardIdentityTx(ctx context.Context, tx dashboardAccessAdminTx, tenantID, userID int) (dashboard.DashboardEmployeeAccount, bool, error) {
 	var account dashboard.DashboardEmployeeAccount
-	var mustRotate int
+	var mustRotate, isSuperAdmin int
 	err := tx.QueryRowContext(ctx, `
-		SELECT identity.user_id,identity.login_identifier,identity.status,identity.must_rotate_password,identity.auth_version
+		SELECT identity.user_id,identity.login_identifier,identity.status,identity.must_rotate_password,identity.auth_version,COALESCE(user.isSuperAdmin,0)
 		FROM mochat_go_dashboard_identities identity
 		INNER JOIN mc_user user ON user.id=identity.user_id AND user.tenant_id=? AND user.deleted_at IS NULL
 		WHERE identity.user_id=? LIMIT 1 FOR UPDATE
-	`, tenantID, userID).Scan(&account.UserID, &account.LoginIdentifier, &account.Status, &mustRotate, &account.AuthVersion)
+	`, tenantID, userID).Scan(&account.UserID, &account.LoginIdentifier, &account.Status, &mustRotate, &account.AuthVersion, &isSuperAdmin)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = dashboard.ErrDashboardAccessAdminNotFound
 	}
 	account.MustRotatePassword = mustRotate == 1
-	return account, err
+	return account, isSuperAdmin == 1, err
 }
 
 func (s *MySQLStore) DashboardAccessUser(ctx context.Context, tenantID, userID int) (dashboard.DashboardAccessUserDetail, bool, error) {
