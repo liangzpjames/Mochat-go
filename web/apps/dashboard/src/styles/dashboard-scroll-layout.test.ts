@@ -20,7 +20,7 @@ function declarationBlocks(selector: string): string[] {
 
 describe('Dashboard independent scroll layout', () => {
   it('keeps the header fixed while sidebar and content scroll independently', () => {
-    expect(declarationBlock('.dashboard-shell')).toContain('height: 100%');
+    expect(declarationBlock('.dashboard-shell')).toContain('height: 100dvh');
     expect(declarationBlock('.dashboard-shell')).toContain('overflow: hidden');
     expect(declarationBlock('.dashboard-body')).toContain('min-height: 0');
     expect(declarationBlock('.dashboard-sidebar')).toContain('overflow-y: auto');

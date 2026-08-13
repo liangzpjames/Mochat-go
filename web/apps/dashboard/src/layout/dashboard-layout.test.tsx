@@ -13,6 +13,7 @@ import { RouterProvider } from 'react-router';
 import { createDashboardQueryClient } from '../app/providers';
 import { createDashboardRouter } from '../app/router';
 import type { AccessContext } from '../app/access-loader';
+import { benchmarkManifest } from '../benchmark/benchmark-manifest';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 
 afterEach(cleanup);
@@ -98,9 +99,9 @@ describe('Dashboard shell', () => {
           corpBindingStatus: 'verified',
           catalog: [],
           effectivePermissions: [],
-          allowedRoutes: [],
+          allowedRoutes: ['/index'],
         },
-        allowedRoutes: new Set(),
+        allowedRoutes: new Set(['/index']),
         allowedActions: new Set(),
       }),
     });
@@ -193,7 +194,7 @@ describe('Dashboard shell', () => {
         session: { token: 'Bearer test', userId: '7', expiresAt: null },
         corp: { id: '12', name: '测试企业', authorized: true },
         menu: [],
-        allowedRoutes: new Set(['/chat/v2-all']),
+        allowedRoutes: new Set(benchmarkManifest.pages.map(({ path }) => path)),
         allowedActions: new Set(),
       }),
     });
