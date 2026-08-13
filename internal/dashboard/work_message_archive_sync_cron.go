@@ -20,9 +20,11 @@ const (
 )
 
 type WorkMessageArchiveCorp struct {
-	CorpID     int
-	WXCorpID   string
-	ChatSecret string
+	CorpID        int
+	WXCorpID      string
+	ChatSecret    string
+	RSAPublicKey  string
+	RSAPrivateKey string
 }
 
 type WorkMessageArchiveMessage struct {
@@ -118,7 +120,8 @@ func (c *WorkMessageArchiveSyncCron) RunOnce(ctx context.Context) error {
 
 func (c *WorkMessageArchiveSyncCron) syncCorp(ctx context.Context, corp WorkMessageArchiveCorp, limit int) (WorkMessageArchiveSyncResult, error) {
 	result := WorkMessageArchiveSyncResult{}
-	if corp.CorpID <= 0 || strings.TrimSpace(corp.WXCorpID) == "" || strings.TrimSpace(corp.ChatSecret) == "" {
+	if corp.CorpID <= 0 || strings.TrimSpace(corp.WXCorpID) == "" || strings.TrimSpace(corp.ChatSecret) == "" ||
+		strings.TrimSpace(corp.RSAPublicKey) == "" || strings.TrimSpace(corp.RSAPrivateKey) == "" {
 		result.ItemsSkipped++
 		return result, nil
 	}
@@ -196,11 +199,13 @@ func (c *WorkMessageArchiveBridgeClient) FetchWorkMessageArchive(ctx context.Con
 		limit = WorkMessageArchiveDefaultSyncLimit
 	}
 	request := map[string]any{
-		"corp_id":     corp.CorpID,
-		"wx_corpid":   corp.WXCorpID,
-		"chat_secret": corp.ChatSecret,
-		"seq":         seq,
-		"limit":       limit,
+		"corp_id":         corp.CorpID,
+		"wx_corpid":       corp.WXCorpID,
+		"chat_secret":     corp.ChatSecret,
+		"rsa_public_key":  corp.RSAPublicKey,
+		"rsa_private_key": corp.RSAPrivateKey,
+		"seq":             seq,
+		"limit":           limit,
 	}
 	raw, err := json.Marshal(request)
 	if err != nil {

@@ -37,6 +37,91 @@ func TestCompanyProfileStoreDoesNotReadLegacyPlaintextCredentialColumns(t *testi
 	}
 }
 
+func TestCompanyProfileApplicationCallbackAndArchiveConfigurationIsAtomicRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey:       testCompanyCredentialKey(19),
+		EncryptionKeyID:     "company-settings-key",
+		RequireEncryption:   true,
+		DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{
+		UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending,
+		IsSuperAdmin: true, AuthVersion: 1,
+	}
+
+	profile, err := store.ConfigureApplication(context.Background(), principal, companyprofile.ApplicationCredentialsInput{
+		WXAgentID: "1000099", Secret: "one-application-secret", ExpectedVersion: 1, RequestID: "configure-one-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.BindingVersion != 2 || profile.ApplicationAgentID != "1000099" {
+		t.Fatalf("profile=%+v, want version 2 and application agent 1000099", profile)
+	}
+	corpCredential := loadAndDecryptCompanyCredential(t, manager, db, 100, "ww-candidate")
+	if corpCredential.EmployeeSecret != "one-application-secret" || corpCredential.ContactSecret != "one-application-secret" {
+		t.Fatalf("shared corp secrets not updated together: %+v", corpCredential)
+	}
+	if corpCredential.CallbackToken == "" || len(corpCredential.EncodingAESKey) != 43 {
+		t.Fatalf("initial callback configuration not generated: %+v", corpCredential)
+	}
+	var wxAgentID, agentCiphertext, agentKeyID, plaintextSecret string
+	if err := db.QueryRow(`SELECT wx_agent_id, COALESCE(CAST(wecom_credentials_ciphertext AS CHAR),''), COALESCE(wecom_credentials_key_id,''), COALESCE(wx_secret,'') FROM mc_work_agent WHERE id=300`).Scan(&wxAgentID, &agentCiphertext, &agentKeyID, &plaintextSecret); err != nil {
+		t.Fatal(err)
+	}
+	if wxAgentID != "1000099" || plaintextSecret != "" {
+		t.Fatalf("agent id=%q plaintext=%q", wxAgentID, plaintextSecret)
+	}
+	agentCredential, err := manager.DecryptAgent(100, wxAgentID, agentKeyID, agentCiphertext)
+	if err != nil || agentCredential.WXSecret != "one-application-secret" {
+		t.Fatalf("agent credential=%+v err=%v", agentCredential, err)
+	}
+
+	callback, err := store.GetCallbackConfiguration(context.Background(), principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if callback.CorpID != 100 || callback.Token != corpCredential.CallbackToken || callback.EncodingAESKey != corpCredential.EncodingAESKey || !callback.Configured || callback.BindingVersion != 2 {
+		t.Fatalf("callback=%+v", callback)
+	}
+	rotatedCallback, err := store.RegenerateCallbackConfiguration(context.Background(), principal, companyprofile.CallbackConfigurationInput{
+		Token: "replacement-callback-token", EncodingAESKey: strings.Repeat("b", 43), ExpectedVersion: 2, RequestID: "rotate-callback",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotatedCallback.Token != "replacement-callback-token" || rotatedCallback.BindingVersion != 3 {
+		t.Fatalf("rotated callback=%+v", rotatedCallback)
+	}
+
+	chatSecret, publicKey, privateKey := "archive-secret", "public-pem", "private-pem"
+	profile, err = store.RotateArchiveCredentials(context.Background(), principal, companyprofile.ArchiveCredentialsInput{
+		ChatSecret: &chatSecret, RSAPublicKey: &publicKey, RSAPrivateKey: &privateKey,
+		ExpectedVersion: 3, RequestID: "archive-key-pair",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.BindingVersion != 4 {
+		t.Fatalf("archive binding version=%d, want 4", profile.BindingVersion)
+	}
+	archiveCredential := loadAndDecryptCompanyCredential(t, manager, db, 100, "ww-candidate")
+	if archiveCredential.ChatSecret != chatSecret || archiveCredential.ArchiveRSAPublicKey != publicKey || archiveCredential.ArchiveRSAPrivateKey != privateKey {
+		t.Fatalf("archive credential=%+v", archiveCredential)
+	}
+	var auditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits WHERE tenant_id=1 AND request_id IN ('configure-one-secret','rotate-callback','archive-key-pair')`).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 3 {
+		t.Fatalf("audit count=%d, want 3", auditCount)
+	}
+}
+
 func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)

@@ -2469,7 +2469,9 @@ body {
 }
 .company-profile-form-row > label,
 .company-profile-form-grid > label,
-.company-profile-archive-row > label {
+.company-profile-archive-row > label,
+.company-profile-archive-fields > label,
+.company-readonly-config > label {
   color: #4b5568;
   display: grid;
   flex: 1 1 220px;
@@ -2479,21 +2481,30 @@ body {
   min-width: 0;
 }
 .company-profile-form-row input,
-.company-profile-form-grid input {
+.company-profile-form-grid input,
+.company-profile-archive-fields input,
+.company-profile-archive-fields textarea,
+.company-readonly-field input {
   background: #fff;
   border: 1px solid #dfe4ee;
   border-radius: 7px;
   box-sizing: border-box;
   color: #273044;
   font: inherit;
-  height: 36px;
   min-width: 0;
   outline: none;
   padding: 7px 10px;
   width: 100%;
 }
+.company-profile-form-row input,
+.company-profile-form-grid input,
+.company-profile-archive-fields input,
+.company-readonly-field input { height: 36px; }
+.company-profile-archive-fields textarea { line-height: 1.45; min-height: 132px; resize: vertical; }
 .company-profile-form-row input:focus,
-.company-profile-form-grid input:focus { border-color: #7d8ff4; box-shadow: 0 0 0 2px rgb(83 107 244 / 12%); }
+.company-profile-form-grid input:focus,
+.company-profile-archive-fields input:focus,
+.company-profile-archive-fields textarea:focus { border-color: #7d8ff4; box-shadow: 0 0 0 2px rgb(83 107 244 / 12%); }
 .company-profile-form-row > button,
 .company-profile-actions > button,
 .company-profile-card > button,
@@ -2504,9 +2515,17 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 18px;
 }
-.company-profile-agent-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.company-profile-agent-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .company-profile-archive-row { align-items: end; display: flex; margin-top: 18px; }
 .company-profile-archive-row > label { flex: 1 1 260px; }
+.company-profile-archive-fields,
+.company-readonly-config { display: grid; gap: 14px; margin-top: 18px; }
+.company-profile-archive-fields { grid-template-columns: minmax(0, .7fr) repeat(2, minmax(0, 1.4fr)); }
+.company-readonly-config { grid-template-columns: 1fr; }
+.company-readonly-field { align-items: center; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; }
+.company-readonly-field input { background: #f7f8fb; color: #475066; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.company-readonly-field button { min-width: 64px; }
+.company-profile-notice { background: #f0fff4; border: 1px solid #c6f6d5; border-radius: 8px; color: #2f855a; font-size: .8rem; margin: 0; padding: 10px 12px; }
 .company-profile-help { color: #8991a1; font-size: .76rem; line-height: 1.5; margin: 12px 0 0; }
 .company-sync-summary { color: #65708a; display: flex; flex-wrap: wrap; font-size: .8rem; gap: 16px; margin-top: 18px; }
 .company-sync-summary span:last-child { color: #cf4c4c; overflow-wrap: anywhere; }
@@ -2529,17 +2548,22 @@ body {
   .company-profile-facts,
   .company-credential-status-grid,
   .company-profile-form-grid,
-  .company-profile-agent-fields { grid-template-columns: 1fr; }
+  .company-profile-agent-fields,
+  .company-profile-archive-fields { grid-template-columns: 1fr; }
   .company-profile-form-row,
   .company-profile-actions,
   .company-profile-archive-row { align-items: stretch; flex-direction: column; }
   .company-profile-form-row > label,
   .company-profile-form-grid > label,
   .company-profile-archive-row > label,
+  .company-profile-archive-fields > label,
+  .company-readonly-config > label,
   .company-profile-form-row > button,
   .company-profile-actions > button,
   .company-profile-card > button,
   .company-profile-archive-row > button { flex-basis: auto; width: 100%; }
+  .company-readonly-field { grid-template-columns: 1fr; }
+  .company-readonly-field button { width: 100%; }
   .company-audit-list article { grid-template-columns: 1fr; gap: 4px; }
 }
 

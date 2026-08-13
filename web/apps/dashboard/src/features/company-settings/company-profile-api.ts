@@ -23,6 +23,7 @@ export type CompanyProfile = {
   displayName: string;
   authoritativeCorpName?: string;
   wxCorpId?: string;
+  applicationAgentId?: string;
   bindingStatus: BindingStatus;
   bindingVersion: number;
   verifiedAt?: string;
@@ -54,8 +55,31 @@ export type RotateAgentCredentialsInput = {
   requestId?: string;
 };
 
+export type ConfigureApplicationInput = {
+  wxAgentId: string;
+  secret: string;
+  expectedVersion: number;
+  requestId?: string;
+};
+
 export type RotateArchiveCredentialsInput = {
   chatSecret?: string;
+  rsaPublicKey?: string;
+  rsaPrivateKey?: string;
+  expectedVersion: number;
+  requestId?: string;
+};
+
+export type CallbackConfiguration = {
+  corpId: number;
+  callbackUrl: string;
+  token: string;
+  encodingAESKey: string;
+  configured: boolean;
+  bindingVersion: number;
+};
+
+export type RegenerateCallbackConfigurationInput = {
   expectedVersion: number;
   requestId?: string;
 };
@@ -118,7 +142,10 @@ export type CompanyProfileApi = {
   updateProfile(input: UpdateCompanyProfileInput): Promise<CompanyProfile>;
   rotateWeComCredentials(input: RotateWeComCredentialsInput): Promise<CompanyProfile>;
   rotateAgentCredentials(input: RotateAgentCredentialsInput): Promise<CompanyProfile>;
+  configureApplication(input: ConfigureApplicationInput): Promise<CompanyProfile>;
   rotateArchiveCredentials(input: RotateArchiveCredentialsInput): Promise<CompanyProfile>;
+  getCallbackConfiguration(): Promise<CallbackConfiguration>;
+  regenerateCallbackConfiguration(input: RegenerateCallbackConfigurationInput): Promise<CallbackConfiguration>;
   verify(input: VerifyCompanyInput): Promise<CompanyProfile>;
   startEmployeeSync(): Promise<EmployeeSyncResult>;
   getSyncStatus(): Promise<EmployeeSyncSnapshot>;
@@ -146,8 +173,17 @@ export function createCompanyProfileApi(client: ApiClient): CompanyProfileApi {
       };
       return normalizeProfile(await client.request<unknown>('/company/agent-credentials', jsonRequest('PUT', body)));
     },
+    async configureApplication(input) {
+      return normalizeProfile(await client.request<unknown>('/company/application-credentials', jsonRequest('PUT', input)));
+    },
     async rotateArchiveCredentials(input) {
       return normalizeProfile(await client.request<unknown>('/company/archive-credentials', jsonRequest('PUT', compactSecretInput(input))));
+    },
+    async getCallbackConfiguration() {
+      return normalizeCallbackConfiguration(await client.request<unknown>('/company/callback-configuration'));
+    },
+    async regenerateCallbackConfiguration(input) {
+      return normalizeCallbackConfiguration(await client.request<unknown>('/company/callback-configuration/regenerate', jsonRequest('POST', input)));
     },
     async verify(input) {
       return normalizeProfile(await client.request<unknown>('/company/verify', jsonRequest('POST', input)));
@@ -185,11 +221,23 @@ function compactSecretInput(input: RotateWeComCredentialsInput | RotateArchiveCr
     expectedVersion: input.expectedVersion,
     ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
   };
-  for (const name of ['employeeSecret', 'contactSecret', 'callbackToken', 'encodingAESKey', 'chatSecret'] as const) {
+  for (const name of ['employeeSecret', 'contactSecret', 'callbackToken', 'encodingAESKey', 'chatSecret', 'rsaPublicKey', 'rsaPrivateKey'] as const) {
     const value = (input as Record<string, unknown>)[name];
     Object.assign(body, optionalSecret(name, typeof value === 'string' ? value : undefined));
   }
   return body;
+}
+
+function normalizeCallbackConfiguration(value: unknown): CallbackConfiguration {
+  const source = record(value);
+  return {
+    corpId: numberValue(source.corpId),
+    callbackUrl: typeof source.callbackUrl === 'string' ? source.callbackUrl : '',
+    token: typeof source.token === 'string' ? source.token : '',
+    encodingAESKey: typeof source.encodingAESKey === 'string' ? source.encodingAESKey : '',
+    configured: source.configured === true,
+    bindingVersion: numberValue(source.bindingVersion),
+  };
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -239,9 +287,11 @@ function normalizeProfile(value: unknown): CompanyProfile {
   };
   const authoritativeCorpName = stringValue(source.authoritativeCorpName);
   const wxCorpId = stringValue(source.wxCorpId);
+  const applicationAgentId = stringValue(source.applicationAgentId);
   const verifiedAt = stringValue(source.verifiedAt);
   if (authoritativeCorpName !== undefined) result.authoritativeCorpName = authoritativeCorpName;
   if (wxCorpId !== undefined) result.wxCorpId = wxCorpId;
+  if (applicationAgentId !== undefined) result.applicationAgentId = applicationAgentId;
   if (verifiedAt !== undefined) result.verifiedAt = verifiedAt;
   return result;
 }

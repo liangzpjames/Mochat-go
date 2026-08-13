@@ -73,6 +73,27 @@ describe('company profile api', () => {
     }
   });
 
+  it('uses the unified application, callback, and complete archive contracts', async () => {
+	const request = vi.fn()
+	  .mockResolvedValueOnce({})
+	  .mockResolvedValueOnce({ corpId: 11, callbackUrl: 'http://localhost/weWork/callback?cid=11', token: 'token', encodingAESKey: 'a'.repeat(43), configured: true, bindingVersion: 5 })
+	  .mockResolvedValueOnce({ corpId: 11, callbackUrl: 'http://localhost/weWork/callback?cid=11', token: 'next-token', encodingAESKey: 'b'.repeat(43), configured: true, bindingVersion: 6 })
+	  .mockResolvedValueOnce({});
+	const api = createCompanyProfileApi({ request });
+
+	await api.configureApplication({ wxAgentId: '1000010', secret: 'one-secret', expectedVersion: 4, requestId: 'application-1' });
+	const callback = await api.getCallbackConfiguration();
+	await api.regenerateCallbackConfiguration({ expectedVersion: callback.bindingVersion, requestId: 'callback-1' });
+	await api.rotateArchiveCredentials({ chatSecret: 'archive', rsaPublicKey: 'public-pem', rsaPrivateKey: 'private-pem', expectedVersion: 6, requestId: 'archive-2' });
+
+	expect(request.mock.calls[0]?.[0]).toBe('/company/application-credentials');
+	expect(jsonBody(callInit(request, 0))).toEqual({ wxAgentId: '1000010', secret: 'one-secret', expectedVersion: 4, requestId: 'application-1' });
+	expect(request.mock.calls[1]).toEqual(['/company/callback-configuration']);
+	expect(request.mock.calls[2]?.[0]).toBe('/company/callback-configuration/regenerate');
+	expect(jsonBody(callInit(request, 2))).toEqual({ expectedVersion: 5, requestId: 'callback-1' });
+	expect(jsonBody(callInit(request, 3))).toEqual({ chatSecret: 'archive', rsaPublicKey: 'public-pem', rsaPrivateKey: 'private-pem', expectedVersion: 6, requestId: 'archive-2' });
+  });
+
   it('uses the employee sync, status, and audit contracts under dashboard/company', async () => {
     const request = vi.fn().mockResolvedValue({});
     const api = createCompanyProfileApi({ request });

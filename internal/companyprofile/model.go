@@ -37,6 +37,7 @@ type Profile struct {
 	DisplayName           string             `json:"displayName"`
 	AuthoritativeCorpName string             `json:"authoritativeCorpName,omitempty"`
 	WXCorpID              string             `json:"wxCorpId,omitempty"`
+	ApplicationAgentID    string             `json:"applicationAgentId,omitempty"`
 	BindingStatus         string             `json:"bindingStatus"`
 	BindingVersion        uint64             `json:"bindingVersion"`
 	VerifiedAt            *time.Time         `json:"verifiedAt,omitempty"`
@@ -69,6 +70,8 @@ type WeComCredentialsInput struct {
 	CallbackToken   *string `json:"callbackToken"`
 	EncodingAESKey  *string `json:"encodingAESKey"`
 	ChatSecret      *string `json:"chatSecret"`
+	RSAPublicKey    *string `json:"-"`
+	RSAPrivateKey   *string `json:"-"`
 	ExpectedVersion uint64  `json:"expectedVersion"`
 	RequestID       string  `json:"requestId,omitempty"`
 }
@@ -81,10 +84,37 @@ type AgentCredentialsInput struct {
 	RequestID       string  `json:"requestId,omitempty"`
 }
 
+type ApplicationCredentialsInput struct {
+	WXAgentID       string `json:"wxAgentId"`
+	Secret          string `json:"secret"`
+	CallbackToken   string `json:"-"`
+	EncodingAESKey  string `json:"-"`
+	ExpectedVersion uint64 `json:"expectedVersion"`
+	RequestID       string `json:"requestId,omitempty"`
+}
+
 type ArchiveCredentialsInput struct {
 	ChatSecret      *string `json:"chatSecret"`
+	RSAPublicKey    *string `json:"rsaPublicKey"`
+	RSAPrivateKey   *string `json:"rsaPrivateKey"`
 	ExpectedVersion uint64  `json:"expectedVersion"`
 	RequestID       string  `json:"requestId,omitempty"`
+}
+
+type CallbackConfiguration struct {
+	CorpID         int    `json:"corpId"`
+	CallbackURL    string `json:"callbackUrl,omitempty"`
+	Token          string `json:"token"`
+	EncodingAESKey string `json:"encodingAESKey"`
+	Configured     bool   `json:"configured"`
+	BindingVersion uint64 `json:"bindingVersion"`
+}
+
+type CallbackConfigurationInput struct {
+	Token           string `json:"-"`
+	EncodingAESKey  string `json:"-"`
+	ExpectedVersion uint64 `json:"expectedVersion"`
+	RequestID       string `json:"requestId,omitempty"`
 }
 
 type VerifyInput struct {
@@ -155,7 +185,10 @@ type Store interface {
 	CommitVerification(context.Context, dashboardprincipal.DashboardPrincipal, VerifyInput, VerificationResult) (Profile, error)
 	RotateWeComCredentials(context.Context, dashboardprincipal.DashboardPrincipal, WeComCredentialsInput) (Profile, error)
 	RotateAgentCredentials(context.Context, dashboardprincipal.DashboardPrincipal, AgentCredentialsInput) (Profile, error)
+	ConfigureApplication(context.Context, dashboardprincipal.DashboardPrincipal, ApplicationCredentialsInput) (Profile, error)
 	RotateArchiveCredentials(context.Context, dashboardprincipal.DashboardPrincipal, ArchiveCredentialsInput) (Profile, error)
+	GetCallbackConfiguration(context.Context, dashboardprincipal.DashboardPrincipal) (CallbackConfiguration, error)
+	RegenerateCallbackConfiguration(context.Context, dashboardprincipal.DashboardPrincipal, CallbackConfigurationInput) (CallbackConfiguration, error)
 	ListAudits(context.Context, dashboardprincipal.DashboardPrincipal, AuditFilter) (AuditPage, error)
 }
 

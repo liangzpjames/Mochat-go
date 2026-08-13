@@ -2,12 +2,21 @@ package companyprofile
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/pem"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
 )
+
+var weComAgentIDPattern = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
 
 type Service struct {
 	store         Store
@@ -102,17 +111,121 @@ func (s *Service) RotateAgentCredentials(ctx context.Context, principal dashboar
 	return s.store.RotateAgentCredentials(ctx, principal, input)
 }
 
+func (s *Service) ConfigureApplication(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input ApplicationCredentialsInput) (Profile, error) {
+	if err := s.authorize(principal, true); err != nil {
+		return Profile{}, err
+	}
+	input.WXAgentID = strings.TrimSpace(input.WXAgentID)
+	input.Secret = strings.TrimSpace(input.Secret)
+	if input.ExpectedVersion == 0 || !weComAgentIDPattern.MatchString(input.WXAgentID) || input.Secret == "" {
+		return Profile{}, ErrInvalidRequest
+	}
+	if err := s.requireStore(); err != nil {
+		return Profile{}, err
+	}
+	var err error
+	input.CallbackToken, input.EncodingAESKey, err = GenerateCallbackConfiguration()
+	if err != nil {
+		return Profile{}, ErrStoreUnavailable
+	}
+	return s.store.ConfigureApplication(ctx, principal, input)
+}
+
 func (s *Service) RotateArchiveCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input ArchiveCredentialsInput) (Profile, error) {
 	if err := s.authorize(principal, true); err != nil {
 		return Profile{}, err
 	}
-	if input.ExpectedVersion == 0 || input.ChatSecret == nil {
+	if input.ExpectedVersion == 0 || (input.ChatSecret == nil && input.RSAPublicKey == nil && input.RSAPrivateKey == nil) {
+		return Profile{}, ErrInvalidRequest
+	}
+	if input.ChatSecret != nil {
+		value := strings.TrimSpace(*input.ChatSecret)
+		if value == "" {
+			input.ChatSecret = nil
+		} else {
+			input.ChatSecret = &value
+		}
+	}
+	if input.RSAPublicKey != nil || input.RSAPrivateKey != nil {
+		if input.RSAPublicKey == nil || input.RSAPrivateKey == nil {
+			return Profile{}, ErrInvalidRequest
+		}
+		publicKey := strings.TrimSpace(*input.RSAPublicKey)
+		privateKey := strings.TrimSpace(*input.RSAPrivateKey)
+		if !matchingRSAKeyPair(publicKey, privateKey) {
+			return Profile{}, ErrInvalidRequest
+		}
+		input.RSAPublicKey = &publicKey
+		input.RSAPrivateKey = &privateKey
+	}
+	if input.ChatSecret == nil && input.RSAPublicKey == nil {
 		return Profile{}, ErrInvalidRequest
 	}
 	if err := s.requireStore(); err != nil {
 		return Profile{}, err
 	}
 	return s.store.RotateArchiveCredentials(ctx, principal, input)
+}
+
+func (s *Service) GetCallbackConfiguration(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (CallbackConfiguration, error) {
+	if err := s.authorize(principal, true); err != nil {
+		return CallbackConfiguration{}, err
+	}
+	if err := s.requireStore(); err != nil {
+		return CallbackConfiguration{}, err
+	}
+	return s.store.GetCallbackConfiguration(ctx, principal)
+}
+
+func (s *Service) RegenerateCallbackConfiguration(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input CallbackConfigurationInput) (CallbackConfiguration, error) {
+	if err := s.authorize(principal, true); err != nil {
+		return CallbackConfiguration{}, err
+	}
+	if input.ExpectedVersion == 0 {
+		return CallbackConfiguration{}, ErrInvalidRequest
+	}
+	var err error
+	input.Token, input.EncodingAESKey, err = GenerateCallbackConfiguration()
+	if err != nil {
+		return CallbackConfiguration{}, ErrStoreUnavailable
+	}
+	if err := s.requireStore(); err != nil {
+		return CallbackConfiguration{}, err
+	}
+	return s.store.RegenerateCallbackConfiguration(ctx, principal, input)
+}
+
+func matchingRSAKeyPair(publicPEM, privatePEM string) bool {
+	publicBlock, _ := pem.Decode([]byte(publicPEM))
+	privateBlock, _ := pem.Decode([]byte(privatePEM))
+	if publicBlock == nil || privateBlock == nil {
+		return false
+	}
+	var publicKey *rsa.PublicKey
+	if parsed, err := x509.ParsePKIXPublicKey(publicBlock.Bytes); err == nil {
+		publicKey, _ = parsed.(*rsa.PublicKey)
+	} else if parsed, parseErr := x509.ParsePKCS1PublicKey(publicBlock.Bytes); parseErr == nil {
+		publicKey = parsed
+	}
+	var privateKey *rsa.PrivateKey
+	if parsed, err := x509.ParsePKCS1PrivateKey(privateBlock.Bytes); err == nil {
+		privateKey = parsed
+	} else if parsed, parseErr := x509.ParsePKCS8PrivateKey(privateBlock.Bytes); parseErr == nil {
+		privateKey, _ = parsed.(*rsa.PrivateKey)
+	}
+	return publicKey != nil && privateKey != nil && publicKey.E == privateKey.PublicKey.E && publicKey.N.Cmp(privateKey.PublicKey.N) == 0 && publicKey.N.Sign() > 0
+}
+
+func GenerateCallbackConfiguration() (string, string, error) {
+	tokenBytes := make([]byte, 16)
+	aesBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", "", err
+	}
+	if _, err := rand.Read(aesBytes); err != nil {
+		return "", "", err
+	}
+	return hex.EncodeToString(tokenBytes), base64.RawStdEncoding.EncodeToString(aesBytes), nil
 }
 
 func (s *Service) Verify(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input VerifyInput) (Profile, error) {

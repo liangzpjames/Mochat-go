@@ -62,10 +62,14 @@ func (s *MySQLStore) WorkMessageArchiveEnabledCorps(ctx context.Context) ([]dash
 		if err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(credential.ChatSecret) == "" {
+		if strings.TrimSpace(credential.ChatSecret) == "" || strings.TrimSpace(credential.ArchiveRSAPublicKey) == "" ||
+			strings.TrimSpace(credential.ArchiveRSAPrivateKey) == "" {
 			continue
 		}
-		corps = append(corps, dashboard.WorkMessageArchiveCorp{CorpID: item.ID, WXCorpID: item.WXCorpID, ChatSecret: credential.ChatSecret})
+		corps = append(corps, dashboard.WorkMessageArchiveCorp{
+			CorpID: item.ID, WXCorpID: item.WXCorpID, ChatSecret: credential.ChatSecret,
+			RSAPublicKey: credential.ArchiveRSAPublicKey, RSAPrivateKey: credential.ArchiveRSAPrivateKey,
+		})
 	}
 	return corps, nil
 }

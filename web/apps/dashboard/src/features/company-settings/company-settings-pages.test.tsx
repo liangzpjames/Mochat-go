@@ -31,6 +31,7 @@ const companyProfile: CompanyProfile = {
   displayName: '演示企业',
   authoritativeCorpName: '权威企业名称',
   wxCorpId: 'wx-corp-11',
+  applicationAgentId: '1000099',
   bindingStatus: 'verified',
   bindingVersion: 4,
   credentials: {
@@ -47,7 +48,24 @@ function companyApi(overrides: Partial<CompanyProfileApi> = {}): CompanyProfileA
     updateProfile: vi.fn().mockResolvedValue(companyProfile),
     rotateWeComCredentials: vi.fn().mockResolvedValue(companyProfile),
     rotateAgentCredentials: vi.fn().mockResolvedValue(companyProfile),
+    configureApplication: vi.fn().mockResolvedValue(companyProfile),
     rotateArchiveCredentials: vi.fn().mockResolvedValue(companyProfile),
+    getCallbackConfiguration: vi.fn().mockResolvedValue({
+      corpId: 11,
+      callbackUrl: 'http://localhost:18080/weWork/callback?cid=11',
+      token: 'callback-token',
+      encodingAESKey: 'a'.repeat(43),
+      configured: true,
+      bindingVersion: 4,
+    }),
+    regenerateCallbackConfiguration: vi.fn().mockResolvedValue({
+      corpId: 11,
+      callbackUrl: 'http://localhost:18080/weWork/callback?cid=11',
+      token: 'next-callback-token',
+      encodingAESKey: 'b'.repeat(43),
+      configured: true,
+      bindingVersion: 5,
+    }),
     verify: vi.fn().mockResolvedValue(companyProfile),
     startEmployeeSync: vi.fn().mockResolvedValue({ status: 'queued', departmentsCreated: 0, departmentsUpdated: 0, employeesCreated: 0, employeesUpdated: 0 }),
     getSyncStatus: vi.fn().mockResolvedValue({ status: 'completed', departments: 3, employees: 8 }),
@@ -134,9 +152,11 @@ describe('企业设置页面', () => {
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
     expect(await screen.findByText('权威企业名称')).toBeTruthy();
+    expect(screen.getByDisplayValue('1000099')).toBeTruthy();
     expect(screen.getAllByText('已验证').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('已配置（加密保存）')).toBeTruthy();
-    expect(screen.getAllByText('未配置').length).toBe(2);
+    expect(await screen.findByDisplayValue('http://localhost:18080/weWork/callback?cid=11')).toBeTruthy();
+    expect(screen.getAllByText('已配置（加密保存）').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('未配置').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole('button', { name: '新建企业' })).toBeNull();
     expect(screen.queryByText('企业列表')).toBeNull();
     expect(screen.queryByText('分页')).toBeNull();
@@ -219,57 +239,58 @@ describe('企业设置页面', () => {
     expect(updateProfile).not.toHaveBeenCalled();
   });
 
-  it('omits an empty agent secret when rotating an existing application by identifier', async () => {
-    const rotateAgentCredentials = vi.fn().mockResolvedValue(companyProfile);
-    const api = companyApi({ rotateAgentCredentials });
+  it('应用配置只保留 AgentID 和一个 Secret，确认后统一提交', async () => {
+    const configureApplication = vi.fn().mockResolvedValue(companyProfile);
+    const api = companyApi({ configureApplication });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
-    const agentIDInput = await screen.findByLabelText('AgentID');
-    fireEvent.change(agentIDInput, { target: { value: '300' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存应用凭据' }));
-    expect(rotateAgentCredentials).not.toHaveBeenCalled();
+    const agentIDInput = await screen.findByLabelText('应用 AgentID');
+    const secretInput = screen.getByLabelText('应用 Secret');
+    fireEvent.change(agentIDInput, { target: { value: '1000010' } });
+    fireEvent.change(secretInput, { target: { value: 'one-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存应用配置' }));
+    expect(configureApplication).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
 
-    await waitFor(() => expect(rotateAgentCredentials).toHaveBeenCalledTimes(1));
-    const agentPayload = rotateAgentCredentials.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
-    expect(agentPayload).toMatchObject({ agentId: 300, expectedVersion: 4 });
-    expect(agentPayload?.requestId).toEqual(expect.any(String));
-    expect(agentPayload).not.toHaveProperty('wxSecret');
+    await waitFor(() => expect(configureApplication).toHaveBeenCalledWith(expect.objectContaining({
+      wxAgentId: '1000010', secret: 'one-secret', expectedVersion: 4,
+    })));
+    expect(screen.queryByLabelText('员工密钥')).toBeNull();
+    expect(screen.queryByLabelText('客户联系密钥')).toBeNull();
+    expect(screen.queryByLabelText('AgentID', { exact: true })).toBeNull();
   });
 
   it('does not retain secrets in React Query mutation state after success or failure', async () => {
-    const weComSecret = 'wecom-test-secret';
     const agentSecret = 'agent-test-secret';
     const archiveSecret = 'archive-test-secret';
-    const rotateWeComCredentials = vi.fn().mockResolvedValue(companyProfile);
-    const rotateAgentCredentials = vi.fn().mockResolvedValue(companyProfile);
+    const configureApplication = vi.fn().mockResolvedValue(companyProfile);
     const rotateArchiveCredentials = vi.fn().mockRejectedValue(new ApiError('validation', 'conflict', { status: 409, machineCode: 'VERSION_CONFLICT' }));
-    const api = companyApi({ rotateWeComCredentials, rotateAgentCredentials, rotateArchiveCredentials });
+    const api = companyApi({ configureApplication, rotateArchiveCredentials });
     const { client } = renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
-    const employeeInput = await screen.findByLabelText('员工密钥');
-    fireEvent.change(employeeInput, { target: { value: weComSecret } });
-    fireEvent.click(screen.getByRole('button', { name: '保存企业微信凭据' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    await waitFor(() => expect(rotateWeComCredentials).toHaveBeenCalled());
-
+    const agentIDInput = await screen.findByLabelText('应用 AgentID');
     const agentSecretInput = screen.getByLabelText('应用 Secret');
+    fireEvent.change(agentIDInput, { target: { value: '1000010' } });
     fireEvent.change(agentSecretInput, { target: { value: agentSecret } });
-    fireEvent.click(screen.getByRole('button', { name: '保存应用凭据' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存应用配置' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    await waitFor(() => expect(rotateAgentCredentials).toHaveBeenCalled());
+    await waitFor(() => expect(configureApplication).toHaveBeenCalled());
 
     const archiveInput = screen.getByLabelText('会话存档 Secret');
+    const publicKeyInput = screen.getByLabelText('会话存档 RSA 公钥');
+    const privateKeyInput = screen.getByLabelText('会话存档 RSA 私钥');
     fireEvent.change(archiveInput, { target: { value: archiveSecret } });
+    fireEvent.change(publicKeyInput, { target: { value: 'public-pem' } });
+    fireEvent.change(privateKeyInput, { target: { value: 'private-pem' } });
     fireEvent.click(screen.getByRole('button', { name: '保存会话存档' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
     await waitFor(() => expect(rotateArchiveCredentials).toHaveBeenCalled());
     expect(archiveInput).toHaveProperty('value', archiveSecret);
 
     const mutationCacheSnapshot = JSON.stringify(client.getMutationCache().getAll());
-    expect(mutationCacheSnapshot).not.toContain(weComSecret);
     expect(mutationCacheSnapshot).not.toContain(agentSecret);
     expect(mutationCacheSnapshot).not.toContain(archiveSecret);
+    expect(mutationCacheSnapshot).not.toContain('private-pem');
     expect(mutationCacheSnapshot).not.toContain('ciphertext');
   });
 
@@ -304,23 +325,26 @@ describe('企业设置页面', () => {
     expect(displayInput).toHaveProperty('value', '新展示名');
   });
 
-  it('企业信息：Secret留空不修改，凭据写入也必须确认且成功后清空', async () => {
-    const rotate = vi.fn().mockResolvedValue(companyProfile);
-    const api = companyApi({ rotateWeComCredentials: rotate });
+  it('企业信息：应用 Secret 和 AgentID 都必填，成功后清空 Secret', async () => {
+    const configureApplication = vi.fn().mockResolvedValue(companyProfile);
+    const api = companyApi({ configureApplication });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
-    const employeeInput = await screen.findByLabelText('员工密钥');
-    fireEvent.change(employeeInput, { target: { value: 'new-secret' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存企业微信凭据' }));
-    expect(rotate).not.toHaveBeenCalled();
+    const agentIDInput = await screen.findByLabelText('应用 AgentID');
+    const secretInput = screen.getByLabelText('应用 Secret');
+    fireEvent.change(agentIDInput, { target: { value: '1000010' } });
+    expect(screen.getByRole('button', { name: '保存应用配置' })).toHaveProperty('disabled', true);
+    fireEvent.change(secretInput, { target: { value: 'new-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存应用配置' }));
+    expect(configureApplication).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '确认' }));
-    await waitFor(() => expect(rotate).toHaveBeenCalledWith(expect.objectContaining({ employeeSecret: 'new-secret', expectedVersion: 4 })));
-    expect(rotate.mock.calls[0]?.[0]).not.toHaveProperty('tenantId');
-    expect(rotate.mock.calls[0]?.[0]).not.toHaveProperty('corpId');
-    await waitFor(() => expect(employeeInput).toHaveProperty('value', ''));
+    await waitFor(() => expect(configureApplication).toHaveBeenCalledWith(expect.objectContaining({ secret: 'new-secret', wxAgentId: '1000010', expectedVersion: 4 })));
+    expect(configureApplication.mock.calls[0]?.[0]).not.toHaveProperty('tenantId');
+    expect(configureApplication.mock.calls[0]?.[0]).not.toHaveProperty('corpId');
+    await waitFor(() => expect(secretInput).toHaveProperty('value', ''));
   });
 
-  it('将会话存档 Secret 只提交到会话存档接口，不与企业微信凭据重复展示', async () => {
+  it('会话存档同时提交 Secret、RSA 公钥和 RSA 私钥', async () => {
     const rotateArchive = vi.fn().mockResolvedValue(companyProfile);
     const api = companyApi({ rotateArchiveCredentials: rotateArchive });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
@@ -330,10 +354,40 @@ describe('企业设置页面', () => {
     const archiveInput = archiveInputs[0];
     if (archiveInput === undefined) throw new Error('archive secret input is missing');
     fireEvent.change(archiveInput, { target: { value: 'archive-secret' } });
+    fireEvent.change(screen.getByLabelText('会话存档 RSA 公钥'), { target: { value: 'public-pem' } });
+    fireEvent.change(screen.getByLabelText('会话存档 RSA 私钥'), { target: { value: 'private-pem' } });
     fireEvent.click(screen.getByRole('button', { name: '保存会话存档' }));
     expect(rotateArchive).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '确认' }));
-    await waitFor(() => expect(rotateArchive).toHaveBeenCalledWith(expect.objectContaining({ chatSecret: 'archive-secret', expectedVersion: 4 })));
+    await waitFor(() => expect(rotateArchive).toHaveBeenCalledWith(expect.objectContaining({
+      chatSecret: 'archive-secret', rsaPublicKey: 'public-pem', rsaPrivateKey: 'private-pem', expectedVersion: 4,
+    })));
+  });
+
+  it('回调配置只读展示并确认后重新生成', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const regenerate = vi.fn().mockResolvedValue({
+      corpId: 11,
+      callbackUrl: 'http://localhost:18080/weWork/callback?cid=11',
+      token: 'next-token',
+      encodingAESKey: 'b'.repeat(43),
+      configured: true,
+      bindingVersion: 5,
+    });
+    const api = companyApi({ regenerateCallbackConfiguration: regenerate });
+    renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
+
+    expect(await screen.findByDisplayValue('http://localhost:18080/weWork/callback?cid=11')).toHaveProperty('readOnly', true);
+    expect(screen.getByDisplayValue('callback-token')).toHaveProperty('readOnly', true);
+    expect(screen.getByDisplayValue('a'.repeat(43))).toHaveProperty('readOnly', true);
+    fireEvent.click(screen.getByRole('button', { name: '复制Token' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('callback-token'));
+    fireEvent.click(screen.getByRole('button', { name: '重新生成回调配置' }));
+    expect(regenerate).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    await waitFor(() => expect(regenerate).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 4 })));
+    expect(await screen.findByDisplayValue('next-token')).toBeTruthy();
   });
 
   it('企业信息：同步状态明确且同步触发需确认，390px仍为单列可达控件', async () => {

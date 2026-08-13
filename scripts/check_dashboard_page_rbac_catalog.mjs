@@ -52,6 +52,12 @@ export const CUTOVER_COMPANY_RESOURCE_MAPPINGS = [
   'dashboard.company_setting.website\tGET /dashboard/company/audits\t0',
 ];
 
+export const COMPANY_SETTINGS_CREDENTIAL_RESOURCE_MAPPINGS = [
+  'dashboard.company_setting.website\tPUT /dashboard/company/application-credentials\t0',
+  'dashboard.company_setting.website\tGET /dashboard/company/callback-configuration\t0',
+  'dashboard.company_setting.website\tPOST /dashboard/company/callback-configuration/regenerate\t0',
+];
+
 async function sourceFiles(root, extensions) {
   const files = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -504,6 +510,28 @@ export function applyCutoverPermissionResourceOverlay({
   return legacyMappings.filter((mapping) => !mapping.startsWith('dashboard.company_setting.website\t')).concat(overlayMappings);
 }
 
+export function applyCompanySettingsCredentialResourceOverlay({
+  mappings,
+  overlaySource,
+  expectedMappings = COMPANY_SETTINGS_CREDENTIAL_RESOURCE_MAPPINGS,
+}) {
+  if (!Array.isArray(mappings) || typeof overlaySource !== 'string') {
+    throw new Error('0132 company credential resource overlay inputs are invalid');
+  }
+  const additions = extractCutoverPermissionResourceMappings(overlaySource);
+  if (!sameSet(new Set(additions), new Set(expectedMappings))) {
+    throw new Error('0132 company credential resource overlay must contain every new endpoint');
+  }
+  const result = [...mappings];
+  for (const addition of additions) {
+    if (result.includes(addition)) {
+      throw new Error(`0132 company credential resource overlay duplicates mapping: ${addition}`);
+    }
+    result.push(addition);
+  }
+  return result;
+}
+
 export async function scanBackendRegisteredAPIs() {
   const internalFiles = await sourceFiles('internal', ['.go']);
   const compositionFiles = await sourceFiles(path.join('cmd', 'mochat-go'), ['.go']);
@@ -664,10 +692,17 @@ async function main() {
   const legacySeededMappings = extractMigrationPermissionResourceMappings(
     await readFile('deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql', 'utf8'),
   );
-  const seededMappings = applyCutoverPermissionResourceOverlay({
+  const cutoverMappings = applyCutoverPermissionResourceOverlay({
     legacyMappings: legacySeededMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0131_identity_realms_single_corp_cutover.up.sql',
+      'utf8',
+    ),
+  });
+  const seededMappings = applyCompanySettingsCredentialResourceOverlay({
+    mappings: cutoverMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0132_company_settings_credentials.up.sql',
       'utf8',
     ),
   });

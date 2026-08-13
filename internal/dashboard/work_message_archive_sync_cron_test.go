@@ -14,7 +14,10 @@ import (
 
 func TestWorkMessageArchiveSyncCronFetchesAndAdvancesCursor(t *testing.T) {
 	store := &fakeWorkMessageArchiveSyncStore{
-		corps:  []WorkMessageArchiveCorp{{CorpID: 7, WXCorpID: "ww-go", ChatSecret: "archive-secret"}},
+		corps: []WorkMessageArchiveCorp{{
+			CorpID: 7, WXCorpID: "ww-go", ChatSecret: "archive-secret",
+			RSAPublicKey: "archive-public", RSAPrivateKey: "archive-private",
+		}},
 		cursor: 10,
 		upserts: map[string]WorkMessageArchiveUpsertResult{
 			"archive-msg-11": {Inserted: true, Resolved: true},
@@ -79,9 +82,11 @@ func TestWorkMessageArchiveBridgeClientPostsAndParsesMessages(t *testing.T) {
 
 	client := NewWorkMessageArchiveBridgeClient(server.URL+"/", "bridge-token")
 	messages, err := client.FetchWorkMessageArchive(context.Background(), WorkMessageArchiveCorp{
-		CorpID:     7,
-		WXCorpID:   "ww-go",
-		ChatSecret: "archive-secret",
+		CorpID:        7,
+		WXCorpID:      "ww-go",
+		ChatSecret:    "archive-secret",
+		RSAPublicKey:  "archive-public",
+		RSAPrivateKey: "archive-private",
 	}, 41, 100)
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +94,8 @@ func TestWorkMessageArchiveBridgeClientPostsAndParsesMessages(t *testing.T) {
 	if requestPath != "/work-message/archive/messages" || authorization != "Bearer bridge-token" {
 		t.Fatalf("request path/auth = %s %s", requestPath, authorization)
 	}
-	if requestBody["wx_corpid"] != "ww-go" || requestBody["chat_secret"] != "archive-secret" {
+	if requestBody["wx_corpid"] != "ww-go" || requestBody["chat_secret"] != "archive-secret" ||
+		requestBody["rsa_public_key"] != "archive-public" || requestBody["rsa_private_key"] != "archive-private" {
 		t.Fatalf("request body = %#v", requestBody)
 	}
 	if len(messages) != 1 {

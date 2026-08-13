@@ -58,6 +58,14 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		profile, callErr := h.service.RotateAgentCredentials(r.Context(), principal, input)
 		h.writeCallResult(w, profile, callErr)
+	case r.Method == http.MethodPut && r.URL.Path == "/dashboard/company/application-credentials":
+		var input ApplicationCredentialsInput
+		if !decodeJSON(r, &input) {
+			writeEnvelope(w, http.StatusBadRequest, CodeInvalidRequest, "invalid request", nil)
+			return
+		}
+		profile, callErr := h.service.ConfigureApplication(r.Context(), principal, input)
+		h.writeCallResult(w, profile, callErr)
 	case r.Method == http.MethodPut && r.URL.Path == "/dashboard/company/archive-credentials":
 		var input ArchiveCredentialsInput
 		if !decodeJSON(r, &input) {
@@ -66,6 +74,25 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		profile, callErr := h.service.RotateArchiveCredentials(r.Context(), principal, input)
 		h.writeCallResult(w, profile, callErr)
+	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/company/callback-configuration":
+		configuration, callErr := h.service.GetCallbackConfiguration(r.Context(), principal)
+		if callErr == nil {
+			configuration.CallbackURL = callbackURLForRequest(r, configuration.CorpID)
+		}
+		writeSecretResponseHeaders(w)
+		h.writeCallResult(w, configuration, callErr)
+	case r.Method == http.MethodPost && r.URL.Path == "/dashboard/company/callback-configuration/regenerate":
+		var input CallbackConfigurationInput
+		if !decodeJSON(r, &input) {
+			writeEnvelope(w, http.StatusBadRequest, CodeInvalidRequest, "invalid request", nil)
+			return
+		}
+		configuration, callErr := h.service.RegenerateCallbackConfiguration(r.Context(), principal, input)
+		if callErr == nil {
+			configuration.CallbackURL = callbackURLForRequest(r, configuration.CorpID)
+		}
+		writeSecretResponseHeaders(w)
+		h.writeCallResult(w, configuration, callErr)
 	case r.Method == http.MethodPost && r.URL.Path == "/dashboard/company/verify":
 		var input VerifyInput
 		if !decodeJSON(r, &input) {
@@ -90,6 +117,29 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeEnvelope(w, http.StatusNotFound, CodeNotFound, "not found", nil)
 	}
+}
+
+func writeSecretResponseHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+}
+
+func callbackURLForRequest(r *http.Request, corpID int) string {
+	scheme := "http"
+	if r != nil && r.TLS != nil {
+		scheme = "https"
+	}
+	if r != nil && r.URL != nil && (r.URL.Scheme == "http" || r.URL.Scheme == "https") {
+		scheme = r.URL.Scheme
+	}
+	host := ""
+	if r != nil {
+		host = strings.TrimSpace(r.Host)
+	}
+	if host == "" || corpID <= 0 {
+		return ""
+	}
+	return scheme + "://" + host + "/weWork/callback?cid=" + strconv.Itoa(corpID)
 }
 
 func (h *HTTPHandler) writeCallResult(w http.ResponseWriter, data any, err error) {

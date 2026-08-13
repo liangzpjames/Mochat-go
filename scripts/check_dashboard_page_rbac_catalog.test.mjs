@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  applyCompanySettingsCredentialResourceOverlay,
   extractBackendRegisteredAPIs,
   extractCutoverPermissionResourceMappings,
   applyCutoverPermissionResourceOverlay,
@@ -341,6 +342,24 @@ test('0131 cutover resource seed replaces the deployed legacy company mappings',
     'dashboard.company_setting.website\tGET /dashboard/company/profile\t0',
     'dashboard.company_setting.website\tPUT /dashboard/company/profile\t0',
   ]);
+});
+
+test('0132 adds the unified application and callback resources without rewriting 0127 or 0131', () => {
+  const existing = ['dashboard.company_setting.website\tGET /dashboard/company/profile\t0'];
+  const result = applyCompanySettingsCredentialResourceOverlay({
+    mappings: existing,
+    overlaySource: `
+      INSERT INTO mochat_go_dashboard_permission_resources
+      SELECT permission.id, resource_seed.http_method, resource_seed.path_pattern
+      FROM mochat_go_dashboard_permissions permission
+      INNER JOIN (
+        SELECT 'PUT', '/dashboard/company/application-credentials'
+        UNION ALL SELECT 'GET', '/dashboard/company/callback-configuration'
+        UNION ALL SELECT 'POST', '/dashboard/company/callback-configuration/regenerate'
+      ) resource_seed
+    `,
+  });
+  assert.equal(result.length, 4);
 });
 
 test('RED: 0131 overlay is required before legacy mappings can be compared', () => {

@@ -1501,7 +1501,22 @@
         },
         {
           "method": "PUT",
+          "pathPattern": "/dashboard/company/application-credentials",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
           "pathPattern": "/dashboard/company/archive-credentials",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/company/callback-configuration",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/company/callback-configuration/regenerate",
           "scopeRequired": false
         },
         {

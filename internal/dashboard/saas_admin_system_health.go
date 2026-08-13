@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0131_identity_realms_single_corp_cutover"
-	SaaSAdminExpectedMigrationCount   = 131
+	SaaSAdminExpectedMigrationVersion = "0132_company_settings_credentials"
+	SaaSAdminExpectedMigrationCount   = 132
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

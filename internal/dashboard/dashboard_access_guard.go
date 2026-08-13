@@ -177,7 +177,9 @@ func isPendingCompanyConfigurationContract(contract string) bool {
 	switch contract {
 	case "GET /dashboard/company/profile", "PUT /dashboard/company/profile",
 		"PUT /dashboard/company/wecom-credentials", "PUT /dashboard/company/agent-credentials",
-		"PUT /dashboard/company/archive-credentials", "POST /dashboard/company/verify",
+		"PUT /dashboard/company/application-credentials", "PUT /dashboard/company/archive-credentials",
+		"GET /dashboard/company/callback-configuration", "POST /dashboard/company/callback-configuration/regenerate",
+		"POST /dashboard/company/verify",
 		"GET /dashboard/company/audits":
 		return true
 	default:

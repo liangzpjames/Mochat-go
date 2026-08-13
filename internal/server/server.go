@@ -4416,7 +4416,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.companyProfile.ServeHTTP(w, r)
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/agent-credentials" && r.Method == http.MethodPut:
 		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/application-credentials" && r.Method == http.MethodPut:
+		s.companyProfile.ServeHTTP(w, r)
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/archive-credentials" && r.Method == http.MethodPut:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/callback-configuration" && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/callback-configuration/regenerate" && r.Method == http.MethodPost:
 		s.companyProfile.ServeHTTP(w, r)
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/verify" && r.Method == http.MethodPost:
 		s.companyProfile.ServeHTTP(w, r)
@@ -5924,7 +5930,10 @@ func (s *Server) migratedRoutes() []string {
 			"PUT /dashboard/company/profile",
 			"PUT /dashboard/company/wecom-credentials",
 			"PUT /dashboard/company/agent-credentials",
+			"PUT /dashboard/company/application-credentials",
 			"PUT /dashboard/company/archive-credentials",
+			"GET /dashboard/company/callback-configuration",
+			"POST /dashboard/company/callback-configuration/regenerate",
 			"POST /dashboard/company/verify",
 			"POST /dashboard/company/employee-sync",
 			"GET /dashboard/company/sync-status",

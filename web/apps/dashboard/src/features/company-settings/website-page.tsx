@@ -10,10 +10,9 @@ import type {
   CompanyAudit,
   CompanyProfile,
   CompanyProfileApi,
+  ConfigureApplicationInput,
   EmployeeSyncSnapshot,
-  RotateAgentCredentialsInput,
   RotateArchiveCredentialsInput,
-  RotateWeComCredentialsInput,
   UpdateCompanyProfileInput,
   VerifyCompanyInput,
 } from './company-profile-api';
@@ -44,18 +43,15 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   const canView = isSuperAdmin ?? access?.profile?.isSuperAdmin ?? false;
   const [displayName, setDisplayName] = useState('');
   const [verifyCorpId, setVerifyCorpId] = useState('');
-  const [employeeSecret, setEmployeeSecret] = useState('');
-  const [contactSecret, setContactSecret] = useState('');
-  const [callbackToken, setCallbackToken] = useState('');
-  const [encodingAESKey, setEncodingAESKey] = useState('');
   const [archiveChatSecret, setArchiveChatSecret] = useState('');
-  const [agentId, setAgentId] = useState('');
+	const [archiveRSAPublicKey, setArchiveRSAPublicKey] = useState('');
+	const [archiveRSAPrivateKey, setArchiveRSAPrivateKey] = useState('');
   const [wxAgentId, setWxAgentId] = useState('');
   const [wxSecret, setWxSecret] = useState('');
   const [operationError, setOperationError] = useState('');
+	const [operationNotice, setOperationNotice] = useState('');
   const requestSequence = useRef(0);
-  const weComInputRef = useRef<RotateWeComCredentialsInput | null>(null);
-  const agentInputRef = useRef<RotateAgentCredentialsInput | null>(null);
+	const applicationInputRef = useRef<ConfigureApplicationInput | null>(null);
   const archiveInputRef = useRef<RotateArchiveCredentialsInput | null>(null);
 
   const profileQuery = useQuery({
@@ -65,6 +61,12 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     retry: false,
   });
   const profile = profileQuery.data;
+	const callbackQuery = useQuery({
+	  queryKey: ['company-callback-configuration'],
+	  queryFn: () => api.getCallbackConfiguration(),
+	  enabled: canView && profile !== undefined,
+	  retry: false,
+	});
   const syncQuery = useQuery({
     queryKey: ['company-sync-status'],
     queryFn: () => api.getSyncStatus(),
@@ -82,6 +84,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     if (profile === undefined) return;
     setDisplayName(profile.displayName);
     setVerifyCorpId(profile.wxCorpId ?? '');
+    setWxAgentId(profile.applicationAgentId ?? '');
   }, [profile]);
 
   const nextRequestId = (kind: string): string => {
@@ -94,11 +97,10 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     void queryClient.invalidateQueries({ queryKey: ['company-sync-status'] });
     void queryClient.invalidateQueries({ queryKey: ['company-audits'] });
     setOperationError('');
-    setEmployeeSecret('');
-    setContactSecret('');
-    setCallbackToken('');
-    setEncodingAESKey('');
+	setOperationNotice('');
     setArchiveChatSecret('');
+	setArchiveRSAPublicKey('');
+	setArchiveRSAPrivateKey('');
     setWxSecret('');
   };
 
@@ -134,36 +136,33 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     onSuccess: refreshProfile,
     onError: (error) => showMutationError(error, '企业资料保存失败，请稍后重试。'),
   });
-  const weComMutation = useMutation({
+	const applicationMutation = useMutation({
     mutationFn: () => {
-      const input = weComInputRef.current;
-      if (input === null) throw new Error('company WeCom input is unavailable');
-      return api.rotateWeComCredentials(input);
+	  const input = applicationInputRef.current;
+	  if (input === null) throw new Error('company application input is unavailable');
+	  return api.configureApplication(input);
     },
     onSuccess: (nextProfile) => {
-      weComInputRef.current = null;
+	  applicationInputRef.current = null;
       refreshProfile(nextProfile);
+	  void queryClient.invalidateQueries({ queryKey: ['company-callback-configuration'] });
     },
     onError: (error) => {
-      weComInputRef.current = null;
-      showMutationError(error, '企业微信配置保存失败，请稍后重试。');
+	  applicationInputRef.current = null;
+	  showMutationError(error, '应用配置保存失败，请稍后重试。');
     },
   });
-  const agentMutation = useMutation({
-    mutationFn: () => {
-      const input = agentInputRef.current;
-      if (input === null) throw new Error('company agent input is unavailable');
-      return api.rotateAgentCredentials(input);
-    },
-    onSuccess: (nextProfile) => {
-      agentInputRef.current = null;
-      refreshProfile(nextProfile);
-    },
-    onError: (error) => {
-      agentInputRef.current = null;
-      showMutationError(error, '应用配置保存失败，请稍后重试。');
-    },
-  });
+	const callbackMutation = useMutation({
+	  mutationFn: (input: { expectedVersion: number; requestId: string }) => api.regenerateCallbackConfiguration(input),
+	  onSuccess: (configuration) => {
+		queryClient.setQueryData(['company-callback-configuration'], configuration);
+		queryClient.setQueryData<CompanyProfile>(['company-profile'], (current) => current === undefined ? current : { ...current, bindingVersion: configuration.bindingVersion });
+		void queryClient.invalidateQueries({ queryKey: ['company-audits'] });
+		setOperationError('');
+		setOperationNotice('回调 Token 和 EncodingAESKey 已重新生成，请及时更新企业微信后台。');
+	  },
+	  onError: (error) => showMutationError(error, '回调配置重新生成失败，请稍后重试。'),
+	});
   const archiveMutation = useMutation({
     mutationFn: () => {
       const input = archiveInputRef.current;
@@ -231,9 +230,10 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 
   const expectedVersion = profile.bindingVersion;
   const hasProfileChanges = displayName.trim() !== '' && displayName.trim() !== profile.displayName;
-  const hasWeComChanges = [employeeSecret, contactSecret, callbackToken, encodingAESKey].some((value) => value !== '');
-  const hasAgentChanges = agentId !== '' || wxAgentId !== '' || wxSecret !== '';
-  const hasArchiveChanges = archiveChatSecret !== '';
+	const hasApplicationChanges = wxAgentId.trim() !== '' && wxSecret.trim() !== '';
+	const hasArchiveChanges = archiveChatSecret.trim() !== '' || archiveRSAPublicKey.trim() !== '' || archiveRSAPrivateKey.trim() !== '';
+	const archiveKeyPairComplete = (archiveRSAPublicKey.trim() === '') === (archiveRSAPrivateKey.trim() === '');
+	const callbackConfiguration = callbackQuery.data;
   const syncStatus = syncQuery.data;
   const syncIsRunning = syncStatus?.status === 'queued' || syncStatus?.status === 'syncing' || syncMutation.isPending;
   const syncConfigurationRequired =
@@ -245,6 +245,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     <Phase35PageShell title="唯一企业资料" description="企业绑定由服务端确定，当前页面不提供新建、切换或删除企业。">
       <div className="phase35-page company-profile-page">
         {operationError && <p className="phase35-notice-error" role="alert">{operationError}</p>}
+		{operationNotice && <p className="company-profile-notice" role="status">{operationNotice}</p>}
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-identity-heading">
           <header className="company-profile-card-header">
@@ -273,65 +274,91 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
           </div>
         </section>
 
-        <section className="phase35-card company-profile-card" aria-labelledby="company-wecom-heading">
-          <header className="company-profile-card-header">
-            <div><p className="company-profile-eyebrow">企业微信与应用</p><h2 id="company-wecom-heading">凭据配置</h2><p>密钥只在输入框中接收并由服务端加密保存，页面不会回显明文或密文。</p></div>
-          </header>
-          <div className="company-credential-status-grid" aria-label="凭据配置状态">
-            <CredentialStatus label="企业微信凭据" configured={profile.credentials.wecom.configured} />
-            <CredentialStatus label="应用凭据" configured={profile.credentials.agent.configured} />
-            <CredentialStatus label="会话存档凭据" configured={profile.credentials.archive.configured} />
-          </div>
-          <div className="company-profile-form-grid">
-            <SecretField label="员工密钥" value={employeeSecret} onChange={setEmployeeSecret} />
-            <SecretField label="客户联系密钥" value={contactSecret} onChange={setContactSecret} />
-            <SecretField label="回调 Token" value={callbackToken} onChange={setCallbackToken} />
-            <SecretField label="EncodingAESKey" value={encodingAESKey} onChange={setEncodingAESKey} />
-          </div>
-          <p className="company-profile-help">留空表示不修改。当前页面只显示“已配置/未配置”，不会填入或展示任何 Secret。</p>
-          <ConfirmAction
-            title="确认保存企业微信凭据？"
-            description={`变更摘要：保存已填写的企业微信字段，空字段不修改；版本 ${expectedVersion}。`}
-            onConfirm={() => {
-              weComInputRef.current = { employeeSecret, contactSecret, callbackToken, encodingAESKey, expectedVersion, requestId: nextRequestId('wecom') };
-              weComMutation.mutate();
-            }}
-          >
-            <button type="button" disabled={!hasWeComChanges || weComMutation.isPending}>保存企业微信凭据</button>
-          </ConfirmAction>
-          <div className="company-profile-form-grid company-profile-agent-fields">
-            <label>AgentID<input inputMode="numeric" value={agentId} onChange={(event) => setAgentId(event.target.value.replace(/[^0-9]/g, ''))} /></label>
-            <label>应用 AgentID<input value={wxAgentId} onChange={(event) => setWxAgentId(event.target.value)} /></label>
-            <SecretField label="应用 Secret" value={wxSecret} onChange={setWxSecret} />
-          </div>
-          <ConfirmAction
-            title="确认保存应用凭据？"
-              description={`变更摘要：按已有应用标识定位并更新 Secret，空 Secret 不修改；版本 ${expectedVersion}。`}
-              onConfirm={() => {
-                const input: RotateAgentCredentialsInput = { expectedVersion, requestId: nextRequestId('agent') };
-                if (agentId !== '') input.agentId = Number(agentId);
-                if (wxAgentId.trim() !== '') input.wxAgentId = wxAgentId.trim();
-                if (wxSecret.trim() !== '') input.wxSecret = wxSecret.trim();
-                agentInputRef.current = input;
-                agentMutation.mutate();
-              }}
-          >
-            <button type="button" disabled={!hasAgentChanges || agentMutation.isPending}>保存应用凭据</button>
-          </ConfirmAction>
-          <div className="company-profile-archive-row">
-            <SecretField label="会话存档 Secret" value={archiveChatSecret} onChange={setArchiveChatSecret} />
-            <ConfirmAction
-              title="确认保存会话存档配置？"
-              description={`变更摘要：更新会话存档 Secret，空 Secret 不修改；版本 ${expectedVersion}。`}
-              onConfirm={() => {
-                archiveInputRef.current = { chatSecret: archiveChatSecret, expectedVersion, requestId: nextRequestId('archive') };
-                archiveMutation.mutate();
-              }}
-            >
-              <button type="button" disabled={!hasArchiveChanges || archiveMutation.isPending}>保存会话存档</button>
-            </ConfirmAction>
-          </div>
-        </section>
+        <section className="phase35-card company-profile-card" aria-labelledby="company-application-heading">
+		  <header className="company-profile-card-header">
+			<div>
+			  <p className="company-profile-eyebrow">企业微信应用</p>
+			  <h2 id="company-application-heading">应用配置</h2>
+			  <p>只需填写一次应用 Secret，服务端会在同一事务中用于通讯录同步、客户同步和应用消息。</p>
+			</div>
+			<CredentialStatus label="应用配置" configured={profile.credentials.wecom.configured && profile.credentials.agent.configured} />
+		  </header>
+		  <div className="company-profile-form-grid company-profile-agent-fields">
+			<label>应用 AgentID<input inputMode="numeric" value={wxAgentId} onChange={(event) => setWxAgentId(event.target.value.replace(/[^0-9]/g, ''))} placeholder="例如：1000010" /></label>
+            <SecretField label="应用 Secret" value={wxSecret} onChange={setWxSecret} placeholder="请输入应用 Secret" />
+		  </div>
+		  <p className="company-profile-help">AgentID 和 Secret 均为必填；Secret 只提交一次，服务端加密保存且不会回显。</p>
+		  <ConfirmAction
+			title="确认保存应用配置？"
+			description={`变更摘要：更新应用 AgentID，并将同一 Secret 用于通讯录、客户联系和应用消息；版本 ${expectedVersion}。`}
+			onConfirm={() => {
+			  applicationInputRef.current = {
+				wxAgentId: wxAgentId.trim(), secret: wxSecret.trim(), expectedVersion, requestId: nextRequestId('application'),
+			  };
+			  applicationMutation.mutate();
+			}}
+		  >
+			<button type="button" disabled={!hasApplicationChanges || applicationMutation.isPending}>保存应用配置</button>
+		  </ConfirmAction>
+		</section>
+
+		<section className="phase35-card company-profile-card" aria-labelledby="company-callback-heading">
+		  <header className="company-profile-card-header">
+			<div>
+			  <p className="company-profile-eyebrow">设置 API 接收</p>
+			  <h2 id="company-callback-heading">回调配置</h2>
+			  <p>以下值由系统生成，请复制到企业微信应用的“设置 API 接收”中。</p>
+			</div>
+			{callbackConfiguration && <CredentialStatus label="回调配置" configured={callbackConfiguration.configured} />}
+		  </header>
+		  {callbackQuery.isPending ? <PageState state="loading" /> : callbackQuery.isError ? (
+			<div className="company-inline-error"><span>回调配置读取失败。</span><button type="button" onClick={() => void callbackQuery.refetch()}>重试</button></div>
+		  ) : callbackConfiguration === undefined ? <PageState state="empty" title="尚未生成回调配置" /> : (
+			<div className="company-readonly-config" aria-label="回调配置（系统生成，只读）">
+			  <ReadonlyCopyField label="回调 URL" value={callbackConfiguration.callbackUrl} onCopied={() => setOperationNotice('回调 URL 已复制。')} />
+			  <ReadonlyCopyField label="Token" value={callbackConfiguration.token} onCopied={() => setOperationNotice('Token 已复制。')} />
+			  <ReadonlyCopyField label="EncodingAESKey" value={callbackConfiguration.encodingAESKey} onCopied={() => setOperationNotice('EncodingAESKey 已复制。')} />
+			</div>
+		  )}
+		  <ConfirmAction
+			title="确认重新生成回调配置？"
+			description="重新生成后，旧 Token 和 EncodingAESKey 立即失效，必须同步更新企业微信后台。"
+			onConfirm={() => callbackMutation.mutate({ expectedVersion, requestId: nextRequestId('callback') })}
+		  >
+			<button type="button" disabled={callbackQuery.isPending || callbackMutation.isPending}>重新生成回调配置</button>
+		  </ConfirmAction>
+		</section>
+
+		<section className="phase35-card company-profile-card" aria-labelledby="company-archive-heading">
+		  <header className="company-profile-card-header">
+			<div>
+			  <p className="company-profile-eyebrow">会话内容存档</p>
+			  <h2 id="company-archive-heading">会话存档配置</h2>
+			  <p>会话存档需要 Secret 与匹配的 RSA 公私钥；服务端验证密钥对后加密保存。</p>
+			</div>
+			<CredentialStatus label="会话存档" configured={profile.credentials.archive.configured} />
+		  </header>
+		  <div className="company-profile-archive-fields">
+			<SecretField label="会话存档 Secret" value={archiveChatSecret} onChange={setArchiveChatSecret} />
+			<PEMField label="会话存档 RSA 公钥" value={archiveRSAPublicKey} onChange={setArchiveRSAPublicKey} placeholder="-----BEGIN PUBLIC KEY-----" />
+			<PEMField label="会话存档 RSA 私钥" value={archiveRSAPrivateKey} onChange={setArchiveRSAPrivateKey} placeholder="-----BEGIN RSA PRIVATE KEY-----" />
+		  </div>
+		  <p className="company-profile-help">更新 RSA 密钥时，公钥和私钥必须同时填写且相互匹配；私钥不会回显。</p>
+		  <ConfirmAction
+			title="确认保存会话存档配置？"
+			description={`变更摘要：更新已填写的会话存档 Secret/RSA 密钥对；版本 ${expectedVersion}。`}
+			onConfirm={() => {
+			  const input: RotateArchiveCredentialsInput = { expectedVersion, requestId: nextRequestId('archive') };
+			  if (archiveChatSecret.trim() !== '') input.chatSecret = archiveChatSecret.trim();
+			  if (archiveRSAPublicKey.trim() !== '') input.rsaPublicKey = archiveRSAPublicKey.trim();
+			  if (archiveRSAPrivateKey.trim() !== '') input.rsaPrivateKey = archiveRSAPrivateKey.trim();
+			  archiveInputRef.current = input;
+			  archiveMutation.mutate();
+			}}
+		  >
+			<button type="button" disabled={!hasArchiveChanges || !archiveKeyPairComplete || archiveMutation.isPending}>保存会话存档</button>
+		  </ConfirmAction>
+		</section>
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-verify-heading">
           <header className="company-profile-card-header">
@@ -389,8 +416,63 @@ function CredentialStatus({ label, configured }: { label: string; configured: bo
   return <div className="company-credential-status"><span>{label}</span><strong>{configured ? '已配置（加密保存）' : '未配置'}</strong></div>;
 }
 
-function SecretField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label>{label}<input type="password" autoComplete="new-password" value={value} onChange={(event) => onChange(event.target.value)} placeholder="留空表示不修改" /></label>;
+function SecretField({
+  label,
+  value,
+  onChange,
+  placeholder = '留空表示不修改',
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label>
+      {label}
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function PEMField({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
+	return <label>{label}<textarea autoComplete="off" spellCheck={false} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>;
+}
+
+function ReadonlyCopyField({ label, value, onCopied }: { label: string; value: string; onCopied: () => void }) {
+  const copy = async () => {
+    if (value === '') return;
+    if (navigator.clipboard !== undefined) {
+      await navigator.clipboard.writeText(value);
+      onCopied();
+      return;
+    }
+    const input = document.createElement('textarea');
+    input.value = value;
+    input.setAttribute('readonly', '');
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    document.body.append(input);
+    input.select();
+    const copied = document.execCommand('copy');
+    input.remove();
+    if (copied) onCopied();
+  };
+	return (
+		<label>
+			<span>{label}</span>
+			<div className="company-readonly-field">
+				<input value={value || '尚未生成'} readOnly aria-label={label} />
+				<button type="button" onClick={() => void copy()} disabled={value === ''} aria-label={`复制${label}`}>复制</button>
+			</div>
+		</label>
+	);
 }
 
 function AuditList({ items }: { items: CompanyAudit[] }) {

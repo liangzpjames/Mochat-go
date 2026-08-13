@@ -13,6 +13,7 @@ func TestManagerEncryptsCorpAndAgentCredentialsWithBoundContext(t *testing.T) {
 	}
 	corpCiphertext, keyID, err := manager.EncryptCorp(7, "ww-corp", CorpCredential{
 		EmployeeSecret: "employee", ContactSecret: "contact", CallbackToken: "token", EncodingAESKey: "aes", ChatSecret: "archive",
+		ArchiveRSAPublicKey: "public-pem", ArchiveRSAPrivateKey: "private-pem",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +22,7 @@ func TestManagerEncryptsCorpAndAgentCredentialsWithBoundContext(t *testing.T) {
 		t.Fatalf("corp ciphertext leaked plaintext or key mismatch: key=%q value=%q", keyID, corpCiphertext)
 	}
 	corp, err := manager.DecryptCorp(7, "ww-corp", keyID, corpCiphertext)
-	if err != nil || corp.ContactSecret != "contact" || corp.ChatSecret != "archive" {
+	if err != nil || corp.ContactSecret != "contact" || corp.ChatSecret != "archive" || corp.ArchiveRSAPublicKey != "public-pem" || corp.ArchiveRSAPrivateKey != "private-pem" {
 		t.Fatalf("corp credential=%+v err=%v", corp, err)
 	}
 	if _, err := manager.DecryptCorp(8, "ww-corp", keyID, corpCiphertext); err == nil || !strings.Contains(err.Error(), "authentication failed") {

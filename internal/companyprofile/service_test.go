@@ -2,7 +2,12 @@ package companyprofile
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +37,9 @@ type companyProfileContractStore struct {
 	rotateCorpCalls      int
 	rotateAgentCalls     int
 	rotateArchiveCalls   int
+	configureAppCalls    int
+	callbackReadCalls    int
+	callbackRotateCalls  int
 	syncCalls            int
 	queueCalls           int
 	failureCalls         int
@@ -40,6 +48,9 @@ type companyProfileContractStore struct {
 	syncState            string
 	lastWeComInput       WeComCredentialsInput
 	lastAgentInput       AgentCredentialsInput
+	lastApplicationInput ApplicationCredentialsInput
+	lastArchiveInput     ArchiveCredentialsInput
+	lastCallbackInput    CallbackConfigurationInput
 	rotateAgentErr       error
 	profile              Profile
 	verificationSnapshot VerificationSnapshot
@@ -83,6 +94,23 @@ func (s *companyProfileContractStore) RotateAgentCredentials(_ context.Context, 
 func (s *companyProfileContractStore) RotateArchiveCredentials(context.Context, dashboardprincipal.DashboardPrincipal, ArchiveCredentialsInput) (Profile, error) {
 	s.rotateArchiveCalls++
 	return s.profile, nil
+}
+
+func (s *companyProfileContractStore) ConfigureApplication(_ context.Context, _ dashboardprincipal.DashboardPrincipal, input ApplicationCredentialsInput) (Profile, error) {
+	s.configureAppCalls++
+	s.lastApplicationInput = input
+	return s.profile, nil
+}
+
+func (s *companyProfileContractStore) GetCallbackConfiguration(context.Context, dashboardprincipal.DashboardPrincipal) (CallbackConfiguration, error) {
+	s.callbackReadCalls++
+	return CallbackConfiguration{CorpID: 303, Token: "callback-token", EncodingAESKey: strings.Repeat("a", 43)}, nil
+}
+
+func (s *companyProfileContractStore) RegenerateCallbackConfiguration(_ context.Context, _ dashboardprincipal.DashboardPrincipal, input CallbackConfigurationInput) (CallbackConfiguration, error) {
+	s.callbackRotateCalls++
+	s.lastCallbackInput = input
+	return CallbackConfiguration{CorpID: 303, Token: input.Token, EncodingAESKey: input.EncodingAESKey}, nil
 }
 
 func (s *companyProfileContractStore) ListAudits(context.Context, dashboardprincipal.DashboardPrincipal, AuditFilter) (AuditPage, error) {
@@ -287,6 +315,88 @@ func TestServiceRejectsAgentRotationWithoutIdentifierOrChange(t *testing.T) {
 	}
 }
 
+func TestServiceConfiguresOneApplicationSecretForAllCredentialConsumers(t *testing.T) {
+	store := &companyProfileContractStore{profile: Profile{BindingVersion: 8}}
+	service := NewService(store, &companyProfileTestVerifier{})
+
+	profile, err := service.ConfigureApplication(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive), ApplicationCredentialsInput{
+		WXAgentID: "1000010", Secret: "shared-application-secret", ExpectedVersion: 7, RequestID: "configure-application",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.BindingVersion != 8 || store.configureAppCalls != 1 {
+		t.Fatalf("profile=%+v calls=%d", profile, store.configureAppCalls)
+	}
+	if store.lastApplicationInput.WXAgentID != "1000010" || store.lastApplicationInput.Secret != "shared-application-secret" {
+		t.Fatalf("application input=%+v", store.lastApplicationInput)
+	}
+}
+
+func TestServiceRejectsIncompleteApplicationConfiguration(t *testing.T) {
+	store := &companyProfileContractStore{}
+	service := NewService(store, &companyProfileTestVerifier{})
+	principal := companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive)
+
+	for _, input := range []ApplicationCredentialsInput{
+		{Secret: "secret", ExpectedVersion: 1},
+		{WXAgentID: "1000010", ExpectedVersion: 1},
+		{WXAgentID: "not-numeric", Secret: "secret", ExpectedVersion: 1},
+	} {
+		if _, err := service.ConfigureApplication(context.Background(), principal, input); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("input=%+v error=%v, want ErrInvalidRequest", input, err)
+		}
+	}
+	if store.configureAppCalls != 0 {
+		t.Fatalf("configure calls=%d, want 0", store.configureAppCalls)
+	}
+}
+
+func TestServiceGeneratesValidCallbackConfiguration(t *testing.T) {
+	store := &companyProfileContractStore{}
+	service := NewService(store, &companyProfileTestVerifier{})
+	principal := companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive)
+
+	configuration, err := service.RegenerateCallbackConfiguration(context.Background(), principal, CallbackConfigurationInput{
+		ExpectedVersion: 9, RequestID: "rotate-callback",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.callbackRotateCalls != 1 || len(configuration.Token) != 32 || len(configuration.EncodingAESKey) != 43 {
+		t.Fatalf("configuration=%+v calls=%d", configuration, store.callbackRotateCalls)
+	}
+	if _, err := base64.RawStdEncoding.DecodeString(configuration.EncodingAESKey); err != nil {
+		t.Fatalf("EncodingAESKey is not valid unpadded base64: %v", err)
+	}
+}
+
+func TestServiceArchiveConfigurationRequiresMatchingRSAKeyPair(t *testing.T) {
+	publicKey, privateKey := companyProfileRSAKeyPair(t)
+	store := &companyProfileContractStore{profile: Profile{BindingVersion: 2}}
+	service := NewService(store, &companyProfileTestVerifier{})
+	principal := companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive)
+
+	_, err := service.RotateArchiveCredentials(context.Background(), principal, ArchiveCredentialsInput{
+		ChatSecret: stringPointer("archive-secret"), RSAPublicKey: &publicKey, RSAPrivateKey: &privateKey,
+		ExpectedVersion: 1, RequestID: "archive-rsa",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.rotateArchiveCalls != 1 {
+		t.Fatalf("archive calls=%d, want 1", store.rotateArchiveCalls)
+	}
+
+	otherPublic, _ := companyProfileRSAKeyPair(t)
+	_, err = service.RotateArchiveCredentials(context.Background(), principal, ArchiveCredentialsInput{
+		RSAPublicKey: &otherPublic, RSAPrivateKey: &privateKey, ExpectedVersion: 1,
+	})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("mismatched RSA error=%v, want ErrInvalidRequest", err)
+	}
+}
+
 func TestServiceEmployeeSyncRequiresVerifiedBinding(t *testing.T) {
 	store := &companyProfileContractStore{verificationSnapshot: VerificationSnapshot{BindingVersion: 1}}
 	scheduler := &companyProfileTestScheduler{}
@@ -427,6 +537,77 @@ func TestHTTPEmployeeSyncQueuesBindingScopedJobAndRejectsClientRealmFields(t *te
 	}
 }
 
+func TestHTTPApplicationConfigurationAcceptsOnlyAgentIDAndOneSecret(t *testing.T) {
+	store := &companyProfileContractStore{profile: Profile{BindingVersion: 2}}
+	handler := NewHTTPHandler(NewService(store, &companyProfileTestVerifier{}))
+	request := httptest.NewRequest(http.MethodPut, "/dashboard/company/application-credentials", strings.NewReader(`{"wxAgentId":"1000010","secret":"shared-secret","expectedVersion":1,"requestId":"app-config"}`))
+	request = request.WithContext(dashboardprincipal.WithPrincipal(request.Context(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive)))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || store.configureAppCalls != 1 || strings.Contains(response.Body.String(), "shared-secret") {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, store.configureAppCalls, response.Body.String())
+	}
+	badRequest := httptest.NewRequest(http.MethodPut, "/dashboard/company/application-credentials", strings.NewReader(`{"wxAgentId":"1000010","secret":"shared-secret","employeeSecret":"forbidden","expectedVersion":1}`))
+	badRequest = badRequest.WithContext(request.Context())
+	badResponse := httptest.NewRecorder()
+	handler.ServeHTTP(badResponse, badRequest)
+	if badResponse.Code != http.StatusBadRequest || store.configureAppCalls != 1 {
+		t.Fatalf("bad status=%d calls=%d body=%s", badResponse.Code, store.configureAppCalls, badResponse.Body.String())
+	}
+}
+
+func TestHTTPCallbackConfigurationBuildsRequestHostURLAndDisablesCaching(t *testing.T) {
+	store := &companyProfileContractStore{}
+	handler := NewHTTPHandler(NewService(store, &companyProfileTestVerifier{}))
+	request := httptest.NewRequest(http.MethodGet, "http://139.196.34.133/dashboard/company/callback-configuration", nil)
+	request = request.WithContext(dashboardprincipal.WithPrincipal(request.Context(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive)))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"callbackUrl":"http://139.196.34.133/weWork/callback?cid=303"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Pragma") != "no-cache" {
+		t.Fatalf("cache headers=%v", response.Header())
+	}
+}
+
+func TestHTTPCallbackRegenerationRejectsClientProvidedSecrets(t *testing.T) {
+	store := &companyProfileContractStore{}
+	handler := NewHTTPHandler(NewService(store, &companyProfileTestVerifier{}))
+	principalContext := dashboardprincipal.WithPrincipal(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive))
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/company/callback-configuration/regenerate", strings.NewReader(`{"expectedVersion":9,"requestId":"rotate-callback"}`)).WithContext(principalContext)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || store.callbackRotateCalls != 1 || !strings.Contains(response.Body.String(), store.lastCallbackInput.Token) || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, store.callbackRotateCalls, response.Body.String())
+	}
+	badRequest := httptest.NewRequest(http.MethodPost, "/dashboard/company/callback-configuration/regenerate", strings.NewReader(`{"expectedVersion":9,"token":"client-token"}`)).WithContext(principalContext)
+	badResponse := httptest.NewRecorder()
+	handler.ServeHTTP(badResponse, badRequest)
+	if badResponse.Code != http.StatusBadRequest || store.callbackRotateCalls != 1 {
+		t.Fatalf("bad status=%d calls=%d body=%s", badResponse.Code, store.callbackRotateCalls, badResponse.Body.String())
+	}
+}
+
 func stringPointer(value string) *string {
 	return &value
+}
+
+func companyProfileRSAKeyPair(t *testing.T) (string, string) {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER})
+	privatePEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	return string(publicPEM), string(privatePEM)
 }

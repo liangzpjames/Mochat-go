@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  applyCompanySettingsCredentialResourceOverlay,
   applyCutoverPermissionResourceOverlay,
   scanBackendRegisteredAPIs,
   scanFrontendAPIUsages,
@@ -64,9 +65,16 @@ export async function runCompletionGate(root = process.cwd()) {
     path.join(root, 'deploy/standalone/migrations/0131_identity_realms_single_corp_cutover.up.sql'),
     'utf8',
   );
-  const seededMappings = applyCutoverPermissionResourceOverlay({
+  const cutoverMappings = applyCutoverPermissionResourceOverlay({
     legacyMappings: legacySeededMappings,
     overlaySource,
+  });
+  const seededMappings = applyCompanySettingsCredentialResourceOverlay({
+    mappings: cutoverMappings,
+    overlaySource: await readFile(
+      path.join(root, 'deploy/standalone/migrations/0132_company_settings_credentials.up.sql'),
+      'utf8',
+    ),
   });
   const frontend = await scanFrontendAPIUsages();
   const backend = (await scanBackendRegisteredAPIs()).filter((route) => {

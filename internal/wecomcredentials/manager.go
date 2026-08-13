@@ -30,11 +30,13 @@ type Config struct {
 }
 
 type CorpCredential struct {
-	EmployeeSecret string `json:"employeeSecret"`
-	ContactSecret  string `json:"contactSecret"`
-	CallbackToken  string `json:"callbackToken"`
-	EncodingAESKey string `json:"encodingAesKey"`
-	ChatSecret     string `json:"chatSecret"`
+	EmployeeSecret       string `json:"employeeSecret"`
+	ContactSecret        string `json:"contactSecret"`
+	CallbackToken        string `json:"callbackToken"`
+	EncodingAESKey       string `json:"encodingAesKey"`
+	ChatSecret           string `json:"chatSecret"`
+	ArchiveRSAPublicKey  string `json:"archiveRsaPublicKey,omitempty"`
+	ArchiveRSAPrivateKey string `json:"archiveRsaPrivateKey,omitempty"`
 }
 
 type AgentCredential struct {
@@ -228,6 +230,8 @@ func normalizeCorpCredential(value CorpCredential) CorpCredential {
 	value.CallbackToken = strings.TrimSpace(value.CallbackToken)
 	value.EncodingAESKey = strings.TrimSpace(value.EncodingAESKey)
 	value.ChatSecret = strings.TrimSpace(value.ChatSecret)
+	value.ArchiveRSAPublicKey = strings.TrimSpace(value.ArchiveRSAPublicKey)
+	value.ArchiveRSAPrivateKey = strings.TrimSpace(value.ArchiveRSAPrivateKey)
 	return value
 }
 
