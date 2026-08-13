@@ -153,3 +153,29 @@ git diff --check                                    exit 0
 - 本任务按约束只完成非 Docker 的静态门禁与 jsdom 单元测试；未连接真实 Go、企业微信 OAuth、数据库，也未做浏览器 390px/桌面矩阵，因此不宣称真实 OAuth 或生产业务闭环已验收。
 - 其余 9 条 Operation 历史路由仅完成显式接管和诚实待迁移状态，不代表业务功能已迁移。
 - `rewardLabel` 类型修正是依据当前 Go 源码合同；若后端未来新增受信任的奖励展示名称，应另行扩展合同和测试，而不是由前端推断。
+
+## 8. Review 安全修复：奖励 URL allowlist
+
+Task 3 review 发现 Important 问题：原 adapter 将非空 `gift_url` 原样交给页面 `href`，未阻止 `javascript:`、`data:` 或其他不受信任 scheme。
+
+按 TDD 新增 13 个 URL 合同用例，RED 为：
+
+```text
+TypeError: safeRewardUrl is not a function
+Test Files 1 failed | 4 passed
+Tests 13 failed | 32 passed
+```
+
+随后在 `work-fission-api.ts` feature boundary 实现无 React runtime 依赖的 `safeRewardUrl`：
+
+- 允许有效 `https://`、`http://` URL。
+- 允许单斜杠开头的同源绝对路径，例如 `/static/rewards/gift.png`。
+- 空值、protocol-relative `//evil.example`、`javascript:`、`data:`、custom scheme、反斜线、控制字符、编码反斜线及畸形 URL 均返回 `null`。
+- adapter 只把 `safeRewardUrl(task.gift_url)` 放入稳定模型，因此页面仅会为 allowlist URL 生成链接。
+
+GREEN：
+
+```text
+src/features/work-fission/work-fission-page.test.tsx: 28 passed
+Operation total: 5 files, 45 tests passed
+```

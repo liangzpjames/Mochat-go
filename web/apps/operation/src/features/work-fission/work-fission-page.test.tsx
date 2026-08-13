@@ -3,7 +3,7 @@ import { MobileApiError } from '@mochat/mobile-foundation';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { loadWorkFissionProgress } from './work-fission-api';
+import { loadWorkFissionProgress, safeRewardUrl } from './work-fission-api';
 import { WorkFissionPage } from './work-fission-page';
 
 afterEach(cleanup);
@@ -58,6 +58,29 @@ describe('Operation work-fission parameters', () => {
 });
 
 describe('Operation work-fission task progress', () => {
+  it.each([
+    ['https://gift.example/reward', 'https://gift.example/reward'],
+    ['http://gift.example/reward', 'http://gift.example/reward'],
+    ['/static/rewards/gift.png', '/static/rewards/gift.png'],
+    ['  /static/rewards/gift.png  ', '/static/rewards/gift.png'],
+  ])('allows a controlled reward URL: %s', (raw, expected) => {
+    expect(safeRewardUrl(raw)).toBe(expected);
+  });
+
+  it.each([
+    '',
+    '//evil.example/reward',
+    'javascript:alert(1)',
+    'JaVaScRiPt:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'custom://reward',
+    '\\evil.example\\reward',
+    '/static\\reward.png',
+    'https://[invalid',
+  ])('rejects an unsafe reward URL: %s', (raw) => {
+    expect(safeRewardUrl(raw)).toBeNull();
+  });
+
   it('requests the real taskData path and adapts the raw Go task fields', async () => {
     const request = vi.fn().mockResolvedValue(rawProgress);
 

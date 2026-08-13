@@ -69,6 +69,40 @@ function isRawProgress(value: unknown): value is RawWorkFissionProgress {
   );
 }
 
+export function safeRewardUrl(raw: string): string | null {
+  const value = raw.trim();
+  const hasControlCharacter = Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || codePoint === 0x7f;
+  });
+  if (
+    value === ''
+    || value.startsWith('//')
+    || value.includes('\\')
+    || hasControlCharacter
+  ) {
+    return null;
+  }
+
+  if (value.startsWith('/')) {
+    try {
+      const decodedPath = decodeURIComponent(value.split(/[?#]/, 1)[0] ?? '');
+      if (decodedPath.includes('\\')) return null;
+      new URL(value, 'https://operation.internal');
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadWorkFissionProgress(
   request: WorkFissionRequest,
   params: { unionId: string; fissionId: number },
@@ -100,7 +134,7 @@ export async function loadWorkFissionProgress(
       received: task.receive_status === 1,
       reward: {
         type: task.gift_type,
-        url: task.gift_url.trim() === '' ? null : task.gift_url,
+        url: safeRewardUrl(task.gift_url),
       },
     })),
   };
