@@ -26,7 +26,7 @@ const operationCases = [
   { path: '/fissionSpeed', title: '群裂变进度', moduleLabel: '群裂变进度模块待迁移', expectsAction: false },
   { path: '/roomInfinitePull', title: '无限拉群', moduleLabel: '无限拉群模块待迁移', expectsAction: false },
   { path: '/shopCode', title: '门店活码', moduleLabel: '门店活码模块待迁移', expectsAction: false },
-  { path: '/workFission', title: '任务宝活动', moduleLabel: '任务 1：邀请 3 位好友', expectsAction: false, query: '?union_id=union-browser-1&fission_id=17' },
+  { path: '/workFission', title: '任务宝活动', moduleLabel: '任务 1：邀请 3 位好友', expectsAction: false, query: '?id=17' },
   { path: '/speed', title: '任务宝进度', moduleLabel: '任务宝进度模块待迁移', expectsAction: false, query: '?union_id=union-browser-1&fission_id=17' },
 ] as const;
 
@@ -38,6 +38,7 @@ const viewports = [
 const browserContract = {
   fixtures: {
     contact: '**/sidebar/workContact/detail?*',
+    openUserInfo: '**/operation/openUserInfo/workFission?*',
     taskData: '**/operation/workFission/taskData?*',
   },
   minimumActionHeight: 44,
@@ -65,6 +66,13 @@ const rawTaskData = {
   ],
 };
 
+const rawWorkFissionParticipant = {
+  openid: 'openid-browser-1',
+  unionid: 'union-browser-session-1',
+  nickname: '浏览器会话参与者',
+  headimgurl: 'https://avatar.example/browser-session-1.png',
+};
+
 type BrowserAudit = {
   consoleErrors: string[];
   pageErrors: string[];
@@ -72,7 +80,9 @@ type BrowserAudit = {
   unexpectedResponses: string[];
   unexpectedRequests: string[];
   contactRequests: string[];
+  workFissionParticipantRequests: string[];
   workFissionRequests: string[];
+  participantData: unknown;
 };
 
 function mountedURL(mount: '/sidebar-app' | '/operation-app', path: string, query = ''): string {
@@ -91,7 +101,9 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
     unexpectedResponses: [],
     unexpectedRequests: [],
     contactRequests: [],
+    workFissionParticipantRequests: [],
     workFissionRequests: [],
+    participantData: rawWorkFissionParticipant,
   };
 
   page.on('console', (message) => {
@@ -139,6 +151,15 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
       status: 200,
       contentType: 'application/json',
       body: rawGoEnvelope(rawTaskData, 'operation-e2e-request-1'),
+    });
+  });
+  await page.route(browserContract.fixtures.openUserInfo, async (route) => {
+    audit.workFissionParticipantRequests.push(route.request().url());
+    expect(route.request().headers().authorization).toBeUndefined();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: rawGoEnvelope(audit.participantData, 'operation-participant-e2e-request-1'),
     });
   });
   return audit;
@@ -216,9 +237,27 @@ for (const viewport of viewports) {
         await page.goto(mountedURL('/operation-app', routeCase.path, 'query' in routeCase ? routeCase.query : ''));
         await assertVisiblePage(page, routeCase.title, routeCase.moduleLabel, routeCase.expectsAction);
         expect(audit.workFissionRequests).toHaveLength(routeCase.path === '/workFission' ? 1 : 0);
+        expect(audit.workFissionParticipantRequests).toHaveLength(
+          routeCase.path === '/workFission' ? 1 : 0,
+        );
         if (routeCase.path === '/workFission') {
           await expect(page.getByText('已邀请 2 位好友', { exact: true })).toBeVisible();
           await expect(page.getByText('距下一任务还差 1 位', { exact: true })).toBeVisible();
+          expect(new URL(audit.workFissionParticipantRequests[0] ?? '').searchParams.get('id')).toBe('17');
+          expect(new URL(audit.workFissionRequests[0] ?? '').searchParams.get('union_id')).toBe(
+            'union-browser-session-1',
+          );
+
+          audit.participantData = [];
+          await page.goto('/operation-app/workFission?id=17&union_id=attacker-controlled');
+          const authLink = page.getByRole('link', { name: '重新授权' });
+          await expect(authLink).toBeVisible();
+          await expect(authLink).toHaveAttribute(
+            'href',
+            '/auth/workFission?id=17&target=%2FworkFission%3Fid%3D17%26union_id%3Dattacker-controlled',
+          );
+          expect(audit.workFissionParticipantRequests).toHaveLength(2);
+          expect(audit.workFissionRequests).toHaveLength(1);
         }
         await assertStableCleanAudit(page, audit, `${viewport.name} Operation ${routeCase.path}`);
       });

@@ -33,8 +33,8 @@ const routeDefinitions = {
   '/fissionSpeed': { moduleKey: 'room-fission-progress', activityKind: null, requiredParams: [], requiresActivitySession: false },
   '/roomInfinitePull': { moduleKey: 'room-infinite-pull-activity', activityKind: null, requiredParams: [], requiresActivitySession: false },
   '/shopCode': { moduleKey: 'shop-code-activity', activityKind: null, requiredParams: [], requiresActivitySession: false },
-  '/workFission': { moduleKey: 'work-fission-activity', activityKind: 'workFission', requiredParams: ['union_id', 'fission_id'], requiresActivitySession: true },
-  '/speed': { moduleKey: 'work-fission-progress', activityKind: 'workFission', requiredParams: ['union_id', 'fission_id'], requiresActivitySession: true },
+  '/workFission': { moduleKey: 'work-fission-activity', activityKind: 'workFission', requiredParams: ['id'], requiresActivitySession: true },
+  '/speed': { moduleKey: 'work-fission-progress', activityKind: null, requiredParams: [], requiresActivitySession: false },
 } as const satisfies Record<string, {
   moduleKey: OperationModuleKey;
   activityKind: 'workFission' | null;

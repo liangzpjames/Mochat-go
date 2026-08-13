@@ -58,7 +58,7 @@ function registry(name, paths) {
 }
 
 function routeCases(name, paths) {
-  return `const ${name}Cases = [\n${paths.map((path) => `  { path: ${JSON.stringify(path)}, title: ${JSON.stringify(`${name}-${path}`)}, expectsAction: ${name === 'sidebar' && path === '/login'} },`).join('\n')}\n] as const;`;
+  return `const ${name}Cases = [\n${paths.map((path) => `  { path: ${JSON.stringify(path)}, title: ${JSON.stringify(`${name}-${path}`)}, expectsAction: ${name === 'sidebar' && path === '/login'}${name === 'operation' && path === '/workFission' ? ", query: '?id=17'" : ''} },`).join('\n')}\n] as const;`;
 }
 
 function validE2E() {
@@ -73,6 +73,7 @@ const viewports = [
 const browserContract = {
   fixtures: {
     contact: '**/sidebar/workContact/detail?*',
+    openUserInfo: '**/operation/openUserInfo/workFission?*',
     taskData: '**/operation/workFission/taskData?*',
   },
   minimumActionHeight: 44,
@@ -84,12 +85,16 @@ const rawTaskData = {
   end_time: 0,
   task: [{ count: 3, status: 0, receive_status: 0, gift_type: 1, gift_url: '/reward' }],
 };
+const rawWorkFissionParticipant = {
+  openid: 'openid-fixture', unionid: 'union-fixture-session', nickname: 'Fixture Participant', headimgurl: '',
+};
 function rawGoEnvelope(data, requestId) {
   return JSON.stringify({ code: 200, msg: 'ok', data, requestId });
 }
 async function installRawGoFixtures(page) {
   const audit = {
     consoleErrors: [], pageErrors: [], requestFailures: [], unexpectedResponses: [], unexpectedRequests: [],
+    participantData: rawWorkFissionParticipant, workFissionParticipantRequests: [], workFissionRequests: [],
   };
   page.on('console', (message) => { if (message.type() === 'error') audit.consoleErrors.push(message.text()); });
   page.on('pageerror', (error) => audit.pageErrors.push(error.message));
@@ -101,7 +106,12 @@ async function installRawGoFixtures(page) {
     await route.fulfill({ status: 200, contentType: 'application/json', body: rawGoEnvelope(rawContactData, 'contact-request') });
   });
   await page.route(browserContract.fixtures.taskData, async (route) => {
+    audit.workFissionRequests.push(route.request().url());
     await route.fulfill({ status: 200, contentType: 'application/json', body: rawGoEnvelope(rawTaskData, 'task-request') });
+  });
+  await page.route(browserContract.fixtures.openUserInfo, async (route) => {
+    audit.workFissionParticipantRequests.push(route.request().url());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: rawGoEnvelope(audit.participantData, 'participant-request') });
   });
   return audit;
 }
@@ -136,8 +146,15 @@ for (const viewport of viewports) {
     test(\`${'${viewport.name}'} Sidebar ${'${routeCase.path}'}\`, async ({ page }) => {
       const audit = await installRawGoFixtures(page);
       await page.setViewportSize(viewport);
-      await page.goto(routeCase.path);
+      await page.goto(routeCase.path + ('query' in routeCase ? routeCase.query : ''));
       await assertVisiblePage(page, routeCase, routeCase.expectsAction);
+      if (routeCase.path === '/workFission') {
+        expect(new URL(audit.workFissionParticipantRequests[0]).searchParams.get('id')).toBe('17');
+        expect(new URL(audit.workFissionRequests[0]).searchParams.get('union_id')).toBe('union-fixture-session');
+        audit.participantData = [];
+        await page.goto('/workFission?id=17&union_id=attacker-controlled');
+        await expect(page.getByRole('link', { name: '重新授权' })).toHaveAttribute('href', '/auth/workFission?id=17&target=%2FworkFission%3Fid%3D17%26union_id%3Dattacker-controlled');
+      }
       await assertStableCleanAudit(page, audit);
     });
   }
@@ -302,6 +319,46 @@ test('rejects a missing taskData raw Go envelope independently', (t) => {
     validE2E().replace("body: rawGoEnvelope(rawTaskData, 'task-request')", "body: JSON.stringify({ taskData: rawTaskData })"),
   );
   expectDefect(root, /taskData.*raw Go envelope/i);
+});
+
+test('rejects a missing openUserInfo raw Go envelope independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("body: rawGoEnvelope(audit.participantData, 'participant-request')", "body: JSON.stringify({ participant: audit.participantData })"),
+  );
+  expectDefect(root, /openUserInfo.*raw Go envelope/i);
+});
+
+test('rejects the legacy union_id work-fission entry independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("query: '?id=17'", "query: '?union_id=url-user&fission_id=17'"),
+  );
+  expectDefect(root, /workFission.*positive id.*entry/i);
+});
+
+test('rejects a work-fission fixture without session-derived taskData identity proof', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("expect(new URL(audit.workFissionRequests[0]).searchParams.get('union_id')).toBe('union-fixture-session');", ''),
+  );
+  expectDefect(root, /taskData.*session.*unionid/i);
+});
+
+test('rejects a work-fission fixture without raw empty-session OAuth proof', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace('        audit.participantData = [];\n', ''),
+  );
+  expectDefect(root, /empty.*participant.*OAuth/i);
 });
 
 test('rejects a missing clean-audit event collector independently', (t) => {

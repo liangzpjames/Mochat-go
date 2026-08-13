@@ -31,8 +31,11 @@ function PendingActivityPage({ route }: { route: OperationRouteRegistration }) {
 }
 
 function routeElement(route: OperationRouteRegistration, runtime: OperationRuntime): ReactNode {
-  if (route.moduleKey === 'work-fission-activity') {
-    return <WorkFissionPage request={runtime.request} />;
+  if (route.requiresActivitySession) {
+    if (route.moduleKey !== 'work-fission-activity' || route.activityKind !== 'workFission') {
+      throw new Error(`Operation route ${route.path} has unsupported activity-session metadata.`);
+    }
+    return <WorkFissionPage activityKind={route.activityKind} request={runtime.request} />;
   }
   return <PendingActivityPage route={route} />;
 }

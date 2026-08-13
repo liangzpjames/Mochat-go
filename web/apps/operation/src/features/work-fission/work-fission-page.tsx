@@ -1,9 +1,18 @@
-import { MobileApiError, MobileShell, MobileState } from '@mochat/mobile-foundation';
+import {
+  MobileApiError,
+  MobileShell,
+  MobileState,
+  type MobileStateKind,
+} from '@mochat/mobile-foundation';
 import { useEffect, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 
-import { operationAuthHref } from '../../auth/operation-session';
 import {
+  operationAuthHref,
+  type OperationActivityKind,
+} from '../../auth/operation-session';
+import {
+  loadWorkFissionParticipant,
   loadWorkFissionProgress,
   type WorkFissionProgress,
   type WorkFissionRequest,
@@ -11,6 +20,7 @@ import {
 } from './work-fission-api';
 
 type WorkFissionPageProps = {
+  activityKind: OperationActivityKind;
   request: WorkFissionRequest;
 };
 
@@ -18,18 +28,75 @@ type WorkFissionPageState =
   | { kind: 'loading' }
   | { kind: 'success'; progress: WorkFissionProgress }
   | { kind: 'unauthorized'; href: string }
-  | { kind: 'error'; message: string; expired: boolean };
+  | {
+    kind: 'failure';
+    stateKind: Extract<MobileStateKind, 'error' | 'forbidden' | 'not-found'>;
+    title: string;
+    message: string;
+    retryable: boolean;
+  };
+
+type WorkFissionFailure = Extract<WorkFissionPageState, { kind: 'failure' }>;
+
+function workFissionFailure(error: unknown): WorkFissionFailure {
+  const message = error instanceof Error ? error.message : '任务进度加载失败。';
+  const activityMissing = /活动.*(?:不存在|失效|结束)/.test(message);
+  if (error instanceof MobileApiError) {
+    if (error.kind === 'forbidden') {
+      return {
+        kind: 'failure',
+        stateKind: 'forbidden',
+        title: '无权访问当前活动',
+        message,
+        retryable: false,
+      };
+    }
+    if (error.kind === 'not-found' || (error.kind === 'validation' && activityMissing)) {
+      return {
+        kind: 'failure',
+        stateKind: 'not-found',
+        title: activityMissing ? '活动已失效' : '活动不存在',
+        message,
+        retryable: false,
+      };
+    }
+    if (error.kind === 'validation' || error.kind === 'conflict') {
+      return {
+        kind: 'failure',
+        stateKind: 'error',
+        title: '任务进度加载失败',
+        message,
+        retryable: false,
+      };
+    }
+    if (error.kind === 'network' || error.kind === 'server' || error.retryable) {
+      return {
+        kind: 'failure',
+        stateKind: 'error',
+        title: '任务进度加载失败',
+        message,
+        retryable: true,
+      };
+    }
+  }
+  return {
+    kind: 'failure',
+    stateKind: 'error',
+    title: '任务进度加载失败',
+    message,
+    retryable: false,
+  };
+}
 
 function rewardTypeLabel(reward: WorkFissionReward): string {
   if (reward.type === 0) return '二维码奖励';
   return '链接奖励';
 }
 
-export function WorkFissionPage({ request }: WorkFissionPageProps) {
+export function WorkFissionPage({ activityKind, request }: WorkFissionPageProps) {
   const location = useLocation();
   const [params] = useSearchParams();
-  const unionId = params.get('union_id')?.trim() ?? '';
-  const rawFissionId = params.get('fission_id')?.trim() ?? '';
+  const rawFissionId = (params.get('id') ?? params.get('fission_id') ?? '').trim();
   const fissionId = Number(rawFissionId);
   const validFissionId = rawFissionId.length > 0
     && Number.isInteger(fissionId)
@@ -38,45 +105,52 @@ export function WorkFissionPage({ request }: WorkFissionPageProps) {
   const [state, setState] = useState<WorkFissionPageState>({ kind: 'loading' });
 
   useEffect(() => {
-    if (unionId.length === 0 || !validFissionId) return undefined;
+    if (!validFissionId) return undefined;
     let active = true;
+    const target = `${location.pathname}${location.search}${location.hash}`;
+    const authorize = () => {
+      if (active) {
+        setState({
+          kind: 'unauthorized',
+          href: operationAuthHref(activityKind, target, { fissionId }),
+        });
+      }
+    };
+
     setState({ kind: 'loading' });
-    void loadWorkFissionProgress(request, { unionId, fissionId })
-      .then((progress) => {
+    void loadWorkFissionParticipant(request, fissionId)
+      .then(async (participant) => {
+        if (!active) return;
+        if (participant === null) {
+          authorize();
+          return;
+        }
+        const progress = await loadWorkFissionProgress(request, {
+          unionId: participant.unionid,
+          fissionId,
+        });
         if (active) setState({ kind: 'success', progress });
       })
       .catch((error: unknown) => {
         if (!active) return;
         if (error instanceof MobileApiError && error.kind === 'unauthorized') {
-          setState({
-            kind: 'unauthorized',
-            href: operationAuthHref(
-              'workFission',
-              `${location.pathname}${location.search}${location.hash}`,
-              { fissionId },
-            ),
-          });
+          authorize();
           return;
         }
-        const message = error instanceof Error ? error.message : '任务进度加载失败。';
-        setState({
-          kind: 'error',
-          message,
-          expired: /活动.*(?:不存在|失效|结束)/.test(message),
-        });
+        setState(workFissionFailure(error));
       });
     return () => {
       active = false;
     };
-  }, [attempt, fissionId, location.hash, location.pathname, location.search, request, unionId, validFissionId]);
+  }, [activityKind, attempt, fissionId, location.hash, location.pathname, location.search, request, validFissionId]);
 
-  if (unionId.length === 0 || !validFissionId) {
+  if (!validFissionId) {
     return (
       <MobileShell appName="MoChat 营销活动" title="任务宝活动">
         <MobileState
           kind="error"
           title="活动参数错误"
-          description={unionId.length === 0 ? '缺少 union_id' : '缺少有效的 fission_id'}
+          description="缺少有效的 fission_id"
         />
       </MobileShell>
     );
@@ -85,7 +159,7 @@ export function WorkFissionPage({ request }: WorkFissionPageProps) {
   if (state.kind === 'loading') {
     return (
       <MobileShell appName="MoChat 营销活动" title="任务宝活动">
-        <MobileState kind="loading" description="正在读取任务进度。" />
+        <MobileState kind="loading" description="正在读取活动参与者与任务进度。" />
       </MobileShell>
     );
   }
@@ -96,22 +170,24 @@ export function WorkFissionPage({ request }: WorkFissionPageProps) {
         <MobileState
           kind="error"
           title="活动授权已失效"
-          description="请重新完成当前任务宝活动授权。"
+          description="请完成当前任务宝活动授权。"
         />
         <a className="operation-primary-link" href={state.href}>重新授权</a>
       </MobileShell>
     );
   }
 
-  if (state.kind === 'error') {
+  if (state.kind === 'failure') {
     return (
       <MobileShell appName="MoChat 营销活动" title="任务宝活动">
         <MobileState
-          kind="error"
-          title={state.expired ? '活动已失效' : '任务进度加载失败'}
+          kind={state.stateKind}
+          title={state.title}
           description={state.message}
-          actionLabel="重试"
-          onAction={() => setAttempt((value) => value + 1)}
+          {...(state.retryable ? {
+            actionLabel: '重试',
+            onAction: () => setAttempt((value) => value + 1),
+          } : {})}
         />
       </MobileShell>
     );

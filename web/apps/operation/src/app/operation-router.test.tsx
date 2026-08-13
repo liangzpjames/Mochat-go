@@ -35,6 +35,32 @@ describe('Operation exact route registry', () => {
       expect(registered?.auth).toBe(manifestRoute.auth);
       expect(registered?.title).toMatch(/[\u4e00-\u9fff]/);
     }
+
+    expect(operationRouteRegistry.find((route) => route.path === '/workFission')).toMatchObject({
+      activityKind: 'workFission',
+      requiredParams: ['id'],
+      requiresActivitySession: true,
+    });
+    expect(operationRouteRegistry.find((route) => route.path === '/speed')).toMatchObject({
+      activityKind: null,
+      requiredParams: [],
+      requiresActivitySession: false,
+    });
+  });
+
+  it('consumes activity-session route metadata before rendering work-fission', async () => {
+    const request = vi.fn().mockResolvedValue([]);
+    window.history.replaceState(null, '', '/workFission?id=17');
+    const router = createOperationRouter({ basename: '/', request });
+
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByRole('link', { name: '重新授权' })).not.toBeNull();
+    expect(request).toHaveBeenCalledWith(
+      '/openUserInfo/workFission?id=17',
+      { method: 'GET' },
+    );
+    router.dispose();
   });
 
   it('renders the named module boundary instead of a generic executable activity page', () => {

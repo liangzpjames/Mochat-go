@@ -20,6 +20,13 @@ export type WorkFissionProgress = {
   tasks: WorkFissionTask[];
 };
 
+export type WorkFissionParticipant = {
+  openid: string;
+  unionid: string;
+  nickname: string;
+  headimgurl: string;
+};
+
 export type WorkFissionRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
 
 type RawWorkFissionTask = {
@@ -69,6 +76,19 @@ function isRawProgress(value: unknown): value is RawWorkFissionProgress {
   );
 }
 
+function isWorkFissionParticipant(value: unknown): value is WorkFissionParticipant {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const participant = value as Record<string, unknown>;
+  return (
+    typeof participant.openid === 'string'
+    && participant.openid.trim().length > 0
+    && typeof participant.unionid === 'string'
+    && participant.unionid.trim().length > 0
+    && typeof participant.nickname === 'string'
+    && typeof participant.headimgurl === 'string'
+  );
+}
+
 export function safeRewardUrl(raw: string): string | null {
   const value = raw.trim();
   const hasControlCharacter = Array.from(value).some((character) => {
@@ -101,6 +121,29 @@ export function safeRewardUrl(raw: string): string | null {
   } catch {
     return null;
   }
+}
+
+export async function loadWorkFissionParticipant(
+  request: WorkFissionRequest,
+  fissionId: number,
+): Promise<WorkFissionParticipant | null> {
+  if (!Number.isInteger(fissionId) || fissionId <= 0) {
+    throw new MobileApiError('validation', 'fission_id 必须为正整数');
+  }
+  const query = new URLSearchParams({ id: String(fissionId) });
+  const payload = await request<unknown>(`/openUserInfo/workFission?${query.toString()}`, {
+    method: 'GET',
+  });
+  if (Array.isArray(payload) && payload.length === 0) return null;
+  if (!isWorkFissionParticipant(payload)) {
+    throw new MobileApiError('validation', '活动参与者会话响应格式无效。');
+  }
+  return {
+    openid: payload.openid.trim(),
+    unionid: payload.unionid.trim(),
+    nickname: payload.nickname,
+    headimgurl: payload.headimgurl,
+  };
 }
 
 export async function loadWorkFissionProgress(

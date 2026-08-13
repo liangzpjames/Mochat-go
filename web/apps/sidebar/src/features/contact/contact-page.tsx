@@ -2,6 +2,7 @@ import {
   MobileApiError,
   MobileShell,
   MobileState,
+  type MobileStateKind,
 } from '@mochat/mobile-foundation';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
@@ -17,11 +18,37 @@ type ContactPageProps = {
   onReauthenticate: () => void;
 };
 
+type ContactFailure = {
+  stateKind: Extract<MobileStateKind, 'error' | 'forbidden' | 'not-found'>;
+  title: string;
+  message: string;
+  retryable: boolean;
+};
+
 type ContactPageState =
   | { kind: 'loading' }
   | { kind: 'success'; contact: ContactSummary }
   | { kind: 'unauthorized' }
-  | { kind: 'error'; message: string };
+  | ({ kind: 'failure' } & ContactFailure);
+
+function contactFailure(error: unknown): ContactFailure {
+  const message = error instanceof Error ? error.message : '客户资料加载失败。';
+  if (error instanceof MobileApiError) {
+    if (error.kind === 'forbidden') {
+      return { stateKind: 'forbidden', title: '无权访问客户资料', message, retryable: false };
+    }
+    if (error.kind === 'not-found') {
+      return { stateKind: 'not-found', title: '客户不存在', message, retryable: false };
+    }
+    if (error.kind === 'validation' || error.kind === 'conflict') {
+      return { stateKind: 'error', title: '客户资料加载失败', message, retryable: false };
+    }
+    if (error.kind === 'network' || error.kind === 'server' || error.retryable) {
+      return { stateKind: 'error', title: '客户资料加载失败', message, retryable: true };
+    }
+  }
+  return { stateKind: 'error', title: '客户资料加载失败', message, retryable: false };
+}
 
 export function ContactPage({ request, onReauthenticate }: ContactPageProps) {
   const [params] = useSearchParams();
@@ -44,8 +71,7 @@ export function ContactPage({ request, onReauthenticate }: ContactPageProps) {
           onReauthenticate();
           return;
         }
-        const message = error instanceof Error ? error.message : '客户资料加载失败。';
-        setState({ kind: 'error', message });
+        setState({ kind: 'failure', ...contactFailure(error) });
       });
     return () => {
       active = false;
@@ -84,15 +110,17 @@ export function ContactPage({ request, onReauthenticate }: ContactPageProps) {
     );
   }
 
-  if (state.kind === 'error') {
+  if (state.kind === 'failure') {
     return (
       <MobileShell appName="MoChat 客户侧边栏" title="客户资料">
         <MobileState
-          kind="error"
-          title="客户资料加载失败"
+          kind={state.stateKind}
+          title={state.title}
           description={state.message}
-          actionLabel="重试"
-          onAction={() => setAttempt((value) => value + 1)}
+          {...(state.retryable ? {
+            actionLabel: '重试',
+            onAction: () => setAttempt((value) => value + 1),
+          } : {})}
         />
       </MobileShell>
     );

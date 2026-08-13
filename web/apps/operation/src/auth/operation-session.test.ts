@@ -6,10 +6,10 @@ describe('Operation activity session', () => {
   it('builds the matching activity OAuth URL with its required ID and safe target', () => {
     expect(operationAuthHref(
       'workFission',
-      '/workFission?union_id=union-1&fission_id=9#tasks',
+      '/workFission?id=9#tasks',
       { fissionId: 9 },
     )).toBe(
-      '/auth/workFission?id=9&target=%2FworkFission%3Funion_id%3Dunion-1%26fission_id%3D9%23tasks',
+      '/auth/workFission?id=9&target=%2FworkFission%3Fid%3D9%23tasks',
     );
   });
 

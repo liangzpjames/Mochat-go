@@ -182,6 +182,9 @@ function validateRawGoBrowserFixtures(source, errors) {
   if (!/taskData\s*:\s*['"]\*\*\/operation\/workFission\/taskData\?\*['"]/.test(source)) {
     errors.push('taskData raw Go envelope fixture endpoint is missing');
   }
+  if (!/openUserInfo\s*:\s*['"]\*\*\/operation\/openUserInfo\/workFission\?\*['"]/.test(source)) {
+    errors.push('openUserInfo raw Go envelope fixture endpoint is missing');
+  }
   if (!/JSON\.stringify\(\{\s*code\s*:\s*200\s*,\s*msg\s*:\s*['"]ok['"]\s*,\s*data\b[\s\S]{0,120}?\}\)/.test(source)) {
     errors.push('raw Go envelope helper must preserve code, msg and data fields');
   }
@@ -196,6 +199,27 @@ function validateRawGoBrowserFixtures(source, errors) {
     || !/page\.route\(\s*browserContract\.fixtures\.taskData[\s\S]{0,700}?body\s*:\s*rawGoEnvelope\(\s*rawTaskData\b/.test(source)
   ) {
     errors.push('taskData route must return a raw Go envelope');
+  }
+  if (
+    !/const\s+rawWorkFissionParticipant\s*=\s*\{[\s\S]{0,500}?\bopenid\s*:[\s\S]{0,160}?\bunionid\s*:[\s\S]{0,160}?\bnickname\s*:[\s\S]{0,160}?\bheadimgurl\s*:/.test(source)
+    || !/page\.route\(\s*browserContract\.fixtures\.openUserInfo[\s\S]{0,900}?body\s*:\s*rawGoEnvelope\(\s*audit\.participantData\b/.test(source)
+  ) {
+    errors.push('openUserInfo route must return a raw Go envelope');
+  }
+  if (!/path\s*:\s*['"]\/workFission['"][^\n]*query\s*:\s*['"]\?id=[1-9]\d*['"]/.test(source)) {
+    errors.push('workFission browser case must use the real positive id entry');
+  }
+  if (
+    !/workFissionRequests\[0\][\s\S]{0,200}?searchParams\.get\(\s*['"]union_id['"]\s*\)[\s\S]{0,200}?toBe\(/.test(source)
+    || !/rawWorkFissionParticipant[\s\S]{0,400}?unionid\s*:\s*['"][^'"]*session[^'"]*['"]/.test(source)
+  ) {
+    errors.push('taskData browser fixture must prove a session-derived unionid');
+  }
+  if (
+    !/participantData\s*=\s*\[\]/.test(source)
+    || !/participantData\s*=\s*\[\][\s\S]{0,700}?\/auth\/workFission\?id=/.test(source)
+  ) {
+    errors.push('empty participant browser fixture must prove the OAuth href');
   }
 }
 

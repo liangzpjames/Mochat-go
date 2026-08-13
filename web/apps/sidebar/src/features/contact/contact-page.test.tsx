@@ -21,16 +21,17 @@ function renderContact(
   return { onReauthenticate };
 }
 
+const contactPath = '/contact?wxExternalUserid=external-user-1&agentId=7';
+const rawContact = { id: 31, name: '林晓', avatar: null, corpId: 9 };
+
 describe('Sidebar contact summary', () => {
   it('requests and renders the current external contact summary', async () => {
     const request = vi.fn().mockResolvedValue({
-      id: 31,
-      name: '林晓',
+      ...rawContact,
       avatar: '/avatars/contact-31.png',
-      corpId: 9,
     });
 
-    renderContact('/contact?wxExternalUserid=external-user-1&agentId=7', request);
+    renderContact(contactPath, request);
 
     expect(await screen.findByRole('heading', { name: '林晓' })).not.toBeNull();
     expect(screen.getByRole('img', { name: '林晓的头像' }).getAttribute('src')).toBe(
@@ -57,18 +58,45 @@ describe('Sidebar contact summary', () => {
     );
     const onReauthenticate = vi.fn();
 
-    renderContact('/contact?wxExternalUserid=external-user-1&agentId=7', request, onReauthenticate);
+    renderContact(contactPath, request, onReauthenticate);
 
     await waitFor(() => expect(onReauthenticate).toHaveBeenCalledTimes(1));
     expect(screen.getByText('登录状态已失效')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
   });
+
+  it.each([
+    ['forbidden', new MobileApiError('forbidden', '没有客户查看权限', { status: 403 }), 'forbidden', false],
+    ['not-found', new MobileApiError('not-found', '客户不存在', { status: 404 }), 'not-found', false],
+    ['validation', new MobileApiError('validation', '客户参数无效', { status: 400 }), 'error', false],
+    ['conflict', new MobileApiError('conflict', '客户状态冲突', { status: 409 }), 'error', false],
+    ['network', new MobileApiError('network', '网络请求失败'), 'error', true],
+    ['server', new MobileApiError('server', '服务暂时不可用', { status: 503 }), 'error', true],
+    ['explicit retryable', new MobileApiError('aborted', '请求超时', { retryable: true }), 'error', true],
+    ['unknown', new Error('未知客户错误'), 'error', false],
+  ] as const)(
+    'maps %s to MobileState %s with retry=%s',
+    async (_label, error, expectedKind, retryable) => {
+      const request = vi.fn().mockRejectedValue(error);
+
+      renderContact(contactPath, request);
+
+      expect((await screen.findAllByText(error.message)).length).toBeGreaterThanOrEqual(1);
+      expect(document.querySelector(`.mobile-state--${expectedKind}`)).not.toBeNull();
+      if (retryable) {
+        expect(screen.getByRole('button', { name: '重试' })).not.toBeNull();
+      } else {
+        expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
+      }
+    },
+  );
 
   it('retries a network failure and calls the API again', async () => {
     const request = vi.fn()
       .mockRejectedValueOnce(new MobileApiError('network', '网络请求失败', { retryable: true }))
-      .mockResolvedValueOnce({ id: 31, name: '林晓', avatar: null, corpId: 9 });
+      .mockResolvedValueOnce(rawContact);
 
-    renderContact('/contact?wxExternalUserid=external-user-1&agentId=7', request);
+    renderContact(contactPath, request);
     fireEvent.click(await screen.findByRole('button', { name: '重试' }));
 
     expect(await screen.findByRole('heading', { name: '林晓' })).not.toBeNull();
