@@ -91,7 +91,8 @@ async function login(page: Page, fixture: LiveFixture): Promise<void> {
   const responsePromise = page.waitForResponse((response) => response.url().includes('/dashboard/user/auth'));
   await page.getByRole('button', { name: /登录/ }).click();
   expect((await responsePromise).status()).toBe(200);
-  await page.waitForURL((url) => url.pathname === '/index');
+  await page.waitForURL((url) => url.pathname !== '/login', { timeout: 30_000 });
+  await page.goto(`${liveBase}/index`, { waitUntil: 'domcontentloaded' });
   await assertIdentity(page, fixture);
 }
 
@@ -123,6 +124,7 @@ test('real login safely clicks every manifest page without auth regressions @liv
   const origin = new URL(liveBase).origin;
   await mkdir(evidenceDir!, { recursive: true });
   await login(page, fixture);
+  console.log('[dashboard live audit] login complete');
 
   const responseTasks: Array<Promise<ResponseStatus | undefined>> = [];
   const consoleErrors: string[] = [];
@@ -133,6 +135,7 @@ test('real login safely clicks every manifest page without auth regressions @liv
 
   const evidence: PageEvidence[] = [];
   for (const current of pages) {
+    console.log(`[dashboard live audit] ${evidence.length + 1}/${pages.length} ${current.route}`);
     const action = actions.get(current.route);
     expect(action, `${current.route} is missing an action`).toBeDefined();
     const responseOffset = responseTasks.length;

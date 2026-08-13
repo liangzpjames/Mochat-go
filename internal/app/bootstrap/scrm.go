@@ -71,9 +71,18 @@ func (a *scrmLeadAuthorizer) Authorize(ctx context.Context, principal transporth
 	if !found || corp.TenantID != int(principal.TenantID) {
 		return transporthttp.ErrLeadForbidden
 	}
-	employeeID, err := a.store.EmployeeIDByUserCorp(ctx, int(principal.UserID), int(corpID))
-	if err != nil {
-		return errors.New("lead authorization unavailable")
+	employeeID := int(principal.WorkEmployeeID)
+	if access, ok := dashboard.DashboardAccessFromContext(ctx); ok {
+		if access.UserID != int(principal.UserID) || access.TenantID != int(principal.TenantID) || access.CorpID != int(corpID) {
+			return transporthttp.ErrLeadForbidden
+		}
+		employeeID = access.WorkEmployeeID
+	} else {
+		var err error
+		employeeID, err = a.store.EmployeeIDByUserCorp(ctx, int(principal.UserID), int(corpID))
+		if err != nil {
+			return errors.New("lead authorization unavailable")
+		}
 	}
 	_, err = a.resolver.Resolve(ctx, int(principal.UserID), permission, int(corpID), employeeID)
 	if errors.Is(err, dashboard.ErrPermissionDenied) || errors.Is(err, dashboard.ErrUnauthorized) {

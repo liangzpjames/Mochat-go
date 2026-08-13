@@ -18,6 +18,7 @@ type Principal struct {
 	UserID                  int64
 	TenantID                int64
 	CorpID                  int64
+	WorkEmployeeID          int64
 	AllowedEmployeeIDs      []int64
 	EmployeeScopeRestricted bool
 }

@@ -227,6 +227,29 @@ func TestSCRMLeadAuthorizerRejectsCrossTenantCorpAndRBACDenial(t *testing.T) {
 	}
 }
 
+func TestSCRMLeadAuthorizerUsesGuardEmployeeIdentityWithoutLegacyLookup(t *testing.T) {
+	store := &fakeSCRMLeadAccessStore{corps: map[int]dashboard.CorpDetail{8: {ID: 8, TenantID: 41}}}
+	resolver := &fakeSCRMAccessResolver{}
+	authorizer, err := NewSCRMLeadAuthorizer(store, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := dashboard.WithDashboardAccessContext(context.Background(), dashboard.DashboardAccessContext{
+		UserID: 7, TenantID: 41, CorpID: 8, WorkEmployeeID: 19,
+		ScopeRequired: true, Scope: dashboard.DataScopeSelf, AllowedEmployeeIDs: []int{19},
+	})
+	principal := transporthttp.Principal{UserID: 7, TenantID: 41, CorpID: 8, WorkEmployeeID: 19}
+	if err := authorizer.Authorize(ctx, principal, 8, "/customer/clue/default#get"); err != nil {
+		t.Fatal(err)
+	}
+	if store.employeeLookupCalls != 0 {
+		t.Fatalf("legacy employee lookups=%d want 0", store.employeeLookupCalls)
+	}
+	if resolver.workEmployeeID != 19 {
+		t.Fatalf("resolver employee=%d want 19", resolver.workEmployeeID)
+	}
+}
+
 func assertSCRMRouteInstalled(t *testing.T, router *appmodules.Router, method string) {
 	t.Helper()
 	request := httptest.NewRequest(method, transporthttp.LeadsPath, nil)
@@ -280,19 +303,27 @@ func (fixedLeadAuthorizer) Authorize(context.Context, transporthttp.Principal, i
 	return nil
 }
 
-type fakeSCRMLeadAccessStore struct{ corps map[int]dashboard.CorpDetail }
+type fakeSCRMLeadAccessStore struct {
+	corps               map[int]dashboard.CorpDetail
+	employeeLookupCalls int
+}
 
 func (s *fakeSCRMLeadAccessStore) CorpDetailByID(_ context.Context, id int) (dashboard.CorpDetail, bool, error) {
 	corp, ok := s.corps[id]
 	return corp, ok, nil
 }
 func (s *fakeSCRMLeadAccessStore) EmployeeIDByUserCorp(context.Context, int, int) (int, error) {
+	s.employeeLookupCalls++
 	return 3, nil
 }
 
-type fakeSCRMAccessResolver struct{ err error }
+type fakeSCRMAccessResolver struct {
+	err            error
+	workEmployeeID int
+}
 
-func (r *fakeSCRMAccessResolver) Resolve(context.Context, int, string, int, int) (dashboard.AccessContext, error) {
+func (r *fakeSCRMAccessResolver) Resolve(_ context.Context, _ int, _ string, _ int, workEmployeeID int) (dashboard.AccessContext, error) {
+	r.workEmployeeID = workEmployeeID
 	return dashboard.AccessContext{}, r.err
 }
 

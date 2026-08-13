@@ -110,13 +110,13 @@ func (r reportingPrincipalResolver) Resolve(request *http.Request) (reportinghtt
 		}
 	}
 	restricted := access.ScopeRequired && access.Scope != dashboard.DataScopeTenant
-	return reportinghttp.Principal{UserID: int64(principal.UserID), TenantID: int64(principal.TenantID), CorpID: int64(principal.CorpID), AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: restricted}, nil
+	return reportinghttp.Principal{UserID: int64(principal.UserID), TenantID: int64(principal.TenantID), CorpID: int64(principal.CorpID), WorkEmployeeID: int64(access.WorkEmployeeID), AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: restricted}, nil
 }
 
 type reportingAuthorizer struct{ delegate scrmhttp.LeadAuthorizer }
 
 func (a reportingAuthorizer) Authorize(ctx context.Context, principal reportinghttp.Principal, corpID int64, permission string) error {
-	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
+	return a.delegate.Authorize(ctx, scrmhttp.Principal{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, WorkEmployeeID: principal.WorkEmployeeID, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted}, corpID, permission)
 }
 
 // dashboardModulePrincipalResolver is the only production bridge from the
