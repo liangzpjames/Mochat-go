@@ -432,4 +432,3 @@ git commit -m "test(mobile): gate both client foundations"
 - `rg` 确认两个应用无 `mochat_dashboard_`、直接 `fetch(`、乱码特征和伪业务结果。
 - 审阅 `main...HEAD` 全量 diff；Critical/Important 问题修复后重新执行覆盖命令。
 - 确认主工作区 dirty 文件未改变，工作树 clean，未执行 Docker/数据库/服务器操作。
-

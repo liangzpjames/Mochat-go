@@ -115,4 +115,3 @@ Operation：
 - 390px 下无页面级横向溢出，关键触控元素不小于 44px。
 - 两个应用 lint、typecheck、test、build 与移动端框架 completion gate 全部通过。
 - 本阶段不改 Docker、Compose、生产数据库和服务器部署，不写 `output` 验收数据。
-
