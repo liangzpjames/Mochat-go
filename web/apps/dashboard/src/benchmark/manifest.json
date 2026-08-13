@@ -949,7 +949,7 @@
     },
     {
       "path": "/company-setting/website",
-      "title": "企业信息",
+      "title": "唯一企业资料",
       "groupId": "company-settings",
       "level": "P2",
       "status": "documented",
