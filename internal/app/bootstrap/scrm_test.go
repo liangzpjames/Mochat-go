@@ -245,6 +245,9 @@ func TestSCRMLeadAuthorizerUsesGuardEmployeeIdentityWithoutLegacyLookup(t *testi
 	if store.employeeLookupCalls != 0 {
 		t.Fatalf("legacy employee lookups=%d want 0", store.employeeLookupCalls)
 	}
+	if store.corpLookupCalls != 0 {
+		t.Fatalf("legacy corp lookups=%d want 0", store.corpLookupCalls)
+	}
 	if resolver.workEmployeeID != 19 {
 		t.Fatalf("resolver employee=%d want 19", resolver.workEmployeeID)
 	}
@@ -305,10 +308,12 @@ func (fixedLeadAuthorizer) Authorize(context.Context, transporthttp.Principal, i
 
 type fakeSCRMLeadAccessStore struct {
 	corps               map[int]dashboard.CorpDetail
+	corpLookupCalls     int
 	employeeLookupCalls int
 }
 
 func (s *fakeSCRMLeadAccessStore) CorpDetailByID(_ context.Context, id int) (dashboard.CorpDetail, bool, error) {
+	s.corpLookupCalls++
 	corp, ok := s.corps[id]
 	return corp, ok, nil
 }

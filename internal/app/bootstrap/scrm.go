@@ -64,13 +64,6 @@ func NewSCRMLeadAuthorizer(store SCRMLeadAccessStore, resolver SCRMAccessResolve
 	return &scrmLeadAuthorizer{store: store, resolver: resolver}, nil
 }
 func (a *scrmLeadAuthorizer) Authorize(ctx context.Context, principal transporthttp.Principal, corpID int64, permission string) error {
-	corp, found, err := a.store.CorpDetailByID(ctx, int(corpID))
-	if err != nil {
-		return errors.New("lead authorization unavailable")
-	}
-	if !found || corp.TenantID != int(principal.TenantID) {
-		return transporthttp.ErrLeadForbidden
-	}
 	employeeID := int(principal.WorkEmployeeID)
 	if access, ok := dashboard.DashboardAccessFromContext(ctx); ok {
 		if access.UserID != int(principal.UserID) || access.TenantID != int(principal.TenantID) || access.CorpID != int(corpID) {
@@ -78,13 +71,20 @@ func (a *scrmLeadAuthorizer) Authorize(ctx context.Context, principal transporth
 		}
 		employeeID = access.WorkEmployeeID
 	} else {
-		var err error
-		employeeID, err = a.store.EmployeeIDByUserCorp(ctx, int(principal.UserID), int(corpID))
+		corp, found, err := a.store.CorpDetailByID(ctx, int(corpID))
 		if err != nil {
 			return errors.New("lead authorization unavailable")
 		}
+		if !found || corp.TenantID != int(principal.TenantID) {
+			return transporthttp.ErrLeadForbidden
+		}
+		resolvedEmployeeID, err := a.store.EmployeeIDByUserCorp(ctx, int(principal.UserID), int(corpID))
+		if err != nil {
+			return errors.New("lead authorization unavailable")
+		}
+		employeeID = resolvedEmployeeID
 	}
-	_, err = a.resolver.Resolve(ctx, int(principal.UserID), permission, int(corpID), employeeID)
+	_, err := a.resolver.Resolve(ctx, int(principal.UserID), permission, int(corpID), employeeID)
 	if errors.Is(err, dashboard.ErrPermissionDenied) || errors.Is(err, dashboard.ErrUnauthorized) {
 		return transporthttp.ErrLeadForbidden
 	}
