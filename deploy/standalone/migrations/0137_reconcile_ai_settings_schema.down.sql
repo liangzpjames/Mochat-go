@@ -1,0 +1,2 @@
+-- Intentionally non-destructive. These tables are the physical schema
+-- promised by the already-applied 0124 migration and may contain data.
