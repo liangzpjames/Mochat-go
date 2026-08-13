@@ -1,7 +1,7 @@
 # Mobile Clients Postfix Review 修复报告
 
-日期：2026-08-14  
-工作树：`D:\workspace\mochat-go\mochat-go\.worktrees\mobile-clients-foundation`  
+日期：2026-08-14
+工作树：`D:\workspace\mochat-go\mochat-go\.worktrees\mobile-clients-foundation`
 代码提交：`abb534aed3851ba2f69e233d5db78a19730674fb`
 
 ## 结论
