@@ -66,3 +66,39 @@ func TestResolveDashboardHandlerIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveDashboardHandlerIdentityRejectsNonPositiveCoreIDs(t *testing.T) {
+	validPrincipal := dashboardprincipal.DashboardPrincipal{UserID: 7, TenantID: 11, CorpID: 13}
+	validAccess := DashboardAccessContext{UserID: 7, TenantID: 11, CorpID: 13, WorkEmployeeID: 17}
+	tests := []struct {
+		name      string
+		principal dashboardprincipal.DashboardPrincipal
+		access    DashboardAccessContext
+	}{
+		{name: "zero user", principal: dashboardprincipal.DashboardPrincipal{UserID: 0, TenantID: 11, CorpID: 13}, access: DashboardAccessContext{UserID: 0, TenantID: 11, CorpID: 13}},
+		{name: "zero tenant", principal: dashboardprincipal.DashboardPrincipal{UserID: 7, TenantID: 0, CorpID: 13}, access: DashboardAccessContext{UserID: 7, TenantID: 0, CorpID: 13}},
+		{name: "zero corp", principal: dashboardprincipal.DashboardPrincipal{UserID: 7, TenantID: 11, CorpID: 0}, access: DashboardAccessContext{UserID: 7, TenantID: 11, CorpID: 0}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveDashboardHandlerIdentity(tc.principal, tc.access, true)
+			if !errors.Is(err, dashboardprincipal.ErrPrincipalUnavailable) {
+				t.Fatalf("resolveDashboardHandlerIdentity() error = %v, want ErrPrincipalUnavailable", err)
+			}
+			if got != (DashboardHandlerIdentity{}) {
+				t.Fatalf("resolveDashboardHandlerIdentity() = %+v, want zero value", got)
+			}
+		})
+	}
+
+	t.Run("zero work employee remains valid", func(t *testing.T) {
+		validAccess.WorkEmployeeID = 0
+		got, err := resolveDashboardHandlerIdentity(validPrincipal, validAccess, true)
+		if err != nil {
+			t.Fatalf("resolveDashboardHandlerIdentity() error = %v", err)
+		}
+		if got.WorkEmployeeID != 0 {
+			t.Fatalf("WorkEmployeeID = %d, want 0", got.WorkEmployeeID)
+		}
+	})
+}

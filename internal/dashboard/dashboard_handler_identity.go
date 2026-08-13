@@ -23,7 +23,13 @@ func ResolveDashboardHandlerIdentity(ctx context.Context) (DashboardHandlerIdent
 		return DashboardHandlerIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
 	}
 	access, ok := DashboardAccessFromContext(ctx)
-	if !ok || access.UserID != principal.UserID || access.TenantID != principal.TenantID || access.CorpID != principal.CorpID {
+	return resolveDashboardHandlerIdentity(principal, access, ok)
+}
+
+func resolveDashboardHandlerIdentity(principal dashboardprincipal.DashboardPrincipal, access DashboardAccessContext, accessOK bool) (DashboardHandlerIdentity, error) {
+	if !accessOK || principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 ||
+		access.UserID <= 0 || access.TenantID <= 0 || access.CorpID <= 0 ||
+		access.UserID != principal.UserID || access.TenantID != principal.TenantID || access.CorpID != principal.CorpID {
 		return DashboardHandlerIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
 	}
 	return DashboardHandlerIdentity{
