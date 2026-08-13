@@ -85,6 +85,243 @@ func (s *MySQLStore) DashboardAccessUsers(ctx context.Context, tenantID, page, p
 	return dashboard.DashboardAccessUserPage{List: items, Page: dashboardAdminPage(page, perPage, total)}, nil
 }
 
+func (s *MySQLStore) DashboardAccessEmployees(ctx context.Context, tenantID, page, perPage int) (dashboard.DashboardAccessEmployeePage, error) {
+	if s.db == nil {
+		return dashboard.DashboardAccessEmployeePage{}, errors.New("dashboard access administration store is unavailable")
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mc_work_employee employee
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=1
+		WHERE employee.deleted_at IS NULL
+	`, tenantID).Scan(&total); err != nil {
+		return dashboard.DashboardAccessEmployeePage{}, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT employee.id,COALESCE(employee.wx_user_id,''),COALESCE(employee.name,''),COALESCE(employee.mobile,''),employee.status,
+		       user.id,identity.login_identifier,identity.status,identity.must_rotate_password,identity.auth_version
+		FROM mc_work_employee employee
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=1
+		LEFT JOIN mc_user user ON user.id=employee.log_user_id AND user.tenant_id=binding.tenant_id AND user.deleted_at IS NULL
+		LEFT JOIN mochat_go_dashboard_identities identity ON identity.user_id=user.id
+		WHERE employee.deleted_at IS NULL
+		ORDER BY employee.id DESC LIMIT ? OFFSET ?
+	`, tenantID, perPage, (page-1)*perPage)
+	if err != nil {
+		return dashboard.DashboardAccessEmployeePage{}, err
+	}
+	defer rows.Close()
+	items := make([]dashboard.DashboardAccessEmployee, 0)
+	for rows.Next() {
+		var item dashboard.DashboardAccessEmployee
+		var userID, identityStatus, mustRotate sql.NullInt64
+		var authVersion sql.NullInt64
+		var loginIdentifier sql.NullString
+		if err := rows.Scan(&item.ID, &item.WXUserID, &item.Name, &item.Mobile, &item.Status, &userID, &loginIdentifier, &identityStatus, &mustRotate, &authVersion); err != nil {
+			return dashboard.DashboardAccessEmployeePage{}, err
+		}
+		if userID.Valid && loginIdentifier.Valid && identityStatus.Valid && authVersion.Valid {
+			item.Account = &dashboard.DashboardEmployeeAccount{
+				UserID: int(userID.Int64), LoginIdentifier: loginIdentifier.String, Status: int(identityStatus.Int64),
+				MustRotatePassword: mustRotate.Valid && mustRotate.Int64 == 1, AuthVersion: uint64(authVersion.Int64),
+			}
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return dashboard.DashboardAccessEmployeePage{}, err
+	}
+	return dashboard.DashboardAccessEmployeePage{List: items, Page: dashboardAdminPage(page, perPage, total)}, nil
+}
+
+func (s *MySQLStore) ProvisionDashboardEmployeeAccount(ctx context.Context, command dashboard.ProvisionDashboardEmployeeAccountCommand) (dashboard.DashboardAccessEmployee, error) {
+	if command.TenantID <= 0 || command.ActorUserID <= 0 || command.EmployeeID <= 0 || strings.TrimSpace(command.LoginIdentifier) == "" || strings.TrimSpace(command.PasswordHash) == "" {
+		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminInvalid
+	}
+	tx, err := s.beginDashboardAccessAdmin(ctx)
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	defer tx.Rollback()
+	if err = validateDashboardAccessActorTx(ctx, tx, command.TenantID, command.ActorUserID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	employee, corpID, linkedUserID, err := lockDashboardEmployeeAccountTargetTx(ctx, tx, command.TenantID, command.EmployeeID)
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if linkedUserID != 0 {
+		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminConflict
+	}
+	var duplicate int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_dashboard_identities WHERE login_identifier=?`, command.LoginIdentifier).Scan(&duplicate); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if duplicate != 0 {
+		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminConflict
+	}
+	if err = validateDashboardRoleIDsTx(ctx, tx, command.TenantID, command.RoleIDs); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO mc_user (phone,password,name,gender,department,position,status,tenant_id,isSuperAdmin,dashboard_access_version,created_at,updated_at)
+		VALUES (?,'',?,0,'','',1,?,0,1,NOW(),NOW())
+	`, command.LoginIdentifier, employee.Name, command.TenantID)
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	userID64, err := result.LastInsertId()
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	userID := int(userID64)
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_dashboard_identities (user_id,login_identifier,password_hash,status,must_rotate_password,auth_version,mfa_required,activated_at,created_at,updated_at)
+		VALUES (?,?,?,1,1,1,0,NOW(),NOW(),NOW())
+	`, userID, command.LoginIdentifier, command.PasswordHash); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE mc_work_employee SET log_user_id=?,updated_at=NOW() WHERE id=? AND corp_id=? AND log_user_id=0 AND deleted_at IS NULL`, userID, command.EmployeeID, corpID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	for _, roleID := range uniqueSortedInts(command.RoleIDs) {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_dashboard_user_roles (tenant_id,user_id,role_id,created_at,updated_at) VALUES (?,?,?,NOW(),NOW())`, command.TenantID, userID, roleID); err != nil {
+			return dashboard.DashboardAccessEmployee{}, err
+		}
+	}
+	employee.Account = &dashboard.DashboardEmployeeAccount{UserID: userID, LoginIdentifier: command.LoginIdentifier, Status: 1, MustRotatePassword: true, AuthVersion: 1}
+	if err = insertDashboardAccessAuditTx(ctx, tx, command.TenantID, command.ActorUserID, "employee_account.provision", "employee", strconv.Itoa(command.EmployeeID), nil, map[string]any{
+		"userId": userID, "loginIdentifier": command.LoginIdentifier, "roleIds": uniqueSortedInts(command.RoleIDs), "status": 1, "mustRotatePassword": true,
+	}, nil, 1, command.RequestID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	return employee, nil
+}
+
+func (s *MySQLStore) UpdateDashboardEmployeeAccountStatus(ctx context.Context, command dashboard.UpdateDashboardEmployeeAccountStatusCommand) (dashboard.DashboardAccessEmployee, error) {
+	if command.Status != 1 && command.Status != 2 {
+		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminInvalid
+	}
+	tx, err := s.beginDashboardAccessAdmin(ctx)
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	defer tx.Rollback()
+	if err = validateDashboardAccessActorTx(ctx, tx, command.TenantID, command.ActorUserID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	employee, _, userID, err := lockDashboardEmployeeAccountTargetTx(ctx, tx, command.TenantID, command.EmployeeID)
+	if err != nil || userID == 0 {
+		if err == nil {
+			err = dashboard.ErrDashboardAccessAdminNotFound
+		}
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	account, err := lockDashboardIdentityTx(ctx, tx, command.TenantID, userID)
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	before := map[string]any{"status": account.Status, "authVersion": account.AuthVersion}
+	if _, err = tx.ExecContext(ctx, `UPDATE mc_user SET status=?,updated_at=NOW() WHERE tenant_id=? AND id=? AND deleted_at IS NULL`, command.Status, command.TenantID, userID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE mochat_go_dashboard_identities SET status=?,auth_version=auth_version+1,updated_at=NOW() WHERE user_id=? AND auth_version=?`, command.Status, userID, account.AuthVersion); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE mochat_go_dashboard_sessions SET status=2,revoked_at=NOW(),updated_at=NOW() WHERE user_id=? AND status=1`, userID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	account.Status = command.Status
+	account.AuthVersion++
+	employee.Account = &account
+	if err = insertDashboardAccessAuditTx(ctx, tx, command.TenantID, command.ActorUserID, "employee_account.status", "employee", strconv.Itoa(command.EmployeeID), before, map[string]any{"status": command.Status, "authVersion": account.AuthVersion}, nil, account.AuthVersion, command.RequestID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	return employee, nil
+}
+
+func (s *MySQLStore) ResetDashboardEmployeePassword(ctx context.Context, command dashboard.ResetDashboardEmployeePasswordCommand) (dashboard.DashboardAccessEmployee, error) {
+	if strings.TrimSpace(command.PasswordHash) == "" {
+		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminInvalid
+	}
+	tx, err := s.beginDashboardAccessAdmin(ctx)
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	defer tx.Rollback()
+	if err = validateDashboardAccessActorTx(ctx, tx, command.TenantID, command.ActorUserID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	employee, _, userID, err := lockDashboardEmployeeAccountTargetTx(ctx, tx, command.TenantID, command.EmployeeID)
+	if err != nil || userID == 0 {
+		if err == nil {
+			err = dashboard.ErrDashboardAccessAdminNotFound
+		}
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	account, err := lockDashboardIdentityTx(ctx, tx, command.TenantID, userID)
+	if err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if account.Status != 1 {
+		return dashboard.DashboardAccessEmployee{}, dashboard.ErrDashboardAccessAdminConflict
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE mochat_go_dashboard_identities SET password_hash=?,must_rotate_password=1,auth_version=auth_version+1,updated_at=NOW() WHERE user_id=? AND auth_version=?`, command.PasswordHash, userID, account.AuthVersion); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE mochat_go_dashboard_sessions SET status=2,revoked_at=NOW(),updated_at=NOW() WHERE user_id=? AND status=1`, userID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	account.MustRotatePassword = true
+	account.AuthVersion++
+	employee.Account = &account
+	if err = insertDashboardAccessAuditTx(ctx, tx, command.TenantID, command.ActorUserID, "employee_account.password_reset", "employee", strconv.Itoa(command.EmployeeID), map[string]any{"authVersion": account.AuthVersion - 1}, map[string]any{"authVersion": account.AuthVersion, "mustRotatePassword": true}, nil, account.AuthVersion, command.RequestID); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return dashboard.DashboardAccessEmployee{}, err
+	}
+	return employee, nil
+}
+
+func lockDashboardEmployeeAccountTargetTx(ctx context.Context, tx dashboardAccessAdminTx, tenantID, employeeID int) (dashboard.DashboardAccessEmployee, int, int, error) {
+	var employee dashboard.DashboardAccessEmployee
+	var corpID, linkedUserID int
+	err := tx.QueryRowContext(ctx, `
+		SELECT employee.id,employee.corp_id,COALESCE(employee.wx_user_id,''),COALESCE(employee.name,''),COALESCE(employee.mobile,''),employee.status,employee.log_user_id
+		FROM mc_work_employee employee
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=1
+		WHERE employee.id=? AND employee.deleted_at IS NULL LIMIT 1 FOR UPDATE
+	`, tenantID, employeeID).Scan(&employee.ID, &corpID, &employee.WXUserID, &employee.Name, &employee.Mobile, &employee.Status, &linkedUserID)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = dashboard.ErrDashboardAccessAdminNotFound
+	}
+	return employee, corpID, linkedUserID, err
+}
+
+func lockDashboardIdentityTx(ctx context.Context, tx dashboardAccessAdminTx, tenantID, userID int) (dashboard.DashboardEmployeeAccount, error) {
+	var account dashboard.DashboardEmployeeAccount
+	var mustRotate int
+	err := tx.QueryRowContext(ctx, `
+		SELECT identity.user_id,identity.login_identifier,identity.status,identity.must_rotate_password,identity.auth_version
+		FROM mochat_go_dashboard_identities identity
+		INNER JOIN mc_user user ON user.id=identity.user_id AND user.tenant_id=? AND user.deleted_at IS NULL
+		WHERE identity.user_id=? LIMIT 1 FOR UPDATE
+	`, tenantID, userID).Scan(&account.UserID, &account.LoginIdentifier, &account.Status, &mustRotate, &account.AuthVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = dashboard.ErrDashboardAccessAdminNotFound
+	}
+	account.MustRotatePassword = mustRotate == 1
+	return account, err
+}
+
 func (s *MySQLStore) DashboardAccessUser(ctx context.Context, tenantID, userID int) (dashboard.DashboardAccessUserDetail, bool, error) {
 	if s.db == nil {
 		return dashboard.DashboardAccessUserDetail{}, false, errors.New("dashboard access administration store is unavailable")

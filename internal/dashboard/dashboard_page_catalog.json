@@ -1537,6 +1537,10 @@
         { "method": "GET", "pathPattern": "/dashboard/access/users", "scopeRequired": false },
         { "method": "GET", "pathPattern": "/dashboard/access/users/{id}", "scopeRequired": false },
         { "method": "PUT", "pathPattern": "/dashboard/access/users/{id}", "scopeRequired": false },
+        { "method": "GET", "pathPattern": "/dashboard/access/employees", "scopeRequired": false },
+        { "method": "POST", "pathPattern": "/dashboard/access/employees/{id}/account", "scopeRequired": false },
+        { "method": "PUT", "pathPattern": "/dashboard/access/employees/{id}/account/status", "scopeRequired": false },
+        { "method": "POST", "pathPattern": "/dashboard/access/employees/{id}/account/reset-password", "scopeRequired": false },
         {
           "method": "GET",
           "pathPattern": "/dashboard/user/index",

@@ -58,6 +58,13 @@ export const COMPANY_SETTINGS_CREDENTIAL_RESOURCE_MAPPINGS = [
   'dashboard.company_setting.website\tPOST /dashboard/company/callback-configuration/regenerate\t0',
 ];
 
+export const EMPLOYEE_ACCOUNT_RESOURCE_MAPPINGS = [
+  'dashboard.company_setting.staff\tGET /dashboard/access/employees\t0',
+  'dashboard.company_setting.staff\tPOST /dashboard/access/employees/{id}/account\t0',
+  'dashboard.company_setting.staff\tPUT /dashboard/access/employees/{id}/account/status\t0',
+  'dashboard.company_setting.staff\tPOST /dashboard/access/employees/{id}/account/reset-password\t0',
+];
+
 async function sourceFiles(root, extensions) {
   const files = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -532,6 +539,35 @@ export function applyCompanySettingsCredentialResourceOverlay({
   return result;
 }
 
+export function applyEmployeeAccountResourceOverlay({
+  mappings,
+  overlaySource,
+  expectedMappings = EMPLOYEE_ACCOUNT_RESOURCE_MAPPINGS,
+}) {
+  if (!Array.isArray(mappings) || typeof overlaySource !== 'string') {
+    throw new Error('0133 employee account resource overlay inputs are invalid');
+  }
+  const seedBlock = overlaySource.match(/INNER\s+JOIN\s*\(([\s\S]*?)\)\s*resource/i);
+  if (!seedBlock) {
+    throw new Error('0133 employee account resource overlay is missing');
+  }
+  const additions = [];
+  for (const match of seedBlock[1].matchAll(/(?:SELECT|UNION ALL SELECT)\s+'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS\s+`?\w+`?)?\s*,\s*'(\/dashboard\/access\/employees[^']*)'/g)) {
+    additions.push(`dashboard.company_setting.staff\t${match[1]} ${match[2]}\t0`);
+  }
+  if (!sameSet(new Set(additions), new Set(expectedMappings))) {
+    throw new Error('0133 employee account resource overlay must contain every new endpoint');
+  }
+  const result = [...mappings];
+  for (const addition of additions) {
+    if (result.includes(addition)) {
+      throw new Error(`0133 employee account resource overlay duplicates mapping: ${addition}`);
+    }
+    result.push(addition);
+  }
+  return result;
+}
+
 export async function scanBackendRegisteredAPIs() {
   const internalFiles = await sourceFiles('internal', ['.go']);
   const compositionFiles = await sourceFiles(path.join('cmd', 'mochat-go'), ['.go']);
@@ -699,10 +735,17 @@ async function main() {
       'utf8',
     ),
   });
-  const seededMappings = applyCompanySettingsCredentialResourceOverlay({
+  const companyCredentialMappings = applyCompanySettingsCredentialResourceOverlay({
     mappings: cutoverMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0132_company_settings_credentials.up.sql',
+      'utf8',
+    ),
+  });
+  const seededMappings = applyEmployeeAccountResourceOverlay({
+    mappings: companyCredentialMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0133_archive_simulation_registry.up.sql',
       'utf8',
     ),
   });

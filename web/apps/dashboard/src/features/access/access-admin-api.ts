@@ -38,6 +38,25 @@ export type AccessUser = AccessUserSummary & {
   inheritedPermissions: EffectivePermission[];
   effectivePermissions: EffectivePermission[];
 };
+export type AccessEmployeeAccount = {
+  userId: number;
+  loginIdentifier: string;
+  status: number;
+  mustRotatePassword: boolean;
+  authVersion: number;
+};
+export type AccessEmployee = {
+  id: number;
+  wxUserId: string;
+  name: string;
+  mobile: string;
+  status: number;
+  account: AccessEmployeeAccount | null;
+};
+export type AccessEmployeeMutationResult = {
+  employee: AccessEmployee;
+  temporaryPassword?: string;
+};
 export type Page<T> = {
   list: T[];
   page: { page: number; perPage: number; total: number; totalPage: number };
@@ -62,6 +81,31 @@ export type DashboardAccessAdminApi = ReturnType<
 
 export function createDashboardAccessAdminApi(client: Client) {
   return {
+    employees: (input: {
+      page: number;
+      perPage: number;
+    }): Promise<Page<AccessEmployee>> =>
+      client.request(
+        `/access/employees?page=${input.page}&perPage=${input.perPage}`,
+      ) as Promise<Page<AccessEmployee>>,
+    provisionEmployeeAccount: (
+      id: number,
+      input: { loginIdentifier: string; roleIds: number[] },
+    ) =>
+      client.request(
+        `/access/employees/${id}/account`,
+        json("POST", input),
+      ) as Promise<AccessEmployeeMutationResult>,
+    updateEmployeeAccountStatus: (id: number, status: 1 | 2) =>
+      client.request(
+        `/access/employees/${id}/account/status`,
+        json("PUT", { status }),
+      ) as Promise<AccessEmployeeMutationResult>,
+    resetEmployeePassword: (id: number) =>
+      client.request(
+        `/access/employees/${id}/account/reset-password`,
+        json("POST", {}),
+      ) as Promise<AccessEmployeeMutationResult>,
     users: (input: {
       page: number;
       perPage: number;

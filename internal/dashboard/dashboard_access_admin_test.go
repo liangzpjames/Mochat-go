@@ -7,19 +7,21 @@ import (
 )
 
 type fakeDashboardAccessAdminStore struct {
-	identities map[int]DashboardAccessIdentity
-	catalog    []DashboardPermissionDefinition
-	users      DashboardAccessUserPage
-	user       DashboardAccessUserDetail
-	userFound  bool
-	roles      DashboardAccessRolePage
-	role       DashboardAccessRoleDetail
-	roleFound  bool
-	audits     DashboardPermissionAuditPage
-	writeErr   error
-	lastTenant int
-	lastActor  int
-	writeCalls int
+	identities          map[int]DashboardAccessIdentity
+	catalog             []DashboardPermissionDefinition
+	users               DashboardAccessUserPage
+	user                DashboardAccessUserDetail
+	userFound           bool
+	roles               DashboardAccessRolePage
+	role                DashboardAccessRoleDetail
+	roleFound           bool
+	audits              DashboardPermissionAuditPage
+	writeErr            error
+	lastTenant          int
+	lastActor           int
+	writeCalls          int
+	employees           DashboardAccessEmployeePage
+	lastEmployeeCommand any
 }
 
 func (store *fakeDashboardAccessAdminStore) DashboardAccessIdentity(_ context.Context, userID int) (DashboardAccessIdentity, bool, error) {
@@ -98,6 +100,26 @@ func (store *fakeDashboardAccessAdminStore) DeleteDashboardRole(_ context.Contex
 	store.lastTenant, store.lastActor = command.TenantID, command.ActorUserID
 	store.writeCalls++
 	return store.writeErr
+}
+
+func (store *fakeDashboardAccessAdminStore) DashboardAccessEmployees(_ context.Context, tenantID, page, perPage int) (DashboardAccessEmployeePage, error) {
+	store.lastTenant = tenantID
+	return store.employees, nil
+}
+
+func (store *fakeDashboardAccessAdminStore) ProvisionDashboardEmployeeAccount(_ context.Context, command ProvisionDashboardEmployeeAccountCommand) (DashboardAccessEmployee, error) {
+	store.lastTenant, store.lastActor, store.writeCalls, store.lastEmployeeCommand = command.TenantID, command.ActorUserID, store.writeCalls+1, command
+	return DashboardAccessEmployee{ID: command.EmployeeID, Account: &DashboardEmployeeAccount{UserID: 22, LoginIdentifier: command.LoginIdentifier, Status: 1, MustRotatePassword: true, AuthVersion: 1}}, store.writeErr
+}
+
+func (store *fakeDashboardAccessAdminStore) UpdateDashboardEmployeeAccountStatus(_ context.Context, command UpdateDashboardEmployeeAccountStatusCommand) (DashboardAccessEmployee, error) {
+	store.lastTenant, store.lastActor, store.writeCalls, store.lastEmployeeCommand = command.TenantID, command.ActorUserID, store.writeCalls+1, command
+	return DashboardAccessEmployee{ID: command.EmployeeID, Account: &DashboardEmployeeAccount{UserID: 22, Status: command.Status, AuthVersion: 2}}, store.writeErr
+}
+
+func (store *fakeDashboardAccessAdminStore) ResetDashboardEmployeePassword(_ context.Context, command ResetDashboardEmployeePasswordCommand) (DashboardAccessEmployee, error) {
+	store.lastTenant, store.lastActor, store.writeCalls, store.lastEmployeeCommand = command.TenantID, command.ActorUserID, store.writeCalls+1, command
+	return DashboardAccessEmployee{ID: command.EmployeeID, Account: &DashboardEmployeeAccount{UserID: 22, Status: 1, MustRotatePassword: true, AuthVersion: 2}}, store.writeErr
 }
 
 func newDashboardAccessAdminFixture() (*DashboardAccessAdminService, *fakeDashboardAccessAdminStore) {
@@ -202,5 +224,50 @@ func TestDashboardAccessAdminCommandsDeriveTenantAndActor(t *testing.T) {
 	}
 	if store.lastTenant != 9 || store.lastActor != 1 {
 		t.Fatalf("tenant=%d actor=%d", store.lastTenant, store.lastActor)
+	}
+}
+
+func TestDashboardEmployeeAccountLifecycleDerivesTenantAndReturnsPasswordOnce(t *testing.T) {
+	service, store := newDashboardAccessAdminFixture()
+	service.temporaryPassword = func() (string, error) { return "DemoPass2026", nil }
+
+	result, err := service.ProvisionEmployeeAccount(context.Background(), 1, 4, ProvisionDashboardEmployeeAccountInput{
+		LoginIdentifier: "13800000004", RoleIDs: []int{8, 8}, RequestID: "employee-create-4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TemporaryPassword != "DemoPass2026" || result.Employee.Account == nil || !result.Employee.Account.MustRotatePassword {
+		t.Fatalf("result=%+v", result)
+	}
+	command := store.lastEmployeeCommand.(ProvisionDashboardEmployeeAccountCommand)
+	if command.TenantID != 9 || command.ActorUserID != 1 || command.EmployeeID != 4 || len(command.RoleIDs) != 1 || command.PasswordHash == "DemoPass2026" {
+		t.Fatalf("command=%+v", command)
+	}
+
+	if _, err := service.UpdateEmployeeAccountStatus(context.Background(), 1, 4, UpdateDashboardEmployeeAccountStatusInput{Status: 2}); err != nil {
+		t.Fatal(err)
+	}
+	reset, err := service.ResetEmployeePassword(context.Background(), 1, 4, ResetDashboardEmployeePasswordInput{})
+	if err != nil || reset.TemporaryPassword != "DemoPass2026" {
+		t.Fatalf("reset=%+v err=%v", reset, err)
+	}
+}
+
+func TestDashboardEmployeeAccountLifecycleRejectsInvalidInputAndOrdinaryActor(t *testing.T) {
+	service, store := newDashboardAccessAdminFixture()
+	service.temporaryPassword = func() (string, error) { return "DemoPass2026", nil }
+
+	if _, err := service.ProvisionEmployeeAccount(context.Background(), 1, 4, ProvisionDashboardEmployeeAccountInput{LoginIdentifier: "not-a-phone"}); !errors.Is(err, ErrDashboardAccessAdminInvalid) {
+		t.Fatalf("invalid login error=%v", err)
+	}
+	if _, err := service.ProvisionEmployeeAccount(context.Background(), 2, 4, ProvisionDashboardEmployeeAccountInput{LoginIdentifier: "13800000004"}); !errors.Is(err, ErrDashboardAccessAdminForbidden) {
+		t.Fatalf("ordinary actor error=%v", err)
+	}
+	if _, err := service.UpdateEmployeeAccountStatus(context.Background(), 1, 4, UpdateDashboardEmployeeAccountStatusInput{Status: 3}); !errors.Is(err, ErrDashboardAccessAdminInvalid) {
+		t.Fatalf("invalid status error=%v", err)
+	}
+	if store.writeCalls != 0 {
+		t.Fatalf("writeCalls=%d", store.writeCalls)
 	}
 }

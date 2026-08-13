@@ -39,6 +39,48 @@ function wrap(node: React.ReactNode) {
   );
 }
 
+function withEmployeeLifecycle<
+  T extends {
+    users(input: { page: number; perPage: number }): Promise<{
+      list: Array<{
+        id: number;
+        name: string;
+        phone: string;
+        status: number;
+        version: number;
+      }>;
+      page: { total: number; totalPage: number };
+    }>;
+  },
+>(api: T) {
+  return {
+    ...api,
+    employees: async (input: { page: number; perPage: number }) => {
+      const result = await api.users(input);
+      return {
+        ...result,
+        list: result.list.map((user) => ({
+          id: user.id,
+          wxUserId: `wx-${user.id}`,
+          name: user.name,
+          mobile: user.phone,
+          status: 1,
+          account: {
+            userId: user.id,
+            loginIdentifier: user.phone,
+            status: user.status,
+            mustRotatePassword: false,
+            authVersion: user.version,
+          },
+        })),
+      };
+    },
+    provisionEmployeeAccount: vi.fn(),
+    updateEmployeeAccountStatus: vi.fn(),
+    resetEmployeePassword: vi.fn(),
+  };
+}
+
 describe("access management pages", () => {
   it("groups and searches grantable permissions without exposing protected pages", () => {
     function SelectorHarness() {
@@ -162,8 +204,8 @@ describe("access management pages", () => {
       configurable: true,
       value: 390,
     });
-    wrap(<AccessStaffPage api={api} />);
-    fireEvent.click(await screen.findByRole("button", { name: "编辑权限" }));
+    wrap(<AccessStaffPage api={withEmployeeLifecycle(api)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "权限设置" }));
     await waitFor(() => expect(api.user).toHaveBeenCalledWith(7));
     expect(await screen.findByText("数据报表")).toBeTruthy();
     expect(screen.getByText("已选 1 个角色 · 0 项直接权限")).toBeTruthy();
@@ -329,15 +371,126 @@ describe("access management pages", () => {
           { code: "p", name: "概览", superadminOnly: false },
         ]),
     };
-    wrap(<AccessStaffPage api={api} />);
-    fireEvent.click(await screen.findByRole("button", { name: "编辑权限" }));
+    wrap(<AccessStaffPage api={withEmployeeLifecycle(api)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "权限设置" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "详情加载失败",
+      "账号权限加载失败",
     );
     expect(
       screen.getByRole("button", { name: "保存权限" }).hasAttribute("disabled"),
     ).toBe(true);
     expect(replaceUser).not.toHaveBeenCalled();
+  });
+
+  it("provisions an unbound employee only after confirmation and reveals the temporary password once", async () => {
+    const provisionEmployeeAccount = vi.fn().mockResolvedValue({
+      employee: {
+        id: 4,
+        wxUserId: "zhangsan",
+        name: "张三",
+        mobile: "13800000004",
+        status: 1,
+        account: {
+          userId: 7,
+          loginIdentifier: "13800000004",
+          status: 1,
+          mustRotatePassword: true,
+          authVersion: 1,
+        },
+      },
+      temporaryPassword: "DemoPass2026",
+    });
+    const api = {
+      employees: vi.fn().mockResolvedValue({
+        list: [
+          {
+            id: 4,
+            wxUserId: "zhangsan",
+            name: "张三",
+            mobile: "13800000004",
+            status: 1,
+            account: null,
+          },
+        ],
+        page: { total: 1, totalPage: 1 },
+      }),
+      provisionEmployeeAccount,
+      updateEmployeeAccountStatus: vi.fn(),
+      resetEmployeePassword: vi.fn(),
+      user: vi.fn(),
+      replaceUser: vi.fn(),
+      roles: vi.fn().mockResolvedValue({
+        list: [{ id: 2, name: "销售", status: 1, version: 1 }],
+        page: { total: 1, totalPage: 1 },
+      }),
+      catalog: vi.fn().mockResolvedValue([]),
+    };
+    wrap(<AccessStaffPage api={api} />);
+    fireEvent.click(await screen.findByRole("button", { name: "开通账号" }));
+    expect(screen.getByDisplayValue("13800000004")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("销售（启用）"));
+    fireEvent.click(screen.getByRole("button", { name: "确认开通" }));
+    expect(provisionEmployeeAccount).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "确认" }));
+    await waitFor(() =>
+      expect(provisionEmployeeAccount).toHaveBeenCalledWith(4, {
+        loginIdentifier: "13800000004",
+        roleIds: [2],
+      }),
+    );
+    expect(await screen.findByText("DemoPass2026")).toBeTruthy();
+    expect(screen.getByText(/首次登录必须修改密码/)).toBeTruthy();
+  });
+
+  it("confirms employee disable and password reset operations", async () => {
+    const employee = {
+      id: 4,
+      wxUserId: "zhangsan",
+      name: "张三",
+      mobile: "13800000004",
+      status: 1,
+      account: {
+        userId: 7,
+        loginIdentifier: "13800000004",
+        status: 1,
+        mustRotatePassword: false,
+        authVersion: 3,
+      },
+    };
+    const updateEmployeeAccountStatus = vi
+      .fn()
+      .mockResolvedValue({ employee });
+    const resetEmployeePassword = vi.fn().mockResolvedValue({
+      employee,
+      temporaryPassword: "ResetPass2026",
+    });
+    const api = {
+      employees: vi.fn().mockResolvedValue({
+        list: [employee],
+        page: { total: 1, totalPage: 1 },
+      }),
+      provisionEmployeeAccount: vi.fn(),
+      updateEmployeeAccountStatus,
+      resetEmployeePassword,
+      user: vi.fn(),
+      replaceUser: vi.fn(),
+      roles: vi.fn().mockResolvedValue({
+        list: [],
+        page: { total: 0, totalPage: 1 },
+      }),
+      catalog: vi.fn().mockResolvedValue([]),
+    };
+    wrap(<AccessStaffPage api={api} />);
+    fireEvent.click(await screen.findByRole("button", { name: "停用" }));
+    expect(updateEmployeeAccountStatus).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "确认" }));
+    await waitFor(() =>
+      expect(updateEmployeeAccountStatus).toHaveBeenCalledWith(4, 2),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "重置密码" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认" }));
+    await waitFor(() => expect(resetEmployeePassword).toHaveBeenCalledWith(4));
+    expect(await screen.findByText("ResetPass2026")).toBeTruthy();
   });
 
   it("loads second role page and includes an unassigned role in the confirmed payload", async () => {
@@ -380,8 +533,8 @@ describe("access management pages", () => {
       ),
       catalog: vi.fn().mockResolvedValue([]),
     };
-    wrap(<AccessStaffPage api={api} />);
-    fireEvent.click(await screen.findByRole("button", { name: "编辑权限" }));
+    wrap(<AccessStaffPage api={withEmployeeLifecycle(api)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "权限设置" }));
     await waitFor(() =>
       expect(api.roles).toHaveBeenCalledWith({ page: 2, perPage: 100 }),
     );
@@ -423,7 +576,7 @@ describe("access management pages", () => {
         .mockResolvedValue({ list: [], page: { total: 0, totalPage: 1 } }),
       catalog: vi.fn().mockResolvedValue([]),
     };
-    wrap(<AccessStaffPage api={api} />);
+    wrap(<AccessStaffPage api={withEmployeeLifecycle(api)} />);
     expect(await screen.findByText(/员工1/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     await waitFor(() =>

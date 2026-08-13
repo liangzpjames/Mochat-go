@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import {
   applyCompanySettingsCredentialResourceOverlay,
   applyCutoverPermissionResourceOverlay,
+  applyEmployeeAccountResourceOverlay,
   scanBackendRegisteredAPIs,
   scanFrontendAPIUsages,
 } from './check_dashboard_page_rbac_catalog.mjs';
@@ -69,10 +70,17 @@ export async function runCompletionGate(root = process.cwd()) {
     legacyMappings: legacySeededMappings,
     overlaySource,
   });
-  const seededMappings = applyCompanySettingsCredentialResourceOverlay({
+  const companyCredentialMappings = applyCompanySettingsCredentialResourceOverlay({
     mappings: cutoverMappings,
     overlaySource: await readFile(
       path.join(root, 'deploy/standalone/migrations/0132_company_settings_credentials.up.sql'),
+      'utf8',
+    ),
+  });
+  const seededMappings = applyEmployeeAccountResourceOverlay({
+    mappings: companyCredentialMappings,
+    overlaySource: await readFile(
+      path.join(root, 'deploy/standalone/migrations/0133_archive_simulation_registry.up.sql'),
       'utf8',
     ),
   });

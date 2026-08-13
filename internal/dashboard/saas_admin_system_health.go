@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0132_company_settings_credentials"
-	SaaSAdminExpectedMigrationCount   = 132
+	SaaSAdminExpectedMigrationVersion = "0133_archive_simulation_registry"
+	SaaSAdminExpectedMigrationCount   = 133
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

@@ -17,6 +17,18 @@ func registerDashboardAccessRoutes(registrar appmodules.RouteRegistrar, handler 
 	if err := registrar.Handle(http.MethodGet, "/dashboard/access/users", handler); err != nil {
 		return fmt.Errorf("register dashboard access users: %w", err)
 	}
+	if err := registrar.Handle(http.MethodGet, "/dashboard/access/employees", handler); err != nil {
+		return fmt.Errorf("register dashboard access employees: %w", err)
+	}
+	if err := registrar.Handle(http.MethodPost, "/dashboard/access/employees/{id}/account", handler); err != nil {
+		return fmt.Errorf("register dashboard employee account provision: %w", err)
+	}
+	if err := registrar.Handle(http.MethodPut, "/dashboard/access/employees/{id}/account/status", handler); err != nil {
+		return fmt.Errorf("register dashboard employee account status: %w", err)
+	}
+	if err := registrar.Handle(http.MethodPost, "/dashboard/access/employees/{id}/account/reset-password", handler); err != nil {
+		return fmt.Errorf("register dashboard employee account password reset: %w", err)
+	}
 	if err := registrar.Handle(http.MethodGet, "/dashboard/access/users/{id}", handler); err != nil {
 		return fmt.Errorf("register dashboard access user: %w", err)
 	}

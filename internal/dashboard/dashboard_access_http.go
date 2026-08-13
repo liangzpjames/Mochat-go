@@ -62,6 +62,9 @@ func (handler *DashboardAccessHTTP) ServeHTTP(w http.ResponseWriter, request *ht
 	case "/dashboard/access/users":
 		handler.serveUsers(w, request, actorUserID)
 		return
+	case "/dashboard/access/employees":
+		handler.serveEmployees(w, request, actorUserID)
+		return
 	case "/dashboard/access/roles":
 		handler.serveRoles(w, request, actorUserID)
 		return
@@ -78,11 +81,75 @@ func (handler *DashboardAccessHTTP) ServeHTTP(w http.ResponseWriter, request *ht
 		handler.serveUser(w, request, actorUserID, id)
 		return
 	}
+	if id, suffix, ok := dashboardAccessPathID(path, "/dashboard/access/employees/"); ok {
+		handler.serveEmployeeAccount(w, request, actorUserID, id, suffix)
+		return
+	}
 	if id, suffix, ok := dashboardAccessPathID(path, "/dashboard/access/roles/"); ok {
 		handler.serveRole(w, request, actorUserID, id, suffix)
 		return
 	}
 	writeDashboardAccessNotFound(w)
+}
+
+func (handler *DashboardAccessHTTP) serveEmployees(w http.ResponseWriter, request *http.Request, actorUserID int) {
+	if request.Method != http.MethodGet {
+		writeDashboardAccessMethodNotAllowed(w)
+		return
+	}
+	page, perPage, err := dashboardAccessPagination(request)
+	if err != nil {
+		handler.writeResult(w, http.StatusOK, nil, ErrDashboardAccessAdminInvalid)
+		return
+	}
+	result, err := handler.service.Employees(request.Context(), actorUserID, page, perPage)
+	handler.writeResult(w, http.StatusOK, result, err)
+}
+
+func (handler *DashboardAccessHTTP) serveEmployeeAccount(w http.ResponseWriter, request *http.Request, actorUserID, employeeID int, suffix string) {
+	switch suffix {
+	case "/account":
+		if request.Method != http.MethodPost {
+			writeDashboardAccessMethodNotAllowed(w)
+			return
+		}
+		var input ProvisionDashboardEmployeeAccountInput
+		if err := decodeDashboardAccessJSON(request, &input); err != nil {
+			handler.writeResult(w, http.StatusCreated, nil, ErrDashboardAccessAdminInvalid)
+			return
+		}
+		input.RequestID = dashboardAccessRequestID(request, input.RequestID)
+		result, err := handler.service.ProvisionEmployeeAccount(request.Context(), actorUserID, employeeID, input)
+		handler.writeResult(w, http.StatusCreated, result, err)
+	case "/account/status":
+		if request.Method != http.MethodPut {
+			writeDashboardAccessMethodNotAllowed(w)
+			return
+		}
+		var input UpdateDashboardEmployeeAccountStatusInput
+		if err := decodeDashboardAccessJSON(request, &input); err != nil {
+			handler.writeResult(w, http.StatusOK, nil, ErrDashboardAccessAdminInvalid)
+			return
+		}
+		input.RequestID = dashboardAccessRequestID(request, input.RequestID)
+		result, err := handler.service.UpdateEmployeeAccountStatus(request.Context(), actorUserID, employeeID, input)
+		handler.writeResult(w, http.StatusOK, result, err)
+	case "/account/reset-password":
+		if request.Method != http.MethodPost {
+			writeDashboardAccessMethodNotAllowed(w)
+			return
+		}
+		var input ResetDashboardEmployeePasswordInput
+		if err := decodeDashboardAccessJSON(request, &input); err != nil {
+			handler.writeResult(w, http.StatusOK, nil, ErrDashboardAccessAdminInvalid)
+			return
+		}
+		input.RequestID = dashboardAccessRequestID(request, input.RequestID)
+		result, err := handler.service.ResetEmployeePassword(request.Context(), actorUserID, employeeID, input)
+		handler.writeResult(w, http.StatusOK, result, err)
+	default:
+		writeDashboardAccessNotFound(w)
+	}
 }
 
 func dashboardCorpBindingStatus(status dashboardprincipal.CorpBindingStatus) string {

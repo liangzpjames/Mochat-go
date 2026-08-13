@@ -1659,6 +1659,28 @@ body {
 .access-role-option span { display: grid; gap: 2px; min-width: 0; }
 .access-role-option strong { color: #3b4355; font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .access-role-option small { color: #979ead; font-size: .68rem; }
+.dashboard-actions-inline {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.access-temporary-password {
+  align-items: center;
+  background: #f5f7ff;
+  border: 1px solid #dfe4ff;
+  border-radius: 10px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px;
+}
+.access-temporary-password code {
+  color: #263159;
+  font-size: 1.05rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
 .access-role-basics {
   display: grid;
   gap: 14px;

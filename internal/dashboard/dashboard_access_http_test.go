@@ -17,6 +17,8 @@ func TestDashboardAccessHTTPRoutes(t *testing.T) {
 	store.users = DashboardAccessUserPage{List: []DashboardAccessUserSummary{{ID: 7}}, Page: DashboardAccessPage{Page: 1, PerPage: 20, Total: 1, TotalPage: 1}}
 	store.roles = DashboardAccessRolePage{List: []DashboardAccessRoleDetail{store.role}, Page: DashboardAccessPage{Page: 1, PerPage: 20, Total: 1, TotalPage: 1}}
 	store.audits = DashboardPermissionAuditPage{List: []DashboardPermissionAudit{{ID: 1}}, Page: DashboardAccessPage{Page: 1, PerPage: 20, Total: 1, TotalPage: 1}}
+	store.employees = DashboardAccessEmployeePage{List: []DashboardAccessEmployee{{ID: 4, Name: "Employee"}}, Page: DashboardAccessPage{Page: 1, PerPage: 20, Total: 1, TotalPage: 1}}
+	service.temporaryPassword = func() (string, error) { return "DemoPass2026", nil }
 	handler := NewDashboardAccessHTTP(service)
 	for _, test := range []struct {
 		name, method, path, body string
@@ -27,6 +29,10 @@ func TestDashboardAccessHTTPRoutes(t *testing.T) {
 		{name: "users", method: http.MethodGet, path: "/dashboard/access/users?page=1&perPage=20", wantStatus: http.StatusOK},
 		{name: "user", method: http.MethodGet, path: "/dashboard/access/users/7", wantStatus: http.StatusOK},
 		{name: "replace user", method: http.MethodPut, path: "/dashboard/access/users/7", body: `{"roleIds":[8],"directPermissions":[{"code":"dashboard.index","scope":"self"}],"expectedVersion":3}`, wantStatus: http.StatusOK},
+		{name: "employees", method: http.MethodGet, path: "/dashboard/access/employees?page=1&perPage=20", wantStatus: http.StatusOK},
+		{name: "provision employee", method: http.MethodPost, path: "/dashboard/access/employees/4/account", body: `{"loginIdentifier":"13800000004","roleIds":[8]}`, wantStatus: http.StatusCreated},
+		{name: "disable employee", method: http.MethodPut, path: "/dashboard/access/employees/4/account/status", body: `{"status":2}`, wantStatus: http.StatusOK},
+		{name: "reset employee password", method: http.MethodPost, path: "/dashboard/access/employees/4/account/reset-password", body: `{}`, wantStatus: http.StatusOK},
 		{name: "roles", method: http.MethodGet, path: "/dashboard/access/roles", wantStatus: http.StatusOK},
 		{name: "create role", method: http.MethodPost, path: "/dashboard/access/roles", body: `{"name":"销售","remark":"普通角色","status":1,"permissions":[{"code":"dashboard.index","scope":"department"}]}`, wantStatus: http.StatusCreated},
 		{name: "update role", method: http.MethodPut, path: "/dashboard/access/roles/8", body: `{"name":"销售","remark":"普通角色","permissions":[{"code":"dashboard.index","scope":"department"}],"expectedVersion":4}`, wantStatus: http.StatusOK},
@@ -116,6 +122,9 @@ func TestDashboardAccessHTTPStrictlyDecodesEveryWriteShape(t *testing.T) {
 		{http.MethodPut, "/dashboard/access/roles/8", `{"name":"sales","expectedVersion":4,"operateName":"admin"}`},
 		{http.MethodPut, "/dashboard/access/roles/8/status", `{"status":2,"expectedVersion":4,"tenant_id":9}`},
 		{http.MethodDelete, "/dashboard/access/roles/8", `{"expectedVersion":4,"operateId":1}`},
+		{http.MethodPost, "/dashboard/access/employees/4/account", `{"loginIdentifier":"13800000004","tenantId":9}`},
+		{http.MethodPut, "/dashboard/access/employees/4/account/status", `{"status":2,"actorUserId":1}`},
+		{http.MethodPost, "/dashboard/access/employees/4/account/reset-password", `{"password":"secret"}`},
 	} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, dashboardAccessHTTPTestRequest(test.method, test.path, bytes.NewBufferString(test.body)))

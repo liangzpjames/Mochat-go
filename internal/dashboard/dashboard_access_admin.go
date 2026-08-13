@@ -2,11 +2,15 @@ package dashboard
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"jiyi/mochat-go/internal/authpassword"
 )
 
 var (
@@ -72,6 +76,48 @@ type DashboardAccessUserDetail struct {
 type DashboardAccessUserPage struct {
 	List []DashboardAccessUserSummary `json:"list"`
 	Page DashboardAccessPage          `json:"page"`
+}
+
+type DashboardEmployeeAccount struct {
+	UserID             int    `json:"userId"`
+	LoginIdentifier    string `json:"loginIdentifier"`
+	Status             int    `json:"status"`
+	MustRotatePassword bool   `json:"mustRotatePassword"`
+	AuthVersion        uint64 `json:"authVersion"`
+}
+
+type DashboardAccessEmployee struct {
+	ID       int                       `json:"id"`
+	WXUserID string                    `json:"wxUserId"`
+	Name     string                    `json:"name"`
+	Mobile   string                    `json:"mobile"`
+	Status   int                       `json:"status"`
+	Account  *DashboardEmployeeAccount `json:"account"`
+}
+
+type DashboardAccessEmployeePage struct {
+	List []DashboardAccessEmployee `json:"list"`
+	Page DashboardAccessPage       `json:"page"`
+}
+
+type ProvisionDashboardEmployeeAccountInput struct {
+	LoginIdentifier string `json:"loginIdentifier"`
+	RoleIDs         []int  `json:"roleIds"`
+	RequestID       string `json:"requestId"`
+}
+
+type UpdateDashboardEmployeeAccountStatusInput struct {
+	Status    int    `json:"status"`
+	RequestID string `json:"requestId"`
+}
+
+type ResetDashboardEmployeePasswordInput struct {
+	RequestID string `json:"requestId"`
+}
+
+type DashboardEmployeeAccountMutationResult struct {
+	Employee          DashboardAccessEmployee `json:"employee"`
+	TemporaryPassword string                  `json:"temporaryPassword,omitempty"`
 }
 
 type DashboardAccessRoleDetail struct {
@@ -209,6 +255,35 @@ type DeleteDashboardRoleCommand struct {
 	RequestID       string
 }
 
+type ProvisionDashboardEmployeeAccountCommand struct {
+	TenantID        int
+	ActorUserID     int
+	ActorName       string
+	EmployeeID      int
+	LoginIdentifier string
+	RoleIDs         []int
+	PasswordHash    string
+	RequestID       string
+}
+
+type UpdateDashboardEmployeeAccountStatusCommand struct {
+	TenantID    int
+	ActorUserID int
+	ActorName   string
+	EmployeeID  int
+	Status      int
+	RequestID   string
+}
+
+type ResetDashboardEmployeePasswordCommand struct {
+	TenantID     int
+	ActorUserID  int
+	ActorName    string
+	EmployeeID   int
+	PasswordHash string
+	RequestID    string
+}
+
 type DashboardAccessAdminStore interface {
 	DashboardAccessStore
 	DashboardAccessUsers(ctx context.Context, tenantID, page, perPage int) (DashboardAccessUserPage, error)
@@ -221,11 +296,16 @@ type DashboardAccessAdminStore interface {
 	UpdateDashboardRole(ctx context.Context, command UpdateDashboardRoleCommand) (DashboardAccessRoleDetail, error)
 	UpdateDashboardRoleStatus(ctx context.Context, command UpdateDashboardRoleStatusCommand) (DashboardAccessRoleDetail, error)
 	DeleteDashboardRole(ctx context.Context, command DeleteDashboardRoleCommand) error
+	DashboardAccessEmployees(ctx context.Context, tenantID, page, perPage int) (DashboardAccessEmployeePage, error)
+	ProvisionDashboardEmployeeAccount(ctx context.Context, command ProvisionDashboardEmployeeAccountCommand) (DashboardAccessEmployee, error)
+	UpdateDashboardEmployeeAccountStatus(ctx context.Context, command UpdateDashboardEmployeeAccountStatusCommand) (DashboardAccessEmployee, error)
+	ResetDashboardEmployeePassword(ctx context.Context, command ResetDashboardEmployeePasswordCommand) (DashboardAccessEmployee, error)
 }
 
 type DashboardAccessAdminService struct {
-	store  DashboardAccessAdminStore
-	access *DashboardAccessService
+	store             DashboardAccessAdminStore
+	access            *DashboardAccessService
+	temporaryPassword func() (string, error)
 }
 
 func NewDashboardAccessAdminService(store DashboardAccessAdminStore, accessServices ...*DashboardAccessService) *DashboardAccessAdminService {
@@ -233,7 +313,110 @@ func NewDashboardAccessAdminService(store DashboardAccessAdminStore, accessServi
 	if len(accessServices) > 0 && accessServices[0] != nil {
 		access = accessServices[0]
 	}
-	return &DashboardAccessAdminService{store: store, access: access}
+	return &DashboardAccessAdminService{store: store, access: access, temporaryPassword: generateDashboardTemporaryPassword}
+}
+
+func (service *DashboardAccessAdminService) Employees(ctx context.Context, actorUserID, page, perPage int) (DashboardAccessEmployeePage, error) {
+	actor, err := service.adminIdentity(ctx, actorUserID)
+	if err != nil {
+		return DashboardAccessEmployeePage{}, err
+	}
+	page, perPage = normalizeDashboardAccessPage(page, perPage)
+	return service.store.DashboardAccessEmployees(ctx, actor.TenantID, page, perPage)
+}
+
+func (service *DashboardAccessAdminService) ProvisionEmployeeAccount(ctx context.Context, actorUserID, employeeID int, input ProvisionDashboardEmployeeAccountInput) (DashboardEmployeeAccountMutationResult, error) {
+	actor, err := service.adminIdentity(ctx, actorUserID)
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	loginIdentifier := strings.TrimSpace(input.LoginIdentifier)
+	if employeeID <= 0 || !validDashboardLoginIdentifier(loginIdentifier) {
+		return DashboardEmployeeAccountMutationResult{}, ErrDashboardAccessAdminInvalid
+	}
+	password, err := service.temporaryPassword()
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	hash, err := authpassword.Hash(password)
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	employee, err := service.store.ProvisionDashboardEmployeeAccount(ctx, ProvisionDashboardEmployeeAccountCommand{
+		TenantID: actor.TenantID, ActorUserID: actor.UserID, ActorName: actor.UserName,
+		EmployeeID: employeeID, LoginIdentifier: loginIdentifier, RoleIDs: uniquePositiveInts(input.RoleIDs), PasswordHash: hash,
+		RequestID: strings.TrimSpace(input.RequestID),
+	})
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	return DashboardEmployeeAccountMutationResult{Employee: employee, TemporaryPassword: password}, nil
+}
+
+func (service *DashboardAccessAdminService) UpdateEmployeeAccountStatus(ctx context.Context, actorUserID, employeeID int, input UpdateDashboardEmployeeAccountStatusInput) (DashboardEmployeeAccountMutationResult, error) {
+	actor, err := service.adminIdentity(ctx, actorUserID)
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	if employeeID <= 0 || (input.Status != 1 && input.Status != 2) {
+		return DashboardEmployeeAccountMutationResult{}, ErrDashboardAccessAdminInvalid
+	}
+	employee, err := service.store.UpdateDashboardEmployeeAccountStatus(ctx, UpdateDashboardEmployeeAccountStatusCommand{
+		TenantID: actor.TenantID, ActorUserID: actor.UserID, ActorName: actor.UserName,
+		EmployeeID: employeeID, Status: input.Status, RequestID: strings.TrimSpace(input.RequestID),
+	})
+	return DashboardEmployeeAccountMutationResult{Employee: employee}, err
+}
+
+func (service *DashboardAccessAdminService) ResetEmployeePassword(ctx context.Context, actorUserID, employeeID int, input ResetDashboardEmployeePasswordInput) (DashboardEmployeeAccountMutationResult, error) {
+	actor, err := service.adminIdentity(ctx, actorUserID)
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	if employeeID <= 0 {
+		return DashboardEmployeeAccountMutationResult{}, ErrDashboardAccessAdminInvalid
+	}
+	password, err := service.temporaryPassword()
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	hash, err := authpassword.Hash(password)
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	employee, err := service.store.ResetDashboardEmployeePassword(ctx, ResetDashboardEmployeePasswordCommand{
+		TenantID: actor.TenantID, ActorUserID: actor.UserID, ActorName: actor.UserName,
+		EmployeeID: employeeID, PasswordHash: hash, RequestID: strings.TrimSpace(input.RequestID),
+	})
+	if err != nil {
+		return DashboardEmployeeAccountMutationResult{}, err
+	}
+	return DashboardEmployeeAccountMutationResult{Employee: employee, TemporaryPassword: password}, nil
+}
+
+func validDashboardLoginIdentifier(value string) bool {
+	if len(value) != 11 {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func generateDashboardTemporaryPassword() (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+	bytes := make([]byte, 12)
+	random := make([]byte, len(bytes))
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("generate temporary password: %w", err)
+	}
+	for index := range bytes {
+		bytes[index] = alphabet[int(random[index])%len(alphabet)]
+	}
+	return string(bytes), nil
 }
 
 func (service *DashboardAccessAdminService) Profile(ctx context.Context, userID, corpID int) (DashboardAccessProfile, error) {
