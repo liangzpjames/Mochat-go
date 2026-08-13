@@ -680,7 +680,9 @@ func scanDashboardMFAChallenge(row identityRowScanner) (dashboardauth.DashboardM
 
 func validDashboardMFAChallengeType(value string) bool {
 	switch value {
-	case dashboardauth.DashboardMFAChallengeEnrollment, dashboardauth.DashboardMFAChallengeLogin:
+	case dashboardauth.DashboardMFAChallengeEnrollment,
+		dashboardauth.DashboardMFAChallengeLogin,
+		dashboardauth.DashboardMFAChallengePasswordChange:
 		return true
 	default:
 		return false

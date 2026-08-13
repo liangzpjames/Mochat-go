@@ -147,6 +147,39 @@ func TestDashboardIdentityStoreChecksDurableJTIAndAuthVersion(t *testing.T) {
 	}
 }
 
+func TestDashboardIdentityStoreCreatesFirstLoginPasswordChangeChallenge(t *testing.T) {
+	tx := &identityTestTx{}
+	tx.query = func(query string, _ ...any) identityRowScanner {
+		if !strings.Contains(query, "mochat_go_dashboard_identities") {
+			t.Fatalf("password change challenge did not lock the Dashboard identity: %s", query)
+		}
+		return identityTestRow{values: []any{dashboardauth.DashboardIdentityStatusActive, uint64(4)}}
+	}
+	var insertedType string
+	tx.exec = func(query string, args ...any) (sql.Result, error) {
+		if !strings.Contains(query, "mochat_go_dashboard_mfa_challenges") || len(args) < 4 {
+			t.Fatalf("password change challenge was not persisted: %s args=%d", query, len(args))
+		}
+		insertedType, _ = args[3].(string)
+		return identityTestResult{}, nil
+	}
+	store := &DashboardIdentityStore{begin: func(context.Context) (dashboardIdentityTx, error) { return tx, nil }}
+	err := store.CreateMFAChallenge(
+		context.Background(),
+		7,
+		4,
+		dashboardauth.DashboardMFAChallengePasswordChange,
+		[32]byte{1},
+		time.Now().UTC().Add(time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("first-login password change challenge failed: %v", err)
+	}
+	if insertedType != dashboardauth.DashboardMFAChallengePasswordChange || tx.commits != 1 {
+		t.Fatalf("insertedType=%q commits=%d", insertedType, tx.commits)
+	}
+}
+
 type dashboardIdentityAffectedResult struct {
 	affected int64
 }
