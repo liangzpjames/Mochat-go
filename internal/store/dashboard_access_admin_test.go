@@ -69,6 +69,12 @@ func dashboardAccessAdminStoreWithTx(tx *fakeDashboardAccessAdminTx) *MySQLStore
 	return &MySQLStore{dashboardAccessAdminBegin: func(context.Context) (dashboardAccessAdminTx, error) { return tx, nil }}
 }
 
+func TestDashboardEmployeeAccountsUseActiveTenantCorpBindingStatus(t *testing.T) {
+	if dashboardAccessActiveBindingStatus != 2 {
+		t.Fatalf("employee account binding status = %d, want active status 2", dashboardAccessActiveBindingStatus)
+	}
+}
+
 func TestDashboardAccessRolesLoadsPermissionsForEveryListedRole(t *testing.T) {
 	queries := make([]string, 0, 2)
 	queryArgs := make([][]any, 0, 2)

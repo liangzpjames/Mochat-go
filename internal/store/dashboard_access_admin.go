@@ -26,6 +26,9 @@ type dashboardAccessAdminBeginFunc func(context.Context) (dashboardAccessAdminTx
 
 type sqlDashboardAccessAdminTx struct{ tx *sql.Tx }
 
+// Tenant/corp bindings use 1=pending, 2=active, 3=suspended.
+const dashboardAccessActiveBindingStatus = 2
+
 func (tx sqlDashboardAccessAdminTx) QueryRowContext(ctx context.Context, query string, args ...any) dashboardAccessAdminRow {
 	return tx.tx.QueryRowContext(ctx, query, args...)
 }
@@ -93,21 +96,21 @@ func (s *MySQLStore) DashboardAccessEmployees(ctx context.Context, tenantID, pag
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM mc_work_employee employee
-		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=1
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=?
 		WHERE employee.deleted_at IS NULL
-	`, tenantID).Scan(&total); err != nil {
+	`, tenantID, dashboardAccessActiveBindingStatus).Scan(&total); err != nil {
 		return dashboard.DashboardAccessEmployeePage{}, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT employee.id,COALESCE(employee.wx_user_id,''),COALESCE(employee.name,''),COALESCE(employee.mobile,''),employee.status,
 		       user.id,identity.login_identifier,identity.status,identity.must_rotate_password,identity.auth_version
 		FROM mc_work_employee employee
-		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=1
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=?
 		LEFT JOIN mc_user user ON user.id=employee.log_user_id AND user.tenant_id=binding.tenant_id AND user.deleted_at IS NULL
 		LEFT JOIN mochat_go_dashboard_identities identity ON identity.user_id=user.id
 		WHERE employee.deleted_at IS NULL
 		ORDER BY employee.id DESC LIMIT ? OFFSET ?
-	`, tenantID, perPage, (page-1)*perPage)
+	`, tenantID, dashboardAccessActiveBindingStatus, perPage, (page-1)*perPage)
 	if err != nil {
 		return dashboard.DashboardAccessEmployeePage{}, err
 	}
@@ -303,9 +306,9 @@ func lockDashboardEmployeeAccountTargetTx(ctx context.Context, tx dashboardAcces
 	err := tx.QueryRowContext(ctx, `
 		SELECT employee.id,employee.corp_id,COALESCE(employee.wx_user_id,''),COALESCE(employee.name,''),COALESCE(employee.mobile,''),employee.status,employee.log_user_id
 		FROM mc_work_employee employee
-		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=1
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.corp_id=employee.corp_id AND binding.tenant_id=? AND binding.status=?
 		WHERE employee.id=? AND employee.deleted_at IS NULL LIMIT 1 FOR UPDATE
-	`, tenantID, employeeID).Scan(&employee.ID, &corpID, &employee.WXUserID, &employee.Name, &employee.Mobile, &employee.Status, &linkedUserID)
+	`, tenantID, dashboardAccessActiveBindingStatus, employeeID).Scan(&employee.ID, &corpID, &employee.WXUserID, &employee.Name, &employee.Mobile, &employee.Status, &linkedUserID)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = dashboard.ErrDashboardAccessAdminNotFound
 	}
