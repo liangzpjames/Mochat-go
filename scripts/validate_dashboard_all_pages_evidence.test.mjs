@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
-import { validateDashboardAllPagesEvidence } from './validate_dashboard_all_pages_evidence.mjs';
+import { validateDashboardAllPagesEvidence, validateDashboardAllPagesEvidenceFiles } from './validate_dashboard_all_pages_evidence.mjs';
 
 const routes = Array.from({ length: 53 }, (_, index) => `/page-${index + 1}`);
 const actions = routes.map((route) => ({ route, action: `button:${route}` }));
@@ -9,7 +12,7 @@ const evidence = routes.map((route) => ({
   route,
   action: `button:${route}`,
   titleVisible: true,
-  responseStatuses: [{ url: `/dashboard/read${route}`, status: 200 }],
+  responseStatuses: [{ method: 'GET', url: `/dashboard/read${route}`, status: 200 }],
   unexpectedResponses: [],
   consoleErrors: [],
   pageErrors: [],
@@ -49,25 +52,26 @@ test('rejects missing screenshots', () => {
 });
 
 test('rejects every 401 response', () => {
-  const unauthorized = changedEvidence(5, { responseStatuses: [{ url: '/dashboard/private', status: 401, machineCode: 'UNAUTHORIZED' }] });
+  const unauthorized = changedEvidence(5, { responseStatuses: [{ method: 'GET', url: '/dashboard/private', status: 401, machineCode: 'UNAUTHORIZED' }] });
   assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: unauthorized })), /unexpected response.*401/);
-  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: unauthorized, expectedResponses: [{ route: routes[5], url: '/dashboard/private', status: 401, machineCode: 'UNAUTHORIZED' }] })), /unexpected response.*401/);
+  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: unauthorized, expectedResponses: [{ route: routes[5], method: 'GET', url: '/dashboard/private', status: 401, machineCode: 'UNAUTHORIZED' }] })), /unexpected response.*401/);
 });
 
 test('rejects an authorized page permission 403', () => {
-  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(6, { responseStatuses: [{ url: '/dashboard/private', status: 403, machineCode: 'DASHBOARD_PERMISSION_DENIED' }] }) })), /unexpected response.*403/);
+  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(6, { responseStatuses: [{ method: 'GET', url: '/dashboard/private', status: 403, machineCode: 'DASHBOARD_PERMISSION_DENIED' }] }) })), /unexpected response.*403/);
 });
 
 test('permits only an exact URL status and machine-code exception', () => {
-  const denied = changedEvidence(7, { responseStatuses: [{ url: '/dashboard/provider', status: 503, machineCode: 'PROVIDER_UNAVAILABLE' }] });
-  assert.doesNotThrow(() => validateDashboardAllPagesEvidence(input({ evidence: denied, expectedResponses: [{ route: routes[7], url: '/dashboard/provider', status: 503, machineCode: 'PROVIDER_UNAVAILABLE' }] })));
-  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: denied, expectedResponses: [{ route: routes[8], url: '/dashboard/provider', status: 503, machineCode: 'PROVIDER_UNAVAILABLE' }] })), /unexpected response.*503/);
-  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: denied, expectedResponses: [{ route: routes[7], url: '/dashboard/provider', status: 503, machineCode: 'WRONG' }] })), /unexpected response.*503/);
+  const denied = changedEvidence(7, { responseStatuses: [{ method: 'POST', url: '/dashboard/provider', status: 503, machineCode: 'PROVIDER_UNAVAILABLE' }] });
+  assert.doesNotThrow(() => validateDashboardAllPagesEvidence(input({ evidence: denied, expectedResponses: [{ route: routes[7], method: 'POST', url: '/dashboard/provider', status: 503, machineCode: 'PROVIDER_UNAVAILABLE' }] })));
+  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: denied, expectedResponses: [{ route: routes[8], method: 'POST', url: '/dashboard/provider', status: 503, machineCode: 'PROVIDER_UNAVAILABLE' }] })), /unexpected response.*503/);
+  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: denied, expectedResponses: [{ route: routes[7], method: 'GET', url: '/dashboard/provider', status: 503, machineCode: 'PROVIDER_UNAVAILABLE' }] })), /unexpected response.*503/);
+  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: denied, expectedResponses: [{ route: routes[7], method: 'POST', url: '/dashboard/provider', status: 503, machineCode: 'WRONG' }] })), /unexpected response.*503/);
 });
 
 test('rejects 404 and 5xx responses', () => {
-  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(8, { responseStatuses: [{ url: '/dashboard/missing', status: 404 }] }) })), /unexpected response.*404/);
-  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(8, { responseStatuses: [{ url: '/dashboard/broken', status: 500 }] }) })), /unexpected response.*500/);
+  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(8, { responseStatuses: [{ method: 'GET', url: '/dashboard/missing', status: 404 }] }) })), /unexpected response.*404/);
+  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(8, { responseStatuses: [{ method: 'GET', url: '/dashboard/broken', status: 500 }] }) })), /unexpected response.*500/);
 });
 
 test('rejects console errors and page errors', () => {
@@ -81,8 +85,24 @@ test('rejects pages that cannot return to index or lose the user or corp name', 
   assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(10, { corpNameVisible: false }) })), /corp name/);
 });
 
-test('rejects response bodies headers and tokens in evidence', () => {
-  for (const field of ['body', 'headers', 'token']) {
-    assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(11, { [field]: 'secret' }) })), /forbidden in evidence/);
+test('rejects sensitive nested request and response fields in evidence', () => {
+  for (const field of ['body', 'headers', 'token', 'authorization', 'cookie', 'set-cookie', 'password', 'secret']) {
+    assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(11, { request: { response: { [field]: 'sensitive' } } }) })), /forbidden in evidence/);
+  }
+  assert.throws(() => validateDashboardAllPagesEvidence(input({ evidence: changedEvidence(11, { responseStatuses: [{ method: 'GET', url: '/dashboard/private?token=sensitive', status: 200 }] }) })), /pathname only/);
+});
+
+test('requires every screenshot to exist and be non-empty under an injected evidence root', async () => {
+  const evidenceRoot = await mkdtemp(join(tmpdir(), 'dashboard-evidence-'));
+  try {
+    await mkdir(join(evidenceRoot, 'screenshots'));
+    for (const page of evidence) await writeFile(join(evidenceRoot, page.screenshot), 'png');
+    await assert.doesNotReject(() => validateDashboardAllPagesEvidenceFiles(input(), { evidenceRoot }));
+    await writeFile(join(evidenceRoot, evidence[12].screenshot), '');
+    await assert.rejects(() => validateDashboardAllPagesEvidenceFiles(input(), { evidenceRoot }), /empty/);
+    await rm(join(evidenceRoot, evidence[12].screenshot));
+    await assert.rejects(() => validateDashboardAllPagesEvidenceFiles(input(), { evidenceRoot }), /missing/);
+  } finally {
+    await rm(evidenceRoot, { recursive: true, force: true });
   }
 });

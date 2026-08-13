@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
 import { expect, test, type Page, type Response } from '@playwright/test';
 
 import manifest from '../../apps/dashboard/src/benchmark/manifest.json' with { type: 'json' };
+import { validateDashboardAllPagesEvidenceFiles } from '../../../scripts/validate_dashboard_all_pages_evidence.mjs';
 import { dashboardPageActions } from '../fixtures/dashboard-page-actions';
 
 type LiveFixture = {
@@ -14,6 +15,7 @@ type LiveFixture = {
 };
 
 type ResponseStatus = {
+  method: string;
   url: string;
   status: number;
   machineCode?: string;
@@ -41,7 +43,7 @@ const liveFixture = process.env.MOCHAT_E2E_ALL_PAGES_FIXTURE_JSON
   : undefined;
 const pages = manifest.pages.map(({ path, title }) => ({ route: path, title }));
 const actions = new Map(dashboardPageActions.map((action) => [action.route, action]));
-const evidenceDir = resolve('artifacts/dashboard-all-pages-auth');
+const evidenceDir = process.env.MOCHAT_E2E_EVIDENCE_DIR;
 
 // Provider limitations are represented by successful capability envelopes today.
 // Add future exceptions here only as an exact page route + API path + status + machine code tuple.
@@ -55,14 +57,14 @@ function redacted(message: string): string {
 
 function machineCode(value: unknown): string | undefined {
   if (value === null || typeof value !== 'object') return undefined;
-  const code = (value as { code?: unknown }).code;
+  const code = (value as { errorCode?: unknown }).errorCode;
   return typeof code === 'string' ? code : undefined;
 }
 
 async function captureResponse(response: Response, origin: string): Promise<ResponseStatus | undefined> {
   const url = new URL(response.url());
   if (url.origin !== origin || !url.pathname.startsWith('/dashboard/')) return undefined;
-  const result: ResponseStatus = { url: url.pathname, status: response.status() };
+  const result: ResponseStatus = { method: response.request().method(), url: url.pathname, status: response.status() };
   if (result.status >= 400 && (response.headers()['content-type'] ?? '').includes('application/json')) {
     const code = machineCode(await response.json().catch(() => undefined));
     if (code) result.machineCode = code;
@@ -75,6 +77,7 @@ function isExpectedProviderResponse(route: string, response: ResponseStatus): bo
     || response.machineCode === 'TENANT_ACCESS_DENIED'
     || response.machineCode === 'DASHBOARD_PERMISSION_DENIED') return false;
   return expectedProviderResponses.some((expected) => expected.route === route
+    && expected.method === response.method
     && expected.url === response.url
     && expected.status === response.status
     && (expected.machineCode ?? null) === (response.machineCode ?? null));
@@ -97,6 +100,7 @@ async function assertIdentity(page: Page, fixture: LiveFixture): Promise<void> {
 }
 
 test('all 53 manifest routes have one explicit clickable action contract', () => {
+  expect(machineCode({ code: 403, errorCode: 'TENANT_ACCESS_DENIED' })).toBe('TENANT_ACCESS_DENIED');
   const manifestRoutes = pages.map(({ route }) => route);
   const registryRoutes = dashboardPageActions.map(({ route }) => route);
   expect(manifestRoutes).toHaveLength(53);
@@ -112,10 +116,11 @@ test('all 53 manifest routes have one explicit clickable action contract', () =>
 
 test('real login safely clicks every manifest page without auth regressions @live', async ({ page }) => {
   test.setTimeout(600_000);
-  test.skip(!liveBase || !liveFixture, 'SKIP: set MOCHAT_E2E_LIVE_BASE and MOCHAT_E2E_ALL_PAGES_FIXTURE_JSON for live 53-page acceptance');
+  test.skip(!liveBase || !liveFixture || !evidenceDir, 'SKIP: set MOCHAT_E2E_LIVE_BASE, MOCHAT_E2E_ALL_PAGES_FIXTURE_JSON and MOCHAT_E2E_EVIDENCE_DIR for live 53-page acceptance');
+  expect(isAbsolute(evidenceDir!), 'MOCHAT_E2E_EVIDENCE_DIR must be an absolute path').toBe(true);
   const fixture = liveFixture!;
   const origin = new URL(liveBase).origin;
-  await mkdir(evidenceDir, { recursive: true });
+  await mkdir(evidenceDir!, { recursive: true });
   await login(page, fixture);
 
   const responseTasks: Array<Promise<ResponseStatus | undefined>> = [];
@@ -148,7 +153,7 @@ test('real login safely clicks every manifest page without auth regressions @liv
     const routeConsoleErrors = consoleErrors.slice(consoleOffset);
     const routePageErrors = pageErrors.slice(pageErrorOffset);
     const screenshot = `${current.route === '/index' ? 'index' : current.route.slice(1).replaceAll('/', '-')}.png`;
-    await page.screenshot({ path: resolve(evidenceDir, screenshot), fullPage: true });
+    await page.screenshot({ path: resolve(evidenceDir!, screenshot), fullPage: true });
 
     await page.goto(`${liveBase}/index`, { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(new RegExp(`${liveBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/index(?:[?#]|$)`));
@@ -174,7 +179,13 @@ test('real login safely clicks every manifest page without auth regressions @liv
   }
 
   expect(evidence).toHaveLength(53);
-  await writeFile(resolve(evidenceDir, 'evidence.json'), `${JSON.stringify({
+  await validateDashboardAllPagesEvidenceFiles({
+    manifestRoutes: pages.map(({ route }) => route),
+    actionRegistry: dashboardPageActions.map(({ route, action }) => ({ route, action })),
+    evidence,
+    expectedResponses: expectedProviderResponses,
+  }, { evidenceRoot: evidenceDir! });
+  await writeFile(resolve(evidenceDir!, 'evidence.json'), `${JSON.stringify({
     generatedAt: new Date().toISOString(),
     baseOrigin: origin,
     pages: evidence,
