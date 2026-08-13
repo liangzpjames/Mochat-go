@@ -1146,7 +1146,8 @@ func (h *AutoTagHandler) resolveAuthorized(w http.ResponseWriter, r *http.Reques
 		return 0, User{}, DashboardRequestScope{}, AccessContext{}, false
 	}
 	employeeID := principalScope.WorkEmployeeID
-	if employeeID <= 0 {
+	_, guarded := DashboardAccessFromContext(r.Context())
+	if employeeID <= 0 && !guarded {
 		resolved, err := h.store.EmployeeIDByUserCorp(r.Context(), userID, corpID)
 		if err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)

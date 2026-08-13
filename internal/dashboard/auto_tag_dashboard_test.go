@@ -245,6 +245,22 @@ func TestWorkMessageGlobalSearchReturnsExplicitPageAndForwardsAllFilters(t *test
 	assertStructField(t, store.lastToUserFilter, "DateTimeEnd", "2026-08-01 00:00:00")
 }
 
+func TestWorkMessageToUsersAllowsGuardedUnboundSuperadmin(t *testing.T) {
+	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, &recordingAuthorizer{accessSet: true, access: AccessContext{CorpID: 7, DataPermission: DataPermissionAll}})
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/toUsers?page=1&perPage=15", nil)
+	ctx := dashboardprincipal.WithPrincipal(req.Context(), dashboardprincipal.DashboardPrincipal{UserID: 1, TenantID: 10, CorpID: 7, IsSuperAdmin: true, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1})
+	req = req.WithContext(WithDashboardAccessContext(ctx, DashboardAccessContext{UserID: 1, TenantID: 10, CorpID: 7, IsSuperAdmin: true, ScopeRequired: true, Scope: DataScopeTenant}))
+	rec := httptest.NewRecorder()
+	handler.WorkMessageToUsers(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.employeeLookupCalls != 0 {
+		t.Fatalf("legacy employee lookups=%d want 0", store.employeeLookupCalls)
+	}
+}
+
 func TestWorkMessageGlobalSearchIgnoresClientCorpScope(t *testing.T) {
 	store := &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}}
 	handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{HeaderName: "X-Mochat-Go-User-ID"}, nil)
@@ -726,6 +742,7 @@ type fakeAutoTagStore struct {
 	lastArchiveFilter         WorkMessageArchiveFilter
 	archiveAuthorizationCalls int
 	archiveLookupCalls        int
+	employeeLookupCalls       int
 }
 
 func (s *fakeAutoTagStore) UserByID(_ context.Context, userID int) (User, bool, error) {
@@ -740,6 +757,7 @@ func (s *fakeAutoTagStore) UserByID(_ context.Context, userID int) (User, bool, 
 }
 
 func (s *fakeAutoTagStore) EmployeeIDByUserCorp(context.Context, int, int) (int, error) {
+	s.employeeLookupCalls++
 	return 99, nil
 }
 
