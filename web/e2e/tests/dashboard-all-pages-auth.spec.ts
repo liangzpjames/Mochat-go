@@ -44,6 +44,7 @@ const liveFixture = process.env.MOCHAT_E2E_ALL_PAGES_FIXTURE_JSON
 const pages = manifest.pages.map(({ path, title }) => ({ route: path, title }));
 const actions = new Map(dashboardPageActions.map((action) => [action.route, action]));
 const evidenceDir = process.env.MOCHAT_E2E_EVIDENCE_DIR;
+const livePageSettleMs = 500;
 
 // Provider limitations are represented by successful capability envelopes today.
 // Add future exceptions here only as an exact page route + API path + status + machine code tuple.
@@ -142,9 +143,12 @@ test('real login safely clicks every manifest page without auth regressions @liv
     await page.goto(`${liveBase}${current.route}`, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('main h1').first()).toContainText(current.title, { timeout: 15_000 });
     await expect(page.locator('.dashboard-content > *').first()).toBeVisible();
-    await page.waitForLoadState('networkidle');
+    // Dashboard workers and polling requests can keep the connection active.
+    // The visible page contract above is authoritative; use a bounded window
+    // only to collect the initial business responses before the safe click.
+    await page.waitForTimeout(livePageSettleMs);
     await action!.run(page);
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(livePageSettleMs);
 
     const responseStatuses = (await Promise.all(responseTasks.slice(responseOffset)))
       .filter((response): response is ResponseStatus => response !== undefined);
@@ -158,7 +162,7 @@ test('real login safely clicks every manifest page without auth regressions @liv
     await page.goto(`${liveBase}/index`, { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(new RegExp(`${liveBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/index(?:[?#]|$)`));
     await assertIdentity(page, fixture);
-    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(livePageSettleMs);
     expect(unexpectedResponses, `${current.route} returned an unexpected HTTP response`).toEqual([]);
     expect(routeConsoleErrors, `${current.route} emitted console errors`).toEqual([]);
     expect(routePageErrors, `${current.route} emitted page errors`).toEqual([]);
