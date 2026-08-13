@@ -1,0 +1,3 @@
+-- Intentionally non-destructive: 0134 only restores provider schema that an
+-- earlier migration ledger already declares as applied. Dropping these tables
+-- or columns would destroy valid business data and recreate the drift.
