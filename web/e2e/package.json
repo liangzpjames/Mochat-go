@@ -4,11 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "lint": "eslint playwright.config.ts tests",
+    "lint": "eslint playwright.config.ts fixtures tests",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:e2e": "playwright test",
     "test:dashboard-page-rbac": "playwright test tests/dashboard-page-rbac.spec.ts --workers=1",
-    "test:identity-single-corp": "playwright test tests/identity-single-corp.spec.ts --workers=1"
+    "test:identity-single-corp": "playwright test tests/identity-single-corp.spec.ts --workers=1",
+    "test:dashboard-all-pages-auth": "playwright test tests/dashboard-all-pages-auth.spec.ts --workers=1"
   },
   "devDependencies": {
     "@mochat/config": "workspace:*",
