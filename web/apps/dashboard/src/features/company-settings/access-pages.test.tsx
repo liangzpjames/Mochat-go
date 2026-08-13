@@ -496,8 +496,12 @@ describe("access management pages", () => {
       ]),
     };
     wrap(<AccessStaffPage api={api} />);
+    expect(await screen.findByRole("columnheader", { name: "同步手机号" })).toBeTruthy();
+    expect(await screen.findByRole("cell", { name: "13800000004" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "开通账号" }));
     expect(screen.getByDisplayValue("13800000004")).toBeTruthy();
+    expect(screen.getByText("企微账号：zhangsan")).toBeTruthy();
+    expect(screen.getByText("同步手机号：13800000004")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("销售（启用）"));
     fireEvent.click(screen.getByLabelText("选择 数据概览"));
     fireEvent.change(

@@ -179,6 +179,7 @@ export function AccessStaffPage({ api }: { api: Api }) {
               <thead>
                 <tr>
                   <th>企业微信员工</th>
+                  <th>同步手机号</th>
                   <th>企微状态</th>
                   <th>登录账号</th>
                   <th>账号状态</th>
@@ -191,8 +192,9 @@ export function AccessStaffPage({ api }: { api: Api }) {
                     <td>
                       <strong>{employee.name}</strong>
                       <br />
-                      <small>{employee.mobile || employee.wxUserId || "未提供手机"}</small>
+                      <small>{employee.wxUserId || "未提供企微账号"}</small>
                     </td>
+                    <td>{employee.mobile || "未同步"}</td>
                     <td>{employee.status === 1 ? "已激活" : "未激活或已离职"}</td>
                     <td>{employee.account?.loginIdentifier ?? "尚未开通"}</td>
                     <td>
@@ -317,7 +319,8 @@ export function AccessStaffPage({ api }: { api: Api }) {
               </div>
               <div>
                 <strong>{provisioning.name}</strong>
-                <span>{provisioning.mobile || provisioning.wxUserId}</span>
+                <span>企微账号：{provisioning.wxUserId || "未提供"}</span>
+                <span>同步手机号：{provisioning.mobile || "未同步"}</span>
               </div>
               <small>登录后仅能访问下方已选角色与直授权限</small>
             </div>
