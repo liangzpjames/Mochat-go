@@ -104,6 +104,9 @@ func TestDefaultMigrationsAcceptsCRLFChecksumForIncrementalSQL(t *testing.T) {
 	if !checksumMatches(crlfChecksum, checksumBytes([]byte(seed)), seedMigration.ChecksumAliases) {
 		t.Fatalf("CRLF checksum %s not accepted by aliases %#v", crlfChecksum, seedMigration.ChecksumAliases)
 	}
+	if !checksumMatches(knownLegacyCoreSeedChecksum, checksumBytes([]byte(seed)), seedMigration.ChecksumAliases) {
+		t.Fatalf("known historical seed checksum %s not accepted by aliases %#v", knownLegacyCoreSeedChecksum, seedMigration.ChecksumAliases)
+	}
 	lfChecksum := checksumBytes([]byte(other))
 	lineEndingMigration := DefaultMigrations(root)[2]
 	if !checksumMatches(lfChecksum, checksumBytes([]byte(strings.ReplaceAll(other, "\n", "\r\n"))), lineEndingMigration.ChecksumAliases) {

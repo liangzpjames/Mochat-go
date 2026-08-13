@@ -28,6 +28,11 @@ var composeInitCrossStageTables = []string{
 
 const knownLegacyInitialSchemaChecksum = "b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9"
 
+// The standalone seed shipped by the first identity-cutover deployment. Its
+// statements are a compatible historical predecessor of the current
+// idempotent seed and remain present in deployed migration ledgers.
+const knownLegacyCoreSeedChecksum = "de6513fb142d38fbd0205ecaa6e6ddbdd9d765e5c455ab20bd2afdd158d276ed"
+
 type Migration struct {
 	Version         string
 	Description     string
@@ -684,12 +689,16 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 		version := strings.TrimSuffix(name, ".up.sql")
 		kind, controlled := MigrationMetadata(version)
 		path := filepath.Join(migrationDir, name)
+		checksumAliases := migrationLineEndingChecksumAliases(path)
+		if version == "0002_seed_core_data" {
+			checksumAliases = append(checksumAliases, knownLegacyCoreSeedChecksum)
+		}
 		migrations = append(migrations, Migration{
 			Version:         version,
 			Description:     migrationDescription(version),
 			Path:            path,
 			DownPath:        filepath.Join(migrationDir, version+".down.sql"),
-			ChecksumAliases: migrationLineEndingChecksumAliases(path),
+			ChecksumAliases: checksumAliases,
 			Kind:            kind,
 			Controlled:      controlled,
 		})
