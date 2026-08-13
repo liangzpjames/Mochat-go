@@ -308,6 +308,40 @@ importers:
         specifier: 2.1.9
         version: 2.1.9(@types/node@20.19.43)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.33.0)(msw@2.13.3(@types/node@20.19.43)(typescript@5.9.3))(supports-color@7.2.0)
 
+  web/packages/mobile-foundation:
+    dependencies:
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: 19.2.7
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@mochat/config':
+        specifier: workspace:*
+        version: link:../config
+      '@testing-library/react':
+        specifier: 16.3.2
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@types/react':
+        specifier: 19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+      eslint:
+        specifier: 9.39.5
+        version: 9.39.5(jiti@2.7.0)(supports-color@7.2.0)
+      jsdom:
+        specifier: 26.1.0
+        version: 26.1.0(supports-color@7.2.0)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 2.1.9
+        version: 2.1.9(@types/node@20.19.43)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.33.0)(msw@2.13.3(@types/node@20.19.43)(typescript@5.9.3))(supports-color@7.2.0)
+
   web/packages/routing:
     dependencies:
       zod:

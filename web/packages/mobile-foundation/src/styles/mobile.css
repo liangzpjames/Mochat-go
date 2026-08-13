@@ -1,0 +1,133 @@
+:root {
+  --mobile-color-background: #f5f7fa;
+  --mobile-color-surface: #ffffff;
+  --mobile-color-text: #17233d;
+  --mobile-color-muted: #667085;
+  --mobile-color-border: #e4e7ec;
+  --mobile-color-primary: #1769e0;
+  --mobile-content-max-width: 48rem;
+  --mobile-space-1: 0.25rem;
+  --mobile-space-2: 0.5rem;
+  --mobile-space-3: 0.75rem;
+  --mobile-space-4: 1rem;
+  --mobile-radius: 0.75rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  overflow-x: clip;
+}
+
+body {
+  background: var(--mobile-color-background);
+  color: var(--mobile-color-text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  min-height: 44px;
+}
+
+.mobile-shell {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  overflow-x: clip;
+}
+
+.mobile-shell--safe-area {
+  padding-top: env(safe-area-inset-top);
+}
+
+.mobile-shell__header,
+.mobile-shell__content,
+.mobile-action-dock {
+  width: min(100%, var(--mobile-content-max-width));
+  margin-inline: auto;
+  padding-inline: var(--mobile-space-4);
+}
+
+.mobile-shell__header {
+  display: flex;
+  gap: var(--mobile-space-3);
+  padding-block: var(--mobile-space-3);
+  background: var(--mobile-color-surface);
+  border-bottom: 1px solid var(--mobile-color-border);
+}
+
+.mobile-shell__heading {
+  min-width: 0;
+}
+
+.mobile-shell__app-name,
+.mobile-shell__title,
+.mobile-shell__subtitle {
+  overflow-wrap: anywhere;
+}
+
+.mobile-shell__app-name,
+.mobile-shell__subtitle {
+  margin: 0;
+  color: var(--mobile-color-muted);
+}
+
+.mobile-shell__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.mobile-shell__content {
+  flex: 1;
+  padding-block: var(--mobile-space-4);
+}
+
+.mobile-action-dock {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--mobile-space-2);
+  padding-block: var(--mobile-space-2);
+  background: var(--mobile-color-surface);
+  border-top: 1px solid var(--mobile-color-border);
+}
+
+.mobile-action-dock--safe-area {
+  padding-bottom: calc(var(--mobile-space-2) + env(safe-area-inset-bottom));
+}
+
+.mobile-state {
+  padding: var(--mobile-space-4);
+  text-align: center;
+}
+
+.mobile-state__title,
+.mobile-state__description {
+  overflow-wrap: anywhere;
+}
+
+.mobile-state__title {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.mobile-state__description {
+  margin-block: var(--mobile-space-2) 0;
+  color: var(--mobile-color-muted);
+}
+
+.mobile-state__action {
+  margin-top: var(--mobile-space-4);
+  min-height: 44px;
+  padding-inline: var(--mobile-space-4);
+}
