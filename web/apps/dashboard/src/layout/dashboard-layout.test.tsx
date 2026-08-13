@@ -59,6 +59,13 @@ function renderDashboard(options: {
 }
 
 describe('Dashboard shell', () => {
+  it('marks the sidebar and page content as independent scroll regions', async () => {
+    renderDashboard({ session: true, initialPath: '/index' });
+
+    expect((await screen.findByRole('navigation', { name: '主菜单' })).getAttribute('data-scroll-region')).toBe('navigation');
+    expect(screen.getByRole('main').getAttribute('data-scroll-region')).toBe('content');
+  });
+
   it('redirects a visitor without a session to the login route', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

@@ -176,6 +176,7 @@ export function DashboardLayout() {
         <nav
           aria-label="主菜单"
           className={`dashboard-sidebar${mobileMenuOpen ? ' dashboard-sidebar-open' : ''}`}
+          data-scroll-region="navigation"
           id="dashboard-sidebar"
         >
           <div className="dashboard-sidebar-heading">
@@ -233,7 +234,7 @@ export function DashboardLayout() {
             </ul>
           )}
         </nav>
-        <main className="dashboard-content">
+        <main className="dashboard-content" data-scroll-region="content">
           <Outlet />
         </main>
       </div>

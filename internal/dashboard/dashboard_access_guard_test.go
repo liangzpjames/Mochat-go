@@ -506,6 +506,23 @@ func TestDashboardAccessContextTranslatesTenantDepartmentAndSelfScopes(t *testin
 	}
 }
 
+func TestDashboardAccessContextAllowsTenantScopeWithoutEmployeeBinding(t *testing.T) {
+	resolver := NewRBACResolver(panicRBACStore{})
+	ctx := WithDashboardAccessContext(context.Background(), DashboardAccessContext{
+		UserID: 7, TenantID: 9, CorpID: 12,
+		PermissionCode: "dashboard.chat.staff", Scope: DataScopeTenant,
+		ScopeRequired: true, IsSuperAdmin: true,
+	})
+
+	access, err := resolver.Resolve(ctx, 7, "/dashboard/workMessage/fromUsers#get", 12, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access.DataPermission != DataPermissionAll || access.WorkEmployeeID != 0 || len(access.DeptEmployeeIDs) != 0 {
+		t.Fatalf("access=%+v", access)
+	}
+}
+
 func equalInts(left, right []int) bool {
 	if len(left) != len(right) {
 		return false

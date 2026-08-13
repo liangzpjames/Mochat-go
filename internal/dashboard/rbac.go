@@ -173,7 +173,7 @@ func legacyAccessContextFromDashboard(dashboardAccess DashboardAccessContext, us
 	if dashboardAccess.UserID != userID || dashboardAccess.TenantID <= 0 || dashboardAccess.CorpID != corpID {
 		return AccessContext{}, ErrPermissionDenied
 	}
-	if dashboardAccess.ScopeRequired && (dashboardAccess.CorpID <= 0 || dashboardAccess.WorkEmployeeID <= 0) {
+	if dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant && (dashboardAccess.CorpID <= 0 || dashboardAccess.WorkEmployeeID <= 0) {
 		return AccessContext{}, ErrPermissionDenied
 	}
 	access := AccessContext{

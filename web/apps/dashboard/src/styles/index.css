@@ -9,6 +9,12 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
 }
@@ -285,6 +291,7 @@ body {
   grid-template-columns: 248px minmax(0, 1fr);
   height: calc(100% - 72px);
   min-height: 0;
+  overflow: hidden;
 }
 
 .dashboard-sidebar {
@@ -338,6 +345,7 @@ body {
 .dashboard-content {
   min-width: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 24px;
 }
 
@@ -373,6 +381,7 @@ body {
     grid-template-columns: 1fr;
     height: auto;
     min-height: calc(100vh - 64px);
+    overflow: visible;
   }
 
   .dashboard-sidebar {
