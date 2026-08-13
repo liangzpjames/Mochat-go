@@ -175,6 +175,44 @@ function validatePackageScripts(root, errors) {
   }
 }
 
+function validateSidebarSessionIsolation(root, errors) {
+  const sessionSource = readFileSync(
+    join(root, 'web/apps/sidebar/src/auth/sidebar-session.ts'),
+    'utf8',
+  );
+  const sessionTestSource = readFileSync(
+    join(root, 'web/apps/sidebar/src/auth/sidebar-session.test.ts'),
+    'utf8',
+  );
+  const mainSource = readFileSync(join(root, 'web/apps/sidebar/src/main.tsx'), 'utf8');
+
+  if (/\bPath=\/(?:;|['"])/.test(sessionSource)) {
+    errors.push('Sidebar token cookie must not use Path=/');
+  }
+  if (
+    !/function\s+createSessionStorageSidebarSessionAdapter\s*\(/.test(sessionSource)
+    || !/['"]mochat_sidebar_session_v1['"]/.test(sessionSource)
+    || !/storage\.getItem\(/.test(sessionSource)
+    || !/storage\.setItem\(/.test(sessionSource)
+    || !/storage\.removeItem\(/.test(sessionSource)
+  ) {
+    errors.push('independent-root Sidebar sessionStorage adapter is missing or incomplete');
+  }
+  if (
+    !/const\s+basename\s*=\s*sidebarBasename\(window\.location\.pathname\)/.test(mainSource)
+    || !/basename\s*===\s*['"]\/sidebar-app['"][\s\S]{0,300}?createCookieSidebarSessionAdapter[\s\S]{0,300}?:\s*createSessionStorageSidebarSessionAdapter\(window\.sessionStorage\)/.test(mainSource)
+  ) {
+    errors.push('Sidebar main must select cookie or sessionStorage from its runtime basename');
+  }
+  if (
+    !/root(?:-mount)?[^\n]{0,200}sessionStorage/i.test(sessionTestSource)
+    || !/malformed[^\n]{0,200}(?:fail|closed)/i.test(sessionTestSource)
+    || !/createSessionStorageSidebarSessionAdapter\(/.test(sessionTestSource)
+  ) {
+    errors.push('root Sidebar sessionStorage callback and fail-closed tests are missing');
+  }
+}
+
 function validateRawGoBrowserFixtures(source, errors) {
   if (!/contact\s*:\s*['"]\*\*\/sidebar\/workContact\/detail\?\*['"]/.test(source)) {
     errors.push('contact raw Go envelope fixture endpoint is missing');
@@ -407,6 +445,7 @@ export function auditMobileClientsFoundation(root = process.cwd()) {
   if (!hasMobileViewport) errors.push('browser spec must include the 390 by 844 viewport');
   if (!hasDesktopViewport) errors.push('browser spec must include the 1280 by 900 viewport');
   validateRawGoBrowserFixtures(e2eSource, errors);
+  validateSidebarSessionIsolation(resolvedRoot, errors);
   validateBrowserAudit(e2eSource, errors);
   validateBrowserLayout(e2eSource, sidebarCasesBody, operationCasesBody, errors);
   validateViewportRouteLoops(e2eSource, operationCasesBody, errors);

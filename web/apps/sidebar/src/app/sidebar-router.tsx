@@ -18,7 +18,7 @@ import {
   readSidebarSession,
   sidebarLoginHref,
   type SidebarAuthCallbackResult,
-  type CookieAdapter,
+  type SidebarSessionAdapter,
 } from '../auth/sidebar-session';
 import { ContactPage } from '../features/contact/contact-page';
 import {
@@ -30,10 +30,9 @@ export type SidebarRequest = <T>(path: string, init?: RequestInit) => Promise<T>
 
 export type SidebarRuntime = {
   basename: string;
-  cookies: CookieAdapter;
+  session: SidebarSessionAdapter;
   origin: string;
   request: SidebarRequest;
-  secure: boolean;
 };
 
 function currentTarget(pathname: string, search: string, hash: string): string {
@@ -45,7 +44,7 @@ function SidebarAuthBoundary({ runtime, children }: {
   children: ReactNode;
 }) {
   const location = useLocation();
-  const session = readSidebarSession(runtime.cookies);
+  const session = readSidebarSession(runtime.session);
   if (session.token) return children;
 
   const queryAgentId = new URLSearchParams(location.search).get('agentId');
@@ -98,12 +97,12 @@ function SidebarAuthCallbackPage({ runtime }: { runtime: SidebarRuntime }) {
       key: callbackKey,
       result: completeSidebarAuthCallback(
         params,
-        runtime.cookies,
-        runtime.secure,
+        runtime.session,
         runtime.origin,
+        runtime.basename,
       ),
     });
-  }, [callbackKey, params, runtime.cookies, runtime.origin, runtime.secure]);
+  }, [callbackKey, params, runtime.basename, runtime.origin, runtime.session]);
 
   if (outcome === null || outcome.key !== callbackKey) {
     return (
@@ -157,9 +156,9 @@ function SidebarContactPage({ runtime }: { runtime: SidebarRuntime }) {
   const location = useLocation();
   const navigate = useNavigate();
   const onReauthenticate = () => {
-    const session = readSidebarSession(runtime.cookies);
+    const session = readSidebarSession(runtime.session);
     const queryAgentId = new URLSearchParams(location.search).get('agentId');
-    clearSidebarSession(runtime.cookies, runtime.secure);
+    clearSidebarSession(runtime.session);
     const loginQuery = new URLSearchParams({
       agentId: session.agentId ?? queryAgentId ?? '',
       target: currentTarget(location.pathname, location.search, location.hash),

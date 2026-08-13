@@ -7,22 +7,31 @@ import './styles.css';
 
 import { createSidebarRouter } from './app/sidebar-router';
 import {
+  createCookieSidebarSessionAdapter,
+  createSessionStorageSidebarSessionAdapter,
   documentCookieAdapter,
   readSidebarSession,
 } from './auth/sidebar-session';
 import { sidebarBasename } from './deployment';
 
+const basename = sidebarBasename(window.location.pathname);
+const session = basename === '/sidebar-app'
+  ? createCookieSidebarSessionAdapter(
+      documentCookieAdapter,
+      window.location.protocol === 'https:',
+    )
+  : createSessionStorageSidebarSessionAdapter(window.sessionStorage);
+
 const apiClient = createMobileApiClient({
   basePath: '/sidebar',
-  getToken: () => readSidebarSession(documentCookieAdapter).token,
+  getToken: () => readSidebarSession(session).token,
 });
 
 const router = createSidebarRouter({
-  basename: sidebarBasename(window.location.pathname),
-  cookies: documentCookieAdapter,
+  basename,
+  session,
   origin: window.location.origin,
   request: (path, init) => apiClient.request(path, init),
-  secure: window.location.protocol === 'https:',
 });
 
 const root = document.getElementById('root');

@@ -5,7 +5,12 @@ import { RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import manifest from '../migration-routes.json';
-import type { CookieAdapter } from '../auth/sidebar-session';
+import {
+  createCookieSidebarSessionAdapter,
+  createSessionStorageSidebarSessionAdapter,
+  type CookieAdapter,
+  type SidebarSessionAdapter,
+} from '../auth/sidebar-session';
 import { sidebarRouteRegistry } from '../routes/registry';
 import { createSidebarRouter } from './sidebar-router';
 
@@ -23,24 +28,39 @@ function successfulAuthPath(target = '/login?agentId=7'): string {
   return `/auth?${new URLSearchParams({ agentId: '7', state, target }).toString()}`;
 }
 
-function authRuntime(cookies: CookieAdapter) {
+function statefulCookieAdapter() {
+  const values = new Map<string, string>();
+  const writes = vi.fn((serialized: string) => {
+    const pair = serialized.split(';', 1)[0] ?? '';
+    const separator = pair.indexOf('=');
+    if (separator <= 0) throw new Error('Invalid serialized cookie fixture');
+    values.set(pair.slice(0, separator), decodeURIComponent(pair.slice(separator + 1)));
+  });
+  return {
+    cookies: {
+      get: (name: string) => values.get(name) ?? null,
+      set: writes,
+    },
+    writes,
+  };
+}
+
+function authRuntime(session: SidebarSessionAdapter) {
   return {
     basename: '/',
-    cookies,
+    session,
     origin: window.location.origin,
     request: vi.fn(),
-    secure: false,
   };
 }
 
 function renderPath(path: string) {
   window.history.replaceState(null, '', path);
-  const router = createSidebarRouter({
-    basename: '/',
-    cookies: emptyCookies,
+    const router = createSidebarRouter({
+      basename: '/',
+      session: createCookieSidebarSessionAdapter(emptyCookies, false),
     origin: window.location.origin,
     request: vi.fn(),
-    secure: false,
   });
   render(<RouterProvider router={router} />);
   return router;
@@ -85,7 +105,7 @@ describe('Sidebar route registry', () => {
     const set = vi.fn();
     const cookies: CookieAdapter = { get: vi.fn(() => null), set };
     window.history.replaceState(null, '', successfulAuthPath());
-    const router = createSidebarRouter(authRuntime(cookies));
+    const router = createSidebarRouter(authRuntime(createCookieSidebarSessionAdapter(cookies, false)));
 
     const markup = renderToString(<RouterProvider router={router} />);
 
@@ -98,7 +118,7 @@ describe('Sidebar route registry', () => {
     const set = vi.fn();
     const cookies: CookieAdapter = { get: vi.fn(() => null), set };
     window.history.replaceState(null, '', successfulAuthPath());
-    const router = createSidebarRouter(authRuntime(cookies));
+    const router = createSidebarRouter(authRuntime(createCookieSidebarSessionAdapter(cookies, false)));
 
     render(
       <StrictMode>
@@ -108,6 +128,40 @@ describe('Sidebar route registry', () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(set).toHaveBeenCalledTimes(2);
+    router.dispose();
+  });
+
+  it('lets a prefixed callback persist path-scoped cookies into a protected page', async () => {
+    const { cookies, writes } = statefulCookieAdapter();
+    const session = createCookieSidebarSessionAdapter(cookies, false);
+    window.history.replaceState(
+      null,
+      '',
+      `/sidebar-app${successfulAuthPath(`${window.location.origin}/sidebar-app/medium`)}`,
+    );
+    const router = createSidebarRouter({
+      ...authRuntime(session),
+      basename: '/sidebar-app',
+    });
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sidebar-app/medium'));
+    expect(screen.getByText('素材库模块待迁移')).not.toBeNull();
+    expect(writes).toHaveBeenCalledTimes(2);
+    expect(writes.mock.calls.every(([value]) => value.includes('Path=/sidebar-app'))).toBe(true);
+    router.dispose();
+  });
+
+  it('lets a root-mount callback persist into a protected page in the same tab', async () => {
+    const session = createSessionStorageSidebarSessionAdapter(window.sessionStorage);
+    window.history.replaceState(null, '', successfulAuthPath('/medium'));
+    const router = createSidebarRouter(authRuntime(session));
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/medium'));
+    expect(screen.getByText('素材库模块待迁移')).not.toBeNull();
     router.dispose();
   });
 });

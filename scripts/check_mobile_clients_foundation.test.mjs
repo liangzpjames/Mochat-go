@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -206,6 +206,32 @@ function fixture(t) {
   write(root, 'web/apps/sidebar/src/app/sidebar-router.tsx', "const routes = [{ path: '*', element: <SidebarNotFoundPage /> }];\n");
   write(root, 'web/apps/operation/src/app/operation-router.tsx', "const routes = [{ path: '*', element: <OperationNotFoundPage /> }];\n");
   write(root, 'web/apps/sidebar/src/features/contact/contact-page.tsx', "export function ContactPage() { return <main>客户资料</main>; }\n");
+  write(root, 'web/apps/sidebar/src/auth/sidebar-session.ts', `
+const SIDEBAR_SESSION_STORAGE_KEY = 'mochat_sidebar_session_v1';
+export function createCookieSidebarSessionAdapter(cookies) {
+  return { write: () => cookies.set('token=value; Path=/sidebar-app; SameSite=Lax') };
+}
+export function createSessionStorageSidebarSessionAdapter(storage) {
+  return {
+    read: () => storage.getItem(SIDEBAR_SESSION_STORAGE_KEY),
+    write: (value) => storage.setItem(SIDEBAR_SESSION_STORAGE_KEY, value),
+    clear: () => storage.removeItem(SIDEBAR_SESSION_STORAGE_KEY),
+  };
+}
+`);
+  write(root, 'web/apps/sidebar/src/auth/sidebar-session.test.ts', `
+test('root callback uses Sidebar sessionStorage and malformed values fail closed', () => {
+  createSessionStorageSidebarSessionAdapter(window.sessionStorage);
+  expect(completeSidebarAuthCallback(rootCallback)).toBeTruthy();
+  expect(readSidebarSession(rootAdapter)).toEqual({ token: null, agentId: null });
+});
+`);
+  write(root, 'web/apps/sidebar/src/main.tsx', `
+const basename = sidebarBasename(window.location.pathname);
+const session = basename === '/sidebar-app'
+  ? createCookieSidebarSessionAdapter(documentCookieAdapter, secure)
+  : createSessionStorageSidebarSessionAdapter(window.sessionStorage);
+`);
   write(root, 'web/apps/operation/src/features/work-fission/work-fission-page.tsx', "export function WorkFissionPage() { return <main>任务宝活动</main>; }\n");
   write(root, 'web/e2e/tests/mobile-clients-foundation.spec.ts', validE2E());
   return root;
@@ -268,6 +294,34 @@ test('rejects a Dashboard storage key in Operation independently', (t) => {
   const root = fixture(t);
   write(root, 'web/apps/operation/src/session.ts', "sessionStorage.getItem('mochat_dashboard_corp_id');\n");
   expectDefect(root, /Dashboard session reference.*operation.*session\.ts/i);
+});
+
+test('rejects a root-scoped Sidebar token cookie independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/apps/sidebar/src/auth/sidebar-session.ts',
+    readFileSync(join(root, 'web/apps/sidebar/src/auth/sidebar-session.ts'), 'utf8')
+      .replace('Path=/sidebar-app', 'Path=/'),
+  );
+  expectDefect(root, /Sidebar token cookie.*Path=\//i);
+});
+
+test('rejects a missing independent-root sessionStorage adapter independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/apps/sidebar/src/auth/sidebar-session.ts',
+    readFileSync(join(root, 'web/apps/sidebar/src/auth/sidebar-session.ts'), 'utf8')
+      .replaceAll('createSessionStorageSidebarSessionAdapter', 'missingRootAdapter'),
+  );
+  expectDefect(root, /independent-root Sidebar sessionStorage adapter/i);
+});
+
+test('rejects missing root adapter fail-closed tests independently', (t) => {
+  const root = fixture(t);
+  write(root, 'web/apps/sidebar/src/auth/sidebar-session.test.ts', "test('cookie only', () => {});\n");
+  expectDefect(root, /root Sidebar sessionStorage.*test/i);
 });
 
 test('rejects mojibake markers independently', (t) => {
