@@ -40,7 +40,8 @@ type WorkFissionFailure = Extract<WorkFissionPageState, { kind: 'failure' }>;
 
 function workFissionFailure(error: unknown): WorkFissionFailure {
   const message = error instanceof Error ? error.message : '任务进度加载失败。';
-  const activityMissing = /活动.*(?:不存在|失效|结束)/.test(message);
+  const activityMissing = message.trim() === '数据不存在'
+    || /活动.*(?:不存在|失效|结束)/.test(message);
   if (error instanceof MobileApiError) {
     if (error.kind === 'forbidden') {
       return {
@@ -129,7 +130,18 @@ export function WorkFissionPage({ activityKind, request }: WorkFissionPageProps)
           unionId: participant.unionid,
           fissionId,
         });
-        if (active) setState({ kind: 'success', progress });
+        if (!active) return;
+        if (progress.endTime <= Math.floor(Date.now() / 1000)) {
+          setState({
+            kind: 'failure',
+            stateKind: 'not-found',
+            title: '活动已结束',
+            message: '当前任务宝活动已经结束。',
+            retryable: false,
+          });
+          return;
+        }
+        setState({ kind: 'success', progress });
       })
       .catch((error: unknown) => {
         if (!active) return;

@@ -54,19 +54,19 @@ describe('Sidebar session', () => {
 
     expect(set).toHaveBeenNthCalledWith(
       1,
-      'token=sidebar-token; Max-Age=3600; Path=/; SameSite=Lax; Secure',
+      'token=sidebar-token; Max-Age=3600; Path=/sidebar-app; SameSite=Lax; Secure',
     );
     expect(set).toHaveBeenNthCalledWith(
       2,
-      'agentId=7; Max-Age=3600; Path=/; SameSite=Lax; Secure',
+      'agentId=7; Max-Age=3600; Path=/sidebar-app; SameSite=Lax; Secure',
     );
     expect(set).toHaveBeenNthCalledWith(
       3,
-      'token=; Max-Age=0; Path=/; SameSite=Lax; Secure',
+      'token=; Max-Age=0; Path=/sidebar-app; SameSite=Lax; Secure',
     );
     expect(set).toHaveBeenNthCalledWith(
       4,
-      'agentId=; Max-Age=0; Path=/; SameSite=Lax; Secure',
+      'agentId=; Max-Age=0; Path=/sidebar-app; SameSite=Lax; Secure',
     );
   });
 
@@ -93,11 +93,11 @@ describe('Sidebar session', () => {
     });
     expect(set).toHaveBeenNthCalledWith(
       1,
-      'token=sidebar-token; Max-Age=7200; Path=/; SameSite=Lax',
+      'token=sidebar-token; Max-Age=7200; Path=/sidebar-app; SameSite=Lax',
     );
     expect(set).toHaveBeenNthCalledWith(
       2,
-      'agentId=7; Max-Age=7200; Path=/; SameSite=Lax',
+      'agentId=7; Max-Age=7200; Path=/sidebar-app; SameSite=Lax',
     );
   });
 

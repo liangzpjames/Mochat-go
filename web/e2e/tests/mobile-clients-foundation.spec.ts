@@ -1,7 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const APP_ORIGIN = 'http://127.0.0.1:4174';
-
 const sidebarCases = [
   { path: '/', title: '客户侧边栏', moduleLabel: '客户侧边栏模块待迁移', needsSession: true, expectsAction: false },
   { path: '/auth', title: '企业微信授权回调', moduleLabel: '登录失败', needsSession: false, expectsAction: false },
@@ -54,7 +52,7 @@ const rawContactData = {
 const rawTaskData = {
   invite_count: 2,
   differ_count: 1,
-  end_time: 0,
+  end_time: 4_102_444_800,
   task: [
     {
       count: 3,
@@ -82,6 +80,7 @@ type BrowserAudit = {
   contactRequests: string[];
   workFissionParticipantRequests: string[];
   workFissionRequests: string[];
+  workFissionEvidenceChecks: number;
   participantData: unknown;
 };
 
@@ -103,6 +102,7 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
     contactRequests: [],
     workFissionParticipantRequests: [],
     workFissionRequests: [],
+    workFissionEvidenceChecks: 0,
     participantData: rawWorkFissionParticipant,
   };
 
@@ -147,6 +147,7 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
   await page.route(browserContract.fixtures.taskData, async (route) => {
     audit.workFissionRequests.push(route.request().url());
     expect(route.request().headers().authorization).toBeUndefined();
+    expect(route.request().headers().cookie ?? '').not.toMatch(/(?:^|;\s*)(?:token|agentId)=/);
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -156,6 +157,7 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
   await page.route(browserContract.fixtures.openUserInfo, async (route) => {
     audit.workFissionParticipantRequests.push(route.request().url());
     expect(route.request().headers().authorization).toBeUndefined();
+    expect(route.request().headers().cookie ?? '').not.toMatch(/(?:^|;\s*)(?:token|agentId)=/);
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -167,8 +169,8 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
 
 async function injectSidebarSession(page: Page): Promise<void> {
   await page.context().addCookies([
-    { name: 'token', value: 'sidebar-browser-token', url: APP_ORIGIN },
-    { name: 'agentId', value: '7', url: APP_ORIGIN },
+    { name: 'token', value: 'sidebar-browser-token', domain: '127.0.0.1', path: '/sidebar-app' },
+    { name: 'agentId', value: '7', domain: '127.0.0.1', path: '/sidebar-app' },
   ]);
 }
 
@@ -234,13 +236,18 @@ for (const viewport of viewports) {
     for (const routeCase of operationCases) {
       test(`Operation ${routeCase.path} renders its route title and module`, async ({ page }) => {
         const audit = await installRawGoFixtures(page);
+        await injectSidebarSession(page);
         await page.goto(mountedURL('/operation-app', routeCase.path, 'query' in routeCase ? routeCase.query : ''));
+        const operationCookies = await page.evaluate(() => document.cookie);
+        expect(operationCookies).not.toContain('sidebar-browser-token');
+        expect(operationCookies).not.toMatch(/(?:^|;\s*)agentId=/);
         await assertVisiblePage(page, routeCase.title, routeCase.moduleLabel, routeCase.expectsAction);
         expect(audit.workFissionRequests).toHaveLength(routeCase.path === '/workFission' ? 1 : 0);
         expect(audit.workFissionParticipantRequests).toHaveLength(
           routeCase.path === '/workFission' ? 1 : 0,
         );
         if (routeCase.path === '/workFission') {
+          audit.workFissionEvidenceChecks += 1;
           await expect(page.getByText('已邀请 2 位好友', { exact: true })).toBeVisible();
           await expect(page.getByText('距下一任务还差 1 位', { exact: true })).toBeVisible();
           expect(new URL(audit.workFissionParticipantRequests[0] ?? '').searchParams.get('id')).toBe('17');
@@ -258,6 +265,7 @@ for (const viewport of viewports) {
           );
           expect(audit.workFissionParticipantRequests).toHaveLength(2);
           expect(audit.workFissionRequests).toHaveLength(1);
+          expect(audit.workFissionEvidenceChecks).toBe(1);
         }
         await assertStableCleanAudit(page, audit, `${viewport.name} Operation ${routeCase.path}`);
       });

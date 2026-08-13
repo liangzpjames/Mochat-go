@@ -16,7 +16,7 @@ export type WorkFissionTask = {
 export type WorkFissionProgress = {
   inviteCount: number;
   differCount: number;
-  endTime: number | null;
+  endTime: number;
   tasks: WorkFissionTask[];
 };
 
@@ -48,6 +48,10 @@ function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
 function isBinaryStatus(value: unknown): value is 0 | 1 {
   return value === 0 || value === 1;
 }
@@ -70,7 +74,7 @@ function isRawProgress(value: unknown): value is RawWorkFissionProgress {
   return (
     isNonNegativeInteger(progress.invite_count)
     && isNonNegativeInteger(progress.differ_count)
-    && isNonNegativeInteger(progress.end_time)
+    && isPositiveInteger(progress.end_time)
     && Array.isArray(progress.task)
     && progress.task.every(isRawTask)
   );
@@ -169,7 +173,7 @@ export async function loadWorkFissionProgress(
   return {
     inviteCount: payload.invite_count,
     differCount: payload.differ_count,
-    endTime: payload.end_time === 0 ? null : payload.end_time,
+    endTime: payload.end_time,
     tasks: payload.task.map((task, index) => ({
       level: index + 1,
       target: task.count,

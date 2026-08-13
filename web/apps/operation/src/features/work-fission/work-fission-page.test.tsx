@@ -10,7 +10,10 @@ import {
 } from './work-fission-api';
 import { WorkFissionPage } from './work-fission-page';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 function renderWorkFission(path: string, request: ReturnType<typeof vi.fn>) {
   render(
@@ -199,6 +202,15 @@ describe('Operation work-fission task progress', () => {
     });
   });
 
+  it.each([0, -1, 1.5, '2130000000'])('rejects an invalid end_time contract value: %o', async (endTime) => {
+    const request = vi.fn().mockResolvedValue({ ...rawProgress, end_time: endTime });
+
+    await expect(loadWorkFissionProgress(request, {
+      unionId: 'union-session-1',
+      fissionId: 9,
+    })).rejects.toMatchObject({ kind: 'validation' });
+  });
+
   it.each([
     [{ unionId: '', fissionId: 9 }, '缺少 union_id'],
     [{ unionId: 'union-session-1', fissionId: 0 }, 'fission_id 必须为正整数'],
@@ -213,7 +225,7 @@ describe('Operation work-fission task progress', () => {
   it('renders an honest empty task state', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(rawParticipant)
-      .mockResolvedValueOnce({ invite_count: 0, differ_count: 0, end_time: 0, task: [] });
+      .mockResolvedValueOnce({ invite_count: 0, differ_count: 0, end_time: 2_130_000_000, task: [] });
 
     renderWorkFission('/workFission?id=9', request);
 
@@ -273,16 +285,18 @@ describe('Operation work-fission task progress', () => {
     })).rejects.toMatchObject({ kind: 'validation' });
   });
 
-  it('renders an invalid envelope error without inventing progress', async () => {
+  it('renders end_time=0 as a non-retryable validation failure without inventing progress', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(rawParticipant)
-      .mockRejectedValueOnce(new MobileApiError('validation', 'Invalid API response.', { status: 200 }));
+      .mockResolvedValueOnce({ ...rawProgress, end_time: 0 });
 
     renderWorkFission('/workFission?id=9', request);
 
     expect(await screen.findByText('任务进度加载失败')).not.toBeNull();
-    expect(screen.getByText('Invalid API response.')).not.toBeNull();
+    expect(screen.getByText('任务进度响应格式无效。')).not.toBeNull();
     expect(screen.queryByText(/已邀请/)).toBeNull();
+    expect(screen.queryByText('任务进行中')).toBeNull();
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
   });
 
   it.each([
@@ -314,6 +328,7 @@ describe('Operation work-fission task progress', () => {
   );
 
   it.each([
+    '数据不存在',
     '活动不存在',
     '任务宝活动已失效',
     '活动已经结束',
@@ -328,6 +343,35 @@ describe('Operation work-fission task progress', () => {
     expect(document.querySelector('.mobile-state--not-found')).not.toBeNull();
     expect(screen.getByText('活动已失效')).not.toBeNull();
     expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
+  });
+
+  it.each([
+    2_000_000_000,
+    1_999_999_999,
+  ])('renders an ended activity without active tasks or retry when end_time=%s is not future', async (endTime) => {
+    vi.spyOn(Date, 'now').mockReturnValue(2_000_000_000_000);
+    const request = vi.fn()
+      .mockResolvedValueOnce(rawParticipant)
+      .mockResolvedValueOnce({ ...rawProgress, end_time: endTime });
+
+    renderWorkFission('/workFission?id=9', request);
+
+    expect(await screen.findByText('活动已结束')).not.toBeNull();
+    expect(document.querySelector('.mobile-state--not-found')).not.toBeNull();
+    expect(screen.queryByText('任务进行中')).toBeNull();
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
+  });
+
+  it('renders progress when end_time is a valid future Unix timestamp', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(2_000_000_000_000);
+    const request = vi.fn()
+      .mockResolvedValueOnce(rawParticipant)
+      .mockResolvedValueOnce({ ...rawProgress, end_time: 2_000_000_001 });
+
+    renderWorkFission('/workFission?id=9', request);
+
+    expect(await screen.findByText('任务进行中')).not.toBeNull();
+    expect(screen.queryByText('活动已结束')).toBeNull();
   });
 
   it('retries a retryable progress failure with the same session participant', async () => {

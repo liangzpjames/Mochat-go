@@ -206,21 +206,6 @@ function validateRawGoBrowserFixtures(source, errors) {
   ) {
     errors.push('openUserInfo route must return a raw Go envelope');
   }
-  if (!/path\s*:\s*['"]\/workFission['"][^\n]*query\s*:\s*['"]\?id=[1-9]\d*['"]/.test(source)) {
-    errors.push('workFission browser case must use the real positive id entry');
-  }
-  if (
-    !/workFissionRequests\[0\][\s\S]{0,200}?searchParams\.get\(\s*['"]union_id['"]\s*\)[\s\S]{0,200}?toBe\(/.test(source)
-    || !/rawWorkFissionParticipant[\s\S]{0,400}?unionid\s*:\s*['"][^'"]*session[^'"]*['"]/.test(source)
-  ) {
-    errors.push('taskData browser fixture must prove a session-derived unionid');
-  }
-  if (
-    !/participantData\s*=\s*\[\]/.test(source)
-    || !/participantData\s*=\s*\[\][\s\S]{0,700}?\/auth\/workFission\?id=/.test(source)
-  ) {
-    errors.push('empty participant browser fixture must prove the OAuth href');
-  }
 }
 
 function validateBrowserAudit(source, errors) {
@@ -283,7 +268,7 @@ function validateBrowserLayout(source, sidebarCasesBody, operationCasesBody, err
   }
 }
 
-function validateViewportRouteLoops(source, errors) {
+function validateViewportRouteLoops(source, operationCasesBody, errors) {
   const viewportBody = braceBody(source, /for\s*\(const\s+viewport\s+of\s+viewports\)\s*\{/);
   if (viewportBody === null) {
     errors.push('viewport loop must cover all viewports and both route case arrays');
@@ -302,6 +287,40 @@ function validateViewportRouteLoops(source, errors) {
     if (!/await\s+assertStableCleanAudit\(/.test(loopBody)) {
       errors.push(`${label} viewport loop must execute the stable clean audit`);
     }
+  }
+
+  if (!/path\s*:\s*['"]\/workFission['"][^\n]*query\s*:\s*['"]\?id=[1-9]\d*['"]/.test(operationCasesBody)) {
+    errors.push('workFission browser case must use the real positive id entry');
+  }
+  if (/workFissionRequests|workFissionParticipantRequests|\/auth\/workFission/.test(sidebarBody)) {
+    errors.push('workFission evidence must not be placed in the Sidebar route loop');
+  }
+
+  const workFissionBody = braceBody(
+    operationBody,
+    /if\s*\(\s*routeCase\.path\s*===\s*['"]\/workFission['"]\s*\)\s*\{/,
+  );
+  if (workFissionBody === null) {
+    errors.push('Operation workFission evidence branch is missing');
+    return;
+  }
+  if (
+    !/workFissionRequests\[0\][\s\S]{0,220}?searchParams\.get\(\s*['"]union_id['"]\s*\)[\s\S]{0,220}?toBe\(/.test(workFissionBody)
+    || !/rawWorkFissionParticipant[\s\S]{0,400}?unionid\s*:\s*['"][^'"]*session[^'"]*['"]/.test(source)
+  ) {
+    errors.push('taskData browser fixture must prove a session-derived unionid in the Operation workFission branch');
+  }
+  if (
+    !/participantData\s*=\s*\[\]/.test(workFissionBody)
+    || !/participantData\s*=\s*\[\][\s\S]{0,700}?\/auth\/workFission\?id=/.test(workFissionBody)
+  ) {
+    errors.push('empty participant browser fixture must prove the OAuth href in the Operation workFission branch');
+  }
+  if (
+    !/workFissionEvidenceChecks\s*\+=\s*1/.test(workFissionBody)
+    || !/expect\(\s*audit\.workFissionEvidenceChecks\s*\)\.toBe\(\s*1\s*\)/.test(workFissionBody)
+  ) {
+    errors.push('workFission evidence execution count must be exactly one inside the Operation branch');
   }
 }
 
@@ -390,7 +409,7 @@ export function auditMobileClientsFoundation(root = process.cwd()) {
   validateRawGoBrowserFixtures(e2eSource, errors);
   validateBrowserAudit(e2eSource, errors);
   validateBrowserLayout(e2eSource, sidebarCasesBody, operationCasesBody, errors);
-  validateViewportRouteLoops(e2eSource, errors);
+  validateViewportRouteLoops(e2eSource, operationCasesBody, errors);
   if (
     !e2eSource.includes('/sidebar-app/not-a-sidebar-page')
     || !e2eSource.includes('/operation-app/not-an-operation-page')

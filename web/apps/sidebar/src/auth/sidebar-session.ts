@@ -58,7 +58,7 @@ function serializeCookie(
   return [
     `${name}=${encodeURIComponent(value)}`,
     `Max-Age=${Math.max(0, Math.floor(maxAge))}`,
-    'Path=/',
+    'Path=/sidebar-app',
     'SameSite=Lax',
     ...(secure ? ['Secure'] : []),
   ].join('; ');

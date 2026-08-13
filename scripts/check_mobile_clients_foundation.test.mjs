@@ -82,7 +82,7 @@ const rawContactData = { id: 1, name: 'Fixture Contact', avatar: null, corpId: 2
 const rawTaskData = {
   invite_count: 2,
   differ_count: 1,
-  end_time: 0,
+  end_time: 4102444800,
   task: [{ count: 3, status: 0, receive_status: 0, gift_type: 1, gift_url: '/reward' }],
 };
 const rawWorkFissionParticipant = {
@@ -95,6 +95,7 @@ async function installRawGoFixtures(page) {
   const audit = {
     consoleErrors: [], pageErrors: [], requestFailures: [], unexpectedResponses: [], unexpectedRequests: [],
     participantData: rawWorkFissionParticipant, workFissionParticipantRequests: [], workFissionRequests: [],
+    workFissionEvidenceChecks: 0,
   };
   page.on('console', (message) => { if (message.type() === 'error') audit.consoleErrors.push(message.text()); });
   page.on('pageerror', (error) => audit.pageErrors.push(error.message));
@@ -148,13 +149,6 @@ for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       await page.goto(routeCase.path + ('query' in routeCase ? routeCase.query : ''));
       await assertVisiblePage(page, routeCase, routeCase.expectsAction);
-      if (routeCase.path === '/workFission') {
-        expect(new URL(audit.workFissionParticipantRequests[0]).searchParams.get('id')).toBe('17');
-        expect(new URL(audit.workFissionRequests[0]).searchParams.get('union_id')).toBe('union-fixture-session');
-        audit.participantData = [];
-        await page.goto('/workFission?id=17&union_id=attacker-controlled');
-        await expect(page.getByRole('link', { name: '重新授权' })).toHaveAttribute('href', '/auth/workFission?id=17&target=%2FworkFission%3Fid%3D17%26union_id%3Dattacker-controlled');
-      }
       await assertStableCleanAudit(page, audit);
     });
   }
@@ -162,8 +156,17 @@ for (const viewport of viewports) {
     test(\`${'${viewport.name}'} Operation ${'${routeCase.path}'}\`, async ({ page }) => {
       const audit = await installRawGoFixtures(page);
       await page.setViewportSize(viewport);
-      await page.goto(routeCase.path);
+      await page.goto(routeCase.path + ('query' in routeCase ? routeCase.query : ''));
       await assertVisiblePage(page, routeCase, routeCase.expectsAction);
+      if (routeCase.path === '/workFission') {
+        audit.workFissionEvidenceChecks += 1;
+        expect(new URL(audit.workFissionParticipantRequests[0]).searchParams.get('id')).toBe('17');
+        expect(new URL(audit.workFissionRequests[0]).searchParams.get('union_id')).toBe('union-fixture-session');
+        audit.participantData = [];
+        await page.goto('/workFission?id=17&union_id=attacker-controlled');
+        await expect(page.getByRole('link', { name: '重新授权' })).toHaveAttribute('href', '/auth/workFission?id=17&target=%2FworkFission%3Fid%3D17%26union_id%3Dattacker-controlled');
+        expect(audit.workFissionEvidenceChecks).toBe(1);
+      }
       await assertStableCleanAudit(page, audit);
     });
   }
@@ -359,6 +362,26 @@ test('rejects a work-fission fixture without raw empty-session OAuth proof', (t)
     validE2E().replace('        audit.participantData = [];\n', ''),
   );
   expectDefect(root, /empty.*participant.*OAuth/i);
+});
+
+test('rejects work-fission evidence outside the real Operation branch', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("if (routeCase.path === '/workFission')", 'if (false)'),
+  );
+  expectDefect(root, /Operation workFission evidence branch/i);
+});
+
+test('rejects a work-fission branch without an execution count', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace('        audit.workFissionEvidenceChecks += 1;\n', ''),
+  );
+  expectDefect(root, /workFission evidence execution count/i);
 });
 
 test('rejects a missing clean-audit event collector independently', (t) => {
