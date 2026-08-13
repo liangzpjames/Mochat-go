@@ -59,7 +59,7 @@ const specs: Readonly<Record<string, ActionSpec>> = {
   '/data/report': { kind: 'button', name: '查询' },
   '/ai-setting/ai-knowledge-base': { kind: 'button', name: '新建知识库' },
   '/ai-setting/agent': { kind: 'button', name: '新建智能体' },
-  '/company-setting/website': { kind: 'button', name: '刷新同步状态' },
+  '/company-setting/website': { kind: 'link', href: '/index' },
   '/company-setting/staff': { kind: 'button', name: '查询' },
   '/setting/role': { kind: 'button', name: '查询' },
   '/setting/additional': { kind: 'button', name: '查询' },
