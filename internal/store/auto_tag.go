@@ -1735,7 +1735,57 @@ func autoTagKeywordMessageTable(index int) (string, error) {
 	return fmt.Sprintf("mc_work_message_%d", index), nil
 }
 
+type workMessageArchiveMode uint8
+
+const (
+	workMessageArchiveUnavailable workMessageArchiveMode = iota
+	workMessageArchiveReal
+	workMessageArchiveSimulation
+)
+
+func workMessageArchivePredicate(mode workMessageArchiveMode) (string, bool) {
+	switch mode {
+	case workMessageArchiveReal:
+		return "msgid NOT LIKE 'MOCHAT-SIM:%'", true
+	case workMessageArchiveSimulation:
+		return "msgid LIKE 'MOCHAT-SIM:%'", true
+	default:
+		return "", false
+	}
+}
+
+func (s *MySQLStore) workMessageArchiveMode(ctx context.Context, tenantID, corpID int) (workMessageArchiveMode, error) {
+	var chatStatus int
+	var simulationAvailable bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(corp.chat_status),0),
+		       EXISTS(
+		         SELECT 1 FROM mochat_go_archive_simulation_batches batch
+		         WHERE batch.corp_id=? AND batch.status='complete' AND batch.message_count>0
+		       )
+		FROM mc_corp corp
+		WHERE corp.id=? AND (?=0 OR corp.tenant_id=?) AND corp.deleted_at IS NULL
+	`, corpID, corpID, tenantID, tenantID).Scan(&chatStatus, &simulationAvailable)
+	if err != nil {
+		return workMessageArchiveUnavailable, err
+	}
+	if chatStatus == 1 {
+		return workMessageArchiveReal, nil
+	}
+	if simulationAvailable {
+		return workMessageArchiveSimulation, nil
+	}
+	return workMessageArchiveUnavailable, nil
+}
+
 func (s *MySQLStore) WorkMessageFromUsers(ctx context.Context, filter dashboard.WorkMessageFromUserFilter) ([]dashboard.WorkMessageFromUser, error) {
+	mode, err := s.workMessageArchiveMode(ctx, 0, filter.CorpID)
+	if err != nil {
+		return nil, err
+	}
+	if mode == workMessageArchiveUnavailable {
+		return []dashboard.WorkMessageFromUser{}, nil
+	}
 	filter.Page = positivePage(filter.Page)
 	filter.PerPage = positivePerPage(filter.PerPage, 100)
 	where := "WHERE corp_id = ? AND deleted_at IS NULL"
@@ -1777,10 +1827,19 @@ func (s *MySQLStore) WorkMessageFromUsers(ctx context.Context, filter dashboard.
 }
 
 func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.WorkMessageUserFilter) (dashboard.WorkMessageToUserPage, error) {
+	mode, err := s.workMessageArchiveMode(ctx, 0, filter.CorpID)
+	if err != nil {
+		return dashboard.WorkMessageToUserPage{}, err
+	}
+	archivePredicate, available := workMessageArchivePredicate(mode)
+	if !available {
+		return dashboard.WorkMessageToUserPage{}, nil
+	}
 	filter.Page = positivePage(filter.Page)
 	filter.PerPage = positivePerPage(filter.PerPage, 15)
 	sourceSQL, sourceArgs := workMessageFilteredUnionSQL(filter)
 	whereSQL, filterArgs := workMessageUserWhere(filter)
+	whereSQL += " AND " + archivePredicate
 	args := append(append([]any{}, sourceArgs...), filterArgs...)
 	if strings.TrimSpace(filter.Name) != "" {
 		whereSQL += ` AND target_name LIKE ? ESCAPE '\\'`
@@ -1841,21 +1900,19 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 }
 
 func (s *MySQLStore) WorkMessageArchiveAuthorized(ctx context.Context, tenantID int, corpID int) (bool, error) {
-	var allowed bool
-	err := s.db.QueryRowContext(ctx, `
-		SELECT EXISTS(
-			SELECT 1
-			FROM mc_corp
-			WHERE id = ?
-			  AND tenant_id = ?
-			  AND chat_status = 1
-			  AND deleted_at IS NULL
-		)
-	`, corpID, tenantID).Scan(&allowed)
-	return allowed, err
+	mode, err := s.workMessageArchiveMode(ctx, tenantID, corpID)
+	return mode != workMessageArchiveUnavailable, err
 }
 
 func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboard.WorkMessageArchiveFilter) (dashboard.WorkMessageItem, bool, error) {
+	mode, err := s.workMessageArchiveMode(ctx, 0, filter.CorpID)
+	if err != nil {
+		return dashboard.WorkMessageItem{}, false, err
+	}
+	archivePredicate, available := workMessageArchivePredicate(mode)
+	if !available {
+		return dashboard.WorkMessageItem{}, false, nil
+	}
 	if filter.RestrictEmployeeIDs && len(uniquePositiveInts(filter.EmployeeIDs)) == 0 {
 		return dashboard.WorkMessageItem{}, false, nil
 	}
@@ -1863,7 +1920,7 @@ func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboar
 	if !ok {
 		return dashboard.WorkMessageItem{}, false, nil
 	}
-	where := []string{idWhere}
+	where := []string{idWhere, archivePredicate}
 	args := append(append([]any{}, sourceArgs...), idArgs...)
 	if filter.RestrictEmployeeIDs {
 		ids := uniquePositiveInts(filter.EmployeeIDs)
@@ -1890,11 +1947,19 @@ func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboar
 }
 
 func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkMessageFilter) (dashboard.WorkMessagePage, error) {
+	mode, err := s.workMessageArchiveMode(ctx, 0, filter.CorpID)
+	if err != nil {
+		return dashboard.WorkMessagePage{}, err
+	}
+	archivePredicate, available := workMessageArchivePredicate(mode)
+	if !available {
+		return dashboard.WorkMessagePage{}, nil
+	}
 	filter.Page = positivePage(filter.Page)
 	filter.PerPage = positivePerPage(filter.PerPage, 15)
 	sourceSQL, sourceArgs := workMessageUnionSQL(filter.CorpID)
 	args := append([]any{}, sourceArgs...)
-	where := []string{}
+	where := []string{archivePredicate}
 	if filter.RestrictEmployeeIDs {
 		ids := uniquePositiveInts(filter.EmployeeIDs)
 		if len(ids) == 0 {

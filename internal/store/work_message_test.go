@@ -15,6 +15,20 @@ import (
 	"jiyi/mochat-go/internal/mysqlconn"
 )
 
+func TestWorkMessageArchivePredicateSeparatesSimulationFromRealArchive(t *testing.T) {
+	realPredicate, ok := workMessageArchivePredicate(workMessageArchiveReal)
+	if !ok || realPredicate != "msgid NOT LIKE 'MOCHAT-SIM:%'" {
+		t.Fatalf("real archive predicate = %q, %v", realPredicate, ok)
+	}
+	simulationPredicate, ok := workMessageArchivePredicate(workMessageArchiveSimulation)
+	if !ok || simulationPredicate != "msgid LIKE 'MOCHAT-SIM:%'" {
+		t.Fatalf("simulation archive predicate = %q, %v", simulationPredicate, ok)
+	}
+	if predicate, ok := workMessageArchivePredicate(workMessageArchiveUnavailable); ok || predicate != "" {
+		t.Fatalf("unavailable archive predicate = %q, %v", predicate, ok)
+	}
+}
+
 func TestWorkMessageUserWhereAppliesConversationFiltersAndPermissionScope(t *testing.T) {
 	where, args := workMessageUserWhere(dashboard.WorkMessageUserFilter{
 		WorkEmployeeID:      9,
