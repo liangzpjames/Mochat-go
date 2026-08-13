@@ -229,6 +229,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   }
 
   const expectedVersion = profile.bindingVersion;
+  const applicationConfigured = profile.credentials.wecom.configured && profile.credentials.agent.configured;
   const hasProfileChanges = displayName.trim() !== '' && displayName.trim() !== profile.displayName;
 	const hasApplicationChanges = wxAgentId.trim() !== '' && wxSecret.trim() !== '';
 	const hasArchiveChanges = archiveChatSecret.trim() !== '' || archiveRSAPublicKey.trim() !== '' || archiveRSAPrivateKey.trim() !== '';
@@ -281,13 +282,22 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 			  <h2 id="company-application-heading">应用配置</h2>
 			  <p>只需填写一次应用 Secret，服务端会在同一事务中用于通讯录同步、客户同步和应用消息。</p>
 			</div>
-			<CredentialStatus label="应用配置" configured={profile.credentials.wecom.configured && profile.credentials.agent.configured} />
+			<CredentialStatus label="应用配置" configured={applicationConfigured} />
 		  </header>
 		  <div className="company-profile-form-grid company-profile-agent-fields">
 			<label>应用 AgentID<input inputMode="numeric" value={wxAgentId} onChange={(event) => setWxAgentId(event.target.value.replace(/[^0-9]/g, ''))} placeholder="例如：1000010" /></label>
-            <SecretField label="应用 Secret" value={wxSecret} onChange={setWxSecret} placeholder="请输入应用 Secret" />
+			<SecretField
+			  label="应用 Secret"
+			  value={wxSecret}
+			  onChange={setWxSecret}
+			  placeholder={applicationConfigured ? '已加密保存；输入新 Secret 可替换' : '请输入应用 Secret'}
+			/>
 		  </div>
-		  <p className="company-profile-help">AgentID 和 Secret 均为必填；Secret 只提交一次，服务端加密保存且不会回显。</p>
+		  <p className="company-profile-help">
+			{applicationConfigured
+			  ? '应用 Secret 已加密保存，出于安全原因不会回显。'
+			  : 'AgentID 和 Secret 均为必填；Secret 提交后由服务端加密保存。'}
+		  </p>
 		  <ConfirmAction
 			title="确认保存应用配置？"
 			description={`变更摘要：更新应用 AgentID，并将同一 Secret 用于通讯录、客户联系和应用消息；版本 ${expectedVersion}。`}

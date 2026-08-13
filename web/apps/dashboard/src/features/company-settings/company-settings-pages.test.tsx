@@ -164,6 +164,24 @@ describe('企业设置页面', () => {
     expect(screen.queryByText('ciphertext')).toBeNull();
   });
 
+  it('企业信息：保存后的 AgentID 回显，Secret 以已加密保存状态代替明文回显', async () => {
+    const configuredProfile: CompanyProfile = {
+      ...companyProfile,
+      credentials: {
+        ...companyProfile.credentials,
+        agent: { configured: true },
+      },
+    };
+    const api = companyApi({ getProfile: vi.fn().mockResolvedValue(configuredProfile) });
+    renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
+
+    expect(await screen.findByDisplayValue('1000099')).toBeTruthy();
+    const secretInput = screen.getByLabelText('应用 Secret');
+    expect(secretInput).toHaveProperty('value', '');
+    expect(secretInput).toHaveProperty('placeholder', '已加密保存；输入新 Secret 可替换');
+    expect(screen.getByText('应用 Secret 已加密保存，出于安全原因不会回显。')).toBeTruthy();
+  });
+
   it('企业信息：待配置和暂停状态均 fail closed，不提供错误的同步或验证入口', async () => {
     const pendingApi = companyApi({ getProfile: vi.fn().mockResolvedValue({ ...companyProfile, bindingStatus: 'pending', wxCorpId: undefined, authoritativeCorpName: undefined }) });
     renderPage(<CompanyWebsitePage api={pendingApi} isSuperAdmin />);

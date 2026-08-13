@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -371,8 +370,12 @@ func companyCallbackConfigurationValid(token, encodingAESKey string) bool {
 	if len(token) < 1 || len(token) > 32 || len(encodingAESKey) != 43 {
 		return false
 	}
-	decoded, err := base64.RawStdEncoding.DecodeString(encodingAESKey)
-	return err == nil && len(decoded) == 32
+	for _, character := range encodingAESKey {
+		if !((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *MySQLStore) RegenerateCallbackConfiguration(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.CallbackConfigurationInput) (companyprofile.CallbackConfiguration, error) {

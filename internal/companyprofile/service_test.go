@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -357,17 +356,24 @@ func TestServiceGeneratesValidCallbackConfiguration(t *testing.T) {
 	service := NewService(store, &companyProfileTestVerifier{})
 	principal := companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive)
 
-	configuration, err := service.RegenerateCallbackConfiguration(context.Background(), principal, CallbackConfigurationInput{
-		ExpectedVersion: 9, RequestID: "rotate-callback",
-	})
-	if err != nil {
-		t.Fatal(err)
+	for index := 0; index < 128; index++ {
+		configuration, err := service.RegenerateCallbackConfiguration(context.Background(), principal, CallbackConfigurationInput{
+			ExpectedVersion: 9, RequestID: "rotate-callback",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(configuration.Token) != 32 || len(configuration.EncodingAESKey) != 43 {
+			t.Fatalf("configuration=%+v", configuration)
+		}
+		for _, character := range configuration.EncodingAESKey {
+			if !((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9')) {
+				t.Fatalf("EncodingAESKey contains non-alphanumeric character %q: %q", character, configuration.EncodingAESKey)
+			}
+		}
 	}
-	if store.callbackRotateCalls != 1 || len(configuration.Token) != 32 || len(configuration.EncodingAESKey) != 43 {
-		t.Fatalf("configuration=%+v calls=%d", configuration, store.callbackRotateCalls)
-	}
-	if _, err := base64.RawStdEncoding.DecodeString(configuration.EncodingAESKey); err != nil {
-		t.Fatalf("EncodingAESKey is not valid unpadded base64: %v", err)
+	if store.callbackRotateCalls != 128 {
+		t.Fatalf("callback rotate calls = %d, want 128", store.callbackRotateCalls)
 	}
 }
 

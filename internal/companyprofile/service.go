@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -218,14 +217,38 @@ func matchingRSAKeyPair(publicPEM, privatePEM string) bool {
 
 func GenerateCallbackConfiguration() (string, string, error) {
 	tokenBytes := make([]byte, 16)
-	aesBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", "", err
 	}
-	if _, err := rand.Read(aesBytes); err != nil {
+	encodingAESKey, err := randomAlphanumeric(43)
+	if err != nil {
 		return "", "", err
 	}
-	return hex.EncodeToString(tokenBytes), base64.RawStdEncoding.EncodeToString(aesBytes), nil
+	return hex.EncodeToString(tokenBytes), encodingAESKey, nil
+}
+
+func randomAlphanumeric(length int) (string, error) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	result := make([]byte, 0, length)
+	random := make([]byte, length)
+	for len(result) < length {
+		if _, err := rand.Read(random); err != nil {
+			return "", err
+		}
+		for _, value := range random {
+			// 248 is the largest multiple of 62 below 256. Rejecting the
+			// remaining values avoids modulo bias while keeping the key
+			// compatible with WeCom's alphanumeric input constraint.
+			if value >= 248 {
+				continue
+			}
+			result = append(result, alphabet[int(value)%len(alphabet)])
+			if len(result) == length {
+				break
+			}
+		}
+	}
+	return string(result), nil
 }
 
 func (s *Service) Verify(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input VerifyInput) (Profile, error) {
