@@ -1,0 +1,2 @@
+-- Intentionally non-destructive. These columns and indexes are the physical
+-- schema promised by the already-applied 0115 migration and may contain data.
