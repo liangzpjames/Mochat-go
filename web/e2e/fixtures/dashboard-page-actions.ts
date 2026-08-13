@@ -60,9 +60,9 @@ const specs: Readonly<Record<string, ActionSpec>> = {
   '/ai-setting/ai-knowledge-base': { kind: 'button', name: '新建知识库' },
   '/ai-setting/agent': { kind: 'button', name: '新建智能体' },
   '/company-setting/website': { kind: 'link', href: '/index' },
-  '/company-setting/staff': { kind: 'button', name: '查询' },
-  '/setting/role': { kind: 'button', name: '查询' },
-  '/setting/additional': { kind: 'button', name: '查询' },
+  '/company-setting/staff': { kind: 'button', name: '第 1 页' },
+  '/setting/role': { kind: 'button', name: '新建角色' },
+  '/setting/additional': { kind: 'link', href: '/index' },
   '/setting/authorization': { kind: 'link', href: '/index' },
 };
 
