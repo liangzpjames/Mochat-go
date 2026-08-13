@@ -18,6 +18,7 @@ export type AccessContext = {
 };
 
 export type AccessLoaderDeps = {
+  clearQueries: () => void;
   clearSession: () => void;
   getSession: () => Session | null;
   loadProfile: () => Promise<AccessProfile>;
@@ -47,6 +48,7 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
     }
     if (session.expiresAt !== null && session.expiresAt <= (deps.now ?? Date.now)()) {
       deps.clearSession();
+      deps.clearQueries();
       throwRouterResponse(redirect('/login'));
     }
     const pathname = new URL(request.url).pathname;
@@ -63,7 +65,8 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
       };
       if (profile.corpBindingStatus === 'suspended') {
         deps.clearSession();
-        throwRouterResponse(redirect('/login'));
+        deps.clearQueries();
+        throwRouterResponse(redirect(`/login?returnTo=${encodeURIComponent(localReturnTo(request))}`));
       }
       if (profile.corpBindingStatus === 'pending') {
         const settingsPath = '/company-setting/website';
@@ -99,12 +102,14 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
     } catch (error) {
       if (error instanceof ApiError && error.kind === 'unauthorized') {
         deps.clearSession();
-        throwRouterResponse(redirect('/login'));
+        deps.clearQueries();
+        throwRouterResponse(redirect(`/login?returnTo=${encodeURIComponent(localReturnTo(request))}`));
       }
       if (error instanceof ApiError && error.kind === 'forbidden') {
         if (error.machineCode === 'TENANT_ACCESS_DENIED') {
           deps.clearSession();
-          throwRouterResponse(redirect('/login'));
+          deps.clearQueries();
+          throwRouterResponse(redirect(`/login?returnTo=${encodeURIComponent(localReturnTo(request))}`));
         }
         if (error.machineCode === 'CORP_CONFIGURATION_REQUIRED') {
           throwRouterResponse(redirect('/company-setting/website'));

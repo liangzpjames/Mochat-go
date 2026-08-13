@@ -17,6 +17,7 @@ const profile = {
 
 function deps(overrides: Partial<Parameters<typeof createAccessLoader>[0]> = {}) {
   return {
+    clearQueries: vi.fn(),
     clearSession: vi.fn(),
     getSession: () => session,
     loadProfile: vi.fn(() => Promise.resolve(profile)),
@@ -45,12 +46,30 @@ describe('createAccessLoader', () => {
     expect(clearSession).toHaveBeenCalledOnce();
   });
 
-  it('clears session for TENANT_ACCESS_DENIED but preserves it for page denial', async () => {
+  it('owns access-profile 401 cleanup and preserves the local return path', async () => {
     const clearSession = vi.fn();
-    await expectRedirect(createAccessLoader(deps({ clearSession, loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 403, machineCode: 'TENANT_ACCESS_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }), '/login');
+    const clearQueries = vi.fn();
+    await expectRedirect(createAccessLoader(deps({
+      clearQueries,
+      clearSession,
+      loadProfile: vi.fn(() => Promise.reject(new ApiError('unauthorized', 'expired', { status: 401, code: 401, machineCode: 'UNAUTHORIZED' }))),
+    }))({ request: new Request('https://app.test/chat/v2-all?tab=room#latest') }), '/login?returnTo=%2Fchat%2Fv2-all%3Ftab%3Droom%23latest');
     expect(clearSession).toHaveBeenCalledOnce();
-    const pageError = await createAccessLoader(deps({ loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 403, machineCode: 'DASHBOARD_PERMISSION_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }).catch((reason: unknown) => reason);
+    expect(clearQueries).toHaveBeenCalledOnce();
+  });
+
+  it('clears session and queries once for TENANT_ACCESS_DENIED but preserves them for page denial', async () => {
+    const clearSession = vi.fn();
+    const clearQueries = vi.fn();
+    await expectRedirect(createAccessLoader(deps({ clearQueries, clearSession, loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 403, machineCode: 'TENANT_ACCESS_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all?q=1#record') }), '/login?returnTo=%2Fchat%2Fv2-all%3Fq%3D1%23record');
+    expect(clearSession).toHaveBeenCalledOnce();
+    expect(clearQueries).toHaveBeenCalledOnce();
+    const pageClearSession = vi.fn();
+    const pageClearQueries = vi.fn();
+    const pageError = await createAccessLoader(deps({ clearQueries: pageClearQueries, clearSession: pageClearSession, loadProfile: vi.fn(() => Promise.reject(new ApiError('forbidden', 'denied', { status: 403, code: 403, machineCode: 'DASHBOARD_PERMISSION_DENIED' }))) }))({ request: new Request('https://app.test/chat/v2-all') }).catch((reason: unknown) => reason);
     expect(pageError).toMatchObject({ status: 403 });
+    expect(pageClearSession).not.toHaveBeenCalled();
+    expect(pageClearQueries).not.toHaveBeenCalled();
   });
 
   it('keeps the session and redirects CORP_CONFIGURATION_REQUIRED to the company settings page', async () => {

@@ -4,12 +4,15 @@ import { createDashboardUnauthorizedHandler } from './unauthorized-handler';
 
 function deps(path = '/ai-insight/session-analysis?range=7d#records') {
   const calls: string[] = [];
+  let sessionKey: string | null = 'token-a';
   return {
     calls,
     clearQueries: vi.fn(() => calls.push('queries')),
-    clearSession: vi.fn(() => calls.push('session')),
+    clearSession: vi.fn(() => { calls.push('session'); sessionKey = null; }),
     getCurrentPath: vi.fn(() => path),
+    getSessionKey: vi.fn(() => sessionKey),
     navigateToLogin: vi.fn((target: string) => calls.push(`navigate:${target}`)),
+    setSessionKey: (value: string | null) => { sessionKey = value; },
   };
 }
 
@@ -41,6 +44,32 @@ describe('createDashboardUnauthorizedHandler', () => {
     expect(input.clearSession).toHaveBeenCalledOnce();
     expect(input.clearQueries).toHaveBeenCalledOnce();
     expect(input.navigateToLogin).toHaveBeenCalledOnce();
+  });
+
+  it('allows a new session generation to exit after the prior token was handled', async () => {
+    const input = deps('/chat/v2-all');
+    const handleSessionInvalid = createDashboardUnauthorizedHandler(input);
+
+    await Promise.all([Promise.resolve().then(handleSessionInvalid), Promise.resolve().then(handleSessionInvalid)]);
+    input.setSessionKey('token-b');
+    handleSessionInvalid();
+    handleSessionInvalid();
+
+    expect(input.clearSession).toHaveBeenCalledTimes(2);
+    expect(input.clearQueries).toHaveBeenCalledTimes(2);
+    expect(input.navigateToLogin).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the same generation-safe exit for a later tenant denial', () => {
+    const input = deps('/company-setting/website');
+    const handleTenantAccessDenied = createDashboardUnauthorizedHandler(input);
+
+    handleTenantAccessDenied();
+    input.setSessionKey('token-after-login');
+    handleTenantAccessDenied();
+
+    expect(input.clearSession).toHaveBeenCalledTimes(2);
+    expect(input.navigateToLogin).toHaveBeenNthCalledWith(2, '/login?returnTo=%2Fcompany-setting%2Fwebsite');
   });
 
   it('does not create a returnTo loop when the current page is login', () => {

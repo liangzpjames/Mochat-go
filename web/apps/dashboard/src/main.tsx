@@ -9,6 +9,7 @@ import {
   createPageRegistry,
 } from './benchmark/page-registry';
 import { createAccessLoader } from './app/access-loader';
+import { createDashboardSessionClients } from './app/dashboard-session-clients';
 import { createDashboardQueryClient, DashboardProviders } from './app/providers';
 import { createDashboardRouter } from './app/router';
 import { createDashboardUnauthorizedHandler } from './app/unauthorized-handler';
@@ -72,15 +73,15 @@ const handleUnauthorized = createDashboardUnauthorizedHandler({
   clearQueries: () => queryClient.clear(),
   clearSession: () => authStore.clearSession(),
   getCurrentPath: () => `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  getSessionKey: () => authStore.getSession()?.token ?? null,
   navigateToLogin: (target) => {
     void routerRef.current?.navigate(target);
   },
 });
-const apiClient = createApiClient({
+const { apiClient, accessProfileClient } = createDashboardSessionClients({
   baseUrl: new URL('/dashboard/', window.location.origin).toString(),
   getToken: () => authStore.getSession()?.token ?? null,
-  onTenantAccessDenied: handleUnauthorized,
-  onUnauthorized: handleUnauthorized,
+  onSessionInvalid: handleUnauthorized,
 });
 const loginClient = createApiClient({
   baseUrl: new URL('/dashboard/', window.location.origin).toString(),
@@ -122,11 +123,12 @@ const migratedPages = Object.fromEntries(
 const manifestRoutes = new Set(benchmarkManifest.pages.map((page) => page.path));
 const knownRoutes = new Set(['/', ...manifestRoutes]);
 const loadAccess = createAccessLoader({
+  clearQueries: () => queryClient.clear(),
   clearSession: () => authStore.clearSession(),
   getSession: () => authStore.getSession(),
   knownRoutes,
   manifestRoutes,
-  loadProfile: () => loadAccessProfile(apiClient),
+  loadProfile: () => loadAccessProfile(accessProfileClient),
 });
 const accessLoader = ({ request }: { request: Request }) => loadAccess({ request });
 const performLogout = createLogoutAction({
