@@ -1,15 +1,30 @@
+import { ApiError } from '@mochat/api-client';
 import { useQuery } from '@tanstack/react-query';
 
 import type { ProviderStatus, ProviderStatusApi } from './provider-status-api';
 
 export function ProviderStatusPage({ api, isSuperAdmin = false }: { api: ProviderStatusApi; isSuperAdmin?: boolean }) {
   const query = useQuery({ queryKey: ['provider-status'], queryFn: () => api.getStatus(), retry: false });
-  if (query.isPending) return <section aria-label="Provider 状态" className="phase35-card"><p>正在读取 Provider 状态…</p></section>;
-  if (query.isError) return <section aria-label="Provider 状态" className="phase35-card"><p role="alert">Provider 状态暂时不可用，请稍后重试。</p><button type="button" onClick={() => void query.refetch()}>重试</button></section>;
+  if (query.isPending) {
+    return <section aria-label="Provider 状态" className="phase35-card"><p>正在读取 Provider 状态…</p></section>;
+  }
+  if (query.isError) {
+    return (
+      <section aria-label="Provider 状态" className="phase35-card">
+        <p role="alert">{providerStatusErrorMessage(query.error)}</p>
+        <button type="button" onClick={() => void query.refetch()}>重试</button>
+      </section>
+    );
+  }
   const statuses = query.data?.providers ?? [];
   return (
     <section aria-label="Provider 状态" className="phase35-card provider-status-card">
-      <header className="phase35-card-header"><div><h2>Provider 运行状态</h2><p>状态来自当前运行时与企业作用域凭据，不触发外部测试请求。</p></div></header>
+      <header className="phase35-card-header">
+        <div>
+          <h2>Provider 运行状态</h2>
+          <p>状态来自当前运行时与企业作用域凭据，不触发外部测试请求。</p>
+        </div>
+      </header>
       {statuses.length === 0 ? <p>当前没有可显示的 Provider 能力。</p> : <div className="provider-status-list">{statuses.map((status) => <ProviderStatusRow key={status.kind} status={status} isSuperAdmin={isSuperAdmin} />)}</div>}
     </section>
   );
@@ -25,7 +40,7 @@ function ProviderStatusRow({ status, isSuperAdmin }: { status: ProviderStatus; i
       <strong>{stateLabel}</strong>
       <div>
         <code>{status.code}</code>
-        {!isSuperAdmin && status.action && <p>{status.action}</p>}
+        {status.action && <p>下一步：{status.action}</p>}
         {isSuperAdmin && status.reason && <p>{status.reason}</p>}
         {isSuperAdmin && status.missing && status.missing.length > 0 && <p>缺失项：{status.missing.join('、')}</p>}
         <div className="provider-status-diagnostics">
@@ -37,6 +52,16 @@ function ProviderStatusRow({ status, isSuperAdmin }: { status: ProviderStatus; i
       </div>
     </article>
   );
+}
+
+function providerStatusErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && (error.status === 403 || error.machineCode === 'DASHBOARD_PERMISSION_DENIED')) {
+    return '当前账号无权查看 Provider 状态。';
+  }
+  if (error instanceof ApiError && (error.status === 503 || error.machineCode === 'PROVIDER_STATUS_SOURCE_UNAVAILABLE')) {
+    return 'Provider 状态来源暂不可用，请稍后重试。';
+  }
+  return 'Provider 状态暂时不可用，请稍后重试。';
 }
 
 function providerSourceLabel(source: ProviderStatus['source']): string {

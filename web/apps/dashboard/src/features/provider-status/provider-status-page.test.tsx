@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '@mochat/api-client';
+
 import type { ProviderStatusApi } from './provider-status-api';
 import { ProviderStatusPage } from './provider-status-page';
 
@@ -55,7 +57,7 @@ describe('provider status page', () => {
 
     expect(await screen.findByText('会话存档')).toBeTruthy();
     expect(screen.getByText('受限')).toBeTruthy();
-    expect(screen.getByText('请联系管理员配置或验证 Provider')).toBeTruthy();
+    expect(screen.getByText('下一步：请联系管理员配置或验证 Provider')).toBeTruthy();
     expect(screen.queryByText('MOCHAT_ARCHIVE_SECRET')).toBeNull();
   });
 
@@ -72,6 +74,22 @@ describe('provider status page', () => {
     renderPage(api, true);
 
     expect(await screen.findByText('archive credential is missing')).toBeTruthy();
+    expect(screen.getByText('下一步：configure archive')).toBeTruthy();
     expect(screen.getByText(/缺失项：archive credential/)).toBeTruthy();
+  });
+
+  it('distinguishes forbidden access from unavailable provider source errors', async () => {
+    const forbiddenApi: ProviderStatusApi = {
+      getStatus: vi.fn().mockRejectedValue(new ApiError('forbidden', 'denied', { status: 403, machineCode: 'DASHBOARD_PERMISSION_DENIED' })),
+    };
+    const { unmount } = renderPage(forbiddenApi, true);
+    expect(await screen.findByText('当前账号无权查看 Provider 状态。')).toBeTruthy();
+    unmount();
+
+    const unavailableApi: ProviderStatusApi = {
+      getStatus: vi.fn().mockRejectedValue(new ApiError('server', 'source unavailable', { status: 503, machineCode: 'PROVIDER_STATUS_SOURCE_UNAVAILABLE' })),
+    };
+    renderPage(unavailableApi, true);
+    expect(await screen.findByText('Provider 状态来源暂不可用，请稍后重试。')).toBeTruthy();
   });
 });

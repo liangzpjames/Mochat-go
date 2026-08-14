@@ -2,6 +2,7 @@ package companyprofile
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -42,6 +43,9 @@ func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(
 	if store.getCalls != 1 {
 		t.Fatalf("profile reads = %d, want 1", store.getCalls)
 	}
+	if store.syncStatusCalls != 1 {
+		t.Fatalf("active verified profile sync reads = %d, want 1", store.syncStatusCalls)
+	}
 	byKind := make(map[string]providerstatus.ProviderStatus, len(view.Providers))
 	for _, status := range view.Providers {
 		byKind[status.Kind] = status
@@ -51,6 +55,33 @@ func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(
 	}
 	if byKind["wecom_archive"].State != providers.StateLimited || byKind["wecom_archive"].Code != "archive.getchatdata_unimplemented" {
 		t.Fatalf("archive status = %#v", byKind["wecom_archive"])
+	}
+}
+
+func TestProviderStatusSourceDoesNotReadSyncStatusForPendingBinding(t *testing.T) {
+	store := &companyProfileContractStore{
+		profile: Profile{
+			TenantID: 202, CorpID: 303, BindingStatus: "pending", WXCorpID: "ww-candidate",
+			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}},
+		},
+		syncStatusErr: errors.New("pending binding must not read sync status"),
+	}
+	registry, err := catalog.NewRegistry(catalog.Dependencies{
+		WeComStandard: providerStatusTestProvider{status: providers.Status{Kind: "wecom_standard", State: providers.StateReady, Code: "wecom.runtime"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := NewProviderStatusSource(store, registry).Statuses(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusPending))
+	if err != nil {
+		t.Fatalf("pending provider status error=%v, want limited status without sync read", err)
+	}
+	if store.syncStatusCalls != 0 {
+		t.Fatalf("pending binding sync reads=%d, want 0", store.syncStatusCalls)
+	}
+	standard := findStatus(statuses, "wecom_standard")
+	if standard.State != providers.StateLimited || standard.Code != "wecom.runtime_unverified" {
+		t.Fatalf("pending standard status=%#v, want limited runtime_unverified", standard)
 	}
 }
 

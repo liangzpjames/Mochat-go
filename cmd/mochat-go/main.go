@@ -430,7 +430,7 @@ func main() {
 		}
 		providerRegistry, err := providercatalog.NewRegistry(providercatalog.Dependencies{
 			AI:            aiRuntime,
-			AIEnabled:     cfg.EnableAIInsight,
+			AIEnabled:     cfg.EnableAIDebtClearance && cfg.EnableAIInsight,
 			Archive:       archiveRuntime,
 			AudioStorage:  audioRuntime,
 			WeComStandard: companyProfileWeComClient,

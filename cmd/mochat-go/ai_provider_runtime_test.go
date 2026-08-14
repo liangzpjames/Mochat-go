@@ -16,7 +16,7 @@ func TestDashboardAIStatusProviderUsesEnabledRuntime(t *testing.T) {
 	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", secret)
 	t.Setenv("MOCHAT_GO_AI_PROVIDER_MODEL", "test-model")
 
-	runtime, err := buildDashboardAIStatusProvider(config.Config{EnableAIInsight: true})
+	runtime, err := buildDashboardAIStatusProvider(config.Config{EnableAIDebtClearance: true, EnableAIInsight: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +64,62 @@ func TestDashboardAIStatusProviderDisabledIsCodeOnlyEvenWhenKeyExists(t *testing
 	if containsSecret(string(encoded), secret) {
 		t.Fatalf("status leaked disabled AI key: %s", encoded)
 	}
+}
+
+func TestDashboardAIStatusProviderRequiresBothAIFlags(t *testing.T) {
+	const secret = "dual-flag-composition-secret"
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_BASE_URL", "http://127.0.0.1:9/v1")
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", secret)
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_MODEL", "test-model")
+
+	cases := []struct {
+		name       string
+		debt       bool
+		insight    bool
+		wantState  providers.State
+		wantSource providers.Source
+	}{
+		{name: "debt disabled insight disabled", debt: false, insight: false, wantState: providers.StateLimited, wantSource: providers.SourceCodeOnly},
+		{name: "debt disabled insight enabled", debt: false, insight: true, wantState: providers.StateLimited, wantSource: providers.SourceCodeOnly},
+		{name: "debt enabled insight disabled", debt: true, insight: false, wantState: providers.StateLimited, wantSource: providers.SourceCodeOnly},
+		{name: "both enabled", debt: true, insight: true, wantState: providers.StateReady, wantSource: providers.SourceExternal},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, err := buildDashboardAIStatusProvider(config.Config{EnableAIDebtClearance: test.debt, EnableAIInsight: test.insight})
+			if err != nil {
+				t.Fatal(err)
+			}
+			status := runtime.Status()
+			if status.State != test.wantState {
+				t.Fatalf("status=%#v, want state=%q", status, test.wantState)
+			}
+			registry, err := catalog.NewRegistry(catalog.Dependencies{AI: runtime, AIEnabled: test.debt && test.insight})
+			if err != nil {
+				t.Fatal(err)
+			}
+			registered := findRegisteredProvider(registry.Snapshot(nil), "ai")
+			if registered.Source != test.wantSource || registered.State != test.wantState {
+				t.Fatalf("registered=%#v, want state=%q source=%q", registered, test.wantState, test.wantSource)
+			}
+			encoded, err := json.Marshal(status)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if containsSecret(string(encoded), secret) {
+				t.Fatal("AI key leaked into status")
+			}
+		})
+	}
+}
+
+func findRegisteredProvider(statuses []providers.Status, kind string) providers.Status {
+	for _, status := range statuses {
+		if status.Kind == kind {
+			return status
+		}
+	}
+	return providers.Status{}
 }
 
 func containsSecret(value, secret string) bool {

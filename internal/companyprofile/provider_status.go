@@ -30,7 +30,7 @@ func (s *ProviderStatusSource) Statuses(ctx context.Context, principal dashboard
 		return nil, err
 	}
 	syncStatus := SyncStatus{Status: "idle"}
-	if syncStore, ok := s.store.(SyncStore); ok {
+	if syncStore, ok := s.store.(SyncStore); ok && eligibleForEmployeeSyncStatus(profile) {
 		syncStatus, err = syncStore.GetSyncStatus(ctx, principal)
 		if err != nil {
 			return nil, err
@@ -41,6 +41,13 @@ func (s *ProviderStatusSource) Statuses(ctx context.Context, principal dashboard
 	statuses = replaceStatus(statuses, tenantWeComArchiveStatus(profile, findStatus(statuses, "wecom_archive")))
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Kind < statuses[j].Kind })
 	return statuses, nil
+}
+
+func eligibleForEmployeeSyncStatus(profile Profile) bool {
+	return profile.BindingStatus == "active" &&
+		profile.Credentials.WeCom.Configured &&
+		strings.TrimSpace(profile.WXCorpID) != "" &&
+		profile.VerifiedAt != nil
 }
 
 func tenantWeComStandardStatus(profile Profile, runtime providers.Status, syncStatus SyncStatus) providers.Status {

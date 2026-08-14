@@ -453,27 +453,36 @@ func TestCompanyProfileCredentialRotationScopesVerifiedBindingInvalidationRealMa
 		t.Fatalf("agent credential rotation invalidated standard verification: %+v", rotatedAgent)
 	}
 
-	rotatedSecret := "rotated-after-verify"
-	rotated, err := store.RotateWeComCredentials(ctx, principal, companyprofile.WeComCredentialsInput{EmployeeSecret: &rotatedSecret, ExpectedVersion: 5, RequestID: "rotation-invalidation-standard"})
+	chatOnlySecret := "chat-only-after-verify"
+	rotatedNonStandard, err := store.RotateWeComCredentials(ctx, principal, companyprofile.WeComCredentialsInput{ChatSecret: &chatOnlySecret, ExpectedVersion: 5, RequestID: "rotation-preserve-chat-only"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rotated.VerifiedAt != nil || rotated.WXCorpID != "" || rotated.AuthoritativeCorpName != "" || rotated.BindingVersion != 6 {
+	if rotatedNonStandard.VerifiedAt == nil || rotatedNonStandard.WXCorpID != "ww-authoritative" || rotatedNonStandard.AuthoritativeCorpName != "Verified corp" || rotatedNonStandard.BindingVersion != 6 {
+		t.Fatalf("non-standard-only WeCom rotation invalidated standard verification: %+v", rotatedNonStandard)
+	}
+
+	rotatedSecret := "rotated-after-verify"
+	rotated, err := store.RotateWeComCredentials(ctx, principal, companyprofile.WeComCredentialsInput{EmployeeSecret: &rotatedSecret, ExpectedVersion: 6, RequestID: "rotation-invalidation-standard"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated.VerifiedAt != nil || rotated.WXCorpID != "" || rotated.AuthoritativeCorpName != "" || rotated.BindingVersion != 7 {
 		t.Fatalf("standard credential rotation retained stale verification: %+v", rotated)
 	}
 
-	verifiedAgain, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 6, RequestID: "rotation-invalidation-reverify"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified again"})
+	verifiedAgain, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 7, RequestID: "rotation-invalidation-reverify"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified again"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if verifiedAgain.VerifiedAt == nil || verifiedAgain.BindingVersion != 7 {
+	if verifiedAgain.VerifiedAt == nil || verifiedAgain.BindingVersion != 8 {
 		t.Fatalf("reverified profile=%+v", verifiedAgain)
 	}
-	configured, err := store.ConfigureApplication(ctx, principal, companyprofile.ApplicationCredentialsInput{WXAgentID: "100001", Secret: "rotated-application-after-verify", ExpectedVersion: 7, RequestID: "rotation-invalidation-application"})
+	configured, err := store.ConfigureApplication(ctx, principal, companyprofile.ApplicationCredentialsInput{WXAgentID: "100001", Secret: "rotated-application-after-verify", ExpectedVersion: 8, RequestID: "rotation-invalidation-application"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if configured.VerifiedAt != nil || configured.WXCorpID != "" || configured.AuthoritativeCorpName != "" || configured.BindingVersion != 8 {
+	if configured.VerifiedAt != nil || configured.WXCorpID != "" || configured.AuthoritativeCorpName != "" || configured.BindingVersion != 9 {
 		t.Fatalf("application credential rotation retained stale verification: %+v", configured)
 	}
 }

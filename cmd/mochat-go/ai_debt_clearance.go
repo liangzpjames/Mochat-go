@@ -85,7 +85,7 @@ func buildAIProvider() (providers.AIProvider, error) {
 }
 
 func buildDashboardAIStatusProvider(cfg config.Config) (providers.StatusProvider, error) {
-	if !cfg.EnableAIInsight {
+	if !cfg.EnableAIDebtClearance || !cfg.EnableAIInsight {
 		return providercatalog.DisabledAIProvider{}, nil
 	}
 	return buildAIProvider()

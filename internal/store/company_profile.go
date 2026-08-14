@@ -221,7 +221,7 @@ func (s *MySQLStore) CommitVerification(ctx context.Context, principal dashboard
 }
 
 func (s *MySQLStore) RotateWeComCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.WeComCredentialsInput) (companyprofile.Profile, error) {
-	return s.rotateCorpCredentials(ctx, principal, input, companyCredentialRotationInvalidatesVerification, "dashboard.company.wecom_credentials.rotate", []string{"employeeSecret", "contactSecret", "callbackToken", "encodingAESKey", "chatSecret"})
+	return s.rotateCorpCredentials(ctx, principal, input, companyCredentialRotationPolicyForWeComInput(input), "dashboard.company.wecom_credentials.rotate", []string{"employeeSecret", "contactSecret", "callbackToken", "encodingAESKey", "chatSecret"})
 }
 
 func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.ApplicationCredentialsInput) (companyprofile.Profile, error) {
@@ -400,6 +400,13 @@ const (
 	companyCredentialRotationPreservesVerification companyCredentialRotationPolicy = iota
 	companyCredentialRotationInvalidatesVerification
 )
+
+func companyCredentialRotationPolicyForWeComInput(input companyprofile.WeComCredentialsInput) companyCredentialRotationPolicy {
+	if input.EmployeeSecret != nil || input.ContactSecret != nil {
+		return companyCredentialRotationInvalidatesVerification
+	}
+	return companyCredentialRotationPreservesVerification
+}
 
 func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.WeComCredentialsInput, policy companyCredentialRotationPolicy, action string, fields []string) (companyprofile.Profile, error) {
 	if s == nil || s.db == nil {
