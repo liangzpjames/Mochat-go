@@ -232,10 +232,15 @@ func isCurrentOperationEvidence(operation Operation, tenantID, corpID int, capab
 		case ContactBatchSend, RoomBatchSend:
 			return operation.ProviderRequestID != "" && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case AgentMessage:
-			if strings.TrimSpace(expectedAgentID) != "" && strings.TrimSpace(operation.ProviderObjectID) != strings.TrimSpace(expectedAgentID) {
+			providerAgentID := strings.TrimSpace(operation.ProviderObjectID)
+			actualAgentID := strings.TrimSpace(operation.ActualAgentID)
+			if providerAgentID == "" || actualAgentID == "" || providerAgentID != actualAgentID {
 				return false
 			}
-			return strings.TrimSpace(operation.ProviderObjectID) != "" && operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
+			if strings.TrimSpace(expectedAgentID) != "" && (providerAgentID != strings.TrimSpace(expectedAgentID) || actualAgentID != strings.TrimSpace(expectedAgentID)) {
+				return false
+			}
+			return operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case ContactWay, WelcomeMessage, ContactTransfer:
 			return strings.TrimSpace(operation.ProviderObjectID) != "" && strings.TrimSpace(operation.ProviderRequestID) != "" && operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case Callback:

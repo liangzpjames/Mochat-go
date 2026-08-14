@@ -1,10 +1,29 @@
 package store
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"jiyi/mochat-go/internal/wecomcapability"
 )
+
+func TestCapabilityLedgerStoreUsesLeaseExpiryActorAndTerminalFences(t *testing.T) {
+	body, err := os.ReadFile("wecom_capability_ledger.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lower := strings.ToLower(string(body))
+	for _, required := range []string{
+		"lease_expires_at > now(6)", "lease_expires_at is not null",
+		"userid <= 0 && source != capabilityactorsystem", "operation.status",
+		"leasetoken", "attempt",
+	} {
+		if !strings.Contains(lower, required) {
+			t.Fatalf("ledger store missing fence contract %q", required)
+		}
+	}
+}
 
 func TestCapabilityOperationInputRejectsUnsafeAndCrossCapabilityContracts(t *testing.T) {
 	valid := CapabilityOperationInput{

@@ -146,12 +146,25 @@ func TestOperationEvidenceUsesCapabilitySpecificExternalContracts(t *testing.T) 
 	agent := Operation{
 		ID: 4, TenantID: 7, CorpID: 11, Capability: AgentMessage, Action: "send",
 		CredentialGroup: CredentialGroupAgent, Status: OperationSucceeded, CredentialVersion: 3,
-		ProviderObjectID: "100001", ExternalSuccess: true, TargetTotal: 1, SuccessTotal: 1,
+		ProviderObjectID: "100001", ActualAgentID: "100001", ExternalSuccess: true, TargetTotal: 1, SuccessTotal: 1,
 		FinishedAt: &finishedAt,
 	}
 	if !IsCurrentOperationEvidence(agent, 7, 11, AgentMessage, 3) {
 		t.Fatal("agent message with external success, target count, and agent id should be current")
 	}
+	agent.ActualAgentID = ""
+	if IsCurrentOperationEvidence(agent, 7, 11, AgentMessage, 3) {
+		t.Fatal("agent message without actual agent identity passed")
+	}
+	agent.ActualAgentID = "100001"
+	if !IsCurrentOperationEvidenceForAgent(agent, 7, 11, AgentMessage, 3, "100001") {
+		t.Fatal("agent message with matching authoritative agent identities was rejected")
+	}
+	agent.ProviderObjectID = "100002"
+	if IsCurrentOperationEvidenceForAgent(agent, 7, 11, AgentMessage, 3, "100001") {
+		t.Fatal("agent message with mismatched provider agent identity passed")
+	}
+	agent.ProviderObjectID = "100001"
 	agent.ExternalSuccess = false
 	if IsCurrentOperationEvidence(agent, 7, 11, AgentMessage, 3) {
 		t.Fatal("agent message without external success passed")

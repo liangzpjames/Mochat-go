@@ -136,6 +136,31 @@ func TestWeComCapabilityLedgerDoesNotPinBigintNumericPrecision(t *testing.T) {
 	}
 }
 
+func TestWeComCapabilityLedgerRollbackAndResidualGuardsAreDiagnosticAndStrict(t *testing.T) {
+	up, down := loadWeComCapabilityLedgerScripts(t)
+	lowerUp, lowerDown := strings.ToLower(up), strings.ToLower(down)
+	for _, required := range []string{
+		"auto_increment", "on update current_timestamp(6)",
+		"fk_wecom_capability_audit_operation foreign key", "fk_wecom_capability_event_operation foreign key",
+	} {
+		if !strings.Contains(lowerUp, required) {
+			t.Fatalf("0139 up script missing strict signature evidence %q", required)
+		}
+	}
+	for _, required := range []string{
+		"delete_rule", "delete_rule <> 'restrict'", "incompatible rollback residual:",
+	} {
+		if !strings.Contains(lowerDown, required) {
+			t.Fatalf("0139 down guard missing diagnostic/signature evidence %q", required)
+		}
+	}
+	for name, script := range map[string]string{"up": lowerUp, "down": lowerDown} {
+		if !strings.Contains(script, "upper(trim(column_default)) = 'null'") {
+			t.Fatalf("0139 %s parent tenant guard must accept MariaDB's string NULL metadata", name)
+		}
+	}
+}
+
 func TestWeComCapabilityLedgerRealRunnerApplyDownApply(t *testing.T) {
 	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
 	if dsn == "" {

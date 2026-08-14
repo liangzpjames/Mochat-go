@@ -74,12 +74,49 @@ type CapabilityDispatchTransitionInput struct {
 
 type CapabilityOperationResultInput struct {
 	OperationID      int64
+	LeaseToken       string
+	Attempt          int
 	TargetKind       string
 	TargetID         string
 	Status           string
 	ProviderTargetID string
 	ErrorCode        string
 	ErrorMessageSafe string
+}
+
+func capabilityLeaseIsActive(expiresAt *time.Time, now time.Time) bool {
+	return expiresAt != nil && expiresAt.After(now)
+}
+
+func capabilityOperationCanBeClaimed(status string, expiresAt *time.Time, now time.Time) bool {
+	switch status {
+	case wecomcapability.OperationPending, wecomcapability.OperationFailed, wecomcapability.OperationPartialFailed:
+		return true
+	case wecomcapability.OperationClaimed, wecomcapability.OperationSubmitting, wecomcapability.OperationSubmitted, wecomcapability.OperationPolling:
+		return !capabilityLeaseIsActive(expiresAt, now)
+	default:
+		return false
+	}
+}
+
+func capabilityDispatchCanBeClaimed(status string, expiresAt *time.Time, now time.Time) bool {
+	switch status {
+	case wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed:
+		return true
+	case wecomcapability.DispatchClaimed, wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling:
+		return !capabilityLeaseIsActive(expiresAt, now)
+	default:
+		return false
+	}
+}
+
+func capabilityOperationAllowsDispatch(status string) bool {
+	switch status {
+	case wecomcapability.OperationPending, wecomcapability.OperationClaimed, wecomcapability.OperationSubmitting, wecomcapability.OperationSubmitted, wecomcapability.OperationPolling:
+		return true
+	default:
+		return false
+	}
 }
 
 func ValidateCapabilityOperationInput(input CapabilityOperationInput) error {
@@ -284,7 +321,7 @@ func (s *MySQLStore) ClaimCapabilityOperation(ctx context.Context, principal das
 	if operation.CredentialVersion != credentialGenerationForCapability(binding, operation.Capability) {
 		return wecomcapability.Operation{}, ErrCapabilityOperationStale
 	}
-	if operation.Status != wecomcapability.OperationPending && operation.Status != wecomcapability.OperationPolling && operation.Status != wecomcapability.OperationFailed && operation.Status != wecomcapability.OperationPartialFailed {
+	if !capabilityOperationCanBeClaimed(operation.Status, operation.LeaseExpiresAt, time.Now().UTC()) {
 		return wecomcapability.Operation{}, ErrCapabilityOperationConflict
 	}
 	previousStatus := operation.Status
@@ -296,9 +333,11 @@ func (s *MySQLStore) ClaimCapabilityOperation(ctx context.Context, principal das
 		UPDATE mochat_go_wecom_capability_operations
 		SET status=?, lease_token=?, lease_expires_at=?, attempt=attempt+1,
 		    started_at=COALESCE(started_at,NOW(6)), updated_at=NOW(6)
-		WHERE tenant_id=? AND corp_id=? AND id=? AND status=?`,
+		WHERE tenant_id=? AND corp_id=? AND id=? AND status=?
+		  AND (status IN (?, ?, ?) OR lease_expires_at IS NULL OR lease_expires_at <= NOW(6))`,
 		wecomcapability.OperationClaimed, leaseToken, time.Now().UTC().Add(leaseDuration),
-		principal.TenantID, principal.CorpID, operationID, operation.Status)
+		principal.TenantID, principal.CorpID, operationID, operation.Status,
+		wecomcapability.OperationPending, wecomcapability.OperationFailed, wecomcapability.OperationPartialFailed)
 	if err != nil {
 		return wecomcapability.Operation{}, err
 	}
@@ -370,7 +409,8 @@ func (s *MySQLStore) TransitionCapabilityOperation(ctx context.Context, principa
 		    external_success=?, callback_evidence=?, target_total=?, success_total=?, failure_total=?,
 		    error_code=?, request_id=?, finished_at=CASE WHEN ? THEN NOW(6) ELSE finished_at END,
 		    updated_at=NOW(6)
-		WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=?`,
+		WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=?
+		  AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`,
 		input.Status, strings.TrimSpace(input.ProviderRequestID), strings.TrimSpace(input.ProviderObjectID), strings.TrimSpace(input.ActualAgentID),
 		input.ExternalSuccess, input.CallbackEvidence, input.TargetTotal, input.SuccessTotal, input.FailureTotal,
 		errorCode, strings.TrimSpace(input.RequestID), finished,
@@ -428,6 +468,9 @@ func (s *MySQLStore) CreateCapabilityDispatch(ctx context.Context, principal das
 	generation := credentialGenerationForCapability(binding, operation.Capability)
 	if generation == 0 || operation.CredentialVersion != generation {
 		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
+	}
+	if !capabilityOperationAllowsDispatch(operation.Status) {
+		return wecomcapability.Dispatch{}, ErrCapabilityInvalidState
 	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO mochat_go_wecom_capability_dispatches
@@ -488,6 +531,9 @@ func (s *MySQLStore) ClaimCapabilityDispatch(ctx context.Context, principal dash
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
 	}
+	if !capabilityOperationAllowsDispatch(operation.Status) {
+		return wecomcapability.Dispatch{}, ErrCapabilityInvalidState
+	}
 	dispatch, err := queryCapabilityDispatchTx(ctx, tx, principal.TenantID, principal.CorpID, dispatchID, true)
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
@@ -500,7 +546,7 @@ func (s *MySQLStore) ClaimCapabilityDispatch(ctx context.Context, principal dash
 	if generation == 0 || operation.CredentialVersion != generation || dispatch.CredentialVersion != generation {
 		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
 	}
-	if dispatch.Status != wecomcapability.DispatchQueued && dispatch.Status != wecomcapability.DispatchPolling && dispatch.Status != wecomcapability.DispatchFailed && dispatch.Status != wecomcapability.DispatchPartialFailed {
+	if !capabilityDispatchCanBeClaimed(dispatch.Status, dispatch.LeaseExpiresAt, time.Now().UTC()) {
 		return wecomcapability.Dispatch{}, ErrCapabilityInvalidState
 	}
 	leaseToken, err := newCapabilityLeaseToken()
@@ -508,8 +554,12 @@ func (s *MySQLStore) ClaimCapabilityDispatch(ctx context.Context, principal dash
 		return wecomcapability.Dispatch{}, companyprofile.ErrStoreUnavailable
 	}
 	previousStatus := dispatch.Status
-	if _, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND credential_generation=?`, wecomcapability.DispatchClaimed, leaseToken, leaseDuration.Microseconds(), principal.TenantID, principal.CorpID, dispatchID, generation); err != nil {
+	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND credential_generation=? AND status=? AND (status IN (?, ?, ?) OR lease_expires_at IS NULL OR lease_expires_at <= NOW(6))`, wecomcapability.DispatchClaimed, leaseToken, leaseDuration.Microseconds(), principal.TenantID, principal.CorpID, dispatchID, generation, dispatch.Status, wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed)
+	if err != nil {
 		return wecomcapability.Dispatch{}, err
+	}
+	if err := requireCompanyRows(updated, 1); err != nil {
+		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
 	}
 	dispatch, err = queryCapabilityDispatchTx(ctx, tx, principal.TenantID, principal.CorpID, dispatchID, true)
 	if err != nil {
@@ -558,6 +608,9 @@ func (s *MySQLStore) TransitionCapabilityDispatch(ctx context.Context, principal
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
 	}
+	if !capabilityOperationAllowsDispatch(operation.Status) {
+		return wecomcapability.Dispatch{}, ErrCapabilityInvalidState
+	}
 	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
@@ -578,8 +631,12 @@ func (s *MySQLStore) TransitionCapabilityDispatch(ctx context.Context, principal
 	}
 	previousStatus := dispatch.Status
 	finished := input.Status == wecomcapability.DispatchSucceeded || input.Status == wecomcapability.DispatchPartialFailed || input.Status == wecomcapability.DispatchFailed
-	if _, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, provider_request_id=?, provider_message_id=?, provider_object_id=?, next_poll_at=?, last_error_code=?, lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=?`, input.Status, strings.TrimSpace(input.ProviderRequestID), strings.TrimSpace(input.ProviderMessageID), strings.TrimSpace(input.ProviderObjectID), input.NextPollAt, errorCode, finished, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt); err != nil {
+	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, provider_request_id=?, provider_message_id=?, provider_object_id=?, next_poll_at=?, last_error_code=?, lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=? AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`, input.Status, strings.TrimSpace(input.ProviderRequestID), strings.TrimSpace(input.ProviderMessageID), strings.TrimSpace(input.ProviderObjectID), input.NextPollAt, errorCode, finished, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt)
+	if err != nil {
 		return wecomcapability.Dispatch{}, err
+	}
+	if err := requireCompanyRows(updated, 1); err != nil {
+		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
 	}
 	dispatch, err = queryCapabilityDispatchTx(ctx, tx, principal.TenantID, principal.CorpID, input.DispatchID, true)
 	if err != nil {
@@ -598,7 +655,7 @@ func (s *MySQLStore) TransitionCapabilityDispatch(ctx context.Context, principal
 }
 
 func (s *MySQLStore) RecordCapabilityOperationResult(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input CapabilityOperationResultInput) (wecomcapability.OperationResult, error) {
-	if s == nil || s.db == nil || input.OperationID <= 0 || !validLedgerToken(input.TargetKind, 32) || !validLedgerToken(input.TargetID, 255) || !wecomcapability.IsValidOperationResultStatus(input.Status) || !validCapabilityMachineCode(input.ErrorCode, 96) || !validCapabilityMachineCode(input.ErrorMessageSafe, 255) {
+	if s == nil || s.db == nil || input.OperationID <= 0 || input.Attempt <= 0 || !validLedgerToken(input.LeaseToken, 128) || !validLedgerToken(input.TargetKind, 32) || !validLedgerToken(input.TargetID, 255) || !wecomcapability.IsValidOperationResultStatus(input.Status) || !validCapabilityMachineCode(input.ErrorCode, 96) || !validCapabilityMachineCode(input.ErrorMessageSafe, 255) {
 		return wecomcapability.OperationResult{}, companyprofile.ErrInvalidRequest
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -617,6 +674,9 @@ func (s *MySQLStore) RecordCapabilityOperationResult(ctx context.Context, princi
 	operation, err := queryCapabilityOperationTx(ctx, tx, principal.TenantID, principal.CorpID, input.OperationID, true)
 	if err != nil {
 		return wecomcapability.OperationResult{}, err
+	}
+	if operation.LeaseToken != input.LeaseToken || operation.Attempt != input.Attempt || !capabilityLeaseIsActive(operation.LeaseExpiresAt, time.Now().UTC()) {
+		return wecomcapability.OperationResult{}, ErrCapabilityOperationStale
 	}
 	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)
 	if err != nil {
@@ -655,9 +715,9 @@ func (s *MySQLStore) RecordCapabilityOperationResult(ctx context.Context, princi
 }
 
 func (s *MySQLStore) capabilityActor(ctx context.Context, tx *sql.Tx, principal dashboardprincipal.DashboardPrincipal, requestedSource string, forUpdate bool) (*int, string, error) {
-	source := strings.TrimSpace(requestedSource)
-	if source == "" {
-		source = capabilityActorUser
+	source, err := capabilityActorSourceForPrincipal(principal.UserID, requestedSource)
+	if err != nil {
+		return nil, "", err
 	}
 	if source == capabilityActorSystem {
 		if _, err := s.loadCompanyBinding(ctx, tx, principal, forUpdate); err != nil {
@@ -676,6 +736,24 @@ func (s *MySQLStore) capabilityActor(ctx context.Context, tx *sql.Tx, principal 
 		return nil, "", companyprofile.ErrPermissionDenied
 	}
 	return &actor, source, nil
+}
+
+func capabilityActorSourceForPrincipal(userID int, requestedSource string) (string, error) {
+	source := strings.TrimSpace(requestedSource)
+	if source == "" {
+		if userID <= 0 {
+			source = capabilityActorSystem
+		} else {
+			source = capabilityActorUser
+		}
+	}
+	if userID <= 0 && source != capabilityActorSystem {
+		return "", companyprofile.ErrPermissionDenied
+	}
+	if userID > 0 && source != capabilityActorUser {
+		return "", companyprofile.ErrPermissionDenied
+	}
+	return source, nil
 }
 
 func credentialGenerationForCapability(binding companyBindingRecord, capability string) uint64 {

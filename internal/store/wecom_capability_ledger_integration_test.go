@@ -191,6 +191,97 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 	if claimed.Status != wecomcapability.OperationSucceeded || claimed.FinishedAt == nil {
 		t.Fatalf("completed operation=%+v", claimed)
 	}
+	if _, err := store.CreateCapabilityDispatch(context.Background(), principal, CapabilityDispatchInput{
+		OperationID: created.ID, DispatchKind: "contact", ChunkNo: 2, TargetID: "terminal-target", IdempotencyKey: "dispatch-after-terminal",
+	}); err == nil {
+		t.Fatal("dispatch creation for terminal parent operation unexpectedly succeeded")
+	}
+
+	staleOperation, err := store.CreateCapabilityOperation(context.Background(), principal, CapabilityOperationInput{
+		Capability: wecomcapability.EmployeeSync, Action: wecomcapability.ActionPull,
+		IdempotencyKey: "stale-operation", ActorSource: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstClaim, err := store.ClaimCapabilityOperation(context.Background(), principal, staleOperation.ID, time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	secondClaim, err := store.ClaimCapabilityOperation(context.Background(), principal, staleOperation.ID, time.Minute)
+	if err != nil || secondClaim.Attempt != firstClaim.Attempt+1 || secondClaim.LeaseToken == firstClaim.LeaseToken {
+		t.Fatalf("stale operation takeover=%+v first=%+v err=%v", secondClaim, firstClaim, err)
+	}
+	if _, err := store.TransitionCapabilityOperation(context.Background(), principal, CapabilityOperationTransitionInput{
+		OperationID: staleOperation.ID, Status: wecomcapability.OperationSubmitting,
+		LeaseToken: firstClaim.LeaseToken, Attempt: firstClaim.Attempt,
+	}); err == nil {
+		t.Fatal("expired operation lease unexpectedly transitioned")
+	}
+	if _, err := store.RecordCapabilityOperationResult(context.Background(), principal, CapabilityOperationResultInput{
+		OperationID: staleOperation.ID, LeaseToken: firstClaim.LeaseToken, Attempt: firstClaim.Attempt,
+		TargetKind: "employee", TargetID: "old-worker", Status: wecomcapability.DispatchSucceeded,
+	}); err == nil {
+		t.Fatal("old operation worker unexpectedly wrote a result")
+	}
+	var staleResultCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_wecom_capability_operation_results WHERE operation_id=? AND target_id='old-worker'`, staleOperation.ID).Scan(&staleResultCount); err != nil {
+		t.Fatal(err)
+	}
+	if staleResultCount != 0 {
+		t.Fatalf("old operation worker wrote result rows=%d", staleResultCount)
+	}
+
+	staleDispatch, err := store.CreateCapabilityDispatch(context.Background(), principal, CapabilityDispatchInput{
+		OperationID: staleOperation.ID, DispatchKind: "employee", ChunkNo: 1, TargetID: "employee-1", IdempotencyKey: "stale-dispatch",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDispatchClaim, err := store.ClaimCapabilityDispatch(context.Background(), principal, staleDispatch.ID, time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	secondDispatchClaim, err := store.ClaimCapabilityDispatch(context.Background(), principal, staleDispatch.ID, time.Minute)
+	if err != nil || secondDispatchClaim.Attempt != firstDispatchClaim.Attempt+1 || secondDispatchClaim.LeaseToken == firstDispatchClaim.LeaseToken {
+		t.Fatalf("stale dispatch takeover=%+v first=%+v err=%v", secondDispatchClaim, firstDispatchClaim, err)
+	}
+	if _, err := store.TransitionCapabilityDispatch(context.Background(), principal, CapabilityDispatchTransitionInput{
+		DispatchID: staleDispatch.ID, Status: wecomcapability.DispatchSubmitting,
+		LeaseToken: firstDispatchClaim.LeaseToken, Attempt: firstDispatchClaim.Attempt,
+	}); err == nil {
+		t.Fatal("expired dispatch lease unexpectedly transitioned")
+	}
+	if _, err := store.CreateCapabilityOperation(context.Background(), dashboardprincipal.DashboardPrincipal{UserID: 11001, TenantID: 11, CorpID: 1101}, CapabilityOperationInput{
+		Capability: wecomcapability.EmployeeSync, Action: wecomcapability.ActionSync,
+		IdempotencyKey: "user-pretends-system", ActorSource: "system",
+	}); err == nil {
+		t.Fatal("user principal unexpectedly impersonated system actor")
+	}
+	var auditBeforeDelete, eventBeforeDelete int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_wecom_capability_operation_audits WHERE operation_id=?`, created.ID).Scan(&auditBeforeDelete); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_wecom_capability_operation_events WHERE operation_id=?`, created.ID).Scan(&eventBeforeDelete); err != nil {
+		t.Fatal(err)
+	}
+	var auditDeleteErr error
+	_, auditDeleteErr = db.Exec(`DELETE FROM mochat_go_wecom_capability_operations WHERE id=?`, created.ID)
+	if auditDeleteErr == nil {
+		t.Fatal("operation deletion unexpectedly removed append-only audit/event history")
+	}
+	var auditAfterDelete, eventAfterDelete int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_wecom_capability_operation_audits WHERE operation_id=?`, created.ID).Scan(&auditAfterDelete); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_wecom_capability_operation_events WHERE operation_id=?`, created.ID).Scan(&eventAfterDelete); err != nil {
+		t.Fatal(err)
+	}
+	if auditAfterDelete != auditBeforeDelete || eventAfterDelete != eventBeforeDelete {
+		t.Fatalf("append-only history changed after rejected delete: audits %d->%d events %d->%d", auditBeforeDelete, auditAfterDelete, eventBeforeDelete, eventAfterDelete)
+	}
 	if _, err := db.Exec(`UPDATE mochat_go_tenant_corp_bindings SET contact_credential_generation=contact_credential_generation+1 WHERE tenant_id=11 AND corp_id=1101`); err != nil {
 		t.Fatal(err)
 	}
@@ -241,13 +332,13 @@ func createCapabilityLedgerStoreFixture(t *testing.T, db *sql.DB) {
 	statements := []string{
 		`CREATE TABLE mc_tenant (id INT UNSIGNED NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
 		`CREATE TABLE mc_user (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, PRIMARY KEY (id), UNIQUE KEY uni_dashboard_user_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, deleted_at DATETIME NULL, PRIMARY KEY (id), UNIQUE KEY uni_mc_corp_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
+		`CREATE TABLE mc_corp (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', wx_corpid VARCHAR(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext TEXT NULL, wecom_credentials_key_id VARCHAR(64) NOT NULL DEFAULT '', deleted_at DATETIME NULL, updated_at DATETIME NULL, PRIMARY KEY (id), UNIQUE KEY uni_mc_corp_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
 		`CREATE TABLE mochat_go_tenant_corp_bindings (tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, status TINYINT UNSIGNED NOT NULL DEFAULT 1, version BIGINT UNSIGNED NOT NULL DEFAULT 1, verified_wx_corpid VARCHAR(255) NULL, verified_corp_name VARCHAR(255) NOT NULL DEFAULT '', verified_at TIMESTAMP NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, PRIMARY KEY (tenant_id), UNIQUE KEY uni_tenant_corp_binding_corp (corp_id), CONSTRAINT fk_tenant_corp_binding_corp FOREIGN KEY (tenant_id,corp_id) REFERENCES mc_corp (tenant_id,id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_contact_message_batch_send (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL DEFAULT 0, user_id INT UNSIGNED NOT NULL DEFAULT 0, employee_ids JSON NOT NULL, content JSON NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, deleted_at TIMESTAMP NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_room_message_batch_send (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL DEFAULT 0, user_id INT UNSIGNED NOT NULL DEFAULT 0, employee_ids JSON NOT NULL, content JSON NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, deleted_at TIMESTAMP NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`INSERT INTO mc_tenant VALUES (11),(22)`,
 		`INSERT INTO mc_user(id,tenant_id) VALUES (11001,11),(22001,22)`,
-		`INSERT INTO mc_corp(id,tenant_id) VALUES (1101,11),(2201,22)`,
+		`INSERT INTO mc_corp(id,tenant_id,name,wx_corpid) VALUES (1101,11,'corp-11','wx-corp-11'),(2201,22,'corp-22','wx-corp-22')`,
 		`INSERT INTO mochat_go_tenant_corp_bindings(tenant_id,corp_id) VALUES (11,1101),(22,2201)`,
 	}
 	for _, statement := range statements {

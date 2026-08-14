@@ -12,7 +12,7 @@ SET @wecom_0139_parent_invalid := (
   OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_tenant_corp_bindings' AND column_name IN ('tenant_id','corp_id') AND NOT (data_type = 'int' AND numeric_precision = 10 AND column_type LIKE '%unsigned%' AND is_nullable = 'NO'))
   OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_tenant_corp_bindings' AND column_name = 'version' AND NOT (data_type = 'bigint' AND column_type LIKE '%unsigned%' AND is_nullable = 'NO'))
   OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name IN ('mc_contact_message_batch_send','mc_room_message_batch_send') AND column_name IN ('id','corp_id') AND NOT (data_type = 'int' AND numeric_precision = 10 AND column_type LIKE '%unsigned%' AND is_nullable = 'NO'))
-  OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name IN ('mc_contact_message_batch_send','mc_room_message_batch_send') AND column_name = 'tenant_id' AND NOT (data_type = 'int' AND numeric_precision = 10 AND column_type LIKE '%unsigned%' AND is_nullable IN ('YES','NO') AND column_default IS NULL))
+  OR EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name IN ('mc_contact_message_batch_send','mc_room_message_batch_send') AND column_name = 'tenant_id' AND NOT (data_type = 'int' AND numeric_precision = 10 AND column_type LIKE '%unsigned%' AND is_nullable IN ('YES','NO') AND (column_default IS NULL OR UPPER(TRIM(column_default)) = 'NULL')))
   OR EXISTS (SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mc_corp' AND index_name = 'uni_mc_corp_tenant_id_id' AND (non_unique <> 0 OR sub_part IS NOT NULL OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics s2 WHERE s2.table_schema = DATABASE() AND s2.table_name = 'mc_corp' AND s2.index_name = 'uni_mc_corp_tenant_id_id'), '') <> 'tenant_id,id'))
   OR (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mc_corp' AND index_name = 'uni_mc_corp_tenant_id_id') = 0
   OR EXISTS (SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mc_user' AND index_name = 'uni_dashboard_user_tenant_id_id' AND (non_unique <> 0 OR sub_part IS NOT NULL OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics s2 WHERE s2.table_schema = DATABASE() AND s2.table_name = 'mc_user' AND s2.index_name = 'uni_dashboard_user_tenant_id_id'), '') <> 'tenant_id,id'))
@@ -71,6 +71,18 @@ PREPARE wecom_0139_parent_index_guard_stmt FROM @wecom_0139_parent_index_guard_s
 EXECUTE wecom_0139_parent_index_guard_stmt;
 DEALLOCATE PREPARE wecom_0139_parent_index_guard_stmt;
 
+SET @wecom_0139_operations_signature_invalid := (
+  (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations') = 1
+  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND (
+    (column_name = 'id' AND LOWER(COALESCE(extra,'')) NOT LIKE '%auto_increment%')
+    OR (column_name IN ('credential_generation','target_total','success_total','failure_total','attempt') AND NOT (column_default = '0' OR column_default = CONCAT(CHAR(39),'0',CHAR(39))))
+    OR (column_name IN ('provider_request_id','provider_object_id','actual_agent_id','error_code','request_id','lease_token') AND NOT (column_default = '' OR column_default = CONCAT(CHAR(39),CHAR(39)) OR column_default = CONCAT(CHAR(34),CHAR(34))))
+    OR (column_name = 'actor_source' AND NOT (LOWER(column_default) = 'user' OR LOWER(column_default) = CONCAT(CHAR(39),'user',CHAR(39))))
+    OR (column_name IN ('external_success','callback_evidence') AND NOT (column_default = '0' OR column_default = CONCAT(CHAR(39),'0',CHAR(39))))
+    OR (column_name IN ('requested_at','created_at') AND LOWER(COALESCE(column_default,'')) <> 'current_timestamp(6)')
+    OR (column_name = 'updated_at' AND (LOWER(COALESCE(column_default,'')) <> 'current_timestamp(6)' OR REPLACE(LOWER(COALESCE(extra,'')),' ','') NOT LIKE '%onupdatecurrent_timestamp(6)%'))
+  ))
+);
 SET @wecom_0139_operations_invalid := (
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations') = 1 AND (
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations') <> 29
@@ -91,6 +103,7 @@ SET @wecom_0139_operations_invalid := (
     OR (SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'idx_wecom_capability_operation_status') <> 'tenant_id,corp_id,status,updated_at'
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND constraint_name = 'fk_wecom_capability_operation_corp'), '') <> 'tenant_id=mc_corp.tenant_id,corp_id=mc_corp.id'
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND constraint_name = 'fk_wecom_capability_operation_actor'), '') <> 'tenant_id=mc_user.tenant_id,actor_user_id=mc_user.id'
+    OR @wecom_0139_operations_signature_invalid
   )
 );
 SET @wecom_0139_operations_guard_sql := IF(@wecom_0139_operations_invalid = 0, 'SELECT 1', 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 incompatible capability operations table''');
@@ -98,6 +111,17 @@ PREPARE wecom_0139_operations_guard_stmt FROM @wecom_0139_operations_guard_sql;
 EXECUTE wecom_0139_operations_guard_stmt;
 DEALLOCATE PREPARE wecom_0139_operations_guard_stmt;
 
+SET @wecom_0139_dispatches_signature_invalid := (
+  (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches') = 1
+  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND (
+    (column_name = 'id' AND LOWER(COALESCE(extra,'')) NOT LIKE '%auto_increment%')
+    OR (column_name IN ('credential_generation','attempt') AND NOT (column_default = '0' OR column_default = CONCAT(CHAR(39),'0',CHAR(39))))
+    OR (column_name = 'chunk_no' AND NOT (column_default IS NULL OR UPPER(TRIM(column_default)) = 'NULL'))
+    OR (column_name IN ('provider_request_id','provider_message_id','provider_object_id','last_error_code','lease_token') AND NOT (column_default = '' OR column_default = CONCAT(CHAR(39),CHAR(39)) OR column_default = CONCAT(CHAR(34),CHAR(34))))
+    OR (column_name IN ('created_at') AND LOWER(COALESCE(column_default,'')) <> 'current_timestamp(6)')
+    OR (column_name = 'updated_at' AND (LOWER(COALESCE(column_default,'')) <> 'current_timestamp(6)' OR REPLACE(LOWER(COALESCE(extra,'')),' ','') NOT LIKE '%onupdatecurrent_timestamp(6)%'))
+  ))
+);
 SET @wecom_0139_dispatches_invalid := (
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches') = 1 AND (
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches') <> 20
@@ -117,6 +141,8 @@ SET @wecom_0139_dispatches_invalid := (
     OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'idx_wecom_capability_dispatch_claim'), '') <> 'tenant_id,corp_id,status,next_poll_at'
     OR (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'idx_wecom_capability_dispatch_claim') <> 4
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND constraint_name = 'fk_wecom_capability_dispatch_operation'), '') <> 'tenant_id=mochat_go_wecom_capability_operations.tenant_id,corp_id=mochat_go_wecom_capability_operations.corp_id,operation_id=mochat_go_wecom_capability_operations.id'
+    OR EXISTS (SELECT 1 FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND constraint_name = 'fk_wecom_capability_dispatch_operation' AND delete_rule <> 'RESTRICT')
+    OR @wecom_0139_dispatches_signature_invalid
   )
 );
 SET @wecom_0139_dispatches_guard_sql := IF(@wecom_0139_dispatches_invalid = 0, 'SELECT 1', 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 incompatible capability dispatches table''');
@@ -124,6 +150,15 @@ PREPARE wecom_0139_dispatches_guard_stmt FROM @wecom_0139_dispatches_guard_sql;
 EXECUTE wecom_0139_dispatches_guard_stmt;
 DEALLOCATE PREPARE wecom_0139_dispatches_guard_stmt;
 
+SET @wecom_0139_results_signature_invalid := (
+  (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results') = 1
+  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND (
+    (column_name = 'id' AND LOWER(COALESCE(extra,'')) NOT LIKE '%auto_increment%')
+    OR (column_name IN ('provider_target_id','error_code','error_message_safe') AND NOT (column_default = '' OR column_default = CONCAT(CHAR(39),CHAR(39)) OR column_default = CONCAT(CHAR(34),CHAR(34))))
+    OR (column_name IN ('created_at') AND LOWER(COALESCE(column_default,'')) <> 'current_timestamp(6)')
+    OR (column_name = 'updated_at' AND (LOWER(COALESCE(column_default,'')) <> 'current_timestamp(6)' OR REPLACE(LOWER(COALESCE(extra,'')),' ','') NOT LIKE '%onupdatecurrent_timestamp(6)%'))
+  ))
+);
 SET @wecom_0139_results_invalid := (
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results') = 1 AND (
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results') <> 12
@@ -140,6 +175,8 @@ SET @wecom_0139_results_invalid := (
     OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'uk_wecom_capability_result_target'), -1) <> 0
     OR (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'idx_wecom_capability_result_operation') <> 4
     OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'idx_wecom_capability_result_operation'), '') <> 'tenant_id,corp_id,operation_id,updated_at'
+    OR EXISTS (SELECT 1 FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND constraint_name = 'fk_wecom_capability_result_operation' AND delete_rule <> 'RESTRICT')
+    OR @wecom_0139_results_signature_invalid
   )
 );
 SET @wecom_0139_results_guard_sql := IF(@wecom_0139_results_invalid = 0, 'SELECT 1', 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 incompatible capability results table''');
@@ -147,6 +184,15 @@ PREPARE wecom_0139_results_guard_stmt FROM @wecom_0139_results_guard_sql;
 EXECUTE wecom_0139_results_guard_stmt;
 DEALLOCATE PREPARE wecom_0139_results_guard_stmt;
 
+SET @wecom_0139_audits_signature_invalid := (
+  (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits') = 1
+  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND (
+    (column_name = 'id' AND LOWER(COALESCE(extra,'')) NOT LIKE '%auto_increment%')
+    OR (column_name IN ('from_status','request_id','error_code') AND NOT (column_default = '' OR column_default = CONCAT(CHAR(39),CHAR(39)) OR column_default = CONCAT(CHAR(34),CHAR(34))))
+    OR (column_name IN ('target_total','success_total','failure_total') AND NOT (column_default = '0' OR column_default = CONCAT(CHAR(39),'0',CHAR(39))))
+    OR (column_name = 'created_at' AND LOWER(COALESCE(column_default,'')) <> 'current_timestamp(6)')
+  ))
+);
 SET @wecom_0139_audits_invalid := (
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits') = 1 AND (
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits') <> 16
@@ -160,6 +206,8 @@ SET @wecom_0139_audits_invalid := (
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND constraint_name = 'fk_wecom_capability_audit_actor'), '') <> 'tenant_id=mc_user.tenant_id,actor_user_id=mc_user.id'
     OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND index_name = 'idx_wecom_capability_audit_operation'), '') <> 'tenant_id,corp_id,operation_id,created_at'
     OR (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND index_name = 'idx_wecom_capability_audit_operation') <> 4
+    OR EXISTS (SELECT 1 FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND constraint_name IN ('fk_wecom_capability_audit_operation','fk_wecom_capability_audit_dispatch','fk_wecom_capability_audit_actor') AND delete_rule <> 'RESTRICT')
+    OR @wecom_0139_audits_signature_invalid
   )
 );
 SET @wecom_0139_audits_guard_sql := IF(@wecom_0139_audits_invalid = 0, 'SELECT 1', 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 incompatible capability audits table''');
@@ -167,6 +215,15 @@ PREPARE wecom_0139_audits_guard_stmt FROM @wecom_0139_audits_guard_sql;
 EXECUTE wecom_0139_audits_guard_stmt;
 DEALLOCATE PREPARE wecom_0139_audits_guard_stmt;
 
+SET @wecom_0139_events_signature_invalid := (
+  (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events') = 1
+  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND (
+    (column_name = 'id' AND LOWER(COALESCE(extra,'')) NOT LIKE '%auto_increment%')
+    OR (column_name IN ('from_status','request_id','error_code') AND NOT (column_default = '' OR column_default = CONCAT(CHAR(39),CHAR(39)) OR column_default = CONCAT(CHAR(34),CHAR(34))))
+    OR (column_name IN ('target_total','success_total','failure_total') AND NOT (column_default = '0' OR column_default = CONCAT(CHAR(39),'0',CHAR(39))))
+    OR (column_name = 'created_at' AND LOWER(COALESCE(column_default,'')) <> 'current_timestamp(6)')
+  ))
+);
 SET @wecom_0139_events_invalid := (
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events') = 1 AND (
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events') <> 16
@@ -180,6 +237,8 @@ SET @wecom_0139_events_invalid := (
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND constraint_name = 'fk_wecom_capability_event_actor'), '') <> 'tenant_id=mc_user.tenant_id,actor_user_id=mc_user.id'
     OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND index_name = 'idx_wecom_capability_event_operation'), '') <> 'tenant_id,corp_id,operation_id,created_at'
     OR (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND index_name = 'idx_wecom_capability_event_operation') <> 4
+    OR EXISTS (SELECT 1 FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND constraint_name IN ('fk_wecom_capability_event_operation','fk_wecom_capability_event_dispatch','fk_wecom_capability_event_actor') AND delete_rule <> 'RESTRICT')
+    OR @wecom_0139_events_signature_invalid
   )
 );
 SET @wecom_0139_events_guard_sql := IF(@wecom_0139_events_invalid = 0, 'SELECT 1', 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 incompatible capability events table''');
@@ -310,7 +369,7 @@ CREATE TABLE IF NOT EXISTS mochat_go_wecom_capability_dispatches (
   UNIQUE KEY uk_wecom_capability_dispatch_idempotency (tenant_id,corp_id,idempotency_key),
   UNIQUE KEY uk_wecom_capability_dispatch_target_chunk (tenant_id,corp_id,operation_id,dispatch_kind,target_id,chunk_no),
   KEY idx_wecom_capability_dispatch_claim (tenant_id,corp_id,status,next_poll_at),
-  CONSTRAINT fk_wecom_capability_dispatch_operation FOREIGN KEY (tenant_id,corp_id,operation_id) REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id) ON DELETE CASCADE
+  CONSTRAINT fk_wecom_capability_dispatch_operation FOREIGN KEY (tenant_id,corp_id,operation_id) REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS mochat_go_wecom_capability_operation_results (
@@ -330,7 +389,7 @@ CREATE TABLE IF NOT EXISTS mochat_go_wecom_capability_operation_results (
   UNIQUE KEY uk_wecom_capability_result_scope_id (tenant_id,corp_id,id),
   UNIQUE KEY uk_wecom_capability_result_target (tenant_id,corp_id,operation_id,target_kind,target_id),
   KEY idx_wecom_capability_result_operation (tenant_id,corp_id,operation_id,updated_at),
-  CONSTRAINT fk_wecom_capability_result_operation FOREIGN KEY (tenant_id,corp_id,operation_id) REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id) ON DELETE CASCADE
+  CONSTRAINT fk_wecom_capability_result_operation FOREIGN KEY (tenant_id,corp_id,operation_id) REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS mochat_go_wecom_capability_operation_audits (
@@ -352,8 +411,8 @@ CREATE TABLE IF NOT EXISTS mochat_go_wecom_capability_operation_audits (
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id),
   KEY idx_wecom_capability_audit_operation (tenant_id,corp_id,operation_id,created_at),
-  CONSTRAINT fk_wecom_capability_audit_operation FOREIGN KEY (tenant_id,corp_id,operation_id) REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id) ON DELETE CASCADE,
-  CONSTRAINT fk_wecom_capability_audit_dispatch FOREIGN KEY (tenant_id,corp_id,dispatch_id) REFERENCES mochat_go_wecom_capability_dispatches (tenant_id,corp_id,id) ON DELETE CASCADE,
+  CONSTRAINT fk_wecom_capability_audit_operation FOREIGN KEY (tenant_id,corp_id,operation_id) REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id) ON DELETE RESTRICT,
+  CONSTRAINT fk_wecom_capability_audit_dispatch FOREIGN KEY (tenant_id,corp_id,dispatch_id) REFERENCES mochat_go_wecom_capability_dispatches (tenant_id,corp_id,id) ON DELETE RESTRICT,
   CONSTRAINT fk_wecom_capability_audit_actor FOREIGN KEY (tenant_id,actor_user_id) REFERENCES mc_user (tenant_id,id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -376,7 +435,7 @@ CREATE TABLE IF NOT EXISTS mochat_go_wecom_capability_operation_events (
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id),
   KEY idx_wecom_capability_event_operation (tenant_id,corp_id,operation_id,created_at),
-  CONSTRAINT fk_wecom_capability_event_operation FOREIGN KEY (tenant_id,corp_id,operation_id) REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id) ON DELETE CASCADE,
-  CONSTRAINT fk_wecom_capability_event_dispatch FOREIGN KEY (tenant_id,corp_id,dispatch_id) REFERENCES mochat_go_wecom_capability_dispatches (tenant_id,corp_id,id) ON DELETE CASCADE,
+  CONSTRAINT fk_wecom_capability_event_operation FOREIGN KEY (tenant_id,corp_id,operation_id) REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id) ON DELETE RESTRICT,
+  CONSTRAINT fk_wecom_capability_event_dispatch FOREIGN KEY (tenant_id,corp_id,dispatch_id) REFERENCES mochat_go_wecom_capability_dispatches (tenant_id,corp_id,id) ON DELETE RESTRICT,
   CONSTRAINT fk_wecom_capability_event_actor FOREIGN KEY (tenant_id,actor_user_id) REFERENCES mc_user (tenant_id,id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
