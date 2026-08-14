@@ -32,7 +32,7 @@ func TestServiceProjectsRuntimeStatusWithoutConfigurationNamesForOrdinaryUsers(t
 	source := &statusTestSource{statuses: []providers.Status{{
 		Kind: "wecom_standard", State: providers.StateLimited, Code: "wecom.credentials_missing",
 		Source: providers.SourceExternal, Reason: "MOCHAT_SECRET is missing", Action: "set MOCHAT_SECRET",
-		Missing: []string{"MOCHAT_SECRET"}, Capabilities: []string{"employee_sync"},
+		Missing: []string{"MOCHAT_SECRET"}, Capabilities: []string{"employee_sync"}, LastErrorCode: "secret=do-not-return",
 	}}}
 	service := NewService(source)
 	view, err := service.Resolve(context.Background(), statusTestPrincipal(false))
@@ -46,8 +46,23 @@ func TestServiceProjectsRuntimeStatusWithoutConfigurationNamesForOrdinaryUsers(t
 		t.Fatalf("providers = %#v", view.Providers)
 	}
 	status := view.Providers[0]
-	if status.Code != "wecom.credentials_missing" || status.Action != "请联系管理员配置或验证 Provider" || status.Reason != "" || len(status.Missing) != 0 {
+	if status.Code != "wecom.credentials_missing" || status.LastErrorCode != "" || status.Action != "请联系管理员配置或验证 Provider" || status.Reason != "" || len(status.Missing) != 0 {
 		t.Fatalf("ordinary status leaked diagnostics: %#v", status)
+	}
+}
+
+func TestServiceRedactsUntrustedMachineCodesForOrdinaryUsers(t *testing.T) {
+	source := &statusTestSource{statuses: []providers.Status{{
+		Kind: "wecom_standard", State: providers.StateLimited, Code: "MOCHAT_SECRET", Source: providers.SourceExternal,
+		LastErrorCode: "WECOM_API_ERROR_40001",
+	}}}
+	view, err := NewService(source).Resolve(context.Background(), statusTestPrincipal(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := view.Providers[0]
+	if status.Code != "provider.status_unclassified" || status.LastErrorCode != "WECOM_API_ERROR_40001" {
+		t.Fatalf("machine code projection = %#v", status)
 	}
 }
 

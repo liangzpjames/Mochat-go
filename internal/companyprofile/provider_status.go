@@ -29,14 +29,21 @@ func (s *ProviderStatusSource) Statuses(ctx context.Context, principal dashboard
 	if err != nil {
 		return nil, err
 	}
+	syncStatus := SyncStatus{Status: "idle"}
+	if syncStore, ok := s.store.(SyncStore); ok {
+		syncStatus, err = syncStore.GetSyncStatus(ctx, principal)
+		if err != nil {
+			return nil, err
+		}
+	}
 	statuses := s.registry.Snapshot(ctx)
-	statuses = replaceStatus(statuses, tenantWeComStandardStatus(profile, findStatus(statuses, "wecom_standard")))
+	statuses = replaceStatus(statuses, tenantWeComStandardStatus(profile, findStatus(statuses, "wecom_standard"), syncStatus))
 	statuses = replaceStatus(statuses, tenantWeComArchiveStatus(profile, findStatus(statuses, "wecom_archive")))
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Kind < statuses[j].Kind })
 	return statuses, nil
 }
 
-func tenantWeComStandardStatus(profile Profile, runtime providers.Status) providers.Status {
+func tenantWeComStandardStatus(profile Profile, runtime providers.Status, syncStatus SyncStatus) providers.Status {
 	if status, unavailable := runtimeUnavailable(runtime, "wecom_standard", "employee_sync"); unavailable {
 		return status
 	}
@@ -63,8 +70,28 @@ func tenantWeComStandardStatus(profile Profile, runtime providers.Status) provid
 	base.State = providers.StateReady
 	base.Code = "wecom.runtime_verified"
 	base.Action = "企业微信员工同步可用"
-	base.LastSuccessAt = profile.VerifiedAt
+	applySyncStatus(&base, syncStatus)
 	return base
+}
+
+func applySyncStatus(status *providers.Status, syncStatus SyncStatus) {
+	if status == nil {
+		return
+	}
+	status.LastSyncAt = syncStatus.FinishedAt
+	if status.LastSyncAt == nil {
+		status.LastSyncAt = syncStatus.StartedAt
+	}
+	switch strings.ToLower(strings.TrimSpace(syncStatus.Status)) {
+	case "completed", "succeeded", "success":
+		status.LastSuccessAt = syncStatus.FinishedAt
+	case "failed":
+		status.LastFailureAt = syncStatus.FinishedAt
+		if status.LastFailureAt == nil {
+			status.LastFailureAt = syncStatus.StartedAt
+		}
+		status.LastErrorCode = syncStatus.ErrorCode
+	}
 }
 
 func tenantWeComArchiveStatus(profile Profile, runtime providers.Status) providers.Status {

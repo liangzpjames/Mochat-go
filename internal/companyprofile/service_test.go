@@ -54,6 +54,7 @@ type companyProfileContractStore struct {
 	profile              Profile
 	verificationSnapshot VerificationSnapshot
 	auditPage            AuditPage
+	syncStatus           SyncStatus
 }
 
 func (s *companyProfileContractStore) GetProfile(context.Context, dashboardprincipal.DashboardPrincipal) (Profile, error) {
@@ -144,6 +145,9 @@ func (s *companyProfileContractStore) RecordEmployeeSyncFailure(context.Context,
 }
 
 func (s *companyProfileContractStore) GetSyncStatus(context.Context, dashboardprincipal.DashboardPrincipal) (SyncStatus, error) {
+	if s.syncStatus.Status != "" {
+		return s.syncStatus, nil
+	}
 	return SyncStatus{Status: "idle"}, nil
 }
 

@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/modules/providers"
 )
+
+var publicMachineCodePattern = regexp.MustCompile(`^(?:provider|archive|wecom|ai|audio_storage)(?:[._-][a-z0-9]+)*$|^WECOM_(?:API|HTTP)_ERROR_[0-9]+$`)
 
 type Service struct {
 	source StatusSource
@@ -57,13 +60,10 @@ func validReadPrincipal(principal dashboardprincipal.DashboardPrincipal) bool {
 
 func projectStatus(status providers.Status, superadmin bool) ProviderStatus {
 	state := status.State
-	code := strings.TrimSpace(status.Code)
+	code := publicMachineCode(status.Code, "provider.status_unclassified")
 	if state != providers.StateReady && state != providers.StateLimited && state != providers.StateUnavailable {
 		state = providers.StateUnavailable
 		code = "provider.invalid_state"
-	}
-	if code == "" {
-		code = "provider.status_unclassified"
 	}
 	result := ProviderStatus{
 		Kind:          strings.TrimSpace(status.Kind),
@@ -76,7 +76,7 @@ func projectStatus(status providers.Status, superadmin bool) ProviderStatus {
 		LastSyncAt:    status.LastSyncAt,
 		LastSuccessAt: status.LastSuccessAt,
 		LastFailureAt: status.LastFailureAt,
-		LastErrorCode: strings.TrimSpace(status.LastErrorCode),
+		LastErrorCode: optionalPublicMachineCode(status.LastErrorCode),
 	}
 	if superadmin {
 		result.Reason = strings.TrimSpace(status.Reason)
@@ -86,4 +86,20 @@ func projectStatus(status providers.Status, superadmin bool) ProviderStatus {
 	result.Missing = nil
 	result.Action = "请联系管理员配置或验证 Provider"
 	return result
+}
+
+func publicMachineCode(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if publicMachineCodePattern.MatchString(value) {
+		return value
+	}
+	return fallback
+}
+
+func optionalPublicMachineCode(value string) string {
+	value = strings.TrimSpace(value)
+	if value != "" && publicMachineCodePattern.MatchString(value) {
+		return value
+	}
+	return ""
 }

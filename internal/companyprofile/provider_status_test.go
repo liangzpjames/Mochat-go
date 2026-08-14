@@ -17,13 +17,14 @@ func (p providerStatusTestProvider) Status() providers.Status { return p.status 
 
 func TestProviderStatusSourceUsesTenantProfileAndRuntimeEvidence(t *testing.T) {
 	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	syncFinishedAt := verifiedAt.Add(time.Hour)
 	store := &companyProfileContractStore{profile: Profile{
 		TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
 		Credentials: CredentialStatuses{
 			WeCom:   CredentialStatus{Configured: true},
 			Archive: CredentialStatus{Configured: true},
 		},
-	}}
+	}, syncStatus: SyncStatus{Status: "completed", FinishedAt: &syncFinishedAt}}
 	registry, err := catalog.NewRegistry(catalog.Dependencies{
 		Archive:       providerStatusTestProvider{status: providers.Status{Kind: "wecom_archive", State: providers.StateReady, Code: "archive.runtime"}},
 		AudioStorage:  providerStatusTestProvider{status: providers.Status{Kind: "audio_storage", State: providers.StateReady, Code: "audio.runtime"}},
@@ -45,7 +46,7 @@ func TestProviderStatusSourceUsesTenantProfileAndRuntimeEvidence(t *testing.T) {
 	for _, status := range view.Providers {
 		byKind[status.Kind] = status
 	}
-	if byKind["wecom_standard"].State != providers.StateReady || byKind["wecom_standard"].Code != "wecom.runtime_verified" || byKind["wecom_standard"].LastSuccessAt == nil {
+	if byKind["wecom_standard"].State != providers.StateReady || byKind["wecom_standard"].Code != "wecom.runtime_verified" || byKind["wecom_standard"].LastSuccessAt == nil || !byKind["wecom_standard"].LastSuccessAt.Equal(syncFinishedAt) {
 		t.Fatalf("standard status = %#v", byKind["wecom_standard"])
 	}
 	if byKind["wecom_archive"].State != providers.StateLimited || byKind["wecom_archive"].Code != "archive.getchatdata_unimplemented" {
