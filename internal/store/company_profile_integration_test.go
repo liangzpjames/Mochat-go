@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -883,11 +884,66 @@ func assertCompanyProfileJSONHasNoCredentialMaterial(t *testing.T, profile compa
 	if err != nil {
 		t.Fatal(err)
 	}
-	lower := strings.ToLower(string(serialized))
-	for _, forbidden := range []string{"secret", "ciphertext", "password", "hash", "token"} {
-		if strings.Contains(lower, forbidden) {
-			t.Fatalf("profile JSON contains forbidden field %q", forbidden)
+	if err := credentialJSONMaterialError(serialized); err != nil {
+		t.Fatal(err)
+	}
+}
+
+var forbiddenCredentialJSONKeys = map[string]struct{}{
+	"secret": {}, "employeesecret": {}, "contactsecret": {}, "agentsecret": {}, "wxsecret": {},
+	"callbacktoken": {}, "encodingaeskey": {}, "ciphertext": {}, "password": {}, "hash": {}, "token": {},
+	"chatsecret": {}, "rsaprivatekey": {}, "rsapublickey": {}, "privatekey": {}, "publickey": {},
+}
+
+func credentialJSONMaterialError(serialized []byte) error {
+	var document any
+	if err := json.Unmarshal(serialized, &document); err != nil {
+		return fmt.Errorf("credential JSON is invalid: %w", err)
+	}
+	if key := firstForbiddenCredentialJSONKey(document); key != "" {
+		return fmt.Errorf("credential JSON contains sensitive field %q", key)
+	}
+	for _, sentinel := range []string{"employee-fixture", "contact-fixture", "callback-fixture", "aes-fixture", "archive-fixture", "agent-fixture", "fixture-secret"} {
+		if strings.Contains(string(serialized), sentinel) {
+			return fmt.Errorf("credential JSON contains sensitive value sentinel %q", sentinel)
 		}
+	}
+	return nil
+}
+
+func firstForbiddenCredentialJSONKey(value any) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if _, forbidden := forbiddenCredentialJSONKeys[strings.ToLower(key)]; forbidden {
+				return key
+			}
+			if nested := firstForbiddenCredentialJSONKey(child); nested != "" {
+				return nested
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if nested := firstForbiddenCredentialJSONKey(child); nested != "" {
+				return nested
+			}
+		}
+	}
+	return ""
+}
+
+func TestCompanyProfileCredentialJSONGuardUsesExactKeys(t *testing.T) {
+	if err := credentialJSONMaterialError([]byte(`{"credentials":{"agentSecretConfigured":true,"employeeConfigured":true}}`)); err != nil {
+		t.Fatalf("configured booleans were rejected: %v", err)
+	}
+	for _, key := range []string{"secret", "employeeSecret", "contactSecret", "agentSecret", "wxSecret", "callbackToken", "encodingAESKey", "ciphertext", "password", "hash"} {
+		payload := []byte(`{"` + key + `":"redacted"}`)
+		if err := credentialJSONMaterialError(payload); err == nil {
+			t.Fatalf("sensitive key %q was accepted", key)
+		}
+	}
+	if err := credentialJSONMaterialError([]byte(`{"diagnostic":"employee-fixture"}`)); err == nil {
+		t.Fatal("fixture secret value was accepted")
 	}
 }
 

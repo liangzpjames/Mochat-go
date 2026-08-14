@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -11,12 +12,25 @@ import (
 	"jiyi/mochat-go/internal/dashboard"
 )
 
+func newRedisIntegrationStore(t *testing.T, addr string) *RedisStore {
+	t.Helper()
+	database := 0
+	if raw := strings.TrimSpace(os.Getenv("MOCHAT_REDIS_DB")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			t.Fatalf("invalid MOCHAT_REDIS_DB=%q", raw)
+		}
+		database = parsed
+	}
+	return NewRedisStore(RedisConfig{Addr: addr, DB: database})
+}
+
 func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	addr := os.Getenv("MOCHAT_REDIS_ADDR")
 	if addr == "" {
 		t.Skip("MOCHAT_REDIS_ADDR is not set")
 	}
-	store := NewRedisStore(RedisConfig{Addr: addr})
+	store := newRedisIntegrationStore(t, addr)
 	defer store.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -548,7 +562,7 @@ func TestRedisStoreEmployeeApplyDeadLetterReleasesIdempotencyIntegration(t *test
 	if addr == "" {
 		t.Skip("MOCHAT_REDIS_ADDR is not set")
 	}
-	store := NewRedisStore(RedisConfig{Addr: addr})
+	store := newRedisIntegrationStore(t, addr)
 	defer store.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -603,7 +617,7 @@ func TestRedisStoreEmployeeApplyCleanupDoesNotDeleteNewerClaimIntegration(t *tes
 	if addr == "" {
 		t.Skip("MOCHAT_REDIS_ADDR is not set; an isolated Redis DSN is required")
 	}
-	store := NewRedisStore(RedisConfig{Addr: addr})
+	store := newRedisIntegrationStore(t, addr)
 	defer store.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -689,7 +703,7 @@ func TestRedisStoreEmployeeApplyEnqueueWrongTypeRollsBackClaimIntegration(t *tes
 	if addr == "" {
 		t.Skip("MOCHAT_REDIS_ADDR is not set; an isolated Redis DSN is required")
 	}
-	store := NewRedisStore(RedisConfig{Addr: addr})
+	store := newRedisIntegrationStore(t, addr)
 	defer store.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
