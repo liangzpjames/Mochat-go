@@ -18,6 +18,7 @@ func TestArchiveSourceMigrationGuardUsesPortableColumnMetadata(t *testing.T) {
 		"numeric_precision",
 		"default_generated",
 		"lower(column_type) like '%unsigned'",
+		"sub_part is null",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("0138 guard missing portable metadata contract %q", required)

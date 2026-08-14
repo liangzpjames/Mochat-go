@@ -364,6 +364,33 @@ func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
 }
 
+func TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createArchiveSyncCorpFixture(t, db)
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
+	if _, err := db.Exec("DROP TABLE mochat_go_archive_message_sources"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE mochat_go_archive_message_sources (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+		tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, msgid VARCHAR(255) NOT NULL,
+		source_kind VARCHAR(16) NOT NULL, source_id VARCHAR(128) NOT NULL, namespace VARCHAR(128) NOT NULL,
+		run_id BIGINT UNSIGNED NOT NULL, created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+		UNIQUE KEY uk_archive_message_source_scope_msg (tenant_id, corp_id, msgid(10)),
+		KEY idx_archive_message_source_filter (tenant_id, corp_id, source_kind, source_id, created_at),
+		KEY idx_archive_message_source_run (run_id),
+		CONSTRAINT fk_archive_message_source_run FOREIGN KEY (tenant_id,corp_id,run_id,source_kind,source_id,namespace)
+			REFERENCES mochat_go_archive_sync_runs (tenant_id,corp_id,id,source_kind,source_id,namespace)
+	) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
+	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
+	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive message sources table") {
+		t.Fatalf("prefixed residual scope index unexpectedly passed migration guard: %v", err)
+	}
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+}
+
 func TestArchiveSyncMigrationRejectsWrongAuditScopeIndex(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createArchiveSyncCorpFixture(t, db)
