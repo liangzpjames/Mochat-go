@@ -62,10 +62,8 @@ func (s *ProviderStatusSource) Statuses(ctx context.Context, principal dashboard
 }
 
 func mergeArchiveRuntimeStatus(fallback, runtime providers.Status) providers.Status {
-	if runtime.Kind == "" {
-		runtime.Kind = "wecom_archive"
-	}
-	if runtime.Kind == "wecom_archive" && runtime.Source == providers.SourceExternal && runtime.State == providers.StateReady {
+	if runtime.Kind != "wecom_archive" || runtime.Source != providers.SourceSimulated {
+		fallback.Kind = "wecom_archive"
 		fallback.State = providers.StateLimited
 		fallback.Source = providers.SourceExternal
 		fallback.Code = "archive.getchatdata_unimplemented"
@@ -73,7 +71,7 @@ func mergeArchiveRuntimeStatus(fallback, runtime providers.Status) providers.Sta
 		fallback.Action = "connect and verify the real archive source"
 		return fallback
 	}
-	if runtime.Kind == "wecom_archive" && runtime.Source == providers.SourceSimulated && runtime.State == providers.StateReady {
+	if runtime.State == providers.StateReady {
 		runtime.State = providers.StateLimited
 		if strings.TrimSpace(runtime.Code) == "" || runtime.Code == "provider.runtime_verified" {
 			runtime.Code = "archive.simulation_ready"

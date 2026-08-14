@@ -39,8 +39,8 @@ func TestEffectiveArchiveSourceDefaultsToModeAndHonorsExplicitFilter(t *testing.
 	}{
 		{name: "real default", mode: workMessageArchiveReal, want: "external", ok: true},
 		{name: "simulation default", mode: workMessageArchiveSimulation, want: "simulated", ok: true},
-		{name: "explicit external", mode: workMessageArchiveSimulation, requested: "external", want: "external", ok: true},
-		{name: "explicit simulated", mode: workMessageArchiveReal, requested: "simulated", want: "simulated", ok: true},
+		{name: "cross mode external rejected by simulation", mode: workMessageArchiveSimulation, requested: "external", ok: false},
+		{name: "cross mode simulated rejected by real", mode: workMessageArchiveReal, requested: "simulated", ok: false},
 		{name: "unavailable", mode: workMessageArchiveUnavailable, ok: false},
 	}
 	for _, test := range cases {
@@ -50,6 +50,22 @@ func TestEffectiveArchiveSourceDefaultsToModeAndHonorsExplicitFilter(t *testing.
 				t.Fatalf("effective source=%q,%v want %q,%v", got, ok, test.want, test.ok)
 			}
 		})
+	}
+}
+
+func TestLegacyArchiveSourceSQLUsesBatchRegistryAndNeverMsgIDPrefix(t *testing.T) {
+	state := archiveSourceRegistryState{legacySimulation: true}
+	simulated := archiveMessageSourceShardPredicateForState("simulated", state)
+	if !strings.Contains(simulated, "mochat_go_archive_simulation_messages") || !strings.Contains(simulated, "mochat_go_archive_simulation_batches") || strings.Contains(simulated, "MOCHAT-SIM:%") {
+		t.Fatalf("legacy simulated predicate=%q", simulated)
+	}
+	external := archiveMessageSourceShardPredicateForState("external", state)
+	if !strings.Contains(external, "mochat_go_archive_simulation_messages") || !strings.Contains(external, "NOT EXISTS") || strings.Contains(external, "MOCHAT-SIM:%") {
+		t.Fatalf("legacy external predicate=%q", external)
+	}
+	projection := archiveSourceInnerProjectionForState(state)
+	if !strings.Contains(projection, "simulation:") || !strings.Contains(projection, "batch_key") {
+		t.Fatalf("legacy source projection=%q", projection)
 	}
 }
 

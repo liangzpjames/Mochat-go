@@ -1744,6 +1744,15 @@ const (
 	workMessageArchiveSimulation
 )
 
+type archiveSourceRegistryState struct {
+	explicit         bool
+	legacySimulation bool
+}
+
+func (state archiveSourceRegistryState) metadataAvailable() bool {
+	return state.explicit || state.legacySimulation
+}
+
 func workMessageArchivePredicate(mode workMessageArchiveMode) (string, bool) {
 	switch mode {
 	case workMessageArchiveReal, workMessageArchiveSimulation:
@@ -1754,23 +1763,18 @@ func workMessageArchivePredicate(mode workMessageArchiveMode) (string, bool) {
 }
 
 func effectiveArchiveSource(mode workMessageArchiveMode, requested string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(requested)) {
-	case "simulated":
-		return "simulated", true
-	case "external":
-		return "external", true
-	case "":
-		switch mode {
-		case workMessageArchiveReal:
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	switch mode {
+	case workMessageArchiveReal:
+		if requested == "" || requested == "external" {
 			return "external", true
-		case workMessageArchiveSimulation:
-			return "simulated", true
-		default:
-			return "", false
 		}
-	default:
-		return "", false
+	case workMessageArchiveSimulation:
+		if requested == "" || requested == "simulated" {
+			return "simulated", true
+		}
 	}
+	return "", false
 }
 
 func (s *MySQLStore) workMessageArchiveMode(ctx context.Context, tenantID, corpID int) (workMessageArchiveMode, error) {
@@ -1850,7 +1854,7 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	if err != nil {
 		return dashboard.WorkMessageToUserPage{}, err
 	}
-	registryAvailable, err := s.archiveSourceRegistryAvailable(ctx)
+	registryState, err := s.archiveSourceRegistryState(ctx)
 	if err != nil {
 		return dashboard.WorkMessageToUserPage{}, err
 	}
@@ -1866,7 +1870,7 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	if !available {
 		return dashboard.WorkMessageToUserPage{}, nil
 	}
-	if !registryAvailable && effectiveSource == "simulated" {
+	if !registryState.metadataAvailable() && effectiveSource == "simulated" {
 		return dashboard.WorkMessageToUserPage{}, nil
 	}
 	filter.Page = positivePage(filter.Page)
@@ -1876,8 +1880,8 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	var sourceSQL string
 	var sourceArgs []any
 	var sourceSQLOK bool
-	if registryAvailable {
-		sourceSQL, sourceArgs, sourceSQLOK = workMessageFilteredUnionSQLWithArchiveSource(filterForSQL, true)
+	if registryState.metadataAvailable() {
+		sourceSQL, sourceArgs, sourceSQLOK = workMessageFilteredUnionSQLWithArchiveSourceState(filterForSQL, registryState)
 	} else {
 		filterForSQL.ArchiveSource = ""
 		sourceSQL, sourceArgs = workMessageFilteredUnionSQL(filterForSQL)
@@ -1912,12 +1916,12 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	offset := (filter.Page - 1) * filter.PerPage
 	queryArgs := append(append([]any{}, args...), filter.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time`+archiveSourceProjection(registryAvailable)+`
+		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time`+archiveSourceProjectionForState(registryState)+`
 		FROM (
-			SELECT wm.*`+archiveSourceInnerProjection(registryAvailable)+`,
+			SELECT wm.*`+archiveSourceInnerProjectionForState(registryState)+`,
 			       @rn := IF(@grp = `+groupKey+`, @rn + 1, 1) AS rn,
 			       @grp := `+groupKey+` AS grp
-			FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoin(registryAvailable)+`
+			FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
 			CROSS JOIN (SELECT @rn := 0, @grp := '') vars
 			WHERE `+whereSQL+`
 			ORDER BY wm.work_employee_id, wm.to_user_type, wm.to_user_id,
@@ -1934,7 +1938,7 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	defer rows.Close()
 	items := make([]dashboard.WorkMessageToUser, 0)
 	for rows.Next() {
-		item, err := scanWorkMessageToUserRowWithSource(rows, registryAvailable)
+		item, err := scanWorkMessageToUserRowWithSource(rows, registryState.metadataAvailable())
 		if err != nil {
 			return dashboard.WorkMessageToUserPage{}, err
 		}
@@ -1956,7 +1960,7 @@ func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboar
 	if err != nil {
 		return dashboard.WorkMessageItem{}, false, err
 	}
-	registryAvailable, err := s.archiveSourceRegistryAvailable(ctx)
+	registryState, err := s.archiveSourceRegistryState(ctx)
 	if err != nil {
 		return dashboard.WorkMessageItem{}, false, err
 	}
@@ -1972,7 +1976,7 @@ func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboar
 	if !available {
 		return dashboard.WorkMessageItem{}, false, nil
 	}
-	if !registryAvailable && effectiveSource == "simulated" {
+	if !registryState.metadataAvailable() && effectiveSource == "simulated" {
 		return dashboard.WorkMessageItem{}, false, nil
 	}
 	if filter.RestrictEmployeeIDs && len(uniquePositiveInts(filter.EmployeeIDs)) == 0 {
@@ -1983,8 +1987,8 @@ func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboar
 		return dashboard.WorkMessageItem{}, false, nil
 	}
 	where := []string{idWhere}
-	if registryAvailable {
-		where = append(where, archiveMessageSourceDetailPredicate(effectiveSource))
+	if registryState.metadataAvailable() {
+		where = append(where, archiveMessageSourceDetailPredicateForState(effectiveSource, registryState))
 	}
 	args := append(append([]any{}, sourceArgs...), idArgs...)
 	if filter.RestrictEmployeeIDs {
@@ -1995,13 +1999,13 @@ func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboar
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id,
 		       target_name, target_avatar, action, sender_name, sender_avatar, is_current_user,
-		       msg_type, content_raw, msg_data_time`+archiveSourceProjection(registryAvailable)+`
-		FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoin(registryAvailable)+`
+		       msg_type, content_raw, msg_data_time`+archiveSourceProjectionForState(registryState)+`
+		FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
 		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY msg_data_time DESC, seq DESC, table_index DESC, id DESC
 		LIMIT 1
 	`, args...)
-	item, err := scanWorkMessageWithSource(row, registryAvailable)
+	item, err := scanWorkMessageWithSource(row, registryState.metadataAvailable())
 	if err == sql.ErrNoRows {
 		return dashboard.WorkMessageItem{}, false, nil
 	}
@@ -2016,7 +2020,7 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	if err != nil {
 		return dashboard.WorkMessagePage{}, err
 	}
-	registryAvailable, err := s.archiveSourceRegistryAvailable(ctx)
+	registryState, err := s.archiveSourceRegistryState(ctx)
 	if err != nil {
 		return dashboard.WorkMessagePage{}, err
 	}
@@ -2032,16 +2036,16 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	if !available {
 		return dashboard.WorkMessagePage{}, nil
 	}
-	if !registryAvailable && effectiveSource == "simulated" {
+	if !registryState.metadataAvailable() && effectiveSource == "simulated" {
 		return dashboard.WorkMessagePage{}, nil
 	}
 	filter.Page = positivePage(filter.Page)
 	filter.PerPage = positivePerPage(filter.PerPage, 15)
 	var sourceSQL string
 	var sourceArgs []any
-	if registryAvailable {
+	if registryState.metadataAvailable() {
 		var ok bool
-		sourceSQL, sourceArgs, ok = workMessageUnionSQLWithArchiveSource(filter.CorpID, effectiveSource, true)
+		sourceSQL, sourceArgs, ok = workMessageUnionSQLWithArchiveSourceState(filter.CorpID, effectiveSource, registryState)
 		if !ok {
 			return dashboard.WorkMessagePage{}, nil
 		}
@@ -2103,8 +2107,8 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id,
 		       target_name, target_avatar, action, sender_name, sender_avatar, is_current_user,
-		       msg_type, content_raw, msg_data_time`+archiveSourceProjection(registryAvailable)+`
-		FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoin(registryAvailable)+`
+		       msg_type, content_raw, msg_data_time`+archiveSourceProjectionForState(registryState)+`
+		FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
 		WHERE `+whereSQL+`
 		ORDER BY `+orderSQL+`
 		LIMIT ? OFFSET ?
@@ -2115,7 +2119,7 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	defer rows.Close()
 	items := make([]dashboard.WorkMessageItem, 0)
 	for rows.Next() {
-		item, err := scanWorkMessageWithSource(rows, registryAvailable)
+		item, err := scanWorkMessageWithSource(rows, registryState.metadataAvailable())
 		if err != nil {
 			return dashboard.WorkMessagePage{}, err
 		}
@@ -2409,18 +2413,22 @@ func workMessageUnionSQL(corpID int) (string, []any) {
 }
 
 func workMessageUnionSQLWithArchiveSource(corpID int, source string, registryAvailable bool) (string, []any, bool) {
+	return workMessageUnionSQLWithArchiveSourceState(corpID, source, archiveSourceRegistryState{explicit: registryAvailable})
+}
+
+func workMessageUnionSQLWithArchiveSourceState(corpID int, source string, state archiveSourceRegistryState) (string, []any, bool) {
 	source = strings.ToLower(strings.TrimSpace(source))
 	if source != "" && source != "simulated" && source != "external" {
 		return "", nil, false
 	}
-	if source == "simulated" && !registryAvailable {
+	if source == "simulated" && !state.metadataAvailable() {
 		return "", nil, false
 	}
 	where := ""
-	if registryAvailable && source != "" {
-		where = archiveMessageSourceShardPredicate(source)
+	if state.metadataAvailable() && source != "" {
+		where = archiveMessageSourceShardPredicateForState(source, state)
 	}
-	if !registryAvailable && source == "external" {
+	if !state.metadataAvailable() && source == "external" {
 		where = ""
 	}
 	selects := make([]string, 0, dashboard.WorkMessageArchiveMessageTableCount)
@@ -2433,6 +2441,10 @@ func workMessageUnionSQLWithArchiveSource(corpID int, source string, registryAva
 }
 
 func workMessageFilteredUnionSQLWithArchiveSource(filter dashboard.WorkMessageUserFilter, registryAvailable bool) (string, []any, bool) {
+	return workMessageFilteredUnionSQLWithArchiveSourceState(filter, archiveSourceRegistryState{explicit: registryAvailable})
+}
+
+func workMessageFilteredUnionSQLWithArchiveSourceState(filter dashboard.WorkMessageUserFilter, state archiveSourceRegistryState) (string, []any, bool) {
 	source := strings.ToLower(strings.TrimSpace(filter.ArchiveSource))
 	filter.ArchiveSource = ""
 	where, filterArgs := workMessageUserBaseWhere(filter, "wm.")
@@ -2441,8 +2453,8 @@ func workMessageFilteredUnionSQLWithArchiveSource(filter dashboard.WorkMessageUs
 		if where == "1 = 0" {
 			return "", nil, false
 		}
-		if registryAvailable {
-			where = appendSQLWhere(where, archiveMessageSourceShardPredicate(source))
+		if state.metadataAvailable() {
+			where = appendSQLWhere(where, archiveMessageSourceShardPredicateForState(source, state))
 		} else if source == "simulated" {
 			return "", nil, false
 		}
@@ -2468,76 +2480,217 @@ func appendSQLWhere(existing, predicate string) string {
 }
 
 func archiveMessageSourceShardPredicate(source string) string {
+	return archiveMessageSourceShardPredicateForState(source, archiveSourceRegistryState{explicit: true})
+}
+
+func archiveMessageSourceShardPredicateForState(source string, state archiveSourceRegistryState) string {
 	source = strings.ToLower(strings.TrimSpace(source))
-	registryExists := `EXISTS (
+	explicitExists := `EXISTS (
 		SELECT 1
 		FROM mochat_go_archive_message_sources archive_source_filter
 		INNER JOIN mc_corp archive_source_corp
 			ON archive_source_corp.id = wm.corp_id
 			AND archive_source_corp.tenant_id = archive_source_filter.tenant_id
 		WHERE archive_source_filter.corp_id = wm.corp_id
-		  AND archive_source_filter.msgid = wm.msgid`
+		  AND archive_source_filter.msgid = wm.msgid)`
+	legacyExists := `EXISTS (
+		SELECT 1
+		FROM mochat_go_archive_simulation_messages archive_legacy_message
+		INNER JOIN mochat_go_archive_simulation_batches archive_legacy_batch
+			ON archive_legacy_batch.id = archive_legacy_message.batch_id
+			AND archive_legacy_batch.corp_id = archive_legacy_message.corp_id
+			AND archive_legacy_batch.status = 'complete'
+		WHERE archive_legacy_message.corp_id = wm.corp_id
+		  AND archive_legacy_message.msgid = wm.msgid)`
+	if !state.explicit {
+		explicitExists = ""
+	}
+	if !state.legacySimulation {
+		legacyExists = ""
+	}
 	switch source {
 	case "simulated":
-		return registryExists + ` AND archive_source_filter.source_kind = 'simulated')`
+		if state.explicit && state.legacySimulation {
+			return `(` + explicitExists + ` AND EXISTS (
+				SELECT 1 FROM mochat_go_archive_message_sources archive_source_filter
+				WHERE archive_source_filter.tenant_id = (SELECT tenant_id FROM mc_corp WHERE id = wm.corp_id LIMIT 1)
+				  AND archive_source_filter.corp_id = wm.corp_id
+				  AND archive_source_filter.msgid = wm.msgid
+				  AND archive_source_filter.source_kind = 'simulated'
+			) OR (NOT ` + explicitExists + ` AND ` + legacyExists + `))`
+		}
+		if state.explicit {
+			return explicitExists + ` AND EXISTS (
+				SELECT 1 FROM mochat_go_archive_message_sources archive_source_filter
+				WHERE archive_source_filter.tenant_id = (SELECT tenant_id FROM mc_corp WHERE id = wm.corp_id LIMIT 1)
+				  AND archive_source_filter.corp_id = wm.corp_id
+				  AND archive_source_filter.msgid = wm.msgid
+				  AND archive_source_filter.source_kind = 'simulated'
+			)`
+		}
+		return legacyExists
 	case "external":
-		return `(NOT ` + registryExists + `) OR (` + registryExists + ` AND archive_source_filter.source_kind = 'external')`
+		if state.explicit && state.legacySimulation {
+			return `(NOT ` + explicitExists + ` AND NOT ` + legacyExists + `) OR (` + explicitExists + ` AND EXISTS (
+				SELECT 1 FROM mochat_go_archive_message_sources archive_source_filter
+				WHERE archive_source_filter.tenant_id = (SELECT tenant_id FROM mc_corp WHERE id = wm.corp_id LIMIT 1)
+				  AND archive_source_filter.corp_id = wm.corp_id
+				  AND archive_source_filter.msgid = wm.msgid
+				  AND archive_source_filter.source_kind = 'external'
+			))`
+		}
+		if state.explicit {
+			return `(NOT ` + explicitExists + `) OR (` + explicitExists + ` AND EXISTS (
+				SELECT 1 FROM mochat_go_archive_message_sources archive_source_filter
+				WHERE archive_source_filter.tenant_id = (SELECT tenant_id FROM mc_corp WHERE id = wm.corp_id LIMIT 1)
+				  AND archive_source_filter.corp_id = wm.corp_id
+				  AND archive_source_filter.msgid = wm.msgid
+				  AND archive_source_filter.source_kind = 'external'
+			))`
+		}
+		return `NOT ` + legacyExists
 	default:
 		return "1 = 0"
 	}
 }
 
 func archiveMessageSourceDetailPredicate(source string) string {
+	return archiveMessageSourceDetailPredicateForState(source, archiveSourceRegistryState{explicit: true})
+}
+
+func archiveMessageSourceDetailPredicateForState(source string, state archiveSourceRegistryState) string {
 	switch strings.ToLower(strings.TrimSpace(source)) {
 	case "simulated":
-		return "archive_source.source_kind = 'simulated'"
+		if state.explicit && state.legacySimulation {
+			return "(archive_source.source_kind = 'simulated' OR (archive_source.source_kind IS NULL AND archive_legacy_batch.id IS NOT NULL))"
+		}
+		if state.explicit {
+			return "archive_source.source_kind = 'simulated'"
+		}
+		return "archive_legacy_batch.id IS NOT NULL"
 	case "external":
-		return "(archive_source.source_kind IS NULL OR archive_source.source_kind = 'external')"
+		if state.explicit && state.legacySimulation {
+			return "(archive_source.source_kind = 'external' OR (archive_source.source_kind IS NULL AND archive_legacy_batch.id IS NULL))"
+		}
+		if state.explicit {
+			return "(archive_source.source_kind IS NULL OR archive_source.source_kind = 'external')"
+		}
+		return "archive_legacy_batch.id IS NULL"
 	default:
 		return "1 = 0"
 	}
 }
 
 func archiveSourceRegistryJoin(registryAvailable bool) string {
-	if !registryAvailable {
+	return archiveSourceRegistryJoinForState(archiveSourceRegistryState{explicit: registryAvailable})
+}
+
+func archiveSourceRegistryJoinForState(state archiveSourceRegistryState) string {
+	if !state.metadataAvailable() {
 		return ""
 	}
-	return `
+	join := ""
+	if state.explicit {
+		join += `
 		INNER JOIN mc_corp archive_source_corp
 			ON archive_source_corp.id = wm.corp_id AND archive_source_corp.deleted_at IS NULL
 		LEFT JOIN mochat_go_archive_message_sources archive_source
 			ON archive_source.tenant_id = archive_source_corp.tenant_id
 			AND archive_source.corp_id = wm.corp_id
 			AND archive_source.msgid = wm.msgid`
+	} else {
+		join += `
+		INNER JOIN mc_corp archive_source_corp
+			ON archive_source_corp.id = wm.corp_id AND archive_source_corp.deleted_at IS NULL`
+	}
+	if state.legacySimulation {
+		join += `
+		LEFT JOIN mochat_go_archive_simulation_messages archive_legacy_message
+			ON archive_legacy_message.corp_id = wm.corp_id
+			AND archive_legacy_message.msgid = wm.msgid
+		LEFT JOIN mochat_go_archive_simulation_batches archive_legacy_batch
+			ON archive_legacy_batch.id = archive_legacy_message.batch_id
+			AND archive_legacy_batch.corp_id = wm.corp_id
+			AND archive_legacy_batch.status = 'complete'`
+	}
+	return join
 }
 
 func archiveSourceInnerProjection(registryAvailable bool) string {
-	if !registryAvailable {
+	return archiveSourceInnerProjectionForState(archiveSourceRegistryState{explicit: registryAvailable})
+}
+
+func archiveSourceInnerProjectionForState(state archiveSourceRegistryState) string {
+	if !state.metadataAvailable() {
 		return ""
 	}
-	return ", COALESCE(archive_source.source_kind, 'external') AS archive_source_kind, COALESCE(archive_source.source_id, 'wecom') AS archive_source_id"
+	if state.explicit && state.legacySimulation {
+		return ", COALESCE(archive_source.source_kind, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN 'simulated' ELSE 'external' END) AS archive_source_kind, COALESCE(archive_source.source_id, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN CONCAT('simulation:', archive_legacy_batch.batch_key) ELSE 'wecom' END) AS archive_source_id"
+	}
+	if state.explicit {
+		return ", COALESCE(archive_source.source_kind, 'external') AS archive_source_kind, COALESCE(archive_source.source_id, 'wecom') AS archive_source_id"
+	}
+	return ", CASE WHEN archive_legacy_batch.id IS NOT NULL THEN 'simulated' ELSE 'external' END AS archive_source_kind, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN CONCAT('simulation:', archive_legacy_batch.batch_key) ELSE 'wecom' END AS archive_source_id"
 }
 
 func archiveSourceProjection(registryAvailable bool) string {
-	if !registryAvailable {
+	return archiveSourceProjectionForState(archiveSourceRegistryState{explicit: registryAvailable})
+}
+
+func archiveSourceProjectionForState(state archiveSourceRegistryState) string {
+	if !state.metadataAvailable() {
 		return ""
 	}
 	return ", archive_source_kind, archive_source_id"
 }
 
-func (s *MySQLStore) archiveSourceRegistryAvailable(ctx context.Context) (bool, error) {
+func (s *MySQLStore) archiveSourceRegistryState(ctx context.Context) (archiveSourceRegistryState, error) {
 	if s == nil || s.db == nil {
-		return false, errors.New("archive source registry unavailable")
+		return archiveSourceRegistryState{}, errors.New("archive source registry unavailable")
 	}
-	var count int
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT table_name
 		FROM information_schema.tables
-		WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources'
-	`).Scan(&count); err != nil {
-		return false, err
+		WHERE table_schema = DATABASE()
+		  AND table_name IN ('mochat_go_archive_message_sources', 'mochat_go_archive_simulation_batches', 'mochat_go_archive_simulation_messages')
+	`)
+	if err != nil {
+		return archiveSourceRegistryState{}, err
 	}
-	return count == 1, nil
+	defer rows.Close()
+	state := archiveSourceRegistryState{}
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return archiveSourceRegistryState{}, err
+		}
+		switch tableName {
+		case "mochat_go_archive_message_sources":
+			state.explicit = true
+		case "mochat_go_archive_simulation_batches", "mochat_go_archive_simulation_messages":
+			// The complete legacy pair is checked below.
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return archiveSourceRegistryState{}, err
+	}
+	// A legacy simulated source is valid only when both 0133 registry tables
+	// exist; otherwise every unregistered row remains the external fallback.
+	var legacyTables int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name IN ('mochat_go_archive_simulation_batches', 'mochat_go_archive_simulation_messages')
+	`).Scan(&legacyTables); err != nil {
+		return archiveSourceRegistryState{}, err
+	}
+	state.legacySimulation = legacyTables == 2
+	return state, nil
+}
+
+func (s *MySQLStore) archiveSourceRegistryAvailable(ctx context.Context) (bool, error) {
+	state, err := s.archiveSourceRegistryState(ctx)
+	return state.explicit, err
 }
 
 func workMessageFilteredUnionSQL(filter dashboard.WorkMessageUserFilter) (string, []any) {

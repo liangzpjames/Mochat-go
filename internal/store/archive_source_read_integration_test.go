@@ -119,10 +119,63 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	}
 }
 
+func TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createArchiveSyncCorpFixture(t, db)
+	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
+	defer executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql")
+	createArchiveReadBusinessFixture(t, db)
+
+	batch, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_batches (corp_id,batch_key,status,message_count) VALUES (27,'legacy-old','complete',1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batchID, err := batch.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mc_work_message_1 (corp_id,msgid,seq,work_employee_id,to_user_type,to_user_id,content,content_text,msg_data_time) VALUES (27,'legacy-simulated',11,1001,1,2001,'{}','legacy-simulated',NOW())`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_messages (batch_id,corp_id,msgid,table_index) VALUES (?,?,?,1)`, batchID, 27, "legacy-simulated"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mc_work_message_1 (corp_id,msgid,seq,work_employee_id,to_user_type,to_user_id,content,content_text,msg_data_time) VALUES (27,'legacy-real',12,1001,1,2001,'{}','legacy-real',NOW())`); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewMySQLStore(db)
+	ctx := context.Background()
+	realPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if realPage.Total != 1 || realPage.TotalPage != 1 || len(realPage.Items) != 1 || realPage.Items[0].MsgID != "legacy-real" || realPage.Items[0].ArchiveSource != "external" {
+		t.Fatalf("legacy default real page=%#v", realPage)
+	}
+	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27`); err != nil {
+		t.Fatal(err)
+	}
+	simulationPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if simulationPage.Total != 1 || simulationPage.TotalPage != 1 || len(simulationPage.Items) != 1 || simulationPage.Items[0].MsgID != "legacy-simulated" || simulationPage.Items[0].ArchiveSource != "simulated" || simulationPage.Items[0].ArchiveSourceID != "simulation:legacy-old" {
+		t.Fatalf("legacy default simulation page=%#v", simulationPage)
+	}
+}
+
 func createArchiveReadFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
+	if _, err := db.Exec(`CREATE TABLE mochat_go_archive_simulation_batches (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, batch_key VARCHAR(128) NOT NULL, status VARCHAR(16) NOT NULL, message_count INT UNSIGNED NOT NULL DEFAULT 0, created_at DATETIME NULL, updated_at DATETIME NULL) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
+	createArchiveReadBusinessFixture(t, db)
+}
+
+func createArchiveReadBusinessFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
 	for _, statement := range []string{
-		`CREATE TABLE mochat_go_archive_simulation_batches (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, batch_key VARCHAR(128) NOT NULL, status VARCHAR(16) NOT NULL, message_count INT UNSIGNED NOT NULL DEFAULT 0, created_at DATETIME NULL, updated_at DATETIME NULL) ENGINE=InnoDB`,
 		`CREATE TABLE mc_work_employee (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', alias VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_user_id VARCHAR(255) NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,
 		`CREATE TABLE mc_work_contact (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', alias VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_external_userid VARCHAR(255) NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,
 		`CREATE TABLE mc_work_room (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_chat_id VARCHAR(255) NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,

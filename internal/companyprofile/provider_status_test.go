@@ -81,6 +81,22 @@ func TestProviderStatusSourceRejectsExternalArchiveReadyFromOptionalStore(t *tes
 	}
 }
 
+func TestProviderStatusSourceRejectsArchiveRuntimeWithWrongKindOrEmptySource(t *testing.T) {
+	fallback := providers.Status{
+		Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateLimited,
+		Code: "archive.getchatdata_unimplemented",
+	}
+	for _, runtime := range []providers.Status{
+		{Kind: "other_archive", Source: providers.SourceSimulated, State: providers.StateReady, Code: "archive.simulation_ready"},
+		{Kind: "wecom_archive", State: providers.StateReady, Code: "archive.runtime_verified"},
+	} {
+		got := mergeArchiveRuntimeStatus(fallback, runtime)
+		if got.Kind != "wecom_archive" || got.Source != providers.SourceExternal || got.State != providers.StateLimited || got.Code != "archive.getchatdata_unimplemented" {
+			t.Fatalf("runtime=%#v merged=%#v", runtime, got)
+		}
+	}
+}
+
 func TestProviderStatusSourceDoesNotReadSyncStatusForPendingBinding(t *testing.T) {
 	store := &companyProfileContractStore{
 		profile: Profile{
