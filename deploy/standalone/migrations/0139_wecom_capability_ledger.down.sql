@@ -58,23 +58,24 @@ SET @wecom_0139_down_signature_invalid := (
   OR EXISTS (SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND index_name IN ('uk_wecom_capability_operation_scope_id','uk_wecom_capability_operation_idempotency','uk_wecom_capability_dispatch_scope_id','uk_wecom_capability_dispatch_idempotency','uk_wecom_capability_dispatch_target_chunk','uk_wecom_capability_result_scope_id','uk_wecom_capability_result_target') AND non_unique <> 0)
 );
 
-SET @wecom_0139_down_external_fk_invalid := EXISTS (
+SET @wecom_0139_down_unexpected_fk_invalid := EXISTS (
   SELECT 1
-  FROM information_schema.referential_constraints
-  WHERE constraint_schema = DATABASE()
-    AND referenced_table_name IN (
+  FROM information_schema.referential_constraints rc
+  WHERE rc.unique_constraint_schema = DATABASE()
+    AND rc.referenced_table_name IN (
       'mochat_go_wecom_capability_operations',
       'mochat_go_wecom_capability_dispatches',
       'mochat_go_wecom_capability_operation_results',
       'mochat_go_wecom_capability_operation_audits',
       'mochat_go_wecom_capability_operation_events'
     )
-    AND table_name NOT IN (
-      'mochat_go_wecom_capability_operations',
-      'mochat_go_wecom_capability_dispatches',
-      'mochat_go_wecom_capability_operation_results',
-      'mochat_go_wecom_capability_operation_audits',
-      'mochat_go_wecom_capability_operation_events'
+    AND NOT (
+      (rc.constraint_schema = DATABASE() AND rc.table_name = 'mochat_go_wecom_capability_dispatches' AND rc.constraint_name = 'fk_wecom_capability_dispatch_operation' AND rc.referenced_table_name = 'mochat_go_wecom_capability_operations' AND COALESCE((SELECT GROUP_CONCAT(CONCAT(k.column_name,'=',k.referenced_column_name) ORDER BY k.ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage k WHERE k.constraint_schema = rc.constraint_schema AND k.table_name = rc.table_name AND k.constraint_name = rc.constraint_name), '') = 'tenant_id=tenant_id,corp_id=corp_id,operation_id=id')
+      OR (rc.constraint_schema = DATABASE() AND rc.table_name = 'mochat_go_wecom_capability_operation_results' AND rc.constraint_name = 'fk_wecom_capability_result_operation' AND rc.referenced_table_name = 'mochat_go_wecom_capability_operations' AND COALESCE((SELECT GROUP_CONCAT(CONCAT(k.column_name,'=',k.referenced_column_name) ORDER BY k.ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage k WHERE k.constraint_schema = rc.constraint_schema AND k.table_name = rc.table_name AND k.constraint_name = rc.constraint_name), '') = 'tenant_id=tenant_id,corp_id=corp_id,operation_id=id')
+      OR (rc.constraint_schema = DATABASE() AND rc.table_name = 'mochat_go_wecom_capability_operation_audits' AND rc.constraint_name = 'fk_wecom_capability_audit_operation' AND rc.referenced_table_name = 'mochat_go_wecom_capability_operations' AND COALESCE((SELECT GROUP_CONCAT(CONCAT(k.column_name,'=',k.referenced_column_name) ORDER BY k.ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage k WHERE k.constraint_schema = rc.constraint_schema AND k.table_name = rc.table_name AND k.constraint_name = rc.constraint_name), '') = 'tenant_id=tenant_id,corp_id=corp_id,operation_id=id')
+      OR (rc.constraint_schema = DATABASE() AND rc.table_name = 'mochat_go_wecom_capability_operation_audits' AND rc.constraint_name = 'fk_wecom_capability_audit_dispatch' AND rc.referenced_table_name = 'mochat_go_wecom_capability_dispatches' AND COALESCE((SELECT GROUP_CONCAT(CONCAT(k.column_name,'=',k.referenced_column_name) ORDER BY k.ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage k WHERE k.constraint_schema = rc.constraint_schema AND k.table_name = rc.table_name AND k.constraint_name = rc.constraint_name), '') = 'tenant_id=tenant_id,corp_id=corp_id,dispatch_id=id')
+      OR (rc.constraint_schema = DATABASE() AND rc.table_name = 'mochat_go_wecom_capability_operation_events' AND rc.constraint_name = 'fk_wecom_capability_event_operation' AND rc.referenced_table_name = 'mochat_go_wecom_capability_operations' AND COALESCE((SELECT GROUP_CONCAT(CONCAT(k.column_name,'=',k.referenced_column_name) ORDER BY k.ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage k WHERE k.constraint_schema = rc.constraint_schema AND k.table_name = rc.table_name AND k.constraint_name = rc.constraint_name), '') = 'tenant_id=tenant_id,corp_id=corp_id,operation_id=id')
+      OR (rc.constraint_schema = DATABASE() AND rc.table_name = 'mochat_go_wecom_capability_operation_events' AND rc.constraint_name = 'fk_wecom_capability_event_dispatch' AND rc.referenced_table_name = 'mochat_go_wecom_capability_dispatches' AND COALESCE((SELECT GROUP_CONCAT(CONCAT(k.column_name,'=',k.referenced_column_name) ORDER BY k.ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage k WHERE k.constraint_schema = rc.constraint_schema AND k.table_name = rc.table_name AND k.constraint_name = rc.constraint_name), '') = 'tenant_id=tenant_id,corp_id=corp_id,dispatch_id=id')
     )
 );
 
@@ -152,7 +153,7 @@ SET @wecom_0139_down_invalid := (
   OR EXISTS (SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mc_room_message_batch_send' AND column_name = 'tenant_id' AND index_name NOT IN ('uk_wecom_room_batch_scope'))
   OR EXISTS (SELECT 1 FROM information_schema.key_column_usage k JOIN information_schema.table_constraints tc ON tc.constraint_schema = k.constraint_schema AND tc.table_name = k.table_name AND tc.constraint_name = k.constraint_name WHERE k.constraint_schema = DATABASE() AND k.table_name = 'mc_contact_message_batch_send' AND k.column_name = 'tenant_id' AND tc.constraint_type = 'FOREIGN KEY' AND k.constraint_name <> 'fk_wecom_contact_batch_corp')
   OR EXISTS (SELECT 1 FROM information_schema.key_column_usage k JOIN information_schema.table_constraints tc ON tc.constraint_schema = k.constraint_schema AND tc.table_name = k.table_name AND tc.constraint_name = k.constraint_name WHERE k.constraint_schema = DATABASE() AND k.table_name = 'mc_room_message_batch_send' AND k.column_name = 'tenant_id' AND tc.constraint_type = 'FOREIGN KEY' AND k.constraint_name <> 'fk_wecom_room_batch_corp')
-  OR @wecom_0139_down_external_fk_invalid
+  OR @wecom_0139_down_unexpected_fk_invalid
   OR @wecom_0139_down_index_invalid
   OR @wecom_0139_down_signature_invalid
 );
@@ -197,7 +198,7 @@ SET @wecom_0139_down_event_residual := EXISTS (
   )
 );
 SET @wecom_0139_down_reason := CASE
-  WHEN @wecom_0139_down_external_fk_invalid THEN 'external_fk'
+  WHEN @wecom_0139_down_unexpected_fk_invalid THEN 'unexpected_fk'
   WHEN @wecom_0139_down_parent_residual THEN 'parent'
   WHEN @wecom_0139_down_operations_residual THEN 'operations'
   WHEN @wecom_0139_down_dispatch_residual THEN 'dispatches'
@@ -207,7 +208,7 @@ SET @wecom_0139_down_reason := CASE
   ELSE 'unclassified'
 END;
 SET @wecom_0139_down_guard_sql := CASE
-  WHEN @wecom_0139_down_external_fk_invalid THEN 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 rollback blocked by external foreign key'''
+  WHEN @wecom_0139_down_unexpected_fk_invalid THEN 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 rollback blocked by external foreign key'''
   WHEN @wecom_0139_down_invalid = 0 THEN 'SELECT 1'
   ELSE CONCAT('SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 incompatible rollback residual: ', @wecom_0139_down_reason, '''')
 END;

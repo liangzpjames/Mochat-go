@@ -29,6 +29,10 @@ func loadWeComCapabilityLedgerScripts(t *testing.T) (string, string) {
 	return string(up), string(down)
 }
 
+func quoteMigrationIdentifier(value string) string {
+	return "`" + strings.ReplaceAll(value, "`", "``") + "`"
+}
+
 func TestWeComCapabilityLedgerMigrationIsRegisteredAndSplitSafe(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
@@ -168,7 +172,9 @@ func TestWeComCapabilityLedgerRollbackPreflightsExternalInboundForeignKeys(t *te
 	_, down := loadWeComCapabilityLedgerScripts(t)
 	lowerDown := strings.ToLower(down)
 	for _, required := range []string{
-		"@wecom_0139_down_external_fk_invalid",
+		"@wecom_0139_down_unexpected_fk_invalid",
+		"unique_constraint_schema = database()",
+		"information_schema.key_column_usage",
 		"referenced_table_name in",
 		"'mochat_go_wecom_capability_operations'",
 		"'mochat_go_wecom_capability_dispatches'",
@@ -187,8 +193,28 @@ func TestWeComCapabilityLedgerRealRollbackRejectsExternalInboundForeignKeysBefor
 		if _, err := runner.Apply(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`
-CREATE TABLE mochat_wecom_0139_external_fk_probe (
+		var currentSchema string
+		if err := db.QueryRow(`SELECT DATABASE()`).Scan(&currentSchema); err != nil {
+			t.Fatal(err)
+		}
+		probeSchema := fmt.Sprintf("mochat_wecom_0139_fk_probe_%d_%d", os.Getpid(), weComCapabilityLedgerSchemaSequence.Add(1))
+		if _, err := db.Exec("CREATE DATABASE `" + probeSchema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if _, err := db.Exec("DROP DATABASE IF EXISTS `" + probeSchema + "`"); err != nil {
+				t.Errorf("drop cross-schema probe: %v", err)
+				return
+			}
+			var leftovers int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, probeSchema).Scan(&leftovers); err != nil {
+				t.Errorf("check cross-schema probe cleanup: %v", err)
+			} else if leftovers != 0 {
+				t.Errorf("cross-schema probe leftovers=%d", leftovers)
+			}
+		}()
+		if _, err := db.Exec(fmt.Sprintf(`
+CREATE TABLE %s.mo_chat_wecom_0139_external_fk_probe (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   tenant_id INT UNSIGNED NOT NULL,
   corp_id INT UNSIGNED NOT NULL,
@@ -198,10 +224,10 @@ CREATE TABLE mochat_wecom_0139_external_fk_probe (
   KEY idx_external_operation (tenant_id,corp_id,operation_id),
   KEY idx_external_dispatch (tenant_id,corp_id,dispatch_id),
   CONSTRAINT fk_external_operation FOREIGN KEY (tenant_id,corp_id,operation_id)
-    REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id),
+    REFERENCES %s.mochat_go_wecom_capability_operations (tenant_id,corp_id,id),
   CONSTRAINT fk_external_dispatch FOREIGN KEY (tenant_id,corp_id,dispatch_id)
-    REFERENCES mochat_go_wecom_capability_dispatches (tenant_id,corp_id,id)
-) ENGINE=InnoDB`); err != nil {
+    REFERENCES %s.mochat_go_wecom_capability_dispatches (tenant_id,corp_id,id)
+) ENGINE=InnoDB`, quoteMigrationIdentifier(probeSchema), quoteMigrationIdentifier(currentSchema), quoteMigrationIdentifier(currentSchema))); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := runner.RollbackLast(context.Background()); err == nil || !strings.Contains(err.Error(), "0139 rollback blocked by external foreign key") {
@@ -213,6 +239,32 @@ CREATE TABLE mochat_wecom_0139_external_fk_probe (
 		}
 		if remaining != 5 {
 			t.Fatalf("external inbound foreign key rollback dropped ledger tables: remaining=%d", remaining)
+		}
+	})
+}
+
+func TestWeComCapabilityLedgerRealRollbackRejectsUnexpectedInternalForeignKeysBeforeDrop(t *testing.T) {
+	withTemporaryWeComCapabilityLedgerSchema(t, func(db *sql.DB, root string) {
+		createWeComCapabilityLedgerPreMigrationFixture(t, db)
+		runner := newWeComCapabilityLedgerTestRunner(t, db, root)
+		if _, err := runner.Apply(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`ALTER TABLE mochat_go_wecom_capability_operation_audits
+ADD KEY tmp_0139_unexpected_event_fk (dispatch_id),
+ADD CONSTRAINT fk_0139_unexpected_audit_event FOREIGN KEY (dispatch_id)
+REFERENCES mochat_go_wecom_capability_operation_events (id)`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.RollbackLast(context.Background()); err == nil || !strings.Contains(err.Error(), "0139 rollback blocked by external foreign key") {
+			t.Fatalf("unexpected internal foreign key rollback error=%v", err)
+		}
+		var remaining int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('mochat_go_wecom_capability_operations','mochat_go_wecom_capability_dispatches','mochat_go_wecom_capability_operation_results','mochat_go_wecom_capability_operation_audits','mochat_go_wecom_capability_operation_events')`).Scan(&remaining); err != nil {
+			t.Fatal(err)
+		}
+		if remaining != 5 {
+			t.Fatalf("unexpected internal foreign key rollback dropped ledger tables: remaining=%d", remaining)
 		}
 	})
 }
