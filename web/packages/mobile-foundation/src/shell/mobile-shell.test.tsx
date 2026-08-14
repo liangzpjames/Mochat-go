@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MobileShell } from './mobile-shell';
+import { MobileBottomNavigation } from './mobile-navigation';
 import {
   MobileActionDock,
   MobileErrorBoundary,
@@ -48,6 +49,51 @@ describe('MobileShell', () => {
     expect(dock.classList).toContain('mobile-action-dock--safe-area');
     expect(dock.style.minHeight).toBe('44px');
   });
+
+  it('renders optional eyebrow and hero content without changing existing headings', () => {
+    render(
+      <MobileShell
+        appName="当前应用"
+        title="活动"
+        eyebrow="客户运营"
+        hero={<p>本周重点工作</p>}
+      >
+        <p>活动内容</p>
+      </MobileShell>,
+    );
+
+    expect(screen.getByText('客户运营').classList.contains('mobile-shell__eyebrow')).toBe(true);
+    expect(screen.getByText('本周重点工作').closest('.mobile-shell__hero')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '活动' })).not.toBeNull();
+  });
+
+  it('only reserves bottom navigation space when an explicit navigation region is supplied', () => {
+    const { rerender } = render(
+      <MobileShell appName="当前应用" title="活动">
+        <p>活动内容</p>
+      </MobileShell>,
+    );
+
+    expect(screen.getByTestId('mobile-shell').classList.contains('mobile-shell--has-bottom-navigation')).toBe(false);
+
+    rerender(
+      <MobileShell
+        appName="当前应用"
+        title="活动"
+        bottomNavigation={
+          <MobileBottomNavigation
+            label="员工工作台"
+            items={[{ key: 'customers', label: '客户', icon: <span />, href: '/contact', current: true }]}
+          />
+        }
+      >
+        <p>活动内容</p>
+      </MobileShell>,
+    );
+
+    expect(screen.getByTestId('mobile-shell').classList.contains('mobile-shell--has-bottom-navigation')).toBe(true);
+    expect(screen.getByRole('navigation', { name: '员工工作台' })).not.toBeNull();
+  });
 });
 
 describe('MobileState', () => {
@@ -79,6 +125,12 @@ describe('MobileState', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(retry).toHaveBeenCalledOnce();
     expect(screen.getByRole('alert').textContent).toContain('请检查网络后重试。');
+  });
+
+  it('renders its decorative graphic as hidden from assistive technology', () => {
+    render(<MobileState kind="empty" />);
+
+    expect(screen.getByTestId('mobile-state-graphic').getAttribute('aria-hidden')).toBe('true');
   });
 });
 

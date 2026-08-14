@@ -9,6 +9,18 @@ export type {
 export { safeInternalTarget } from './navigation/safe-target';
 export { MobileShell } from './shell/mobile-shell';
 export type { MobileShellProps } from './shell/mobile-shell';
+export { MobileCard, MobileIconTile } from './shell/mobile-card';
+export type {
+  MobileCardPadding,
+  MobileCardProps,
+  MobileCardTone,
+  MobileIconTileProps,
+} from './shell/mobile-card';
+export { MobileBottomNavigation } from './shell/mobile-navigation';
+export type {
+  MobileBottomNavigationItem,
+  MobileBottomNavigationProps,
+} from './shell/mobile-navigation';
 export {
   MobileActionDock,
   MobileErrorBoundary,

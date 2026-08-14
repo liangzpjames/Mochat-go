@@ -48,6 +48,16 @@ export function MobileState({
       className={`mobile-state mobile-state--${kind}`}
       role={kind === 'error' ? 'alert' : 'status'}
     >
+      <svg
+        aria-hidden="true"
+        className="mobile-state__graphic"
+        data-testid="mobile-state-graphic"
+        viewBox="0 0 96 72"
+      >
+        <rect fill="currentColor" height="36" opacity="0.12" rx="18" width="72" x="12" y="24" />
+        <circle cx="36" cy="32" fill="currentColor" opacity="0.32" r="12" />
+        <path d="M48 42c8-10 17-10 24 0" fill="none" stroke="currentColor" strokeWidth="6" />
+      </svg>
       <h2 className="mobile-state__title">{title}</h2>
       {description === undefined ? null : (
         <p className="mobile-state__description">{description}</p>
