@@ -22,10 +22,10 @@ describe('provider status page', () => {
     const api: ProviderStatusApi = {
       getStatus: vi.fn().mockResolvedValue({
         providers: [
-          { kind: 'wecom_standard', state: 'ready', code: 'wecom.runtime_verified', source: 'external', capabilities: ['employee_sync'], lastSyncAt: '2026-08-14T08:00:00Z', lastSuccessAt: '2026-08-14T08:00:00Z' },
-          { kind: 'simulated', state: 'limited', code: 'provider.simulated', source: 'simulated', capabilities: ['demo'], lastFailureAt: '2026-08-14T08:01:00Z', lastErrorCode: 'provider.simulated_failure' },
-          { kind: 'audio_storage', state: 'ready', code: 'audio_storage.ready', source: 'local', capabilities: ['audio_object_storage'] },
-          { kind: 'ai', state: 'limited', code: 'ai.disabled', source: 'code_only', capabilities: ['chat'] },
+          { kind: 'wecom_standard', state: 'ready', code: 'wecom.runtime_verified', source: 'external', capabilities: ['employee_sync'], lastSyncAt: '2026-08-14T08:00:00Z', lastSuccessAt: '2026-08-14T08:00:00Z', capabilityStatuses: [{ capability: 'employee_sync', state: 'ready', source: 'external', lastSuccessAt: '2026-08-14T08:00:00Z' }] },
+          { kind: 'simulated', state: 'limited', code: 'provider.simulated', source: 'simulated', capabilities: ['demo'], lastFailureAt: '2026-08-14T08:01:00Z', lastErrorCode: 'provider.simulated_failure', capabilityStatuses: [{ capability: 'demo', state: 'limited', source: 'simulated', lastFailureAt: '2026-08-14T08:01:00Z', lastErrorCode: 'provider.simulated_failure' }] },
+          { kind: 'audio_storage', state: 'ready', code: 'audio_storage.ready', source: 'local', capabilities: ['audio_object_storage'], capabilityStatuses: [] },
+          { kind: 'ai', state: 'limited', code: 'ai.disabled', source: 'code_only', capabilities: ['chat'], capabilityStatuses: [] },
         ],
         freshAt: '2026-08-14T08:02:00Z',
       }),
@@ -48,7 +48,7 @@ describe('provider status page', () => {
       getStatus: vi.fn().mockResolvedValue({
         providers: [{
           kind: 'wecom_archive', state: 'limited', code: 'archive.credentials_missing', source: 'external',
-          action: '请联系管理员配置或验证 Provider', reason: 'MOCHAT_ARCHIVE_SECRET', missing: ['MOCHAT_ARCHIVE_SECRET'], capabilities: ['archive_sync'],
+          action: '请联系管理员配置或验证 Provider', reason: 'MOCHAT_ARCHIVE_SECRET', missing: ['MOCHAT_ARCHIVE_SECRET'], capabilities: ['archive_sync'], capabilityStatuses: [],
         }],
         freshAt: '2026-08-14T08:00:00Z',
       }),
@@ -66,7 +66,7 @@ describe('provider status page', () => {
       getStatus: vi.fn().mockResolvedValue({
         providers: [{
           kind: 'wecom_archive', state: 'limited', code: 'archive.credentials_missing', source: 'external',
-          action: 'configure archive', reason: 'archive credential is missing', missing: ['archive credential'], capabilities: ['archive_sync'],
+          action: 'configure archive', reason: 'archive credential is missing', missing: ['archive credential'], capabilities: ['archive_sync'], capabilityStatuses: [],
         }],
         freshAt: '2026-08-14T08:00:00Z',
       }),

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/modules/providers"
+	"jiyi/mochat-go/internal/wecomcapability"
 )
 
 const defaultWeComAPIBaseURL = "https://qyapi.weixin.qq.com"
@@ -62,7 +63,7 @@ func (c *RoomWelcomeWeComClient) Status() providers.Status {
 		State:        providers.StateLimited,
 		Code:         "wecom.tenant_credentials_required",
 		Source:       providers.SourceExternal,
-		Capabilities: []string{"employee_sync"},
+		Capabilities: append([]string(nil), wecomcapability.All...),
 		Reason:       "企业微信 HTTP runtime 已就绪，当前状态需由租户凭据和验证结果决定",
 		Action:       "完成企业微信凭据配置与验证",
 	}

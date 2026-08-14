@@ -86,3 +86,25 @@ func TestCompanySyncStatusFromRecordDistinguishesQueueLifecycle(t *testing.T) {
 		t.Fatalf("unknown cursor status=%+v", unknown)
 	}
 }
+
+func TestCompanySyncStatusFromRecordRequiresCredentialVersionForCompletedEvidence(t *testing.T) {
+	finished := time.Date(2026, 8, 15, 10, 11, 12, 0, time.UTC)
+	current := companySyncStatusFromRecord(
+		sql.NullTime{Time: finished, Valid: true},
+		sql.NullString{String: `{"code":"SYNC_COMPLETED","credentialVersion":7}`, Valid: true},
+		3,
+		4,
+	)
+	if current.Status != "completed" || current.CredentialVersion != 7 {
+		t.Fatalf("current completed status=%+v", current)
+	}
+	legacy := companySyncStatusFromRecord(
+		sql.NullTime{Time: finished, Valid: true},
+		sql.NullString{String: "", Valid: false},
+		3,
+		4,
+	)
+	if legacy.Status != "completed" || legacy.CredentialVersion != 0 {
+		t.Fatalf("legacy completed status=%+v", legacy)
+	}
+}

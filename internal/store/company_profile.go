@@ -759,9 +759,10 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 		AuthoritativeCorpName: binding.VerifiedCorpName, BindingStatus: status, BindingVersion: binding.Version,
 		ApplicationAgentID: strings.TrimSpace(applicationAgentID),
 		Credentials: companyprofile.CredentialStatuses{
-			WeCom:   companyprofile.CredentialStatus{Configured: corpConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
-			Agent:   companyprofile.CredentialStatus{Configured: agentCount > 0, KeyID: strings.TrimSpace(agentKey.String), UpdatedAt: companyNullableTime(agentUpdated)},
-			Archive: companyprofile.CredentialStatus{Configured: archiveConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
+			WeCom:    companyprofile.CredentialStatus{Configured: corpConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
+			Agent:    companyprofile.CredentialStatus{Configured: agentCount > 0, KeyID: strings.TrimSpace(agentKey.String), UpdatedAt: companyNullableTime(agentUpdated)},
+			Archive:  companyprofile.CredentialStatus{Configured: archiveConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
+			Callback: companyprofile.CredentialStatus{Configured: corpConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
 		},
 	}
 	if strings.TrimSpace(binding.VerifiedWXCorpID) != "" {

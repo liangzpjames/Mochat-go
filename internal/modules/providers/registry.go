@@ -128,5 +128,18 @@ func normalizeCapabilities(values []string) []string {
 func cloneStatus(status Status) Status {
 	status.Capabilities = append([]string(nil), status.Capabilities...)
 	status.Missing = append([]string(nil), status.Missing...)
+	status.CapabilityStatuses = cloneCapabilityStatuses(status.CapabilityStatuses)
 	return status
+}
+
+func cloneCapabilityStatuses(statuses []CapabilityStatus) []CapabilityStatus {
+	if statuses == nil {
+		return nil
+	}
+	cloned := make([]CapabilityStatus, len(statuses))
+	copy(cloned, statuses)
+	for index := range cloned {
+		cloned[index].Missing = append([]string(nil), cloned[index].Missing...)
+	}
+	return cloned
 }

@@ -14,6 +14,21 @@ export type ProviderStatus = {
   lastSuccessAt?: string;
   lastFailureAt?: string;
   lastErrorCode?: string;
+  capabilityStatuses: CapabilityStatus[];
+};
+
+export type CapabilityStatus = {
+  capability: string;
+  state: ProviderStatusState;
+  code?: string;
+  source?: ProviderStatusSource;
+  reason?: string;
+  action?: string;
+  missing?: string[];
+  lastSyncAt?: string;
+  lastSuccessAt?: string;
+  lastFailureAt?: string;
+  lastErrorCode?: string;
 };
 
 export type ProviderStatusView = {
@@ -71,6 +86,35 @@ function normalizeStatus(value: unknown): ProviderStatus {
   addOptionalString(result, 'lastSuccessAt', source.lastSuccessAt);
   addOptionalString(result, 'lastFailureAt', source.lastFailureAt);
   addOptionalString(result, 'lastErrorCode', source.lastErrorCode);
+  result.capabilityStatuses = Array.isArray(source.capabilityStatuses)
+    ? source.capabilityStatuses.map(normalizeCapabilityStatus)
+    : [];
+  return result;
+}
+
+function normalizeCapabilityStatus(value: unknown): CapabilityStatus {
+  const source = record(value);
+  const rawState = source.state;
+  const state: ProviderStatusState = rawState === 'ready' || rawState === 'limited' || rawState === 'unavailable'
+    ? rawState
+    : 'unavailable';
+  const rawSource = source.source;
+  const capabilitySource: ProviderStatusSource | undefined = rawSource === 'external' || rawSource === 'simulated' || rawSource === 'local' || rawSource === 'code_only'
+    ? rawSource
+    : undefined;
+  const result: CapabilityStatus = {
+    capability: stringValue(source.capability) ?? 'unknown',
+    state,
+  };
+  addOptionalString(result, 'code', source.code);
+  if (capabilitySource !== undefined) result.source = capabilitySource;
+  addOptionalString(result, 'reason', source.reason);
+  addOptionalString(result, 'action', source.action);
+  addOptionalStringArray(result, 'missing', source.missing);
+  addOptionalString(result, 'lastSyncAt', source.lastSyncAt);
+  addOptionalString(result, 'lastSuccessAt', source.lastSuccessAt);
+  addOptionalString(result, 'lastFailureAt', source.lastFailureAt);
+  addOptionalString(result, 'lastErrorCode', source.lastErrorCode);
   return result;
 }
 
@@ -90,12 +134,13 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
-type OptionalProviderStatusField = 'reason' | 'action' | 'lastSyncAt' | 'lastSuccessAt' | 'lastFailureAt' | 'lastErrorCode';
+type OptionalProviderStatusField = 'code' | 'reason' | 'action' | 'lastSyncAt' | 'lastSuccessAt' | 'lastFailureAt' | 'lastErrorCode';
 
-function addOptionalString(target: ProviderStatus, key: OptionalProviderStatusField, value: unknown): void {
+function addOptionalString(target: ProviderStatus | CapabilityStatus, key: OptionalProviderStatusField, value: unknown): void {
   const normalized = stringValue(value);
   if (normalized === undefined) return;
   switch (key) {
+    case 'code': if ('code' in target) target.code = normalized; break;
     case 'reason': target.reason = normalized; break;
     case 'action': target.action = normalized; break;
     case 'lastSyncAt': target.lastSyncAt = normalized; break;
@@ -105,7 +150,7 @@ function addOptionalString(target: ProviderStatus, key: OptionalProviderStatusFi
   }
 }
 
-function addOptionalStringArray(target: ProviderStatus, key: 'missing', value: unknown): void {
+function addOptionalStringArray(target: ProviderStatus | CapabilityStatus, key: 'missing', value: unknown): void {
   const normalized = stringArray(value);
   if (normalized.length > 0) target[key] = normalized;
 }

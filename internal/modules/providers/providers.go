@@ -30,13 +30,31 @@ const (
 
 // Status is the structured provider health used by pages and acceptance tooling.
 type Status struct {
-	Kind          string     `json:"kind"`
+	Kind               string             `json:"kind"`
+	State              State              `json:"state"`
+	Code               string             `json:"code,omitempty"`
+	Source             Source             `json:"source,omitempty"`
+	Reason             string             `json:"reason,omitempty"`
+	Action             string             `json:"action,omitempty"`
+	Capabilities       []string           `json:"capabilities,omitempty"`
+	Missing            []string           `json:"missing,omitempty"`
+	LastSyncAt         *time.Time         `json:"lastSyncAt,omitempty"`
+	LastSuccessAt      *time.Time         `json:"lastSuccessAt,omitempty"`
+	LastFailureAt      *time.Time         `json:"lastFailureAt,omitempty"`
+	LastErrorCode      string             `json:"lastErrorCode,omitempty"`
+	CapabilityStatuses []CapabilityStatus `json:"capabilityStatuses,omitempty"`
+}
+
+// CapabilityStatus is a tenant-scoped status for one classified capability.
+// It is separate from the provider-level status so one successful operation
+// cannot make unrelated capabilities appear ready.
+type CapabilityStatus struct {
+	Capability    string     `json:"capability"`
 	State         State      `json:"state"`
 	Code          string     `json:"code,omitempty"`
 	Source        Source     `json:"source,omitempty"`
 	Reason        string     `json:"reason,omitempty"`
 	Action        string     `json:"action,omitempty"`
-	Capabilities  []string   `json:"capabilities,omitempty"`
 	Missing       []string   `json:"missing,omitempty"`
 	LastSyncAt    *time.Time `json:"lastSyncAt,omitempty"`
 	LastSuccessAt *time.Time `json:"lastSuccessAt,omitempty"`

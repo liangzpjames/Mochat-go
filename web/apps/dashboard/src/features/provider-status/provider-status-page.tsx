@@ -1,7 +1,7 @@
 import { ApiError } from '@mochat/api-client';
 import { useQuery } from '@tanstack/react-query';
 
-import type { ProviderStatus, ProviderStatusApi } from './provider-status-api';
+import type { CapabilityStatus, ProviderStatus, ProviderStatusApi } from './provider-status-api';
 
 export function ProviderStatusPage({ api, isSuperAdmin = false }: { api: ProviderStatusApi; isSuperAdmin?: boolean }) {
   const query = useQuery({ queryKey: ['provider-status'], queryFn: () => api.getStatus(), retry: false });
@@ -49,9 +49,27 @@ function ProviderStatusRow({ status, isSuperAdmin }: { status: ProviderStatus; i
           {status.lastFailureAt && <span>最近失败：{formatTimestamp(status.lastFailureAt)}</span>}
           {status.lastErrorCode && <span>最近错误：<code>{status.lastErrorCode}</code></span>}
         </div>
+        {status.capabilityStatuses.length > 0 && <div className="provider-capability-statuses" aria-label="能力状态">
+          {status.capabilityStatuses.map((capability) => <CapabilityStatusRow key={capability.capability} status={capability} isSuperAdmin={isSuperAdmin} />)}
+        </div>}
       </div>
     </article>
   );
+}
+
+function CapabilityStatusRow({ status, isSuperAdmin }: { status: CapabilityStatus; isSuperAdmin: boolean }) {
+  const stateLabel = status.state === 'ready' ? '可用' : status.state === 'limited' ? '受限' : '不可用';
+  return <div className="provider-capability-status-row">
+    <span>{status.capability}</span><strong>{stateLabel}</strong>
+    {status.source && <span>来源：{providerSourceLabel(status.source)}</span>}
+    {status.code && <code>{status.code}</code>}
+    {status.action && <span>下一步：{status.action}</span>}
+    {isSuperAdmin && status.reason && <span>{status.reason}</span>}
+    {status.lastSyncAt && <span>最近同步：{formatTimestamp(status.lastSyncAt)}</span>}
+    {status.lastSuccessAt && <span>最近成功：{formatTimestamp(status.lastSuccessAt)}</span>}
+    {status.lastFailureAt && <span>最近失败：{formatTimestamp(status.lastFailureAt)}</span>}
+    {status.lastErrorCode && <span>最近错误：<code>{status.lastErrorCode}</code></span>}
+  </div>;
 }
 
 function providerStatusErrorMessage(error: unknown): string {

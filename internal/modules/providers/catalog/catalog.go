@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"jiyi/mochat-go/internal/modules/providers"
+	"jiyi/mochat-go/internal/wecomcapability"
 )
 
 // Dependencies are the real runtime components bound by the application. A
@@ -33,7 +34,7 @@ func NewRegistry(dependencies Dependencies) (*providers.Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("register provider wecom_archive: %w", err)
 	}
-	err = registry.Register(providers.Registration{Kind: "wecom_standard", Source: providers.SourceExternal, Capabilities: []string{"employee_sync"}, Provider: dependencyOrUnavailable(dependencies.WeComStandard, "wecom_standard")})
+	err = registry.Register(providers.Registration{Kind: "wecom_standard", Source: providers.SourceExternal, Capabilities: append([]string(nil), wecomcapability.All...), Provider: dependencyOrUnavailable(dependencies.WeComStandard, "wecom_standard")})
 	if err != nil {
 		return nil, fmt.Errorf("register provider wecom_standard: %w", err)
 	}

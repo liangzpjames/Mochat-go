@@ -29,13 +29,28 @@ type StatusSource interface {
 }
 
 type ProviderStatus struct {
-	Kind          string           `json:"kind"`
+	Kind               string             `json:"kind"`
+	State              providers.State    `json:"state"`
+	Code               string             `json:"code"`
+	Source             providers.Source   `json:"source"`
+	Reason             string             `json:"reason,omitempty"`
+	Action             string             `json:"action,omitempty"`
+	Capabilities       []string           `json:"capabilities,omitempty"`
+	Missing            []string           `json:"missing,omitempty"`
+	LastSyncAt         *time.Time         `json:"lastSyncAt,omitempty"`
+	LastSuccessAt      *time.Time         `json:"lastSuccessAt,omitempty"`
+	LastFailureAt      *time.Time         `json:"lastFailureAt,omitempty"`
+	LastErrorCode      string             `json:"lastErrorCode,omitempty"`
+	CapabilityStatuses []CapabilityStatus `json:"capabilityStatuses,omitempty"`
+}
+
+type CapabilityStatus struct {
+	Capability    string           `json:"capability"`
 	State         providers.State  `json:"state"`
-	Code          string           `json:"code"`
-	Source        providers.Source `json:"source"`
+	Code          string           `json:"code,omitempty"`
+	Source        providers.Source `json:"source,omitempty"`
 	Reason        string           `json:"reason,omitempty"`
 	Action        string           `json:"action,omitempty"`
-	Capabilities  []string         `json:"capabilities,omitempty"`
 	Missing       []string         `json:"missing,omitempty"`
 	LastSyncAt    *time.Time       `json:"lastSyncAt,omitempty"`
 	LastSuccessAt *time.Time       `json:"lastSuccessAt,omitempty"`

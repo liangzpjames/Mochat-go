@@ -11,6 +11,7 @@ describe('provider status api', () => {
         code: 'wecom.runtime_verified',
         source: 'external',
         capabilities: ['employee_sync'],
+        capabilityStatuses: [],
         lastSuccessAt: '2026-08-14T08:00:00Z',
       }],
       freshAt: '2026-08-14T08:01:00Z',
@@ -34,6 +35,7 @@ describe('provider status api', () => {
     expect(result.providers[0]).toEqual({
       kind: 'unknown', state: 'unavailable', code: 'provider.invalid_state', source: 'external',
       capabilities: [],
+      capabilityStatuses: [],
     });
     expect(JSON.stringify(result)).not.toContain('plaintext-secret');
   });
