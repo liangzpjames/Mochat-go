@@ -285,14 +285,14 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	agentSecret := "agent-rotated"
 	verifiedPrincipal := principal
 	verifiedPrincipal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
-	queued, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{})
+	queued, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if queued.AlreadyQueued || queued.Cursor != dashboard.CompanyEmployeeSyncCursor {
 		t.Fatalf("first queue result=%+v", queued)
 	}
-	duplicateQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{})
+	duplicateQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if _, err := db.Exec(`UPDATE mc_work_update_time SET error_msg = ?, updated_at = NOW() WHERE corp_id = 100 AND type = 1`, `{"code":"SYNC_RUNNING","cursor":"company-sync","credentialVersion":1}`); err != nil {
 		t.Fatal(err)
 	}
-	refreshedQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{})
+	refreshedQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "2"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if queuedStatus.Status != "queued" || queuedStatus.Cursor != dashboard.CompanyEmployeeSyncCursor || queuedStatus.CredentialVersion != 3 {
 		t.Fatalf("queued sync status=%+v", queuedStatus)
 	}
-	if err := store.BeginCompanyEmployeeSync(ctx, verifiedPrincipal.TenantID); err != nil {
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, verifiedPrincipal.TenantID, 3, "2"); err != nil {
 		t.Fatal(err)
 	}
 	runningStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
@@ -326,7 +326,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if runningStatus.Status != "syncing" || runningStatus.Cursor != dashboard.CompanyEmployeeSyncCursor {
 		t.Fatalf("running sync status=%+v", runningStatus)
 	}
-	if err := store.RecordCompanyEmployeeSyncFailure(ctx, verifiedPrincipal.TenantID); err != nil {
+	if err := store.RecordCompanyEmployeeSyncFailureAtVersion(ctx, verifiedPrincipal.TenantID, 3, "2"); err != nil {
 		t.Fatal(err)
 	}
 	failedStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
@@ -470,6 +470,135 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	wrongCorp.CorpID = 200
 	if _, err := store.GetProfile(ctx, wrongCorp); !errors.Is(err, companyprofile.ErrNotFound) {
 		t.Fatalf("cross-corp profile error=%v, want ErrNotFound", err)
+	}
+}
+
+func TestEmployeeSyncQueueTicketOrderingFencesDelayedWorkerRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey:       testCompanyCredentialKey(23),
+		EncryptionKeyID:     "queue-ticket-company-key",
+		RequireEncryption:   true,
+		DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{
+		UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending,
+		IsSuperAdmin: true, AuthVersion: 1,
+	}
+	ctx := context.Background()
+	profile, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{
+		ExpectedVersion: 1, RequestID: "queue-ticket-verify",
+	}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "queue-ticket-corp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
+
+	newerReceipt := companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "2", Cursor: dashboard.CompanyEmployeeSyncCursor}
+	if result, err := store.QueueEmployeeSync(ctx, principal, newerReceipt); err != nil || result.AlreadyQueued {
+		t.Fatalf("ticket2 queue result=%+v err=%v", result, err)
+	}
+	olderReceipt := companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "1", Cursor: dashboard.CompanyEmployeeSyncCursor}
+	if result, err := store.QueueEmployeeSync(ctx, principal, olderReceipt); err != nil || !result.AlreadyQueued {
+		t.Fatalf("delayed ticket1 queue result=%+v err=%v, want stale no-write acknowledgement", result, err)
+	}
+
+	readMarker := func() companySyncStateMarker {
+		var raw string
+		if err := db.QueryRow(`SELECT COALESCE(CAST(error_msg AS CHAR),'') FROM mc_work_update_time WHERE corp_id=100 AND type=1 ORDER BY id DESC LIMIT 1`).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		return decodeCompanySyncState(raw)
+	}
+	marker := readMarker()
+	if marker.QueueTicket != "2" || marker.CredentialVersion != profile.BindingVersion || marker.Code != companySyncStateQueued {
+		t.Fatalf("delayed ticket1 overwrote marker: marker=%+v profileVersion=%d", marker, profile.BindingVersion)
+	}
+
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, principal.TenantID, profile.BindingVersion, "1"); err == nil {
+		t.Fatal("ticket1 unexpectedly began after ticket2 claim")
+	}
+	if _, err := store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, profile.BindingVersion, "1", nil, nil); err == nil {
+		t.Fatal("ticket1 unexpectedly completed after ticket2 claim")
+	}
+	marker = readMarker()
+	if marker.QueueTicket != "2" || marker.Code != companySyncStateQueued {
+		t.Fatalf("old ticket changed marker after rejected begin/complete: %+v", marker)
+	}
+
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, principal.TenantID, profile.BindingVersion, "2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, profile.BindingVersion, "2", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	marker = readMarker()
+	if marker.QueueTicket != "2" || marker.Code != companySyncStateCompleted {
+		t.Fatalf("current ticket did not complete: %+v", marker)
+	}
+	if _, err := store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, profile.BindingVersion, "1", nil, nil); err == nil {
+		t.Fatal("old ticket unexpectedly completed after current worker success")
+	}
+	marker = readMarker()
+	if marker.QueueTicket != "2" || marker.Code != companySyncStateCompleted {
+		t.Fatalf("old completion changed current marker: %+v", marker)
+	}
+}
+
+func TestEmployeeSyncWorkerRecoversMissingMarkerFromRedisTicketRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey:       testCompanyCredentialKey(29),
+		EncryptionKeyID:     "missing-marker-company-key",
+		RequireEncryption:   true,
+		DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{
+		UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending,
+		IsSuperAdmin: true, AuthVersion: 1,
+	}
+	ctx := context.Background()
+	profile, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{
+		ExpectedVersion: 1, RequestID: "missing-marker-verify",
+	}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "missing-marker-corp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
+	var markerCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mc_work_update_time WHERE corp_id=100 AND type=1`).Scan(&markerCount); err != nil {
+		t.Fatal(err)
+	}
+	if markerCount != 0 {
+		t.Fatalf("fixture unexpectedly has a sync marker: %d", markerCount)
+	}
+
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, principal.TenantID, profile.BindingVersion, "7"); err != nil {
+		t.Fatal(err)
+	}
+	readMarker := func() companySyncStateMarker {
+		var raw string
+		if err := db.QueryRow(`SELECT COALESCE(CAST(error_msg AS CHAR),'') FROM mc_work_update_time WHERE corp_id=100 AND type=1 ORDER BY id DESC LIMIT 1`).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		return decodeCompanySyncState(raw)
+	}
+	marker := readMarker()
+	if marker.Code != companySyncStateRunning || marker.QueueTicket != "7" || marker.CredentialVersion != profile.BindingVersion {
+		t.Fatalf("missing-marker Begin marker=%+v profileVersion=%d", marker, profile.BindingVersion)
+	}
+	if _, err := store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, profile.BindingVersion, "7", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	marker = readMarker()
+	if marker.Code != companySyncStateCompleted || marker.QueueTicket != "7" || marker.CredentialVersion != profile.BindingVersion {
+		t.Fatalf("missing-marker completion marker=%+v profileVersion=%d", marker, profile.BindingVersion)
 	}
 }
 

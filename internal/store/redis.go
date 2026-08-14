@@ -218,6 +218,18 @@ const employeeApplyTicketKey = "mochat-go:queue-ticket:employee-apply"
 
 const employeeApplyEnqueueScript = `
 local now = redis.call("TIME")
+local sourceType = redis.call("TYPE", KEYS[1]).ok
+local claimType = redis.call("TYPE", KEYS[2]).ok
+local ticketType = redis.call("TYPE", KEYS[3]).ok
+if sourceType ~= "none" and sourceType ~= "list" then
+  return redis.error_reply("employee apply source key has wrong type")
+end
+if claimType ~= "none" and claimType ~= "string" then
+  return redis.error_reply("employee apply idempotency key has wrong type")
+end
+if ticketType ~= "none" and ticketType ~= "string" then
+  return redis.error_reply("employee apply ticket key has wrong type")
+end
 local existing = redis.call("GET", KEYS[2])
 if existing then
   return {0, existing, now[1], now[2]}
@@ -229,7 +241,14 @@ if not ok then
   return {0, existing or "", now[1], now[2]}
 end
 local raw = string.gsub(ARGV[1], '"queueTicket":"__QUEUE_TICKET__"', '"queueTicket":"' .. ticket .. '"')
-redis.call("RPUSH", KEYS[1], raw)
+local appended, appendResult = pcall(redis.call, "RPUSH", KEYS[1], raw)
+if not appended then
+  local claimed = redis.call("GET", KEYS[2])
+  if claimed == ticket then
+    redis.call("DEL", KEYS[2])
+  end
+  return redis.error_reply("employee apply enqueue append failed")
+end
 return {1, ticket, now[1], now[2]}
 `
 
@@ -875,9 +894,15 @@ type reliableQueueEnvelope struct {
 type reliableQueueMalformedEnvelope struct {
 	Raw            string `json:"raw"`
 	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	QueueTicket    string `json:"queueTicket,omitempty"`
 	Attempts       int    `json:"attempts"`
 	LastError      string `json:"lastError,omitempty"`
 	LastFailedAt   string `json:"lastFailedAt,omitempty"`
+}
+
+type reliableQueueIdentity struct {
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	QueueTicket    string `json:"queueTicket,omitempty"`
 }
 
 type reliableQueueRetryOptions struct {
@@ -1013,18 +1038,23 @@ func (s *RedisStore) ackReliableQueueItem(ctx context.Context, processingKey str
 
 const employeeApplyAckScript = `
 local removed = redis.call("LREM", KEYS[1], 1, ARGV[1])
-if removed > 0 and ARGV[2] ~= "" then
-  redis.call("DEL", ARGV[2])
+if removed > 0 and ARGV[2] ~= "" and ARGV[3] ~= "" then
+  local current = redis.call("GET", ARGV[2])
+  if current == ARGV[3] then
+    redis.call("DEL", ARGV[2])
+  end
 end
 return removed
 `
 
 func (s *RedisStore) ackEmployeeApplyQueueItem(ctx context.Context, processingKey string, raw string) error {
 	idempotencyKey := ""
+	queueTicket := ""
 	if envelope, ok := decodeReliableQueueEnvelope(raw); ok {
 		idempotencyKey = envelope.IdempotencyKey
+		queueTicket = envelope.QueueTicket
 	}
-	removed, err := s.client.Eval(ctx, employeeApplyAckScript, []string{processingKey}, raw, idempotencyKey).Int()
+	removed, err := s.client.Eval(ctx, employeeApplyAckScript, []string{processingKey}, raw, idempotencyKey, queueTicket).Int()
 	if err != nil {
 		return err
 	}
@@ -1060,7 +1090,7 @@ func (s *RedisStore) retryReliableQueueItem(ctx context.Context, opts reliableQu
 	}
 	var moveErr error
 	if deadLettered && envelope.IdempotencyKey != "" {
-		moveErr = s.moveReliableQueueItemAndReleaseIdempotency(ctx, opts.ProcessingKey, targetKey, opts.Raw, string(nextRaw), envelope.IdempotencyKey)
+		moveErr = s.moveReliableQueueItemAndReleaseIdempotency(ctx, opts.ProcessingKey, targetKey, opts.Raw, string(nextRaw), envelope.IdempotencyKey, envelope.QueueTicket)
 	} else {
 		moveErr = s.moveReliableQueueItem(ctx, opts.ProcessingKey, targetKey, opts.Raw, string(nextRaw))
 	}
@@ -1117,7 +1147,7 @@ func (s *RedisStore) recoverReliableQueueProcessing(ctx context.Context, opts re
 		}
 		var moveErr error
 		if envelope.Attempts >= maxAttempts && envelope.IdempotencyKey != "" {
-			moveErr = s.moveReliableQueueItemAndReleaseIdempotency(ctx, opts.ProcessingKey, targetKey, raw, string(nextRaw), envelope.IdempotencyKey)
+			moveErr = s.moveReliableQueueItemAndReleaseIdempotency(ctx, opts.ProcessingKey, targetKey, raw, string(nextRaw), envelope.IdempotencyKey, envelope.QueueTicket)
 		} else {
 			moveErr = s.moveReliableQueueItem(ctx, opts.ProcessingKey, targetKey, raw, string(nextRaw))
 		}
@@ -1131,12 +1161,16 @@ func (s *RedisStore) recoverReliableQueueProcessing(ctx context.Context, opts re
 
 func (s *RedisStore) moveMalformedQueueItem(ctx context.Context, processingKey string, deadLetterKey string, raw string, reason string) error {
 	idempotencyKey := ""
-	if envelope, ok := decodeReliableQueueEnvelope(raw); ok {
-		idempotencyKey = envelope.IdempotencyKey
+	queueTicket := ""
+	var identity reliableQueueIdentity
+	if err := json.Unmarshal([]byte(raw), &identity); err == nil {
+		idempotencyKey = identity.IdempotencyKey
+		queueTicket = identity.QueueTicket
 	}
 	nextRaw, err := json.Marshal(reliableQueueMalformedEnvelope{
 		Raw:            raw,
 		IdempotencyKey: idempotencyKey,
+		QueueTicket:    queueTicket,
 		Attempts:       1,
 		LastError:      reason,
 		LastFailedAt:   time.Now().Format(time.RFC3339),
@@ -1145,23 +1179,26 @@ func (s *RedisStore) moveMalformedQueueItem(ctx context.Context, processingKey s
 		return err
 	}
 	if idempotencyKey != "" {
-		return s.moveReliableQueueItemAndReleaseIdempotency(ctx, processingKey, deadLetterKey, raw, string(nextRaw), idempotencyKey)
+		return s.moveReliableQueueItemAndReleaseIdempotency(ctx, processingKey, deadLetterKey, raw, string(nextRaw), idempotencyKey, queueTicket)
 	}
 	return s.moveReliableQueueItem(ctx, processingKey, deadLetterKey, raw, string(nextRaw))
 }
 
-func (s *RedisStore) moveReliableQueueItemAndReleaseIdempotency(ctx context.Context, processingKey string, targetKey string, raw string, nextRaw string, idempotencyKey string) error {
+func (s *RedisStore) moveReliableQueueItemAndReleaseIdempotency(ctx context.Context, processingKey string, targetKey string, raw string, nextRaw string, idempotencyKey string, queueTicket string) error {
 	const script = `
 local removed = redis.call("LREM", KEYS[1], 1, ARGV[1])
 if removed > 0 then
   redis.call("RPUSH", KEYS[2], ARGV[2])
-  if KEYS[3] ~= "" then
-    redis.call("DEL", KEYS[3])
+  if KEYS[3] ~= "" and ARGV[3] ~= "" then
+    local current = redis.call("GET", KEYS[3])
+    if current == ARGV[3] then
+      redis.call("DEL", KEYS[3])
+    end
   end
 end
 return removed
 `
-	removed, err := s.client.Eval(ctx, script, []string{processingKey, targetKey, idempotencyKey}, raw, nextRaw).Int()
+	removed, err := s.client.Eval(ctx, script, []string{processingKey, targetKey, idempotencyKey}, raw, nextRaw, queueTicket).Int()
 	if err != nil {
 		return err
 	}

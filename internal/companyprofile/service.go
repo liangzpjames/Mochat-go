@@ -328,12 +328,15 @@ func (s *Service) StartEmployeeSync(ctx context.Context, principal dashboardprin
 	}
 	queueResult, err := syncStore.QueueEmployeeSync(ctx, principal, receipt)
 	if err != nil {
-		// Redis is already the durable queue authority. The worker owns the
-		// running/completed/failed lifecycle; a request-side marker failure must
-		// not overwrite a worker that completed concurrently. Return the safe
-		// queued acknowledgement and let the worker reconcile the marker.
+		// Redis is already the durable queue authority, but the request-side
+		// marker is required evidence for the user-visible acknowledgement.
+		// Do not report a durable queued state when that transaction failed;
+		// the worker can recover a missing marker from the authoritative ticket.
+		result.Status = "failed"
+		result.FinishedAt = time.Now().UTC()
+		result.ErrorCode = "SYNC_FAILED"
 		result.Cursor = strings.TrimSpace(receipt.Cursor)
-		return result, nil
+		return result, ErrStoreUnavailable
 	}
 	result.Cursor = queueResult.Cursor
 	if strings.TrimSpace(receipt.Cursor) != "" {

@@ -39,7 +39,7 @@ func TestCompanySyncQueueOnlyTreatsCurrentVersionMarkerAsAlreadyQueued(t *testin
 	}{
 		{name: "current queued", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 2}, currentVersion: 2, wantQueued: true},
 		{name: "current running", marker: companySyncStateMarker{Code: companySyncStateRunning, CredentialVersion: 2}, currentVersion: 2, wantQueued: true},
-		{name: "different ticket", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 2, QueueTicket: "old-ticket"}, queueTicket: "new-ticket", currentVersion: 2, wantQueued: false},
+		{name: "different ticket", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 2, QueueTicket: "1"}, queueTicket: "2", currentVersion: 2, wantQueued: false},
 		{name: "stale queued", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 1}, currentVersion: 2},
 		{name: "stale running", marker: companySyncStateMarker{Code: companySyncStateRunning, CredentialVersion: 1}, currentVersion: 2},
 		{name: "legacy queued", marker: companySyncStateMarker{Code: companySyncStateQueued}, currentVersion: 2},
@@ -61,10 +61,10 @@ func TestCompanySyncQueuePreservesOnlyCompletionAfterRealEnqueueTicket(t *testin
 		current  uint64
 		wantKeep bool
 	}{
-		{name: "same ticket completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 2, QueueTicket: "ticket-1"}, ticket: "ticket-1", current: 2, wantKeep: true},
-		{name: "different ticket completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 2, QueueTicket: "old-ticket"}, ticket: "ticket-1", current: 2},
-		{name: "legacy completion has no marker", marker: companySyncStateMarker{}, ticket: "ticket-1", current: 2},
-		{name: "stale completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 1, QueueTicket: "ticket-1"}, ticket: "ticket-1", current: 2},
+		{name: "same ticket completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 2, QueueTicket: "1"}, ticket: "1", current: 2, wantKeep: true},
+		{name: "different ticket completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 2, QueueTicket: "2"}, ticket: "1", current: 2},
+		{name: "legacy completion has no marker", marker: companySyncStateMarker{}, ticket: "1", current: 2},
+		{name: "stale completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 1, QueueTicket: "1"}, ticket: "1", current: 2},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -72,6 +72,51 @@ func TestCompanySyncQueuePreservesOnlyCompletionAfterRealEnqueueTicket(t *testin
 				t.Fatalf("marker=%+v ticket=%s current=%d keep=%v, want %v", test.marker, test.ticket, test.current, got, test.wantKeep)
 			}
 		})
+	}
+}
+
+func TestCompanySyncQueueTicketOrderingRejectsDelayedOlderReceipts(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing string
+		incoming string
+		want     int
+		wantErr  bool
+	}{
+		{name: "older incoming", existing: "2", incoming: "1", want: 1},
+		{name: "newer incoming", existing: "1", incoming: "2", want: -1},
+		{name: "same numeric ticket", existing: "02", incoming: "2", want: 0},
+		{name: "legacy marker is older", existing: "", incoming: "1", want: -1},
+		{name: "legacy receipt cannot replace current ticket", existing: "2", incoming: "", wantErr: true},
+		{name: "invalid existing ticket fails closed", existing: "ticket-2", incoming: "3", wantErr: true},
+		{name: "invalid incoming ticket fails closed", existing: "2", incoming: "ticket-1", wantErr: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := compareCompanySyncQueueTickets(test.existing, test.incoming)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("existing=%q incoming=%q returned relation=%d, want fail closed", test.existing, test.incoming, got)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("existing=%q incoming=%q relation=%d err=%v, want %d", test.existing, test.incoming, got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestCompanySyncQueueTicketParserAcceptsOnlyPositiveDecimalTickets(t *testing.T) {
+	for _, ticket := range []string{"", "0", "-1", "ticket-1", "1.0"} {
+		if _, err := parseCompanySyncQueueTicket(ticket); err == nil {
+			t.Fatalf("ticket %q unexpectedly accepted", ticket)
+		}
+	}
+	for _, ticket := range []string{"1", "02", "18446744073709551615"} {
+		if value, err := parseCompanySyncQueueTicket(ticket); err != nil || value == 0 {
+			t.Fatalf("ticket %q parse value=%d err=%v", ticket, value, err)
+		}
 	}
 }
 

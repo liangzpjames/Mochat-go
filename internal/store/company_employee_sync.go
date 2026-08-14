@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,6 +190,12 @@ func (s *MySQLStore) QueueEmployeeSync(ctx context.Context, principal dashboardp
 	if s == nil || s.db == nil || principal.TenantID <= 0 || principal.CorpID <= 0 || principal.UserID <= 0 {
 		return companyprofile.EmployeeSyncQueueResult{}, companyprofile.ErrPermissionDenied
 	}
+	if strings.TrimSpace(receipt.Ticket) == "" {
+		return companyprofile.EmployeeSyncQueueResult{}, errors.New("company sync queue ticket unavailable")
+	}
+	if _, err := parseCompanySyncQueueTicket(receipt.Ticket); err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return companyprofile.EmployeeSyncQueueResult{}, err
@@ -272,6 +279,11 @@ func (s *MySQLStore) updateCompanyEmployeeSyncState(ctx context.Context, binding
 	if expectedVersion != 0 && strings.TrimSpace(queueTicket) == "" {
 		return errors.New("company queue ticket unavailable")
 	}
+	if strings.TrimSpace(queueTicket) != "" {
+		if _, err := parseCompanySyncQueueTicket(queueTicket); err != nil {
+			return err
+		}
+	}
 	if err := setCompanySyncStateTx(ctx, tx, binding.CorpID, binding.Version, queueTicket, state, errorCode); err != nil {
 		return err
 	}
@@ -281,6 +293,12 @@ func (s *MySQLStore) updateCompanyEmployeeSyncState(ctx context.Context, binding
 func queueCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, credentialVersion uint64, receipt companyprofile.EmployeeSyncEnqueueReceipt) (companyprofile.EmployeeSyncQueueResult, error) {
 	if corpID <= 0 {
 		return companyprofile.EmployeeSyncQueueResult{}, errors.New("company binding unavailable")
+	}
+	if strings.TrimSpace(receipt.Ticket) == "" {
+		return companyprofile.EmployeeSyncQueueResult{}, errors.New("company sync queue ticket unavailable")
+	}
+	if _, err := parseCompanySyncQueueTicket(receipt.Ticket); err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
 	}
 	var updateTimeID int
 	var errorMessage sql.NullString
@@ -306,6 +324,15 @@ func queueCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, creden
 		return companyprofile.EmployeeSyncQueueResult{}, err
 	}
 	marker := decodeCompanySyncState(errorMessage.String)
+	ticketRelation, err := compareCompanySyncQueueTickets(marker.QueueTicket, receipt.Ticket)
+	if err != nil {
+		return companyprofile.EmployeeSyncQueueResult{}, err
+	}
+	if ticketRelation > 0 {
+		// A delayed request must never replace a newer Redis claim, regardless
+		// of whether the newer worker is queued, running, completed, or failed.
+		return companyprofile.EmployeeSyncQueueResult{Cursor: marker.Cursor, AlreadyQueued: true}, nil
+	}
 	if companySyncMarkerAlreadyQueued(marker, credentialVersion, receipt.Ticket) {
 		return companyprofile.EmployeeSyncQueueResult{Cursor: marker.Cursor, AlreadyQueued: true}, nil
 	}
@@ -329,14 +356,71 @@ func queueCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, creden
 }
 
 func shouldPreserveCompletedCompanySyncMarker(marker companySyncStateMarker, queueTicket string, currentVersion uint64) bool {
-	return marker.Code == companySyncStateCompleted && currentVersion > 0 && marker.CredentialVersion == currentVersion && strings.TrimSpace(queueTicket) != "" && marker.QueueTicket == strings.TrimSpace(queueTicket)
+	if marker.Code != companySyncStateCompleted || currentVersion == 0 || marker.CredentialVersion != currentVersion || strings.TrimSpace(queueTicket) == "" {
+		return false
+	}
+	relation, err := compareCompanySyncQueueTickets(marker.QueueTicket, queueTicket)
+	return err == nil && relation == 0
 }
 
 func companySyncMarkerAlreadyQueued(marker companySyncStateMarker, currentVersion uint64, queueTicket string) bool {
 	if currentVersion == 0 || marker.CredentialVersion != currentVersion {
 		return false
 	}
-	return (marker.Code == companySyncStateQueued || marker.Code == companySyncStateRunning) && marker.QueueTicket == strings.TrimSpace(queueTicket)
+	if marker.Code != companySyncStateQueued && marker.Code != companySyncStateRunning {
+		return false
+	}
+	relation, err := compareCompanySyncQueueTickets(marker.QueueTicket, queueTicket)
+	return err == nil && relation == 0
+}
+
+func parseCompanySyncQueueTicket(ticket string) (uint64, error) {
+	trimmed := strings.TrimSpace(ticket)
+	if trimmed == "" {
+		return 0, errors.New("company sync queue ticket unavailable")
+	}
+	value, err := strconv.ParseUint(trimmed, 10, 64)
+	if err != nil || value == 0 {
+		return 0, errors.New("company sync queue ticket invalid")
+	}
+	return value, nil
+}
+
+// compareCompanySyncQueueTickets reports the relation of existing to incoming:
+// -1 means the existing marker is older, 0 means the same claim, and 1 means
+// the marker is newer. Empty existing markers are legacy and older than a
+// numeric queue claim; a legacy empty receipt may not replace a numeric claim.
+func compareCompanySyncQueueTickets(existing, incoming string) (int, error) {
+	existing = strings.TrimSpace(existing)
+	incoming = strings.TrimSpace(incoming)
+	if existing == "" && incoming == "" {
+		return 0, nil
+	}
+	if existing == "" {
+		if _, err := parseCompanySyncQueueTicket(incoming); err != nil {
+			return 0, err
+		}
+		return -1, nil
+	}
+	if incoming == "" {
+		return 0, errors.New("company sync queue ticket stale")
+	}
+	existingValue, err := parseCompanySyncQueueTicket(existing)
+	if err != nil {
+		return 0, err
+	}
+	incomingValue, err := parseCompanySyncQueueTicket(incoming)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case existingValue > incomingValue:
+		return 1, nil
+	case existingValue < incomingValue:
+		return -1, nil
+	default:
+		return 0, nil
+	}
 }
 
 func companySyncStatusMarkerStale(status string, markerVersion, currentVersion uint64) bool {
@@ -358,6 +442,11 @@ func setCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, credenti
 	if errorCode != "" && errorCode != "SYNC_FAILED" {
 		return errors.New("company sync error code unavailable")
 	}
+	if strings.TrimSpace(queueTicket) != "" {
+		if _, err := parseCompanySyncQueueTicket(queueTicket); err != nil {
+			return err
+		}
+	}
 	var updateTimeID int
 	var existingMessage sql.NullString
 	err := tx.QueryRowContext(ctx, `
@@ -366,9 +455,6 @@ func setCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, credenti
 		WHERE corp_id = ? AND type = 1
 		ORDER BY id DESC LIMIT 1 FOR UPDATE`, corpID).Scan(&updateTimeID, &existingMessage)
 	if errors.Is(err, sql.ErrNoRows) {
-		if strings.TrimSpace(queueTicket) != "" {
-			return errors.New("company sync queue ticket stale")
-		}
 		result, insertErr := tx.ExecContext(ctx, `
 			INSERT INTO mc_work_update_time (corp_id, type, last_update_time, error_msg, created_at, updated_at)
 			VALUES (?, 1, NULL, ?, NOW(), NOW())`, corpID, companySyncStateJSONWithVersionAndTicket(state, errorCode, credentialVersion, queueTicket))
@@ -384,7 +470,12 @@ func setCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, credenti
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(queueTicket) != "" && decodeCompanySyncState(existingMessage.String).QueueTicket != strings.TrimSpace(queueTicket) {
+	existingMarker := decodeCompanySyncState(existingMessage.String)
+	ticketRelation, err := compareCompanySyncQueueTickets(existingMarker.QueueTicket, queueTicket)
+	if err != nil {
+		return err
+	}
+	if ticketRelation > 0 {
 		return errors.New("company sync queue ticket stale")
 	}
 	result, err := tx.ExecContext(ctx, `
@@ -520,6 +611,11 @@ func (s *MySQLStore) syncCompanyEmployeesTx(ctx context.Context, bindingID, acto
 	if expectedCredentialVersion != 0 && strings.TrimSpace(queueTicket) == "" {
 		return dashboard.WorkEmployeeSyncResult{}, errors.New("company queue ticket unavailable")
 	}
+	if strings.TrimSpace(queueTicket) != "" {
+		if _, err := parseCompanySyncQueueTicket(queueTicket); err != nil {
+			return dashboard.WorkEmployeeSyncResult{}, err
+		}
+	}
 	if actorUserID > 0 {
 		principal := dashboardprincipal.DashboardPrincipal{UserID: actorUserID, TenantID: binding.TenantID, CorpID: binding.CorpID, AuthVersion: actorAuthVersion, IsSuperAdmin: true, CorpStatus: dashboardprincipal.CorpBindingStatusActive}
 		if err := s.checkCompanyActor(ctx, tx, principal, true); err != nil {
@@ -585,6 +681,11 @@ func companySyncStatusFromRecord(lastUpdate sql.NullTime, errorMessage sql.NullS
 }
 
 func upsertCompanySyncUpdateTimeTx(ctx context.Context, tx *sql.Tx, corpID int, updateType int, credentialVersion uint64, queueTicket string) error {
+	if strings.TrimSpace(queueTicket) != "" {
+		if _, err := parseCompanySyncQueueTicket(queueTicket); err != nil {
+			return err
+		}
+	}
 	var updateTimeID int
 	var existingMessage sql.NullString
 	err := tx.QueryRowContext(ctx, `
@@ -596,9 +697,6 @@ func upsertCompanySyncUpdateTimeTx(ctx context.Context, tx *sql.Tx, corpID int, 
 		FOR UPDATE
 	`, corpID, updateType).Scan(&updateTimeID, &existingMessage)
 	if errors.Is(err, sql.ErrNoRows) {
-		if strings.TrimSpace(queueTicket) != "" {
-			return errors.New("company sync queue ticket stale")
-		}
 		result, insertErr := tx.ExecContext(ctx, `
 			INSERT INTO mc_work_update_time (corp_id, type, last_update_time, error_msg, created_at, updated_at)
 			VALUES (?, ?, NOW(), ?, NOW(), NOW())
@@ -615,7 +713,12 @@ func upsertCompanySyncUpdateTimeTx(ctx context.Context, tx *sql.Tx, corpID int, 
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(queueTicket) != "" && decodeCompanySyncState(existingMessage.String).QueueTicket != strings.TrimSpace(queueTicket) {
+	existingMarker := decodeCompanySyncState(existingMessage.String)
+	ticketRelation, err := compareCompanySyncQueueTickets(existingMarker.QueueTicket, queueTicket)
+	if err != nil {
+		return err
+	}
+	if ticketRelation > 0 {
 		return errors.New("company sync queue ticket stale")
 	}
 	result, err := tx.ExecContext(ctx, `

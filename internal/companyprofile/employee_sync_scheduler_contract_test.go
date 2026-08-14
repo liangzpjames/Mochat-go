@@ -65,7 +65,7 @@ func TestServiceEmployeeSyncRecordsSafeFailureWhenQueueUnavailable(t *testing.T)
 	}
 }
 
-func TestServiceKeepsQueuedWhenMarkerFailureRacesWithCompletedWorker(t *testing.T) {
+func TestServiceReturnsStoreFailureWhenMarkerWriteFailsAfterRedisEnqueue(t *testing.T) {
 	store := &companyProfileContractStore{
 		verificationSnapshot: VerificationSnapshot{
 			Verified: true, WXCorpID: "ww-authoritative", BindingVersion: 1,
@@ -76,7 +76,7 @@ func TestServiceKeepsQueuedWhenMarkerFailureRacesWithCompletedWorker(t *testing.
 	service := NewService(store, &companyProfileTestVerifier{}).WithEmployeeSyncScheduler(scheduler)
 
 	result, err := service.StartEmployeeSync(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive))
-	if err != nil || result.Status != "queued" || result.Cursor != "company-sync" {
+	if !errors.Is(err, ErrStoreUnavailable) || result.Status != "failed" || result.ErrorCode != "SYNC_FAILED" || result.Cursor != "company-sync" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	if store.failureCalls != 0 || store.syncState != "completed" {
