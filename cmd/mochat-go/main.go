@@ -24,7 +24,6 @@ import (
 	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/frontend"
 	"jiyi/mochat-go/internal/identitysecurity"
-	aiprovider "jiyi/mochat-go/internal/modules/providers/ai/openai"
 	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive/wecom"
 	audioprovider "jiyi/mochat-go/internal/modules/providers/audio/local"
 	providercatalog "jiyi/mochat-go/internal/modules/providers/catalog"
@@ -417,7 +416,7 @@ func main() {
 		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncScheduler(
 			dashboard.NewCompanyEmployeeSyncScheduler(getRedisStore()),
 		)
-		aiRuntime, err := aiprovider.New(aiprovider.Config{})
+		aiRuntime, err := buildDashboardAIStatusProvider(cfg)
 		if err != nil {
 			log.Fatalf("build AI Provider runtime: %v", err)
 		}
@@ -431,6 +430,7 @@ func main() {
 		}
 		providerRegistry, err := providercatalog.NewRegistry(providercatalog.Dependencies{
 			AI:            aiRuntime,
+			AIEnabled:     cfg.EnableAIInsight,
 			Archive:       archiveRuntime,
 			AudioStorage:  audioRuntime,
 			WeComStandard: companyProfileWeComClient,

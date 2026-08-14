@@ -17,6 +17,7 @@ import (
 	aisettingshttp "jiyi/mochat-go/internal/modules/ai-settings/transport/http"
 	"jiyi/mochat-go/internal/modules/providers"
 	openai "jiyi/mochat-go/internal/modules/providers/ai/openai"
+	providercatalog "jiyi/mochat-go/internal/modules/providers/catalog"
 	scrmhttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
 	"jiyi/mochat-go/internal/store"
 )
@@ -81,6 +82,13 @@ func buildAIProvider() (providers.AIProvider, error) {
 		return nil, err
 	}
 	return provider, nil
+}
+
+func buildDashboardAIStatusProvider(cfg config.Config) (providers.StatusProvider, error) {
+	if !cfg.EnableAIInsight {
+		return providercatalog.DisabledAIProvider{}, nil
+	}
+	return buildAIProvider()
 }
 
 func envInt(name string, fallback int) int {

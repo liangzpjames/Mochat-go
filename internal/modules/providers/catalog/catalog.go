@@ -11,6 +11,7 @@ import (
 // the status API remains truthful about a registered but unwired capability.
 type Dependencies struct {
 	AI            providers.StatusProvider
+	AIEnabled     bool
 	Archive       providers.StatusProvider
 	AudioStorage  providers.StatusProvider
 	WeComStandard providers.StatusProvider
@@ -21,7 +22,7 @@ type Dependencies struct {
 func NewRegistry(dependencies Dependencies) (*providers.Registry, error) {
 	registry := providers.NewRegistry()
 	registrations := []providers.Registration{
-		providers.Registration{Kind: "ai", Source: providers.SourceExternal, Capabilities: []string{"chat"}, Provider: dependencyOrUnavailable(dependencies.AI, "ai")},
+		providers.Registration{Kind: "ai", Source: aiSource(dependencies.AIEnabled), Capabilities: []string{"chat"}, Provider: dependencyOrUnavailable(dependencies.AI, "ai")},
 		providers.Registration{Kind: "audio_storage", Source: providers.SourceLocal, Capabilities: []string{"audio_object_storage"}, Provider: dependencyOrUnavailable(dependencies.AudioStorage, "audio_storage")},
 		providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal, Capabilities: []string{"archive_sync"}, Provider: dependencyOrUnavailable(dependencies.Archive, "wecom_archive")},
 		providers.Registration{Kind: "wecom_standard", Source: providers.SourceExternal, Capabilities: []string{"employee_sync"}, Provider: dependencyOrUnavailable(dependencies.WeComStandard, "wecom_standard")},
@@ -32,6 +33,26 @@ func NewRegistry(dependencies Dependencies) (*providers.Registry, error) {
 		}
 	}
 	return registry, nil
+}
+
+func aiSource(enabled bool) providers.Source {
+	if enabled {
+		return providers.SourceExternal
+	}
+	return providers.SourceCodeOnly
+}
+
+// DisabledAIProvider is an explicit deployment-disabled runtime component. It
+// never makes an outbound request and is distinct from a configured external
+// AI client whose key is missing.
+type DisabledAIProvider struct{}
+
+func (DisabledAIProvider) Status() providers.Status {
+	return providers.Status{
+		Kind: "ai", State: providers.StateLimited, Source: providers.SourceCodeOnly,
+		Code: "ai.disabled", Action: "enable AI insight in deployment configuration",
+		Capabilities: []string{"chat"},
+	}
 }
 
 type unavailableProvider struct {
