@@ -6,7 +6,10 @@ const SOURCE_NAMES = new Set(['SourceExternal', 'SourceSimulated', 'SourceLocal'
 
 export async function checkProviderCompletion(root = process.cwd()) {
   const providerRoot = path.join(root, 'internal', 'modules', 'providers');
-  const files = await goFiles(providerRoot);
+  const files = [
+    ...(await goFiles(providerRoot)),
+    ...(await goFiles(path.join(root, 'internal', 'dashboard'))),
+  ];
   const implementationKinds = new Map();
   const registrations = new Map();
   const errors = [];
