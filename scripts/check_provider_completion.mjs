@@ -6,10 +6,9 @@ import { fileURLToPath } from 'node:url';
 const SOURCE_NAMES = new Set(['SourceExternal', 'SourceSimulated', 'SourceLocal', 'SourceCodeOnly']);
 
 export async function checkProviderCompletion(root = process.cwd()) {
-  const providerRoot = path.join(root, 'internal', 'modules', 'providers');
   const files = [
-    ...(await goFiles(providerRoot)),
-    ...(await goFiles(path.join(root, 'internal', 'dashboard'))),
+    ...(await productionGoFiles(root, 'internal/modules/providers')),
+    ...(await productionGoFiles(root, 'internal/dashboard')),
   ];
   const implementationKinds = new Map();
   const registrations = new Map();
@@ -24,9 +23,9 @@ export async function checkProviderCompletion(root = process.cwd()) {
       for (const kind of kinds) knownKinds.add(kind);
       implementationKinds.set(relative, knownKinds);
     }
-    collectRuntimeRegistrations(relative, source, registrations, errors);
   }
 
+  collectRuntimeRegistrations(root, registrations, errors);
   errors.push(...checkArchiveStatusAST(root));
 
   for (const [file, kinds] of implementationKinds) {
@@ -64,118 +63,48 @@ function checkArchiveStatusAST(root) {
   }
 }
 
-function collectRuntimeRegistrations(relative, source, registrations, errors) {
-  if (relative !== 'internal/modules/providers/catalog/catalog.go') return;
-  for (const body of namedFunctionBodies(source, 'NewRegistry')) {
-    if (/\bif\s+(?:\(\s*(?:false|nil|0|!\s*true|0\s*==\s*1|1\s*==\s*0|1\s*!=\s*1|0\s*!=\s*0|1\s*<\s*0|0\s*>\s*1)\s*\)|(?:false|nil|0|!\s*true|0\s*==\s*1|1\s*==\s*0|1\s*!=\s*1|0\s*!=\s*0|1\s*<\s*0|0\s*>\s*1))\s*\{[\s\S]*?(?:Register|providers\.Registration)/.test(body) || /\belse\s*\{[\s\S]*?(?:Register|providers\.Registration)/.test(body)) {
-      errors.push(`${relative}: NewRegistry contains an unreachable Provider registration branch`);
-      continue;
-    }
-    collectRuntimeRegistrationsInBody(relative, body, registrations, errors);
-  }
-}
-
-function collectRuntimeRegistrationsInBody(relative, source, registrations, errors) {
-  const registeredVariables = new Set();
-  for (const match of source.matchAll(/\b[A-Za-z_$][\w$]*\.Register\(\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
-    registeredVariables.add(match[1]);
-  }
-  const rangeVariables = new Set();
-  for (const match of source.matchAll(/for\s+_,\s*([A-Za-z_$][\w$]*)\s*:=\s*range\s+([A-Za-z_$][\w$]*)\s*\{/g)) {
-    if (source.slice(match.index, match.index + 1000).includes(`.Register(${match[1]})`)) {
-      rangeVariables.add(match[1]);
-      registeredVariables.add(match[2]);
-    }
-  }
-  for (const variable of registeredVariables) {
-    if (rangeVariables.has(variable)) continue;
-    const escaped = escapeRegExp(variable);
-    const sliceDeclaration = new RegExp(`(?:var\\s+)?${escaped}\\s*(?::=|=)\\s*\\[\\]providers\\.Registration\\s*\\{`, 'g');
-    const directDeclaration = new RegExp(`(?:var\\s+)?${escaped}\\s*(?::=|=)\\s*providers\\.Registration\\s*\\{`, 'g');
-    let found = false;
-    for (const match of source.matchAll(sliceDeclaration)) {
-      found = true;
-      const openIndex = match.index + match[0].lastIndexOf('{');
-      const block = balancedBlock(source, openIndex);
-      const literals = registrationLiterals(block.body);
-      if (literals.length > 0) {
-        for (const literal of literals) addRegistration(relative, literal, registrations, errors);
-      } else if (/\bKind\s*:\s*"[^"]+"/.test(block.body)) {
-        addRegistration(relative, block.body, registrations, errors);
-      }
-    }
-    for (const match of source.matchAll(directDeclaration)) {
-      found = true;
-      const openIndex = match.index + match[0].lastIndexOf('{');
-      const block = balancedBlock(source, openIndex);
-      addRegistration(relative, block.body, registrations, errors);
-    }
-    if (!found) errors.push(`${relative}: runtime Register call has no registration declaration for ${variable}`);
-  }
-}
-
-function namedFunctionBodies(source, name) {
-  const result = [];
-  const pattern = new RegExp(`\\bfunc\\s+${escapeRegExp(name)}\\s*\\([^)]*\\)[^{]*\\{`, 'g');
-  for (const match of source.matchAll(pattern)) {
-    const openIndex = match.index + match[0].lastIndexOf('{');
-    result.push(balancedBlock(source, openIndex).body);
-  }
-  return result;
-}
-
-function registrationLiterals(source) {
-  const result = [];
-  for (const match of source.matchAll(/providers\.Registration\s*\{/g)) {
-    const openIndex = match.index + match[0].lastIndexOf('{');
-    result.push(balancedBlock(source, openIndex).body);
-  }
-  return result;
-}
-
-function balancedBlock(source, openIndex) {
-  let depth = 0;
-  for (let index = openIndex; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return { body: source.slice(openIndex + 1, index), end: index };
-    }
-  }
-  return { body: source.slice(openIndex + 1), end: source.length };
-}
-
-function addRegistration(relative, body, registrations, errors) {
-  const kind = body.match(/\bKind\s*:\s*"([^"]+)"/)?.[1];
-  const sourceExpression = body.match(/\bSource\s*:\s*(?:providers\.)?(Source[A-Za-z]+|aiSource\s*\([^)]*\))/)?.[1];
-  const sourceName = sourceExpression?.startsWith('aiSource') ? 'SourceExternal' : sourceExpression;
-  if (!kind || !sourceName || !SOURCE_NAMES.has(sourceName)) return;
-  if (registrations.has(kind)) errors.push(`duplicate Provider registration: ${kind}`);
-  registrations.set(kind, { file: relative, source: sourceName });
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-async function goFiles(directory) {
-  const result = [];
-  let entries;
+function collectRuntimeRegistrations(root, registrations, errors) {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'catalog_contract', 'main.go');
+  let output;
   try {
-    entries = await fs.readdir(directory, { withFileTypes: true });
-  } catch {
-    return result;
+    output = execFileSync('go', ['run', script, '--root', root], {
+      cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+      encoding: 'utf8',
+      maxBuffer: 2 * 1024 * 1024,
+    });
+  } catch (error) {
+    output = String(error.stdout ?? '').trim();
+    if (!output) {
+      errors.push(`catalog composition AST gate could not run: ${error.message}`);
+      return;
+    }
   }
-  for (const entry of entries) {
-    const fullPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === 'fixtures' || entry.name === 'testdata' || entry.name === 'vendor') continue;
-      result.push(...await goFiles(fullPath));
+  let result;
+  try {
+    result = JSON.parse(output);
+  } catch (error) {
+    errors.push(`catalog composition AST gate returned invalid JSON: ${error.message}`);
+    return;
+  }
+  errors.push(...(result.errors ?? []));
+  for (const registration of result.registrations ?? []) {
+    if (!registration.kind || !SOURCE_NAMES.has(registration.source)) {
+      errors.push(`catalog composition returned an unclassified registration: ${JSON.stringify(registration)}`);
       continue;
     }
-    if (entry.isFile() && entry.name.endsWith('.go') && !entry.name.endsWith('_test.go')) result.push(fullPath);
+    if (registrations.has(registration.kind)) errors.push(`duplicate Provider registration: ${registration.kind}`);
+    registrations.set(registration.kind, { file: 'internal/modules/providers/catalog/catalog.go', source: registration.source });
   }
-  return result;
+}
+
+function productionGoFiles(root, relativeDirectory) {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'buildfiles', 'main.go');
+  const output = execFileSync('go', ['run', script, '--root', root, '--dir', relativeDirectory], {
+    cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+    encoding: 'utf8',
+    maxBuffer: 2 * 1024 * 1024,
+  });
+  return JSON.parse(output).map((relative) => path.resolve(root, relative));
 }
 
 function stripComments(source) {

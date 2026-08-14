@@ -40,3 +40,17 @@ func TestArchiveSourceStatusNeverPromotesExternalRunToReady(t *testing.T) {
 		t.Fatalf("status=%#v", status)
 	}
 }
+
+func TestArchiveStatusSourceKindFollowsCurrentCorpArchiveMode(t *testing.T) {
+	for _, test := range []struct {
+		mode workMessageArchiveMode
+		want providers.Source
+	}{
+		{mode: workMessageArchiveReal, want: providers.SourceExternal},
+		{mode: workMessageArchiveSimulation, want: providers.SourceSimulated},
+	} {
+		if got := archiveStatusSourceKind(test.mode); got != test.want {
+			t.Fatalf("mode=%v source=%q want=%q", test.mode, got, test.want)
+		}
+	}
+}

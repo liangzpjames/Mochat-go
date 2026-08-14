@@ -455,6 +455,49 @@ func archiveMessageIdentityValid(message archiveprovider.Message) bool {
 		strings.TrimSpace(message.MsgID) != "" && message.Seq > 0
 }
 
+func archiveStatusSourceKind(mode workMessageArchiveMode) providers.Source {
+	if mode == workMessageArchiveSimulation {
+		return providers.SourceSimulated
+	}
+	return providers.SourceExternal
+}
+
+func (s *MySQLStore) archiveStatusMode(ctx context.Context, tenantID, corpID int) (workMessageArchiveMode, error) {
+	var chatStatus int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(chat_status, 0)
+		FROM mc_corp
+		WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL
+		LIMIT 1
+	`, corpID, tenantID).Scan(&chatStatus); err != nil {
+		if err == sql.ErrNoRows {
+			return workMessageArchiveUnavailable, nil
+		}
+		return workMessageArchiveUnavailable, err
+	}
+	if chatStatus == 1 {
+		return workMessageArchiveReal, nil
+	}
+	var simulationAvailable bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM mochat_go_archive_simulation_batches
+			WHERE corp_id = ? AND status = 'complete' AND message_count > 0
+		)
+	`, corpID).Scan(&simulationAvailable)
+	if err != nil {
+		if isMissingArchiveSourceTable(err) {
+			return workMessageArchiveUnavailable, nil
+		}
+		return workMessageArchiveUnavailable, err
+	}
+	if simulationAvailable {
+		return workMessageArchiveSimulation, nil
+	}
+	return workMessageArchiveUnavailable, nil
+}
+
 // GetArchiveSourceStatus reads only tenant/corp-scoped source metadata. It
 // deliberately falls back to the pre-0138 simulation registry when the new
 // migration is not installed, so an application rollout can remain truthful.
@@ -462,9 +505,17 @@ func (s *MySQLStore) GetArchiveSourceStatus(ctx context.Context, principal dashb
 	if s == nil || s.db == nil {
 		return providers.Status{}, errors.New("archive source status store unavailable")
 	}
+	mode, err := s.archiveStatusMode(ctx, principal.TenantID, principal.CorpID)
+	if err != nil {
+		return providers.Status{}, err
+	}
+	if mode == workMessageArchiveUnavailable {
+		return providers.Status{}, nil
+	}
+	sourceFilterKind := archiveStatusSourceKind(mode)
 	var sourceKind, sourceID, namespace, status, errorCode string
 	var lastSync, lastSuccess, lastFailure sql.NullTime
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		SELECT latest.source_kind, latest.source_id, latest.namespace, latest.status, latest.error_code, latest.updated_at,
 		       (SELECT finished_at FROM mochat_go_archive_sync_runs success
 		        WHERE success.tenant_id = latest.tenant_id AND success.corp_id = latest.corp_id
@@ -477,15 +528,18 @@ func (s *MySQLStore) GetArchiveSourceStatus(ctx context.Context, principal dashb
 		          AND failed.status = 'failed' AND failed.finished_at IS NOT NULL
 		        ORDER BY failed.finished_at DESC, failed.id DESC LIMIT 1)
 		FROM mochat_go_archive_sync_runs latest
-		WHERE latest.tenant_id = ? AND latest.corp_id = ?
+		WHERE latest.tenant_id = ? AND latest.corp_id = ? AND latest.source_kind = ?
 		ORDER BY latest.updated_at DESC, latest.id DESC
 		LIMIT 1
-	`, principal.TenantID, principal.CorpID).Scan(&sourceKind, &sourceID, &namespace, &status, &errorCode, &lastSync, &lastSuccess, &lastFailure)
+	`, principal.TenantID, principal.CorpID, sourceFilterKind).Scan(&sourceKind, &sourceID, &namespace, &status, &errorCode, &lastSync, &lastSuccess, &lastFailure)
 	if err == nil {
 		return archiveSourceStatusFromRun(sourceKind, status, errorCode, lastSync, lastSuccess, lastFailure), nil
 	}
 	if err != sql.ErrNoRows && !isMissingArchiveSourceTable(err) {
 		return providers.Status{}, err
+	}
+	if mode != workMessageArchiveSimulation {
+		return providers.Status{}, nil
 	}
 	var simulationStatus string
 	err = s.db.QueryRowContext(ctx, `

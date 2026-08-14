@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
@@ -54,6 +55,13 @@ func checkArchiveStatuses(root string) []string {
 			return nil
 		}
 		if strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
+			matched, matchErr := build.Default.MatchFile(filepath.Dir(path), entry.Name())
+			if matchErr != nil {
+				return matchErr
+			}
+			if !matched {
+				return nil
+			}
 			files = append(files, path)
 		}
 		return nil

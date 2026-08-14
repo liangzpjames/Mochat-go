@@ -175,6 +175,31 @@ func NewRegistry() *providers.Registry {
   assert.match(result.errors.join('\n'), /unreachable|wecom_archive/);
 });
 
+test('fails when NewRegistry hides registration behind a runtime or environment helper', async () => {
+  const root = await writeFixture({
+    'internal/modules/providers/archive/wecom/archive.go': `package wecom
+import "jiyi/mochat-go/internal/modules/providers"
+func (a Archive) Kind() providers.Source { return providers.SourceExternal }
+func (a Archive) Status() providers.Status { return providers.Status{Kind: "wecom_archive", State: providers.StateLimited, Code: "archive.getchatdata_unimplemented"} }
+`,
+    'internal/modules/providers/catalog/catalog.go': `package catalog
+import "jiyi/mochat-go/internal/modules/providers"
+func runtimeFlagNeverEnabled() bool { return false }
+func NewRegistry() *providers.Registry {
+  registry := providers.NewRegistry()
+  registration := providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
+  if runtimeFlagNeverEnabled() {
+    _ = registry.Register(registration)
+  }
+  return registry
+}
+`,
+  });
+  const result = await checkProviderCompletion(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /unconditional|unreachable|wecom_archive/);
+});
+
 test('fails when one package and receiver define duplicate Kind methods', async () => {
   const root = await writeFixture({
     'internal/modules/providers/archive/wecom/archive.go': `package wecom
@@ -236,6 +261,34 @@ import "jiyi/mochat-go/internal/modules/providers"
 type ExternalSource[T any] struct{}
 func (ExternalSource[T]) Kind() providers.Source { return providers.SourceExternal }
 func (ExternalSource[T]) Status() providers.Status { return providers.Status{Kind: "wecom_archive", State: providers.StateLimited, Code: "archive.getchatdata_unimplemented"} }
+`,
+    'internal/modules/providers/catalog/catalog.go': `package catalog
+import "jiyi/mochat-go/internal/modules/providers"
+func NewRegistry() *providers.Registry {
+  registry := providers.NewRegistry()
+  registration := providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
+  _ = registry.Register(registration)
+  return registry
+}
+`,
+  });
+  const result = await checkProviderCompletion(root);
+  assert.equal(result.ok, true, result.errors.join('\n'));
+});
+
+test('ignores non-production build-tag files for archive evidence and registration discovery', async () => {
+  const root = await writeFixture({
+    'internal/modules/providers/archive/wecom/ignored.go': `//go:build ignore
+package wecom
+import "jiyi/mochat-go/internal/modules/providers"
+type ExternalSource struct{}
+func (ExternalSource) Kind() providers.Source { return providers.SourceExternal }
+func (ExternalSource) Status() providers.Status { return providers.Status{Kind: "wecom_archive", State: providers.StateReady, Code: "archive.fake_ready"} }
+`,
+    'internal/modules/providers/ignored/ignored.go': `//go:build ignore
+package ignored
+import "jiyi/mochat-go/internal/modules/providers"
+func ignoredStatus() providers.Status { return providers.Status{Kind: "ignored_provider", State: providers.StateReady} }
 `,
     'internal/modules/providers/catalog/catalog.go': `package catalog
 import "jiyi/mochat-go/internal/modules/providers"

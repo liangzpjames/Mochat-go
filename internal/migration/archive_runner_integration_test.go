@@ -85,10 +85,36 @@ func TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection(t *testing.
 		t.Fatal(err)
 	}
 	assertArchiveRunnerTables(t, db, false)
+	if _, err := db.Exec(`CREATE TABLE mochat_go_archive_sync_runs (id BIGINT UNSIGNED NOT NULL PRIMARY KEY) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Apply(context.Background()); err == nil {
+		t.Fatal("incompatible residual archive table unexpectedly applied")
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version='0138_archive_source_sync'`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != 0 {
+		t.Fatalf("failed apply recorded ledger rows=%d", applied)
+	}
+	if _, err := db.Exec(`DROP TABLE mochat_go_archive_sync_runs`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := runner.Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveRunnerTables(t, db, true)
+	if statuses, err := runner.Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if len(statuses) != 1 || statuses[0].State != "applied" {
+		t.Fatalf("repeat apply statuses=%#v", statuses)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version='0138_archive_source_sync'`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != 1 {
+		t.Fatalf("repeat apply ledger rows=%d", applied)
+	}
 }
 
 func assertArchiveRunnerTables(t *testing.T, db *sql.DB, want bool) {

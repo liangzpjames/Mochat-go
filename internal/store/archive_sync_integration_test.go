@@ -126,6 +126,49 @@ func TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation(t *te
 	}
 }
 
+func TestArchiveSourceStatusUsesCurrentCorpArchiveMode(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createArchiveSyncCorpFixture(t, db)
+	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
+	t.Cleanup(func() { executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql") })
+	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_batches (corp_id,batch_key,status,message_count) VALUES (27,'status-mode','complete',1)`); err != nil {
+		t.Fatal(err)
+	}
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
+	t.Cleanup(func() { executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql") })
+	for _, run := range []struct {
+		sourceKind, sourceID, namespace, idempotency, status, errorCode string
+		updatedAt                                                       string
+	}{
+		{"external", "wecom", "wecom", "status-external", "succeeded", "", "2026-08-14 10:00:00.000000"},
+		{"simulated", "simulation:status-mode-new", "MOCHAT-SIM:status-mode-new", "status-simulated", "failed", "archive.simulation_fixture_failed", "2026-08-14 11:00:00.000000"},
+	} {
+		if _, err := db.Exec(`
+			INSERT INTO mochat_go_archive_sync_runs
+			(tenant_id,corp_id,source_kind,source_id,namespace,idempotency_key,status,error_code,finished_at,updated_at)
+			VALUES (11,27,?,?,?,?,?,?,?,?)
+		`, run.sourceKind, run.sourceID, run.namespace, run.idempotency, run.status, run.errorCode, run.updatedAt, run.updatedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := NewMySQLStore(db)
+	principal := dashboardprincipal.DashboardPrincipal{TenantID: 11, CorpID: 27}
+	ctx := context.Background()
+	if status, err := store.GetArchiveSourceStatus(ctx, principal); err != nil {
+		t.Fatal(err)
+	} else if status.Source != providers.SourceExternal || status.Code != "archive.getchatdata_unimplemented" {
+		t.Fatalf("real mode status=%#v", status)
+	}
+	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27 AND tenant_id=11`); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := store.GetArchiveSourceStatus(ctx, principal); err != nil {
+		t.Fatal(err)
+	} else if status.Source != providers.SourceSimulated || status.Code != "archive.simulation_failed" || status.LastErrorCode != "archive.simulation_fixture_failed" {
+		t.Fatalf("simulation mode status=%#v", status)
+	}
+}
+
 func TestArchiveSyncStaleRunningRunIsTakenOverWithAudit(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createArchiveSyncCorpFixture(t, db)
