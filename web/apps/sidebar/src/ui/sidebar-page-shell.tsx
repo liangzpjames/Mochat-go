@@ -4,7 +4,7 @@ import {
   type MobileBottomNavigationItem,
 } from '@mochat/mobile-foundation';
 import type { ReactNode } from 'react';
-import { useLocation } from 'react-router';
+import { useHref, useLocation } from 'react-router';
 
 type SidebarPageShellProps = {
   title: string;
@@ -64,10 +64,13 @@ export function SidebarPageShell({
   const location = useLocation();
   const suffix = sidebarBusinessContextSuffix(location.search, location.hash);
   const current = navigationKey(location.pathname);
+  const customersHref = useHref(`/contact${suffix}`);
+  const conversationsHref = useHref(`/contactSop${suffix}`);
+  const profileHref = useHref(`/${suffix}`);
   const items: MobileBottomNavigationItem[] = [
-    { key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: `/contact${suffix}`, current: current === 'customers' },
-    { key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: `/contactSop${suffix}`, current: current === 'conversations' },
-    { key: 'profile', label: '我的', icon: <SidebarLineIcon kind="profile" />, href: `/${suffix}`, current: current === 'profile' },
+    { key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: customersHref, current: current === 'customers' },
+    { key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: conversationsHref, current: current === 'conversations' },
+    { key: 'profile', label: '我的', icon: <SidebarLineIcon kind="profile" />, href: profileHref, current: current === 'profile' },
   ];
 
   return (

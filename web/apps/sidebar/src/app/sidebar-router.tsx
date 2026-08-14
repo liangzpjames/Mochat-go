@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   createBrowserRouter,
   Navigate,
+  useHref,
   useLocation,
   useNavigate,
   useSearchParams,
@@ -173,6 +174,24 @@ function WorkbenchIcon() {
   );
 }
 
+function SidebarWorkbenchTile({
+  route,
+  suffix,
+}: {
+  route: SidebarRouteRegistration;
+  suffix: string;
+}) {
+  const href = useHref(`${route.path}${suffix}`);
+  return (
+    <MobileIconTile
+      description={route.description}
+      href={href}
+      icon={<WorkbenchIcon />}
+      title={route.title}
+    />
+  );
+}
+
 function SidebarWorkbenchPage() {
   const location = useLocation();
   const routes = sidebarRouteRegistry.filter((route) => route.auth && route.path !== '/');
@@ -186,12 +205,10 @@ function SidebarWorkbenchPage() {
     >
       <section aria-label="可用工作模块" className="sidebar-workbench__tiles">
         {routes.map((route) => (
-          <MobileIconTile
-            description={route.description}
-            href={`${route.path}${suffix}`}
-            icon={<WorkbenchIcon />}
+          <SidebarWorkbenchTile
             key={route.moduleKey}
-            title={route.title}
+            route={route}
+            suffix={suffix}
           />
         ))}
       </section>

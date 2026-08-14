@@ -1,6 +1,16 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { extname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { inflateSync } from 'node:zlib';
 
 const EXPECTED_ROUTE_COUNTS = {
   Sidebar: 12,
@@ -8,12 +18,24 @@ const EXPECTED_ROUTE_COUNTS = {
 };
 
 const ROOT_SCRIPT = 'node scripts/check_mobile_clients_foundation.mjs && node --test scripts/check_mobile_clients_foundation.test.mjs';
+const CAPTURE_SCRIPT = 'node scripts/capture_mobile_visual_evidence.mjs';
+const VISUAL_EVIDENCE_FILES = [
+  'sidebar-contact-390.png',
+  'sidebar-workbench-390.png',
+  'sidebar-pending-390.png',
+  'operation-work-fission-390.png',
+  'operation-pending-390.png',
+  'sidebar-contact-1280.png',
+  'operation-work-fission-1280.png',
+];
 const E2E_SCRIPT = 'playwright test tests/mobile-clients-foundation.spec.ts --workers=1';
 
 const MOJIBAKE_PATTERN = /(?:锛|銆|鈥|鈮|馃|椤甸潰|妯″潡|浠诲姟|绔欏唴|涓嶅瓨鍦|瀹㈡埛|绉诲姩|鐢ㄦ埛|璇锋眰|璺敱)/g;
 const FAKE_OUTCOME_PATTERNS = [
   /Math\.random\s*\(/g,
   /\b(?:fixedProgress|progress|percentage|percent)\s*(?:=|:)\s*\d+(?:\.\d+)?\b/g,
+  /\b(?:participants?|participantCount|inviteCount|customerCount|rewardCount|prizeCount|businessMetric|fakeCount)\s*(?:=|:)\s*\d+(?:\.\d+)?\b/gi,
+  /[>='"]\s*(?:已有|累计|今日|成功|完成)?\s*\d+(?:\.\d+)?\s*(?:人|位|个|条|元|%|次|份)/g,
   /(?:操作已完成|提交成功|保存成功|领取成功|随机奖品|模拟成功|虚假进度|固定进度)/g,
 ];
 
@@ -35,7 +57,7 @@ function productionSources(root, sourceRoot) {
         visit(join(directory, entry.name));
         continue;
       }
-      if (!entry.isFile() || !['.ts', '.tsx'].includes(extname(entry.name))) continue;
+      if (!entry.isFile() || !['.css', '.ts', '.tsx'].includes(extname(entry.name))) continue;
       if (/(?:^|\.)(?:test|spec|stories)\.[cm]?[jt]sx?$/i.test(entry.name)) continue;
       const filePath = join(directory, entry.name);
       sources.push({
@@ -172,6 +194,253 @@ function validatePackageScripts(root, errors) {
   }
   if (e2ePackage.scripts?.['test:mobile-clients-foundation'] !== E2E_SCRIPT) {
     errors.push('test:mobile-clients-foundation E2E package script is missing or incorrect');
+  }
+  if (rootPackage.scripts?.['capture:mobile-visual-evidence'] !== CAPTURE_SCRIPT) {
+    errors.push('capture:mobile-visual-evidence package script is missing or incorrect');
+  }
+}
+
+function validateCaptureScript(root, errors) {
+  const capturePath = join(root, 'scripts/capture_mobile_visual_evidence.mjs');
+  const source = readFileSync(capturePath, 'utf8');
+  if (!/process\.env\.MOCHAT_MOBILE_VISUAL_OUTPUT/.test(source)) {
+    errors.push('visual evidence capture must require MOCHAT_MOBILE_VISUAL_OUTPUT');
+  }
+  if (!/\bchromium\.launch\(/.test(source) || !/page\.screenshot\(/.test(source)) {
+    errors.push('visual evidence capture must use Playwright Chromium screenshots');
+  }
+  if (!/createServer\(/.test(source) || !/server\.listen\(\s*0\s*,/.test(source)) {
+    errors.push('visual evidence capture must serve the current build on an isolated local port');
+  }
+  if (/fullPage\s*:\s*true/.test(source)) {
+    errors.push('visual evidence capture must preserve fixed viewport height instead of fullPage');
+  }
+  if (!/finally\s*\{[\s\S]*?try\s*\{[\s\S]*?browser\.close\(\)[\s\S]*?finally\s*\{[\s\S]*?server\.close\(/.test(source)) {
+    errors.push('visual evidence capture must close the local server even when browser cleanup fails');
+  }
+  for (const filename of VISUAL_EVIDENCE_FILES) {
+    if (countMatches(source, new RegExp(filename.replaceAll('.', '\\.'), 'g')) !== 1) {
+      errors.push(`visual evidence capture must declare ${filename} exactly once`);
+    }
+  }
+  if (/console\.log\([^\n]*(?:token|cookie|state)|process\.stdout\.write\([^\n]*(?:token|cookie|state)/i.test(source)) {
+    errors.push('visual evidence capture must not log session secrets');
+  }
+  const contract = spawnSync(process.execPath, [capturePath, '--contract'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, MOCHAT_MOBILE_VISUAL_OUTPUT: join(root, 'visual-contract-output') },
+    windowsHide: true,
+  });
+  try {
+    const parsed = JSON.parse(contract.stdout);
+    if (
+      contract.status !== 0
+      || parsed.fixedViewport !== true
+      || JSON.stringify(parsed.files) !== JSON.stringify(VISUAL_EVIDENCE_FILES)
+    ) {
+      errors.push('visual evidence capture executable contract is invalid');
+    }
+  } catch {
+    errors.push('visual evidence capture executable contract is invalid');
+  }
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function decodePng(filePath) {
+  const bytes = readFileSync(filePath);
+  const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  if (bytes.length < 57 || !bytes.subarray(0, pngSignature.length).equals(pngSignature)) {
+    throw new Error(`${filePath} is not a valid PNG`);
+  }
+
+  let offset = pngSignature.length;
+  let header;
+  let ended = false;
+  let hasPalette = false;
+  const imageData = [];
+  while (offset < bytes.length) {
+    if (offset + 12 > bytes.length) throw new Error(`${filePath} has a truncated PNG chunk`);
+    const length = bytes.readUInt32BE(offset);
+    const end = offset + 12 + length;
+    if (end > bytes.length) throw new Error(`${filePath} has a truncated PNG chunk`);
+    const type = bytes.toString('ascii', offset + 4, offset + 8);
+    const data = bytes.subarray(offset + 8, offset + 8 + length);
+    const expectedCRC = bytes.readUInt32BE(offset + 8 + length);
+    const actualCRC = crc32(bytes.subarray(offset + 4, offset + 8 + length));
+    if (actualCRC !== expectedCRC) throw new Error(`${filePath} has an invalid ${type} CRC`);
+    if (header === undefined && type !== 'IHDR') throw new Error(`${filePath} must start with IHDR`);
+    if (type === 'IHDR') {
+      if (header !== undefined || length !== 13) throw new Error(`${filePath} has an invalid IHDR`);
+      header = {
+        width: data.readUInt32BE(0),
+        height: data.readUInt32BE(4),
+        bitDepth: data[8],
+        colorType: data[9],
+        compression: data[10],
+        filter: data[11],
+        interlace: data[12],
+      };
+    } else if (type === 'IDAT') {
+      imageData.push(data);
+    } else if (type === 'PLTE') {
+      hasPalette = true;
+    } else if (type === 'IEND') {
+      if (length !== 0 || end !== bytes.length) throw new Error(`${filePath} has an invalid IEND`);
+      ended = true;
+    }
+    offset = end;
+  }
+
+  if (header === undefined || imageData.length === 0 || !ended) {
+    throw new Error(`${filePath} is missing required PNG chunks`);
+  }
+  const encodingByColorType = new Map([
+    [0, { channels: 1, bitDepths: new Set([1, 2, 4, 8, 16]) }],
+    [2, { channels: 3, bitDepths: new Set([8, 16]) }],
+    [3, { channels: 1, bitDepths: new Set([1, 2, 4, 8]) }],
+    [4, { channels: 2, bitDepths: new Set([8, 16]) }],
+    [6, { channels: 4, bitDepths: new Set([8, 16]) }],
+  ]);
+  const encoding = encodingByColorType.get(header.colorType);
+  if (
+    header.width === 0
+    || header.height === 0
+    || encoding === undefined
+    || !encoding.bitDepths.has(header.bitDepth)
+    || (header.colorType === 3 && !hasPalette)
+    || header.compression !== 0
+    || header.filter !== 0
+    || header.interlace !== 0
+  ) {
+    throw new Error(`${filePath} uses an unsupported PNG encoding`);
+  }
+  let decoded;
+  try {
+    decoded = inflateSync(Buffer.concat(imageData));
+  } catch {
+    throw new Error(`${filePath} has invalid compressed PNG image data`);
+  }
+  const rowBytes = Math.ceil((header.width * encoding.channels * header.bitDepth) / 8);
+  if (decoded.length !== header.height * (rowBytes + 1)) {
+    throw new Error(`${filePath} has an invalid decoded PNG raster length`);
+  }
+  for (let row = 0; row < header.height; row += 1) {
+    if (decoded[row * (rowBytes + 1)] > 4) {
+      throw new Error(`${filePath} has an invalid PNG row filter`);
+    }
+  }
+  return { width: header.width, height: header.height };
+}
+
+export function verifyCaptureEvidenceRuntime(root = process.cwd()) {
+  const resolvedRoot = resolve(root);
+  const capturePath = join(resolvedRoot, 'scripts/capture_mobile_visual_evidence.mjs');
+  const outputDirectory = mkdtempSync(join(tmpdir(), 'mochat-mobile-visual-runtime-'));
+  try {
+    const capture = spawnSync(process.execPath, [capturePath], {
+      cwd: resolvedRoot,
+      encoding: 'utf8',
+      env: { ...process.env, MOCHAT_MOBILE_VISUAL_OUTPUT: outputDirectory },
+      timeout: 120_000,
+      windowsHide: true,
+    });
+    if (capture.status !== 0) {
+      const detail = (capture.stderr || capture.stdout || 'unknown capture failure').trim();
+      throw new Error(`visual evidence runtime capture failed: ${detail}`);
+    }
+
+    const actualFiles = readdirSync(outputDirectory).sort();
+    const expectedFiles = [...VISUAL_EVIDENCE_FILES].sort();
+    if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
+      throw new Error(`visual evidence runtime inventory mismatch: ${actualFiles.join(', ')}`);
+    }
+
+    for (const filename of VISUAL_EVIDENCE_FILES) {
+      const filePath = join(outputDirectory, filename);
+      if (!existsSync(filePath) || statSync(filePath).size < 1_024) {
+        throw new Error(`visual evidence runtime screenshot is missing or empty: ${filename}`);
+      }
+      const dimensions = decodePng(filePath);
+      const expected = filename.includes('-390.')
+        ? { width: 390, height: 844 }
+        : { width: 1280, height: 900 };
+      if (dimensions.width !== expected.width || dimensions.height !== expected.height) {
+        throw new Error(
+          `visual evidence runtime screenshot has wrong dimensions: ${filename} `
+          + `${dimensions.width}x${dimensions.height}`,
+        );
+      }
+    }
+  } finally {
+    rmSync(outputDirectory, { force: true, recursive: true });
+  }
+}
+
+function validateSidebarNavigationCases(sidebarCasesBody, errors) {
+  const entries = [...sidebarCasesBody.matchAll(/\{[^\n}]*\bpath\s*:\s*(['"])(\/[^'"]*)\1[^\n}]*\}/g)];
+  for (const entry of entries) {
+    const [source, , path] = entry;
+    const publicRoute = ['/auth', '/codeAuth', '/login'].includes(path);
+    if (publicRoute) {
+      if (!/needsSession\s*:\s*false/.test(source)) {
+        errors.push(`Sidebar ${path} browser case must not expect employee navigation`);
+      }
+      continue;
+    }
+    const expected = path === '/' ? '我的' : path === '/contactSop' ? '会话' : '客户';
+    if (
+      !/needsSession\s*:\s*true/.test(source)
+      || !new RegExp(`activeNavigation\\s*:\\s*['"]${expected}['"]`).test(source)
+    ) {
+      errors.push(`Sidebar ${path} browser case must map active navigation to ${expected}`);
+    }
+  }
+}
+
+function validateVisualSource(root, sources, errors) {
+  const sidebarShell = readFileSync(
+    join(root, 'web/apps/sidebar/src/ui/sidebar-page-shell.tsx'),
+    'utf8',
+  );
+  if (
+    !/\bMobileBottomNavigation\b/.test(sidebarShell)
+    || !/label\s*=\s*['"]员工工作台['"]/.test(sidebarShell)
+    || !/label\s*:\s*['"]客户['"]/.test(sidebarShell)
+    || !/label\s*:\s*['"]会话['"]/.test(sidebarShell)
+    || !/label\s*:\s*['"]我的['"]/.test(sidebarShell)
+  ) {
+    errors.push('Sidebar production shell must render the exact three-tab employee navigation');
+  }
+
+  for (const file of sources) {
+    if (
+      file.path.startsWith('web/apps/operation/')
+      && /\bMobileBottomNavigation\b|员工工作台/.test(file.source)
+    ) {
+      errors.push(`Operation must not render employee navigation in ${file.path}`);
+    }
+    if (/圆弧AI会话/.test(file.source)) {
+      errors.push(`reference brand text found in ${file.path}`);
+    }
+    if (
+      /<img\b[^>]*\bsrc\s*=\s*['"]https?:\/\//i.test(file.source)
+      || /background(?:-image)?\s*:\s*url\(\s*['"]?https?:\/\//i.test(file.source)
+      || /@import\s+(?:url\()?\s*['"]?https?:\/\//i.test(file.source)
+      || /const\s+(\w+)\s*=\s*['"]https?:\/\/[^'"]+['"][\s\S]{0,1000}?<img\b[^>]*\bsrc\s*=\s*\{\s*\1\s*\}/i.test(file.source)
+    ) {
+      errors.push(`static external image found in ${file.path}`);
+    }
   }
 }
 
@@ -327,6 +596,34 @@ function validateViewportRouteLoops(source, operationCasesBody, errors) {
     }
   }
 
+  if (
+    !/routeCase\.needsSession/.test(sidebarBody)
+    || !/employeeNavigationLabel[\s\S]{0,240}?navigation[\s\S]{0,160}?toBeVisible/.test(sidebarBody)
+    || !/routeCase\.activeNavigation[\s\S]{0,400}?aria-current[\s\S]{0,120}?page/.test(sidebarBody)
+  ) {
+    errors.push('Sidebar viewport loop must assert visible and active Sidebar navigation');
+  }
+  if (!/await\s+assertContentAboveBottomNavigation\(\s*page\s*\)/.test(sidebarBody)) {
+    errors.push('Sidebar bottom navigation must not cover the last content item');
+  }
+  if (
+    !/navigation\.locator\(\s*['"]a['"]\s*\)[\s\S]{0,220}?\/sidebar-app/.test(sidebarBody)
+    || !/\.click\(\)[\s\S]{0,220}?\/sidebar-app\/contactSop/.test(sidebarBody)
+  ) {
+    errors.push('Sidebar viewport loop must click a basename-scoped navigation link');
+  }
+  if (
+    !/employeeNavigationLabel[\s\S]{0,240}?toHaveCount\(\s*0\s*\)/.test(operationBody)
+  ) {
+    errors.push('Operation viewport loop must assert no employee navigation');
+  }
+
+  if (
+    !/async\s+function\s+assertContentAboveBottomNavigation[\s\S]{0,700}?lastContent[\s\S]{0,300}?navigationBox[\s\S]{0,300}?contentBox[\s\S]{0,300}?toBeLessThanOrEqual/.test(source)
+  ) {
+    errors.push('bottom navigation content-cover geometry assertion is missing');
+  }
+
   if (!/path\s*:\s*['"]\/workFission['"][^\n]*query\s*:\s*['"]\?id=[1-9]\d*['"]/.test(operationCasesBody)) {
     errors.push('workFission browser case must use the real positive id entry');
   }
@@ -393,6 +690,7 @@ export function auditMobileClientsFoundation(root = process.cwd()) {
     ...productionSources(resolvedRoot, 'web/apps/sidebar/src'),
     ...productionSources(resolvedRoot, 'web/apps/operation/src'),
   ];
+  validateVisualSource(resolvedRoot, sources, errors);
   let directFetch = 0;
   let dashboardSessionReferences = 0;
   let mojibakeMarkers = 0;
@@ -439,6 +737,7 @@ export function auditMobileClientsFoundation(root = process.cwd()) {
   const operationCases = specCasePaths(e2eSource, 'operationCases', errors);
   compareBrowserCases('Sidebar', sidebarCases, sidebarManifest, errors);
   compareBrowserCases('Operation', operationCases, operationManifest, errors);
+  validateSidebarNavigationCases(sidebarCasesBody, errors);
 
   const hasMobileViewport = /width\s*:\s*390\b[\s\S]{0,80}?height\s*:\s*844\b/.test(e2eSource);
   const hasDesktopViewport = /width\s*:\s*1280\b[\s\S]{0,80}?height\s*:\s*900\b/.test(e2eSource);
@@ -459,6 +758,7 @@ export function auditMobileClientsFoundation(root = process.cwd()) {
   }
 
   validatePackageScripts(resolvedRoot, errors);
+  validateCaptureScript(resolvedRoot, errors);
   if (errors.length > 0) {
     throw new Error(`mobile clients foundation gate failed:\n- ${errors.join('\n- ')}`);
   }
@@ -487,5 +787,7 @@ export function formatMobileClientsFoundationSummary(result) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  console.log(formatMobileClientsFoundationSummary(auditMobileClientsFoundation()));
+  const result = auditMobileClientsFoundation();
+  verifyCaptureEvidenceRuntime();
+  console.log(formatMobileClientsFoundationSummary(result));
 }

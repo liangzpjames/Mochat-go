@@ -17,6 +17,7 @@
     "check:dashboard-all-pages-evidence": "node --test scripts/validate_dashboard_all_pages_evidence.test.mjs",
     "check:identity-single-corp": "node scripts/check_identity_realm_single_corp.mjs",
     "check:mobile-clients-foundation": "node scripts/check_mobile_clients_foundation.mjs && node --test scripts/check_mobile_clients_foundation.test.mjs",
+    "capture:mobile-visual-evidence": "node scripts/capture_mobile_visual_evidence.mjs",
     "check:e2e-dashboard-rbac-fixture": "node --test scripts/validate_dashboard_rbac_e2e_fixture.test.mjs",
     "test:identity-single-corp-contract": "node --test scripts/check_identity_realm_single_corp.test.mjs scripts/validate_identity_single_corp_e2e_fixture.test.mjs scripts/identity_single_corp_auth_storage.test.mjs scripts/identity_single_corp_e2e_entry.test.mjs scripts/smoke_identity_single_corp.test.mjs",
     "test:e2e:identity-single-corp": "corepack pnpm --filter @mochat/e2e exec playwright test tests/identity-single-corp.spec.ts --workers=1",

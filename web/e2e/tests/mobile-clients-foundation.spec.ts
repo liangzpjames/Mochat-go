@@ -1,18 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const sidebarCases = [
-  { path: '/', title: '客户侧边栏', moduleLabel: '客户侧边栏模块待迁移', needsSession: true, expectsAction: false },
+  { path: '/', title: '客户侧边栏', moduleLabel: '从当前客户会话开始工作', needsSession: true, expectsAction: false, activeNavigation: '我的' },
   { path: '/auth', title: '企业微信授权回调', moduleLabel: '登录失败', needsSession: false, expectsAction: false },
   { path: '/codeAuth', title: '企业微信扫码授权', moduleLabel: '企业微信扫码授权模块待迁移', needsSession: false, expectsAction: false },
-  { path: '/contact', title: '客户资料', moduleLabel: '浏览器验收客户', needsSession: true, expectsAction: false, query: '?wxExternalUserid=external-user-1&agentId=7' },
-  { path: '/contact/editDetail', title: '编辑客户资料', moduleLabel: '编辑客户资料模块待迁移', needsSession: true, expectsAction: false },
-  { path: '/contact/remark', title: '客户备注', moduleLabel: '客户备注模块待迁移', needsSession: true, expectsAction: false },
-  { path: '/contact/settingTag', title: '设置客户标签', moduleLabel: '设置客户标签模块待迁移', needsSession: true, expectsAction: false },
-  { path: '/contactBatchAdd', title: '批量加好友', moduleLabel: '批量加好友模块待迁移', needsSession: true, expectsAction: false },
-  { path: '/contactSop', title: '个人客户 SOP', moduleLabel: '个人客户 SOP模块待迁移', needsSession: true, expectsAction: false },
+  { path: '/contact', title: '客户资料', moduleLabel: '浏览器验收客户', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
+  { path: '/contact/editDetail', title: '编辑客户资料', moduleLabel: '编辑客户资料模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
+  { path: '/contact/remark', title: '客户备注', moduleLabel: '客户备注模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
+  { path: '/contact/settingTag', title: '设置客户标签', moduleLabel: '设置客户标签模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
+  { path: '/contactBatchAdd', title: '批量加好友', moduleLabel: '批量加好友模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
+  { path: '/contactSop', title: '个人客户 SOP', moduleLabel: '个人客户 SOP模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '会话' },
   { path: '/login', title: '侧边栏登录', moduleLabel: '继续授权', needsSession: false, expectsAction: true, query: '?agentId=7&target=%2Fcontact' },
-  { path: '/medium', title: '素材库', moduleLabel: '素材库模块待迁移', needsSession: true, expectsAction: false },
-  { path: '/roomSop', title: '客户群 SOP', moduleLabel: '客户群 SOP模块待迁移', needsSession: true, expectsAction: false },
+  { path: '/medium', title: '素材库', moduleLabel: '素材库模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
+  { path: '/roomSop', title: '客户群 SOP', moduleLabel: '客户群 SOP模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
 ] as const;
 
 const operationCases = [
@@ -40,6 +40,7 @@ const browserContract = {
     taskData: '**/operation/workFission/taskData?*',
   },
   minimumActionHeight: 44,
+  employeeNavigationLabel: '员工工作台',
 } as const;
 
 const rawContactData = {
@@ -204,6 +205,21 @@ async function assertVisiblePage(
   }
 }
 
+async function assertContentAboveBottomNavigation(page: Page): Promise<void> {
+  const navigation = page.getByRole('navigation', {
+    name: browserContract.employeeNavigationLabel,
+  });
+  const lastContent = page.locator('main > :last-child');
+  await lastContent.scrollIntoViewIfNeeded();
+  const navigationBox = await navigation.boundingBox();
+  const contentBox = await lastContent.boundingBox();
+  expect(navigationBox).not.toBeNull();
+  expect(contentBox).not.toBeNull();
+  expect((contentBox?.y ?? 0) + (contentBox?.height ?? 0)).toBeLessThanOrEqual(
+    navigationBox?.y ?? 0,
+  );
+}
+
 function assertCleanAudit(audit: BrowserAudit, label: string): void {
   expect(audit.consoleErrors, `${label} console errors`).toEqual([]);
   expect(audit.pageErrors, `${label} uncaught page errors`).toEqual([]);
@@ -228,6 +244,26 @@ for (const viewport of viewports) {
         if (routeCase.needsSession) await injectSidebarSession(page);
         await page.goto(mountedURL('/sidebar-app', routeCase.path, 'query' in routeCase ? routeCase.query : ''));
         await assertVisiblePage(page, routeCase.title, routeCase.moduleLabel, routeCase.expectsAction);
+        const navigation = page.getByRole('navigation', {
+          name: browserContract.employeeNavigationLabel,
+        });
+        if (routeCase.needsSession) {
+          await expect(navigation).toBeVisible();
+          await expect(
+            navigation.getByRole('link', { name: routeCase.activeNavigation }),
+          ).toHaveAttribute('aria-current', 'page');
+          await assertContentAboveBottomNavigation(page);
+          const navigationHrefs = await navigation.locator('a').evaluateAll((links) => (
+            links.map((link) => link.getAttribute('href'))
+          ));
+          expect(navigationHrefs.every((href) => href?.startsWith('/sidebar-app'))).toBe(true);
+          if (routeCase.path === '/') {
+            await navigation.getByRole('link', { name: '会话' }).click();
+            expect(new URL(page.url()).pathname).toBe('/sidebar-app/contactSop');
+          }
+        } else {
+          await expect(navigation).toHaveCount(0);
+        }
         expect(audit.contactRequests).toHaveLength(routeCase.path === '/contact' ? 1 : 0);
         await assertStableCleanAudit(page, audit, `${viewport.name} Sidebar ${routeCase.path}`);
       });
@@ -242,6 +278,9 @@ for (const viewport of viewports) {
         expect(operationCookies).not.toContain('sidebar-browser-token');
         expect(operationCookies).not.toMatch(/(?:^|;\s*)agentId=/);
         await assertVisiblePage(page, routeCase.title, routeCase.moduleLabel, routeCase.expectsAction);
+        await expect(page.getByRole('navigation', {
+          name: browserContract.employeeNavigationLabel,
+        })).toHaveCount(0);
         expect(audit.workFissionRequests).toHaveLength(routeCase.path === '/workFission' ? 1 : 0);
         expect(audit.workFissionParticipantRequests).toHaveLength(
           routeCase.path === '/workFission' ? 1 : 0,
@@ -276,6 +315,9 @@ for (const viewport of viewports) {
       await page.goto('/sidebar-app/not-a-sidebar-page');
       await expect(page.getByRole('heading', { name: '页面不存在' })).toBeVisible();
       await expect(page.getByRole('heading', { level: 1, name: '客户侧边栏' })).toHaveCount(0);
+      await expect(page.getByRole('navigation', {
+        name: browserContract.employeeNavigationLabel,
+      })).toHaveCount(0);
       await assertVisiblePage(page, '未找到页面', '页面不存在', false);
       await assertStableCleanAudit(page, audit, `${viewport.name} Sidebar unknown`);
     });
@@ -285,6 +327,9 @@ for (const viewport of viewports) {
       await page.goto('/operation-app/not-an-operation-page');
       await expect(page.getByRole('heading', { name: '页面不存在' })).toBeVisible();
       await expect(page.getByRole('heading', { level: 1, name: '营销活动中心' })).toHaveCount(0);
+      await expect(page.getByRole('navigation', {
+        name: browserContract.employeeNavigationLabel,
+      })).toHaveCount(0);
       await assertVisiblePage(page, '未找到活动页面', '页面不存在', false);
       await assertStableCleanAudit(page, audit, `${viewport.name} Operation unknown`);
     });

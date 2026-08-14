@@ -11,5 +11,4 @@ Plan: docs/superpowers/plans/2026-08-14-mobile-wecom-visual-refresh.md
 Visual Task 1: complete (commit 7b8610c, review Important fixed, parent verification 30/30)
 Visual Task 2: complete (commits 045be25 + e090e79, OAuth state leak fixed, parent verification 60/60)
 Visual Task 3: complete (Operation activity visual; 74/74 tests)
-Visual Task 4: pending
-
+Visual Task 4: complete (57/57 gate tests, 48/48 Playwright, 7 decoded fixed-viewport screenshots)

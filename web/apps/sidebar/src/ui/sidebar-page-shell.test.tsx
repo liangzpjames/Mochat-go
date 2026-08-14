@@ -32,6 +32,27 @@ describe('SidebarPageShell', () => {
     );
   });
 
+  it('keeps bottom navigation inside the prefixed Sidebar mount', () => {
+    render(
+      <MemoryRouter
+        basename="/sidebar-app"
+        initialEntries={['/sidebar-app/contact?wxExternalUserid=external-1']}
+      >
+        <SidebarPageShell title="客户资料">内容</SidebarPageShell>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('link', { name: '客户' }).getAttribute('href')).toBe(
+      '/sidebar-app/contact?wxExternalUserid=external-1',
+    );
+    expect(screen.getByRole('link', { name: '会话' }).getAttribute('href')).toBe(
+      '/sidebar-app/contactSop?wxExternalUserid=external-1',
+    );
+    expect(screen.getByRole('link', { name: '我的' }).getAttribute('href')).toBe(
+      '/sidebar-app?wxExternalUserid=external-1',
+    );
+  });
+
   it.each([
     ['/contactSop', '会话'],
     ['/', '我的'],

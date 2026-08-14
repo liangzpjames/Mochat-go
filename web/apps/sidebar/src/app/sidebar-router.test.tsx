@@ -137,6 +137,20 @@ describe('Sidebar route registry', () => {
     router.dispose();
   });
 
+  it('keeps workbench module links inside the prefixed Sidebar mount', () => {
+    window.history.replaceState(null, '', '/sidebar-app/');
+    const router = createSidebarRouter({
+      ...authenticatedRuntime(),
+      basename: '/sidebar-app',
+    });
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByRole('link', { name: /^客户资料/ }).getAttribute('href')).toBe(
+      '/sidebar-app/contact',
+    );
+    router.dispose();
+  });
+
   it('redirects a protected route before rendering its feature content', async () => {
     const router = renderPath('/medium?agentId=7');
 
