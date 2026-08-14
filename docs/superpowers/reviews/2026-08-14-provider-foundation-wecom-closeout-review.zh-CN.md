@@ -24,6 +24,7 @@
 8. `204d109` `fix(provider): close completion gate bypasses`
 9. `09b04f8` `fix(provider): constrain registry completion source`
 10. `b738180` `fix(provider): audit catalog provider implementations`
+11. `28b1cb8` `fix(provider): reject unreachable registry branches`
 
 ## 验证结果
 
@@ -32,7 +33,7 @@
 - `go test ./internal/companyprofile ./internal/providerstatus -count=1`
 - `go test ./internal/modules/providers/... -count=1`
 - `go test ./internal/dashboard -run 'TestRoomWelcomeWeComClientStandard.*Contract|TestRoomWelcomeWeComClientStandardSyncError|TestVerifyCompany|TestRoomWelcomeWeComClientStatusComesFromRuntimeComponent' -count=1`
-- `node --test scripts/check_provider_completion.test.mjs`：4 个测试通过，包含无注册、注释/testdata 自证、deadRegistry 和 `NewRegistry` 不可达分支坏 fixture。
+- `node --test scripts/check_provider_completion.test.mjs`：5 个测试通过，包含无注册、注释/testdata 自证、deadRegistry、`NewRegistry` 不可达分支和 `else` 分支坏 fixture。
 - `node scripts/check_provider_completion.mjs --root .`：`ok: true`；实际发现并分类 `ai`、`wecom_archive`、`audio_storage`、`wecom_standard`。
 - `corepack pnpm --filter @mochat/dashboard typecheck`：通过。
 - `corepack pnpm --filter @mochat/dashboard lint`：通过。
