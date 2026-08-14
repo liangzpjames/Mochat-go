@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"go/build"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"jiyi/mochat-go/scripts/productionbuild"
 )
 
 func main() {
@@ -30,7 +31,7 @@ func main() {
 }
 
 func productionGoFiles(root, relativeDirectory, goos, goarch string) ([]string, error) {
-	target, err := productionBuildContext(goos, goarch)
+	target, err := productionbuild.ForTarget(goos, goarch)
 	if err != nil {
 		return nil, err
 	}
@@ -72,13 +73,6 @@ func productionGoFiles(root, relativeDirectory, goos, goarch string) ([]string, 
 	}
 	sort.Strings(files)
 	return files, nil
-}
-
-func productionBuildContext(goos, goarch string) (build.Context, error) {
-	if strings.TrimSpace(goos) == "" || strings.TrimSpace(goarch) == "" {
-		return build.Context{}, fmt.Errorf("production build target requires GOOS and GOARCH")
-	}
-	return build.Context{GOOS: goos, GOARCH: goarch, Compiler: "gc", CgoEnabled: false}, nil
 }
 
 func fail(message string) {

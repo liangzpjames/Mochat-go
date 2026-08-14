@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,27 +7,17 @@ const PRODUCTION_GOOS = 'linux';
 const PRODUCTION_GOARCH = 'amd64';
 
 export async function checkProviderCompletion(root = process.cwd()) {
-  const files = [
-    ...(await productionGoFiles(root, 'internal/modules/providers')),
-    ...(await productionGoFiles(root, 'internal/dashboard')),
-  ];
   const implementationKinds = new Map();
   const registrations = new Map();
   const errors = [];
 
-  for (const file of files) {
-    const relative = path.relative(root, file).replaceAll(path.sep, '/');
-    const source = stripComments(await fs.readFile(file, 'utf8'));
-    if (relative !== 'internal/modules/providers/catalog/catalog.go' && /\bStatus\s*\(\s*\)\s*(?:providers\.)?Status\s*\{/.test(source)) {
-      const kinds = [...source.matchAll(/\bKind\s*:\s*"([^"]+)"/g)].map((match) => match[1]);
-      const knownKinds = implementationKinds.get(relative) ?? new Set();
-      for (const kind of kinds) knownKinds.add(kind);
-      implementationKinds.set(relative, knownKinds);
-    }
-  }
-
   collectRuntimeRegistrations(root, registrations, errors);
-  errors.push(...checkArchiveStatusAST(root));
+  const statusEvidence = collectProviderStatusAST(root, errors);
+  for (const evidence of statusEvidence) {
+    const knownKinds = implementationKinds.get(evidence.file) ?? new Set();
+    knownKinds.add(evidence.kind);
+    implementationKinds.set(evidence.file, knownKinds);
+  }
 
   for (const [file, kinds] of implementationKinds) {
     for (const kind of kinds) {
@@ -38,8 +27,11 @@ export async function checkProviderCompletion(root = process.cwd()) {
 
   const activeKinds = new Set([...implementationKinds.values()].flatMap((kinds) => [...kinds]));
   for (const [kind] of registrations) {
-    if (!activeKinds.has(kind)) {
-      errors.push(`runtime registration ${kind} has no active production implementation`);
+    const matchingEvidence = statusEvidence.filter((evidence) => evidence.kind === kind);
+    const registration = registrations.get(kind);
+    const sourceEvidence = matchingEvidence.filter((evidence) => !evidence.source || evidence.source === registration.source);
+    if (!activeKinds.has(kind) || sourceEvidence.length === 0) {
+      errors.push(`runtime registration ${kind} has no active ${registration.source} Status evidence`);
     }
   }
 
@@ -50,7 +42,7 @@ export async function checkProviderCompletion(root = process.cwd()) {
   };
 }
 
-function checkArchiveStatusAST(root) {
+function collectProviderStatusAST(root, errors) {
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'provider_completion_ast.go');
   try {
     const output = execFileSync('go', ['run', script, '--root', root, '--goos', PRODUCTION_GOOS, '--goarch', PRODUCTION_GOARCH], {
@@ -58,17 +50,23 @@ function checkArchiveStatusAST(root) {
       encoding: 'utf8',
       maxBuffer: 2 * 1024 * 1024,
     });
-    return JSON.parse(output).errors ?? [];
+    const result = JSON.parse(output);
+    errors.push(...(result.errors ?? []));
+    return result.statuses ?? [];
   } catch (error) {
     const output = String(error.stdout ?? '').trim();
     if (output) {
       try {
-        return JSON.parse(output).errors ?? [`archive AST gate failed: ${output}`];
+        const result = JSON.parse(output);
+        errors.push(...(result.errors ?? [`provider Status AST gate failed: ${output}`]));
+        return result.statuses ?? [];
       } catch {
-        return [`archive AST gate failed: ${output}`];
+        errors.push(`provider Status AST gate failed: ${output}`);
+        return [];
       }
     }
-    return [`archive AST gate could not run: ${error.message}`];
+    errors.push(`provider Status AST gate could not run: ${error.message}`);
+    return [];
   }
 }
 
@@ -104,20 +102,6 @@ function collectRuntimeRegistrations(root, registrations, errors) {
     if (registrations.has(registration.kind)) errors.push(`duplicate Provider registration: ${registration.kind}`);
     registrations.set(registration.kind, { file: 'internal/modules/providers/catalog/catalog.go', source: registration.source });
   }
-}
-
-function productionGoFiles(root, relativeDirectory) {
-  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'buildfiles', 'main.go');
-  const output = execFileSync('go', ['run', script, '--root', root, '--dir', relativeDirectory, '--goos', PRODUCTION_GOOS, '--goarch', PRODUCTION_GOARCH], {
-    cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
-    encoding: 'utf8',
-    maxBuffer: 2 * 1024 * 1024,
-  });
-  return JSON.parse(output).map((relative) => path.resolve(root, relative));
-}
-
-function stripComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {

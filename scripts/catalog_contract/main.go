@@ -5,12 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"jiyi/mochat-go/scripts/productionbuild"
 )
 
 type registration struct {
@@ -47,7 +48,7 @@ func main() {
 
 func check(root, goos, goarch string) result {
 	path := filepath.Join(root, "internal", "modules", "providers", "catalog", "catalog.go")
-	target, err := productionBuildContext(goos, goarch)
+	target, err := productionbuild.ForTarget(goos, goarch)
 	if err != nil {
 		return result{Errors: []string{err.Error()}}
 	}
@@ -99,13 +100,6 @@ func check(root, goos, goarch string) result {
 		composition.errors = append(composition.errors, "catalog NewRegistry has no statically bound Provider registrations")
 	}
 	return result{OK: len(composition.errors) == 0, Errors: unique(composition.errors), Registrations: uniqueRegistrations(composition.seen)}
-}
-
-func productionBuildContext(goos, goarch string) (build.Context, error) {
-	if strings.TrimSpace(goos) == "" || strings.TrimSpace(goarch) == "" {
-		return build.Context{}, fmt.Errorf("production build target requires GOOS and GOARCH")
-	}
-	return build.Context{GOOS: goos, GOARCH: goarch, Compiler: "gc", CgoEnabled: false}, nil
 }
 
 func findRegistry(body *ast.BlockStmt, composition *composition) {
