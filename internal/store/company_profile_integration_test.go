@@ -385,7 +385,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	}
 
 	countsBeforeSync := companyIdentityAndRBACCounts(t, db)
-	firstSync, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{
+	firstSync, err := runEmployeeSyncViaQueue(t, store, ctx, verifiedPrincipal, "3", companyprofile.EmployeeSyncData{
 		Departments: []companyprofile.SyncDepartment{{WXDepartmentID: 7, Name: "销售", WXParentID: 0, Order: 1}},
 		Employees: []companyprofile.SyncEmployee{{
 			WXUserID: "wecom-user-1", Name: "员工一", Mobile: "13900000001", Status: 1,
@@ -395,7 +395,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if firstSync.Status != "completed" || firstSync.DepartmentsCreated != 1 || firstSync.EmployeesCreated != 1 {
+	if firstSync.DepartmentsCreated != 1 || firstSync.EmployeesCreated != 1 || firstSync.RelationsCreated != 1 {
 		t.Fatalf("first sync=%+v", firstSync)
 	}
 	assertCompanySyncJSONHasNoCredentialMaterial(t, firstSync)
@@ -404,7 +404,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 		t.Fatalf("sync changed identity/RBAC tables: before=%v after=%v", countsBeforeSync, countsAfterFirstSync)
 	}
 
-	secondSync, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{
+	secondSync, err := runEmployeeSyncViaQueue(t, store, ctx, verifiedPrincipal, "4", companyprofile.EmployeeSyncData{
 		Departments: []companyprofile.SyncDepartment{{WXDepartmentID: 7, Name: "销售二部", WXParentID: 0, Order: 2}},
 		Employees: []companyprofile.SyncEmployee{{
 			WXUserID: "wecom-user-1", Name: "员工一离职", Mobile: "13900000001", Status: 2,
@@ -414,7 +414,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secondSync.Status != "completed" || secondSync.EmployeesUpdated != 1 {
+	if secondSync.DepartmentsUpdated != 1 || secondSync.EmployeesUpdated != 1 || secondSync.RelationsUpdated != 1 {
 		t.Fatalf("second sync=%+v", secondSync)
 	}
 	var employeeStatus int
@@ -432,7 +432,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if _, err := db.Exec(`CREATE TRIGGER task10_company_sync_failure BEFORE INSERT ON mc_work_employee FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'company sync fixture failure'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{
+	if _, err := runEmployeeSyncViaQueue(t, store, ctx, verifiedPrincipal, "5", companyprofile.EmployeeSyncData{
 		Departments: []companyprofile.SyncDepartment{{WXDepartmentID: 8, Name: "不会提交", WXParentID: 0, Order: 1}},
 		Employees: []companyprofile.SyncEmployee{{
 			WXUserID: "wecom-user-rollback", Name: "回滚员工", Status: 1,
@@ -442,6 +442,9 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 		t.Fatal("sync trigger failure unexpectedly committed")
 	}
 	if _, err := db.Exec(`DROP TRIGGER IF EXISTS task10_company_sync_failure`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCompanyEmployeeSyncFailureAtVersion(ctx, verifiedPrincipal.TenantID, 5, "5"); err != nil {
 		t.Fatal(err)
 	}
 	if afterFailureData := companySyncDataCounts(t, db); afterFailureData != beforeFailureData {
@@ -456,7 +459,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 		t.Fatalf("sync status=%+v", status)
 	}
 	assertCompanySyncStatusJSONHasNoCredentialMaterial(t, status)
-	if _, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{}); err != nil {
+	if _, err := runEmployeeSyncViaQueue(t, store, ctx, verifiedPrincipal, "6", companyprofile.EmployeeSyncData{}); err != nil {
 		t.Fatal(err)
 	}
 	status, err = store.GetSyncStatus(ctx, verifiedPrincipal)
@@ -472,6 +475,42 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if _, err := store.GetProfile(ctx, wrongCorp); !errors.Is(err, companyprofile.ErrNotFound) {
 		t.Fatalf("cross-corp profile error=%v, want ErrNotFound", err)
 	}
+}
+
+func runEmployeeSyncViaQueue(t *testing.T, store *MySQLStore, ctx context.Context, principal dashboardprincipal.DashboardPrincipal, ticket string, data companyprofile.EmployeeSyncData) (dashboard.WorkEmployeeSyncResult, error) {
+	t.Helper()
+	queued, err := store.QueueEmployeeSync(ctx, principal, companyprofile.EmployeeSyncEnqueueReceipt{
+		Cursor: dashboard.CompanyEmployeeSyncCursor, Ticket: ticket,
+	})
+	if err != nil {
+		return dashboard.WorkEmployeeSyncResult{}, err
+	}
+	if queued.AlreadyQueued {
+		return dashboard.WorkEmployeeSyncResult{}, fmt.Errorf("employee sync ticket %s was already queued", ticket)
+	}
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, principal.TenantID, 5, ticket); err != nil {
+		return dashboard.WorkEmployeeSyncResult{}, err
+	}
+	departments := make([]dashboard.WorkEmployeeSyncDepartment, 0, len(data.Departments))
+	for _, department := range data.Departments {
+		departments = append(departments, dashboard.WorkEmployeeSyncDepartment{
+			WXDepartmentID: department.WXDepartmentID, Name: department.Name,
+			WXParentID: department.WXParentID, Order: department.Order,
+		})
+	}
+	employees := make([]dashboard.WorkEmployeeSyncEmployee, 0, len(data.Employees))
+	for _, employee := range data.Employees {
+		employees = append(employees, dashboard.WorkEmployeeSyncEmployee{
+			WXUserID: employee.WXUserID, Name: employee.Name, Mobile: employee.Mobile,
+			Position: employee.Position, Gender: employee.Gender, Email: employee.Email,
+			Avatar: employee.Avatar, ThumbAvatar: employee.ThumbAvatar, Telephone: employee.Telephone,
+			Alias: employee.Alias, Status: employee.Status, QRCode: employee.QRCode,
+			Address: employee.Address, OpenUserID: employee.OpenUserID,
+			WXMainDepartmentID: employee.WXMainDepartmentID, DepartmentIDs: append([]int(nil), employee.DepartmentIDs...),
+			IsLeaderInDepartment: append([]int(nil), employee.IsLeaderInDepartment...), DepartmentOrders: append([]int(nil), employee.DepartmentOrders...),
+		})
+	}
+	return store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, 5, ticket, departments, employees)
 }
 
 func TestEmployeeSyncQueueTicketOrderingFencesDelayedWorkerRealMariaDB(t *testing.T) {
@@ -947,7 +986,7 @@ func TestCompanyProfileCredentialJSONGuardUsesExactKeys(t *testing.T) {
 	}
 }
 
-func assertCompanySyncJSONHasNoCredentialMaterial(t *testing.T, result companyprofile.SyncResult) {
+func assertCompanySyncJSONHasNoCredentialMaterial(t *testing.T, result any) {
 	t.Helper()
 	serialized, err := json.Marshal(result)
 	if err != nil {
