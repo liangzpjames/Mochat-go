@@ -20,6 +20,8 @@
 
 `employee_sync`、`department_sync`、`external_contact_sync`、`contact_tag_sync`、`room_sync`、`contact_way`、`welcome_message`、`contact_transfer`、`agent_message`、`contact_batch_send`、`room_batch_send`、`callback`。
 
+凭据边界按能力独立计算：employee/department 需要 `corp_id + employee_secret`；contact/tag/room/contact_way/welcome/contact_batch_send/room_batch_send 需要 `contact_secret`；agent_message 需要 `agent_id + wx_secret`；callback 需要 token、AES key 以及已注入的 callback route/receive evidence。会话存档仍只属于 `wecom_archive`，不参与标准能力 ready 判定。两种群发即使共享 contact secret，也必须各自有 operation/dispatch/result 证据。
+
 在 `providers.Status` 增加结构化 `capabilityStatuses`，每项包含 capability、state、code、source、reason/action、最近同步/成功/失败时间和稳定错误码。注册表的 `Capabilities` 仍是静态分类，租户状态由 runtime provider + profile + 0139 最新 operation 事实计算。普通用户保留 capability/state/code/source/时间等非敏感字段，去除 reason、missing 和配置名；superadmin 才看诊断 reason/missing。任何 capability 只能由自身的成功 operation 证据进入 ready，员工同步成功不替其他能力背书。
 
 状态计算顺序：runtime 未注入则 unavailable；binding/对应 credential 未配置或未验证则 limited/unavailable；无该 capability 的 operation 证据则 limited `wecom.capability_operation_pending`；最近 queued/running 为 limited `wecom.capability_syncing`；最近 failed 为 limited `wecom.capability_operation_failed`；最近 succeeded 才按该 capability 的外部权限/回调要求进入 ready。所有查询严格使用 principal tenant/corp。
@@ -30,14 +32,17 @@
 
 - `mochat_go_wecom_capability_operations`：tenant/corp/capability/action/idempotency/status/provider_request_id/target_total/success_total/failure_total/error_code/actor_user_id/requested_at/started_at/finished_at/updated_at/lease_token/lease_expires_at/attempt。
 - `mochat_go_wecom_capability_operation_results`：operation_id、tenant/corp、target_kind、target_id、status、provider_target_id、error_code、error_message_safe、updated_at。
+- `mochat_go_wecom_capability_dispatches`：operation_id、tenant/corp、dispatch_kind、target_id、chunk_no、idempotency_key、status、provider_request_id、lease_token、attempt、next_poll_at、last_error_code、timestamps；每个真实外呼/chunk 一行。
 
 operation 表以 `(tenant_id, corp_id, capability, idempotency_key)` 唯一，结果表以 operation scope + target 唯一；两表对 `mc_corp(tenant_id,id)` 使用复合 FK。迁移使用当前项目的完整 signature guard、同连接 statement runner 和安全 down 顺序。ledger 只写稳定 code、计数、provider task/request id；不写 token、secret、原始 callback/payload。
 
 ### 3. 精准群发闭环
 
-创建 contact/room 任务时由 handler 将 body 的 tenant/actor 忽略，以 context principal 和 DashboardAccessContext 为唯一授权事实；先验证 capability readiness、employee/客户/群 scope，再在一个数据库事务中 claim idempotency、创建 operation、保留现有业务 batch/task 记录和 audit。若业务表或 operation 任一写失败整事务回滚。
+创建 contact/room 任务时由 handler 将 body 的 tenant/actor 忽略，以 context principal 和 DashboardAccessContext 为唯一授权事实；先验证 capability readiness、employee/客户/群 scope，再在一个数据库事务中 claim idempotency、创建 operation、保留现有业务 batch/task 记录和 audit。若业务表或 operation 任一写失败整事务回滚。创建和 worker 领取前都重新验证 SaaS tenant gate、package/subscription/quota、tenant-corp binding、credential generation、员工/客户/群当前归属与 RBAC scope；租户停用后不继续外呼，已提交外部任务只允许轮询。
 
-发送 worker 从 queued operation 原子领取 lease，使用不可猜 lease token 与 attempt fencing；外部响应先保存 provider request/message id 和逐目标结果，按结果计算 succeeded/partial/failed。429/5xx/超时保留 queued/limited 并可重试，401/权限/合同错误收敛 failed；没有外部成功证据不写 completed。重复 idempotency 直接返回原 operation，绝不再次外发；callback/poll 复用现有 `GroupMessageTasks`、`GroupMessageSendResults` 合同更新结果。
+父 operation 采用 `pending/claimed/submitting/submitted/polling/succeeded/partial_failed/failed/cancelled`；旧 `send_status` 只作为兼容投影。发送 worker 从 queued operation 原子领取 lease，使用不可猜 lease token 与 attempt fencing；每一 chunk 先落一条 dispatch，再外呼，外部响应保存独立 provider request/message id 和逐目标结果，按结果计算父状态。429/5xx/超时保留可重试 dispatch，401/权限/合同错误收敛 failed；提交成功必须有非空 msgid，没有外部成功证据不写 completed。重复 idempotency 直接返回原 operation，绝不再次外发；callback/poll 复用现有 `GroupMessageTasks`、`GroupMessageSendResults`，遍历 next_cursor、退避并有终态/死信。
+
+所有 ledger/dispatch/result 写查都绑定 `tenant_id + corp_id + id`；跨租户或跨企业请求 404 且零写。系统 actor 使用 nullable actor + `source=system`，禁止用 0；remind 只能作用于该 batch target 且通过当前 scope。
 
 ### 4. 兼容边界
 
@@ -49,3 +54,5 @@ operation 表以 `(tenant_id, corp_id, capability, idempotency_key)` 唯一，�
 - fake HTTP server 验证 gettoken、contact 与 room 请求体、成功/部分失败、429/5xx/超时、401、provider request id、poll/callback 收敛；不发 live 请求。
 - 0139 临时 schema integration 使用 admin DSN；无 DSN 明确 `SKIP`，不宣称真实集成通过。
 - provider completion gate 增加 capability 分类、operation evidence 和 production composition/runtime wiring 的坏 fixture；最终运行 Go、Dashboard typecheck/lint/tests/build 与已有 phase4/provider gates。
+- 迁移先回填父业务表 tenant_id，再添加 `(tenant_id,corp_id,id)` unique 和 ledger/dispatch/result 复合 FK；第一条 DDL 前检查重复、悬空和跨 corp 数据。MariaDB 分阶段 apply/down/部分恢复均需要临时 schema 实测。
+- production runtime evidence 必须覆盖四个群发/同步 cron 开关及 callback route 注入；页面 `show/results/remind/delete` 现有 denyOnly 合同若属于闭环页面，则补精确 page mapping 和真实 guard dispatch 测试。
