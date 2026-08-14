@@ -177,7 +177,7 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 		if !page.HasMore {
 			break
 		}
-		if pageCursor.Sequence == 0 && pageCursor.Token == "" {
+		if pageCursor.Sequence == cursor.Sequence && pageCursor.Token == cursor.Token {
 			counts.Failed++
 			return s.fail(ctx, run, counts, cursor, "archive.cursor_stalled", nil)
 		}

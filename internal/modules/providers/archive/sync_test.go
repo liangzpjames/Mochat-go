@@ -95,6 +95,20 @@ func TestSyncServiceRejectsInvalidScopeAndMessageSourceMismatch(t *testing.T) {
 	}
 }
 
+func TestSyncServiceRejectsAStalledCursorWhenSourceClaimsMore(t *testing.T) {
+	stalePage := Page{Messages: []Message{
+		syncTestMessage(sourceKindSimulated, "simulation:run-1", "MOCHAT-SIM:run-1", 1, "stale"),
+	}, HasMore: true}
+	source := &syncTestSource{pages: []Page{stalePage, stalePage}}
+	service := NewSyncService(newSyncTestStore())
+	_, err := service.Sync(context.Background(), source, SyncRequest{
+		Scope: Scope{TenantID: 11, CorpID: 27}, IdempotencyKey: "stalled-cursor", Limit: 1,
+	})
+	if ErrorCode(err) != "archive.cursor_stalled" {
+		t.Fatalf("stalled source error code=%q err=%v", ErrorCode(err), err)
+	}
+}
+
 const sourceKindSimulated = providers.SourceSimulated
 
 func syncTestMessage(source providers.Source, sourceID, namespace string, seq int64, text string) Message {
