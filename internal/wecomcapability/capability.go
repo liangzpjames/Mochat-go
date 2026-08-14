@@ -69,6 +69,7 @@ const (
 	DispatchSucceeded     = "succeeded"
 	DispatchPartialFailed = "partial_failed"
 	DispatchFailed        = "failed"
+	DispatchCancelled     = "cancelled"
 )
 
 // Operation is the non-secret latest evidence used by provider status and
@@ -272,7 +273,7 @@ func IsValidOperationStatus(status string) bool {
 func IsValidDispatchStatus(status string) bool {
 	switch status {
 	case DispatchQueued, DispatchClaimed, DispatchSubmitting, DispatchSubmitted,
-		DispatchPolling, DispatchSucceeded, DispatchPartialFailed, DispatchFailed:
+		DispatchPolling, DispatchSucceeded, DispatchPartialFailed, DispatchFailed, DispatchCancelled:
 		return true
 	default:
 		return false
@@ -289,28 +290,34 @@ func IsValidOperationResultStatus(status string) bool {
 }
 
 func CanTransitionDispatch(from, to string) bool {
-	if !IsValidDispatchStatus(from) || !IsValidDispatchStatus(to) || from == to {
+	if !IsValidDispatchStatus(from) || !IsValidDispatchStatus(to) {
 		return false
+	}
+	if from == to {
+		return from == DispatchPolling
 	}
 	switch from {
 	case DispatchQueued:
-		return to == DispatchClaimed || to == DispatchFailed
+		return to == DispatchClaimed || to == DispatchFailed || to == DispatchCancelled
 	case DispatchClaimed:
-		return to == DispatchSubmitting || to == DispatchFailed
+		return to == DispatchSubmitting || to == DispatchFailed || to == DispatchCancelled
 	case DispatchSubmitting:
-		return to == DispatchSubmitted || to == DispatchFailed
+		return to == DispatchSubmitted || to == DispatchFailed || to == DispatchCancelled
 	case DispatchSubmitted:
-		return to == DispatchPolling || to == DispatchFailed
+		return to == DispatchPolling || to == DispatchFailed || to == DispatchCancelled
 	case DispatchPolling:
-		return to == DispatchPolling || to == DispatchSucceeded || to == DispatchPartialFailed || to == DispatchFailed
+		return to == DispatchSucceeded || to == DispatchPartialFailed || to == DispatchFailed || to == DispatchCancelled
 	default:
 		return false
 	}
 }
 
 func CanTransitionOperation(from, to string) bool {
-	if !IsValidOperationStatus(from) || !IsValidOperationStatus(to) || from == to {
+	if !IsValidOperationStatus(from) || !IsValidOperationStatus(to) {
 		return false
+	}
+	if from == to {
+		return from == OperationPolling
 	}
 	switch from {
 	case OperationPending:
@@ -318,9 +325,9 @@ func CanTransitionOperation(from, to string) bool {
 	case OperationClaimed:
 		return to == OperationSubmitting || to == OperationCancelled || to == OperationFailed
 	case OperationSubmitting:
-		return to == OperationSubmitted || to == OperationFailed
+		return to == OperationSubmitted || to == OperationFailed || to == OperationCancelled
 	case OperationSubmitted:
-		return to == OperationPolling || to == OperationFailed
+		return to == OperationPolling || to == OperationFailed || to == OperationCancelled
 	case OperationPolling:
 		return to == OperationPolling || to == OperationSucceeded || to == OperationPartialFailed || to == OperationFailed || to == OperationCancelled
 	default:

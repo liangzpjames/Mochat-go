@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"jiyi/mochat-go/internal/companyprofile"
 	"jiyi/mochat-go/internal/dashboardprincipal"
@@ -70,6 +71,18 @@ type CapabilityDispatchTransitionInput struct {
 	ProviderObjectID  string
 	NextPollAt        *time.Time
 	LastErrorCode     string
+}
+
+type CapabilityDispatchResultInput struct {
+	DispatchID       int64
+	LeaseToken       string
+	Attempt          int
+	TargetKind       string
+	TargetID         string
+	Status           string
+	ProviderTargetID string
+	ErrorCode        string
+	ErrorMessageSafe string
 }
 
 type CapabilityOperationResultInput struct {
@@ -161,6 +174,17 @@ func validCapabilityMachineCode(value string, limit int) bool {
 		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '.' && character != '_' && character != '-' {
 			return false
 		}
+	}
+	return true
+}
+
+func validSafeCapabilityText(value string, limit int) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return true
+	}
+	if len(value) > limit || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return false
 	}
 	return true
 }
@@ -481,6 +505,9 @@ func (s *MySQLStore) CreateCapabilityDispatch(ctx context.Context, principal das
 	if !capabilityOperationAllowsDispatch(operation.Status) {
 		return wecomcapability.Dispatch{}, ErrCapabilityInvalidState
 	}
+	if (operation.Capability == wecomcapability.ContactBatchSend || operation.Capability == wecomcapability.RoomBatchSend) && !wecomcapability.DispatchKindMatchesCapability(operation.Capability, input.DispatchKind) {
+		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
+	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO mochat_go_wecom_capability_dispatches
 		(tenant_id,corp_id,operation_id,dispatch_kind,chunk_no,target_id,idempotency_key,status,credential_generation)
@@ -514,6 +541,20 @@ func (s *MySQLStore) CreateCapabilityDispatch(ctx context.Context, principal das
 }
 
 func (s *MySQLStore) ClaimCapabilityDispatch(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, dispatchID int64, leaseDuration time.Duration) (wecomcapability.Dispatch, error) {
+	return s.claimCapabilityDispatch(ctx, principal, dispatchID, leaseDuration, 0)
+}
+
+// ClaimCapabilityDispatchAtGeneration is the fenced entry point used by
+// durable runners. The expected generation is checked before the lease UPDATE
+// so a stale worker cannot even create a new attempt.
+func (s *MySQLStore) ClaimCapabilityDispatchAtGeneration(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, dispatchID int64, leaseDuration time.Duration, expectedGeneration uint64) (wecomcapability.Dispatch, error) {
+	if expectedGeneration == 0 {
+		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
+	}
+	return s.claimCapabilityDispatch(ctx, principal, dispatchID, leaseDuration, expectedGeneration)
+}
+
+func (s *MySQLStore) claimCapabilityDispatch(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, dispatchID int64, leaseDuration time.Duration, expectedGeneration uint64) (wecomcapability.Dispatch, error) {
 	if s == nil || s.db == nil || dispatchID <= 0 || leaseDuration <= 0 {
 		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
 	}
@@ -552,7 +593,7 @@ func (s *MySQLStore) ClaimCapabilityDispatch(ctx context.Context, principal dash
 		return wecomcapability.Dispatch{}, err
 	}
 	generation := credentialGenerationForCapability(binding, operation.Capability)
-	if generation == 0 || operation.CredentialVersion != generation || dispatch.CredentialVersion != generation {
+	if generation == 0 || operation.CredentialVersion != generation || dispatch.CredentialVersion != generation || (expectedGeneration != 0 && generation != expectedGeneration) {
 		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
 	}
 	if !capabilityDispatchCanBeClaimed(dispatch.Status) {
@@ -632,15 +673,18 @@ func (s *MySQLStore) TransitionCapabilityDispatch(ctx context.Context, principal
 	if !validCapabilityMachineCode(errorCode, 96) {
 		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
 	}
-	if (input.Status == wecomcapability.DispatchFailed || input.Status == wecomcapability.DispatchPartialFailed) && errorCode == "" {
+	if (input.Status == wecomcapability.DispatchFailed || input.Status == wecomcapability.DispatchPartialFailed || input.Status == wecomcapability.DispatchCancelled) && errorCode == "" {
 		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
 	}
 	if input.Status == wecomcapability.DispatchSucceeded && strings.TrimSpace(input.ProviderRequestID) == "" && strings.TrimSpace(input.ProviderMessageID) == "" && strings.TrimSpace(input.ProviderObjectID) == "" {
 		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
 	}
 	previousStatus := dispatch.Status
-	finished := input.Status == wecomcapability.DispatchSucceeded || input.Status == wecomcapability.DispatchPartialFailed || input.Status == wecomcapability.DispatchFailed
-	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, lease_token=CASE WHEN ? THEN '' ELSE lease_token END, provider_request_id=?, provider_message_id=?, provider_object_id=?, next_poll_at=?, last_error_code=?, lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=? AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`, input.Status, finished, strings.TrimSpace(input.ProviderRequestID), strings.TrimSpace(input.ProviderMessageID), strings.TrimSpace(input.ProviderObjectID), input.NextPollAt, errorCode, finished, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt)
+	finished := input.Status == wecomcapability.DispatchSucceeded || input.Status == wecomcapability.DispatchPartialFailed || input.Status == wecomcapability.DispatchFailed || input.Status == wecomcapability.DispatchCancelled
+	providerRequestID := strings.TrimSpace(input.ProviderRequestID)
+	providerMessageID := strings.TrimSpace(input.ProviderMessageID)
+	providerObjectID := strings.TrimSpace(input.ProviderObjectID)
+	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, lease_token=CASE WHEN ? THEN '' ELSE lease_token END, provider_request_id=CASE WHEN ? <> '' THEN ? ELSE provider_request_id END, provider_message_id=CASE WHEN ? <> '' THEN ? ELSE provider_message_id END, provider_object_id=CASE WHEN ? <> '' THEN ? ELSE provider_object_id END, next_poll_at=?, last_error_code=?, lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=? AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`, input.Status, finished, providerRequestID, providerRequestID, providerMessageID, providerMessageID, providerObjectID, providerObjectID, input.NextPollAt, errorCode, finished, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt)
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
 	}
@@ -664,7 +708,7 @@ func (s *MySQLStore) TransitionCapabilityDispatch(ctx context.Context, principal
 }
 
 func (s *MySQLStore) RecordCapabilityOperationResult(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input CapabilityOperationResultInput) (wecomcapability.OperationResult, error) {
-	if s == nil || s.db == nil || input.OperationID <= 0 || input.Attempt <= 0 || !validLedgerToken(input.LeaseToken, 128) || !validLedgerToken(input.TargetKind, 32) || !validLedgerToken(input.TargetID, 255) || !wecomcapability.IsValidOperationResultStatus(input.Status) || !validCapabilityMachineCode(input.ErrorCode, 96) || !validCapabilityMachineCode(input.ErrorMessageSafe, 255) {
+	if s == nil || s.db == nil || input.OperationID <= 0 || input.Attempt <= 0 || !validLedgerToken(input.LeaseToken, 128) || !validLedgerToken(input.TargetKind, 32) || !validLedgerToken(input.TargetID, 255) || !wecomcapability.IsValidOperationResultStatus(input.Status) || !validCapabilityMachineCode(input.ErrorCode, 96) || !validSafeCapabilityText(input.ErrorMessageSafe, 255) {
 		return wecomcapability.OperationResult{}, companyprofile.ErrInvalidRequest
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

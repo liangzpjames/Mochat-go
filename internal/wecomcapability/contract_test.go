@@ -66,7 +66,7 @@ func TestOperationAndDispatchStatesAreSeparateAndFailClosed(t *testing.T) {
 	}
 	for _, state := range []string{
 		DispatchQueued, DispatchClaimed, DispatchSubmitting, DispatchSubmitted,
-		DispatchPolling, DispatchSucceeded, DispatchPartialFailed, DispatchFailed,
+		DispatchPolling, DispatchSucceeded, DispatchPartialFailed, DispatchFailed, DispatchCancelled,
 	} {
 		if !IsValidDispatchStatus(state) {
 			t.Fatalf("dispatch state %q rejected", state)
@@ -82,9 +82,13 @@ func TestOperationAndDispatchStatesAreSeparateAndFailClosed(t *testing.T) {
 func TestOperationTransitionsFailClosed(t *testing.T) {
 	valid := [][2]string{
 		{OperationPending, OperationClaimed},
+		{OperationPending, OperationCancelled},
 		{OperationClaimed, OperationSubmitting},
+		{OperationClaimed, OperationCancelled},
 		{OperationSubmitting, OperationSubmitted},
+		{OperationSubmitting, OperationCancelled},
 		{OperationSubmitted, OperationPolling},
+		{OperationSubmitted, OperationCancelled},
 		{OperationPolling, OperationSucceeded},
 		{OperationPolling, OperationPartialFailed},
 		{OperationClaimed, OperationCancelled},
@@ -104,6 +108,29 @@ func TestOperationTransitionsFailClosed(t *testing.T) {
 	} {
 		if CanTransitionOperation(transition[0], transition[1]) {
 			t.Fatalf("invalid transition %q -> %q accepted", transition[0], transition[1])
+		}
+	}
+}
+
+func TestDispatchTransitionsSupportCancellationAndPollingRetry(t *testing.T) {
+	for _, transition := range [][2]string{
+		{DispatchQueued, DispatchCancelled},
+		{DispatchClaimed, DispatchCancelled},
+		{DispatchSubmitted, DispatchPolling},
+		{DispatchPolling, DispatchPolling},
+		{DispatchPolling, DispatchCancelled},
+	} {
+		if !CanTransitionDispatch(transition[0], transition[1]) {
+			t.Fatalf("valid dispatch transition %q -> %q rejected", transition[0], transition[1])
+		}
+	}
+	for _, transition := range [][2]string{
+		{DispatchSucceeded, DispatchPolling},
+		{DispatchCancelled, DispatchClaimed},
+		{DispatchFailed, DispatchSucceeded},
+	} {
+		if CanTransitionDispatch(transition[0], transition[1]) {
+			t.Fatalf("terminal/invalid dispatch transition %q -> %q accepted", transition[0], transition[1])
 		}
 	}
 }
