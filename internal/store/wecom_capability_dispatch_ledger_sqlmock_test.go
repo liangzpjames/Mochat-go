@@ -111,6 +111,61 @@ func TestRecordCapabilityDispatchResultRejectsQueuedTargetResult(t *testing.T) {
 	}
 }
 
+func TestTransitionCapabilityDispatchRejectsSubmittedWithoutProviderIDBeforeDatabase(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewMySQLStore(db)
+	_, err = store.TransitionCapabilityDispatch(context.Background(), dashboardprincipal.DashboardPrincipal{
+		TenantID: 7, CorpID: 9, AuthVersion: 1, CorpStatus: dashboardprincipal.CorpBindingStatusActive,
+	}, CapabilityDispatchTransitionInput{
+		DispatchID: 31, Status: wecomcapability.DispatchSubmitted, LeaseToken: "lease-1", Attempt: 1,
+	})
+	if !errors.Is(err, companyprofile.ErrInvalidRequest) {
+		t.Fatalf("submitted dispatch without provider identity was not rejected: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("invalid submitted transition touched the database: %v", err)
+	}
+}
+
+func TestPersistCapabilityDispatchReconcileAuditsDispatchStatusTransition(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewMySQLStore(db)
+	principal := dashboardprincipal.DashboardPrincipal{TenantID: 7, CorpID: 9, AuthVersion: 1, CorpStatus: dashboardprincipal.CorpBindingStatusActive}
+
+	mock.ExpectBegin()
+	expectCapabilityLedgerBinding(mock, 7, 9)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,tenant_id,corp_id,operation_id,dispatch_kind,chunk_no,target_id,idempotency_key,status,"+"\n\t\t       provider_request_id,provider_message_id,provider_object_id,credential_generation,lease_token,"+"\n\t\t       lease_expires_at,attempt,next_poll_at,last_error_code,created_at,updated_at")).WithArgs(7, 9, 31).WillReturnRows(capabilityDispatchRows("submitting", "lease-1", 1, 4, 44))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT operation_id FROM mochat_go_wecom_capability_dispatches WHERE tenant_id=? AND corp_id=? AND id=? FOR UPDATE")).WithArgs(7, 9, 31).WillReturnRows(sqlmock.NewRows([]string{"operation_id"}).AddRow(44))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,tenant_id,corp_id,capability,action,credential_group,credential_generation,idempotency_key,status,"+"\n\t\t       provider_request_id,provider_object_id,actual_agent_id,external_success,callback_evidence,"+"\n\t\t       target_total,success_total,failure_total,error_code,actor_user_id,actor_source,request_id,lease_token,"+"\n\t\t       lease_expires_at,attempt,requested_at,started_at,finished_at,created_at,updated_at")).WithArgs(7, 9, 44).WillReturnRows(capabilityOperationRows(44, "pending", 4))
+	expectCapabilityLedgerBinding(mock, 7, 9)
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_wecom_capability_dispatches")).WithArgs(
+		wecomcapability.DispatchSubmitting, "", "", "", "", "", "", int64(0), int64(0), nil,
+		wecomcapability.DispatchReconcileRequiredCode, 7, 9, 31, "lease-1", 1,
+		wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling,
+	).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,tenant_id,corp_id,operation_id,dispatch_kind,chunk_no,target_id,idempotency_key,status,"+"\n\t\t       provider_request_id,provider_message_id,provider_object_id,credential_generation,lease_token,"+"\n\t\t       lease_expires_at,attempt,next_poll_at,last_error_code,created_at,updated_at")).WithArgs(7, 9, 31).WillReturnRows(capabilityDispatchRows("submitting", "lease-1", 1, 4, 44))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_wecom_capability_operation_audits")).WithArgs(7, 9, 44, 31, "submitting", "submitting", "dispatch_reconcile", nil, "system", "", "wecom.timeout", 1, 0, 0).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_wecom_capability_operation_events")).WithArgs(7, 9, 44, 31, "submitting", "submitting", "dispatch_reconcile", nil, "system", "", "wecom.timeout", 1, 0, 0).WillReturnResult(sqlmock.NewResult(2, 1))
+	mock.ExpectCommit()
+
+	if _, err := store.PersistCapabilityDispatchReconcile(context.Background(), principal, CapabilityDispatchReconcileInput{
+		DispatchID: 31, LeaseToken: "lease-1", Attempt: 1, ErrorCode: "wecom.timeout",
+	}); err != nil {
+		t.Fatalf("reconcile persistence failed: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRecordCapabilityDispatchResultExactDuplicateIsNoOp(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

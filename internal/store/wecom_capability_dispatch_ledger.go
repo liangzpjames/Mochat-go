@@ -138,6 +138,7 @@ func (s *MySQLStore) PersistCapabilityDispatchReconcile(ctx context.Context, pri
 	if dispatch.LeaseToken != input.LeaseToken || dispatch.Attempt != input.Attempt || !dispatchReconcileStateAllowsWrite(dispatch.Status) {
 		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
 	}
+	previousDispatchStatus := dispatch.Status
 	var operationID int64
 	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM mochat_go_wecom_capability_dispatches WHERE tenant_id=? AND corp_id=? AND id=? FOR UPDATE`, principal.TenantID, principal.CorpID, input.DispatchID).Scan(&operationID); err != nil {
 		return wecomcapability.Dispatch{}, err
@@ -196,7 +197,7 @@ func (s *MySQLStore) PersistCapabilityDispatchReconcile(ctx context.Context, pri
 	auditOperation := operation
 	auditOperation.Status = dispatch.Status
 	auditOperation.ErrorCode = errorCode
-	if err := appendCapabilityLedgerTransitionTx(ctx, tx, auditOperation, operation.Status, "dispatch_reconcile", actorUserID, actorSource, "", &input.DispatchID); err != nil {
+	if err := appendCapabilityLedgerTransitionTx(ctx, tx, auditOperation, previousDispatchStatus, "dispatch_reconcile", actorUserID, actorSource, "", &input.DispatchID); err != nil {
 		return wecomcapability.Dispatch{}, err
 	}
 	if err := tx.Commit(); err != nil {

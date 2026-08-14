@@ -649,6 +649,9 @@ func (s *MySQLStore) TransitionCapabilityDispatch(ctx context.Context, principal
 	if s == nil || s.db == nil || input.DispatchID <= 0 || !wecomcapability.IsValidDispatchStatus(input.Status) || input.Attempt <= 0 || !validLedgerToken(input.LeaseToken, 128) {
 		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
 	}
+	if input.Status == wecomcapability.DispatchSubmitted && strings.TrimSpace(input.ProviderRequestID) == "" && strings.TrimSpace(input.ProviderMessageID) == "" && strings.TrimSpace(input.ProviderObjectID) == "" {
+		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return wecomcapability.Dispatch{}, companyprofile.ErrStoreUnavailable

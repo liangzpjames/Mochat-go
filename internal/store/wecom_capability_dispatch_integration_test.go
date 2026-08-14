@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
+	"jiyi/mochat-go/internal/companyprofile"
 	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/wecomcapability"
@@ -101,6 +103,31 @@ func createContactDispatchForIntegration(t *testing.T, h *capabilityDispatchInte
 	if err != nil {
 		t.Fatal(err)
 	}
+	if dispatch.DispatchKind != string(wecomcapability.DispatchKindContactBatch) {
+		t.Fatalf("contact dispatch used non-contact kind: %q", dispatch.DispatchKind)
+	}
+	return operation, dispatch
+}
+
+func createRoomDispatchForIntegration(t *testing.T, h *capabilityDispatchIntegrationHarness, suffix string) (wecomcapability.Operation, wecomcapability.Dispatch) {
+	t.Helper()
+	operation, err := h.store.CreateCapabilityOperation(context.Background(), h.principal, CapabilityOperationInput{
+		Capability: wecomcapability.RoomBatchSend, Action: wecomcapability.ActionSend,
+		IdempotencyKey: "operation-room-" + suffix, TargetTotal: 1, ActorSource: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := h.store.CreateCapabilityDispatch(context.Background(), h.principal, CapabilityDispatchInput{
+		OperationID: operation.ID, DispatchKind: string(wecomcapability.DispatchKindRoomBatch), ChunkNo: 0,
+		TargetID: "room-" + suffix, IdempotencyKey: "dispatch-room-" + suffix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatch.DispatchKind != string(wecomcapability.DispatchKindRoomBatch) {
+		t.Fatalf("room dispatch used non-room kind: %q", dispatch.DispatchKind)
+	}
 	return operation, dispatch
 }
 
@@ -111,9 +138,13 @@ func claimAndTransitionDispatch(t *testing.T, h *capabilityDispatchIntegrationHa
 		t.Fatal(err)
 	}
 	for _, status := range statuses {
+		providerRequestID := claimed.ProviderRequestID
+		if status == wecomcapability.DispatchSubmitted && strings.TrimSpace(providerRequestID) == "" && strings.TrimSpace(claimed.ProviderMessageID) == "" && strings.TrimSpace(claimed.ProviderObjectID) == "" {
+			providerRequestID = fmt.Sprintf("provider-task-%d", claimed.ID)
+		}
 		claimed, err = h.store.TransitionCapabilityDispatch(context.Background(), h.principal, CapabilityDispatchTransitionInput{
 			DispatchID: claimed.ID, Status: status, LeaseToken: claimed.LeaseToken, Attempt: claimed.Attempt,
-			ProviderRequestID: claimed.ProviderRequestID,
+			ProviderRequestID: providerRequestID,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -179,6 +210,13 @@ func TestMySQLStoreDispatchReconcilePersistsEmptyProviderIDsRealMariaDB(t *testi
 	if auditErrorCode != "wecom.timeout" {
 		t.Fatalf("reconcile audit lost original cause: %q", auditErrorCode)
 	}
+	var fromStatus, toStatus string
+	if err := h.db.QueryRow(`SELECT from_status,to_status FROM mochat_go_wecom_capability_operation_audits WHERE operation_id=? AND dispatch_id=? AND action='dispatch_reconcile' ORDER BY id DESC LIMIT 1`, claimed.OperationID, claimed.ID).Scan(&fromStatus, &toStatus); err != nil {
+		t.Fatal(err)
+	}
+	if fromStatus != wecomcapability.DispatchSubmitting || toStatus != wecomcapability.DispatchSubmitting {
+		t.Fatalf("empty reconcile audit used non-dispatch status transition: %s -> %s", fromStatus, toStatus)
+	}
 
 	_, submittedDispatch := createContactDispatchForIntegration(t, h, "nonempty-reconcile")
 	submittedClaim := claimAndTransitionDispatch(t, h, submittedDispatch, wecomcapability.DispatchSubmitting)
@@ -191,6 +229,46 @@ func TestMySQLStoreDispatchReconcilePersistsEmptyProviderIDsRealMariaDB(t *testi
 	}
 	if submitted.Status != wecomcapability.DispatchSubmitted || submitted.ProviderRequestID != "provider-task-1" || submitted.LastErrorCode != wecomcapability.DispatchReconcileRequiredCode {
 		t.Fatalf("provider identity did not promote reconcile to submitted: %+v", submitted)
+	}
+	if err := h.db.QueryRow(`SELECT from_status,to_status FROM mochat_go_wecom_capability_operation_audits WHERE operation_id=? AND dispatch_id=? AND action='dispatch_reconcile' ORDER BY id DESC LIMIT 1`, submittedClaim.OperationID, submittedClaim.ID).Scan(&fromStatus, &toStatus); err != nil {
+		t.Fatal(err)
+	}
+	if fromStatus != wecomcapability.DispatchSubmitting || toStatus != wecomcapability.DispatchSubmitted {
+		t.Fatalf("submitted reconcile audit used non-dispatch status transition: %s -> %s", fromStatus, toStatus)
+	}
+}
+
+func TestMySQLStoreDispatchSubmittedRequiresProviderIdentityRealMariaDB(t *testing.T) {
+	h := newCapabilityDispatchIntegrationHarness(t)
+	_, dispatch := createContactDispatchForIntegration(t, h, "submitted-no-id")
+	claimed := claimAndTransitionDispatch(t, h, dispatch, wecomcapability.DispatchSubmitting)
+	_, err := h.store.TransitionCapabilityDispatch(context.Background(), h.principal, CapabilityDispatchTransitionInput{
+		DispatchID: claimed.ID, Status: wecomcapability.DispatchSubmitted, LeaseToken: claimed.LeaseToken, Attempt: claimed.Attempt,
+	})
+	if !errors.Is(err, companyprofile.ErrInvalidRequest) {
+		t.Fatalf("submitted transition without provider identity was not rejected: %v", err)
+	}
+	var status, requestID, messageID, objectID string
+	if err := h.db.QueryRow(`SELECT status,provider_request_id,provider_message_id,provider_object_id FROM mochat_go_wecom_capability_dispatches WHERE tenant_id=? AND corp_id=? AND id=?`, h.principal.TenantID, h.principal.CorpID, claimed.ID).Scan(&status, &requestID, &messageID, &objectID); err != nil {
+		t.Fatal(err)
+	}
+	if status != wecomcapability.DispatchSubmitting || requestID != "" || messageID != "" || objectID != "" {
+		t.Fatalf("invalid submitted transition changed dispatch: status=%q request=%q message=%q object=%q", status, requestID, messageID, objectID)
+	}
+}
+
+func TestMySQLStoreDispatchRoomUsesIndependentExactKindRealMariaDB(t *testing.T) {
+	h := newCapabilityDispatchIntegrationHarness(t)
+	operation, dispatch := createRoomDispatchForIntegration(t, h, "exact-kind")
+	if _, err := h.store.CreateCapabilityDispatch(context.Background(), h.principal, CapabilityDispatchInput{
+		OperationID: operation.ID, DispatchKind: string(wecomcapability.DispatchKindContactBatch), ChunkNo: 1,
+		TargetID: "room-wrong-kind", IdempotencyKey: "dispatch-room-wrong-kind",
+	}); !errors.Is(err, companyprofile.ErrInvalidRequest) {
+		t.Fatalf("room operation accepted contact dispatch kind: %v", err)
+	}
+	claimed := claimAndTransitionDispatch(t, h, dispatch, wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted)
+	if claimed.DispatchKind != string(wecomcapability.DispatchKindRoomBatch) || claimed.Status != wecomcapability.DispatchSubmitted || claimed.ProviderRequestID == "" {
+		t.Fatalf("room dispatch lifecycle was not independently durable: %+v", claimed)
 	}
 }
 
