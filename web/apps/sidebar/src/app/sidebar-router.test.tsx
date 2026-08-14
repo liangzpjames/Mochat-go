@@ -54,6 +54,14 @@ function authRuntime(session: SidebarSessionAdapter) {
   };
 }
 
+function authenticatedRuntime() {
+  const cookies: CookieAdapter = {
+    get: (name: string) => ({ token: 'sidebar-token', agentId: '7' })[name] ?? null,
+    set: vi.fn(),
+  };
+  return authRuntime(createCookieSidebarSessionAdapter(cookies, false));
+}
+
 function renderPath(path: string) {
   window.history.replaceState(null, '', path);
     const router = createSidebarRouter({
@@ -87,6 +95,45 @@ describe('Sidebar route registry', () => {
   it('renders a not-found state for an unknown route', () => {
     const router = renderPath('/not-a-sidebar-page');
     expect(screen.getByText('页面不存在')).not.toBeNull();
+    router.dispose();
+  });
+
+  it.each([
+    ['/login?agentId=7', '侧边栏登录'],
+    ['/auth', '登录失败'],
+    ['/codeAuth', '企业微信扫码授权模块待迁移'],
+    ['/not-a-sidebar-page', '页面不存在'],
+  ])('does not render employee navigation on %s', (path, expectedText) => {
+    const router = renderPath(path);
+    expect(screen.getByText(expectedText)).not.toBeNull();
+    expect(screen.queryByRole('navigation', { name: '员工工作台' })).toBeNull();
+    router.dispose();
+  });
+
+  it('renders the workbench with only registered authenticated business links', () => {
+    window.history.replaceState(null, '', '/');
+    const router = createSidebarRouter(authenticatedRuntime());
+    render(<RouterProvider router={router} />);
+
+    const links = screen.getAllByRole('link').filter((link) => link.classList.contains('mobile-icon-tile'));
+    const authenticatedPaths = sidebarRouteRegistry
+      .filter((route) => route.auth && route.path !== '/')
+      .map((route) => route.path)
+      .sort();
+
+    expect(links.map((link) => link.getAttribute('href')).sort()).toEqual(authenticatedPaths);
+    expect(screen.queryByText(/成功|客户总数|今日/)).toBeNull();
+    router.dispose();
+  });
+
+  it('keeps the active customer context on workbench business links', () => {
+    window.history.replaceState(null, '', '/?wxExternalUserid=external-1&state=callback-state#profile');
+    const router = createSidebarRouter(authenticatedRuntime());
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByRole('link', { name: /^客户资料/ }).getAttribute('href')).toBe(
+      '/contact?wxExternalUserid=external-1#profile',
+    );
     router.dispose();
   });
 

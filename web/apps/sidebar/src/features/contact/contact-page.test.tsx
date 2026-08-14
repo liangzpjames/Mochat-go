@@ -22,7 +22,7 @@ function renderContact(
 }
 
 const contactPath = '/contact?wxExternalUserid=external-user-1&agentId=7';
-const rawContact = { id: 31, name: '林晓', avatar: null, corpId: 9 };
+const rawContact = { id: 11, name: '测试客户', avatar: null, corpId: 3 };
 
 describe('Sidebar contact summary', () => {
   it('requests and renders the current external contact summary', async () => {
@@ -33,14 +33,33 @@ describe('Sidebar contact summary', () => {
 
     renderContact(contactPath, request);
 
-    expect(await screen.findByRole('heading', { name: '林晓' })).not.toBeNull();
-    expect(screen.getByRole('img', { name: '林晓的头像' }).getAttribute('src')).toBe(
+    expect(await screen.findByRole('heading', { name: '测试客户' })).not.toBeNull();
+    expect(screen.getByRole('img', { name: '测试客户的头像' }).getAttribute('src')).toBe(
       '/avatars/contact-31.png',
     );
     expect(request).toHaveBeenCalledWith(
       '/workContact/detail?wxExternalUserid=external-user-1',
       { method: 'GET' },
     );
+  });
+
+  it('renders only real customer summary fields and an accessible neutral avatar placeholder', async () => {
+    const request = vi.fn().mockResolvedValue({
+      ...rawContact,
+      phone: '13800000000',
+      tags: ['重点'],
+      owner: '不应出现的负责人',
+    });
+
+    renderContact(contactPath, request);
+
+    expect(await screen.findByRole('heading', { name: '测试客户' })).not.toBeNull();
+    expect(screen.getByText('客户编号：11')).not.toBeNull();
+    expect(screen.getByText('企业编号：3')).not.toBeNull();
+    expect(screen.getByRole('img', { name: '客户暂无头像' })).not.toBeNull();
+    expect(screen.queryByText('13800000000')).toBeNull();
+    expect(screen.queryByText('重点')).toBeNull();
+    expect(screen.queryByText('不应出现的负责人')).toBeNull();
   });
 
   it('shows a parameter error and sends no request without an external user ID', () => {
@@ -99,7 +118,7 @@ describe('Sidebar contact summary', () => {
     renderContact(contactPath, request);
     fireEvent.click(await screen.findByRole('button', { name: '重试' }));
 
-    expect(await screen.findByRole('heading', { name: '林晓' })).not.toBeNull();
+    expect(await screen.findByRole('heading', { name: '测试客户' })).not.toBeNull();
     expect(request).toHaveBeenCalledTimes(2);
   });
 
