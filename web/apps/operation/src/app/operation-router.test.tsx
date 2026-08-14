@@ -68,7 +68,9 @@ describe('Operation exact route registry', () => {
 
     expect(screen.getByRole('heading', { name: '抽奖活动' })).not.toBeNull();
     expect(screen.getByText('抽奖活动模块待迁移')).not.toBeNull();
+    expect(screen.getByRole('region', { name: '抽奖活动状态' })).not.toBeNull();
     expect(screen.queryByRole('button', { name: '立即抽奖' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: '员工工作台' })).toBeNull();
     router.dispose();
   });
 

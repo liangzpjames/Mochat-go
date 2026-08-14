@@ -1,6 +1,6 @@
 :root {
   color: #17233d;
-  background: linear-gradient(145deg, #f4f8ff, #fff7ed);
+  background: #eff6ff;
 }
 
 body {
@@ -20,17 +20,96 @@ body {
   background: #1677ff;
 }
 
+.operation-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  align-items: center;
+  min-height: 148px;
+  padding: 24px;
+  overflow: hidden;
+  color: #153b79;
+  background:
+    radial-gradient(circle at 88% 18%, rgb(255 255 255 / 82%) 0 9%, transparent 10%),
+    linear-gradient(135deg, #eef7ff 0%, #dbeaff 52%, #d6f6f2 100%);
+}
+
+.operation-hero::after {
+  position: absolute;
+  right: -44px;
+  bottom: -78px;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background: rgb(80 145 255 / 12%);
+  content: '';
+}
+
+.operation-hero__copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+}
+
+.operation-hero__copy strong {
+  max-width: 13em;
+  font-size: clamp(21px, 6vw, 30px);
+  line-height: 1.25;
+}
+
+.operation-hero__copy span {
+  max-width: 20em;
+  color: #56709a;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.operation-hero__graphic {
+  position: relative;
+  z-index: 1;
+  width: 132px;
+  height: 96px;
+  filter: drop-shadow(0 14px 20px rgb(41 101 194 / 18%));
+}
+
+.operation-hero--pending {
+  min-height: 128px;
+}
+
+.operation-hero__orb {
+  justify-self: center;
+  width: 74px;
+  height: 74px;
+  border: 16px solid rgb(255 255 255 / 72%);
+  border-radius: 50%;
+  box-shadow: 0 12px 30px rgb(61 134 247 / 20%);
+}
+
+.work-fission-overview,
+.operation-pending {
+  min-width: 0;
+}
+
 .work-fission-summary {
   display: grid;
-  gap: 6px;
-  padding: 18px;
-  border-radius: 16px;
-  background: #fff7e6;
-  color: #874d00;
+  gap: 8px;
+  color: #fff;
 }
 
 .work-fission-summary strong {
-  font-size: 20px;
+  font-size: clamp(22px, 6vw, 28px);
+  line-height: 1.25;
+}
+
+.work-fission-summary__label {
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #dfeeff;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgb(255 255 255 / 14%);
 }
 
 .work-fission-tasks {
@@ -42,22 +121,54 @@ body {
 }
 
 .work-fission-tasks li {
-  padding: 18px;
-  border: 1px solid #e8edf5;
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 10px 30px rgb(31 41 55 / 6%);
   overflow-wrap: anywhere;
 }
 
+.work-fission-task__heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.work-fission-task__level,
+.work-fission-task__status {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.work-fission-task__level {
+  color: #5c6f8f;
+}
+
+.work-fission-task__status {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #1769dd;
+  background: #eaf3ff;
+}
+
+.work-fission-task__status.is-complete {
+  color: #087c67;
+  background: #e1f8f2;
+}
+
 .work-fission-tasks h2 {
-  margin: 0;
+  margin: 14px 0 0;
   font-size: 17px;
 }
 
-.work-fission-tasks p {
-  margin: 8px 0 0;
+.work-fission-task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 10px;
+}
+
+.work-fission-task__meta p {
+  margin: 0;
   color: #52627a;
+  font-size: 14px;
 }
 
 .work-fission-tasks a {
@@ -70,8 +181,30 @@ body {
 }
 
 @media (max-width: 390px) {
-  .work-fission-summary,
-  .work-fission-tasks li {
-    padding: 16px;
+  .operation-hero {
+    grid-template-columns: minmax(0, 1fr) 92px;
+    min-height: 136px;
+    padding: 20px;
+  }
+
+  .operation-hero__graphic {
+    width: 104px;
+  }
+
+  .operation-hero__orb {
+    width: 58px;
+    height: 58px;
+    border-width: 12px;
+  }
+}
+
+@media (max-width: 340px) {
+  .operation-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .operation-hero__graphic,
+  .operation-hero__orb {
+    display: none;
   }
 }

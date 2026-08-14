@@ -1,5 +1,6 @@
 import {
   MobileApiError,
+  MobileCard,
   MobileShell,
   MobileState,
   type MobileStateKind,
@@ -92,6 +93,30 @@ function workFissionFailure(error: unknown): WorkFissionFailure {
 function rewardTypeLabel(reward: WorkFissionReward): string {
   if (reward.type === 0) return '二维码奖励';
   return '链接奖励';
+}
+
+function WorkFissionHero() {
+  return (
+    <div className="operation-hero" aria-hidden="true">
+      <div className="operation-hero__copy">
+        <strong>邀请好友，逐步达成任务</strong>
+        <span>实时查看参与进度与奖励状态</span>
+      </div>
+      <svg className="operation-hero__graphic" viewBox="0 0 132 96">
+        <defs>
+          <linearGradient id="operation-hero-card" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#ffffff" />
+            <stop offset="1" stopColor="#cfe4ff" />
+          </linearGradient>
+        </defs>
+        <circle cx="96" cy="20" r="12" fill="#75e0d1" opacity=".75" />
+        <rect x="24" y="20" width="76" height="58" rx="12" fill="url(#operation-hero-card)" />
+        <rect x="38" y="34" width="48" height="7" rx="3.5" fill="#3d86f7" opacity=".72" />
+        <rect x="38" y="49" width="34" height="6" rx="3" fill="#8dbaff" />
+        <path d="M83 64l9 9 18-24" fill="none" stroke="#0bb59b" strokeLinecap="round" strokeLinejoin="round" strokeWidth="7" />
+      </svg>
+    </div>
+  );
 }
 
 export function WorkFissionPage({ activityKind, request }: WorkFissionPageProps) {
@@ -210,11 +235,18 @@ export function WorkFissionPage({ activityKind, request }: WorkFissionPageProps)
     <MobileShell
       appName="MoChat 营销活动"
       title="任务宝活动"
+      eyebrow="好友助力"
       subtitle="当前参与者任务进度"
+      hero={<WorkFissionHero />}
     >
-      <section className="work-fission-summary" aria-label="任务进度摘要">
-        <strong>已邀请 {progress.inviteCount} 位好友</strong>
-        <span>距下一任务还差 {progress.differCount} 位</span>
+      <section className="work-fission-overview" aria-label="任务宝活动概览">
+        <MobileCard tone="accent" padding="comfortable">
+          <div className="work-fission-summary">
+            <span className="work-fission-summary__label">参与进度</span>
+            <strong>已邀请 {progress.inviteCount} 位好友</strong>
+            <span>距下一任务还差 {progress.differCount} 位</span>
+          </div>
+        </MobileCard>
       </section>
       {progress.tasks.length === 0 ? (
         <MobileState
@@ -226,12 +258,22 @@ export function WorkFissionPage({ activityKind, request }: WorkFissionPageProps)
         <ol className="work-fission-tasks">
           {progress.tasks.map((task) => (
             <li key={task.level}>
-              <h2>任务 {task.level}：邀请 {task.target} 位好友</h2>
-              <p>{task.completed ? '任务已完成' : '任务进行中'}</p>
-              <p>{rewardTypeLabel(task.reward)} · {task.received ? '已领取' : '未领取'}</p>
-              {task.reward.url === null ? null : (
-                <a href={task.reward.url}>查看奖励</a>
-              )}
+              <MobileCard tone="surface" padding="comfortable">
+                <div className="work-fission-task__heading">
+                  <span className="work-fission-task__level">第 {task.level} 阶段</span>
+                  <span className={`work-fission-task__status${task.completed ? ' is-complete' : ''}`}>
+                    {task.completed ? '任务已完成' : '任务进行中'}
+                  </span>
+                </div>
+                <h2>任务 {task.level}：邀请 {task.target} 位好友</h2>
+                <div className="work-fission-task__meta">
+                  <p>{rewardTypeLabel(task.reward)}</p>
+                  <p>{task.received ? '奖励已领取' : '奖励未领取'}</p>
+                </div>
+                {task.reward.url === null ? null : (
+                  <a href={task.reward.url}>查看奖励</a>
+                )}
+              </MobileCard>
             </li>
           ))}
         </ol>

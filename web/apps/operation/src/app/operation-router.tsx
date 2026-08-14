@@ -1,4 +1,4 @@
-import { MobileShell, MobileState } from '@mochat/mobile-foundation';
+import { MobileCard, MobileShell, MobileState } from '@mochat/mobile-foundation';
 import type { ReactNode } from 'react';
 import { createBrowserRouter } from 'react-router';
 
@@ -19,13 +19,27 @@ function PendingActivityPage({ route }: { route: OperationRouteRegistration }) {
     <MobileShell
       appName="MoChat 营销活动"
       title={route.title}
+      eyebrow="营销活动"
       subtitle={route.description}
+      hero={(
+        <div className="operation-hero operation-hero--pending" aria-hidden="true">
+          <div className="operation-hero__copy">
+            <strong>{route.title}</strong>
+            <span>已保留入口，等待真实业务迁移</span>
+          </div>
+          <span className="operation-hero__orb" />
+        </div>
+      )}
     >
-      <MobileState
-        kind="empty"
-        title={`${route.title}模块待迁移`}
-        description="该历史入口已由新路由承接，业务功能将在后续迁移。"
-      />
+      <section className="operation-pending" aria-label={`${route.title}状态`}>
+        <MobileCard tone="surface" padding="comfortable">
+          <MobileState
+            kind="empty"
+            title={`${route.title}模块待迁移`}
+            description="该历史入口已由新路由承接，业务功能将在后续迁移。"
+          />
+        </MobileCard>
+      </section>
     </MobileShell>
   );
 }

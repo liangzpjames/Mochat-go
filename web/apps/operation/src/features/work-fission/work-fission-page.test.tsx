@@ -138,6 +138,7 @@ describe('Operation work-fission task progress', () => {
     renderWorkFission('/workFission?id=9&union_id=attacker-controlled', request);
 
     expect(await screen.findByText('已邀请 2 位好友')).not.toBeNull();
+    expect(screen.getByRole('region', { name: '任务宝活动概览' })).not.toBeNull();
     expect(screen.getByText('距下一任务还差 1 位')).not.toBeNull();
     expect(screen.getByText('任务 1：邀请 3 位好友')).not.toBeNull();
     expect(screen.getByText('任务 2：邀请 5 位好友')).not.toBeNull();
@@ -146,6 +147,8 @@ describe('Operation work-fission task progress', () => {
     expect(screen.getByRole('link', { name: '查看奖励' }).getAttribute('href')).toBe(
       'https://gift.example/qr.png',
     );
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByRole('navigation', { name: '员工工作台' })).toBeNull();
     expect(request).toHaveBeenNthCalledWith(
       1,
       '/openUserInfo/workFission?id=9',
