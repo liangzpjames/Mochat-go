@@ -393,6 +393,66 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	}
 }
 
+func TestCompanyProfileCredentialRotationInvalidatesVerifiedBindingRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey: testCompanyCredentialKey(23), EncryptionKeyID: "rotation-invalidation-key",
+		RequireEncryption: true, DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending, IsSuperAdmin: true, AuthVersion: 1}
+	ctx := context.Background()
+
+	verified, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 1, RequestID: "rotation-invalidation-verify"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified corp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.VerifiedAt == nil || verified.WXCorpID != "ww-authoritative" || verified.BindingVersion != 2 {
+		t.Fatalf("verified profile=%+v", verified)
+	}
+
+	rotatedSecret := "rotated-after-verify"
+	rotated, err := store.RotateWeComCredentials(ctx, principal, companyprofile.WeComCredentialsInput{EmployeeSecret: &rotatedSecret, ExpectedVersion: 2, RequestID: "rotation-invalidation-standard"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated.VerifiedAt != nil || rotated.WXCorpID != "" || rotated.AuthoritativeCorpName != "" || rotated.BindingVersion != 3 {
+		t.Fatalf("standard credential rotation retained stale verification: %+v", rotated)
+	}
+
+	verifiedAgain, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 3, RequestID: "rotation-invalidation-reverify"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified again"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifiedAgain.VerifiedAt == nil || verifiedAgain.BindingVersion != 4 {
+		t.Fatalf("reverified profile=%+v", verifiedAgain)
+	}
+	configured, err := store.ConfigureApplication(ctx, principal, companyprofile.ApplicationCredentialsInput{WXAgentID: "100001", Secret: "rotated-application-after-verify", ExpectedVersion: 4, RequestID: "rotation-invalidation-application"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.VerifiedAt != nil || configured.WXCorpID != "" || configured.AuthoritativeCorpName != "" || configured.BindingVersion != 5 {
+		t.Fatalf("application credential rotation retained stale verification: %+v", configured)
+	}
+	verifiedThird, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 5, RequestID: "rotation-invalidation-reverify-third"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified third"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifiedThird.VerifiedAt == nil || verifiedThird.BindingVersion != 6 {
+		t.Fatalf("third verified profile=%+v", verifiedThird)
+	}
+	agentSecret := "rotated-agent-after-verify"
+	rotatedAgent, err := store.RotateAgentCredentials(ctx, principal, companyprofile.AgentCredentialsInput{AgentID: 300, WXSecret: &agentSecret, ExpectedVersion: 6, RequestID: "rotation-invalidation-agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotatedAgent.VerifiedAt != nil || rotatedAgent.WXCorpID != "" || rotatedAgent.AuthoritativeCorpName != "" || rotatedAgent.BindingVersion != 7 {
+		t.Fatalf("agent credential rotation retained stale verification: %+v", rotatedAgent)
+	}
+}
+
 func TestCompanyProfileAgentNoopFallbackRequiresFullOwnershipRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)

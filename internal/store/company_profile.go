@@ -307,7 +307,10 @@ func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboa
 				if execErr != nil {
 					return execErr
 				}
-				return requireCompanyRows(agentResult, 1)
+				if err := requireCompanyRows(agentResult, 1); err != nil {
+					return err
+				}
+				return clearCompanyBindingVerificationTx(ctx, tx, binding)
 			}
 			agentResult, execErr := tx.ExecContext(ctx, `
 				INSERT INTO mc_work_agent
@@ -317,7 +320,10 @@ func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboa
 			if execErr != nil {
 				return execErr
 			}
-			return requireCompanyRows(agentResult, 1)
+			if err := requireCompanyRows(agentResult, 1); err != nil {
+				return err
+			}
+			return clearCompanyBindingVerificationTx(ctx, tx, binding)
 		}, "dashboard.company.application_credentials.configure", "company", strconv.Itoa(binding.CorpID), changedFields, input.RequestID)
 	if err != nil {
 		return companyprofile.Profile{}, err
@@ -464,7 +470,10 @@ func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashbo
 			if execErr != nil {
 				return execErr
 			}
-			return requireCompanyRows(updated, 1)
+			if err := requireCompanyRows(updated, 1); err != nil {
+				return err
+			}
+			return clearCompanyBindingVerificationTx(ctx, tx, binding)
 		}, action, "company", strconv.Itoa(binding.CorpID), fields, input.RequestID)
 	if err != nil {
 		return companyprofile.Profile{}, err
@@ -535,7 +544,10 @@ func (s *MySQLStore) RotateAgentCredentials(ctx context.Context, principal dashb
 			if execErr != nil {
 				return execErr
 			}
-			return requireCompanyAgentRowsOrMatched(ctx, tx, updated, binding, agent.ID, storage)
+			if err := requireCompanyAgentRowsOrMatched(ctx, tx, updated, binding, agent.ID, storage); err != nil {
+				return err
+			}
+			return clearCompanyBindingVerificationTx(ctx, tx, binding)
 		}, "dashboard.company.agent_credentials.rotate", "company_agent", strconv.Itoa(agent.ID), changedFields, input.RequestID)
 	if err != nil {
 		return companyprofile.Profile{}, err
@@ -756,6 +768,18 @@ func companyNullableTime(value sql.NullTime) *time.Time {
 	}
 	result := value.Time
 	return &result
+}
+
+func clearCompanyBindingVerificationTx(ctx context.Context, tx *sql.Tx, binding companyBindingRecord) error {
+	updated, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_tenant_corp_bindings
+		SET verified_wx_corpid = '', verified_corp_name = '', verified_at = NULL, updated_at = NOW()
+		WHERE tenant_id = ? AND corp_id = ? AND version = ? AND status IN (1, 2)`,
+		binding.TenantID, binding.CorpID, binding.Version)
+	if err != nil {
+		return err
+	}
+	return requireCompanyRows(updated, 1)
 }
 
 func updateCompanyBindingVersionTx(ctx context.Context, tx *sql.Tx, binding companyBindingRecord, actorUserID int, expected uint64, mutation func() error, action, targetType, targetID string, changedFields []string, requestID string) (uint64, error) {

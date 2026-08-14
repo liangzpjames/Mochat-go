@@ -101,3 +101,38 @@ func TestProviderStatusSourceFailsClosedWhenRuntimeAdapterIsUnavailable(t *testi
 		}
 	}
 }
+
+func TestProviderStatusSourceDegradesWhenStandardSyncFailsAndRecoversOnSuccess(t *testing.T) {
+	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	failedAt := verifiedAt.Add(time.Hour)
+	store := &companyProfileContractStore{profile: Profile{
+		TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
+		Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}},
+	}, syncStatus: SyncStatus{Status: "failed", FinishedAt: &failedAt, ErrorCode: "wecom.sync_http_500"}}
+	registry, err := catalog.NewRegistry(catalog.Dependencies{
+		WeComStandard: providerStatusTestProvider{status: providers.Status{Kind: "wecom_standard", State: providers.StateReady, Code: "wecom.runtime"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := NewProviderStatusSource(store, registry)
+	statuses, err := source.Statuses(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := findStatus(statuses, "wecom_standard")
+	if failed.State != providers.StateLimited || failed.Code != "wecom.sync_failed" || failed.LastFailureAt == nil || failed.LastErrorCode != "wecom.sync_http_500" {
+		t.Fatalf("failed sync status = %#v", failed)
+	}
+
+	succeededAt := failedAt.Add(time.Hour)
+	store.syncStatus = SyncStatus{Status: "succeeded", FinishedAt: &succeededAt}
+	statuses, err = source.Statuses(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	succeeded := findStatus(statuses, "wecom_standard")
+	if succeeded.State != providers.StateReady || succeeded.LastSuccessAt == nil || !succeeded.LastSuccessAt.Equal(succeededAt) {
+		t.Fatalf("successful sync status = %#v", succeeded)
+	}
+}

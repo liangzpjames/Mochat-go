@@ -71,6 +71,15 @@ func tenantWeComStandardStatus(profile Profile, runtime providers.Status, syncSt
 	base.Code = "wecom.runtime_verified"
 	base.Action = "企业微信员工同步可用"
 	applySyncStatus(&base, syncStatus)
+	if strings.EqualFold(strings.TrimSpace(syncStatus.Status), "failed") {
+		base.State = providers.StateLimited
+		base.Code = "wecom.sync_failed"
+		base.Reason = "最近一次企业微信员工同步失败，当前状态已降级"
+		base.Action = "修复企业微信同步后重试"
+		if strings.TrimSpace(base.LastErrorCode) == "" {
+			base.LastErrorCode = "wecom.sync_failed"
+		}
+	}
 	return base
 }
 
