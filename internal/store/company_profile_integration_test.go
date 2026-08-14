@@ -393,7 +393,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	}
 }
 
-func TestCompanyProfileCredentialRotationInvalidatesVerifiedBindingRealMariaDB(t *testing.T) {
+func TestCompanyProfileCredentialRotationScopesVerifiedBindingInvalidationRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
@@ -413,43 +413,68 @@ func TestCompanyProfileCredentialRotationInvalidatesVerifiedBindingRealMariaDB(t
 		t.Fatalf("verified profile=%+v", verified)
 	}
 
-	rotatedSecret := "rotated-after-verify"
-	rotated, err := store.RotateWeComCredentials(ctx, principal, companyprofile.WeComCredentialsInput{EmployeeSecret: &rotatedSecret, ExpectedVersion: 2, RequestID: "rotation-invalidation-standard"})
+	archiveSecret := "archive-after-verify"
+	archivePublic := "archive-public-after-verify"
+	archivePrivate := "archive-private-after-verify"
+	rotatedArchive, err := store.RotateArchiveCredentials(ctx, principal, companyprofile.ArchiveCredentialsInput{
+		ChatSecret: &archiveSecret, RSAPublicKey: &archivePublic, RSAPrivateKey: &archivePrivate,
+		ExpectedVersion: 2, RequestID: "rotation-preserve-archive",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rotated.VerifiedAt != nil || rotated.WXCorpID != "" || rotated.AuthoritativeCorpName != "" || rotated.BindingVersion != 3 {
+	if rotatedArchive.VerifiedAt == nil || rotatedArchive.WXCorpID != "ww-authoritative" || rotatedArchive.AuthoritativeCorpName != "Verified corp" || rotatedArchive.BindingVersion != 3 {
+		t.Fatalf("archive credential rotation invalidated standard verification: %+v", rotatedArchive)
+	}
+
+	rotatedCallback, err := store.RegenerateCallbackConfiguration(ctx, principal, companyprofile.CallbackConfigurationInput{
+		Token: "callback-after-verify", EncodingAESKey: strings.Repeat("c", 43), ExpectedVersion: 3, RequestID: "rotation-preserve-callback",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotatedCallback.BindingVersion != 4 {
+		t.Fatalf("rotated callback=%+v", rotatedCallback)
+	}
+	verifiedAfterCallback, err := store.GetProfile(ctx, principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifiedAfterCallback.VerifiedAt == nil || verifiedAfterCallback.WXCorpID != "ww-authoritative" || verifiedAfterCallback.BindingVersion != 4 {
+		t.Fatalf("callback rotation invalidated standard verification: %+v", verifiedAfterCallback)
+	}
+
+	agentSecret := "agent-after-verify"
+	rotatedAgent, err := store.RotateAgentCredentials(ctx, principal, companyprofile.AgentCredentialsInput{AgentID: 300, WXSecret: &agentSecret, ExpectedVersion: 4, RequestID: "rotation-preserve-agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotatedAgent.VerifiedAt == nil || rotatedAgent.WXCorpID != "ww-authoritative" || rotatedAgent.BindingVersion != 5 {
+		t.Fatalf("agent credential rotation invalidated standard verification: %+v", rotatedAgent)
+	}
+
+	rotatedSecret := "rotated-after-verify"
+	rotated, err := store.RotateWeComCredentials(ctx, principal, companyprofile.WeComCredentialsInput{EmployeeSecret: &rotatedSecret, ExpectedVersion: 5, RequestID: "rotation-invalidation-standard"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated.VerifiedAt != nil || rotated.WXCorpID != "" || rotated.AuthoritativeCorpName != "" || rotated.BindingVersion != 6 {
 		t.Fatalf("standard credential rotation retained stale verification: %+v", rotated)
 	}
 
-	verifiedAgain, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 3, RequestID: "rotation-invalidation-reverify"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified again"})
+	verifiedAgain, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 6, RequestID: "rotation-invalidation-reverify"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified again"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if verifiedAgain.VerifiedAt == nil || verifiedAgain.BindingVersion != 4 {
+	if verifiedAgain.VerifiedAt == nil || verifiedAgain.BindingVersion != 7 {
 		t.Fatalf("reverified profile=%+v", verifiedAgain)
 	}
-	configured, err := store.ConfigureApplication(ctx, principal, companyprofile.ApplicationCredentialsInput{WXAgentID: "100001", Secret: "rotated-application-after-verify", ExpectedVersion: 4, RequestID: "rotation-invalidation-application"})
+	configured, err := store.ConfigureApplication(ctx, principal, companyprofile.ApplicationCredentialsInput{WXAgentID: "100001", Secret: "rotated-application-after-verify", ExpectedVersion: 7, RequestID: "rotation-invalidation-application"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if configured.VerifiedAt != nil || configured.WXCorpID != "" || configured.AuthoritativeCorpName != "" || configured.BindingVersion != 5 {
+	if configured.VerifiedAt != nil || configured.WXCorpID != "" || configured.AuthoritativeCorpName != "" || configured.BindingVersion != 8 {
 		t.Fatalf("application credential rotation retained stale verification: %+v", configured)
-	}
-	verifiedThird, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 5, RequestID: "rotation-invalidation-reverify-third"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified third"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if verifiedThird.VerifiedAt == nil || verifiedThird.BindingVersion != 6 {
-		t.Fatalf("third verified profile=%+v", verifiedThird)
-	}
-	agentSecret := "rotated-agent-after-verify"
-	rotatedAgent, err := store.RotateAgentCredentials(ctx, principal, companyprofile.AgentCredentialsInput{AgentID: 300, WXSecret: &agentSecret, ExpectedVersion: 6, RequestID: "rotation-invalidation-agent"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rotatedAgent.VerifiedAt != nil || rotatedAgent.WXCorpID != "" || rotatedAgent.AuthoritativeCorpName != "" || rotatedAgent.BindingVersion != 7 {
-		t.Fatalf("agent credential rotation retained stale verification: %+v", rotatedAgent)
 	}
 }
 

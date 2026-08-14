@@ -221,7 +221,7 @@ func (s *MySQLStore) CommitVerification(ctx context.Context, principal dashboard
 }
 
 func (s *MySQLStore) RotateWeComCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.WeComCredentialsInput) (companyprofile.Profile, error) {
-	return s.rotateCorpCredentials(ctx, principal, input, "dashboard.company.wecom_credentials.rotate", []string{"employeeSecret", "contactSecret", "callbackToken", "encodingAESKey", "chatSecret"})
+	return s.rotateCorpCredentials(ctx, principal, input, companyCredentialRotationInvalidatesVerification, "dashboard.company.wecom_credentials.rotate", []string{"employeeSecret", "contactSecret", "callbackToken", "encodingAESKey", "chatSecret"})
 }
 
 func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.ApplicationCredentialsInput) (companyprofile.Profile, error) {
@@ -338,7 +338,7 @@ func (s *MySQLStore) RotateArchiveCredentials(ctx context.Context, principal das
 	return s.rotateCorpCredentials(ctx, principal, companyprofile.WeComCredentialsInput{
 		ChatSecret: input.ChatSecret, RSAPublicKey: input.RSAPublicKey, RSAPrivateKey: input.RSAPrivateKey,
 		ExpectedVersion: input.ExpectedVersion, RequestID: input.RequestID,
-	}, "dashboard.company.archive_credentials.rotate", []string{"chatSecret", "archiveRsaPublicKey", "archiveRsaPrivateKey"})
+	}, companyCredentialRotationPreservesVerification, "dashboard.company.archive_credentials.rotate", []string{"chatSecret", "archiveRsaPublicKey", "archiveRsaPrivateKey"})
 }
 
 func (s *MySQLStore) GetCallbackConfiguration(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (companyprofile.CallbackConfiguration, error) {
@@ -388,13 +388,20 @@ func (s *MySQLStore) RegenerateCallbackConfiguration(ctx context.Context, princi
 	token, aesKey := input.Token, input.EncodingAESKey
 	if _, err := s.rotateCorpCredentials(ctx, principal, companyprofile.WeComCredentialsInput{
 		CallbackToken: &token, EncodingAESKey: &aesKey, ExpectedVersion: input.ExpectedVersion, RequestID: input.RequestID,
-	}, "dashboard.company.callback_configuration.rotate", []string{"callbackToken", "encodingAESKey"}); err != nil {
+	}, companyCredentialRotationPreservesVerification, "dashboard.company.callback_configuration.rotate", []string{"callbackToken", "encodingAESKey"}); err != nil {
 		return companyprofile.CallbackConfiguration{}, err
 	}
 	return s.GetCallbackConfiguration(ctx, principal)
 }
 
-func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.WeComCredentialsInput, action string, fields []string) (companyprofile.Profile, error) {
+type companyCredentialRotationPolicy uint8
+
+const (
+	companyCredentialRotationPreservesVerification companyCredentialRotationPolicy = iota
+	companyCredentialRotationInvalidatesVerification
+)
+
+func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.WeComCredentialsInput, policy companyCredentialRotationPolicy, action string, fields []string) (companyprofile.Profile, error) {
 	if s == nil || s.db == nil {
 		return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
 	}
@@ -473,7 +480,10 @@ func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashbo
 			if err := requireCompanyRows(updated, 1); err != nil {
 				return err
 			}
-			return clearCompanyBindingVerificationTx(ctx, tx, binding)
+			if policy == companyCredentialRotationInvalidatesVerification {
+				return clearCompanyBindingVerificationTx(ctx, tx, binding)
+			}
+			return nil
 		}, action, "company", strconv.Itoa(binding.CorpID), fields, input.RequestID)
 	if err != nil {
 		return companyprofile.Profile{}, err
@@ -547,7 +557,7 @@ func (s *MySQLStore) RotateAgentCredentials(ctx context.Context, principal dashb
 			if err := requireCompanyAgentRowsOrMatched(ctx, tx, updated, binding, agent.ID, storage); err != nil {
 				return err
 			}
-			return clearCompanyBindingVerificationTx(ctx, tx, binding)
+			return nil
 		}, "dashboard.company.agent_credentials.rotate", "company_agent", strconv.Itoa(agent.ID), changedFields, input.RequestID)
 	if err != nil {
 		return companyprofile.Profile{}, err

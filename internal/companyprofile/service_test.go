@@ -407,6 +407,27 @@ func TestServiceArchiveConfigurationRequiresMatchingRSAKeyPair(t *testing.T) {
 	}
 }
 
+func TestServiceArchiveRotationPreservesVerifiedEmployeeSyncState(t *testing.T) {
+	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	store := &companyProfileContractStore{profile: Profile{
+		BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
+		Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}, Archive: CredentialStatus{Configured: true}},
+	}}
+	service := NewService(store, &companyProfileTestVerifier{})
+	publicKey, privateKey := companyProfileRSAKeyPair(t)
+
+	profile, err := service.RotateArchiveCredentials(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive), ArchiveCredentialsInput{
+		ChatSecret: stringPointer("archive-secret"), RSAPublicKey: &publicKey, RSAPrivateKey: &privateKey,
+		ExpectedVersion: 1, RequestID: "archive-preserves-employee-sync",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.rotateArchiveCalls != 1 || profile.VerifiedAt == nil || profile.WXCorpID != "ww-authoritative" {
+		t.Fatalf("archive rotation changed employee-sync verification: calls=%d profile=%+v", store.rotateArchiveCalls, profile)
+	}
+}
+
 func TestServiceEmployeeSyncRequiresVerifiedBinding(t *testing.T) {
 	store := &companyProfileContractStore{verificationSnapshot: VerificationSnapshot{BindingVersion: 1}}
 	scheduler := &companyProfileTestScheduler{}

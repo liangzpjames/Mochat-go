@@ -15,7 +15,7 @@ type providerStatusTestProvider struct{ status providers.Status }
 
 func (p providerStatusTestProvider) Status() providers.Status { return p.status }
 
-func TestProviderStatusSourceUsesTenantProfileAndRuntimeEvidence(t *testing.T) {
+func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(t *testing.T) {
 	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
 	syncFinishedAt := verifiedAt.Add(time.Hour)
 	store := &companyProfileContractStore{profile: Profile{
