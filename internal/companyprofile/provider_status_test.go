@@ -135,4 +135,13 @@ func TestProviderStatusSourceDegradesWhenStandardSyncFailsAndRecoversOnSuccess(t
 	if succeeded.State != providers.StateReady || succeeded.LastSuccessAt == nil || !succeeded.LastSuccessAt.Equal(succeededAt) {
 		t.Fatalf("successful sync status = %#v", succeeded)
 	}
+
+	store.syncStatus = SyncStatus{Status: "failed", FinishedAt: &failedAt, ErrorCode: "SYNC_FAILED"}
+	statuses, err = source.Statuses(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback := findStatus(statuses, "wecom_standard"); fallback.LastErrorCode != "wecom.sync_failed" {
+		t.Fatalf("unclassified sync error code = %q, want stable wecom.sync_failed", fallback.LastErrorCode)
+	}
 }

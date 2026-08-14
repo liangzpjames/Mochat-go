@@ -99,8 +99,21 @@ func applySyncStatus(status *providers.Status, syncStatus SyncStatus) {
 		if status.LastFailureAt == nil {
 			status.LastFailureAt = syncStatus.StartedAt
 		}
-		status.LastErrorCode = syncStatus.ErrorCode
+		status.LastErrorCode = stableSyncErrorCode(syncStatus.ErrorCode)
 	}
+}
+
+func stableSyncErrorCode(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "wecom.") && value != "wecom." {
+		for _, character := range value {
+			if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-') {
+				return "wecom.sync_failed"
+			}
+		}
+		return value
+	}
+	return "wecom.sync_failed"
 }
 
 func tenantWeComArchiveStatus(profile Profile, runtime providers.Status) providers.Status {
