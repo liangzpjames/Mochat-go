@@ -22,6 +22,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveReadSourceDiagnostics(t, db, NewMySQLStore(db), "simulated", []string{"registry-simulated"}, 1)
 	simulated, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
 		CorpID: 27, WorkEmployeeID: 1001, ArchiveSource: "simulated", Page: 1, PerPage: 10,
 	})
@@ -37,6 +38,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=1 WHERE id=27`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveReadSourceDiagnostics(t, db, store, "external", []string{"MOCHAT-SIM:external-prefix", "historical-real"}, 2)
 
 	external, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
 		CorpID: 27, WorkEmployeeID: 1001, ArchiveSource: "external", Page: 1, PerPage: 1,
@@ -165,12 +167,96 @@ func TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault(t *t
 	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveReadSourceDiagnostics(t, db, store, "simulated", []string{"legacy-simulated"}, 1)
 	simulationPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if simulationPage.Total != 1 || simulationPage.TotalPage != 1 || len(simulationPage.Items) != 1 || simulationPage.Items[0].MsgID != "legacy-simulated" || simulationPage.Items[0].ArchiveSource != "simulated" || simulationPage.Items[0].ArchiveSourceID != "simulation:legacy-old" {
 		t.Fatalf("legacy default simulation page=%#v", simulationPage)
+	}
+}
+
+func assertArchiveReadSourceDiagnostics(t *testing.T, db *sql.DB, store *MySQLStore, source string, expectedIDs []string, expected int) {
+	t.Helper()
+	ctx := context.Background()
+	var shardRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mc_work_message_1 WHERE corp_id=27 AND work_employee_id=1001`).Scan(&shardRows); err != nil {
+		t.Fatalf("diagnostic shard count source=%s: %v", source, err)
+	}
+	var registryRows int
+	registryErr := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM mochat_go_archive_message_sources source_row
+		INNER JOIN mc_corp corp ON corp.id=source_row.corp_id AND corp.tenant_id=source_row.tenant_id
+		WHERE source_row.tenant_id=11 AND source_row.corp_id=27 AND source_row.source_kind=?
+	`, source).Scan(&registryRows)
+	var legacyRows int
+	legacyErr := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM mochat_go_archive_simulation_messages message_row
+		INNER JOIN mochat_go_archive_simulation_batches batch_row
+			ON batch_row.id=message_row.batch_id AND batch_row.corp_id=message_row.corp_id AND batch_row.status='complete'
+		WHERE message_row.corp_id=27
+	`).Scan(&legacyRows)
+	state, err := store.archiveSourceRegistryState(ctx)
+	if err != nil {
+		t.Fatalf("diagnostic registry state source=%s: %v", source, err)
+	}
+	unionSQL, unionArgs, ok := workMessageUnionSQLWithArchiveSourceState(27, source, state)
+	if !ok {
+		t.Fatalf("diagnostic source union rejected source=%s state=%#v", source, state)
+	}
+	var unionRows, filteredRows int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM ("+unionSQL+") diagnostic_union", unionArgs...).Scan(&unionRows); err != nil {
+		t.Fatalf("diagnostic union count source=%s state=%#v args=%#v err=%v sql=%s", source, state, unionArgs, err, unionSQL)
+	}
+	filteredArgs := append(append([]any{}, unionArgs...), 1001)
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM ("+unionSQL+") diagnostic_union WHERE diagnostic_union.work_employee_id=?", filteredArgs...).Scan(&filteredRows); err != nil {
+		t.Fatalf("diagnostic filtered union source=%s state=%#v args=%#v err=%v sql=%s", source, state, filteredArgs, err, unionSQL)
+	}
+	actualIDs := make([]string, 0, expected)
+	rows, err := db.QueryContext(ctx, "SELECT diagnostic_union.msgid FROM ("+unionSQL+") diagnostic_union WHERE diagnostic_union.work_employee_id=? ORDER BY diagnostic_union.msgid", filteredArgs...)
+	if err != nil {
+		t.Fatalf("diagnostic union ids source=%s state=%#v args=%#v err=%v sql=%s", source, state, filteredArgs, err, unionSQL)
+	}
+	for rows.Next() {
+		var msgID string
+		if err := rows.Scan(&msgID); err != nil {
+			rows.Close()
+			t.Fatalf("diagnostic union id scan source=%s: %v", source, err)
+		}
+		actualIDs = append(actualIDs, msgID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		t.Fatalf("diagnostic union id rows source=%s: %v", source, err)
+	}
+	rows.Close()
+	t.Logf("archive read diagnostic source=%s state=%#v shardRows=%d registryRows=%d registryErr=%v legacyRows=%d legacyErr=%v unionRows=%d filteredRows=%d actualIDs=%v expectedIDs=%v args=%#v sql=%s", source, state, shardRows, registryRows, registryErr, legacyRows, legacyErr, unionRows, filteredRows, actualIDs, expectedIDs, unionArgs, unionSQL)
+	if state.explicit {
+		if registryErr != nil || registryRows != 1 {
+			t.Fatalf("archive read registry diagnostic source=%s state=%#v registryRows=%d registryErr=%v", source, state, registryRows, registryErr)
+		}
+	} else if state.legacySimulation {
+		if legacyErr != nil || legacyRows != expected {
+			t.Fatalf("archive read legacy diagnostic source=%s state=%#v legacyRows=%d legacyErr=%v", source, state, legacyRows, legacyErr)
+		}
+	}
+	actualSet := make(map[string]bool, len(actualIDs))
+	for _, msgID := range actualIDs {
+		actualSet[msgID] = true
+	}
+	if len(actualSet) != len(expectedIDs) {
+		t.Fatalf("archive read diagnostic source=%s actualIDs=%v expectedIDs=%v", source, actualIDs, expectedIDs)
+	}
+	for _, msgID := range expectedIDs {
+		if !actualSet[msgID] {
+			t.Fatalf("archive read diagnostic source=%s actualIDs=%v missing=%q expectedIDs=%v", source, actualIDs, msgID, expectedIDs)
+		}
+	}
+	if shardRows < expected || filteredRows != expected || unionRows < expected {
+		t.Fatalf("archive read diagnostic source=%s state=%#v shardRows=%d registryRows=%d registryErr=%v legacyRows=%d legacyErr=%v unionRows=%d filteredRows=%d actualIDs=%v expectedIDs=%v args=%#v", source, state, shardRows, registryRows, registryErr, legacyRows, legacyErr, unionRows, filteredRows, actualIDs, expectedIDs, unionArgs)
 	}
 }
 

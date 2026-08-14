@@ -316,6 +316,7 @@ func TestArchiveSyncMigrationRejectsSingleFactorIdempotencyKeyTypeMismatch(t *te
 
 func assertArchiveSyncRunsResidualGuardPasses(t *testing.T, db *sql.DB) {
 	t.Helper()
+	dumpArchiveSyncRunsGuardMetadata(t, db)
 	var invalid int
 	err := db.QueryRow(`
 		SELECT CASE WHEN
@@ -352,6 +353,291 @@ func assertArchiveSyncRunsResidualGuardPasses(t *testing.T, db *sql.DB) {
 	}
 }
 
+func dumpArchiveSyncRunsGuardMetadata(t *testing.T, db *sql.DB) {
+	t.Helper()
+	mismatches := archiveSyncRunsGuardMismatches(t, db)
+	if len(mismatches) > 0 {
+		t.Logf("archive runs guard mismatches: %s", strings.Join(mismatches, "; "))
+	}
+	columns, err := db.Query(`
+		SELECT ordinal_position, column_name, data_type, numeric_precision, character_maximum_length,
+		       datetime_precision, column_type, is_nullable, column_default, extra
+		FROM information_schema.columns
+		WHERE table_schema=DATABASE() AND table_name='mochat_go_archive_sync_runs'
+		ORDER BY ordinal_position
+	`)
+	if err != nil {
+		t.Fatalf("inspect archive sync runs columns: %v", err)
+	}
+	for columns.Next() {
+		var ordinal int
+		var name, dataType, columnType, nullable, extra string
+		var numericPrecision, charLength, datetimePrecision sql.NullInt64
+		var columnDefault sql.NullString
+		if err := columns.Scan(&ordinal, &name, &dataType, &numericPrecision, &charLength, &datetimePrecision, &columnType, &nullable, &columnDefault, &extra); err != nil {
+			columns.Close()
+			t.Fatalf("scan archive sync runs column metadata: %v", err)
+		}
+		t.Logf("archive runs guard column ordinal=%d name=%s data_type=%s numeric_precision=%v char_length=%v datetime_precision=%v column_type=%s nullable=%s default=%v extra=%s", ordinal, name, dataType, numericPrecision, charLength, datetimePrecision, columnType, nullable, columnDefault, extra)
+	}
+	if err := columns.Err(); err != nil {
+		columns.Close()
+		t.Fatalf("read archive sync runs columns: %v", err)
+	}
+	columns.Close()
+
+	indexes, err := db.Query(`
+		SELECT index_name, non_unique, seq_in_index, column_name, sub_part
+		FROM information_schema.statistics
+		WHERE table_schema=DATABASE() AND table_name='mochat_go_archive_sync_runs'
+		ORDER BY index_name, seq_in_index
+	`)
+	if err != nil {
+		t.Fatalf("inspect archive sync runs indexes: %v", err)
+	}
+	for indexes.Next() {
+		var indexName, columnName string
+		var nonUnique, sequence int
+		var subPart sql.NullInt64
+		if err := indexes.Scan(&indexName, &nonUnique, &sequence, &columnName, &subPart); err != nil {
+			indexes.Close()
+			t.Fatalf("scan archive sync runs index metadata: %v", err)
+		}
+		t.Logf("archive runs guard index name=%s non_unique=%d seq=%d column=%s sub_part=%v", indexName, nonUnique, sequence, columnName, subPart)
+	}
+	if err := indexes.Err(); err != nil {
+		indexes.Close()
+		t.Fatalf("read archive sync runs indexes: %v", err)
+	}
+	indexes.Close()
+
+	foreignKeys, err := db.Query(`
+		SELECT constraint_name, ordinal_position, column_name, referenced_table_name, referenced_column_name
+		FROM information_schema.key_column_usage
+		WHERE constraint_schema=DATABASE() AND table_schema=DATABASE()
+		  AND table_name='mochat_go_archive_sync_runs'
+		  AND referenced_table_name IS NOT NULL
+		ORDER BY constraint_name, ordinal_position
+	`)
+	if err != nil {
+		t.Fatalf("inspect archive sync runs foreign keys: %v", err)
+	}
+	for foreignKeys.Next() {
+		var constraintName, columnName, referencedTable, referencedColumn string
+		var ordinal int
+		if err := foreignKeys.Scan(&constraintName, &ordinal, &columnName, &referencedTable, &referencedColumn); err != nil {
+			foreignKeys.Close()
+			t.Fatalf("scan archive sync runs foreign-key metadata: %v", err)
+		}
+		t.Logf("archive runs guard fk name=%s ordinal=%d column=%s references=%s.%s", constraintName, ordinal, columnName, referencedTable, referencedColumn)
+	}
+	if err := foreignKeys.Err(); err != nil {
+		foreignKeys.Close()
+		t.Fatalf("read archive sync runs foreign keys: %v", err)
+	}
+	foreignKeys.Close()
+}
+
+type archiveRunsColumnMetadata struct {
+	dataType, columnType, nullable, extra                string
+	numericPrecision, characterLength, datetimePrecision sql.NullInt64
+	columnDefault                                        sql.NullString
+}
+
+type archiveRunsIndexMetadata struct {
+	nonUnique, sequence int
+	columnName          string
+	subPart             sql.NullInt64
+}
+
+type archiveRunsForeignKeyMetadata struct {
+	ordinal                                   int
+	column, referencedTable, referencedColumn string
+}
+
+func archiveSyncRunsGuardMismatches(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	mismatches := make([]string, 0)
+	columns, err := db.Query(`
+		SELECT column_name, data_type, numeric_precision, character_maximum_length, datetime_precision,
+		       column_type, is_nullable, column_default, extra
+		FROM information_schema.columns
+		WHERE table_schema=DATABASE() AND table_name='mochat_go_archive_sync_runs'
+	`)
+	if err != nil {
+		t.Fatalf("query complete archive sync runs column guard metadata: %v", err)
+	}
+	columnMetadata := map[string]archiveRunsColumnMetadata{}
+	for columns.Next() {
+		var name string
+		var metadata archiveRunsColumnMetadata
+		if err := columns.Scan(&name, &metadata.dataType, &metadata.numericPrecision, &metadata.characterLength, &metadata.datetimePrecision, &metadata.columnType, &metadata.nullable, &metadata.columnDefault, &metadata.extra); err != nil {
+			columns.Close()
+			t.Fatalf("scan complete archive sync runs column guard metadata: %v", err)
+		}
+		columnMetadata[name] = metadata
+	}
+	if err := columns.Err(); err != nil {
+		columns.Close()
+		t.Fatalf("read complete archive sync runs column guard metadata: %v", err)
+	}
+	columns.Close()
+	wantColumns := []string{"id", "tenant_id", "corp_id", "source_kind", "source_id", "namespace", "idempotency_key", "status", "cursor_sequence", "cursor_token", "fetched_count", "processed_count", "skipped_count", "failed_count", "error_code", "attempt", "lease_token", "started_at", "finished_at", "lease_expires_at", "heartbeat_at", "created_at", "updated_at"}
+	if len(columnMetadata) != len(wantColumns) {
+		mismatches = append(mismatches, fmt.Sprintf("column_count=%d want=%d", len(columnMetadata), len(wantColumns)))
+	}
+	for _, name := range wantColumns {
+		metadata, ok := columnMetadata[name]
+		if !ok {
+			mismatches = append(mismatches, "missing column "+name)
+			continue
+		}
+		if mismatch := validateArchiveRunsColumn(name, metadata); mismatch != "" {
+			mismatches = append(mismatches, mismatch)
+		}
+	}
+
+	indexes, err := db.Query(`
+		SELECT index_name, non_unique, seq_in_index, column_name, sub_part
+		FROM information_schema.statistics
+		WHERE table_schema=DATABASE() AND table_name='mochat_go_archive_sync_runs'
+		ORDER BY index_name, seq_in_index
+	`)
+	if err != nil {
+		t.Fatalf("query complete archive sync runs index guard metadata: %v", err)
+	}
+	indexMetadata := map[string][]archiveRunsIndexMetadata{}
+	for indexes.Next() {
+		var indexName string
+		var metadata archiveRunsIndexMetadata
+		if err := indexes.Scan(&indexName, &metadata.nonUnique, &metadata.sequence, &metadata.columnName, &metadata.subPart); err != nil {
+			indexes.Close()
+			t.Fatalf("scan complete archive sync runs index guard metadata: %v", err)
+		}
+		indexMetadata[indexName] = append(indexMetadata[indexName], metadata)
+	}
+	if err := indexes.Err(); err != nil {
+		indexes.Close()
+		t.Fatalf("read complete archive sync runs index guard metadata: %v", err)
+	}
+	indexes.Close()
+	wantIndexes := map[string]struct {
+		nonUnique int
+		columns   []string
+	}{
+		"PRIMARY":                           {nonUnique: 0, columns: []string{"id"}},
+		"uk_archive_sync_run_idempotency":   {nonUnique: 0, columns: []string{"tenant_id", "corp_id", "source_kind", "source_id", "idempotency_key"}},
+		"uk_archive_sync_run_scope_id":      {nonUnique: 0, columns: []string{"tenant_id", "corp_id", "id"}},
+		"uk_archive_sync_run_identity":      {nonUnique: 0, columns: []string{"tenant_id", "corp_id", "id", "source_kind", "source_id", "namespace"}},
+		"idx_archive_sync_run_scope_status": {nonUnique: 1, columns: []string{"tenant_id", "corp_id", "status", "updated_at"}},
+		"idx_archive_sync_run_source":       {nonUnique: 1, columns: []string{"tenant_id", "corp_id", "source_kind", "source_id", "updated_at"}},
+	}
+	for name, want := range wantIndexes {
+		got, ok := indexMetadata[name]
+		if !ok {
+			mismatches = append(mismatches, "missing index "+name)
+			continue
+		}
+		if len(got) != len(want.columns) {
+			mismatches = append(mismatches, fmt.Sprintf("index %s entries=%d want=%d", name, len(got), len(want.columns)))
+			continue
+		}
+		for index, expectedColumn := range want.columns {
+			row := got[index]
+			if row.nonUnique != want.nonUnique || row.sequence != index+1 || row.columnName != expectedColumn || row.subPart.Valid {
+				mismatches = append(mismatches, fmt.Sprintf("index %s[%d]=non_unique:%d seq:%d column:%s sub_part:%v want non_unique:%d seq:%d column:%s sub_part:NULL", name, index+1, row.nonUnique, row.sequence, row.columnName, row.subPart, want.nonUnique, index+1, expectedColumn))
+			}
+		}
+	}
+
+	foreignKeys, err := db.Query(`
+		SELECT constraint_name, ordinal_position, column_name, referenced_table_name, referenced_column_name
+		FROM information_schema.key_column_usage
+		WHERE constraint_schema=DATABASE() AND table_schema=DATABASE()
+		  AND table_name='mochat_go_archive_sync_runs' AND constraint_name='fk_archive_sync_run_corp'
+		ORDER BY ordinal_position
+	`)
+	if err != nil {
+		t.Fatalf("query complete archive sync runs FK guard metadata: %v", err)
+	}
+	foreignKeyMetadata := make([]archiveRunsForeignKeyMetadata, 0, 2)
+	for foreignKeys.Next() {
+		var constraintName string
+		var metadata archiveRunsForeignKeyMetadata
+		if err := foreignKeys.Scan(&constraintName, &metadata.ordinal, &metadata.column, &metadata.referencedTable, &metadata.referencedColumn); err != nil {
+			foreignKeys.Close()
+			t.Fatalf("scan complete archive sync runs FK guard metadata: %v", err)
+		}
+		foreignKeyMetadata = append(foreignKeyMetadata, metadata)
+	}
+	if err := foreignKeys.Err(); err != nil {
+		foreignKeys.Close()
+		t.Fatalf("read complete archive sync runs FK guard metadata: %v", err)
+	}
+	foreignKeys.Close()
+	wantForeignKeys := []archiveRunsForeignKeyMetadata{
+		{ordinal: 1, column: "tenant_id", referencedTable: "mc_corp", referencedColumn: "tenant_id"},
+		{ordinal: 2, column: "corp_id", referencedTable: "mc_corp", referencedColumn: "id"},
+	}
+	if len(foreignKeyMetadata) != len(wantForeignKeys) {
+		mismatches = append(mismatches, fmt.Sprintf("fk entries=%d want=%d", len(foreignKeyMetadata), len(wantForeignKeys)))
+	} else {
+		for index, want := range wantForeignKeys {
+			got := foreignKeyMetadata[index]
+			if got != want {
+				mismatches = append(mismatches, fmt.Sprintf("fk[%d]=%#v want=%#v", index+1, got, want))
+			}
+		}
+	}
+	return mismatches
+}
+
+func validateArchiveRunsColumn(name string, metadata archiveRunsColumnMetadata) string {
+	dataType := strings.ToLower(metadata.dataType)
+	columnType := strings.ToLower(metadata.columnType)
+	normalizedExtra := strings.ReplaceAll(strings.ReplaceAll(strings.ToLower(metadata.extra), " ", ""), "default_generated", "")
+	defaultValue := strings.ToLower(metadata.columnDefault.String)
+	if !metadata.columnDefault.Valid {
+		defaultValue = "<null>"
+	}
+	valid := func(condition bool, want string) string {
+		if condition {
+			return ""
+		}
+		return fmt.Sprintf("column %s got data_type=%s numeric_precision=%v char_length=%v datetime_precision=%v column_type=%s nullable=%s default=%s extra=%s want %s", name, metadata.dataType, metadata.numericPrecision, metadata.characterLength, metadata.datetimePrecision, metadata.columnType, metadata.nullable, defaultValue, metadata.extra, want)
+	}
+	switch name {
+	case "id":
+		return valid(dataType == "bigint" && metadata.numericPrecision.Valid && metadata.numericPrecision.Int64 == 20 && strings.Contains(columnType, "unsigned") && metadata.nullable == "NO" && !metadata.columnDefault.Valid && strings.Contains(strings.ToLower(metadata.extra), "auto_increment"), "bigint unsigned NOT NULL AUTO_INCREMENT")
+	case "tenant_id", "corp_id":
+		return valid(dataType == "int" && metadata.numericPrecision.Valid && metadata.numericPrecision.Int64 == 10 && strings.Contains(columnType, "unsigned") && metadata.nullable == "NO" && !metadata.columnDefault.Valid && normalizedExtra == "", "int unsigned NOT NULL")
+	case "source_kind":
+		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 16 && metadata.nullable == "NO" && !metadata.columnDefault.Valid && normalizedExtra == "", "varchar(16) NOT NULL")
+	case "source_id", "namespace", "idempotency_key", "lease_token":
+		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 128 && metadata.nullable == "NO" && (name != "lease_token" && !metadata.columnDefault.Valid || name == "lease_token" && metadata.columnDefault.Valid && metadata.columnDefault.String == "") && normalizedExtra == "", "varchar(128) NOT NULL with migration default contract")
+	case "status":
+		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 16 && metadata.nullable == "NO" && !metadata.columnDefault.Valid && normalizedExtra == "", "varchar(16) NOT NULL")
+	case "cursor_sequence":
+		return valid(dataType == "bigint" && metadata.numericPrecision.Valid && metadata.numericPrecision.Int64 == 19 && !strings.Contains(columnType, "unsigned") && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "0" && normalizedExtra == "", "signed bigint NOT NULL DEFAULT 0")
+	case "cursor_token":
+		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 255 && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "" && normalizedExtra == "", "varchar(255) NOT NULL DEFAULT ''")
+	case "fetched_count", "processed_count", "skipped_count", "failed_count":
+		return valid(dataType == "int" && metadata.numericPrecision.Valid && metadata.numericPrecision.Int64 == 10 && strings.Contains(columnType, "unsigned") && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "0" && normalizedExtra == "", "int unsigned NOT NULL DEFAULT 0")
+	case "error_code":
+		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 96 && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "" && normalizedExtra == "", "varchar(96) NOT NULL DEFAULT ''")
+	case "attempt":
+		return valid(dataType == "int" && metadata.numericPrecision.Valid && metadata.numericPrecision.Int64 == 10 && strings.Contains(columnType, "unsigned") && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "1" && normalizedExtra == "", "int unsigned NOT NULL DEFAULT 1")
+	case "started_at", "finished_at", "lease_expires_at", "heartbeat_at":
+		return valid(dataType == "datetime" && metadata.datetimePrecision.Valid && metadata.datetimePrecision.Int64 == 6 && metadata.nullable == "YES" && !metadata.columnDefault.Valid && normalizedExtra == "", "datetime(6) NULL")
+	case "created_at":
+		return valid(dataType == "datetime" && metadata.datetimePrecision.Valid && metadata.datetimePrecision.Int64 == 6 && metadata.nullable == "NO" && defaultValue == "current_timestamp(6)" && normalizedExtra == "", "datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)")
+	case "updated_at":
+		return valid(dataType == "datetime" && metadata.datetimePrecision.Valid && metadata.datetimePrecision.Int64 == 6 && metadata.nullable == "NO" && defaultValue == "current_timestamp(6)" && normalizedExtra == "onupdatecurrent_timestamp(6)", "datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)")
+	default:
+		return "unknown column " + name
+	}
+}
+
 func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createArchiveSyncCorpFixture(t, db)
@@ -374,7 +660,7 @@ func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T)
 	assertArchiveSyncRunsResidualGuardPasses(t, db)
 	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
 	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive message sources table") {
-		t.Fatal("wrong composite source foreign key unexpectedly passed migration guard")
+		t.Fatalf("wrong composite source foreign key unexpectedly passed migration guard: err=%v", err)
 	}
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
 }
@@ -402,7 +688,7 @@ func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
 	assertArchiveSyncRunsResidualGuardPasses(t, db)
 	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
 	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive message sources table") {
-		t.Fatal("non-unique residual scope index unexpectedly passed migration guard")
+		t.Fatalf("non-unique residual scope index unexpectedly passed migration guard: err=%v", err)
 	}
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
 }
