@@ -25,6 +25,13 @@ func main() {
 }
 
 func run(args []string) error {
+	return runWith(args, os.Getenv, sql.Open)
+}
+
+type environmentReader func(string) string
+type mysqlOpener func(string, string) (*sql.DB, error)
+
+func runWith(args []string, getenv environmentReader, open mysqlOpener) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: mochat-archive-simulator apply|status|cleanup --corp-id N --batch NAME")
 	}
@@ -42,11 +49,11 @@ func run(args []string) error {
 	if err := requireSimulationEnabled(*enableSimulation); err != nil {
 		return err
 	}
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_MYSQL_DSN"))
+	dsn := strings.TrimSpace(getenv("MOCHAT_MYSQL_DSN"))
 	if dsn == "" {
 		return fmt.Errorf("MOCHAT_MYSQL_DSN is required")
 	}
-	db, err := sql.Open("mysql", dsn)
+	db, err := open("mysql", dsn)
 	if err != nil {
 		return err
 	}

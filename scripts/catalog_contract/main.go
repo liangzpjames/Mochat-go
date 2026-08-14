@@ -27,7 +27,6 @@ type result struct {
 type composition struct {
 	registryName  string
 	registrations map[string][]registration
-	ranges        map[string]string
 	seen          []registration
 	registerPos   []token.Pos
 	returnPos     []token.Pos
@@ -36,17 +35,23 @@ type composition struct {
 
 func main() {
 	root := flag.String("root", ".", "repository root")
+	goos := flag.String("goos", "linux", "production image GOOS")
+	goarch := flag.String("goarch", "amd64", "production image GOARCH")
 	flag.Parse()
-	result := check(*root)
+	result := check(*root, *goos, *goarch)
 	_ = json.NewEncoder(os.Stdout).Encode(result)
 	if !result.OK {
 		os.Exit(1)
 	}
 }
 
-func check(root string) result {
+func check(root, goos, goarch string) result {
 	path := filepath.Join(root, "internal", "modules", "providers", "catalog", "catalog.go")
-	matched, err := build.Default.MatchFile(filepath.Dir(path), filepath.Base(path))
+	target, err := productionBuildContext(goos, goarch)
+	if err != nil {
+		return result{Errors: []string{err.Error()}}
+	}
+	matched, err := target.MatchFile(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
 		return result{Errors: []string{fmt.Sprintf("catalog build-set check failed: %v", err)}}
 	}
@@ -72,14 +77,13 @@ func check(root string) result {
 	}
 	composition := composition{
 		registrations: make(map[string][]registration),
-		ranges:        make(map[string]string),
 	}
 	collectDeclarations(factory.Body, &composition)
 	findRegistry(factory.Body, &composition)
 	if composition.registryName == "" {
 		composition.errors = append(composition.errors, "catalog NewRegistry does not construct a named providers.Registry")
 	}
-	walkStatements(factory.Body.List, &composition, false, "")
+	walkStatements(factory.Body.List, &composition, true)
 	if len(composition.registerPos) == 0 {
 		composition.errors = append(composition.errors, "catalog NewRegistry must contain an unconditional reachable registry.Register path")
 	}
@@ -97,15 +101,22 @@ func check(root string) result {
 	return result{OK: len(composition.errors) == 0, Errors: unique(composition.errors), Registrations: uniqueRegistrations(composition.seen)}
 }
 
+func productionBuildContext(goos, goarch string) (build.Context, error) {
+	if strings.TrimSpace(goos) == "" || strings.TrimSpace(goarch) == "" {
+		return build.Context{}, fmt.Errorf("production build target requires GOOS and GOARCH")
+	}
+	return build.Context{GOOS: goos, GOARCH: goarch, Compiler: "gc", CgoEnabled: false}, nil
+}
+
 func findRegistry(body *ast.BlockStmt, composition *composition) {
-	ast.Inspect(body, func(node ast.Node) bool {
-		assignment, ok := node.(*ast.AssignStmt)
+	for _, statement := range body.List {
+		assignment, ok := statement.(*ast.AssignStmt)
 		if !ok || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
-			return true
+			continue
 		}
 		call, ok := assignment.Rhs[0].(*ast.CallExpr)
 		if !ok {
-			return true
+			continue
 		}
 		selector, ok := call.Fun.(*ast.SelectorExpr)
 		if ok && selector.Sel.Name == "NewRegistry" {
@@ -113,8 +124,7 @@ func findRegistry(body *ast.BlockStmt, composition *composition) {
 				composition.registryName = identifier.Name
 			}
 		}
-		return true
-	})
+	}
 }
 
 func collectDeclarations(body *ast.BlockStmt, composition *composition) {
@@ -139,43 +149,66 @@ func collectDeclarations(body *ast.BlockStmt, composition *composition) {
 	})
 }
 
-func walkStatements(statements []ast.Stmt, composition *composition, conditional bool, rangeValue string) {
+func walkStatements(statements []ast.Stmt, composition *composition, topLevel bool) {
 	for _, statement := range statements {
 		switch statement := statement.(type) {
 		case *ast.BlockStmt:
-			walkStatements(statement.List, composition, conditional, rangeValue)
+			walkStatements(statement.List, composition, false)
 		case *ast.IfStmt:
 			if statement.Init != nil {
-				walkStatements([]ast.Stmt{statement.Init}, composition, conditional, rangeValue)
+				inspectRegisterStatement(statement.Init, composition, false)
 			}
-			walkStatements(statement.Body.List, composition, true, rangeValue)
-			if elseBlock, ok := statement.Else.(*ast.BlockStmt); ok {
-				walkStatements(elseBlock.List, composition, true, rangeValue)
+			inspectRegisterExpression(statement.Cond, composition, false)
+			walkStatements(statement.Body.List, composition, false)
+			if statement.Else != nil {
+				walkStatements([]ast.Stmt{statement.Else}, composition, false)
 			}
 		case *ast.ForStmt:
 			if statement.Init != nil {
-				walkStatements([]ast.Stmt{statement.Init}, composition, conditional, rangeValue)
+				inspectRegisterStatement(statement.Init, composition, false)
 			}
-			walkStatements(statement.Body.List, composition, true, rangeValue)
+			inspectRegisterExpression(statement.Cond, composition, false)
+			if statement.Post != nil {
+				inspectRegisterStatement(statement.Post, composition, false)
+			}
+			walkStatements(statement.Body.List, composition, false)
 		case *ast.RangeStmt:
-			value := ""
-			if identifier, ok := statement.Value.(*ast.Ident); ok {
-				value = identifier.Name
+			inspectRegisterExpression(statement.X, composition, false)
+			walkStatements(statement.Body.List, composition, false)
+		case *ast.SwitchStmt:
+			if statement.Init != nil {
+				inspectRegisterStatement(statement.Init, composition, false)
 			}
-			collection, ok := statement.X.(*ast.Ident)
-			if !ok || len(composition.registrations[collection.Name]) == 0 {
-				walkStatements(statement.Body.List, composition, true, value)
-				continue
+			inspectRegisterExpression(statement.Tag, composition, false)
+			for _, clause := range statement.Body.List {
+				if caseClause, ok := clause.(*ast.CaseClause); ok {
+					for _, expression := range caseClause.List {
+						inspectRegisterExpression(expression, composition, false)
+					}
+					walkStatements(caseClause.Body, composition, false)
+				}
 			}
-			composition.ranges[value] = collection.Name
-			walkStatements(statement.Body.List, composition, conditional, value)
+		case *ast.SelectStmt:
+			for _, clause := range statement.Body.List {
+				if commClause, ok := clause.(*ast.CommClause); ok {
+					if commClause.Comm != nil {
+						inspectRegisterStatement(commClause.Comm, composition, false)
+					}
+					walkStatements(commClause.Body, composition, false)
+				}
+			}
 		case *ast.ExprStmt:
-			inspectRegisterCall(statement.X, composition, conditional, rangeValue)
+			inspectRegisterExpression(statement.X, composition, topLevel)
 		case *ast.AssignStmt:
 			for _, expression := range statement.Rhs {
-				inspectRegisterCall(expression, composition, conditional, rangeValue)
+				inspectRegisterExpression(expression, composition, topLevel)
 			}
+		case *ast.DeclStmt:
+			inspectRegisterStatement(statement, composition, topLevel)
 		case *ast.ReturnStmt:
+			for _, expression := range statement.Results {
+				inspectRegisterExpression(expression, composition, false)
+			}
 			if len(statement.Results) > 0 {
 				if identifier, ok := statement.Results[0].(*ast.Ident); ok {
 					switch identifier.Name {
@@ -187,15 +220,39 @@ func walkStatements(statements []ast.Stmt, composition *composition, conditional
 					}
 				}
 			}
+		default:
+			inspectRegisterStatement(statement, composition, false)
 		}
 	}
 }
 
-func inspectRegisterCall(expression ast.Expr, composition *composition, conditional bool, rangeValue string) {
-	call, ok := expression.(*ast.CallExpr)
-	if !ok {
+func inspectRegisterStatement(statement ast.Stmt, composition *composition, topLevel bool) {
+	if statement == nil {
 		return
 	}
+	ast.Inspect(statement, func(node ast.Node) bool {
+		if expression, ok := node.(ast.Expr); ok {
+			inspectRegisterExpression(expression, composition, topLevel && node == statement)
+		}
+		return true
+	})
+}
+
+func inspectRegisterExpression(expression ast.Expr, composition *composition, topLevel bool) {
+	if expression == nil {
+		return
+	}
+	ast.Inspect(expression, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		inspectRegisterCall(call, composition, topLevel && node == expression)
+		return true
+	})
+}
+
+func inspectRegisterCall(call *ast.CallExpr, composition *composition, directTopLevel bool) {
 	selector, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok || selector.Sel.Name != "Register" {
 		return
@@ -204,7 +261,8 @@ func inspectRegisterCall(expression ast.Expr, composition *composition, conditio
 	if !ok || receiver.Name != composition.registryName {
 		return
 	}
-	if conditional {
+	if !directTopLevel {
+		composition.errors = append(composition.errors, "catalog Register must be a direct top-level sequential call; Register inside control flow or function literal is forbidden")
 		return
 	}
 	composition.registerPos = append(composition.registerPos, call.Pos())
@@ -214,10 +272,6 @@ func inspectRegisterCall(expression ast.Expr, composition *composition, conditio
 	}
 	switch argument := call.Args[0].(type) {
 	case *ast.Ident:
-		if rangeCollection, ok := composition.ranges[argument.Name]; ok {
-			composition.seen = append(composition.seen, composition.registrations[rangeCollection]...)
-			return
-		}
 		composition.seen = append(composition.seen, composition.registrations[argument.Name]...)
 	case *ast.CompositeLit:
 		composition.seen = append(composition.seen, registrationLiterals(argument)...)

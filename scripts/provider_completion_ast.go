@@ -33,15 +33,21 @@ type kindContract struct {
 
 func main() {
 	root := flag.String("root", ".", "repository root to inspect")
+	goos := flag.String("goos", "linux", "production image GOOS")
+	goarch := flag.String("goarch", "amd64", "production image GOARCH")
 	flag.Parse()
-	errors := checkArchiveStatuses(*root)
+	errors := checkArchiveStatuses(*root, *goos, *goarch)
 	_ = json.NewEncoder(os.Stdout).Encode(result{OK: len(errors) == 0, Errors: errors})
 	if len(errors) > 0 {
 		os.Exit(1)
 	}
 }
 
-func checkArchiveStatuses(root string) []string {
+func checkArchiveStatuses(root, goos, goarch string) []string {
+	target, err := productionBuildContext(goos, goarch)
+	if err != nil {
+		return []string{err.Error()}
+	}
 	directory := filepath.Join(root, "internal", "modules", "providers", "archive")
 	files := make([]string, 0)
 	_ = filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
@@ -55,7 +61,7 @@ func checkArchiveStatuses(root string) []string {
 			return nil
 		}
 		if strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
-			matched, matchErr := build.Default.MatchFile(filepath.Dir(path), entry.Name())
+			matched, matchErr := target.MatchFile(filepath.Dir(path), entry.Name())
 			if matchErr != nil {
 				return matchErr
 			}
@@ -165,6 +171,13 @@ func checkArchiveStatuses(root string) []string {
 		errors = append(errors, "archive: external source has no Status method")
 	}
 	return uniqueErrors(errors)
+}
+
+func productionBuildContext(goos, goarch string) (build.Context, error) {
+	if strings.TrimSpace(goos) == "" || strings.TrimSpace(goarch) == "" {
+		return build.Context{}, fmt.Errorf("production build target requires GOOS and GOARCH")
+	}
+	return build.Context{GOOS: goos, GOARCH: goarch, Compiler: "gc", CgoEnabled: false}, nil
 }
 
 func receiverTypeName(expression ast.Expr) string {

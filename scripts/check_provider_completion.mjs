@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SOURCE_NAMES = new Set(['SourceExternal', 'SourceSimulated', 'SourceLocal', 'SourceCodeOnly']);
+const PRODUCTION_GOOS = 'linux';
+const PRODUCTION_GOARCH = 'amd64';
 
 export async function checkProviderCompletion(root = process.cwd()) {
   const files = [
@@ -34,6 +36,13 @@ export async function checkProviderCompletion(root = process.cwd()) {
     }
   }
 
+  const activeKinds = new Set([...implementationKinds.values()].flatMap((kinds) => [...kinds]));
+  for (const [kind] of registrations) {
+    if (!activeKinds.has(kind)) {
+      errors.push(`runtime registration ${kind} has no active production implementation`);
+    }
+  }
+
   return {
     ok: errors.length === 0,
     errors,
@@ -44,7 +53,7 @@ export async function checkProviderCompletion(root = process.cwd()) {
 function checkArchiveStatusAST(root) {
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'provider_completion_ast.go');
   try {
-    const output = execFileSync('go', ['run', script, '--root', root], {
+    const output = execFileSync('go', ['run', script, '--root', root, '--goos', PRODUCTION_GOOS, '--goarch', PRODUCTION_GOARCH], {
       cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
       encoding: 'utf8',
       maxBuffer: 2 * 1024 * 1024,
@@ -67,7 +76,7 @@ function collectRuntimeRegistrations(root, registrations, errors) {
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'catalog_contract', 'main.go');
   let output;
   try {
-    output = execFileSync('go', ['run', script, '--root', root], {
+    output = execFileSync('go', ['run', script, '--root', root, '--goos', PRODUCTION_GOOS, '--goarch', PRODUCTION_GOARCH], {
       cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
       encoding: 'utf8',
       maxBuffer: 2 * 1024 * 1024,
@@ -99,7 +108,7 @@ function collectRuntimeRegistrations(root, registrations, errors) {
 
 function productionGoFiles(root, relativeDirectory) {
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'buildfiles', 'main.go');
-  const output = execFileSync('go', ['run', script, '--root', root, '--dir', relativeDirectory], {
+  const output = execFileSync('go', ['run', script, '--root', root, '--dir', relativeDirectory, '--goos', PRODUCTION_GOOS, '--goarch', PRODUCTION_GOARCH], {
     cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
     encoding: 'utf8',
     maxBuffer: 2 * 1024 * 1024,

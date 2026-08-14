@@ -21,16 +21,21 @@ type Dependencies struct {
 // capability classification. Runtime components are injected by the app.
 func NewRegistry(dependencies Dependencies) (*providers.Registry, error) {
 	registry := providers.NewRegistry()
-	registrations := []providers.Registration{
-		providers.Registration{Kind: "ai", Source: aiSource(dependencies.AIEnabled), Capabilities: []string{"chat"}, Provider: dependencyOrUnavailable(dependencies.AI, "ai")},
-		providers.Registration{Kind: "audio_storage", Source: providers.SourceLocal, Capabilities: []string{"audio_object_storage"}, Provider: dependencyOrUnavailable(dependencies.AudioStorage, "audio_storage")},
-		providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal, Capabilities: []string{"archive_sync"}, Provider: dependencyOrUnavailable(dependencies.Archive, "wecom_archive")},
-		providers.Registration{Kind: "wecom_standard", Source: providers.SourceExternal, Capabilities: []string{"employee_sync"}, Provider: dependencyOrUnavailable(dependencies.WeComStandard, "wecom_standard")},
+	err := registry.Register(providers.Registration{Kind: "ai", Source: aiSource(dependencies.AIEnabled), Capabilities: []string{"chat"}, Provider: dependencyOrUnavailable(dependencies.AI, "ai")})
+	if err != nil {
+		return nil, fmt.Errorf("register provider ai: %w", err)
 	}
-	for _, registration := range registrations {
-		if err := registry.Register(registration); err != nil {
-			return nil, fmt.Errorf("register provider %s: %w", registration.Kind, err)
-		}
+	err = registry.Register(providers.Registration{Kind: "audio_storage", Source: providers.SourceLocal, Capabilities: []string{"audio_object_storage"}, Provider: dependencyOrUnavailable(dependencies.AudioStorage, "audio_storage")})
+	if err != nil {
+		return nil, fmt.Errorf("register provider audio_storage: %w", err)
+	}
+	err = registry.Register(providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal, Capabilities: []string{"archive_sync"}, Provider: dependencyOrUnavailable(dependencies.Archive, "wecom_archive")})
+	if err != nil {
+		return nil, fmt.Errorf("register provider wecom_archive: %w", err)
+	}
+	err = registry.Register(providers.Registration{Kind: "wecom_standard", Source: providers.SourceExternal, Capabilities: []string{"employee_sync"}, Provider: dependencyOrUnavailable(dependencies.WeComStandard, "wecom_standard")})
+	if err != nil {
+		return nil, fmt.Errorf("register provider wecom_standard: %w", err)
 	}
 	return registry, nil
 }
