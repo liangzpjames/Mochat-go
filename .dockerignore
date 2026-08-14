@@ -1,8 +1,13 @@
 .git
 .gitignore
+.worktrees/
+.workbuddy/
+.playwright-cli/
+.tmp*/
 tmp
 output
 storage
+web/saas-admin/
 *.log
 *.pid
 node_modules

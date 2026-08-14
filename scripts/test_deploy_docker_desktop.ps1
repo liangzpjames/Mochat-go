@@ -2,9 +2,13 @@
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $deployScript = Join-Path $PSScriptRoot 'deploy_docker_desktop.ps1'
+$dockerIgnore = Join-Path $repositoryRoot '.dockerignore'
 
 if (-not (Test-Path -LiteralPath $deployScript)) {
     throw "部署脚本不存在：$deployScript"
+}
+if (-not (Test-Path -LiteralPath $dockerIgnore)) {
+    throw "Docker 忽略文件不存在：$dockerIgnore"
 }
 
 function Invoke-DeploymentPreview {
@@ -59,6 +63,10 @@ Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' 
 Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '未声明安全的条件基线策略'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
 $deploySource = Get-Content -LiteralPath $deployScript -Raw
+$dockerIgnoreSource = Get-Content -LiteralPath $dockerIgnore -Raw
+Assert-Matches $dockerIgnoreSource '(?m)^\.worktrees/$' 'Docker 构建上下文仍包含多 GB 工作树'
+Assert-Matches $dockerIgnoreSource '(?m)^\.tmp\*/$' 'Docker 构建上下文仍包含临时 Go 缓存'
+Assert-Matches $dockerIgnoreSource '(?m)^web/saas-admin/$' 'Docker 构建上下文仍包含旧的未跟踪 SaaS 构建目录'
 Assert-Matches $deploySource 'baseline-compose-init' 'fresh schema 未使用 0104 init 边界恢复后再执行增量迁移'
 Assert-Matches $deploySource 'baseline requires complete 0129 schema' '未声明 baseline 的 0129 schema 兼容性边界'
 Assert-Matches $deploySource 'IF\(COUNT\(\*\) > 0, 1, 0\)' '空迁移账本未回到专用 compose-init baseline'
