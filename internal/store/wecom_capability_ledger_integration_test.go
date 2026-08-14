@@ -162,7 +162,7 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest[wecomcapability.EmployeeSync].ID != created.ID {
+	if latest[wecomcapability.EmployeeSync].ID != differentActionOperation.ID || latest[wecomcapability.EmployeeSync].Action != wecomcapability.ActionPull {
 		t.Fatalf("latest=%+v", latest)
 	}
 	claimed, err := store.ClaimCapabilityOperation(context.Background(), principal, created.ID, time.Minute)
