@@ -16,6 +16,55 @@ import (
 	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
 )
 
+func TestArchiveSourceMigrationContainsLegacySimulationBackfillContract(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0138_archive_source_sync.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := strings.ToLower(string(body))
+	for _, fragment := range []string{
+		"insert into `mochat_go_archive_sync_runs`",
+		"insert into `mochat_go_archive_message_sources`",
+		"mochat_go_archive_simulation_batches",
+		"mochat_go_archive_simulation_messages",
+		"concat(''simulation:'', batch.`batch_key`)",
+		"concat(''mochat-sim:'', batch.`batch_key`)",
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Fatalf("0138 legacy simulation backfill missing %q", fragment)
+		}
+	}
+}
+
+func TestArchiveSourceMigrationBackfillsLegacySimulationRowsOnTemporaryMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createArchiveSyncCorpFixture(t, db)
+	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
+	defer executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql")
+	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_batches (corp_id,batch_key,status,message_count) VALUES (27,'legacy-backfill','complete',1)`); err != nil {
+		t.Fatal(err)
+	}
+	var batchID int64
+	if err := db.QueryRow(`SELECT id FROM mochat_go_archive_simulation_batches WHERE corp_id=27 AND batch_key='legacy-backfill'`).Scan(&batchID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_messages (batch_id,corp_id,msgid,table_index) VALUES (?,?,?,1)`, batchID, 27, "legacy-backfill-msg"); err != nil {
+		t.Fatal(err)
+	}
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
+	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	var runs, sources int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_archive_sync_runs WHERE tenant_id=11 AND corp_id=27 AND source_kind='simulated' AND source_id='simulation:legacy-backfill' AND namespace='MOCHAT-SIM:legacy-backfill' AND status='succeeded'`).Scan(&runs); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_archive_message_sources WHERE tenant_id=11 AND corp_id=27 AND msgid='legacy-backfill-msg' AND source_kind='simulated' AND source_id='simulation:legacy-backfill' AND namespace='MOCHAT-SIM:legacy-backfill'`).Scan(&sources); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 1 || sources != 1 {
+		t.Fatalf("legacy backfill runs=%d sources=%d", runs, sources)
+	}
+}
+
 func TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createArchiveSyncCorpFixture(t, db)
@@ -36,13 +85,14 @@ func TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation(t *te
 		t.Fatalf("queued run=%#v", run)
 	}
 	started := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
-	if err := store.MarkArchiveSyncRunning(context.Background(), run.ID, started); err != nil {
+	run, err = store.MarkArchiveSyncRunning(context.Background(), run.ID, started)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveArchiveSyncCursor(context.Background(), run.ID, archiveprovider.Cursor{Sequence: 13, Token: "opaque"}, started.Add(time.Minute)); err != nil {
+	if err := store.SaveArchiveSyncCursor(context.Background(), run.ID, run.Attempt, run.LeaseToken, archiveprovider.Cursor{Sequence: 13, Token: "opaque"}, started.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	completed, err := store.CompleteArchiveSync(context.Background(), run.ID, archiveprovider.SyncCounts{Fetched: 13, Processed: 12, Skipped: 1}, archiveprovider.Cursor{Sequence: 13, Token: "opaque"}, started.Add(2*time.Minute))
+	completed, err := store.CompleteArchiveSync(context.Background(), run.ID, run.Attempt, run.LeaseToken, archiveprovider.SyncCounts{Fetched: 13, Processed: 12, Skipped: 1}, archiveprovider.Cursor{Sequence: 13, Token: "opaque"}, started.Add(2*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +141,7 @@ func TestArchiveSyncStaleRunningRunIsTakenOverWithAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Now().Add(-10 * time.Minute)
-	if err := store.MarkArchiveSyncRunning(context.Background(), run.ID, started); err != nil {
+	if _, err := store.MarkArchiveSyncRunning(context.Background(), run.ID, started); err != nil {
 		t.Fatal(err)
 	}
 	taken, err := store.EnqueueArchiveSync(context.Background(), template, false)
@@ -201,6 +251,20 @@ func TestArchiveSyncMigrationRejectsIncompleteResidualTable(t *testing.T) {
 	}
 }
 
+func TestArchiveSyncMigrationRejectsSingleFactorIdempotencyKeyTypeMismatch(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createArchiveSyncCorpFixture(t, db)
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
+	if _, err := db.Exec(`ALTER TABLE mochat_go_archive_sync_runs MODIFY idempotency_key VARCHAR(1) NOT NULL`); err != nil {
+		t.Fatal(err)
+	}
+	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
+	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive sync runs table") {
+		t.Fatalf("idempotency_key varchar(1) residual table unexpectedly passed: %v", err)
+	}
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+}
+
 func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createArchiveSyncCorpFixture(t, db)
@@ -212,8 +276,10 @@ func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T)
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 		tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, msgid VARCHAR(255) NOT NULL,
 		source_kind VARCHAR(16) NOT NULL, source_id VARCHAR(128) NOT NULL, namespace VARCHAR(128) NOT NULL,
-		run_id BIGINT UNSIGNED NOT NULL, created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL,
+		run_id BIGINT UNSIGNED NOT NULL, created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
 		UNIQUE KEY uk_archive_message_source_scope_msg (tenant_id, corp_id, msgid),
+		KEY idx_archive_message_source_filter (tenant_id, corp_id, source_kind, source_id, created_at),
+		KEY idx_archive_message_source_run (run_id),
 		CONSTRAINT fk_archive_message_source_run FOREIGN KEY (run_id) REFERENCES mochat_go_archive_sync_runs(id)
 	) ENGINE=InnoDB`); err != nil {
 		t.Fatal(err)
@@ -236,8 +302,10 @@ func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 		tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, msgid VARCHAR(255) NOT NULL,
 		source_kind VARCHAR(16) NOT NULL, source_id VARCHAR(128) NOT NULL, namespace VARCHAR(128) NOT NULL,
-		run_id BIGINT UNSIGNED NOT NULL, created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL,
+		run_id BIGINT UNSIGNED NOT NULL, created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
 		KEY uk_archive_message_source_scope_msg (tenant_id, corp_id, msgid),
+		KEY idx_archive_message_source_filter (tenant_id, corp_id, source_kind, source_id, created_at),
+		KEY idx_archive_message_source_run (run_id),
 		CONSTRAINT fk_archive_message_source_run FOREIGN KEY (tenant_id,corp_id,run_id,source_kind,source_id,namespace)
 			REFERENCES mochat_go_archive_sync_runs (tenant_id,corp_id,id,source_kind,source_id,namespace)
 	) ENGINE=InnoDB`); err != nil {
@@ -246,6 +314,36 @@ func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
 	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
 	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive message sources table") {
 		t.Fatal("non-unique residual scope index unexpectedly passed migration guard")
+	}
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+}
+
+func TestArchiveSyncMigrationRejectsWrongAuditScopeIndex(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createArchiveSyncCorpFixture(t, db)
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
+	if _, err := db.Exec("DROP TABLE mochat_go_archive_sync_audits"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE mochat_go_archive_sync_audits (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		run_id BIGINT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL,
+		source_kind VARCHAR(16) NOT NULL, source_id VARCHAR(128) NOT NULL, namespace VARCHAR(128) NOT NULL,
+		action VARCHAR(16) NOT NULL, status VARCHAR(16) NOT NULL, error_code VARCHAR(96) NOT NULL DEFAULT '',
+		cursor_sequence BIGINT NOT NULL DEFAULT 0, fetched_count INT UNSIGNED NOT NULL DEFAULT 0,
+		processed_count INT UNSIGNED NOT NULL DEFAULT 0, skipped_count INT UNSIGNED NOT NULL DEFAULT 0,
+		failed_count INT UNSIGNED NOT NULL DEFAULT 0, created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+		PRIMARY KEY (id),
+		KEY idx_archive_sync_audit_scope (tenant_id, corp_id),
+		KEY idx_archive_sync_audit_run (run_id, created_at),
+		CONSTRAINT fk_archive_sync_audit_run FOREIGN KEY (tenant_id,corp_id,run_id,source_kind,source_id,namespace)
+			REFERENCES mochat_go_archive_sync_runs (tenant_id,corp_id,id,source_kind,source_id,namespace)
+	) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
+	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
+	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive sync audits table") {
+		t.Fatalf("wrong audit scope index unexpectedly passed migration guard: %v", err)
 	}
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
 }
@@ -298,7 +396,8 @@ func TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MarkArchiveSyncRunning(ctx, run.ID, time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)); err != nil {
+	run, err = store.MarkArchiveSyncRunning(ctx, run.ID, time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC))
+	if err != nil {
 		t.Fatal(err)
 	}
 	message := archiveprovider.Message{
@@ -306,10 +405,10 @@ func TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure(t *testing.
 		MsgID: "MOCHAT-SIM:atomic:001", Seq: 1, From: "employee-atomic", ToList: []string{"contact-atomic"},
 		MsgType: "text", ContentRaw: `{"content":"atomic"}`, ContentText: "atomic",
 	}
-	if _, err := store.UpsertArchiveMessage(ctx, run.ID, archiveprovider.Scope{TenantID: 12, CorpID: 27}, message); err == nil {
+	if _, err := store.UpsertArchiveMessage(ctx, run.ID, run.Attempt, run.LeaseToken, archiveprovider.Scope{TenantID: 12, CorpID: 27}, message); err == nil {
 		t.Fatal("wrong-tenant archive upsert unexpectedly succeeded")
 	}
-	if _, err := store.UpsertArchiveMessage(ctx, run.ID, archiveprovider.Scope{TenantID: 11, CorpID: 27}, archiveprovider.Message{
+	if _, err := store.UpsertArchiveMessage(ctx, run.ID, run.Attempt, run.LeaseToken, archiveprovider.Scope{TenantID: 11, CorpID: 27}, archiveprovider.Message{
 		Source: providers.SourceExternal, SourceID: "wecom:27", Namespace: "wecom", MsgID: message.MsgID, Seq: message.Seq,
 	}); err == nil {
 		t.Fatal("wrong-source archive upsert unexpectedly succeeded")
@@ -320,18 +419,139 @@ func TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure(t *testing.
 		FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'archive_source_atomic_fault'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpsertArchiveMessage(ctx, run.ID, archiveprovider.Scope{TenantID: 11, CorpID: 27}, message); err == nil {
+	if _, err := store.UpsertArchiveMessage(ctx, run.ID, run.Attempt, run.LeaseToken, archiveprovider.Scope{TenantID: 11, CorpID: 27}, message); err == nil {
 		t.Fatal("source fault unexpectedly allowed archive upsert")
 	}
 	assertArchiveMessageWriteCounts(t, db, message.MsgID, 0, 0)
 	if _, err := db.Exec("DROP TRIGGER archive_source_atomic_fault"); err != nil {
 		t.Fatal(err)
 	}
-	result, err := store.UpsertArchiveMessage(ctx, run.ID, archiveprovider.Scope{TenantID: 11, CorpID: 27}, message)
+	result, err := store.UpsertArchiveMessage(ctx, run.ID, run.Attempt, run.LeaseToken, archiveprovider.Scope{TenantID: 11, CorpID: 27}, message)
 	if err != nil || !result.Inserted {
 		t.Fatalf("successful atomic upsert result=%#v err=%v", result, err)
 	}
 	assertArchiveMessageWriteCounts(t, db, message.MsgID, 1, 1)
+}
+
+func TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createArchiveSyncCorpFixture(t, db)
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
+	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	createArchiveMessageUpsertFixture(t, db)
+	store := NewMySQLStore(db)
+	ctx := context.Background()
+	template := archiveprovider.SyncRun{Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated, SourceID: "simulation:fence", Namespace: "MOCHAT-SIM:fence", IdempotencyKey: "fence-1"}
+	run, err := store.EnqueueArchiveSync(ctx, template, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := store.MarkArchiveSyncRunning(ctx, run.ID, time.Now().Add(-10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE mochat_go_archive_sync_runs SET lease_expires_at=? WHERE id=?`, time.Now().Add(-time.Minute), runIDInt(run.ID)); err != nil {
+		t.Fatal(err)
+	}
+	taken, err := store.EnqueueArchiveSync(ctx, template, false)
+	if err != nil || taken.Attempt != 2 || taken.Status != archiveprovider.SyncStatusQueued || taken.ID != old.ID {
+		t.Fatalf("takeover=%#v err=%v", taken, err)
+	}
+	newRun, err := store.MarkArchiveSyncRunning(ctx, taken.ID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newRun.LeaseToken == old.LeaseToken || newRun.Attempt != old.Attempt+1 {
+		t.Fatalf("old=%#v new=%#v", old, newRun)
+	}
+	message := archiveprovider.Message{Source: providers.SourceSimulated, SourceID: template.SourceID, Namespace: template.Namespace, MsgID: "MOCHAT-SIM:fence:001", Seq: 1, From: "employee-atomic", ToList: []string{"contact-atomic"}, MsgType: "text", ContentRaw: `{"content":"fence"}`, ContentText: "fence"}
+	if _, err := store.UpsertArchiveMessage(ctx, old.ID, old.Attempt, old.LeaseToken, template.Scope, message); err == nil {
+		t.Fatal("stale worker upsert unexpectedly succeeded")
+	}
+	if err := store.HeartbeatArchiveSync(ctx, old.ID, old.Attempt, old.LeaseToken, time.Now()); err == nil {
+		t.Fatal("stale worker heartbeat unexpectedly succeeded")
+	}
+	if err := store.SaveArchiveSyncCursor(ctx, old.ID, old.Attempt, old.LeaseToken, archiveprovider.Cursor{Sequence: 1}, time.Now()); err == nil {
+		t.Fatal("stale worker cursor unexpectedly succeeded")
+	}
+	if _, err := store.CompleteArchiveSync(ctx, old.ID, old.Attempt, old.LeaseToken, archiveprovider.SyncCounts{Processed: 1}, archiveprovider.Cursor{Sequence: 1}, time.Now()); err == nil {
+		t.Fatal("stale worker complete unexpectedly succeeded")
+	}
+	if _, err := store.FailArchiveSync(ctx, old.ID, old.Attempt, old.LeaseToken, archiveprovider.SyncCounts{Failed: 1}, archiveprovider.Cursor{Sequence: 1}, "archive.stale", time.Now()); err == nil {
+		t.Fatal("stale worker fail unexpectedly succeeded")
+	}
+	assertArchiveMessageWriteCounts(t, db, message.MsgID, 0, 0)
+	if _, err := store.UpsertArchiveMessage(ctx, newRun.ID, newRun.Attempt, newRun.LeaseToken, template.Scope, message); err != nil {
+		t.Fatal(err)
+	}
+	assertArchiveMessageWriteCounts(t, db, message.MsgID, 1, 1)
+}
+
+func TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createArchiveSyncCorpFixture(t, db)
+	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
+	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	createArchiveMessageUpsertFixture(t, db)
+	store := NewMySQLStore(db)
+	ctx := context.Background()
+	base := archiveprovider.SyncRun{Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated, SourceID: "simulation:claim", Namespace: "MOCHAT-SIM:claim"}
+	first, err := store.EnqueueArchiveSync(ctx, archiveprovider.SyncRun{Scope: base.Scope, Source: base.Source, SourceID: base.SourceID, Namespace: base.Namespace, IdempotencyKey: "claim-1"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.EnqueueArchiveSync(ctx, archiveprovider.SyncRun{Scope: base.Scope, Source: base.Source, SourceID: base.SourceID, Namespace: base.Namespace, IdempotencyKey: "claim-2"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err = store.MarkArchiveSyncRunning(ctx, first.ID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err = store.MarkArchiveSyncRunning(ctx, second.ID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := archiveprovider.Message{Source: base.Source, SourceID: base.SourceID, Namespace: base.Namespace, MsgID: "MOCHAT-SIM:claim:001", Seq: 1, From: "employee-atomic", ToList: []string{"contact-atomic"}, MsgType: "text", ContentRaw: `{"content":"claim"}`, ContentText: "claim"}
+	type result struct {
+		runID    string
+		inserted bool
+		skipped  bool
+		err      error
+	}
+	results := make(chan result, 2)
+	go func() {
+		value, callErr := store.UpsertArchiveMessage(ctx, first.ID, first.Attempt, first.LeaseToken, base.Scope, message)
+		results <- result{runID: first.ID, inserted: value.Inserted, skipped: value.Skipped, err: callErr}
+	}()
+	go func() {
+		value, callErr := store.UpsertArchiveMessage(ctx, second.ID, second.Attempt, second.LeaseToken, base.Scope, message)
+		results <- result{runID: second.ID, inserted: value.Inserted, skipped: value.Skipped, err: callErr}
+	}()
+	seenInserted, seenSkipped, seenFailed := 0, 0, 0
+	winnerRunID := ""
+	for index := 0; index < 2; index++ {
+		value := <-results
+		if value.err != nil {
+			seenFailed++
+		} else if value.inserted {
+			seenInserted++
+			winnerRunID = value.runID
+		} else if value.skipped {
+			seenSkipped++
+		}
+	}
+	if seenInserted != 1 || seenSkipped != 1 || seenFailed != 0 {
+		t.Fatalf("claim results inserted=%d skipped=%d failed=%d", seenInserted, seenSkipped, seenFailed)
+	}
+	assertArchiveMessageWriteCounts(t, db, message.MsgID, 1, 1)
+	var runID int64
+	if err := db.QueryRow(`SELECT run_id FROM mochat_go_archive_message_sources WHERE tenant_id=11 AND corp_id=27 AND msgid=?`, message.MsgID).Scan(&runID); err != nil {
+		t.Fatal(err)
+	}
+	if runID != runIDInt(winnerRunID) {
+		t.Fatalf("source run_id=%d was overwritten; first claim=%s", runID, winnerRunID)
+	}
 }
 
 func createArchiveMessageUpsertFixture(t *testing.T, db *sql.DB) {

@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -65,9 +67,10 @@ func (s *MySQLStore) EnqueueArchiveSync(ctx context.Context, template archivepro
 			existing.StartedAt = nil
 			existing.LeaseExpiresAt = nil
 			existing.HeartbeatAt = nil
+			existing.LeaseToken = ""
 			if _, err = tx.ExecContext(ctx, `
 				UPDATE mochat_go_archive_sync_runs
-				SET status = 'queued', started_at = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+				SET status = 'queued', started_at = NULL, lease_expires_at = NULL, heartbeat_at = NULL, lease_token = '',
 				    error_code = 'archive.stale_takeover', updated_at = NOW(), attempt = ?
 				WHERE id = ? AND status = 'running'
 			`, existing.Attempt, existing.ID); err != nil {
@@ -81,12 +84,13 @@ func (s *MySQLStore) EnqueueArchiveSync(ctx context.Context, template archivepro
 			existing.ErrorCode = ""
 			existing.Counts = archiveprovider.SyncCounts{}
 			existing.FinishedAt = nil
+			existing.LeaseToken = ""
 			existing.Attempt++
 			if _, err = tx.ExecContext(ctx, `
 				UPDATE mochat_go_archive_sync_runs
 				SET status = 'queued', fetched_count = 0, processed_count = 0, skipped_count = 0,
 				    failed_count = 0, error_code = '', finished_at = NULL, lease_expires_at = NULL,
-				    heartbeat_at = NULL, attempt = ?, updated_at = NOW()
+				    heartbeat_at = NULL, lease_token = '', attempt = ?, updated_at = NOW()
 				WHERE id = ? AND tenant_id = ? AND corp_id = ?
 			`, existing.Attempt, existing.ID, template.Scope.TenantID, template.Scope.CorpID); err != nil {
 				return archiveprovider.SyncRun{}, err
@@ -133,26 +137,26 @@ func (s *MySQLStore) EnqueueArchiveSync(ctx context.Context, template archivepro
 	return template, nil
 }
 
-func (s *MySQLStore) MarkArchiveSyncRunning(ctx context.Context, runID string, at time.Time) error {
+func (s *MySQLStore) MarkArchiveSyncRunning(ctx context.Context, runID string, at time.Time) (archiveprovider.SyncRun, error) {
 	return s.transitionArchiveSync(ctx, runID, archiveprovider.SyncStatusRunning, "start", "", archiveprovider.SyncCounts{}, archiveprovider.Cursor{}, at)
 }
 
-func (s *MySQLStore) HeartbeatArchiveSync(ctx context.Context, runID string, at time.Time) error {
+func (s *MySQLStore) HeartbeatArchiveSync(ctx context.Context, runID string, attempt int, leaseToken string, at time.Time) error {
 	if s == nil || s.db == nil {
 		return errors.New("archive sync store unavailable")
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE mochat_go_archive_sync_runs
 		SET heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
-		WHERE id = ? AND status = 'running'
-	`, at, at.Add(archiveSyncLeaseDuration), at, runID)
+		WHERE id = ? AND status = 'running' AND attempt = ? AND lease_token = ?
+	`, at, at.Add(archiveSyncLeaseDuration), at, runID, attempt, strings.TrimSpace(leaseToken))
 	if err != nil {
 		return err
 	}
 	return requireArchiveSyncRows(result)
 }
 
-func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, scope archiveprovider.Scope, message archiveprovider.Message) (archiveprovider.UpsertResult, error) {
+func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, attempt int, leaseToken string, scope archiveprovider.Scope, message archiveprovider.Message) (archiveprovider.UpsertResult, error) {
 	if s == nil || s.db == nil {
 		return archiveprovider.UpsertResult{}, errors.New("archive sync store unavailable")
 	}
@@ -169,13 +173,14 @@ func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, sco
 	}
 	defer rollbackQuietly(tx)
 	var runTenantID, runCorpID int64
-	var runSourceKind, runSourceID, runNamespace, runStatus string
+	var runSourceKind, runSourceID, runNamespace, runStatus, runLeaseToken string
+	var runAttempt int
 	err = tx.QueryRowContext(ctx, `
-		SELECT tenant_id, corp_id, source_kind, source_id, namespace, status
+		SELECT tenant_id, corp_id, source_kind, source_id, namespace, status, attempt, lease_token
 		FROM mochat_go_archive_sync_runs
 		WHERE id = ?
 		LIMIT 1 FOR UPDATE
-	`, runIDValue).Scan(&runTenantID, &runCorpID, &runSourceKind, &runSourceID, &runNamespace, &runStatus)
+	`, runIDValue).Scan(&runTenantID, &runCorpID, &runSourceKind, &runSourceID, &runNamespace, &runStatus, &runAttempt, &runLeaseToken)
 	if errors.Is(err, sql.ErrNoRows) {
 		return archiveprovider.UpsertResult{}, errors.New("archive sync run not found")
 	}
@@ -187,8 +192,11 @@ func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, sco
 		runNamespace != strings.TrimSpace(message.Namespace) {
 		return archiveprovider.UpsertResult{}, errors.New("archive sync run scope or source mismatch")
 	}
-	if runStatus != string(archiveprovider.SyncStatusRunning) {
-		return archiveprovider.UpsertResult{}, errors.New("archive sync run is not running")
+	if runStatus != string(archiveprovider.SyncStatusRunning) || runAttempt != attempt || runLeaseToken == "" || runLeaseToken != strings.TrimSpace(leaseToken) {
+		return archiveprovider.UpsertResult{}, errors.New("archive sync lease fence rejected")
+	}
+	if err := claimArchiveMessageSourceTx(ctx, tx, scope, message, runIDValue); err != nil {
+		return archiveprovider.UpsertResult{}, err
 	}
 	var corpID int
 	err = tx.QueryRowContext(ctx, `
@@ -213,6 +221,23 @@ func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, sco
 	if !messageResult.Resolved {
 		return archiveprovider.UpsertResult{}, errors.New("archive message participants unresolved")
 	}
+	if err = tx.Commit(); err != nil {
+		return archiveprovider.UpsertResult{}, err
+	}
+	return archiveprovider.UpsertResult{Inserted: messageResult.Inserted, Skipped: !messageResult.Inserted}, nil
+}
+
+func claimArchiveMessageSourceTx(ctx context.Context, tx *sql.Tx, scope archiveprovider.Scope, message archiveprovider.Message, runID int64) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_archive_message_sources
+		(tenant_id, corp_id, msgid, source_kind, source_id, namespace, run_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+	`, scope.TenantID, scope.CorpID, message.MsgID, string(message.Source), strings.TrimSpace(message.SourceID), strings.TrimSpace(message.Namespace), runID)
+	if err != nil {
+		return err
+	}
+
 	var existingKind, existingID, existingNamespace string
 	err = tx.QueryRowContext(ctx, `
 		SELECT source_kind, source_id, namespace
@@ -220,52 +245,42 @@ func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, sco
 		WHERE tenant_id = ? AND corp_id = ? AND msgid = ?
 		LIMIT 1 FOR UPDATE
 	`, scope.TenantID, scope.CorpID, message.MsgID).Scan(&existingKind, &existingID, &existingNamespace)
-	if err == nil && (existingKind != string(message.Source) || existingID != message.SourceID || existingNamespace != message.Namespace) {
-		return archiveprovider.UpsertResult{}, errors.New("archive message source identity conflict")
+	if err == nil {
+		if existingKind != string(message.Source) || existingID != strings.TrimSpace(message.SourceID) || existingNamespace != strings.TrimSpace(message.Namespace) {
+			return errors.New("archive message source identity conflict")
+		}
+		return nil
 	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return archiveprovider.UpsertResult{}, err
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
 	}
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO mochat_go_archive_message_sources
-		(tenant_id, corp_id, msgid, source_kind, source_id, namespace, run_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE source_kind = VALUES(source_kind), source_id = VALUES(source_id),
-		  namespace = VALUES(namespace), run_id = VALUES(run_id), updated_at = NOW()
-	`, scope.TenantID, scope.CorpID, message.MsgID, string(message.Source), message.SourceID, message.Namespace, runIDValue)
-	if err != nil {
-		return archiveprovider.UpsertResult{}, err
-	}
-	if err = tx.Commit(); err != nil {
-		return archiveprovider.UpsertResult{}, err
-	}
-	return archiveprovider.UpsertResult{Inserted: messageResult.Inserted, Skipped: !messageResult.Inserted}, nil
+	return errors.New("archive message source claim disappeared")
 }
 
-func (s *MySQLStore) SaveArchiveSyncCursor(ctx context.Context, runID string, cursor archiveprovider.Cursor, at time.Time) error {
+func (s *MySQLStore) SaveArchiveSyncCursor(ctx context.Context, runID string, attempt int, leaseToken string, cursor archiveprovider.Cursor, at time.Time) error {
 	if s == nil || s.db == nil {
 		return errors.New("archive sync store unavailable")
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE mochat_go_archive_sync_runs
 		SET cursor_sequence = ?, cursor_token = ?, updated_at = ?
-		WHERE id = ? AND status = 'running'
-	`, cursor.Sequence, strings.TrimSpace(cursor.Token), at, runID)
+		WHERE id = ? AND status = 'running' AND attempt = ? AND lease_token = ?
+	`, cursor.Sequence, strings.TrimSpace(cursor.Token), at, runID, attempt, strings.TrimSpace(leaseToken))
 	if err != nil {
 		return err
 	}
 	return requireArchiveSyncRows(result)
 }
 
-func (s *MySQLStore) CompleteArchiveSync(ctx context.Context, runID string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, at time.Time) (archiveprovider.SyncRun, error) {
-	return s.finishArchiveSync(ctx, runID, archiveprovider.SyncStatusSucceeded, counts, cursor, "", "complete", at)
+func (s *MySQLStore) CompleteArchiveSync(ctx context.Context, runID string, attempt int, leaseToken string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, at time.Time) (archiveprovider.SyncRun, error) {
+	return s.finishArchiveSync(ctx, runID, attempt, leaseToken, archiveprovider.SyncStatusSucceeded, counts, cursor, "", "complete", at)
 }
 
-func (s *MySQLStore) FailArchiveSync(ctx context.Context, runID string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, code string, at time.Time) (archiveprovider.SyncRun, error) {
-	return s.finishArchiveSync(ctx, runID, archiveprovider.SyncStatusFailed, counts, cursor, code, "fail", at)
+func (s *MySQLStore) FailArchiveSync(ctx context.Context, runID string, attempt int, leaseToken string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, code string, at time.Time) (archiveprovider.SyncRun, error) {
+	return s.finishArchiveSync(ctx, runID, attempt, leaseToken, archiveprovider.SyncStatusFailed, counts, cursor, code, "fail", at)
 }
 
-func (s *MySQLStore) finishArchiveSync(ctx context.Context, runID string, status archiveprovider.SyncStatus, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, code, action string, at time.Time) (archiveprovider.SyncRun, error) {
+func (s *MySQLStore) finishArchiveSync(ctx context.Context, runID string, attempt int, leaseToken string, status archiveprovider.SyncStatus, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, code, action string, at time.Time) (archiveprovider.SyncRun, error) {
 	if s == nil || s.db == nil {
 		return archiveprovider.SyncRun{}, errors.New("archive sync store unavailable")
 	}
@@ -278,9 +293,9 @@ func (s *MySQLStore) finishArchiveSync(ctx context.Context, runID string, status
 		UPDATE mochat_go_archive_sync_runs
 		SET status = ?, cursor_sequence = ?, cursor_token = ?, fetched_count = ?, processed_count = ?,
 		    skipped_count = ?, failed_count = ?, error_code = ?, finished_at = ?, heartbeat_at = ?,
-		    lease_expires_at = NULL, updated_at = ?
-		WHERE id = ? AND status = 'running'
-	`, string(status), cursor.Sequence, strings.TrimSpace(cursor.Token), counts.Fetched, counts.Processed, counts.Skipped, counts.Failed, strings.TrimSpace(code), at, at, at, runID)
+		    lease_expires_at = NULL, lease_token = '', updated_at = ?
+		WHERE id = ? AND status = 'running' AND attempt = ? AND lease_token = ?
+	`, string(status), cursor.Sequence, strings.TrimSpace(cursor.Token), counts.Fetched, counts.Processed, counts.Skipped, counts.Failed, strings.TrimSpace(code), at, at, at, runID, attempt, strings.TrimSpace(leaseToken))
 	if err != nil {
 		return archiveprovider.SyncRun{}, err
 	}
@@ -300,50 +315,57 @@ func (s *MySQLStore) finishArchiveSync(ctx context.Context, runID string, status
 	return run, nil
 }
 
-func (s *MySQLStore) transitionArchiveSync(ctx context.Context, runID string, status archiveprovider.SyncStatus, action, code string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, at time.Time) error {
+func (s *MySQLStore) transitionArchiveSync(ctx context.Context, runID string, status archiveprovider.SyncStatus, action, code string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, at time.Time) (archiveprovider.SyncRun, error) {
 	if s == nil || s.db == nil {
-		return errors.New("archive sync store unavailable")
+		return archiveprovider.SyncRun{}, errors.New("archive sync store unavailable")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return archiveprovider.SyncRun{}, err
 	}
 	defer rollbackQuietly(tx)
+	leaseToken, err := newArchiveLeaseToken()
+	if err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE mochat_go_archive_sync_runs
-		SET status = ?, started_at = ?, heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
+		SET status = ?, started_at = ?, heartbeat_at = ?, lease_expires_at = ?, lease_token = ?, updated_at = ?
 		WHERE id = ? AND status = 'queued'
-	`, string(status), at, at, at.Add(archiveSyncLeaseDuration), at, runID)
+	`, string(status), at, at, at.Add(archiveSyncLeaseDuration), leaseToken, at, runID)
 	if err != nil {
-		return err
+		return archiveprovider.SyncRun{}, err
 	}
 	if err = requireArchiveSyncRows(result); err != nil {
-		return err
+		return archiveprovider.SyncRun{}, err
 	}
 	run, err := scanArchiveSyncRun(tx.QueryRowContext(ctx, archiveSyncRunSelect+` WHERE id = ? LIMIT 1 FOR UPDATE`, runID))
 	if err != nil {
-		return err
+		return archiveprovider.SyncRun{}, err
 	}
 	if err = insertArchiveSyncAuditTx(ctx, tx, run, action, status, code); err != nil {
-		return err
+		return archiveprovider.SyncRun{}, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	return run, nil
 }
 
 const archiveSyncRunSelect = `
 	SELECT id, tenant_id, corp_id, source_kind, source_id, namespace, idempotency_key,
 	       status, cursor_sequence, cursor_token, fetched_count, processed_count, skipped_count,
-	       failed_count, error_code, attempt, started_at, finished_at, lease_expires_at, heartbeat_at
+	       failed_count, error_code, attempt, lease_token, started_at, finished_at, lease_expires_at, heartbeat_at
 	FROM mochat_go_archive_sync_runs`
 
 func scanArchiveSyncRun(scanner archiveSyncRunScanner) (archiveprovider.SyncRun, error) {
 	var id, tenantID, corpID int64
-	var sourceKind, sourceID, namespace, key, status, token, errorCode string
+	var sourceKind, sourceID, namespace, key, status, token, errorCode, leaseToken string
 	var sequence int64
 	var fetched, processed, skipped, failed, attempt int
 	var startedAt, finishedAt, leaseExpiresAt, heartbeatAt sql.NullTime
 	if err := scanner.Scan(&id, &tenantID, &corpID, &sourceKind, &sourceID, &namespace, &key, &status, &sequence, &token,
-		&fetched, &processed, &skipped, &failed, &errorCode, &attempt, &startedAt, &finishedAt, &leaseExpiresAt, &heartbeatAt); err != nil {
+		&fetched, &processed, &skipped, &failed, &errorCode, &attempt, &leaseToken, &startedAt, &finishedAt, &leaseExpiresAt, &heartbeatAt); err != nil {
 		return archiveprovider.SyncRun{}, err
 	}
 	source := providers.Source(sourceKind)
@@ -355,7 +377,7 @@ func scanArchiveSyncRun(scanner archiveSyncRunScanner) (archiveprovider.SyncRun,
 		Source: source, SourceID: sourceID, Namespace: namespace, IdempotencyKey: key,
 		Status: archiveprovider.SyncStatus(status), Cursor: archiveprovider.Cursor{Sequence: sequence, Token: token},
 		Counts:    archiveprovider.SyncCounts{Fetched: fetched, Processed: processed, Skipped: skipped, Failed: failed},
-		ErrorCode: errorCode, Attempt: attempt, StartedAt: nullableArchiveTime(startedAt), FinishedAt: nullableArchiveTime(finishedAt),
+		ErrorCode: errorCode, Attempt: attempt, LeaseToken: leaseToken, StartedAt: nullableArchiveTime(startedAt), FinishedAt: nullableArchiveTime(finishedAt),
 		LeaseExpiresAt: nullableArchiveTime(leaseExpiresAt), HeartbeatAt: nullableArchiveTime(heartbeatAt),
 	}, nil
 }
@@ -386,6 +408,14 @@ func nullableArchiveTime(value sql.NullTime) *time.Time {
 
 func archiveSyncRunLeaseExpired(run archiveprovider.SyncRun, now time.Time) bool {
 	return run.Status == archiveprovider.SyncStatusRunning && run.LeaseExpiresAt != nil && !run.LeaseExpiresAt.After(now)
+}
+
+func newArchiveLeaseToken() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
 }
 
 func isArchiveDuplicateError(err error) bool {

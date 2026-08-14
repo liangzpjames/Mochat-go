@@ -130,6 +130,27 @@ func TestSyncServiceAcceptsProgressingTwoPageSource(t *testing.T) {
 	}
 }
 
+func TestSyncServicePassesLeaseIdentityToEveryMutation(t *testing.T) {
+	store := newLeaseRecordingStore()
+	source := &syncTestSource{pages: []Page{{Messages: []Message{
+		syncTestMessage(sourceKindSimulated, "simulation:run-1", "MOCHAT-SIM:run-1", 1, "fenced"),
+	}}}}
+	run, err := NewSyncService(store).Sync(context.Background(), source, SyncRequest{
+		Scope: Scope{TenantID: 11, CorpID: 27}, IdempotencyKey: "lease-forwarding", Limit: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != SyncStatusSucceeded || run.Attempt != 7 || run.LeaseToken != "lease-token-7" {
+		t.Fatalf("run=%#v", run)
+	}
+	for _, call := range store.mutations {
+		if call.attempt != 7 || call.token != "lease-token-7" {
+			t.Fatalf("unfenced mutation=%#v", call)
+		}
+	}
+}
+
 const sourceKindSimulated = providers.SourceSimulated
 
 func syncTestMessage(source providers.Source, sourceID, namespace string, seq int64, text string) Message {
@@ -191,6 +212,63 @@ type syncTestStore struct {
 	nextID    int
 }
 
+type leaseMutation struct {
+	name    string
+	attempt int
+	token   string
+}
+
+type leaseRecordingStore struct {
+	run       SyncRun
+	mutations []leaseMutation
+}
+
+func newLeaseRecordingStore() *leaseRecordingStore {
+	return &leaseRecordingStore{}
+}
+
+func (s *leaseRecordingStore) EnqueueArchiveSync(_ context.Context, template SyncRun, _ bool) (SyncRun, error) {
+	template.ID, template.Status, template.Attempt = "7", SyncStatusQueued, 7
+	s.run = template
+	return template, nil
+}
+
+func (s *leaseRecordingStore) MarkArchiveSyncRunning(_ context.Context, _ string, _ time.Time) (SyncRun, error) {
+	s.run.Status = SyncStatusRunning
+	s.run.LeaseToken = "lease-token-7"
+	s.run.StartedAt = timePtr(time.Now())
+	return s.run, nil
+}
+
+func (s *leaseRecordingStore) HeartbeatArchiveSync(_ context.Context, _ string, attempt int, token string, _ time.Time) error {
+	s.mutations = append(s.mutations, leaseMutation{"heartbeat", attempt, token})
+	return nil
+}
+
+func (s *leaseRecordingStore) UpsertArchiveMessage(_ context.Context, _ string, attempt int, token string, _ Scope, _ Message) (UpsertResult, error) {
+	s.mutations = append(s.mutations, leaseMutation{"upsert", attempt, token})
+	return UpsertResult{Inserted: true}, nil
+}
+
+func (s *leaseRecordingStore) SaveArchiveSyncCursor(_ context.Context, _ string, attempt int, token string, _ Cursor, _ time.Time) error {
+	s.mutations = append(s.mutations, leaseMutation{"cursor", attempt, token})
+	return nil
+}
+
+func (s *leaseRecordingStore) CompleteArchiveSync(_ context.Context, _ string, attempt int, token string, counts SyncCounts, cursor Cursor, _ time.Time) (SyncRun, error) {
+	s.mutations = append(s.mutations, leaseMutation{"complete", attempt, token})
+	s.run.Status, s.run.Counts, s.run.Cursor = SyncStatusSucceeded, counts, cursor
+	return s.run, nil
+}
+
+func (s *leaseRecordingStore) FailArchiveSync(_ context.Context, _ string, attempt int, token string, counts SyncCounts, cursor Cursor, code string, _ time.Time) (SyncRun, error) {
+	s.mutations = append(s.mutations, leaseMutation{"fail", attempt, token})
+	s.run.Status, s.run.Counts, s.run.Cursor, s.run.ErrorCode = SyncStatusFailed, counts, cursor, code
+	return s.run, nil
+}
+
+func timePtr(value time.Time) *time.Time { return &value }
+
 func newSyncTestStore() *syncTestStore { return &syncTestStore{runs: make(map[string]SyncRun)} }
 
 func (s *syncTestStore) EnqueueArchiveSync(_ context.Context, template SyncRun, retryFailed bool) (SyncRun, error) {
@@ -215,35 +293,42 @@ func (s *syncTestStore) EnqueueArchiveSync(_ context.Context, template SyncRun, 
 	return template, nil
 }
 
-func (s *syncTestStore) MarkArchiveSyncRunning(_ context.Context, id string, _ time.Time) error {
+func (s *syncTestStore) MarkArchiveSyncRunning(_ context.Context, id string, at time.Time) (SyncRun, error) {
+	var result SyncRun
 	for key, run := range s.runs {
 		if run.ID == id {
 			run.Status = SyncStatusRunning
+			run.LeaseToken = "test-lease-" + id
+			run.StartedAt = &at
 			s.runs[key] = run
+			result = run
 		}
 	}
 	s.lifecycle = append(s.lifecycle, SyncStatusRunning)
+	if result.ID == "" {
+		return SyncRun{}, errors.New("run not found")
+	}
+	return result, nil
+}
+
+func (s *syncTestStore) HeartbeatArchiveSync(_ context.Context, _ string, _ int, _ string, _ time.Time) error {
 	return nil
 }
 
-func (s *syncTestStore) HeartbeatArchiveSync(_ context.Context, _ string, _ time.Time) error {
-	return nil
-}
-
-func (s *syncTestStore) UpsertArchiveMessage(_ context.Context, _ string, _ Scope, message Message) (UpsertResult, error) {
+func (s *syncTestStore) UpsertArchiveMessage(_ context.Context, _ string, _ int, _ string, _ Scope, message Message) (UpsertResult, error) {
 	s.upserts = append(s.upserts, message)
 	return UpsertResult{Inserted: true}, nil
 }
 
-func (s *syncTestStore) SaveArchiveSyncCursor(_ context.Context, _ string, _ Cursor, _ time.Time) error {
+func (s *syncTestStore) SaveArchiveSyncCursor(_ context.Context, _ string, _ int, _ string, _ Cursor, _ time.Time) error {
 	return nil
 }
 
-func (s *syncTestStore) CompleteArchiveSync(_ context.Context, id string, counts SyncCounts, cursor Cursor, at time.Time) (SyncRun, error) {
+func (s *syncTestStore) CompleteArchiveSync(_ context.Context, id string, _ int, _ string, counts SyncCounts, cursor Cursor, at time.Time) (SyncRun, error) {
 	return s.finish(id, SyncStatusSucceeded, counts, cursor, "", at)
 }
 
-func (s *syncTestStore) FailArchiveSync(_ context.Context, id string, counts SyncCounts, cursor Cursor, code string, at time.Time) (SyncRun, error) {
+func (s *syncTestStore) FailArchiveSync(_ context.Context, id string, _ int, _ string, counts SyncCounts, cursor Cursor, code string, at time.Time) (SyncRun, error) {
 	run, err := s.finish(id, SyncStatusFailed, counts, cursor, code, at)
 	if err == nil {
 		s.audits = append(s.audits, "failed:"+code)

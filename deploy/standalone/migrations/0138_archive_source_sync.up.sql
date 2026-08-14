@@ -7,11 +7,30 @@
 SET @archive_runs_invalid := (
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs') = 1
   AND (
-    (SELECT COUNT(DISTINCT column_name) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND column_name IN ('id','tenant_id','corp_id','source_kind','source_id','namespace','idempotency_key','status','cursor_sequence','cursor_token','fetched_count','processed_count','skipped_count','failed_count','error_code','attempt','started_at','finished_at','lease_expires_at','heartbeat_at','created_at','updated_at')) <> 22
-    OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND ((column_name = 'id' AND column_type <> 'bigint(20) unsigned') OR (column_name IN ('tenant_id','corp_id') AND column_type <> 'int(10) unsigned') OR (column_name = 'source_kind' AND character_maximum_length <> 16) OR (column_name IN ('source_id','namespace') AND character_maximum_length <> 128) OR (column_name = 'status' AND character_maximum_length <> 16))) > 0
+    (SELECT COUNT(DISTINCT column_name) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND column_name IN ('id','tenant_id','corp_id','source_kind','source_id','namespace','idempotency_key','status','cursor_sequence','cursor_token','fetched_count','processed_count','skipped_count','failed_count','error_code','attempt','lease_token','started_at','finished_at','lease_expires_at','heartbeat_at','created_at','updated_at')) <> 23
+    OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND ((column_name = 'id' AND column_type <> 'bigint(20) unsigned') OR (column_name IN ('tenant_id','corp_id') AND column_type <> 'int(10) unsigned') OR (column_name = 'source_kind' AND character_maximum_length <> 16) OR (column_name IN ('source_id','namespace') AND character_maximum_length <> 128) OR (column_name IN ('idempotency_key','lease_token') AND character_maximum_length <> 128) OR (column_name = 'status' AND character_maximum_length <> 16))) > 0
+    OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND (
+      (column_name = 'id' AND column_type = 'bigint(20) unsigned' AND is_nullable = 'NO' AND column_default IS NULL AND extra = 'auto_increment')
+      OR (column_name IN ('tenant_id','corp_id') AND column_type = 'int(10) unsigned' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'source_kind' AND column_type = 'varchar(16)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name IN ('source_id','namespace','idempotency_key') AND column_type = 'varchar(128)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'status' AND column_type = 'varchar(16)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'cursor_sequence' AND column_type = 'bigint(20)' AND is_nullable = 'NO' AND column_default = '0' AND extra = '')
+      OR (column_name = 'cursor_token' AND column_type = 'varchar(255)' AND is_nullable = 'NO' AND column_default = '' AND extra = '')
+      OR (column_name IN ('fetched_count','processed_count','skipped_count','failed_count') AND column_type = 'int(10) unsigned' AND is_nullable = 'NO' AND column_default = '0' AND extra = '')
+      OR (column_name = 'error_code' AND column_type = 'varchar(96)' AND is_nullable = 'NO' AND column_default = '' AND extra = '')
+      OR (column_name = 'attempt' AND column_type = 'int(10) unsigned' AND is_nullable = 'NO' AND column_default = '1' AND extra = '')
+      OR (column_name = 'lease_token' AND column_type = 'varchar(128)' AND is_nullable = 'NO' AND column_default = '' AND extra = '')
+      OR (column_name IN ('started_at','finished_at','lease_expires_at','heartbeat_at') AND column_type = 'datetime(6)' AND is_nullable = 'YES' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'created_at' AND column_type = 'datetime(6)' AND is_nullable = 'NO' AND LOWER(COALESCE(column_default,'')) = 'current_timestamp(6)' AND extra = '')
+      OR (column_name = 'updated_at' AND column_type = 'datetime(6)' AND is_nullable = 'NO' AND LOWER(COALESCE(column_default,'')) = 'current_timestamp(6)' AND LOWER(extra) = 'on update current_timestamp(6)')
+    )) <> 23
     OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND index_name = 'uk_archive_sync_run_idempotency' AND non_unique = 0), '') <> 'tenant_id,corp_id,source_kind,source_id,idempotency_key'
     OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND index_name = 'uk_archive_sync_run_scope_id' AND non_unique = 0), '') <> 'tenant_id,corp_id,id'
     OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND index_name = 'uk_archive_sync_run_identity' AND non_unique = 0), '') <> 'tenant_id,corp_id,id,source_kind,source_id,namespace'
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND index_name = 'PRIMARY' AND non_unique = 0), '') <> 'id'
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND index_name = 'idx_archive_sync_run_scope_status' AND non_unique = 1), '') <> 'tenant_id,corp_id,status,updated_at'
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND index_name = 'idx_archive_sync_run_source' AND non_unique = 1), '') <> 'tenant_id,corp_id,source_kind,source_id,updated_at'
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_runs' AND constraint_name = 'fk_archive_sync_run_corp'), '') <> 'tenant_id=mc_corp.tenant_id,corp_id=mc_corp.id'
   )
 );
@@ -25,6 +44,21 @@ SET @archive_audits_invalid := (
   AND (
     (SELECT COUNT(DISTINCT column_name) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND column_name IN ('id','run_id','tenant_id','corp_id','source_kind','source_id','namespace','action','status','error_code','cursor_sequence','fetched_count','processed_count','skipped_count','failed_count','created_at')) <> 16
     OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND ((column_name IN ('id','run_id') AND column_type <> 'bigint(20) unsigned') OR (column_name IN ('tenant_id','corp_id') AND column_type <> 'int(10) unsigned') OR (column_name = 'source_kind' AND character_maximum_length <> 16) OR (column_name IN ('source_id','namespace') AND character_maximum_length <> 128) OR (column_name IN ('action','status') AND character_maximum_length <> 16))) > 0
+    OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND (
+      (column_name = 'id' AND column_type = 'bigint(20) unsigned' AND is_nullable = 'NO' AND column_default IS NULL AND extra = 'auto_increment')
+      OR (column_name = 'run_id' AND column_type = 'bigint(20) unsigned' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name IN ('tenant_id','corp_id') AND column_type = 'int(10) unsigned' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'source_kind' AND column_type = 'varchar(16)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name IN ('source_id','namespace') AND column_type = 'varchar(128)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name IN ('action','status') AND column_type = 'varchar(16)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'error_code' AND column_type = 'varchar(96)' AND is_nullable = 'NO' AND column_default = '' AND extra = '')
+      OR (column_name = 'cursor_sequence' AND column_type = 'bigint(20)' AND is_nullable = 'NO' AND column_default = '0' AND extra = '')
+      OR (column_name IN ('fetched_count','processed_count','skipped_count','failed_count') AND column_type = 'int(10) unsigned' AND is_nullable = 'NO' AND column_default = '0' AND extra = '')
+      OR (column_name = 'created_at' AND column_type = 'datetime(6)' AND is_nullable = 'NO' AND LOWER(COALESCE(column_default,'')) = 'current_timestamp(6)' AND extra = '')
+    )) <> 16
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND index_name = 'PRIMARY' AND non_unique = 0), '') <> 'id'
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND index_name = 'idx_archive_sync_audit_scope' AND non_unique = 1), '') <> 'tenant_id,corp_id,created_at'
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND index_name = 'idx_archive_sync_audit_run' AND non_unique = 1), '') <> 'run_id,created_at'
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND constraint_name = 'fk_archive_sync_audit_run'), '') <> 'tenant_id=mochat_go_archive_sync_runs.tenant_id,corp_id=mochat_go_archive_sync_runs.corp_id,run_id=mochat_go_archive_sync_runs.id,source_kind=mochat_go_archive_sync_runs.source_kind,source_id=mochat_go_archive_sync_runs.source_id,namespace=mochat_go_archive_sync_runs.namespace'
   )
 );
@@ -38,7 +72,20 @@ SET @archive_sources_invalid := (
   AND (
     (SELECT COUNT(DISTINCT column_name) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND column_name IN ('id','tenant_id','corp_id','msgid','source_kind','source_id','namespace','run_id','created_at','updated_at')) <> 10
     OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND ((column_name IN ('id','run_id') AND column_type <> 'bigint(20) unsigned') OR (column_name IN ('tenant_id','corp_id') AND column_type <> 'int(10) unsigned') OR (column_name = 'source_kind' AND character_maximum_length <> 16) OR (column_name IN ('source_id','namespace') AND character_maximum_length <> 128))) > 0
+    OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND (
+      (column_name = 'id' AND column_type = 'bigint(20) unsigned' AND is_nullable = 'NO' AND column_default IS NULL AND extra = 'auto_increment')
+      OR (column_name IN ('tenant_id','corp_id') AND column_type = 'int(10) unsigned' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'msgid' AND column_type = 'varchar(255)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'source_kind' AND column_type = 'varchar(16)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name IN ('source_id','namespace') AND column_type = 'varchar(128)' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'run_id' AND column_type = 'bigint(20) unsigned' AND is_nullable = 'NO' AND column_default IS NULL AND extra = '')
+      OR (column_name = 'created_at' AND column_type = 'datetime(6)' AND is_nullable = 'NO' AND LOWER(COALESCE(column_default,'')) = 'current_timestamp(6)' AND extra = '')
+      OR (column_name = 'updated_at' AND column_type = 'datetime(6)' AND is_nullable = 'NO' AND LOWER(COALESCE(column_default,'')) = 'current_timestamp(6)' AND LOWER(extra) = 'on update current_timestamp(6)')
+    )) <> 10
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND index_name = 'PRIMARY' AND non_unique = 0), '') <> 'id'
     OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND index_name = 'uk_archive_message_source_scope_msg' AND non_unique = 0), '') <> 'tenant_id,corp_id,msgid'
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND index_name = 'idx_archive_message_source_filter' AND non_unique = 1), '') <> 'tenant_id,corp_id,source_kind,source_id,created_at'
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND index_name = 'idx_archive_message_source_run' AND non_unique = 1), '') <> 'run_id'
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND constraint_name = 'fk_archive_message_source_run'), '') <> 'tenant_id=mochat_go_archive_sync_runs.tenant_id,corp_id=mochat_go_archive_sync_runs.corp_id,run_id=mochat_go_archive_sync_runs.id,source_kind=mochat_go_archive_sync_runs.source_kind,source_id=mochat_go_archive_sync_runs.source_id,namespace=mochat_go_archive_sync_runs.namespace'
   )
 );
@@ -64,6 +111,7 @@ CREATE TABLE IF NOT EXISTS `mochat_go_archive_sync_runs` (
   `failed_count` int(10) unsigned NOT NULL DEFAULT 0,
   `error_code` varchar(96) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `attempt` int(10) unsigned NOT NULL DEFAULT 1,
+  `lease_token` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `started_at` datetime(6) NULL,
   `finished_at` datetime(6) NULL,
   `lease_expires_at` datetime(6) NULL,
@@ -121,3 +169,55 @@ CREATE TABLE IF NOT EXISTS `mochat_go_archive_message_sources` (
   CONSTRAINT `fk_archive_message_source_run` FOREIGN KEY (`tenant_id`,`corp_id`,`run_id`,`source_kind`,`source_id`,`namespace`)
     REFERENCES `mochat_go_archive_sync_runs` (`tenant_id`,`corp_id`,`id`,`source_kind`,`source_id`,`namespace`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Explicit source identity for normalized archive messages';
+
+-- 0133 may already have retained simulation batches when 0138 is installed.
+-- Backfill an explicit run and source identity for every completed legacy batch
+-- so old simulation rows cannot fall through to the external default. The
+-- dynamic wrapper keeps a clean install without 0133 compatible and each
+-- statement remains session-local for the migration runner's pinned Conn.
+SET @archive_legacy_simulation_tables := (
+  SELECT COUNT(*)
+  FROM information_schema.tables
+  WHERE table_schema = DATABASE()
+    AND table_name IN ('mochat_go_archive_simulation_batches', 'mochat_go_archive_simulation_messages')
+);
+SET @archive_legacy_simulation_runs_sql := IF(
+  @archive_legacy_simulation_tables = 2,
+  'INSERT INTO `mochat_go_archive_sync_runs`
+   (`tenant_id`,`corp_id`,`source_kind`,`source_id`,`namespace`,`idempotency_key`,`status`)
+   SELECT corp.`tenant_id`, batch.`corp_id`, ''simulated'', CONCAT(''simulation:'', batch.`batch_key`),
+          CONCAT(''MOCHAT-SIM:'', batch.`batch_key`), CONCAT(''legacy-simulation:'', batch.`id`), ''succeeded''
+   FROM `mochat_go_archive_simulation_batches` batch
+   INNER JOIN `mc_corp` corp ON corp.`id` = batch.`corp_id` AND corp.`deleted_at` IS NULL
+   WHERE batch.`status` = ''complete''
+   ON DUPLICATE KEY UPDATE `id` = `id`',
+  'SELECT 1'
+);
+PREPARE archive_legacy_simulation_runs_stmt FROM @archive_legacy_simulation_runs_sql;
+EXECUTE archive_legacy_simulation_runs_stmt;
+DEALLOCATE PREPARE archive_legacy_simulation_runs_stmt;
+
+SET @archive_legacy_simulation_sources_sql := IF(
+  @archive_legacy_simulation_tables = 2,
+  'INSERT INTO `mochat_go_archive_message_sources`
+   (`tenant_id`,`corp_id`,`msgid`,`source_kind`,`source_id`,`namespace`,`run_id`)
+   SELECT corp.`tenant_id`, batch.`corp_id`, message.`msgid`, ''simulated'',
+          CONCAT(''simulation:'', batch.`batch_key`), CONCAT(''MOCHAT-SIM:'', batch.`batch_key`), run.`id`
+   FROM `mochat_go_archive_simulation_messages` message
+   INNER JOIN `mochat_go_archive_simulation_batches` batch
+     ON batch.`id` = message.`batch_id` AND batch.`corp_id` = message.`corp_id` AND batch.`status` = ''complete''
+   INNER JOIN `mc_corp` corp ON corp.`id` = batch.`corp_id` AND corp.`deleted_at` IS NULL
+   INNER JOIN `mochat_go_archive_sync_runs` run
+     ON run.`tenant_id` = corp.`tenant_id` AND run.`corp_id` = batch.`corp_id`
+    AND run.`source_kind` = ''simulated''
+    AND run.`source_id` = CONCAT(''simulation:'', batch.`batch_key`)
+    AND run.`namespace` = CONCAT(''MOCHAT-SIM:'', batch.`batch_key`)
+   WHERE NOT EXISTS (
+     SELECT 1 FROM `mochat_go_archive_message_sources` existing
+     WHERE existing.`tenant_id` = corp.`tenant_id` AND existing.`corp_id` = batch.`corp_id` AND existing.`msgid` = message.`msgid`
+   )',
+  'SELECT 1'
+);
+PREPARE archive_legacy_simulation_sources_stmt FROM @archive_legacy_simulation_sources_sql;
+EXECUTE archive_legacy_simulation_sources_stmt;
+DEALLOCATE PREPARE archive_legacy_simulation_sources_stmt;

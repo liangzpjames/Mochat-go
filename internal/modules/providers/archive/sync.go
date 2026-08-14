@@ -45,6 +45,7 @@ type SyncRun struct {
 	Counts         SyncCounts
 	ErrorCode      string
 	Attempt        int
+	LeaseToken     string
 	StartedAt      *time.Time
 	FinishedAt     *time.Time
 	LeaseExpiresAt *time.Time
@@ -61,12 +62,12 @@ type UpsertResult struct {
 // SyncService only coordinates source fetches and state transitions.
 type SyncStore interface {
 	EnqueueArchiveSync(context.Context, SyncRun, bool) (SyncRun, error)
-	MarkArchiveSyncRunning(context.Context, string, time.Time) error
-	HeartbeatArchiveSync(context.Context, string, time.Time) error
-	UpsertArchiveMessage(context.Context, string, Scope, Message) (UpsertResult, error)
-	SaveArchiveSyncCursor(context.Context, string, Cursor, time.Time) error
-	CompleteArchiveSync(context.Context, string, SyncCounts, Cursor, time.Time) (SyncRun, error)
-	FailArchiveSync(context.Context, string, SyncCounts, Cursor, string, time.Time) (SyncRun, error)
+	MarkArchiveSyncRunning(context.Context, string, time.Time) (SyncRun, error)
+	HeartbeatArchiveSync(context.Context, string, int, string, time.Time) error
+	UpsertArchiveMessage(context.Context, string, int, string, Scope, Message) (UpsertResult, error)
+	SaveArchiveSyncCursor(context.Context, string, int, string, Cursor, time.Time) error
+	CompleteArchiveSync(context.Context, string, int, string, SyncCounts, Cursor, time.Time) (SyncRun, error)
+	FailArchiveSync(context.Context, string, int, string, SyncCounts, Cursor, string, time.Time) (SyncRun, error)
 }
 
 type SyncService struct {
@@ -115,11 +116,13 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 	}
 
 	now := s.now()
-	if err := s.store.MarkArchiveSyncRunning(ctx, run.ID, now); err != nil {
+	run, err = s.store.MarkArchiveSyncRunning(ctx, run.ID, now)
+	if err != nil {
 		return run, newSyncError("archive.persistence_failed", err)
 	}
-	run.Status = SyncStatusRunning
-	run.StartedAt = &now
+	if run.Status != SyncStatusRunning || run.Attempt <= 0 || strings.TrimSpace(run.LeaseToken) == "" {
+		return run, newSyncError("archive.persistence_failed", errors.New("archive sync lease identity missing"))
+	}
 	counts := SyncCounts{}
 	cursor := run.Cursor
 	limit := request.Limit
@@ -127,7 +130,7 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 		limit = DefaultFetchLimit
 	}
 	for {
-		if err := s.store.HeartbeatArchiveSync(ctx, run.ID, s.now()); err != nil {
+		if err := s.store.HeartbeatArchiveSync(ctx, run.ID, run.Attempt, run.LeaseToken, s.now()); err != nil {
 			counts.Failed++
 			return s.fail(ctx, run, counts, cursor, "archive.persistence_failed", err)
 		}
@@ -161,7 +164,7 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 				counts.Skipped++
 				continue
 			}
-			upsert, upsertErr := s.store.UpsertArchiveMessage(ctx, run.ID, request.Scope, message)
+			upsert, upsertErr := s.store.UpsertArchiveMessage(ctx, run.ID, run.Attempt, run.LeaseToken, request.Scope, message)
 			if upsertErr != nil {
 				counts.Failed++
 				return s.fail(ctx, run, counts, cursor, "archive.persistence_failed", upsertErr)
@@ -177,7 +180,7 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 		}
 		progressed := pageCursor.Sequence > previousCursor.Sequence || pageCursor.Token != previousCursor.Token
 		if progressed {
-			if err := s.store.SaveArchiveSyncCursor(ctx, run.ID, pageCursor, s.now()); err != nil {
+			if err := s.store.SaveArchiveSyncCursor(ctx, run.ID, run.Attempt, run.LeaseToken, pageCursor, s.now()); err != nil {
 				counts.Failed++
 				return s.fail(ctx, run, counts, previousCursor, "archive.persistence_failed", err)
 			}
@@ -192,7 +195,7 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 		}
 	}
 
-	completed, err := s.store.CompleteArchiveSync(ctx, run.ID, counts, cursor, s.now())
+	completed, err := s.store.CompleteArchiveSync(ctx, run.ID, run.Attempt, run.LeaseToken, counts, cursor, s.now())
 	if err != nil {
 		return run, newSyncError("archive.persistence_failed", err)
 	}
@@ -208,7 +211,7 @@ func (s *SyncService) Retry(ctx context.Context, source ArchiveSource, request S
 }
 
 func (s *SyncService) fail(ctx context.Context, run SyncRun, counts SyncCounts, cursor Cursor, code string, cause error) (SyncRun, error) {
-	failed, err := s.store.FailArchiveSync(ctx, run.ID, counts, cursor, code, s.now())
+	failed, err := s.store.FailArchiveSync(ctx, run.ID, run.Attempt, run.LeaseToken, counts, cursor, code, s.now())
 	if err != nil {
 		return run, newSyncError("archive.persistence_failed", err)
 	}
