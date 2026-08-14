@@ -77,6 +77,7 @@ function normalizeStatus(value: unknown): ProviderStatus {
     code: stringValue(source.code) ?? 'provider.invalid_state',
     source: providerSource,
     capabilities: stringArray(source.capabilities),
+    capabilityStatuses: [],
   };
   if (state === 'unavailable' && rawState !== state) result.code = 'provider.invalid_state';
   addOptionalString(result, 'reason', source.reason);

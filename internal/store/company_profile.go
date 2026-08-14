@@ -725,7 +725,11 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 	default:
 		return companyprofile.Profile{}, companyprofile.ErrTenantAccessDenied
 	}
-	corpConfigured := strings.TrimSpace(binding.Ciphertext) != "" && strings.TrimSpace(binding.KeyID) != ""
+	corpConfigured := false
+	employeeConfigured := false
+	contactConfigured := false
+	callbackTokenConfigured := false
+	callbackAESConfigured := false
 	archiveConfigured := false
 	if strings.TrimSpace(binding.Ciphertext) != "" && s != nil {
 		credential, decryptErr := s.decodeEncryptedCorpCredential(corpCredentialRecord{
@@ -735,34 +739,56 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 		if decryptErr != nil {
 			return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
 		}
+		employeeConfigured, contactConfigured, callbackTokenConfigured, callbackAESConfigured = deriveCorpCredentialFacts(credential)
+		corpConfigured = employeeConfigured || contactConfigured || callbackTokenConfigured || callbackAESConfigured || strings.TrimSpace(credential.ChatSecret) != ""
 		archiveConfigured = strings.TrimSpace(credential.ChatSecret) != "" &&
 			strings.TrimSpace(credential.ArchiveRSAPublicKey) != "" && strings.TrimSpace(credential.ArchiveRSAPrivateKey) != ""
 	} else if strings.TrimSpace(binding.Ciphertext) != "" || strings.TrimSpace(binding.KeyID) != "" {
 		return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
 	}
-	var agentCount int64
+	var agentRecord companyAgentCredentialRecord
+	agentIDConfigured := false
+	agentSecretConfigured := false
 	var agentKey sql.NullString
 	var agentUpdated sql.NullTime
 	var applicationAgentID string
 	err := queryer.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(MAX(wecom_credentials_key_id),''), MAX(updated_at),
-		       COALESCE(MIN(NULLIF(wx_agent_id,'')),'')
-		FROM mc_work_agent
-		WHERE corp_id = ? AND deleted_at IS NULL
-		  AND COALESCE(wecom_credentials_ciphertext,'') <> ''
-		  AND COALESCE(wecom_credentials_key_id,'') <> ''`, binding.CorpID).Scan(&agentCount, &agentKey, &agentUpdated, &applicationAgentID)
-	if err != nil {
+		SELECT a.id, a.corp_id, c.tenant_id, COALESCE(a.wx_agent_id,''),
+		       COALESCE(a.wecom_credentials_ciphertext,''), COALESCE(a.wecom_credentials_key_id,''),
+		       a.updated_at
+		FROM mc_work_agent a
+		JOIN mc_corp c ON c.id = a.corp_id AND c.tenant_id = ? AND c.deleted_at IS NULL
+		WHERE a.corp_id = ? AND a.deleted_at IS NULL
+		ORDER BY (a.is_reportenter = 1) DESC, a.updated_at DESC, a.id ASC LIMIT 1`, binding.TenantID, binding.CorpID).Scan(
+		&agentRecord.ID, &agentRecord.CorpID, &agentRecord.TenantID, &agentRecord.WXAgentID,
+		&agentRecord.Ciphertext, &agentRecord.KeyID, &agentUpdated)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	} else if err != nil {
 		return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
+	}
+	if err == nil && agentRecord.ID > 0 {
+		applicationAgentID = strings.TrimSpace(agentRecord.WXAgentID)
+		agentIDConfigured, agentSecretConfigured = deriveAgentCredentialFacts(agentRecord.WXAgentID, agentRecord.Ciphertext, agentRecord.KeyID, "")
+		agentKey.String = strings.TrimSpace(agentRecord.KeyID)
+		agentKey.Valid = agentKey.String != ""
+		if agentIDConfigured && agentRecord.Ciphertext != "" && agentRecord.KeyID != "" && s != nil {
+			decoded, decodeErr := s.decodeAgentCredentialForCompany(agentRecord)
+			if decodeErr == nil {
+				_, agentSecretConfigured = deriveAgentCredentialFacts(agentRecord.WXAgentID, agentRecord.Ciphertext, agentRecord.KeyID, decoded.WXSecret)
+			}
+		}
 	}
 	profile := companyprofile.Profile{
 		TenantID: binding.TenantID, CorpID: binding.CorpID, DisplayName: binding.DisplayName,
 		AuthoritativeCorpName: binding.VerifiedCorpName, BindingStatus: status, BindingVersion: binding.Version,
-		ApplicationAgentID: strings.TrimSpace(applicationAgentID),
+		CredentialGenerations: companyprofile.CredentialGenerationSet{Employee: binding.Version, Contact: binding.Version, Agent: binding.Version, Callback: binding.Version},
+		ApplicationAgentID:    strings.TrimSpace(applicationAgentID),
 		Credentials: companyprofile.CredentialStatuses{
-			WeCom:    companyprofile.CredentialStatus{Configured: corpConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
-			Agent:    companyprofile.CredentialStatus{Configured: agentCount > 0, KeyID: strings.TrimSpace(agentKey.String), UpdatedAt: companyNullableTime(agentUpdated)},
+			WeCom:    companyprofile.CredentialStatus{Configured: corpConfigured, EmployeeConfigured: employeeConfigured, ContactConfigured: contactConfigured, CallbackTokenConfigured: callbackTokenConfigured, CallbackAESConfigured: callbackAESConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
+			Agent:    companyprofile.CredentialStatus{Configured: agentIDConfigured && agentSecretConfigured, AgentIDConfigured: agentIDConfigured, AgentSecretConfigured: agentSecretConfigured, KeyID: strings.TrimSpace(agentKey.String), UpdatedAt: companyNullableTime(agentUpdated)},
 			Archive:  companyprofile.CredentialStatus{Configured: archiveConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
-			Callback: companyprofile.CredentialStatus{Configured: corpConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
+			Callback: companyprofile.CredentialStatus{Configured: callbackTokenConfigured && callbackAESConfigured, CallbackTokenConfigured: callbackTokenConfigured, CallbackAESConfigured: callbackAESConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
 		},
 	}
 	if strings.TrimSpace(binding.VerifiedWXCorpID) != "" {
@@ -778,6 +804,22 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 		profile.UpdatedAt = time.Unix(0, 0).UTC()
 	}
 	return profile, nil
+}
+
+func deriveCorpCredentialFacts(credential wecomcredentials.CorpCredential) (employee, contact, callbackToken, callbackAES bool) {
+	return strings.TrimSpace(credential.EmployeeSecret) != "",
+		strings.TrimSpace(credential.ContactSecret) != "",
+		strings.TrimSpace(credential.CallbackToken) != "",
+		strings.TrimSpace(credential.EncodingAESKey) != ""
+}
+
+// deriveAgentCredentialFacts intentionally requires all storage envelope
+// fields plus the decrypted secret. KeyID or ciphertext alone is never agent
+// readiness evidence.
+func deriveAgentCredentialFacts(wxAgentID, ciphertext, keyID, decryptedSecret string) (idConfigured, secretConfigured bool) {
+	idConfigured = strings.TrimSpace(wxAgentID) != ""
+	secretConfigured = idConfigured && strings.TrimSpace(ciphertext) != "" && strings.TrimSpace(keyID) != "" && strings.TrimSpace(decryptedSecret) != ""
+	return idConfigured, secretConfigured
 }
 
 func companyNullableTime(value sql.NullTime) *time.Time {

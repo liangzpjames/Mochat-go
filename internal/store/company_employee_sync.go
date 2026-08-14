@@ -167,13 +167,17 @@ func (s *MySQLStore) CompanyEmployeeSyncCredentials(ctx context.Context, binding
 		return []dashboard.WorkEmployeeSyncCredential{}, nil
 	}
 	return []dashboard.WorkEmployeeSyncCredential{{
-		CorpID: item.ID, TenantID: binding.TenantID, WXCorpID: binding.WXCorpID,
+		CorpID: item.ID, TenantID: binding.TenantID, CredentialVersion: binding.Version, WXCorpID: binding.WXCorpID,
 		EmployeeSecret: secret.EmployeeSecret, ContactSecret: secret.ContactSecret,
 	}}, nil
 }
 
 func (s *MySQLStore) SyncCompanyEmployees(ctx context.Context, bindingID int, departments []dashboard.WorkEmployeeSyncDepartment, employees []dashboard.WorkEmployeeSyncEmployee) (dashboard.WorkEmployeeSyncResult, error) {
-	return s.syncCompanyEmployeesTx(ctx, bindingID, 0, 0, departments, employees)
+	return s.syncCompanyEmployeesTx(ctx, bindingID, 0, 0, 0, departments, employees)
+}
+
+func (s *MySQLStore) SyncCompanyEmployeesAtVersion(ctx context.Context, bindingID int, credentialVersion uint64, departments []dashboard.WorkEmployeeSyncDepartment, employees []dashboard.WorkEmployeeSyncEmployee) (dashboard.WorkEmployeeSyncResult, error) {
+	return s.syncCompanyEmployeesTx(ctx, bindingID, 0, 0, credentialVersion, departments, employees)
 }
 
 func (s *MySQLStore) QueueEmployeeSync(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (companyprofile.EmployeeSyncQueueResult, error) {
@@ -212,18 +216,39 @@ func (s *MySQLStore) QueueEmployeeSync(ctx context.Context, principal dashboardp
 }
 
 func (s *MySQLStore) BeginCompanyEmployeeSync(ctx context.Context, bindingID int) error {
-	return s.updateCompanyEmployeeSyncState(ctx, bindingID, companySyncStateRunning, "")
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, 0, companySyncStateRunning, "")
+}
+
+func (s *MySQLStore) BeginCompanyEmployeeSyncAtVersion(ctx context.Context, bindingID int, credentialVersion uint64) error {
+	if credentialVersion == 0 {
+		return errors.New("company credential version unavailable")
+	}
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, credentialVersion, companySyncStateRunning, "")
+}
+
+func (s *MySQLStore) MarkCompanyEmployeeSyncQueuedAtVersion(ctx context.Context, bindingID int, credentialVersion uint64, errorCode string) error {
+	if credentialVersion == 0 {
+		return errors.New("company credential version unavailable")
+	}
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, credentialVersion, companySyncStateQueued, errorCode)
+}
+
+func (s *MySQLStore) RecordCompanyEmployeeSyncFailureAtVersion(ctx context.Context, bindingID int, credentialVersion uint64) error {
+	if credentialVersion == 0 {
+		return errors.New("company credential version unavailable")
+	}
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, credentialVersion, companySyncStateFailed, "")
 }
 
 func (s *MySQLStore) MarkCompanyEmployeeSyncQueued(ctx context.Context, bindingID int, errorCode string) error {
-	return s.updateCompanyEmployeeSyncState(ctx, bindingID, companySyncStateQueued, errorCode)
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, 0, companySyncStateQueued, errorCode)
 }
 
 func (s *MySQLStore) RecordCompanyEmployeeSyncFailure(ctx context.Context, bindingID int) error {
-	return s.updateCompanyEmployeeSyncState(ctx, bindingID, companySyncStateFailed, "")
+	return s.updateCompanyEmployeeSyncState(ctx, bindingID, 0, companySyncStateFailed, "")
 }
 
-func (s *MySQLStore) updateCompanyEmployeeSyncState(ctx context.Context, bindingID int, state, errorCode string) error {
+func (s *MySQLStore) updateCompanyEmployeeSyncState(ctx context.Context, bindingID int, expectedVersion uint64, state, errorCode string) error {
 	if s == nil || s.db == nil || bindingID <= 0 {
 		return errors.New("company binding unavailable")
 	}
@@ -235,6 +260,9 @@ func (s *MySQLStore) updateCompanyEmployeeSyncState(ctx context.Context, binding
 	binding, err := loadSingleCompanySyncBinding(ctx, tx, bindingID, true)
 	if err != nil {
 		return err
+	}
+	if expectedVersion != 0 && binding.Version != expectedVersion {
+		return errors.New("company credential version stale")
 	}
 	if err := setCompanySyncStateTx(ctx, tx, binding.CorpID, binding.Version, state, errorCode); err != nil {
 		return err
@@ -360,7 +388,7 @@ func (s *MySQLStore) SyncEmployeeData(ctx context.Context, principal dashboardpr
 		})
 	}
 	started := time.Now().UTC()
-	result, err := s.syncCompanyEmployeesTx(ctx, principal.TenantID, principal.UserID, principal.AuthVersion, departments, employees)
+	result, err := s.syncCompanyEmployeesTx(ctx, principal.TenantID, principal.UserID, principal.AuthVersion, 0, departments, employees)
 	if err != nil {
 		_ = s.recordCompanySyncFailure(ctx, principal)
 		return companyprofile.SyncResult{Status: "failed", StartedAt: started, FinishedAt: time.Now().UTC(), ErrorCode: "SYNC_FAILED"}, err
@@ -431,7 +459,7 @@ func (s *MySQLStore) GetSyncStatus(ctx context.Context, principal dashboardprinc
 	return statusResult, nil
 }
 
-func (s *MySQLStore) syncCompanyEmployeesTx(ctx context.Context, bindingID, actorUserID int, actorAuthVersion uint64, departments []dashboard.WorkEmployeeSyncDepartment, employees []dashboard.WorkEmployeeSyncEmployee) (dashboard.WorkEmployeeSyncResult, error) {
+func (s *MySQLStore) syncCompanyEmployeesTx(ctx context.Context, bindingID, actorUserID int, actorAuthVersion, expectedCredentialVersion uint64, departments []dashboard.WorkEmployeeSyncDepartment, employees []dashboard.WorkEmployeeSyncEmployee) (dashboard.WorkEmployeeSyncResult, error) {
 	if s == nil || s.db == nil || bindingID <= 0 {
 		return dashboard.WorkEmployeeSyncResult{}, errors.New("company binding unavailable")
 	}
@@ -446,6 +474,9 @@ func (s *MySQLStore) syncCompanyEmployeesTx(ctx context.Context, bindingID, acto
 	}
 	if err != nil {
 		return dashboard.WorkEmployeeSyncResult{}, err
+	}
+	if expectedCredentialVersion != 0 && binding.Version != expectedCredentialVersion {
+		return dashboard.WorkEmployeeSyncResult{}, errors.New("company credential version stale")
 	}
 	if actorUserID > 0 {
 		principal := dashboardprincipal.DashboardPrincipal{UserID: actorUserID, TenantID: binding.TenantID, CorpID: binding.CorpID, AuthVersion: actorAuthVersion, IsSuperAdmin: true, CorpStatus: dashboardprincipal.CorpBindingStatusActive}

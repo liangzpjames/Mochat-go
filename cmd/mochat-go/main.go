@@ -412,7 +412,10 @@ func main() {
 		}
 		dashboardIdentityGuard.WithPrincipalResolver(dashboardPrincipalResolver)
 		dashboardIdentityGuard.WithPublicRouteContracts(dashboard.PublicDashboardRouteContracts())
-		companyProfileWeComClient := dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL)
+		companyProfileWeComClient := dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL).WithCallbackRuntime(
+			cfg.MigrateWeWorkCallback,
+			cfg.EnableWeWorkCallbackWorker,
+		)
 		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncScheduler(
 			dashboard.NewCompanyEmployeeSyncScheduler(getRedisStore()),
 		)

@@ -32,17 +32,29 @@ var (
 )
 
 type Profile struct {
-	TenantID              int                `json:"tenantId"`
-	CorpID                int                `json:"corpId"`
-	DisplayName           string             `json:"displayName"`
-	AuthoritativeCorpName string             `json:"authoritativeCorpName,omitempty"`
-	WXCorpID              string             `json:"wxCorpId,omitempty"`
-	ApplicationAgentID    string             `json:"applicationAgentId,omitempty"`
-	BindingStatus         string             `json:"bindingStatus"`
-	BindingVersion        uint64             `json:"bindingVersion"`
-	VerifiedAt            *time.Time         `json:"verifiedAt,omitempty"`
-	Credentials           CredentialStatuses `json:"credentials"`
-	UpdatedAt             time.Time          `json:"updatedAt"`
+	TenantID              int                     `json:"tenantId"`
+	CorpID                int                     `json:"corpId"`
+	DisplayName           string                  `json:"displayName"`
+	AuthoritativeCorpName string                  `json:"authoritativeCorpName,omitempty"`
+	WXCorpID              string                  `json:"wxCorpId,omitempty"`
+	ApplicationAgentID    string                  `json:"applicationAgentId,omitempty"`
+	BindingStatus         string                  `json:"bindingStatus"`
+	BindingVersion        uint64                  `json:"bindingVersion"`
+	CredentialGenerations CredentialGenerationSet `json:"-"`
+	VerifiedAt            *time.Time              `json:"verifiedAt,omitempty"`
+	Credentials           CredentialStatuses      `json:"credentials"`
+	UpdatedAt             time.Time               `json:"updatedAt"`
+}
+
+// CredentialGenerationSet is the non-secret version evidence for the four
+// independent credential groups. It is never serialized to Dashboard JSON.
+// A generation changes only when its group changes; archive/configuration
+// changes must not silently advance these values.
+type CredentialGenerationSet struct {
+	Employee uint64
+	Contact  uint64
+	Agent    uint64
+	Callback uint64
 }
 
 type CredentialStatuses struct {
@@ -53,9 +65,15 @@ type CredentialStatuses struct {
 }
 
 type CredentialStatus struct {
-	Configured bool       `json:"configured"`
-	KeyID      string     `json:"keyId,omitempty"`
-	UpdatedAt  *time.Time `json:"updatedAt,omitempty"`
+	Configured              bool       `json:"configured"`
+	EmployeeConfigured      bool       `json:"employeeConfigured,omitempty"`
+	ContactConfigured       bool       `json:"contactConfigured,omitempty"`
+	CallbackTokenConfigured bool       `json:"callbackTokenConfigured,omitempty"`
+	CallbackAESConfigured   bool       `json:"callbackAESConfigured,omitempty"`
+	AgentIDConfigured       bool       `json:"agentIdConfigured,omitempty"`
+	AgentSecretConfigured   bool       `json:"agentSecretConfigured,omitempty"`
+	KeyID                   string     `json:"keyId,omitempty"`
+	UpdatedAt               *time.Time `json:"updatedAt,omitempty"`
 }
 
 type UpdateProfileInput struct {

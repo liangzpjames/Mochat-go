@@ -23,10 +23,23 @@ import (
 const defaultWeComAPIBaseURL = "https://qyapi.weixin.qq.com"
 
 type RoomWelcomeWeComClient struct {
-	baseURL    string
-	httpClient *http.Client
-	mu         sync.Mutex
-	tokens     map[string]cachedWeComToken
+	baseURL                  string
+	httpClient               *http.Client
+	mu                       sync.Mutex
+	tokens                   map[string]cachedWeComToken
+	callbackRouteConfigured  bool
+	callbackWorkerConfigured bool
+}
+
+// WithCallbackRuntime binds production callback route/worker configuration to
+// the runtime adapter. These flags are prerequisites only; a successful
+// callback operation/event is required before status can become ready.
+func (c *RoomWelcomeWeComClient) WithCallbackRuntime(routeConfigured, workerConfigured bool) *RoomWelcomeWeComClient {
+	if c != nil {
+		c.callbackRouteConfigured = routeConfigured
+		c.callbackWorkerConfigured = workerConfigured
+	}
+	return c
 }
 
 type cachedWeComToken struct {
@@ -59,13 +72,15 @@ func (c *RoomWelcomeWeComClient) Status() providers.Status {
 		}
 	}
 	return providers.Status{
-		Kind:         "wecom_standard",
-		State:        providers.StateLimited,
-		Code:         "wecom.tenant_credentials_required",
-		Source:       providers.SourceExternal,
-		Capabilities: append([]string(nil), wecomcapability.All...),
-		Reason:       "企业微信 HTTP runtime 已就绪，当前状态需由租户凭据和验证结果决定",
-		Action:       "完成企业微信凭据配置与验证",
+		Kind:                     "wecom_standard",
+		State:                    providers.StateLimited,
+		Code:                     "wecom.tenant_credentials_required",
+		Source:                   providers.SourceExternal,
+		Capabilities:             append([]string(nil), wecomcapability.All...),
+		Reason:                   "企业微信 HTTP runtime 已就绪，当前状态需由租户凭据和验证结果决定",
+		Action:                   "完成企业微信凭据配置与验证",
+		CallbackRouteConfigured:  c.callbackRouteConfigured,
+		CallbackWorkerConfigured: c.callbackWorkerConfigured,
 	}
 }
 

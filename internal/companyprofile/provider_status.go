@@ -100,7 +100,7 @@ func mergeArchiveRuntimeStatus(fallback, runtime providers.Status) providers.Sta
 
 func eligibleForEmployeeSyncStatus(profile Profile) bool {
 	return profile.BindingStatus == "active" &&
-		profile.Credentials.WeCom.Configured &&
+		profile.Credentials.WeCom.EmployeeConfigured &&
 		strings.TrimSpace(profile.WXCorpID) != "" &&
 		profile.VerifiedAt != nil
 }
@@ -118,12 +118,12 @@ func tenantWeComStandardStatusBase(profile Profile, runtime providers.Status, sy
 		Source:       providers.SourceExternal,
 		Capabilities: capabilities,
 	}
-	if !profile.Credentials.WeCom.Configured {
+	if !hasAnyStandardCredentialEvidence(profile) {
 		base.State = providers.StateLimited
 		base.Code = "wecom.credentials_missing"
-		base.Reason = "当前企业尚未配置企业微信标准同步凭据"
+		base.Reason = "当前企业尚未配置可证明的企业微信标准凭据"
 		base.Action = "在企业设置中配置并验证企业微信凭据"
-		base.Missing = []string{"企业微信标准同步凭据"}
+		base.Missing = []string{"wecom_credential_evidence"}
 		return base
 	}
 	if strings.TrimSpace(profile.WXCorpID) == "" || profile.VerifiedAt == nil || profile.BindingStatus != "active" {
@@ -136,7 +136,7 @@ func tenantWeComStandardStatusBase(profile Profile, runtime providers.Status, sy
 	base.State = providers.StateReady
 	base.Code = "wecom.runtime_verified"
 	base.Action = "企业微信员工同步可用"
-	applySyncStatus(&base, syncStatus, profile.BindingVersion)
+	applySyncStatus(&base, syncStatus, credentialVersionForCapability(profile, wecomcapability.EmployeeSync))
 	if strings.EqualFold(strings.TrimSpace(syncStatus.Status), "failed") {
 		base.State = providers.StateLimited
 		base.Code = "wecom.sync_failed"
@@ -149,6 +149,13 @@ func tenantWeComStandardStatusBase(profile Profile, runtime providers.Status, sy
 	return base
 }
 
+func hasAnyStandardCredentialEvidence(profile Profile) bool {
+	wecom := profile.Credentials.WeCom
+	return wecom.EmployeeConfigured || wecom.ContactConfigured ||
+		(wecom.CallbackTokenConfigured && wecom.CallbackAESConfigured) ||
+		(profile.Credentials.Agent.AgentIDConfigured && profile.Credentials.Agent.AgentSecretConfigured)
+}
+
 func tenantWeComStandardStatus(profile Profile, runtime providers.Status, syncStatus SyncStatus, operations map[string]wecomcapability.Operation) providers.Status {
 	status := tenantWeComStandardStatusBase(profile, runtime, syncStatus)
 	if status.State != providers.StateReady && status.State != providers.StateLimited {
@@ -159,8 +166,26 @@ func tenantWeComStandardStatus(profile Profile, runtime providers.Status, syncSt
 		return status
 	}
 	status.Capabilities = append([]string(nil), wecomcapability.All...)
-	verified := profile.Credentials.WeCom.Configured && profile.BindingStatus == "active" && strings.TrimSpace(profile.WXCorpID) != "" && profile.VerifiedAt != nil
-	status.CapabilityStatuses = standardCapabilityStatuses(profile, syncStatus, operations, verified)
+	verified := profile.BindingStatus == "active" && strings.TrimSpace(profile.WXCorpID) != "" && profile.VerifiedAt != nil
+	status.CapabilityStatuses = standardCapabilityStatuses(profile, runtime, syncStatus, operations, verified)
+	readyCapability := false
+	for _, capabilityStatus := range status.CapabilityStatuses {
+		if capabilityStatus.State == providers.StateReady {
+			readyCapability = true
+			break
+		}
+	}
+	if readyCapability {
+		status.State = providers.StateReady
+		status.Code = "wecom.capability_ready"
+		status.Reason = "至少一个企业微信标准能力已有当前凭据版本的成功证据"
+		status.Action = "继续查看各项能力的独立状态"
+	} else if status.State == providers.StateReady {
+		status.State = providers.StateLimited
+		status.Code = "wecom.capabilities_pending"
+		status.Reason = "企业微信运行时已配置，但尚无标准能力的当前成功证据"
+		status.Action = "执行对应能力的真实操作并等待结果"
+	}
 	return status
 }
 
@@ -175,20 +200,12 @@ func unavailableCapabilityStatuses(code string) []providers.CapabilityStatus {
 	return statuses
 }
 
-func standardCapabilityStatuses(profile Profile, syncStatus SyncStatus, operations map[string]wecomcapability.Operation, verified bool) []providers.CapabilityStatus {
+func standardCapabilityStatuses(profile Profile, runtime providers.Status, syncStatus SyncStatus, operations map[string]wecomcapability.Operation, verified bool) []providers.CapabilityStatus {
 	statuses := make([]providers.CapabilityStatus, 0, len(wecomcapability.All))
 	for _, capability := range wecomcapability.All {
 		item := providers.CapabilityStatus{
 			Capability: capability, State: providers.StateLimited, Source: providers.SourceExternal,
 			Code: "wecom.capability_operation_pending", Action: "执行该 WeCom capability 的真实操作并等待结果",
-		}
-		if !profile.Credentials.WeCom.Configured {
-			item.Code = "wecom.credentials_missing"
-			item.Reason = "企业 WeCom 标准凭据未配置"
-			item.Action = "配置并验证企业 WeCom 标准凭据"
-			item.Missing = []string{"wecom_credentials"}
-			statuses = append(statuses, item)
-			continue
 		}
 		if !verified {
 			item.Code = "wecom.runtime_unverified"
@@ -197,17 +214,28 @@ func standardCapabilityStatuses(profile Profile, syncStatus SyncStatus, operatio
 			statuses = append(statuses, item)
 			continue
 		}
-		if capability == wecomcapability.AgentMessage && !profile.Credentials.Agent.Configured {
-			item.Code = "wecom.agent_credentials_missing"
-			item.Reason = "应用消息所需 agent 凭据未配置"
-			item.Action = "配置并验证应用消息凭据"
-			item.Missing = []string{"agent_credentials"}
+		if configured, code, reason, action, missing := capabilityCredentialGate(profile, runtime, capability); !configured {
+			item.Code = code
+			item.Reason = reason
+			item.Action = action
+			item.Missing = missing
 			statuses = append(statuses, item)
 			continue
 		}
+		operation, hasOperation := operations[capability]
+		hasCurrentOperation := hasOperation && wecomcapability.IsCurrentOperationEvidence(operation, profile.TenantID, profile.CorpID, capability, credentialVersionForCapability(profile, capability))
+		if hasOperation && !hasCurrentOperation {
+			item.Code = "wecom.capability_evidence_invalid"
+			item.Reason = "最近的能力操作证据缺少当前租户、凭据版本或外部请求证明"
+			item.Action = "重新执行该能力并等待完整结果"
+		}
 		if capability == wecomcapability.EmployeeSync {
-			applyCapabilitySyncStatus(&item, syncStatus, profile.BindingVersion)
-		} else if operation, ok := operations[capability]; ok && operation.CredentialVersion != 0 && operation.CredentialVersion == credentialVersionForCapability(profile, capability) {
+			applyCapabilitySyncStatus(&item, syncStatus, credentialVersionForCapability(profile, wecomcapability.EmployeeSync))
+		} else if capability == wecomcapability.Callback && !hasOperation {
+			item.Code = "wecom.callback_evidence_pending"
+			item.Reason = "尚未收到当前凭据版本的回调成功证据"
+			item.Action = "使用当前凭据版本接收并验证回调"
+		} else if hasCurrentOperation {
 			applyCapabilityOperation(&item, operation)
 		}
 		statuses = append(statuses, item)
@@ -215,12 +243,61 @@ func standardCapabilityStatuses(profile Profile, syncStatus SyncStatus, operatio
 	return statuses
 }
 
-func credentialVersionForCapability(profile Profile, _ string) uint64 {
-	// BindingVersion is incremented transactionally by every credential/config
-	// mutation. The first milestone intentionally uses one conservative
-	// generation for all standard capabilities; it never relies on KeyID or
-	// timestamps, and a rotation therefore fences all old evidence.
-	return profile.BindingVersion
+func capabilityCredentialGate(profile Profile, runtime providers.Status, capability string) (bool, string, string, string, []string) {
+	wecom := profile.Credentials.WeCom
+	switch capability {
+	case wecomcapability.EmployeeSync, wecomcapability.DepartmentSync:
+		if !wecom.EmployeeConfigured {
+			return false, "wecom.employee_credentials_missing", "员工与部门同步所需企业微信员工凭据未配置", "配置并验证企业微信员工凭据", []string{"employee_credential"}
+		}
+	case wecomcapability.ExternalContactSync, wecomcapability.ContactTagSync, wecomcapability.RoomSync,
+		wecomcapability.ContactWay, wecomcapability.WelcomeMessage, wecomcapability.ContactTransfer,
+		wecomcapability.ContactBatchSend, wecomcapability.RoomBatchSend:
+		if !wecom.ContactConfigured {
+			return false, "wecom.contact_credentials_missing", "客户与客户群能力所需企业微信客户凭据未配置", "配置并验证企业微信客户凭据", []string{"contact_credential"}
+		}
+	case wecomcapability.AgentMessage:
+		if !profile.Credentials.Agent.AgentIDConfigured || !profile.Credentials.Agent.AgentSecretConfigured {
+			return false, "wecom.agent_credentials_missing", "应用消息所需 agent ID 与 secret 未同时配置", "配置并验证应用消息凭据", []string{"agent_id", "agent_secret"}
+		}
+	case wecomcapability.Callback:
+		if !wecom.CallbackTokenConfigured || !wecom.CallbackAESConfigured {
+			missing := make([]string, 0, 2)
+			if !wecom.CallbackTokenConfigured {
+				missing = append(missing, "callback_token")
+			}
+			if !wecom.CallbackAESConfigured {
+				missing = append(missing, "callback_aes_key")
+			}
+			return false, "wecom.callback_credentials_missing", "回调所需 token 与 AES key 未同时配置", "配置并验证企业微信回调凭据", missing
+		}
+		if !runtime.CallbackRouteConfigured || !runtime.CallbackWorkerConfigured {
+			missing := make([]string, 0, 2)
+			if !runtime.CallbackRouteConfigured {
+				missing = append(missing, "callback_route")
+			}
+			if !runtime.CallbackWorkerConfigured {
+				missing = append(missing, "callback_worker")
+			}
+			return false, "wecom.callback_runtime_unconfigured", "回调运行时路由或消费者未启用", "启用企业微信回调路由和消费者", missing
+		}
+	}
+	return true, "", "", "", nil
+}
+
+func credentialVersionForCapability(profile Profile, capability string) uint64 {
+	switch wecomcapability.CredentialGroupForCapability(capability) {
+	case wecomcapability.CredentialGroupEmployee:
+		return profile.CredentialGenerations.Employee
+	case wecomcapability.CredentialGroupContact:
+		return profile.CredentialGenerations.Contact
+	case wecomcapability.CredentialGroupAgent:
+		return profile.CredentialGenerations.Agent
+	case wecomcapability.CredentialGroupCallback:
+		return profile.CredentialGenerations.Callback
+	default:
+		return 0
+	}
 }
 
 func applyCapabilitySyncStatus(status *providers.CapabilityStatus, syncStatus SyncStatus, expectedVersion uint64) {

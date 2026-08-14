@@ -43,6 +43,10 @@ type Status struct {
 	LastFailureAt      *time.Time         `json:"lastFailureAt,omitempty"`
 	LastErrorCode      string             `json:"lastErrorCode,omitempty"`
 	CapabilityStatuses []CapabilityStatus `json:"capabilityStatuses,omitempty"`
+	// Callback route/worker configuration is runtime-only prerequisite input.
+	// Neither flag is a successful receive/verification evidence.
+	CallbackRouteConfigured  bool `json:"-"`
+	CallbackWorkerConfigured bool `json:"-"`
 }
 
 // CapabilityStatus is a tenant-scoped status for one classified capability.

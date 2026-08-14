@@ -32,10 +32,11 @@ func TestServiceProjectsRuntimeStatusWithoutConfigurationNamesForOrdinaryUsers(t
 	source := &statusTestSource{statuses: []providers.Status{{
 		Kind: "wecom_standard", State: providers.StateLimited, Code: "wecom.credentials_missing",
 		Source: providers.SourceExternal, Reason: "MOCHAT_SECRET is missing", Action: "set MOCHAT_SECRET",
-		Missing: []string{"MOCHAT_SECRET"}, Capabilities: []string{"employee_sync"}, LastErrorCode: "secret=do-not-return",
+		Missing: []string{"MOCHAT_SECRET"}, Capabilities: []string{"contact_batch_send"}, LastErrorCode: "secret=do-not-return",
 	}}}
 	service := NewService(source)
-	view, err := service.Resolve(context.Background(), statusTestPrincipal(false))
+	ctx := dashboardprincipal.WithCapabilityAccess(context.Background(), false, []string{"dashboard.acquisition.precise_group_send"})
+	view, err := service.Resolve(ctx, statusTestPrincipal(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,9 +55,11 @@ func TestServiceProjectsRuntimeStatusWithoutConfigurationNamesForOrdinaryUsers(t
 func TestServiceRedactsUntrustedMachineCodesForOrdinaryUsers(t *testing.T) {
 	source := &statusTestSource{statuses: []providers.Status{{
 		Kind: "wecom_standard", State: providers.StateLimited, Code: "MOCHAT_SECRET", Source: providers.SourceExternal,
+		Capabilities:  []string{"employee_sync"},
 		LastErrorCode: "WECOM_API_ERROR_40001",
 	}}}
-	view, err := NewService(source).Resolve(context.Background(), statusTestPrincipal(false))
+	ctx := dashboardprincipal.WithCapabilityAccess(context.Background(), false, []string{"dashboard.index"})
+	view, err := NewService(source).Resolve(ctx, statusTestPrincipal(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +80,7 @@ func TestServiceKeepsDiagnosticsForSuperadmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := view.Providers[0]
-	if status.Reason != "missing archive credential" || status.Action != "configure archive" || len(status.Missing) != 1 {
+	if status.Reason != "会话存档凭据尚未配置" || status.Action != "配置会话存档凭据" || len(status.Missing) != 1 || status.Missing[0] != "archive_secret" {
 		t.Fatalf("superadmin diagnostics were removed: %#v", status)
 	}
 }

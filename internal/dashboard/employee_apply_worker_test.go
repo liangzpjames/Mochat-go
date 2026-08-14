@@ -17,7 +17,7 @@ import (
 func TestEmployeeApplyWorkerSyncsUniqueCorpIDs(t *testing.T) {
 	store := &fakeEmployeeApplyWorkerStore{
 		credentials: map[int]WorkEmployeeSyncCredential{
-			7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret", ContactSecret: "contact-secret"},
+			7: {CorpID: 7, TenantID: 7, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret", ContactSecret: "contact-secret"},
 		},
 	}
 	client := &fakeEmployeeApplyWorkerClient{
@@ -54,12 +54,46 @@ func TestEmployeeApplyWorkerRequiresCorpIDs(t *testing.T) {
 	}
 }
 
+func TestEmployeeApplyWorkerFencesRotationAfterExternalFetch(t *testing.T) {
+	store := &versionFenceEmployeeApplyStore{credential: WorkEmployeeSyncCredential{
+		CorpID: 7, TenantID: 7, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret",
+	}, currentVersion: 1}
+	client := &rotatingEmployeeApplyClient{store: store}
+	err := syncCompanyEmployeesForBinding(context.Background(), store, client, 7)
+	if err == nil || !strings.Contains(err.Error(), "credential version stale") {
+		t.Fatalf("sync error=%v, want fenced stale version", err)
+	}
+	if store.businessWrites != 0 {
+		t.Fatalf("business writes=%d, want zero after rotation during fetch", store.businessWrites)
+	}
+	if store.markerWrites != 0 {
+		t.Fatalf("marker writes=%d, want zero overwrite by stale worker", store.markerWrites)
+	}
+}
+
+func TestEmployeeApplyWorkerRejectsCredentialFromWrongTenantBeforeFetch(t *testing.T) {
+	store := &versionFenceEmployeeApplyStore{
+		credential: WorkEmployeeSyncCredential{
+			CorpID: 7, TenantID: 22, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret",
+		},
+		bindingTenantID: 11,
+		currentVersion:  1,
+	}
+	client := &countingEmployeeApplyClient{}
+	if err := syncCompanyEmployeesForBinding(context.Background(), store, client, 7); err == nil || !strings.Contains(err.Error(), "tenant scope") {
+		t.Fatalf("sync error=%v, want tenant scope rejection", err)
+	}
+	if client.departmentCalls != 0 || store.businessWrites != 0 || store.markerWrites != 0 {
+		t.Fatalf("wrong-tenant sync fetched/wrote: departments=%d business=%d markers=%d", client.departmentCalls, store.businessWrites, store.markerWrites)
+	}
+}
+
 func TestEmployeeApplyWorkerAcksSuccessfulDelivery(t *testing.T) {
 	queue := &fakeEmployeeApplyWorkerQueue{}
 	store := &fakeEmployeeApplyWorkerStore{
 		tenantIDs: map[int]int{7: 11},
 		credentials: map[int]WorkEmployeeSyncCredential{
-			7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+			7: {CorpID: 7, TenantID: 11, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
 		},
 	}
 	client := &fakeEmployeeApplyWorkerClient{
@@ -86,7 +120,7 @@ func TestEmployeeApplyWorkerRecordsQueueItemExecution(t *testing.T) {
 	store := &fakeEmployeeApplyWorkerStore{
 		tenantIDs: map[int]int{7: 11},
 		credentials: map[int]WorkEmployeeSyncCredential{
-			7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+			7: {CorpID: 7, TenantID: 11, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
 		},
 	}
 	client := &fakeEmployeeApplyWorkerClient{
@@ -124,8 +158,9 @@ func TestEmployeeApplyWorkerMarksRunningAndSanitizesProviderFailure(t *testing.T
 	queue := &fakeEmployeeApplyWorkerQueue{}
 	store := &lifecycleEmployeeApplyWorkerStore{
 		fakeEmployeeApplyWorkerStore: &fakeEmployeeApplyWorkerStore{
+			tenantIDs: map[int]int{7: 11},
 			credentials: map[int]WorkEmployeeSyncCredential{
-				7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+				7: {CorpID: 7, TenantID: 11, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
 			},
 		},
 	}
@@ -150,8 +185,9 @@ func TestEmployeeApplyWorkerMarksDeadLetterFailed(t *testing.T) {
 	queue := &fakeEmployeeApplyWorkerQueue{deadLettered: true}
 	store := &lifecycleEmployeeApplyWorkerStore{
 		fakeEmployeeApplyWorkerStore: &fakeEmployeeApplyWorkerStore{
+			tenantIDs: map[int]int{7: 11},
 			credentials: map[int]WorkEmployeeSyncCredential{
-				7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+				7: {CorpID: 7, TenantID: 11, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
 			},
 		},
 	}
@@ -169,7 +205,7 @@ func TestEmployeeApplyWorkerKeepsSyncingWhenQueueRetryFails(t *testing.T) {
 	store := &lifecycleEmployeeApplyWorkerStore{
 		fakeEmployeeApplyWorkerStore: &fakeEmployeeApplyWorkerStore{
 			credentials: map[int]WorkEmployeeSyncCredential{
-				7: {CorpID: 7, TenantID: 7, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
+				7: {CorpID: 7, TenantID: 7, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret"},
 			},
 		},
 	}
@@ -210,7 +246,81 @@ type fakeEmployeeApplyWorkerStore struct {
 	failureCalls        int
 }
 
+type versionFenceEmployeeApplyStore struct {
+	credential      WorkEmployeeSyncCredential
+	bindingTenantID int
+	currentVersion  uint64
+	businessWrites  int
+	markerWrites    int
+}
+
+func (s *versionFenceEmployeeApplyStore) TenantIDByBindingID(context.Context, int) (int, error) {
+	if s.bindingTenantID > 0 {
+		return s.bindingTenantID, nil
+	}
+	return s.credential.TenantID, nil
+}
+func (s *versionFenceEmployeeApplyStore) CompanyEmployeeSyncCredentials(context.Context, int) ([]WorkEmployeeSyncCredential, error) {
+	return []WorkEmployeeSyncCredential{s.credential}, nil
+}
+func (s *versionFenceEmployeeApplyStore) BeginCompanyEmployeeSyncAtVersion(_ context.Context, _ int, version uint64) error {
+	if version != s.currentVersion {
+		return fmt.Errorf("company credential version stale")
+	}
+	return nil
+}
+func (s *versionFenceEmployeeApplyStore) SyncCompanyEmployeesAtVersion(_ context.Context, _ int, version uint64, _ []WorkEmployeeSyncDepartment, _ []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error) {
+	if version != s.currentVersion {
+		return WorkEmployeeSyncResult{}, fmt.Errorf("company credential version stale")
+	}
+	s.businessWrites++
+	return WorkEmployeeSyncResult{}, nil
+}
+func (s *versionFenceEmployeeApplyStore) MarkCompanyEmployeeSyncQueuedAtVersion(context.Context, int, uint64, string) error {
+	s.markerWrites++
+	return nil
+}
+func (s *versionFenceEmployeeApplyStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64) error {
+	s.markerWrites++
+	return nil
+}
+
+type rotatingEmployeeApplyClient struct {
+	store *versionFenceEmployeeApplyStore
+}
+
+func (c *rotatingEmployeeApplyClient) Departments(context.Context, WorkEmployeeSyncCredential) ([]WorkEmployeeSyncDepartment, error) {
+	c.store.currentVersion = 2
+	return []WorkEmployeeSyncDepartment{{WXDepartmentID: 1, Name: "总部"}}, nil
+}
+func (*rotatingEmployeeApplyClient) DepartmentUsers(context.Context, WorkEmployeeSyncCredential, int) ([]WorkEmployeeSyncEmployee, error) {
+	return []WorkEmployeeSyncEmployee{{WXUserID: "employee-1", Name: "员工"}}, nil
+}
+func (*rotatingEmployeeApplyClient) FollowUsers(context.Context, WorkEmployeeSyncCredential) ([]string, error) {
+	return nil, nil
+}
+
+type countingEmployeeApplyClient struct {
+	departmentCalls int
+}
+
+func (c *countingEmployeeApplyClient) Departments(context.Context, WorkEmployeeSyncCredential) ([]WorkEmployeeSyncDepartment, error) {
+	c.departmentCalls++
+	return nil, nil
+}
+func (*countingEmployeeApplyClient) DepartmentUsers(context.Context, WorkEmployeeSyncCredential, int) ([]WorkEmployeeSyncEmployee, error) {
+	return nil, nil
+}
+func (*countingEmployeeApplyClient) FollowUsers(context.Context, WorkEmployeeSyncCredential) ([]string, error) {
+	return nil, nil
+}
+
 func (s *fakeEmployeeApplyWorkerStore) BeginCompanyEmployeeSync(context.Context, int) error {
+	s.beginCalls++
+	return nil
+}
+
+func (s *fakeEmployeeApplyWorkerStore) BeginCompanyEmployeeSyncAtVersion(context.Context, int, uint64) error {
 	s.beginCalls++
 	return nil
 }
@@ -220,7 +330,18 @@ func (s *fakeEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailure(context.
 	return nil
 }
 
+func (s *fakeEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64) error {
+	s.failureCalls++
+	return nil
+}
+
 func (s *fakeEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueued(_ context.Context, _ int, errorCode string) error {
+	s.queuedCalls++
+	s.queuedErrorCode = errorCode
+	return nil
+}
+
+func (s *fakeEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueuedAtVersion(_ context.Context, _ int, _ uint64, errorCode string) error {
 	s.queuedCalls++
 	s.queuedErrorCode = errorCode
 	return nil
@@ -237,12 +358,28 @@ func (s *lifecycleEmployeeApplyWorkerStore) BeginCompanyEmployeeSync(context.Con
 	return nil
 }
 
+func (s *lifecycleEmployeeApplyWorkerStore) BeginCompanyEmployeeSyncAtVersion(context.Context, int, uint64) error {
+	s.beginCalls++
+	return nil
+}
+
 func (s *lifecycleEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailure(context.Context, int) error {
 	s.failureCalls++
 	return nil
 }
 
+func (s *lifecycleEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64) error {
+	s.failureCalls++
+	return nil
+}
+
 func (s *lifecycleEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueued(_ context.Context, _ int, errorCode string) error {
+	s.queuedCalls++
+	s.queuedErrorCode = errorCode
+	return nil
+}
+
+func (s *lifecycleEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueuedAtVersion(_ context.Context, _ int, _ uint64, errorCode string) error {
 	s.queuedCalls++
 	s.queuedErrorCode = errorCode
 	return nil
@@ -284,6 +421,10 @@ func (s *fakeEmployeeApplyWorkerStore) SyncCompanyEmployees(_ context.Context, b
 	s.followUserIDs = nil
 	s.defaultPasswordHash = ""
 	return WorkEmployeeSyncResult{}, nil
+}
+
+func (s *fakeEmployeeApplyWorkerStore) SyncCompanyEmployeesAtVersion(ctx context.Context, bindingID int, _ uint64, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error) {
+	return s.SyncCompanyEmployees(ctx, bindingID, departments, employees)
 }
 
 func (s *fakeEmployeeApplyWorkerStore) TenantIDByBindingID(_ context.Context, bindingID int) (int, error) {

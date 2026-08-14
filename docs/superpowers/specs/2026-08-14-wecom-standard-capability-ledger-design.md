@@ -26,6 +26,8 @@
 
 状态计算顺序：runtime 未注入则 unavailable；binding/对应 credential 未配置或未验证则 limited/unavailable；无该 capability 的 operation 证据则 limited `wecom.capability_operation_pending`；最近 queued/running 为 limited `wecom.capability_syncing`；最近 failed 为 limited `wecom.capability_operation_failed`；最近 succeeded 才按该 capability 的外部权限/回调要求进入 ready。所有查询严格使用 principal tenant/corp。
 
+成功证据按 `capability + action` 解释，不使用一套强制 `provider_request_id`/`target_total` 的伪合同：员工、部门、客户、标签、群列表的 `sync/pull` 允许空企业返回 0 项，但必须有安全的外部成功结果证据（例如受控的 `errcode=0` 结果标记）；批量群发必须有非空真实 msgid/provider task id 且 target 大于 0；应用消息、联系我、欢迎语、转接按各自真实响应 ID 合同；回调必须有当前凭据版本的真实接收/验签事件证据。`success + failure` 不得超过 target，partial 结果必须两者之和等于 target；没有满足对应合同的 operation 一律 fail closed。
+
 ### 2. operation/audit ledger
 
 0139 增加：

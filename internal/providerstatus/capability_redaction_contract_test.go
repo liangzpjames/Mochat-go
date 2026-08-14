@@ -21,7 +21,11 @@ func TestServiceRedactsCapabilitySecretSentinelForOrdinaryAndSuperadmin(t *testi
 				LastErrorCode: "wecom.capability_operation_failed",
 			}},
 		}}}
-		view, err := NewService(source).Resolve(context.Background(), dashboardprincipal.DashboardPrincipal{
+		ctx := context.Background()
+		if !superadmin {
+			ctx = dashboardprincipal.WithCapabilityAccess(ctx, false, []string{"dashboard.acquisition.precise_group_send"})
+		}
+		view, err := NewService(source).Resolve(ctx, dashboardprincipal.DashboardPrincipal{
 			UserID: 1, TenantID: 7, CorpID: 11, CorpStatus: dashboardprincipal.CorpBindingStatusActive,
 			IsSuperAdmin: superadmin, AuthVersion: 3,
 		})

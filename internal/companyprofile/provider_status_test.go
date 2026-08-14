@@ -21,9 +21,10 @@ func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(
 	syncFinishedAt := verifiedAt.Add(time.Hour)
 	store := &companyProfileContractStore{profile: Profile{
 		TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
-		BindingVersion: 1,
+		BindingVersion:        1,
+		CredentialGenerations: CredentialGenerationSet{Employee: 1, Contact: 1, Agent: 1, Callback: 1},
 		Credentials: CredentialStatuses{
-			WeCom:   CredentialStatus{Configured: true},
+			WeCom:   CredentialStatus{Configured: true, EmployeeConfigured: true},
 			Archive: CredentialStatus{Configured: true},
 		},
 	}, syncStatus: SyncStatus{Status: "completed", CredentialVersion: 1, FinishedAt: &syncFinishedAt}}
@@ -37,7 +38,7 @@ func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(
 		t.Fatal(err)
 	}
 	source := NewProviderStatusSource(store, registry)
-	view, err := providerstatus.NewService(source).Resolve(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
+	view, err := providerstatus.NewService(source).Resolve(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(
 	for _, status := range view.Providers {
 		byKind[status.Kind] = status
 	}
-	if byKind["wecom_standard"].State != providers.StateReady || byKind["wecom_standard"].Code != "wecom.runtime_verified" || byKind["wecom_standard"].LastSuccessAt == nil || !byKind["wecom_standard"].LastSuccessAt.Equal(syncFinishedAt) {
+	if byKind["wecom_standard"].State != providers.StateReady || byKind["wecom_standard"].Code != "wecom.capability_ready" || byKind["wecom_standard"].LastSuccessAt == nil || !byKind["wecom_standard"].LastSuccessAt.Equal(syncFinishedAt) {
 		t.Fatalf("standard status = %#v", byKind["wecom_standard"])
 	}
 	if byKind["wecom_archive"].State != providers.StateLimited || byKind["wecom_archive"].Code != "archive.getchatdata_unimplemented" {
@@ -63,7 +64,7 @@ func TestProviderStatusSourceRejectsExternalArchiveReadyFromOptionalStore(t *tes
 	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
 	store := &companyProfileContractStore{
 		profile: Profile{TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
-			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}, Archive: CredentialStatus{Configured: true}}},
+			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true, EmployeeConfigured: true}, Archive: CredentialStatus{Configured: true}}},
 		archiveSourceStatus: providers.Status{Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateReady, Code: "archive.runtime_verified"},
 	}
 	registry, err := catalog.NewRegistry(catalog.Dependencies{
@@ -102,7 +103,7 @@ func TestProviderStatusSourceDoesNotReadSyncStatusForPendingBinding(t *testing.T
 	store := &companyProfileContractStore{
 		profile: Profile{
 			TenantID: 202, CorpID: 303, BindingStatus: "pending", WXCorpID: "ww-candidate",
-			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}},
+			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true, EmployeeConfigured: true}},
 		},
 		syncStatusErr: errors.New("pending binding must not read sync status"),
 	}
@@ -134,7 +135,7 @@ func TestProviderStatusSourceUsesTenantScopedSimulationSourceStatus(t *testing.T
 	lastFailure := lastSuccess.Add(time.Hour)
 	store := &companyProfileContractStore{
 		profile: Profile{TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
-			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}, Archive: CredentialStatus{Configured: true}}},
+			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true, EmployeeConfigured: true}, Archive: CredentialStatus{Configured: true}}},
 		archiveSourceStatus: providers.Status{Kind: "wecom_archive", Source: providers.SourceSimulated, State: providers.StateLimited,
 			Code: "archive.simulation_ready", LastSyncAt: &lastFailure, LastSuccessAt: &lastSuccess, LastFailureAt: &lastFailure,
 			LastErrorCode: "archive.sync_failed", Action: "仅用于验收"},
@@ -188,7 +189,7 @@ func TestProviderStatusSourceFailsClosedWhenRuntimeAdapterIsUnavailable(t *testi
 	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
 	store := &companyProfileContractStore{profile: Profile{
 		TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
-		Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}, Archive: CredentialStatus{Configured: true}},
+		Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true, EmployeeConfigured: true}, Archive: CredentialStatus{Configured: true}},
 	}}
 	registry, err := catalog.NewRegistry(catalog.Dependencies{
 		WeComStandard: providerStatusTestProvider{status: providers.Status{State: providers.StateUnavailable, Code: "provider.runtime_component_missing"}},
@@ -215,8 +216,9 @@ func TestProviderStatusSourceDegradesWhenStandardSyncFailsAndRecoversOnSuccess(t
 	failedAt := verifiedAt.Add(time.Hour)
 	store := &companyProfileContractStore{profile: Profile{
 		TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
-		BindingVersion: 1,
-		Credentials:    CredentialStatuses{WeCom: CredentialStatus{Configured: true}},
+		BindingVersion:        1,
+		CredentialGenerations: CredentialGenerationSet{Employee: 1},
+		Credentials:           CredentialStatuses{WeCom: CredentialStatus{Configured: true, EmployeeConfigured: true}},
 	}, syncStatus: SyncStatus{Status: "failed", FinishedAt: &failedAt, ErrorCode: "wecom.sync_http_500"}}
 	registry, err := catalog.NewRegistry(catalog.Dependencies{
 		WeComStandard: providerStatusTestProvider{status: providers.Status{Kind: "wecom_standard", State: providers.StateReady, Code: "wecom.runtime"}},

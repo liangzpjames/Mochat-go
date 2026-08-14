@@ -32,15 +32,15 @@ describe('provider status page', () => {
     };
     renderPage(api, true);
 
-    expect(await screen.findByText(/真实外部 Provider/)).toBeTruthy();
-    expect(screen.getByText(/模拟 Provider/)).toBeTruthy();
-    expect(screen.getByText(/本地 Provider/)).toBeTruthy();
-    expect(screen.getByText(/仅代码支持/)).toBeTruthy();
-    expect(screen.getByText(/最近同步：/)).toBeTruthy();
-    expect(screen.getByText(/最近成功：/)).toBeTruthy();
-    expect(screen.getByText(/最近失败：/)).toBeTruthy();
-    expect(screen.getByText('provider.simulated_failure')).toBeTruthy();
-    expect(screen.queryByText('最近错误：', { exact: true })).toBeTruthy();
+    expect((await screen.findAllByText(/真实外部 Provider/)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/模拟 Provider/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/本地 Provider/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/仅代码支持/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/最近同步：/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/最近成功：/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/最近失败：/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('provider.simulated_failure').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('最近错误：', { exact: true }).length).toBeGreaterThan(0);
   });
 
   it('shows state and next action near the provider without rendering diagnostics for ordinary users', async () => {

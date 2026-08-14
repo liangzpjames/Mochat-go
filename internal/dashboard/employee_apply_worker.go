@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -125,27 +126,8 @@ func (w *EmployeeApplyWorker) handleDelivery(ctx context.Context, delivery Emplo
 		tenantID = 0
 	}
 	finishExecution := startQueueItemExecution(ctx, w.logger, "employee-apply", w.store, tenantID)
-	if err := w.store.BeginCompanyEmployeeSync(ctx, int(delivery.Event.BindingID)); err != nil {
-		w.retryFailedDelivery(ctx, delivery, finishExecution)
-		return
-	}
 	if err := w.Process(ctx, delivery.Event); err != nil {
-		deadLettered, retryErr := w.queue.RetryEmployeeApply(ctx, delivery, "SYNC_FAILED", w.maxAttempts)
-		if retryErr != nil {
-			// The delivery is still in Redis processing when retry fails. Begin
-			// already established the durable syncing marker; leave it there.
-			finishExecution(taskrunner.StatusFailed, fmt.Errorf("SYNC_FAILED"))
-			w.logger.Printf("employee apply retry failed: binding_id=%d source=%s code=QUEUE_RETRY_FAILED", delivery.Event.BindingID, delivery.Event.Source)
-			return
-		}
-		finishExecution(taskrunner.StatusFailed, fmt.Errorf("SYNC_FAILED"))
-		if deadLettered {
-			w.recordDeadLetterState(ctx, int(delivery.Event.BindingID))
-			w.logger.Printf("employee apply moved to dead letter: binding_id=%d source=%s attempts=%d code=SYNC_FAILED", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1)
-			return
-		}
-		w.recordRequeuedState(ctx, int(delivery.Event.BindingID))
-		w.logger.Printf("employee apply requeued: binding_id=%d source=%s attempts=%d code=SYNC_FAILED", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1)
+		w.retryFailedDelivery(ctx, delivery, finishExecution, employeeSyncVersion(err))
 		return
 	}
 	if err := w.queue.AckEmployeeApply(ctx, delivery); err != nil {
@@ -156,41 +138,46 @@ func (w *EmployeeApplyWorker) handleDelivery(ctx context.Context, delivery Emplo
 	finishExecution(taskrunner.StatusSucceeded, nil)
 }
 
-func (w *EmployeeApplyWorker) retryFailedDelivery(ctx context.Context, delivery EmployeeApplyDelivery, finishExecution func(string, error)) {
+func employeeSyncVersion(err error) uint64 {
+	var versioned *employeeSyncVersionError
+	if errors.As(err, &versioned) {
+		return versioned.Version
+	}
+	return 0
+}
+
+func (w *EmployeeApplyWorker) retryFailedDelivery(ctx context.Context, delivery EmployeeApplyDelivery, finishExecution func(string, error), credentialVersion uint64) {
 	deadLettered, retryErr := w.queue.RetryEmployeeApply(ctx, delivery, "SYNC_FAILED", w.maxAttempts)
 	if retryErr != nil {
-		// Begin may have failed before the queue operation. Retry the durable
-		// syncing marker once; the item remains in Redis processing on error.
-		if err := w.store.BeginCompanyEmployeeSync(ctx, int(delivery.Event.BindingID)); err != nil {
-			w.logger.Printf("employee apply state reconcile failed: binding_id=%d source=%s code=SYNC_STATE_FAILED", delivery.Event.BindingID, delivery.Event.Source)
-		}
 		finishExecution(taskrunner.StatusFailed, fmt.Errorf("SYNC_FAILED"))
 		w.logger.Printf("employee apply retry failed: binding_id=%d source=%s code=QUEUE_RETRY_FAILED", delivery.Event.BindingID, delivery.Event.Source)
 		return
 	}
 	finishExecution(taskrunner.StatusFailed, fmt.Errorf("SYNC_FAILED"))
 	if deadLettered {
-		w.recordDeadLetterState(ctx, int(delivery.Event.BindingID))
+		w.recordDeadLetterState(ctx, int(delivery.Event.BindingID), credentialVersion)
 		w.logger.Printf("employee apply moved to dead letter: binding_id=%d source=%s attempts=%d code=SYNC_FAILED", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1)
 		return
 	}
-	w.recordRequeuedState(ctx, int(delivery.Event.BindingID))
+	w.recordRequeuedState(ctx, int(delivery.Event.BindingID), credentialVersion)
 	w.logger.Printf("employee apply requeued: binding_id=%d source=%s attempts=%d code=SYNC_FAILED", delivery.Event.BindingID, delivery.Event.Source, delivery.Attempts+1)
 }
 
-func (w *EmployeeApplyWorker) recordDeadLetterState(ctx context.Context, bindingID int) {
-	if err := w.store.RecordCompanyEmployeeSyncFailure(ctx, bindingID); err != nil {
+func (w *EmployeeApplyWorker) recordDeadLetterState(ctx context.Context, bindingID int, credentialVersion uint64) {
+	if credentialVersion == 0 {
+		return
+	}
+	if err := w.store.RecordCompanyEmployeeSyncFailureAtVersion(ctx, bindingID, credentialVersion); err != nil {
 		w.logger.Printf("employee apply state reconcile failed: binding_id=%d code=SYNC_STATE_FAILED", bindingID)
 	}
 }
 
-func (w *EmployeeApplyWorker) recordRequeuedState(ctx context.Context, bindingID int) {
-	if err := w.store.MarkCompanyEmployeeSyncQueued(ctx, bindingID, "SYNC_FAILED"); err != nil {
-		// Keep a processing marker rather than leaving a stale queued state when
-		// the queue move succeeded but the first state write did not.
-		if beginErr := w.store.BeginCompanyEmployeeSync(ctx, bindingID); beginErr != nil {
-			w.logger.Printf("employee apply state reconcile failed: binding_id=%d code=SYNC_STATE_FAILED", bindingID)
-		}
+func (w *EmployeeApplyWorker) recordRequeuedState(ctx context.Context, bindingID int, credentialVersion uint64) {
+	if credentialVersion == 0 {
+		return
+	}
+	if err := w.store.MarkCompanyEmployeeSyncQueuedAtVersion(ctx, bindingID, credentialVersion, "SYNC_FAILED"); err != nil {
+		w.logger.Printf("employee apply state reconcile failed: binding_id=%d code=SYNC_STATE_FAILED", bindingID)
 	}
 }
 
