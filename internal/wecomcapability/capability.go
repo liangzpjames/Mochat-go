@@ -70,6 +70,8 @@ const (
 	DispatchPartialFailed = "partial_failed"
 	DispatchFailed        = "failed"
 	DispatchCancelled     = "cancelled"
+
+	DispatchReconcileRequiredCode = "wecom.dispatch_reconcile_required"
 )
 
 // Operation is the non-secret latest evidence used by provider status and
@@ -289,6 +291,27 @@ func IsValidOperationResultStatus(status string) bool {
 	}
 }
 
+func IsTerminalOperationResultStatus(status string) bool {
+	switch status {
+	case DispatchSucceeded, DispatchPartialFailed, DispatchFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsRetryableDispatchErrorCode(code string) bool {
+	code = strings.TrimSpace(code)
+	if code == "wecom.http_429" {
+		return true
+	}
+	const prefix = "wecom.http_"
+	if !strings.HasPrefix(code, prefix) || len(code) != len(prefix)+3 {
+		return false
+	}
+	return code[len(prefix)] == '5' && code[len(prefix)+1] >= '0' && code[len(prefix)+1] <= '9' && code[len(prefix)+2] >= '0' && code[len(prefix)+2] <= '9'
+}
+
 func CanTransitionDispatch(from, to string) bool {
 	if !IsValidDispatchStatus(from) || !IsValidDispatchStatus(to) {
 		return false
@@ -302,7 +325,7 @@ func CanTransitionDispatch(from, to string) bool {
 	case DispatchClaimed:
 		return to == DispatchSubmitting || to == DispatchFailed || to == DispatchCancelled
 	case DispatchSubmitting:
-		return to == DispatchSubmitted || to == DispatchFailed || to == DispatchCancelled
+		return to == DispatchSubmitted || to == DispatchPolling || to == DispatchFailed || to == DispatchCancelled
 	case DispatchSubmitted:
 		return to == DispatchPolling || to == DispatchFailed || to == DispatchCancelled
 	case DispatchPolling:

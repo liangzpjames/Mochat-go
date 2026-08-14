@@ -51,7 +51,21 @@ type DispatchTransitionRequest struct {
 	ProviderMessageID string
 	ProviderObjectID  string
 	NextPollAt        *time.Time
+	NextPollDelay     time.Duration
 	LastErrorCode     string
+}
+
+type DispatchReconcileRequest struct {
+	Principal         DispatchPrincipal
+	DispatchID        int64
+	LeaseToken        string
+	Attempt           int
+	ProviderRequestID string
+	ProviderMessageID string
+	ProviderObjectID  string
+	ErrorCode         string
+	NextPollAt        *time.Time
+	NextPollDelay     time.Duration
 }
 
 type DispatchResultRequest struct {
@@ -66,6 +80,13 @@ type DispatchResultRequest struct {
 	ErrorCode        string
 	ErrorMessageSafe string
 }
+
+type DispatchKind string
+
+const (
+	DispatchKindContactBatch DispatchKind = "contact_batch"
+	DispatchKindRoomBatch    DispatchKind = "room_batch"
+)
 
 type OperationAggregateRequest struct {
 	Principal                 DispatchPrincipal
@@ -88,6 +109,7 @@ type OperationAggregate struct {
 type DispatchLedger interface {
 	ClaimDispatch(context.Context, DispatchClaimRequest) (Dispatch, error)
 	TransitionDispatch(context.Context, DispatchTransitionRequest) (Dispatch, error)
+	PersistDispatchReconcile(context.Context, DispatchReconcileRequest) (Dispatch, error)
 	RecordDispatchResult(context.Context, DispatchResultRequest) (OperationResult, error)
 	AggregateOperation(context.Context, OperationAggregateRequest) (OperationAggregate, error)
 }
@@ -163,6 +185,10 @@ const (
 type DispatchProviderError struct {
 	Code     string
 	Category DispatchProviderErrorCategory
+	// SubmissionNotAccepted is only a provider contract assertion that the
+	// submit endpoint definitely did not accept the request. Without it, a
+	// submit-side 429 is treated as ambiguous and reconciled conservatively.
+	SubmissionNotAccepted bool
 	// Retryable is retained for callers that classify a provider-specific
 	// error, but the default classifier only honors it for unknown codes.
 	Retryable bool
@@ -188,6 +214,7 @@ func (e *DispatchProviderError) Unwrap() error {
 
 type DispatchRetryDecision struct {
 	Retryable bool
+	Reconcile bool
 	ErrorCode string
 }
 
@@ -202,13 +229,18 @@ func (defaultDispatchRetryClassifier) Classify(err error) DispatchRetryDecision 
 	if errors.As(err, &providerErr) {
 		code := safeDispatchErrorCode(providerErr.Code)
 		switch providerErr.Category {
-		case DispatchErrorRateLimit, DispatchErrorServer, DispatchErrorTimeout:
+		case DispatchErrorRateLimit, DispatchErrorServer:
 			return DispatchRetryDecision{Retryable: true, ErrorCode: code}
+		case DispatchErrorTimeout:
+			return DispatchRetryDecision{Reconcile: true, ErrorCode: code}
 		case DispatchErrorUnauthorized, DispatchErrorForbidden, DispatchErrorContract:
 			return DispatchRetryDecision{ErrorCode: code}
 		}
-		if code == "wecom.http_429" || code == "wecom.timeout" || isDispatchHTTP5xx(code) {
+		if code == "wecom.http_429" || isDispatchHTTP5xx(code) {
 			return DispatchRetryDecision{Retryable: true, ErrorCode: code}
+		}
+		if code == "wecom.timeout" {
+			return DispatchRetryDecision{Reconcile: true, ErrorCode: code}
 		}
 		if code == "wecom.http_401" || code == "wecom.http_403" || code == "wecom.dispatch_contract_invalid" || code == "wecom.contract_error" {
 			return DispatchRetryDecision{ErrorCode: code}
@@ -329,7 +361,7 @@ func (r *DispatchRunner) Run(ctx context.Context, request DispatchRunRequest) (D
 	if dispatch.TenantID != request.Principal.TenantID || dispatch.CorpID != request.Principal.CorpID || dispatch.OperationID <= 0 || strings.TrimSpace(dispatch.TargetID) == "" || dispatch.Attempt <= 0 || strings.TrimSpace(dispatch.LeaseToken) == "" {
 		return result, ErrDispatchInvalidState
 	}
-	if !DispatchKindMatchesCapability(request.Capability, dispatch.DispatchKind) {
+	if !DispatchKindMatchesCapability(request.Capability, DispatchKind(dispatch.DispatchKind)) {
 		return result, ErrDispatchInvalidState
 	}
 	if isTerminalDispatchStatus(dispatch.Status) {
@@ -342,8 +374,13 @@ func (r *DispatchRunner) Run(ctx context.Context, request DispatchRunRequest) (D
 		return result, err
 	}
 
-	if dispatch.Status == DispatchSubmitted || dispatch.Status == DispatchPolling {
+	if dispatch.Status == DispatchSubmitted || dispatch.Status == DispatchPolling || (dispatch.Status == DispatchSubmitting && dispatch.LastErrorCode == DispatchReconcileRequiredCode) {
 		return r.poll(ctx, request, dispatch, result)
+	}
+	if dispatch.Status == DispatchSubmitting {
+		result.ReconcileRequired = true
+		result.ErrorCode = DispatchReconcileRequiredCode
+		return r.persistReconcile(ctx, request, dispatch, result, DispatchSubmitResult{})
 	}
 	if dispatch.Status != DispatchClaimed {
 		return result, ErrDispatchInvalidState
@@ -362,9 +399,13 @@ func (r *DispatchRunner) Run(ctx context.Context, request DispatchRunRequest) (D
 		ExpectedCredentialVersion: request.ExpectedCredentialVersion,
 	})
 	if submitErr != nil {
-		return r.handleProviderError(ctx, request, dispatch, result, submitErr)
+		return r.handleProviderError(ctx, request, dispatch, result, submitErr, true)
 	}
-	if !submit.Submitted || strings.TrimSpace(submit.ProviderRequestID) == "" && strings.TrimSpace(submit.ProviderMessageID) == "" {
+	if submit.Submitted && strings.TrimSpace(submit.ProviderRequestID) == "" && strings.TrimSpace(submit.ProviderMessageID) == "" && strings.TrimSpace(submit.ProviderObjectID) == "" {
+		result.ErrorCode = "wecom.dispatch_contract_ambiguous"
+		return r.persistReconcile(ctx, request, dispatch, result, DispatchSubmitResult{})
+	}
+	if !submit.Submitted || strings.TrimSpace(submit.ProviderRequestID) == "" && strings.TrimSpace(submit.ProviderMessageID) == "" && strings.TrimSpace(submit.ProviderObjectID) == "" {
 		return r.failContract(ctx, request, dispatch, result)
 	}
 	updated, transitionErr := r.ledger.TransitionDispatch(ctx, DispatchTransitionRequest{
@@ -375,8 +416,7 @@ func (r *DispatchRunner) Run(ctx context.Context, request DispatchRunRequest) (D
 	result.Submitted = true
 	result.ProviderRequestID, result.ProviderMessageID = submit.ProviderRequestID, submit.ProviderMessageID
 	if transitionErr != nil {
-		result.ReconcileRequired = true
-		return result, ErrDispatchReconcileRequired
+		return r.persistReconcile(ctx, request, dispatch, result, submit)
 	}
 	result.Dispatch, result.Status = updated, updated.Status
 	return r.attachAggregate(ctx, request, result)
@@ -392,25 +432,26 @@ func (r *DispatchRunner) poll(ctx context.Context, request DispatchRunRequest, d
 		ExpectedCredentialVersion: request.ExpectedCredentialVersion,
 	})
 	if err != nil {
-		return r.handleProviderError(ctx, request, dispatch, result, err)
+		return r.handleProviderError(ctx, request, dispatch, result, err, false)
 	}
 	providerRequestID := firstDispatchValue(poll.ProviderRequestID, dispatch.ProviderRequestID)
 	providerMessageID := firstDispatchValue(poll.ProviderMessageID, dispatch.ProviderMessageID)
 	providerObjectID := firstDispatchValue(poll.ProviderObjectID, dispatch.ProviderObjectID)
 	if !poll.Terminal {
 		next := poll.NextPollAt
+		nextDelay := time.Duration(0)
 		if next == nil {
-			nextValue := r.clock.Now().Add(r.backoff.Duration(dispatch.Attempt))
+			nextDelay = r.backoff.Duration(dispatch.Attempt)
+			nextValue := r.clock.Now().Add(nextDelay)
 			next = &nextValue
 		}
 		status := DispatchPolling
 		updated, transitionErr := r.ledger.TransitionDispatch(ctx, DispatchTransitionRequest{
 			Principal: request.Principal, DispatchID: dispatch.ID, Status: status, LeaseToken: dispatch.LeaseToken, Attempt: dispatch.Attempt,
-			ProviderRequestID: providerRequestID, ProviderMessageID: providerMessageID, ProviderObjectID: providerObjectID, NextPollAt: next,
+			ProviderRequestID: providerRequestID, ProviderMessageID: providerMessageID, ProviderObjectID: providerObjectID, NextPollAt: next, NextPollDelay: nextDelay,
 		})
 		if transitionErr != nil {
-			result.ReconcileRequired = true
-			return result, ErrDispatchReconcileRequired
+			return r.persistReconcile(ctx, request, dispatch, result, DispatchSubmitResult{ProviderRequestID: providerRequestID, ProviderMessageID: providerMessageID, ProviderObjectID: providerObjectID})
 		}
 		result.Dispatch, result.Status, result.NextAttemptAt = updated, updated.Status, *next
 		result.RetryScheduled = true
@@ -422,25 +463,26 @@ func (r *DispatchRunner) poll(ctx context.Context, request DispatchRunRequest, d
 	if (poll.Status == DispatchFailed || poll.Status == DispatchPartialFailed) && safeDispatchErrorCode(poll.ErrorCode) == "" {
 		return r.failContract(ctx, request, dispatch, result)
 	}
-	if dispatch.Status == DispatchSubmitted {
+	if dispatch.Status == DispatchSubmitted || (dispatch.Status == DispatchSubmitting && dispatch.LastErrorCode == DispatchReconcileRequiredCode) {
 		updated, transitionErr := r.ledger.TransitionDispatch(ctx, DispatchTransitionRequest{
 			Principal: request.Principal, DispatchID: dispatch.ID, Status: DispatchPolling, LeaseToken: dispatch.LeaseToken, Attempt: dispatch.Attempt,
 			ProviderRequestID: providerRequestID, ProviderMessageID: providerMessageID, ProviderObjectID: providerObjectID,
 		})
 		if transitionErr != nil {
-			result.ReconcileRequired = true
-			return result, ErrDispatchReconcileRequired
+			return r.persistReconcile(ctx, request, dispatch, result, DispatchSubmitResult{ProviderRequestID: providerRequestID, ProviderMessageID: providerMessageID, ProviderObjectID: providerObjectID})
 		}
 		dispatch = updated
 	}
 	for _, targetResult := range poll.Results {
+		if !IsTerminalOperationResultStatus(targetResult.Status) {
+			return r.failContract(ctx, request, dispatch, result)
+		}
 		targetResult.Principal = request.Principal
 		targetResult.DispatchID = dispatch.ID
 		targetResult.LeaseToken = dispatch.LeaseToken
 		targetResult.Attempt = dispatch.Attempt
 		if _, err := r.ledger.RecordDispatchResult(ctx, targetResult); err != nil {
-			result.ReconcileRequired = true
-			return result, ErrDispatchReconcileRequired
+			return r.persistReconcile(ctx, request, dispatch, result, DispatchSubmitResult{ProviderRequestID: providerRequestID, ProviderMessageID: providerMessageID, ProviderObjectID: providerObjectID})
 		}
 	}
 	updated, transitionErr := r.ledger.TransitionDispatch(ctx, DispatchTransitionRequest{
@@ -448,21 +490,35 @@ func (r *DispatchRunner) poll(ctx context.Context, request DispatchRunRequest, d
 		ProviderRequestID: providerRequestID, ProviderMessageID: providerMessageID, ProviderObjectID: providerObjectID, LastErrorCode: safeDispatchErrorCode(poll.ErrorCode),
 	})
 	if transitionErr != nil {
-		result.ReconcileRequired = true
-		return result, ErrDispatchReconcileRequired
+		return r.persistReconcile(ctx, request, dispatch, result, DispatchSubmitResult{ProviderRequestID: providerRequestID, ProviderMessageID: providerMessageID, ProviderObjectID: providerObjectID})
 	}
 	result.Dispatch, result.Status = updated, updated.Status
 	return r.attachAggregate(ctx, request, result)
 }
 
-func (r *DispatchRunner) handleProviderError(ctx context.Context, request DispatchRunRequest, dispatch Dispatch, result DispatchRunResult, providerErr error) (DispatchRunResult, error) {
+func (r *DispatchRunner) handleProviderError(ctx context.Context, request DispatchRunRequest, dispatch Dispatch, result DispatchRunResult, providerErr error, submitPhase bool) (DispatchRunResult, error) {
 	decision := r.classifier.Classify(providerErr)
 	if decision.ErrorCode == "" {
 		decision.ErrorCode = "wecom.provider_error"
 	}
+	if submitPhase {
+		if !dispatchProviderErrorSubmissionNotAccepted(providerErr) && dispatchProviderErrorMayHaveBeenAccepted(providerErr, decision.ErrorCode) {
+			decision.Reconcile = true
+			decision.Retryable = false
+		}
+	} else if decision.Reconcile && dispatchProviderErrorMayHaveBeenAccepted(providerErr, decision.ErrorCode) {
+		decision.Reconcile = false
+		decision.Retryable = true
+	}
+	if decision.Reconcile {
+		result.ErrorCode = decision.ErrorCode
+		return r.persistReconcile(ctx, request, dispatch, result, DispatchSubmitResult{})
+	}
 	next := (*time.Time)(nil)
+	nextDelay := time.Duration(0)
 	if decision.Retryable {
-		nextValue := r.clock.Now().Add(r.backoff.Duration(dispatch.Attempt))
+		nextDelay = r.backoff.Duration(dispatch.Attempt)
+		nextValue := r.clock.Now().Add(nextDelay)
 		next = &nextValue
 	}
 	status := DispatchFailed
@@ -471,7 +527,7 @@ func (r *DispatchRunner) handleProviderError(ctx context.Context, request Dispat
 	}
 	updated, transitionErr := r.ledger.TransitionDispatch(ctx, DispatchTransitionRequest{
 		Principal: request.Principal, DispatchID: dispatch.ID, Status: status, LeaseToken: dispatch.LeaseToken, Attempt: dispatch.Attempt,
-		NextPollAt: next, LastErrorCode: decision.ErrorCode,
+		NextPollAt: next, NextPollDelay: nextDelay, LastErrorCode: decision.ErrorCode,
 	})
 	result.ErrorCode = decision.ErrorCode
 	result.Dispatch, result.Status = updated, updated.Status
@@ -489,6 +545,43 @@ func (r *DispatchRunner) handleProviderError(ctx context.Context, request Dispat
 		return resultWithAggregate, ErrDispatchReconcileRequired
 	}
 	return resultWithAggregate, providerErr
+}
+
+func (r *DispatchRunner) persistReconcile(ctx context.Context, request DispatchRunRequest, dispatch Dispatch, result DispatchRunResult, provider DispatchSubmitResult) (DispatchRunResult, error) {
+	result.ReconcileRequired = true
+	result.ProviderRequestID = firstDispatchValue(provider.ProviderRequestID, result.ProviderRequestID)
+	result.ProviderMessageID = firstDispatchValue(provider.ProviderMessageID, result.ProviderMessageID)
+	errorCode := result.ErrorCode
+	if errorCode == "" {
+		errorCode = "wecom.dispatch_transition_failed"
+	}
+	updated, err := r.ledger.PersistDispatchReconcile(ctx, DispatchReconcileRequest{
+		Principal: request.Principal, DispatchID: dispatch.ID, LeaseToken: dispatch.LeaseToken, Attempt: dispatch.Attempt,
+		ProviderRequestID: provider.ProviderRequestID, ProviderMessageID: provider.ProviderMessageID, ProviderObjectID: provider.ProviderObjectID,
+		ErrorCode:  errorCode,
+		NextPollAt: nil,
+	})
+	if err != nil {
+		return result, ErrDispatchReconcileRequired
+	}
+	result.Dispatch, result.Status = updated, updated.Status
+	return result, ErrDispatchReconcileRequired
+}
+
+func dispatchProviderErrorSubmissionNotAccepted(err error) bool {
+	var providerErr *DispatchProviderError
+	return errors.As(err, &providerErr) && providerErr.SubmissionNotAccepted
+}
+
+func dispatchProviderErrorMayHaveBeenAccepted(err error, code string) bool {
+	if code == "wecom.http_429" || code == "wecom.timeout" || isDispatchHTTP5xx(code) {
+		return true
+	}
+	var providerErr *DispatchProviderError
+	if errors.As(err, &providerErr) {
+		return providerErr.Category == DispatchErrorRateLimit || providerErr.Category == DispatchErrorServer || providerErr.Category == DispatchErrorTimeout
+	}
+	return false
 }
 
 func (r *DispatchRunner) failContract(ctx context.Context, request DispatchRunRequest, dispatch Dispatch, result DispatchRunResult) (DispatchRunResult, error) {
@@ -526,13 +619,12 @@ func isDispatchCapability(capability string) bool {
 	return capability == ContactBatchSend || capability == RoomBatchSend
 }
 
-func DispatchKindMatchesCapability(capability, dispatchKind string) bool {
-	dispatchKind = strings.ToLower(strings.TrimSpace(dispatchKind))
+func DispatchKindMatchesCapability(capability string, dispatchKind DispatchKind) bool {
 	switch capability {
 	case ContactBatchSend:
-		return strings.HasPrefix(dispatchKind, "contact")
+		return DispatchKind(strings.TrimSpace(string(dispatchKind))) == DispatchKindContactBatch
 	case RoomBatchSend:
-		return strings.HasPrefix(dispatchKind, "room")
+		return DispatchKind(strings.TrimSpace(string(dispatchKind))) == DispatchKindRoomBatch
 	default:
 		return false
 	}

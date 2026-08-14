@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
+	"time"
 
 	"jiyi/mochat-go/internal/companyprofile"
 	"jiyi/mochat-go/internal/dashboardprincipal"
@@ -31,7 +33,15 @@ func (s *MySQLStore) TransitionDispatch(ctx context.Context, request wecomcapabi
 	return s.TransitionCapabilityDispatch(ctx, capabilityDashboardPrincipal(request.Principal), CapabilityDispatchTransitionInput{
 		DispatchID: request.DispatchID, Status: request.Status, LeaseToken: request.LeaseToken, Attempt: request.Attempt,
 		ProviderRequestID: request.ProviderRequestID, ProviderMessageID: request.ProviderMessageID,
-		ProviderObjectID: request.ProviderObjectID, NextPollAt: request.NextPollAt, LastErrorCode: request.LastErrorCode,
+		ProviderObjectID: request.ProviderObjectID, NextPollAt: request.NextPollAt, NextPollDelay: request.NextPollDelay, LastErrorCode: request.LastErrorCode,
+	})
+}
+
+func (s *MySQLStore) PersistDispatchReconcile(ctx context.Context, request wecomcapability.DispatchReconcileRequest) (wecomcapability.Dispatch, error) {
+	return s.PersistCapabilityDispatchReconcile(ctx, capabilityDashboardPrincipal(request.Principal), CapabilityDispatchReconcileInput{
+		DispatchID: request.DispatchID, LeaseToken: request.LeaseToken, Attempt: request.Attempt,
+		ProviderRequestID: request.ProviderRequestID, ProviderMessageID: request.ProviderMessageID,
+		ProviderObjectID: request.ProviderObjectID, ErrorCode: request.ErrorCode, NextPollAt: request.NextPollAt, NextPollDelay: request.NextPollDelay,
 	})
 }
 
@@ -47,27 +57,41 @@ func (s *MySQLStore) AggregateOperation(ctx context.Context, request wecomcapabi
 	if s == nil || s.db == nil || request.OperationID <= 0 || request.Principal.TenantID <= 0 || request.Principal.CorpID <= 0 || request.ExpectedCredentialVersion == 0 {
 		return wecomcapability.OperationAggregate{}, companyprofile.ErrInvalidRequest
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wecomcapability.OperationAggregate{}, companyprofile.ErrStoreUnavailable
+	}
+	defer rollbackQuietly(tx)
+	var binding companyBindingRecord
 	if request.Principal.UserID > 0 {
-		if err := s.checkCompanyActor(ctx, s.db, capabilityDashboardPrincipal(request.Principal), false); err != nil {
+		if err := s.checkCompanyActor(ctx, tx, capabilityDashboardPrincipal(request.Principal), false); err != nil {
 			return wecomcapability.OperationAggregate{}, err
 		}
-	} else if _, err := s.loadCompanyBinding(ctx, s.db, capabilityDashboardPrincipal(request.Principal), false); err != nil {
-		return wecomcapability.OperationAggregate{}, err
+		binding, err = s.loadCompanyBinding(ctx, tx, capabilityDashboardPrincipal(request.Principal), false)
+	} else {
+		binding, err = s.loadCompanyBinding(ctx, tx, capabilityDashboardPrincipal(request.Principal), false)
 	}
-	operation, err := queryCapabilityOperationDB(ctx, s.db, request.Principal.TenantID, request.Principal.CorpID, request.OperationID)
 	if err != nil {
 		return wecomcapability.OperationAggregate{}, err
 	}
-	if operation.Capability != request.Capability || operation.CredentialVersion != request.ExpectedCredentialVersion {
+	operation, err := queryCapabilityOperationDB(ctx, tx, request.Principal.TenantID, request.Principal.CorpID, request.OperationID)
+	if err != nil {
+		return wecomcapability.OperationAggregate{}, err
+	}
+	generation := credentialGenerationForCapability(binding, operation.Capability)
+	if operation.Capability != request.Capability || generation == 0 || operation.CredentialVersion != generation || request.ExpectedCredentialVersion != generation {
 		return wecomcapability.OperationAggregate{}, ErrCapabilityOperationStale
 	}
-	dispatches, err := queryCapabilityDispatchesDB(ctx, s.db, request.Principal.TenantID, request.Principal.CorpID, request.OperationID)
+	dispatches, err := queryCapabilityDispatchesDB(ctx, tx, request.Principal.TenantID, request.Principal.CorpID, request.OperationID)
 	if err != nil {
 		return wecomcapability.OperationAggregate{}, err
 	}
-	results, err := queryCapabilityResultsDB(ctx, s.db, request.Principal.TenantID, request.Principal.CorpID, request.OperationID)
+	results, err := queryCapabilityResultsDB(ctx, tx, request.Principal.TenantID, request.Principal.CorpID, request.OperationID)
 	if err != nil {
 		return wecomcapability.OperationAggregate{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return wecomcapability.OperationAggregate{}, companyprofile.ErrStoreUnavailable
 	}
 	return wecomcapability.OperationAggregate{
 		OperationID: request.OperationID,
@@ -78,8 +102,120 @@ func (s *MySQLStore) AggregateOperation(ctx context.Context, request wecomcapabi
 	}, nil
 }
 
+type CapabilityDispatchReconcileInput struct {
+	DispatchID        int64
+	LeaseToken        string
+	Attempt           int
+	ProviderRequestID string
+	ProviderMessageID string
+	ProviderObjectID  string
+	ErrorCode         string
+	NextPollAt        *time.Time
+	NextPollDelay     time.Duration
+}
+
+func (s *MySQLStore) PersistCapabilityDispatchReconcile(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input CapabilityDispatchReconcileInput) (wecomcapability.Dispatch, error) {
+	if s == nil || s.db == nil || input.DispatchID <= 0 || input.Attempt <= 0 || !validLedgerToken(input.LeaseToken, 128) || !validOptionalLedgerToken(input.ProviderRequestID, 128) || !validOptionalLedgerToken(input.ProviderMessageID, 128) || !validOptionalLedgerToken(input.ProviderObjectID, 128) || !validCapabilityMachineCode(input.ErrorCode, 96) {
+		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wecomcapability.Dispatch{}, companyprofile.ErrStoreUnavailable
+	}
+	defer rollbackQuietly(tx)
+	actorSource := capabilityActorUser
+	if principal.UserID <= 0 {
+		actorSource = capabilityActorSystem
+	}
+	actorUserID, actorSource, err := s.capabilityActor(ctx, tx, principal, actorSource, true)
+	if err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	dispatch, err := queryCapabilityDispatchTx(ctx, tx, principal.TenantID, principal.CorpID, input.DispatchID, true)
+	if err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	if dispatch.LeaseToken != input.LeaseToken || dispatch.Attempt != input.Attempt || !dispatchReconcileStateAllowsWrite(dispatch.Status) {
+		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
+	}
+	var operationID int64
+	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM mochat_go_wecom_capability_dispatches WHERE tenant_id=? AND corp_id=? AND id=? FOR UPDATE`, principal.TenantID, principal.CorpID, input.DispatchID).Scan(&operationID); err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	operation, err := queryCapabilityOperationTx(ctx, tx, principal.TenantID, principal.CorpID, operationID, true)
+	if err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	if !capabilityOperationAllowsDispatch(operation.Status) {
+		return wecomcapability.Dispatch{}, ErrCapabilityInvalidState
+	}
+	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)
+	if err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	generation := credentialGenerationForCapability(binding, operation.Capability)
+	if generation == 0 || operation.CredentialVersion != generation || dispatch.CredentialVersion != generation {
+		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
+	}
+	providerRequestID := strings.TrimSpace(input.ProviderRequestID)
+	providerMessageID := strings.TrimSpace(input.ProviderMessageID)
+	providerObjectID := strings.TrimSpace(input.ProviderObjectID)
+	errorCode := strings.TrimSpace(input.ErrorCode)
+	if errorCode == "" {
+		errorCode = wecomcapability.DispatchReconcileRequiredCode
+	}
+	status := dispatch.Status
+	if status == wecomcapability.DispatchSubmitting && (providerRequestID != "" || providerMessageID != "" || providerObjectID != "") {
+		status = wecomcapability.DispatchSubmitted
+	}
+	if input.NextPollDelay < 0 {
+		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
+	}
+	updated, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_wecom_capability_dispatches
+		SET status=?, provider_request_id=CASE WHEN ? <> '' THEN ? ELSE provider_request_id END,
+		    provider_message_id=CASE WHEN ? <> '' THEN ? ELSE provider_message_id END,
+		    provider_object_id=CASE WHEN ? <> '' THEN ? ELSE provider_object_id END,
+		    next_poll_at=CASE WHEN ? > 0 THEN DATE_ADD(NOW(6), INTERVAL ? MICROSECOND) ELSE COALESCE(?, NOW(6)) END, last_error_code=?, updated_at=NOW(6)
+		WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=?
+		  AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)
+		  AND status IN (?, ?, ?)`,
+		status, providerRequestID, providerRequestID, providerMessageID, providerMessageID, providerObjectID, providerObjectID,
+		input.NextPollDelay.Microseconds(), input.NextPollDelay.Microseconds(), input.NextPollAt, wecomcapability.DispatchReconcileRequiredCode, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt,
+		wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling)
+	if err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	if err := requireCompanyRows(updated, 1); err != nil {
+		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
+	}
+	dispatch, err = queryCapabilityDispatchTx(ctx, tx, principal.TenantID, principal.CorpID, input.DispatchID, true)
+	if err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	auditOperation := operation
+	auditOperation.Status = dispatch.Status
+	auditOperation.ErrorCode = errorCode
+	if err := appendCapabilityLedgerTransitionTx(ctx, tx, auditOperation, operation.Status, "dispatch_reconcile", actorUserID, actorSource, "", &input.DispatchID); err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return wecomcapability.Dispatch{}, err
+	}
+	return dispatch, nil
+}
+
+func dispatchReconcileStateAllowsWrite(status string) bool {
+	switch status {
+	case wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *MySQLStore) RecordCapabilityDispatchResult(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input CapabilityDispatchResultInput) (wecomcapability.OperationResult, error) {
-	if s == nil || s.db == nil || input.DispatchID <= 0 || input.Attempt <= 0 || !validLedgerToken(input.LeaseToken, 128) || !validLedgerToken(input.TargetKind, 32) || !validLedgerToken(input.TargetID, 255) || !wecomcapability.IsValidOperationResultStatus(input.Status) || !validCapabilityMachineCode(input.ErrorCode, 96) || !validSafeCapabilityText(input.ErrorMessageSafe, 255) {
+	if s == nil || s.db == nil || input.DispatchID <= 0 || input.Attempt <= 0 || !validLedgerToken(input.LeaseToken, 128) || !validLedgerToken(input.TargetKind, 32) || !validLedgerToken(input.TargetID, 255) || !wecomcapability.IsValidOperationResultStatus(input.Status) || !wecomcapability.IsTerminalOperationResultStatus(input.Status) || !validCapabilityMachineCode(input.ErrorCode, 96) || !validSafeCapabilityText(input.ErrorMessageSafe, 255) || ((input.Status == wecomcapability.DispatchFailed || input.Status == wecomcapability.DispatchPartialFailed) && strings.TrimSpace(input.ErrorCode) == "") {
 		return wecomcapability.OperationResult{}, companyprofile.ErrInvalidRequest
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -133,20 +269,20 @@ func (s *MySQLStore) RecordCapabilityDispatchResult(ctx context.Context, princip
 		return wecomcapability.OperationResult{}, ErrCapabilityOperationStale
 	}
 
-	var existingStatus string
-	existingErr := tx.QueryRowContext(ctx, `SELECT status FROM mochat_go_wecom_capability_operation_results WHERE tenant_id=? AND corp_id=? AND operation_id=? AND target_kind=? AND target_id=? FOR UPDATE`, principal.TenantID, principal.CorpID, operationID, input.TargetKind, input.TargetID).Scan(&existingStatus)
+	existingResult, existingErr := queryCapabilityResultTx(ctx, tx, principal.TenantID, principal.CorpID, operationID, input.TargetKind, input.TargetID)
 	if existingErr != nil && existingErr != sql.ErrNoRows {
 		return wecomcapability.OperationResult{}, existingErr
 	}
-	if existingErr == nil && existingStatus == wecomcapability.DispatchSucceeded {
-		result, err := queryCapabilityResultTx(ctx, tx, principal.TenantID, principal.CorpID, operationID, input.TargetKind, input.TargetID)
-		if err != nil {
-			return wecomcapability.OperationResult{}, err
+	if existingErr == nil {
+		if operationResultsEqual(existingResult, input) {
+			if err := tx.Commit(); err != nil {
+				return wecomcapability.OperationResult{}, err
+			}
+			return existingResult, nil
 		}
-		if err := tx.Commit(); err != nil {
-			return wecomcapability.OperationResult{}, err
+		if existingResult.Status != wecomcapability.DispatchFailed && existingResult.Status != wecomcapability.DispatchPartialFailed || input.Status != wecomcapability.DispatchSucceeded {
+			return wecomcapability.OperationResult{}, ErrCapabilityOperationConflict
 		}
-		return result, nil
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO mochat_go_wecom_capability_operation_results
@@ -169,6 +305,10 @@ func (s *MySQLStore) RecordCapabilityDispatchResult(ctx context.Context, princip
 	return result, nil
 }
 
+func operationResultsEqual(existing wecomcapability.OperationResult, input CapabilityDispatchResultInput) bool {
+	return existing.Status == input.Status && existing.ProviderTargetID == strings.TrimSpace(input.ProviderTargetID) && existing.ErrorCode == strings.TrimSpace(input.ErrorCode) && existing.ErrorMessageSafe == strings.TrimSpace(input.ErrorMessageSafe)
+}
+
 func dispatchResultStateAllowsWrite(status string) bool {
 	switch status {
 	case wecomcapability.DispatchClaimed, wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling:
@@ -186,8 +326,8 @@ func capabilityDashboardPrincipal(principal wecomcapability.DispatchPrincipal) d
 	}
 }
 
-func queryCapabilityOperationDB(ctx context.Context, db *sql.DB, tenantID, corpID int, operationID int64) (wecomcapability.Operation, error) {
-	return scanCapabilityOperation(db.QueryRowContext(ctx, `
+func queryCapabilityOperationDB(ctx context.Context, queryer companyProfileQueryer, tenantID, corpID int, operationID int64) (wecomcapability.Operation, error) {
+	return scanCapabilityOperation(queryer.QueryRowContext(ctx, `
 		SELECT id,tenant_id,corp_id,capability,action,credential_group,credential_generation,idempotency_key,status,
 		       provider_request_id,provider_object_id,actual_agent_id,external_success,callback_evidence,
 		       target_total,success_total,failure_total,error_code,actor_user_id,actor_source,request_id,lease_token,
@@ -195,8 +335,8 @@ func queryCapabilityOperationDB(ctx context.Context, db *sql.DB, tenantID, corpI
 		FROM mochat_go_wecom_capability_operations WHERE tenant_id=? AND corp_id=? AND id=?`, tenantID, corpID, operationID))
 }
 
-func queryCapabilityDispatchesDB(ctx context.Context, db *sql.DB, tenantID, corpID int, operationID int64) ([]wecomcapability.Dispatch, error) {
-	rows, err := db.QueryContext(ctx, `
+func queryCapabilityDispatchesDB(ctx context.Context, queryer companyProfileQueryer, tenantID, corpID int, operationID int64) ([]wecomcapability.Dispatch, error) {
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT id,tenant_id,corp_id,operation_id,dispatch_kind,chunk_no,target_id,idempotency_key,status,
 		       provider_request_id,provider_message_id,provider_object_id,credential_generation,lease_token,
 		       lease_expires_at,attempt,next_poll_at,last_error_code,created_at,updated_at
@@ -237,8 +377,8 @@ func queryCapabilityResultTx(ctx context.Context, tx *sql.Tx, tenantID, corpID i
 		FROM mochat_go_wecom_capability_operation_results WHERE tenant_id=? AND corp_id=? AND operation_id=? AND target_kind=? AND target_id=?`, tenantID, corpID, operationID, targetKind, targetID))
 }
 
-func queryCapabilityResultsDB(ctx context.Context, db *sql.DB, tenantID, corpID int, operationID int64) ([]wecomcapability.OperationResult, error) {
-	rows, err := db.QueryContext(ctx, `
+func queryCapabilityResultsDB(ctx context.Context, queryer companyProfileQueryer, tenantID, corpID int, operationID int64) ([]wecomcapability.OperationResult, error) {
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT id,tenant_id,corp_id,operation_id,target_kind,target_id,status,provider_target_id,error_code,error_message_safe,created_at,updated_at
 		FROM mochat_go_wecom_capability_operation_results WHERE tenant_id=? AND corp_id=? AND operation_id=? ORDER BY id ASC`, tenantID, corpID, operationID)
 	if err != nil {

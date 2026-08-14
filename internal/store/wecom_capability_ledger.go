@@ -70,6 +70,7 @@ type CapabilityDispatchTransitionInput struct {
 	ProviderMessageID string
 	ProviderObjectID  string
 	NextPollAt        *time.Time
+	NextPollDelay     time.Duration
 	LastErrorCode     string
 }
 
@@ -163,6 +164,11 @@ func ValidateCapabilityDispatchInput(input CapabilityDispatchInput) error {
 func validLedgerToken(value string, limit int) bool {
 	value = strings.TrimSpace(value)
 	return value != "" && len(value) <= limit && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func validOptionalLedgerToken(value string, limit int) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || validLedgerToken(value, limit)
 }
 
 func validCapabilityMachineCode(value string, limit int) bool {
@@ -505,7 +511,7 @@ func (s *MySQLStore) CreateCapabilityDispatch(ctx context.Context, principal das
 	if !capabilityOperationAllowsDispatch(operation.Status) {
 		return wecomcapability.Dispatch{}, ErrCapabilityInvalidState
 	}
-	if (operation.Capability == wecomcapability.ContactBatchSend || operation.Capability == wecomcapability.RoomBatchSend) && !wecomcapability.DispatchKindMatchesCapability(operation.Capability, input.DispatchKind) {
+	if (operation.Capability == wecomcapability.ContactBatchSend || operation.Capability == wecomcapability.RoomBatchSend) && !wecomcapability.DispatchKindMatchesCapability(operation.Capability, wecomcapability.DispatchKind(input.DispatchKind)) {
 		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
 	}
 	result, err := tx.ExecContext(ctx, `
@@ -604,7 +610,20 @@ func (s *MySQLStore) claimCapabilityDispatch(ctx context.Context, principal dash
 		return wecomcapability.Dispatch{}, companyprofile.ErrStoreUnavailable
 	}
 	previousStatus := dispatch.Status
-	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=CASE WHEN status IN (?, ?, ?) THEN ? ELSE status END, lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND credential_generation=? AND status=? AND (status IN (?, ?, ?) OR lease_expires_at IS NULL OR lease_expires_at <= NOW(6))`, wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed, wecomcapability.DispatchClaimed, leaseToken, leaseDuration.Microseconds(), principal.TenantID, principal.CorpID, dispatchID, generation, dispatch.Status, wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed)
+	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches
+		SET status=CASE WHEN status IN (?, ?, ?) THEN ? ELSE status END,
+		    lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1, updated_at=NOW(6)
+		WHERE tenant_id=? AND corp_id=? AND id=? AND credential_generation=?
+		  AND (
+			status=?
+			OR (status IN (?, ?) AND (last_error_code=? OR (CHAR_LENGTH(last_error_code)=14 AND last_error_code BETWEEN ? AND ?)) AND next_poll_at IS NOT NULL AND next_poll_at <= NOW(6))
+			OR (status IN (?, ?, ?, ?) AND (lease_expires_at IS NULL OR lease_expires_at <= NOW(6)) AND (next_poll_at IS NULL OR next_poll_at <= NOW(6)))
+		  )`,
+		wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed, wecomcapability.DispatchClaimed,
+		leaseToken, leaseDuration.Microseconds(), principal.TenantID, principal.CorpID, dispatchID, generation,
+		wecomcapability.DispatchQueued,
+		wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed, "wecom.http_429", "wecom.http_500", "wecom.http_599",
+		wecomcapability.DispatchClaimed, wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling)
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
 	}
@@ -684,7 +703,10 @@ func (s *MySQLStore) TransitionCapabilityDispatch(ctx context.Context, principal
 	providerRequestID := strings.TrimSpace(input.ProviderRequestID)
 	providerMessageID := strings.TrimSpace(input.ProviderMessageID)
 	providerObjectID := strings.TrimSpace(input.ProviderObjectID)
-	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, lease_token=CASE WHEN ? THEN '' ELSE lease_token END, provider_request_id=CASE WHEN ? <> '' THEN ? ELSE provider_request_id END, provider_message_id=CASE WHEN ? <> '' THEN ? ELSE provider_message_id END, provider_object_id=CASE WHEN ? <> '' THEN ? ELSE provider_object_id END, next_poll_at=?, last_error_code=?, lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=? AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`, input.Status, finished, providerRequestID, providerRequestID, providerMessageID, providerMessageID, providerObjectID, providerObjectID, input.NextPollAt, errorCode, finished, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt)
+	if input.NextPollDelay < 0 {
+		return wecomcapability.Dispatch{}, companyprofile.ErrInvalidRequest
+	}
+	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, lease_token=CASE WHEN ? THEN '' ELSE lease_token END, provider_request_id=CASE WHEN ? <> '' THEN ? ELSE provider_request_id END, provider_message_id=CASE WHEN ? <> '' THEN ? ELSE provider_message_id END, provider_object_id=CASE WHEN ? <> '' THEN ? ELSE provider_object_id END, next_poll_at=CASE WHEN ? > 0 THEN DATE_ADD(NOW(6), INTERVAL ? MICROSECOND) ELSE ? END, last_error_code=?, lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=? AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`, input.Status, finished, providerRequestID, providerRequestID, providerMessageID, providerMessageID, providerObjectID, providerObjectID, input.NextPollDelay.Microseconds(), input.NextPollDelay.Microseconds(), input.NextPollAt, errorCode, finished, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt)
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
 	}

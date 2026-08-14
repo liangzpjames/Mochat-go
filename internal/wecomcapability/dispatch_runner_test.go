@@ -15,6 +15,10 @@ type dispatchRunnerFakeLedger struct {
 	transitioned       []DispatchTransitionRequest
 	transitionErr      error
 	transitionErrAfter int
+	reconcileCalls     int
+	reconcileErr       error
+	recordedResults    []DispatchResultRequest
+	allowReclaim       bool
 	aggregate          OperationAggregate
 	aggregateError     error
 }
@@ -23,7 +27,7 @@ func (f *dispatchRunnerFakeLedger) ClaimDispatch(_ context.Context, _ DispatchCl
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claimCount++
-	if f.claimCount > 1 {
+	if f.claimCount > 1 && !f.allowReclaim {
 		return Dispatch{}, ErrDispatchAlreadyClaimed
 	}
 	return f.claimed, nil
@@ -52,7 +56,34 @@ func (f *dispatchRunnerFakeLedger) TransitionDispatch(_ context.Context, request
 	return f.claimed, nil
 }
 
-func (f *dispatchRunnerFakeLedger) RecordDispatchResult(context.Context, DispatchResultRequest) (OperationResult, error) {
+func (f *dispatchRunnerFakeLedger) PersistDispatchReconcile(_ context.Context, request DispatchReconcileRequest) (Dispatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reconcileCalls++
+	if f.reconcileErr != nil {
+		return Dispatch{}, f.reconcileErr
+	}
+	if request.ProviderRequestID != "" {
+		f.claimed.ProviderRequestID = request.ProviderRequestID
+	}
+	if request.ProviderMessageID != "" {
+		f.claimed.ProviderMessageID = request.ProviderMessageID
+	}
+	if request.ProviderObjectID != "" {
+		f.claimed.ProviderObjectID = request.ProviderObjectID
+	}
+	f.claimed.LastErrorCode = DispatchReconcileRequiredCode
+	f.claimed.NextPollAt = request.NextPollAt
+	if f.claimed.Status == DispatchSubmitting && (f.claimed.ProviderRequestID != "" || f.claimed.ProviderMessageID != "" || f.claimed.ProviderObjectID != "") {
+		f.claimed.Status = DispatchSubmitted
+	}
+	return f.claimed, nil
+}
+
+func (f *dispatchRunnerFakeLedger) RecordDispatchResult(_ context.Context, request DispatchResultRequest) (OperationResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recordedResults = append(f.recordedResults, request)
 	return OperationResult{}, nil
 }
 
@@ -101,7 +132,7 @@ func (f dispatchRunnerFixedClock) Now() time.Time { return f.now }
 
 func TestDispatchRunnerDoesNotSubmitAlreadySubmittedDispatch(t *testing.T) {
 	ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
-		ID: 11, TenantID: 7, CorpID: 9, OperationID: 21, DispatchKind: "contact", TargetID: "external-1",
+		ID: 11, TenantID: 7, CorpID: 9, OperationID: 21, DispatchKind: string(DispatchKindContactBatch), TargetID: "external-1",
 		Status: DispatchSubmitted, CredentialVersion: 4, Attempt: 2, LeaseToken: "lease-2", ProviderRequestID: "task-1",
 	}, aggregate: OperationAggregate{Status: OperationSucceeded}}
 	sender := &dispatchRunnerFakeSender{result: DispatchSubmitResult{ProviderRequestID: "must-not-submit"}}
@@ -120,6 +151,50 @@ func TestDispatchRunnerDoesNotSubmitAlreadySubmittedDispatch(t *testing.T) {
 	}
 }
 
+func TestDispatchRunnerPollsPersistedSubmittingReconcileWithoutResubmit(t *testing.T) {
+	ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
+		ID: 111, TenantID: 7, CorpID: 9, OperationID: 211,
+		DispatchKind: string(DispatchKindContactBatch), TargetID: "external-reconcile",
+		Status: DispatchSubmitting, CredentialVersion: 4, Attempt: 2, LeaseToken: "lease-reconcile",
+		ProviderRequestID: "task-reconcile", LastErrorCode: "wecom.dispatch_reconcile_required",
+	}, aggregate: OperationAggregate{Status: OperationPolling}}
+	sender := &dispatchRunnerFakeSender{result: DispatchSubmitResult{Submitted: true, ProviderRequestID: "must-not-submit"}}
+	poller := &dispatchRunnerFakePoller{result: DispatchPollResult{Terminal: true, Status: DispatchSucceeded, ProviderRequestID: "task-reconcile"}}
+	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, sender, poller)
+
+	result, err := runner.Run(context.Background(), DispatchRunRequest{
+		Principal:  DispatchPrincipal{TenantID: 7, CorpID: 9, UserID: 100, AuthVersion: 1},
+		Capability: ContactBatchSend, ExpectedCredentialVersion: 4, DispatchID: 111, LeaseDuration: time.Minute,
+	})
+	if err != nil || sender.calls != 0 || poller.calls != 1 || !result.Polled {
+		t.Fatalf("persisted submitting reconcile was resubmitted or not polled: sender=%d poller=%d result=%+v err=%v", sender.calls, poller.calls, result, err)
+	}
+}
+
+func TestDispatchRunnerRepairsSubmittingCrashMarkerBeforePolling(t *testing.T) {
+	ledger := &dispatchRunnerFakeLedger{allowReclaim: true, claimed: Dispatch{
+		ID: 112, TenantID: 7, CorpID: 9, OperationID: 212,
+		DispatchKind: string(DispatchKindContactBatch), TargetID: "external-crash-window",
+		Status: DispatchSubmitting, CredentialVersion: 4, Attempt: 2, LeaseToken: "lease-crash-window",
+	}}
+	sender := &dispatchRunnerFakeSender{result: DispatchSubmitResult{Submitted: true, ProviderRequestID: "must-not-submit"}}
+	poller := &dispatchRunnerFakePoller{result: DispatchPollResult{Terminal: true, Status: DispatchSucceeded}}
+	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, sender, poller)
+	request := DispatchRunRequest{
+		Principal:  DispatchPrincipal{TenantID: 7, CorpID: 9, UserID: 100, AuthVersion: 1},
+		Capability: ContactBatchSend, ExpectedCredentialVersion: 4, DispatchID: 112, LeaseDuration: time.Minute,
+	}
+
+	first, firstErr := runner.Run(context.Background(), request)
+	if !errors.Is(firstErr, ErrDispatchReconcileRequired) || !first.ReconcileRequired || sender.calls != 0 || poller.calls != 0 || ledger.reconcileCalls != 1 || ledger.claimed.LastErrorCode != DispatchReconcileRequiredCode {
+		t.Fatalf("submitting crash window was not durably fenced for reconciliation: sender=%d poller=%d reconcile=%d dispatch=%+v result=%+v err=%v", sender.calls, poller.calls, ledger.reconcileCalls, ledger.claimed, first, firstErr)
+	}
+	second, secondErr := runner.Run(context.Background(), request)
+	if secondErr != nil || sender.calls != 0 || poller.calls != 1 || !second.Polled {
+		t.Fatalf("submitting crash window did not recover through poll-only path: sender=%d poller=%d result=%+v err=%v", sender.calls, poller.calls, second, secondErr)
+	}
+}
+
 func TestDispatchRunnerFailsClosedBeforeSubmitOnGenerationOrAuthorization(t *testing.T) {
 	for _, test := range []struct {
 		name       string
@@ -131,7 +206,7 @@ func TestDispatchRunnerFailsClosedBeforeSubmitOnGenerationOrAuthorization(t *tes
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
-				ID: 12, TenantID: 7, CorpID: 9, OperationID: 22, DispatchKind: "room", TargetID: "room-1",
+				ID: 12, TenantID: 7, CorpID: 9, OperationID: 22, DispatchKind: string(DispatchKindRoomBatch), TargetID: "room-1",
 				Status: DispatchQueued, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1",
 			}}
 			sender := &dispatchRunnerFakeSender{}
@@ -149,7 +224,7 @@ func TestDispatchRunnerFailsClosedBeforeSubmitOnGenerationOrAuthorization(t *tes
 
 func TestDispatchRunnerExternalSuccessWithStoreFailureRequiresReconcile(t *testing.T) {
 	ledger := &dispatchRunnerFakeLedger{
-		claimed:            Dispatch{ID: 13, TenantID: 7, CorpID: 9, OperationID: 23, DispatchKind: "contact", TargetID: "external-2", Status: DispatchClaimed, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1"},
+		claimed:            Dispatch{ID: 13, TenantID: 7, CorpID: 9, OperationID: 23, DispatchKind: string(DispatchKindContactBatch), TargetID: "external-2", Status: DispatchClaimed, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1"},
 		transitionErr:      errors.New("db unavailable after external submit"),
 		transitionErrAfter: 2,
 	}
@@ -163,13 +238,82 @@ func TestDispatchRunnerExternalSuccessWithStoreFailureRequiresReconcile(t *testi
 	if !errors.Is(err, ErrDispatchReconcileRequired) || !result.ReconcileRequired || result.ProviderRequestID != "task-after-db-failure" {
 		t.Fatalf("external success was not surfaced for reconciliation: result=%+v err=%v", result, err)
 	}
+	if ledger.reconcileCalls != 1 || ledger.claimed.Status != DispatchSubmitted || ledger.claimed.ProviderRequestID != "task-after-db-failure" {
+		t.Fatalf("external success was not durably reconciled: calls=%d dispatch=%+v", ledger.reconcileCalls, ledger.claimed)
+	}
+}
+
+func TestDispatchRunnerAmbiguousSubmitEntersReconcileWithoutFakeSuccess(t *testing.T) {
+	ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
+		ID: 131, TenantID: 7, CorpID: 9, OperationID: 231, DispatchKind: string(DispatchKindContactBatch),
+		TargetID: "external-ambiguous", Status: DispatchClaimed, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1",
+	}}
+	sender := &dispatchRunnerFakeSender{result: DispatchSubmitResult{Submitted: true}}
+	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, sender, nil)
+
+	result, err := runner.Run(context.Background(), DispatchRunRequest{
+		Principal:  DispatchPrincipal{TenantID: 7, CorpID: 9, UserID: 100, AuthVersion: 1},
+		Capability: ContactBatchSend, ExpectedCredentialVersion: 4, DispatchID: 131, LeaseDuration: time.Minute,
+	})
+	if !errors.Is(err, ErrDispatchReconcileRequired) || !result.ReconcileRequired || sender.calls != 1 || ledger.reconcileCalls != 1 || ledger.claimed.Status != DispatchSubmitting {
+		t.Fatalf("ambiguous submit was treated as a normal failure/success: sender=%d reconcile=%d dispatch=%+v result=%+v err=%v", sender.calls, ledger.reconcileCalls, ledger.claimed, result, err)
+	}
+}
+
+func TestDispatchRunnerSubmitServerErrorReconcilesAndNextRunDoesNotResubmit(t *testing.T) {
+	ledger := &dispatchRunnerFakeLedger{allowReclaim: true, claimed: Dispatch{
+		ID: 132, TenantID: 7, CorpID: 9, OperationID: 232, DispatchKind: string(DispatchKindContactBatch),
+		TargetID: "external-503", Status: DispatchClaimed, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1",
+	}}
+	sender := &dispatchRunnerFakeSender{err: &DispatchProviderError{Code: "wecom.http_503", Retryable: true}}
+	poller := &dispatchRunnerFakePoller{result: DispatchPollResult{Terminal: true, Status: DispatchSucceeded, ProviderRequestID: "task-503"}}
+	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, sender, poller)
+	request := DispatchRunRequest{
+		Principal:  DispatchPrincipal{TenantID: 7, CorpID: 9, UserID: 100, AuthVersion: 1},
+		Capability: ContactBatchSend, ExpectedCredentialVersion: 4, DispatchID: 132, LeaseDuration: time.Minute,
+	}
+
+	first, firstErr := runner.Run(context.Background(), request)
+	if !errors.Is(firstErr, ErrDispatchReconcileRequired) || !first.ReconcileRequired || ledger.reconcileCalls != 1 {
+		t.Fatalf("submit 5xx was not durably reconciled: result=%+v err=%v reconcile=%d", first, firstErr, ledger.reconcileCalls)
+	}
+	second, secondErr := runner.Run(context.Background(), request)
+	if secondErr != nil || sender.calls != 1 || poller.calls != 1 || !second.Polled {
+		t.Fatalf("recovered submit 5xx was resubmitted: sender=%d poller=%d result=%+v err=%v", sender.calls, poller.calls, second, secondErr)
+	}
+}
+
+func TestDispatchRunnerPollServerErrorRetriesPollWithoutSubmit(t *testing.T) {
+	ledger := &dispatchRunnerFakeLedger{allowReclaim: true, claimed: Dispatch{
+		ID: 133, TenantID: 7, CorpID: 9, OperationID: 233, DispatchKind: string(DispatchKindContactBatch),
+		TargetID: "external-poll-503", Status: DispatchPolling, CredentialVersion: 4, Attempt: 2, LeaseToken: "lease-2", ProviderRequestID: "task-poll-503",
+	}}
+	sender := &dispatchRunnerFakeSender{}
+	poller := &dispatchRunnerFakePoller{err: &DispatchProviderError{Code: "wecom.http_503", Retryable: true}}
+	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, sender, poller)
+	request := DispatchRunRequest{
+		Principal:  DispatchPrincipal{TenantID: 7, CorpID: 9, UserID: 100, AuthVersion: 1},
+		Capability: ContactBatchSend, ExpectedCredentialVersion: 4, DispatchID: 133, LeaseDuration: time.Minute,
+	}
+
+	if _, err := runner.Run(context.Background(), request); err == nil {
+		t.Fatal("poll 5xx unexpectedly became success")
+	}
+	if len(ledger.transitioned) != 1 || ledger.transitioned[0].NextPollDelay != time.Minute || ledger.transitioned[0].NextPollAt == nil {
+		t.Fatalf("poll 5xx did not carry a database-relative backoff: transitions=%+v", ledger.transitioned)
+	}
+	poller.err = nil
+	poller.result = DispatchPollResult{Terminal: true, Status: DispatchSucceeded, ProviderRequestID: "task-poll-503"}
+	if result, err := runner.Run(context.Background(), request); err != nil || sender.calls != 0 || poller.calls != 2 || !result.Polled {
+		t.Fatalf("poll 5xx was not retried as poll-only: sender=%d poller=%d result=%+v err=%v", sender.calls, poller.calls, result, err)
+	}
 }
 
 func TestDispatchRunnerRetryClassifierSchedulesRetryWithoutFakeSuccess(t *testing.T) {
 	ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
-		ID: 14, TenantID: 7, CorpID: 9, OperationID: 24, DispatchKind: "room", TargetID: "room-2", Status: DispatchClaimed, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1",
+		ID: 14, TenantID: 7, CorpID: 9, OperationID: 24, DispatchKind: string(DispatchKindRoomBatch), TargetID: "room-2", Status: DispatchClaimed, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1",
 	}}
-	sender := &dispatchRunnerFakeSender{err: &DispatchProviderError{Code: "wecom.http_429", Retryable: true}}
+	sender := &dispatchRunnerFakeSender{err: &DispatchProviderError{Code: "wecom.http_429", Retryable: true, SubmissionNotAccepted: true}}
 	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, sender, nil)
 	runner = runner.WithClock(dispatchRunnerFixedClock{now: time.Date(2026, 8, 15, 1, 0, 0, 0, time.UTC)}).WithBackoff(FixedBackoff(time.Minute))
 
@@ -187,25 +331,26 @@ func TestDefaultDispatchRetryClassifierUsesStableProviderCategories(t *testing.T
 	for _, test := range []struct {
 		code      string
 		retryable bool
+		reconcile bool
 	}{
 		{code: "wecom.http_429", retryable: true},
 		{code: "wecom.http_503", retryable: true},
-		{code: "wecom.timeout", retryable: true},
-		{code: "wecom.http_401", retryable: false},
-		{code: "wecom.http_403", retryable: false},
-		{code: "wecom.dispatch_contract_invalid", retryable: false},
-		{code: "wecom.unclassified", retryable: false},
+		{code: "wecom.timeout", reconcile: true},
+		{code: "wecom.http_401"},
+		{code: "wecom.http_403"},
+		{code: "wecom.dispatch_contract_invalid"},
+		{code: "wecom.unclassified"},
 	} {
 		decision := classifier.Classify(&DispatchProviderError{Code: test.code, Retryable: !test.retryable})
-		if decision.Retryable != test.retryable || decision.ErrorCode != test.code {
-			t.Fatalf("classify(%q)=%+v, want retryable=%v and stable code", test.code, decision, test.retryable)
+		if decision.Retryable != test.retryable || decision.Reconcile != test.reconcile || decision.ErrorCode != test.code {
+			t.Fatalf("classify(%q)=%+v, want retryable=%v reconcile=%v and stable code", test.code, decision, test.retryable, test.reconcile)
 		}
 	}
 }
 
 func TestDispatchRunnerPollRetryKeepsSubmittedWorkInPollingState(t *testing.T) {
 	ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
-		ID: 15, TenantID: 7, CorpID: 9, OperationID: 25, DispatchKind: "contact", TargetID: "external-3", Status: DispatchPolling, CredentialVersion: 4, Attempt: 3, LeaseToken: "lease-3",
+		ID: 15, TenantID: 7, CorpID: 9, OperationID: 25, DispatchKind: string(DispatchKindContactBatch), TargetID: "external-3", Status: DispatchPolling, CredentialVersion: 4, Attempt: 3, LeaseToken: "lease-3",
 	}}
 	sender := &dispatchRunnerFakeSender{}
 	poller := &dispatchRunnerFakePoller{err: &DispatchProviderError{Code: "wecom.http_503", Retryable: true}}
@@ -224,7 +369,7 @@ func TestDispatchRunnerPollRetryKeepsSubmittedWorkInPollingState(t *testing.T) {
 
 func TestDispatchRunnerPollDoesNotErasePersistedProviderIdentity(t *testing.T) {
 	ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
-		ID: 151, TenantID: 7, CorpID: 9, OperationID: 251, DispatchKind: "contact", TargetID: "external-identity", Status: DispatchSubmitted, CredentialVersion: 4, Attempt: 3, LeaseToken: "lease-3", ProviderRequestID: "task-existing", ProviderMessageID: "msg-existing",
+		ID: 151, TenantID: 7, CorpID: 9, OperationID: 251, DispatchKind: string(DispatchKindContactBatch), TargetID: "external-identity", Status: DispatchSubmitted, CredentialVersion: 4, Attempt: 3, LeaseToken: "lease-3", ProviderRequestID: "task-existing", ProviderMessageID: "msg-existing",
 	}}
 	poller := &dispatchRunnerFakePoller{result: DispatchPollResult{Terminal: true, Status: DispatchSucceeded}}
 	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, &dispatchRunnerFakeSender{}, poller)
@@ -238,9 +383,29 @@ func TestDispatchRunnerPollDoesNotErasePersistedProviderIdentity(t *testing.T) {
 	}
 }
 
+func TestDispatchRunnerRejectsNonTerminalTargetResultFromPoll(t *testing.T) {
+	ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
+		ID: 152, TenantID: 7, CorpID: 9, OperationID: 252, DispatchKind: string(DispatchKindContactBatch), TargetID: "external-queued-result",
+		Status: DispatchSubmitted, CredentialVersion: 4, Attempt: 3, LeaseToken: "lease-3", ProviderRequestID: "task-queued-result",
+	}}
+	poller := &dispatchRunnerFakePoller{result: DispatchPollResult{
+		Terminal: true, Status: DispatchSucceeded, ProviderRequestID: "task-queued-result",
+		Results: []DispatchResultRequest{{TargetKind: "external_user", TargetID: "user-queued", Status: DispatchQueued}},
+	}}
+	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, &dispatchRunnerFakeSender{}, poller)
+
+	result, err := runner.Run(context.Background(), DispatchRunRequest{
+		Principal:  DispatchPrincipal{TenantID: 7, CorpID: 9, UserID: 100, AuthVersion: 1},
+		Capability: ContactBatchSend, ExpectedCredentialVersion: 4, DispatchID: 152, LeaseDuration: time.Minute,
+	})
+	if !errors.Is(err, ErrDispatchContract) || len(ledger.recordedResults) != 0 || result.Status == DispatchSucceeded {
+		t.Fatalf("queued target result was accepted as terminal: recorded=%d result=%+v err=%v", len(ledger.recordedResults), result, err)
+	}
+}
+
 func TestDispatchRunnerDuplicateWorkerCannotSubmitSameClaimTwice(t *testing.T) {
 	ledger := &dispatchRunnerFakeLedger{claimed: Dispatch{
-		ID: 16, TenantID: 7, CorpID: 9, OperationID: 26, DispatchKind: "room", TargetID: "room-4", Status: DispatchClaimed, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1",
+		ID: 16, TenantID: 7, CorpID: 9, OperationID: 26, DispatchKind: string(DispatchKindRoomBatch), TargetID: "room-4", Status: DispatchClaimed, CredentialVersion: 4, Attempt: 1, LeaseToken: "lease-1",
 	}}
 	sender := &dispatchRunnerFakeSender{result: DispatchSubmitResult{Submitted: true, ProviderRequestID: "task-16"}}
 	runner := NewDispatchRunner(ledger, &dispatchRunnerFakeAuthorizer{}, sender, nil)
@@ -306,5 +471,28 @@ func TestAggregateOperationStatusUsesDispatchesAndSeparatesCapability(t *testing
 	}
 	if got := AggregateOperationStatusWithResults(ContactBatchSend, []Dispatch{{Status: DispatchSucceeded}}, []OperationResult{{Status: DispatchSucceeded}, {Status: DispatchFailed}}); got != OperationPartialFailed {
 		t.Fatalf("mixed target results were not partial: aggregate=%q", got)
+	}
+}
+
+func TestDispatchKindMatchesCapabilityUsesExactBatchKinds(t *testing.T) {
+	if !DispatchKindMatchesCapability(ContactBatchSend, DispatchKindContactBatch) {
+		t.Fatal("contact batch kind was rejected")
+	}
+	if !DispatchKindMatchesCapability(RoomBatchSend, DispatchKindRoomBatch) {
+		t.Fatal("room batch kind was rejected")
+	}
+	for _, invalid := range []struct {
+		capability string
+		kind       string
+	}{
+		{capability: ContactBatchSend, kind: "contact"},
+		{capability: ContactBatchSend, kind: "contact_batch_extra"},
+		{capability: RoomBatchSend, kind: "room"},
+		{capability: RoomBatchSend, kind: "room_batch_extra"},
+		{capability: ContactBatchSend, kind: string(DispatchKindRoomBatch)},
+	} {
+		if DispatchKindMatchesCapability(invalid.capability, DispatchKind(invalid.kind)) {
+			t.Fatalf("non-canonical kind %q matched capability %q", invalid.kind, invalid.capability)
+		}
 	}
 }
