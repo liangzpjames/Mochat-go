@@ -29,6 +29,24 @@ func TestWorkMessageArchivePredicateSeparatesSimulationFromRealArchive(t *testin
 	}
 }
 
+func TestArchiveMessageSourceIdentityAndFilterStayExplicit(t *testing.T) {
+	if source, sourceID := archiveMessageSourceIdentity("MOCHAT-SIM:run-20260814:msg-1"); source != "simulated" || sourceID != "simulation:run-20260814" {
+		t.Fatalf("simulation identity=%q,%q", source, sourceID)
+	}
+	if source, sourceID := archiveMessageSourceIdentity("wecom-msg-1"); source != "external" || sourceID != "wecom" {
+		t.Fatalf("external identity=%q,%q", source, sourceID)
+	}
+	if predicate, ok := archiveSourcePredicate("simulated", "wm.msgid"); !ok || predicate != "wm.msgid LIKE 'MOCHAT-SIM:%'" {
+		t.Fatalf("simulation predicate=%q,%v", predicate, ok)
+	}
+	if predicate, ok := archiveSourcePredicate("external", "wm.msgid"); !ok || predicate != "wm.msgid NOT LIKE 'MOCHAT-SIM:%'" {
+		t.Fatalf("external predicate=%q,%v", predicate, ok)
+	}
+	if _, ok := archiveSourcePredicate("secret-source", "wm.msgid"); ok {
+		t.Fatal("unknown source filter unexpectedly accepted")
+	}
+}
+
 func TestWorkMessageUserWhereAppliesConversationFiltersAndPermissionScope(t *testing.T) {
 	where, args := workMessageUserWhere(dashboard.WorkMessageUserFilter{
 		WorkEmployeeID:      9,

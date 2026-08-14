@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
+	"jiyi/mochat-go/internal/modules/providers"
 )
 
 func companyProfileTestPrincipal(superadmin bool, status dashboardprincipal.CorpBindingStatus) dashboardprincipal.DashboardPrincipal {
@@ -57,6 +58,8 @@ type companyProfileContractStore struct {
 	syncStatus           SyncStatus
 	syncStatusCalls      int
 	syncStatusErr        error
+	archiveSourceStatus  providers.Status
+	archiveStatusCalls   int
 }
 
 func (s *companyProfileContractStore) GetProfile(context.Context, dashboardprincipal.DashboardPrincipal) (Profile, error) {
@@ -155,6 +158,11 @@ func (s *companyProfileContractStore) GetSyncStatus(context.Context, dashboardpr
 		return s.syncStatus, nil
 	}
 	return SyncStatus{Status: "idle"}, nil
+}
+
+func (s *companyProfileContractStore) GetArchiveSourceStatus(context.Context, dashboardprincipal.DashboardPrincipal) (providers.Status, error) {
+	s.archiveStatusCalls++
+	return s.archiveSourceStatus, nil
 }
 
 type companyProfileTestVerifier struct {

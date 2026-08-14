@@ -1960,6 +1960,11 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	sourceSQL, sourceArgs := workMessageUnionSQL(filter.CorpID)
 	args := append([]any{}, sourceArgs...)
 	where := []string{archivePredicate}
+	if sourcePredicate, ok := archiveSourcePredicate(filter.ArchiveSource, "msgid"); !ok {
+		return dashboard.WorkMessagePage{}, nil
+	} else if sourcePredicate != "" {
+		where = append(where, sourcePredicate)
+	}
 	if filter.RestrictEmployeeIDs {
 		ids := uniquePositiveInts(filter.EmployeeIDs)
 		if len(ids) == 0 {
@@ -2396,6 +2401,7 @@ func scanWorkMessageToUserRow(rows *sql.Rows) (dashboard.WorkMessageToUser, erro
 	item.Avatar = nullString(avatar)
 	item.Content = nullString(content)
 	item.MsgDataTime = formatTime(msgDataTime)
+	item.ArchiveSource, item.ArchiveSourceID = archiveMessageSourceIdentity(item.MsgID)
 	return item, nil
 }
 
@@ -2422,6 +2428,7 @@ func scanWorkMessage(scanner rowScanner) (dashboard.WorkMessageItem, error) {
 	item.Avatar = nullString(avatar)
 	item.ContentRaw = nullString(content)
 	item.MsgDataTime = formatTime(msgDataTime)
+	item.ArchiveSource, item.ArchiveSourceID = archiveMessageSourceIdentity(item.MsgID)
 	return item, nil
 }
 
@@ -2477,10 +2484,46 @@ func workMessageUserBaseWhere(filter dashboard.WorkMessageUserFilter, prefix str
 		where = append(where, column("work_employee_id")+" IN ("+placeholders(len(ids))+")")
 		args = append(args, intsToAny(ids)...)
 	}
+	if sourcePredicate, ok := archiveSourcePredicate(filter.ArchiveSource, columnName(prefix, "msgid")); !ok {
+		return "1 = 0", args
+	} else if sourcePredicate != "" {
+		where = append(where, sourcePredicate)
+	}
 	if len(where) == 0 {
 		return "1 = 1", args
 	}
 	return strings.Join(where, " AND "), args
+}
+
+func columnName(prefix, name string) string {
+	return prefix + name
+}
+
+func archiveSourcePredicate(source, column string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "":
+		return "", true
+	case "simulated":
+		return column + " LIKE 'MOCHAT-SIM:%'", true
+	case "external":
+		return column + " NOT LIKE 'MOCHAT-SIM:%'", true
+	default:
+		return "", false
+	}
+}
+
+func archiveMessageSourceIdentity(msgID string) (string, string) {
+	msgID = strings.TrimSpace(msgID)
+	if strings.HasPrefix(msgID, "MOCHAT-SIM:") {
+		runID := strings.TrimPrefix(msgID, "MOCHAT-SIM:")
+		if separator := strings.IndexByte(runID, ':'); separator >= 0 {
+			runID = runID[:separator]
+		}
+		if runID != "" {
+			return "simulated", "simulation:" + runID
+		}
+	}
+	return "external", "wecom"
 }
 
 func workMessageLikePattern(value string) string {

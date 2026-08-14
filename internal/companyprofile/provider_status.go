@@ -17,6 +17,14 @@ type ProviderStatusSource struct {
 	registry *providers.Registry
 }
 
+// ArchiveSourceStatusStore is optional so deployments that have not applied
+// the archive-source migration can still serve the truthful provider
+// baseline. Implementations must scope the lookup to the authenticated
+// principal and must never return credential values.
+type ArchiveSourceStatusStore interface {
+	GetArchiveSourceStatus(context.Context, dashboardprincipal.DashboardPrincipal) (providers.Status, error)
+}
+
 func NewProviderStatusSource(store Store, registry *providers.Registry) *ProviderStatusSource {
 	return &ProviderStatusSource{store: store, registry: registry}
 }
@@ -38,9 +46,32 @@ func (s *ProviderStatusSource) Statuses(ctx context.Context, principal dashboard
 	}
 	statuses := s.registry.Snapshot(ctx)
 	statuses = replaceStatus(statuses, tenantWeComStandardStatus(profile, findStatus(statuses, "wecom_standard"), syncStatus))
-	statuses = replaceStatus(statuses, tenantWeComArchiveStatus(profile, findStatus(statuses, "wecom_archive")))
+	archiveStatus := tenantWeComArchiveStatus(profile, findStatus(statuses, "wecom_archive"))
+	if archiveStore, ok := s.store.(ArchiveSourceStatusStore); ok && profile.BindingStatus == "active" && profile.TenantID > 0 && profile.CorpID > 0 {
+		runtimeArchiveStatus, statusErr := archiveStore.GetArchiveSourceStatus(ctx, principal)
+		if statusErr != nil {
+			return nil, statusErr
+		}
+		if strings.TrimSpace(runtimeArchiveStatus.Code) != "" {
+			archiveStatus = mergeArchiveRuntimeStatus(archiveStatus, runtimeArchiveStatus)
+		}
+	}
+	statuses = replaceStatus(statuses, archiveStatus)
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Kind < statuses[j].Kind })
 	return statuses, nil
+}
+
+func mergeArchiveRuntimeStatus(fallback, runtime providers.Status) providers.Status {
+	if runtime.Kind == "" {
+		runtime.Kind = "wecom_archive"
+	}
+	if runtime.Capabilities == nil {
+		runtime.Capabilities = fallback.Capabilities
+	}
+	if runtime.Action == "" {
+		runtime.Action = fallback.Action
+	}
+	return runtime
 }
 
 func eligibleForEmployeeSyncStatus(profile Profile) bool {

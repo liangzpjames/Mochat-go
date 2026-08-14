@@ -79,9 +79,46 @@ func TestProviderStatusSourceDoesNotReadSyncStatusForPendingBinding(t *testing.T
 	if store.syncStatusCalls != 0 {
 		t.Fatalf("pending binding sync reads=%d, want 0", store.syncStatusCalls)
 	}
+	if store.archiveStatusCalls != 0 {
+		t.Fatalf("pending binding archive source reads=%d, want 0", store.archiveStatusCalls)
+	}
 	standard := findStatus(statuses, "wecom_standard")
 	if standard.State != providers.StateLimited || standard.Code != "wecom.runtime_unverified" {
 		t.Fatalf("pending standard status=%#v, want limited runtime_unverified", standard)
+	}
+}
+
+func TestProviderStatusSourceUsesTenantScopedSimulationSourceStatus(t *testing.T) {
+	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	lastSuccess := verifiedAt.Add(time.Hour)
+	lastFailure := lastSuccess.Add(time.Hour)
+	store := &companyProfileContractStore{
+		profile: Profile{TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
+			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}, Archive: CredentialStatus{Configured: true}}},
+		archiveSourceStatus: providers.Status{Kind: "wecom_archive", Source: providers.SourceSimulated, State: providers.StateLimited,
+			Code: "archive.simulation_ready", LastSyncAt: &lastFailure, LastSuccessAt: &lastSuccess, LastFailureAt: &lastFailure,
+			LastErrorCode: "archive.sync_failed", Action: "仅用于验收"},
+	}
+	registry, err := catalog.NewRegistry(catalog.Dependencies{
+		Archive:       providerStatusTestProvider{status: providers.Status{Kind: "wecom_archive", State: providers.StateReady, Source: providers.SourceExternal}},
+		WeComStandard: providerStatusTestProvider{status: providers.Status{Kind: "wecom_standard", State: providers.StateLimited}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := NewProviderStatusSource(store, registry).Statuses(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveStatus := findStatus(statuses, "wecom_archive")
+	if archiveStatus.Source != providers.SourceSimulated || archiveStatus.Code != "archive.simulation_ready" || archiveStatus.LastSuccessAt == nil || archiveStatus.LastFailureAt == nil || archiveStatus.LastErrorCode != "archive.sync_failed" {
+		t.Fatalf("archive status = %#v", archiveStatus)
+	}
+	if archiveStatus.Source == providers.SourceExternal && archiveStatus.State == providers.StateReady {
+		t.Fatal("simulation source was reported as external ready")
+	}
+	if store.archiveStatusCalls != 1 {
+		t.Fatalf("active archive source reads=%d, want 1", store.archiveStatusCalls)
 	}
 }
 
