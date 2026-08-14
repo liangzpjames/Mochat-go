@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,12 +23,11 @@ export async function checkProviderCompletion(root = process.cwd()) {
       const knownKinds = implementationKinds.get(relative) ?? new Set();
       for (const kind of kinds) knownKinds.add(kind);
       implementationKinds.set(relative, knownKinds);
-      if (relative.includes('/archive/wecom/') && /\bStateReady\b/.test(source)) {
-        errors.push(`${relative}: archive Provider cannot self-certify ready before getchatdata implementation`);
-      }
     }
     collectRuntimeRegistrations(relative, source, registrations, errors);
   }
+
+  errors.push(...checkArchiveStatusAST(root));
 
   for (const [file, kinds] of implementationKinds) {
     for (const kind of kinds) {
@@ -40,6 +40,28 @@ export async function checkProviderCompletion(root = process.cwd()) {
     errors,
     providers: [...implementationKinds.entries()].flatMap(([file, kinds]) => [...kinds].map((kind) => ({ file, kind, registration: registrations.get(kind) ?? null }))),
   };
+}
+
+function checkArchiveStatusAST(root) {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'provider_completion_ast.go');
+  try {
+    const output = execFileSync('go', ['run', script, '--root', root], {
+      cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+      encoding: 'utf8',
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    return JSON.parse(output).errors ?? [];
+  } catch (error) {
+    const output = String(error.stdout ?? '').trim();
+    if (output) {
+      try {
+        return JSON.parse(output).errors ?? [`archive AST gate failed: ${output}`];
+      } catch {
+        return [`archive AST gate failed: ${output}`];
+      }
+    }
+    return [`archive AST gate could not run: ${error.message}`];
+  }
 }
 
 function collectRuntimeRegistrations(relative, source, registrations, errors) {

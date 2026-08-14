@@ -42,6 +42,7 @@ test('accepts a real source registration and rejects archive ready self-certific
   const root = await writeFixture({
     'internal/modules/providers/archive/wecom/archive.go': `package wecom
 import "jiyi/mochat-go/internal/modules/providers"
+func (a Archive) Kind() providers.Source { return providers.SourceExternal }
 func (a Archive) Status() providers.Status { return providers.Status{Kind: "wecom_archive", State: providers.StateLimited, Code: "archive.getchatdata_unimplemented"} }
 `,
     'internal/modules/providers/catalog/catalog.go': `package catalog
@@ -56,6 +57,55 @@ func NewRegistry() *providers.Registry {
   });
   const result = await checkProviderCompletion(root);
   assert.equal(result.ok, true, result.errors.join('\n'));
+});
+
+test('fails when external archive status hides state or code behind helpers', async () => {
+  const root = await writeFixture({
+    'internal/modules/providers/archive/wecom/archive.go': `package wecom
+import "jiyi/mochat-go/internal/modules/providers"
+func hiddenState() providers.State { return providers.State("ready") }
+func hiddenCode() string { return "archive.getchatdata_unimplemented" }
+type ExternalSource struct{}
+func (ExternalSource) Kind() providers.Source { return providers.SourceExternal }
+func (ExternalSource) Status() providers.Status { return providers.Status{Kind: "wecom_archive", Source: providers.SourceExternal, State: hiddenState(), Code: hiddenCode()} }
+`,
+    'internal/modules/providers/catalog/catalog.go': `package catalog
+import "jiyi/mochat-go/internal/modules/providers"
+func NewRegistry() *providers.Registry {
+  registry := providers.NewRegistry()
+  registration := providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
+  _ = registry.Register(registration)
+  return registry
+}
+`,
+  });
+  const result = await checkProviderCompletion(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /external Status/);
+});
+
+test('fails when external archive Kind hides SourceExternal behind a helper', async () => {
+  const root = await writeFixture({
+    'internal/modules/providers/archive/wecom/archive.go': `package wecom
+import "jiyi/mochat-go/internal/modules/providers"
+func externalKind() providers.Source { return providers.SourceExternal }
+type ExternalSource struct{}
+func (ExternalSource) Kind() providers.Source { return externalKind() }
+func (ExternalSource) Status() providers.Status { return providers.Status{Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateLimited, Code: "archive.getchatdata_unimplemented"} }
+`,
+    'internal/modules/providers/catalog/catalog.go': `package catalog
+import "jiyi/mochat-go/internal/modules/providers"
+func NewRegistry() *providers.Registry {
+  registry := providers.NewRegistry()
+  registration := providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
+  _ = registry.Register(registration)
+  return registry
+}
+`,
+  });
+  const result = await checkProviderCompletion(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /Kind must directly return/);
 });
 
 test('fails when a dead registration literal is not on a Register call path', async () => {

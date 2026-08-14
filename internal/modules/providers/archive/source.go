@@ -140,7 +140,18 @@ func (s *ExternalSource) Status() providers.Status {
 	if s == nil {
 		return providers.Status{Source: providers.SourceExternal, State: providers.StateUnavailable, Code: "archive.source_unavailable"}
 	}
-	return s.status
+	if s.status.Code == "archive.credentials_missing" {
+		return providers.Status{
+			Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateLimited,
+			Code: "archive.credentials_missing", Reason: "external archive credentials are incomplete",
+			Action: "configure and verify the external archive credentials", Missing: s.status.Missing,
+		}
+	}
+	return providers.Status{
+		Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateLimited,
+		Code: "archive.getchatdata_unimplemented", Reason: "real getchatdata source is not implemented",
+		Action: "connect and verify the real archive source before enabling sync",
+	}
 }
 
 func (s *ExternalSource) Fetch(ctx context.Context, scope Scope, _ Cursor, _ int) (Page, error) {

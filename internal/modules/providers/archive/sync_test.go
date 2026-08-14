@@ -226,6 +226,10 @@ func (s *syncTestStore) MarkArchiveSyncRunning(_ context.Context, id string, _ t
 	return nil
 }
 
+func (s *syncTestStore) HeartbeatArchiveSync(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
 func (s *syncTestStore) UpsertArchiveMessage(_ context.Context, _ string, _ Scope, message Message) (UpsertResult, error) {
 	s.upserts = append(s.upserts, message)
 	return UpsertResult{Inserted: true}, nil

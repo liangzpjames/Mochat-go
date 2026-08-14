@@ -231,16 +231,26 @@ func (simulator *Simulator) Cleanup(ctx context.Context, corpID int, batch strin
 	if _, err := archiveprovider.NewSimulationSource(batch); err != nil {
 		return Result{}, err
 	}
+	tx, err := simulator.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Result{}, err
+	}
+	defer tx.Rollback()
 	var batchID int64
-	err = simulator.db.QueryRowContext(ctx, `SELECT id FROM mochat_go_archive_simulation_batches WHERE corp_id=? AND batch_key=?`, corpID, batch).Scan(&batchID)
+	err = tx.QueryRowContext(ctx, `SELECT id FROM mochat_go_archive_simulation_batches WHERE corp_id=? AND batch_key=? LIMIT 1 FOR UPDATE`, corpID, batch).Scan(&batchID)
 	if errors.Is(err, sql.ErrNoRows) {
+		_ = tx.Rollback()
 		return simulationResult(corpID, batch, "absent", 0), nil
 	}
 	if err != nil {
 		return Result{}, err
 	}
+	var tenantID int64
+	if err := tx.QueryRowContext(ctx, `SELECT tenant_id FROM mc_corp WHERE id=? AND deleted_at IS NULL LIMIT 1 FOR UPDATE`, corpID).Scan(&tenantID); err != nil {
+		return Result{}, err
+	}
 
-	rows, err := simulator.db.QueryContext(ctx, `SELECT msgid,table_index FROM mochat_go_archive_simulation_messages WHERE batch_id=? ORDER BY id`, batchID)
+	rows, err := tx.QueryContext(ctx, `SELECT msgid,table_index FROM mochat_go_archive_simulation_messages WHERE batch_id=? ORDER BY id FOR UPDATE`, batchID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -261,11 +271,26 @@ func (simulator *Simulator) Cleanup(ctx context.Context, corpID int, batch strin
 		return Result{}, err
 	}
 
-	tx, err := simulator.db.BeginTx(ctx, nil)
-	if err != nil {
+	sourceID := "simulation:" + batch
+	namespace := messagePrefix + batch
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM mochat_go_archive_message_sources
+		WHERE tenant_id=? AND corp_id=? AND source_kind='simulated' AND source_id=? AND namespace=?
+	`, tenantID, corpID, sourceID, namespace); err != nil {
 		return Result{}, err
 	}
-	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM mochat_go_archive_sync_audits
+		WHERE tenant_id=? AND corp_id=? AND source_kind='simulated' AND source_id=? AND namespace=?
+	`, tenantID, corpID, sourceID, namespace); err != nil {
+		return Result{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM mochat_go_archive_sync_runs
+		WHERE tenant_id=? AND corp_id=? AND source_kind='simulated' AND source_id=? AND namespace=?
+	`, tenantID, corpID, sourceID, namespace); err != nil {
+		return Result{}, err
+	}
 	for _, message := range messages {
 		if message.tableIndex < 1 || message.tableIndex > dashboard.WorkMessageArchiveMessageTableCount || !strings.HasPrefix(message.msgID, messagePrefix+batch+":") {
 			return Result{}, errors.New("simulation registry contains an unsafe message target")

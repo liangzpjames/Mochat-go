@@ -218,6 +218,7 @@ type WorkMessageFilter struct {
 type WorkMessageArchiveFilter struct {
 	CorpID              int
 	ArchiveMessageID    string
+	ArchiveSource       string
 	RestrictEmployeeIDs bool
 	EmployeeIDs         []int
 }
@@ -641,6 +642,7 @@ func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.
 		return
 	}
 	archiveFilter := workMessageArchiveFilter(corpID, archiveMessageID, access)
+	archiveFilter.ArchiveSource = strings.TrimSpace(r.URL.Query().Get("archiveSource"))
 	anchor, found, err := h.store.WorkMessageByArchiveID(r.Context(), archiveFilter)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)

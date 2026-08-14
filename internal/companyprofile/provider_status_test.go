@@ -58,6 +58,29 @@ func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(
 	}
 }
 
+func TestProviderStatusSourceRejectsExternalArchiveReadyFromOptionalStore(t *testing.T) {
+	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	store := &companyProfileContractStore{
+		profile: Profile{TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
+			Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}, Archive: CredentialStatus{Configured: true}}},
+		archiveSourceStatus: providers.Status{Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateReady, Code: "archive.runtime_verified"},
+	}
+	registry, err := catalog.NewRegistry(catalog.Dependencies{
+		Archive: providerStatusTestProvider{status: providers.Status{Kind: "wecom_archive", State: providers.StateReady, Source: providers.SourceExternal}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := NewProviderStatusSource(store, registry).Statuses(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveStatus := findStatus(statuses, "wecom_archive")
+	if archiveStatus.Source != providers.SourceExternal || archiveStatus.State != providers.StateLimited || archiveStatus.Code != "archive.getchatdata_unimplemented" {
+		t.Fatalf("archive status=%#v", archiveStatus)
+	}
+}
+
 func TestProviderStatusSourceDoesNotReadSyncStatusForPendingBinding(t *testing.T) {
 	store := &companyProfileContractStore{
 		profile: Profile{

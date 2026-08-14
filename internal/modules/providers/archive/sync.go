@@ -47,6 +47,8 @@ type SyncRun struct {
 	Attempt        int
 	StartedAt      *time.Time
 	FinishedAt     *time.Time
+	LeaseExpiresAt *time.Time
+	HeartbeatAt    *time.Time
 	Idempotent     bool
 }
 
@@ -60,6 +62,7 @@ type UpsertResult struct {
 type SyncStore interface {
 	EnqueueArchiveSync(context.Context, SyncRun, bool) (SyncRun, error)
 	MarkArchiveSyncRunning(context.Context, string, time.Time) error
+	HeartbeatArchiveSync(context.Context, string, time.Time) error
 	UpsertArchiveMessage(context.Context, string, Scope, Message) (UpsertResult, error)
 	SaveArchiveSyncCursor(context.Context, string, Cursor, time.Time) error
 	CompleteArchiveSync(context.Context, string, SyncCounts, Cursor, time.Time) (SyncRun, error)
@@ -124,6 +127,10 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 		limit = DefaultFetchLimit
 	}
 	for {
+		if err := s.store.HeartbeatArchiveSync(ctx, run.ID, s.now()); err != nil {
+			counts.Failed++
+			return s.fail(ctx, run, counts, cursor, "archive.persistence_failed", err)
+		}
 		page, fetchErr := source.Fetch(ctx, request.Scope, cursor, limit)
 		if fetchErr != nil {
 			counts.Failed++

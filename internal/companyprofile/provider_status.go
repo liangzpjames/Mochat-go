@@ -65,6 +65,20 @@ func mergeArchiveRuntimeStatus(fallback, runtime providers.Status) providers.Sta
 	if runtime.Kind == "" {
 		runtime.Kind = "wecom_archive"
 	}
+	if runtime.Kind == "wecom_archive" && runtime.Source == providers.SourceExternal && runtime.State == providers.StateReady {
+		fallback.State = providers.StateLimited
+		fallback.Source = providers.SourceExternal
+		fallback.Code = "archive.getchatdata_unimplemented"
+		fallback.Reason = "real getchatdata source is not implemented"
+		fallback.Action = "connect and verify the real archive source"
+		return fallback
+	}
+	if runtime.Kind == "wecom_archive" && runtime.Source == providers.SourceSimulated && runtime.State == providers.StateReady {
+		runtime.State = providers.StateLimited
+		if strings.TrimSpace(runtime.Code) == "" || runtime.Code == "provider.runtime_verified" {
+			runtime.Code = "archive.simulation_ready"
+		}
+	}
 	if runtime.Capabilities == nil {
 		runtime.Capabilities = fallback.Capabilities
 	}
