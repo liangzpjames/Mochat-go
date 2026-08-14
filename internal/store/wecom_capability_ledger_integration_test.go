@@ -35,10 +35,10 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
 	if err := admin.PingContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = admin.Close() })
 	schema := fmt.Sprintf("mochat_wecom_0139_store_%d_%d", os.Getpid(), capabilityLedgerStoreSchemaSequence.Add(1))
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		t.Fatal(err)

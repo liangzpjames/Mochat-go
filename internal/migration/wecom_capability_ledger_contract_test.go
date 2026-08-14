@@ -127,6 +127,15 @@ func TestWeComCapabilityLedgerUsesPortableStringTargetsAndIndependentGenerations
 	}
 }
 
+func TestWeComCapabilityLedgerDoesNotPinBigintNumericPrecision(t *testing.T) {
+	up, down := loadWeComCapabilityLedgerScripts(t)
+	for name, script := range map[string]string{"up": up, "down": down} {
+		if strings.Contains(strings.ToLower(script), "data_type = 'bigint' and numeric_precision = 19") {
+			t.Fatalf("0139 %s guard pins BIGINT numeric precision/display width", name)
+		}
+	}
+}
+
 func TestWeComCapabilityLedgerRealRunnerApplyDownApply(t *testing.T) {
 	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
 	if dsn == "" {
@@ -142,10 +151,10 @@ func TestWeComCapabilityLedgerRealRunnerApplyDownApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
 	if err := admin.PingContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = admin.Close() })
 	schema := fmt.Sprintf("mochat_wecom_0139_%d_%d", os.Getpid(), weComCapabilityLedgerSchemaSequence.Add(1))
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		t.Fatal(err)
@@ -415,10 +424,10 @@ func withTemporaryWeComCapabilityLedgerSchema(t *testing.T, fn func(db *sql.DB, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
 	if err := admin.PingContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = admin.Close() })
 	schema := fmt.Sprintf("mochat_wecom_0139_invalid_%d_%d", os.Getpid(), weComCapabilityLedgerSchemaSequence.Add(1))
 	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
 		t.Fatal(err)
@@ -447,7 +456,7 @@ func createWeComCapabilityLedgerPreMigrationFixture(t *testing.T, db *sql.DB) {
 		`CREATE TABLE mc_tenant (id INT UNSIGNED NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
 		`CREATE TABLE mc_user (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, PRIMARY KEY (id), UNIQUE KEY uni_dashboard_user_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_corp (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, deleted_at DATETIME NULL, PRIMARY KEY (id), UNIQUE KEY uni_mc_corp_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_tenant_corp_bindings (tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, status TINYINT UNSIGNED NOT NULL DEFAULT 1, version BIGINT UNSIGNED NOT NULL DEFAULT 1, verified_wx_corpid VARCHAR(255) NULL, verified_corp_name VARCHAR(255) NOT NULL DEFAULT '', verified_at TIMESTAMP NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, PRIMARY KEY (tenant_id), UNIQUE KEY uk_binding_corp (corp_id), CONSTRAINT fk_binding_corp FOREIGN KEY (tenant_id,corp_id) REFERENCES mc_corp (tenant_id,id)) ENGINE=InnoDB`,
+		`CREATE TABLE mochat_go_tenant_corp_bindings (tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, status TINYINT UNSIGNED NOT NULL DEFAULT 1, version BIGINT UNSIGNED NOT NULL DEFAULT 1, verified_wx_corpid VARCHAR(255) NULL, verified_corp_name VARCHAR(255) NOT NULL DEFAULT '', verified_at TIMESTAMP NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, PRIMARY KEY (tenant_id), UNIQUE KEY uk_binding_corp (corp_id), CONSTRAINT fk_tenant_corp_binding_corp FOREIGN KEY (tenant_id,corp_id) REFERENCES mc_corp (tenant_id,id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_contact_message_batch_send (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL DEFAULT 0, user_id INT UNSIGNED NOT NULL DEFAULT 0, employee_ids JSON NOT NULL, content JSON NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, deleted_at TIMESTAMP NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_room_message_batch_send (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL DEFAULT 0, user_id INT UNSIGNED NOT NULL DEFAULT 0, employee_ids JSON NOT NULL, content JSON NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, deleted_at TIMESTAMP NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mochat_go_schema_migrations (version VARCHAR(128) NOT NULL PRIMARY KEY, description VARCHAR(255) NOT NULL, checksum CHAR(64) NOT NULL, applied_at DATETIME NOT NULL, execution_ms INT NOT NULL) ENGINE=InnoDB`,
