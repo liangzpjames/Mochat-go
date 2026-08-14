@@ -75,7 +75,11 @@ function normalizeStatus(value: unknown): ProviderStatus {
 }
 
 function record(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
+  return isRecord(value) ? value : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -86,9 +90,19 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
-function addOptionalString(target: ProviderStatus, key: keyof ProviderStatus, value: unknown): void {
+type OptionalProviderStatusField = 'reason' | 'action' | 'lastSyncAt' | 'lastSuccessAt' | 'lastFailureAt' | 'lastErrorCode';
+
+function addOptionalString(target: ProviderStatus, key: OptionalProviderStatusField, value: unknown): void {
   const normalized = stringValue(value);
-  if (normalized !== undefined) target[key] = normalized as never;
+  if (normalized === undefined) return;
+  switch (key) {
+    case 'reason': target.reason = normalized; break;
+    case 'action': target.action = normalized; break;
+    case 'lastSyncAt': target.lastSyncAt = normalized; break;
+    case 'lastSuccessAt': target.lastSuccessAt = normalized; break;
+    case 'lastFailureAt': target.lastFailureAt = normalized; break;
+    case 'lastErrorCode': target.lastErrorCode = normalized; break;
+  }
 }
 
 function addOptionalStringArray(target: ProviderStatus, key: 'missing', value: unknown): void {

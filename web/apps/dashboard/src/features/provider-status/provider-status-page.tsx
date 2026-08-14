@@ -17,14 +17,40 @@ export function ProviderStatusPage({ api, isSuperAdmin = false }: { api: Provide
 
 function ProviderStatusRow({ status, isSuperAdmin }: { status: ProviderStatus; isSuperAdmin: boolean }) {
   const label = providerLabel(status.kind);
+  const sourceLabel = providerSourceLabel(status.source);
   const stateLabel = status.state === 'ready' ? '可用' : status.state === 'limited' ? '受限' : '不可用';
   return (
     <article className={`provider-status-row provider-status-row-${status.state}`} aria-label={`${label} ${stateLabel}`}>
-      <div><h3>{label}</h3><p>{status.capabilities.join('、') || '未声明能力'}</p></div>
+      <div><h3>{label}</h3><p>{status.capabilities.join('、') || '未声明能力'}</p><p>来源：{sourceLabel}</p></div>
       <strong>{stateLabel}</strong>
-      <div><code>{status.code}</code>{!isSuperAdmin && status.action && <p>{status.action}</p>}{isSuperAdmin && status.reason && <p>{status.reason}</p>}{isSuperAdmin && status.missing && status.missing.length > 0 && <p>缺失项：{status.missing.join('、')}</p>}</div>
+      <div>
+        <code>{status.code}</code>
+        {!isSuperAdmin && status.action && <p>{status.action}</p>}
+        {isSuperAdmin && status.reason && <p>{status.reason}</p>}
+        {isSuperAdmin && status.missing && status.missing.length > 0 && <p>缺失项：{status.missing.join('、')}</p>}
+        <div className="provider-status-diagnostics">
+          {status.lastSyncAt && <span>最近同步：{formatTimestamp(status.lastSyncAt)}</span>}
+          {status.lastSuccessAt && <span>最近成功：{formatTimestamp(status.lastSuccessAt)}</span>}
+          {status.lastFailureAt && <span>最近失败：{formatTimestamp(status.lastFailureAt)}</span>}
+          {status.lastErrorCode && <span>最近错误：<code>{status.lastErrorCode}</code></span>}
+        </div>
+      </div>
     </article>
   );
+}
+
+function providerSourceLabel(source: ProviderStatus['source']): string {
+  switch (source) {
+    case 'external': return '真实外部 Provider';
+    case 'simulated': return '模拟 Provider';
+    case 'local': return '本地 Provider';
+    case 'code_only': return '仅代码支持';
+  }
+}
+
+function formatTimestamp(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('zh-CN');
 }
 
 function providerLabel(kind: string): string {

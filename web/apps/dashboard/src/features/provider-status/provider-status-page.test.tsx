@@ -16,6 +16,31 @@ function renderPage(api: ProviderStatusApi, isSuperAdmin = false) {
 }
 
 describe('provider status page', () => {
+  it('shows the source label and only the available sync diagnostics', async () => {
+    const api: ProviderStatusApi = {
+      getStatus: vi.fn().mockResolvedValue({
+        providers: [
+          { kind: 'wecom_standard', state: 'ready', code: 'wecom.runtime_verified', source: 'external', capabilities: ['employee_sync'], lastSyncAt: '2026-08-14T08:00:00Z', lastSuccessAt: '2026-08-14T08:00:00Z' },
+          { kind: 'simulated', state: 'limited', code: 'provider.simulated', source: 'simulated', capabilities: ['demo'], lastFailureAt: '2026-08-14T08:01:00Z', lastErrorCode: 'provider.simulated_failure' },
+          { kind: 'audio_storage', state: 'ready', code: 'audio_storage.ready', source: 'local', capabilities: ['audio_object_storage'] },
+          { kind: 'ai', state: 'limited', code: 'ai.disabled', source: 'code_only', capabilities: ['chat'] },
+        ],
+        freshAt: '2026-08-14T08:02:00Z',
+      }),
+    };
+    renderPage(api, true);
+
+    expect(await screen.findByText(/真实外部 Provider/)).toBeTruthy();
+    expect(screen.getByText(/模拟 Provider/)).toBeTruthy();
+    expect(screen.getByText(/本地 Provider/)).toBeTruthy();
+    expect(screen.getByText(/仅代码支持/)).toBeTruthy();
+    expect(screen.getByText(/最近同步：/)).toBeTruthy();
+    expect(screen.getByText(/最近成功：/)).toBeTruthy();
+    expect(screen.getByText(/最近失败：/)).toBeTruthy();
+    expect(screen.getByText('provider.simulated_failure')).toBeTruthy();
+    expect(screen.queryByText('最近错误：', { exact: true })).toBeTruthy();
+  });
+
   it('shows state and next action near the provider without rendering diagnostics for ordinary users', async () => {
     const api: ProviderStatusApi = {
       getStatus: vi.fn().mockResolvedValue({
