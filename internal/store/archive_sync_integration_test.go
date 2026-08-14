@@ -647,11 +647,11 @@ func archiveInformationSchemaDefaultKind(value sql.NullString) string {
 	if normalized == "null" {
 		return "sql-null"
 	}
-	normalized = strings.Trim(normalized, "'\"")
-	if normalized == "" {
+	switch value.String {
+	case "", "''", `""`:
 		return "empty-string"
 	}
-	return normalized
+	return strings.ToLower(value.String)
 }
 
 func TestArchiveSyncColumnDefaultNormalization(t *testing.T) {
@@ -665,7 +665,11 @@ func TestArchiveSyncColumnDefaultNormalization(t *testing.T) {
 		{name: "empty string", input: sql.NullString{String: "", Valid: true}, want: "empty-string"},
 		{name: "quoted empty string", input: sql.NullString{String: "''", Valid: true}, want: "empty-string"},
 		{name: "quoted double empty string", input: sql.NullString{String: `""`, Valid: true}, want: "empty-string"},
-		{name: "nonempty default", input: sql.NullString{String: "'bad'", Valid: true}, want: "bad"},
+		{name: "single quote character", input: sql.NullString{String: "'", Valid: true}, want: "'"},
+		{name: "three single quotes", input: sql.NullString{String: "'''", Valid: true}, want: "'''"},
+		{name: "mixed quotes", input: sql.NullString{String: `"'`, Valid: true}, want: `"'`},
+		{name: "padded empty string", input: sql.NullString{String: " '' ", Valid: true}, want: " '' "},
+		{name: "nonempty default", input: sql.NullString{String: "'bad'", Valid: true}, want: "'bad'"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := archiveInformationSchemaDefaultKind(test.input); got != test.want {

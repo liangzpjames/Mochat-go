@@ -43,8 +43,7 @@ func TestArchiveSourceMigrationGuardNormalizesMariaDBColumnDefaults(t *testing.T
 	}
 	source := strings.ToLower(string(body))
 	for _, required := range []string{
-		"column_default is not null and replace(replace(trim(coalesce(column_default, '')), char(39), ''), char(34), '') = ''",
-		"replace(replace(trim(coalesce(column_default, '')), char(39), ''), char(34), '') = ''",
+		"column_default = '' or column_default = concat(char(39),char(39)) or column_default = concat(char(34),char(34))",
 		"upper(trim(coalesce(column_default,''))) = 'null'",
 	} {
 		if !strings.Contains(source, required) {
