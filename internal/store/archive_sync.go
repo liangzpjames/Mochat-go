@@ -131,10 +131,14 @@ func (s *MySQLStore) EnqueueArchiveSync(ctx context.Context, template archivepro
 	if err = insertArchiveSyncAuditTx(ctx, tx, template, "enqueue", archiveprovider.SyncStatusQueued, ""); err != nil {
 		return archiveprovider.SyncRun{}, err
 	}
+	queued, err := scanArchiveSyncRun(tx.QueryRowContext(ctx, archiveSyncRunSelect+` WHERE id = ? LIMIT 1 FOR UPDATE`, runID))
+	if err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
 	if err = tx.Commit(); err != nil {
 		return archiveprovider.SyncRun{}, err
 	}
-	return template, nil
+	return queued, nil
 }
 
 func (s *MySQLStore) MarkArchiveSyncRunning(ctx context.Context, runID string, at time.Time) (archiveprovider.SyncRun, error) {

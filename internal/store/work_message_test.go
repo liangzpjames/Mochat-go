@@ -348,6 +348,15 @@ func TestWorkMessagePageWindowReadsLatestWithoutLargeOffset(t *testing.T) {
 	}
 }
 
+func TestWorkMessagePageWindowCanBeQualifiedForRegistryJoins(t *testing.T) {
+	order, _, _ := workMessagePageWindow(dashboard.WorkMessageFilter{Page: 1, PerPage: 10})
+	qualified := qualifyWorkMessagePageOrder(order, "wm")
+	want := "wm.msg_data_time ASC, wm.seq ASC, wm.table_index ASC, wm.id ASC"
+	if qualified != want {
+		t.Fatalf("qualified order=%q, want %q", qualified, want)
+	}
+}
+
 func TestReverseWorkMessageItemsRestoresChronologicalDisplay(t *testing.T) {
 	items := []dashboard.WorkMessageItem{{ID: 3}, {ID: 2}, {ID: 1}}
 	reverseWorkMessageItems(items)

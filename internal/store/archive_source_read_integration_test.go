@@ -19,6 +19,9 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 
 	store := NewMySQLStore(db)
 	ctx := context.Background()
+	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27`); err != nil {
+		t.Fatal(err)
+	}
 	simulated, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
 		CorpID: 27, WorkEmployeeID: 1001, ArchiveSource: "simulated", Page: 1, PerPage: 10,
 	})
@@ -30,6 +33,9 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	}
 	if simulated.Items[0].MsgID != "registry-simulated" || simulated.Items[0].ArchiveSource != "simulated" || simulated.Items[0].ArchiveSourceID != "simulation:read" {
 		t.Fatalf("simulated item=%#v", simulated.Items[0])
+	}
+	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=1 WHERE id=27`); err != nil {
+		t.Fatal(err)
 	}
 
 	external, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
@@ -84,6 +90,9 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 		t.Fatalf("default real detail=%#v found=%v", detail, found)
 	}
 
+	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27`); err != nil {
+		t.Fatal(err)
+	}
 	conversations, err := store.WorkMessageToUsers(ctx, dashboard.WorkMessageUserFilter{
 		CorpID: 27, AllowAllEmployees: true, ToUserType: -1, ArchiveSource: "simulated", Page: 1, PerPage: 10,
 	})
@@ -201,6 +210,9 @@ func createArchiveReadBusinessFixture(t *testing.T, db *sql.DB) {
 
 func seedArchiveReadMessages(t *testing.T, db *sql.DB) {
 	t.Helper()
+	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_batches (corp_id,batch_key,status,message_count) VALUES (27,'read','complete',1)`); err != nil {
+		t.Fatal(err)
+	}
 	result, err := db.Exec(`INSERT INTO mochat_go_archive_sync_runs (tenant_id,corp_id,source_kind,source_id,namespace,idempotency_key,status) VALUES (11,27,'simulated','simulation:read','MOCHAT-SIM:read','read-sim','succeeded')`)
 	if err != nil {
 		t.Fatal(err)

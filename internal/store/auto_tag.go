@@ -1997,12 +1997,12 @@ func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboar
 		args = append(args, intsToAny(ids)...)
 	}
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id,
-		       target_name, target_avatar, action, sender_name, sender_avatar, is_current_user,
-		       msg_type, content_raw, msg_data_time`+archiveSourceProjectionForState(registryState)+`
+		SELECT wm.id, wm.table_index, wm.seq, wm.msgid, wm.work_employee_id, wm.employee_name, wm.employee_avatar, wm.to_user_type, wm.to_user_id,
+		       wm.target_name, wm.target_avatar, wm.action, wm.sender_name, wm.sender_avatar, wm.is_current_user,
+		       wm.msg_type, wm.content_raw, wm.msg_data_time`+archiveSourceProjectionForState(registryState)+`
 		FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
 		WHERE `+strings.Join(where, " AND ")+`
-		ORDER BY msg_data_time DESC, seq DESC, table_index DESC, id DESC
+		ORDER BY wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC
 		LIMIT 1
 	`, args...)
 	item, err := scanWorkMessageWithSource(row, registryState.metadataAvailable())
@@ -2103,11 +2103,12 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 		totalPage = (total + filter.PerPage - 1) / filter.PerPage
 	}
 	orderSQL, offset, reverse := workMessagePageWindow(filter)
+	orderSQL = qualifyWorkMessagePageOrder(orderSQL, "wm")
 	queryArgs := append(append([]any{}, args...), filter.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id,
-		       target_name, target_avatar, action, sender_name, sender_avatar, is_current_user,
-		       msg_type, content_raw, msg_data_time`+archiveSourceProjectionForState(registryState)+`
+		SELECT wm.id, wm.table_index, wm.seq, wm.msgid, wm.work_employee_id, wm.employee_name, wm.employee_avatar, wm.to_user_type, wm.to_user_id,
+		       wm.target_name, wm.target_avatar, wm.action, wm.sender_name, wm.sender_avatar, wm.is_current_user,
+		       wm.msg_type, wm.content_raw, wm.msg_data_time`+archiveSourceProjectionForState(registryState)+`
 		FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
 		WHERE `+whereSQL+`
 		ORDER BY `+orderSQL+`
@@ -2938,6 +2939,17 @@ func workMessagePageWindow(filter dashboard.WorkMessageFilter) (string, int, boo
 	}
 	return "msg_data_time ASC, seq ASC, table_index ASC, id ASC",
 		(filter.Page - 1) * filter.PerPage, false
+}
+
+func qualifyWorkMessagePageOrder(order, alias string) string {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return order
+	}
+	for _, column := range []string{"msg_data_time", "seq", "table_index", "id"} {
+		order = strings.ReplaceAll(order, column, alias+"."+column)
+	}
+	return order
 }
 
 func reverseWorkMessageItems(items []dashboard.WorkMessageItem) {
