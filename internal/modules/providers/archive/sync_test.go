@@ -109,6 +109,27 @@ func TestSyncServiceRejectsAStalledCursorWhenSourceClaimsMore(t *testing.T) {
 	}
 }
 
+func TestSyncServiceAcceptsProgressingTwoPageSource(t *testing.T) {
+	source := &syncTestSource{pages: []Page{
+		{Messages: []Message{
+			syncTestMessage(sourceKindSimulated, "simulation:run-1", "MOCHAT-SIM:run-1", 1, "first"),
+		}, NextCursor: Cursor{Sequence: 1}, HasMore: true},
+		{Messages: []Message{
+			syncTestMessage(sourceKindSimulated, "simulation:run-1", "MOCHAT-SIM:run-1", 2, "second"),
+		}, NextCursor: Cursor{Sequence: 2}},
+	}}
+	store := newSyncTestStore()
+	run, err := NewSyncService(store).Sync(context.Background(), source, SyncRequest{
+		Scope: Scope{TenantID: 11, CorpID: 27}, IdempotencyKey: "progressing-two-page", Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("progressing source failed: %v", err)
+	}
+	if run.Status != SyncStatusSucceeded || run.Cursor.Sequence != 2 || run.Counts.Processed != 2 {
+		t.Fatalf("run=%#v", run)
+	}
+}
+
 const sourceKindSimulated = providers.SourceSimulated
 
 func syncTestMessage(source providers.Source, sourceID, namespace string, seq int64, text string) Message {

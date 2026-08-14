@@ -137,7 +137,8 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 			break
 		}
 		counts.Fetched += len(page.Messages)
-		pageCursor := cursor
+		previousCursor := cursor
+		pageCursor := previousCursor
 		if page.NextCursor.Sequence > pageCursor.Sequence {
 			pageCursor.Sequence = page.NextCursor.Sequence
 		}
@@ -167,17 +168,18 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 				pageCursor.Sequence = message.Seq
 			}
 		}
-		if pageCursor.Sequence > cursor.Sequence || pageCursor.Token != cursor.Token {
+		progressed := pageCursor.Sequence > previousCursor.Sequence || pageCursor.Token != previousCursor.Token
+		if progressed {
 			if err := s.store.SaveArchiveSyncCursor(ctx, run.ID, pageCursor, s.now()); err != nil {
 				counts.Failed++
-				return s.fail(ctx, run, counts, cursor, "archive.persistence_failed", err)
+				return s.fail(ctx, run, counts, previousCursor, "archive.persistence_failed", err)
 			}
 			cursor = pageCursor
 		}
 		if !page.HasMore {
 			break
 		}
-		if pageCursor.Sequence == cursor.Sequence && pageCursor.Token == cursor.Token {
+		if !progressed {
 			counts.Failed++
 			return s.fail(ctx, run, counts, cursor, "archive.cursor_stalled", nil)
 		}
