@@ -486,8 +486,7 @@ func (c *RoomWelcomeWeComClient) postJSON(ctx context.Context, path string, acce
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("企业微信接口 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return weComHTTPError(resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return err
@@ -527,8 +526,7 @@ func (c *RoomWelcomeWeComClient) postMultipart(ctx context.Context, path string,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("企业微信接口 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return weComHTTPError(resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return err
@@ -554,10 +552,19 @@ func (r weComBaseResponse) Err() error {
 	if r.ErrCode == 0 {
 		return nil
 	}
-	if r.ErrMsg == "" {
-		return fmt.Errorf("errcode=%d", r.ErrCode)
-	}
-	return fmt.Errorf("%s", r.ErrMsg)
+	return weComAPIError{code: r.ErrCode}
+}
+
+type weComAPIError struct {
+	code int
+}
+
+func (e weComAPIError) Error() string {
+	return fmt.Sprintf("WECOM_API_ERROR_%d", e.code)
+}
+
+func weComHTTPError(statusCode int) error {
+	return fmt.Errorf("WECOM_HTTP_ERROR_%d", statusCode)
 }
 
 func roomWelcomeTemplateRequest(payload RoomWelcomeTemplatePayload, templateID string) map[string]any {
