@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"jiyi/mochat-go/internal/modules/providers"
 )
 
 const defaultWeComAPIBaseURL = "https://qyapi.weixin.qq.com"
@@ -40,6 +42,29 @@ func NewRoomWelcomeWeComClient(baseURL string) *RoomWelcomeWeComClient {
 		baseURL:    baseURL,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		tokens:     map[string]cachedWeComToken{},
+	}
+}
+
+// Status reports the runtime adapter boundary only. Tenant credential and
+// verification evidence is supplied by companyprofile.ProviderStatusSource.
+func (c *RoomWelcomeWeComClient) Status() providers.Status {
+	if c == nil || strings.TrimSpace(c.baseURL) == "" {
+		return providers.Status{
+			Kind:   "wecom_standard",
+			State:  providers.StateUnavailable,
+			Code:   "wecom.runtime_component_missing",
+			Source: providers.SourceExternal,
+			Action: "启用企业微信运行时组件",
+		}
+	}
+	return providers.Status{
+		Kind:         "wecom_standard",
+		State:        providers.StateLimited,
+		Code:         "wecom.tenant_credentials_required",
+		Source:       providers.SourceExternal,
+		Capabilities: []string{"employee_sync"},
+		Reason:       "企业微信 HTTP runtime 已就绪，当前状态需由租户凭据和验证结果决定",
+		Action:       "完成企业微信凭据配置与验证",
 	}
 }
 

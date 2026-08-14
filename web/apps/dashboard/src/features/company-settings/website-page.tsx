@@ -16,12 +16,15 @@ import type {
   UpdateCompanyProfileInput,
   VerifyCompanyInput,
 } from './company-profile-api';
+import type { ProviderStatusApi } from '../provider-status/provider-status-api';
+import { ProviderStatusPage } from '../provider-status/provider-status-page';
 
 export type CompanyWebsitePageProps = {
   api: CompanyProfileApi;
   isSuperAdmin?: boolean;
   onTenantAccessDenied?: () => void;
   onNavigate?: (path: string) => void;
+  providerStatusApi?: ProviderStatusApi;
 };
 
 const statusText: Record<CompanyProfile['bindingStatus'], string> = {
@@ -41,7 +44,7 @@ const syncStatusText: Record<EmployeeSyncSnapshot['status'], string> = {
 type FeedbackScope = 'profile' | 'application' | 'callback' | 'archive' | 'verify' | 'sync';
 type OperationFeedback = { scope: FeedbackScope; tone: 'error' | 'notice'; message: string };
 
-export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, onNavigate }: CompanyWebsitePageProps) {
+export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, onNavigate, providerStatusApi }: CompanyWebsitePageProps) {
   const access = useOptionalDashboardAccess();
   const queryClient = useQueryClient();
   const canView = isSuperAdmin ?? access?.profile?.isSuperAdmin ?? false;
@@ -250,6 +253,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   return (
     <Phase35PageShell title="唯一企业资料" description="企业绑定由服务端确定，当前页面不提供新建、切换或删除企业。">
       <div className="phase35-page company-profile-page">
+        {providerStatusApi === undefined ? null : <ProviderStatusPage api={providerStatusApi} isSuperAdmin={canView} />}
         <section className="phase35-card company-profile-card" aria-labelledby="company-identity-heading">
           <header className="company-profile-card-header">
             <div>

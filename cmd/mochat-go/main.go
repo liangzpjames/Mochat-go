@@ -24,8 +24,13 @@ import (
 	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/frontend"
 	"jiyi/mochat-go/internal/identitysecurity"
+	aiprovider "jiyi/mochat-go/internal/modules/providers/ai/openai"
+	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive/wecom"
+	audioprovider "jiyi/mochat-go/internal/modules/providers/audio/local"
+	providercatalog "jiyi/mochat-go/internal/modules/providers/catalog"
 	"jiyi/mochat-go/internal/mysqlconn"
 	"jiyi/mochat-go/internal/outboundhttp"
+	"jiyi/mochat-go/internal/providerstatus"
 	"jiyi/mochat-go/internal/saasalertcredentials"
 	"jiyi/mochat-go/internal/saasauditanchor"
 	"jiyi/mochat-go/internal/saasauth"
@@ -412,9 +417,32 @@ func main() {
 		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncScheduler(
 			dashboard.NewCompanyEmployeeSyncScheduler(getRedisStore()),
 		)
+		aiRuntime, err := aiprovider.New(aiprovider.Config{})
+		if err != nil {
+			log.Fatalf("build AI Provider runtime: %v", err)
+		}
+		audioRuntime, err := audioprovider.New(audioprovider.Config{Root: cfg.FileStorageRoot})
+		if err != nil {
+			log.Fatalf("build audio Provider runtime: %v", err)
+		}
+		archiveRuntime, err := archiveprovider.New(archiveprovider.Config{})
+		if err != nil {
+			log.Fatalf("build archive Provider runtime: %v", err)
+		}
+		providerRegistry, err := providercatalog.NewRegistry(providercatalog.Dependencies{
+			AI:            aiRuntime,
+			Archive:       archiveRuntime,
+			AudioStorage:  audioRuntime,
+			WeComStandard: companyProfileWeComClient,
+		})
+		if err != nil {
+			log.Fatalf("build Provider registry: %v", err)
+		}
+		providerStatusService := providerstatus.NewService(companyprofile.NewProviderStatusSource(mysqlStore, providerRegistry))
 		options = append(options,
 			compatserver.WithDashboardAuthHandler(dashboardAuthHandler),
 			compatserver.WithCompanyProfileHandler(companyprofile.NewHTTPHandler(companyProfileService)),
+			compatserver.WithProviderStatusHandler(providerstatus.NewHTTPHandler(providerStatusService)),
 		)
 		log.Printf("go Dashboard identity routes enabled: POST /dashboard/user/auth POST /dashboard/user/authMFA POST /dashboard/auth/activate POST /dashboard/auth/password/reset-request POST /dashboard/auth/password/reset GET /dashboard/auth/session")
 		log.Printf("go Dashboard company profile routes enabled: GET/PUT /dashboard/company/profile PUT /dashboard/company/wecom-credentials PUT /dashboard/company/agent-credentials PUT /dashboard/company/archive-credentials POST /dashboard/company/verify POST /dashboard/company/employee-sync GET /dashboard/company/sync-status GET /dashboard/company/audits")

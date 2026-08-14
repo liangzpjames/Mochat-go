@@ -34,6 +34,7 @@ type Server struct {
 	saasLoginPage                                   http.Handler
 	dashboardAuth                                   http.Handler
 	companyProfile                                  http.Handler
+	providerStatus                                  http.Handler
 	identitySelf                                    http.Handler
 	logout                                          http.Handler
 	userIndex                                       http.Handler
@@ -781,6 +782,12 @@ func WithDashboardAuthHandler(handler http.Handler) Option {
 func WithCompanyProfileHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.companyProfile = handler
+	}
+}
+
+func WithProviderStatusHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.providerStatus = handler
 	}
 }
 
@@ -4432,6 +4439,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.companyProfile.ServeHTTP(w, r)
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/audits" && r.Method == http.MethodGet:
 		s.companyProfile.ServeHTTP(w, r)
+	case s.providerStatus != nil && r.URL.Path == "/dashboard/providers/status" && r.Method == http.MethodGet:
+		s.providerStatus.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/securityMFA" && (r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodPut) && s.identitySelf != nil:
 		s.identitySelf.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/logout" && r.Method == http.MethodPut && s.logout != nil:
@@ -5939,6 +5948,9 @@ func (s *Server) migratedRoutes() []string {
 			"GET /dashboard/company/sync-status",
 			"GET /dashboard/company/audits",
 		)
+	}
+	if s.providerStatus != nil {
+		routes = append(routes, "GET /dashboard/providers/status")
 	}
 	if s.identitySelf != nil {
 		routes = append(routes, "GET /dashboard/user/securityMFA", "POST /dashboard/user/securityMFA", "PUT /dashboard/user/securityMFA")

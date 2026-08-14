@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"jiyi/mochat-go/internal/modules/providers"
 )
 
 func TestRoomWelcomeWeComClientStandardEmployeeSyncContract(t *testing.T) {
@@ -76,5 +78,15 @@ func TestRoomWelcomeWeComClientStandardSyncErrorIsStableAndRedacted(t *testing.T
 	}
 	if strings.Contains(err.Error(), secret) {
 		t.Fatalf("error = %v leaks provider secret", err)
+	}
+}
+
+func TestRoomWelcomeWeComClientStatusComesFromRuntimeComponent(t *testing.T) {
+	status := NewRoomWelcomeWeComClient("http://wecom-runtime.example").Status()
+	if status.Kind != "wecom_standard" || status.Source != providers.SourceExternal || status.State != providers.StateLimited || status.Code != "wecom.tenant_credentials_required" {
+		t.Fatalf("status = %#v, want limited external runtime status", status)
+	}
+	if strings.Contains(status.Reason, "secret") || strings.Contains(status.Reason, "token") {
+		t.Fatalf("status reason contains sensitive material: %q", status.Reason)
 	}
 }

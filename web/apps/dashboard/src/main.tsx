@@ -46,6 +46,7 @@ import { createAISettingsApi } from './features/ai-settings/ai-settings-api';
 import { createAiInsightApi } from './features/ai-insight/ai-insight-api';
 import { createFileAudioApi } from './features/phase35/file-audio-api';
 import { createCompanyProfileApi } from './features/company-settings/company-profile-api';
+import { createProviderStatusApi } from './features/provider-status/provider-status-api';
 import './styles/index.css';
 
 const PasswordPage = lazy(async () => ({ default: (await import('./features/password/password-page')).PasswordPage }));
@@ -89,6 +90,7 @@ const loginClient = createApiClient({
   onUnauthorized: () => undefined,
 });
 const companyProfileApi = createCompanyProfileApi(apiClient);
+const providerStatusApi = createProviderStatusApi(apiClient);
 const passwordApi = createPasswordApi(apiClient);
 const employeeApi = createEmployeeApi(apiClient);
 const departmentApi = createDepartmentApi(apiClient);
@@ -162,6 +164,7 @@ const router = createDashboardRouter({
         aiInsightApi,
         fileAudioApi,
         companyProfileApi,
+        providerStatusApi,
         onTenantAccessDenied: handleUnauthorized,
         onNavigate: (path) => void routerRef.current?.navigate(path),
         userAdminApi: dashboardAccessAdminApi,
