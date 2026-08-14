@@ -44,3 +44,18 @@
 - 设计与计划单独提交。
 - 能力合同/状态、0139 ledger、群发闭环、门禁/接线分别逻辑提交；不改写历史。
 - 任一真实外部凭据缺失只报告 SKIP/limited，不把 fake 或本地状态称为 live ready。
+## 主审补充的强制拆分
+
+本批不以“注册 capability 名称”替代真实闭环，按五个可独立验收提交推进：
+
+1. capability ledger：强类型 capabilityStatuses、四组凭据 generation/verifiedAt、runtime/operation 证据和 access profile mapping。
+2. durable dispatch schema：0139 operation/dispatch/result，父子状态分层、每 chunk 一行、复合 FK/唯一键/lease fencing、父表回填与 MariaDB apply-down-apply。
+3. contact batch：重新租户/套餐/quota/归属/scope 门禁、独立 contact dispatch、msgid、poll/callback 与 retry。
+4. room batch：独立 room dispatch、群主/群归属与结果链；不得以 contact batch 成功替代 room batch。
+5. 页面/路由/门禁：普通用户 capability mapping、superadmin 全量、show/results/remind/delete 真实 catalog/guard/page mapping；再跑全门禁并独立审阅。
+
+每批先 RED 再 GREEN，未完成后续批次不得宣称精准群发产品闭环完成。
+## 迁移与审计一致性补充
+
+0139 明确为分阶段演进：先对旧 contact/room 父表做重复、悬空、跨 corp 预检，回填 tenant_id 并建 `(tenant_id,corp_id,id)` unique，保留旧字段兼容；再创建 operation、dispatch、result 与 append-only operation_audits/events，最后建立复合 FK/唯一键。down 按依赖逆序删除新表并仅在新增列无外部依赖时恢复旧结构；每次状态迁移与 HTTP 创建必须同事务写 event，audit 失败回滚，外呼后失败只能进入 reconcile。
+页面过滤实现只能精确匹配真实 `dashboard_page_catalog.json` page code；先以坏测试证明 `/dashboard/contactMessageBatchSend/index#get` 不会授权，再以 `dashboard.acquisition.precise_group_send` 等真实 code GREEN，并由 catalog 交叉 gate 锁定 mapping 漂移。

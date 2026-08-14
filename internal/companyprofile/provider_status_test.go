@@ -21,11 +21,12 @@ func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(
 	syncFinishedAt := verifiedAt.Add(time.Hour)
 	store := &companyProfileContractStore{profile: Profile{
 		TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
+		BindingVersion: 1,
 		Credentials: CredentialStatuses{
 			WeCom:   CredentialStatus{Configured: true},
 			Archive: CredentialStatus{Configured: true},
 		},
-	}, syncStatus: SyncStatus{Status: "completed", FinishedAt: &syncFinishedAt}}
+	}, syncStatus: SyncStatus{Status: "completed", CredentialVersion: 1, FinishedAt: &syncFinishedAt}}
 	registry, err := catalog.NewRegistry(catalog.Dependencies{
 		Archive:       providerStatusTestProvider{status: providers.Status{Kind: "wecom_archive", State: providers.StateReady, Code: "archive.runtime"}},
 		AudioStorage:  providerStatusTestProvider{status: providers.Status{Kind: "audio_storage", State: providers.StateReady, Code: "audio.runtime"}},
@@ -214,7 +215,8 @@ func TestProviderStatusSourceDegradesWhenStandardSyncFailsAndRecoversOnSuccess(t
 	failedAt := verifiedAt.Add(time.Hour)
 	store := &companyProfileContractStore{profile: Profile{
 		TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
-		Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}},
+		BindingVersion: 1,
+		Credentials:    CredentialStatuses{WeCom: CredentialStatus{Configured: true}},
 	}, syncStatus: SyncStatus{Status: "failed", FinishedAt: &failedAt, ErrorCode: "wecom.sync_http_500"}}
 	registry, err := catalog.NewRegistry(catalog.Dependencies{
 		WeComStandard: providerStatusTestProvider{status: providers.Status{Kind: "wecom_standard", State: providers.StateReady, Code: "wecom.runtime"}},
@@ -233,7 +235,7 @@ func TestProviderStatusSourceDegradesWhenStandardSyncFailsAndRecoversOnSuccess(t
 	}
 
 	succeededAt := failedAt.Add(time.Hour)
-	store.syncStatus = SyncStatus{Status: "succeeded", FinishedAt: &succeededAt}
+	store.syncStatus = SyncStatus{Status: "succeeded", CredentialVersion: 1, FinishedAt: &succeededAt}
 	statuses, err = source.Statuses(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
 	if err != nil {
 		t.Fatal(err)

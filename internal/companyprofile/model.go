@@ -46,9 +46,10 @@ type Profile struct {
 }
 
 type CredentialStatuses struct {
-	WeCom   CredentialStatus `json:"wecom"`
-	Agent   CredentialStatus `json:"agent"`
-	Archive CredentialStatus `json:"archive"`
+	WeCom    CredentialStatus `json:"wecom"`
+	Agent    CredentialStatus `json:"agent"`
+	Archive  CredentialStatus `json:"archive"`
+	Callback CredentialStatus `json:"callback"`
 }
 
 type CredentialStatus struct {
@@ -205,13 +206,16 @@ type SyncResult struct {
 }
 
 type SyncStatus struct {
-	Status      string     `json:"status"`
-	Cursor      string     `json:"cursor,omitempty"`
-	Departments int        `json:"departments"`
-	Employees   int        `json:"employees"`
-	StartedAt   *time.Time `json:"startedAt,omitempty"`
-	FinishedAt  *time.Time `json:"finishedAt,omitempty"`
-	ErrorCode   string     `json:"errorCode,omitempty"`
+	Status string `json:"status"`
+	Cursor string `json:"cursor,omitempty"`
+	// CredentialVersion is required for a completed state to be current
+	// evidence. Legacy markers without it remain limited/pending.
+	CredentialVersion uint64     `json:"-"`
+	Departments       int        `json:"departments"`
+	Employees         int        `json:"employees"`
+	StartedAt         *time.Time `json:"startedAt,omitempty"`
+	FinishedAt        *time.Time `json:"finishedAt,omitempty"`
+	ErrorCode         string     `json:"errorCode,omitempty"`
 }
 
 type SyncDepartment struct {

@@ -147,7 +147,9 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 		writeDashboardPermissionDenied(w)
 		return false
 	}
-	*request = *request.WithContext(WithDashboardAccessContext(request.Context(), access))
+	ctx := WithDashboardAccessContext(request.Context(), access)
+	ctx = dashboardprincipal.WithCapabilityAccess(ctx, access.IsSuperAdmin, access.PermissionCodes)
+	*request = *request.WithContext(ctx)
 	return true
 }
 
@@ -204,7 +206,9 @@ func (guard *DashboardAccessGuard) attachIdentityContext(request *http.Request, 
 		UserID: principal.UserID, TenantID: principal.TenantID,
 		CorpID: principal.CorpID, Scope: DataScopeTenant, IsSuperAdmin: principal.IsSuperAdmin,
 	}
-	*request = *request.WithContext(WithDashboardAccessContext(request.Context(), access))
+	ctx := WithDashboardAccessContext(request.Context(), access)
+	ctx = dashboardprincipal.WithCapabilityAccess(ctx, principal.IsSuperAdmin, nil)
+	*request = *request.WithContext(ctx)
 }
 
 func dashboardContextForMatches(profile DashboardAccessProfile, matches []DashboardPermissionResource) (DashboardAccessContext, bool) {

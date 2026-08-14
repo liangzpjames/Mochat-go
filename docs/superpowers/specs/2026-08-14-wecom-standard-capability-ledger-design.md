@@ -10,7 +10,7 @@
 - `providers.Registry` 目前以 `wecom_standard` 单项注册，仅分类 `employee_sync`；`providers.Status` 只有 provider 级字段，`ProviderStatusSource` 只把员工同步事实投影为 ready，其他能力没有独立证据。
 - 公司 profile 的有效标准凭据事实是 active binding、`Credentials.WeCom.Configured`、非空 corp id 与 `VerifiedAt`；pending/unverified 不读取同步状态。Agent、callback、archive 是独立 credential/config 事实，archive/callback 不应阻塞标准员工同步。
 - `contact_message_batch_send.go`、`room_message_batch_send.go` 已负责认证 principal、corp 解析、员工/客户/群归属及 Dashboard RBAC；`batch_send_schedule_cron.go` 与 `RoomWelcomeWeComClient.Submit*BatchSend` 已有外部调用和结果轮询 client，但创建任务与 operation/audit 尚未同事务，外部部分成功也没有 durable fencing/idempotency。
-- 现有批量发送表保留业务 payload/任务展示兼容性；本批次新增独立 capability ledger，不把 secret 或完整敏感 payload 写入 ledger。0139 仅追加表并使用 tenant/corp 复合 FK、scope unique idempotency key 和预检 guard。
+- 现有批量发送表保留业务 payload/任务展示兼容性；本批次新增独立 capability ledger，不把 secret 或完整敏感 payload 写入 ledger。0139 采用“旧 contact/room 父表分阶段演进 + 新 ledger/dispatch/audit 表”，使用 tenant/corp 复合 FK、scope unique idempotency key 和第一条 DDL 前的预检 guard。
 
 ## 设计决策
 
@@ -56,3 +56,16 @@ operation 表以 `(tenant_id, corp_id, capability, idempotency_key)` 唯一，�
 - provider completion gate 增加 capability 分类、operation evidence 和 production composition/runtime wiring 的坏 fixture；最终运行 Go、Dashboard typecheck/lint/tests/build 与已有 phase4/provider gates。
 - 迁移先回填父业务表 tenant_id，再添加 `(tenant_id,corp_id,id)` unique 和 ledger/dispatch/result 复合 FK；第一条 DDL 前检查重复、悬空和跨 corp 数据。MariaDB 分阶段 apply/down/部分恢复均需要临时 schema 实测。
 - production runtime evidence 必须覆盖四个群发/同步 cron 开关及 callback route 注入；页面 `show/results/remind/delete` 现有 denyOnly 合同若属于闭环页面，则补精确 page mapping 和真实 guard dispatch 测试。
+## 预审 Critical 收敛（编码前锁定）
+
+1. `capabilityStatuses` 必须是强类型数组。凭据边界独立为：employee/department 使用 corp_id+employee_secret；contact/tag/room/contact_way/welcome/contact_batch_send/room_batch_send 使用 contact_secret；agent_message/remind 使用 agent_id+wx_secret；callback 必须同时有 token、AES、route/receive evidence；archive 只属于 `wecom_archive`。两个群发 capability 即使共享 secret，也必须有各自 Worker、operation、dispatch 和 result 证据。
+2. operation 与 dispatch 使用两套明确状态：父 operation 为 pending/claimed/submitting/submitted/polling/succeeded/partial_failed/failed/cancelled；dispatch 为 queued/claimed/submitting/submitted/polling/succeeded/partial_failed/failed，未知值 fail closed。每次真实外呼/chunk 先落权威 dispatch，独立 msgid、稳定幂等键、lease/fencing，禁止多 chunk 后写覆盖单一 msgid。
+3. 创建与 claim 都重新验证 SaaS tenant gate、package/subscription/quota、tenant-corp binding、credential generation、目标当前归属和 Dashboard scope；停用租户不继续外发，已提交任务只允许轮询。所有读写绑定 tenant_id+corp_id+id，跨界 404 零写；系统 actor 使用 nullable + source=system，禁止 actor=0。
+4. credential generation/fingerprint 不含 secret，employee/contact/agent/callback 各自独立；operation/dispatch 记录 generation，状态只采当前 generation 的成功证据，轮换后旧 evidence 与旧 worker 失效。generation 原值不进 API、日志或错误文案。
+5. 普通用户按显式 Dashboard page/permission→capability mapping 过滤，未知 capability 默认不返回；superadmin 才看完整列表。`show/results/remind/delete` 的 denyOnly/pageMapped 必须与真实 guard dispatch 一致；remind 还要证明 employee 属于 batch target 且在当前 scope。
+## 迁移与审计一致性补充
+
+0139 是“旧父表分阶段演进 + 新 ledger/dispatch/audit 表”的迁移，不是纯 append-only：第一条 DDL 前检查旧 contact/room batch 表重复、悬空和跨 corp 数据，回填并建立 tenant/corp 复合 scope；旧字段继续兼容读取，down 只能在安全条件满足时恢复新增列/索引。新增 `mochat_go_wecom_capability_operation_audits`/events append-only 表，记录 tenant/corp、operation、可空 dispatch、from_status/to_status、action、可空 actor_user_id、actor_source、request_id、安全 machine code/counts/timestamp；复合 FK 严格绑定 scope，禁止 payload/secret。HTTP create、claim、submit、retry、poll、final、cancel 每次状态迁移都在同事务 append；外呼后若本地 audit 失败，dispatch 进入可恢复 reconcile，禁止再次外发。
+## 页面授权映射口径
+
+能力可见性只消费 `DashboardAccessContext.PermissionCodes` 中的真实 page code，并与 `internal/dashboard/dashboard_page_catalog.json` 做交叉校验；绝不从 `/dashboard/...` API path、请求字符串或 provider kind 推导授权。当前精确映射包括：`dashboard.acquisition.precise_group_send`→contact_batch_send+room_batch_send；`dashboard.acquisition.v2_channel_code`、`dashboard.acquisition.group_code`、`dashboard.acquisition.group_template`→contact_way；`dashboard.customer.contact`/`dashboard.customer.friends`→external_contact_sync；`dashboard.customer.group`→room_sync；`dashboard.customer.tags`→contact_tag_sync。未知 page code 与 API path 均暴露 0 个 capability，catalog page code 增删涉及这些页面时 gate 失败。
