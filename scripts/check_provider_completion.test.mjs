@@ -25,6 +25,10 @@ func (a Archive) Status() providers.Status { return providers.Status{Kind: "weco
     'internal/modules/providers/catalog/catalog.go': `package catalog
 // providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
 `,
+    'internal/modules/providers/catalog/unclassified.go': `package catalog
+import "jiyi/mochat-go/internal/modules/providers"
+func (p Unclassified) Status() providers.Status { return providers.Status{Kind: "unclassified", State: providers.StateLimited} }
+`,
     'internal/modules/providers/archive/wecom/testdata/fixture.go': `package fixture
 var registration = "providers.Registration{Kind: wecom_archive, Source: external}"
 `,

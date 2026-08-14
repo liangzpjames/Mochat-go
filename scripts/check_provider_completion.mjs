@@ -17,7 +17,7 @@ export async function checkProviderCompletion(root = process.cwd()) {
   for (const file of files) {
     const relative = path.relative(root, file).replaceAll(path.sep, '/');
     const source = stripComments(await fs.readFile(file, 'utf8'));
-    if (!relative.includes('/catalog/') && /\bStatus\s*\(\s*\)\s*(?:providers\.)?Status\s*\{/.test(source)) {
+    if (relative !== 'internal/modules/providers/catalog/catalog.go' && /\bStatus\s*\(\s*\)\s*(?:providers\.)?Status\s*\{/.test(source)) {
       const kinds = [...source.matchAll(/\bKind\s*:\s*"([^"]+)"/g)].map((match) => match[1]);
       const knownKinds = implementationKinds.get(relative) ?? new Set();
       for (const kind of kinds) knownKinds.add(kind);
