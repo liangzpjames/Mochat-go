@@ -87,6 +87,8 @@ func TestDashboardAccessGuardPendingBindingAllowsOnlyConfigurationContracts(t *t
 		{name: "company profile for ordinary user", method: http.MethodGet, path: "/dashboard/company/profile", wantCode: DashboardPermissionDeniedCode},
 		{name: "application credentials for superadmin", method: http.MethodPut, path: "/dashboard/company/application-credentials", superadmin: true, wantAllowed: true},
 		{name: "callback configuration for superadmin", method: http.MethodGet, path: "/dashboard/company/callback-configuration", superadmin: true, wantAllowed: true},
+		{name: "provider status for pending superadmin", method: http.MethodGet, path: "/dashboard/providers/status", superadmin: true, wantAllowed: true},
+		{name: "provider status for pending ordinary user", method: http.MethodGet, path: "/dashboard/providers/status", wantCode: DashboardPermissionDeniedCode},
 		{name: "callback rotation for superadmin", method: http.MethodPost, path: "/dashboard/company/callback-configuration/regenerate", superadmin: true, wantAllowed: true},
 		{name: "employee sync remains blocked", method: http.MethodPost, path: "/dashboard/company/employee-sync", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
 		{name: "sync status remains blocked", method: http.MethodGet, path: "/dashboard/company/sync-status", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
@@ -323,6 +325,8 @@ func TestDashboardAccessGuardSuperadminAndDenyOnlyPolicy(t *testing.T) {
 		{name: "superadmin mapped", path: "/dashboard/workContact/123", superadmin: true, want: true},
 		{name: "ordinary deny-only", path: "/dashboard/acceptance/phase35", want: false},
 		{name: "superadmin deny-only", path: "/dashboard/acceptance/phase35", superadmin: true, want: true},
+		{name: "ordinary provider status deny-only", path: "/dashboard/providers/status", want: false},
+		{name: "superadmin provider status deny-only", path: "/dashboard/providers/status", superadmin: true, want: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			guard, _ := newDashboardAccessGuardFixture(test.superadmin)

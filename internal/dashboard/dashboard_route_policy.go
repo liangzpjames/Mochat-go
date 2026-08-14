@@ -76,6 +76,7 @@ var denyOnlyDashboardRouteContracts = []string{
 	"POST /dashboard/company/employee-sync",
 	"GET /dashboard/company/sync-status",
 	"GET /dashboard/company/audits",
+	"GET /dashboard/providers/status",
 	"GET /dashboard/role/permissionByUser",
 	"DELETE /dashboard/acceptance/phase35",
 	"DELETE /dashboard/autoTag/destroy",

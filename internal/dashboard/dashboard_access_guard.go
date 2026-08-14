@@ -180,7 +180,7 @@ func isPendingCompanyConfigurationContract(contract string) bool {
 		"PUT /dashboard/company/application-credentials", "PUT /dashboard/company/archive-credentials",
 		"GET /dashboard/company/callback-configuration", "POST /dashboard/company/callback-configuration/regenerate",
 		"POST /dashboard/company/verify",
-		"GET /dashboard/company/audits":
+		"GET /dashboard/company/audits", "GET /dashboard/providers/status":
 		return true
 	default:
 		return false

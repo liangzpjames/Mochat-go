@@ -119,6 +119,7 @@ func TestCompanyProfileRoutesAreDashboardSuperadminDenyOnlyContracts(t *testing.
 		"POST /dashboard/company/employee-sync",
 		"GET /dashboard/company/sync-status",
 		"GET /dashboard/company/audits",
+		"GET /dashboard/providers/status",
 	} {
 		if _, ok := denyOnly[contract]; !ok {
 			t.Fatalf("company route %q is not classified as dashboard deny-only", contract)
