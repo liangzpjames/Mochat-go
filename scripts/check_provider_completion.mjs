@@ -36,6 +36,12 @@ export async function checkProviderCompletion(root = process.cwd()) {
 }
 
 function collectRuntimeRegistrations(relative, source, registrations, errors) {
+  for (const body of namedFunctionBodies(source, 'NewRegistry')) {
+    collectRuntimeRegistrationsInBody(relative, body, registrations, errors);
+  }
+}
+
+function collectRuntimeRegistrationsInBody(relative, source, registrations, errors) {
   const registeredVariables = new Set();
   for (const match of source.matchAll(/\b[A-Za-z_$][\w$]*\.Register\(\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
     registeredVariables.add(match[1]);
@@ -72,6 +78,16 @@ function collectRuntimeRegistrations(relative, source, registrations, errors) {
     }
     if (!found) errors.push(`${relative}: runtime Register call has no registration declaration for ${variable}`);
   }
+}
+
+function namedFunctionBodies(source, name) {
+  const result = [];
+  const pattern = new RegExp(`\\bfunc\\s+${escapeRegExp(name)}\\s*\\([^)]*\\)[^{]*\\{`, 'g');
+  for (const match of source.matchAll(pattern)) {
+    const openIndex = match.index + match[0].lastIndexOf('{');
+    result.push(balancedBlock(source, openIndex).body);
+  }
+  return result;
 }
 
 function registrationLiterals(source) {

@@ -63,6 +63,11 @@ func (a Archive) Status() providers.Status { return providers.Status{Kind: "weco
     'internal/modules/providers/catalog/catalog.go': `package catalog
 import "jiyi/mochat-go/internal/modules/providers"
 var unused = providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
+func deadRegistry() {
+  registry := providers.NewRegistry()
+  registration := providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
+  _ = registry.Register(registration)
+}
 `,
   });
   const result = await checkProviderCompletion(root);
