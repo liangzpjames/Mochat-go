@@ -125,7 +125,8 @@ function balancedBlock(source, openIndex) {
 
 function addRegistration(relative, body, registrations, errors) {
   const kind = body.match(/\bKind\s*:\s*"([^"]+)"/)?.[1];
-  const sourceName = body.match(/\bSource\s*:\s*(?:providers\.)?(Source[A-Za-z]+)/)?.[1];
+  const sourceExpression = body.match(/\bSource\s*:\s*(?:providers\.)?(Source[A-Za-z]+|aiSource\s*\([^)]*\))/)?.[1];
+  const sourceName = sourceExpression?.startsWith('aiSource') ? 'SourceExternal' : sourceExpression;
   if (!kind || !sourceName || !SOURCE_NAMES.has(sourceName)) return;
   if (registrations.has(kind)) errors.push(`duplicate Provider registration: ${kind}`);
   registrations.set(kind, { file: relative, source: sourceName });
