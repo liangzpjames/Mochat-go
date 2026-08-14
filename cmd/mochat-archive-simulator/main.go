@@ -35,7 +35,11 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("mochat-archive-simulator "+action, flag.ContinueOnError)
 	corpID := flags.Int("corp-id", 0, "target corp id")
 	batch := flags.String("batch", "acceptance", "isolated simulation batch key")
+	enableSimulation := flags.Bool("enable-simulation", false, "explicitly enable simulated archive writes/reads")
 	if err := flags.Parse(args[1:]); err != nil {
+		return err
+	}
+	if err := requireSimulationEnabled(*enableSimulation); err != nil {
 		return err
 	}
 	dsn := strings.TrimSpace(os.Getenv("MOCHAT_MYSQL_DSN"))
@@ -68,4 +72,11 @@ func run(args []string) error {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(result)
+}
+
+func requireSimulationEnabled(enabled bool) error {
+	if !enabled {
+		return fmt.Errorf("simulation is disabled; pass --enable-simulation explicitly")
+	}
+	return nil
 }

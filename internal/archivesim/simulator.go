@@ -2,18 +2,16 @@ package archivesim
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/modules/providers"
+	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
 	"jiyi/mochat-go/internal/store"
 )
 
@@ -24,6 +22,9 @@ var batchKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 type Result struct {
 	CorpID       int    `json:"corpId"`
 	Batch        string `json:"batch"`
+	Source       string `json:"source"`
+	SourceID     string `json:"sourceId"`
+	Namespace    string `json:"namespace"`
 	Status       string `json:"status"`
 	MessageCount int    `json:"messageCount"`
 	Idempotent   bool   `json:"idempotent"`
@@ -46,6 +47,9 @@ func (simulator *Simulator) Apply(ctx context.Context, corpID int, batch string)
 	if err != nil {
 		return Result{}, err
 	}
+	if _, err := archiveprovider.NewSimulationSource(batch); err != nil {
+		return Result{}, err
+	}
 	if simulator == nil || simulator.db == nil || simulator.archive == nil {
 		return Result{}, errors.New("archive simulator unavailable")
 	}
@@ -65,6 +69,10 @@ func (simulator *Simulator) Apply(ctx context.Context, corpID int, batch string)
 		if _, err := simulator.Cleanup(ctx, corpID, batch); err != nil {
 			return Result{}, fmt.Errorf("clean incomplete batch: %w", err)
 		}
+	}
+	var tenantID int64
+	if err := simulator.db.QueryRowContext(ctx, `SELECT tenant_id FROM mc_corp WHERE id=? AND deleted_at IS NULL LIMIT 1`, corpID).Scan(&tenantID); err != nil {
+		return Result{}, err
 	}
 
 	tx, err := simulator.db.BeginTx(ctx, nil)
@@ -110,21 +118,16 @@ func (simulator *Simulator) Apply(ctx context.Context, corpID int, batch string)
 		return Result{}, err
 	}
 
-	inserted := 0
-	for _, message := range messages {
-		upsert, err := simulator.archive.UpsertWorkMessageArchive(ctx, corpID, message)
-		if err != nil {
-			_, _ = simulator.db.ExecContext(ctx, `UPDATE mochat_go_archive_simulation_batches SET status='failed',message_count=?,updated_at=NOW() WHERE id=?`, inserted, batchID)
-			return Result{}, err
-		}
-		if !upsert.Resolved {
-			_, _ = simulator.db.ExecContext(ctx, `UPDATE mochat_go_archive_simulation_batches SET status='failed',message_count=?,updated_at=NOW() WHERE id=?`, inserted, batchID)
-			return Result{}, fmt.Errorf("simulated message %s participants were not resolved", message.MsgID)
-		}
-		if upsert.Inserted {
-			inserted++
-		}
+	source := newSimulationBatchSource(batch, messages)
+	run, syncErr := archiveprovider.NewSyncService(simulator.archive).Sync(ctx, source, archiveprovider.SyncRequest{
+		Scope: archiveprovider.Scope{TenantID: tenantID, CorpID: int64(corpID)}, IdempotencyKey: "simulation:" + batch,
+		Limit: len(messages),
+	})
+	if syncErr != nil {
+		_, _ = simulator.db.ExecContext(ctx, `UPDATE mochat_go_archive_simulation_batches SET status='failed',message_count=?,updated_at=NOW() WHERE id=?`, run.Counts.Processed, batchID)
+		return Result{}, syncErr
 	}
+	inserted := run.Counts.Processed
 	if _, err := simulator.db.ExecContext(ctx, `UPDATE mochat_go_archive_simulation_batches SET status='complete',message_count=?,updated_at=NOW() WHERE id=?`, inserted, batchID); err != nil {
 		return Result{}, err
 	}
@@ -135,7 +138,61 @@ func (simulator *Simulator) Apply(ctx context.Context, corpID int, batch string)
 	if cursorAfter != cursorBefore {
 		return Result{}, fmt.Errorf("real archive cursor changed during simulation: before=%d after=%d", cursorBefore, cursorAfter)
 	}
-	return Result{CorpID: corpID, Batch: batch, Status: "complete", MessageCount: inserted, CursorBefore: cursorBefore, CursorAfter: cursorAfter}, nil
+	finalResult := simulationResult(corpID, batch, "complete", inserted)
+	finalResult.CursorBefore = cursorBefore
+	finalResult.CursorAfter = cursorAfter
+	return finalResult, nil
+}
+
+type simulationBatchSource struct {
+	runID     string
+	namespace string
+	messages  []archiveprovider.Message
+}
+
+func newSimulationBatchSource(batch string, messages []dashboard.WorkMessageArchiveMessage) *simulationBatchSource {
+	providerSource, _ := archiveprovider.NewSimulationSource(batch)
+	converted := make([]archiveprovider.Message, 0, len(messages))
+	for _, message := range messages {
+		converted = append(converted, archiveprovider.Message{
+			Source: providers.SourceSimulated, SourceID: providerSource.SourceID(), Namespace: providerSource.Namespace(),
+			MsgID: message.MsgID, Seq: message.Seq, Action: message.Action, From: message.From, ToList: message.ToList,
+			RoomID: message.RoomID, MsgType: message.MsgType, MsgTime: message.MsgTime, ContentRaw: message.ContentRaw,
+			ContentText: message.ContentText, RawJSON: message.RawJSON,
+		})
+	}
+	return &simulationBatchSource{runID: providerSource.SourceID(), namespace: providerSource.Namespace(), messages: converted}
+}
+
+func (s *simulationBatchSource) Kind() providers.Source { return providers.SourceSimulated }
+func (s *simulationBatchSource) SourceID() string       { return s.runID }
+func (s *simulationBatchSource) Namespace() string      { return s.namespace }
+func (s *simulationBatchSource) Status() providers.Status {
+	return providers.Status{Kind: "wecom_archive", Source: providers.SourceSimulated, State: providers.StateLimited, Code: "archive.simulation_ready"}
+}
+
+func (s *simulationBatchSource) Fetch(_ context.Context, scope archiveprovider.Scope, cursor archiveprovider.Cursor, limit int) (archiveprovider.Page, error) {
+	if scope.TenantID <= 0 || scope.CorpID <= 0 {
+		return archiveprovider.Page{}, archiveprovider.ErrInvalidScope
+	}
+	if limit <= 0 {
+		limit = len(s.messages)
+	}
+	page := archiveprovider.Page{Messages: make([]archiveprovider.Message, 0, limit)}
+	for _, message := range s.messages {
+		if message.Seq <= cursor.Sequence {
+			continue
+		}
+		page.Messages = append(page.Messages, message)
+		if len(page.Messages) >= limit {
+			break
+		}
+	}
+	if len(page.Messages) > 0 {
+		page.NextCursor = archiveprovider.Cursor{Sequence: page.Messages[len(page.Messages)-1].Seq}
+		page.HasMore = page.NextCursor.Sequence < s.messages[len(s.messages)-1].Seq
+	}
+	return page, nil
 }
 
 func (simulator *Simulator) Status(ctx context.Context, corpID int, batch string) (Result, error) {
@@ -143,19 +200,22 @@ func (simulator *Simulator) Status(ctx context.Context, corpID int, batch string
 	if err != nil {
 		return Result{}, err
 	}
+	if _, err := archiveprovider.NewSimulationSource(batch); err != nil {
+		return Result{}, err
+	}
 	result, found, err := simulator.status(ctx, corpID, batch)
 	if err != nil {
 		return Result{}, err
 	}
 	if !found {
-		return Result{CorpID: corpID, Batch: batch, Status: "absent"}, nil
+		return simulationResult(corpID, batch, "absent", 0), nil
 	}
 	return result, nil
 }
 
 func (simulator *Simulator) status(ctx context.Context, corpID int, batch string) (Result, bool, error) {
 	var result Result
-	result.CorpID, result.Batch = corpID, batch
+	result = simulationResult(corpID, batch, "", 0)
 	err := simulator.db.QueryRowContext(ctx, `SELECT status,message_count FROM mochat_go_archive_simulation_batches WHERE corp_id=? AND batch_key=?`, corpID, batch).Scan(&result.Status, &result.MessageCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Result{}, false, nil
@@ -168,10 +228,13 @@ func (simulator *Simulator) Cleanup(ctx context.Context, corpID int, batch strin
 	if err != nil {
 		return Result{}, err
 	}
+	if _, err := archiveprovider.NewSimulationSource(batch); err != nil {
+		return Result{}, err
+	}
 	var batchID int64
 	err = simulator.db.QueryRowContext(ctx, `SELECT id FROM mochat_go_archive_simulation_batches WHERE corp_id=? AND batch_key=?`, corpID, batch).Scan(&batchID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Result{CorpID: corpID, Batch: batch, Status: "absent"}, nil
+		return simulationResult(corpID, batch, "absent", 0), nil
 	}
 	if err != nil {
 		return Result{}, err
@@ -238,7 +301,15 @@ func (simulator *Simulator) Cleanup(ctx context.Context, corpID int, batch strin
 	if err := tx.Commit(); err != nil {
 		return Result{}, err
 	}
-	return Result{CorpID: corpID, Batch: batch, Status: "cleaned", MessageCount: len(messages)}, nil
+	return simulationResult(corpID, batch, "cleaned", len(messages)), nil
+}
+
+func simulationResult(corpID int, batch, status string, messageCount int) Result {
+	return Result{
+		CorpID: corpID, Batch: batch, Source: "simulated",
+		SourceID: "simulation:" + batch, Namespace: messagePrefix + batch,
+		Status: status, MessageCount: messageCount,
+	}
 }
 
 type employee struct {
@@ -346,55 +417,40 @@ func validate(corpID int, batch string) (string, error) {
 }
 
 func buildMessages(batch string, now time.Time, employeeA, employeeB, contact, room string) []dashboard.WorkMessageArchiveMessage {
-	types := []struct{ kind, text string }{
-		{"text", "模拟验收关键词：客户咨询产品方案"},
-		{"text", "模拟客户回复：请发送报价"},
-		{"image", "模拟图片：产品截图"},
-		{"file", "模拟文件：产品报价单.pdf"},
-		{"voice", "模拟语音：三十秒需求说明"},
-		{"video", "模拟视频：产品演示"},
-		{"location", "模拟位置：上海市浦东新区"},
-		{"card", "模拟名片：客户联系人"},
-		{"link", "模拟链接：https://example.invalid/mochat-simulation"},
-		{"text", "模拟内部会话：员工协作跟进"},
-		{"text", "模拟群聊：欢迎加入验收群"},
-		{"emotion", "模拟表情消息"},
-	}
-	hash := sha256.Sum256([]byte(batch))
-	base := int64(4_000_000_000_000_000 + (binary.BigEndian.Uint64(hash[:8]) & ((1 << 50) - 1)))
-	start := now.UTC().Add(-time.Duration(len(types)) * time.Minute)
-	messages := make([]dashboard.WorkMessageArchiveMessage, 0, len(types))
-	for index, item := range types {
-		from, to := employeeA, []string{contact}
-		roomID := ""
-		switch index {
-		case 1:
-			from, to = contact, []string{employeeA}
-		case 9:
-			from, to = employeeA, []string{employeeB}
-		case 10, 11:
-			from, to, roomID = employeeA, []string{employeeB, contact}, room
+	blueprint := archiveprovider.BuildSimulationMessages(batch, now)
+	messages := make([]dashboard.WorkMessageArchiveMessage, 0, len(blueprint))
+	for _, item := range blueprint {
+		from := simulationParticipant(item.From, employeeA, employeeB, contact)
+		to := make([]string, 0, len(item.ToList))
+		for _, participant := range item.ToList {
+			to = append(to, simulationParticipant(participant, employeeA, employeeB, contact))
 		}
-		content, _ := json.Marshal(map[string]any{"msgtype": item.kind, "content": item.text, "simulation": true})
+		roomID := item.RoomID
+		if roomID == "room" {
+			roomID = room
+		}
 		messages = append(messages, dashboard.WorkMessageArchiveMessage{
-			Seq: base + int64(index+1), MsgID: fmt.Sprintf("%s%s:%03d", messagePrefix, batch, index+1),
-			Action: "send", From: from, ToList: to, RoomID: roomID, MsgType: item.kind,
-			MsgTime: start.Add(time.Duration(index) * time.Minute), ContentRaw: string(content), ContentText: item.text,
+			Seq: item.Seq, MsgID: item.MsgID, Action: item.Action, From: from, ToList: to,
+			RoomID: roomID, MsgType: item.MsgType, MsgTime: item.MsgTime,
+			ContentRaw: item.ContentRaw, ContentText: item.ContentText, RawJSON: item.RawJSON,
 		})
 	}
 	return messages
 }
 
+func simulationParticipant(value, employeeA, employeeB, contact string) string {
+	switch value {
+	case "employee-a":
+		return employeeA
+	case "employee-b":
+		return employeeB
+	case "contact":
+		return contact
+	default:
+		return value
+	}
+}
+
 func MessageTypes() []string {
-	messages := buildMessages("coverage", time.Unix(1, 0), "employee-a", "employee-b", "contact", "room")
-	set := map[string]bool{}
-	for _, message := range messages {
-		set[message.MsgType] = true
-	}
-	result := make([]string, 0, len(set))
-	for kind := range set {
-		result = append(result, kind)
-	}
-	sort.Strings(result)
-	return result
+	return archiveprovider.MessageTypes()
 }

@@ -1,0 +1,430 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/dashboardprincipal"
+	"jiyi/mochat-go/internal/modules/providers"
+	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
+)
+
+var errArchiveSyncRunNotFound = errors.New("archive sync run not found")
+
+type archiveSyncRunScanner interface {
+	Scan(dest ...any) error
+}
+
+// EnqueueArchiveSync is the durable idempotency boundary for archive runs. The
+// unique key is scoped by tenant, corp, source and caller-provided key; no
+// request-body or query tenant can widen that scope.
+func (s *MySQLStore) EnqueueArchiveSync(ctx context.Context, template archiveprovider.SyncRun, retryFailed bool) (archiveprovider.SyncRun, error) {
+	if s == nil || s.db == nil {
+		return archiveprovider.SyncRun{}, errors.New("archive sync store unavailable")
+	}
+	if !archiveSyncTemplateValid(template) {
+		return archiveprovider.SyncRun{}, errors.New("archive sync template invalid")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	defer rollbackQuietly(tx)
+
+	existing, err := scanArchiveSyncRun(tx.QueryRowContext(ctx, archiveSyncRunSelect+`
+		WHERE tenant_id = ? AND corp_id = ? AND source_kind = ? AND source_id = ? AND idempotency_key = ?
+		LIMIT 1 FOR UPDATE`,
+		template.Scope.TenantID, template.Scope.CorpID, string(template.Source), template.SourceID, template.IdempotencyKey))
+	if err == nil {
+		if existing.Status == archiveprovider.SyncStatusFailed && retryFailed {
+			existing.Status = archiveprovider.SyncStatusQueued
+			existing.ErrorCode = ""
+			existing.Counts = archiveprovider.SyncCounts{}
+			existing.FinishedAt = nil
+			existing.Attempt++
+			if _, err = tx.ExecContext(ctx, `
+				UPDATE mochat_go_archive_sync_runs
+				SET status = 'queued', fetched_count = 0, processed_count = 0, skipped_count = 0,
+				    failed_count = 0, error_code = '', finished_at = NULL, attempt = ?, updated_at = NOW()
+				WHERE id = ? AND tenant_id = ? AND corp_id = ?
+			`, existing.Attempt, existing.ID, template.Scope.TenantID, template.Scope.CorpID); err != nil {
+				return archiveprovider.SyncRun{}, err
+			}
+			if err = insertArchiveSyncAuditTx(ctx, tx, existing, "retry", archiveprovider.SyncStatusQueued, ""); err != nil {
+				return archiveprovider.SyncRun{}, err
+			}
+		} else if existing.Status == archiveprovider.SyncStatusSucceeded {
+			existing.Idempotent = true
+		}
+		if err = tx.Commit(); err != nil {
+			return archiveprovider.SyncRun{}, err
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return archiveprovider.SyncRun{}, err
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_archive_sync_runs
+		(tenant_id, corp_id, source_kind, source_id, namespace, idempotency_key, status, attempt)
+		VALUES (?, ?, ?, ?, ?, ?, 'queued', 1)
+	`, template.Scope.TenantID, template.Scope.CorpID, string(template.Source), template.SourceID, template.Namespace, template.IdempotencyKey)
+	if err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	runID, err := result.LastInsertId()
+	if err != nil || runID <= 0 {
+		return archiveprovider.SyncRun{}, fmt.Errorf("archive sync run id: %w", err)
+	}
+	template.ID = strconv.FormatInt(runID, 10)
+	template.Attempt = 1
+	if err = insertArchiveSyncAuditTx(ctx, tx, template, "enqueue", archiveprovider.SyncStatusQueued, ""); err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	return template, nil
+}
+
+func (s *MySQLStore) MarkArchiveSyncRunning(ctx context.Context, runID string, at time.Time) error {
+	return s.transitionArchiveSync(ctx, runID, archiveprovider.SyncStatusRunning, "start", "", archiveprovider.SyncCounts{}, archiveprovider.Cursor{}, at)
+}
+
+func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, scope archiveprovider.Scope, message archiveprovider.Message) (archiveprovider.UpsertResult, error) {
+	if s == nil || s.db == nil {
+		return archiveprovider.UpsertResult{}, errors.New("archive sync store unavailable")
+	}
+	if !scopeValid(scope) || strings.TrimSpace(runID) == "" || !archiveMessageIdentityValid(message) {
+		return archiveprovider.UpsertResult{}, errors.New("archive message scope or identity invalid")
+	}
+	var corpID int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM mc_corp
+		WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL
+		LIMIT 1
+	`, scope.CorpID, scope.TenantID).Scan(&corpID)
+	if err == sql.ErrNoRows {
+		return archiveprovider.UpsertResult{}, errors.New("archive message corp is outside tenant scope")
+	}
+	if err != nil {
+		return archiveprovider.UpsertResult{}, err
+	}
+	runIDValue, err := strconv.ParseInt(runID, 10, 64)
+	if err != nil || runIDValue <= 0 {
+		return archiveprovider.UpsertResult{}, errors.New("archive sync run id invalid")
+	}
+	messageResult, err := s.UpsertWorkMessageArchive(ctx, corpID, dashboard.WorkMessageArchiveMessage{
+		Seq: message.Seq, MsgID: message.MsgID, Action: message.Action, From: message.From,
+		ToList: message.ToList, RoomID: message.RoomID, MsgType: message.MsgType, MsgTime: message.MsgTime,
+		ContentRaw: message.ContentRaw, ContentText: message.ContentText, RawJSON: message.RawJSON,
+	})
+	if err != nil {
+		return archiveprovider.UpsertResult{}, err
+	}
+	if !messageResult.Resolved {
+		return archiveprovider.UpsertResult{}, errors.New("archive message participants unresolved")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return archiveprovider.UpsertResult{}, err
+	}
+	defer rollbackQuietly(tx)
+	var existingKind, existingID, existingNamespace string
+	err = tx.QueryRowContext(ctx, `
+		SELECT source_kind, source_id, namespace
+		FROM mochat_go_archive_message_sources
+		WHERE tenant_id = ? AND corp_id = ? AND msgid = ?
+		LIMIT 1 FOR UPDATE
+	`, scope.TenantID, scope.CorpID, message.MsgID).Scan(&existingKind, &existingID, &existingNamespace)
+	if err == nil && (existingKind != string(message.Source) || existingID != message.SourceID || existingNamespace != message.Namespace) {
+		return archiveprovider.UpsertResult{}, errors.New("archive message source identity conflict")
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return archiveprovider.UpsertResult{}, err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_archive_message_sources
+		(tenant_id, corp_id, msgid, source_kind, source_id, namespace, run_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE source_kind = VALUES(source_kind), source_id = VALUES(source_id),
+		  namespace = VALUES(namespace), run_id = VALUES(run_id), updated_at = NOW()
+	`, scope.TenantID, scope.CorpID, message.MsgID, string(message.Source), message.SourceID, message.Namespace, runIDValue)
+	if err != nil {
+		return archiveprovider.UpsertResult{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return archiveprovider.UpsertResult{}, err
+	}
+	return archiveprovider.UpsertResult{Inserted: messageResult.Inserted, Skipped: !messageResult.Inserted}, nil
+}
+
+func (s *MySQLStore) SaveArchiveSyncCursor(ctx context.Context, runID string, cursor archiveprovider.Cursor, at time.Time) error {
+	if s == nil || s.db == nil {
+		return errors.New("archive sync store unavailable")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mochat_go_archive_sync_runs
+		SET cursor_sequence = ?, cursor_token = ?, updated_at = ?
+		WHERE id = ? AND status = 'running'
+	`, cursor.Sequence, strings.TrimSpace(cursor.Token), at, runID)
+	if err != nil {
+		return err
+	}
+	return requireArchiveSyncRows(result)
+}
+
+func (s *MySQLStore) CompleteArchiveSync(ctx context.Context, runID string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, at time.Time) (archiveprovider.SyncRun, error) {
+	return s.finishArchiveSync(ctx, runID, archiveprovider.SyncStatusSucceeded, counts, cursor, "", "complete", at)
+}
+
+func (s *MySQLStore) FailArchiveSync(ctx context.Context, runID string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, code string, at time.Time) (archiveprovider.SyncRun, error) {
+	return s.finishArchiveSync(ctx, runID, archiveprovider.SyncStatusFailed, counts, cursor, code, "fail", at)
+}
+
+func (s *MySQLStore) finishArchiveSync(ctx context.Context, runID string, status archiveprovider.SyncStatus, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, code, action string, at time.Time) (archiveprovider.SyncRun, error) {
+	if s == nil || s.db == nil {
+		return archiveprovider.SyncRun{}, errors.New("archive sync store unavailable")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	defer rollbackQuietly(tx)
+	result, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_archive_sync_runs
+		SET status = ?, cursor_sequence = ?, cursor_token = ?, fetched_count = ?, processed_count = ?,
+		    skipped_count = ?, failed_count = ?, error_code = ?, finished_at = ?, updated_at = ?
+		WHERE id = ? AND status = 'running'
+	`, string(status), cursor.Sequence, strings.TrimSpace(cursor.Token), counts.Fetched, counts.Processed, counts.Skipped, counts.Failed, strings.TrimSpace(code), at, at, runID)
+	if err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	if err = requireArchiveSyncRows(result); err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	run, err := scanArchiveSyncRun(tx.QueryRowContext(ctx, archiveSyncRunSelect+` WHERE id = ? LIMIT 1 FOR UPDATE`, runID))
+	if err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	if err = insertArchiveSyncAuditTx(ctx, tx, run, action, status, code); err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	return run, nil
+}
+
+func (s *MySQLStore) transitionArchiveSync(ctx context.Context, runID string, status archiveprovider.SyncStatus, action, code string, counts archiveprovider.SyncCounts, cursor archiveprovider.Cursor, at time.Time) error {
+	if s == nil || s.db == nil {
+		return errors.New("archive sync store unavailable")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollbackQuietly(tx)
+	result, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_archive_sync_runs
+		SET status = ?, started_at = ?, updated_at = ?
+		WHERE id = ? AND status = 'queued'
+	`, string(status), at, at, runID)
+	if err != nil {
+		return err
+	}
+	if err = requireArchiveSyncRows(result); err != nil {
+		return err
+	}
+	run, err := scanArchiveSyncRun(tx.QueryRowContext(ctx, archiveSyncRunSelect+` WHERE id = ? LIMIT 1 FOR UPDATE`, runID))
+	if err != nil {
+		return err
+	}
+	if err = insertArchiveSyncAuditTx(ctx, tx, run, action, status, code); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+const archiveSyncRunSelect = `
+	SELECT id, tenant_id, corp_id, source_kind, source_id, namespace, idempotency_key,
+	       status, cursor_sequence, cursor_token, fetched_count, processed_count, skipped_count,
+	       failed_count, error_code, attempt, started_at, finished_at
+	FROM mochat_go_archive_sync_runs`
+
+func scanArchiveSyncRun(scanner archiveSyncRunScanner) (archiveprovider.SyncRun, error) {
+	var id, tenantID, corpID int64
+	var sourceKind, sourceID, namespace, key, status, token, errorCode string
+	var sequence int64
+	var fetched, processed, skipped, failed, attempt int
+	var startedAt, finishedAt sql.NullTime
+	if err := scanner.Scan(&id, &tenantID, &corpID, &sourceKind, &sourceID, &namespace, &key, &status, &sequence, &token,
+		&fetched, &processed, &skipped, &failed, &errorCode, &attempt, &startedAt, &finishedAt); err != nil {
+		return archiveprovider.SyncRun{}, err
+	}
+	source := providers.Source(sourceKind)
+	if id <= 0 || tenantID <= 0 || corpID <= 0 || !scopeValid(archiveprovider.Scope{TenantID: tenantID, CorpID: corpID}) {
+		return archiveprovider.SyncRun{}, errors.New("archive sync run scope invalid")
+	}
+	return archiveprovider.SyncRun{
+		ID: strconv.FormatInt(id, 10), Scope: archiveprovider.Scope{TenantID: tenantID, CorpID: corpID},
+		Source: source, SourceID: sourceID, Namespace: namespace, IdempotencyKey: key,
+		Status: archiveprovider.SyncStatus(status), Cursor: archiveprovider.Cursor{Sequence: sequence, Token: token},
+		Counts:    archiveprovider.SyncCounts{Fetched: fetched, Processed: processed, Skipped: skipped, Failed: failed},
+		ErrorCode: errorCode, Attempt: attempt, StartedAt: nullableArchiveTime(startedAt), FinishedAt: nullableArchiveTime(finishedAt),
+	}, nil
+}
+
+func insertArchiveSyncAuditTx(ctx context.Context, tx *sql.Tx, run archiveprovider.SyncRun, action string, status archiveprovider.SyncStatus, code string) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_archive_sync_audits
+		(run_id, tenant_id, corp_id, source_kind, source_id, namespace, action, status, error_code,
+		 cursor_sequence, fetched_count, processed_count, skipped_count, failed_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, runIDInt(run.ID), run.Scope.TenantID, run.Scope.CorpID, string(run.Source), run.SourceID, run.Namespace,
+		action, string(status), strings.TrimSpace(code), run.Cursor.Sequence, run.Counts.Fetched, run.Counts.Processed, run.Counts.Skipped, run.Counts.Failed)
+	return err
+}
+
+func runIDInt(value string) int64 {
+	runID, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return runID
+}
+
+func nullableArchiveTime(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Time
+	return &result
+}
+
+func requireArchiveSyncRows(result sql.Result) error {
+	if result == nil {
+		return errors.New("archive sync mutation returned no result")
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errArchiveSyncRunNotFound
+	}
+	return nil
+}
+
+func archiveSyncTemplateValid(run archiveprovider.SyncRun) bool {
+	return scopeValid(run.Scope) && (run.Source == providers.SourceExternal || run.Source == providers.SourceSimulated) &&
+		strings.TrimSpace(run.SourceID) != "" && strings.TrimSpace(run.Namespace) != "" && strings.TrimSpace(run.IdempotencyKey) != ""
+}
+
+func scopeValid(scope archiveprovider.Scope) bool {
+	return scope.TenantID > 0 && scope.CorpID > 0
+}
+
+func archiveMessageIdentityValid(message archiveprovider.Message) bool {
+	return (message.Source == providers.SourceExternal || message.Source == providers.SourceSimulated) &&
+		strings.TrimSpace(message.SourceID) != "" && strings.TrimSpace(message.Namespace) != "" &&
+		strings.TrimSpace(message.MsgID) != "" && message.Seq > 0
+}
+
+// GetArchiveSourceStatus reads only tenant/corp-scoped source metadata. It
+// deliberately falls back to the pre-0138 simulation registry when the new
+// migration is not installed, so an application rollout can remain truthful.
+func (s *MySQLStore) GetArchiveSourceStatus(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (providers.Status, error) {
+	if s == nil || s.db == nil {
+		return providers.Status{}, errors.New("archive source status store unavailable")
+	}
+	var sourceKind, sourceID, namespace, status, errorCode string
+	var lastSync, lastSuccess, lastFailure sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		SELECT latest.source_kind, latest.source_id, latest.namespace, latest.status, latest.error_code, latest.updated_at,
+		       (SELECT finished_at FROM mochat_go_archive_sync_runs success
+		        WHERE success.tenant_id = latest.tenant_id AND success.corp_id = latest.corp_id
+		          AND success.source_kind = latest.source_kind AND success.source_id = latest.source_id
+		          AND success.status = 'succeeded' AND success.finished_at IS NOT NULL
+		        ORDER BY success.finished_at DESC, success.id DESC LIMIT 1),
+		       (SELECT finished_at FROM mochat_go_archive_sync_runs failed
+		        WHERE failed.tenant_id = latest.tenant_id AND failed.corp_id = latest.corp_id
+		          AND failed.source_kind = latest.source_kind AND failed.source_id = latest.source_id
+		          AND failed.status = 'failed' AND failed.finished_at IS NOT NULL
+		        ORDER BY failed.finished_at DESC, failed.id DESC LIMIT 1)
+		FROM mochat_go_archive_sync_runs latest
+		WHERE latest.tenant_id = ? AND latest.corp_id = ?
+		ORDER BY latest.updated_at DESC, latest.id DESC
+		LIMIT 1
+	`, principal.TenantID, principal.CorpID).Scan(&sourceKind, &sourceID, &namespace, &status, &errorCode, &lastSync, &lastSuccess, &lastFailure)
+	if err == nil {
+		return archiveSourceStatusFromRun(sourceKind, sourceID, namespace, status, errorCode, lastSync, lastSuccess, lastFailure), nil
+	}
+	if err != sql.ErrNoRows && !isMissingArchiveSourceTable(err) {
+		return providers.Status{}, err
+	}
+	var simulationStatus string
+	err = s.db.QueryRowContext(ctx, `
+		SELECT status FROM mochat_go_archive_simulation_batches batch
+		INNER JOIN mc_corp corp ON corp.id = batch.corp_id AND corp.tenant_id = ? AND corp.deleted_at IS NULL
+		WHERE batch.corp_id = ? AND batch.status = 'complete'
+		ORDER BY batch.id DESC LIMIT 1
+	`, principal.TenantID, principal.CorpID).Scan(&simulationStatus)
+	if err == nil && strings.EqualFold(simulationStatus, "complete") {
+		return providers.Status{Kind: "wecom_archive", State: providers.StateLimited, Source: providers.SourceSimulated,
+			Code: "archive.simulation_ready", Reason: "当前企业使用隔离的模拟会话存档数据", Action: "仅用于验收；接入真实 getchatdata 后再启用外部存档"}, nil
+	}
+	if err != nil && err != sql.ErrNoRows && !isMissingArchiveSourceTable(err) {
+		return providers.Status{}, err
+	}
+	return providers.Status{}, nil
+}
+
+func archiveSourceStatusFromRun(sourceKind, sourceID, namespace, runStatus, errorCode string, lastSync, lastSuccess, lastFailure sql.NullTime) providers.Status {
+	source := providers.Source(sourceKind)
+	if source != providers.SourceSimulated {
+		source = providers.SourceExternal
+	}
+	status := providers.Status{Kind: "wecom_archive", Source: source, State: providers.StateLimited,
+		Capabilities: []string{"archive_sync"}, LastSyncAt: nullableArchiveTime(lastSync),
+		LastSuccessAt: nullableArchiveTime(lastSuccess), LastFailureAt: nullableArchiveTime(lastFailure)}
+	if source == providers.SourceSimulated {
+		status.Code = "archive.simulation_ready"
+		status.Reason = "当前企业使用隔离的模拟会话存档数据"
+		status.Action = "仅用于验收；接入真实 getchatdata 后再启用外部存档"
+	} else {
+		status.Code = "archive.getchatdata_unimplemented"
+		status.Reason = "真实会话存档 getchatdata source 尚未实现"
+		status.Action = "接入并验证真实会话存档 source 后再启用同步"
+	}
+	if strings.EqualFold(strings.TrimSpace(runStatus), string(archiveprovider.SyncStatusFailed)) {
+		status.LastErrorCode = stableArchiveErrorCode(errorCode)
+		status.Reason = "最近一次会话存档同步失败，当前状态已降级"
+		status.Action = "修复会话存档 source 后重试同步"
+	}
+	_ = sourceID
+	_ = namespace
+	return status
+}
+
+func stableArchiveErrorCode(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "archive.sync_failed"
+	}
+	for _, character := range value {
+		if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-') {
+			return "archive.sync_failed"
+		}
+	}
+	return value
+}
+
+func isMissingArchiveSourceTable(err error) bool {
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "mochat_go_archive_") && (strings.Contains(message, "doesn't exist") || strings.Contains(message, "does not exist"))
+}

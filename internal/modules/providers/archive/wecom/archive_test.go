@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"jiyi/mochat-go/internal/modules/providers"
+	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
 )
 
 func TestArchiveStatusAndSync(t *testing.T) {
@@ -44,6 +45,20 @@ func TestArchiveStatusAndSync(t *testing.T) {
 	}
 	if _, err := archive.Sync(context.Background(), providers.SyncOptions{CorpID: 1}); !errors.Is(err, providers.ErrCapabilityUnavailable) {
 		t.Fatalf("Sync error = %v, want ErrCapabilityUnavailable", err)
+	}
+}
+
+func TestArchiveImplementsFailClosedSourceBoundary(t *testing.T) {
+	archive, err := New(Config{CorpID: "ww-example", Secret: "secret", PublicKey: "public", PrivateKey: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source archiveprovider.ArchiveSource = archive
+	if source.Kind() != providers.SourceExternal || source.SourceID() != "wecom:ww-example" || source.Namespace() != "wecom" {
+		t.Fatalf("source identity kind=%q id=%q namespace=%q", source.Kind(), source.SourceID(), source.Namespace())
+	}
+	if _, err := source.Fetch(context.Background(), archiveprovider.Scope{TenantID: 1, CorpID: 7}, archiveprovider.Cursor{}, 10); !errors.Is(err, providers.ErrCapabilityUnavailable) {
+		t.Fatalf("source fetch error=%v, want ErrCapabilityUnavailable", err)
 	}
 }
 
