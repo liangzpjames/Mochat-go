@@ -31,6 +31,7 @@ func TestArchiveSourceMigrationContainsLegacySimulationBackfillContract(t *testi
 		"mochat_go_archive_simulation_messages",
 		"concat(''simulation:'', batch.`batch_key`)",
 		"concat(''mochat-sim:'', batch.`batch_key`)",
+		"on duplicate key update `id` = last_insert_id(`mochat_go_archive_sync_runs`.`id`)",
 	} {
 		if !strings.Contains(source, fragment) {
 			t.Fatalf("0138 legacy simulation backfill missing %q", fragment)
