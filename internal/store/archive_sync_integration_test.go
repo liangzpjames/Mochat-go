@@ -378,7 +378,7 @@ func dumpArchiveSyncRunsGuardMetadata(t *testing.T, db *sql.DB) {
 			columns.Close()
 			t.Fatalf("scan archive sync runs column metadata: %v", err)
 		}
-		t.Logf("archive runs guard column ordinal=%d name=%s data_type=%s numeric_precision=%v char_length=%v datetime_precision=%v column_type=%s nullable=%s default=%v extra=%s", ordinal, name, dataType, numericPrecision, charLength, datetimePrecision, columnType, nullable, columnDefault, extra)
+		t.Logf("archive runs guard column ordinal=%d name=%s data_type=%s numeric_precision=%v char_length=%v datetime_precision=%v column_type=%s nullable=%s default=%v default_kind=%s extra=%s", ordinal, name, dataType, numericPrecision, charLength, datetimePrecision, columnType, nullable, columnDefault, archiveInformationSchemaDefaultKind(columnDefault), extra)
 	}
 	if err := columns.Err(); err != nil {
 		columns.Close()
@@ -596,6 +596,7 @@ func validateArchiveRunsColumn(name string, metadata archiveRunsColumnMetadata) 
 	dataType := strings.ToLower(metadata.dataType)
 	columnType := strings.ToLower(metadata.columnType)
 	normalizedExtra := strings.ReplaceAll(strings.ReplaceAll(strings.ToLower(metadata.extra), " ", ""), "default_generated", "")
+	defaultKind := archiveInformationSchemaDefaultKind(metadata.columnDefault)
 	defaultValue := strings.ToLower(metadata.columnDefault.String)
 	if !metadata.columnDefault.Valid {
 		defaultValue = "<null>"
@@ -614,27 +615,63 @@ func validateArchiveRunsColumn(name string, metadata archiveRunsColumnMetadata) 
 	case "source_kind":
 		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 16 && metadata.nullable == "NO" && !metadata.columnDefault.Valid && normalizedExtra == "", "varchar(16) NOT NULL")
 	case "source_id", "namespace", "idempotency_key", "lease_token":
-		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 128 && metadata.nullable == "NO" && (name != "lease_token" && !metadata.columnDefault.Valid || name == "lease_token" && metadata.columnDefault.Valid && metadata.columnDefault.String == "") && normalizedExtra == "", "varchar(128) NOT NULL with migration default contract")
+		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 128 && metadata.nullable == "NO" && (name != "lease_token" && !metadata.columnDefault.Valid || name == "lease_token" && defaultKind == "empty-string") && normalizedExtra == "", "varchar(128) NOT NULL with migration default contract")
 	case "status":
 		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 16 && metadata.nullable == "NO" && !metadata.columnDefault.Valid && normalizedExtra == "", "varchar(16) NOT NULL")
 	case "cursor_sequence":
 		return valid(dataType == "bigint" && metadata.numericPrecision.Valid && metadata.numericPrecision.Int64 == 19 && !strings.Contains(columnType, "unsigned") && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "0" && normalizedExtra == "", "signed bigint NOT NULL DEFAULT 0")
 	case "cursor_token":
-		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 255 && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "" && normalizedExtra == "", "varchar(255) NOT NULL DEFAULT ''")
+		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 255 && metadata.nullable == "NO" && defaultKind == "empty-string" && normalizedExtra == "", "varchar(255) NOT NULL DEFAULT ''")
 	case "fetched_count", "processed_count", "skipped_count", "failed_count":
 		return valid(dataType == "int" && metadata.numericPrecision.Valid && metadata.numericPrecision.Int64 == 10 && strings.Contains(columnType, "unsigned") && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "0" && normalizedExtra == "", "int unsigned NOT NULL DEFAULT 0")
 	case "error_code":
-		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 96 && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "" && normalizedExtra == "", "varchar(96) NOT NULL DEFAULT ''")
+		return valid(dataType == "varchar" && metadata.characterLength.Valid && metadata.characterLength.Int64 == 96 && metadata.nullable == "NO" && defaultKind == "empty-string" && normalizedExtra == "", "varchar(96) NOT NULL DEFAULT ''")
 	case "attempt":
 		return valid(dataType == "int" && metadata.numericPrecision.Valid && metadata.numericPrecision.Int64 == 10 && strings.Contains(columnType, "unsigned") && metadata.nullable == "NO" && metadata.columnDefault.Valid && metadata.columnDefault.String == "1" && normalizedExtra == "", "int unsigned NOT NULL DEFAULT 1")
 	case "started_at", "finished_at", "lease_expires_at", "heartbeat_at":
-		return valid(dataType == "datetime" && metadata.datetimePrecision.Valid && metadata.datetimePrecision.Int64 == 6 && metadata.nullable == "YES" && !metadata.columnDefault.Valid && normalizedExtra == "", "datetime(6) NULL")
+		return valid(dataType == "datetime" && metadata.datetimePrecision.Valid && metadata.datetimePrecision.Int64 == 6 && metadata.nullable == "YES" && defaultKind == "sql-null" && normalizedExtra == "", "datetime(6) NULL")
 	case "created_at":
 		return valid(dataType == "datetime" && metadata.datetimePrecision.Valid && metadata.datetimePrecision.Int64 == 6 && metadata.nullable == "NO" && defaultValue == "current_timestamp(6)" && normalizedExtra == "", "datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)")
 	case "updated_at":
 		return valid(dataType == "datetime" && metadata.datetimePrecision.Valid && metadata.datetimePrecision.Int64 == 6 && metadata.nullable == "NO" && defaultValue == "current_timestamp(6)" && normalizedExtra == "onupdatecurrent_timestamp(6)", "datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)")
 	default:
 		return "unknown column " + name
+	}
+}
+
+func archiveInformationSchemaDefaultKind(value sql.NullString) string {
+	if !value.Valid {
+		return "sql-null"
+	}
+	normalized := strings.ToLower(strings.TrimSpace(value.String))
+	if normalized == "null" {
+		return "sql-null"
+	}
+	normalized = strings.Trim(normalized, "'\"")
+	if normalized == "" {
+		return "empty-string"
+	}
+	return normalized
+}
+
+func TestArchiveSyncColumnDefaultNormalization(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		input sql.NullString
+		want  string
+	}{
+		{name: "sql null", input: sql.NullString{}, want: "sql-null"},
+		{name: "literal null", input: sql.NullString{String: "NULL", Valid: true}, want: "sql-null"},
+		{name: "empty string", input: sql.NullString{String: "", Valid: true}, want: "empty-string"},
+		{name: "quoted empty string", input: sql.NullString{String: "''", Valid: true}, want: "empty-string"},
+		{name: "quoted double empty string", input: sql.NullString{String: `""`, Valid: true}, want: "empty-string"},
+		{name: "nonempty default", input: sql.NullString{String: "'bad'", Valid: true}, want: "bad"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := archiveInformationSchemaDefaultKind(test.input); got != test.want {
+				t.Fatalf("archiveInformationSchemaDefaultKind(%#v)=%q want %q", test.input, got, test.want)
+			}
+		})
 	}
 }
 

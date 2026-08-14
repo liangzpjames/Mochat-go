@@ -14,6 +14,8 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	createArchiveSyncCorpFixture(t, db)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
+	defer executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql")
 	createArchiveReadFixture(t, db)
 	seedArchiveReadMessages(t, db)
 
@@ -22,6 +24,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveReadModeDiagnostics(t, NewMySQLStore(db), workMessageArchiveSimulation)
 	assertArchiveReadSourceDiagnostics(t, db, NewMySQLStore(db), "simulated", []string{"registry-simulated"}, 1)
 	simulated, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
 		CorpID: 27, WorkEmployeeID: 1001, ArchiveSource: "simulated", Page: 1, PerPage: 10,
@@ -38,6 +41,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=1 WHERE id=27`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveReadModeDiagnostics(t, store, workMessageArchiveReal)
 	assertArchiveReadSourceDiagnostics(t, db, store, "external", []string{"MOCHAT-SIM:external-prefix", "historical-real"}, 2)
 
 	external, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
@@ -157,6 +161,7 @@ func TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault(t *t
 
 	store := NewMySQLStore(db)
 	ctx := context.Background()
+	assertArchiveReadModeDiagnostics(t, store, workMessageArchiveReal)
 	realPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatal(err)
@@ -167,6 +172,7 @@ func TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault(t *t
 	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveReadModeDiagnostics(t, store, workMessageArchiveSimulation)
 	assertArchiveReadSourceDiagnostics(t, db, store, "simulated", []string{"legacy-simulated"}, 1)
 	simulationPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10})
 	if err != nil {
@@ -174,6 +180,21 @@ func TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault(t *t
 	}
 	if simulationPage.Total != 1 || simulationPage.TotalPage != 1 || len(simulationPage.Items) != 1 || simulationPage.Items[0].MsgID != "legacy-simulated" || simulationPage.Items[0].ArchiveSource != "simulated" || simulationPage.Items[0].ArchiveSourceID != "simulation:legacy-old" {
 		t.Fatalf("legacy default simulation page=%#v", simulationPage)
+	}
+}
+
+func assertArchiveReadModeDiagnostics(t *testing.T, store *MySQLStore, want workMessageArchiveMode) {
+	t.Helper()
+	mode, err := store.workMessageArchiveMode(context.Background(), 0, 27)
+	if err != nil {
+		t.Fatalf("archive mode diagnostic want=%v: %v", want, err)
+	}
+	effective, sourceOK := effectiveArchiveSource(mode, "")
+	predicate, available := workMessageArchivePredicate(mode)
+	state, stateErr := store.archiveSourceRegistryState(context.Background())
+	t.Logf("archive mode diagnostic mode=%v want=%v effective=%q sourceOK=%v available=%v predicate=%q registryState=%#v stateErr=%v", mode, want, effective, sourceOK, available, predicate, state, stateErr)
+	if mode != want || !sourceOK || !available || predicate != "1 = 1" {
+		t.Fatalf("archive mode diagnostic mismatch mode=%v want=%v effective=%q sourceOK=%v available=%v predicate=%q registryState=%#v stateErr=%v", mode, want, effective, sourceOK, available, predicate, state, stateErr)
 	}
 }
 
@@ -262,9 +283,6 @@ func assertArchiveReadSourceDiagnostics(t *testing.T, db *sql.DB, store *MySQLSt
 
 func createArchiveReadFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
-	if _, err := db.Exec(`CREATE TABLE mochat_go_archive_simulation_batches (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, batch_key VARCHAR(128) NOT NULL, status VARCHAR(16) NOT NULL, message_count INT UNSIGNED NOT NULL DEFAULT 0, created_at DATETIME NULL, updated_at DATETIME NULL) ENGINE=InnoDB`); err != nil {
-		t.Fatal(err)
-	}
 	createArchiveReadBusinessFixture(t, db)
 }
 

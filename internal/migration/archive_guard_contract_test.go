@@ -35,3 +35,20 @@ func TestArchiveSourceMigrationGuardUsesPortableColumnMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestArchiveSourceMigrationGuardNormalizesMariaDBColumnDefaults(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0138_archive_source_sync.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := strings.ToLower(string(body))
+	for _, required := range []string{
+		"column_default is not null and replace(replace(trim(coalesce(column_default, '')), char(39), ''), char(34), '') = ''",
+		"replace(replace(trim(coalesce(column_default, '')), char(39), ''), char(34), '') = ''",
+		"upper(trim(coalesce(column_default,''))) = 'null'",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("0138 guard missing MariaDB column_default normalization contract %q", required)
+		}
+	}
+}
