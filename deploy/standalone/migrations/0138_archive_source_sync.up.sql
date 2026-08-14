@@ -74,6 +74,32 @@ SET @archive_audits_invalid := (
     OR (SELECT COUNT(*) FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND constraint_name = 'fk_archive_sync_audit_run' AND ordinal_position = 4 AND column_name = 'source_kind' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'source_kind') <> 1
     OR (SELECT COUNT(*) FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND constraint_name = 'fk_archive_sync_audit_run' AND ordinal_position = 5 AND column_name = 'source_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'source_id') <> 1
     OR (SELECT COUNT(*) FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits' AND constraint_name = 'fk_archive_sync_audit_run' AND ordinal_position = 6 AND column_name = 'namespace' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'namespace') <> 1
+    OR NOT EXISTS (
+      SELECT 1
+      FROM information_schema.statistics
+      WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_sync_audits'
+        AND index_name = 'idx_archive_sync_audit_scope' AND non_unique = 1 AND sub_part IS NULL
+      GROUP BY table_schema, table_name, index_name
+      HAVING COUNT(*) = 3
+         AND SUM(seq_in_index = 1 AND column_name = 'tenant_id') = 1
+         AND SUM(seq_in_index = 2 AND column_name = 'corp_id') = 1
+         AND SUM(seq_in_index = 3 AND column_name = 'created_at') = 1
+    )
+    OR NOT EXISTS (
+      SELECT 1
+      FROM information_schema.key_column_usage
+      WHERE constraint_schema = DATABASE() AND table_schema = DATABASE()
+        AND table_name = 'mochat_go_archive_sync_audits'
+        AND constraint_name = 'fk_archive_sync_audit_run'
+      GROUP BY constraint_schema, table_schema, table_name, constraint_name
+      HAVING COUNT(*) = 6
+         AND SUM(ordinal_position = 1 AND column_name = 'tenant_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'tenant_id') = 1
+         AND SUM(ordinal_position = 2 AND column_name = 'corp_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'corp_id') = 1
+         AND SUM(ordinal_position = 3 AND column_name = 'run_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'id') = 1
+         AND SUM(ordinal_position = 4 AND column_name = 'source_kind' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'source_kind') = 1
+         AND SUM(ordinal_position = 5 AND column_name = 'source_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'source_id') = 1
+         AND SUM(ordinal_position = 6 AND column_name = 'namespace' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'namespace') = 1
+    )
   )
 );
 SET @archive_audits_guard_sql := IF(@archive_audits_invalid = 0, 'SELECT 1', 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0138 incompatible archive sync audits table''');
@@ -112,6 +138,32 @@ SET @archive_sources_invalid := (
     OR (SELECT COUNT(*) FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND constraint_name = 'fk_archive_message_source_run' AND ordinal_position = 4 AND column_name = 'source_kind' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'source_kind') <> 1
     OR (SELECT COUNT(*) FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND constraint_name = 'fk_archive_message_source_run' AND ordinal_position = 5 AND column_name = 'source_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'source_id') <> 1
     OR (SELECT COUNT(*) FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources' AND constraint_name = 'fk_archive_message_source_run' AND ordinal_position = 6 AND column_name = 'namespace' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'namespace') <> 1
+    OR NOT EXISTS (
+      SELECT 1
+      FROM information_schema.statistics
+      WHERE table_schema = DATABASE() AND table_name = 'mochat_go_archive_message_sources'
+        AND index_name = 'uk_archive_message_source_scope_msg' AND non_unique = 0 AND sub_part IS NULL
+      GROUP BY table_schema, table_name, index_name
+      HAVING COUNT(*) = 3
+         AND SUM(seq_in_index = 1 AND column_name = 'tenant_id') = 1
+         AND SUM(seq_in_index = 2 AND column_name = 'corp_id') = 1
+         AND SUM(seq_in_index = 3 AND column_name = 'msgid') = 1
+    )
+    OR NOT EXISTS (
+      SELECT 1
+      FROM information_schema.key_column_usage
+      WHERE constraint_schema = DATABASE() AND table_schema = DATABASE()
+        AND table_name = 'mochat_go_archive_message_sources'
+        AND constraint_name = 'fk_archive_message_source_run'
+      GROUP BY constraint_schema, table_schema, table_name, constraint_name
+      HAVING COUNT(*) = 6
+         AND SUM(ordinal_position = 1 AND column_name = 'tenant_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'tenant_id') = 1
+         AND SUM(ordinal_position = 2 AND column_name = 'corp_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'corp_id') = 1
+         AND SUM(ordinal_position = 3 AND column_name = 'run_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'id') = 1
+         AND SUM(ordinal_position = 4 AND column_name = 'source_kind' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'source_kind') = 1
+         AND SUM(ordinal_position = 5 AND column_name = 'source_id' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'source_id') = 1
+         AND SUM(ordinal_position = 6 AND column_name = 'namespace' AND referenced_table_name = 'mochat_go_archive_sync_runs' AND referenced_column_name = 'namespace') = 1
+    )
   )
 );
 SET @archive_sources_guard_sql := IF(@archive_sources_invalid = 0, 'SELECT 1', 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0138 incompatible archive message sources table''');

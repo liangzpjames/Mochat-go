@@ -139,6 +139,9 @@ func TestArchiveSourceStatusUsesCurrentCorpArchiveMode(t *testing.T) {
 	}
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	t.Cleanup(func() { executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql") })
+	if _, err := db.Exec(`UPDATE mochat_go_archive_sync_runs SET updated_at='2026-08-14 09:00:00.000000', finished_at='2026-08-14 09:00:00.000000' WHERE tenant_id=11 AND corp_id=27 AND source_kind='simulated' AND source_id='simulation:status-mode'`); err != nil {
+		t.Fatal(err)
+	}
 	for _, run := range []struct {
 		sourceKind, sourceID, namespace, idempotency, status, errorCode string
 		updatedAt                                                       string
@@ -311,6 +314,44 @@ func TestArchiveSyncMigrationRejectsSingleFactorIdempotencyKeyTypeMismatch(t *te
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
 }
 
+func assertArchiveSyncRunsResidualGuardPasses(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var invalid int
+	err := db.QueryRow(`
+		SELECT CASE WHEN
+			(SELECT COUNT(DISTINCT column_name)
+			 FROM information_schema.columns
+			 WHERE table_schema=DATABASE() AND table_name='mochat_go_archive_sync_runs'
+			   AND column_name IN ('id','tenant_id','corp_id','source_kind','source_id','namespace','idempotency_key','status','cursor_sequence','cursor_token','fetched_count','processed_count','skipped_count','failed_count','error_code','attempt','lease_token','started_at','finished_at','lease_expires_at','heartbeat_at','created_at','updated_at')) <> 23
+			OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',')
+			            FROM information_schema.statistics
+			            WHERE table_schema=DATABASE() AND table_name='mochat_go_archive_sync_runs'
+			              AND index_name='uk_archive_sync_run_idempotency' AND non_unique=0 AND sub_part IS NULL), '') <> 'tenant_id,corp_id,source_kind,source_id,idempotency_key'
+			OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',')
+			            FROM information_schema.statistics
+			            WHERE table_schema=DATABASE() AND table_name='mochat_go_archive_sync_runs'
+			              AND index_name='uk_archive_sync_run_scope_id' AND non_unique=0 AND sub_part IS NULL), '') <> 'tenant_id,corp_id,id'
+			OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',')
+			            FROM information_schema.statistics
+			            WHERE table_schema=DATABASE() AND table_name='mochat_go_archive_sync_runs'
+			              AND index_name='uk_archive_sync_run_identity' AND non_unique=0 AND sub_part IS NULL), '') <> 'tenant_id,corp_id,id,source_kind,source_id,namespace'
+			OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',')
+			            FROM information_schema.key_column_usage
+			            WHERE constraint_schema=DATABASE() AND table_schema=DATABASE()
+			              AND table_name='mochat_go_archive_sync_runs' AND constraint_name='fk_archive_sync_run_corp'), '') <> 'tenant_id=mc_corp.tenant_id,corp_id=mc_corp.id'
+			OR (SELECT COUNT(*) FROM information_schema.key_column_usage
+			    WHERE constraint_schema=DATABASE() AND table_schema=DATABASE()
+			      AND table_name='mochat_go_archive_sync_runs' AND constraint_name='fk_archive_sync_run_corp') <> 2
+			THEN 1 ELSE 0 END
+	`).Scan(&invalid)
+	if err != nil {
+		t.Fatalf("inspect residual runs guard: %v", err)
+	}
+	if invalid != 0 {
+		t.Fatalf("target fixture contaminated the residual archive sync runs guard")
+	}
+}
+
 func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createArchiveSyncCorpFixture(t, db)
@@ -330,6 +371,7 @@ func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T)
 	) ENGINE=InnoDB`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveSyncRunsResidualGuardPasses(t, db)
 	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
 	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive message sources table") {
 		t.Fatal("wrong composite source foreign key unexpectedly passed migration guard")
@@ -357,6 +399,7 @@ func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
 	) ENGINE=InnoDB`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveSyncRunsResidualGuardPasses(t, db)
 	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
 	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive message sources table") {
 		t.Fatal("non-unique residual scope index unexpectedly passed migration guard")
@@ -384,6 +427,7 @@ func TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex(t *testing.T) {
 	) ENGINE=InnoDB`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveSyncRunsResidualGuardPasses(t, db)
 	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
 	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive message sources table") {
 		t.Fatalf("prefixed residual scope index unexpectedly passed migration guard: %v", err)
@@ -414,6 +458,7 @@ func TestArchiveSyncMigrationRejectsWrongAuditScopeIndex(t *testing.T) {
 	) ENGINE=InnoDB`); err != nil {
 		t.Fatal(err)
 	}
+	assertArchiveSyncRunsResidualGuardPasses(t, db)
 	err := executeArchiveMigrationFileErr(db, "0138_archive_source_sync.up.sql")
 	if err == nil || !strings.Contains(err.Error(), "0138 incompatible archive sync audits table") {
 		t.Fatalf("wrong audit scope index unexpectedly passed migration guard: %v", err)

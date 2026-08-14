@@ -93,12 +93,30 @@ func TestArchiveMessageSourceFilterUsesRegistryIdentity(t *testing.T) {
 	if !strings.Contains(simulated, "archive_source_filter.source_kind = 'simulated'") || strings.Contains(simulated, "MOCHAT-SIM:%") {
 		t.Fatalf("simulation predicate=%q", simulated)
 	}
+	if strings.Contains(simulated, "(SELECT tenant_id FROM mc_corp") {
+		t.Fatalf("simulation predicate uses a scalar tenant subquery instead of a correlated registry join: %q", simulated)
+	}
 	external := archiveMessageSourceShardPredicate("external")
 	if !strings.Contains(external, "archive_source_filter.source_kind = 'external'") || !strings.Contains(external, "NOT EXISTS") || strings.Contains(external, "MOCHAT-SIM:%") {
 		t.Fatalf("external predicate=%q", external)
 	}
 	if archiveMessageSourceShardPredicate("secret-source") != "1 = 0" {
 		t.Fatal("unknown source filter unexpectedly accepted")
+	}
+}
+
+func TestArchiveSourceJoinedProjectionIsAvailableToPageAndDetailQueries(t *testing.T) {
+	projection := archiveSourceJoinedProjectionForState(archiveSourceRegistryState{explicit: true, legacySimulation: true})
+	for _, fragment := range []string{
+		"archive_source.source_kind",
+		"archive_source.source_id",
+		"archive_legacy_batch.id",
+		"AS archive_source_kind",
+		"AS archive_source_id",
+	} {
+		if !strings.Contains(projection, fragment) {
+			t.Fatalf("joined archive projection=%q missing %q", projection, fragment)
+		}
 	}
 }
 

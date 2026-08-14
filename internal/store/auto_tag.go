@@ -1999,7 +1999,7 @@ func (s *MySQLStore) WorkMessageByArchiveID(ctx context.Context, filter dashboar
 	row := s.db.QueryRowContext(ctx, `
 		SELECT wm.id, wm.table_index, wm.seq, wm.msgid, wm.work_employee_id, wm.employee_name, wm.employee_avatar, wm.to_user_type, wm.to_user_id,
 		       wm.target_name, wm.target_avatar, wm.action, wm.sender_name, wm.sender_avatar, wm.is_current_user,
-		       wm.msg_type, wm.content_raw, wm.msg_data_time`+archiveSourceProjectionForState(registryState)+`
+		       wm.msg_type, wm.content_raw, wm.msg_data_time`+archiveSourceJoinedProjectionForState(registryState)+`
 		FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
 		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC
@@ -2108,7 +2108,7 @@ func (s *MySQLStore) WorkMessagePage(ctx context.Context, filter dashboard.WorkM
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT wm.id, wm.table_index, wm.seq, wm.msgid, wm.work_employee_id, wm.employee_name, wm.employee_avatar, wm.to_user_type, wm.to_user_id,
 		       wm.target_name, wm.target_avatar, wm.action, wm.sender_name, wm.sender_avatar, wm.is_current_user,
-		       wm.msg_type, wm.content_raw, wm.msg_data_time`+archiveSourceProjectionForState(registryState)+`
+		       wm.msg_type, wm.content_raw, wm.msg_data_time`+archiveSourceJoinedProjectionForState(registryState)+`
 		FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
 		WHERE `+whereSQL+`
 		ORDER BY `+orderSQL+`
@@ -2494,6 +2494,17 @@ func archiveMessageSourceShardPredicateForState(source string, state archiveSour
 			AND archive_source_corp.tenant_id = archive_source_filter.tenant_id
 		WHERE archive_source_filter.corp_id = wm.corp_id
 		  AND archive_source_filter.msgid = wm.msgid)`
+	explicitSourceExists := func(sourceKind string) string {
+		return `EXISTS (
+			SELECT 1
+			FROM mochat_go_archive_message_sources archive_source_filter
+			INNER JOIN mc_corp archive_source_corp
+				ON archive_source_corp.id = wm.corp_id
+				AND archive_source_corp.tenant_id = archive_source_filter.tenant_id
+			WHERE archive_source_filter.corp_id = wm.corp_id
+			  AND archive_source_filter.msgid = wm.msgid
+			  AND archive_source_filter.source_kind = '` + sourceKind + `')`
+	}
 	legacyExists := `EXISTS (
 		SELECT 1
 		FROM mochat_go_archive_simulation_messages archive_legacy_message
@@ -2511,43 +2522,21 @@ func archiveMessageSourceShardPredicateForState(source string, state archiveSour
 	}
 	switch source {
 	case "simulated":
+		simulatedExists := explicitSourceExists("simulated")
 		if state.explicit && state.legacySimulation {
-			return `(` + explicitExists + ` AND EXISTS (
-				SELECT 1 FROM mochat_go_archive_message_sources archive_source_filter
-				WHERE archive_source_filter.tenant_id = (SELECT tenant_id FROM mc_corp WHERE id = wm.corp_id LIMIT 1)
-				  AND archive_source_filter.corp_id = wm.corp_id
-				  AND archive_source_filter.msgid = wm.msgid
-				  AND archive_source_filter.source_kind = 'simulated'
-			) OR (NOT ` + explicitExists + ` AND ` + legacyExists + `))`
+			return `(` + simulatedExists + ` OR (NOT ` + explicitExists + ` AND ` + legacyExists + `))`
 		}
 		if state.explicit {
-			return explicitExists + ` AND EXISTS (
-				SELECT 1 FROM mochat_go_archive_message_sources archive_source_filter
-				WHERE archive_source_filter.tenant_id = (SELECT tenant_id FROM mc_corp WHERE id = wm.corp_id LIMIT 1)
-				  AND archive_source_filter.corp_id = wm.corp_id
-				  AND archive_source_filter.msgid = wm.msgid
-				  AND archive_source_filter.source_kind = 'simulated'
-			)`
+			return simulatedExists
 		}
 		return legacyExists
 	case "external":
+		externalExists := explicitSourceExists("external")
 		if state.explicit && state.legacySimulation {
-			return `(NOT ` + explicitExists + ` AND NOT ` + legacyExists + `) OR (` + explicitExists + ` AND EXISTS (
-				SELECT 1 FROM mochat_go_archive_message_sources archive_source_filter
-				WHERE archive_source_filter.tenant_id = (SELECT tenant_id FROM mc_corp WHERE id = wm.corp_id LIMIT 1)
-				  AND archive_source_filter.corp_id = wm.corp_id
-				  AND archive_source_filter.msgid = wm.msgid
-				  AND archive_source_filter.source_kind = 'external'
-			))`
+			return `(NOT ` + explicitExists + ` AND NOT ` + legacyExists + `) OR ` + externalExists
 		}
 		if state.explicit {
-			return `(NOT ` + explicitExists + `) OR (` + explicitExists + ` AND EXISTS (
-				SELECT 1 FROM mochat_go_archive_message_sources archive_source_filter
-				WHERE archive_source_filter.tenant_id = (SELECT tenant_id FROM mc_corp WHERE id = wm.corp_id LIMIT 1)
-				  AND archive_source_filter.corp_id = wm.corp_id
-				  AND archive_source_filter.msgid = wm.msgid
-				  AND archive_source_filter.source_kind = 'external'
-			))`
+			return `(NOT ` + explicitExists + `) OR ` + externalExists
 		}
 		return `NOT ` + legacyExists
 	default:
@@ -2622,16 +2611,7 @@ func archiveSourceInnerProjection(registryAvailable bool) string {
 }
 
 func archiveSourceInnerProjectionForState(state archiveSourceRegistryState) string {
-	if !state.metadataAvailable() {
-		return ""
-	}
-	if state.explicit && state.legacySimulation {
-		return ", COALESCE(archive_source.source_kind, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN 'simulated' ELSE 'external' END) AS archive_source_kind, COALESCE(archive_source.source_id, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN CONCAT('simulation:', archive_legacy_batch.batch_key) ELSE 'wecom' END) AS archive_source_id"
-	}
-	if state.explicit {
-		return ", COALESCE(archive_source.source_kind, 'external') AS archive_source_kind, COALESCE(archive_source.source_id, 'wecom') AS archive_source_id"
-	}
-	return ", CASE WHEN archive_legacy_batch.id IS NOT NULL THEN 'simulated' ELSE 'external' END AS archive_source_kind, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN CONCAT('simulation:', archive_legacy_batch.batch_key) ELSE 'wecom' END AS archive_source_id"
+	return archiveSourceJoinedProjectionForState(state)
 }
 
 func archiveSourceProjection(registryAvailable bool) string {
@@ -2643,6 +2623,19 @@ func archiveSourceProjectionForState(state archiveSourceRegistryState) string {
 		return ""
 	}
 	return ", archive_source_kind, archive_source_id"
+}
+
+func archiveSourceJoinedProjectionForState(state archiveSourceRegistryState) string {
+	if !state.metadataAvailable() {
+		return ""
+	}
+	if state.explicit && state.legacySimulation {
+		return ", COALESCE(archive_source.source_kind, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN 'simulated' ELSE 'external' END) AS archive_source_kind, COALESCE(archive_source.source_id, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN CONCAT('simulation:', archive_legacy_batch.batch_key) ELSE 'wecom' END) AS archive_source_id"
+	}
+	if state.explicit {
+		return ", COALESCE(archive_source.source_kind, 'external') AS archive_source_kind, COALESCE(archive_source.source_id, 'wecom') AS archive_source_id"
+	}
+	return ", CASE WHEN archive_legacy_batch.id IS NOT NULL THEN 'simulated' ELSE 'external' END AS archive_source_kind, CASE WHEN archive_legacy_batch.id IS NOT NULL THEN CONCAT('simulation:', archive_legacy_batch.batch_key) ELSE 'wecom' END AS archive_source_id"
 }
 
 func (s *MySQLStore) archiveSourceRegistryState(ctx context.Context) (archiveSourceRegistryState, error) {
