@@ -85,7 +85,7 @@ func (a Archive) Status() providers.Status { return providers.Status{Kind: "weco
 import "jiyi/mochat-go/internal/modules/providers"
 func NewRegistry() *providers.Registry {
   registry := providers.NewRegistry()
-  if false {
+  if (false) {
     registration := providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
     _ = registry.Register(registration)
   }
