@@ -43,7 +43,64 @@ func (s *Storage) Root() string {
 }
 
 func (s *Storage) Status() providers.Status {
-	return providers.Status{Kind: "audio_storage", State: providers.StateReady}
+	base := providers.Status{Kind: "audio_storage", Source: providers.SourceLocal, Capabilities: []string{"audio_object_storage"}}
+	if s == nil || strings.TrimSpace(s.root) == "" {
+		base.State = providers.StateUnavailable
+		base.Code = "audio_storage.root_unavailable"
+		return base
+	}
+	info, err := os.Stat(s.root)
+	if err == nil {
+		if !info.IsDir() {
+			base.State = providers.StateUnavailable
+			base.Code = "audio_storage.root_not_directory"
+			return base
+		}
+		if !directoryWritable(info) {
+			base.State = providers.StateUnavailable
+			base.Code = "audio_storage.root_not_writable"
+			return base
+		}
+		base.State = providers.StateReady
+		base.Code = "audio_storage.ready"
+		return base
+	}
+	if !os.IsNotExist(err) {
+		base.State = providers.StateUnavailable
+		base.Code = "audio_storage.root_stat_failed"
+		return base
+	}
+	_, parentInfo, parentErr := nearestExistingDirectory(filepath.Dir(s.root))
+	if parentErr != nil || parentInfo == nil || !parentInfo.IsDir() || !directoryWritable(parentInfo) {
+		base.State = providers.StateUnavailable
+		base.Code = "audio_storage.parent_not_writable"
+		return base
+	}
+	base.State = providers.StateLimited
+	base.Code = "audio_storage.root_missing"
+	base.Action = "create the configured local audio storage directory before uploads"
+	return base
+}
+
+func directoryWritable(info os.FileInfo) bool {
+	return info.Mode().Perm()&0o222 != 0
+}
+
+func nearestExistingDirectory(path string) (string, os.FileInfo, error) {
+	for {
+		info, err := os.Stat(path)
+		if err == nil {
+			return path, info, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", nil, err
+		}
+		next := filepath.Dir(path)
+		if next == path {
+			return "", nil, os.ErrNotExist
+		}
+		path = next
+	}
 }
 
 func (s *Storage) Put(ctx context.Context, key string, reader io.Reader, opts providers.PutOptions) error {
