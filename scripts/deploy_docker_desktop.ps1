@@ -22,6 +22,99 @@ $composeArguments = @(
     '-f', $composeFile,
     '--profile', 'app'
 )
+$localEnvironmentFile = Join-Path $repositoryRoot 'deploy\standalone\.env.local'
+
+function Import-LocalEnvironmentFile {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return
+    }
+    foreach ($rawLine in Get-Content -LiteralPath $Path) {
+        $line = $rawLine.Trim()
+        if (-not $line -or $line.StartsWith('#')) { continue }
+        $separator = $line.IndexOf('=')
+        if ($separator -le 0) { continue }
+        $name = $line.Substring(0, $separator).Trim()
+        $value = $line.Substring($separator + 1).Trim()
+        if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        if ($name -notmatch '^[A-Z][A-Z0-9_]*$' -or $value -match '^CHANGE_ME|^/secure/path/') { continue }
+        if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name, 'Process'))) {
+            [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+        }
+    }
+}
+
+function New-CryptographicSecret {
+    $bytes = New-Object byte[] 32
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+    } finally {
+        $generator.Dispose()
+    }
+    return ([BitConverter]::ToString($bytes).Replace('-', '')).ToLowerInvariant()
+}
+
+function Get-OrCreateSecretFile {
+    param(
+        [string]$Directory,
+        [string]$Name
+    )
+
+    $path = Join-Path $Directory $Name
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+        [System.IO.File]::WriteAllText($path, (New-CryptographicSecret), [System.Text.Encoding]::ASCII)
+    }
+    $value = (Get-Content -LiteralPath $path -Raw).Trim()
+    if ($value -notmatch '^[a-f0-9]{64}$') {
+        throw "本地密钥文件格式无效：$path"
+    }
+    return $path
+}
+
+function Initialize-LocalIdentityRealmSecrets {
+    Import-LocalEnvironmentFile -Path $localEnvironmentFile
+    $secretRoot = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR)) {
+        Join-Path (Split-Path -Parent $repositoryRoot) "output\docker-desktop-secrets\$ProjectName"
+    } else {
+        $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR
+    }
+
+    if ($DryRun) {
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE)) {
+            $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE = Join-Path $secretRoot 'saas-admin-mfa.key'
+        }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE)) {
+            $env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE = Join-Path $secretRoot 'dashboard-mfa.key'
+        }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_JWT_SECRET)) { $env:MOCHAT_SAAS_ADMIN_JWT_SECRET = 'dry-run-saas-jwt-secret' }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DASHBOARD_JWT_SECRET)) { $env:MOCHAT_DASHBOARD_JWT_SECRET = 'dry-run-dashboard-jwt-secret' }
+    } else {
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE) -or -not (Test-Path -LiteralPath $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE -PathType Leaf)) {
+            $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE = Get-OrCreateSecretFile -Directory $secretRoot -Name 'saas-admin-mfa.key'
+        }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE) -or -not (Test-Path -LiteralPath $env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE -PathType Leaf)) {
+            $env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE = Get-OrCreateSecretFile -Directory $secretRoot -Name 'dashboard-mfa.key'
+        }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_JWT_SECRET)) {
+            $jwtPath = Get-OrCreateSecretFile -Directory $secretRoot -Name 'saas-admin-jwt.key'
+            $env:MOCHAT_SAAS_ADMIN_JWT_SECRET = (Get-Content -LiteralPath $jwtPath -Raw).Trim()
+        }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DASHBOARD_JWT_SECRET)) {
+            $jwtPath = Get-OrCreateSecretFile -Directory $secretRoot -Name 'dashboard-jwt.key'
+            $env:MOCHAT_DASHBOARD_JWT_SECRET = (Get-Content -LiteralPath $jwtPath -Raw).Trim()
+        }
+    }
+    if ($env:MOCHAT_SAAS_ADMIN_JWT_SECRET -eq $env:MOCHAT_DASHBOARD_JWT_SECRET) {
+        throw 'SaaS 与 Dashboard 必须使用不同的 JWT 密钥'
+    }
+    if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID)) { $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID = 'local-saas-mfa-primary' }
+    if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID)) { $env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID = 'local-dashboard-mfa-primary' }
+}
 
 function Format-Command {
     param(
@@ -246,6 +339,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectName) -or $ProjectName -notmatch '^[a-z
     throw 'ProjectName 只能包含字母、数字、下划线和连字符，并且必须以字母或数字开头'
 }
 
+Initialize-LocalIdentityRealmSecrets
 $env:MOCHAT_GO_PORT = [string]$DashboardPort
 $env:MOCHAT_SIDEBAR_PORT = [string]$SidebarPort
 $env:MOCHAT_OPERATION_PORT = [string]$OperationPort
@@ -253,6 +347,19 @@ $env:MOCHAT_MYSQL_PORT = [string]$MySQLPort
 $env:MOCHAT_REDIS_PORT = [string]$RedisPort
 $env:MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD = '1'
 $env:MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY = '1'
+# 开发环境默认开启企业微信相关 Worker：回调事件、员工同步、客户同步、客户群同步。
+if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER)) {
+    $env:MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER = '1'
+}
+if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_ENABLE_EMPLOYEE_APPLY_WORKER)) {
+    $env:MOCHAT_GO_ENABLE_EMPLOYEE_APPLY_WORKER = '1'
+}
+if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_ENABLE_WORK_CONTACT_SYNC_WORKER)) {
+    $env:MOCHAT_GO_ENABLE_WORK_CONTACT_SYNC_WORKER = '1'
+}
+if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_ENABLE_WORK_ROOM_SYNC_WORKER)) {
+    $env:MOCHAT_GO_ENABLE_WORK_ROOM_SYNC_WORKER = '1'
+}
 if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY)) {
     $env:MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY = '8d7b6a59483726150f1e2d3c4b5a69788d7b6a59483726150f1e2d3c4b5a6978'
 }

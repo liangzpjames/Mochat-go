@@ -66,6 +66,8 @@ Assert-Matches $defaultOutput 'SaaS 管理员初始化未自动执行' '部署�
 Assert-Matches $deploySource '"--database=\$database"' '迁移/管理员数据库校验未显式指定目标 database'
 Assert-Matches $deploySource '12,64' '容器 ID 未执行 12-64 位长度校验'
 Assert-Matches $deploySource '2> \$stderrPath' 'Docker Capture 未分离 stderr'
+Assert-Matches $deploySource '\.env\.local' '部署入口未加载本地持久环境配置'
+Assert-Matches $deploySource 'RandomNumberGenerator' '部署入口未生成持久的本地身份密钥'
 Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/saas/login' '未检查 SaaS 身份登录入口'
 if ($deploySource -match 'mochat-bootstrap|AdminPassword|AdminPhone') {
     throw '生产部署入口仍包含旧 bootstrap 命令行密码或旧管理员参数'
@@ -84,6 +86,8 @@ if ($defaultOutput -match 'test-password-must-not-be-printed') {
 $fakeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('mochat-docker-test-' + [guid]::NewGuid().ToString('N'))
 $fakeDocker = Join-Path $fakeRoot 'docker.cmd'
 New-Item -ItemType Directory -Path $fakeRoot | Out-Null
+$previousSecretDirectory = $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR
+$env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR = Join-Path $fakeRoot 'secrets'
 try {
 @'
 @echo off
@@ -92,6 +96,8 @@ echo docker progress 1>&2
 if "%1"=="info" (
   echo identity=%MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY% 1>&2
   if defined MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY echo identity_key=set 1>&2
+  if exist "%MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE%" if exist "%MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE%" echo mfa_files=ready 1>&2
+  if not "%MOCHAT_SAAS_ADMIN_JWT_SECRET%"=="%MOCHAT_DASHBOARD_JWT_SECRET%" echo realm_jwt=separate 1>&2
   exit /b 0
 )
 if "%1"=="inspect" (
@@ -123,10 +129,13 @@ exit /b 0
     Assert-Matches $fakeOutput '部署完成' '正常的 Docker 标准错误进度导致部署失败'
     Assert-Matches $fakeOutput 'identity=1' '启用 SaaS Admin 时未启用身份安全登录'
     Assert-Matches $fakeOutput 'identity_key=set' '启用身份安全登录时未配置本地加密密钥'
+    Assert-Matches $fakeOutput 'mfa_files=ready' '本地部署未提供两个可读取的 MFA 密钥文件'
+    Assert-Matches $fakeOutput 'realm_jwt=separate' 'SaaS 与 Dashboard 仍共享同一个 JWT 密钥'
     if ($fakeOutput -match 'mochat-migrate -action baseline') {
         throw '已有迁移账本时仍执行 baseline，会跳过新的增量迁移'
     }
 } finally {
+    $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR = $previousSecretDirectory
     Remove-Item -LiteralPath $fakeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 

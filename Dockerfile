@@ -24,7 +24,8 @@ ENV GOPROXY=${GOPROXY}
 
 WORKDIR /src
 
-RUN apk add --no-cache python3
+RUN sed -i 's#https://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g; s#http://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
+	&& apk add --no-cache python3
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -49,7 +50,8 @@ RUN SOURCE_FINGERPRINT="$(python3 scripts/source_fingerprint.py | python3 -c 'im
 
 FROM alpine:3.22
 
-RUN apk add --no-cache mariadb-client tzdata \
+RUN sed -i 's#https\?://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
+	&& apk add --no-cache mariadb-client tzdata \
 	&& addgroup -S mochat \
 	&& adduser -S -G mochat -u 10001 mochat
 
