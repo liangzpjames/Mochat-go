@@ -87,6 +87,7 @@ type Operation struct {
 	// agent_message it is the active application agent ID, not a free-form
 	// request label.
 	ProviderObjectID string
+	ActualAgentID    string
 	ExternalSuccess  bool
 	CallbackEvidence bool
 	TargetTotal      int
@@ -97,12 +98,54 @@ type Operation struct {
 	RequestedAt      *time.Time
 	StartedAt        *time.Time
 	FinishedAt       *time.Time
+	CreatedAt        *time.Time
 	UpdatedAt        *time.Time
 	Attempt          int
+	ActorSource      string
+	RequestID        string
+	LeaseToken       string
 	LeaseExpiresAt   *time.Time
 	// CredentialVersion is the non-secret company binding version captured when
 	// the operation was created. A zero value is never current evidence.
 	CredentialVersion uint64
+}
+
+type Dispatch struct {
+	ID                int64
+	TenantID          int
+	CorpID            int
+	OperationID       int64
+	DispatchKind      string
+	ChunkNo           int
+	TargetID          string
+	IdempotencyKey    string
+	Status            string
+	ProviderRequestID string
+	ProviderMessageID string
+	ProviderObjectID  string
+	CredentialVersion uint64
+	Attempt           int
+	LeaseToken        string
+	LeaseExpiresAt    *time.Time
+	NextPollAt        *time.Time
+	LastErrorCode     string
+	CreatedAt         *time.Time
+	UpdatedAt         *time.Time
+}
+
+type OperationResult struct {
+	ID               int64
+	TenantID         int
+	CorpID           int
+	OperationID      int64
+	TargetKind       string
+	TargetID         string
+	Status           string
+	ProviderTargetID string
+	ErrorCode        string
+	ErrorMessageSafe string
+	CreatedAt        *time.Time
+	UpdatedAt        *time.Time
 }
 
 func CredentialGroupForCapability(capability string) CredentialGroup {
@@ -178,6 +221,9 @@ func isCurrentOperationEvidence(operation Operation, tenantID, corpID int, capab
 	if operation.TargetTotal < 0 || operation.SuccessTotal < 0 || operation.FailureTotal < 0 || operation.SuccessTotal+operation.FailureTotal > operation.TargetTotal {
 		return false
 	}
+	if operation.Status == OperationCancelled || operation.Status == OperationPending || operation.Status == OperationClaimed || operation.Status == OperationSubmitting || operation.Status == OperationSubmitted || operation.Status == OperationPolling {
+		return false
+	}
 	if operation.Status == OperationSucceeded {
 		if operation.FinishedAt == nil {
 			return false
@@ -191,7 +237,7 @@ func isCurrentOperationEvidence(operation Operation, tenantID, corpID int, capab
 			}
 			return strings.TrimSpace(operation.ProviderObjectID) != "" && operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case ContactWay, WelcomeMessage, ContactTransfer:
-			return (strings.TrimSpace(operation.ProviderObjectID) != "" || strings.TrimSpace(operation.ProviderRequestID) != "") && operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
+			return strings.TrimSpace(operation.ProviderObjectID) != "" && strings.TrimSpace(operation.ProviderRequestID) != "" && operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case Callback:
 			return operation.CallbackEvidence && operation.SuccessTotal == 1 && operation.TargetTotal == 1
 		default:
@@ -223,6 +269,35 @@ func IsValidDispatchStatus(status string) bool {
 	case DispatchQueued, DispatchClaimed, DispatchSubmitting, DispatchSubmitted,
 		DispatchPolling, DispatchSucceeded, DispatchPartialFailed, DispatchFailed:
 		return true
+	default:
+		return false
+	}
+}
+
+func IsValidOperationResultStatus(status string) bool {
+	switch status {
+	case DispatchQueued, DispatchSucceeded, DispatchPartialFailed, DispatchFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func CanTransitionDispatch(from, to string) bool {
+	if !IsValidDispatchStatus(from) || !IsValidDispatchStatus(to) || from == to {
+		return false
+	}
+	switch from {
+	case DispatchQueued:
+		return to == DispatchClaimed || to == DispatchFailed
+	case DispatchClaimed:
+		return to == DispatchSubmitting || to == DispatchFailed
+	case DispatchSubmitting:
+		return to == DispatchSubmitted || to == DispatchFailed
+	case DispatchSubmitted:
+		return to == DispatchPolling || to == DispatchFailed
+	case DispatchPolling:
+		return to == DispatchPolling || to == DispatchSucceeded || to == DispatchPartialFailed || to == DispatchFailed
 	default:
 		return false
 	}

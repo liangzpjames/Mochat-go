@@ -180,8 +180,12 @@ func TestOperationEvidenceUsesCapabilitySpecificExternalContracts(t *testing.T) 
 			t.Fatalf("%s success without provider object/request id passed", capability)
 		}
 		operation.ProviderObjectID = "response-1"
+		if IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {
+			t.Fatalf("%s success without provider request id passed", capability)
+		}
+		operation.ProviderRequestID = "request-1"
 		if !IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {
-			t.Fatalf("%s success with provider object id was rejected", capability)
+			t.Fatalf("%s success with provider object and request ids was rejected", capability)
 		}
 		operation.ExternalSuccess = false
 		if IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {

@@ -21,19 +21,23 @@ type companyProfileQueryer interface {
 }
 
 type companyBindingRecord struct {
-	ActorUserID      int
-	TenantID         int
-	CorpID           int
-	Status           int
-	Version          uint64
-	VerifiedWXCorpID string
-	VerifiedCorpName string
-	VerifiedAt       sql.NullTime
-	DisplayName      string
-	LegacyWXCorpID   string
-	Ciphertext       string
-	KeyID            string
-	UpdatedAt        sql.NullTime
+	ActorUserID        int
+	TenantID           int
+	CorpID             int
+	Status             int
+	Version            uint64
+	EmployeeGeneration uint64
+	ContactGeneration  uint64
+	AgentGeneration    uint64
+	CallbackGeneration uint64
+	VerifiedWXCorpID   string
+	VerifiedCorpName   string
+	VerifiedAt         sql.NullTime
+	DisplayName        string
+	LegacyWXCorpID     string
+	Ciphertext         string
+	KeyID              string
+	UpdatedAt          sql.NullTime
 }
 
 func (s *MySQLStore) GetProfile(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (companyprofile.Profile, error) {
@@ -221,7 +225,7 @@ func (s *MySQLStore) CommitVerification(ctx context.Context, principal dashboard
 }
 
 func (s *MySQLStore) RotateWeComCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.WeComCredentialsInput) (companyprofile.Profile, error) {
-	return s.rotateCorpCredentials(ctx, principal, input, companyCredentialRotationPolicyForWeComInput(input), "dashboard.company.wecom_credentials.rotate", []string{"employeeSecret", "contactSecret", "callbackToken", "encodingAESKey", "chatSecret"})
+	return s.rotateCorpCredentials(ctx, principal, input, companyCredentialRotationPolicyForWeComInput(input), credentialRotationGroupsForWeComInput(input), "dashboard.company.wecom_credentials.rotate", []string{"employeeSecret", "contactSecret", "callbackToken", "encodingAESKey", "chatSecret"})
 }
 
 func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.ApplicationCredentialsInput) (companyprofile.Profile, error) {
@@ -284,6 +288,7 @@ func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboa
 	if callbackGenerated {
 		changedFields = append(changedFields, "callbackToken", "encodingAESKey")
 	}
+	groups := companyCredentialRotationGroups{Employee: true, Contact: true, Agent: true, Callback: callbackGenerated}
 	_, err = updateCompanyBindingVersionTx(ctx, tx, binding, principal.UserID, input.ExpectedVersion,
 		func() error {
 			corpResult, execErr := tx.ExecContext(ctx, `
@@ -310,6 +315,9 @@ func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboa
 				if err := requireCompanyRows(agentResult, 1); err != nil {
 					return err
 				}
+				if err := incrementCompanyCredentialGenerationsTx(ctx, tx, binding, groups); err != nil {
+					return err
+				}
 				return clearCompanyBindingVerificationTx(ctx, tx, binding)
 			}
 			agentResult, execErr := tx.ExecContext(ctx, `
@@ -321,6 +329,9 @@ func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboa
 				return execErr
 			}
 			if err := requireCompanyRows(agentResult, 1); err != nil {
+				return err
+			}
+			if err := incrementCompanyCredentialGenerationsTx(ctx, tx, binding, groups); err != nil {
 				return err
 			}
 			return clearCompanyBindingVerificationTx(ctx, tx, binding)
@@ -338,7 +349,7 @@ func (s *MySQLStore) RotateArchiveCredentials(ctx context.Context, principal das
 	return s.rotateCorpCredentials(ctx, principal, companyprofile.WeComCredentialsInput{
 		ChatSecret: input.ChatSecret, RSAPublicKey: input.RSAPublicKey, RSAPrivateKey: input.RSAPrivateKey,
 		ExpectedVersion: input.ExpectedVersion, RequestID: input.RequestID,
-	}, companyCredentialRotationPreservesVerification, "dashboard.company.archive_credentials.rotate", []string{"chatSecret", "archiveRsaPublicKey", "archiveRsaPrivateKey"})
+	}, companyCredentialRotationPreservesVerification, companyCredentialRotationGroups{}, "dashboard.company.archive_credentials.rotate", []string{"chatSecret", "archiveRsaPublicKey", "archiveRsaPrivateKey"})
 }
 
 func (s *MySQLStore) GetCallbackConfiguration(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (companyprofile.CallbackConfiguration, error) {
@@ -388,7 +399,7 @@ func (s *MySQLStore) RegenerateCallbackConfiguration(ctx context.Context, princi
 	token, aesKey := input.Token, input.EncodingAESKey
 	if _, err := s.rotateCorpCredentials(ctx, principal, companyprofile.WeComCredentialsInput{
 		CallbackToken: &token, EncodingAESKey: &aesKey, ExpectedVersion: input.ExpectedVersion, RequestID: input.RequestID,
-	}, companyCredentialRotationPreservesVerification, "dashboard.company.callback_configuration.rotate", []string{"callbackToken", "encodingAESKey"}); err != nil {
+	}, companyCredentialRotationPreservesVerification, companyCredentialRotationGroups{Callback: true}, "dashboard.company.callback_configuration.rotate", []string{"callbackToken", "encodingAESKey"}); err != nil {
 		return companyprofile.CallbackConfiguration{}, err
 	}
 	return s.GetCallbackConfiguration(ctx, principal)
@@ -408,7 +419,22 @@ func companyCredentialRotationPolicyForWeComInput(input companyprofile.WeComCred
 	return companyCredentialRotationPreservesVerification
 }
 
-func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.WeComCredentialsInput, policy companyCredentialRotationPolicy, action string, fields []string) (companyprofile.Profile, error) {
+type companyCredentialRotationGroups struct {
+	Employee bool
+	Contact  bool
+	Agent    bool
+	Callback bool
+}
+
+func credentialRotationGroupsForWeComInput(input companyprofile.WeComCredentialsInput) companyCredentialRotationGroups {
+	return companyCredentialRotationGroups{
+		Employee: input.EmployeeSecret != nil,
+		Contact:  input.ContactSecret != nil,
+		Callback: input.CallbackToken != nil || input.EncodingAESKey != nil,
+	}
+}
+
+func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.WeComCredentialsInput, policy companyCredentialRotationPolicy, groups companyCredentialRotationGroups, action string, fields []string) (companyprofile.Profile, error) {
 	if s == nil || s.db == nil {
 		return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
 	}
@@ -487,6 +513,9 @@ func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashbo
 			if err := requireCompanyRows(updated, 1); err != nil {
 				return err
 			}
+			if err := incrementCompanyCredentialGenerationsTx(ctx, tx, binding, groups); err != nil {
+				return err
+			}
 			if policy == companyCredentialRotationInvalidatesVerification {
 				return clearCompanyBindingVerificationTx(ctx, tx, binding)
 			}
@@ -562,6 +591,9 @@ func (s *MySQLStore) RotateAgentCredentials(ctx context.Context, principal dashb
 				return execErr
 			}
 			if err := requireCompanyAgentRowsOrMatched(ctx, tx, updated, binding, agent.ID, storage); err != nil {
+				return err
+			}
+			if err := incrementCompanyCredentialGenerationsTx(ctx, tx, binding, companyCredentialRotationGroups{Agent: true}); err != nil {
 				return err
 			}
 			return nil
@@ -686,6 +718,8 @@ func (s *MySQLStore) loadCompanyBinding(ctx context.Context, queryer companyProf
 	}
 	row := queryer.QueryRowContext(ctx, `
 		SELECT b.tenant_id, b.corp_id, b.status, b.version,
+		       b.employee_credential_generation, b.contact_credential_generation,
+		       b.agent_credential_generation, b.callback_credential_generation,
 		       COALESCE(b.verified_wx_corpid,''), COALESCE(b.verified_corp_name,''), b.verified_at,
 		       COALESCE(c.name,''), COALESCE(c.wx_corpid,''),
 		       COALESCE(c.wecom_credentials_ciphertext,''), COALESCE(c.wecom_credentials_key_id,''), c.updated_at
@@ -693,7 +727,9 @@ func (s *MySQLStore) loadCompanyBinding(ctx context.Context, queryer companyProf
 		JOIN mc_corp c ON c.id = b.corp_id AND c.tenant_id = b.tenant_id AND c.deleted_at IS NULL
 		WHERE b.tenant_id = ? AND b.corp_id = ?`+suffix, principal.TenantID, principal.CorpID)
 	var item companyBindingRecord
-	if err := row.Scan(&item.TenantID, &item.CorpID, &item.Status, &item.Version, &item.VerifiedWXCorpID, &item.VerifiedCorpName,
+	if err := row.Scan(&item.TenantID, &item.CorpID, &item.Status, &item.Version,
+		&item.EmployeeGeneration, &item.ContactGeneration, &item.AgentGeneration, &item.CallbackGeneration,
+		&item.VerifiedWXCorpID, &item.VerifiedCorpName,
 		&item.VerifiedAt, &item.DisplayName, &item.LegacyWXCorpID, &item.Ciphertext, &item.KeyID, &item.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return companyBindingRecord{}, companyprofile.ErrNotFound
@@ -781,7 +817,7 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 	profile := companyprofile.Profile{
 		TenantID: binding.TenantID, CorpID: binding.CorpID, DisplayName: binding.DisplayName,
 		AuthoritativeCorpName: binding.VerifiedCorpName, BindingStatus: status, BindingVersion: binding.Version,
-		CredentialGenerations: companyprofile.CredentialGenerationSet{Employee: binding.Version, Contact: binding.Version, Agent: binding.Version, Callback: binding.Version},
+		CredentialGenerations: companyprofile.CredentialGenerationSet{Employee: binding.EmployeeGeneration, Contact: binding.ContactGeneration, Agent: binding.AgentGeneration, Callback: binding.CallbackGeneration},
 		ApplicationAgentID:    strings.TrimSpace(applicationAgentID),
 		Credentials: companyprofile.CredentialStatuses{
 			WeCom:    companyprofile.CredentialStatus{Configured: corpConfigured, EmployeeConfigured: employeeConfigured, ContactConfigured: contactConfigured, CallbackTokenConfigured: callbackTokenConfigured, CallbackAESConfigured: callbackAESConfigured, KeyID: strings.TrimSpace(binding.KeyID), UpdatedAt: companyNullableTime(binding.UpdatedAt)},
@@ -842,6 +878,31 @@ func clearCompanyBindingVerificationTx(ctx context.Context, tx *sql.Tx, binding 
 		SET verified_wx_corpid = '', verified_corp_name = '', verified_at = NULL, updated_at = NOW()
 		WHERE tenant_id = ? AND corp_id = ? AND version = ? AND status IN (1, 2)`,
 		binding.TenantID, binding.CorpID, binding.Version)
+	if err != nil {
+		return err
+	}
+	return requireCompanyRows(updated, 1)
+}
+
+func incrementCompanyCredentialGenerationsTx(ctx context.Context, tx *sql.Tx, binding companyBindingRecord, groups companyCredentialRotationGroups) error {
+	if !groups.Employee && !groups.Contact && !groups.Agent && !groups.Callback {
+		return nil
+	}
+	assignments := make([]string, 0, 4)
+	if groups.Employee {
+		assignments = append(assignments, "employee_credential_generation = employee_credential_generation + 1")
+	}
+	if groups.Contact {
+		assignments = append(assignments, "contact_credential_generation = contact_credential_generation + 1")
+	}
+	if groups.Agent {
+		assignments = append(assignments, "agent_credential_generation = agent_credential_generation + 1")
+	}
+	if groups.Callback {
+		assignments = append(assignments, "callback_credential_generation = callback_credential_generation + 1")
+	}
+	query := `UPDATE mochat_go_tenant_corp_bindings SET ` + strings.Join(assignments, ", ") + `, updated_at = NOW() WHERE tenant_id = ? AND corp_id = ? AND version = ? AND status IN (1,2)`
+	updated, err := tx.ExecContext(ctx, query, binding.TenantID, binding.CorpID, binding.Version)
 	if err != nil {
 		return err
 	}

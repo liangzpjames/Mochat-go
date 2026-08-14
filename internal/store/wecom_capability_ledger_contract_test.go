@@ -1,0 +1,50 @@
+package store
+
+import (
+	"testing"
+
+	"jiyi/mochat-go/internal/wecomcapability"
+)
+
+func TestCapabilityOperationInputRejectsUnsafeAndCrossCapabilityContracts(t *testing.T) {
+	valid := CapabilityOperationInput{
+		Capability:     wecomcapability.ContactBatchSend,
+		Action:         wecomcapability.ActionSend,
+		IdempotencyKey: "operation-1",
+		TargetTotal:    2,
+	}
+	if err := ValidateCapabilityOperationInput(valid); err != nil {
+		t.Fatalf("valid operation rejected: %v", err)
+	}
+	for _, invalid := range []CapabilityOperationInput{
+		{Capability: wecomcapability.ContactBatchSend, Action: wecomcapability.ActionSync, IdempotencyKey: "bad-action", TargetTotal: 1},
+		{Capability: wecomcapability.ContactBatchSend, Action: wecomcapability.ActionSend, IdempotencyKey: "", TargetTotal: 1},
+		{Capability: wecomcapability.ContactBatchSend, Action: wecomcapability.ActionSend, IdempotencyKey: "bad-target", TargetTotal: -1},
+	} {
+		if err := ValidateCapabilityOperationInput(invalid); err == nil {
+			t.Fatalf("invalid operation accepted: %+v", invalid)
+		}
+	}
+}
+
+func TestCapabilityDispatchInputRequiresStringTargetAndScopedIdempotency(t *testing.T) {
+	valid := CapabilityDispatchInput{
+		OperationID:    9,
+		DispatchKind:   "contact_batch_chunk",
+		ChunkNo:        1,
+		TargetID:       "external-user-α",
+		IdempotencyKey: "dispatch-1",
+	}
+	if err := ValidateCapabilityDispatchInput(valid); err != nil {
+		t.Fatalf("valid dispatch rejected: %v", err)
+	}
+	for _, invalid := range []CapabilityDispatchInput{
+		{OperationID: 0, DispatchKind: "contact_batch_chunk", TargetID: "external-user", IdempotencyKey: "dispatch-2"},
+		{OperationID: 9, DispatchKind: "contact_batch_chunk", TargetID: "", IdempotencyKey: "dispatch-3"},
+		{OperationID: 9, DispatchKind: "contact_batch_chunk", TargetID: "external-user", IdempotencyKey: ""},
+	} {
+		if err := ValidateCapabilityDispatchInput(invalid); err == nil {
+			t.Fatalf("invalid dispatch accepted: %+v", invalid)
+		}
+	}
+}

@@ -29,3 +29,25 @@ func TestWeComRotationPolicyInvalidatesOnlyStandardSecrets(t *testing.T) {
 		})
 	}
 }
+
+func TestWeComRotationGroupsAreIndependentFromBindingVersion(t *testing.T) {
+	employeeSecret := "employee-secret"
+	callbackToken := "callback-token"
+	chatSecret := "chat-secret"
+	checks := []struct {
+		name  string
+		input companyprofile.WeComCredentialsInput
+		want  companyCredentialRotationGroups
+	}{
+		{name: "employee", input: companyprofile.WeComCredentialsInput{EmployeeSecret: &employeeSecret}, want: companyCredentialRotationGroups{Employee: true}},
+		{name: "callback", input: companyprofile.WeComCredentialsInput{CallbackToken: &callbackToken}, want: companyCredentialRotationGroups{Callback: true}},
+		{name: "archive", input: companyprofile.WeComCredentialsInput{ChatSecret: &chatSecret}, want: companyCredentialRotationGroups{}},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if got := credentialRotationGroupsForWeComInput(check.input); got != check.want {
+				t.Fatalf("groups=%+v want %+v", got, check.want)
+			}
+		})
+	}
+}
