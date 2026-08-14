@@ -135,16 +135,9 @@ func (r *Runner) Apply(ctx context.Context) ([]StatusItem, error) {
 		if migration.Kind == MigrationControlled {
 			return result, ControlledMigrationBlocked(migration.Version)
 		}
-		start := r.currentTime()
-		if err := execSQLScript(ctx, r.db, string(body)); err != nil {
+		executionMS, err := r.execMigrationScript(ctx, migration, string(body), checksum)
+		if err != nil {
 			return result, fmt.Errorf("apply migration %s: %w", migration.Version, err)
-		}
-		executionMS := int(r.currentTime().Sub(start).Milliseconds())
-		if executionMS < 0 {
-			executionMS = 0
-		}
-		if err := r.recordApplied(ctx, migration, checksum, executionMS); err != nil {
-			return result, err
 		}
 		appliedItem := AppliedMigration{
 			Version:     migration.Version,
@@ -319,11 +312,8 @@ func (r *Runner) RollbackLast(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if err := execSQLScript(ctx, r.db, string(body)); err != nil {
+		if err := r.execRollbackScript(ctx, migration, string(body)); err != nil {
 			return "", fmt.Errorf("rollback migration %s: %w", migration.Version, err)
-		}
-		if _, err := r.db.ExecContext(ctx, `DELETE FROM `+VersionTable+` WHERE version = ?`, migration.Version); err != nil {
-			return "", err
 		}
 		return migration.Version, nil
 	}
@@ -367,6 +357,39 @@ func (r *Runner) applied(ctx context.Context) (map[string]AppliedMigration, erro
 
 func (r *Runner) recordApplied(ctx context.Context, migration Migration, checksum string, executionMS int) error {
 	return recordAppliedWith(ctx, r.db, migration, checksum, executionMS)
+}
+
+func (r *Runner) execMigrationScript(ctx context.Context, migration Migration, body, checksum string) (int, error) {
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("pin migration connection %s: %w", migration.Version, err)
+	}
+	defer conn.Close()
+	start := r.currentTime()
+	if err := execSQLScriptWithExecutor(ctx, conn, body); err != nil {
+		return 0, err
+	}
+	executionMS := int(r.currentTime().Sub(start).Milliseconds())
+	if executionMS < 0 {
+		executionMS = 0
+	}
+	if err := recordAppliedWith(ctx, conn, migration, checksum, executionMS); err != nil {
+		return 0, err
+	}
+	return executionMS, nil
+}
+
+func (r *Runner) execRollbackScript(ctx context.Context, migration Migration, body string) error {
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("pin rollback connection %s: %w", migration.Version, err)
+	}
+	defer conn.Close()
+	if err := execSQLScriptWithExecutor(ctx, conn, body); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `DELETE FROM `+VersionTable+` WHERE version = ?`, migration.Version)
+	return err
 }
 
 type migrationExecer interface {
@@ -750,12 +773,21 @@ func migrationDescription(version string) string {
 }
 
 func execSQLScript(ctx context.Context, db *sql.DB, script string) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return execSQLScriptWithExecutor(ctx, conn, script)
+}
+
+func execSQLScriptWithExecutor(ctx context.Context, execer migrationExecer, script string) error {
 	statements, err := SplitSQLStatements(script)
 	if err != nil {
 		return err
 	}
 	for _, statement := range statements {
-		if _, err := db.ExecContext(ctx, statement); err != nil {
+		if _, err := execer.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("%s: %w", compactStatement(statement), err)
 		}
 	}

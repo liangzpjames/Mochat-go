@@ -19,9 +19,10 @@ type result struct {
 }
 
 type method struct {
-	directory string
-	receiver  string
-	function  *ast.FuncDecl
+	directory   string
+	packageName string
+	receiver    string
+	function    *ast.FuncDecl
 }
 
 type kindContract struct {
@@ -59,7 +60,9 @@ func checkArchiveStatuses(root string) []string {
 	})
 	sort.Strings(files)
 	methods := make([]method, 0)
+	methodKeys := make(map[string]bool)
 	kinds := make(map[string]kindContract)
+	errors := make([]string, 0)
 	for _, file := range files {
 		parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, parser.SkipObjectResolution)
 		if err != nil {
@@ -72,23 +75,35 @@ func checkArchiveStatuses(root string) []string {
 			}
 			receiver := receiverTypeName(function.Recv.List[0].Type)
 			if receiver == "" {
+				if function.Name.Name == "Kind" || function.Name.Name == "Status" {
+					errors = append(errors, fmt.Sprintf("%s: archive %s has an unsupported receiver type", filepath.ToSlash(file), function.Name.Name))
+				}
 				continue
 			}
-			key := filepath.ToSlash(filepath.Join(filepath.Dir(file), receiver))
+			packageName := parsed.Name.Name
+			key := filepath.ToSlash(filepath.Join(filepath.Dir(file), packageName, receiver))
 			if function.Name.Name == "Kind" {
+				if _, exists := kinds[key]; exists {
+					errors = append(errors, fmt.Sprintf("%s: duplicate archive Kind method for package %s receiver %s", filepath.ToSlash(file), packageName, receiver))
+					continue
+				}
 				contract := kinds[key]
 				contract.present = true
 				contract.source = returnedSource(function.Body)
 				kinds[key] = contract
 			}
 			if function.Name.Name == "Status" {
-				methods = append(methods, method{directory: filepath.ToSlash(filepath.Dir(file)), receiver: receiver, function: function})
+				if methodKeys[key] {
+					errors = append(errors, fmt.Sprintf("%s: duplicate archive Status method for package %s receiver %s", filepath.ToSlash(file), packageName, receiver))
+					continue
+				}
+				methodKeys[key] = true
+				methods = append(methods, method{directory: filepath.ToSlash(filepath.Dir(file)), packageName: packageName, receiver: receiver, function: function})
 			}
 		}
 	}
-	errors := make([]string, 0)
 	for _, status := range methods {
-		contract, present := kinds[filepath.ToSlash(filepath.Join(status.directory, status.receiver))]
+		contract, present := kinds[filepath.ToSlash(filepath.Join(status.directory, status.packageName, status.receiver))]
 		if !present {
 			errors = append(errors, fmt.Sprintf("%s: external archive Status receiver %s has no matching Kind method", status.directory, status.receiver))
 			continue
@@ -150,6 +165,10 @@ func receiverTypeName(expression ast.Expr) string {
 		return value.Name
 	case *ast.StarExpr:
 		return receiverTypeName(value.X)
+	case *ast.IndexExpr:
+		return receiverTypeName(value.X)
+	case *ast.IndexListExpr:
+		return receiverTypeName(value.X)
 	default:
 		return ""
 	}
@@ -159,22 +178,40 @@ func returnedSource(body *ast.BlockStmt) string {
 	if body == nil {
 		return "unknown"
 	}
-	found := "unknown"
+	found := ""
+	valid := true
 	ast.Inspect(body, func(node ast.Node) bool {
 		returnNode, ok := node.(*ast.ReturnStmt)
-		if !ok || len(returnNode.Results) != 1 {
+		if !ok {
+			return true
+		}
+		if len(returnNode.Results) != 1 {
+			valid = false
 			return true
 		}
 		if selector, ok := returnNode.Results[0].(*ast.SelectorExpr); ok {
 			switch selector.Sel.Name {
 			case "SourceExternal":
+				if found != "" {
+					valid = false
+				}
 				found = "external"
 			case "SourceSimulated":
+				if found != "" {
+					valid = false
+				}
 				found = "simulated"
+			default:
+				valid = false
 			}
+		} else {
+			valid = false
 		}
 		return true
 	})
+	if !valid || found == "" {
+		return "unknown"
+	}
 	return found
 }
 
