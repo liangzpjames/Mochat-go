@@ -147,6 +147,47 @@ func main() { fake.NewRegistry(fake.Dependencies{}) }`
 	}
 }
 
+func TestProviderCompositionContractRequiresServerOptionDataFlow(t *testing.T) {
+	source := `package main
+import (
+	providercatalog "jiyi/mochat-go/internal/modules/providers/catalog"
+	companyprofile "jiyi/mochat-go/internal/companyprofile"
+	providerstatus "jiyi/mochat-go/internal/providerstatus"
+	compatserver "jiyi/mochat-go/internal/server"
+)
+func main() {
+	registry, _ := providercatalog.NewRegistry(providercatalog.Dependencies{})
+	service := providerstatus.NewService(companyprofile.NewProviderStatusSource(nil, registry))
+	_ = compatserver.WithProviderStatusHandler(providerstatus.NewHTTPHandler(service))
+	var options []compatserver.Option
+	compatserver.New(nil, options...)
+}`
+	if err := validateProductionProviderWiring(source); err == nil {
+		t.Fatal("provider status option that is not appended to server options unexpectedly passed")
+	}
+}
+
+func TestProviderCompositionContractAllowsAssignedServerOptionDataFlow(t *testing.T) {
+	source := `package main
+import (
+	providercatalog "jiyi/mochat-go/internal/modules/providers/catalog"
+	companyprofile "jiyi/mochat-go/internal/companyprofile"
+	providerstatus "jiyi/mochat-go/internal/providerstatus"
+	compatserver "jiyi/mochat-go/internal/server"
+)
+func main() {
+	registry, _ := providercatalog.NewRegistry(providercatalog.Dependencies{})
+	service := providerstatus.NewService(companyprofile.NewProviderStatusSource(nil, registry))
+	providerStatusOption := compatserver.WithProviderStatusHandler(providerstatus.NewHTTPHandler(service))
+	var options []compatserver.Option
+	options = append(options, providerStatusOption)
+	compatserver.New(nil, options...)
+}`
+	if err := validateProductionProviderWiring(source); err != nil {
+		t.Fatalf("assigned provider status option should reach server.New: %v", err)
+	}
+}
+
 func providerRepositoryRoot(t *testing.T) string {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)

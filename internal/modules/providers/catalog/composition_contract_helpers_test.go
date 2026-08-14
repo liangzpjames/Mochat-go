@@ -80,7 +80,8 @@ func validateProviderFactorySource(source, functionName string) error {
 }
 
 func validateProductionProviderWiring(source string) error {
-	file, err := parser.ParseFile(token.NewFileSet(), "main.go", source, parser.SkipObjectResolution)
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, "main.go", source, parser.SkipObjectResolution)
 	if err != nil {
 		return fmt.Errorf("parse source: %w", err)
 	}
@@ -168,17 +169,157 @@ func validateProductionProviderWiring(source string) error {
 		return fmt.Errorf("companyprofile.NewProviderStatusSource result does not reach providerstatus.NewService")
 	}
 
+	serverAlias := aliases["jiyi/mochat-go/internal/server"]
+	serverNewCalls := make([]*ast.CallExpr, 0)
 	for _, call := range calls {
-		if !isQualifiedCall(call, aliases["jiyi/mochat-go/internal/server"], "WithProviderStatusHandler") {
+		if isQualifiedCall(call, serverAlias, "New") {
+			serverNewCalls = append(serverNewCalls, call)
+		}
+	}
+	if len(serverNewCalls) != 1 {
+		return fmt.Errorf("production main must have exactly one reachable %s.New call", serverAlias)
+	}
+	optionsVar, ok := expandedIdentifier(serverNewCalls[0])
+	if !ok {
+		return fmt.Errorf("%s.New must receive a variadic options identifier", serverAlias)
+	}
+
+	appendAssignments := make([]*ast.AssignStmt, 0)
+	for _, assignment := range assignments {
+		if len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
 			continue
 		}
-		for _, argument := range call.Args {
-			if expressionHasHTTPHandlerWithService(argument, aliases["jiyi/mochat-go/internal/providerstatus"], aliases["jiyi/mochat-go/internal/companyprofile"], registryVar, serviceVars) {
-				return nil
+		call, ok := assignment.Rhs[0].(*ast.CallExpr)
+		if ok && isAppendToOptions(call, optionsVar) && assignmentIdentifier(assignment) == optionsVar {
+			appendAssignments = append(appendAssignments, assignment)
+		}
+	}
+	if len(appendAssignments) == 0 {
+		return fmt.Errorf("production main never appends to server options %q", optionsVar)
+	}
+
+	handlerCalls := make([]*ast.CallExpr, 0)
+	for _, call := range calls {
+		if isQualifiedCall(call, serverAlias, "WithProviderStatusHandler") {
+			handlerCalls = append(handlerCalls, call)
+		}
+	}
+	if len(handlerCalls) == 0 {
+		return fmt.Errorf("production main does not call %s.WithProviderStatusHandler", serverAlias)
+	}
+	for _, handlerCall := range handlerCalls {
+		if !handlerHasProviderStatusService(handlerCall, aliases["jiyi/mochat-go/internal/providerstatus"], aliases["jiyi/mochat-go/internal/companyprofile"], registryVar, serviceVars) {
+			return fmt.Errorf("%s.WithProviderStatusHandler does not receive the provider status service", serverAlias)
+		}
+		if !handlerReachesServerOptions(handlerCall, optionsVar, serverNewCalls[0], appendAssignments, assignments) {
+			return fmt.Errorf("%s.WithProviderStatusHandler result does not reach append(%s, ...) before %s.New", serverAlias, optionsVar, serverAlias)
+		}
+	}
+	return nil
+}
+
+func expandedIdentifier(call *ast.CallExpr) (string, bool) {
+	if call == nil || call.Ellipsis == token.NoPos || len(call.Args) == 0 {
+		return "", false
+	}
+	identifier, ok := call.Args[len(call.Args)-1].(*ast.Ident)
+	return identifierName(identifier), ok
+}
+
+func identifierName(identifier *ast.Ident) string {
+	if identifier == nil {
+		return ""
+	}
+	return identifier.Name
+}
+
+func assignmentIdentifier(assignment *ast.AssignStmt) string {
+	if assignment == nil || len(assignment.Lhs) != 1 {
+		return ""
+	}
+	identifier, ok := assignment.Lhs[0].(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return identifier.Name
+}
+
+func isAppendToOptions(call *ast.CallExpr, optionsVar string) bool {
+	if call == nil || optionsVar == "" || len(call.Args) < 2 {
+		return false
+	}
+	function, ok := call.Fun.(*ast.Ident)
+	if !ok || function.Name != "append" {
+		return false
+	}
+	firstArgument, ok := call.Args[0].(*ast.Ident)
+	return ok && firstArgument.Name == optionsVar
+}
+
+func handlerHasProviderStatusService(handlerCall *ast.CallExpr, providerStatusAlias, companyAlias, registryVar string, serviceVars map[string]bool) bool {
+	if handlerCall == nil {
+		return false
+	}
+	for _, argument := range handlerCall.Args {
+		if expressionHasHTTPHandlerWithService(argument, providerStatusAlias, companyAlias, registryVar, serviceVars) {
+			return true
+		}
+	}
+	return false
+}
+
+func handlerReachesServerOptions(handlerCall *ast.CallExpr, optionsVar string, serverNew *ast.CallExpr, appendAssignments []*ast.AssignStmt, assignments []*ast.AssignStmt) bool {
+	if handlerCall == nil || serverNew == nil {
+		return false
+	}
+	for _, assignment := range appendAssignments {
+		appendCall, ok := assignment.Rhs[0].(*ast.CallExpr)
+		if !ok || appendCall.Pos() >= serverNew.Pos() {
+			continue
+		}
+		for _, argument := range appendCall.Args[1:] {
+			if expressionContainsCall(argument, handlerCall) {
+				return true
+			}
+			optionIdentifier, ok := argument.(*ast.Ident)
+			if !ok || optionIdentifier.Name == optionsVar {
+				continue
+			}
+			latest := latestAssignmentBefore(assignments, optionIdentifier.Name, appendCall.Pos())
+			if latest != nil && expressionContainsCall(latest.Rhs[0], handlerCall) {
+				return true
 			}
 		}
 	}
-	return fmt.Errorf("provider status service does not reach WithProviderStatusHandler")
+	return false
+}
+
+func latestAssignmentBefore(assignments []*ast.AssignStmt, identifier string, before token.Pos) *ast.AssignStmt {
+	var latest *ast.AssignStmt
+	for _, assignment := range assignments {
+		if assignment.Pos() >= before || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 || assignmentIdentifier(assignment) != identifier {
+			continue
+		}
+		if latest == nil || latest.Pos() < assignment.Pos() {
+			latest = assignment
+		}
+	}
+	return latest
+}
+
+func expressionContainsCall(expression ast.Expr, target *ast.CallExpr) bool {
+	if expression == nil || target == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(expression, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok && call == target {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 func requiredProductionImportAliases(file *ast.File) (map[string]string, error) {
