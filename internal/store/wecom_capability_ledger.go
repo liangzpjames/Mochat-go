@@ -84,27 +84,23 @@ type CapabilityOperationResultInput struct {
 	ErrorMessageSafe string
 }
 
-func capabilityLeaseIsActive(expiresAt *time.Time, now time.Time) bool {
-	return expiresAt != nil && expiresAt.After(now)
-}
-
-func capabilityOperationCanBeClaimed(status string, expiresAt *time.Time, now time.Time) bool {
+func capabilityOperationCanBeClaimed(status string) bool {
 	switch status {
 	case wecomcapability.OperationPending, wecomcapability.OperationFailed, wecomcapability.OperationPartialFailed:
 		return true
 	case wecomcapability.OperationClaimed, wecomcapability.OperationSubmitting, wecomcapability.OperationSubmitted, wecomcapability.OperationPolling:
-		return !capabilityLeaseIsActive(expiresAt, now)
+		return true
 	default:
 		return false
 	}
 }
 
-func capabilityDispatchCanBeClaimed(status string, expiresAt *time.Time, now time.Time) bool {
+func capabilityDispatchCanBeClaimed(status string) bool {
 	switch status {
 	case wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed:
 		return true
 	case wecomcapability.DispatchClaimed, wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling:
-		return !capabilityLeaseIsActive(expiresAt, now)
+		return true
 	default:
 		return false
 	}
@@ -321,7 +317,7 @@ func (s *MySQLStore) ClaimCapabilityOperation(ctx context.Context, principal das
 	if operation.CredentialVersion != credentialGenerationForCapability(binding, operation.Capability) {
 		return wecomcapability.Operation{}, ErrCapabilityOperationStale
 	}
-	if !capabilityOperationCanBeClaimed(operation.Status, operation.LeaseExpiresAt, time.Now().UTC()) {
+	if !capabilityOperationCanBeClaimed(operation.Status) {
 		return wecomcapability.Operation{}, ErrCapabilityOperationConflict
 	}
 	previousStatus := operation.Status
@@ -331,11 +327,11 @@ func (s *MySQLStore) ClaimCapabilityOperation(ctx context.Context, principal das
 	}
 	updated, err := tx.ExecContext(ctx, `
 		UPDATE mochat_go_wecom_capability_operations
-		SET status=?, lease_token=?, lease_expires_at=?, attempt=attempt+1,
+		SET status=?, lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1,
 		    started_at=COALESCE(started_at,NOW(6)), updated_at=NOW(6)
 		WHERE tenant_id=? AND corp_id=? AND id=? AND status=?
 		  AND (status IN (?, ?, ?) OR lease_expires_at IS NULL OR lease_expires_at <= NOW(6))`,
-		wecomcapability.OperationClaimed, leaseToken, time.Now().UTC().Add(leaseDuration),
+		wecomcapability.OperationClaimed, leaseToken, leaseDuration.Microseconds(),
 		principal.TenantID, principal.CorpID, operationID, operation.Status,
 		wecomcapability.OperationPending, wecomcapability.OperationFailed, wecomcapability.OperationPartialFailed)
 	if err != nil {
@@ -546,7 +542,7 @@ func (s *MySQLStore) ClaimCapabilityDispatch(ctx context.Context, principal dash
 	if generation == 0 || operation.CredentialVersion != generation || dispatch.CredentialVersion != generation {
 		return wecomcapability.Dispatch{}, ErrCapabilityOperationStale
 	}
-	if !capabilityDispatchCanBeClaimed(dispatch.Status, dispatch.LeaseExpiresAt, time.Now().UTC()) {
+	if !capabilityDispatchCanBeClaimed(dispatch.Status) {
 		return wecomcapability.Dispatch{}, ErrCapabilityInvalidState
 	}
 	leaseToken, err := newCapabilityLeaseToken()
@@ -675,7 +671,19 @@ func (s *MySQLStore) RecordCapabilityOperationResult(ctx context.Context, princi
 	if err != nil {
 		return wecomcapability.OperationResult{}, err
 	}
-	if operation.LeaseToken != input.LeaseToken || operation.Attempt != input.Attempt || !capabilityLeaseIsActive(operation.LeaseExpiresAt, time.Now().UTC()) {
+	if operation.LeaseToken != input.LeaseToken || operation.Attempt != input.Attempt {
+		return wecomcapability.OperationResult{}, ErrCapabilityOperationStale
+	}
+	var activeLeaseCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mochat_go_wecom_capability_operations
+		WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=?
+		  AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`,
+		principal.TenantID, principal.CorpID, input.OperationID, input.LeaseToken, input.Attempt).Scan(&activeLeaseCount); err != nil {
+		return wecomcapability.OperationResult{}, err
+	}
+	if activeLeaseCount != 1 {
 		return wecomcapability.OperationResult{}, ErrCapabilityOperationStale
 	}
 	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)

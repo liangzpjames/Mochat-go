@@ -23,6 +23,17 @@ func TestCapabilityLedgerStoreUsesLeaseExpiryActorAndTerminalFences(t *testing.T
 			t.Fatalf("ledger store missing fence contract %q", required)
 		}
 	}
+	if strings.Count(lower, "lease_expires_at=date_add(now(6), interval ? microsecond)") < 2 {
+		t.Fatalf("operation and dispatch claim leases must both use the database clock")
+	}
+	for _, forbidden := range []string{
+		"time.now().utc().add(",
+		"capabilityleaseisactive(operation.leaseexpiresat",
+	} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("lease qualification must not use Go wall-clock logic: %s", forbidden)
+		}
+	}
 }
 
 func TestCapabilityOperationInputRejectsUnsafeAndCrossCapabilityContracts(t *testing.T) {
