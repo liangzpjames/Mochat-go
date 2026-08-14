@@ -23,6 +23,7 @@
 7. `4b28c15` `fix(provider): audit WeCom runtime adapter`
 8. `204d109` `fix(provider): close completion gate bypasses`
 9. `09b04f8` `fix(provider): constrain registry completion source`
+10. `b738180` `fix(provider): audit catalog provider implementations`
 
 ## 验证结果
 
