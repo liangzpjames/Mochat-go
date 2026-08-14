@@ -45,7 +45,7 @@ export async function checkProviderCompletion(root = process.cwd()) {
 function collectRuntimeRegistrations(relative, source, registrations, errors) {
   if (relative !== 'internal/modules/providers/catalog/catalog.go') return;
   for (const body of namedFunctionBodies(source, 'NewRegistry')) {
-    if (/\bif\s+(?:\(\s*(?:false|nil|0|!\s*true|0\s*==\s*1|1\s*==\s*0|1\s*!=\s*1|0\s*!=\s*0|1\s*<\s*0|0\s*>\s*1)\s*\)|(?:false|nil|0|!\s*true|0\s*==\s*1|1\s*==\s*0|1\s*!=\s*1|0\s*!=\s*0|1\s*<\s*0|0\s*>\s*1))\s*\{[\s\S]*?(?:Register|providers\.Registration)/.test(body)) {
+    if (/\bif\s+(?:\(\s*(?:false|nil|0|!\s*true|0\s*==\s*1|1\s*==\s*0|1\s*!=\s*1|0\s*!=\s*0|1\s*<\s*0|0\s*>\s*1)\s*\)|(?:false|nil|0|!\s*true|0\s*==\s*1|1\s*==\s*0|1\s*!=\s*1|0\s*!=\s*0|1\s*<\s*0|0\s*>\s*1))\s*\{[\s\S]*?(?:Register|providers\.Registration)/.test(body) || /\belse\s*\{[\s\S]*?(?:Register|providers\.Registration)/.test(body)) {
       errors.push(`${relative}: NewRegistry contains an unreachable Provider registration branch`);
       continue;
     }

@@ -101,3 +101,26 @@ func NewRegistry() *providers.Registry {
   assert.equal(result.ok, false);
   assert.match(result.errors.join('\n'), /unreachable|wecom_archive/);
 });
+
+test('fails when NewRegistry puts registration in an else branch', async () => {
+  const root = await writeFixture({
+    'internal/modules/providers/archive/wecom/archive.go': `package wecom
+import "jiyi/mochat-go/internal/modules/providers"
+func (a Archive) Status() providers.Status { return providers.Status{Kind: "wecom_archive", State: providers.StateLimited} }
+`,
+    'internal/modules/providers/catalog/catalog.go': `package catalog
+import "jiyi/mochat-go/internal/modules/providers"
+func NewRegistry() *providers.Registry {
+  registry := providers.NewRegistry()
+  if true { return registry } else {
+    registration := providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
+    _ = registry.Register(registration)
+  }
+  return registry
+}
+`,
+  });
+  const result = await checkProviderCompletion(root);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /unreachable|wecom_archive/);
+});
