@@ -154,11 +154,67 @@ func TestWeComCapabilityLedgerRollbackAndResidualGuardsAreDiagnosticAndStrict(t 
 			t.Fatalf("0139 down guard missing diagnostic/signature evidence %q", required)
 		}
 	}
+	if !strings.Contains(lowerUp, "table_name = 'mochat_go_wecom_capability_operations' and constraint_name in ('fk_wecom_capability_operation_corp','fk_wecom_capability_operation_actor') and delete_rule <> 'restrict'") {
+		t.Fatal("0139 up operations guard does not require RESTRICT corp/actor foreign keys")
+	}
 	for name, script := range map[string]string{"up": lowerUp, "down": lowerDown} {
 		if !strings.Contains(script, "upper(trim(column_default)) = 'null'") {
 			t.Fatalf("0139 %s parent tenant guard must accept MariaDB's string NULL metadata", name)
 		}
 	}
+}
+
+func TestWeComCapabilityLedgerRollbackPreflightsExternalInboundForeignKeys(t *testing.T) {
+	_, down := loadWeComCapabilityLedgerScripts(t)
+	lowerDown := strings.ToLower(down)
+	for _, required := range []string{
+		"@wecom_0139_down_external_fk_invalid",
+		"referenced_table_name in",
+		"'mochat_go_wecom_capability_operations'",
+		"'mochat_go_wecom_capability_dispatches'",
+		"0139 rollback blocked by external foreign key",
+	} {
+		if !strings.Contains(lowerDown, required) {
+			t.Fatalf("0139 down lacks external inbound foreign-key preflight %q", required)
+		}
+	}
+}
+
+func TestWeComCapabilityLedgerRealRollbackRejectsExternalInboundForeignKeysBeforeDrop(t *testing.T) {
+	withTemporaryWeComCapabilityLedgerSchema(t, func(db *sql.DB, root string) {
+		createWeComCapabilityLedgerPreMigrationFixture(t, db)
+		runner := newWeComCapabilityLedgerTestRunner(t, db, root)
+		if _, err := runner.Apply(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`
+CREATE TABLE mochat_wecom_0139_external_fk_probe (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id INT UNSIGNED NOT NULL,
+  corp_id INT UNSIGNED NOT NULL,
+  operation_id BIGINT UNSIGNED NOT NULL,
+  dispatch_id BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_external_operation (tenant_id,corp_id,operation_id),
+  KEY idx_external_dispatch (tenant_id,corp_id,dispatch_id),
+  CONSTRAINT fk_external_operation FOREIGN KEY (tenant_id,corp_id,operation_id)
+    REFERENCES mochat_go_wecom_capability_operations (tenant_id,corp_id,id),
+  CONSTRAINT fk_external_dispatch FOREIGN KEY (tenant_id,corp_id,dispatch_id)
+    REFERENCES mochat_go_wecom_capability_dispatches (tenant_id,corp_id,id)
+) ENGINE=InnoDB`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.RollbackLast(context.Background()); err == nil || !strings.Contains(err.Error(), "0139 rollback blocked by external foreign key") {
+			t.Fatalf("external inbound foreign key rollback error=%v", err)
+		}
+		var remaining int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('mochat_go_wecom_capability_operations','mochat_go_wecom_capability_dispatches','mochat_go_wecom_capability_operation_results','mochat_go_wecom_capability_operation_audits','mochat_go_wecom_capability_operation_events')`).Scan(&remaining); err != nil {
+			t.Fatal(err)
+		}
+		if remaining != 5 {
+			t.Fatalf("external inbound foreign key rollback dropped ledger tables: remaining=%d", remaining)
+		}
+	})
 }
 
 func TestWeComCapabilityLedgerRealRunnerApplyDownApply(t *testing.T) {
@@ -417,6 +473,53 @@ func TestWeComCapabilityLedgerDownRejectsExternalParentDependency(t *testing.T) 
 			t.Fatalf("rollback guard changed ledger tables: operations=%d", exists)
 		}
 	})
+}
+
+func TestWeComCapabilityLedgerDownRejectsWrongChildIndexSignatures(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		alter string
+	}{
+		{
+			name:  "dispatch claim index order",
+			alter: `ALTER TABLE mochat_go_wecom_capability_dispatches DROP INDEX idx_wecom_capability_dispatch_claim, ADD KEY idx_wecom_capability_dispatch_claim (tenant_id,status,corp_id,next_poll_at)`,
+		},
+		{
+			name:  "result target index order",
+			alter: `ALTER TABLE mochat_go_wecom_capability_operation_results DROP INDEX uk_wecom_capability_result_target, ADD UNIQUE KEY uk_wecom_capability_result_target (tenant_id,corp_id,target_kind,operation_id,target_id)`,
+		},
+		{
+			name:  "audit operation index order",
+			alter: `ALTER TABLE mochat_go_wecom_capability_operation_audits DROP INDEX idx_wecom_capability_audit_operation, ADD KEY idx_wecom_capability_audit_operation (tenant_id,operation_id,corp_id,created_at)`,
+		},
+		{
+			name:  "event operation index order",
+			alter: `ALTER TABLE mochat_go_wecom_capability_operation_events DROP INDEX idx_wecom_capability_event_operation, ADD KEY idx_wecom_capability_event_operation (tenant_id,operation_id,corp_id,created_at)`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withTemporaryWeComCapabilityLedgerSchema(t, func(db *sql.DB, root string) {
+				createWeComCapabilityLedgerPreMigrationFixture(t, db)
+				runner := newWeComCapabilityLedgerTestRunner(t, db, root)
+				if _, err := runner.Apply(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(tc.alter); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := runner.RollbackLast(context.Background()); err == nil || !strings.Contains(err.Error(), "0139 incompatible rollback residual") {
+					t.Fatalf("wrong child index rollback error=%v", err)
+				}
+				var tables int
+				if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('mochat_go_wecom_capability_operations','mochat_go_wecom_capability_dispatches','mochat_go_wecom_capability_operation_results','mochat_go_wecom_capability_operation_audits','mochat_go_wecom_capability_operation_events')`).Scan(&tables); err != nil {
+					t.Fatal(err)
+				}
+				if tables != 5 {
+					t.Fatalf("wrong child index rollback dropped ledger tables: tables=%d", tables)
+				}
+			})
+		})
+	}
 }
 
 func newWeComCapabilityLedgerTestRunner(t *testing.T, db *sql.DB, root string) *Runner {

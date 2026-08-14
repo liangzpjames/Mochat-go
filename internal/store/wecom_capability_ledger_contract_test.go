@@ -36,6 +36,26 @@ func TestCapabilityLedgerStoreUsesLeaseExpiryActorAndTerminalFences(t *testing.T
 	}
 }
 
+func TestCapabilityLedgerTakeoverPreservesPhaseAndTerminalResultsCannotWrite(t *testing.T) {
+	body, err := os.ReadFile("wecom_capability_ledger.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lower := strings.ToLower(string(body))
+	if strings.Count(lower, "status=case when status in (?, ?, ?) then ? else status end") < 2 {
+		t.Fatal("operation and dispatch stale takeover must preserve an in-progress phase")
+	}
+	for _, required := range []string{
+		"lease_token=case when ? then '' else lease_token end",
+		"lease_expires_at=case when ? then null else lease_expires_at end",
+		"capabilityoperationallowsresult",
+	} {
+		if !strings.Contains(lower, required) {
+			t.Fatalf("capability ledger missing terminal/result fence %q", required)
+		}
+	}
+}
+
 func TestCapabilityOperationInputRejectsUnsafeAndCrossCapabilityContracts(t *testing.T) {
 	valid := CapabilityOperationInput{
 		Capability:     wecomcapability.ContactBatchSend,

@@ -181,6 +181,7 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 			t.Fatalf("transition %s: %v", status, err)
 		}
 	}
+	terminalLeaseToken, terminalAttempt := claimed.LeaseToken, claimed.Attempt
 	claimed, err = store.TransitionCapabilityOperation(context.Background(), principal, CapabilityOperationTransitionInput{
 		OperationID: created.ID, Status: wecomcapability.OperationSucceeded, LeaseToken: claimed.LeaseToken,
 		Attempt: claimed.Attempt, TargetTotal: 0, SuccessTotal: 0, FailureTotal: 0, ExternalSuccess: true,
@@ -188,8 +189,21 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claimed.Status != wecomcapability.OperationSucceeded || claimed.FinishedAt == nil {
+	if claimed.Status != wecomcapability.OperationSucceeded || claimed.FinishedAt == nil || claimed.LeaseToken != "" || claimed.LeaseExpiresAt != nil {
 		t.Fatalf("completed operation=%+v", claimed)
+	}
+	if _, err := store.RecordCapabilityOperationResult(context.Background(), principal, CapabilityOperationResultInput{
+		OperationID: created.ID, LeaseToken: terminalLeaseToken, Attempt: terminalAttempt,
+		TargetKind: "employee", TargetID: "terminal-result", Status: wecomcapability.DispatchSucceeded,
+	}); err == nil {
+		t.Fatal("terminal operation unexpectedly accepted a result")
+	}
+	var terminalResultCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_wecom_capability_operation_results WHERE operation_id=? AND target_id='terminal-result'`, created.ID).Scan(&terminalResultCount); err != nil {
+		t.Fatal(err)
+	}
+	if terminalResultCount != 0 {
+		t.Fatalf("terminal operation wrote result rows=%d", terminalResultCount)
 	}
 	if _, err := store.CreateCapabilityDispatch(context.Background(), principal, CapabilityDispatchInput{
 		OperationID: created.ID, DispatchKind: "contact", ChunkNo: 2, TargetID: "terminal-target", IdempotencyKey: "dispatch-after-terminal",
@@ -231,6 +245,65 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 	}
 	if staleResultCount != 0 {
 		t.Fatalf("old operation worker wrote result rows=%d", staleResultCount)
+	}
+	for index, phase := range []string{wecomcapability.OperationSubmitting, wecomcapability.OperationSubmitted, wecomcapability.OperationPolling} {
+		phaseOperation, err := store.CreateCapabilityOperation(context.Background(), principal, CapabilityOperationInput{
+			Capability: wecomcapability.EmployeeSync, Action: wecomcapability.ActionSync,
+			IdempotencyKey: fmt.Sprintf("stale-phase-%d", index), ActorSource: "system",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		phaseClaim, err := store.ClaimCapabilityOperation(context.Background(), principal, phaseOperation.ID, time.Millisecond)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, next := range []string{wecomcapability.OperationSubmitting, wecomcapability.OperationSubmitted, wecomcapability.OperationPolling} {
+			if phaseClaim.Status == phase {
+				break
+			}
+			phaseClaim, err = store.TransitionCapabilityOperation(context.Background(), principal, CapabilityOperationTransitionInput{
+				OperationID: phaseOperation.ID, Status: next, LeaseToken: phaseClaim.LeaseToken, Attempt: phaseClaim.Attempt,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+		reclaimed, err := store.ClaimCapabilityOperation(context.Background(), principal, phaseOperation.ID, time.Minute)
+		if err != nil || reclaimed.Status != phase || reclaimed.Attempt != phaseClaim.Attempt+1 {
+			t.Fatalf("stale %s takeover=%+v prior=%+v err=%v", phase, reclaimed, phaseClaim, err)
+		}
+		phaseDispatch, err := store.CreateCapabilityDispatch(context.Background(), principal, CapabilityDispatchInput{
+			OperationID: phaseOperation.ID, DispatchKind: "employee", ChunkNo: index + 10,
+			TargetID: fmt.Sprintf("phase-target-%d", index), IdempotencyKey: fmt.Sprintf("stale-dispatch-phase-%d", index),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		phaseDispatchClaim, err := store.ClaimCapabilityDispatch(context.Background(), principal, phaseDispatch.ID, time.Millisecond)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, next := range []string{wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling} {
+			if phaseDispatchClaim.Status == next && next == phase {
+				break
+			}
+			if phaseDispatchClaim.Status == phase {
+				break
+			}
+			phaseDispatchClaim, err = store.TransitionCapabilityDispatch(context.Background(), principal, CapabilityDispatchTransitionInput{
+				DispatchID: phaseDispatch.ID, Status: next, LeaseToken: phaseDispatchClaim.LeaseToken, Attempt: phaseDispatchClaim.Attempt,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+		reclaimedDispatch, err := store.ClaimCapabilityDispatch(context.Background(), principal, phaseDispatch.ID, time.Minute)
+		if err != nil || reclaimedDispatch.Status != phase || reclaimedDispatch.Attempt != phaseDispatchClaim.Attempt+1 {
+			t.Fatalf("stale dispatch %s takeover=%+v prior=%+v err=%v", phase, reclaimedDispatch, phaseDispatchClaim, err)
+		}
 	}
 
 	staleDispatch, err := store.CreateCapabilityDispatch(context.Background(), principal, CapabilityDispatchInput{

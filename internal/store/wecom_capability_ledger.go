@@ -115,6 +115,15 @@ func capabilityOperationAllowsDispatch(status string) bool {
 	}
 }
 
+func capabilityOperationAllowsResult(status string) bool {
+	switch status {
+	case wecomcapability.OperationClaimed, wecomcapability.OperationSubmitting, wecomcapability.OperationSubmitted, wecomcapability.OperationPolling:
+		return true
+	default:
+		return false
+	}
+}
+
 func ValidateCapabilityOperationInput(input CapabilityOperationInput) error {
 	if _, ok := capabilityNameSet[input.Capability]; !ok {
 		return fmt.Errorf("unknown capability")
@@ -327,10 +336,12 @@ func (s *MySQLStore) ClaimCapabilityOperation(ctx context.Context, principal das
 	}
 	updated, err := tx.ExecContext(ctx, `
 		UPDATE mochat_go_wecom_capability_operations
-		SET status=?, lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1,
+		SET status=CASE WHEN status IN (?, ?, ?) THEN ? ELSE status END,
+		    lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1,
 		    started_at=COALESCE(started_at,NOW(6)), updated_at=NOW(6)
 		WHERE tenant_id=? AND corp_id=? AND id=? AND status=?
 		  AND (status IN (?, ?, ?) OR lease_expires_at IS NULL OR lease_expires_at <= NOW(6))`,
+		wecomcapability.OperationPending, wecomcapability.OperationFailed, wecomcapability.OperationPartialFailed,
 		wecomcapability.OperationClaimed, leaseToken, leaseDuration.Microseconds(),
 		principal.TenantID, principal.CorpID, operationID, operation.Status,
 		wecomcapability.OperationPending, wecomcapability.OperationFailed, wecomcapability.OperationPartialFailed)
@@ -401,13 +412,15 @@ func (s *MySQLStore) TransitionCapabilityOperation(ctx context.Context, principa
 	}
 	updated, err := tx.ExecContext(ctx, `
 		UPDATE mochat_go_wecom_capability_operations
-		SET status=?, provider_request_id=?, provider_object_id=?, actual_agent_id=?,
+		SET status=?, lease_token=CASE WHEN ? THEN '' ELSE lease_token END,
+		    lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END,
+		    provider_request_id=?, provider_object_id=?, actual_agent_id=?,
 		    external_success=?, callback_evidence=?, target_total=?, success_total=?, failure_total=?,
 		    error_code=?, request_id=?, finished_at=CASE WHEN ? THEN NOW(6) ELSE finished_at END,
 		    updated_at=NOW(6)
 		WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=?
 		  AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`,
-		input.Status, strings.TrimSpace(input.ProviderRequestID), strings.TrimSpace(input.ProviderObjectID), strings.TrimSpace(input.ActualAgentID),
+		input.Status, finished, finished, strings.TrimSpace(input.ProviderRequestID), strings.TrimSpace(input.ProviderObjectID), strings.TrimSpace(input.ActualAgentID),
 		input.ExternalSuccess, input.CallbackEvidence, input.TargetTotal, input.SuccessTotal, input.FailureTotal,
 		errorCode, strings.TrimSpace(input.RequestID), finished,
 		principal.TenantID, principal.CorpID, input.OperationID, input.LeaseToken, input.Attempt)
@@ -550,7 +563,7 @@ func (s *MySQLStore) ClaimCapabilityDispatch(ctx context.Context, principal dash
 		return wecomcapability.Dispatch{}, companyprofile.ErrStoreUnavailable
 	}
 	previousStatus := dispatch.Status
-	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND credential_generation=? AND status=? AND (status IN (?, ?, ?) OR lease_expires_at IS NULL OR lease_expires_at <= NOW(6))`, wecomcapability.DispatchClaimed, leaseToken, leaseDuration.Microseconds(), principal.TenantID, principal.CorpID, dispatchID, generation, dispatch.Status, wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed)
+	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=CASE WHEN status IN (?, ?, ?) THEN ? ELSE status END, lease_token=?, lease_expires_at=DATE_ADD(NOW(6), INTERVAL ? MICROSECOND), attempt=attempt+1, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND credential_generation=? AND status=? AND (status IN (?, ?, ?) OR lease_expires_at IS NULL OR lease_expires_at <= NOW(6))`, wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed, wecomcapability.DispatchClaimed, leaseToken, leaseDuration.Microseconds(), principal.TenantID, principal.CorpID, dispatchID, generation, dispatch.Status, wecomcapability.DispatchQueued, wecomcapability.DispatchFailed, wecomcapability.DispatchPartialFailed)
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
 	}
@@ -627,7 +640,7 @@ func (s *MySQLStore) TransitionCapabilityDispatch(ctx context.Context, principal
 	}
 	previousStatus := dispatch.Status
 	finished := input.Status == wecomcapability.DispatchSucceeded || input.Status == wecomcapability.DispatchPartialFailed || input.Status == wecomcapability.DispatchFailed
-	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, provider_request_id=?, provider_message_id=?, provider_object_id=?, next_poll_at=?, last_error_code=?, lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=? AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`, input.Status, strings.TrimSpace(input.ProviderRequestID), strings.TrimSpace(input.ProviderMessageID), strings.TrimSpace(input.ProviderObjectID), input.NextPollAt, errorCode, finished, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt)
+	updated, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_capability_dispatches SET status=?, lease_token=CASE WHEN ? THEN '' ELSE lease_token END, provider_request_id=?, provider_message_id=?, provider_object_id=?, next_poll_at=?, last_error_code=?, lease_expires_at=CASE WHEN ? THEN NULL ELSE lease_expires_at END, updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND id=? AND lease_token=? AND attempt=? AND lease_expires_at IS NOT NULL AND lease_expires_at > NOW(6)`, input.Status, finished, strings.TrimSpace(input.ProviderRequestID), strings.TrimSpace(input.ProviderMessageID), strings.TrimSpace(input.ProviderObjectID), input.NextPollAt, errorCode, finished, principal.TenantID, principal.CorpID, input.DispatchID, input.LeaseToken, input.Attempt)
 	if err != nil {
 		return wecomcapability.Dispatch{}, err
 	}
@@ -670,6 +683,9 @@ func (s *MySQLStore) RecordCapabilityOperationResult(ctx context.Context, princi
 	operation, err := queryCapabilityOperationTx(ctx, tx, principal.TenantID, principal.CorpID, input.OperationID, true)
 	if err != nil {
 		return wecomcapability.OperationResult{}, err
+	}
+	if !capabilityOperationAllowsResult(operation.Status) {
+		return wecomcapability.OperationResult{}, ErrCapabilityInvalidState
 	}
 	if operation.LeaseToken != input.LeaseToken || operation.Attempt != input.Attempt {
 		return wecomcapability.OperationResult{}, ErrCapabilityOperationStale

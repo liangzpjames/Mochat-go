@@ -58,6 +58,75 @@ SET @wecom_0139_down_signature_invalid := (
   OR EXISTS (SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND index_name IN ('uk_wecom_capability_operation_scope_id','uk_wecom_capability_operation_idempotency','uk_wecom_capability_dispatch_scope_id','uk_wecom_capability_dispatch_idempotency','uk_wecom_capability_dispatch_target_chunk','uk_wecom_capability_result_scope_id','uk_wecom_capability_result_target') AND non_unique <> 0)
 );
 
+SET @wecom_0139_down_external_fk_invalid := EXISTS (
+  SELECT 1
+  FROM information_schema.referential_constraints
+  WHERE constraint_schema = DATABASE()
+    AND referenced_table_name IN (
+      'mochat_go_wecom_capability_operations',
+      'mochat_go_wecom_capability_dispatches',
+      'mochat_go_wecom_capability_operation_results',
+      'mochat_go_wecom_capability_operation_audits',
+      'mochat_go_wecom_capability_operation_events'
+    )
+    AND table_name NOT IN (
+      'mochat_go_wecom_capability_operations',
+      'mochat_go_wecom_capability_dispatches',
+      'mochat_go_wecom_capability_operation_results',
+      'mochat_go_wecom_capability_operation_audits',
+      'mochat_go_wecom_capability_operation_events'
+    )
+);
+
+SET @wecom_0139_down_index_invalid := (
+  EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND (
+    COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'PRIMARY'), '') <> 'id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'PRIMARY'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'uk_wecom_capability_operation_scope_id'), '') <> 'tenant_id,corp_id,id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'uk_wecom_capability_operation_scope_id'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'uk_wecom_capability_operation_idempotency'), '') <> 'tenant_id,corp_id,capability,action,credential_generation,idempotency_key'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'uk_wecom_capability_operation_idempotency'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'idx_wecom_capability_operation_status'), '') <> 'tenant_id,corp_id,status,updated_at'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'idx_wecom_capability_operation_status'), -1) <> 1
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'idx_wecom_capability_operation_agent'), '') <> 'tenant_id,corp_id,actual_agent_id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'idx_wecom_capability_operation_agent'), -1) <> 1
+  ))
+  OR EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND (
+    COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'PRIMARY'), '') <> 'id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'PRIMARY'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'uk_wecom_capability_dispatch_scope_id'), '') <> 'tenant_id,corp_id,id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'uk_wecom_capability_dispatch_scope_id'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'uk_wecom_capability_dispatch_idempotency'), '') <> 'tenant_id,corp_id,idempotency_key'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'uk_wecom_capability_dispatch_idempotency'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'uk_wecom_capability_dispatch_target_chunk'), '') <> 'tenant_id,corp_id,operation_id,dispatch_kind,target_id,chunk_no'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'uk_wecom_capability_dispatch_target_chunk'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'idx_wecom_capability_dispatch_claim'), '') <> 'tenant_id,corp_id,status,next_poll_at'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND index_name = 'idx_wecom_capability_dispatch_claim'), -1) <> 1
+  ))
+  OR EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND (
+    COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'PRIMARY'), '') <> 'id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'PRIMARY'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'uk_wecom_capability_result_scope_id'), '') <> 'tenant_id,corp_id,id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'uk_wecom_capability_result_scope_id'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'uk_wecom_capability_result_target'), '') <> 'tenant_id,corp_id,operation_id,target_kind,target_id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'uk_wecom_capability_result_target'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'idx_wecom_capability_result_operation'), '') <> 'tenant_id,corp_id,operation_id,updated_at'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_results' AND index_name = 'idx_wecom_capability_result_operation'), -1) <> 1
+  ))
+  OR EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND (
+    COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND index_name = 'PRIMARY'), '') <> 'id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND index_name = 'PRIMARY'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND index_name = 'idx_wecom_capability_audit_operation'), '') <> 'tenant_id,corp_id,operation_id,created_at'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_audits' AND index_name = 'idx_wecom_capability_audit_operation'), -1) <> 1
+  ))
+  OR EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND (
+    COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND index_name = 'PRIMARY'), '') <> 'id'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND index_name = 'PRIMARY'), -1) <> 0
+    OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND index_name = 'idx_wecom_capability_event_operation'), '') <> 'tenant_id,corp_id,operation_id,created_at'
+    OR COALESCE((SELECT MAX(non_unique) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operation_events' AND index_name = 'idx_wecom_capability_event_operation'), -1) <> 1
+  ))
+);
+
 SET @wecom_0139_down_invalid := (
   EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND ((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations') <> 29 OR COALESCE((SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'PRIMARY'), '') <> 'id' OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND column_name IN ('id','tenant_id','corp_id','capability','action','credential_group','credential_generation','idempotency_key','status','provider_request_id','provider_object_id','actual_agent_id','external_success','callback_evidence','target_total','success_total','failure_total','error_code','actor_user_id','actor_source','request_id','lease_token','lease_expires_at','attempt','requested_at','started_at','finished_at','created_at','updated_at')) <> 29))
   OR EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND ((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches') <> 20 OR (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_dispatches' AND column_name IN ('id','tenant_id','corp_id','operation_id','dispatch_kind','chunk_no','target_id','idempotency_key','status','provider_request_id','provider_message_id','provider_object_id','credential_generation','lease_token','lease_expires_at','attempt','next_poll_at','last_error_code','created_at','updated_at')) <> 20))
@@ -83,6 +152,8 @@ SET @wecom_0139_down_invalid := (
   OR EXISTS (SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mc_room_message_batch_send' AND column_name = 'tenant_id' AND index_name NOT IN ('uk_wecom_room_batch_scope'))
   OR EXISTS (SELECT 1 FROM information_schema.key_column_usage k JOIN information_schema.table_constraints tc ON tc.constraint_schema = k.constraint_schema AND tc.table_name = k.table_name AND tc.constraint_name = k.constraint_name WHERE k.constraint_schema = DATABASE() AND k.table_name = 'mc_contact_message_batch_send' AND k.column_name = 'tenant_id' AND tc.constraint_type = 'FOREIGN KEY' AND k.constraint_name <> 'fk_wecom_contact_batch_corp')
   OR EXISTS (SELECT 1 FROM information_schema.key_column_usage k JOIN information_schema.table_constraints tc ON tc.constraint_schema = k.constraint_schema AND tc.table_name = k.table_name AND tc.constraint_name = k.constraint_name WHERE k.constraint_schema = DATABASE() AND k.table_name = 'mc_room_message_batch_send' AND k.column_name = 'tenant_id' AND tc.constraint_type = 'FOREIGN KEY' AND k.constraint_name <> 'fk_wecom_room_batch_corp')
+  OR @wecom_0139_down_external_fk_invalid
+  OR @wecom_0139_down_index_invalid
   OR @wecom_0139_down_signature_invalid
 );
 SET @wecom_0139_down_parent_residual := (
@@ -126,6 +197,7 @@ SET @wecom_0139_down_event_residual := EXISTS (
   )
 );
 SET @wecom_0139_down_reason := CASE
+  WHEN @wecom_0139_down_external_fk_invalid THEN 'external_fk'
   WHEN @wecom_0139_down_parent_residual THEN 'parent'
   WHEN @wecom_0139_down_operations_residual THEN 'operations'
   WHEN @wecom_0139_down_dispatch_residual THEN 'dispatches'
@@ -134,7 +206,11 @@ SET @wecom_0139_down_reason := CASE
   WHEN @wecom_0139_down_event_residual THEN 'events'
   ELSE 'unclassified'
 END;
-SET @wecom_0139_down_guard_sql := IF(@wecom_0139_down_invalid = 0, 'SELECT 1', CONCAT('SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 incompatible rollback residual: ', @wecom_0139_down_reason, ''''));
+SET @wecom_0139_down_guard_sql := CASE
+  WHEN @wecom_0139_down_external_fk_invalid THEN 'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 rollback blocked by external foreign key'''
+  WHEN @wecom_0139_down_invalid = 0 THEN 'SELECT 1'
+  ELSE CONCAT('SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''0139 incompatible rollback residual: ', @wecom_0139_down_reason, '''')
+END;
 PREPARE wecom_0139_down_guard_stmt FROM @wecom_0139_down_guard_sql;
 EXECUTE wecom_0139_down_guard_stmt;
 DEALLOCATE PREPARE wecom_0139_down_guard_stmt;

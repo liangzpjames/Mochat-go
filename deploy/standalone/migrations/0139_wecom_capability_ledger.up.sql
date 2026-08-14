@@ -103,6 +103,7 @@ SET @wecom_0139_operations_invalid := (
     OR (SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND index_name = 'idx_wecom_capability_operation_status') <> 'tenant_id,corp_id,status,updated_at'
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND constraint_name = 'fk_wecom_capability_operation_corp'), '') <> 'tenant_id=mc_corp.tenant_id,corp_id=mc_corp.id'
     OR COALESCE((SELECT GROUP_CONCAT(CONCAT(column_name,'=',referenced_table_name,'.',referenced_column_name) ORDER BY ordinal_position SEPARATOR ',') FROM information_schema.key_column_usage WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND constraint_name = 'fk_wecom_capability_operation_actor'), '') <> 'tenant_id=mc_user.tenant_id,actor_user_id=mc_user.id'
+    OR EXISTS (SELECT 1 FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE() AND table_name = 'mochat_go_wecom_capability_operations' AND constraint_name IN ('fk_wecom_capability_operation_corp','fk_wecom_capability_operation_actor') AND delete_rule <> 'RESTRICT')
     OR @wecom_0139_operations_signature_invalid
   )
 );
