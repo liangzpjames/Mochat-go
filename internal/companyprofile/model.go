@@ -270,7 +270,16 @@ type EmployeeSyncData struct {
 }
 
 type EmployeeSyncScheduler interface {
-	EnqueueEmployeeSync(context.Context, int) (string, error)
+	EnqueueEmployeeSync(context.Context, int) (EmployeeSyncEnqueueReceipt, error)
+}
+
+// EmployeeSyncEnqueueReceipt is produced by the queue authority. Ticket is the
+// authoritative marker fence; RequestedAt is server-clock diagnostic context
+// only and is never used to decide whether a completion may be preserved.
+type EmployeeSyncEnqueueReceipt struct {
+	Cursor      string
+	Ticket      string
+	RequestedAt time.Time
 }
 
 type EmployeeSyncQueueResult struct {
@@ -283,6 +292,6 @@ type SyncStore interface {
 }
 
 type EmployeeSyncQueueStore interface {
-	QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal) (EmployeeSyncQueueResult, error)
+	QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal, EmployeeSyncEnqueueReceipt) (EmployeeSyncQueueResult, error)
 	RecordEmployeeSyncFailure(context.Context, dashboardprincipal.DashboardPrincipal) error
 }

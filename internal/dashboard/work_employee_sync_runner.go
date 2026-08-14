@@ -18,10 +18,10 @@ type workEmployeeSyncStore interface {
 type employeeApplyStore interface {
 	TenantIDByBindingID(ctx context.Context, bindingID int) (int, error)
 	CompanyEmployeeSyncCredentials(ctx context.Context, bindingID int) ([]WorkEmployeeSyncCredential, error)
-	BeginCompanyEmployeeSyncAtVersion(ctx context.Context, bindingID int, credentialVersion uint64) error
-	SyncCompanyEmployeesAtVersion(ctx context.Context, bindingID int, credentialVersion uint64, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error)
-	MarkCompanyEmployeeSyncQueuedAtVersion(ctx context.Context, bindingID int, credentialVersion uint64, errorCode string) error
-	RecordCompanyEmployeeSyncFailureAtVersion(ctx context.Context, bindingID int, credentialVersion uint64) error
+	BeginCompanyEmployeeSyncAtVersion(ctx context.Context, bindingID int, credentialVersion uint64, queueTicket string) error
+	SyncCompanyEmployeesAtVersion(ctx context.Context, bindingID int, credentialVersion uint64, queueTicket string, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error)
+	MarkCompanyEmployeeSyncQueuedAtVersion(ctx context.Context, bindingID int, credentialVersion uint64, queueTicket string, errorCode string) error
+	RecordCompanyEmployeeSyncFailureAtVersion(ctx context.Context, bindingID int, credentialVersion uint64, queueTicket string) error
 }
 
 type employeeSyncVersionError struct {
@@ -39,7 +39,7 @@ func wrapEmployeeSyncVersion(version uint64, err error) error {
 	return &employeeSyncVersionError{Version: version, Err: err}
 }
 
-func syncCompanyEmployeesForBinding(ctx context.Context, store employeeApplyStore, client WorkEmployeeSyncClient, bindingID int) error {
+func syncCompanyEmployeesForBinding(ctx context.Context, store employeeApplyStore, client WorkEmployeeSyncClient, bindingID int, queueTicket string) error {
 	if bindingID <= 0 {
 		return fmt.Errorf("missing binding id")
 	}
@@ -64,7 +64,10 @@ func syncCompanyEmployeesForBinding(ctx context.Context, store employeeApplyStor
 	if credential.CredentialVersion == 0 {
 		return fmt.Errorf("company binding credential version unavailable")
 	}
-	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, bindingID, credential.CredentialVersion); err != nil {
+	if strings.TrimSpace(queueTicket) == "" {
+		return fmt.Errorf("company queue ticket unavailable")
+	}
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, bindingID, credential.CredentialVersion, queueTicket); err != nil {
 		return wrapEmployeeSyncVersion(credential.CredentialVersion, err)
 	}
 	departments, err := client.Departments(ctx, credential)
@@ -75,7 +78,7 @@ func syncCompanyEmployeesForBinding(ctx context.Context, store employeeApplyStor
 	if err != nil {
 		return wrapEmployeeSyncVersion(credential.CredentialVersion, err)
 	}
-	_, err = store.SyncCompanyEmployeesAtVersion(ctx, bindingID, credential.CredentialVersion, departments, employees)
+	_, err = store.SyncCompanyEmployeesAtVersion(ctx, bindingID, credential.CredentialVersion, queueTicket, departments, employees)
 	return wrapEmployeeSyncVersion(credential.CredentialVersion, err)
 }
 

@@ -319,25 +319,25 @@ func (s *Service) StartEmployeeSync(ctx context.Context, principal dashboardprin
 	result := SyncResult{Status: "queued", StartedAt: time.Now().UTC()}
 	// Redis is the queue authority. Do not write SYNC_QUEUED before this
 	// call succeeds; an enqueue failure must not leave a durable queued marker.
-	cursor, err := s.syncScheduler.EnqueueEmployeeSync(ctx, principal.TenantID)
+	receipt, err := s.syncScheduler.EnqueueEmployeeSync(ctx, principal.TenantID)
 	if err != nil {
 		result.Status = "failed"
 		result.FinishedAt = time.Now().UTC()
 		result.ErrorCode = "SYNC_FAILED"
 		return result, ErrStoreUnavailable
 	}
-	queueResult, err := syncStore.QueueEmployeeSync(ctx, principal)
+	queueResult, err := syncStore.QueueEmployeeSync(ctx, principal, receipt)
 	if err != nil {
 		// Redis is already the durable queue authority. The worker owns the
 		// running/completed/failed lifecycle; a request-side marker failure must
 		// not overwrite a worker that completed concurrently. Return the safe
 		// queued acknowledgement and let the worker reconcile the marker.
-		result.Cursor = strings.TrimSpace(cursor)
+		result.Cursor = strings.TrimSpace(receipt.Cursor)
 		return result, nil
 	}
 	result.Cursor = queueResult.Cursor
-	if strings.TrimSpace(cursor) != "" {
-		result.Cursor = strings.TrimSpace(cursor)
+	if strings.TrimSpace(receipt.Cursor) != "" {
+		result.Cursor = strings.TrimSpace(receipt.Cursor)
 	}
 	return result, nil
 }

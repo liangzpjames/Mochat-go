@@ -160,6 +160,18 @@ var operationActionsByCapability = map[string]map[OperationAction]struct{}{
 // check after a tenant-scoped store lookup. It rejects malformed success rows
 // instead of allowing a status row to self-certify readiness.
 func IsCurrentOperationEvidence(operation Operation, tenantID, corpID int, capability string, expectedVersion uint64) bool {
+	return isCurrentOperationEvidence(operation, tenantID, corpID, capability, expectedVersion, "")
+}
+
+// IsCurrentOperationEvidenceForAgent adds the authoritative application-agent
+// identity check used by production status projection. The compatibility
+// helper above remains useful for capability-only callers that do not resolve
+// an application agent.
+func IsCurrentOperationEvidenceForAgent(operation Operation, tenantID, corpID int, capability string, expectedVersion uint64, expectedAgentID string) bool {
+	return isCurrentOperationEvidence(operation, tenantID, corpID, capability, expectedVersion, expectedAgentID)
+}
+
+func isCurrentOperationEvidence(operation Operation, tenantID, corpID int, capability string, expectedVersion uint64, expectedAgentID string) bool {
 	if operation.ID <= 0 || operation.TenantID != tenantID || operation.CorpID != corpID || operation.Capability != capability || CredentialGroupForCapability(capability) == "" || operation.CredentialGroup != CredentialGroupForCapability(capability) || expectedVersion == 0 || operation.CredentialVersion != expectedVersion || !IsValidOperationActionForCapability(capability, operation.Action) || !IsValidOperationStatus(operation.Status) {
 		return false
 	}
@@ -174,9 +186,12 @@ func IsCurrentOperationEvidence(operation Operation, tenantID, corpID int, capab
 		case ContactBatchSend, RoomBatchSend:
 			return operation.ProviderRequestID != "" && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case AgentMessage:
+			if strings.TrimSpace(expectedAgentID) != "" && strings.TrimSpace(operation.ProviderObjectID) != strings.TrimSpace(expectedAgentID) {
+				return false
+			}
 			return strings.TrimSpace(operation.ProviderObjectID) != "" && operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case ContactWay, WelcomeMessage, ContactTransfer:
-			return operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
+			return (strings.TrimSpace(operation.ProviderObjectID) != "" || strings.TrimSpace(operation.ProviderRequestID) != "") && operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case Callback:
 			return operation.CallbackEvidence && operation.SuccessTotal == 1 && operation.TargetTotal == 1
 		default:

@@ -295,6 +295,34 @@ func TestProviderStatusRequiresIndependentAgentIDAndSecret(t *testing.T) {
 	}
 }
 
+func TestProviderStatusRequiresAgentOperationToMatchAuthoritativeApplicationAgent(t *testing.T) {
+	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	finishedAt := verifiedAt.Add(time.Hour)
+	profile := Profile{
+		TenantID: 202, CorpID: 303, BindingStatus: "active", WXCorpID: "ww-authoritative", ApplicationAgentID: "100002", BindingVersion: 1, VerifiedAt: &verifiedAt,
+		CredentialGenerations: CredentialGenerationSet{Agent: 1},
+		Credentials:           CredentialStatuses{Agent: CredentialStatus{Configured: true, AgentIDConfigured: true, AgentSecretConfigured: true}},
+	}
+	store := &capabilityOperationStore{
+		companyProfileContractStore: &companyProfileContractStore{profile: profile},
+		latest: map[string]wecomcapability.Operation{
+			wecomcapability.AgentMessage: {ID: 12, TenantID: 202, CorpID: 303, Capability: wecomcapability.AgentMessage, Action: wecomcapability.ActionSend, CredentialGroup: wecomcapability.CredentialGroupAgent, Status: wecomcapability.OperationSucceeded, CredentialVersion: 1, ProviderObjectID: "100001", ExternalSuccess: true, TargetTotal: 1, SuccessTotal: 1, FinishedAt: &finishedAt},
+		},
+	}
+	registry, err := catalog.NewRegistry(catalog.Dependencies{WeComStandard: providerStatusTestProvider{status: providers.Status{Kind: "wecom_standard", State: providers.StateReady, Source: providers.SourceExternal, Capabilities: wecomcapability.All}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := providerstatus.NewService(NewProviderStatusSource(store, registry)).Resolve(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := findCapabilityForContract(findProviderStatusForContract(view, "wecom_standard"), wecomcapability.AgentMessage)
+	if agent.State == providers.StateReady || agent.Code != "wecom.capability_evidence_invalid" {
+		t.Fatalf("agent evidence from non-authoritative application=%#v, want limited evidence_invalid", agent)
+	}
+}
+
 func findProviderStatusForContract(view providerstatus.View, kind string) providerstatus.ProviderStatus {
 	for _, status := range view.Providers {
 		if status.Kind == kind {

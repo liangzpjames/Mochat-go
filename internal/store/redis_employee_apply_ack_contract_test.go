@@ -78,3 +78,22 @@ func TestEmployeeApplyAckKeepsOtherQueueCompletionSemantics(t *testing.T) {
 		}
 	}
 }
+
+func TestEmployeeApplyDeadLetterReleasesEnvelopeIdempotencyKeyAtomically(t *testing.T) {
+	sourceBytes, err := os.ReadFile("redis.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, required := range []string{
+		"moveReliableQueueItemAndReleaseIdempotency",
+		"reliableQueueRetryOptions",
+		"DeadLetterKey",
+		"IdempotencyKey",
+		"redis.call(\"DEL\", KEYS[3])",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("dead-letter idempotency release contract missing %q", required)
+		}
+	}
+}

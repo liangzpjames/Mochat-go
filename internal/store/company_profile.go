@@ -940,9 +940,8 @@ func loadCompanyApplicationAgent(ctx context.Context, tx *sql.Tx, binding compan
 		       COALESCE(a.wecom_credentials_ciphertext,''), COALESCE(a.wecom_credentials_key_id,'')
 		FROM mc_work_agent a
 		JOIN mc_corp c ON c.id=a.corp_id AND c.tenant_id=? AND c.deleted_at IS NULL
-		WHERE a.corp_id=? AND a.close = 0 AND a.deleted_at IS NULL
-		ORDER BY (a.wx_agent_id=?) DESC, a.id ASC
-		FOR UPDATE`, binding.TenantID, binding.CorpID, wxAgentID)
+		WHERE a.corp_id=? AND `+authoritativeApplicationAgentSelectionSQL()+`
+		FOR UPDATE`, binding.TenantID, binding.CorpID)
 	if err != nil {
 		return companyAgentCredentialRecord{}, false, err
 	}
@@ -961,16 +960,18 @@ func loadCompanyApplicationAgent(ctx context.Context, tx *sql.Tx, binding compan
 	if len(items) == 0 {
 		return companyAgentCredentialRecord{}, false, nil
 	}
-	if items[0].WXAgentID == wxAgentID {
-		if len(items) > 1 && items[1].WXAgentID == wxAgentID {
-			return companyAgentCredentialRecord{}, false, companyprofile.ErrInvalidRequest
+	requestedAgentID := strings.TrimSpace(wxAgentID)
+	if requestedAgentID != "" {
+		for index := 1; index < len(items); index++ {
+			if strings.TrimSpace(items[index].WXAgentID) == requestedAgentID {
+				// An input that names another active agent would create duplicate
+				// application identities if copied onto the canonical row. Fail
+				// closed before any credential or binding mutation.
+				return companyAgentCredentialRecord{}, false, companyprofile.ErrInvalidRequest
+			}
 		}
-		return items[0], true, nil
 	}
-	if len(items) == 1 {
-		return items[0], true, nil
-	}
-	return companyAgentCredentialRecord{}, false, companyprofile.ErrInvalidRequest
+	return items[0], true, nil
 }
 
 func loadCompanyAgentCredential(ctx context.Context, queryer companyProfileQueryer, binding companyBindingRecord, input companyprofile.AgentCredentialsInput) (companyAgentCredentialRecord, bool, error) {

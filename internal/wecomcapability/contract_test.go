@@ -176,13 +176,13 @@ func TestOperationEvidenceUsesCapabilitySpecificExternalContracts(t *testing.T) 
 		if capability == ContactTransfer {
 			operation.Action = "transfer"
 		}
-		if capability == ContactTransfer {
-			operation.ProviderObjectID = "transfer-1"
-		}
-		if !IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {
-			t.Fatalf("%s errcode-success evidence without object id should be current", capability)
+		if IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {
+			t.Fatalf("%s success without provider object/request id passed", capability)
 		}
 		operation.ProviderObjectID = "response-1"
+		if !IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {
+			t.Fatalf("%s success with provider object id was rejected", capability)
+		}
 		operation.ExternalSuccess = false
 		if IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {
 			t.Fatalf("%s without external success passed", capability)

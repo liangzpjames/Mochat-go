@@ -30,7 +30,7 @@ func TestEmployeeApplyWorkerSyncsUniqueCorpIDs(t *testing.T) {
 	}
 	worker := NewEmployeeApplyWorker(nil, store, client, log.Default())
 
-	if err := worker.Process(context.Background(), EmployeeApplyEvent{BindingID: 7, Source: "test"}); err != nil {
+	if err := worker.Process(context.Background(), EmployeeApplyEvent{BindingID: 7, Source: "test", QueueTicket: "ticket-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(store.syncedCorpIDs, []int{7}) {
@@ -54,12 +54,26 @@ func TestEmployeeApplyWorkerRequiresCorpIDs(t *testing.T) {
 	}
 }
 
+func TestEmployeeApplyWorkerRequiresQueueTicketBeforeProviderFetch(t *testing.T) {
+	store := &versionFenceEmployeeApplyStore{credential: WorkEmployeeSyncCredential{
+		CorpID: 7, TenantID: 7, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret",
+	}, currentVersion: 1}
+	client := &countingEmployeeApplyClient{}
+	worker := NewEmployeeApplyWorker(nil, store, client, log.Default())
+	if err := worker.Process(context.Background(), EmployeeApplyEvent{BindingID: 7}); err == nil || !strings.Contains(err.Error(), "queue ticket") {
+		t.Fatalf("error=%v, want missing queue ticket", err)
+	}
+	if client.departmentCalls != 0 || store.businessWrites != 0 || store.markerWrites != 0 {
+		t.Fatalf("missing-ticket worker fetched/wrote: departments=%d business=%d markers=%d", client.departmentCalls, store.businessWrites, store.markerWrites)
+	}
+}
+
 func TestEmployeeApplyWorkerFencesRotationAfterExternalFetch(t *testing.T) {
 	store := &versionFenceEmployeeApplyStore{credential: WorkEmployeeSyncCredential{
 		CorpID: 7, TenantID: 7, CredentialVersion: 1, WXCorpID: "ww-go", EmployeeSecret: "employee-secret",
 	}, currentVersion: 1}
 	client := &rotatingEmployeeApplyClient{store: store}
-	err := syncCompanyEmployeesForBinding(context.Background(), store, client, 7)
+	err := syncCompanyEmployeesForBinding(context.Background(), store, client, 7, "ticket-1")
 	if err == nil || !strings.Contains(err.Error(), "credential version stale") {
 		t.Fatalf("sync error=%v, want fenced stale version", err)
 	}
@@ -80,7 +94,7 @@ func TestEmployeeApplyWorkerRejectsCredentialFromWrongTenantBeforeFetch(t *testi
 		currentVersion:  1,
 	}
 	client := &countingEmployeeApplyClient{}
-	if err := syncCompanyEmployeesForBinding(context.Background(), store, client, 7); err == nil || !strings.Contains(err.Error(), "tenant scope") {
+	if err := syncCompanyEmployeesForBinding(context.Background(), store, client, 7, "ticket-1"); err == nil || !strings.Contains(err.Error(), "tenant scope") {
 		t.Fatalf("sync error=%v, want tenant scope rejection", err)
 	}
 	if client.departmentCalls != 0 || store.businessWrites != 0 || store.markerWrites != 0 {
@@ -102,7 +116,7 @@ func TestEmployeeApplyWorkerAcksSuccessfulDelivery(t *testing.T) {
 	}
 	worker := NewEmployeeApplyWorker(queue, store, client, log.Default())
 
-	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7}})
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, QueueTicket: "ticket-1"}})
 
 	if queue.ackedRaw != "raw-job" {
 		t.Fatalf("acked raw = %q", queue.ackedRaw)
@@ -131,7 +145,7 @@ func TestEmployeeApplyWorkerRecordsQueueItemExecution(t *testing.T) {
 	ctx := taskrunner.WithTaskRuntime(context.Background(), "employee-apply", "run-employee-1", recorder)
 	worker := NewEmployeeApplyWorker(queue, store, client, log.Default())
 
-	worker.handleDelivery(ctx, EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7}})
+	worker.handleDelivery(ctx, EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, QueueTicket: "ticket-1"}})
 
 	running := recordedExecutionByStatus(t, recorder, "employee-apply", taskrunner.StatusRunning)
 	succeeded := recordedExecutionByStatus(t, recorder, "employee-apply", taskrunner.StatusSucceeded)
@@ -168,7 +182,7 @@ func TestEmployeeApplyWorkerMarksRunningAndSanitizesProviderFailure(t *testing.T
 	var logs bytes.Buffer
 	worker := NewEmployeeApplyWorker(queue, store, client, log.New(&logs, "", 0))
 
-	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: "dashboard.company.employee-sync"}})
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: "dashboard.company.employee-sync", QueueTicket: "ticket-1"}})
 
 	if store.beginCalls != 1 || store.queuedCalls != 1 || store.failureCalls != 0 || store.queuedErrorCode != "SYNC_FAILED" {
 		t.Fatalf("lifecycle begin=%d queued=%d failure=%d errorCode=%q", store.beginCalls, store.queuedCalls, store.failureCalls, store.queuedErrorCode)
@@ -193,7 +207,7 @@ func TestEmployeeApplyWorkerMarksDeadLetterFailed(t *testing.T) {
 	}
 	worker := NewEmployeeApplyWorker(queue, store, &failingEmployeeApplyWorkerClient{err: errors.New("provider failure")}, log.Default())
 
-	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: CompanyEmployeeSyncSource}})
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: CompanyEmployeeSyncSource, QueueTicket: "ticket-1"}})
 
 	if store.beginCalls != 1 || store.queuedCalls != 0 || store.failureCalls != 1 {
 		t.Fatalf("dead-letter lifecycle begin=%d queued=%d failure=%d", store.beginCalls, store.queuedCalls, store.failureCalls)
@@ -211,7 +225,7 @@ func TestEmployeeApplyWorkerKeepsSyncingWhenQueueRetryFails(t *testing.T) {
 	}
 	worker := NewEmployeeApplyWorker(queue, store, &failingEmployeeApplyWorkerClient{err: errors.New("provider failure")}, log.Default())
 
-	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: CompanyEmployeeSyncSource}})
+	worker.handleDelivery(context.Background(), EmployeeApplyDelivery{Raw: "raw-job", Event: EmployeeApplyEvent{BindingID: 7, Source: CompanyEmployeeSyncSource, QueueTicket: "ticket-1"}})
 
 	if store.beginCalls != 1 || store.queuedCalls != 0 || store.failureCalls != 0 {
 		t.Fatalf("retry failure lifecycle begin=%d queued=%d failure=%d", store.beginCalls, store.queuedCalls, store.failureCalls)
@@ -224,7 +238,7 @@ func TestEmployeeApplyWorkerRecordsFailedQueueItemExecution(t *testing.T) {
 	ctx := taskrunner.WithTaskRuntime(context.Background(), "employee-apply", "run-employee-1", recorder)
 	worker := NewEmployeeApplyWorker(queue, &fakeEmployeeApplyWorkerStore{credentials: map[int]WorkEmployeeSyncCredential{}}, &fakeEmployeeApplyWorkerClient{}, log.Default())
 
-	worker.handleDelivery(ctx, EmployeeApplyDelivery{Raw: "raw-job", Attempts: 1, Event: EmployeeApplyEvent{BindingID: 7, Source: "test"}})
+	worker.handleDelivery(ctx, EmployeeApplyDelivery{Raw: "raw-job", Attempts: 1, Event: EmployeeApplyEvent{BindingID: 7, Source: "test", QueueTicket: "ticket-1"}})
 
 	failed := recordedExecutionByStatus(t, recorder, "employee-apply", taskrunner.StatusFailed)
 	if failed.ExecutionID == "" || failed.RunID != "run-employee-1" || failed.StoppedAt == "" || failed.Error == "" {
@@ -263,24 +277,24 @@ func (s *versionFenceEmployeeApplyStore) TenantIDByBindingID(context.Context, in
 func (s *versionFenceEmployeeApplyStore) CompanyEmployeeSyncCredentials(context.Context, int) ([]WorkEmployeeSyncCredential, error) {
 	return []WorkEmployeeSyncCredential{s.credential}, nil
 }
-func (s *versionFenceEmployeeApplyStore) BeginCompanyEmployeeSyncAtVersion(_ context.Context, _ int, version uint64) error {
+func (s *versionFenceEmployeeApplyStore) BeginCompanyEmployeeSyncAtVersion(_ context.Context, _ int, version uint64, _ string) error {
 	if version != s.currentVersion {
 		return fmt.Errorf("company credential version stale")
 	}
 	return nil
 }
-func (s *versionFenceEmployeeApplyStore) SyncCompanyEmployeesAtVersion(_ context.Context, _ int, version uint64, _ []WorkEmployeeSyncDepartment, _ []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error) {
+func (s *versionFenceEmployeeApplyStore) SyncCompanyEmployeesAtVersion(_ context.Context, _ int, version uint64, _ string, _ []WorkEmployeeSyncDepartment, _ []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error) {
 	if version != s.currentVersion {
 		return WorkEmployeeSyncResult{}, fmt.Errorf("company credential version stale")
 	}
 	s.businessWrites++
 	return WorkEmployeeSyncResult{}, nil
 }
-func (s *versionFenceEmployeeApplyStore) MarkCompanyEmployeeSyncQueuedAtVersion(context.Context, int, uint64, string) error {
+func (s *versionFenceEmployeeApplyStore) MarkCompanyEmployeeSyncQueuedAtVersion(context.Context, int, uint64, string, string) error {
 	s.markerWrites++
 	return nil
 }
-func (s *versionFenceEmployeeApplyStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64) error {
+func (s *versionFenceEmployeeApplyStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64, string) error {
 	s.markerWrites++
 	return nil
 }
@@ -320,7 +334,7 @@ func (s *fakeEmployeeApplyWorkerStore) BeginCompanyEmployeeSync(context.Context,
 	return nil
 }
 
-func (s *fakeEmployeeApplyWorkerStore) BeginCompanyEmployeeSyncAtVersion(context.Context, int, uint64) error {
+func (s *fakeEmployeeApplyWorkerStore) BeginCompanyEmployeeSyncAtVersion(context.Context, int, uint64, string) error {
 	s.beginCalls++
 	return nil
 }
@@ -330,7 +344,7 @@ func (s *fakeEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailure(context.
 	return nil
 }
 
-func (s *fakeEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64) error {
+func (s *fakeEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64, string) error {
 	s.failureCalls++
 	return nil
 }
@@ -341,7 +355,7 @@ func (s *fakeEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueued(_ context.C
 	return nil
 }
 
-func (s *fakeEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueuedAtVersion(_ context.Context, _ int, _ uint64, errorCode string) error {
+func (s *fakeEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueuedAtVersion(_ context.Context, _ int, _ uint64, _ string, errorCode string) error {
 	s.queuedCalls++
 	s.queuedErrorCode = errorCode
 	return nil
@@ -358,7 +372,7 @@ func (s *lifecycleEmployeeApplyWorkerStore) BeginCompanyEmployeeSync(context.Con
 	return nil
 }
 
-func (s *lifecycleEmployeeApplyWorkerStore) BeginCompanyEmployeeSyncAtVersion(context.Context, int, uint64) error {
+func (s *lifecycleEmployeeApplyWorkerStore) BeginCompanyEmployeeSyncAtVersion(context.Context, int, uint64, string) error {
 	s.beginCalls++
 	return nil
 }
@@ -368,7 +382,7 @@ func (s *lifecycleEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailure(con
 	return nil
 }
 
-func (s *lifecycleEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64) error {
+func (s *lifecycleEmployeeApplyWorkerStore) RecordCompanyEmployeeSyncFailureAtVersion(context.Context, int, uint64, string) error {
 	s.failureCalls++
 	return nil
 }
@@ -379,7 +393,7 @@ func (s *lifecycleEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueued(_ cont
 	return nil
 }
 
-func (s *lifecycleEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueuedAtVersion(_ context.Context, _ int, _ uint64, errorCode string) error {
+func (s *lifecycleEmployeeApplyWorkerStore) MarkCompanyEmployeeSyncQueuedAtVersion(_ context.Context, _ int, _ uint64, _ string, errorCode string) error {
 	s.queuedCalls++
 	s.queuedErrorCode = errorCode
 	return nil
@@ -423,7 +437,7 @@ func (s *fakeEmployeeApplyWorkerStore) SyncCompanyEmployees(_ context.Context, b
 	return WorkEmployeeSyncResult{}, nil
 }
 
-func (s *fakeEmployeeApplyWorkerStore) SyncCompanyEmployeesAtVersion(ctx context.Context, bindingID int, _ uint64, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error) {
+func (s *fakeEmployeeApplyWorkerStore) SyncCompanyEmployeesAtVersion(ctx context.Context, bindingID int, _ uint64, _ string, departments []WorkEmployeeSyncDepartment, employees []WorkEmployeeSyncEmployee) (WorkEmployeeSyncResult, error) {
 	return s.SyncCompanyEmployees(ctx, bindingID, departments, employees)
 }
 

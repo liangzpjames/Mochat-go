@@ -17,16 +17,16 @@ type companyProfileTestScheduler struct {
 	beforeEnqueue func()
 }
 
-func (s *companyProfileTestScheduler) EnqueueEmployeeSync(_ context.Context, bindingID int) (string, error) {
+func (s *companyProfileTestScheduler) EnqueueEmployeeSync(_ context.Context, bindingID int) (EmployeeSyncEnqueueReceipt, error) {
 	if s.beforeEnqueue != nil {
 		s.beforeEnqueue()
 	}
 	s.calls++
 	s.bindingID = bindingID
 	if s.err != nil {
-		return "", s.err
+		return EmployeeSyncEnqueueReceipt{}, s.err
 	}
-	return s.cursor, nil
+	return EmployeeSyncEnqueueReceipt{Cursor: s.cursor, Ticket: "test-ticket-1"}, nil
 }
 
 func TestServiceEmployeeSyncEnqueuesTenantBindingWithoutProviderCall(t *testing.T) {

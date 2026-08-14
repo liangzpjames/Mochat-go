@@ -127,7 +127,7 @@ func (s *companyProfileContractStore) SyncEmployeeData(context.Context, dashboar
 	return SyncResult{Status: "completed"}, nil
 }
 
-func (s *companyProfileContractStore) QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal) (EmployeeSyncQueueResult, error) {
+func (s *companyProfileContractStore) QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal, EmployeeSyncEnqueueReceipt) (EmployeeSyncQueueResult, error) {
 	s.queueCalls++
 	if s.queueErr != nil {
 		// Model a worker that completed after Redis accepted the job but before

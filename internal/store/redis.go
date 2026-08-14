@@ -3,9 +3,12 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
+	"jiyi/mochat-go/internal/companyprofile"
 	"jiyi/mochat-go/internal/dashboard"
 
 	"github.com/redis/go-redis/v9"
@@ -211,8 +214,119 @@ func (s *RedisStore) SetWorkContactWelcomeStatus(ctx context.Context, contactID 
 	return s.client.Set(ctx, workContactWelcomeStatusRedisKey(contactID), status, ttl).Err()
 }
 
+const employeeApplyTicketKey = "mochat-go:queue-ticket:employee-apply"
+
+const employeeApplyEnqueueScript = `
+local now = redis.call("TIME")
+local existing = redis.call("GET", KEYS[2])
+if existing then
+  return {0, existing, now[1], now[2]}
+end
+local ticket = tostring(redis.call("INCR", KEYS[3]))
+local ok = redis.call("SET", KEYS[2], ticket, "NX", "EX", ARGV[2])
+if not ok then
+  existing = redis.call("GET", KEYS[2])
+  return {0, existing or "", now[1], now[2]}
+end
+local raw = string.gsub(ARGV[1], '"queueTicket":"__QUEUE_TICKET__"', '"queueTicket":"' .. ticket .. '"')
+redis.call("RPUSH", KEYS[1], raw)
+return {1, ticket, now[1], now[2]}
+`
+
+func employeeApplyEnqueueReceiptFromRedis(values []interface{}) (companyprofile.EmployeeSyncEnqueueReceipt, error) {
+	if len(values) < 4 {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, errors.New("employee apply enqueue receipt is malformed")
+	}
+	inserted, err := redisResultInt64(values[0])
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
+	}
+	if inserted != 0 && inserted != 1 {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, errors.New("employee apply enqueue insertion flag is invalid")
+	}
+	ticket, err := redisResultString(values[1])
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
+	}
+	seconds, err := redisResultInt64(values[2])
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
+	}
+	micros, err := redisResultInt64(values[3])
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
+	}
+	if ticket == "" {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, errors.New("employee apply enqueue ticket is empty")
+	}
+	return companyprofile.EmployeeSyncEnqueueReceipt{
+		Cursor:      dashboard.CompanyEmployeeSyncCursor,
+		Ticket:      ticket,
+		RequestedAt: time.Unix(seconds, micros*1000).UTC(),
+	}, nil
+}
+
+func redisResultString(value interface{}) (string, error) {
+	switch value := value.(type) {
+	case string:
+		return value, nil
+	case []byte:
+		return string(value), nil
+	case int64:
+		return strconv.FormatInt(value, 10), nil
+	case int:
+		return strconv.Itoa(value), nil
+	default:
+		return "", fmt.Errorf("unexpected redis result type %T", value)
+	}
+}
+
+func redisResultInt64(value interface{}) (int64, error) {
+	raw, err := redisResultString(value)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(raw, 10, 64)
+}
+
 func (s *RedisStore) EnqueueEmployeeApply(ctx context.Context, event dashboard.EmployeeApplyEvent) error {
-	return s.enqueueReliableQueueItem(ctx, dashboard.EmployeeApplyQueueDescriptor(), event, dashboard.EmployeeApplyIdempotencyKey(event))
+	_, err := s.EnqueueEmployeeApplyWithReceipt(ctx, event)
+	return err
+}
+
+func (s *RedisStore) EnqueueEmployeeApplyWithReceipt(ctx context.Context, event dashboard.EmployeeApplyEvent) (companyprofile.EmployeeSyncEnqueueReceipt, error) {
+	descriptor := dashboard.EmployeeApplyQueueDescriptor()
+	const queueTicketPlaceholder = "__QUEUE_TICKET__"
+	event.QueueTicket = queueTicketPlaceholder
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
+	}
+	idempotencyKey := dashboard.EmployeeApplyIdempotencyKey(event)
+	if idempotencyKey == "" {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, fmt.Errorf("employee apply idempotency key unavailable")
+	}
+	serverNow, err := s.client.Time(ctx).Result()
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
+	}
+	envelope := reliableQueueEnvelope{
+		Queue: descriptor.Name, PayloadType: descriptor.PayloadType, IdempotencyKey: idempotencyKey,
+		EnqueuedAt: serverNow.UTC().Format(time.RFC3339Nano), QueueTicket: queueTicketPlaceholder, Payload: payload,
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
+	}
+	ttlSeconds := int(descriptor.IdempotencyTTL.Seconds())
+	if ttlSeconds <= 0 {
+		ttlSeconds = int((10 * time.Minute).Seconds())
+	}
+	result, err := s.client.Eval(ctx, employeeApplyEnqueueScript, []string{descriptor.SourceKey, idempotencyKey, employeeApplyTicketKey}, string(raw), ttlSeconds).Slice()
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
+	}
+	return employeeApplyEnqueueReceiptFromRedis(result)
 }
 
 func (s *RedisStore) DequeueEmployeeApply(ctx context.Context, timeout time.Duration) (dashboard.EmployeeApplyDelivery, bool, error) {
@@ -749,6 +863,7 @@ type reliableQueueEnvelope struct {
 	Queue               string          `json:"queue,omitempty"`
 	PayloadType         string          `json:"payloadType,omitempty"`
 	IdempotencyKey      string          `json:"idempotencyKey,omitempty"`
+	QueueTicket         string          `json:"queueTicket,omitempty"`
 	EnqueuedAt          string          `json:"enqueuedAt,omitempty"`
 	Payload             json.RawMessage `json:"payload"`
 	Attempts            int             `json:"attempts"`
@@ -758,10 +873,11 @@ type reliableQueueEnvelope struct {
 }
 
 type reliableQueueMalformedEnvelope struct {
-	Raw          string `json:"raw"`
-	Attempts     int    `json:"attempts"`
-	LastError    string `json:"lastError,omitempty"`
-	LastFailedAt string `json:"lastFailedAt,omitempty"`
+	Raw            string `json:"raw"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	Attempts       int    `json:"attempts"`
+	LastError      string `json:"lastError,omitempty"`
+	LastFailedAt   string `json:"lastFailedAt,omitempty"`
 }
 
 type reliableQueueRetryOptions struct {
@@ -942,8 +1058,14 @@ func (s *RedisStore) retryReliableQueueItem(ctx context.Context, opts reliableQu
 		targetKey = opts.DeadLetterKey
 		deadLettered = true
 	}
-	if err := s.moveReliableQueueItem(ctx, opts.ProcessingKey, targetKey, opts.Raw, string(nextRaw)); err != nil {
-		return false, err
+	var moveErr error
+	if deadLettered && envelope.IdempotencyKey != "" {
+		moveErr = s.moveReliableQueueItemAndReleaseIdempotency(ctx, opts.ProcessingKey, targetKey, opts.Raw, string(nextRaw), envelope.IdempotencyKey)
+	} else {
+		moveErr = s.moveReliableQueueItem(ctx, opts.ProcessingKey, targetKey, opts.Raw, string(nextRaw))
+	}
+	if moveErr != nil {
+		return false, moveErr
 	}
 	return deadLettered, nil
 }
@@ -993,8 +1115,14 @@ func (s *RedisStore) recoverReliableQueueProcessing(ctx context.Context, opts re
 		if envelope.Attempts >= maxAttempts {
 			targetKey = opts.DeadLetterKey
 		}
-		if err := s.moveReliableQueueItem(ctx, opts.ProcessingKey, targetKey, raw, string(nextRaw)); err != nil {
-			return recovered, err
+		var moveErr error
+		if envelope.Attempts >= maxAttempts && envelope.IdempotencyKey != "" {
+			moveErr = s.moveReliableQueueItemAndReleaseIdempotency(ctx, opts.ProcessingKey, targetKey, raw, string(nextRaw), envelope.IdempotencyKey)
+		} else {
+			moveErr = s.moveReliableQueueItem(ctx, opts.ProcessingKey, targetKey, raw, string(nextRaw))
+		}
+		if moveErr != nil {
+			return recovered, moveErr
 		}
 		recovered++
 	}
@@ -1002,16 +1130,45 @@ func (s *RedisStore) recoverReliableQueueProcessing(ctx context.Context, opts re
 }
 
 func (s *RedisStore) moveMalformedQueueItem(ctx context.Context, processingKey string, deadLetterKey string, raw string, reason string) error {
+	idempotencyKey := ""
+	if envelope, ok := decodeReliableQueueEnvelope(raw); ok {
+		idempotencyKey = envelope.IdempotencyKey
+	}
 	nextRaw, err := json.Marshal(reliableQueueMalformedEnvelope{
-		Raw:          raw,
-		Attempts:     1,
-		LastError:    reason,
-		LastFailedAt: time.Now().Format(time.RFC3339),
+		Raw:            raw,
+		IdempotencyKey: idempotencyKey,
+		Attempts:       1,
+		LastError:      reason,
+		LastFailedAt:   time.Now().Format(time.RFC3339),
 	})
 	if err != nil {
 		return err
 	}
+	if idempotencyKey != "" {
+		return s.moveReliableQueueItemAndReleaseIdempotency(ctx, processingKey, deadLetterKey, raw, string(nextRaw), idempotencyKey)
+	}
 	return s.moveReliableQueueItem(ctx, processingKey, deadLetterKey, raw, string(nextRaw))
+}
+
+func (s *RedisStore) moveReliableQueueItemAndReleaseIdempotency(ctx context.Context, processingKey string, targetKey string, raw string, nextRaw string, idempotencyKey string) error {
+	const script = `
+local removed = redis.call("LREM", KEYS[1], 1, ARGV[1])
+if removed > 0 then
+  redis.call("RPUSH", KEYS[2], ARGV[2])
+  if KEYS[3] ~= "" then
+    redis.call("DEL", KEYS[3])
+  end
+end
+return removed
+`
+	removed, err := s.client.Eval(ctx, script, []string{processingKey, targetKey, idempotencyKey}, raw, nextRaw).Int()
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
+		return fmt.Errorf("queue delivery is not in processing list")
+	}
+	return nil
 }
 
 func (s *RedisStore) moveReliableQueueItem(ctx context.Context, processingKey string, targetKey string, raw string, nextRaw string) error {

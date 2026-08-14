@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -16,6 +17,29 @@ func TestAuthoritativeApplicationAgentSelectionIsActiveAndShared(t *testing.T) {
 		if !strings.Contains(selection, required) {
 			t.Fatalf("selection SQL=%q, missing %q", selection, required)
 		}
+	}
+}
+
+func TestConfigureApplicationUsesAuthoritativeAgentInsteadOfInputPreferredAgent(t *testing.T) {
+	sourceBytes, err := os.ReadFile("company_profile.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	start := strings.Index(source, "func loadCompanyApplicationAgent")
+	if start < 0 {
+		t.Fatal("loadCompanyApplicationAgent not found")
+	}
+	end := strings.Index(source[start:], "func loadCompanyAgentCredential")
+	if end < 0 {
+		t.Fatal("loadCompanyApplicationAgent boundary not found")
+	}
+	section := source[start : start+end]
+	if !strings.Contains(section, "authoritativeApplicationAgentSelectionSQL()") {
+		t.Fatalf("ConfigureApplication does not use the shared authoritative selector:\n%s", section)
+	}
+	if strings.Contains(section, "ORDER BY (a.wx_agent_id=?) DESC") {
+		t.Fatalf("ConfigureApplication still prefers the caller-selected agent:\n%s", section)
 	}
 }
 

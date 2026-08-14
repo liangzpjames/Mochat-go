@@ -52,8 +52,15 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Queue != dashboard.QueueNameEmployeeApply || envelope.PayloadType != dashboard.QueuePayloadTypeEmployeeApply || envelope.IdempotencyKey != idempotencyKey || envelope.EnqueuedAt == "" {
+	if envelope.Queue != dashboard.QueueNameEmployeeApply || envelope.PayloadType != dashboard.QueuePayloadTypeEmployeeApply || envelope.IdempotencyKey != idempotencyKey || envelope.EnqueuedAt == "" || envelope.QueueTicket == "" {
 		t.Fatalf("envelope = %+v", envelope)
+	}
+	var queuedEvent dashboard.EmployeeApplyEvent
+	if err := json.Unmarshal(envelope.Payload, &queuedEvent); err != nil {
+		t.Fatal(err)
+	}
+	if queuedEvent.QueueTicket != envelope.QueueTicket {
+		t.Fatalf("event/envelope ticket mismatch: event=%q envelope=%q", queuedEvent.QueueTicket, envelope.QueueTicket)
 	}
 
 	delivery, ok, err := store.DequeueEmployeeApply(ctx, time.Second)
@@ -529,5 +536,60 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	}
 	if length, err := store.client.LLen(ctx, statisticDescriptor.ProcessingKey).Result(); err != nil || length != 0 {
 		t.Fatalf("employee statistic apply processing queue length = %d err=%v", length, err)
+	}
+}
+
+func TestRedisStoreEmployeeApplyDeadLetterReleasesIdempotencyIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := NewRedisStore(RedisConfig{Addr: addr})
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := store.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := dashboard.EmployeeApplyQueueDescriptor()
+	event := dashboard.EmployeeApplyEvent{BindingID: 7001, Source: "dead-letter-release-integration"}
+	idempotencyKey := dashboard.EmployeeApplyIdempotencyKey(event)
+	cleanup := func() {
+		_ = store.client.Del(ctx, descriptor.SourceKey, descriptor.ProcessingKey, descriptor.DeadLetterKey, idempotencyKey).Err()
+	}
+	cleanup()
+	defer cleanup()
+
+	if err := store.EnqueueEmployeeApply(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	delivery, ok, err := store.DequeueEmployeeApply(ctx, time.Second)
+	if err != nil || !ok {
+		t.Fatalf("dequeue ok=%v err=%v", ok, err)
+	}
+	if delivery.Event.QueueTicket == "" {
+		t.Fatalf("dequeued employee apply event lost queue ticket: %+v", delivery.Event)
+	}
+	deadLettered, err := store.RetryEmployeeApply(ctx, delivery, "SYNC_FAILED", 1)
+	if err != nil || !deadLettered {
+		t.Fatalf("dead-lettered=%v err=%v", deadLettered, err)
+	}
+	if exists, err := store.client.Exists(ctx, idempotencyKey).Result(); err != nil || exists != 0 {
+		t.Fatalf("dead-letter retained idempotency key: exists=%d err=%v", exists, err)
+	}
+	if source, err := store.client.LLen(ctx, descriptor.SourceKey).Result(); err != nil || source != 0 {
+		t.Fatalf("source after dead-letter=%d err=%v", source, err)
+	}
+	if dead, err := store.client.LLen(ctx, descriptor.DeadLetterKey).Result(); err != nil || dead != 1 {
+		t.Fatalf("dead-letter queue=%d err=%v", dead, err)
+	}
+	if err := store.EnqueueEmployeeApply(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnqueueEmployeeApply(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if source, err := store.client.LLen(ctx, descriptor.SourceKey).Result(); err != nil || source != 1 {
+		t.Fatalf("source after immediate re-enqueue duplicate=%d err=%v", source, err)
 	}
 }

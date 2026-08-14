@@ -122,6 +122,76 @@ func TestCompanyProfileApplicationCallbackAndArchiveConfigurationIsAtomicRealMar
 	}
 }
 
+func TestConfigureApplicationUpdatesAuthoritativeActiveAgentWhenInputNamesOtherAgentRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey: testCompanyCredentialKey(27), EncryptionKeyID: "company-settings-canonical-agent-key", RequireEncryption: true, DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	if _, err := db.Exec(`UPDATE mc_work_agent SET is_reportenter=1, updated_at=NOW() WHERE id=300`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mc_work_agent (id, corp_id, wx_agent_id, wx_secret, name, close, is_reportenter, created_at, updated_at) VALUES (301, 100, '100002', '', 'Noncanonical agent', 0, 0, NOW(), NOW())`); err != nil {
+		t.Fatal(err)
+	}
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending, IsSuperAdmin: true, AuthVersion: 1}
+	var versionBeforeReject uint64
+	if err := db.QueryRow(`SELECT version FROM mochat_go_tenant_corp_bindings WHERE tenant_id=1 AND corp_id=100`).Scan(&versionBeforeReject); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.ConfigureApplication(context.Background(), principal, companyprofile.ApplicationCredentialsInput{
+		WXAgentID: "100002", Secret: "canonical-agent-secret", ExpectedVersion: 1, RequestID: "configure-canonical-agent",
+	})
+	if !errors.Is(err, companyprofile.ErrInvalidRequest) {
+		t.Fatalf("existing noncanonical agent input err=%v, want ErrInvalidRequest", err)
+	}
+	var canonicalAgentID, otherAgentID string
+	if err := db.QueryRow(`SELECT wx_agent_id FROM mc_work_agent WHERE id=300`).Scan(&canonicalAgentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT wx_agent_id FROM mc_work_agent WHERE id=301`).Scan(&otherAgentID); err != nil {
+		t.Fatal(err)
+	}
+	if canonicalAgentID != "100001" || otherAgentID != "100002" {
+		t.Fatalf("rejected input changed active agents: canonical=%q other=%q", canonicalAgentID, otherAgentID)
+	}
+	var versionAfterReject uint64
+	if err := db.QueryRow(`SELECT version FROM mochat_go_tenant_corp_bindings WHERE tenant_id=1 AND corp_id=100`).Scan(&versionAfterReject); err != nil {
+		t.Fatal(err)
+	}
+	if versionAfterReject != versionBeforeReject {
+		t.Fatalf("rejected input changed binding version: before=%d after=%d", versionBeforeReject, versionAfterReject)
+	}
+	var rejectedAuditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits WHERE tenant_id=1 AND request_id=?`, "configure-canonical-agent").Scan(&rejectedAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if rejectedAuditCount != 0 {
+		t.Fatalf("rejected input wrote audit rows=%d", rejectedAuditCount)
+	}
+	profile, err := store.ConfigureApplication(context.Background(), principal, companyprofile.ApplicationCredentialsInput{
+		WXAgentID: "100003", Secret: "canonical-agent-secret", ExpectedVersion: 1, RequestID: "configure-canonical-agent-new-id",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT wx_agent_id FROM mc_work_agent WHERE id=300`).Scan(&canonicalAgentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT wx_agent_id FROM mc_work_agent WHERE id=301`).Scan(&otherAgentID); err != nil {
+		t.Fatal(err)
+	}
+	if canonicalAgentID != "100003" || otherAgentID != "100002" || profile.ApplicationAgentID != canonicalAgentID {
+		t.Fatalf("canonical profile/rows diverged after new id: profile=%q canonical=%q other=%q", profile.ApplicationAgentID, canonicalAgentID, otherAgentID)
+	}
+	defaultAgent, found, err := store.RoomTagPullRemindAgentByCorpID(context.Background(), 100)
+	if err != nil || !found || defaultAgent.WXAgentID != "100003" || defaultAgent.WXSecret != "canonical-agent-secret" {
+		t.Fatalf("default sender=%+v found=%v err=%v, want canonical agent credentials", defaultAgent, found, err)
+	}
+}
+
 func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
@@ -215,14 +285,14 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	agentSecret := "agent-rotated"
 	verifiedPrincipal := principal
 	verifiedPrincipal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
-	queued, err := store.QueueEmployeeSync(ctx, verifiedPrincipal)
+	queued, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if queued.AlreadyQueued || queued.Cursor != dashboard.CompanyEmployeeSyncCursor {
 		t.Fatalf("first queue result=%+v", queued)
 	}
-	duplicateQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal)
+	duplicateQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +302,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if _, err := db.Exec(`UPDATE mc_work_update_time SET error_msg = ?, updated_at = NOW() WHERE corp_id = 100 AND type = 1`, `{"code":"SYNC_RUNNING","cursor":"company-sync","credentialVersion":1}`); err != nil {
 		t.Fatal(err)
 	}
-	refreshedQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal)
+	refreshedQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{})
 	if err != nil {
 		t.Fatal(err)
 	}

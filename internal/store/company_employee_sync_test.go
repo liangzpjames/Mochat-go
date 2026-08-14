@@ -33,19 +33,43 @@ func TestCompanySyncQueueOnlyTreatsCurrentVersionMarkerAsAlreadyQueued(t *testin
 	for _, test := range []struct {
 		name           string
 		marker         companySyncStateMarker
+		queueTicket    string
 		currentVersion uint64
 		wantQueued     bool
 	}{
 		{name: "current queued", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 2}, currentVersion: 2, wantQueued: true},
 		{name: "current running", marker: companySyncStateMarker{Code: companySyncStateRunning, CredentialVersion: 2}, currentVersion: 2, wantQueued: true},
+		{name: "different ticket", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 2, QueueTicket: "old-ticket"}, queueTicket: "new-ticket", currentVersion: 2, wantQueued: false},
 		{name: "stale queued", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 1}, currentVersion: 2},
 		{name: "stale running", marker: companySyncStateMarker{Code: companySyncStateRunning, CredentialVersion: 1}, currentVersion: 2},
 		{name: "legacy queued", marker: companySyncStateMarker{Code: companySyncStateQueued}, currentVersion: 2},
 		{name: "failed marker", marker: companySyncStateMarker{Code: companySyncStateFailed, CredentialVersion: 2}, currentVersion: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := companySyncMarkerAlreadyQueued(test.marker, test.currentVersion); got != test.wantQueued {
+			if got := companySyncMarkerAlreadyQueued(test.marker, test.currentVersion, test.queueTicket); got != test.wantQueued {
 				t.Fatalf("marker=%+v current=%d alreadyQueued=%v, want %v", test.marker, test.currentVersion, got, test.wantQueued)
+			}
+		})
+	}
+}
+
+func TestCompanySyncQueuePreservesOnlyCompletionAfterRealEnqueueTicket(t *testing.T) {
+	cases := []struct {
+		name     string
+		marker   companySyncStateMarker
+		ticket   string
+		current  uint64
+		wantKeep bool
+	}{
+		{name: "same ticket completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 2, QueueTicket: "ticket-1"}, ticket: "ticket-1", current: 2, wantKeep: true},
+		{name: "different ticket completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 2, QueueTicket: "old-ticket"}, ticket: "ticket-1", current: 2},
+		{name: "legacy completion has no marker", marker: companySyncStateMarker{}, ticket: "ticket-1", current: 2},
+		{name: "stale completion", marker: companySyncStateMarker{Code: companySyncStateCompleted, CredentialVersion: 1, QueueTicket: "ticket-1"}, ticket: "ticket-1", current: 2},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldPreserveCompletedCompanySyncMarker(test.marker, test.ticket, test.current); got != test.wantKeep {
+				t.Fatalf("marker=%+v ticket=%s current=%d keep=%v, want %v", test.marker, test.ticket, test.current, got, test.wantKeep)
 			}
 		})
 	}

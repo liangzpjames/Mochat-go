@@ -301,12 +301,12 @@ func TestProviderStatusSourceDegradesWhenStandardSyncFailsAndRecoversOnSuccess(t
 		t.Fatalf("successful sync status = %#v", succeeded)
 	}
 
-	store.syncStatus = SyncStatus{Status: "failed", CredentialVersion: 1, FinishedAt: &failedAt, ErrorCode: "SYNC_FAILED"}
+	store.syncStatus = SyncStatus{Status: "failed", CredentialVersion: 0, FinishedAt: &failedAt, ErrorCode: "SYNC_FAILED"}
 	statuses, err = source.Statuses(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fallback := findStatus(statuses, "wecom_standard"); fallback.LastErrorCode != "wecom.sync_failed" {
-		t.Fatalf("unclassified sync error code = %q, want stable wecom.sync_failed", fallback.LastErrorCode)
+	if fallback := findStatus(statuses, "wecom_standard"); fallback.Code != "wecom.sync_stale" || fallback.LastErrorCode != "wecom.credential_version_stale" {
+		t.Fatalf("zero-version sync failure = %#v, want stale fail-closed status", fallback)
 	}
 }

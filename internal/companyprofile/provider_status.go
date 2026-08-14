@@ -137,15 +137,6 @@ func tenantWeComStandardStatusBase(profile Profile, runtime providers.Status, sy
 	base.Code = "wecom.runtime_verified"
 	base.Action = "企业微信员工同步可用"
 	applySyncStatus(&base, syncStatus, credentialVersionForCapability(profile, wecomcapability.EmployeeSync))
-	if strings.EqualFold(strings.TrimSpace(syncStatus.Status), "failed") {
-		base.State = providers.StateLimited
-		base.Code = "wecom.sync_failed"
-		base.Reason = "最近一次企业微信员工同步失败，当前状态已降级"
-		base.Action = "修复企业微信同步后重试"
-		if strings.TrimSpace(base.LastErrorCode) == "" {
-			base.LastErrorCode = "wecom.sync_failed"
-		}
-	}
 	return base
 }
 
@@ -223,7 +214,7 @@ func standardCapabilityStatuses(profile Profile, runtime providers.Status, syncS
 			continue
 		}
 		operation, hasOperation := operations[capability]
-		hasCurrentOperation := hasOperation && wecomcapability.IsCurrentOperationEvidence(operation, profile.TenantID, profile.CorpID, capability, credentialVersionForCapability(profile, capability))
+		hasCurrentOperation := hasOperation && wecomcapability.IsCurrentOperationEvidenceForAgent(operation, profile.TenantID, profile.CorpID, capability, credentialVersionForCapability(profile, capability), profile.ApplicationAgentID)
 		if hasOperation && !hasCurrentOperation {
 			item.Code = "wecom.capability_evidence_invalid"
 			item.Reason = "最近的能力操作证据缺少当前租户、凭据版本或外部请求证明"
@@ -330,7 +321,8 @@ func applyCapabilitySyncStatus(status *providers.CapabilityStatus, syncStatus Sy
 		status.Code = "wecom.capability_syncing"
 		status.Action = "等待企业 WeCom 员工同步完成"
 	case "failed":
-		status.Code = "wecom.capability_operation_failed"
+		status.State = providers.StateLimited
+		status.Code = "wecom.sync_failed"
 		status.Reason = "最近一次员工同步失败"
 		status.Action = "修复员工同步后重试"
 		status.LastFailureAt = syncStatus.FinishedAt
@@ -435,6 +427,10 @@ func applySyncStatus(status *providers.Status, syncStatus SyncStatus, expectedVe
 		}
 		status.LastSuccessAt = syncStatus.FinishedAt
 	case "failed":
+		status.State = providers.StateLimited
+		status.Code = "wecom.sync_failed"
+		status.Reason = "最近一次员工同步失败"
+		status.Action = "修复员工同步后重试"
 		status.LastFailureAt = syncStatus.FinishedAt
 		if status.LastFailureAt == nil {
 			status.LastFailureAt = syncStatus.StartedAt
