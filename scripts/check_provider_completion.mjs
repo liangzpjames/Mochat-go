@@ -19,7 +19,9 @@ export async function checkProviderCompletion(root = process.cwd()) {
     const source = stripComments(await fs.readFile(file, 'utf8'));
     if (!relative.includes('/catalog/') && /\bStatus\s*\(\s*\)\s*(?:providers\.)?Status\s*\{/.test(source)) {
       const kinds = [...source.matchAll(/\bKind\s*:\s*"([^"]+)"/g)].map((match) => match[1]);
-      for (const kind of kinds) implementationKinds.set(relative, kind);
+      const knownKinds = implementationKinds.get(relative) ?? new Set();
+      for (const kind of kinds) knownKinds.add(kind);
+      implementationKinds.set(relative, knownKinds);
       if (relative.includes('/archive/wecom/') && /\bStateReady\b/.test(source)) {
         errors.push(`${relative}: archive Provider cannot self-certify ready before getchatdata implementation`);
       }
@@ -27,19 +29,25 @@ export async function checkProviderCompletion(root = process.cwd()) {
     collectRuntimeRegistrations(relative, source, registrations, errors);
   }
 
-  for (const [file, kind] of implementationKinds) {
-    if (!registrations.has(kind)) errors.push(`${file}: Provider ${kind} has no classified runtime registration`);
+  for (const [file, kinds] of implementationKinds) {
+    for (const kind of kinds) {
+      if (!registrations.has(kind)) errors.push(`${file}: Provider ${kind} has no classified runtime registration`);
+    }
   }
 
   return {
     ok: errors.length === 0,
     errors,
-    providers: [...implementationKinds.entries()].map(([file, kind]) => ({ file, kind, registration: registrations.get(kind) ?? null })),
+    providers: [...implementationKinds.entries()].flatMap(([file, kinds]) => [...kinds].map((kind) => ({ file, kind, registration: registrations.get(kind) ?? null }))),
   };
 }
 
 function collectRuntimeRegistrations(relative, source, registrations, errors) {
   for (const body of namedFunctionBodies(source, 'NewRegistry')) {
+    if (/\bif\s+(?:false|nil|0|0\s*==\s*1|1\s*!=\s*1)\s*\{[\s\S]*?(?:Register|providers\.Registration)/.test(body)) {
+      errors.push(`${relative}: NewRegistry contains an unreachable Provider registration branch`);
+      continue;
+    }
     collectRuntimeRegistrationsInBody(relative, body, registrations, errors);
   }
 }
