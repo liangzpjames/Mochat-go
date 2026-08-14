@@ -490,11 +490,11 @@ func TestWeComCapabilityLedgerDownRejectsWrongChildIndexSignatures(t *testing.T)
 		},
 		{
 			name:  "audit operation index order",
-			alter: `ALTER TABLE mochat_go_wecom_capability_operation_audits DROP INDEX idx_wecom_capability_audit_operation, ADD KEY idx_wecom_capability_audit_operation (tenant_id,operation_id,corp_id,created_at)`,
+			alter: `ALTER TABLE mochat_go_wecom_capability_operation_audits ADD KEY tmp_0139_audit_operation_fk (tenant_id,corp_id,operation_id), DROP INDEX idx_wecom_capability_audit_operation, ADD KEY idx_wecom_capability_audit_operation (tenant_id,operation_id,corp_id,created_at)`,
 		},
 		{
 			name:  "event operation index order",
-			alter: `ALTER TABLE mochat_go_wecom_capability_operation_events DROP INDEX idx_wecom_capability_event_operation, ADD KEY idx_wecom_capability_event_operation (tenant_id,operation_id,corp_id,created_at)`,
+			alter: `ALTER TABLE mochat_go_wecom_capability_operation_events ADD KEY tmp_0139_event_operation_fk (tenant_id,corp_id,operation_id), DROP INDEX idx_wecom_capability_event_operation, ADD KEY idx_wecom_capability_event_operation (tenant_id,operation_id,corp_id,created_at)`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

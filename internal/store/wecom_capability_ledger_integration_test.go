@@ -254,7 +254,7 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 		if err != nil {
 			t.Fatal(err)
 		}
-		phaseClaim, err := store.ClaimCapabilityOperation(context.Background(), principal, phaseOperation.ID, time.Millisecond)
+		phaseClaim, err := store.ClaimCapabilityOperation(context.Background(), principal, phaseOperation.ID, time.Minute)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -269,7 +269,9 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 				t.Fatal(err)
 			}
 		}
-		time.Sleep(10 * time.Millisecond)
+		if _, err := db.Exec(`UPDATE mochat_go_wecom_capability_operations SET lease_expires_at=DATE_SUB(NOW(6), INTERVAL 1 SECOND) WHERE tenant_id=? AND corp_id=? AND id=?`, principal.TenantID, principal.CorpID, phaseOperation.ID); err != nil {
+			t.Fatal(err)
+		}
 		reclaimed, err := store.ClaimCapabilityOperation(context.Background(), principal, phaseOperation.ID, time.Minute)
 		if err != nil || reclaimed.Status != phase || reclaimed.Attempt != phaseClaim.Attempt+1 {
 			t.Fatalf("stale %s takeover=%+v prior=%+v err=%v", phase, reclaimed, phaseClaim, err)
@@ -281,7 +283,7 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 		if err != nil {
 			t.Fatal(err)
 		}
-		phaseDispatchClaim, err := store.ClaimCapabilityDispatch(context.Background(), principal, phaseDispatch.ID, time.Millisecond)
+		phaseDispatchClaim, err := store.ClaimCapabilityDispatch(context.Background(), principal, phaseDispatch.ID, time.Minute)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -299,7 +301,9 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 				t.Fatal(err)
 			}
 		}
-		time.Sleep(10 * time.Millisecond)
+		if _, err := db.Exec(`UPDATE mochat_go_wecom_capability_dispatches SET lease_expires_at=DATE_SUB(NOW(6), INTERVAL 1 SECOND) WHERE tenant_id=? AND corp_id=? AND id=?`, principal.TenantID, principal.CorpID, phaseDispatch.ID); err != nil {
+			t.Fatal(err)
+		}
 		reclaimedDispatch, err := store.ClaimCapabilityDispatch(context.Background(), principal, phaseDispatch.ID, time.Minute)
 		if err != nil || reclaimedDispatch.Status != phase || reclaimedDispatch.Attempt != phaseDispatchClaim.Attempt+1 {
 			t.Fatalf("stale dispatch %s takeover=%+v prior=%+v err=%v", phase, reclaimedDispatch, phaseDispatchClaim, err)
