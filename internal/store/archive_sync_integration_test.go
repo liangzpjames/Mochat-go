@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
+	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/modules/providers"
 	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
+	archivesourcefixture "jiyi/mochat-go/internal/testfixtures/archivesource"
 )
 
 func TestArchiveSourceMigrationContainsLegacySimulationBackfillContract(t *testing.T) {
@@ -647,6 +649,9 @@ func createArchiveSyncCorpFixture(t *testing.T, db *sql.DB) {
 			t.Fatal(err)
 		}
 	}
+	if err := archivesourcefixture.PrepareDashboardPermissionDependencies(context.Background(), db); err != nil {
+		t.Fatalf("0127 dashboard permission fixture: %v", err)
+	}
 }
 
 func executeArchiveMigrationFile(t *testing.T, db *sql.DB, name string) {
@@ -662,24 +667,16 @@ func executeArchiveMigrationFileErr(db *sql.DB, name string) error {
 	if err != nil {
 		return err
 	}
+	statements, err := migration.SplitSQLStatements(string(contents))
+	if err != nil {
+		return err
+	}
 	conn, err := db.Conn(context.Background())
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	for _, statement := range strings.Split(string(contents), ";") {
-		lines := strings.Split(statement, "\n")
-		withoutComments := make([]string, 0, len(lines))
-		for _, line := range lines {
-			if !strings.HasPrefix(strings.TrimSpace(line), "--") {
-				withoutComments = append(withoutComments, line)
-			}
-		}
-		statement = strings.Join(withoutComments, "\n")
-		statement = strings.TrimSpace(statement)
-		if statement == "" || strings.HasPrefix(statement, "--") && !strings.Contains(statement, "CREATE TABLE") && !strings.Contains(statement, "DROP TABLE") {
-			continue
-		}
+	for _, statement := range statements {
 		if _, err := conn.ExecContext(context.Background(), statement); err != nil {
 			return err
 		}

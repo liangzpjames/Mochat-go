@@ -11,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/go-sql-driver/mysql"
+
+	"jiyi/mochat-go/internal/migration"
+	archivesourcefixture "jiyi/mochat-go/internal/testfixtures/archivesource"
 )
 
 var simulationSchemaSequence atomic.Int64
@@ -119,6 +122,9 @@ func createArchiveSimulationFixture(t *testing.T, db *sql.DB) {
 			t.Fatal(err)
 		}
 	}
+	if err := archivesourcefixture.PrepareDashboardPermissionDependencies(context.Background(), db); err != nil {
+		t.Fatalf("0127 dashboard permission fixture: %v", err)
+	}
 	for index := 1; index <= 10; index++ {
 		if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE mc_work_message_%d (
 			id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, msgid VARCHAR(255) NOT NULL,
@@ -182,23 +188,16 @@ func executeArchiveSimulationMigration(t *testing.T, db *sql.DB, name string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	statements, err := migration.SplitSQLStatements(string(contents))
+	if err != nil {
+		t.Fatal(err)
+	}
 	conn, err := db.Conn(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	for _, statement := range strings.Split(string(contents), ";") {
-		lines := strings.Split(statement, "\n")
-		kept := make([]string, 0, len(lines))
-		for _, line := range lines {
-			if !strings.HasPrefix(strings.TrimSpace(line), "--") {
-				kept = append(kept, line)
-			}
-		}
-		statement = strings.TrimSpace(strings.Join(kept, "\n"))
-		if statement == "" {
-			continue
-		}
+	for _, statement := range statements {
 		if _, err := conn.ExecContext(context.Background(), statement); err != nil {
 			t.Fatalf("migration %s: %v", name, err)
 		}
