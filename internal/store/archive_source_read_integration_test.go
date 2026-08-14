@@ -9,6 +9,10 @@ import (
 	"jiyi/mochat-go/internal/dashboard"
 )
 
+// The fixture rows use to_user_type=1. Keep every read filter explicit so the
+// WorkMessageFilter zero value cannot silently narrow the result to type 0.
+const archiveReadFixtureToUserType = 1
+
 func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createArchiveSyncCorpFixture(t, db)
@@ -27,7 +31,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	assertArchiveReadModeDiagnostics(t, NewMySQLStore(db), workMessageArchiveSimulation)
 	assertArchiveReadSourceDiagnostics(t, db, NewMySQLStore(db), "simulated", []string{"registry-simulated"}, 1)
 	simulated, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
-		CorpID: 27, WorkEmployeeID: 1001, ArchiveSource: "simulated", Page: 1, PerPage: 10,
+		CorpID: 27, WorkEmployeeID: 1001, ToUserType: archiveReadFixtureToUserType, ArchiveSource: "simulated", Page: 1, PerPage: 10,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +49,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 	assertArchiveReadSourceDiagnostics(t, db, store, "external", []string{"MOCHAT-SIM:external-prefix", "historical-real"}, 2)
 
 	external, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
-		CorpID: 27, WorkEmployeeID: 1001, ArchiveSource: "external", Page: 1, PerPage: 1,
+		CorpID: 27, WorkEmployeeID: 1001, ToUserType: archiveReadFixtureToUserType, ArchiveSource: "external", Page: 1, PerPage: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +58,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 		t.Fatalf("external page=%#v", external)
 	}
 	externalSecond, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
-		CorpID: 27, WorkEmployeeID: 1001, ArchiveSource: "external", Page: 2, PerPage: 1,
+		CorpID: 27, WorkEmployeeID: 1001, ToUserType: archiveReadFixtureToUserType, ArchiveSource: "external", Page: 2, PerPage: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +77,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 		t.Fatalf("external ids=%v", externalIDs)
 	}
 	defaultExternal, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
-		CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10,
+		CorpID: 27, WorkEmployeeID: 1001, ToUserType: archiveReadFixtureToUserType, Page: 1, PerPage: 10,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +104,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	conversations, err := store.WorkMessageToUsers(ctx, dashboard.WorkMessageUserFilter{
-		CorpID: 27, AllowAllEmployees: true, ToUserType: -1, ArchiveSource: "simulated", Page: 1, PerPage: 10,
+		CorpID: 27, AllowAllEmployees: true, ToUserType: archiveReadFixtureToUserType, ArchiveSource: "simulated", Page: 1, PerPage: 10,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +119,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defaultSimulation, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{
-		CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10,
+		CorpID: 27, WorkEmployeeID: 1001, ToUserType: archiveReadFixtureToUserType, Page: 1, PerPage: 10,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +128,7 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 		t.Fatalf("default simulation page=%#v", defaultSimulation)
 	}
 	defaultSimulationConversations, err := store.WorkMessageToUsers(ctx, dashboard.WorkMessageUserFilter{
-		CorpID: 27, AllowAllEmployees: true, ToUserType: -1, Page: 1, PerPage: 10,
+		CorpID: 27, AllowAllEmployees: true, ToUserType: archiveReadFixtureToUserType, Page: 1, PerPage: 10,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +166,7 @@ func TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault(t *t
 	store := NewMySQLStore(db)
 	ctx := context.Background()
 	assertArchiveReadModeDiagnostics(t, store, workMessageArchiveReal)
-	realPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10})
+	realPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, ToUserType: archiveReadFixtureToUserType, Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +178,7 @@ func TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault(t *t
 	}
 	assertArchiveReadModeDiagnostics(t, store, workMessageArchiveSimulation)
 	assertArchiveReadSourceDiagnostics(t, db, store, "simulated", []string{"legacy-simulated"}, 1)
-	simulationPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, Page: 1, PerPage: 10})
+	simulationPage, err := store.WorkMessagePage(ctx, dashboard.WorkMessageFilter{CorpID: 27, WorkEmployeeID: 1001, ToUserType: archiveReadFixtureToUserType, Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
