@@ -1,8 +1,26 @@
 package wecomcapability
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type CredentialGroup string
+
+type OperationAction string
+
+const (
+	ActionSync     OperationAction = "sync"
+	ActionPull     OperationAction = "pull"
+	ActionSend     OperationAction = "send"
+	ActionCreate   OperationAction = "create"
+	ActionUpdate   OperationAction = "update"
+	ActionTransfer OperationAction = "transfer"
+	ActionReceive  OperationAction = "receive"
+	ActionVerify   OperationAction = "verify"
+	ActionPoll     OperationAction = "poll"
+	ActionRetry    OperationAction = "retry"
+)
 
 const (
 	CredentialGroupEmployee CredentialGroup = "employee"
@@ -60,25 +78,28 @@ type Operation struct {
 	TenantID          int
 	CorpID            int
 	Capability        string
-	Action            string
+	Action            OperationAction
 	CredentialGroup   CredentialGroup
 	Status            string
 	IdempotencyKey    string
 	ProviderRequestID string
-	ProviderObjectID  string
-	ExternalSuccess   bool
-	CallbackEvidence  bool
-	TargetTotal       int
-	SuccessTotal      int
-	FailureTotal      int
-	ErrorCode         string
-	ActorUserID       int
-	RequestedAt       *time.Time
-	StartedAt         *time.Time
-	FinishedAt        *time.Time
-	UpdatedAt         *time.Time
-	Attempt           int
-	LeaseExpiresAt    *time.Time
+	// ProviderObjectID is the selected external object identifier. For
+	// agent_message it is the active application agent ID, not a free-form
+	// request label.
+	ProviderObjectID string
+	ExternalSuccess  bool
+	CallbackEvidence bool
+	TargetTotal      int
+	SuccessTotal     int
+	FailureTotal     int
+	ErrorCode        string
+	ActorUserID      int
+	RequestedAt      *time.Time
+	StartedAt        *time.Time
+	FinishedAt       *time.Time
+	UpdatedAt        *time.Time
+	Attempt          int
+	LeaseExpiresAt   *time.Time
 	// CredentialVersion is the non-secret company binding version captured when
 	// the operation was created. A zero value is never current evidence.
 	CredentialVersion uint64
@@ -99,26 +120,40 @@ func CredentialGroupForCapability(capability string) CredentialGroup {
 	}
 }
 
-func IsValidOperationAction(action string) bool {
+func IsValidOperationAction(action OperationAction) bool {
 	switch action {
-	case "sync", "pull", "send", "create", "update", "transfer", "receive", "verify", "poll", "retry":
+	case ActionSync, ActionPull, ActionSend, ActionCreate, ActionUpdate, ActionTransfer, ActionReceive, ActionVerify, ActionPoll, ActionRetry:
 		return true
 	default:
 		return false
 	}
 }
 
-func IsValidOperationActionForCapability(capability, action string) bool {
+func IsValidOperationActionForCapability(capability string, action OperationAction) bool {
 	if !IsValidOperationAction(action) {
 		return false
 	}
-	if capability == Callback {
-		return action == "receive" || action == "verify"
+	actions, ok := operationActionsByCapability[capability]
+	if !ok {
+		return false
 	}
-	if capability == EmployeeSync || capability == DepartmentSync {
-		return action == "sync" || action == "pull" || action == "retry"
-	}
-	return true
+	_, ok = actions[action]
+	return ok
+}
+
+var operationActionsByCapability = map[string]map[OperationAction]struct{}{
+	EmployeeSync:        {ActionSync: {}, ActionPull: {}},
+	DepartmentSync:      {ActionSync: {}, ActionPull: {}},
+	ExternalContactSync: {ActionSync: {}, ActionPull: {}},
+	ContactTagSync:      {ActionSync: {}, ActionPull: {}},
+	RoomSync:            {ActionSync: {}, ActionPull: {}},
+	ContactWay:          {ActionCreate: {}, ActionUpdate: {}},
+	WelcomeMessage:      {ActionCreate: {}, ActionUpdate: {}, ActionSend: {}},
+	ContactTransfer:     {ActionTransfer: {}},
+	AgentMessage:        {ActionSend: {}},
+	ContactBatchSend:    {ActionSend: {}, ActionPoll: {}, ActionRetry: {}},
+	RoomBatchSend:       {ActionSend: {}, ActionPoll: {}, ActionRetry: {}},
+	Callback:            {ActionReceive: {}, ActionVerify: {}},
 }
 
 // IsCurrentOperationEvidence applies the second, application-side evidence
@@ -138,12 +173,14 @@ func IsCurrentOperationEvidence(operation Operation, tenantID, corpID int, capab
 		switch capability {
 		case ContactBatchSend, RoomBatchSend:
 			return operation.ProviderRequestID != "" && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
-		case AgentMessage, ContactWay, WelcomeMessage, ContactTransfer:
-			return operation.ProviderObjectID != "" || operation.ProviderRequestID != ""
+		case AgentMessage:
+			return strings.TrimSpace(operation.ProviderObjectID) != "" && operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
+		case ContactWay, WelcomeMessage, ContactTransfer:
+			return operation.ExternalSuccess && operation.TargetTotal > 0 && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		case Callback:
 			return operation.CallbackEvidence && operation.SuccessTotal == 1 && operation.TargetTotal == 1
 		default:
-			return operation.ExternalSuccess && operation.SuccessTotal+operation.FailureTotal == operation.TargetTotal
+			return operation.ExternalSuccess && operation.SuccessTotal == operation.TargetTotal && operation.FailureTotal == 0
 		}
 	}
 	if operation.Status == OperationPartialFailed || operation.Status == OperationFailed {

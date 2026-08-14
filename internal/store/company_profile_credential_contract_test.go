@@ -1,10 +1,23 @@
 package store
 
 import (
+	"strings"
 	"testing"
 
 	"jiyi/mochat-go/internal/wecomcredentials"
 )
+
+func TestAuthoritativeApplicationAgentSelectionIsActiveAndShared(t *testing.T) {
+	selection := authoritativeApplicationAgentSelectionSQL()
+	for _, required := range []string{
+		"a.close = 0", "a.deleted_at IS NULL", "(a.is_reportenter = 1) DESC",
+		"a.updated_at DESC", "a.id ASC",
+	} {
+		if !strings.Contains(selection, required) {
+			t.Fatalf("selection SQL=%q, missing %q", selection, required)
+		}
+	}
+}
 
 func TestCorpCredentialFactsAreCapabilitySpecificAndSecretFree(t *testing.T) {
 	employee, contact, callbackToken, callbackAES := deriveCorpCredentialFacts(wecomcredentials.CorpCredential{

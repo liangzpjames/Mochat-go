@@ -229,11 +229,21 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if !duplicateQueue.AlreadyQueued || duplicateQueue.Cursor != dashboard.CompanyEmployeeSyncCursor {
 		t.Fatalf("duplicate queue result=%+v", duplicateQueue)
 	}
+	if _, err := db.Exec(`UPDATE mc_work_update_time SET error_msg = ?, updated_at = NOW() WHERE corp_id = 100 AND type = 1`, `{"code":"SYNC_RUNNING","cursor":"company-sync","credentialVersion":1}`); err != nil {
+		t.Fatal(err)
+	}
+	refreshedQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshedQueue.AlreadyQueued {
+		t.Fatalf("stale running marker was treated as current queued: %+v", refreshedQueue)
+	}
 	queuedStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queuedStatus.Status != "queued" || queuedStatus.Cursor != dashboard.CompanyEmployeeSyncCursor {
+	if queuedStatus.Status != "queued" || queuedStatus.Cursor != dashboard.CompanyEmployeeSyncCursor || queuedStatus.CredentialVersion != 3 {
 		t.Fatalf("queued sync status=%+v", queuedStatus)
 	}
 	if err := store.BeginCompanyEmployeeSync(ctx, verifiedPrincipal.TenantID); err != nil {

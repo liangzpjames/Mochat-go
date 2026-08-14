@@ -17,6 +17,40 @@ func TestStableCapabilityNames(t *testing.T) {
 	}
 }
 
+func TestCapabilityActionMatrixRejectsCrossCapabilityActions(t *testing.T) {
+	valid := map[string][]OperationAction{
+		EmployeeSync:        {ActionSync, ActionPull},
+		DepartmentSync:      {ActionSync, ActionPull},
+		ExternalContactSync: {ActionSync, ActionPull},
+		ContactTagSync:      {ActionSync, ActionPull},
+		RoomSync:            {ActionSync, ActionPull},
+		ContactWay:          {ActionCreate, ActionUpdate},
+		WelcomeMessage:      {ActionCreate, ActionUpdate, ActionSend},
+		ContactTransfer:     {ActionTransfer},
+		AgentMessage:        {ActionSend},
+		ContactBatchSend:    {ActionSend, ActionPoll, ActionRetry},
+		RoomBatchSend:       {ActionSend, ActionPoll, ActionRetry},
+		Callback:            {ActionReceive, ActionVerify},
+	}
+	for capability, actions := range valid {
+		allowed := make(map[OperationAction]struct{}, len(actions))
+		for _, action := range actions {
+			allowed[action] = struct{}{}
+			if !IsValidOperationActionForCapability(capability, action) {
+				t.Errorf("valid action %q rejected for %q", action, capability)
+			}
+		}
+		for _, action := range []OperationAction{ActionSync, ActionPull, ActionCreate, ActionUpdate, ActionSend, ActionTransfer, ActionReceive, ActionVerify, ActionPoll, ActionRetry} {
+			if _, ok := allowed[action]; ok {
+				continue
+			}
+			if IsValidOperationActionForCapability(capability, action) {
+				t.Errorf("invalid action %q accepted for %q", action, capability)
+			}
+		}
+	}
+}
+
 func TestOperationAndDispatchStatesAreSeparateAndFailClosed(t *testing.T) {
 	for _, state := range []string{
 		OperationPending, OperationClaimed, OperationSubmitting, OperationSubmitted,
@@ -108,5 +142,50 @@ func TestOperationEvidenceUsesCapabilitySpecificExternalContracts(t *testing.T) 
 	partial.FailureTotal = 0
 	if IsCurrentOperationEvidence(partial, 7, 11, ContactBatchSend, 3) {
 		t.Fatal("inconsistent partial counts passed")
+	}
+	agent := Operation{
+		ID: 4, TenantID: 7, CorpID: 11, Capability: AgentMessage, Action: "send",
+		CredentialGroup: CredentialGroupAgent, Status: OperationSucceeded, CredentialVersion: 3,
+		ProviderObjectID: "100001", ExternalSuccess: true, TargetTotal: 1, SuccessTotal: 1,
+		FinishedAt: &finishedAt,
+	}
+	if !IsCurrentOperationEvidence(agent, 7, 11, AgentMessage, 3) {
+		t.Fatal("agent message with external success, target count, and agent id should be current")
+	}
+	agent.ExternalSuccess = false
+	if IsCurrentOperationEvidence(agent, 7, 11, AgentMessage, 3) {
+		t.Fatal("agent message without external success passed")
+	}
+	agent.ExternalSuccess = true
+	agent.TargetTotal = 0
+	if IsCurrentOperationEvidence(agent, 7, 11, AgentMessage, 3) {
+		t.Fatal("agent message with zero target count passed")
+	}
+	agent.TargetTotal = 1
+	agent.ProviderObjectID = ""
+	if IsCurrentOperationEvidence(agent, 7, 11, AgentMessage, 3) {
+		t.Fatal("agent message without actual agent id passed")
+	}
+	for _, capability := range []string{ContactWay, WelcomeMessage, ContactTransfer} {
+		operation := Operation{
+			ID: 10, TenantID: 7, CorpID: 11, Capability: capability, Action: "create",
+			CredentialGroup: CredentialGroupContact, Status: OperationSucceeded, CredentialVersion: 3,
+			ExternalSuccess: true,
+			TargetTotal:     1, SuccessTotal: 1, FinishedAt: &finishedAt,
+		}
+		if capability == ContactTransfer {
+			operation.Action = "transfer"
+		}
+		if capability == ContactTransfer {
+			operation.ProviderObjectID = "transfer-1"
+		}
+		if !IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {
+			t.Fatalf("%s errcode-success evidence without object id should be current", capability)
+		}
+		operation.ProviderObjectID = "response-1"
+		operation.ExternalSuccess = false
+		if IsCurrentOperationEvidence(operation, 7, 11, capability, 3) {
+			t.Fatalf("%s without external success passed", capability)
+		}
 	}
 }

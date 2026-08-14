@@ -85,6 +85,51 @@ func TestServiceKeepsDiagnosticsForSuperadmin(t *testing.T) {
 	}
 }
 
+func TestServiceMapsCancelledCapabilityCodeForSuperadmin(t *testing.T) {
+	source := &statusTestSource{statuses: []providers.Status{{
+		Kind: "wecom_standard", State: providers.StateLimited, Code: "wecom.capabilities_pending",
+		Source: providers.SourceExternal, Capabilities: []string{"contact_batch_send"},
+		CapabilityStatuses: []providers.CapabilityStatus{{
+			Capability: "contact_batch_send", State: providers.StateLimited,
+			Code: "wecom.capability_operation_cancelled", Source: providers.SourceExternal,
+		}},
+	}}}
+	view, err := NewService(source).Resolve(context.Background(), statusTestPrincipal(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Providers) != 1 || len(view.Providers[0].CapabilityStatuses) != 1 {
+		t.Fatalf("cancelled capability projection=%#v", view.Providers)
+	}
+	item := view.Providers[0].CapabilityStatuses[0]
+	if item.Code != "wecom.capability_operation_cancelled" || item.Reason == "" || item.Action == "" {
+		t.Fatalf("cancelled capability diagnostics=%#v, want allowlisted reason/action", item)
+	}
+}
+
+func TestServiceMapsCapabilityLifecycleDiagnostics(t *testing.T) {
+	for _, test := range []struct {
+		code  string
+		state providers.State
+	}{
+		{code: "wecom.capability_ready", state: providers.StateReady},
+		{code: "wecom.employee_sync_ready", state: providers.StateReady},
+		{code: "wecom.capability_syncing", state: providers.StateLimited},
+	} {
+		source := &statusTestSource{statuses: []providers.Status{{
+			Kind: "wecom_standard", State: test.state, Code: test.code,
+			Source: providers.SourceExternal, Capabilities: []string{"employee_sync"},
+		}}}
+		view, err := NewService(source).Resolve(context.Background(), statusTestPrincipal(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(view.Providers) != 1 || view.Providers[0].Reason == "" || view.Providers[0].Action == "" {
+			t.Fatalf("code=%q projected=%#v, want lifecycle diagnostics", test.code, view.Providers)
+		}
+	}
+}
+
 func TestServiceRejectsSuspendedScopeAndPreservesSourceErrors(t *testing.T) {
 	source := &statusTestSource{err: errors.New("runtime source unavailable")}
 	service := NewService(source)

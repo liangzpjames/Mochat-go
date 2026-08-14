@@ -141,7 +141,7 @@ func TestProviderStatusUsesCapabilitySpecificCredentialFacts(t *testing.T) {
 		CredentialGenerations: CredentialGenerationSet{Employee: 1, Contact: 1, Agent: 1, Callback: 1},
 	}
 	succeeded := func(capability string) wecomcapability.Operation {
-		action := "send"
+		action := wecomcapability.OperationAction("send")
 		if capability == wecomcapability.Callback {
 			action = "receive"
 		}

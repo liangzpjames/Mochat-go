@@ -299,7 +299,7 @@ func queueCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, creden
 		return companyprofile.EmployeeSyncQueueResult{}, err
 	}
 	marker := decodeCompanySyncState(errorMessage.String)
-	if marker.Code == companySyncStateQueued || marker.Code == companySyncStateRunning {
+	if companySyncMarkerAlreadyQueued(marker, credentialVersion) {
 		return companyprofile.EmployeeSyncQueueResult{Cursor: marker.Cursor, AlreadyQueued: true}, nil
 	}
 	if strings.TrimSpace(errorMessage.String) == "" && lastUpdate.Valid {
@@ -319,6 +319,25 @@ func queueCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, creden
 		return companyprofile.EmployeeSyncQueueResult{}, errors.New("company sync queue update affected unexpected rows")
 	}
 	return companyprofile.EmployeeSyncQueueResult{Cursor: dashboard.CompanyEmployeeSyncCursor}, nil
+}
+
+func companySyncMarkerAlreadyQueued(marker companySyncStateMarker, currentVersion uint64) bool {
+	if currentVersion == 0 || marker.CredentialVersion != currentVersion {
+		return false
+	}
+	return marker.Code == companySyncStateQueued || marker.Code == companySyncStateRunning
+}
+
+func companySyncStatusMarkerStale(status string, markerVersion, currentVersion uint64) bool {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	switch normalized {
+	case "completed", "succeeded", "success", "queued", "syncing", "running", "failed":
+		return markerVersion == 0 || currentVersion == 0 || markerVersion != currentVersion
+	case "stale":
+		return true
+	default:
+		return false
+	}
 }
 
 func setCompanySyncStateTx(ctx context.Context, tx *sql.Tx, corpID int, credentialVersion uint64, state, errorCode string) error {
@@ -445,7 +464,9 @@ func (s *MySQLStore) GetSyncStatus(ctx context.Context, principal dashboardprinc
 		return companyprofile.SyncStatus{}, err
 	}
 	statusResult := companySyncStatusFromRecord(lastUpdate, errorMessage, departments, employees)
-	if statusResult.CredentialVersion != 0 && statusResult.CredentialVersion != bindingVersion {
+	if companySyncStatusMarkerStale(statusResult.Status, statusResult.CredentialVersion, bindingVersion) {
+		statusResult.Status = "stale"
+		statusResult.ErrorCode = "wecom.sync_stale"
 		statusResult.CredentialVersion = 0
 	}
 	if updatedAt.Valid && (statusResult.Status == "queued" || statusResult.Status == "syncing" || statusResult.Status == "failed") {

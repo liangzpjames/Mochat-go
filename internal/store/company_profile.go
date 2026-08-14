@@ -758,8 +758,7 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 		       a.updated_at
 		FROM mc_work_agent a
 		JOIN mc_corp c ON c.id = a.corp_id AND c.tenant_id = ? AND c.deleted_at IS NULL
-		WHERE a.corp_id = ? AND a.deleted_at IS NULL
-		ORDER BY (a.is_reportenter = 1) DESC, a.updated_at DESC, a.id ASC LIMIT 1`, binding.TenantID, binding.CorpID).Scan(
+		WHERE a.corp_id = ? AND `+authoritativeApplicationAgentSelectionSQL()+` LIMIT 1`, binding.TenantID, binding.CorpID).Scan(
 		&agentRecord.ID, &agentRecord.CorpID, &agentRecord.TenantID, &agentRecord.WXAgentID,
 		&agentRecord.Ciphertext, &agentRecord.KeyID, &agentUpdated)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -804,6 +803,13 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 		profile.UpdatedAt = time.Unix(0, 0).UTC()
 	}
 	return profile, nil
+}
+
+// authoritativeApplicationAgentSelectionSQL is shared by provider status and
+// outbound agent-message credential lookup. The selected agent must be active;
+// report-enter priority and the remaining order are part of the contract.
+func authoritativeApplicationAgentSelectionSQL() string {
+	return "a.close = 0 AND a.deleted_at IS NULL ORDER BY (a.is_reportenter = 1) DESC, a.updated_at DESC, a.id ASC"
 }
 
 func deriveCorpCredentialFacts(credential wecomcredentials.CorpCredential) (employee, contact, callbackToken, callbackAES bool) {
@@ -934,7 +940,7 @@ func loadCompanyApplicationAgent(ctx context.Context, tx *sql.Tx, binding compan
 		       COALESCE(a.wecom_credentials_ciphertext,''), COALESCE(a.wecom_credentials_key_id,'')
 		FROM mc_work_agent a
 		JOIN mc_corp c ON c.id=a.corp_id AND c.tenant_id=? AND c.deleted_at IS NULL
-		WHERE a.corp_id=? AND a.deleted_at IS NULL
+		WHERE a.corp_id=? AND a.close = 0 AND a.deleted_at IS NULL
 		ORDER BY (a.wx_agent_id=?) DESC, a.id ASC
 		FOR UPDATE`, binding.TenantID, binding.CorpID, wxAgentID)
 	if err != nil {

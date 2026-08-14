@@ -10,11 +10,65 @@ import (
 	"jiyi/mochat-go/internal/modules/providers"
 	"jiyi/mochat-go/internal/modules/providers/catalog"
 	"jiyi/mochat-go/internal/providerstatus"
+	"jiyi/mochat-go/internal/wecomcapability"
 )
 
 type providerStatusTestProvider struct{ status providers.Status }
 
 func (p providerStatusTestProvider) Status() providers.Status { return p.status }
+
+func TestApplyCapabilitySyncStatusRejectsStaleLifecycleMarkers(t *testing.T) {
+	finishedAt := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name   string
+		status string
+	}{
+		{name: "queued", status: "queued"},
+		{name: "running", status: "running"},
+		{name: "failed", status: "failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, version := range []uint64{0, 2} {
+				status := providers.CapabilityStatus{State: providers.StateLimited}
+				applyCapabilitySyncStatus(&status, SyncStatus{
+					Status:            test.status,
+					CredentialVersion: version,
+					StartedAt:         &finishedAt,
+					FinishedAt:        &finishedAt,
+					ErrorCode:         "wecom.sync_http_500",
+				}, 1)
+				if status.State != providers.StateLimited || status.Code != "wecom.sync_stale" || status.LastErrorCode != "wecom.credential_version_stale" {
+					t.Fatalf("version=%d status=%#v, want limited stale", version, status)
+				}
+				if status.Reason == "" || status.Action == "" {
+					t.Fatalf("version=%d status=%#v, want actionable stale state", version, status)
+				}
+			}
+		})
+	}
+
+	current := providers.CapabilityStatus{State: providers.StateLimited}
+	applyCapabilitySyncStatus(&current, SyncStatus{Status: "syncing", CredentialVersion: 1, StartedAt: &finishedAt}, 1)
+	if current.Code != "wecom.capability_syncing" || current.State != providers.StateLimited {
+		t.Fatalf("current running status=%#v, want syncing", current)
+	}
+}
+
+func TestApplyCapabilityOperationProjectsCancelledAsLimited(t *testing.T) {
+	finishedAt := time.Date(2026, 8, 15, 11, 0, 0, 0, time.UTC)
+	status := providers.CapabilityStatus{State: providers.StateLimited}
+	applyCapabilityOperation(&status, wecomcapability.Operation{
+		Status:     wecomcapability.OperationCancelled,
+		FinishedAt: &finishedAt,
+		ErrorCode:  "wecom.capability_operation_cancelled",
+	})
+	if status.State != providers.StateLimited || status.Code != "wecom.capability_operation_cancelled" {
+		t.Fatalf("cancelled status=%#v, want limited cancelled", status)
+	}
+	if status.LastFailureAt == nil || !status.LastFailureAt.Equal(finishedAt) || status.LastErrorCode != "wecom.capability_operation_cancelled" || status.Action == "" {
+		t.Fatalf("cancelled status=%#v, want stable failure evidence and action", status)
+	}
+}
 
 func TestProviderStatusSourceKeepsEmployeeSyncReadyWhenArchiveProviderIsLimited(t *testing.T) {
 	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
@@ -219,7 +273,7 @@ func TestProviderStatusSourceDegradesWhenStandardSyncFailsAndRecoversOnSuccess(t
 		BindingVersion:        1,
 		CredentialGenerations: CredentialGenerationSet{Employee: 1},
 		Credentials:           CredentialStatuses{WeCom: CredentialStatus{Configured: true, EmployeeConfigured: true}},
-	}, syncStatus: SyncStatus{Status: "failed", FinishedAt: &failedAt, ErrorCode: "wecom.sync_http_500"}}
+	}, syncStatus: SyncStatus{Status: "failed", CredentialVersion: 1, FinishedAt: &failedAt, ErrorCode: "wecom.sync_http_500"}}
 	registry, err := catalog.NewRegistry(catalog.Dependencies{
 		WeComStandard: providerStatusTestProvider{status: providers.Status{Kind: "wecom_standard", State: providers.StateReady, Code: "wecom.runtime"}},
 	})
@@ -247,7 +301,7 @@ func TestProviderStatusSourceDegradesWhenStandardSyncFailsAndRecoversOnSuccess(t
 		t.Fatalf("successful sync status = %#v", succeeded)
 	}
 
-	store.syncStatus = SyncStatus{Status: "failed", FinishedAt: &failedAt, ErrorCode: "SYNC_FAILED"}
+	store.syncStatus = SyncStatus{Status: "failed", CredentialVersion: 1, FinishedAt: &failedAt, ErrorCode: "SYNC_FAILED"}
 	statuses, err = source.Statuses(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
 	if err != nil {
 		t.Fatal(err)

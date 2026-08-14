@@ -308,7 +308,12 @@ func applyCapabilitySyncStatus(status *providers.CapabilityStatus, syncStatus Sy
 	if status.LastSyncAt == nil {
 		status.LastSyncAt = syncStatus.StartedAt
 	}
-	switch strings.ToLower(strings.TrimSpace(syncStatus.Status)) {
+	normalized := strings.ToLower(strings.TrimSpace(syncStatus.Status))
+	if syncStatusVersionStale(normalized, syncStatus.CredentialVersion, expectedVersion) {
+		applySyncStaleCapabilityStatus(status)
+		return
+	}
+	switch normalized {
 	case "completed", "succeeded", "success":
 		if syncStatus.CredentialVersion == 0 || expectedVersion == 0 || syncStatus.CredentialVersion != expectedVersion {
 			status.Code = "wecom.sync_stale"
@@ -321,7 +326,7 @@ func applyCapabilitySyncStatus(status *providers.CapabilityStatus, syncStatus Sy
 		status.Code = "wecom.employee_sync_ready"
 		status.Action = "企业 WeCom 员工同步可用"
 		status.LastSuccessAt = syncStatus.FinishedAt
-	case "queued", "running":
+	case "queued", "running", "syncing":
 		status.Code = "wecom.capability_syncing"
 		status.Action = "等待企业 WeCom 员工同步完成"
 	case "failed":
@@ -334,6 +339,25 @@ func applyCapabilitySyncStatus(status *providers.CapabilityStatus, syncStatus Sy
 		}
 		status.LastErrorCode = stableSyncErrorCode(syncStatus.ErrorCode)
 	}
+}
+
+func syncStatusVersionStale(status string, markerVersion, expectedVersion uint64) bool {
+	switch status {
+	case "stale":
+		return true
+	case "completed", "succeeded", "success", "queued", "running", "syncing", "failed":
+		return markerVersion == 0 || expectedVersion == 0 || markerVersion != expectedVersion
+	default:
+		return false
+	}
+}
+
+func applySyncStaleCapabilityStatus(status *providers.CapabilityStatus) {
+	status.State = providers.StateLimited
+	status.Code = "wecom.sync_stale"
+	status.Reason = "同步证据属于旧的企业凭据版本"
+	status.Action = "使用当前企业凭据再次完成同步"
+	status.LastErrorCode = "wecom.credential_version_stale"
 }
 
 func applyCapabilityOperation(status *providers.CapabilityStatus, operation wecomcapability.Operation) {
@@ -365,6 +389,16 @@ func applyCapabilityOperation(status *providers.CapabilityStatus, operation weco
 		status.Action = "修复 WeCom 权限或凭据后重试"
 		status.LastFailureAt = operation.FinishedAt
 		status.LastErrorCode = stableCapabilityErrorCode(operation.ErrorCode)
+	case wecomcapability.OperationCancelled:
+		status.State = providers.StateLimited
+		status.Code = "wecom.capability_operation_cancelled"
+		status.Reason = "WeCom 能力操作已取消，未形成完成证据"
+		status.Action = "确认目标状态后重新执行 WeCom capability"
+		status.LastFailureAt = operation.FinishedAt
+		if status.LastFailureAt == nil {
+			status.LastFailureAt = operation.UpdatedAt
+		}
+		status.LastErrorCode = "wecom.capability_operation_cancelled"
 	}
 }
 
@@ -384,7 +418,12 @@ func applySyncStatus(status *providers.Status, syncStatus SyncStatus, expectedVe
 	if status.LastSyncAt == nil {
 		status.LastSyncAt = syncStatus.StartedAt
 	}
-	switch strings.ToLower(strings.TrimSpace(syncStatus.Status)) {
+	normalized := strings.ToLower(strings.TrimSpace(syncStatus.Status))
+	if syncStatusVersionStale(normalized, syncStatus.CredentialVersion, expectedVersion) {
+		applySyncStaleProviderStatus(status)
+		return
+	}
+	switch normalized {
 	case "completed", "succeeded", "success":
 		if syncStatus.CredentialVersion == 0 || expectedVersion == 0 || syncStatus.CredentialVersion != expectedVersion {
 			status.State = providers.StateLimited
@@ -402,6 +441,14 @@ func applySyncStatus(status *providers.Status, syncStatus SyncStatus, expectedVe
 		}
 		status.LastErrorCode = stableSyncErrorCode(syncStatus.ErrorCode)
 	}
+}
+
+func applySyncStaleProviderStatus(status *providers.Status) {
+	status.State = providers.StateLimited
+	status.Code = "wecom.sync_stale"
+	status.Reason = "同步证据属于旧的企业凭据版本"
+	status.Action = "使用当前企业凭据再次完成同步"
+	status.LastErrorCode = "wecom.credential_version_stale"
 }
 
 func stableSyncErrorCode(value string) string {

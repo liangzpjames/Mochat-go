@@ -8159,8 +8159,8 @@ func (s *MySQLStore) RoomTagPullRemindAgentByCorpID(ctx context.Context, corpID 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT a.id
 		FROM mc_work_agent a
-		WHERE a.corp_id = ? AND a.close = 0 AND a.deleted_at IS NULL
-		ORDER BY a.id ASC
+		JOIN mc_corp c ON c.id = a.corp_id AND c.deleted_at IS NULL
+		WHERE a.corp_id = ? AND `+authoritativeApplicationAgentSelectionSQL()+`
 		LIMIT 1
 	`, corpID).Scan(&agentID)
 	if errors.Is(err, sql.ErrNoRows) {

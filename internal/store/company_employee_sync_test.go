@@ -29,6 +29,39 @@ func TestCompanySyncRejectsMissingOrUnverifiedBinding(t *testing.T) {
 	}
 }
 
+func TestCompanySyncQueueOnlyTreatsCurrentVersionMarkerAsAlreadyQueued(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		marker         companySyncStateMarker
+		currentVersion uint64
+		wantQueued     bool
+	}{
+		{name: "current queued", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 2}, currentVersion: 2, wantQueued: true},
+		{name: "current running", marker: companySyncStateMarker{Code: companySyncStateRunning, CredentialVersion: 2}, currentVersion: 2, wantQueued: true},
+		{name: "stale queued", marker: companySyncStateMarker{Code: companySyncStateQueued, CredentialVersion: 1}, currentVersion: 2},
+		{name: "stale running", marker: companySyncStateMarker{Code: companySyncStateRunning, CredentialVersion: 1}, currentVersion: 2},
+		{name: "legacy queued", marker: companySyncStateMarker{Code: companySyncStateQueued}, currentVersion: 2},
+		{name: "failed marker", marker: companySyncStateMarker{Code: companySyncStateFailed, CredentialVersion: 2}, currentVersion: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := companySyncMarkerAlreadyQueued(test.marker, test.currentVersion); got != test.wantQueued {
+				t.Fatalf("marker=%+v current=%d alreadyQueued=%v, want %v", test.marker, test.currentVersion, got, test.wantQueued)
+			}
+		})
+	}
+}
+
+func TestCompanySyncStatusTreatsOldLifecycleMarkerAsStale(t *testing.T) {
+	for _, status := range []string{"queued", "syncing", "failed"} {
+		if !companySyncStatusMarkerStale(status, 0, 2) || !companySyncStatusMarkerStale(status, 1, 2) {
+			t.Fatalf("status=%q was not stale for missing/old version", status)
+		}
+		if companySyncStatusMarkerStale(status, 2, 2) {
+			t.Fatalf("status=%q was stale for current version", status)
+		}
+	}
+}
+
 func TestCompanySyncStatusFromRecordSanitizesFailure(t *testing.T) {
 	finished := time.Date(2026, 8, 12, 10, 11, 12, 0, time.UTC)
 	status := companySyncStatusFromRecord(
