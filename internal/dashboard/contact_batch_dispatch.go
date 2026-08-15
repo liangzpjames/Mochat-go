@@ -244,7 +244,7 @@ func (h *ContactMessageBatchSendHandler) contactBatchDispatchInputFromBody(body 
 	return ContactBatchDispatchInput{
 		Batch: ContactMessageBatchSendWrite{
 			CorpID: corpID, UserID: user.ID, UserName: strings.TrimSpace(user.Name), EmployeeIDs: employeeIDs,
-			BatchTitle: strings.TrimSpace(body.BatchTitle),
+			BatchTitle:       strings.TrimSpace(body.BatchTitle),
 			FilterParamsJSON: filterJSON, FilterDetailJSON: "{}", Content: body.Content, ContentJSON: contentJSON,
 			MediumID: body.MediumID, SendWay: body.SendWay, DefiniteTime: strings.TrimSpace(body.DefiniteTime), ProcessImmediately: false,
 		},

@@ -8,12 +8,6 @@ import "testing"
 // the request builder, so the durable sender can never emit a payload the
 // official contract would reject.
 func TestContactBatchRequestBuilderContentTypeCompatibility(t *testing.T) {
-	base := ContactMessageBatchSendMessagePayload{Sender: "employee-1", ExternalUserID: []string{"external-1"}}
-	build := func(items ...ContactMessageBatchSendContent) map[string]any {
-		return contactMessageBatchSendWeComRequest(base)
-	}
-	_ = build
-
 	text := contactMessageBatchSendWeComRequest(ContactMessageBatchSendMessagePayload{Sender: "employee-1", ExternalUserID: []string{"external-1"}, Content: []ContactMessageBatchSendContent{{MsgType: "text", Content: "hello"}}})
 	if text["chat_type"] != "single" || text["sender"] != "employee-1" {
 		t.Fatalf("text base payload=%#v", text)

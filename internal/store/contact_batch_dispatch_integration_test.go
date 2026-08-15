@@ -122,6 +122,7 @@ func newContactBatchIntegrationHarness(t *testing.T) *contactBatchIntegrationHar
 		userID:    11001,
 	}
 }
+
 // contactBatchLimitsJSON returns a limits_json payload that satisfies the
 // dashboard tenant gate (every SaaSAdminPackageLimits field present).
 func contactBatchLimitsJSON() string {
@@ -208,7 +209,7 @@ func contactBatchHarnessInput(h *contactBatchIntegrationHarness, idempotencyKey 
 			FilterParamsJSON: "{}", FilterDetailJSON: "{}",
 			Content:     []dashboard.ContactMessageBatchSendContent{{MsgType: "text", Content: "hello"}},
 			ContentJSON: `[{"msgType":"text","content":"hello"}]`,
-			SendWay: sendWay, DefiniteTime: definiteTime,
+			SendWay:     sendWay, DefiniteTime: definiteTime,
 		},
 		ContactTargets:   []dashboard.ContactBatchTarget{{EmployeeID: 101, ContactID: 201}, {EmployeeID: 101, ContactID: 202}},
 		SenderEmployeeID: 101,
@@ -220,11 +221,11 @@ func contactBatchHarnessInput(h *contactBatchIntegrationHarness, idempotencyKey 
 func contactBatchRowCounts(t *testing.T, h *contactBatchIntegrationHarness) (batch, operation, dispatch, audit, event int) {
 	t.Helper()
 	for name, target := range map[string]*int{
-		"mc_contact_message_batch_send":                    &batch,
-		"mochat_go_wecom_capability_operations":            &operation,
-		"mochat_go_wecom_capability_dispatches":            &dispatch,
-		"mochat_go_wecom_capability_operation_audits":      &audit,
-		"mochat_go_wecom_capability_operation_events":      &event,
+		"mc_contact_message_batch_send":               &batch,
+		"mochat_go_wecom_capability_operations":       &operation,
+		"mochat_go_wecom_capability_dispatches":       &dispatch,
+		"mochat_go_wecom_capability_operation_audits": &audit,
+		"mochat_go_wecom_capability_operation_events": &event,
 	} {
 		if err := h.db.QueryRow("SELECT COUNT(*) FROM " + name).Scan(target); err != nil {
 			t.Fatalf("count %s: %v", name, err)

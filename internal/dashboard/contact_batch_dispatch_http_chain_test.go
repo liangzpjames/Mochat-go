@@ -282,11 +282,11 @@ func TestContactBatchHTTPChainPollDeduplicatesRepeatedResultPages(t *testing.T) 
 // errors while 401/403/contract errors classify terminal.
 func TestContactBatchHTTPChainSubmitErrorClassification(t *testing.T) {
 	cases := []struct {
-		name       string
-		status     int
-		body       string
-		wantCode   string
-		wantCat    wecomcapability.DispatchProviderErrorCategory
+		name     string
+		status   int
+		body     string
+		wantCode string
+		wantCat  wecomcapability.DispatchProviderErrorCategory
 	}{
 		{"server 500", http.StatusInternalServerError, `{}`, "wecom.http_500", wecomcapability.DispatchErrorServer},
 		{"rate limit 429", http.StatusTooManyRequests, `{}`, "wecom.http_429", wecomcapability.DispatchErrorRateLimit},
