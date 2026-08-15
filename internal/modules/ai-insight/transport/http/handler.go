@@ -132,51 +132,15 @@ func (h *InsightHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *InsightHandler) resolvePage(r *http.Request, config InsightPage, corp int64, principal Principal) InsightPage {
-	if h.db == nil || h.ai == nil || h.ai.Status().State != providers.StateReady {
-		return config
-	}
-	texts, err := FetchArchiveTexts(r.Context(), h.db, corp, 20, principal.AllowedEmployeeIDs, principal.EmployeeScopeRestricted)
-	if err != nil {
-		config.Capability = "limited"
-		config.Limitations = []string{"读取归档会话数据失败：" + err.Error()}
-		return config
-	}
-	if len(texts) == 0 {
-		config.Capability = "limited"
-		config.Limitations = []string{"暂无归档会话数据（未接入会话存档 Provider 或当前企业没有已归档消息）"}
-		return config
-	}
-	refresh := r.URL.Query().Get("refresh") == "1"
-	if !principal.EmployeeScopeRestricted && !refresh && h.analysis != nil {
-		if row, err := h.analysis.Latest(r.Context(), corp, config.Page); err == nil && row != nil && time.Since(row.CreatedAt) < 5*time.Minute {
+	// 页面只读展示每日定时任务生成并落库的分析结果；页面打开时绝不调用模型。
+	if h.analysis != nil {
+		if row, err := h.analysis.Latest(r.Context(), corp, config.Page); err == nil && row != nil {
 			return readyPageFromPayload(config, row.Payload, row.CreatedAt)
 		}
 	}
-	result, err := h.runAnalysis(r.Context(), config.Page, texts)
-	if err != nil {
-		config.Capability = "limited"
-		config.Limitations = []string{"AI 分析失败：" + err.Error()}
-		return config
-	}
-	now := time.Now()
-	payload := map[string]any{"summary": result, "keywords": []any{}, "generatedAt": now.Format(time.RFC3339)}
-	if h.analysis != nil && !principal.EmployeeScopeRestricted {
-		if err := h.analysis.Save(r.Context(), corp, config.Page, "succeeded", payload, ""); err != nil {
-			config.Capability = "limited"
-			config.Limitations = []string{"分析结果落库失败：" + err.Error()}
-			return config
-		}
-	}
-	config.Capability = "ready"
+	config.Capability = "limited"
 	config.Provider = "dashscope"
-	config.Limitations = []string{}
-	config.GeneratedAt = now.Format(time.RFC3339)
-	config.Data = []any{map[string]any{
-		"sessionId":   "archive",
-		"summary":     result,
-		"keywords":    []any{},
-		"generatedAt": now.Format(time.RFC3339),
-	}}
+	config.Limitations = []string{"每日分析尚未生成，系统将在每日 24 点自动生成并保存，生成后本页将直接展示。", "如需立即生成，请等待下一个定时分析窗口。"}
 	return config
 }
 
@@ -201,7 +165,10 @@ func readyPageFromPayload(config InsightPage, payload string, createdAt time.Tim
 	return config
 }
 
-func (h *InsightHandler) runAnalysis(ctx context.Context, page string, texts []string) (string, error) {
+// BuildAnalysisPrompt returns the system and user prompt used for one AI
+// insight page. It is shared by the HTTP handler and the daily analysis job so
+// page-open reads and scheduled writes always use the same wording.
+func BuildAnalysisPrompt(page string, texts []string) (string, string) {
 	prompt := fmt.Sprintf("以下是企业微信会话归档文本（共 %d 条）：\n", len(texts))
 	for index, text := range texts {
 		prompt += fmt.Sprintf("%d. %s\n", index+1, text)
@@ -222,7 +189,12 @@ func (h *InsightHandler) runAnalysis(ctx context.Context, page string, texts []s
 	default:
 		instruction = "请分析以上会话内容，用中文回答。"
 	}
-	return h.ai.Chat(ctx, providers.ChatRequest{System: system, Prompt: prompt + instruction})
+	return system, prompt + instruction
+}
+
+func (h *InsightHandler) runAnalysis(ctx context.Context, page string, texts []string) (string, error) {
+	system, prompt := BuildAnalysisPrompt(page, texts)
+	return h.ai.Chat(ctx, providers.ChatRequest{System: system, Prompt: prompt})
 }
 
 func pathPage(path string) string {

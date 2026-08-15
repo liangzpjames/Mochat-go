@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"jiyi/mochat-go/internal/config"
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardprincipal"
+	aiinsight "jiyi/mochat-go/internal/modules/ai-insight"
 	aiinsighthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
 	aisettingshttp "jiyi/mochat-go/internal/modules/ai-settings/transport/http"
 	"jiyi/mochat-go/internal/modules/providers"
@@ -63,12 +65,36 @@ func registerAIDebtClearanceModules(
 			return err
 		}
 	}
-	return appbootstrap.RegisterAIInsight(router, true, appbootstrap.AIInsightDependencies{
+	if err := appbootstrap.RegisterAIInsight(router, true, appbootstrap.AIInsightDependencies{
 		PrincipalResolver: aiInsightPrincipalResolver{},
 		Authorizer:        aiInsightAuthorizer{delegate: leadAuthorizer},
 		DB:                mysqlStore.DB(),
 		AIProvider:        aiProvider,
+	}); err != nil {
+		return err
+	}
+	startAIInsightDailyAnalysis(cfg, mysqlStore, aiProvider)
+	return nil
+}
+
+// startAIInsightDailyAnalysis starts the once-per-day analysis loop. It is the
+// only component allowed to call the AI model; page reads are read-only.
+func startAIInsightDailyAnalysis(cfg config.Config, mysqlStore *store.MySQLStore, aiProvider providers.AIProvider) {
+	if !cfg.EnableAIInsight || !cfg.AIInsightDailyAnalysisEnabled || mysqlStore == nil || aiProvider == nil {
+		return
+	}
+	if aiProvider.Status().State != providers.StateReady {
+		log.Printf("AI insight daily analysis skipped: AI provider is not ready")
+		return
+	}
+	go aiinsight.RunDailyLoop(context.Background(), aiinsight.DailyConfig{
+		DB:         mysqlStore.DB(),
+		AI:         aiProvider,
+		Hour:       cfg.AIInsightAnalysisHour,
+		RunOnStart: cfg.AIInsightAnalysisRunOnStart,
+		Logger:     log.Default(),
 	})
+	log.Printf("go cron enabled: AI insight daily analysis hour=%02d run_on_start=%v", cfg.AIInsightAnalysisHour, cfg.AIInsightAnalysisRunOnStart)
 }
 
 func buildAIProvider() (providers.AIProvider, error) {

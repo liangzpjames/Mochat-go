@@ -37,6 +37,9 @@ type Config struct {
 	Phase35AcceptanceEnvironmentID                     string
 	EnableAIDebtClearance                              bool
 	EnableAIInsight                                    bool
+	AIInsightDailyAnalysisEnabled                      bool
+	AIInsightAnalysisHour                              int
+	AIInsightAnalysisRunOnStart                        bool
 	PHPUpstream                                        string
 	APIBaseURL                                         string
 	DashboardBaseURL                                   string
@@ -1254,6 +1257,9 @@ func FromEnv() (Config, error) {
 		Phase35AcceptanceEnvironmentID:                     strings.TrimSpace(os.Getenv("MOCHAT_GO_PHASE35_ACCEPTANCE_ENVIRONMENT_ID")),
 		EnableAIDebtClearance:                              envBool("MOCHAT_GO_ENABLE_AI_DEBT_CLEARANCE"),
 		EnableAIInsight:                                    envBool("MOCHAT_GO_AI_INSIGHT_ENABLED"),
+		AIInsightDailyAnalysisEnabled:                      envBool("MOCHAT_GO_AI_INSIGHT_DAILY_ANALYSIS_ENABLED"),
+		AIInsightAnalysisHour:                              envIntDefault("MOCHAT_GO_AI_INSIGHT_ANALYSIS_HOUR", 0),
+		AIInsightAnalysisRunOnStart:                        envBool("MOCHAT_GO_AI_INSIGHT_ANALYSIS_RUN_ON_START"),
 		PHPUpstream:                                        phpUpstream,
 		APIBaseURL:                                         envOrDefault("MOCHAT_API_BASE_URL", envOrDefault("API_BASE_URL", defaultAPIBaseURL)),
 		DashboardBaseURL:                                   envOrDefault("MOCHAT_DASHBOARD_BASE_URL", envOrDefault("DASHBOARD_BASE_URL", defaultDashboardBaseURL)),
@@ -2298,6 +2304,20 @@ func envDefaultIfUnset(key, fallback string) string {
 func envBool(key string) bool {
 	value := os.Getenv(key)
 	return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES"
+}
+
+// envIntDefault parses a 0-23 hour value with a fallback; out-of-range or
+// invalid values use the default so a typo can never schedule an odd window.
+func envIntDefault(name string, defaultValue int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return defaultValue
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 || value > 23 {
+		return defaultValue
+	}
+	return value
 }
 
 func envBoolStrictDefault(key string, defaultValue bool) (bool, error) {
