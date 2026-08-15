@@ -2559,6 +2559,126 @@ body {
   padding: 4px 10px;
 }
 
+/* ===== Provider 运行状态（唯一企业资料页顶部）===== */
+.provider-status-card {
+  min-width: 0;
+  padding: 20px 22px 22px;
+}
+
+.provider-status-card .phase35-card-header {
+  padding: 0 0 14px;
+}
+
+.provider-status-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.provider-status-row {
+  align-items: start;
+  background: #fafbfe;
+  border: 1px solid #e8ebf2;
+  border-radius: 12px;
+  display: grid;
+  gap: 12px 18px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr);
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.provider-status-row > div {
+  min-width: 0;
+}
+
+.provider-status-row h3 {
+  color: #293042;
+  font-size: .92rem;
+  margin: 0 0 4px;
+}
+
+.provider-status-row p {
+  color: #65708a;
+  font-size: .8rem;
+  line-height: 1.5;
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.provider-status-row > strong {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  font-size: .76rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 10px;
+}
+
+.provider-status-row-ready > strong {
+  background: #eaf8f1;
+  border: 1px solid #cdeedd;
+  color: #27855b;
+}
+
+.provider-status-row-limited > strong {
+  background: #fff7e8;
+  border: 1px solid #f3d8a4;
+  color: #a56b17;
+}
+
+.provider-status-row-unavailable > strong {
+  background: #fff0f0;
+  border: 1px solid #f3cece;
+  color: #be4a4a;
+}
+
+.provider-status-row code,
+.provider-capability-status-row code {
+  background: #f1f3f8;
+  border-radius: 6px;
+  color: #4b5568;
+  font-size: .76rem;
+  padding: 2px 6px;
+}
+
+.provider-status-diagnostics {
+  color: #8991a1;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: .76rem;
+  gap: 6px 14px;
+  margin-top: 8px;
+}
+
+.provider-capability-statuses {
+  border-top: 1px dashed #e8ebf2;
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+.provider-capability-status-row {
+  align-items: center;
+  color: #65708a;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: .78rem;
+  gap: 8px;
+}
+
+.provider-capability-status-row > strong {
+  color: #536bf4;
+  font-size: .76rem;
+}
+
+.provider-status-card > p {
+  color: #65708a;
+  font-size: .82rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
 /* ===== 单企业资料（/company-setting/website）===== */
 .company-profile-page {
   min-width: 0;

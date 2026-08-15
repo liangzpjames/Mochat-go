@@ -6,11 +6,11 @@ import type { CapabilityStatus, ProviderStatus, ProviderStatusApi } from './prov
 export function ProviderStatusPage({ api, isSuperAdmin = false }: { api: ProviderStatusApi; isSuperAdmin?: boolean }) {
   const query = useQuery({ queryKey: ['provider-status'], queryFn: () => api.getStatus(), retry: false });
   if (query.isPending) {
-    return <section aria-label="Provider 状态" className="phase35-card"><p>正在读取 Provider 状态…</p></section>;
+    return <section aria-label="Provider 状态" className="phase35-card provider-status-card"><p>正在读取 Provider 状态…</p></section>;
   }
   if (query.isError) {
     return (
-      <section aria-label="Provider 状态" className="phase35-card">
+      <section aria-label="Provider 状态" className="phase35-card provider-status-card">
         <p role="alert">{providerStatusErrorMessage(query.error)}</p>
         <button type="button" onClick={() => void query.refetch()}>重试</button>
       </section>
@@ -73,6 +73,9 @@ function CapabilityStatusRow({ status, isSuperAdmin }: { status: CapabilityStatu
 }
 
 function providerStatusErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.machineCode === 'CORP_CONFIGURATION_REQUIRED') {
+    return '企业尚未完成企业微信验证，完成验证后此处将显示 Provider 状态。';
+  }
   if (error instanceof ApiError && (error.status === 403 || error.machineCode === 'DASHBOARD_PERMISSION_DENIED')) {
     return '当前账号无权查看 Provider 状态。';
   }

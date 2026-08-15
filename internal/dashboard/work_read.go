@@ -1591,17 +1591,30 @@ func (h *WorkReadHandler) WorkRoomIndex(w http.ResponseWriter, r *http.Request) 
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
+	memberTotal := 0
+	activeTotal := 0
 	list := make([]map[string]any, 0, len(page.Items))
 	for _, item := range page.Items {
+		memberTotal += item.MemberNum
+		if item.Status == 1 {
+			activeTotal++
+		}
 		list = append(list, map[string]any{
 			"workRoomId": item.WorkRoomID,
 			"memberNum":  item.MemberNum,
+			"memberCount": item.MemberNum,
 			"roomName":   item.RoomName,
 			"ownerId":    item.OwnerID,
 			"ownerName":  item.OwnerName,
 			"roomGroup":  item.RoomGroup,
 			"status":     item.Status,
 			"statusText": workRoomStatusText(item.Status),
+			"activeStatus": func() string {
+				if item.Status == 1 {
+					return "active"
+				}
+				return "inactive"
+			}(),
 			"inRoomNum":  item.InRoomNum,
 			"outRoomNum": item.OutRoomNum,
 			"notice":     item.Notice,
@@ -1609,6 +1622,8 @@ func (h *WorkReadHandler) WorkRoomIndex(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
+		"memberTotal": memberTotal,
+		"activeTotal": activeTotal,
 		"page": map[string]any{
 			"perPage":   strconv.Itoa(page.PerPage),
 			"total":     page.Total,

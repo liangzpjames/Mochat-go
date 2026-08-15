@@ -157,7 +157,7 @@ func (r *SQLRepository) queryEntity(ctx context.Context, q ReportQuery, kind Rep
 	}
 	itemArgs := append([]any{q.Timezone}, args...)
 	itemArgs = append(itemArgs, q.PageSize, (q.Page-1)*q.PageSize)
-	rows, err := r.db.QueryContext(ctx, "SELECT c.id, DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?), '%Y-%m-%d'), COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0), COALESCE((SELECT e.name FROM mochat_go_scrm_assignments a2 JOIN mc_work_employee e ON e.corp_id=a2.corp_id AND e.log_user_id=a2.owner_id AND e.deleted_at IS NULL WHERE a2.tenant_id=c.tenant_id AND a2.corp_id=c.corp_id AND a2.contact_id=c.id AND a2.deleted_at IS NULL ORDER BY a2.updated_at DESC LIMIT 1),'') FROM mochat_go_scrm_contacts c WHERE "+where+" ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?", itemArgs...)
+	rows, err := r.db.QueryContext(ctx, "SELECT c.id, DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?), '%Y-%m-%d'), COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0), COALESCE((SELECT e.name FROM mochat_go_scrm_assignments a2 JOIN mc_work_employee e ON e.corp_id=a2.corp_id AND e.id=a2.owner_id AND e.deleted_at IS NULL WHERE a2.tenant_id=c.tenant_id AND a2.corp_id=c.corp_id AND a2.contact_id=c.id AND a2.deleted_at IS NULL ORDER BY a2.updated_at DESC LIMIT 1),'') FROM mochat_go_scrm_contacts c WHERE "+where+" ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?", itemArgs...)
 	if err != nil {
 		return res, err
 	}
@@ -252,13 +252,13 @@ func (r *SQLRepository) conversionStageItems(ctx context.Context, stage conversi
 	var selectSQL string
 	switch stage.key {
 	case "lead":
-		selectSQL = "SELECT l.id,l.name,l.source,l.status,COALESCE(l.owner_id,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(l.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_leads l LEFT JOIN mc_work_employee e ON e.corp_id=l.corp_id AND e.log_user_id=l.owner_id AND e.deleted_at IS NULL WHERE " + where + " ORDER BY l.created_at DESC,l.id DESC LIMIT ? OFFSET ?"
+		selectSQL = "SELECT l.id,l.name,l.source,l.status,COALESCE(l.owner_id,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(l.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_leads l LEFT JOIN mc_work_employee e ON e.corp_id=l.corp_id AND e.id=l.owner_id AND e.deleted_at IS NULL WHERE " + where + " ORDER BY l.created_at DESC,l.id DESC LIMIT ? OFFSET ?"
 	case "contact":
-		selectSQL = "SELECT c.id,c.name,c.phone,COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0),COALESCE((SELECT e.name FROM mochat_go_scrm_assignments a2 JOIN mc_work_employee e ON e.corp_id=a2.corp_id AND e.log_user_id=a2.owner_id AND e.deleted_at IS NULL WHERE a2.tenant_id=c.tenant_id AND a2.corp_id=c.corp_id AND a2.contact_id=c.id AND a2.deleted_at IS NULL ORDER BY a2.updated_at DESC LIMIT 1),''),DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_contacts c WHERE " + where + " ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?"
+		selectSQL = "SELECT c.id,c.name,c.phone,COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0),COALESCE((SELECT e.name FROM mochat_go_scrm_assignments a2 JOIN mc_work_employee e ON e.corp_id=a2.corp_id AND e.id=a2.owner_id AND e.deleted_at IS NULL WHERE a2.tenant_id=c.tenant_id AND a2.corp_id=c.corp_id AND a2.contact_id=c.id AND a2.deleted_at IS NULL ORDER BY a2.updated_at DESC LIMIT 1),''),DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_contacts c WHERE " + where + " ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?"
 	case "opportunity", "won":
-		selectSQL = "SELECT o.id,COALESCE(c.name,''),o.status,COALESCE(o.owner_id,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(o.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_opportunities o LEFT JOIN mochat_go_scrm_contacts c ON c.tenant_id=o.tenant_id AND c.corp_id=o.corp_id AND c.id=o.contact_id AND c.deleted_at IS NULL LEFT JOIN mc_work_employee e ON e.corp_id=o.corp_id AND e.log_user_id=o.owner_id AND e.deleted_at IS NULL WHERE " + where + " ORDER BY o.created_at DESC,o.id DESC LIMIT ? OFFSET ?"
+		selectSQL = "SELECT o.id,COALESCE(c.name,''),o.status,COALESCE(o.owner_id,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(o.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_opportunities o LEFT JOIN mochat_go_scrm_contacts c ON c.tenant_id=o.tenant_id AND c.corp_id=o.corp_id AND c.id=o.contact_id AND c.deleted_at IS NULL LEFT JOIN mc_work_employee e ON e.corp_id=o.corp_id AND e.id=o.owner_id AND e.deleted_at IS NULL WHERE " + where + " ORDER BY o.created_at DESC,o.id DESC LIMIT ? OFFSET ?"
 	case "order":
-		selectSQL = "SELECT ord.id,COALESCE(c.name,''),ord.amount_cents,ord.currency,ord.status,COALESCE(ord.created_by,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(ord.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_orders ord LEFT JOIN mochat_go_scrm_contacts c ON c.tenant_id=ord.tenant_id AND c.corp_id=ord.corp_id AND c.id=ord.contact_id AND c.deleted_at IS NULL LEFT JOIN mc_work_employee e ON e.corp_id=ord.corp_id AND e.log_user_id=ord.created_by AND e.deleted_at IS NULL WHERE " + where + " ORDER BY ord.created_at DESC,ord.id DESC LIMIT ? OFFSET ?"
+		selectSQL = "SELECT ord.id,COALESCE(c.name,''),ord.amount_cents,ord.currency,ord.status,COALESCE(ord.created_by,0),COALESCE(e.name,''),DATE_FORMAT(CONVERT_TZ(ord.created_at,'+00:00',?),'%Y-%m-%d') FROM mochat_go_scrm_orders ord LEFT JOIN mochat_go_scrm_contacts c ON c.tenant_id=ord.tenant_id AND c.corp_id=ord.corp_id AND c.id=ord.contact_id AND c.deleted_at IS NULL LEFT JOIN mc_work_employee e ON e.corp_id=ord.corp_id AND e.id=ord.created_by AND e.deleted_at IS NULL WHERE " + where + " ORDER BY ord.created_at DESC,ord.id DESC LIMIT ? OFFSET ?"
 	default:
 		return nil, fmt.Errorf("%w: unknown conversion stage", ErrInvalidQuery)
 	}
@@ -320,12 +320,12 @@ func (r *SQLRepository) queryEmployee(ctx context.Context, q ReportQuery) (Repor
 	if len(tables) == 0 {
 		return UnavailableSource("conversation_archive", "会话归档表不可用").Query(ctx, q)
 	}
-	parts := make([]string, len(tables))
-	for i, t := range tables {
-		parts[i] = "SELECT employee_id,created_at,tenant_id,corp_id FROM " + t
+	parts := make([]string, 0, len(tables))
+	for _, t := range tables {
+		parts = append(parts, "SELECT "+t.employeeCol+" AS employee_id, created_at, corp_id FROM "+t.name)
 	}
 	union := strings.Join(parts, " UNION ALL ")
-	w, a := scope(q, "m", "created_at")
+	w, a := scopeArchive(q, "m")
 	if len(q.EmployeeIDs) > 0 {
 		w += " AND m.employee_id IN (" + placeholders(len(q.EmployeeIDs)) + ")"
 		for _, id := range q.EmployeeIDs {
@@ -337,31 +337,57 @@ func (r *SQLRepository) queryEmployee(ctx context.Context, q ReportQuery) (Repor
 	// appearing in the archived messages for the scoped range, not the
 	// message count; the derived table only exists to apply the tenant/corp
 	// and employee scope once across all archive partitions.
-	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(DISTINCT employee_id) FROM ("+union+") m WHERE "+w, a...).Scan(&n); err != nil {
+	query := "SELECT COUNT(DISTINCT m.employee_id) FROM (" + union + ") m JOIN mc_corp c ON c.id = m.corp_id AND c.deleted_at IS NULL WHERE " + w
+	if err := r.db.QueryRowContext(ctx, query, a...).Scan(&n); err != nil {
 		return ReportResult{}, err
 	}
 	return ReportResult{Summary: map[string]*float64{"employee": &n}, Items: []map[string]any{}, Series: []SeriesPoint{}, Dimensions: []Dimension{}, Pagination: Pagination{Page: q.Page, PageSize: q.PageSize, Total: int(n)}, Freshness: Freshness{Provider: "conversation_archive", Status: "available"}, Limitations: limitation(q, "conversation_archive")}, nil
 }
-func (r *SQLRepository) archiveTables(ctx context.Context) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT t.table_name
+
+type archiveTableShape struct {
+	name        string
+	employeeCol string
+}
+
+func (r *SQLRepository) archiveTables(ctx context.Context) ([]archiveTableShape, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT t.table_name,
+  MAX(CASE WHEN c.column_name='employee_id' THEN 1 ELSE 0 END),
+  MAX(CASE WHEN c.column_name='work_employee_id' THEN 1 ELSE 0 END)
 FROM information_schema.tables t
+JOIN information_schema.columns c
+  ON c.table_schema=t.table_schema AND c.table_name=t.table_name
 WHERE t.table_schema=DATABASE() AND t.table_name LIKE 'mc_work_message_%'
-  AND EXISTS (SELECT 1 FROM information_schema.columns c WHERE c.table_schema=t.table_schema AND c.table_name=t.table_name AND c.column_name='employee_id')
-  AND EXISTS (SELECT 1 FROM information_schema.columns c WHERE c.table_schema=t.table_schema AND c.table_name=t.table_name AND c.column_name='corp_id')
-  AND EXISTS (SELECT 1 FROM information_schema.columns c WHERE c.table_schema=t.table_schema AND c.table_name=t.table_name AND c.column_name='tenant_id')
-  AND EXISTS (SELECT 1 FROM information_schema.columns c WHERE c.table_schema=t.table_schema AND c.table_name=t.table_name AND c.column_name='created_at')`)
+  AND c.column_name IN ('employee_id','work_employee_id','corp_id','created_at')
+  AND EXISTS (SELECT 1 FROM information_schema.columns c2 WHERE c2.table_schema=t.table_schema AND c2.table_name=t.table_name AND c2.column_name='corp_id')
+  AND EXISTS (SELECT 1 FROM information_schema.columns c3 WHERE c3.table_schema=t.table_schema AND c3.table_name=t.table_name AND c3.column_name='created_at')
+GROUP BY t.table_name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []archiveTableShape
 	for rows.Next() {
 		var t string
-		if rows.Scan(&t) == nil && strings.HasPrefix(t, "mc_work_message_") {
-			out = append(out, t)
+		var hasEmployeeID, hasWorkEmployeeID int
+		if rows.Scan(&t, &hasEmployeeID, &hasWorkEmployeeID) == nil && strings.HasPrefix(t, "mc_work_message_") {
+			if hasEmployeeID == 0 && hasWorkEmployeeID == 0 {
+				continue
+			}
+			employeeCol := "work_employee_id"
+			if hasWorkEmployeeID == 0 && hasEmployeeID == 1 {
+				employeeCol = "employee_id"
+			}
+			out = append(out, archiveTableShape{name: t, employeeCol: employeeCol})
 		}
 	}
 	return out, nil
+}
+
+// scopeArchive scopes archive partitions by corp_id directly and resolves the
+// tenant through mc_corp, because the real partition schema has no tenant_id
+// column. The derived table is aliased m and mc_corp is aliased c.
+func scopeArchive(q ReportQuery, alias string) (string, []any) {
+	return "c.tenant_id=? AND " + alias + ".corp_id=? AND " + alias + ".created_at>=? AND " + alias + ".created_at<?", []any{q.TenantID, q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()}
 }
 
 func (r *SQLRepository) queryBehavior(ctx context.Context, q ReportQuery) (ReportResult, error) {
