@@ -8,7 +8,7 @@ import (
 
 func TestSimulationBlueprintCoversConversationDirectionsAndDisplayTypes(t *testing.T) {
 	messages := buildMessages("acceptance", time.Unix(1000, 0), "employee-a", "employee-b", "contact", "room")
-	if len(messages) != 12 {
+	if len(messages) != 13 {
 		t.Fatalf("messages=%d", len(messages))
 	}
 	for _, required := range []string{"text", "image", "file", "voice", "video", "location", "card", "link", "emotion"} {
@@ -25,7 +25,7 @@ func TestSimulationBlueprintCoversConversationDirectionsAndDisplayTypes(t *testi
 			t.Fatalf("missing type %s", required)
 		}
 	}
-	if messages[1].From != "contact" || messages[9].ToList[0] != "employee-b" || messages[10].RoomID != "room" {
+	if messages[1].From != "contact" || messages[9].ToList[0] != "employee-b" || messages[10].RoomID != "room" || messages[12].Action != "revoke" {
 		t.Fatalf("conversation matrix incomplete: %+v", messages)
 	}
 }

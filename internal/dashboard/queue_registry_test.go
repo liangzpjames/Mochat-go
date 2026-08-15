@@ -245,6 +245,14 @@ func TestEmployeeApplyIdempotencyKeyNormalizesCorpIDs(t *testing.T) {
 	}
 }
 
+func TestEmployeeApplyIdempotencyKeyIgnoresQueueTicket(t *testing.T) {
+	left := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{BindingID: 7, Source: "manual", QueueTicket: "ticket-1"})
+	right := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{BindingID: 7, Source: "manual", QueueTicket: "ticket-2"})
+	if left == "" || left != right {
+		t.Fatalf("queue ticket changed idempotency key: %q %q", left, right)
+	}
+}
+
 func TestWeWorkCallbackIdempotencyKeyUsesBusinessIdentity(t *testing.T) {
 	base := WeWorkCallbackEvent{
 		CorpID:    7,

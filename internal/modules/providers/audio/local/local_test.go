@@ -68,3 +68,74 @@ func TestStorageStatusReady(t *testing.T) {
 		t.Fatalf("status = %#v, want ready", status)
 	}
 }
+
+func TestStorageStatusUsesFilesystemEvidence(t *testing.T) {
+	parent := t.TempDir()
+	missingRoot := filepath.Join(parent, "not-created")
+	missing, err := New(Config{Root: missingRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := missing.Status(); status.State != providers.StateLimited || status.Code != "audio_storage.root_missing" {
+		t.Fatalf("missing root status = %#v, want limited/root_missing", status)
+	}
+	if _, err := os.Stat(missingRoot); !os.IsNotExist(err) {
+		t.Fatalf("Status created missing root: stat err=%v", err)
+	}
+
+	fileRoot := filepath.Join(parent, "root-file")
+	if err := os.WriteFile(fileRoot, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fileStorage, err := New(Config{Root: fileRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := fileStorage.Status(); status.State != providers.StateUnavailable || status.Code != "audio_storage.root_not_directory" {
+		t.Fatalf("file root status = %#v, want unavailable/root_not_directory", status)
+	}
+
+	parentFile := filepath.Join(parent, "parent-file")
+	if err := os.WriteFile(parentFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	childStorage, err := New(Config{Root: filepath.Join(parentFile, "child")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := childStorage.Status(); status.State != providers.StateUnavailable {
+		t.Fatalf("file parent status = %#v, want unavailable", status)
+	}
+}
+
+func TestStorageStatusRejectsNonWritableDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "read-only")
+	if err := os.Mkdir(root, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	storage, err := New(Config{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := storage.Status(); status.State != providers.StateUnavailable || status.Code != "audio_storage.root_not_writable" {
+		t.Fatalf("read-only root status = %#v, want unavailable/root_not_writable", status)
+	}
+
+	parent := filepath.Join(t.TempDir(), "read-only-parent")
+	if err := os.Mkdir(parent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	missingChild, err := New(Config{Root: filepath.Join(parent, "missing-child")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := missingChild.Status(); status.State != providers.StateUnavailable || status.Code != "audio_storage.parent_not_writable" {
+		t.Fatalf("read-only parent status = %#v, want unavailable/parent_not_writable", status)
+	}
+}

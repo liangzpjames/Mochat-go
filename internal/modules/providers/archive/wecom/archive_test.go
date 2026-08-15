@@ -9,9 +9,12 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
+	"strings"
 	"testing"
 
 	"jiyi/mochat-go/internal/modules/providers"
+	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
 )
 
 func TestArchiveStatusAndSync(t *testing.T) {
@@ -21,16 +24,41 @@ func TestArchiveStatusAndSync(t *testing.T) {
 	}
 	if status := archive.Status(); status.State != providers.StateLimited {
 		t.Fatalf("status = %#v, want limited", status)
+	} else if status.Code != "archive.credentials_missing" || status.Source != providers.SourceExternal {
+		t.Fatalf("status = %#v, want missing-credentials external status", status)
 	}
-	if _, err := archive.Sync(context.Background(), providers.SyncOptions{CorpID: 1}); err == nil {
-		t.Fatal("Sync error = nil, want ErrNotConfigured")
+	if _, err := archive.Sync(context.Background(), providers.SyncOptions{CorpID: 1}); !errors.Is(err, providers.ErrNotConfigured) {
+		t.Fatalf("Sync error = %v, want ErrNotConfigured", err)
 	}
-	archive, err = New(Config{CorpID: "c", Secret: "s", PublicKey: "p", PrivateKey: "k"})
+	archive, err = New(Config{CorpID: "corp-secret-value", Secret: "archive-secret-value", PublicKey: "public-key-value", PrivateKey: "private-key-value"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status := archive.Status(); status.State != providers.StateReady {
-		t.Fatalf("status = %#v, want ready", status)
+	status := archive.Status()
+	if status.State != providers.StateLimited || status.Code != "archive.getchatdata_unimplemented" || status.Source != providers.SourceExternal {
+		t.Fatalf("status = %#v, want truthful limited status", status)
+	}
+	for _, secret := range []string{"corp-secret-value", "archive-secret-value", "public-key-value", "private-key-value"} {
+		if strings.Contains(status.Reason, secret) {
+			t.Fatalf("status reason contains credential material %q: %q", secret, status.Reason)
+		}
+	}
+	if _, err := archive.Sync(context.Background(), providers.SyncOptions{CorpID: 1}); !errors.Is(err, providers.ErrCapabilityUnavailable) {
+		t.Fatalf("Sync error = %v, want ErrCapabilityUnavailable", err)
+	}
+}
+
+func TestArchiveImplementsFailClosedSourceBoundary(t *testing.T) {
+	archive, err := New(Config{CorpID: "ww-example", Secret: "secret", PublicKey: "public", PrivateKey: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source archiveprovider.ArchiveSource = archive
+	if source.Kind() != providers.SourceExternal || source.SourceID() != "wecom:ww-example" || source.Namespace() != "wecom" {
+		t.Fatalf("source identity kind=%q id=%q namespace=%q", source.Kind(), source.SourceID(), source.Namespace())
+	}
+	if _, err := source.Fetch(context.Background(), archiveprovider.Scope{TenantID: 1, CorpID: 7}, archiveprovider.Cursor{}, 10); !errors.Is(err, providers.ErrCapabilityUnavailable) {
+		t.Fatalf("source fetch error=%v, want ErrCapabilityUnavailable", err)
 	}
 }
 

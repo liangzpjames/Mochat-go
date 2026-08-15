@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
+	"jiyi/mochat-go/internal/modules/providers"
 )
 
 func companyProfileTestPrincipal(superadmin bool, status dashboardprincipal.CorpBindingStatus) dashboardprincipal.DashboardPrincipal {
@@ -54,6 +55,11 @@ type companyProfileContractStore struct {
 	profile              Profile
 	verificationSnapshot VerificationSnapshot
 	auditPage            AuditPage
+	syncStatus           SyncStatus
+	syncStatusCalls      int
+	syncStatusErr        error
+	archiveSourceStatus  providers.Status
+	archiveStatusCalls   int
 }
 
 func (s *companyProfileContractStore) GetProfile(context.Context, dashboardprincipal.DashboardPrincipal) (Profile, error) {
@@ -121,7 +127,7 @@ func (s *companyProfileContractStore) SyncEmployeeData(context.Context, dashboar
 	return SyncResult{Status: "completed"}, nil
 }
 
-func (s *companyProfileContractStore) QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal) (EmployeeSyncQueueResult, error) {
+func (s *companyProfileContractStore) QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal, EmployeeSyncEnqueueReceipt) (EmployeeSyncQueueResult, error) {
 	s.queueCalls++
 	if s.queueErr != nil {
 		// Model a worker that completed after Redis accepted the job but before
@@ -144,7 +150,19 @@ func (s *companyProfileContractStore) RecordEmployeeSyncFailure(context.Context,
 }
 
 func (s *companyProfileContractStore) GetSyncStatus(context.Context, dashboardprincipal.DashboardPrincipal) (SyncStatus, error) {
+	s.syncStatusCalls++
+	if s.syncStatusErr != nil {
+		return SyncStatus{}, s.syncStatusErr
+	}
+	if s.syncStatus.Status != "" {
+		return s.syncStatus, nil
+	}
 	return SyncStatus{Status: "idle"}, nil
+}
+
+func (s *companyProfileContractStore) GetArchiveSourceStatus(context.Context, dashboardprincipal.DashboardPrincipal) (providers.Status, error) {
+	s.archiveStatusCalls++
+	return s.archiveSourceStatus, nil
 }
 
 type companyProfileTestVerifier struct {
@@ -400,6 +418,27 @@ func TestServiceArchiveConfigurationRequiresMatchingRSAKeyPair(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("mismatched RSA error=%v, want ErrInvalidRequest", err)
+	}
+}
+
+func TestServiceArchiveRotationPreservesVerifiedEmployeeSyncState(t *testing.T) {
+	verifiedAt := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	store := &companyProfileContractStore{profile: Profile{
+		BindingStatus: "active", WXCorpID: "ww-authoritative", VerifiedAt: &verifiedAt,
+		Credentials: CredentialStatuses{WeCom: CredentialStatus{Configured: true}, Archive: CredentialStatus{Configured: true}},
+	}}
+	service := NewService(store, &companyProfileTestVerifier{})
+	publicKey, privateKey := companyProfileRSAKeyPair(t)
+
+	profile, err := service.RotateArchiveCredentials(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive), ArchiveCredentialsInput{
+		ChatSecret: stringPointer("archive-secret"), RSAPublicKey: &publicKey, RSAPrivateKey: &privateKey,
+		ExpectedVersion: 1, RequestID: "archive-preserves-employee-sync",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.rotateArchiveCalls != 1 || profile.VerifiedAt == nil || profile.WXCorpID != "ww-authoritative" {
+		t.Fatalf("archive rotation changed employee-sync verification: calls=%d profile=%+v", store.rotateArchiveCalls, profile)
 	}
 }
 

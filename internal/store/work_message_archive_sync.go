@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,6 +20,14 @@ type workMessageArchiveParticipant struct {
 type workMessageArchiveRoom struct {
 	ID      int
 	OwnerID int
+}
+
+// archiveDBTX is implemented by both *sql.DB and *sql.Tx. Keeping the
+// participant resolution and normalized message insert on this boundary lets
+// the archive source identity and the legacy message row share one transaction.
+type archiveDBTX interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 func (s *MySQLStore) WorkMessageArchiveEnabledCorps(ctx context.Context) ([]dashboard.WorkMessageArchiveCorp, error) {
@@ -96,10 +105,17 @@ func (s *MySQLStore) WorkMessageArchiveCursor(ctx context.Context, corpID int) (
 }
 
 func (s *MySQLStore) UpsertWorkMessageArchive(ctx context.Context, corpID int, message dashboard.WorkMessageArchiveMessage) (dashboard.WorkMessageArchiveUpsertResult, error) {
+	return s.upsertWorkMessageArchiveWithExecutor(ctx, s.db, corpID, message)
+}
+
+func (s *MySQLStore) upsertWorkMessageArchiveWithExecutor(ctx context.Context, executor archiveDBTX, corpID int, message dashboard.WorkMessageArchiveMessage) (dashboard.WorkMessageArchiveUpsertResult, error) {
 	if corpID <= 0 || message.Seq <= 0 || strings.TrimSpace(message.MsgID) == "" {
 		return dashboard.WorkMessageArchiveUpsertResult{Skipped: true}, nil
 	}
-	item, resolved, err := s.workMessageArchiveCreate(ctx, corpID, message)
+	if executor == nil {
+		return dashboard.WorkMessageArchiveUpsertResult{}, errors.New("archive message executor unavailable")
+	}
+	item, resolved, err := s.workMessageArchiveCreateWithExecutor(ctx, executor, corpID, message)
 	if err != nil {
 		return dashboard.WorkMessageArchiveUpsertResult{}, err
 	}
@@ -108,7 +124,7 @@ func (s *MySQLStore) UpsertWorkMessageArchive(ctx context.Context, corpID int, m
 		return dashboard.WorkMessageArchiveUpsertResult{}, err
 	}
 	sendTime := sql.NullTime{Time: item.MsgDataTime, Valid: !item.MsgDataTime.IsZero()}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := executor.ExecContext(ctx, `
 		INSERT INTO `+table+` (
 			corp_id, msgid, seq, work_employee_id, to_user_type, to_user_id,
 			sender_type, action, type, msg_type, content, content_text, room_id,
@@ -186,6 +202,10 @@ type workMessageArchiveCreate struct {
 }
 
 func (s *MySQLStore) workMessageArchiveCreate(ctx context.Context, corpID int, message dashboard.WorkMessageArchiveMessage) (workMessageArchiveCreate, bool, error) {
+	return s.workMessageArchiveCreateWithExecutor(ctx, s.db, corpID, message)
+}
+
+func (s *MySQLStore) workMessageArchiveCreateWithExecutor(ctx context.Context, executor archiveDBTX, corpID int, message dashboard.WorkMessageArchiveMessage) (workMessageArchiveCreate, bool, error) {
 	item := workMessageArchiveCreate{
 		MsgID:       strings.TrimSpace(message.MsgID),
 		Seq:         message.Seq,
@@ -199,16 +219,16 @@ func (s *MySQLStore) workMessageArchiveCreate(ctx context.Context, corpID int, m
 	if item.MsgDataTime.IsZero() {
 		item.MsgDataTime = time.Now()
 	}
-	sender, senderFound, err := s.lookupWorkMessageArchiveParticipant(ctx, corpID, message.From)
+	sender, senderFound, err := lookupWorkMessageArchiveParticipantWithExecutor(ctx, executor, corpID, message.From)
 	if err != nil {
 		return item, false, err
 	}
-	toEmployees, toContacts, err := s.lookupWorkMessageArchiveParticipants(ctx, corpID, message.ToList)
+	toEmployees, toContacts, err := lookupWorkMessageArchiveParticipantsWithExecutor(ctx, executor, corpID, message.ToList)
 	if err != nil {
 		return item, false, err
 	}
 	if strings.TrimSpace(message.RoomID) != "" {
-		room, found, err := s.lookupWorkMessageArchiveRoom(ctx, corpID, message.RoomID)
+		room, found, err := lookupWorkMessageArchiveRoomWithExecutor(ctx, executor, corpID, message.RoomID)
 		if err != nil {
 			return item, false, err
 		}
@@ -265,10 +285,14 @@ func (s *MySQLStore) workMessageArchiveCreate(ctx context.Context, corpID int, m
 }
 
 func (s *MySQLStore) lookupWorkMessageArchiveParticipants(ctx context.Context, corpID int, wxIDs []string) ([]workMessageArchiveParticipant, []workMessageArchiveParticipant, error) {
+	return lookupWorkMessageArchiveParticipantsWithExecutor(ctx, s.db, corpID, wxIDs)
+}
+
+func lookupWorkMessageArchiveParticipantsWithExecutor(ctx context.Context, executor archiveDBTX, corpID int, wxIDs []string) ([]workMessageArchiveParticipant, []workMessageArchiveParticipant, error) {
 	employees := []workMessageArchiveParticipant{}
 	contacts := []workMessageArchiveParticipant{}
 	for _, wxID := range wxIDs {
-		participant, found, err := s.lookupWorkMessageArchiveParticipant(ctx, corpID, wxID)
+		participant, found, err := lookupWorkMessageArchiveParticipantWithExecutor(ctx, executor, corpID, wxID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -285,11 +309,15 @@ func (s *MySQLStore) lookupWorkMessageArchiveParticipants(ctx context.Context, c
 }
 
 func (s *MySQLStore) lookupWorkMessageArchiveParticipant(ctx context.Context, corpID int, wxID string) (workMessageArchiveParticipant, bool, error) {
+	return lookupWorkMessageArchiveParticipantWithExecutor(ctx, s.db, corpID, wxID)
+}
+
+func lookupWorkMessageArchiveParticipantWithExecutor(ctx context.Context, executor archiveDBTX, corpID int, wxID string) (workMessageArchiveParticipant, bool, error) {
 	wxID = strings.TrimSpace(wxID)
-	if corpID <= 0 || wxID == "" {
+	if executor == nil || corpID <= 0 || wxID == "" {
 		return workMessageArchiveParticipant{}, false, nil
 	}
-	row := s.db.QueryRowContext(ctx, `
+	row := executor.QueryRowContext(ctx, `
 		SELECT id
 		FROM mc_work_employee
 		WHERE corp_id = ?
@@ -306,7 +334,7 @@ func (s *MySQLStore) lookupWorkMessageArchiveParticipant(ctx context.Context, co
 	if err != sql.ErrNoRows {
 		return workMessageArchiveParticipant{}, false, err
 	}
-	row = s.db.QueryRowContext(ctx, `
+	row = executor.QueryRowContext(ctx, `
 		SELECT id
 		FROM mc_work_contact
 		WHERE corp_id = ?
@@ -326,11 +354,15 @@ func (s *MySQLStore) lookupWorkMessageArchiveParticipant(ctx context.Context, co
 }
 
 func (s *MySQLStore) lookupWorkMessageArchiveRoom(ctx context.Context, corpID int, wxChatID string) (workMessageArchiveRoom, bool, error) {
+	return lookupWorkMessageArchiveRoomWithExecutor(ctx, s.db, corpID, wxChatID)
+}
+
+func lookupWorkMessageArchiveRoomWithExecutor(ctx context.Context, executor archiveDBTX, corpID int, wxChatID string) (workMessageArchiveRoom, bool, error) {
 	wxChatID = strings.TrimSpace(wxChatID)
-	if corpID <= 0 || wxChatID == "" {
+	if executor == nil || corpID <= 0 || wxChatID == "" {
 		return workMessageArchiveRoom{}, false, nil
 	}
-	row := s.db.QueryRowContext(ctx, `
+	row := executor.QueryRowContext(ctx, `
 		SELECT id, COALESCE(owner_id, 0)
 		FROM mc_work_room
 		WHERE corp_id = ?

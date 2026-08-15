@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -122,6 +123,76 @@ func TestCompanyProfileApplicationCallbackAndArchiveConfigurationIsAtomicRealMar
 	}
 }
 
+func TestConfigureApplicationUpdatesAuthoritativeActiveAgentWhenInputNamesOtherAgentRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey: testCompanyCredentialKey(27), EncryptionKeyID: "company-settings-canonical-agent-key", RequireEncryption: true, DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	if _, err := db.Exec(`UPDATE mc_work_agent SET is_reportenter=1, updated_at=NOW() WHERE id=300`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mc_work_agent (id, corp_id, wx_agent_id, wx_secret, name, close, is_reportenter, created_at, updated_at) VALUES (301, 100, '100002', '', 'Noncanonical agent', 0, 0, NOW(), NOW())`); err != nil {
+		t.Fatal(err)
+	}
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending, IsSuperAdmin: true, AuthVersion: 1}
+	var versionBeforeReject uint64
+	if err := db.QueryRow(`SELECT version FROM mochat_go_tenant_corp_bindings WHERE tenant_id=1 AND corp_id=100`).Scan(&versionBeforeReject); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.ConfigureApplication(context.Background(), principal, companyprofile.ApplicationCredentialsInput{
+		WXAgentID: "100002", Secret: "canonical-agent-secret", ExpectedVersion: 1, RequestID: "configure-canonical-agent",
+	})
+	if !errors.Is(err, companyprofile.ErrInvalidRequest) {
+		t.Fatalf("existing noncanonical agent input err=%v, want ErrInvalidRequest", err)
+	}
+	var canonicalAgentID, otherAgentID string
+	if err := db.QueryRow(`SELECT wx_agent_id FROM mc_work_agent WHERE id=300`).Scan(&canonicalAgentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT wx_agent_id FROM mc_work_agent WHERE id=301`).Scan(&otherAgentID); err != nil {
+		t.Fatal(err)
+	}
+	if canonicalAgentID != "100001" || otherAgentID != "100002" {
+		t.Fatalf("rejected input changed active agents: canonical=%q other=%q", canonicalAgentID, otherAgentID)
+	}
+	var versionAfterReject uint64
+	if err := db.QueryRow(`SELECT version FROM mochat_go_tenant_corp_bindings WHERE tenant_id=1 AND corp_id=100`).Scan(&versionAfterReject); err != nil {
+		t.Fatal(err)
+	}
+	if versionAfterReject != versionBeforeReject {
+		t.Fatalf("rejected input changed binding version: before=%d after=%d", versionBeforeReject, versionAfterReject)
+	}
+	var rejectedAuditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_dashboard_permission_audits WHERE tenant_id=1 AND request_id=?`, "configure-canonical-agent").Scan(&rejectedAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if rejectedAuditCount != 0 {
+		t.Fatalf("rejected input wrote audit rows=%d", rejectedAuditCount)
+	}
+	profile, err := store.ConfigureApplication(context.Background(), principal, companyprofile.ApplicationCredentialsInput{
+		WXAgentID: "100003", Secret: "canonical-agent-secret", ExpectedVersion: 1, RequestID: "configure-canonical-agent-new-id",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT wx_agent_id FROM mc_work_agent WHERE id=300`).Scan(&canonicalAgentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT wx_agent_id FROM mc_work_agent WHERE id=301`).Scan(&otherAgentID); err != nil {
+		t.Fatal(err)
+	}
+	if canonicalAgentID != "100003" || otherAgentID != "100002" || profile.ApplicationAgentID != canonicalAgentID {
+		t.Fatalf("canonical profile/rows diverged after new id: profile=%q canonical=%q other=%q", profile.ApplicationAgentID, canonicalAgentID, otherAgentID)
+	}
+	defaultAgent, found, err := store.RoomTagPullRemindAgentByCorpID(context.Background(), 100)
+	if err != nil || !found || defaultAgent.WXAgentID != "100003" || defaultAgent.WXSecret != "canonical-agent-secret" {
+		t.Fatalf("default sender=%+v found=%v err=%v, want canonical agent credentials", defaultAgent, found, err)
+	}
+}
+
 func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
@@ -215,28 +286,38 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	agentSecret := "agent-rotated"
 	verifiedPrincipal := principal
 	verifiedPrincipal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
-	queued, err := store.QueueEmployeeSync(ctx, verifiedPrincipal)
+	queued, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if queued.AlreadyQueued || queued.Cursor != dashboard.CompanyEmployeeSyncCursor {
 		t.Fatalf("first queue result=%+v", queued)
 	}
-	duplicateQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal)
+	duplicateQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !duplicateQueue.AlreadyQueued || duplicateQueue.Cursor != dashboard.CompanyEmployeeSyncCursor {
 		t.Fatalf("duplicate queue result=%+v", duplicateQueue)
 	}
+	if _, err := db.Exec(`UPDATE mc_work_update_time SET error_msg = ?, updated_at = NOW() WHERE corp_id = 100 AND type = 1`, `{"code":"SYNC_RUNNING","cursor":"company-sync","credentialVersion":1}`); err != nil {
+		t.Fatal(err)
+	}
+	refreshedQueue, err := store.QueueEmployeeSync(ctx, verifiedPrincipal, companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshedQueue.AlreadyQueued {
+		t.Fatalf("stale running marker was treated as current queued: %+v", refreshedQueue)
+	}
 	queuedStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queuedStatus.Status != "queued" || queuedStatus.Cursor != dashboard.CompanyEmployeeSyncCursor {
+	if queuedStatus.Status != "queued" || queuedStatus.Cursor != dashboard.CompanyEmployeeSyncCursor || queuedStatus.CredentialVersion != 3 {
 		t.Fatalf("queued sync status=%+v", queuedStatus)
 	}
-	if err := store.BeginCompanyEmployeeSync(ctx, verifiedPrincipal.TenantID); err != nil {
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, verifiedPrincipal.TenantID, 3, "2"); err != nil {
 		t.Fatal(err)
 	}
 	runningStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
@@ -246,7 +327,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if runningStatus.Status != "syncing" || runningStatus.Cursor != dashboard.CompanyEmployeeSyncCursor {
 		t.Fatalf("running sync status=%+v", runningStatus)
 	}
-	if err := store.RecordCompanyEmployeeSyncFailure(ctx, verifiedPrincipal.TenantID); err != nil {
+	if err := store.RecordCompanyEmployeeSyncFailureAtVersion(ctx, verifiedPrincipal.TenantID, 3, "2"); err != nil {
 		t.Fatal(err)
 	}
 	failedStatus, err := store.GetSyncStatus(ctx, verifiedPrincipal)
@@ -304,7 +385,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	}
 
 	countsBeforeSync := companyIdentityAndRBACCounts(t, db)
-	firstSync, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{
+	firstSync, err := runEmployeeSyncViaQueue(t, store, ctx, verifiedPrincipal, "3", companyprofile.EmployeeSyncData{
 		Departments: []companyprofile.SyncDepartment{{WXDepartmentID: 7, Name: "销售", WXParentID: 0, Order: 1}},
 		Employees: []companyprofile.SyncEmployee{{
 			WXUserID: "wecom-user-1", Name: "员工一", Mobile: "13900000001", Status: 1,
@@ -314,7 +395,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if firstSync.Status != "completed" || firstSync.DepartmentsCreated != 1 || firstSync.EmployeesCreated != 1 {
+	if firstSync.DepartmentsCreated != 1 || firstSync.EmployeesCreated != 1 || firstSync.RelationsCreated != 1 {
 		t.Fatalf("first sync=%+v", firstSync)
 	}
 	assertCompanySyncJSONHasNoCredentialMaterial(t, firstSync)
@@ -323,7 +404,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 		t.Fatalf("sync changed identity/RBAC tables: before=%v after=%v", countsBeforeSync, countsAfterFirstSync)
 	}
 
-	secondSync, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{
+	secondSync, err := runEmployeeSyncViaQueue(t, store, ctx, verifiedPrincipal, "4", companyprofile.EmployeeSyncData{
 		Departments: []companyprofile.SyncDepartment{{WXDepartmentID: 7, Name: "销售二部", WXParentID: 0, Order: 2}},
 		Employees: []companyprofile.SyncEmployee{{
 			WXUserID: "wecom-user-1", Name: "员工一离职", Mobile: "13900000001", Status: 2,
@@ -333,7 +414,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secondSync.Status != "completed" || secondSync.EmployeesUpdated != 1 {
+	if secondSync.DepartmentsUpdated != 1 || secondSync.EmployeesUpdated != 1 || secondSync.RelationsUpdated != 1 {
 		t.Fatalf("second sync=%+v", secondSync)
 	}
 	var employeeStatus int
@@ -351,7 +432,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	if _, err := db.Exec(`CREATE TRIGGER task10_company_sync_failure BEFORE INSERT ON mc_work_employee FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'company sync fixture failure'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{
+	if _, err := runEmployeeSyncViaQueue(t, store, ctx, verifiedPrincipal, "5", companyprofile.EmployeeSyncData{
 		Departments: []companyprofile.SyncDepartment{{WXDepartmentID: 8, Name: "不会提交", WXParentID: 0, Order: 1}},
 		Employees: []companyprofile.SyncEmployee{{
 			WXUserID: "wecom-user-rollback", Name: "回滚员工", Status: 1,
@@ -361,6 +442,9 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 		t.Fatal("sync trigger failure unexpectedly committed")
 	}
 	if _, err := db.Exec(`DROP TRIGGER IF EXISTS task10_company_sync_failure`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCompanyEmployeeSyncFailureAtVersion(ctx, verifiedPrincipal.TenantID, 5, "5"); err != nil {
 		t.Fatal(err)
 	}
 	if afterFailureData := companySyncDataCounts(t, db); afterFailureData != beforeFailureData {
@@ -375,7 +459,7 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 		t.Fatalf("sync status=%+v", status)
 	}
 	assertCompanySyncStatusJSONHasNoCredentialMaterial(t, status)
-	if _, err := store.SyncEmployeeData(ctx, verifiedPrincipal, companyprofile.EmployeeSyncData{}); err != nil {
+	if _, err := runEmployeeSyncViaQueue(t, store, ctx, verifiedPrincipal, "6", companyprofile.EmployeeSyncData{}); err != nil {
 		t.Fatal(err)
 	}
 	status, err = store.GetSyncStatus(ctx, verifiedPrincipal)
@@ -390,6 +474,265 @@ func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t
 	wrongCorp.CorpID = 200
 	if _, err := store.GetProfile(ctx, wrongCorp); !errors.Is(err, companyprofile.ErrNotFound) {
 		t.Fatalf("cross-corp profile error=%v, want ErrNotFound", err)
+	}
+}
+
+func runEmployeeSyncViaQueue(t *testing.T, store *MySQLStore, ctx context.Context, principal dashboardprincipal.DashboardPrincipal, ticket string, data companyprofile.EmployeeSyncData) (dashboard.WorkEmployeeSyncResult, error) {
+	t.Helper()
+	queued, err := store.QueueEmployeeSync(ctx, principal, companyprofile.EmployeeSyncEnqueueReceipt{
+		Cursor: dashboard.CompanyEmployeeSyncCursor, Ticket: ticket,
+	})
+	if err != nil {
+		return dashboard.WorkEmployeeSyncResult{}, err
+	}
+	if queued.AlreadyQueued {
+		return dashboard.WorkEmployeeSyncResult{}, fmt.Errorf("employee sync ticket %s was already queued", ticket)
+	}
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, principal.TenantID, 5, ticket); err != nil {
+		return dashboard.WorkEmployeeSyncResult{}, err
+	}
+	departments := make([]dashboard.WorkEmployeeSyncDepartment, 0, len(data.Departments))
+	for _, department := range data.Departments {
+		departments = append(departments, dashboard.WorkEmployeeSyncDepartment{
+			WXDepartmentID: department.WXDepartmentID, Name: department.Name,
+			WXParentID: department.WXParentID, Order: department.Order,
+		})
+	}
+	employees := make([]dashboard.WorkEmployeeSyncEmployee, 0, len(data.Employees))
+	for _, employee := range data.Employees {
+		employees = append(employees, dashboard.WorkEmployeeSyncEmployee{
+			WXUserID: employee.WXUserID, Name: employee.Name, Mobile: employee.Mobile,
+			Position: employee.Position, Gender: employee.Gender, Email: employee.Email,
+			Avatar: employee.Avatar, ThumbAvatar: employee.ThumbAvatar, Telephone: employee.Telephone,
+			Alias: employee.Alias, Status: employee.Status, QRCode: employee.QRCode,
+			Address: employee.Address, OpenUserID: employee.OpenUserID,
+			WXMainDepartmentID: employee.WXMainDepartmentID, DepartmentIDs: append([]int(nil), employee.DepartmentIDs...),
+			IsLeaderInDepartment: append([]int(nil), employee.IsLeaderInDepartment...), DepartmentOrders: append([]int(nil), employee.DepartmentOrders...),
+		})
+	}
+	return store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, 5, ticket, departments, employees)
+}
+
+func TestEmployeeSyncQueueTicketOrderingFencesDelayedWorkerRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey:       testCompanyCredentialKey(23),
+		EncryptionKeyID:     "queue-ticket-company-key",
+		RequireEncryption:   true,
+		DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{
+		UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending,
+		IsSuperAdmin: true, AuthVersion: 1,
+	}
+	ctx := context.Background()
+	profile, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{
+		ExpectedVersion: 1, RequestID: "queue-ticket-verify",
+	}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "queue-ticket-corp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
+
+	newerReceipt := companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "2", Cursor: dashboard.CompanyEmployeeSyncCursor}
+	if result, err := store.QueueEmployeeSync(ctx, principal, newerReceipt); err != nil || result.AlreadyQueued {
+		t.Fatalf("ticket2 queue result=%+v err=%v", result, err)
+	}
+	olderReceipt := companyprofile.EmployeeSyncEnqueueReceipt{Ticket: "1", Cursor: dashboard.CompanyEmployeeSyncCursor}
+	if result, err := store.QueueEmployeeSync(ctx, principal, olderReceipt); err != nil || !result.AlreadyQueued {
+		t.Fatalf("delayed ticket1 queue result=%+v err=%v, want stale no-write acknowledgement", result, err)
+	}
+
+	readMarker := func() companySyncStateMarker {
+		var raw string
+		if err := db.QueryRow(`SELECT COALESCE(CAST(error_msg AS CHAR),'') FROM mc_work_update_time WHERE corp_id=100 AND type=1 ORDER BY id DESC LIMIT 1`).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		return decodeCompanySyncState(raw)
+	}
+	marker := readMarker()
+	if marker.QueueTicket != "2" || marker.CredentialVersion != profile.BindingVersion || marker.Code != companySyncStateQueued {
+		t.Fatalf("delayed ticket1 overwrote marker: marker=%+v profileVersion=%d", marker, profile.BindingVersion)
+	}
+
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, principal.TenantID, profile.BindingVersion, "1"); err == nil {
+		t.Fatal("ticket1 unexpectedly began after ticket2 claim")
+	}
+	if _, err := store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, profile.BindingVersion, "1", nil, nil); err == nil {
+		t.Fatal("ticket1 unexpectedly completed after ticket2 claim")
+	}
+	marker = readMarker()
+	if marker.QueueTicket != "2" || marker.Code != companySyncStateQueued {
+		t.Fatalf("old ticket changed marker after rejected begin/complete: %+v", marker)
+	}
+
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, principal.TenantID, profile.BindingVersion, "2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, profile.BindingVersion, "2", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	marker = readMarker()
+	if marker.QueueTicket != "2" || marker.Code != companySyncStateCompleted {
+		t.Fatalf("current ticket did not complete: %+v", marker)
+	}
+	if _, err := store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, profile.BindingVersion, "1", nil, nil); err == nil {
+		t.Fatal("old ticket unexpectedly completed after current worker success")
+	}
+	marker = readMarker()
+	if marker.QueueTicket != "2" || marker.Code != companySyncStateCompleted {
+		t.Fatalf("old completion changed current marker: %+v", marker)
+	}
+}
+
+func TestEmployeeSyncWorkerRecoversMissingMarkerFromRedisTicketRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey:       testCompanyCredentialKey(29),
+		EncryptionKeyID:     "missing-marker-company-key",
+		RequireEncryption:   true,
+		DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{
+		UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending,
+		IsSuperAdmin: true, AuthVersion: 1,
+	}
+	ctx := context.Background()
+	profile, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{
+		ExpectedVersion: 1, RequestID: "missing-marker-verify",
+	}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "missing-marker-corp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal.CorpStatus = dashboardprincipal.CorpBindingStatusActive
+	var markerCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mc_work_update_time WHERE corp_id=100 AND type=1`).Scan(&markerCount); err != nil {
+		t.Fatal(err)
+	}
+	if markerCount != 0 {
+		t.Fatalf("fixture unexpectedly has a sync marker: %d", markerCount)
+	}
+
+	if err := store.BeginCompanyEmployeeSyncAtVersion(ctx, principal.TenantID, profile.BindingVersion, "7"); err != nil {
+		t.Fatal(err)
+	}
+	readMarker := func() companySyncStateMarker {
+		var raw string
+		if err := db.QueryRow(`SELECT COALESCE(CAST(error_msg AS CHAR),'') FROM mc_work_update_time WHERE corp_id=100 AND type=1 ORDER BY id DESC LIMIT 1`).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		return decodeCompanySyncState(raw)
+	}
+	marker := readMarker()
+	if marker.Code != companySyncStateRunning || marker.QueueTicket != "7" || marker.CredentialVersion != profile.BindingVersion {
+		t.Fatalf("missing-marker Begin marker=%+v profileVersion=%d", marker, profile.BindingVersion)
+	}
+	if _, err := store.SyncCompanyEmployeesAtVersion(ctx, principal.TenantID, profile.BindingVersion, "7", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	marker = readMarker()
+	if marker.Code != companySyncStateCompleted || marker.QueueTicket != "7" || marker.CredentialVersion != profile.BindingVersion {
+		t.Fatalf("missing-marker completion marker=%+v profileVersion=%d", marker, profile.BindingVersion)
+	}
+}
+
+func TestCompanyProfileCredentialRotationScopesVerifiedBindingInvalidationRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey: testCompanyCredentialKey(23), EncryptionKeyID: "rotation-invalidation-key",
+		RequireEncryption: true, DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending, IsSuperAdmin: true, AuthVersion: 1}
+	ctx := context.Background()
+
+	verified, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 1, RequestID: "rotation-invalidation-verify"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified corp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.VerifiedAt == nil || verified.WXCorpID != "ww-authoritative" || verified.BindingVersion != 2 {
+		t.Fatalf("verified profile=%+v", verified)
+	}
+
+	archiveSecret := "archive-after-verify"
+	archivePublic := "archive-public-after-verify"
+	archivePrivate := "archive-private-after-verify"
+	rotatedArchive, err := store.RotateArchiveCredentials(ctx, principal, companyprofile.ArchiveCredentialsInput{
+		ChatSecret: &archiveSecret, RSAPublicKey: &archivePublic, RSAPrivateKey: &archivePrivate,
+		ExpectedVersion: 2, RequestID: "rotation-preserve-archive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotatedArchive.VerifiedAt == nil || rotatedArchive.WXCorpID != "ww-authoritative" || rotatedArchive.AuthoritativeCorpName != "Verified corp" || rotatedArchive.BindingVersion != 3 {
+		t.Fatalf("archive credential rotation invalidated standard verification: %+v", rotatedArchive)
+	}
+
+	rotatedCallback, err := store.RegenerateCallbackConfiguration(ctx, principal, companyprofile.CallbackConfigurationInput{
+		Token: "callback-after-verify", EncodingAESKey: strings.Repeat("c", 43), ExpectedVersion: 3, RequestID: "rotation-preserve-callback",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotatedCallback.BindingVersion != 4 {
+		t.Fatalf("rotated callback=%+v", rotatedCallback)
+	}
+	verifiedAfterCallback, err := store.GetProfile(ctx, principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifiedAfterCallback.VerifiedAt == nil || verifiedAfterCallback.WXCorpID != "ww-authoritative" || verifiedAfterCallback.BindingVersion != 4 {
+		t.Fatalf("callback rotation invalidated standard verification: %+v", verifiedAfterCallback)
+	}
+
+	agentSecret := "agent-after-verify"
+	rotatedAgent, err := store.RotateAgentCredentials(ctx, principal, companyprofile.AgentCredentialsInput{AgentID: 300, WXSecret: &agentSecret, ExpectedVersion: 4, RequestID: "rotation-preserve-agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotatedAgent.VerifiedAt == nil || rotatedAgent.WXCorpID != "ww-authoritative" || rotatedAgent.BindingVersion != 5 {
+		t.Fatalf("agent credential rotation invalidated standard verification: %+v", rotatedAgent)
+	}
+
+	chatOnlySecret := "chat-only-after-verify"
+	rotatedNonStandard, err := store.RotateWeComCredentials(ctx, principal, companyprofile.WeComCredentialsInput{ChatSecret: &chatOnlySecret, ExpectedVersion: 5, RequestID: "rotation-preserve-chat-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotatedNonStandard.VerifiedAt == nil || rotatedNonStandard.WXCorpID != "ww-authoritative" || rotatedNonStandard.AuthoritativeCorpName != "Verified corp" || rotatedNonStandard.BindingVersion != 6 {
+		t.Fatalf("non-standard-only WeCom rotation invalidated standard verification: %+v", rotatedNonStandard)
+	}
+
+	rotatedSecret := "rotated-after-verify"
+	rotated, err := store.RotateWeComCredentials(ctx, principal, companyprofile.WeComCredentialsInput{EmployeeSecret: &rotatedSecret, ExpectedVersion: 6, RequestID: "rotation-invalidation-standard"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated.VerifiedAt != nil || rotated.WXCorpID != "" || rotated.AuthoritativeCorpName != "" || rotated.BindingVersion != 7 {
+		t.Fatalf("standard credential rotation retained stale verification: %+v", rotated)
+	}
+
+	verifiedAgain, err := store.CommitVerification(ctx, principal, companyprofile.VerifyInput{ExpectedVersion: 7, RequestID: "rotation-invalidation-reverify"}, companyprofile.VerificationResult{WXCorpID: "ww-authoritative", CorpName: "Verified again"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifiedAgain.VerifiedAt == nil || verifiedAgain.BindingVersion != 8 {
+		t.Fatalf("reverified profile=%+v", verifiedAgain)
+	}
+	configured, err := store.ConfigureApplication(ctx, principal, companyprofile.ApplicationCredentialsInput{WXAgentID: "100001", Secret: "rotated-application-after-verify", ExpectedVersion: 8, RequestID: "rotation-invalidation-application"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.VerifiedAt != nil || configured.WXCorpID != "" || configured.AuthoritativeCorpName != "" || configured.BindingVersion != 9 {
+		t.Fatalf("application credential rotation retained stale verification: %+v", configured)
 	}
 }
 
@@ -474,6 +817,7 @@ func prepareCompanyProfileRepositoryFixture(t *testing.T, db *sql.DB, manager *w
 	}
 	for _, statement := range []string{
 		`ALTER TABLE mc_corp ADD COLUMN chat_secret varchar(255) NOT NULL DEFAULT '', ADD COLUMN wecom_credentials_ciphertext text NULL, ADD COLUMN wecom_credentials_key_id varchar(64) NOT NULL DEFAULT ''`,
+		`ALTER TABLE mochat_go_tenant_corp_bindings ADD COLUMN employee_credential_generation BIGINT UNSIGNED NOT NULL DEFAULT 1, ADD COLUMN contact_credential_generation BIGINT UNSIGNED NOT NULL DEFAULT 1, ADD COLUMN agent_credential_generation BIGINT UNSIGNED NOT NULL DEFAULT 1, ADD COLUMN callback_credential_generation BIGINT UNSIGNED NOT NULL DEFAULT 1`,
 		`CREATE TABLE mc_work_agent (id int(10) unsigned NOT NULL AUTO_INCREMENT, corp_id int(11) NOT NULL, wx_agent_id varchar(255) NOT NULL DEFAULT '', wx_secret varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', square_logo_url varchar(255) NOT NULL DEFAULT '', description varchar(255) NOT NULL DEFAULT '', close tinyint NOT NULL DEFAULT 0, redirect_domain varchar(255) NOT NULL DEFAULT '', report_location_flag tinyint NOT NULL DEFAULT 0, is_reportenter tinyint NOT NULL DEFAULT 0, home_url varchar(255) NOT NULL DEFAULT '', created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at timestamp NULL DEFAULT NULL, deleted_at timestamp NULL DEFAULT NULL, wecom_credentials_ciphertext text NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_work_department (id int(10) unsigned NOT NULL AUTO_INCREMENT, wx_department_id int(10) unsigned NOT NULL DEFAULT 0, corp_id int(10) unsigned NOT NULL, name varchar(255) NOT NULL DEFAULT '', parent_id int(10) unsigned NOT NULL DEFAULT 0, wx_parentid int(10) unsigned NOT NULL DEFAULT 0, ` + "`order`" + ` int(10) unsigned NOT NULL DEFAULT 0, level tinyint NOT NULL DEFAULT 0, path varchar(255) NOT NULL DEFAULT '', created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`CREATE TABLE mc_work_employee (id int(10) unsigned NOT NULL AUTO_INCREMENT, wx_user_id varchar(255) NOT NULL DEFAULT '', corp_id int(11) NOT NULL DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', mobile char(11) NOT NULL DEFAULT '', position varchar(255) NOT NULL DEFAULT '', gender tinyint unsigned NOT NULL DEFAULT 0, email varchar(255) NOT NULL DEFAULT '', avatar varchar(255) NOT NULL DEFAULT '', thumb_avatar varchar(255) NOT NULL DEFAULT '', telephone varchar(255) NOT NULL DEFAULT '', alias varchar(255) NOT NULL DEFAULT '', extattr json DEFAULT NULL, status tinyint unsigned NOT NULL DEFAULT 0, qr_code varchar(255) NOT NULL DEFAULT '', external_profile json DEFAULT NULL, external_position varchar(255) DEFAULT '', address varchar(255) NOT NULL DEFAULT '', open_user_id char(100) NOT NULL DEFAULT '', wx_main_department_id int(10) unsigned NOT NULL DEFAULT 0, main_department_id int(11) NOT NULL DEFAULT 0, log_user_id int(10) unsigned NOT NULL DEFAULT 0, contact_auth tinyint NOT NULL DEFAULT 2, audit_status tinyint NOT NULL DEFAULT 0, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id), KEY idx_company_employee_corp (corp_id, deleted_at)) ENGINE=InnoDB`,
@@ -580,15 +924,70 @@ func assertCompanyProfileJSONHasNoCredentialMaterial(t *testing.T, profile compa
 	if err != nil {
 		t.Fatal(err)
 	}
-	lower := strings.ToLower(string(serialized))
-	for _, forbidden := range []string{"secret", "ciphertext", "password", "hash", "token"} {
-		if strings.Contains(lower, forbidden) {
-			t.Fatalf("profile JSON contains forbidden field %q", forbidden)
-		}
+	if err := credentialJSONMaterialError(serialized); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func assertCompanySyncJSONHasNoCredentialMaterial(t *testing.T, result companyprofile.SyncResult) {
+var forbiddenCredentialJSONKeys = map[string]struct{}{
+	"secret": {}, "employeesecret": {}, "contactsecret": {}, "agentsecret": {}, "wxsecret": {},
+	"callbacktoken": {}, "encodingaeskey": {}, "ciphertext": {}, "password": {}, "hash": {}, "token": {},
+	"chatsecret": {}, "rsaprivatekey": {}, "rsapublickey": {}, "privatekey": {}, "publickey": {},
+}
+
+func credentialJSONMaterialError(serialized []byte) error {
+	var document any
+	if err := json.Unmarshal(serialized, &document); err != nil {
+		return fmt.Errorf("credential JSON is invalid: %w", err)
+	}
+	if key := firstForbiddenCredentialJSONKey(document); key != "" {
+		return fmt.Errorf("credential JSON contains sensitive field %q", key)
+	}
+	for _, sentinel := range []string{"employee-fixture", "contact-fixture", "callback-fixture", "aes-fixture", "archive-fixture", "agent-fixture", "fixture-secret"} {
+		if strings.Contains(string(serialized), sentinel) {
+			return fmt.Errorf("credential JSON contains sensitive value sentinel %q", sentinel)
+		}
+	}
+	return nil
+}
+
+func firstForbiddenCredentialJSONKey(value any) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if _, forbidden := forbiddenCredentialJSONKeys[strings.ToLower(key)]; forbidden {
+				return key
+			}
+			if nested := firstForbiddenCredentialJSONKey(child); nested != "" {
+				return nested
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if nested := firstForbiddenCredentialJSONKey(child); nested != "" {
+				return nested
+			}
+		}
+	}
+	return ""
+}
+
+func TestCompanyProfileCredentialJSONGuardUsesExactKeys(t *testing.T) {
+	if err := credentialJSONMaterialError([]byte(`{"credentials":{"agentSecretConfigured":true,"employeeConfigured":true}}`)); err != nil {
+		t.Fatalf("configured booleans were rejected: %v", err)
+	}
+	for _, key := range []string{"secret", "employeeSecret", "contactSecret", "agentSecret", "wxSecret", "callbackToken", "encodingAESKey", "ciphertext", "password", "hash"} {
+		payload := []byte(`{"` + key + `":"redacted"}`)
+		if err := credentialJSONMaterialError(payload); err == nil {
+			t.Fatalf("sensitive key %q was accepted", key)
+		}
+	}
+	if err := credentialJSONMaterialError([]byte(`{"diagnostic":"employee-fixture"}`)); err == nil {
+		t.Fatal("fixture secret value was accepted")
+	}
+}
+
+func assertCompanySyncJSONHasNoCredentialMaterial(t *testing.T, result any) {
 	t.Helper()
 	serialized, err := json.Marshal(result)
 	if err != nil {

@@ -78,3 +78,57 @@ func TestEmployeeApplyAckKeepsOtherQueueCompletionSemantics(t *testing.T) {
 		}
 	}
 }
+
+func TestEmployeeApplyCleanupOnlyReleasesMatchingQueueTicket(t *testing.T) {
+	sourceBytes, err := os.ReadFile("redis.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, required := range []string{
+		"QueueTicket",
+		"redis.call(\"GET\", ARGV[2])",
+		"current == ARGV[3]",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("employee cleanup does not fence idempotency release by ticket %q", required)
+		}
+	}
+}
+
+func TestEmployeeApplyEnqueueRollsBackClaimWhenAppendFails(t *testing.T) {
+	sourceBytes, err := os.ReadFile("redis.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, required := range []string{
+		"TYPE",
+		"pcall(redis.call, \"RPUSH\"",
+		"redis.call(\"DEL\", KEYS[2])",
+		"employee apply enqueue append failed",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("employee enqueue failure rollback contract missing %q", required)
+		}
+	}
+}
+
+func TestEmployeeApplyDeadLetterReleasesEnvelopeIdempotencyKeyAtomically(t *testing.T) {
+	sourceBytes, err := os.ReadFile("redis.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, required := range []string{
+		"moveReliableQueueItemAndReleaseIdempotency",
+		"reliableQueueRetryOptions",
+		"DeadLetterKey",
+		"IdempotencyKey",
+		"redis.call(\"DEL\", KEYS[3])",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("dead-letter idempotency release contract missing %q", required)
+		}
+	}
+}

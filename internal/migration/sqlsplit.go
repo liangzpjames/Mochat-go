@@ -23,7 +23,7 @@ func SplitSQLStatements(script string) ([]string, error) {
 		}
 
 		if inLineComment {
-			if ch == '\n' {
+			if ch == '\n' || ch == '\r' {
 				inLineComment = false
 				b.WriteByte(ch)
 			}

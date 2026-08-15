@@ -25,6 +25,13 @@ func main() {
 }
 
 func run(args []string) error {
+	return runWith(args, os.Getenv, sql.Open)
+}
+
+type environmentReader func(string) string
+type mysqlOpener func(string, string) (*sql.DB, error)
+
+func runWith(args []string, getenv environmentReader, open mysqlOpener) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: mochat-archive-simulator apply|status|cleanup --corp-id N --batch NAME")
 	}
@@ -35,14 +42,18 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("mochat-archive-simulator "+action, flag.ContinueOnError)
 	corpID := flags.Int("corp-id", 0, "target corp id")
 	batch := flags.String("batch", "acceptance", "isolated simulation batch key")
+	enableSimulation := flags.Bool("enable-simulation", false, "explicitly enable simulated archive writes/reads")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_MYSQL_DSN"))
+	if err := requireSimulationEnabled(*enableSimulation); err != nil {
+		return err
+	}
+	dsn := strings.TrimSpace(getenv("MOCHAT_MYSQL_DSN"))
 	if dsn == "" {
 		return fmt.Errorf("MOCHAT_MYSQL_DSN is required")
 	}
-	db, err := sql.Open("mysql", dsn)
+	db, err := open("mysql", dsn)
 	if err != nil {
 		return err
 	}
@@ -68,4 +79,11 @@ func run(args []string) error {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(result)
+}
+
+func requireSimulationEnabled(enabled bool) error {
+	if !enabled {
+		return fmt.Errorf("simulation is disabled; pass --enable-simulation explicitly")
+	}
+	return nil
 }

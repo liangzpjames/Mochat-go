@@ -17,16 +17,16 @@ type companyProfileTestScheduler struct {
 	beforeEnqueue func()
 }
 
-func (s *companyProfileTestScheduler) EnqueueEmployeeSync(_ context.Context, bindingID int) (string, error) {
+func (s *companyProfileTestScheduler) EnqueueEmployeeSync(_ context.Context, bindingID int) (EmployeeSyncEnqueueReceipt, error) {
 	if s.beforeEnqueue != nil {
 		s.beforeEnqueue()
 	}
 	s.calls++
 	s.bindingID = bindingID
 	if s.err != nil {
-		return "", s.err
+		return EmployeeSyncEnqueueReceipt{}, s.err
 	}
-	return s.cursor, nil
+	return EmployeeSyncEnqueueReceipt{Cursor: s.cursor, Ticket: "test-ticket-1"}, nil
 }
 
 func TestServiceEmployeeSyncEnqueuesTenantBindingWithoutProviderCall(t *testing.T) {
@@ -65,7 +65,7 @@ func TestServiceEmployeeSyncRecordsSafeFailureWhenQueueUnavailable(t *testing.T)
 	}
 }
 
-func TestServiceKeepsQueuedWhenMarkerFailureRacesWithCompletedWorker(t *testing.T) {
+func TestServiceReturnsStoreFailureWhenMarkerWriteFailsAfterRedisEnqueue(t *testing.T) {
 	store := &companyProfileContractStore{
 		verificationSnapshot: VerificationSnapshot{
 			Verified: true, WXCorpID: "ww-authoritative", BindingVersion: 1,
@@ -76,7 +76,7 @@ func TestServiceKeepsQueuedWhenMarkerFailureRacesWithCompletedWorker(t *testing.
 	service := NewService(store, &companyProfileTestVerifier{}).WithEmployeeSyncScheduler(scheduler)
 
 	result, err := service.StartEmployeeSync(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusActive))
-	if err != nil || result.Status != "queued" || result.Cursor != "company-sync" {
+	if !errors.Is(err, ErrStoreUnavailable) || result.Status != "failed" || result.ErrorCode != "SYNC_FAILED" || result.Cursor != "company-sync" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	if store.failureCalls != 0 || store.syncState != "completed" {

@@ -15,15 +15,31 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"jiyi/mochat-go/internal/modules/providers"
+	"jiyi/mochat-go/internal/wecomcapability"
 )
 
 const defaultWeComAPIBaseURL = "https://qyapi.weixin.qq.com"
 
 type RoomWelcomeWeComClient struct {
-	baseURL    string
-	httpClient *http.Client
-	mu         sync.Mutex
-	tokens     map[string]cachedWeComToken
+	baseURL                  string
+	httpClient               *http.Client
+	mu                       sync.Mutex
+	tokens                   map[string]cachedWeComToken
+	callbackRouteConfigured  bool
+	callbackWorkerConfigured bool
+}
+
+// WithCallbackRuntime binds production callback route/worker configuration to
+// the runtime adapter. These flags are prerequisites only; a successful
+// callback operation/event is required before status can become ready.
+func (c *RoomWelcomeWeComClient) WithCallbackRuntime(routeConfigured, workerConfigured bool) *RoomWelcomeWeComClient {
+	if c != nil {
+		c.callbackRouteConfigured = routeConfigured
+		c.callbackWorkerConfigured = workerConfigured
+	}
+	return c
 }
 
 type cachedWeComToken struct {
@@ -40,6 +56,31 @@ func NewRoomWelcomeWeComClient(baseURL string) *RoomWelcomeWeComClient {
 		baseURL:    baseURL,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		tokens:     map[string]cachedWeComToken{},
+	}
+}
+
+// Status reports the runtime adapter boundary only. Tenant credential and
+// verification evidence is supplied by companyprofile.ProviderStatusSource.
+func (c *RoomWelcomeWeComClient) Status() providers.Status {
+	if c == nil || strings.TrimSpace(c.baseURL) == "" {
+		return providers.Status{
+			Kind:   "wecom_standard",
+			State:  providers.StateUnavailable,
+			Code:   "wecom.runtime_component_missing",
+			Source: providers.SourceExternal,
+			Action: "启用企业微信运行时组件",
+		}
+	}
+	return providers.Status{
+		Kind:                     "wecom_standard",
+		State:                    providers.StateLimited,
+		Code:                     "wecom.tenant_credentials_required",
+		Source:                   providers.SourceExternal,
+		Capabilities:             append([]string(nil), wecomcapability.All...),
+		Reason:                   "企业微信 HTTP runtime 已就绪，当前状态需由租户凭据和验证结果决定",
+		Action:                   "完成企业微信凭据配置与验证",
+		CallbackRouteConfigured:  c.callbackRouteConfigured,
+		CallbackWorkerConfigured: c.callbackWorkerConfigured,
 	}
 }
 
@@ -266,6 +307,18 @@ func (c *RoomWelcomeWeComClient) SendAgentTextMessage(ctx context.Context, crede
 	})
 }
 
+func (c *RoomWelcomeWeComClient) SendAgentTextMessageWithDuplicateCheck(ctx context.Context, credential RoomTagPullAgentCredential, toUser string, content string) error {
+	return c.SendAgentMessage(ctx, credential, WorkAgentMessagePayload{
+		ToUser:  toUser,
+		MsgType: "text",
+		Content: content,
+		Extra: map[string]any{
+			"enable_duplicate_check":   1,
+			"duplicate_check_interval": 1800,
+		},
+	})
+}
+
 func (c *RoomWelcomeWeComClient) SendAgentMessage(ctx context.Context, credential RoomTagPullAgentCredential, payload WorkAgentMessagePayload) error {
 	token, err := c.accessToken(ctx, RoomWelcomeCorpCredential{
 		WXCorpID:      credential.WXCorpID,
@@ -486,8 +539,7 @@ func (c *RoomWelcomeWeComClient) postJSON(ctx context.Context, path string, acce
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("企业微信接口 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return weComHTTPError(resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return err
@@ -527,8 +579,7 @@ func (c *RoomWelcomeWeComClient) postMultipart(ctx context.Context, path string,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("企业微信接口 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return weComHTTPError(resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return err
@@ -554,10 +605,19 @@ func (r weComBaseResponse) Err() error {
 	if r.ErrCode == 0 {
 		return nil
 	}
-	if r.ErrMsg == "" {
-		return fmt.Errorf("errcode=%d", r.ErrCode)
-	}
-	return fmt.Errorf("%s", r.ErrMsg)
+	return weComAPIError{code: r.ErrCode}
+}
+
+type weComAPIError struct {
+	code int
+}
+
+func (e weComAPIError) Error() string {
+	return fmt.Sprintf("WECOM_API_ERROR_%d", e.code)
+}
+
+func weComHTTPError(statusCode int) error {
+	return fmt.Errorf("WECOM_HTTP_ERROR_%d", statusCode)
 }
 
 func roomWelcomeTemplateRequest(payload RoomWelcomeTemplatePayload, templateID string) map[string]any {

@@ -32,29 +32,48 @@ var (
 )
 
 type Profile struct {
-	TenantID              int                `json:"tenantId"`
-	CorpID                int                `json:"corpId"`
-	DisplayName           string             `json:"displayName"`
-	AuthoritativeCorpName string             `json:"authoritativeCorpName,omitempty"`
-	WXCorpID              string             `json:"wxCorpId,omitempty"`
-	ApplicationAgentID    string             `json:"applicationAgentId,omitempty"`
-	BindingStatus         string             `json:"bindingStatus"`
-	BindingVersion        uint64             `json:"bindingVersion"`
-	VerifiedAt            *time.Time         `json:"verifiedAt,omitempty"`
-	Credentials           CredentialStatuses `json:"credentials"`
-	UpdatedAt             time.Time          `json:"updatedAt"`
+	TenantID              int                     `json:"tenantId"`
+	CorpID                int                     `json:"corpId"`
+	DisplayName           string                  `json:"displayName"`
+	AuthoritativeCorpName string                  `json:"authoritativeCorpName,omitempty"`
+	WXCorpID              string                  `json:"wxCorpId,omitempty"`
+	ApplicationAgentID    string                  `json:"applicationAgentId,omitempty"`
+	BindingStatus         string                  `json:"bindingStatus"`
+	BindingVersion        uint64                  `json:"bindingVersion"`
+	CredentialGenerations CredentialGenerationSet `json:"-"`
+	VerifiedAt            *time.Time              `json:"verifiedAt,omitempty"`
+	Credentials           CredentialStatuses      `json:"credentials"`
+	UpdatedAt             time.Time               `json:"updatedAt"`
+}
+
+// CredentialGenerationSet is the non-secret version evidence for the four
+// independent credential groups. It is never serialized to Dashboard JSON.
+// A generation changes only when its group changes; archive/configuration
+// changes must not silently advance these values.
+type CredentialGenerationSet struct {
+	Employee uint64
+	Contact  uint64
+	Agent    uint64
+	Callback uint64
 }
 
 type CredentialStatuses struct {
-	WeCom   CredentialStatus `json:"wecom"`
-	Agent   CredentialStatus `json:"agent"`
-	Archive CredentialStatus `json:"archive"`
+	WeCom    CredentialStatus `json:"wecom"`
+	Agent    CredentialStatus `json:"agent"`
+	Archive  CredentialStatus `json:"archive"`
+	Callback CredentialStatus `json:"callback"`
 }
 
 type CredentialStatus struct {
-	Configured bool       `json:"configured"`
-	KeyID      string     `json:"keyId,omitempty"`
-	UpdatedAt  *time.Time `json:"updatedAt,omitempty"`
+	Configured              bool       `json:"configured"`
+	EmployeeConfigured      bool       `json:"employeeConfigured,omitempty"`
+	ContactConfigured       bool       `json:"contactConfigured,omitempty"`
+	CallbackTokenConfigured bool       `json:"callbackTokenConfigured,omitempty"`
+	CallbackAESConfigured   bool       `json:"callbackAESConfigured,omitempty"`
+	AgentIDConfigured       bool       `json:"agentIdConfigured,omitempty"`
+	AgentSecretConfigured   bool       `json:"agentSecretConfigured,omitempty"`
+	KeyID                   string     `json:"keyId,omitempty"`
+	UpdatedAt               *time.Time `json:"updatedAt,omitempty"`
 }
 
 type UpdateProfileInput struct {
@@ -205,13 +224,16 @@ type SyncResult struct {
 }
 
 type SyncStatus struct {
-	Status      string     `json:"status"`
-	Cursor      string     `json:"cursor,omitempty"`
-	Departments int        `json:"departments"`
-	Employees   int        `json:"employees"`
-	StartedAt   *time.Time `json:"startedAt,omitempty"`
-	FinishedAt  *time.Time `json:"finishedAt,omitempty"`
-	ErrorCode   string     `json:"errorCode,omitempty"`
+	Status string `json:"status"`
+	Cursor string `json:"cursor,omitempty"`
+	// CredentialVersion is required for a completed state to be current
+	// evidence. Legacy markers without it remain limited/pending.
+	CredentialVersion uint64     `json:"-"`
+	Departments       int        `json:"departments"`
+	Employees         int        `json:"employees"`
+	StartedAt         *time.Time `json:"startedAt,omitempty"`
+	FinishedAt        *time.Time `json:"finishedAt,omitempty"`
+	ErrorCode         string     `json:"errorCode,omitempty"`
 }
 
 type SyncDepartment struct {
@@ -248,7 +270,16 @@ type EmployeeSyncData struct {
 }
 
 type EmployeeSyncScheduler interface {
-	EnqueueEmployeeSync(context.Context, int) (string, error)
+	EnqueueEmployeeSync(context.Context, int) (EmployeeSyncEnqueueReceipt, error)
+}
+
+// EmployeeSyncEnqueueReceipt is produced by the queue authority. Ticket is the
+// authoritative marker fence; RequestedAt is server-clock diagnostic context
+// only and is never used to decide whether a completion may be preserved.
+type EmployeeSyncEnqueueReceipt struct {
+	Cursor      string
+	Ticket      string
+	RequestedAt time.Time
 }
 
 type EmployeeSyncQueueResult struct {
@@ -261,6 +292,6 @@ type SyncStore interface {
 }
 
 type EmployeeSyncQueueStore interface {
-	QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal) (EmployeeSyncQueueResult, error)
+	QueueEmployeeSync(context.Context, dashboardprincipal.DashboardPrincipal, EmployeeSyncEnqueueReceipt) (EmployeeSyncQueueResult, error)
 	RecordEmployeeSyncFailure(context.Context, dashboardprincipal.DashboardPrincipal) error
 }

@@ -124,7 +124,7 @@ func (s *MySQLStore) loadAgentCredentialByID(ctx context.Context, queryer queryR
 		       COALESCE(a.wecom_credentials_ciphertext, ''), COALESCE(a.wecom_credentials_key_id, '')
 		FROM mc_work_agent a
 		JOIN mc_corp c ON c.id = a.corp_id AND c.deleted_at IS NULL
-		WHERE a.id = ? AND a.deleted_at IS NULL`+suffix, agentID)
+		WHERE a.id = ? AND a.close = 0 AND a.deleted_at IS NULL`+suffix, agentID)
 	var item agentCredentialRecord
 	if err := row.Scan(&item.ID, &item.CorpID, &item.TenantID, &item.WXCorpID, &item.WXAgentID, &item.Ciphertext, &item.KeyID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

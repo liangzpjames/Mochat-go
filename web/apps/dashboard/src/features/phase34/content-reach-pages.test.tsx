@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../app/access-context';
 import type { AccessContext } from '../../app/access-loader';
@@ -17,6 +17,8 @@ const access: AccessContext = {
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+beforeAll(() => { vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
+
 function view(page: React.ReactNode) {
   return render(
     <MemoryRouter>
@@ -25,6 +27,26 @@ function view(page: React.ReactNode) {
       </QueryClientProvider>
     </MemoryRouter>,
   );
+}
+
+// The drawer's multi-select onChange reads event.target.selectedOptions.
+// fireEvent.change assigns `value` as a plain data property (bypassing the
+// native setter), which does not update option selectedness, so we set each
+// option's selected flag directly before dispatching the change event.
+function changeMultiSelectValue(select: HTMLElement, value: string): void {
+  for (const option of Array.from(select.querySelectorAll('option'))) {
+    option.selected = option.getAttribute('value') === value;
+  }
+  fireEvent.change(select);
+}
+
+// Multi-value variant of changeMultiSelectValue: selects every option whose
+// value is listed (and deselects the rest) before dispatching a single change.
+function changeMultiSelectValues(select: HTMLElement, values: string[]): void {
+  for (const option of Array.from(select.querySelectorAll('option'))) {
+    option.selected = values.includes(option.getAttribute('value') ?? '');
+  }
+  fireEvent.change(select);
 }
 
 describe('Phase 3.4 content-reach pages', () => {
@@ -47,7 +69,9 @@ describe('Phase 3.4 content-reach pages', () => {
   });
 
   it('requires member IDs for customer sends and keeps external provider status explicit', async () => {
-    const read = vi.fn().mockResolvedValue({ list: [] });
+    const read = vi.fn().mockImplementation((path: string) => Promise.resolve(path === '/workEmployee/index'
+      ? { list: [{ id: 999999, name: '测试员工', departmentName: '销售部' }] }
+      : path === '/workContact/index' ? { list: [{ id: 501, contactId: 501, employeeId: 999999, name: '测试客户', employeeName: '测试员工' }] } : { list: [] }));
     const write = vi.fn().mockRejectedValue(new Error('客户群发 Provider 返回 422：员工无效'));
     view(<PreciseGroupSendPage api={{ read, write }} />);
 
@@ -62,14 +86,23 @@ describe('Phase 3.4 content-reach pages', () => {
     fireEvent.click(submit);
     expect(write).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText('发送成员ID'), { target: { value: '999999' } });
-    expect(submit).toHaveProperty('disabled', false);
+    await screen.findByRole('option', { name: /测试员工/ });
+    changeMultiSelectValue(screen.getByLabelText('发送成员选择'), '999999');
+    fireEvent.change(screen.getByLabelText('搜索客户'), { target: { value: '测试' } });
+    await waitFor(() => expect(read).toHaveBeenCalledWith('/workContact/index', expect.objectContaining({ keyWords: '测试', employeeId: '999999' })));
+    await screen.findByRole('option', { name: /测试客户/ });
+    changeMultiSelectValue(screen.getByLabelText('客户选择'), '999999:501');
+    await waitFor(() => expect(submit).toHaveProperty('disabled', false));
     fireEvent.click(submit);
+    expect(write).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
     expect((await screen.findByRole('alert')).textContent).toContain('客户群发 Provider 返回 422');
   });
 
   it('requires a real group owner ID for room sends and renders the room provider error in the drawer', async () => {
-    const read = vi.fn().mockResolvedValue({ list: [] });
+    const read = vi.fn().mockImplementation((path: string) => Promise.resolve(path === '/workEmployee/index'
+      ? { list: [{ id: 999999, name: '测试群主', departmentName: '销售部' }] }
+      : path === '/workRoom/index' ? { list: [{ id: 601, roomId: 601, ownerId: 999999, name: '测试群' }] } : { list: [] }));
     const write = vi.fn().mockRejectedValue(new Error('群聊群发 Provider 返回 422：群主无效'));
     view(<PreciseGroupSendPage api={{ read, write }} />);
 
@@ -81,21 +114,88 @@ describe('Phase 3.4 content-reach pages', () => {
     fireEvent.change(screen.getByLabelText('群发内容'), { target: { value: '群聊触达内容' } });
 
     const submit = screen.getByRole('button', { name: '保存并发送' });
-    expect(screen.getByLabelText('群主ID')).toBeTruthy();
+    expect(screen.getByLabelText('群主选择')).toBeTruthy();
     expect(submit).toHaveProperty('disabled', true);
-    fireEvent.change(screen.getByLabelText('群主ID'), { target: { value: '999999' } });
-    expect(submit).toHaveProperty('disabled', false);
+    await screen.findByRole('option', { name: /测试群主/ });
+    changeMultiSelectValue(screen.getByLabelText('群主选择'), '999999');
+    await waitFor(() => expect(read).toHaveBeenCalledWith('/workRoom/index', expect.objectContaining({ workRoomOwnerId: '999999' })));
+    await screen.findByRole('option', { name: '测试群' });
+    changeMultiSelectValue(screen.getByLabelText('群聊选择'), '999999:601');
+    await waitFor(() => expect(submit).toHaveProperty('disabled', false));
     fireEvent.click(submit);
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
     expect((await screen.findByRole('alert')).textContent).toContain('群聊群发 Provider 返回 422');
+    const roomCreatePayload: Record<string, unknown> = {
+      batchTitle: '群聊空群主校验', employeeIds: [999999],
+      roomTargets: [{ ownerEmployeeId: 999999, roomId: 601 }],
+      idempotencyKey: expect.any(String), sendWay: 1,
+      content: [{ msgType: 'text', content: '群聊触达内容' }],
+    };
     await waitFor(() => expect(write).toHaveBeenCalledWith(
       '/roomMessageBatchSend/store',
-      { batchTitle: '群聊空群主校验', employeeIds: [999999], sendWay: 1, content: [{ msgType: 'text', content: '群聊触达内容' }] },
+      expect.objectContaining(roomCreatePayload),
+      'POST',
+    ));
+  });
+
+  it('loads rooms per selected owner and keys each room target with its owning employee id', async () => {
+    const read = vi.fn().mockImplementation((path: string, query: Record<string, string | number> = {}) => {
+      if (path === '/workEmployee/index') {
+        return Promise.resolve({ list: [
+          { id: 999999, name: '测试群主', departmentName: '销售部' },
+          { id: 888888, name: '二群主', departmentName: '销售部' },
+        ] });
+      }
+      if (path === '/workRoom/index') {
+        return Promise.resolve({ list: String(query.workRoomOwnerId) === '888888'
+          ? [{ id: 602, roomId: 602, name: '二群' }]
+          : [{ id: 601, roomId: 601, name: '测试群' }] });
+      }
+      return Promise.resolve({ list: [] });
+    });
+    const write = vi.fn().mockResolvedValue(undefined);
+    view(<PreciseGroupSendPage api={{ read, write }} />);
+
+    await screen.findByRole('heading', { name: '暂无群发任务' });
+    fireEvent.click(screen.getByRole('tab', { name: '群聊群发' }));
+    await screen.findByRole('heading', { name: '暂无群发任务' });
+    fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
+    fireEvent.change(screen.getAllByLabelText('任务名称')[1]!, { target: { value: '双群主群发' } });
+    fireEvent.change(screen.getByLabelText('群发内容'), { target: { value: '双群主触达内容' } });
+
+    const submit = screen.getByRole('button', { name: '保存并发送' });
+    expect(submit).toHaveProperty('disabled', true);
+    await screen.findByRole('option', { name: /测试群主/ });
+    changeMultiSelectValues(screen.getByLabelText('群主选择'), ['999999', '888888']);
+    await waitFor(() => expect(read).toHaveBeenCalledWith('/workRoom/index', expect.objectContaining({ workRoomOwnerId: '999999' })));
+    await waitFor(() => expect(read).toHaveBeenCalledWith('/workRoom/index', expect.objectContaining({ workRoomOwnerId: '888888' })));
+    await screen.findByRole('option', { name: '测试群' });
+    await screen.findByRole('option', { name: '二群' });
+    changeMultiSelectValues(screen.getByLabelText('群聊选择'), ['999999:601', '888888:602']);
+    await waitFor(() => expect(submit).toHaveProperty('disabled', false));
+    fireEvent.click(submit);
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+
+    const multiOwnerPayload: Record<string, unknown> = {
+      batchTitle: '双群主群发', employeeIds: [999999, 888888],
+      roomTargets: [
+        { ownerEmployeeId: 999999, roomId: 601 },
+        { ownerEmployeeId: 888888, roomId: 602 },
+      ],
+      idempotencyKey: expect.any(String), sendWay: 1,
+      content: [{ msgType: 'text', content: '双群主触达内容' }],
+    };
+    await waitFor(() => expect(write).toHaveBeenCalledWith(
+      '/roomMessageBatchSend/store',
+      expect.objectContaining(multiOwnerPayload),
       'POST',
     ));
   });
 
   it('creates an immediate customer precise-send task through the real provider', async () => {
-    const read = vi.fn().mockResolvedValue({ list: [] });
+    const read = vi.fn().mockImplementation((path: string) => Promise.resolve(path === '/workEmployee/index'
+      ? { list: [{ id: 99, name: '测试员工' }] }
+      : path === '/workContact/index' ? { list: [{ id: 301, contactId: 301, employeeId: 99, name: '测试客户' }] } : { list: [] }));
     const write = vi.fn().mockResolvedValue(undefined);
     view(<PreciseGroupSendPage api={{ read, write }} />);
 
@@ -103,19 +203,31 @@ describe('Phase 3.4 content-reach pages', () => {
     fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
     expect(screen.getByLabelText('新建群发任务')).toBeTruthy();
     fireEvent.change(screen.getAllByLabelText('任务名称')[1]!, { target: { value: '夏日客户触达' } });
-    fireEvent.change(screen.getByLabelText('发送成员ID'), { target: { value: '99' } });
+    await screen.findByRole('option', { name: /测试员工/ });
+    changeMultiSelectValue(screen.getByLabelText('发送成员选择'), '99');
+    await screen.findByRole('option', { name: /测试客户/ });
+    changeMultiSelectValue(screen.getByLabelText('客户选择'), '99:301');
     fireEvent.change(screen.getByLabelText('群发内容'), { target: { value: '欢迎参与夏日活动' } });
     fireEvent.click(screen.getByRole('button', { name: '保存并发送' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
 
+    const createPayload: Record<string, unknown> = {
+      batchTitle: '夏日客户触达', employeeIds: [99], sendWay: 1, filterParams: {},
+      contactTargets: [{ employeeId: 99, contactId: 301 }], idempotencyKey: expect.any(String),
+      content: [{ msgType: 'text', content: '欢迎参与夏日活动' }],
+    };
     await waitFor(() => expect(write).toHaveBeenCalledWith(
       '/contactMessageBatchSend/store',
-      { batchTitle: '夏日客户触达', employeeIds: [99], sendWay: 1, filterParams: {}, content: [{ msgType: 'text', content: '欢迎参与夏日活动' }] },
+      expect.objectContaining(createPayload),
       'POST',
     ));
   });
 
   it('persists a selected material reference when creating a precise-send task', async () => {
-    const read = vi.fn().mockImplementation((endpoint: string) => endpoint === '/materialSelector/index'
+    const read = vi.fn().mockImplementation((endpoint: string) => endpoint === '/workEmployee/index'
+      ? Promise.resolve({ list: [{ id: 99, name: '测试员工' }] })
+      : endpoint === '/workContact/index' ? Promise.resolve({ list: [{ id: 301, contactId: 301, employeeId: 99, name: '测试客户' }] })
+      : endpoint === '/materialSelector/index'
       ? Promise.resolve({ list: [{ id: 45, name: '群发话术', preview: '欢迎咨询' }] })
       : Promise.resolve({ list: [] }));
     const write = vi.fn().mockResolvedValue(undefined);
@@ -124,10 +236,14 @@ describe('Phase 3.4 content-reach pages', () => {
     await screen.findByRole('heading', { name: '暂无群发任务' });
     fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
     fireEvent.change(screen.getAllByLabelText('任务名称')[1]!, { target: { value: '引用素材群发' } });
-    fireEvent.change(screen.getByLabelText('发送成员ID'), { target: { value: '99' } });
+    await screen.findByRole('option', { name: /测试员工/ });
+    changeMultiSelectValue(screen.getByLabelText('发送成员选择'), '99');
+    await screen.findByRole('option', { name: /测试客户/ });
+    changeMultiSelectValue(screen.getByLabelText('客户选择'), '99:301');
     await screen.findByRole('option', { name: '群发话术' });
     fireEvent.change(screen.getByRole('combobox', { name: '引用素材' }), { target: { value: '45' } });
     fireEvent.click(screen.getByRole('button', { name: '保存并发送' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
 
     await waitFor(() => expect(write).toHaveBeenCalledWith(
       '/contactMessageBatchSend/store',
@@ -145,7 +261,27 @@ describe('Phase 3.4 content-reach pages', () => {
     expect(await screen.findByText('恢复后的任务')).toBeTruthy();
     expect(screen.getByText('20 / 12')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '详情' }));
-    expect(screen.getByLabelText('群发任务详情').textContent).toContain('执行数据');
+    await waitFor(() => expect(screen.getByLabelText('群发任务详情').textContent).toContain('执行数据'));
+  });
+
+  it('keeps key controls and table reachable at a 390px viewport with local scroll', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    const read = vi.fn().mockResolvedValue({ list: [{ id: 8, batchTitle: '夏日活动', content: [{ type: 'text', content: '欢迎参与' }], sendStatus: 1, sendTotal: 20, receivedTotal: 12, createdAt: '2026-08-04 10:00' }] });
+    view(<PreciseGroupSendPage api={{ read, write: vi.fn() }} />);
+
+    await screen.findByText('欢迎参与');
+    expect(screen.getByRole('button', { name: '新建群发' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '详情' })).toBeTruthy();
+    expect(screen.getByLabelText('任务名称')).toBeTruthy();
+    // The results table must be inside a local scroll container so the
+    // 720px-min table never forces document-level horizontal overflow.
+    expect(screen.getByRole('table').closest('.dashboard-table-scroll')).toBeTruthy();
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+
+    fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
+    expect(screen.getByLabelText('发送成员选择')).toBeTruthy();
+    expect(screen.getByLabelText('群发内容')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '保存并发送' })).toBeTruthy();
   });
 
   it('queries real friends-circle tasks and materials and persists a draft', async () => {

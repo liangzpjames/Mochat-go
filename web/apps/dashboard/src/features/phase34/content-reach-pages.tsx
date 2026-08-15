@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { ConfirmAction } from '../../components/confirm-action';
 import { DashboardDialog } from '../../components/dashboard-dialog';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
@@ -20,6 +21,43 @@ function rowsFrom(payload: unknown): ReachRecord[] {
   const data = isRecord(payload.data) ? payload.data : payload;
   const candidate = [data.list, data.items, data.rows, isRecord(data.data) ? data.data.list : undefined].find(Array.isArray);
   return Array.isArray(candidate) ? candidate.filter(isRecord) : [];
+}
+
+function selectorTotalPages(payload: unknown): number | null {
+  if (!isRecord(payload)) return null;
+  const data = isRecord(payload.data) ? payload.data : payload;
+  const page = isRecord(data.page) ? data.page : undefined;
+  const pagination = isRecord(data.pagination) ? data.pagination : undefined;
+  const candidates = [
+    data.totalPage, data.total_page,
+    page?.totalPage, page?.total_page,
+    pagination?.totalPage, pagination?.total_page,
+  ];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isInteger(value) && value > 0) return value;
+  }
+  return null;
+}
+
+async function fetchAllSelectorPages(api: BusinessWorkbenchApi, endpoint: string, query: Record<string, string | number>): Promise<unknown> {
+  const perPage = 100;
+  const first = await api.read(endpoint, { ...query, page: 1, perPage });
+  const merged = rowsFrom(first);
+  const totalPages = selectorTotalPages(first);
+  let page = 2;
+  while (totalPages !== null ? page <= totalPages : merged.length > 0 && merged.length % perPage === 0) {
+    const next = await api.read(endpoint, { ...query, page, perPage });
+    const nextRows = rowsFrom(next);
+    if (nextRows.length === 0) break;
+    const existingKeys = new Set(merged.map((row, index) => recordKey(row, index)));
+    const newRows = nextRows.filter((row, index) => !existingKeys.has(recordKey(row, index)));
+    if (newRows.length === 0) throw new Error('selector pagination did not advance');
+    merged.push(...newRows);
+    if (totalPages === null && nextRows.length < perPage) break;
+    page += 1;
+  }
+  return { list: merged, page: { totalPage: totalPages ?? page - 1 } };
 }
 
 function primitive(value: unknown): string {
@@ -45,7 +83,15 @@ function contentText(value: unknown): string {
 }
 
 function statusText(value: unknown): string {
-  if (typeof value === 'string' && value.trim() !== '') return value;
+	if (typeof value === 'string') {
+		const labels: Record<string, string> = {
+			pending: '待执行', queued: '排队中', claimed: '已领取', submitting: '提交中',
+			submitted: '已提交', polling: '轮询中', succeeded: '已成功',
+			partial_failed: '部分失败', failed: '失败', cancelled: '已取消',
+		};
+		if (labels[value]) return labels[value];
+		if (value.trim() !== '') return value;
+	}
   if (value === 0) return '待执行';
   if (value === 1) return '执行中';
   if (value === 2) return '已完成';
@@ -54,7 +100,24 @@ function statusText(value: unknown): string {
 }
 
 function executionData(row: ReachRecord): string {
-  return `${primitive(row.sendTotal)} / ${primitive(row.receivedTotal)}`;
+	const operation = isRecord(row.operation) ? row.operation : row;
+	if (operation.targetTotal !== undefined || operation.successTotal !== undefined || operation.failureTotal !== undefined) {
+		return `${primitive(operation.successTotal)} / ${primitive(operation.failureTotal)} / ${primitive(operation.targetTotal)}`;
+	}
+	return `${primitive(row.sendTotal)} / ${primitive(row.receivedTotal)}`;
+}
+
+function operationStatus(row: ReachRecord): unknown {
+	const operation = isRecord(row.operation) ? row.operation : row;
+	return operation.status ?? operation.operationStatus ?? row.sendStatus;
+}
+
+function operationRecord(row: ReachRecord): ReachRecord | null {
+	return isRecord(row.operation) ? row.operation : null;
+}
+
+function batchIDFromRow(row: ReachRecord): number {
+	return Number(row.id ?? row.batchId);
 }
 
 function recordKey(row: ReachRecord, index: number): string {
@@ -71,21 +134,81 @@ function ReachTabs({ active, onChange }: { active: SendMode; onChange: (mode: Se
   );
 }
 
-function SendDetail({ row, onClose }: { row: ReachRecord; onClose: () => void }) {
+type SendDetailPayload = { show: ReachRecord; employees: ReachRecord[]; receives: ReachRecord[] };
+
+async function fetchSendDetail(api: BusinessWorkbenchApi, row: ReachRecord, mode: SendMode): Promise<SendDetailPayload> {
+  const batchId = batchIDFromRow(row);
+  if (!Number.isInteger(batchId) || batchId <= 0) throw new Error('任务标识无效');
+  const showPromise = api.read('/contactMessageBatchSend/show', { batchId });
+  if (mode !== 'contact') {
+    const showRaw = await showPromise;
+    return { show: isRecord(showRaw) && isRecord(showRaw.data) ? showRaw.data : isRecord(showRaw) ? showRaw : row, employees: [], receives: [] };
+  }
+  const [showRaw, employeeRaw, receiveRaw] = await Promise.all([
+    showPromise,
+    fetchAllSelectorPages(api, '/contactMessageBatchSend/employeeSendIndex', { batchId }),
+    fetchAllSelectorPages(api, '/contactMessageBatchSend/contactReceiveIndex', { batchId }),
+  ]);
+  const show = isRecord(showRaw) && isRecord(showRaw.data) ? showRaw.data : isRecord(showRaw) ? showRaw : row;
+  return { show, employees: rowsFrom(employeeRaw), receives: rowsFrom(receiveRaw) };
+}
+
+function SendDetail({ api, mode, row, onClose, onChanged }: { api: BusinessWorkbenchApi; mode: SendMode; row: ReachRecord; onClose: () => void; onChanged: () => void }) {
+  const detailQuery = useQuery({
+    queryKey: ['phase34-precise-send-detail', mode, batchIDFromRow(row)],
+    queryFn: () => fetchSendDetail(api, row, mode),
+    retry: 1,
+  });
+  const [actionError, setActionError] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+  const detail = detailQuery.data;
+  const shown = detail?.show ?? row;
+  const detailData = detail ?? { show: shown, employees: [], receives: [] };
+  const operation = operationRecord(shown);
+  const status = primitive(operationStatus(shown));
+  const canCancel = operation !== null && status === 'pending';
+  const canRemind = operation !== null && (status === 'submitted' || status === 'polling');
+  const runAction = async (action: 'cancel' | 'remind') => {
+    setActionBusy(true);
+    setActionError('');
+    try {
+      const batchId = batchIDFromRow(shown);
+      if (action === 'cancel') await api.write('/contactMessageBatchSend/destroy', { batchId }, 'DELETE');
+      else await api.write('/contactMessageBatchSend/remind', { batchId }, 'POST');
+      await detailQuery.refetch();
+      onChanged();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '操作失败，请重试');
+    } finally {
+      setActionBusy(false);
+    }
+  };
   const fields = [
-    ['任务名称', primitive(row.batchTitle)],
-    ['发送内容', contentText(row.content)],
-    ['执行结果', statusText(row.sendStatus)],
-    ['执行数据', executionData(row)],
-    ['创建时间', primitive(row.createdAt)],
-    ['执行时间', primitive(row.sendTime ?? row.definiteTime)],
+    ['任务名称', primitive(shown.batchTitle ?? shown.title)],
+    ['发送内容', contentText(shown.content)],
+    ['执行结果', statusText(operationStatus(shown))],
+    ['执行数据', executionData(shown)],
+    ['创建时间', primitive(shown.createdAt)],
+    ['执行时间', primitive(shown.sendTime ?? shown.definiteTime)],
   ];
   return (
     <aside className="phase34-detail" aria-label="群发任务详情">
       <div className="phase34-detail-backdrop" onClick={onClose} />
       <div className="phase34-detail-panel">
         <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具</p><h2>群发任务详情</h2></div><button type="button" onClick={onClose}>关闭</button></div>
-        <dl>{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+        {detailQuery.isPending ? <PageState state="loading" /> : detailQuery.isError ? <PageState state={pageStateForError(detailQuery.error)} onRetry={() => { void detailQuery.refetch(); }} /> : <>
+          <dl>{fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+          {operation && <dl><div><dt>目标数</dt><dd>{primitive(operation.targetTotal)}</dd></div><div><dt>成功数</dt><dd>{primitive(operation.successTotal)}</dd></div><div><dt>失败数</dt><dd>{primitive(operation.failureTotal)}</dd></div><div><dt>错误码</dt><dd>{primitive(operation.errorCode)}</dd></div></dl>}
+          {actionError && <p role="alert" className="phase34-inline-error">{actionError}</p>}
+          {mode === 'contact' && <>
+            <div className="dashboard-table-actions">
+              {canCancel && <ConfirmAction title="确认取消该群发任务？" description="取消后不会再向企微提交新的外发请求。" onConfirm={() => { void runAction('cancel'); }}><button type="button" disabled={actionBusy}>取消任务</button></ConfirmAction>}
+              {canRemind && <ConfirmAction title="确认提醒发送员工？" description="仅提醒已被企微受理的任务目标。" onConfirm={() => { void runAction('remind'); }}><button type="button" disabled={actionBusy}>提醒</button></ConfirmAction>}
+            </div>
+            <section aria-label="员工发送结果"><h3>员工发送结果</h3>{detailData.employees.length === 0 ? <PageState state="empty" title="暂无员工结果" /> : <div className="dashboard-table-scroll"><table className="phase34-table"><thead><tr><th>员工</th><th>状态</th><th>客户数</th></tr></thead><tbody>{detailData.employees.map((item, index) => <tr key={recordKey(item, index)}><td>{primitive(item.employeeName)}</td><td>{statusText(item.status)}</td><td>{primitive(item.sendContactTotal)}</td></tr>)}</tbody></table></div>}</section>
+            <section aria-label="客户发送结果"><h3>客户发送结果</h3>{detailData.receives.length === 0 ? <PageState state="empty" title="暂无客户结果" /> : <div className="dashboard-table-scroll"><table className="phase34-table"><thead><tr><th>客户</th><th>员工</th><th>状态</th></tr></thead><tbody>{detailData.receives.map((item, index) => <tr key={recordKey(item, index)}><td>{primitive(item.contactName ?? item.contactNickName)}</td><td>{primitive(item.employeeName)}</td><td>{statusText(item.status)}</td></tr>)}</tbody></table></div>}</section>
+          </>}
+        </>}
       </div>
     </aside>
   );
@@ -95,11 +218,60 @@ function positiveReachIDs(value: string): number[] {
   return value.split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0);
 }
 
+function positiveContactTargetKeys(value: string): string[] {
+  return value.split(',').map((item) => item.trim()).filter((item, index, values) => {
+    const parts = item.split(':');
+    const employeeID = Number(parts[0] ?? '');
+    const contactID = Number(parts[1] ?? '');
+    return Number.isInteger(employeeID) && employeeID > 0 && Number.isInteger(contactID) && contactID > 0 && values.indexOf(item) === index;
+  });
+}
+
+function contactTargetFromKey(value: string): { employeeId: number; contactId: number } | null {
+  const parts = value.split(':');
+  const employeeId = Number(parts[0] ?? '');
+  const contactId = Number(parts[1] ?? '');
+  if (!Number.isInteger(employeeId) || employeeId <= 0 || !Number.isInteger(contactId) || contactId <= 0) return null;
+  return { employeeId, contactId };
+}
+
+function positiveRoomTargetKeys(value: string): string[] {
+  return value.split(',').map((item) => item.trim()).filter((item, index, values) => {
+    const parts = item.split(':');
+    const ownerEmployeeID = Number(parts[0] ?? '');
+    const roomID = Number(parts[1] ?? '');
+    return Number.isInteger(ownerEmployeeID) && ownerEmployeeID > 0 && Number.isInteger(roomID) && roomID > 0 && values.indexOf(item) === index;
+  });
+}
+
+function roomTargetFromKey(value: string): { ownerEmployeeId: number; roomId: number } | null {
+  const parts = value.split(':');
+  const ownerEmployeeId = Number(parts[0] ?? '');
+  const roomId = Number(parts[1] ?? '');
+  if (!Number.isInteger(ownerEmployeeId) || ownerEmployeeId <= 0 || !Number.isInteger(roomId) || roomId <= 0) return null;
+  return { ownerEmployeeId, roomId };
+}
+
+function roomTargetKeyFromRow(row: ReachRecord, ownerEmployeeIDs: number[]): string {
+  const roomID = Number(row.roomId ?? row.workRoomId ?? row.id);
+  const rowOwnerID = Number(row.ownerId ?? row.ownerEmployeeId);
+  const singleOwnerID = ownerEmployeeIDs.length === 1 ? Number(ownerEmployeeIDs[0]) : 0;
+  const ownerEmployeeID = Number.isInteger(rowOwnerID) && rowOwnerID > 0 ? rowOwnerID : singleOwnerID;
+  return Number.isInteger(roomID) && roomID > 0 && Number.isInteger(ownerEmployeeID) && ownerEmployeeID > 0 ? `${ownerEmployeeID}:${roomID}` : '--';
+}
+
+function newContactBatchIdempotencyKey(): string {
+  const randomUUID = globalThis.crypto?.randomUUID?.();
+  return `contact-${randomUUID ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
 function SendCreateDrawer({
   api,
   mode,
   title,
   employeeIDs,
+  contactTargets,
+  roomTargets,
   content,
   materialID,
   sendWay,
@@ -107,8 +279,11 @@ function SendCreateDrawer({
   saving,
   error,
   canSubmit,
+  confirmationSummary,
   onTitleChange,
   onEmployeeIDsChange,
+  onContactTargetsChange,
+  onRoomTargetsChange,
   onContentChange,
   onMaterialChange,
   onSendWayChange,
@@ -120,6 +295,8 @@ function SendCreateDrawer({
   mode: SendMode;
   title: string;
   employeeIDs: string;
+  contactTargets: string;
+  roomTargets: string;
   content: string;
   materialID: number;
   sendWay: string;
@@ -127,8 +304,11 @@ function SendCreateDrawer({
   saving: boolean;
   error: string;
   canSubmit: boolean;
+  confirmationSummary: string;
   onTitleChange: (value: string) => void;
   onEmployeeIDsChange: (value: string) => void;
+  onContactTargetsChange: (value: string) => void;
+  onRoomTargetsChange: (value: string) => void;
   onContentChange: (value: string) => void;
   onMaterialChange: (value: number) => void;
   onSendWayChange: (value: string) => void;
@@ -136,22 +316,90 @@ function SendCreateDrawer({
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [contactSearch, setContactSearch] = useState('');
+  const [roomSearch, setRoomSearch] = useState('');
+  const selectedEmployeeIDs = new Set(positiveReachIDs(employeeIDs));
+  const selectedContactTargetKeys = new Set(positiveContactTargetKeys(contactTargets));
+  const selectedRoomTargetKeys = new Set(positiveRoomTargetKeys(roomTargets));
+  const employeesQuery = useQuery({
+    queryKey: ['precise-send-employees', mode, employeeSearch],
+    queryFn: () => fetchAllSelectorPages(api, '/workEmployee/index', employeeSearch ? { name: employeeSearch } : {}),
+    enabled: true,
+  });
+  const contactsQuery = useQuery({
+    queryKey: ['precise-send-contacts', mode, contactSearch, employeeIDs],
+    queryFn: () => fetchAllSelectorPages(api, '/workContact/index', { ...(contactSearch ? { keyWords: contactSearch } : {}), employeeId: employeeIDs }),
+    enabled: mode === 'contact' && selectedEmployeeIDs.size > 0,
+  });
+  const roomsQuery = useQuery({
+    queryKey: ['precise-send-rooms', mode, roomSearch, employeeIDs],
+    queryFn: async () => {
+      const ownerIDs = [...selectedEmployeeIDs];
+      const merged: ReachRecord[] = [];
+      for (const ownerID of ownerIDs) {
+        const payload = await fetchAllSelectorPages(api, '/workRoom/index', { workRoomOwnerId: String(ownerID), ...(roomSearch ? { workRoomName: roomSearch } : {}) });
+        for (const row of rowsFrom(payload)) {
+          merged.push({ ...row, ownerEmployeeId: ownerID });
+        }
+      }
+      return { list: merged };
+    },
+    enabled: mode === 'room' && selectedEmployeeIDs.size > 0,
+  });
+  const employeeOptions = rowsFrom(employeesQuery.data);
+  const contactOptions = rowsFrom(contactsQuery.data);
+  const roomOptions = rowsFrom(roomsQuery.data);
+  const employeeOptionIDs = new Set(employeeOptions.map((row) => primitive(row.id ?? row.employeeId)).filter((value) => value !== '--'));
+  const contactOptionKeys = new Set(contactOptions.map((row) => {
+    const employeeID = Number(row.employeeId);
+    const contactID = Number(row.contactId);
+    return Number.isInteger(employeeID) && employeeID > 0 && Number.isInteger(contactID) && contactID > 0 ? `${employeeID}:${contactID}` : '--';
+  }).filter((value) => value !== '--'));
+  const roomOptionKeys = new Set(roomOptions.map((row) => roomTargetKeyFromRow(row, [...selectedEmployeeIDs])).filter((value) => value !== '--'));
+  const employeeSelectionReady = employeesQuery.isSuccess && !employeesQuery.isFetching && selectedEmployeeIDs.size > 0 && [...selectedEmployeeIDs].every((id) => employeeOptionIDs.has(String(id)));
+  const contactSelectionReady = mode !== 'contact' || (contactsQuery.isSuccess && !contactsQuery.isFetching && selectedContactTargetKeys.size > 0 && [...selectedContactTargetKeys].every((key) => contactOptionKeys.has(key)));
+  const roomSelectionReady = mode !== 'room' || (roomsQuery.isSuccess && !roomsQuery.isFetching && selectedRoomTargetKeys.size > 0 && [...selectedRoomTargetKeys].every((key) => roomOptionKeys.has(key)));
+  const selectorsReady = employeeSelectionReady && contactSelectionReady && roomSelectionReady;
+
   return (
     <aside className="phase34-detail" aria-label="新建群发任务">
       <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />
       <div className="phase34-detail-panel">
         <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h2>新建群发任务</h2><p>{mode === 'contact' ? '客户群发' : '群聊群发'}会走对应的真实 Provider。</p></div><button type="button" aria-label="关闭新建群发" onClick={onClose}>关闭</button></div>
-        <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+        <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); }}>
           <label><span>任务名称 <b aria-hidden="true">*</b></span><input aria-label="任务名称" required value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="请输入任务名称" /></label>
-          <label><span>{mode === 'contact' ? '发送成员ID' : '群主ID'} <b aria-hidden="true">*</b></span><input aria-label={mode === 'contact' ? '发送成员ID' : '群主ID'} aria-describedby="precise-send-target-hint" required value={employeeIDs} onChange={(event) => onEmployeeIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
-          <p id="precise-send-target-hint" className="phase34-field-hint">来源：当前企业的{mode === 'contact' ? '员工 Provider 返回的企业微信成员 ID' : '群聊 Provider 返回的真实群主 ID'}；未接入真实数据时不要填写虚构 ID。</p>
+          <label><span>{mode === 'contact' ? '发送成员' : '群主'} <b aria-hidden="true">*</b></span><input aria-label={mode === 'contact' ? '搜索发送成员' : '搜索群主'} value={employeeSearch} onChange={(event) => setEmployeeSearch(event.target.value)} placeholder="搜索姓名或部门" /></label>
+          <select aria-label={mode === 'contact' ? '发送成员选择' : '群主选择'} multiple required value={[...selectedEmployeeIDs].map(String)} onChange={(event) => onEmployeeIDsChange(Array.from(event.target.selectedOptions).map((option) => option.value).join(','))}>
+            {employeeOptions.map((row, index) => { const id = row.id ?? row.employeeId; const value = primitive(id); return value === '--' ? null : <option key={value || index} value={value}>{primitive(row.name ?? row.employeeName)}{row.departmentName ? ` · ${primitive(row.departmentName)}` : ''}</option>; })}
+          </select>
+          {employeesQuery.isPending && <p role="status" className="phase34-field-hint">正在加载可用员工…</p>}
+          {employeesQuery.isError && <p role="alert" className="phase34-inline-error">员工列表加载失败，请重试后再提交。</p>}
+          {employeesQuery.isSuccess && employeeOptions.length === 0 && <p role="status" className="phase34-field-hint">暂无当前权限范围内的员工。</p>}
+          {mode === 'contact' && <label><span>客户 <b aria-hidden="true">*</b></span><input aria-label="搜索客户" value={contactSearch} onChange={(event) => setContactSearch(event.target.value)} placeholder="搜索客户名称" /></label>}
+          {mode === 'contact' && <select aria-label="客户选择" multiple required value={[...selectedContactTargetKeys]} onChange={(event) => onContactTargetsChange(Array.from(event.target.selectedOptions).map((option) => option.value).join(','))}>
+            {contactOptions.map((row, index) => { const employeeID = Number(row.employeeId); const contactID = Number(row.contactId); const value = Number.isInteger(employeeID) && employeeID > 0 && Number.isInteger(contactID) && contactID > 0 ? `${employeeID}:${contactID}` : '--'; return value === '--' ? null : <option key={value || index} value={value}>{primitive(row.name ?? row.contactName ?? row.nickname)}{row.employeeName ? ` · ${primitive(row.employeeName)}` : ''}</option>; })}
+          </select>}
+          {mode === 'contact' && selectedEmployeeIDs.size === 0 && <p role="status" className="phase34-field-hint">请先选择发送成员，再加载其名下客户。</p>}
+          {mode === 'contact' && contactsQuery.isPending && <p role="status" className="phase34-field-hint">正在加载所选员工名下客户…</p>}
+          {mode === 'contact' && contactsQuery.isError && <p role="alert" className="phase34-inline-error">客户列表加载失败，请重试后再提交。</p>}
+          {mode === 'contact' && contactsQuery.isSuccess && contactOptions.length === 0 && <p role="status" className="phase34-field-hint">所选员工名下暂无可发送客户。</p>}
+          {mode === 'room' && <label><span>群聊 <b aria-hidden="true">*</b></span><input aria-label="搜索群聊" value={roomSearch} onChange={(event) => setRoomSearch(event.target.value)} placeholder="搜索群名称" /></label>}
+          {mode === 'room' && <select aria-label="群聊选择" multiple required value={[...selectedRoomTargetKeys]} onChange={(event) => onRoomTargetsChange(Array.from(event.target.selectedOptions).map((option) => option.value).join(','))}>
+            {roomOptions.map((row, index) => { const value = roomTargetKeyFromRow(row, [...selectedEmployeeIDs]); return value === '--' ? null : <option key={value || index} value={value}>{primitive(row.name ?? row.roomName)}{row.ownerName ? ` · ${primitive(row.ownerName)}` : ''}</option>; })}
+          </select>}
+          {mode === 'room' && selectedEmployeeIDs.size === 0 && <p role="status" className="phase34-field-hint">请先选择群主，再加载其名下群聊。</p>}
+          {mode === 'room' && roomsQuery.isPending && <p role="status" className="phase34-field-hint">正在加载所选群主名下群聊…</p>}
+          {mode === 'room' && roomsQuery.isError && <p role="alert" className="phase34-inline-error">群聊列表加载失败，请重试后再提交。</p>}
+          {mode === 'room' && roomsQuery.isSuccess && roomOptions.length === 0 && <p role="status" className="phase34-field-hint">所选群主名下暂无客户群。</p>}
+          <p id="precise-send-target-hint" className="phase34-field-hint">来源：当前企业的{mode === 'contact' ? '员工 Provider 返回的企业微信成员 ID' : '群聊 Provider 返回的真实群主与群聊 ID'}；未接入真实数据时不要填写虚构 ID。</p>
           <MaterialSelector api={api} scene="group_send" value={materialID || null} disabled={saving} onChange={(item) => { onMaterialChange(item?.id ?? 0); if (item) onContentChange(item.preview); }} />
           <label><span>群发内容 <b aria-hidden="true">*</b></span><textarea aria-label="群发内容" required value={content} onChange={(event) => onContentChange(event.target.value)} placeholder="请输入文本内容" rows={6} /></label>
           <label>发送方式<select aria-label="发送方式" value={sendWay} onChange={(event) => onSendWayChange(event.target.value)}><option value="1">立即发送</option><option value="2">定时发送</option></select></label>
           {sendWay === '2' && <label>定时发送时间<input aria-label="定时发送时间" type="datetime-local" required value={definiteTime} onChange={(event) => onDefiniteTimeChange(event.target.value)} /></label>}
           {error && <p role="alert" className="phase34-inline-error">{error}</p>}
           <p className="phase34-field-hint">发送前会由 Go Provider 校验成员、群主、内容和企业微信凭据；失败会保留在任务状态中。</p>
-          <div className="dashboard-table-actions"><button type="button" className="phase34-secondary-button" onClick={onClose}>取消</button><button type="submit" disabled={saving || !canSubmit}>{saving ? '提交中…' : '保存并发送'}</button></div>
+          <div className="dashboard-table-actions"><button type="button" className="phase34-secondary-button" onClick={onClose}>取消</button><ConfirmAction title="确认创建精准群发任务？" description={confirmationSummary} onConfirm={onSubmit}><button type="button" disabled={saving || !canSubmit || !selectorsReady}>{saving ? '提交中…' : '保存并发送'}</button></ConfirmAction></div>
         </form>
       </div>
     </aside>
@@ -167,10 +415,13 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createTitle, setCreateTitle] = useState('');
   const [createEmployeeIDs, setCreateEmployeeIDs] = useState('');
+  const [createContactTargets, setCreateContactTargets] = useState('');
+  const [createRoomTargets, setCreateRoomTargets] = useState('');
   const [createContent, setCreateContent] = useState('');
   const [createMaterialID, setCreateMaterialID] = useState(0);
   const [createSendWay, setCreateSendWay] = useState('1');
   const [createDefiniteTime, setCreateDefiniteTime] = useState('');
+  const [createIdempotencyKey, setCreateIdempotencyKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [writeError, setWriteError] = useState('');
   const endpoint = mode === 'contact' ? '/contactMessageBatchSend/index' : '/roomMessageBatchSend/index';
@@ -182,16 +433,28 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   const refresh = () => { void query.refetch(); };
   const createEndpoint = mode === 'contact' ? '/contactMessageBatchSend/store' : '/roomMessageBatchSend/store';
   const createReachIDs = positiveReachIDs(createEmployeeIDs);
-  const canSubmitCreate = Boolean(createTitle.trim() && createContent.trim() && createReachIDs.length > 0 && (createSendWay !== '2' || createDefiniteTime.trim()));
+  const createContactTargetValues = positiveContactTargetKeys(createContactTargets).map(contactTargetFromKey).filter((value): value is { employeeId: number; contactId: number } => value !== null);
+  const createRoomTargetValues = positiveRoomTargetKeys(createRoomTargets).map(roomTargetFromKey).filter((value): value is { ownerEmployeeId: number; roomId: number } => value !== null);
+  const canSubmitCreate = Boolean(createTitle.trim() && createContent.trim() && createReachIDs.length > 0 && (mode === 'contact' ? createContactTargetValues.length > 0 : createRoomTargetValues.length > 0) && (createSendWay !== '2' || createDefiniteTime.trim()));
+  const confirmationSummary = `${createReachIDs.length} 名员工，${mode === 'contact' ? createContactTargetValues.length : createRoomTargetValues.length} 个目标，${createSendWay === '2' ? `定时 ${createDefiniteTime}` : '立即发送'}。首次点击只打开确认，不会立即外发。`;
   const saveCreate = async () => {
     const ids = positiveReachIDs(createEmployeeIDs);
-    if (!createTitle.trim() || !createContent.trim() || ids.length === 0) {
+    const contactTargets = positiveContactTargetKeys(createContactTargets).map(contactTargetFromKey).filter((value): value is { employeeId: number; contactId: number } => value !== null);
+    const roomTargets = positiveRoomTargetKeys(createRoomTargets).map(roomTargetFromKey).filter((value): value is { ownerEmployeeId: number; roomId: number } => value !== null);
+    if (!createTitle.trim() || !createContent.trim() || ids.length === 0 || (mode === 'contact' ? contactTargets.length === 0 : roomTargets.length === 0)) {
       setWriteError('请填写任务名称、目标成员或群主 ID 和群发内容。');
       return;
     }
     const body: Record<string, unknown> = { batchTitle: createTitle.trim(), employeeIds: ids, sendWay: Number(createSendWay), content: [{ msgType: 'text', content: createContent.trim() }] };
     if (createMaterialID > 0) body.mediumId = createMaterialID;
-    if (mode === 'contact') body.filterParams = {};
+    if (mode === 'contact') {
+      body.filterParams = {};
+      body.contactTargets = contactTargets;
+      body.idempotencyKey = createIdempotencyKey || newContactBatchIdempotencyKey();
+    } else {
+      body.roomTargets = roomTargets;
+      body.idempotencyKey = createIdempotencyKey || newContactBatchIdempotencyKey();
+    }
     if (createSendWay === '2') body.definiteTime = createDefiniteTime.replace('T', ' ') + ':00';
     setSaving(true);
     setWriteError('');
@@ -200,10 +463,13 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
       setCreateOpen(false);
       setCreateTitle('');
       setCreateEmployeeIDs('');
+      setCreateContactTargets('');
+      setCreateRoomTargets('');
       setCreateContent('');
       setCreateMaterialID(0);
       setCreateSendWay('1');
       setCreateDefiniteTime('');
+      setCreateIdempotencyKey('');
       await query.refetch();
     } catch (error) {
       setWriteError(error instanceof Error ? error.message : '群发任务创建失败。');
@@ -216,7 +482,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
     <section className="phase34-page">
       <header className="phase34-page-header">
         <div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>精准群发</h1><p>分别查看客户群发与群聊群发任务，追踪内容、执行结果和触达数据。</p></div>
-        <div className="phase34-header-actions"><span className="phase34-provider-badge phase34-provider-badge-warning">本地任务 Provider 已连接 · 外部发送待配置</span><button type="button" onClick={() => { setWriteError(''); setCreateOpen(true); }}>新建群发</button><button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button></div>
+        <div className="phase34-header-actions"><span className="phase34-provider-badge phase34-provider-badge-warning">本地任务 Provider 已连接 · 外部发送待配置</span><button type="button" onClick={() => { setWriteError(''); setCreateIdempotencyKey(mode === 'contact' ? newContactBatchIdempotencyKey() : ''); setCreateOpen(true); }}>新建群发</button><button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button></div>
       </header>
       <ReachTabs active={mode} onChange={(nextMode) => { setMode(nextMode); setDraftTitle(''); setTitle(''); setSelected(null); }} />
       <div id="precise-send-panel" role="tabpanel">
@@ -230,12 +496,12 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
         <div className="dashboard-card-heading"><div><h2>{mode === 'contact' ? '客户群发' : '群聊群发'}任务</h2><p>当前企业：{access.corp.name}，列表仅展示 Provider 返回的真实任务。</p></div><span>{rows.length} 条</span></div>
         {writeError && !createOpen && <p role="alert" className="phase34-inline-error">{writeError}</p>}
         {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <PageState state="empty" title="暂无群发任务" description="当前筛选条件下没有可展示的任务。" /> : (
-          <div className="dashboard-table-scroll"><table className="phase34-table phase34-reach-table"><thead><tr><th>创建时间</th><th>执行时间</th><th>发送内容</th><th>执行结果</th><th>执行数据</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}><td>{primitive(row.createdAt)}</td><td>{primitive(row.sendTime ?? row.definiteTime)}</td><td>{contentText(row.content)}</td><td>{statusText(row.sendStatus)}</td><td>{executionData(row)}</td><td><button type="button" className="phase34-link-button" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>
+          <div className="dashboard-table-scroll"><table className="phase34-table phase34-reach-table"><thead><tr><th>创建时间</th><th>执行时间</th><th>发送内容</th><th>执行结果</th><th>执行数据</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}><td>{primitive(row.createdAt)}</td><td>{primitive(row.sendTime ?? row.definiteTime)}</td><td>{contentText(row.content)}</td><td>{statusText(operationStatus(row))}</td><td>{executionData(row)}</td><td><button type="button" className="phase34-link-button" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>
         )}
       </div>
       </div>
-      {selected !== null && <SendDetail row={selected} onClose={() => setSelected(null)} />}
-      {createOpen && <SendCreateDrawer api={api} mode={mode} title={createTitle} employeeIDs={createEmployeeIDs} content={createContent} materialID={createMaterialID} sendWay={createSendWay} definiteTime={createDefiniteTime} saving={saving} error={writeError} canSubmit={canSubmitCreate} onTitleChange={setCreateTitle} onEmployeeIDsChange={setCreateEmployeeIDs} onContentChange={setCreateContent} onMaterialChange={setCreateMaterialID} onSendWayChange={setCreateSendWay} onDefiniteTimeChange={setCreateDefiniteTime} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
+      {selected !== null && <SendDetail api={api} mode={mode} row={selected} onClose={() => setSelected(null)} onChanged={refresh} />}
+      {createOpen && <SendCreateDrawer api={api} mode={mode} title={createTitle} employeeIDs={createEmployeeIDs} contactTargets={createContactTargets} roomTargets={createRoomTargets} content={createContent} materialID={createMaterialID} sendWay={createSendWay} definiteTime={createDefiniteTime} saving={saving} error={writeError} canSubmit={canSubmitCreate} confirmationSummary={confirmationSummary} onTitleChange={setCreateTitle} onEmployeeIDsChange={(value) => { setCreateEmployeeIDs(value); setCreateContactTargets(''); setCreateRoomTargets(''); }} onContactTargetsChange={setCreateContactTargets} onRoomTargetsChange={setCreateRoomTargets} onContentChange={setCreateContent} onMaterialChange={setCreateMaterialID} onSendWayChange={setCreateSendWay} onDefiniteTimeChange={setCreateDefiniteTime} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
     </section>
   );
 }

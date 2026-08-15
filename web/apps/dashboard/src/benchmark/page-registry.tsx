@@ -62,6 +62,7 @@ import { CompanyAuthorizationPage } from '../features/company-settings/authoriza
 import type { FileAudioApi } from '../features/phase35/file-audio-api';
 import { FileAudioPage } from '../features/phase35/file-audio-page';
 import type { CompanyProfileApi } from '../features/company-settings/company-profile-api';
+import type { ProviderStatusApi } from '../features/provider-status/provider-status-api';
 import { createUserAdminApi } from '../features/user-admin/user-admin-api';
 import { createRoleApi } from '../features/role/role-api';
 import { createMenuAdminApi } from '../features/menu-admin/menu-admin-api';
@@ -86,6 +87,7 @@ export function createBenchmarkP0Pages({
   aiInsightApi,
   fileAudioApi,
   companyProfileApi,
+  providerStatusApi,
   onTenantAccessDenied,
   onNavigate,
   userAdminApi,
@@ -103,6 +105,7 @@ export function createBenchmarkP0Pages({
   aiInsightApi?: AiInsightApi;
   fileAudioApi?: FileAudioApi;
   companyProfileApi?: CompanyProfileApi;
+  providerStatusApi?: ProviderStatusApi;
   onTenantAccessDenied?: () => void;
   onNavigate?: (path: string) => void;
   userAdminApi?: UserAdminApi | DashboardAccessAdminApi;
@@ -183,6 +186,7 @@ export function createBenchmarkP0Pages({
     ...(companyProfileApi === undefined ? {} : {
       '/company-setting/website': <CompanyWebsitePage
         api={companyProfileApi}
+        {...(providerStatusApi === undefined ? {} : { providerStatusApi })}
         {...(onTenantAccessDenied === undefined ? {} : { onTenantAccessDenied })}
         {...(onNavigate === undefined ? {} : { onNavigate })}
       />,

@@ -147,7 +147,9 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 		writeDashboardPermissionDenied(w)
 		return false
 	}
-	*request = *request.WithContext(WithDashboardAccessContext(request.Context(), access))
+	ctx := WithDashboardAccessContext(request.Context(), access)
+	ctx = dashboardprincipal.WithCapabilityAccess(ctx, access.IsSuperAdmin, access.PermissionCodes)
+	*request = *request.WithContext(ctx)
 	return true
 }
 
@@ -180,7 +182,7 @@ func isPendingCompanyConfigurationContract(contract string) bool {
 		"PUT /dashboard/company/application-credentials", "PUT /dashboard/company/archive-credentials",
 		"GET /dashboard/company/callback-configuration", "POST /dashboard/company/callback-configuration/regenerate",
 		"POST /dashboard/company/verify",
-		"GET /dashboard/company/audits":
+		"GET /dashboard/company/audits", "GET /dashboard/providers/status":
 		return true
 	default:
 		return false
@@ -204,7 +206,9 @@ func (guard *DashboardAccessGuard) attachIdentityContext(request *http.Request, 
 		UserID: principal.UserID, TenantID: principal.TenantID,
 		CorpID: principal.CorpID, Scope: DataScopeTenant, IsSuperAdmin: principal.IsSuperAdmin,
 	}
-	*request = *request.WithContext(WithDashboardAccessContext(request.Context(), access))
+	ctx := WithDashboardAccessContext(request.Context(), access)
+	ctx = dashboardprincipal.WithCapabilityAccess(ctx, principal.IsSuperAdmin, nil)
+	*request = *request.WithContext(ctx)
 }
 
 func dashboardContextForMatches(profile DashboardAccessProfile, matches []DashboardPermissionResource) (DashboardAccessContext, bool) {

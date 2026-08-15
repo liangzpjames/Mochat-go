@@ -12,11 +12,12 @@ import (
 )
 
 type WorkEmployeeSyncCredential struct {
-	CorpID         int
-	TenantID       int
-	WXCorpID       string
-	EmployeeSecret string
-	ContactSecret  string
+	CorpID            int
+	TenantID          int
+	CredentialVersion uint64
+	WXCorpID          string
+	EmployeeSecret    string
+	ContactSecret     string
 }
 
 type WorkEmployeeSyncDepartment struct {

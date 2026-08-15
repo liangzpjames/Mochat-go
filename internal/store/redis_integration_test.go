@@ -4,18 +4,33 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
 )
 
+func newRedisIntegrationStore(t *testing.T, addr string) *RedisStore {
+	t.Helper()
+	database := 0
+	if raw := strings.TrimSpace(os.Getenv("MOCHAT_REDIS_DB")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			t.Fatalf("invalid MOCHAT_REDIS_DB=%q", raw)
+		}
+		database = parsed
+	}
+	return NewRedisStore(RedisConfig{Addr: addr, DB: database})
+}
+
 func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	addr := os.Getenv("MOCHAT_REDIS_ADDR")
 	if addr == "" {
 		t.Skip("MOCHAT_REDIS_ADDR is not set")
 	}
-	store := NewRedisStore(RedisConfig{Addr: addr})
+	store := newRedisIntegrationStore(t, addr)
 	defer store.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -52,8 +67,15 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Queue != dashboard.QueueNameEmployeeApply || envelope.PayloadType != dashboard.QueuePayloadTypeEmployeeApply || envelope.IdempotencyKey != idempotencyKey || envelope.EnqueuedAt == "" {
+	if envelope.Queue != dashboard.QueueNameEmployeeApply || envelope.PayloadType != dashboard.QueuePayloadTypeEmployeeApply || envelope.IdempotencyKey != idempotencyKey || envelope.EnqueuedAt == "" || envelope.QueueTicket == "" {
 		t.Fatalf("envelope = %+v", envelope)
+	}
+	var queuedEvent dashboard.EmployeeApplyEvent
+	if err := json.Unmarshal(envelope.Payload, &queuedEvent); err != nil {
+		t.Fatal(err)
+	}
+	if queuedEvent.QueueTicket != envelope.QueueTicket {
+		t.Fatalf("event/envelope ticket mismatch: event=%q envelope=%q", queuedEvent.QueueTicket, envelope.QueueTicket)
 	}
 
 	delivery, ok, err := store.DequeueEmployeeApply(ctx, time.Second)
@@ -94,8 +116,11 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok || secondDelivery.Event != delivery.Event {
+	if !ok || secondDelivery.Event.BindingID != delivery.Event.BindingID || secondDelivery.Event.Source != delivery.Event.Source {
 		t.Fatalf("second delivery = %+v ok=%v", secondDelivery, ok)
+	}
+	if secondDelivery.Event.QueueTicket == delivery.Event.QueueTicket || secondDelivery.Event.QueueTicket == "" {
+		t.Fatalf("second delivery ticket=%q, first ticket=%q; re-enqueue should claim a new ticket", secondDelivery.Event.QueueTicket, delivery.Event.QueueTicket)
 	}
 	if err := store.AckEmployeeApply(ctx, secondDelivery); err != nil {
 		t.Fatal(err)
@@ -529,5 +554,177 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	}
 	if length, err := store.client.LLen(ctx, statisticDescriptor.ProcessingKey).Result(); err != nil || length != 0 {
 		t.Fatalf("employee statistic apply processing queue length = %d err=%v", length, err)
+	}
+}
+
+func TestRedisStoreEmployeeApplyDeadLetterReleasesIdempotencyIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := store.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := dashboard.EmployeeApplyQueueDescriptor()
+	event := dashboard.EmployeeApplyEvent{BindingID: 7001, Source: "dead-letter-release-integration"}
+	idempotencyKey := dashboard.EmployeeApplyIdempotencyKey(event)
+	cleanup := func() {
+		_ = store.client.Del(ctx, descriptor.SourceKey, descriptor.ProcessingKey, descriptor.DeadLetterKey, idempotencyKey).Err()
+	}
+	cleanup()
+	defer cleanup()
+
+	if err := store.EnqueueEmployeeApply(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	delivery, ok, err := store.DequeueEmployeeApply(ctx, time.Second)
+	if err != nil || !ok {
+		t.Fatalf("dequeue ok=%v err=%v", ok, err)
+	}
+	if delivery.Event.QueueTicket == "" {
+		t.Fatalf("dequeued employee apply event lost queue ticket: %+v", delivery.Event)
+	}
+	deadLettered, err := store.RetryEmployeeApply(ctx, delivery, "SYNC_FAILED", 1)
+	if err != nil || !deadLettered {
+		t.Fatalf("dead-lettered=%v err=%v", deadLettered, err)
+	}
+	if exists, err := store.client.Exists(ctx, idempotencyKey).Result(); err != nil || exists != 0 {
+		t.Fatalf("dead-letter retained idempotency key: exists=%d err=%v", exists, err)
+	}
+	if source, err := store.client.LLen(ctx, descriptor.SourceKey).Result(); err != nil || source != 0 {
+		t.Fatalf("source after dead-letter=%d err=%v", source, err)
+	}
+	if dead, err := store.client.LLen(ctx, descriptor.DeadLetterKey).Result(); err != nil || dead != 1 {
+		t.Fatalf("dead-letter queue=%d err=%v", dead, err)
+	}
+	if err := store.EnqueueEmployeeApply(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnqueueEmployeeApply(ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	if source, err := store.client.LLen(ctx, descriptor.SourceKey).Result(); err != nil || source != 1 {
+		t.Fatalf("source after immediate re-enqueue duplicate=%d err=%v", source, err)
+	}
+}
+
+func TestRedisStoreEmployeeApplyCleanupDoesNotDeleteNewerClaimIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set; an isolated Redis DSN is required")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := store.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := dashboard.EmployeeApplyQueueDescriptor()
+	key := "mochat-go:test:employee-apply:newer-claim"
+	deadKey := key + ":dead"
+	cleanup := func() {
+		_ = store.client.Del(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, key, deadKey).Err()
+	}
+	cleanup()
+	defer cleanup()
+
+	oldRaw, err := json.Marshal(reliableQueueEnvelope{
+		Queue: descriptor.Name, PayloadType: descriptor.PayloadType, IdempotencyKey: key, QueueTicket: "1",
+		Payload: json.RawMessage(`{"bindingId":7002,"source":"cleanup-ticket-test","queueTicket":"1"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.Set(ctx, key, "2", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, descriptor.ProcessingKey, oldRaw).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AckEmployeeApply(ctx, dashboard.EmployeeApplyDelivery{Raw: string(oldRaw)}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.client.Get(ctx, key).Result(); err != nil || got != "2" {
+		t.Fatalf("newer claim after old ack=%q err=%v, want 2", got, err)
+	}
+
+	newRaw, err := json.Marshal(reliableQueueEnvelope{
+		Queue: descriptor.Name, PayloadType: descriptor.PayloadType, IdempotencyKey: key, QueueTicket: "2",
+		Payload: json.RawMessage(`{"bindingId":7002,"source":"cleanup-ticket-test","queueTicket":"2"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, descriptor.ProcessingKey, newRaw).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AckEmployeeApply(ctx, dashboard.EmployeeApplyDelivery{Raw: string(newRaw)}); err != nil {
+		t.Fatal(err)
+	}
+	if exists, err := store.client.Exists(ctx, key).Result(); err != nil || exists != 0 {
+		t.Fatalf("matching ticket did not release idempotency key: exists=%d err=%v", exists, err)
+	}
+
+	oldDeadRaw := strings.Replace(string(oldRaw), `"cleanup-ticket-test"`, `"cleanup-ticket-dead-test"`, 1)
+	oldDeadRaw = strings.Replace(oldDeadRaw, `"`+key+`"`, `"`+deadKey+`"`, 1)
+	if err := store.client.Set(ctx, deadKey, "2", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, descriptor.ProcessingKey, oldDeadRaw).Err(); err != nil {
+		t.Fatal(err)
+	}
+	deadLettered, err := store.RetryEmployeeApply(ctx, dashboard.EmployeeApplyDelivery{Raw: oldDeadRaw}, "SYNC_FAILED", 1)
+	if err != nil || !deadLettered {
+		t.Fatalf("old-ticket dead-lettered=%v err=%v", deadLettered, err)
+	}
+	if got, err := store.client.Get(ctx, deadKey).Result(); err != nil || got != "2" {
+		t.Fatalf("newer claim after old dead-letter=%q err=%v, want 2", got, err)
+	}
+	newDeadRaw := strings.Replace(oldDeadRaw, `"queueTicket":"1"`, `"queueTicket":"2"`, 1)
+	if err := store.client.RPush(ctx, descriptor.ProcessingKey, newDeadRaw).Err(); err != nil {
+		t.Fatal(err)
+	}
+	deadLettered, err = store.RetryEmployeeApply(ctx, dashboard.EmployeeApplyDelivery{Raw: newDeadRaw}, "SYNC_FAILED", 1)
+	if err != nil || !deadLettered {
+		t.Fatalf("matching-ticket dead-lettered=%v err=%v", deadLettered, err)
+	}
+	if exists, err := store.client.Exists(ctx, deadKey).Result(); err != nil || exists != 0 {
+		t.Fatalf("matching dead-letter ticket did not release idempotency key: exists=%d err=%v", exists, err)
+	}
+}
+
+func TestRedisStoreEmployeeApplyEnqueueWrongTypeRollsBackClaimIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set; an isolated Redis DSN is required")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := store.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := dashboard.EmployeeApplyQueueDescriptor()
+	event := dashboard.EmployeeApplyEvent{BindingID: 7003, Source: "enqueue-wrong-type-test"}
+	key := dashboard.EmployeeApplyIdempotencyKey(event)
+	cleanup := func() {
+		_ = store.client.Del(ctx, descriptor.SourceKey, key).Err()
+	}
+	cleanup()
+	defer cleanup()
+	if err := store.client.Set(ctx, descriptor.SourceKey, "wrong-type", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnqueueEmployeeApplyWithReceipt(ctx, event); err == nil {
+		t.Fatal("enqueue unexpectedly succeeded against a string source key")
+	}
+	if exists, err := store.client.Exists(ctx, key).Result(); err != nil || exists != 0 {
+		t.Fatalf("failed enqueue left idempotency claim: exists=%d err=%v", exists, err)
 	}
 }

@@ -15,17 +15,108 @@ import (
 	"jiyi/mochat-go/internal/mysqlconn"
 )
 
-func TestWorkMessageArchivePredicateSeparatesSimulationFromRealArchive(t *testing.T) {
+func TestWorkMessageArchivePredicateOnlyChecksArchiveAvailability(t *testing.T) {
 	realPredicate, ok := workMessageArchivePredicate(workMessageArchiveReal)
-	if !ok || realPredicate != "msgid NOT LIKE 'MOCHAT-SIM:%'" {
+	if !ok || realPredicate != "1 = 1" {
 		t.Fatalf("real archive predicate = %q, %v", realPredicate, ok)
 	}
 	simulationPredicate, ok := workMessageArchivePredicate(workMessageArchiveSimulation)
-	if !ok || simulationPredicate != "msgid LIKE 'MOCHAT-SIM:%'" {
+	if !ok || simulationPredicate != "1 = 1" {
 		t.Fatalf("simulation archive predicate = %q, %v", simulationPredicate, ok)
 	}
 	if predicate, ok := workMessageArchivePredicate(workMessageArchiveUnavailable); ok || predicate != "" {
 		t.Fatalf("unavailable archive predicate = %q, %v", predicate, ok)
+	}
+}
+
+func TestEffectiveArchiveSourceDefaultsToModeAndHonorsExplicitFilter(t *testing.T) {
+	cases := []struct {
+		name      string
+		mode      workMessageArchiveMode
+		requested string
+		want      string
+		ok        bool
+	}{
+		{name: "real default", mode: workMessageArchiveReal, want: "external", ok: true},
+		{name: "simulation default", mode: workMessageArchiveSimulation, want: "simulated", ok: true},
+		{name: "cross mode external rejected by simulation", mode: workMessageArchiveSimulation, requested: "external", ok: false},
+		{name: "cross mode simulated rejected by real", mode: workMessageArchiveReal, requested: "simulated", ok: false},
+		{name: "unavailable", mode: workMessageArchiveUnavailable, ok: false},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := effectiveArchiveSource(test.mode, test.requested)
+			if got != test.want || ok != test.ok {
+				t.Fatalf("effective source=%q,%v want %q,%v", got, ok, test.want, test.ok)
+			}
+		})
+	}
+}
+
+func TestLegacyArchiveSourceSQLUsesBatchRegistryAndNeverMsgIDPrefix(t *testing.T) {
+	state := archiveSourceRegistryState{legacySimulation: true}
+	simulated := archiveMessageSourceShardPredicateForState("simulated", state)
+	if !strings.Contains(simulated, "mochat_go_archive_simulation_messages") || !strings.Contains(simulated, "mochat_go_archive_simulation_batches") || strings.Contains(simulated, "MOCHAT-SIM:%") {
+		t.Fatalf("legacy simulated predicate=%q", simulated)
+	}
+	external := archiveMessageSourceShardPredicateForState("external", state)
+	if !strings.Contains(external, "mochat_go_archive_simulation_messages") || !strings.Contains(external, "NOT EXISTS") || strings.Contains(external, "MOCHAT-SIM:%") {
+		t.Fatalf("legacy external predicate=%q", external)
+	}
+	projection := archiveSourceInnerProjectionForState(state)
+	if !strings.Contains(projection, "simulation:") || !strings.Contains(projection, "batch_key") {
+		t.Fatalf("legacy source projection=%q", projection)
+	}
+}
+
+func TestDefaultArchiveSourceSQLUsesRegistryForEachMode(t *testing.T) {
+	realSource, ok := effectiveArchiveSource(workMessageArchiveReal, "")
+	if !ok || realSource != "external" {
+		t.Fatalf("real effective source=%q,%v", realSource, ok)
+	}
+	query, _, ok := workMessageUnionSQLWithArchiveSource(7, realSource, true)
+	if !ok || strings.Count(query, "archive_source_filter.source_kind = 'external'") != 10 || strings.Contains(query, "MOCHAT-SIM:%") {
+		t.Fatalf("real default query=%q", query)
+	}
+	simulationSource, ok := effectiveArchiveSource(workMessageArchiveSimulation, "")
+	if !ok || simulationSource != "simulated" {
+		t.Fatalf("simulation effective source=%q,%v", simulationSource, ok)
+	}
+	query, _, ok = workMessageUnionSQLWithArchiveSource(7, simulationSource, true)
+	if !ok || strings.Count(query, "archive_source_filter.source_kind = 'simulated'") != 10 || strings.Contains(query, "MOCHAT-SIM:%") {
+		t.Fatalf("simulation default query=%q", query)
+	}
+}
+
+func TestArchiveMessageSourceFilterUsesRegistryIdentity(t *testing.T) {
+	simulated := archiveMessageSourceShardPredicate("simulated")
+	if !strings.Contains(simulated, "archive_source_filter.source_kind = 'simulated'") || strings.Contains(simulated, "MOCHAT-SIM:%") {
+		t.Fatalf("simulation predicate=%q", simulated)
+	}
+	if strings.Contains(simulated, "(SELECT tenant_id FROM mc_corp") {
+		t.Fatalf("simulation predicate uses a scalar tenant subquery instead of a correlated registry join: %q", simulated)
+	}
+	external := archiveMessageSourceShardPredicate("external")
+	if !strings.Contains(external, "archive_source_filter.source_kind = 'external'") || !strings.Contains(external, "NOT EXISTS") || strings.Contains(external, "MOCHAT-SIM:%") {
+		t.Fatalf("external predicate=%q", external)
+	}
+	if archiveMessageSourceShardPredicate("secret-source") != "1 = 0" {
+		t.Fatal("unknown source filter unexpectedly accepted")
+	}
+}
+
+func TestArchiveSourceJoinedProjectionIsAvailableToPageAndDetailQueries(t *testing.T) {
+	projection := archiveSourceJoinedProjectionForState(archiveSourceRegistryState{explicit: true, legacySimulation: true})
+	for _, fragment := range []string{
+		"archive_source.source_kind",
+		"archive_source.source_id",
+		"archive_legacy_batch.id",
+		"AS archive_source_kind",
+		"AS archive_source_id",
+	} {
+		if !strings.Contains(projection, fragment) {
+			t.Fatalf("joined archive projection=%q missing %q", projection, fragment)
+		}
 	}
 }
 
@@ -215,6 +306,39 @@ func TestWorkMessageArchiveSourcePushesIdentifiersIntoShardQueries(t *testing.T)
 	}
 }
 
+func TestWorkMessageSourceRegistryFiltersEachShardAndKeepsHistoricalExternalFallback(t *testing.T) {
+	query, args, ok := workMessageUnionSQLWithArchiveSource(7, "simulated", true)
+	if !ok || len(args) != 10 || strings.Contains(query, "MOCHAT-SIM:%") || strings.Count(query, "archive_source_filter.source_kind = 'simulated'") != 10 {
+		t.Fatalf("simulated registry query ok=%v args=%#v query=%q", ok, args, query)
+	}
+	query, args, ok = workMessageUnionSQLWithArchiveSource(7, "external", true)
+	if !ok || len(args) != 10 || strings.Contains(query, "MOCHAT-SIM:%") || strings.Count(query, "archive_source_filter.source_kind = 'external'") != 10 || strings.Count(query, "NOT EXISTS") != 10 {
+		t.Fatalf("external registry query ok=%v args=%#v query=%q", ok, args, query)
+	}
+	if _, _, ok = workMessageUnionSQLWithArchiveSource(7, "simulated", false); ok {
+		t.Fatal("simulated source unexpectedly fell back to a message-id prefix without registry")
+	}
+	query, args, ok = workMessageUnionSQLWithArchiveSource(7, "external", false)
+	if !ok || len(args) != 10 || strings.Contains(query, "MOCHAT-SIM:%") {
+		t.Fatalf("historical external fallback ok=%v args=%#v query=%q", ok, args, query)
+	}
+}
+
+func TestWorkMessageFilteredSourceRegistryIsPushedIntoCountAndPageUnion(t *testing.T) {
+	query, args, ok := workMessageFilteredUnionSQLWithArchiveSource(dashboard.WorkMessageUserFilter{
+		CorpID: 7, AllowAllEmployees: true, ArchiveSource: "simulated", ToUserType: -1,
+	}, true)
+	if !ok || len(args) != 10 || strings.Count(query, "archive_source_filter.source_kind = 'simulated'") != 10 {
+		t.Fatalf("filtered registry query ok=%v args=%#v query=%q", ok, args, query)
+	}
+	if strings.Contains(query, "msgid LIKE 'MOCHAT-SIM:%'") {
+		t.Fatal("filtered source query still classifies simulation by msgid prefix")
+	}
+	if predicate := archiveMessageSourceDetailPredicate("simulated"); predicate != "archive_source.source_kind = 'simulated'" {
+		t.Fatalf("detail source predicate=%q", predicate)
+	}
+}
+
 func TestWorkMessageConversationGroupingKeepsEmployeesSeparate(t *testing.T) {
 	columns, key := workMessageConversationGrouping()
 
@@ -239,6 +363,15 @@ func TestWorkMessagePageWindowReadsLatestWithoutLargeOffset(t *testing.T) {
 	})
 	if order != "msg_data_time ASC, seq ASC, table_index ASC, id ASC" || offset != 200 || reverse {
 		t.Fatalf("paged window = order %q, offset %d, reverse %v", order, offset, reverse)
+	}
+}
+
+func TestWorkMessagePageWindowCanBeQualifiedForRegistryJoins(t *testing.T) {
+	order, _, _ := workMessagePageWindow(dashboard.WorkMessageFilter{Page: 1, PerPage: 10})
+	qualified := qualifyWorkMessagePageOrder(order, "wm")
+	want := "wm.msg_data_time ASC, wm.seq ASC, wm.table_index ASC, wm.id ASC"
+	if qualified != want {
+		t.Fatalf("qualified order=%q, want %q", qualified, want)
 	}
 }
 

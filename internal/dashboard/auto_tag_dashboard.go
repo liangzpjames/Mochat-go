@@ -157,6 +157,7 @@ type WorkMessageUserFilter struct {
 	AllowAllEmployees   bool
 	RestrictEmployeeIDs bool
 	EmployeeIDs         []int
+	ArchiveSource       string
 	Page                int
 	PerPage             int
 }
@@ -171,20 +172,22 @@ type WorkMessageFromUserFilter struct {
 }
 
 type WorkMessageToUser struct {
-	ID             int
-	TableIndex     int
-	Seq            int64
-	MsgID          string
-	WorkEmployeeID int
-	EmployeeName   string
-	EmployeeAvatar string
-	ToUserType     int
-	ToUserID       int
-	Name           string
-	Alias          string
-	Avatar         string
-	Content        string
-	MsgDataTime    string
+	ID              int
+	TableIndex      int
+	Seq             int64
+	MsgID           string
+	WorkEmployeeID  int
+	EmployeeName    string
+	EmployeeAvatar  string
+	ToUserType      int
+	ToUserID        int
+	Name            string
+	Alias           string
+	Avatar          string
+	Content         string
+	MsgDataTime     string
+	ArchiveSource   string
+	ArchiveSourceID string
 }
 
 type WorkMessageToUserPage struct {
@@ -209,34 +212,38 @@ type WorkMessageFilter struct {
 	Latest              bool
 	RestrictEmployeeIDs bool
 	EmployeeIDs         []int
+	ArchiveSource       string
 }
 
 type WorkMessageArchiveFilter struct {
 	CorpID              int
 	ArchiveMessageID    string
+	ArchiveSource       string
 	RestrictEmployeeIDs bool
 	EmployeeIDs         []int
 }
 
 type WorkMessageItem struct {
-	ID             int
-	TableIndex     int
-	Seq            int64
-	MsgID          string
-	WorkEmployeeID int
-	EmployeeName   string
-	EmployeeAvatar string
-	ToUserType     int
-	ToUserID       int
-	TargetName     string
-	TargetAvatar   string
-	Action         int
-	Name           string
-	Avatar         string
-	IsCurrentUser  int
-	Type           int
-	ContentRaw     string
-	MsgDataTime    string
+	ID              int
+	TableIndex      int
+	Seq             int64
+	MsgID           string
+	WorkEmployeeID  int
+	EmployeeName    string
+	EmployeeAvatar  string
+	ToUserType      int
+	ToUserID        int
+	TargetName      string
+	TargetAvatar    string
+	Action          int
+	Name            string
+	Avatar          string
+	IsCurrentUser   int
+	Type            int
+	ContentRaw      string
+	MsgDataTime     string
+	ArchiveSource   string
+	ArchiveSourceID string
 }
 
 type WorkMessagePage struct {
@@ -542,6 +549,7 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		PerPage:             positiveQueryInt(r, "perPage", 15),
 		RestrictEmployeeIDs: access.DataPermission != DataPermissionAll,
 		EmployeeIDs:         access.DeptEmployeeIDs,
+		ArchiveSource:       strings.TrimSpace(r.URL.Query().Get("archiveSource")),
 	}
 	if global {
 		var valid bool
@@ -604,6 +612,7 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 		Content:             strings.TrimSpace(r.URL.Query().Get("content")),
 		DateTimeStart:       autoTagQueryString(r, "dateTimeStart", "start_time", "startTime"),
 		DateTimeEnd:         autoTagQueryString(r, "dateTimeEnd", "end_time", "endTime"),
+		ArchiveSource:       strings.TrimSpace(r.URL.Query().Get("archiveSource")),
 		Page:                positiveQueryInt(r, "page", 1),
 		PerPage:             positiveQueryInt(r, "perPage", 15),
 		RestrictEmployeeIDs: access.DataPermission != DataPermissionAll,
@@ -633,6 +642,7 @@ func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.
 		return
 	}
 	archiveFilter := workMessageArchiveFilter(corpID, archiveMessageID, access)
+	archiveFilter.ArchiveSource = strings.TrimSpace(r.URL.Query().Get("archiveSource"))
 	anchor, found, err := h.store.WorkMessageByArchiveID(r.Context(), archiveFilter)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -665,26 +675,30 @@ func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.
 	for _, item := range page.Items {
 		payload := workMessagePayload(item)
 		messages = append(messages, map[string]any{
-			"id":           workMessageStableMessageID(item),
-			"senderName":   item.Name,
-			"senderAvatar": item.Avatar,
-			"direction":    workMessageDirection(item.IsCurrentUser),
-			"type":         item.Type,
-			"content":      payload["content"],
-			"sentAt":       item.MsgDataTime,
+			"id":              workMessageStableMessageID(item),
+			"senderName":      item.Name,
+			"senderAvatar":    item.Avatar,
+			"direction":       workMessageDirection(item.IsCurrentUser),
+			"type":            item.Type,
+			"content":         payload["content"],
+			"sentAt":          item.MsgDataTime,
+			"archiveSource":   item.ArchiveSource,
+			"archiveSourceId": item.ArchiveSourceID,
 		})
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
-		"id":           archiveMessageID,
-		"employeeId":   employeeID,
-		"employeeName": first.EmployeeName,
-		"targetType":   workMessageTargetType(toUserType),
-		"targetId":     toUserID,
-		"targetName":   first.TargetName,
-		"messageTotal": page.Total,
-		"truncated":    page.Total > len(page.Items),
-		"window":       "latest",
-		"messages":     messages,
+		"id":              archiveMessageID,
+		"employeeId":      employeeID,
+		"employeeName":    first.EmployeeName,
+		"targetType":      workMessageTargetType(toUserType),
+		"targetId":        toUserID,
+		"targetName":      first.TargetName,
+		"messageTotal":    page.Total,
+		"truncated":       page.Total > len(page.Items),
+		"archiveSource":   first.ArchiveSource,
+		"archiveSourceId": first.ArchiveSourceID,
+		"window":          "latest",
+		"messages":        messages,
 	})
 }
 
@@ -730,6 +744,7 @@ func workMessageGlobalFilter(w http.ResponseWriter, r *http.Request, corpID int,
 		Keyword:           strings.TrimSpace(r.URL.Query().Get("keyword")),
 		DateTimeStart:     start,
 		DateTimeEnd:       end,
+		ArchiveSource:     strings.TrimSpace(r.URL.Query().Get("archiveSource")),
 		AllowAllEmployees: true,
 		Page:              page,
 		PerPage:           pageSize,
@@ -940,16 +955,18 @@ func workMessageDirection(isCurrentUser int) string {
 
 func workMessageGlobalConversationPayload(item WorkMessageToUser) map[string]any {
 	return map[string]any{
-		"id":             workMessageArchiveID(item.MsgID, item.Seq, item.TableIndex, item.ID),
-		"employeeId":     item.WorkEmployeeID,
-		"employeeName":   item.EmployeeName,
-		"employeeAvatar": item.EmployeeAvatar,
-		"targetType":     workMessageTargetType(item.ToUserType),
-		"targetId":       item.ToUserID,
-		"targetName":     item.Name,
-		"targetAvatar":   item.Avatar,
-		"lastMessage":    item.Content,
-		"sentAt":         item.MsgDataTime,
+		"id":              workMessageArchiveID(item.MsgID, item.Seq, item.TableIndex, item.ID),
+		"employeeId":      item.WorkEmployeeID,
+		"employeeName":    item.EmployeeName,
+		"employeeAvatar":  item.EmployeeAvatar,
+		"targetType":      workMessageTargetType(item.ToUserType),
+		"targetId":        item.ToUserID,
+		"targetName":      item.Name,
+		"targetAvatar":    item.Avatar,
+		"lastMessage":     item.Content,
+		"sentAt":          item.MsgDataTime,
+		"archiveSource":   item.ArchiveSource,
+		"archiveSourceId": item.ArchiveSourceID,
 	}
 }
 
@@ -1396,6 +1413,8 @@ func workMessageToUserPayload(item WorkMessageToUser) map[string]any {
 		"content":          item.Content,
 		"msgDataTime":      item.MsgDataTime,
 		"msg_data_time":    item.MsgDataTime,
+		"archiveSource":    item.ArchiveSource,
+		"archiveSourceId":  item.ArchiveSourceID,
 	}
 }
 
@@ -1412,6 +1431,8 @@ func workMessagePayload(item WorkMessageItem) map[string]any {
 		"contentRaw":      item.ContentRaw,
 		"msgDataTime":     item.MsgDataTime,
 		"msg_data_time":   item.MsgDataTime,
+		"archiveSource":   item.ArchiveSource,
+		"archiveSourceId": item.ArchiveSourceID,
 	}
 }
 

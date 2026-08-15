@@ -341,6 +341,7 @@ type WorkRoomIndexItem struct {
 	WorkRoomID int
 	MemberNum  int
 	RoomName   string
+	OwnerID    int
 	OwnerName  string
 	RoomGroup  string
 	Status     int
@@ -1596,6 +1597,7 @@ func (h *WorkReadHandler) WorkRoomIndex(w http.ResponseWriter, r *http.Request) 
 			"workRoomId": item.WorkRoomID,
 			"memberNum":  item.MemberNum,
 			"roomName":   item.RoomName,
+			"ownerId":    item.OwnerID,
 			"ownerName":  item.OwnerName,
 			"roomGroup":  item.RoomGroup,
 			"status":     item.Status,

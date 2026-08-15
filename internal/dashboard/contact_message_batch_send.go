@@ -2,8 +2,10 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,12 +13,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"jiyi/mochat-go/internal/dashboardprincipal"
+	"jiyi/mochat-go/internal/wecomcapability"
 )
 
 const contactMessageBatchSendTextLimit = 4000
 
 type ContactMessageBatchSendFilter struct {
 	UserID              int
+	TenantID            int
+	CorpID              int
 	BatchTitle          string
 	Page                int
 	PerPage             int
@@ -36,6 +43,7 @@ type ContactMessageBatchSendItem struct {
 	CorpID             int
 	UserID             int
 	MediumID           int
+	BatchTitle         string
 	UserName           string
 	EmployeeIDs        []int
 	FilterParams       ContactMessageBatchSendFilterParams
@@ -99,6 +107,7 @@ type ContactMessageBatchSendContactBase struct {
 }
 
 type ContactMessageBatchSendWrite struct {
+	BatchTitle         string
 	CorpID             int
 	UserID             int
 	MediumID           int
@@ -231,14 +240,33 @@ type ContactMessageBatchSendClient interface {
 	SendAgentTextMessage(ctx context.Context, credential RoomTagPullAgentCredential, toUser string, content string) error
 }
 
+// ContactBatchReminderClient is deliberately separate from the legacy agent
+// message contract. Durable reminders must opt into WeCom duplicate checking;
+// a client that only implements the legacy method cannot safely cross the
+// crash window between external acceptance and ledger persistence.
+type ContactBatchReminderClient interface {
+	SendAgentTextMessageWithDuplicateCheck(ctx context.Context, credential RoomTagPullAgentCredential, toUser string, content string) error
+}
+
 type ContactMessageBatchSendHandler struct {
 	store           ContactMessageBatchSendStore
+	durableStore    ContactBatchDispatchStore
 	cache           LoginCache
 	resolver        UserIDResolver
 	authorizer      CorpAdminAuthorizer
 	apiBaseURL      string
 	fileStorageRoot string
 	client          ContactMessageBatchSendClient
+	durableRequired bool
+}
+
+func writeContactBatchDurableError(w http.ResponseWriter, err error) {
+	if errors.Is(err, sql.ErrNoRows) {
+		writeMachineEnvelope(w, http.StatusNotFound, "CONTACT_BATCH_NOT_FOUND", "contact batch not found", nil)
+		return
+	}
+	code, status := contactBatchDispatchHTTPError(err)
+	writeMachineEnvelope(w, status, code, contactBatchDispatchMessage(code), nil)
 }
 
 func NewContactMessageBatchSendHandler(store ContactMessageBatchSendStore, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer, apiBaseURL string, fileStorageRoot string, client ContactMessageBatchSendClient) *ContactMessageBatchSendHandler {
@@ -250,6 +278,7 @@ func NewContactMessageBatchSendHandler(store ContactMessageBatchSendStore, cache
 	}
 	return &ContactMessageBatchSendHandler{
 		store:           store,
+		durableStore:    contactBatchDispatchStoreFrom(store),
 		cache:           cache,
 		resolver:        resolver,
 		authorizer:      authorizer,
@@ -264,7 +293,7 @@ func (h *ContactMessageBatchSendHandler) Index(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	userID, _, _, ok := h.resolveAuthorized(w, r)
+	userID, _, principalScope, ok := h.resolveAuthorized(w, r)
 	if !ok {
 		return
 	}
@@ -272,7 +301,7 @@ func (h *ContactMessageBatchSendHandler) Index(w http.ResponseWriter, r *http.Re
 	page := positiveQueryInt(r, "page", 1)
 	perPage := positiveQueryInt(r, "perPage", 10)
 	result, err := h.store.ContactMessageBatchSendPage(r.Context(), ContactMessageBatchSendFilter{
-		UserID:     userID,
+		UserID: userID, TenantID: principalScope.Principal.TenantID, CorpID: principalScope.Principal.CorpID,
 		BatchTitle: strings.TrimSpace(r.URL.Query().Get("batchTitle")),
 		Page:       page,
 		PerPage:    perPage,
@@ -289,8 +318,31 @@ func (h *ContactMessageBatchSendHandler) Index(w http.ResponseWriter, r *http.Re
 		return
 	}
 	list := make([]map[string]any, 0, len(result.Items))
+	var durable ContactBatchDurableReadStore
+	var durablePrincipal dashboardprincipal.DashboardPrincipal
+	if candidate, ok := h.durableStore.(ContactBatchDurableReadStore); ok {
+		var principalErr error
+		durablePrincipal, principalErr = DashboardPrincipalFromContext(r.Context())
+		if principalErr != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		durable = candidate
+	}
 	for _, item := range result.Items {
-		list = append(list, h.batchListPayload(item))
+		payload := h.batchListPayload(item)
+		if durable != nil {
+			view, found, viewErr := durable.ContactBatchDurableView(r.Context(), durablePrincipal, item.ID)
+			if viewErr != nil {
+				writeContactBatchDurableError(w, viewErr)
+				return
+			}
+			if found {
+				payload = h.batchListPayload(view.Batch)
+				payload["operation"] = contactBatchOperationPayload(view.Operation)
+			}
+		}
+		list = append(list, payload)
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
 		"page": map[string]any{
@@ -315,6 +367,24 @@ func (h *ContactMessageBatchSendHandler) Show(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	if durable, available := h.durableStore.(ContactBatchDurableReadStore); available {
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		view, found, err := durable.ContactBatchDurableView(r.Context(), principal, batchID)
+		if err != nil {
+			writeContactBatchDurableError(w, err)
+			return
+		}
+		if found {
+			payload := h.batchShowPayload(view.Batch)
+			payload["operation"] = contactBatchOperationPayload(view.Operation)
+			writeEnvelope(w, http.StatusOK, 200, "success", payload)
+			return
+		}
+	}
 	batch, ok := h.loadOwnedBatch(w, r, userID, batchID)
 	if !ok {
 		return
@@ -335,11 +405,30 @@ func (h *ContactMessageBatchSendHandler) MessageShow(w http.ResponseWriter, r *h
 	if !ok {
 		return
 	}
-	batch, ok := h.loadOwnedBatch(w, r, userID, batchID)
-	if !ok {
-		return
+	var payload map[string]any
+	if durable, available := h.durableStore.(ContactBatchDurableReadStore); available {
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		view, found, err := durable.ContactBatchDurableView(r.Context(), principal, batchID)
+		if err != nil {
+			writeContactBatchDurableError(w, err)
+			return
+		}
+		if found {
+			payload = h.batchShowPayload(view.Batch)
+			payload["operation"] = contactBatchOperationPayload(view.Operation)
+		}
 	}
-	payload := h.batchShowPayload(batch)
+	if payload == nil {
+		batch, ok := h.loadOwnedBatch(w, r, userID, batchID)
+		if !ok {
+			return
+		}
+		payload = h.batchShowPayload(batch)
+	}
 	payload["message"] = payload["content"]
 	payload["list"] = payload["content"]
 	writeEnvelope(w, http.StatusOK, 200, "success", payload)
@@ -357,6 +446,21 @@ func (h *ContactMessageBatchSendHandler) Store(w http.ResponseWriter, r *http.Re
 	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
+	}
+	if h.durableRequired && h.durableStore == nil {
+		writeMachineEnvelope(w, http.StatusServiceUnavailable, "CONTACT_BATCH_DURABLE_UNAVAILABLE", "durable contact batch provider unavailable", nil)
+		return
+	}
+	if h.durableStore != nil {
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		access, _ := DashboardAccessFromContext(r.Context())
+		if h.storeDurableContactBatch(w, r, user, principal, access, corpID) {
+			return
+		}
 	}
 	params, err := parseRequestParams(r)
 	if err != nil {
@@ -424,6 +528,33 @@ func (h *ContactMessageBatchSendHandler) EmployeeSendIndex(w http.ResponseWriter
 	if !ok {
 		return
 	}
+	if durable, available := h.durableStore.(ContactBatchDurableReadStore); available {
+		sendStatus, valid := optionalQueryInt(w, r, "sendStatus", "sendStatus 必须为整数")
+		if !valid {
+			return
+		}
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		filter := ContactMessageBatchSendEmployeeFilter{BatchID: batchID, SendStatus: sendStatus, KeyWords: strings.TrimSpace(r.URL.Query().Get("keyWords")), Page: positiveQueryInt(r, "page", 1), PerPage: positiveQueryInt(r, "perPage", 15)}
+		page, err := durable.ContactBatchDurableEmployeePage(r.Context(), principal, batchID, filter)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			writeContactBatchDurableError(w, err)
+			return
+		}
+		if err != nil {
+			goto legacyEmployeeRead
+		}
+		list := make([]map[string]any, 0, len(page.Items))
+		for _, item := range page.Items {
+			list = append(list, map[string]any{"id": item.ID, "status": item.Status, "sendTime": item.SendTime, "sendContactTotal": item.SendContactTotal, "employeeId": item.EmployeeID, "employeeName": item.EmployeeName, "employeeAlias": item.EmployeeAlias, "employeeAvatar": h.fullStaticURL(item.EmployeeAvatar), "employeeThumbAvatar": h.fullStaticURL(item.EmployeeThumbAvatar)})
+		}
+		writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{"page": map[string]any{"perPage": page.PerPage, "total": page.Total, "totalPage": page.TotalPage}, "list": list})
+		return
+	}
+legacyEmployeeRead:
 	if _, ok = h.loadOwnedBatch(w, r, userID, batchID, true); !ok {
 		return
 	}
@@ -480,6 +611,43 @@ func (h *ContactMessageBatchSendHandler) ContactReceiveIndex(w http.ResponseWrit
 	if !ok {
 		return
 	}
+	if durable, available := h.durableStore.(ContactBatchDurableReadStore); available {
+		sendStatus, valid := optionalQueryInt(w, r, "sendStatus", "sendStatus")
+		if !valid {
+			return
+		}
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		page, err := durable.ContactBatchDurableReceivePage(r.Context(), principal, batchID, ContactMessageBatchSendReceiveFilter{
+			BatchID: batchID, SendStatus: sendStatus, KeyWords: strings.TrimSpace(r.URL.Query().Get("keyWords")),
+			Page: positiveQueryInt(r, "page", 1), PerPage: positiveQueryInt(r, "perPage", 15),
+		})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			writeContactBatchDurableError(w, err)
+			return
+		}
+		if err != nil {
+			goto legacyReceiveRead
+		}
+		list := make([]map[string]any, 0, len(page.Items))
+		for _, item := range page.Items {
+			list = append(list, map[string]any{
+				"id": item.ID, "status": item.Status, "sendTime": formatUnixSecondsLocal(item.SendTime),
+				"contactId": item.ContactID, "contactName": item.ContactName, "contactNickName": item.ContactNickName,
+				"contactAvatar": h.fullStaticURL(item.ContactAvatar), "employeeId": item.EmployeeID,
+				"employeeName": item.EmployeeName, "employeeAlias": item.EmployeeAlias,
+			})
+		}
+		writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
+			"page": map[string]any{"perPage": page.PerPage, "total": page.Total, "totalPage": page.TotalPage},
+			"list": list,
+		})
+		return
+	}
+legacyReceiveRead:
 	if _, ok = h.loadOwnedBatch(w, r, userID, batchID, true); !ok {
 		return
 	}
@@ -575,13 +743,76 @@ func (h *ContactMessageBatchSendHandler) Remind(w http.ResponseWriter, r *http.R
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "batchId 必填", nil)
 		return
 	}
-	batch, ok := h.loadOwnedBatch(w, r, userID, batchID, true)
-	if !ok {
-		return
-	}
 	batchEmployeeID, _, err := intParam(params, "batchEmployId")
 	if err != nil {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "batchEmployId 必须为整数", nil)
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "batchEmployId", nil)
+		return
+	}
+	requestID := ""
+	if rawRequestID, ok := params["requestId"].(string); ok {
+		requestID = strings.TrimSpace(rawRequestID)
+		if len(requestID) > 128 || strings.ContainsAny(requestID, "\x00\r\n") {
+			writeMachineEnvelope(w, http.StatusBadRequest, "CONTACT_BATCH_INVALID_REQUEST", "invalid request body", nil)
+			return
+		}
+	}
+	if durable, available := h.durableStore.(ContactBatchDurableMutationStore); available {
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		reminder, prepareErr := durable.PrepareContactBatchDurableReminder(r.Context(), principal, batchID, batchEmployeeID, requestID)
+		if prepareErr == nil {
+			if reminder.AlreadyCompleted {
+				writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+				return
+			}
+			sender, ok := h.client.(ContactBatchReminderClient)
+			if !ok {
+				writeMachineEnvelope(w, http.StatusConflict, "CONTACT_BATCH_CAPABILITY_LIMITED", "contact batch capability is unavailable", nil)
+				return
+			}
+			text := contactMessageBatchSendReminderText(reminder.CreatedAt)
+			successTotal := 0
+			failureTotal := 0
+			for _, recipient := range reminder.Recipients {
+				if err := sender.SendAgentTextMessageWithDuplicateCheck(r.Context(), reminder.Agent, recipient, text); err != nil {
+					failureTotal++
+					continue
+				}
+				successTotal++
+			}
+			errorCode := ""
+			if failureTotal > 0 {
+				errorCode = "wecom.contact_batch_remind_failed"
+			}
+			if err := durable.RecordContactBatchDurableReminder(r.Context(), principal, reminder, errorCode, failureTotal == 0, successTotal, failureTotal); err != nil {
+				writeMachineEnvelope(w, http.StatusServiceUnavailable, "CONTACT_BATCH_REMINDER_RECONCILE_REQUIRED", "提醒已提交，审计正在恢复", nil)
+				return
+			}
+			if failureTotal > 0 {
+				writeMachineEnvelope(w, http.StatusServiceUnavailable, "CONTACT_BATCH_REMINDER_RECONCILE_REQUIRED", "提醒部分失败，已成功收件人不会自动重发", map[string]any{"successTotal": successTotal, "failureTotal": failureTotal})
+				return
+			}
+			writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+			return
+		}
+		if errors.Is(prepareErr, ErrContactBatchReminderReconcileRequired) {
+			writeMachineEnvelope(w, http.StatusServiceUnavailable, "CONTACT_BATCH_REMINDER_RECONCILE_REQUIRED", "reminder attempt is awaiting reconciliation", nil)
+			return
+		}
+		if errors.Is(prepareErr, ErrContactBatchReminderAlreadyCompleted) {
+			writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+			return
+		}
+		if !errors.Is(prepareErr, sql.ErrNoRows) {
+			writeContactBatchDurableError(w, prepareErr)
+			return
+		}
+	}
+	batch, ok := h.loadOwnedBatch(w, r, userID, batchID, true)
+	if !ok {
 		return
 	}
 	agent, found, err := h.store.RoomTagPullRemindAgentByCorpID(r.Context(), batch.CorpID)
@@ -639,6 +870,22 @@ func (h *ContactMessageBatchSendHandler) Destroy(w http.ResponseWriter, r *http.
 	if err != nil || !has || batchID <= 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "batchId 必填", nil)
 		return
+	}
+	if durable, available := h.durableStore.(ContactBatchDurableMutationStore); available {
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		err = durable.CancelContactBatchDurable(r.Context(), principal, batchID)
+		if err == nil {
+			writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+			return
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			writeContactBatchDurableError(w, err)
+			return
+		}
 	}
 	if _, ok = h.loadOwnedBatch(w, r, userID, batchID, true); !ok {
 		return
@@ -703,7 +950,21 @@ func (h *ContactMessageBatchSendHandler) loadOwnedBatch(w http.ResponseWriter, r
 			return ContactMessageBatchSendItem{}, false
 		}
 	}
-	batch, found, err := h.store.ContactMessageBatchSendByID(r.Context(), batchID)
+	var batch ContactMessageBatchSendItem
+	var found bool
+	var err error
+	if principal, principalErr := DashboardPrincipalFromContext(r.Context()); principalErr == nil {
+		if scoped, scopedOK := h.store.(ContactBatchScopedReadStore); scopedOK {
+			batch, found, err = scoped.ContactMessageBatchSendByIDForPrincipal(r.Context(), principal, batchID)
+		} else if h.durableRequired {
+			writeMachineEnvelope(w, http.StatusServiceUnavailable, "CONTACT_BATCH_DURABLE_UNAVAILABLE", "durable contact batch provider unavailable", nil)
+			return ContactMessageBatchSendItem{}, false
+		} else {
+			batch, found, err = h.store.ContactMessageBatchSendByID(r.Context(), batchID)
+		}
+	} else {
+		batch, found, err = h.store.ContactMessageBatchSendByID(r.Context(), batchID)
+	}
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return ContactMessageBatchSendItem{}, false
@@ -790,6 +1051,7 @@ func (h *ContactMessageBatchSendHandler) batchWriteFromParams(w http.ResponseWri
 		CorpID:             corpID,
 		UserID:             userID,
 		MediumID:           mediumID,
+		BatchTitle:         strings.TrimSpace(stringParam(params, "batchTitle")),
 		UserName:           userName,
 		EmployeeIDs:        uniquePositiveIntsLocal(employeeIDs),
 		FilterParams:       filterParams,
@@ -860,6 +1122,7 @@ func (h *ContactMessageBatchSendHandler) prepareSendContent(w http.ResponseWrite
 func (h *ContactMessageBatchSendHandler) batchListPayload(item ContactMessageBatchSendItem) map[string]any {
 	return map[string]any{
 		"id":               item.ID,
+		"batchTitle":       item.BatchTitle,
 		"mediumId":         item.MediumID,
 		"sendWay":          item.SendWay,
 		"content":          h.contentPayload(item.Content),
@@ -874,9 +1137,22 @@ func (h *ContactMessageBatchSendHandler) batchListPayload(item ContactMessageBat
 	}
 }
 
+func contactBatchOperationPayload(operation wecomcapability.Operation) map[string]any {
+	return map[string]any{
+		"id":                operation.ID,
+		"status":            operation.Status,
+		"targetTotal":       operation.TargetTotal,
+		"successTotal":      operation.SuccessTotal,
+		"failureTotal":      operation.FailureTotal,
+		"errorCode":         operation.ErrorCode,
+		"providerRequestId": operation.ProviderRequestID,
+	}
+}
+
 func (h *ContactMessageBatchSendHandler) batchShowPayload(item ContactMessageBatchSendItem) map[string]any {
 	return map[string]any{
 		"id":                 item.ID,
+		"batchTitle":         item.BatchTitle,
 		"mediumId":           item.MediumID,
 		"creator":            item.UserName,
 		"createdAt":          item.CreatedAt,

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/modules/providers"
+	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
 )
 
 // Config carries the enterprise WeChat conversation archive credentials.
@@ -36,6 +37,7 @@ type Archive struct {
 }
 
 var _ providers.ArchiveProvider = (*Archive)(nil)
+var _ archiveprovider.ArchiveSource = (*Archive)(nil)
 
 func New(config Config) (*Archive, error) {
 	return &Archive{
@@ -61,23 +63,65 @@ func (a *Archive) Status() providers.Status {
 		missing = append(missing, "MOCHAT_GO_WECOM_ARCHIVE_PRIVATE_KEY")
 	}
 	if len(missing) > 0 {
-		return providers.Status{Kind: "wecom_archive", State: providers.StateLimited, Reason: "缺少凭据：" + strings.Join(missing, "、")}
+		return providers.Status{
+			Kind:          "wecom_archive",
+			State:         providers.StateLimited,
+			Code:          "archive.credentials_missing",
+			Source:        providers.SourceExternal,
+			Reason:        "企业微信会话存档凭据未完整配置",
+			Action:        "在企业设置中配置会话存档凭据",
+			Missing:       missing,
+			LastErrorCode: "archive.credentials_missing",
+		}
 	}
-	return providers.Status{Kind: "wecom_archive", State: providers.StateReady}
+	return providers.Status{
+		Kind:   "wecom_archive",
+		State:  providers.StateLimited,
+		Code:   "archive.getchatdata_unimplemented",
+		Source: providers.SourceExternal,
+		Reason: "真实会话存档 getchatdata source 尚未实现",
+		Action: "接入并验证真实会话存档 source 后再启用同步",
+	}
 }
 
 func (a *Archive) Sync(ctx context.Context, _ providers.SyncOptions) (providers.SyncResult, error) {
-	if a.Status().State != providers.StateReady {
+	status := a.Status()
+	if status.Code == "archive.credentials_missing" {
 		return providers.SyncResult{}, providers.ErrNotConfigured
 	}
 	if ctx == nil {
 		return providers.SyncResult{}, errors.New("context is required")
 	}
-	// Real getchatdata activation requires live enterprise credentials. The
-	// adapter, crypto primitives and message normalization contract are
-	// verified by unit tests; live sync is activated in a later phase when the
-	// user provides verifiable credentials.
-	return providers.SyncResult{}, errors.New("wecom archive sync activation pending live credentials")
+	// The adapter intentionally fails closed until a real getchatdata source is
+	// injected. Complete credentials alone are not evidence of a usable source.
+	return providers.SyncResult{}, providers.ErrCapabilityUnavailable
+}
+
+func (a *Archive) Kind() providers.Source { return providers.SourceExternal }
+
+func (a *Archive) SourceID() string {
+	if a == nil || strings.TrimSpace(a.corpID) == "" {
+		return "wecom"
+	}
+	return "wecom:" + a.corpID
+}
+
+func (a *Archive) Namespace() string { return "wecom" }
+
+func (a *Archive) Fetch(ctx context.Context, scope archiveprovider.Scope, _ archiveprovider.Cursor, _ int) (archiveprovider.Page, error) {
+	if ctx == nil {
+		return archiveprovider.Page{}, errors.New("context is required")
+	}
+	if scope.TenantID <= 0 || scope.CorpID <= 0 {
+		return archiveprovider.Page{}, archiveprovider.ErrInvalidScope
+	}
+	status := a.Status()
+	if status.Code == "archive.credentials_missing" {
+		return archiveprovider.Page{}, providers.ErrNotConfigured
+	}
+	// The adapter is intentionally source-compatible but capability-incomplete:
+	// credentials and RSA helpers are not evidence that getchatdata is usable.
+	return archiveprovider.Page{}, providers.ErrCapabilityUnavailable
 }
 
 // Message is the normalized archive message shape stored into mc_work_message_*.

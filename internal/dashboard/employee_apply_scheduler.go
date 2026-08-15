@@ -3,6 +3,8 @@ package dashboard
 import (
 	"context"
 	"errors"
+
+	"jiyi/mochat-go/internal/companyprofile"
 )
 
 const (
@@ -16,7 +18,7 @@ const (
 type TenantBindingID int
 
 type EmployeeApplyEnqueuer interface {
-	EnqueueEmployeeApply(ctx context.Context, event EmployeeApplyEvent) error
+	EnqueueEmployeeApplyWithReceipt(ctx context.Context, event EmployeeApplyEvent) (companyprofile.EmployeeSyncEnqueueReceipt, error)
 }
 
 func NewCompanyEmployeeApplyEvent(tenantID int) (EmployeeApplyEvent, error) {
@@ -39,16 +41,20 @@ func NewCompanyEmployeeSyncScheduler(queue EmployeeApplyEnqueuer) *CompanyEmploy
 	return &CompanyEmployeeSyncScheduler{queue: queue}
 }
 
-func (s *CompanyEmployeeSyncScheduler) EnqueueEmployeeSync(ctx context.Context, tenantID int) (string, error) {
+func (s *CompanyEmployeeSyncScheduler) EnqueueEmployeeSync(ctx context.Context, tenantID int) (companyprofile.EmployeeSyncEnqueueReceipt, error) {
 	if s == nil || s.queue == nil {
-		return "", errors.New("employee sync scheduler is not configured")
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, errors.New("employee sync scheduler is not configured")
 	}
 	event, err := NewCompanyEmployeeApplyEvent(tenantID)
 	if err != nil {
-		return "", err
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
 	}
-	if err := s.queue.EnqueueEmployeeApply(ctx, event); err != nil {
-		return "", err
+	receipt, err := s.queue.EnqueueEmployeeApplyWithReceipt(ctx, event)
+	if err != nil {
+		return companyprofile.EmployeeSyncEnqueueReceipt{}, err
 	}
-	return CompanyEmployeeSyncCursor, nil
+	if receipt.Cursor == "" {
+		receipt.Cursor = CompanyEmployeeSyncCursor
+	}
+	return receipt, nil
 }
