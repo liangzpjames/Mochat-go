@@ -18,6 +18,7 @@ import type {
   ConversationSearch,
   ConversationTargetType,
 } from './conversation-global-api';
+import { messageText } from './conversation-global-api';
 
 type FilterDraft = {
   keyword: string;
@@ -66,14 +67,6 @@ function targetTypeLabel(type: ConversationTargetType): string {
     case 'room':
       return '群聊';
   }
-}
-
-function messageText(message: ConversationMessage): string {
-  const content = message.content.content;
-  if (typeof content === 'string' && content.trim() !== '') {
-    return content;
-  }
-  return JSON.stringify(message.content);
 }
 
 export function ConversationGlobalPage({

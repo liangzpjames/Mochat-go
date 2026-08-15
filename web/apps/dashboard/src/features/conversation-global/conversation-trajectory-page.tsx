@@ -7,12 +7,8 @@ import { useSearchParams } from 'react-router';
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
 import { updateSearch } from '../../shared/query-state';
-import type { ConversationGlobalApi, ConversationMessage, ConversationTargetType } from './conversation-global-api';
-
-function messageText(message: ConversationMessage): string {
-  const content = message.content.content;
-  return typeof content === 'string' && content.trim() !== '' ? content : JSON.stringify(message.content);
-}
+import type { ConversationGlobalApi, ConversationTargetType } from './conversation-global-api';
+import { messageText } from './conversation-global-api';
 
 function targetLabel(type: ConversationTargetType): string {
   return type === 'customer' ? '客户' : type === 'room' ? '群聊' : '同事';

@@ -8,18 +8,14 @@ import { PageState } from '../../components/page-state/page-state';
 import { DashboardPagination } from '../../components/dashboard-pagination';
 import { updateSearch } from '../../shared/query-state';
 import { ConversationArchiveUnavailableState, isConversationArchiveUnavailable } from './conversation-archive-state';
-import type { ConversationGlobalApi, ConversationMessage, ConversationTargetType } from './conversation-global-api';
+import type { ConversationGlobalApi, ConversationTargetType } from './conversation-global-api';
+import { messageText } from './conversation-global-api';
 
 const pageSize = 20;
 
 function positiveInteger(value: string | null, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function messageText(message: ConversationMessage): string {
-  const content = message.content.content;
-  return typeof content === 'string' && content.trim() !== '' ? content : JSON.stringify(message.content);
 }
 
 function targetLabel(type: ConversationTargetType): string {

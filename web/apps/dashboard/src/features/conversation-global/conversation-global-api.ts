@@ -40,6 +40,39 @@ export type ConversationMessage = {
   sentAt: string;
 };
 
+// messageText 将归档消息内容还原为可读文本：内容为 JSON 时优先取 text 字段，
+// 避免在会话详情里直接展示 {"text":"..."} 原始串。
+export function messageText(message: ConversationMessage): string {
+  const record = message.content ?? {};
+  // 当前接口形态：{ text: "..." }
+  if (typeof record.text === 'string' && record.text.trim() !== '') {
+    return record.text;
+  }
+  const raw = record.content;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed === '') return '';
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (typeof parsed === 'string' && parsed.trim() !== '') {
+        return parsed;
+      }
+      if (
+        parsed !== null &&
+        typeof parsed === 'object' &&
+        typeof (parsed as { text?: unknown }).text === 'string' &&
+        String((parsed as { text: unknown }).text).trim() !== ''
+      ) {
+        return String((parsed as { text: unknown }).text);
+      }
+    } catch {
+      // 非 JSON 文本直接展示
+    }
+    return raw;
+  }
+  return JSON.stringify(message.content);
+}
+
 export type ConversationDetail = {
   id: string;
   employeeId: number;

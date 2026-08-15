@@ -1515,6 +1515,139 @@ body {
 .phase34-material-group-dialog footer button { border: 1px solid #d9deea; border-radius: 8px; cursor: pointer; min-height: 38px; padding: 0 18px; }
 .phase34-material-group-dialog footer button:last-child { background: #5268ef; border-color: #5268ef; color: #fff; }
 .phase34-material-group-dialog footer button:disabled { cursor: not-allowed; opacity: .55; }
+.phase34-material-group-dialog footer button { min-width: 96px; }
+.phase34-material-drawer .phase34-detail-panel > footer button { min-width: 96px; }
+
+/* ===== DashboardDialog（统一弹框/抽屉） ===== */
+.dashboard-dialog .ant-modal-content {
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgb(15 23 42 / 22%);
+  padding: 22px 24px 20px;
+}
+.dashboard-dialog .ant-modal-header {
+  border-bottom: 0;
+  margin-bottom: 4px;
+  padding: 0 0 14px;
+}
+.dashboard-dialog .ant-modal-title {
+  color: #20283a;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.dashboard-dialog .ant-modal-close {
+  color: #667085;
+  right: 16px;
+  top: 16px;
+}
+.dashboard-dialog .ant-modal-close:hover {
+  background: #f2f4fb;
+  color: #20283a;
+}
+.dashboard-dialog .ant-modal-body {
+  display: grid;
+  gap: 14px;
+  max-height: calc(100vh - 230px);
+  overflow-y: auto;
+  padding: 4px 0 10px;
+}
+.dashboard-dialog .ant-modal-body > label {
+  color: #4f5768;
+  display: grid;
+  font-size: .8rem;
+  font-weight: 600;
+  gap: 7px;
+}
+.dashboard-dialog .ant-modal-body > label small {
+  color: #9ca3b1;
+  font-size: .68rem;
+  font-weight: 400;
+  justify-self: end;
+}
+.dashboard-dialog .ant-modal-body input,
+.dashboard-dialog .ant-modal-body select,
+.dashboard-dialog .ant-modal-body textarea {
+  border: 1px solid #dfe4ee;
+  border-radius: 9px;
+  box-sizing: border-box;
+  color: #394153;
+  font: inherit;
+  min-height: 40px;
+  outline: none;
+  padding: 9px 11px;
+  width: 100%;
+}
+.dashboard-dialog .ant-modal-body input:focus,
+.dashboard-dialog .ant-modal-body select:focus,
+.dashboard-dialog .ant-modal-body textarea:focus {
+  border-color: #6678ed;
+  box-shadow: 0 0 0 3px rgb(83 107 244 / 10%);
+}
+.dashboard-dialog .ant-modal-body textarea {
+  line-height: 1.6;
+  resize: vertical;
+}
+.dashboard-dialog .ant-modal-body p,
+.dashboard-dialog .ant-modal-body small,
+.dashboard-dialog .ant-modal-body span {
+  overflow-wrap: anywhere;
+}
+.dashboard-dialog .ant-modal-footer {
+  border-top: 1px solid #edf0f5;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 6px;
+  padding: 14px 0 0;
+}
+.dashboard-dialog .ant-modal-footer .ant-btn {
+  border-radius: 8px;
+  font-size: .82rem;
+  min-height: 38px;
+  min-width: 96px;
+  padding: 0 18px;
+}
+.dashboard-dialog .ant-modal-footer .ant-btn-default {
+  border-color: #d9deea;
+  color: #4f5768;
+}
+.dashboard-dialog .ant-modal-footer .ant-btn-primary {
+  background: #5268ef;
+  border-color: #5268ef;
+  color: #fff;
+}
+.dashboard-dialog .ant-modal-footer .ant-btn-primary:disabled {
+  opacity: .55;
+}
+.dashboard-dialog--drawer .ant-drawer-content {
+  background: #fbfcff;
+}
+.dashboard-dialog--drawer .ant-drawer-header {
+  border-bottom: 1px solid #edf0f5;
+  padding: 18px 22px;
+}
+.dashboard-dialog--drawer .ant-drawer-title {
+  color: #20283a;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.dashboard-dialog--drawer .ant-drawer-body {
+  display: grid;
+  gap: 14px;
+  padding: 20px 22px;
+}
+.dashboard-dialog--drawer .ant-drawer-footer {
+  border-top: 1px solid #edf0f5;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 22px;
+}
+.dashboard-dialog--drawer .ant-drawer-footer .ant-btn {
+  border-radius: 8px;
+  min-height: 38px;
+  min-width: 96px;
+}
+
 .phase34-material-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .phase34-material-grid article { background: #fff; border: 1px solid #e6e9f0; border-radius: 11px; box-shadow: 0 5px 15px rgb(39 50 75 / 4%); display: flex; flex-direction: column; min-height: 190px; padding: 14px; }
 .phase34-material-card-top { align-items: center; display: flex; justify-content: space-between; }
@@ -2159,6 +2292,12 @@ body {
 .dashboard-detail-drawer header button:hover {
   border-color: #bcc9f7;
   background: #f5f8ff;
+}
+.dashboard-detail-drawer p[role="status"] {
+  color: #8c94a3;
+  font-size: .82rem;
+  margin: 0;
+  padding: 12px 0;
 }
 .dashboard-detail-drawer .phase35-table {
   overflow-x: auto;
