@@ -106,7 +106,13 @@ func scanContactBatchDue(scanner interface{ Scan(...any) error }) (dashboard.Con
 // rechecks the current binding, actor identity, page grant, data scope and
 // persisted customer ownership before the sender is reached.
 func (s *MySQLStore) AuthorizeDispatch(ctx context.Context, request wecomcapability.DispatchAuthorizationRequest) error {
-	if s == nil || s.db == nil || request.Capability != wecomcapability.ContactBatchSend || request.Principal.UserID <= 0 || request.Principal.TenantID <= 0 || request.Principal.CorpID <= 0 || request.Principal.AuthVersion == 0 || request.DispatchID <= 0 {
+	if s == nil || s.db == nil || request.Principal.UserID <= 0 || request.Principal.TenantID <= 0 || request.Principal.CorpID <= 0 || request.Principal.AuthVersion == 0 || request.DispatchID <= 0 {
+		return dashboard.ErrContactBatchCapabilityLimited
+	}
+	if request.Capability == wecomcapability.RoomBatchSend {
+		return s.authorizeRoomBatchDispatch(ctx, request)
+	}
+	if request.Capability != wecomcapability.ContactBatchSend {
 		return dashboard.ErrContactBatchCapabilityLimited
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

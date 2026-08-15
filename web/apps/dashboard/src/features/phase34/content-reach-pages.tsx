@@ -235,6 +235,31 @@ function contactTargetFromKey(value: string): { employeeId: number; contactId: n
   return { employeeId, contactId };
 }
 
+function positiveRoomTargetKeys(value: string): string[] {
+  return value.split(',').map((item) => item.trim()).filter((item, index, values) => {
+    const parts = item.split(':');
+    const ownerEmployeeID = Number(parts[0] ?? '');
+    const roomID = Number(parts[1] ?? '');
+    return Number.isInteger(ownerEmployeeID) && ownerEmployeeID > 0 && Number.isInteger(roomID) && roomID > 0 && values.indexOf(item) === index;
+  });
+}
+
+function roomTargetFromKey(value: string): { ownerEmployeeId: number; roomId: number } | null {
+  const parts = value.split(':');
+  const ownerEmployeeId = Number(parts[0] ?? '');
+  const roomId = Number(parts[1] ?? '');
+  if (!Number.isInteger(ownerEmployeeId) || ownerEmployeeId <= 0 || !Number.isInteger(roomId) || roomId <= 0) return null;
+  return { ownerEmployeeId, roomId };
+}
+
+function roomTargetKeyFromRow(row: ReachRecord, ownerEmployeeIDs: number[]): string {
+  const roomID = Number(row.roomId ?? row.workRoomId ?? row.id);
+  const rowOwnerID = Number(row.ownerId ?? row.ownerEmployeeId);
+  const singleOwnerID = ownerEmployeeIDs.length === 1 ? Number(ownerEmployeeIDs[0]) : 0;
+  const ownerEmployeeID = Number.isInteger(rowOwnerID) && rowOwnerID > 0 ? rowOwnerID : singleOwnerID;
+  return Number.isInteger(roomID) && roomID > 0 && Number.isInteger(ownerEmployeeID) && ownerEmployeeID > 0 ? `${ownerEmployeeID}:${roomID}` : '--';
+}
+
 function newContactBatchIdempotencyKey(): string {
   const randomUUID = globalThis.crypto?.randomUUID?.();
   return `contact-${randomUUID ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
@@ -246,6 +271,7 @@ function SendCreateDrawer({
   title,
   employeeIDs,
   contactTargets,
+  roomTargets,
   content,
   materialID,
   sendWay,
@@ -257,6 +283,7 @@ function SendCreateDrawer({
   onTitleChange,
   onEmployeeIDsChange,
   onContactTargetsChange,
+  onRoomTargetsChange,
   onContentChange,
   onMaterialChange,
   onSendWayChange,
@@ -269,6 +296,7 @@ function SendCreateDrawer({
   title: string;
   employeeIDs: string;
   contactTargets: string;
+  roomTargets: string;
   content: string;
   materialID: number;
   sendWay: string;
@@ -280,6 +308,7 @@ function SendCreateDrawer({
   onTitleChange: (value: string) => void;
   onEmployeeIDsChange: (value: string) => void;
   onContactTargetsChange: (value: string) => void;
+  onRoomTargetsChange: (value: string) => void;
   onContentChange: (value: string) => void;
   onMaterialChange: (value: number) => void;
   onSendWayChange: (value: string) => void;
@@ -289,8 +318,10 @@ function SendCreateDrawer({
 }) {
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [contactSearch, setContactSearch] = useState('');
+  const [roomSearch, setRoomSearch] = useState('');
   const selectedEmployeeIDs = new Set(positiveReachIDs(employeeIDs));
   const selectedContactTargetKeys = new Set(positiveContactTargetKeys(contactTargets));
+  const selectedRoomTargetKeys = new Set(positiveRoomTargetKeys(roomTargets));
   const employeesQuery = useQuery({
     queryKey: ['precise-send-employees', mode, employeeSearch],
     queryFn: () => fetchAllSelectorPages(api, '/workEmployee/index', employeeSearch ? { name: employeeSearch } : {}),
@@ -301,17 +332,35 @@ function SendCreateDrawer({
     queryFn: () => fetchAllSelectorPages(api, '/workContact/index', { ...(contactSearch ? { keyWords: contactSearch } : {}), employeeId: employeeIDs }),
     enabled: mode === 'contact' && selectedEmployeeIDs.size > 0,
   });
+  const roomsQuery = useQuery({
+    queryKey: ['precise-send-rooms', mode, roomSearch, employeeIDs],
+    queryFn: async () => {
+      const ownerIDs = [...selectedEmployeeIDs];
+      const merged: ReachRecord[] = [];
+      for (const ownerID of ownerIDs) {
+        const payload = await fetchAllSelectorPages(api, '/workRoom/index', { workRoomOwnerId: String(ownerID), ...(roomSearch ? { workRoomName: roomSearch } : {}) });
+        for (const row of rowsFrom(payload)) {
+          merged.push({ ...row, ownerEmployeeId: ownerID });
+        }
+      }
+      return { list: merged };
+    },
+    enabled: mode === 'room' && selectedEmployeeIDs.size > 0,
+  });
   const employeeOptions = rowsFrom(employeesQuery.data);
   const contactOptions = rowsFrom(contactsQuery.data);
+  const roomOptions = rowsFrom(roomsQuery.data);
   const employeeOptionIDs = new Set(employeeOptions.map((row) => primitive(row.id ?? row.employeeId)).filter((value) => value !== '--'));
   const contactOptionKeys = new Set(contactOptions.map((row) => {
     const employeeID = Number(row.employeeId);
     const contactID = Number(row.contactId);
     return Number.isInteger(employeeID) && employeeID > 0 && Number.isInteger(contactID) && contactID > 0 ? `${employeeID}:${contactID}` : '--';
   }).filter((value) => value !== '--'));
+  const roomOptionKeys = new Set(roomOptions.map((row) => roomTargetKeyFromRow(row, [...selectedEmployeeIDs])).filter((value) => value !== '--'));
   const employeeSelectionReady = employeesQuery.isSuccess && !employeesQuery.isFetching && selectedEmployeeIDs.size > 0 && [...selectedEmployeeIDs].every((id) => employeeOptionIDs.has(String(id)));
   const contactSelectionReady = mode !== 'contact' || (contactsQuery.isSuccess && !contactsQuery.isFetching && selectedContactTargetKeys.size > 0 && [...selectedContactTargetKeys].every((key) => contactOptionKeys.has(key)));
-  const selectorsReady = employeeSelectionReady && contactSelectionReady;
+  const roomSelectionReady = mode !== 'room' || (roomsQuery.isSuccess && !roomsQuery.isFetching && selectedRoomTargetKeys.size > 0 && [...selectedRoomTargetKeys].every((key) => roomOptionKeys.has(key)));
+  const selectorsReady = employeeSelectionReady && contactSelectionReady && roomSelectionReady;
 
   return (
     <aside className="phase34-detail" aria-label="新建群发任务">
@@ -335,7 +384,15 @@ function SendCreateDrawer({
           {mode === 'contact' && contactsQuery.isPending && <p role="status" className="phase34-field-hint">正在加载所选员工名下客户…</p>}
           {mode === 'contact' && contactsQuery.isError && <p role="alert" className="phase34-inline-error">客户列表加载失败，请重试后再提交。</p>}
           {mode === 'contact' && contactsQuery.isSuccess && contactOptions.length === 0 && <p role="status" className="phase34-field-hint">所选员工名下暂无可发送客户。</p>}
-          <p id="precise-send-target-hint" className="phase34-field-hint">来源：当前企业的{mode === 'contact' ? '员工 Provider 返回的企业微信成员 ID' : '群聊 Provider 返回的真实群主 ID'}；未接入真实数据时不要填写虚构 ID。</p>
+          {mode === 'room' && <label><span>群聊 <b aria-hidden="true">*</b></span><input aria-label="搜索群聊" value={roomSearch} onChange={(event) => setRoomSearch(event.target.value)} placeholder="搜索群名称" /></label>}
+          {mode === 'room' && <select aria-label="群聊选择" multiple required value={[...selectedRoomTargetKeys]} onChange={(event) => onRoomTargetsChange(Array.from(event.target.selectedOptions).map((option) => option.value).join(','))}>
+            {roomOptions.map((row, index) => { const value = roomTargetKeyFromRow(row, [...selectedEmployeeIDs]); return value === '--' ? null : <option key={value || index} value={value}>{primitive(row.name ?? row.roomName)}{row.ownerName ? ` · ${primitive(row.ownerName)}` : ''}</option>; })}
+          </select>}
+          {mode === 'room' && selectedEmployeeIDs.size === 0 && <p role="status" className="phase34-field-hint">请先选择群主，再加载其名下群聊。</p>}
+          {mode === 'room' && roomsQuery.isPending && <p role="status" className="phase34-field-hint">正在加载所选群主名下群聊…</p>}
+          {mode === 'room' && roomsQuery.isError && <p role="alert" className="phase34-inline-error">群聊列表加载失败，请重试后再提交。</p>}
+          {mode === 'room' && roomsQuery.isSuccess && roomOptions.length === 0 && <p role="status" className="phase34-field-hint">所选群主名下暂无客户群。</p>}
+          <p id="precise-send-target-hint" className="phase34-field-hint">来源：当前企业的{mode === 'contact' ? '员工 Provider 返回的企业微信成员 ID' : '群聊 Provider 返回的真实群主与群聊 ID'}；未接入真实数据时不要填写虚构 ID。</p>
           <MaterialSelector api={api} scene="group_send" value={materialID || null} disabled={saving} onChange={(item) => { onMaterialChange(item?.id ?? 0); if (item) onContentChange(item.preview); }} />
           <label><span>群发内容 <b aria-hidden="true">*</b></span><textarea aria-label="群发内容" required value={content} onChange={(event) => onContentChange(event.target.value)} placeholder="请输入文本内容" rows={6} /></label>
           <label>发送方式<select aria-label="发送方式" value={sendWay} onChange={(event) => onSendWayChange(event.target.value)}><option value="1">立即发送</option><option value="2">定时发送</option></select></label>
@@ -359,6 +416,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   const [createTitle, setCreateTitle] = useState('');
   const [createEmployeeIDs, setCreateEmployeeIDs] = useState('');
   const [createContactTargets, setCreateContactTargets] = useState('');
+  const [createRoomTargets, setCreateRoomTargets] = useState('');
   const [createContent, setCreateContent] = useState('');
   const [createMaterialID, setCreateMaterialID] = useState(0);
   const [createSendWay, setCreateSendWay] = useState('1');
@@ -376,12 +434,14 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
   const createEndpoint = mode === 'contact' ? '/contactMessageBatchSend/store' : '/roomMessageBatchSend/store';
   const createReachIDs = positiveReachIDs(createEmployeeIDs);
   const createContactTargetValues = positiveContactTargetKeys(createContactTargets).map(contactTargetFromKey).filter((value): value is { employeeId: number; contactId: number } => value !== null);
-  const canSubmitCreate = Boolean(createTitle.trim() && createContent.trim() && createReachIDs.length > 0 && (mode !== 'contact' || createContactTargetValues.length > 0) && (createSendWay !== '2' || createDefiniteTime.trim()));
-  const confirmationSummary = `${createReachIDs.length} 名员工，${mode === 'contact' ? createContactTargetValues.length : createReachIDs.length} 个目标，${createSendWay === '2' ? `定时 ${createDefiniteTime}` : '立即发送'}。首次点击只打开确认，不会立即外发。`;
+  const createRoomTargetValues = positiveRoomTargetKeys(createRoomTargets).map(roomTargetFromKey).filter((value): value is { ownerEmployeeId: number; roomId: number } => value !== null);
+  const canSubmitCreate = Boolean(createTitle.trim() && createContent.trim() && createReachIDs.length > 0 && (mode === 'contact' ? createContactTargetValues.length > 0 : createRoomTargetValues.length > 0) && (createSendWay !== '2' || createDefiniteTime.trim()));
+  const confirmationSummary = `${createReachIDs.length} 名员工，${mode === 'contact' ? createContactTargetValues.length : createRoomTargetValues.length} 个目标，${createSendWay === '2' ? `定时 ${createDefiniteTime}` : '立即发送'}。首次点击只打开确认，不会立即外发。`;
   const saveCreate = async () => {
     const ids = positiveReachIDs(createEmployeeIDs);
     const contactTargets = positiveContactTargetKeys(createContactTargets).map(contactTargetFromKey).filter((value): value is { employeeId: number; contactId: number } => value !== null);
-    if (!createTitle.trim() || !createContent.trim() || ids.length === 0 || (mode === 'contact' && contactTargets.length === 0)) {
+    const roomTargets = positiveRoomTargetKeys(createRoomTargets).map(roomTargetFromKey).filter((value): value is { ownerEmployeeId: number; roomId: number } => value !== null);
+    if (!createTitle.trim() || !createContent.trim() || ids.length === 0 || (mode === 'contact' ? contactTargets.length === 0 : roomTargets.length === 0)) {
       setWriteError('请填写任务名称、目标成员或群主 ID 和群发内容。');
       return;
     }
@@ -390,6 +450,9 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
     if (mode === 'contact') {
       body.filterParams = {};
       body.contactTargets = contactTargets;
+      body.idempotencyKey = createIdempotencyKey || newContactBatchIdempotencyKey();
+    } else {
+      body.roomTargets = roomTargets;
       body.idempotencyKey = createIdempotencyKey || newContactBatchIdempotencyKey();
     }
     if (createSendWay === '2') body.definiteTime = createDefiniteTime.replace('T', ' ') + ':00';
@@ -401,6 +464,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
       setCreateTitle('');
       setCreateEmployeeIDs('');
       setCreateContactTargets('');
+      setCreateRoomTargets('');
       setCreateContent('');
       setCreateMaterialID(0);
       setCreateSendWay('1');
@@ -437,7 +501,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
       </div>
       </div>
       {selected !== null && <SendDetail api={api} mode={mode} row={selected} onClose={() => setSelected(null)} onChanged={refresh} />}
-      {createOpen && <SendCreateDrawer api={api} mode={mode} title={createTitle} employeeIDs={createEmployeeIDs} contactTargets={createContactTargets} content={createContent} materialID={createMaterialID} sendWay={createSendWay} definiteTime={createDefiniteTime} saving={saving} error={writeError} canSubmit={canSubmitCreate} confirmationSummary={confirmationSummary} onTitleChange={setCreateTitle} onEmployeeIDsChange={(value) => { setCreateEmployeeIDs(value); setCreateContactTargets(''); }} onContactTargetsChange={setCreateContactTargets} onContentChange={setCreateContent} onMaterialChange={setCreateMaterialID} onSendWayChange={setCreateSendWay} onDefiniteTimeChange={setCreateDefiniteTime} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
+      {createOpen && <SendCreateDrawer api={api} mode={mode} title={createTitle} employeeIDs={createEmployeeIDs} contactTargets={createContactTargets} roomTargets={createRoomTargets} content={createContent} materialID={createMaterialID} sendWay={createSendWay} definiteTime={createDefiniteTime} saving={saving} error={writeError} canSubmit={canSubmitCreate} confirmationSummary={confirmationSummary} onTitleChange={setCreateTitle} onEmployeeIDsChange={(value) => { setCreateEmployeeIDs(value); setCreateContactTargets(''); setCreateRoomTargets(''); }} onContactTargetsChange={setCreateContactTargets} onRoomTargetsChange={setCreateRoomTargets} onContentChange={setCreateContent} onMaterialChange={setCreateMaterialID} onSendWayChange={setCreateSendWay} onDefiniteTimeChange={setCreateDefiniteTime} onClose={() => { if (!saving) setCreateOpen(false); }} onSubmit={() => { void saveCreate(); }} />}
     </section>
   );
 }

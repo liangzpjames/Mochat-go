@@ -955,7 +955,7 @@ func main() {
 	if cfg.MigrateRoomMessageBatchSendIndex || cfg.MigrateRoomMessageBatchSendShow || cfg.MigrateRoomMessageBatchSendOwner || cfg.MigrateRoomMessageBatchSendRoomReceive || cfg.MigrateRoomMessageBatchSendStore || cfg.MigrateRoomMessageBatchSendRemind || cfg.MigrateRoomMessageBatchSendDestroy {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("roomMessageBatchSend")
-		roomMessageBatchSend := dashboard.NewRoomMessageBatchSendHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore), cfg.APIBaseURL, cfg.FileStorageRoot, dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL))
+		roomMessageBatchSend := dashboard.NewRoomMessageBatchSendHandlerWithDispatch(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore), cfg.APIBaseURL, cfg.FileStorageRoot, dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL))
 		if cfg.MigrateRoomMessageBatchSendIndex {
 			options = append(options, compatserver.WithRoomMessageBatchSendIndexHandler(http.HandlerFunc(roomMessageBatchSend.Index)))
 			log.Printf("go migrated route enabled: GET /dashboard/roomMessageBatchSend/index")
@@ -2875,14 +2875,23 @@ func main() {
 		log.Printf("go cron enabled: durable contact batch dispatch interval=%s run_on_start=%v kind=%s", cfg.ContactBatchSendCronInterval, cfg.ContactBatchSendCronRunOnStart, wecomcapability.DispatchKindContactBatch)
 	}
 	if cfg.EnableRoomBatchSendCron {
-		cron := dashboard.NewRoomBatchSendScheduleCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), cfg.FileStorageRoot, log.Default())
-		workerGroup.Add("cron-room-batch-send", taskrunner.Periodic(taskrunner.PeriodicConfig{
-			Name:       "cron-room-batch-send",
+		roomClient := dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL)
+		legacyRoomCron := dashboard.NewRoomBatchSendScheduleCron(getMySQLStore(), roomClient, cfg.FileStorageRoot, log.Default())
+		workerGroup.Add("cron-room-batch-send-legacy", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "cron-room-batch-send-legacy",
 			Interval:   cfg.RoomBatchSendCronInterval,
 			RunOnStart: cfg.RoomBatchSendCronRunOnStart,
 			Logger:     log.Default(),
-		}, cron.RunOnce))
-		log.Printf("go cron enabled: RoomMessageBatchSend 定时发送 interval=%s run_on_start=%v", cfg.RoomBatchSendCronInterval, cfg.RoomBatchSendCronRunOnStart)
+		}, legacyRoomCron.RunOnce))
+		roomDispatchRunner := dashboard.NewRoomBatchDispatchRunner(getMySQLStore(), getMySQLStore(), getMySQLStore(), roomClient)
+		roomDispatchCron := dashboard.NewRoomBatchDispatchCron(getMySQLStore(), roomDispatchRunner, cfg.WorkerProcessingTimeout, 50, log.Default())
+		workerGroup.Add("cron-room-batch-dispatch", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "cron-room-batch-dispatch",
+			Interval:   cfg.RoomBatchSendCronInterval,
+			RunOnStart: cfg.RoomBatchSendCronRunOnStart,
+			Logger:     log.Default(),
+		}, roomDispatchCron.RunOnce))
+		log.Printf("go cron enabled: durable room batch dispatch interval=%s run_on_start=%v kind=%s", cfg.RoomBatchSendCronInterval, cfg.RoomBatchSendCronRunOnStart, wecomcapability.DispatchKindRoomBatch)
 	}
 	if cfg.EnableContactSyncSendResultCron {
 		cron := dashboard.NewContactBatchSendResultCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), log.Default())

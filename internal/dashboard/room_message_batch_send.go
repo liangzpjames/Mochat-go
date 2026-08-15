@@ -2,9 +2,13 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
+
+	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
 type RoomMessageBatchSendFilter struct {
@@ -166,12 +170,14 @@ type RoomMessageBatchSendClient interface {
 
 type RoomMessageBatchSendHandler struct {
 	store           RoomMessageBatchSendStore
+	durableStore    RoomBatchDispatchStore
 	cache           LoginCache
 	resolver        UserIDResolver
 	authorizer      CorpAdminAuthorizer
 	apiBaseURL      string
 	fileStorageRoot string
 	client          RoomMessageBatchSendClient
+	durableRequired bool
 }
 
 func NewRoomMessageBatchSendHandler(store RoomMessageBatchSendStore, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer, apiBaseURL string, fileStorageRoot string, client RoomMessageBatchSendClient) *RoomMessageBatchSendHandler {
@@ -183,6 +189,7 @@ func NewRoomMessageBatchSendHandler(store RoomMessageBatchSendStore, cache Login
 	}
 	return &RoomMessageBatchSendHandler{
 		store:           store,
+		durableStore:    roomBatchDispatchStoreFrom(store),
 		cache:           cache,
 		resolver:        resolver,
 		authorizer:      authorizer,
@@ -220,8 +227,31 @@ func (h *RoomMessageBatchSendHandler) Index(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	list := make([]map[string]any, 0, len(page.Items))
+	var durable RoomBatchDispatchDurableReadStore
+	var durablePrincipal dashboardprincipal.DashboardPrincipal
+	if candidate, ok := h.durableStore.(RoomBatchDispatchDurableReadStore); ok {
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		durable = candidate
+		durablePrincipal = principal
+	}
 	for _, item := range page.Items {
-		list = append(list, h.batchListPayload(item))
+		payload := h.batchListPayload(item)
+		if durable != nil {
+			view, found, viewErr := durable.RoomBatchDurableView(r.Context(), durablePrincipal, item.ID)
+			if viewErr != nil {
+				writeRoomBatchDurableError(w, viewErr)
+				return
+			}
+			if found {
+				payload = h.batchListPayload(view.Batch)
+				payload["operation"] = roomBatchOperationPayload(view.Operation)
+			}
+		}
+		list = append(list, payload)
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
 		"page": map[string]any{
@@ -245,6 +275,27 @@ func (h *RoomMessageBatchSendHandler) Show(w http.ResponseWriter, r *http.Reques
 	batchID, ok := queryPositiveIntParam(w, r, "batchId", "batchId 必填", "batchId 必须为整数")
 	if !ok {
 		return
+	}
+	if durable, available := h.durableStore.(RoomBatchDispatchDurableReadStore); available {
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		view, found, err := durable.RoomBatchDurableView(r.Context(), principal, batchID)
+		if err != nil {
+			writeRoomBatchDurableError(w, err)
+			return
+		}
+		if found {
+			payload := h.batchShowPayload(view.Batch)
+			payload["operation"] = roomBatchOperationPayload(view.Operation)
+			if seedRooms, seedErr := h.store.RoomMessageBatchSendSeedRooms(r.Context(), batchID, 10); seedErr == nil {
+				payload["seedRooms"] = seedRooms
+			}
+			writeEnvelope(w, http.StatusOK, 200, "success", payload)
+			return
+		}
 	}
 	batch, ok := h.loadOwnedBatch(w, r, userID, batchID)
 	if !ok {
@@ -272,6 +323,21 @@ func (h *RoomMessageBatchSendHandler) Store(w http.ResponseWriter, r *http.Reque
 	corpID, ok := principalCorpID(w, r)
 	if !ok {
 		return
+	}
+	if h.durableRequired && h.durableStore == nil {
+		writeMachineEnvelope(w, http.StatusServiceUnavailable, "ROOM_BATCH_DURABLE_UNAVAILABLE", "durable room batch provider unavailable", nil)
+		return
+	}
+	if h.durableStore != nil {
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		access, _ := DashboardAccessFromContext(r.Context())
+		if h.storeDurableRoomBatch(w, r, user, principal, access, corpID) {
+			return
+		}
 	}
 	params, err := parseRequestParams(r)
 	if err != nil {
@@ -318,6 +384,48 @@ func (h *RoomMessageBatchSendHandler) RoomOwnerSendIndex(w http.ResponseWriter, 
 	batchID, ok := queryPositiveIntParam(w, r, "batchId", "batchId 必填", "batchId 必须为整数")
 	if !ok {
 		return
+	}
+	if durable, available := h.durableStore.(RoomBatchDispatchDurableReadStore); available {
+		sendStatus, valid := optionalQueryInt(w, r, "sendStatus", "sendStatus 必须为整数")
+		if !valid {
+			return
+		}
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		filter := RoomMessageBatchSendOwnerFilter{
+			BatchID: batchID, SendStatus: sendStatus,
+			Page: positiveQueryInt(r, "page", 1), PerPage: positiveQueryInt(r, "perPage", 15),
+		}
+		page, err := durable.RoomBatchDurableOwnerPage(r.Context(), principal, batchID, filter)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			writeRoomBatchDurableError(w, err)
+			return
+		}
+		if err == nil {
+			list := make([]map[string]any, 0, len(page.Items))
+			for _, item := range page.Items {
+				list = append(list, map[string]any{
+					"id":                  item.ID,
+					"status":              item.Status,
+					"sendTime":            item.SendTime,
+					"sendRoomTotal":       item.SendRoomTotal,
+					"sendSuccessTotal":    item.SendSuccessTotal,
+					"employeeId":          item.EmployeeID,
+					"employeeName":        item.EmployeeName,
+					"employeeAlias":       item.EmployeeAlias,
+					"employeeAvatar":      h.fullStaticURL(item.EmployeeAvatar),
+					"employeeThumbAvatar": h.fullStaticURL(item.EmployeeThumbAvatar),
+				})
+			}
+			writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
+				"page": map[string]any{"perPage": page.PerPage, "total": page.Total, "totalPage": page.TotalPage},
+				"list": list,
+			})
+			return
+		}
 	}
 	if _, ok = h.loadOwnedBatch(w, r, userID, batchID, true); !ok {
 		return
@@ -369,6 +477,48 @@ func (h *RoomMessageBatchSendHandler) RoomReceiveIndex(w http.ResponseWriter, r 
 	batchID, ok := queryPositiveIntParam(w, r, "batchId", "batchId 必填", "batchId 必须为整数")
 	if !ok {
 		return
+	}
+	if durable, available := h.durableStore.(RoomBatchDispatchDurableReadStore); available {
+		sendStatus, valid := optionalQueryInt(w, r, "sendStatus", "sendStatus 必须为整数")
+		if !valid {
+			return
+		}
+		principal, err := DashboardPrincipalFromContext(r.Context())
+		if err != nil {
+			writeMachineEnvelope(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+			return
+		}
+		filter := RoomMessageBatchSendRoomFilter{
+			BatchID: batchID, SendStatus: sendStatus, KeyWords: strings.TrimSpace(r.URL.Query().Get("keyWords")),
+			Page: positiveQueryInt(r, "page", 1), PerPage: positiveQueryInt(r, "perPage", 15),
+		}
+		page, err := durable.RoomBatchDurableReceivePage(r.Context(), principal, batchID, filter)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			writeRoomBatchDurableError(w, err)
+			return
+		}
+		if err == nil {
+			list := make([]map[string]any, 0, len(page.Items))
+			for _, item := range page.Items {
+				list = append(list, map[string]any{
+					"id":              item.ID,
+					"status":          item.Status,
+					"sendTime":        formatUnixSecondsLocal(item.SendTime),
+					"roomId":          item.RoomID,
+					"roomName":        item.RoomName,
+					"roomCreateTime":  item.RoomCreateTime,
+					"roomEmployeeNum": item.RoomEmployeeNum,
+					"employeeId":      item.EmployeeID,
+					"employeeName":    item.EmployeeName,
+					"employeeAlias":   item.EmployeeAlias,
+				})
+			}
+			writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
+				"page": map[string]any{"perPage": page.PerPage, "total": page.Total, "totalPage": page.TotalPage},
+				"list": list,
+			})
+			return
+		}
 	}
 	if _, ok = h.loadOwnedBatch(w, r, userID, batchID, true); !ok {
 		return
@@ -551,7 +701,21 @@ func (h *RoomMessageBatchSendHandler) loadOwnedBatch(w http.ResponseWriter, r *h
 			return RoomMessageBatchSendItem{}, false
 		}
 	}
-	batch, found, err := h.store.RoomMessageBatchSendByID(r.Context(), batchID)
+	var batch RoomMessageBatchSendItem
+	var found bool
+	var err error
+	if principal, principalErr := DashboardPrincipalFromContext(r.Context()); principalErr == nil {
+		if scoped, scopedOK := h.store.(RoomBatchDispatchScopedReadStore); scopedOK {
+			batch, found, err = scoped.RoomMessageBatchSendByIDForPrincipal(r.Context(), principal, batchID)
+		} else if h.durableRequired {
+			writeMachineEnvelope(w, http.StatusServiceUnavailable, "ROOM_BATCH_DURABLE_UNAVAILABLE", "durable room batch provider unavailable", nil)
+			return RoomMessageBatchSendItem{}, false
+		} else {
+			batch, found, err = h.store.RoomMessageBatchSendByID(r.Context(), batchID)
+		}
+	} else {
+		batch, found, err = h.store.RoomMessageBatchSendByID(r.Context(), batchID)
+	}
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return RoomMessageBatchSendItem{}, false

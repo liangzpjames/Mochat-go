@@ -24150,14 +24150,22 @@ func (s *MySQLStore) RoomMessageBatchSendEmployeeWXUserID(ctx context.Context, e
 
 func (s *MySQLStore) DueRoomMessageBatchSendIDs(ctx context.Context, now time.Time) ([]int, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id
-		FROM mc_room_message_batch_send
-		WHERE send_way = 2
-		  AND send_status = 0
-		  AND definite_time IS NOT NULL
-		  AND definite_time <= ?
-		  AND deleted_at IS NULL
-		ORDER BY definite_time ASC, id ASC
+		SELECT batch.id
+		FROM mc_room_message_batch_send batch
+		WHERE batch.send_way = 2
+		  AND batch.send_status = 0
+		  AND batch.definite_time IS NOT NULL
+		  AND batch.definite_time <= ?
+		  AND batch.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM mochat_go_wecom_capability_operations operation
+			WHERE operation.tenant_id = batch.tenant_id
+			  AND operation.corp_id = batch.corp_id
+			  AND operation.capability = 'room_batch_send'
+			  AND operation.request_id = CONCAT('room-batch:', batch.id)
+		  )
+		ORDER BY batch.definite_time ASC, batch.id ASC
 	`, now)
 	if err != nil {
 		return nil, err
