@@ -17022,9 +17022,9 @@ func (s *MySQLStore) WorkRoomIndexPage(ctx context.Context, filter dashboard.Wor
 	for rows.Next() {
 		var item dashboard.WorkRoomIndexItem
 		var name, notice sql.NullString
-		var ownerID, groupID int
+		var groupID int
 		var createTime sql.NullTime
-		if err := rows.Scan(&item.WorkRoomID, &name, &ownerID, &groupID, &item.Status, &notice, &createTime); err != nil {
+		if err := rows.Scan(&item.WorkRoomID, &name, &item.OwnerID, &groupID, &item.Status, &notice, &createTime); err != nil {
 			return dashboard.WorkRoomIndexPage{}, err
 		}
 		item.RoomName = nullString(name)
@@ -17032,7 +17032,7 @@ func (s *MySQLStore) WorkRoomIndexPage(ctx context.Context, filter dashboard.Wor
 		item.CreateTime = formatTime(createTime)
 		items = append(items, item)
 		roomIDs = append(roomIDs, item.WorkRoomID)
-		ownerIDs = append(ownerIDs, ownerID)
+		ownerIDs = append(ownerIDs, item.OwnerID)
 		groupIDs = append(groupIDs, groupID)
 	}
 	if err := rows.Err(); err != nil {
