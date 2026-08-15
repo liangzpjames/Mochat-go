@@ -40,6 +40,7 @@ import (
 	"jiyi/mochat-go/internal/store"
 	"jiyi/mochat-go/internal/taskrunner"
 	"jiyi/mochat-go/internal/wechatopencredentials"
+	"jiyi/mochat-go/internal/wecomcapability"
 	"jiyi/mochat-go/internal/wecomcredentials"
 )
 
@@ -914,7 +915,7 @@ func main() {
 	if cfg.MigrateContactMessageBatchSendIndex || cfg.MigrateContactMessageBatchSendShow || cfg.MigrateContactMessageBatchSendShowRoom || cfg.MigrateContactMessageBatchSendEmployee || cfg.MigrateContactMessageBatchSendContactReceive || cfg.MigrateContactMessageBatchSendStore || cfg.MigrateContactMessageBatchSendRemind || cfg.MigrateContactMessageBatchSendDestroy {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("contactMessageBatchSend")
-		contactMessageBatchSend := dashboard.NewContactMessageBatchSendHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore), cfg.APIBaseURL, cfg.FileStorageRoot, dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL))
+		contactMessageBatchSend := dashboard.NewContactMessageBatchSendHandlerWithDispatch(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore), cfg.APIBaseURL, cfg.FileStorageRoot, dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL))
 		if cfg.MigrateContactMessageBatchSendIndex {
 			options = append(options, compatserver.WithContactMessageBatchSendIndexHandler(http.HandlerFunc(contactMessageBatchSend.Index)))
 			log.Printf("go migrated route enabled: GET /dashboard/contactMessageBatchSend/index")
@@ -2855,14 +2856,23 @@ func main() {
 		log.Printf("go cron enabled: channelCode 渠道码联系我方式更新 interval=%s run_on_start=%v", cfg.ChannelCodeCronInterval, cfg.ChannelCodeCronRunOnStart)
 	}
 	if cfg.EnableContactBatchSendCron {
-		cron := dashboard.NewContactBatchSendScheduleCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), cfg.FileStorageRoot, log.Default())
-		workerGroup.Add("cron-contact-batch-send", taskrunner.Periodic(taskrunner.PeriodicConfig{
-			Name:       "cron-contact-batch-send",
+		contactClient := dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL)
+		legacyContactCron := dashboard.NewContactBatchSendScheduleCron(getMySQLStore(), contactClient, cfg.FileStorageRoot, log.Default())
+		workerGroup.Add("cron-contact-batch-send-legacy", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "cron-contact-batch-send-legacy",
 			Interval:   cfg.ContactBatchSendCronInterval,
 			RunOnStart: cfg.ContactBatchSendCronRunOnStart,
 			Logger:     log.Default(),
-		}, cron.RunOnce))
-		log.Printf("go cron enabled: ContactMessageBatchSend 定时发送 interval=%s run_on_start=%v", cfg.ContactBatchSendCronInterval, cfg.ContactBatchSendCronRunOnStart)
+		}, legacyContactCron.RunOnce))
+		contactDispatchRunner := dashboard.NewContactBatchDispatchRunner(getMySQLStore(), getMySQLStore(), getMySQLStore(), contactClient)
+		contactDispatchCron := dashboard.NewContactBatchDispatchCron(getMySQLStore(), contactDispatchRunner, cfg.WorkerProcessingTimeout, 50, log.Default())
+		workerGroup.Add("cron-contact-batch-dispatch", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "cron-contact-batch-dispatch",
+			Interval:   cfg.ContactBatchSendCronInterval,
+			RunOnStart: cfg.ContactBatchSendCronRunOnStart,
+			Logger:     log.Default(),
+		}, contactDispatchCron.RunOnce))
+		log.Printf("go cron enabled: durable contact batch dispatch interval=%s run_on_start=%v kind=%s", cfg.ContactBatchSendCronInterval, cfg.ContactBatchSendCronRunOnStart, wecomcapability.DispatchKindContactBatch)
 	}
 	if cfg.EnableRoomBatchSendCron {
 		cron := dashboard.NewRoomBatchSendScheduleCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), cfg.FileStorageRoot, log.Default())

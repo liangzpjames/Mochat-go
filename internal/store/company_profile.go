@@ -678,6 +678,15 @@ func companyActorFactsAllowed(facts companyActorFacts, principal dashboardprinci
 		facts.AuthVersion == principal.AuthVersion && facts.Activated
 }
 
+// businessActorFactsAllowed is deliberately separate from companyActorFactsAllowed:
+// company settings require a superadmin, while a page-scoped business mutation
+// only requires an active authenticated dashboard user and a live corp binding.
+func businessActorFactsAllowed(facts companyActorFacts, principal dashboardprincipal.DashboardPrincipal, bindingActive bool) bool {
+	return facts.TenantID == principal.TenantID &&
+		facts.UserStatus == 1 && facts.IdentityStatus == 1 && facts.AuthVersion == principal.AuthVersion &&
+		facts.Activated && bindingActive
+}
+
 func companyActorQuery(forUpdate bool) string {
 	suffix := ""
 	if forUpdate {

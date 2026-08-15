@@ -29,6 +29,22 @@ func (s *MySQLStore) DashboardTenantAccess(ctx context.Context, tenantID int, no
 	if queryRow == nil {
 		return dashboard.DashboardTenantAccess{}, errors.New("dashboard tenant access store is unavailable")
 	}
+	return evaluateDashboardTenantAccessWithQueryRow(ctx, tenantID, now, queryRow)
+}
+
+func (s *MySQLStore) dashboardTenantAccessTx(ctx context.Context, tx *sql.Tx, tenantID int, now time.Time) (dashboard.DashboardTenantAccess, error) {
+	if tx == nil {
+		return dashboard.DashboardTenantAccess{}, errors.New("dashboard tenant access transaction is unavailable")
+	}
+	return evaluateDashboardTenantAccessWithQueryRow(ctx, tenantID, now, func(ctx context.Context, query string, args ...any) dashboardTenantAccessRow {
+		return tx.QueryRowContext(ctx, query, args...)
+	})
+}
+
+func evaluateDashboardTenantAccessWithQueryRow(ctx context.Context, tenantID int, now time.Time, queryRow dashboardTenantAccessQueryRowFunc) (dashboard.DashboardTenantAccess, error) {
+	if tenantID <= 0 {
+		return dashboard.DashboardTenantAccess{TenantID: tenantID, Reason: dashboard.DashboardTenantAccessReasonTenantMissing}, nil
+	}
 
 	var (
 		actualTenantID, tenantStatus                           int

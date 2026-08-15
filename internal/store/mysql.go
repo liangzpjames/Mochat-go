@@ -22674,6 +22674,10 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 	}
 	where := []string{"user_id = ?", "deleted_at IS NULL"}
 	args := []any{filter.UserID}
+	if filter.TenantID > 0 && filter.CorpID > 0 {
+		where = append(where, "tenant_id = ?", "corp_id = ?")
+		args = append(args, filter.TenantID, filter.CorpID)
+	}
 	if filter.RestrictEmployeeIDs {
 		ids := uniquePositiveInts(filter.AllowedEmployeeIDs)
 		if len(ids) == 0 {
@@ -22703,7 +22707,7 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, filter.PerPage, (filter.Page-1)*filter.PerPage)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, filter_params, filter_params_detail, content,
+		SELECT id, corp_id, user_id, medium_id, batch_title, user_name, employee_ids, filter_params, filter_params_detail, content,
 		       send_way, definite_time, send_time, send_employee_total, send_contact_total, send_total,
 		       not_send_total, received_total, not_received_total, receive_limit_total, not_friend_total,
 		       send_status, created_at
@@ -22725,7 +22729,7 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 
 func (s *MySQLStore) ContactMessageBatchSendByID(ctx context.Context, batchID int) (dashboard.ContactMessageBatchSendItem, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, filter_params, filter_params_detail, content,
+		SELECT id, corp_id, user_id, medium_id, batch_title, user_name, employee_ids, filter_params, filter_params_detail, content,
 		       send_way, definite_time, send_time, send_employee_total, send_contact_total, send_total,
 		       not_send_total, received_total, not_received_total, receive_limit_total, not_friend_total,
 		       send_status, created_at
@@ -22750,11 +22754,11 @@ func (s *MySQLStore) CreateContactMessageBatchSend(ctx context.Context, values d
 	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO mc_contact_message_batch_send (
-			corp_id, user_id, medium_id, user_name, employee_ids, filter_params, filter_params_detail, content,
+			corp_id, user_id, medium_id, user_name, batch_title, employee_ids, filter_params, filter_params_detail, content,
 			send_way, definite_time, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-	`, values.CorpID, values.UserID, values.MediumID, values.UserName, mustJSONStore(values.EmployeeIDs), values.FilterParamsJSON, values.FilterDetailJSON, values.ContentJSON, values.SendWay, definite)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+	`, values.CorpID, values.UserID, values.MediumID, values.UserName, values.BatchTitle, mustJSONStore(values.EmployeeIDs), values.FilterParamsJSON, values.FilterDetailJSON, values.ContentJSON, values.SendWay, definite)
 	if err != nil {
 		return 0, err
 	}
@@ -23193,14 +23197,22 @@ func (s *MySQLStore) ContactMessageBatchSendFilterDetail(ctx context.Context, pa
 
 func (s *MySQLStore) DueContactMessageBatchSendIDs(ctx context.Context, now time.Time) ([]int, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id
-		FROM mc_contact_message_batch_send
-		WHERE send_way = 2
-		  AND send_status = 0
-		  AND definite_time IS NOT NULL
-		  AND definite_time <= ?
-		  AND deleted_at IS NULL
-		ORDER BY definite_time ASC, id ASC
+		SELECT batch.id
+		FROM mc_contact_message_batch_send batch
+		WHERE batch.send_way = 2
+		  AND batch.send_status = 0
+		  AND batch.definite_time IS NOT NULL
+		  AND batch.definite_time <= ?
+		  AND batch.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM mochat_go_wecom_capability_operations operation
+			WHERE operation.tenant_id = batch.tenant_id
+			  AND operation.corp_id = batch.corp_id
+			  AND operation.capability = 'contact_batch_send'
+			  AND operation.request_id = CONCAT('contact-batch:', batch.id)
+		  )
+		ORDER BY batch.definite_time ASC, batch.id ASC
 	`, now)
 	if err != nil {
 		return nil, err
@@ -23326,16 +23338,17 @@ func scanContactMessageBatchSendRows(rows *sql.Rows) ([]dashboard.ContactMessage
 
 func scanContactMessageBatchSendRow(scanner contactMessageBatchSendScanner) (dashboard.ContactMessageBatchSendItem, error) {
 	var item dashboard.ContactMessageBatchSendItem
-	var userName, employeeIDsRaw, filterRaw, detailRaw, contentRaw sql.NullString
+	var batchTitle, userName, employeeIDsRaw, filterRaw, detailRaw, contentRaw sql.NullString
 	var definiteTime, sendTime, createdAt sql.NullTime
 	if err := scanner.Scan(
-		&item.ID, &item.CorpID, &item.UserID, &item.MediumID, &userName, &employeeIDsRaw, &filterRaw, &detailRaw, &contentRaw,
+		&item.ID, &item.CorpID, &item.UserID, &item.MediumID, &batchTitle, &userName, &employeeIDsRaw, &filterRaw, &detailRaw, &contentRaw,
 		&item.SendWay, &definiteTime, &sendTime, &item.SendEmployeeTotal, &item.SendContactTotal, &item.SendTotal,
 		&item.NotSendTotal, &item.ReceivedTotal, &item.NotReceivedTotal, &item.ReceiveLimitTotal, &item.NotFriendTotal,
 		&item.SendStatus, &createdAt,
 	); err != nil {
 		return dashboard.ContactMessageBatchSendItem{}, err
 	}
+	item.BatchTitle = nullString(batchTitle)
 	item.UserName = nullString(userName)
 	item.EmployeeIDs = parseContactMessageBatchSendIntSlice(nullString(employeeIDsRaw))
 	item.FilterParamsRaw = nullString(filterRaw)
@@ -23360,7 +23373,7 @@ type contactMessageBatchSendContactRow struct {
 
 func contactMessageBatchSendByIDTx(ctx context.Context, tx *sql.Tx, batchID int) (dashboard.ContactMessageBatchSendItem, bool, error) {
 	row := tx.QueryRowContext(ctx, `
-		SELECT id, corp_id, user_id, medium_id, user_name, employee_ids, filter_params, filter_params_detail, content,
+		SELECT id, corp_id, user_id, medium_id, batch_title, user_name, employee_ids, filter_params, filter_params_detail, content,
 		       send_way, definite_time, send_time, send_employee_total, send_contact_total, send_total,
 		       not_send_total, received_total, not_received_total, receive_limit_total, not_friend_total,
 		       send_status, created_at

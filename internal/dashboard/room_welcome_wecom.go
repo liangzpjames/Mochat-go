@@ -307,6 +307,18 @@ func (c *RoomWelcomeWeComClient) SendAgentTextMessage(ctx context.Context, crede
 	})
 }
 
+func (c *RoomWelcomeWeComClient) SendAgentTextMessageWithDuplicateCheck(ctx context.Context, credential RoomTagPullAgentCredential, toUser string, content string) error {
+	return c.SendAgentMessage(ctx, credential, WorkAgentMessagePayload{
+		ToUser:  toUser,
+		MsgType: "text",
+		Content: content,
+		Extra: map[string]any{
+			"enable_duplicate_check":   1,
+			"duplicate_check_interval": 1800,
+		},
+	})
+}
+
 func (c *RoomWelcomeWeComClient) SendAgentMessage(ctx context.Context, credential RoomTagPullAgentCredential, payload WorkAgentMessagePayload) error {
 	token, err := c.accessToken(ctx, RoomWelcomeCorpCredential{
 		WXCorpID:      credential.WXCorpID,
