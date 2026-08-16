@@ -491,14 +491,14 @@ func (r *SQLRepository) queryConversationStats(ctx context.Context, q ReportQuer
 	trendArgs := make([]any, 0, len(tables)*3)
 	for _, t := range tables {
 		trendParts = append(trendParts, fmt.Sprintf(`
-			SELECT DATE(msg_data_time) AS d,
+			SELECT DATE_FORMAT(msg_data_time, '%%Y-%%m-%%d') AS d,
 			       CASE WHEN room_id > 0 THEN 1 ELSE 0 END AS is_room,
 			       COUNT(DISTINCT CASE WHEN room_id > 0 THEN room_id ELSE CONCAT(work_employee_id, ':', to_user_id) END),
 			       SUM(CASE WHEN sender_type = 0 THEN 1 ELSE 0 END),
 			       SUM(CASE WHEN sender_type = 1 THEN 1 ELSE 0 END)
 			FROM %s
 			WHERE corp_id = ? AND msg_data_time >= ? AND msg_data_time < ?
-			GROUP BY DATE(msg_data_time), is_room`, t.name))
+			GROUP BY DATE_FORMAT(msg_data_time, '%%Y-%%m-%%d'), is_room`, t.name))
 		trendArgs = append(trendArgs, q.CorpID, trendStart, trendEnd)
 	}
 	trendRows, err := r.db.QueryContext(ctx, strings.Join(trendParts, " UNION ALL "), trendArgs...)

@@ -138,6 +138,13 @@ func TestOverviewConversationTrendWindowUsesLocalDays(t *testing.T) {
 			t.Fatalf("conversation trend[%d].Date = %q, want %q (full %v)", i, trend[i].Date, want[i], datesOf(trend))
 		}
 	}
+	totalCustomerSessions := 0
+	for _, point := range trend {
+		totalCustomerSessions += point.CustomerSessions
+	}
+	if totalCustomerSessions == 0 {
+		t.Fatalf("conversation trend carries no message data, expected non-zero session counts: %+v", trend)
+	}
 }
 
 func datesOf(points []ConversationTrendPoint) []string {
