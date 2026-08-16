@@ -61,3 +61,26 @@ func TestConversationTrendDaysFollowsQueryTimezone(t *testing.T) {
 		})
 	}
 }
+
+func TestFillSeriesWindowCoversEveryLocalDay(t *testing.T) {
+	start := time.Date(2026, 8, 9, 16, 0, 0, 0, time.UTC) // 2026-08-10T00:00+08:00
+	end := time.Date(2026, 8, 16, 16, 0, 0, 0, time.UTC) // 2026-08-17T00:00+08:00
+	points := []SeriesPoint{
+		{At: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC), Value: 3},
+		{At: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC), Value: 5},
+	}
+	got := fillSeriesWindow(points, start, end, "Asia/Shanghai")
+	if len(got) != 7 {
+		t.Fatalf("fillSeriesWindow returned %d points, want 7: %+v", len(got), got)
+	}
+	wantDates := []string{"2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16"}
+	wantValues := []float64{0, 0, 3, 0, 0, 5, 0}
+	for i := range wantDates {
+		if got[i].At.Format("2006-01-02") != wantDates[i] {
+			t.Fatalf("fillSeriesWindow[%d] date = %q, want %q", i, got[i].At.Format("2006-01-02"), wantDates[i])
+		}
+		if got[i].Value != wantValues[i] {
+			t.Fatalf("fillSeriesWindow[%d] value = %v, want %v", i, got[i].Value, wantValues[i])
+		}
+	}
+}

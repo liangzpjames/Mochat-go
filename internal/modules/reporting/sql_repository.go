@@ -81,7 +81,7 @@ func (r *SQLRepository) queryOverview(ctx context.Context, q ReportQuery) (Repor
 		if trendErr != nil {
 			return ReportResult{}, trendErr
 		}
-		customer.Series = trend.Series
+		customer.Series = fillSeriesWindow(trend.Series, *q.TrendStartAt, *q.TrendEndAt, q.Timezone)
 	}
 	conversion, err := r.queryConversion(ctx, q)
 	if err != nil {
@@ -553,6 +553,33 @@ func conversationTrendDays(trendEnd time.Time, timezone string) []string {
 		days = append(days, day.Format("2006-01-02"))
 	}
 	return days
+}
+
+// fillSeriesWindow returns the growth series with one point per local calendar
+// day in [start, end), inserting zero-value points for days without data so the
+// chart always spans the full requested range.
+func fillSeriesWindow(points []SeriesPoint, start, end time.Time, timezone string) []SeriesPoint {
+	if !end.After(start) {
+		return points
+	}
+	loc := time.UTC
+	if tz, err := time.LoadLocation(timezone); err == nil {
+		loc = tz
+	}
+	byDay := make(map[string]SeriesPoint, len(points))
+	for _, point := range points {
+		byDay[point.At.In(loc).Format("2006-01-02")] = point
+	}
+	filled := make([]SeriesPoint, 0, 7)
+	for day := start.In(loc); day.Before(end); day = day.AddDate(0, 0, 1) {
+		key := day.Format("2006-01-02")
+		point, ok := byDay[key]
+		if !ok {
+			point = SeriesPoint{At: time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)}
+		}
+		filled = append(filled, point)
+	}
+	return filled
 }
 
 // scopeArchive scopes archive partitions by corp_id directly and resolves the

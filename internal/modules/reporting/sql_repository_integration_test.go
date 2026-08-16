@@ -145,6 +145,16 @@ func TestOverviewConversationTrendWindowUsesLocalDays(t *testing.T) {
 	if totalCustomerSessions == 0 {
 		t.Fatalf("conversation trend carries no message data, expected non-zero session counts: %+v", trend)
 	}
+	if len(result.Series) != 7 {
+		t.Fatalf("customer growth series has %d points, want 7 local days: %+v", len(result.Series), result.Series)
+	}
+	totalGrowth := 0.0
+	for _, point := range result.Series {
+		totalGrowth += point.Value
+	}
+	if totalGrowth == 0 {
+		t.Fatalf("customer growth series carries no data: %+v", result.Series)
+	}
 }
 
 func datesOf(points []ConversationTrendPoint) []string {
