@@ -233,7 +233,7 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
     </section>
 
     <section className="overview-module dashboard-data-card">
-      <ModuleHeader title="会话数据" description="客户会话与客户群的会话数、员工/客户消息数（数据库实时统计）" extra={<span className="overview-scope-chip">conversation_archive</span>} />
+      <ModuleHeader title="会话数据" description="客户会话与客户群的会话数、员工/客户消息数（数据库实时统计）" extra={<span className="overview-scope-chip">数据来源：会话归档</span>} />
       {archiveUnavailable || conversation === undefined
         ? <EmptyVisual text="暂无会话归档数据，配置企业微信会话存档后展示" />
         : <div className="overview-conversation">
