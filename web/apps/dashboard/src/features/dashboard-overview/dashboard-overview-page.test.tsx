@@ -65,6 +65,17 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+it('shows the advanced range filter expanded with employee and department selects', async () => {
+  const api = { load: vi.fn().mockResolvedValue(overview) };
+  renderPage(api);
+  const summary = await screen.findByText('高级范围筛选');
+  const details = summary.closest('details');
+  expect(details).not.toBeNull();
+  expect(details?.getAttribute('open')).not.toBeNull();
+  expect(within(details as HTMLElement).getByLabelText('员工范围')).not.toBeNull();
+  expect(within(details as HTMLElement).getByLabelText('部门范围')).not.toBeNull();
+});
+
 function LocationProbe() {
   const location = useLocation();
   return <output aria-label="当前地址">{location.pathname}{location.search}</output>;

@@ -1029,6 +1029,9 @@ body {
   align-items: end;
   gap: 16px;
 }
+.overview-advanced-filters:not([open]) > div {
+  display: none;
+}
 .overview-advanced-filters label {
   min-width: 220px;
 }
