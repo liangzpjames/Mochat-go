@@ -443,7 +443,11 @@ func (r *SQLRepository) queryConversationStats(ctx context.Context, q ReportQuer
 	}
 	start := q.StartAt.UTC()
 	end := q.EndAt.UTC()
-	trendStart := end.AddDate(0, 0, -7)
+	trendEnd := end
+	if q.TrendEndAt != nil {
+		trendEnd = q.TrendEndAt.UTC()
+	}
+	trendStart := trendEnd.AddDate(0, 0, -7)
 	stats := &ConversationStats{Trend: []ConversationTrendPoint{}}
 
 	selectParts := make([]string, 0, len(tables))
@@ -494,7 +498,7 @@ func (r *SQLRepository) queryConversationStats(ctx context.Context, q ReportQuer
 			FROM %s
 			WHERE corp_id = ? AND msg_data_time >= ? AND msg_data_time < ?
 			GROUP BY DATE(msg_data_time), is_room`, t.name))
-		trendArgs = append(trendArgs, q.CorpID, trendStart, end)
+		trendArgs = append(trendArgs, q.CorpID, trendStart, trendEnd)
 	}
 	trendRows, err := r.db.QueryContext(ctx, strings.Join(trendParts, " UNION ALL "), trendArgs...)
 	if err != nil {
