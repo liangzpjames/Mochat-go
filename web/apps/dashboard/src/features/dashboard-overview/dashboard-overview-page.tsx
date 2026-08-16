@@ -193,6 +193,7 @@ function ConversationGroupBlock({ title, data, active, onClick }: {
 }) {
   return <button aria-pressed={active} className={`overview-conversation-group${active ? ' overview-conversation-group-active' : ''}`} onClick={onClick} type="button">
     <h3>{title}</h3>
+    <span className="overview-conversation-group-note">区间汇总</span>
     <dl>
       <div><dt>会话数</dt><dd>{data.sessions.toLocaleString('zh-CN')}</dd></div>
       <div><dt>员工消息数</dt><dd>{data.employeeMessages.toLocaleString('zh-CN')}</dd></div>
@@ -278,8 +279,8 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
               />
             </div>
             <div className="overview-conversation-chart">
-              <h3>{conversationKindLabel(activeConversationKind)} · 近七日会话趋势</h3>
-              <div className="overview-conversation-legend"><span className="legend-customer">会话数</span></div>
+              <h3>{conversationKindLabel(activeConversationKind)} · 近七日趋势</h3>
+              <div className="overview-conversation-legend"><span className="legend-customer">每日会话数</span></div>
               {conversation.trend.length === 0 ? <EmptyVisual /> : <ConversationTrendChart kind={activeConversationKind} points={conversation.trend} />}
             </div>
           </div>}

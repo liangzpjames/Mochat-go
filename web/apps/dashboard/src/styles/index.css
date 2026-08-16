@@ -1115,6 +1115,12 @@ body {
   font-size: .9rem;
   margin: 0 0 12px;
 }
+.overview-conversation-group-note {
+  color: #a0a7b4;
+  display: block;
+  font-size: .68rem;
+  margin: -8px 0 12px;
+}
 .overview-conversation-group dl {
   display: grid;
   gap: 8px;
