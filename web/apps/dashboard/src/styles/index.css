@@ -455,6 +455,44 @@ body {
 .dashboard-menu-link:hover { background: #f1f3ff; color: #536bf4; }
 .dashboard-menu-link-active { background: linear-gradient(90deg, #e9edff, #f4f5ff); color: #4868ff; font-weight: 600; }
 .dashboard-menu-empty { background: #f7f8fc; border-radius: 10px; color: #8991a1; margin: 8px; padding: 16px; text-align: center; }
+
+/* 顶层菜单（如“数据概览”）与分组标题（如“会话”）保持同一层级与对齐 */
+.dashboard-menu-top-level {
+  color: #333a4b;
+  font-size: .88rem;
+  font-weight: 650;
+  margin-left: 0;
+  padding: 10px;
+}
+.dashboard-menu-top-level.dashboard-menu-link-active {
+  background: linear-gradient(90deg, #e9edff, #f4f5ff);
+  color: #4868ff;
+  font-weight: 650;
+}
+
+/* 页面内容占满右栏：大屏不再被 1320/1440 居中限宽，保留 24px 左右留白 */
+.dashboard-page-shell,
+.dashboard-content > .ant-card,
+.dashboard-overview-page,
+.benchmark-demo-page,
+.conversation-global-page,
+.employee-conversation-page,
+.conversation-trajectory-page,
+.conversation-export-page,
+.sensitive-word-page,
+.scrm-lead-page,
+.scrm-contact-page,
+.scrm-opportunity-page,
+.scrm-public-pool-page,
+.scrm-tag-page,
+.phase33-operations-page,
+.phase33-risk-warning-page,
+.phase34-page,
+.phase35-page {
+  margin: 0;
+  max-width: none;
+}
+
 .dashboard-content { background: #f7f8fc; padding: 28px; }
 
 .dashboard-menu-toggle,
