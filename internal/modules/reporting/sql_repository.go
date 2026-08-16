@@ -166,7 +166,7 @@ func (r *SQLRepository) queryEntity(ctx context.Context, q ReportQuery, kind Rep
 	// Trend uses tenant-local date while preserving the half-open UTC window.
 	trendArgs := append([]any{q.Timezone}, args...)
 	trendArgs = append(trendArgs, q.Timezone)
-	trendSQL := "SELECT DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?), '%Y-%m-%d'), COUNT(DISTINCT c.id) FROM mochat_go_scrm_contacts c WHERE " + where + " GROUP BY DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?), '%Y-%m-%d') ORDER BY 1"
+	trendSQL := "SELECT DATE_FORMAT(CONVERT_TZ(c.created_at, @@session.time_zone, ?), '%Y-%m-%d'), COUNT(DISTINCT c.id) FROM mochat_go_scrm_contacts c WHERE " + where + " GROUP BY DATE_FORMAT(CONVERT_TZ(c.created_at, @@session.time_zone, ?), '%Y-%m-%d') ORDER BY 1"
 	if rows, err := r.db.QueryContext(ctx, trendSQL, trendArgs...); err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -179,7 +179,7 @@ func (r *SQLRepository) queryEntity(ctx context.Context, q ReportQuery, kind Rep
 	}
 	itemArgs := append([]any{q.Timezone}, args...)
 	itemArgs = append(itemArgs, q.PageSize, (q.Page-1)*q.PageSize)
-	rows, err := r.db.QueryContext(ctx, "SELECT c.id, DATE_FORMAT(CONVERT_TZ(c.created_at,'+00:00',?), '%Y-%m-%d'), COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0), COALESCE((SELECT e.name FROM mochat_go_scrm_assignments a2 JOIN mc_work_employee e ON e.corp_id=a2.corp_id AND e.id=a2.owner_id AND e.deleted_at IS NULL WHERE a2.tenant_id=c.tenant_id AND a2.corp_id=c.corp_id AND a2.contact_id=c.id AND a2.deleted_at IS NULL ORDER BY a2.updated_at DESC LIMIT 1),'') FROM mochat_go_scrm_contacts c WHERE "+where+" ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?", itemArgs...)
+	rows, err := r.db.QueryContext(ctx, "SELECT c.id, DATE_FORMAT(CONVERT_TZ(c.created_at, @@session.time_zone, ?), '%Y-%m-%d'), COALESCE((SELECT a.owner_id FROM mochat_go_scrm_assignments a WHERE a.tenant_id=c.tenant_id AND a.corp_id=c.corp_id AND a.contact_id=c.id AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 1),0), COALESCE((SELECT e.name FROM mochat_go_scrm_assignments a2 JOIN mc_work_employee e ON e.corp_id=a2.corp_id AND e.id=a2.owner_id AND e.deleted_at IS NULL WHERE a2.tenant_id=c.tenant_id AND a2.corp_id=c.corp_id AND a2.contact_id=c.id AND a2.deleted_at IS NULL ORDER BY a2.updated_at DESC LIMIT 1),'') FROM mochat_go_scrm_contacts c WHERE "+where+" ORDER BY c.created_at DESC,c.id DESC LIMIT ? OFFSET ?", itemArgs...)
 	if err != nil {
 		return res, err
 	}
@@ -448,6 +448,7 @@ func (r *SQLRepository) queryConversationStats(ctx context.Context, q ReportQuer
 		trendEnd = q.TrendEndAt.UTC()
 	}
 	trendStart := trendEnd.AddDate(0, 0, -7)
+	trendDays := conversationTrendDays(trendEnd, q.Timezone)
 	stats := &ConversationStats{Trend: []ConversationTrendPoint{}}
 
 	selectParts := make([]string, 0, len(tables))
@@ -527,13 +528,31 @@ func (r *SQLRepository) queryConversationStats(ctx context.Context, q ReportQuer
 	if err := trendRows.Err(); err != nil {
 		return nil, err
 	}
-	for index := 6; index >= 0; index-- {
-		day := trendStart.AddDate(0, 0, index).Format("2006-01-02")
+	for index := 0; index < 7; index++ {
+		day := trendDays[index]
 		point := dayMap[day]
 		point.Date = day
 		stats.Trend = append(stats.Trend, point)
 	}
 	return stats, nil
+}
+
+// conversationTrendDays returns the seven local calendar days covered by the
+// half-open window [trendEnd-7d, trendEnd) rendered in the query timezone.
+// The stored archive timestamps are session-local wall-clock values, so the
+// day labels must follow the query timezone instead of UTC.
+func conversationTrendDays(trendEnd time.Time, timezone string) []string {
+	loc := time.UTC
+	if tz, err := time.LoadLocation(timezone); err == nil {
+		loc = tz
+	}
+	endLocal := trendEnd.In(loc)
+	days := make([]string, 0, 7)
+	for offset := -7; offset < 0; offset++ {
+		day := time.Date(endLocal.Year(), endLocal.Month(), endLocal.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, offset)
+		days = append(days, day.Format("2006-01-02"))
+	}
+	return days
 }
 
 // scopeArchive scopes archive partitions by corp_id directly and resolves the

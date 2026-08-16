@@ -91,3 +91,59 @@ func TestOverviewIncludesConversationAIInsightAndFreshness(t *testing.T) {
 		t.Fatalf("overview aiInsight capability = %q, want ready", result.AIInsight.Capability)
 	}
 }
+
+func TestOverviewConversationTrendWindowUsesLocalDays(t *testing.T) {
+	dsn := os.Getenv("MOCHAT_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("MOCHAT_MYSQL_DSN not set")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	service := NewSQLService(db)
+	trendEnd := time.Date(2026, 8, 15, 16, 0, 0, 0, time.UTC) // 2026-08-16T00:00+08:00
+	trendStart := trendEnd.AddDate(0, 0, -7)
+	q := ReportQuery{
+		TenantID:    1,
+		CorpID:      1,
+		StartAt:     trendStart,
+		EndAt:       trendEnd,
+		TrendStartAt: &trendStart,
+		TrendEndAt:   &trendEnd,
+		Timezone:    "Asia/Shanghai",
+		Page:        1,
+		PageSize:    20,
+	}
+	result, err := service.Query(ctx, OverviewReport, q)
+	if err != nil {
+		t.Fatalf("overview failed: %v", err)
+	}
+	if result.Conversation == nil {
+		t.Fatal("overview conversation stats are missing")
+	}
+	trend := result.Conversation.Trend
+	if len(trend) != 7 {
+		t.Fatalf("conversation trend has %d points, want 7", len(trend))
+	}
+	want := []string{"2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15"}
+	for i := range want {
+		if trend[i].Date != want[i] {
+			t.Fatalf("conversation trend[%d].Date = %q, want %q (full %v)", i, trend[i].Date, want[i], datesOf(trend))
+		}
+	}
+}
+
+func datesOf(points []ConversationTrendPoint) []string {
+	dates := make([]string, len(points))
+	for i := range points {
+		dates[i] = points[i].Date
+	}
+	return dates
+}
