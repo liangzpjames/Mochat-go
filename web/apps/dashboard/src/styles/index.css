@@ -1015,6 +1015,7 @@ body {
   align-items: center;
   border-radius: 8px;
   display: inline-flex;
+  height: 38px;
   justify-content: center;
   min-height: 38px;
   padding: 8px 16px;
