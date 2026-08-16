@@ -1033,6 +1033,7 @@ body {
   display: none;
 }
 .overview-advanced-filters label {
+  flex: 1 1 220px;
   min-width: 220px;
 }
 .overview-advanced-filters select {
@@ -1042,7 +1043,7 @@ body {
   font: inherit;
   min-height: 108px;
   padding: 8px 10px;
-  width: 220px;
+  width: 100%;
 }
 
 /* 数据概览：AI 洞察 / 会话数据 / 趋势区间 */
