@@ -107,6 +107,25 @@ const summaryKeys = [
   'customer', 'lead', 'contact', 'opportunity', 'won', 'order', 'behavior', 'employee',
 ] as const satisfies readonly (keyof DashboardOverviewSummary)[];
 
+function formatInZone(raw: string): string {
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return raw.replace('T', ' ').replace('Z', '').slice(0, 19);
+  }
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(parsed);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
+}
+
 function parseSummary(value: unknown): DashboardOverviewSummary {
   const source = isRecord(value) ? value : {};
   return Object.fromEntries(summaryKeys.map((key) => [key, isFiniteNumber(source[key]) ? source[key] : 0])) as DashboardOverviewSummary;
@@ -177,7 +196,7 @@ function parseOverview(value: unknown): DashboardOverview {
   const dataThrough = typeof freshness.dataThrough === 'string' && /^20\d\d-/.test(freshness.dataThrough)
     ? freshness.dataThrough
     : '';
-  const updatedAt = dataThrough === '' ? '' : dataThrough.replace('T', ' ').replace('Z', '').slice(0, 19);
+  const updatedAt = dataThrough === '' ? '' : formatInZone(dataThrough);
   const parsed: DashboardOverview = {
     cards,
     trend,

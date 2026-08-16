@@ -42,7 +42,7 @@ describe('createDashboardOverviewApi', () => {
       trend: [{ date: '2026-07-30', addCustomerNum: 12 }],
       summary: expect.objectContaining({ customer: 137, employee: 0 }),
       limitations: reportResponse.limitations,
-      updatedAt: '2026-07-31 09:30:00',
+      updatedAt: '2026-07-31 17:30:00',
       page: 1,
       pageSize: 20,
       total: 1,
