@@ -470,29 +470,6 @@ body {
   font-weight: 650;
 }
 
-/* 页面内容占满右栏：大屏不再被 1320/1440 居中限宽，保留 24px 左右留白 */
-.dashboard-page-shell,
-.dashboard-content > .ant-card,
-.dashboard-overview-page,
-.benchmark-demo-page,
-.conversation-global-page,
-.employee-conversation-page,
-.conversation-trajectory-page,
-.conversation-export-page,
-.sensitive-word-page,
-.scrm-lead-page,
-.scrm-contact-page,
-.scrm-opportunity-page,
-.scrm-public-pool-page,
-.scrm-tag-page,
-.phase33-operations-page,
-.phase33-risk-warning-page,
-.phase34-page,
-.phase35-page {
-  margin: 0;
-  max-width: none;
-}
-
 .dashboard-content { background: #f7f8fc; padding: 28px; }
 
 .dashboard-menu-toggle,
@@ -3052,4 +3029,27 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 页面内容占满右栏：大屏不再被 1320/1440 居中限宽，保留 24px 左右留白 */
+.dashboard-page-shell,
+.dashboard-content > .ant-card,
+.dashboard-overview-page,
+.benchmark-demo-page,
+.conversation-global-page,
+.employee-conversation-page,
+.conversation-trajectory-page,
+.conversation-export-page,
+.sensitive-word-page,
+.scrm-lead-page,
+.scrm-contact-page,
+.scrm-opportunity-page,
+.scrm-public-pool-page,
+.scrm-tag-page,
+.phase33-operations-page,
+.phase33-risk-warning-page,
+.phase34-page,
+.phase35-page {
+  margin: 0;
+  max-width: none;
 }
