@@ -25,6 +25,22 @@ const access: AccessContext = {
 
 const range = { from: '2026-07-01', to: '2026-07-31' };
 
+function trendRangeForTest(): { trendStartDate: string; trendEndDate: string } {
+  const now = new Date();
+  const format = (date: Date) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(date);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  };
+  const from = new Date(now);
+  from.setDate(from.getDate() - 6);
+  const to = new Date(now);
+  to.setDate(to.getDate() + 1);
+  return { trendStartDate: format(from), trendEndDate: format(to) };
+}
+
 const overview: DashboardOverview = {
   cards: [
     { key: 'customer', label: '客户总数', value: 137 },
@@ -142,6 +158,7 @@ describe('DashboardOverviewPage', () => {
       corpId: '7',
       startDate: range.from,
       endDate: range.to,
+      ...trendRangeForTest(),
       employeeIds: [],
       departmentIds: [],
       page: 1,
@@ -173,7 +190,7 @@ describe('DashboardOverviewPage', () => {
     expect(screen.getByRole('heading', { name: '数据概览' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: 'AI 洞察' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '经营趋势明细' })).not.toBeNull();
-    expect(screen.queryByRole('heading', { name: '会话数据' })).toBeNull();
+    expect(screen.getByRole('heading', { name: '会话数据' })).not.toBeNull();
     expect(screen.queryByRole('heading', { name: '质检数据' })).toBeNull();
     expect(screen.queryByRole('heading', { name: '员工会话数据排行' })).toBeNull();
     expect(screen.queryByRole('heading', { name: '员工会话轨迹一览' })).toBeNull();
@@ -245,6 +262,7 @@ describe('DashboardOverviewPage', () => {
       corpId: '7',
       startDate: '2026-07-08',
       endDate: '2026-07-20',
+      ...trendRangeForTest(),
       employeeIds: [],
       departmentIds: [],
       page: 1,
@@ -264,6 +282,7 @@ describe('DashboardOverviewPage', () => {
     await screen.findByText('客户总数');
     expect(load).toHaveBeenCalledWith({
       corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01',
+      ...trendRangeForTest(),
       employeeIds: ['9', '12'], departmentIds: ['3'], page: 2, pageSize: 20,
     });
     expect([...screen.getByLabelText('员工范围').querySelectorAll('option:checked')].map((option) => option.getAttribute('value'))).toEqual(['9', '12']);
@@ -283,6 +302,7 @@ describe('DashboardOverviewPage', () => {
     expect(await screen.findByText('导出失败')).not.toBeNull();
     expect(exportCsv).toHaveBeenCalledWith({
       corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01',
+      ...trendRangeForTest(),
       employeeIds: ['9'], departmentIds: ['3'], page: 1, pageSize: 20,
     });
   });

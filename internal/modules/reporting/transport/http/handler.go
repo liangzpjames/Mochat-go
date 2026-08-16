@@ -109,6 +109,21 @@ func parseQuery(r *http.Request, principal Principal) (reporting.ReportQuery, er
 	if err != nil {
 		return reporting.ReportQuery{}, err
 	}
+	var trendStartAt, trendEndAt *time.Time
+	if raw := values.Get("trendStartAt"); raw != "" {
+		parsed, parseErr := time.Parse(time.RFC3339, raw)
+		if parseErr != nil {
+			return reporting.ReportQuery{}, parseErr
+		}
+		trendStartAt = &parsed
+	}
+	if raw := values.Get("trendEndAt"); raw != "" {
+		parsed, parseErr := time.Parse(time.RFC3339, raw)
+		if parseErr != nil {
+			return reporting.ReportQuery{}, parseErr
+		}
+		trendEndAt = &parsed
+	}
 	page, pageSize := parsePositive(values.Get("page"), 1), parsePositive(values.Get("pageSize"), 20)
 	employeeIDs := parseIDs(values["employeeIds"])
 	if len(employeeIDs) == 0 && values.Get("employeeId") != "" {
@@ -118,7 +133,7 @@ func parseQuery(r *http.Request, principal Principal) (reporting.ReportQuery, er
 	if len(departmentIDs) == 0 && values.Get("departmentId") != "" {
 		departmentIDs = parseIDs([]string{values.Get("departmentId")})
 	}
-	return reporting.ReportQuery{TenantID: principal.TenantID, CorpID: corpID, Timezone: values.Get("timezone"), StartAt: startAt, EndAt: endAt, DepartmentIDs: departmentIDs, EmployeeIDs: employeeIDs, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted, Stage: values.Get("stage"), Page: page, PageSize: pageSize}, nil
+	return reporting.ReportQuery{TenantID: principal.TenantID, CorpID: corpID, Timezone: values.Get("timezone"), StartAt: startAt, EndAt: endAt, TrendStartAt: trendStartAt, TrendEndAt: trendEndAt, DepartmentIDs: departmentIDs, EmployeeIDs: employeeIDs, AllowedEmployeeIDs: principal.AllowedEmployeeIDs, EmployeeScopeRestricted: principal.EmployeeScopeRestricted, Stage: values.Get("stage"), Page: page, PageSize: pageSize}, nil
 }
 
 func parsePositive(value string, fallback int) int {

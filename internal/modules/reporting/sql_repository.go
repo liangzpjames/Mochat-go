@@ -3,6 +3,8 @@ package reporting
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -71,6 +73,16 @@ func (r *SQLRepository) queryOverview(ctx context.Context, q ReportQuery) (Repor
 	if err != nil {
 		return ReportResult{}, err
 	}
+	if q.TrendStartAt != nil && q.TrendEndAt != nil {
+		trendQuery := q
+		trendQuery.StartAt = *q.TrendStartAt
+		trendQuery.EndAt = *q.TrendEndAt
+		trend, trendErr := r.queryEntity(ctx, trendQuery, CustomerReport)
+		if trendErr != nil {
+			return ReportResult{}, trendErr
+		}
+		customer.Series = trend.Series
+	}
 	conversion, err := r.queryConversion(ctx, q)
 	if err != nil {
 		return ReportResult{}, err
@@ -93,13 +105,23 @@ func (r *SQLRepository) queryOverview(ctx context.Context, q ReportQuery) (Repor
 	limitations = append(limitations, conversion.Limitations...)
 	limitations = append(limitations, behavior.Limitations...)
 	limitations = append(limitations, employee.Limitations...)
+	aiInsight, aiErr := r.queryAIInsight(ctx, q.CorpID)
+	if aiErr != nil {
+		return ReportResult{}, aiErr
+	}
+	conversation, conversationErr := r.queryConversationStats(ctx, q)
+	if conversationErr != nil {
+		return ReportResult{}, conversationErr
+	}
 	return ReportResult{
 		Summary:     summary,
 		Series:      customer.Series,
 		Items:       customer.Items,
 		Pagination:  customer.Pagination,
-		Freshness:   Freshness{Provider: "scrm", Status: "available"},
+		Freshness:   Freshness{Provider: "scrm", Status: "available", DataThrough: time.Now().UTC()},
 		Limitations: limitations,
+		AIInsight:   aiInsight,
+		Conversation: conversation,
 	}, nil
 }
 
@@ -381,6 +403,133 @@ GROUP BY t.table_name`)
 		}
 	}
 	return out, nil
+}
+
+// queryAIInsight reads the most recent persisted smart-analysis result for the
+// corp. Page reads never invoke the model; the once-daily job writes these rows.
+func (r *SQLRepository) queryAIInsight(ctx context.Context, corpID int64) (*AIInsightSummary, error) {
+	var payload string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT payload
+		FROM mochat_go_ai_analysis
+		WHERE corp_id = ? AND page = 'smart-analysis' AND status = 'succeeded'
+		ORDER BY id DESC
+		LIMIT 1`, corpID).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var stored map[string]any
+	if json.Unmarshal([]byte(payload), &stored) != nil {
+		return nil, nil
+	}
+	summary, _ := stored["summary"].(string)
+	generatedAt, _ := stored["generatedAt"].(string)
+	return &AIInsightSummary{Capability: "ready", Provider: "dashscope", Summary: summary, GeneratedAt: generatedAt}, nil
+}
+
+// queryConversationStats aggregates archived messages from all partitions into
+// 客户会话/客户群 session and message counts for the main range, plus a
+// seven-day trend ending at the queried end date.
+func (r *SQLRepository) queryConversationStats(ctx context.Context, q ReportQuery) (*ConversationStats, error) {
+	tables, err := r.archiveTables(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(tables) == 0 {
+		return nil, nil
+	}
+	start := q.StartAt.UTC()
+	end := q.EndAt.UTC()
+	trendStart := end.AddDate(0, 0, -7)
+	stats := &ConversationStats{Trend: []ConversationTrendPoint{}}
+
+	selectParts := make([]string, 0, len(tables))
+	args := make([]any, 0, len(tables)*3)
+	for _, t := range tables {
+		selectParts = append(selectParts, fmt.Sprintf(
+			"SELECT work_employee_id, to_user_id, room_id, sender_type FROM %s WHERE corp_id = ? AND msg_data_time >= ? AND msg_data_time < ?",
+			t.name))
+		args = append(args, q.CorpID, start, end)
+	}
+	union := strings.Join(selectParts, " UNION ALL ")
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT CASE WHEN room_id > 0 THEN 1 ELSE 0 END AS is_room,
+		       COUNT(DISTINCT CASE WHEN room_id > 0 THEN room_id ELSE CONCAT(work_employee_id, ':', to_user_id) END),
+		       COALESCE(SUM(CASE WHEN sender_type = 0 THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN sender_type = 1 THEN 1 ELSE 0 END), 0)
+		FROM (`+union+`) m
+		GROUP BY is_room`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var isRoom, sessions, employeeMessages, customerMessages int
+		if err := rows.Scan(&isRoom, &sessions, &employeeMessages, &customerMessages); err != nil {
+			return nil, err
+		}
+		group := ConversationGroupStats{Sessions: sessions, EmployeeMessages: employeeMessages, CustomerMessages: customerMessages}
+		if isRoom == 1 {
+			stats.Room = group
+		} else {
+			stats.Customer = group
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	trendParts := make([]string, 0, len(tables))
+	trendArgs := make([]any, 0, len(tables)*3)
+	for _, t := range tables {
+		trendParts = append(trendParts, fmt.Sprintf(`
+			SELECT DATE(msg_data_time) AS d,
+			       CASE WHEN room_id > 0 THEN 1 ELSE 0 END AS is_room,
+			       COUNT(DISTINCT CASE WHEN room_id > 0 THEN room_id ELSE CONCAT(work_employee_id, ':', to_user_id) END),
+			       SUM(CASE WHEN sender_type = 0 THEN 1 ELSE 0 END),
+			       SUM(CASE WHEN sender_type = 1 THEN 1 ELSE 0 END)
+			FROM %s
+			WHERE corp_id = ? AND msg_data_time >= ? AND msg_data_time < ?
+			GROUP BY DATE(msg_data_time), is_room`, t.name))
+		trendArgs = append(trendArgs, q.CorpID, trendStart, end)
+	}
+	trendRows, err := r.db.QueryContext(ctx, strings.Join(trendParts, " UNION ALL "), trendArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer trendRows.Close()
+	dayMap := map[string]ConversationTrendPoint{}
+	for trendRows.Next() {
+		var day string
+		var isRoom, sessions, employeeMessages, customerMessages int
+		if err := trendRows.Scan(&day, &isRoom, &sessions, &employeeMessages, &customerMessages); err != nil {
+			return nil, err
+		}
+		point := dayMap[day]
+		if isRoom == 1 {
+			point.RoomSessions = sessions
+			point.RoomEmployeeMessages = employeeMessages
+			point.RoomCustomerMessages = customerMessages
+		} else {
+			point.CustomerSessions = sessions
+			point.CustomerEmployeeMessages = employeeMessages
+			point.CustomerCustomerMessages = customerMessages
+		}
+		dayMap[day] = point
+	}
+	if err := trendRows.Err(); err != nil {
+		return nil, err
+	}
+	for index := 6; index >= 0; index-- {
+		day := trendStart.AddDate(0, 0, index).Format("2006-01-02")
+		point := dayMap[day]
+		point.Date = day
+		stats.Trend = append(stats.Trend, point)
+	}
+	return stats, nil
 }
 
 // scopeArchive scopes archive partitions by corp_id directly and resolves the

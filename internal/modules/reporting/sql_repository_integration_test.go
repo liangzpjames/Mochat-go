@@ -49,3 +49,45 @@ func TestSQLRepositoryAgainstRetainedMariaDBSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestOverviewIncludesConversationAIInsightAndFreshness(t *testing.T) {
+	dsn := os.Getenv("MOCHAT_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("MOCHAT_MYSQL_DSN not set")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	service := NewSQLService(db)
+	q := ReportQuery{
+		TenantID: 1,
+		CorpID:   1,
+		StartAt:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndAt:    time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+		Timezone: "Asia/Shanghai",
+		Page:     1,
+		PageSize: 20,
+	}
+	result, err := service.Query(ctx, OverviewReport, q)
+	if err != nil {
+		t.Fatalf("overview failed: %v", err)
+	}
+	if result.Conversation == nil {
+		t.Fatal("overview conversation stats are missing")
+	}
+	if result.Freshness.DataThrough.Year() < 2026 {
+		t.Fatalf("overview dataThrough is not populated: %v", result.Freshness.DataThrough)
+	}
+	if result.AIInsight == nil {
+		t.Log("overview aiInsight nil (no persisted analysis row yet)")
+	} else if result.AIInsight.Capability != "ready" {
+		t.Fatalf("overview aiInsight capability = %q, want ready", result.AIInsight.Capability)
+	}
+}

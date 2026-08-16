@@ -13,6 +13,7 @@ import { updateSearch } from '../../shared/query-state';
 import type {
   DashboardOverviewApi,
   DashboardOverviewQuery,
+  ConversationTrendPoint,
   DashboardOverviewTrendPoint,
 } from './dashboard-overview-api';
 
@@ -34,6 +35,23 @@ function defaultRange(): OverviewRange {
     from: `${year}-${String(month).padStart(2, '0')}-01`,
     to: `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}-01`,
   };
+}
+
+function formatDateInZone(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: enterpriseTimeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year ?? 0}-${String(values.month ?? 0).padStart(2, '0')}-${String(values.day ?? 0).padStart(2, '0')}`;
+}
+
+function lastSevenDays(): OverviewRange {
+  const today = new Date();
+  const from = new Date(today);
+  from.setDate(from.getDate() - 6);
+  const to = new Date(today);
+  to.setDate(to.getDate() + 1);
+  return { from: formatDateInZone(from), to: formatDateInZone(to) };
 }
 
 function positiveInteger(value: string | null, fallback: number): number {
@@ -128,16 +146,52 @@ function EmptyVisual({ text = '暂无数据' }: { text?: string }) {
   return <div className="overview-empty-visual"><span aria-hidden="true">⌁</span><p>{text}</p></div>;
 }
 
-function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams, current }: {
+function ConversationTrendChart({ points }: { points: readonly ConversationTrendPoint[] }) {
+  const maximum = Math.max(1, ...points.map((point) => Math.max(point.customerSessions, point.roomSessions)));
+  return <div className="dashboard-overview-chart" role="img" aria-label="近七日会话趋势">
+    {points.map((point) => <div className="dashboard-overview-chart-column" key={point.date}>
+      <div className="dashboard-overview-bars">
+        <span aria-label={`客户会话 ${point.customerSessions}`} className="dashboard-overview-bar dashboard-overview-bar-primary" style={{ height: `${Math.max(4, (point.customerSessions / maximum) * 100)}%` }} title={`客户会话 ${point.customerSessions}`} />
+        <span aria-label={`客户群 ${point.roomSessions}`} className="dashboard-overview-bar dashboard-overview-bar-secondary" style={{ height: `${Math.max(4, (point.roomSessions / maximum) * 100)}%` }} title={`客户群 ${point.roomSessions}`} />
+      </div>
+      <span>{point.date.slice(5)}</span>
+    </div>)}
+  </div>;
+}
+
+function ConversationGroupBlock({ title, data, active, onClick }: {
+  title: string;
+  data: { sessions: number; employeeMessages: number; customerMessages: number };
+  active: boolean;
+  onClick: () => void;
+}) {
+  return <button aria-pressed={active} className={`overview-conversation-group${active ? ' overview-conversation-group-active' : ''}`} onClick={onClick} type="button">
+    <h3>{title}</h3>
+    <dl>
+      <div><dt>会话数</dt><dd>{data.sessions.toLocaleString('zh-CN')}</dd></div>
+      <div><dt>员工消息数</dt><dd>{data.employeeMessages.toLocaleString('zh-CN')}</dd></div>
+      <div><dt>客户消息数</dt><dd>{data.customerMessages.toLocaleString('zh-CN')}</dd></div>
+    </dl>
+  </button>;
+}
+
+function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams, current, trendRange, trendDraft, onTrendDraftChange, onTrendApply }: {
   data: Awaited<ReturnType<DashboardOverviewApi['load']>>;
   page: number;
   pageSize: number;
   searchParams: URLSearchParams;
   setSearchParams: ReturnType<typeof useSearchParams>[1];
   current: FilterDraft;
+  trendRange: OverviewRange;
+  trendDraft: OverviewRange;
+  onTrendDraftChange: (value: OverviewRange) => void;
+  onTrendApply: () => void;
 }) {
   const total = data.total ?? data.trend.length;
   const archiveUnavailable = data.limitations.some((item) => item.provider === 'conversation_archive');
+  const [activeConversationKind, setActiveConversationKind] = useState<'customer' | 'room' | null>(null);
+  const aiInsight = data.aiInsight;
+  const conversation = data.conversation;
 
   return <div className="overview-dashboard">
     <section className="overview-module dashboard-data-card">
@@ -151,23 +205,72 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
     </section>
 
     <section className="overview-module dashboard-data-card">
-      <ModuleHeader title="AI 洞察" description="AI 能力未接入，配置后展示会话风险与情绪信号" extra={<Link className="overview-link-button" to="/ai-setting/ai-knowledge-base">前往配置</Link>} />
-      <EmptyVisual text="AI 能力未接入，请在 AI 设置中配置后查看" />
+      <ModuleHeader
+        title="AI 洞察"
+        description={aiInsight?.capability === 'ready' ? '每日 24 点自动生成的会话智能分析，页面只读展示' : 'AI 能力未接入，配置后展示会话风险与情绪信号'}
+        extra={aiInsight?.capability === 'ready'
+          ? <span className="overview-update">生成于 {aiInsight.generatedAt.replace('T', ' ').replace('Z', '').slice(0, 19)}</span>
+          : <Link className="overview-link-button" to="/ai-setting/ai-knowledge-base">前往配置</Link>}
+      />
+      {aiInsight?.capability === 'ready' && aiInsight.summary !== ''
+        ? <div className="overview-ai-summary"><p>{aiInsight.summary}</p></div>
+        : <EmptyVisual text="AI 能力未接入，请在 AI 设置中配置后查看" />}
     </section>
 
-    <div className="overview-two-column">
-      <section className="overview-module dashboard-data-card">
-        <ModuleHeader title="客户增长趋势" description="按天统计新增联系人，同客户分析趋势" extra={<span className="overview-scope-chip">数据来源：SCRM</span>} />
-        {data.trend.length === 0 ? <EmptyVisual /> : <TrendChart points={data.trend} />}
-      </section>
+    <section className="overview-module dashboard-data-card">
+      <ModuleHeader title="客户增长趋势" description="按天统计新增联系人，可选择展示日期区间（默认最近七天）" extra={<span className="overview-scope-chip">数据来源：SCRM</span>} />
+      <div className="overview-trend-range">
+        <DateRangeFields
+          value={{ startDate: trendDraft.from, endDate: trendDraft.to }}
+          endLabel="趋势结束"
+          startLabel="趋势开始"
+          submitLabel="应用区间"
+          onChange={(value) => onTrendDraftChange({ from: value.startDate, to: value.endDate })}
+          onValidSubmit={() => onTrendApply()}
+        />
+      </div>
+      {data.trend.length === 0 ? <EmptyVisual /> : <TrendChart points={data.trend} />}
+    </section>
 
-      <section className="overview-module dashboard-data-card">
-        <ModuleHeader title="会话归档" description="已记录会话的员工数量（会话存档底座）" extra={<span className="overview-scope-chip">conversation_archive</span>} />
-        {archiveUnavailable
-          ? <EmptyVisual text="会话归档未接入，配置企业微信会话存档后展示" />
-          : <div className="overview-split-stats"><div><h3>存档员工</h3><p><strong>{data.summary.employee}</strong><span>已记录会话</span></p></div></div>}
-      </section>
-    </div>
+    <section className="overview-module dashboard-data-card">
+      <ModuleHeader title="会话数据" description="客户会话与客户群的会话数、员工/客户消息数（数据库实时统计）" extra={<span className="overview-scope-chip">conversation_archive</span>} />
+      {archiveUnavailable || conversation === undefined
+        ? <EmptyVisual text="暂无会话归档数据，配置企业微信会话存档后展示" />
+        : <div className="overview-conversation">
+            <div className="overview-conversation-groups">
+              <ConversationGroupBlock
+                active={activeConversationKind === 'customer'}
+                data={conversation.customer}
+                onClick={() => setActiveConversationKind(activeConversationKind === 'customer' ? null : 'customer')}
+                title="客户会话"
+              />
+              <ConversationGroupBlock
+                active={activeConversationKind === 'room'}
+                data={conversation.room}
+                onClick={() => setActiveConversationKind(activeConversationKind === 'room' ? null : 'room')}
+                title="客户群"
+              />
+            </div>
+            <div className="overview-conversation-chart">
+              <h3>近七日会话趋势</h3>
+              <div className="overview-conversation-legend"><span className="legend-customer">客户会话</span><span className="legend-room">客户群</span></div>
+              {conversation.trend.length === 0 ? <EmptyVisual /> : <ConversationTrendChart points={conversation.trend} />}
+            </div>
+          </div>}
+      {activeConversationKind !== null && conversation !== undefined && (
+        <div aria-label="近七日会话趋势明细" className="overview-conversation-detail">
+          <header><h3>{activeConversationKind === 'customer' ? '客户会话' : '客户群'} · 近七日趋势</h3><button onClick={() => setActiveConversationKind(null)} type="button">关闭</button></header>
+          <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>会话数</th><th>员工消息数</th><th>客户消息数</th></tr></thead><tbody>
+            {conversation.trend.map((point) => <tr key={point.date}>
+              <td>{point.date}</td>
+              <td>{activeConversationKind === 'customer' ? point.customerSessions : point.roomSessions}</td>
+              <td>{activeConversationKind === 'customer' ? point.customerEmployeeMessages : point.roomEmployeeMessages}</td>
+              <td>{activeConversationKind === 'customer' ? point.customerCustomerMessages : point.roomCustomerMessages}</td>
+            </tr>)}
+          </tbody></table></div>
+        </div>
+      )}
+    </section>
 
     <section className="overview-module overview-detail-table dashboard-data-card">
       <ModuleHeader title="经营趋势明细" description="与当前筛选和导出范围保持一致" />
@@ -193,6 +296,8 @@ export function DashboardOverviewPage({ api, initialRange, optionsApi }: { api: 
   const [draft, setDraft] = useState<FilterDraft>(current);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [trendRange, setTrendRange] = useState<OverviewRange>(() => lastSevenDays());
+  const [trendDraft, setTrendDraft] = useState<OverviewRange>(() => lastSevenDays());
 
   useEffect(() => { setDraft(filtersFromSearch(new URLSearchParams(searchText), fallback)); }, [fallback.from, fallback.to, searchText]);
 
@@ -200,11 +305,13 @@ export function DashboardOverviewPage({ api, initialRange, optionsApi }: { api: 
     corpId: access.corp.id,
     startDate: current.from,
     endDate: current.to,
+    trendStartDate: trendRange.from,
+    trendEndDate: trendRange.to,
     employeeIds: idsFromText(current.employeeIds),
     departmentIds: idsFromText(current.departmentIds),
     page,
     pageSize,
-  }), [access.corp.id, current.departmentIds, current.employeeIds, current.from, current.to, page, pageSize]);
+  }), [access.corp.id, current.departmentIds, current.employeeIds, current.from, current.to, page, pageSize, trendRange.from, trendRange.to]);
   const query = useQuery({ queryKey: ['corp', access.corp.id, 'dashboard-overview', input], queryFn: () => api.load(input) });
   const employees = useQuery({ queryKey: ['overview-employee-options', access.corp.id], queryFn: () => optionsApi!.read('/workEmployee/index', { page: 1, perPage: 200 }), enabled: Boolean(optionsApi) });
   const departments = useQuery({ queryKey: ['overview-department-options', access.corp.id], queryFn: () => optionsApi!.read('/workDepartment/pageIndex', { name: '', parentName: '', page: 1, perPage: 200 }), enabled: Boolean(optionsApi) });
@@ -242,6 +349,17 @@ export function DashboardOverviewPage({ api, initialRange, optionsApi }: { api: 
     {query.isPending && <PageState state="loading" title="正在加载数据概览" />}
     {forbidden && <PageState description="请切换到已授权企业，或联系管理员开通权限。" state="forbidden" title="无权访问当前企业数据" />}
     {query.isError && !forbidden && <PageState description={query.error instanceof Error ? query.error.message : '请稍后重试'} onRetry={() => void query.refetch()} retryLabel="重试" state="error" title="数据加载失败" />}
-    {query.data !== undefined && !query.isError && <BusinessDashboard data={query.data} page={page} pageSize={pageSize} searchParams={searchParams} setSearchParams={setSearchParams} current={current} />}
+    {query.data !== undefined && !query.isError && <BusinessDashboard
+      current={current}
+      data={query.data}
+      onTrendApply={() => setTrendRange(trendDraft)}
+      onTrendDraftChange={setTrendDraft}
+      page={page}
+      pageSize={pageSize}
+      searchParams={searchParams}
+      setSearchParams={setSearchParams}
+      trendDraft={trendDraft}
+      trendRange={trendRange}
+    />}
   </section>;
 }

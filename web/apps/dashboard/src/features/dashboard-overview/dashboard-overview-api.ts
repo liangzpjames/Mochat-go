@@ -9,6 +9,35 @@ export type DashboardOverviewTrendPoint = {
   addCustomerNum: number;
 };
 
+export type DashboardOverviewAIInsight = {
+  capability: string;
+  provider: string;
+  summary: string;
+  generatedAt: string;
+};
+
+export type ConversationGroupStats = {
+  sessions: number;
+  employeeMessages: number;
+  customerMessages: number;
+};
+
+export type ConversationTrendPoint = {
+  date: string;
+  customerSessions: number;
+  customerEmployeeMessages: number;
+  customerCustomerMessages: number;
+  roomSessions: number;
+  roomEmployeeMessages: number;
+  roomCustomerMessages: number;
+};
+
+export type DashboardOverviewConversation = {
+  customer: ConversationGroupStats;
+  room: ConversationGroupStats;
+  trend: readonly ConversationTrendPoint[];
+};
+
 export type DashboardOverviewLimitation = {
   provider: string;
   code: string;
@@ -31,6 +60,8 @@ export type DashboardOverview = {
   trend: readonly DashboardOverviewTrendPoint[];
   summary: DashboardOverviewSummary;
   limitations: readonly DashboardOverviewLimitation[];
+  aiInsight?: DashboardOverviewAIInsight;
+  conversation?: DashboardOverviewConversation;
   updatedAt: string;
   page: number;
   pageSize: number;
@@ -41,6 +72,8 @@ export type DashboardOverviewQuery = {
   corpId: string;
   startDate: string;
   endDate: string;
+  trendStartDate: string;
+  trendEndDate: string;
   employeeIds: readonly string[];
   departmentIds: readonly string[];
   page: number;
@@ -85,6 +118,42 @@ function parseLimitations(value: unknown): DashboardOverviewLimitation[] {
     isRecord(item) && typeof item.provider === 'string' && typeof item.code === 'string' && typeof item.message === 'string');
 }
 
+function parseAIInsight(value: unknown): DashboardOverviewAIInsight | undefined {
+  if (!isRecord(value) || typeof value.capability !== 'string' || value.capability === '') {
+    return undefined;
+  }
+  return {
+    capability: value.capability,
+    provider: typeof value.provider === 'string' ? value.provider : '',
+    summary: typeof value.summary === 'string' ? value.summary : '',
+    generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : '',
+  };
+}
+
+function parseConversation(value: unknown): DashboardOverviewConversation | undefined {
+  if (!isRecord(value)) return undefined;
+  const group = (raw: unknown): ConversationGroupStats => {
+    const source = isRecord(raw) ? raw : {};
+    return {
+      sessions: isFiniteNumber(source.sessions) ? source.sessions : 0,
+      employeeMessages: isFiniteNumber(source.employeeMessages) ? source.employeeMessages : 0,
+      customerMessages: isFiniteNumber(source.customerMessages) ? source.customerMessages : 0,
+    };
+  };
+  const trend = Array.isArray(value.trend)
+    ? value.trend.filter(isRecord).map((point) => ({
+        date: typeof point.date === 'string' ? point.date : '',
+        customerSessions: isFiniteNumber(point.customerSessions) ? point.customerSessions : 0,
+        customerEmployeeMessages: isFiniteNumber(point.customerEmployeeMessages) ? point.customerEmployeeMessages : 0,
+        customerCustomerMessages: isFiniteNumber(point.customerCustomerMessages) ? point.customerCustomerMessages : 0,
+        roomSessions: isFiniteNumber(point.roomSessions) ? point.roomSessions : 0,
+        roomEmployeeMessages: isFiniteNumber(point.roomEmployeeMessages) ? point.roomEmployeeMessages : 0,
+        roomCustomerMessages: isFiniteNumber(point.roomCustomerMessages) ? point.roomCustomerMessages : 0,
+      }))
+    : [];
+  return { customer: group(value.customer), room: group(value.room), trend };
+}
+
 function parseOverview(value: unknown): DashboardOverview {
   if (!isRecord(value) || !isRecord(value.summary)) {
     throw new Error('数据概览接口返回了无效数据');
@@ -109,7 +178,7 @@ function parseOverview(value: unknown): DashboardOverview {
     ? freshness.dataThrough
     : '';
   const updatedAt = dataThrough === '' ? '' : dataThrough.replace('T', ' ').replace('Z', '').slice(0, 19);
-  return {
+  const parsed: DashboardOverview = {
     cards,
     trend,
     summary,
@@ -119,6 +188,11 @@ function parseOverview(value: unknown): DashboardOverview {
     pageSize: isFiniteNumber(pagination.pageSize) ? pagination.pageSize : 20,
     total: isFiniteNumber(pagination.total) ? pagination.total : trend.length,
   };
+  const aiInsight = parseAIInsight(value.aiInsight);
+  if (aiInsight !== undefined) parsed.aiInsight = aiInsight;
+  const conversation = parseConversation(value.conversation);
+  if (conversation !== undefined) parsed.conversation = conversation;
+  return parsed;
 }
 
 function serializeQuery(input: DashboardOverviewQuery): string {
@@ -128,6 +202,13 @@ function serializeQuery(input: DashboardOverviewQuery): string {
     startAt: zonedStart(input.startDate),
     endAt: zonedStart(input.endDate),
   });
+  if (
+    typeof input.trendStartDate === 'string' && input.trendStartDate !== ''
+    && typeof input.trendEndDate === 'string' && input.trendEndDate !== ''
+  ) {
+    query.set('trendStartAt', zonedStart(input.trendStartDate));
+    query.set('trendEndAt', zonedStart(input.trendEndDate));
+  }
   for (const employeeId of input.employeeIds) query.append('employeeIds', employeeId);
   for (const departmentId of input.departmentIds) query.append('departmentIds', departmentId);
   query.set('page', String(input.page));

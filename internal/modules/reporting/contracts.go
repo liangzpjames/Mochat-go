@@ -29,6 +29,8 @@ type ReportQuery struct {
 	Timezone                string
 	StartAt                 time.Time
 	EndAt                   time.Time
+	TrendStartAt            *time.Time
+	TrendEndAt              *time.Time
 	DepartmentIDs           []int64
 	EmployeeIDs             []int64
 	AllowedEmployeeIDs      []int64
@@ -75,6 +77,37 @@ type ReportResult struct {
 	Pagination  Pagination          `json:"pagination"`
 	Freshness   Freshness           `json:"freshness"`
 	Limitations []Limitation        `json:"limitations"`
+	AIInsight   *AIInsightSummary   `json:"aiInsight,omitempty"`
+	Conversation *ConversationStats `json:"conversation,omitempty"`
+}
+
+type AIInsightSummary struct {
+	Capability  string `json:"capability"`
+	Provider    string `json:"provider"`
+	Summary     string `json:"summary"`
+	GeneratedAt string `json:"generatedAt"`
+}
+
+type ConversationGroupStats struct {
+	Sessions         int `json:"sessions"`
+	EmployeeMessages int `json:"employeeMessages"`
+	CustomerMessages int `json:"customerMessages"`
+}
+
+type ConversationTrendPoint struct {
+	Date                       string `json:"date"`
+	CustomerSessions           int    `json:"customerSessions"`
+	CustomerEmployeeMessages   int    `json:"customerEmployeeMessages"`
+	CustomerCustomerMessages   int    `json:"customerCustomerMessages"`
+	RoomSessions               int    `json:"roomSessions"`
+	RoomEmployeeMessages       int    `json:"roomEmployeeMessages"`
+	RoomCustomerMessages       int    `json:"roomCustomerMessages"`
+}
+
+type ConversationStats struct {
+	Customer ConversationGroupStats `json:"customer"`
+	Room     ConversationGroupStats `json:"room"`
+	Trend    []ConversationTrendPoint `json:"trend"`
 }
 
 func Ratio(numerator, denominator float64) *float64 {
