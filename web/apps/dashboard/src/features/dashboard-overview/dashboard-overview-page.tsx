@@ -8,7 +8,7 @@ import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
 import { DashboardPagination } from '../../components/dashboard-pagination';
 import { DateRangeFields } from '../../components/date-range-fields';
-import { records, text, type Phase35Api } from '../phase35/api';
+import type { Phase35Api } from '../phase35/api';
 import { updateSearch } from '../../shared/query-state';
 import type {
   DashboardOverviewApi,
@@ -18,7 +18,6 @@ import type {
 } from './dashboard-overview-api';
 
 type OverviewRange = { from: string; to: string };
-type FilterDraft = OverviewRange & { employeeIds: string; departmentIds: string };
 
 const defaultPageSize = 20;
 const enterpriseTimeZone = 'Asia/Shanghai';
@@ -59,34 +58,10 @@ function positiveInteger(value: string | null, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function idsFromSearch(search: URLSearchParams, key: string): string[] {
-  return [...new Set(search.getAll(key)
-    .flatMap((value) => value.split(','))
-    .map((value) => value.trim())
-    .filter((value) => /^\d+$/.test(value) && Number(value) > 0))];
-}
-
-function idsFromText(value: string): string[] {
-  return [...new Set(value.split(',').map((item) => item.trim()).filter((item) => /^\d+$/.test(item) && Number(item) > 0))];
-}
-
-function namedOptions(rows: ReturnType<typeof records>, selected: string[], idKeys: string[], fallback: string) {
-  const options = rows.flatMap((row) => {
-    const rawId = idKeys.map((key) => row[key]).find((value) => typeof value === 'string' || typeof value === 'number');
-    if (rawId === undefined) return [];
-    const id = String(rawId);
-    return [{ id, name: text(row.name ?? row.departmentName) }];
-  });
-  for (const id of selected) if (!options.some((option) => option.id === id)) options.push({ id, name: `${fallback}（${id}）` });
-  return options;
-}
-
-function filtersFromSearch(search: URLSearchParams, fallback: OverviewRange): FilterDraft {
+function filtersFromSearch(search: URLSearchParams, fallback: OverviewRange): OverviewRange {
   return {
     from: search.get('startDate') ?? fallback.from,
     to: search.get('endDate') ?? fallback.to,
-    employeeIds: idsFromSearch(search, 'employeeIds').join(','),
-    departmentIds: idsFromSearch(search, 'departmentIds').join(','),
   };
 }
 
@@ -112,12 +87,10 @@ function TrendChart({ points }: { points: readonly DashboardOverviewTrendPoint[]
   </div>;
 }
 
-function overviewSearch(current: URLSearchParams, draft: FilterDraft, page: number, pageSize: number): URLSearchParams {
+function overviewSearch(current: URLSearchParams, draft: OverviewRange, page: number, pageSize: number): URLSearchParams {
   const next = updateSearch(current, { startDate: draft.from, endDate: draft.to, page, pageSize });
   next.delete('employeeIds');
   next.delete('departmentIds');
-  for (const id of idsFromText(draft.employeeIds)) next.append('employeeIds', id);
-  for (const id of idsFromText(draft.departmentIds)) next.append('departmentIds', id);
   next.delete('period');
   return next;
 }
@@ -146,13 +119,64 @@ function EmptyVisual({ text = '暂无数据' }: { text?: string }) {
   return <div className="overview-empty-visual"><span aria-hidden="true">⌁</span><p>{text}</p></div>;
 }
 
-function ConversationTrendChart({ points }: { points: readonly ConversationTrendPoint[] }) {
-  const maximum = Math.max(1, ...points.map((point) => Math.max(point.customerSessions, point.roomSessions)));
-  return <div className="dashboard-overview-chart" role="img" aria-label="近七日会话趋势">
+type AISummaryLine =
+  | { kind: 'divider' }
+  | { kind: 'section'; text: string }
+  | { kind: 'numbered'; index: string; text: string }
+  | { kind: 'bullet'; text: string }
+  | { kind: 'paragraph'; text: string };
+
+export function parseAISummary(summary: string): AISummaryLine[] {
+  return summary.split(/\r?\n/).map((raw) => {
+    const line = raw.trim();
+    if (line === '') return null;
+    if (/^-{3,}$/.test(line)) return { kind: 'divider' };
+    if (/^[✅⚠️]/.test(line)) return { kind: 'section', text: line };
+    const numbered = line.match(/^(\d+)[.、．]\s*(.*)$/);
+    if (numbered) return { kind: 'numbered', index: numbered[1], text: numbered[2] };
+    if (/^[-•]\s+/.test(line)) return { kind: 'bullet', text: line.replace(/^[-•]\s+/, '') };
+    return { kind: 'paragraph', text: line };
+  }).filter((line): line is AISummaryLine => line !== null);
+}
+
+function renderInline(text: string): ReactNode {
+  const parts = text.split(/\*\*(.+?)\*\*/g);
+  return parts.map((part, index) => (index % 2 === 1 ? <strong key={index}>{part}</strong> : part));
+}
+
+function AISummary({ summary }: { summary: string }) {
+  const lines = parseAISummary(summary);
+  return <div className="overview-ai-summary">
+    {lines.map((line, index) => {
+      switch (line.kind) {
+        case 'divider':
+          return <hr className="overview-ai-summary-divider" key={index} />;
+        case 'section':
+          return <p className="overview-ai-summary-section" key={index}>{renderInline(line.text)}</p>;
+        case 'numbered':
+          return <p className="overview-ai-summary-item" key={index}>
+            <span className="overview-ai-summary-index">{line.index}.</span>
+            <span>{renderInline(line.text)}</span>
+          </p>;
+        case 'bullet':
+          return <p className="overview-ai-summary-bullet" key={index}>{renderInline(line.text)}</p>;
+        default:
+          return <p className="overview-ai-summary-paragraph" key={index}>{renderInline(line.text)}</p>;
+      }
+    })}
+  </div>;
+}
+
+function conversationKindLabel(kind: 'customer' | 'room'): string {
+  return kind === 'room' ? '客户群' : '客户会话';
+}
+
+function ConversationTrendChart({ kind, points }: { kind: 'customer' | 'room'; points: readonly ConversationTrendPoint[] }) {
+  const maximum = Math.max(1, ...points.map((point) => (kind === 'customer' ? point.customerSessions : point.roomSessions)));
+  return <div className="dashboard-overview-chart" role="img" aria-label={`近七日${conversationKindLabel(kind)}趋势`}>
     {points.map((point) => <div className="dashboard-overview-chart-column" key={point.date}>
       <div className="dashboard-overview-bars">
-        <span aria-label={`客户会话 ${point.customerSessions}`} className="dashboard-overview-bar dashboard-overview-bar-primary" style={{ height: `${Math.max(4, (point.customerSessions / maximum) * 100)}%` }} title={`客户会话 ${point.customerSessions}`} />
-        <span aria-label={`客户群 ${point.roomSessions}`} className="dashboard-overview-bar dashboard-overview-bar-secondary" style={{ height: `${Math.max(4, (point.roomSessions / maximum) * 100)}%` }} title={`客户群 ${point.roomSessions}`} />
+        <span aria-label={`会话数 ${kind === 'customer' ? point.customerSessions : point.roomSessions}`} className="dashboard-overview-bar dashboard-overview-bar-primary" style={{ height: `${Math.max(4, ((kind === 'customer' ? point.customerSessions : point.roomSessions) / maximum) * 100)}%` }} title={`会话数 ${kind === 'customer' ? point.customerSessions : point.roomSessions}`} />
       </div>
       <span>{point.date.slice(5)}</span>
     </div>)}
@@ -181,7 +205,7 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
   pageSize: number;
   searchParams: URLSearchParams;
   setSearchParams: ReturnType<typeof useSearchParams>[1];
-  current: FilterDraft;
+  current: OverviewRange;
   trendRange: OverviewRange;
   trendDraft: OverviewRange;
   onTrendDraftChange: (value: OverviewRange) => void;
@@ -189,7 +213,7 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
 }) {
   const total = data.total ?? data.trend.length;
   const archiveUnavailable = data.limitations.some((item) => item.provider === 'conversation_archive');
-  const [activeConversationKind, setActiveConversationKind] = useState<'customer' | 'room' | null>(null);
+  const [activeConversationKind, setActiveConversationKind] = useState<'customer' | 'room'>('customer');
   const aiInsight = data.aiInsight;
   const conversation = data.conversation;
 
@@ -213,7 +237,7 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
           : <Link className="overview-link-button" to="/ai-setting/ai-knowledge-base">前往配置</Link>}
       />
       {aiInsight?.capability === 'ready' && aiInsight.summary !== ''
-        ? <div className="overview-ai-summary"><p>{aiInsight.summary}</p></div>
+        ? <AISummary summary={aiInsight.summary} />
         : <EmptyVisual text="AI 能力未接入，请在 AI 设置中配置后查看" />}
     </section>
 
@@ -241,25 +265,25 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
               <ConversationGroupBlock
                 active={activeConversationKind === 'customer'}
                 data={conversation.customer}
-                onClick={() => setActiveConversationKind(activeConversationKind === 'customer' ? null : 'customer')}
+                onClick={() => setActiveConversationKind('customer')}
                 title="客户会话"
               />
               <ConversationGroupBlock
                 active={activeConversationKind === 'room'}
                 data={conversation.room}
-                onClick={() => setActiveConversationKind(activeConversationKind === 'room' ? null : 'room')}
+                onClick={() => setActiveConversationKind('room')}
                 title="客户群"
               />
             </div>
             <div className="overview-conversation-chart">
-              <h3>近七日会话趋势</h3>
-              <div className="overview-conversation-legend"><span className="legend-customer">客户会话</span><span className="legend-room">客户群</span></div>
-              {conversation.trend.length === 0 ? <EmptyVisual /> : <ConversationTrendChart points={conversation.trend} />}
+              <h3>{conversationKindLabel(activeConversationKind)} · 近七日会话趋势</h3>
+              <div className="overview-conversation-legend"><span className="legend-customer">会话数</span></div>
+              {conversation.trend.length === 0 ? <EmptyVisual /> : <ConversationTrendChart kind={activeConversationKind} points={conversation.trend} />}
             </div>
           </div>}
-      {activeConversationKind !== null && conversation !== undefined && (
+      {conversation !== undefined && (
         <div aria-label="近七日会话趋势明细" className="overview-conversation-detail">
-          <header><h3>{activeConversationKind === 'customer' ? '客户会话' : '客户群'} · 近七日趋势</h3><button onClick={() => setActiveConversationKind(null)} type="button">关闭</button></header>
+          <header><h3>{conversationKindLabel(activeConversationKind)} · 近七日趋势明细</h3></header>
           <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>会话数</th><th>员工消息数</th><th>客户消息数</th></tr></thead><tbody>
             {conversation.trend.map((point) => <tr key={point.date}>
               <td>{point.date}</td>
@@ -285,7 +309,7 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
   </div>;
 }
 
-export function DashboardOverviewPage({ api, initialRange, optionsApi }: { api: DashboardOverviewApi; initialRange?: OverviewRange; optionsApi?: Phase35Api | undefined }) {
+export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOverviewApi; initialRange?: OverviewRange; optionsApi?: Phase35Api | undefined }) {
   const access = useDashboardAccess();
   const [searchParams, setSearchParams] = useSearchParams();
   const fallback = initialRange ?? defaultRange();
@@ -293,7 +317,7 @@ export function DashboardOverviewPage({ api, initialRange, optionsApi }: { api: 
   const current = filtersFromSearch(searchParams, fallback);
   const page = positiveInteger(searchParams.get('page'), 1);
   const pageSize = Math.min(100, positiveInteger(searchParams.get('pageSize'), defaultPageSize));
-  const [draft, setDraft] = useState<FilterDraft>(current);
+  const [draft, setDraft] = useState<OverviewRange>(current);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [trendRange, setTrendRange] = useState<OverviewRange>(() => lastSevenDays());
@@ -307,24 +331,16 @@ export function DashboardOverviewPage({ api, initialRange, optionsApi }: { api: 
     endDate: current.to,
     trendStartDate: trendRange.from,
     trendEndDate: trendRange.to,
-    employeeIds: idsFromText(current.employeeIds),
-    departmentIds: idsFromText(current.departmentIds),
+    employeeIds: [],
+    departmentIds: [],
     page,
     pageSize,
-  }), [access.corp.id, current.departmentIds, current.employeeIds, current.from, current.to, page, pageSize, trendRange.from, trendRange.to]);
+  }), [access.corp.id, current.from, current.to, page, pageSize, trendRange.from, trendRange.to]);
   const query = useQuery({ queryKey: ['corp', access.corp.id, 'dashboard-overview', input], queryFn: () => api.load(input) });
-  const employees = useQuery({ queryKey: ['overview-employee-options', access.corp.id], queryFn: () => optionsApi!.read('/workEmployee/index', { page: 1, perPage: 200 }), enabled: Boolean(optionsApi) });
-  const departments = useQuery({ queryKey: ['overview-department-options', access.corp.id], queryFn: () => optionsApi!.read('/workDepartment/pageIndex', { name: '', parentName: '', page: 1, perPage: 200 }), enabled: Boolean(optionsApi) });
-  const employeeOptions = records(employees.data);
-  const departmentOptions = records(departments.data);
-  const employeeChoices = namedOptions(employeeOptions, idsFromText(draft.employeeIds), ['id', 'employeeId'], '员工');
-  const departmentChoices = namedOptions(departmentOptions, idsFromText(draft.departmentIds), ['departmentId', 'id'], '部门');
 
   function applyFilters() {
     if (draft.from === '' || draft.to === '' || draft.from > draft.to) { setRangeError('请选择有效的日期范围'); return; }
     if (calendarDaySpan(draft) > 31) { setRangeError('日期范围最多为 31 天'); return; }
-    if (draft.employeeIds.trim() !== '' && idsFromText(draft.employeeIds).length === 0) { setRangeError('员工 ID 需使用逗号分隔的正整数'); return; }
-    if (draft.departmentIds.trim() !== '' && idsFromText(draft.departmentIds).length === 0) { setRangeError('部门 ID 需使用逗号分隔的正整数'); return; }
     setRangeError(null);
     setSearchParams(overviewSearch(searchParams, draft, 1, pageSize));
   }
@@ -343,7 +359,6 @@ export function DashboardOverviewPage({ api, initialRange, optionsApi }: { api: 
         <button disabled={query.isFetching} onClick={() => void query.refetch()} type="button">刷新</button><button disabled={query.isFetching} onClick={() => void exportCsv()} type="button">导出 CSV</button>
       </div>
     </header>
-    <details className="overview-advanced-filters dashboard-data-card" open><summary>高级范围筛选</summary><div><label><span>员工</span><select multiple aria-label="员工范围" value={idsFromText(draft.employeeIds)} onChange={(event) => { const employeeIds = [...event.currentTarget.selectedOptions].map((option) => option.value).join(','); setDraft((value) => ({ ...value, employeeIds })); }}>{employeeChoices.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label><label><span>部门</span><select multiple aria-label="部门范围" value={idsFromText(draft.departmentIds)} onChange={(event) => { const departmentIds = [...event.currentTarget.selectedOptions].map((option) => option.value).join(','); setDraft((value) => ({ ...value, departmentIds })); }}>{departmentChoices.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label></div></details>
     {rangeError !== null && <p className="dashboard-overview-inline-error" role="alert">{rangeError}</p>}
     {exportError !== null && <p className="dashboard-overview-inline-error" role="alert">{exportError}</p>}
     {query.isPending && <PageState state="loading" title="正在加载数据概览" />}

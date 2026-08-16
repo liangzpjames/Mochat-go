@@ -12,7 +12,7 @@ import type {
   DashboardOverviewQuery,
 } from './dashboard-overview-api';
 import { createDashboardOverviewApi } from './dashboard-overview-api';
-import { DashboardOverviewPage } from './dashboard-overview-page';
+import { DashboardOverviewPage, parseAISummary } from './dashboard-overview-page';
 import type { Phase35Api } from '../phase35/api';
 
 const access: AccessContext = {
@@ -52,8 +52,27 @@ const overview: DashboardOverview = {
   summary: {
     customer: 137, lead: 58, contact: 46, opportunity: 30, won: 15, order: 12, behavior: 41, employee: 0,
   },
-  limitations: [{ provider: 'conversation_archive', code: 'provider_unavailable', message: '会话归档表不可用' }],
+  limitations: [],
   updatedAt: '2026-07-31 09:30:00',
+  aiInsight: {
+    capability: 'ready',
+    provider: 'dashscope',
+    summary: '✅ **核心客户意图识别：**\n1. **商务洽谈与价格协商**（高频出现）：\n   - 明确议价（第7条）\n   - 索要报价单（第15条）\n\n---\n\n✅ **跟进建议：**\n1. **立即响应并闭环技术问题**：针对第17条\n2. **分层推进商务决策**：今日内发送报价单\n\n（所有建议均严格依据归档文本）',
+    generatedAt: '2026-08-15T23:59:59+08:00',
+  },
+  conversation: {
+    customer: { sessions: 11, employeeMessages: 22, customerMessages: 16 },
+    room: { sessions: 4, employeeMessages: 6, customerMessages: 6 },
+    trend: [
+      { date: '2026-08-10', customerSessions: 1, customerEmployeeMessages: 1, customerCustomerMessages: 1, roomSessions: 0, roomEmployeeMessages: 0, roomCustomerMessages: 0 },
+      { date: '2026-08-11', customerSessions: 1, customerEmployeeMessages: 1, customerCustomerMessages: 1, roomSessions: 0, roomEmployeeMessages: 0, roomCustomerMessages: 0 },
+      { date: '2026-08-12', customerSessions: 1, customerEmployeeMessages: 1, customerCustomerMessages: 0, roomSessions: 0, roomEmployeeMessages: 0, roomCustomerMessages: 0 },
+      { date: '2026-08-13', customerSessions: 1, customerEmployeeMessages: 1, customerCustomerMessages: 1, roomSessions: 0, roomEmployeeMessages: 0, roomCustomerMessages: 0 },
+      { date: '2026-08-14', customerSessions: 1, customerEmployeeMessages: 1, customerCustomerMessages: 1, roomSessions: 0, roomEmployeeMessages: 0, roomCustomerMessages: 0 },
+      { date: '2026-08-15', customerSessions: 1, customerEmployeeMessages: 1, customerCustomerMessages: 1, roomSessions: 2, roomEmployeeMessages: 2, roomCustomerMessages: 2 },
+      { date: '2026-08-16', customerSessions: 1, customerEmployeeMessages: 3, customerCustomerMessages: 0, roomSessions: 0, roomEmployeeMessages: 0, roomCustomerMessages: 0 },
+    ],
+  },
   page: 1,
   pageSize: 20,
   total: 1,
@@ -63,17 +82,6 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllEnvs();
-});
-
-it('shows the advanced range filter expanded with employee and department selects', async () => {
-  const api = { load: vi.fn().mockResolvedValue(overview) };
-  renderPage(api);
-  const summary = await screen.findByText('高级范围筛选');
-  const details = summary.closest('details');
-  expect(details).not.toBeNull();
-  expect(details?.getAttribute('open')).not.toBeNull();
-  expect(within(details as HTMLElement).getByLabelText('员工范围')).not.toBeNull();
-  expect(within(details as HTMLElement).getByLabelText('部门范围')).not.toBeNull();
 });
 
 function LocationProbe() {
@@ -116,12 +124,19 @@ describe('DashboardOverviewPage', () => {
     expect(within(pagination).getByText('共 25 条')).toBeTruthy();
     expect(within(pagination).getByRole('button', { name: '第 1 页' }).getAttribute('aria-current')).toBe('page');
   });
-  it('uses real employee and department names instead of ID text fields', async () => {
-    const optionsApi = { read: vi.fn().mockImplementation((path: string) => Promise.resolve(path.includes('workEmployee') ? { list: [{ id: 9, name: '销售小王' }] } : { list: [{ departmentId: 3, name: '华东销售部' }] })), write: vi.fn() };
-    renderPage({ load: vi.fn().mockResolvedValue(overview) }, '/index', optionsApi);
-    expect(await screen.findByRole('option', { name: '销售小王' })).toBeTruthy();
-    expect(await screen.findByRole('option', { name: '华东销售部' })).toBeTruthy();
-    expect(screen.queryByRole('textbox', { name: '部门 ID' })).toBeNull();
+  it('removes the advanced range filter and relies on the principal scope', async () => {
+    const optionsApi = { read: vi.fn(), write: vi.fn() };
+    const load = vi.fn().mockResolvedValue(overview);
+    renderPage({ load }, '/index?employeeIds=9&departmentIds=3', optionsApi);
+    await screen.findByText('客户总数');
+    expect(screen.queryByText('高级范围筛选')).toBeNull();
+    expect(screen.queryByLabelText('员工范围')).toBeNull();
+    expect(screen.queryByLabelText('部门范围')).toBeNull();
+    expect(optionsApi.read).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({
+      employeeIds: [],
+      departmentIds: [],
+    }));
   });
 
   it('builds the default range in the explicit enterprise timezone', async () => {
@@ -285,7 +300,7 @@ describe('DashboardOverviewPage', () => {
     await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
   });
 
-  it('restores complete filters from the URL and paginates', async () => {
+  it('keeps the date range from the URL, ignores legacy employee filters and paginates', async () => {
     const load = vi.fn(() => Promise.resolve({ ...overview, total: 41 }));
     renderPage({ load, exportCsv: vi.fn(() => Promise.resolve(new Blob())) },
       '/index?startDate=2026-07-01&endDate=2026-08-01&employeeIds=9&employeeIds=12&departmentIds=3&page=2&pageSize=20');
@@ -294,9 +309,9 @@ describe('DashboardOverviewPage', () => {
     expect(load).toHaveBeenCalledWith({
       corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01',
       ...trendRangeForTest(),
-      employeeIds: ['9', '12'], departmentIds: ['3'], page: 2, pageSize: 20,
+      employeeIds: [], departmentIds: [], page: 2, pageSize: 20,
     });
-    expect([...screen.getByLabelText('员工范围').querySelectorAll('option:checked')].map((option) => option.getAttribute('value'))).toEqual(['9', '12']);
+    expect(screen.queryByLabelText('员工范围')).toBeNull();
     expect(screen.queryByLabelText('趋势周期')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
@@ -314,7 +329,7 @@ describe('DashboardOverviewPage', () => {
     expect(exportCsv).toHaveBeenCalledWith({
       corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01',
       ...trendRangeForTest(),
-      employeeIds: ['9'], departmentIds: ['3'], page: 1, pageSize: 20,
+      employeeIds: [], departmentIds: [], page: 1, pageSize: 20,
     });
   });
 
@@ -333,5 +348,43 @@ describe('DashboardOverviewPage', () => {
 
     expect(await screen.findByText('日期范围最多为 31 天')).not.toBeNull();
     expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('links the conversation selection to the right trend chart and detail table', async () => {
+    renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
+    await screen.findByText('客户总数');
+
+    expect(screen.getByRole('img', { name: '近七日客户会话趋势' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '客户会话 · 近七日趋势明细' })).not.toBeNull();
+    expect(screen.queryByLabelText('会话数 2')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /客户群/ }));
+
+    expect(screen.getByRole('img', { name: '近七日客户群趋势' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '客户群 · 近七日趋势明细' })).not.toBeNull();
+    expect(screen.getByLabelText('会话数 2')).not.toBeNull();
+    const roomRow = screen.getByText('2026-08-15').closest('tr');
+    const roomCells = [...(roomRow?.querySelectorAll('td') ?? [])].map((cell) => cell.textContent);
+    expect(roomCells).toEqual(['2026-08-15', '2', '2', '2']);
+  });
+
+  it('renders the AI insight summary with structured sections', async () => {
+    renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
+    await screen.findByText('客户总数');
+
+    expect(screen.getByText('核心客户意图识别：')).not.toBeNull();
+    expect(screen.getByText('商务洽谈与价格协商')).not.toBeNull();
+    expect(screen.getByText('明确议价（第7条）')).not.toBeNull();
+    expect(screen.getByText('立即响应并闭环技术问题')).not.toBeNull();
+  });
+
+  it('parses AI summary markdown-ish lines into structured blocks', () => {
+    expect(parseAISummary('---\n✅ **标题**\n1. 第一项\n   - 子项\n正文')).toEqual([
+      { kind: 'divider' },
+      { kind: 'section', text: '✅ **标题**' },
+      { kind: 'numbered', index: '1', text: '第一项' },
+      { kind: 'bullet', text: '子项' },
+      { kind: 'paragraph', text: '正文' },
+    ]);
   });
 });
