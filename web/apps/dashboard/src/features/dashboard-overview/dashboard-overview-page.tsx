@@ -79,6 +79,7 @@ function TrendChart({ points }: { points: readonly DashboardOverviewTrendPoint[]
   const maximum = trendMaximum(points);
   return <div className="dashboard-overview-chart" role="img" aria-label="企业趋势图">
     {points.map((point) => <div className="dashboard-overview-chart-column" key={point.date}>
+      <span className="dashboard-overview-bar-value">{point.addCustomerNum}</span>
       <div className="dashboard-overview-bars">
         <span aria-label={`新增客户 ${point.addCustomerNum}`} className="dashboard-overview-bar dashboard-overview-bar-primary" style={{ height: `${Math.max(4, (point.addCustomerNum / maximum) * 100)}%` }} title={`新增客户 ${point.addCustomerNum}`} />
       </div>
@@ -175,6 +176,7 @@ function ConversationTrendChart({ kind, points }: { kind: 'customer' | 'room'; p
   const maximum = Math.max(1, ...points.map((point) => (kind === 'customer' ? point.customerSessions : point.roomSessions)));
   return <div className="dashboard-overview-chart" role="img" aria-label={`近七日${conversationKindLabel(kind)}趋势`}>
     {points.map((point) => <div className="dashboard-overview-chart-column" key={point.date}>
+      <span className="dashboard-overview-bar-value">{kind === 'customer' ? point.customerSessions : point.roomSessions}</span>
       <div className="dashboard-overview-bars">
         <span aria-label={`会话数 ${kind === 'customer' ? point.customerSessions : point.roomSessions}`} className="dashboard-overview-bar dashboard-overview-bar-primary" style={{ height: `${Math.max(4, ((kind === 'customer' ? point.customerSessions : point.roomSessions) / maximum) * 100)}%` }} title={`会话数 ${kind === 'customer' ? point.customerSessions : point.roomSessions}`} />
       </div>

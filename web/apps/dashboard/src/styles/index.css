@@ -971,6 +971,7 @@ body {
 .dashboard-overview-chart-column { align-items: center; color: #8991a1; display: grid; flex: 1 0 56px; font-size: .7rem; gap: 8px; height: 100%; min-width: 56px; text-align: center; }
 .dashboard-overview-bars { align-items: end; border-bottom: 1px solid #e8ebf2; display: flex; gap: 3px; height: 205px; justify-content: center; width: 100%; }
 .dashboard-overview-bar { border-radius: 4px 4px 0 0; display: block; max-width: 10px; min-height: 4px; width: 18%; }
+.dashboard-overview-bar-value { color: #7c8597; font-size: .68rem; line-height: 1; }
 .dashboard-overview-bar-primary { background: #536bf4; }
 .dashboard-overview-bar-secondary { background: #56b8b0; }
 .dashboard-overview-bar-warning { background: #f2ad5d; }
@@ -1175,6 +1176,17 @@ body {
   color: #3b4355;
   font-size: .9rem;
   margin: 0 0 10px;
+}
+.dashboard-overview-page .dashboard-overview-chart {
+  height: auto;
+  margin-top: 14px;
+  padding-top: 4px;
+}
+.dashboard-overview-page .dashboard-overview-chart-column {
+  height: auto;
+}
+.dashboard-overview-page .dashboard-overview-bars {
+  height: 180px;
 }
 .dashboard-overview-bars {
   gap: 6px;
