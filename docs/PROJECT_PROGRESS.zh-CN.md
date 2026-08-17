@@ -1,16 +1,26 @@
 # MoChat Go 开发总进度
 
-> 更新时间：2026-08-07
-> 当前分支：`main`（Phase 3.5、坏账清理与 Phase 3 Final 均已合入并推送远端）
-> 当前阶段：Phase 3 Final 已合入 `main`（53/53 达标）；测试期 AI API 默认关闭
+> 更新时间：2026-08-17
+> 当前分支：`main`（本地 HEAD `883e216`；相对 `origin/main` 仍有待发布提交）
+> 当前阶段：Phase 7 真实企业微信会话存档已完成设计与实施计划，代码实现和 ECS live 验收尚未开始
 
 ## 当前结论
 
-主线已完成 Phase 0–3.4：Go 单体底座、React 统一前端底座、Phase 3.2 八页门禁、Phase 3.3 菜单合入、Phase 3.4 营销工具 9 页均已交付并合入 `main`。
+主线已完成 Phase 0–3 Final 的 Go 单体、React Dashboard 和 53 页基准交付；Phase 4 Dashboard 页面 RBAC、单企业身份隔离、Sidebar/Operation 移动端基础、Provider/企业微信标准能力基础与客户/客户群 durable 精准群发也已进入当前本地 `main`。
 
-当前主线是 Phase 3.5（SCRM 扩展 4 页 + 真实数据报表 5 页）：九页代码、自动化门禁、重建部署与浏览器/视觉模型验收已于 2026-08-06 晚闭合；`P35-ACCEPT-*` 生命周期与 Playwright E2E spec 已补齐。
+截至 2026-08-16，Dashboard 概览继续完成会话统计、AI 洞察、趋势范围、企业时区和展示一致性优化。当前产品缺口已从“页面是否存在”转为“真实外部 Provider、生产发布基线和持续运行证据是否闭合”。
 
-Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 页全部推到 `native` + `backend ready` + `integration-passed`；Phase 3 Final 再把 `/chat/file-audio` 解锁为 `native/ready/integration-passed`，并让 AI 洞察 5 页接入真实 AI Provider 完成“归档文本→AI→落库→回读”闭环。
+Phase 7 已建立中文设计、实施计划和 ECS 交付路线。真实会话存档目前仍是 `limited`：尚未引入企业微信官方 Linux C SDK，尚无真实 `GetChatData/GetMediaData`、真实 callback 和 Dashboard external 数据回读证据。
+
+## Phase 7：真实企业微信会话存档（2026-08-17 启动）
+
+- SDK 方案：企业微信官方 Linux x86_64 C SDK + 项目内薄 `cgo` adapter，不采用第三方 Go wrapper 作为生产信任根。
+- 运行架构：新增 Debian/glibc `archive-bridge` sidecar，只通过同机 Unix socket 服务主应用，不暴露 TCP。
+- 数据链路：会话正文通过 SDK 主动轮询；现有 `/weWork/callback` 负责企业微信事件被动接收，两者独立验收。
+- 持久化：真实 source 必须复用迁移 `0138_archive_source_sync` 的 cursor、lease、幂等、source identity 和审计；新增 `0140` 管理版本化 RSA keyring 和媒体任务/对象。
+- 发布：app 与 bridge 镜像在本地构建为 `linux/amd64`，生成不可变 tar、digest 和 checksum；阿里云 ECS 只执行 `docker load`、迁移和 `docker compose --no-build`。
+- 安全：服务器地址与凭据不入库；已在会话中出现的服务器口令部署前必须轮换并改用 SSH key；Phase 7 live 期间关闭 AI 自动分析。
+- 入口：[Phase 7 指导文档](phases/phase-7-wecom-archive/README.md)、[详细设计](superpowers/specs/2026-08-17-phase7-wecom-archive-design.md)、[实施计划](superpowers/plans/2026-08-17-phase7-wecom-archive.md)。
 
 ## Phase 3 Final（2026-08-07）
 
@@ -53,6 +63,9 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 | Phase 3.4：营销工具 | 已完成并合入 `main` | 9 页 native + 截图与验收记录 | 渠道活码、群活码、获客链接、微信客服、活码短链、一键加群、精准群发、朋友圈、素材管理 | [阶段详情](phases/phase-3-dashboard/phase-3.4/README.md) |
 | Phase 3.5：SCRM 扩展与数据报表 | 已完成并合入 `main` | 九页 native + 门禁 9/9 + 浏览器验收 | 好友、客户群、订单、客户设置、客户/会话/转化/行为/综合报表 | [阶段详情](phases/phase-3-dashboard/phase-3.5/README.md) |
 | Phase 3 Final：Provider 接入与总验收 | **已完成并合入 `main`** | 53/53 达标；门禁/部署/浏览器/识图/数据流证据闭合 | 音频存储 Provider + `/chat/file-audio`、AI 洞察真实化、企微存档适配层 | [阶段详情](phases/phase-3-dashboard/phase-3-final/README.md) |
+| Phase 4：Dashboard 页面 RBAC | 已完成并进入当前本地 `main` | 53 页目录、49 页可授予、4 页超管专属、真实 Docker/API/浏览器验收 | 多角色、直接权限、数据范围、失败关闭与授权审计 | [验收记录](reviews/2026-08-10-phase4-dashboard-page-rbac-acceptance.zh-CN.md) |
+| Phase 6：Provider 与企微标准能力收口 | 已进入当前本地 `main` | Provider completion、0138/0139、durable 客户/群群发和定向门禁 | truthful Provider、archive source 边界、能力账本与精准群发 | [交接记录](reviews/2026-08-15-phase6-provider-foundation-model-handoff.zh-CN.md) |
+| Phase 7：真实企微会话存档 | **计划完成，实施未开始** | 必须以真实 SDK pull、callback、ECS、Dashboard 回读和恢复证据为准 | 官方 C SDK sidecar、主动拉取、媒体、被动回调、本地构建/ECS 部署 | [阶段指导](phases/phase-7-wecom-archive/README.md) |
 
 ## 当前可测试范围
 
@@ -65,29 +78,35 @@ Benchmark 全局口径：**53/53 达标**。2026-08-07 坏账清理把剩余 26 
 | `/chat/file-audio` | 可测试 | 上传/播放/删除闭环，真实本地存储 Provider |
 | AI 洞察五页 | 受限态（测试期） | AI API 默认关闭（`MOCHAT_GO_AI_INSIGHT_ENABLED=0`）；开启开关并配置 key 后走归档文本→分析→落库→回读 |
 | `/saas-admin/` | 可测试 | Docker 独立产物与资源前缀已验证 |
-| Sidebar / Operation | 历史分支承载 | phase2 工作树分支未合入，需按既定迁移路线收口 |
+| Sidebar / Operation | 基础可测试 | 当前主线已有会话隔离、移动端 shell 和企微风格视觉基础；完整业务仍需持续 E2E |
 | 53 页基准 | 53/53 达标 | 唯一遗留阻塞 `/chat/file-audio` 已于 Phase 3 Final 解锁 |
+| 真实企微会话存档 | `limited` | 尚无官方 SDK live pull、媒体、真实 callback 与 external 数据回读证据 |
 
 ## 当前阻塞与风险
 
-1. **Phase 3.5 已闭合项**：迁移常量与 0120 编号冲突已解决（`0120_phase35_acceptance_lifecycle` 重排为 `0122`，新增 `0123_phase35_order_collation_align` 对齐 collation，常量更新为 123）；部署已重建到最新迁移；九页浏览器验收与跨页工作流通过。
-2. **已补齐两项待补证（2026-08-06 晚）**：`P35-ACCEPT-*` 生命周期 create/verify/cleanup 已执行留证；Playwright E2E spec（`web/e2e/tests/phase35-live.spec.ts`）已入库并在真实部署通过。剩余：真实企微/会话存档 Provider 数据。
-3. **基准 53/53 已达标。** 真实企微会话存档凭证仍未提供：适配层已注册为 `limited`，提供凭证后激活并做会话/风险浏览器级回读验收。
-4. **AI API 测试期关闭。** `MOCHAT_GO_AI_INSIGHT_ENABLED` 默认 `0`，AI 洞察页保持受限态、不发起外部调用；需要真实 AI 分析时置 `1` 并配置 `MOCHAT_GO_AI_PROVIDER_KEY`。
-5. **未跟踪产物。** `web/saas-admin/`（dist+node_modules，约 141MB）、`.gocache-phase35-review/`、`.workbuddy/` 与个别计划文件未入库，需用户确认清理策略。
-6. **验收测试数据已清理（2026-08-08）。** 运行库中 `P35-ACCEPT-*`/`P36-*` 测试数据与 AI 分析结果已删除（三轮清理，含漏网验收订单），备份与证据在 `D:\workspace\mochat-go\output\acceptance-cleanup-20260808\`；legacy 旧表（`mc_work_*`）未做全面扫描，如需彻底清理可另行立项。
+1. **本地主线尚未形成远端发布基线。** 当前本地 `main` 含 Phase 4、Phase 6 和后续 Dashboard 改动，但相对 `origin/main` 仍有待发布提交；Phase 7 实施前必须先在干净工作树上跑新鲜全量门禁并固化基线 SHA。
+2. **真实会话存档仍未接通。** 当前 `Archive.Fetch` 仍 fail closed；企业微信官方 C SDK、真实 `GetChatData/GetMediaData`、出口 IP 白名单和 live message evidence 均未闭合。
+3. **现有旧 bridge 合同存在敏感数据边界问题。** 旧客户端会把 Chat Secret 与 RSA 私钥放入 HTTP JSON；Phase 7 必须改为同机 Unix socket，且真实同步必须复用 `0138` durable 账本。
+4. **RSA 密钥轮换尚不完整。** 当前凭据模型主要保存单个私钥，真实消息返回的 `publickey_ver` 需要版本化 keyring；缺少版本时必须停止并且不推进 cursor。
+5. **服务器口令已在会话中出现。** 部署前必须轮换并改用 SSH key；口令不得写入仓库、脚本、命令历史或验收材料。
+6. **AI 与真实会话的处理边界。** Phase 7 live 验收期间保持 AI 自动分析关闭；将真实会话用于 AI 前需要单独确认处理目的、权限、告知/同意和保存期限。
+7. **未跟踪产物仍需保护。** `.workbuddy/`、调试脚本、旧 `web/saas-admin/` 构建产物及其他未跟踪内容属于现有工作区，Phase 7 不得通过 `clean/reset` 清除。
 
 ## 精确下一任务
 
-1. ~~合入 Phase 3 Final 全部改动到 `main`~~ 已合入并推送（`361b918`）。
-2. 接入真实企微会话存档凭证：激活 `WeComArchiveProvider`，做会话五页 + 风险事件的浏览器级回读验收。
-3. 测试期保持 `MOCHAT_GO_AI_INSIGHT_ENABLED=0`；需要真实 AI 分析时置 `1` 并配置 `MOCHAT_GO_AI_PROVIDER_KEY`（可用阿里云百炼）。
-4. ~~清理验收测试数据~~ 已完成（2026-08-08，证据与备份见 `D:\workspace\mochat-go\output\acceptance-cleanup-20260808\`）。
-5. 推进工程收尾：React 迁移（Sidebar/Operation）与生产化加固（真实 Provider、备份演练、性能安全）。
-6. 数据口径统一分支 `feat/2026-08-08-data-calibre-unification` 待合入 `main` 并推送。
+1. 固化当前本地 `main` 的发布基线：保护 dirty/untracked 文件，运行全量 Go、前端、Provider、RBAC、identity 与 migration 门禁，确认可安全进入 Phase 7。
+2. 从企业微信官方渠道取得 Linux x86_64 会话内容存档 C SDK，核对许可证/再分发要求并记录 SHA-256；二进制只放 `.local-sdk/`。
+3. 按 [Phase 7 实施计划](superpowers/plans/2026-08-17-phase7-wecom-archive.md) 完成 SDK boundary、cgo adapter、Unix socket bridge、RSA keyring 和 `0140` 媒体账本。
+4. 把真实 bridge source 接入 `0138` durable sync，停用旧生产 cron composition；加固真实 callback 与媒体 worker。
+5. 本地构建 app/bridge 的 Linux amd64 不可变镜像并生成 tar/digest/checksum，服务器只 `docker load` 与 `--no-build` 部署。
+6. 轮换服务器口令、配置 SSH key、完成企业微信会话存档范围/RSA/Secret/出口 IP/callback 后，在 ECS 执行 live pull、媒体、回调、Dashboard、权限、重启与回滚验收。
 
 ## 最近交付
 
+- 2026-08-17：Phase 7 真实企业微信会话存档指导、设计和实施计划完成；总进度同步，尚未开始代码实现与 ECS 部署。
+- `883e216`（本地 `main`）：Dashboard 会话卡片标签与趋势标题继续收口（2026-08-16）。
+- `8061ba8`：Phase 6 Provider 基础、0138/0139、客户/客户群 durable 精准群发合入当前本地 `main`（2026-08-15）。
+- 2026-08-10：Phase 4 Dashboard 页面 RBAC 真实 Docker/API/浏览器验收完成。
 - 2026-08-08：数据口径统一（overview 报表 + 概览页接入统一口径）+ 验收数据清理；分支 `feat/2026-08-08-data-calibre-unification`。
 - `0bedd12`：订单审计写入原子化（Phase 3.5 最后提交，2026-08-06）。
 - 2026-08-06 晚：迁移 0121–0123 应用、collation 与 transition 路由修复、九页浏览器验收与跨页工作流证据闭合。

@@ -11,6 +11,7 @@
 - [Phase 2.1：功能前端迁移](phases/phase-2.1-functional-frontend-migration/README.md)
 - [Phase 2.2：后端模块化与质量门禁](phases/phase-2.2-backend-quality-gates/README.md)
 - [Phase 3：Dashboard 与圆弧 AI 功能对标](phases/phase-3-dashboard/README.md)
+- [Phase 7：真实企业微信会话存档与 ECS 交付](phases/phase-7-wecom-archive/README.md)
 
 ## 其他资料
 
