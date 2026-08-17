@@ -5,6 +5,7 @@ $build = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'build_wecom_arc
 $deploy = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'deploy_wecom_archive_demo.sh')
 $runner = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'run_wecom_archive_demo.sh')
 $configure = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'configure_wecom_archive_demo.sh')
+$verify = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'verify_wecom_archive_demo.ps1')
 $dockerfile = Get-Content -Raw -LiteralPath (Join-Path $repo 'deploy/wecom-archive-demo/Dockerfile')
 
 $requiredBuild = @('--platform linux/amd64', 'docker save', 'go test ./internal/wecomarchivedemo ./cmd/wecom-archive-demo', "`$env:GOOS = 'linux'", "`$env:CGO_ENABLED = '0'", 'sdkcheck')
@@ -25,6 +26,10 @@ foreach ($value in $forbiddenDeploy) {
 }
 
 if (-not $configure.Contains('read -r -s')) { throw 'configuration script must hide the archive Secret while typing' }
+if (-not $deploy.Contains('install -m 0600 secrets/wecom-fill.txt')) { throw 'callback Token/AES delivery file must be installed with mode 0600' }
 if (-not $dockerfile.Contains('afa8c017da2994ad2215933f2fcc6042d40d935663ad42d6e1e9d7716652f0d8')) { throw 'Dockerfile must pin the official SDK checksum' }
+foreach ($value in @('/admin/status', '19091', 'admin port 19091 is reachable')) {
+    if (-not $verify.Contains($value)) { throw "verification script is missing isolation check: $value" }
+}
 
 Write-Output 'wecom archive demo build/deploy contract: PASS'

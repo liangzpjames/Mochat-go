@@ -71,12 +71,9 @@ func callbackHandler(config Config, store *EvidenceStore) http.Handler {
 			http.Error(w, "callback verification failed", http.StatusBadRequest)
 			return
 		}
-		if state.BoundReceiveID == "" {
-			state.BoundReceiveID = plain.ReceiveID
-		}
 		if r.Method == http.MethodGet {
-			if err := store.SaveState(state); err != nil {
-				http.Error(w, "state unavailable", http.StatusInternalServerError)
+			if err := store.BindReceiveID(plain.ReceiveID); err != nil {
+				http.Error(w, "callback receive ID conflict", http.StatusBadRequest)
 				return
 			}
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -86,15 +83,8 @@ func callbackHandler(config Config, store *EvidenceStore) http.Handler {
 		eventPath := callbackEventPath(plain.Message)
 		sum := sha256.Sum256(plain.Message)
 		now := time.Now().UTC()
-		if err := store.AppendCallback(CallbackEvidence{ReceivedAt: now, ReceiveID: plain.ReceiveID, EventPath: eventPath, ContentSHA256: hex.EncodeToString(sum[:])}); err != nil {
+		if err := store.RecordCallback(CallbackEvidence{ReceivedAt: now, ReceiveID: plain.ReceiveID, EventPath: eventPath, ContentSHA256: hex.EncodeToString(sum[:])}); err != nil {
 			http.Error(w, "evidence unavailable", http.StatusInternalServerError)
-			return
-		}
-		state.CallbackCount++
-		state.LastCallbackAt = now
-		state.LastCallbackEvent = eventPath
-		if err := store.SaveState(state); err != nil {
-			http.Error(w, "state unavailable", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -134,6 +124,10 @@ func NewAdminHandler(config Config, store *EvidenceStore, archive *ArchiveServic
 
 func requireBearer(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(token) < 40 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if len(got) != len(token) || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
 			w.Header().Set("WWW-Authenticate", "Bearer")
@@ -188,8 +182,8 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func RunServers(ctx context.Context, config Config, publicHandler, adminHandler http.Handler) error {
-	publicServer := &http.Server{Addr: config.PublicAddr, Handler: publicHandler, ReadHeaderTimeout: 5 * time.Second}
-	adminServer := &http.Server{Addr: config.AdminAddr, Handler: adminHandler, ReadHeaderTimeout: 5 * time.Second}
+	publicServer := newHTTPServer(config.PublicAddr, publicHandler)
+	adminServer := newHTTPServer(config.AdminAddr, adminHandler)
 	errorsChannel := make(chan error, 2)
 	go func() { errorsChannel <- publicServer.ListenAndServe() }()
 	go func() { errorsChannel <- adminServer.ListenAndServe() }()
@@ -205,5 +199,15 @@ func RunServers(ctx context.Context, config Config, publicHandler, adminHandler 
 			return nil
 		}
 		return err
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr: addr, Handler: handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 }

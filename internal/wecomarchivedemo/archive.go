@@ -112,21 +112,7 @@ func (s *ArchiveService) Pull(ctx context.Context) (PullResult, error) {
 			lastVersion = item.PublicKeyVersion
 		}
 	}
-	for _, item := range evidence {
-		if err := s.store.AppendArchive(item); err != nil {
-			s.recordPullError(state, err)
-			return PullResult{}, err
-		}
-	}
-	state.Seq = nextSeq
-	state.PullCount++
-	state.PulledMessageCount += uint64(len(evidence))
-	state.LastPullAt = now
-	state.LastPullError = ""
-	if lastVersion != 0 {
-		state.LastPublicKeyVersion = lastVersion
-	}
-	if err := s.store.SaveState(state); err != nil {
+	if _, err := s.store.CommitArchivePage(state, nextSeq, lastVersion, now, evidence); err != nil {
 		return PullResult{}, err
 	}
 	return PullResult{StartSeq: startSeq, NextSeq: nextSeq, MessageCount: len(evidence), PulledAt: now}, nil

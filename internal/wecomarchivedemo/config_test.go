@@ -20,7 +20,7 @@ func TestGenerateConfigProducesWeComCompatibleSecretsAndProtectedFiles(t *testin
 	if !strings.Contains(config.RSAPublicKey, "BEGIN PUBLIC KEY") || !strings.Contains(config.RSAPrivateKey, "BEGIN RSA PRIVATE KEY") {
 		t.Fatal("generated RSA key pair is invalid")
 	}
-	for _, name := range []string{"config.json", "private_key.pem", "admin-token.txt"} {
+	for _, name := range []string{"config.json", "private_key.pem", "admin-token.txt", "wecom-fill.txt"} {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -37,5 +37,31 @@ func TestGenerateConfigProducesWeComCompatibleSecretsAndProtectedFiles(t *testin
 		if !strings.Contains(string(fill), want) {
 			t.Fatalf("fill list does not contain %q", want)
 		}
+	}
+}
+
+func TestValidateServeConfigRejectsMissingOrWeakSecurityFields(t *testing.T) {
+	valid, err := GenerateConfig(t.TempDir(), "http://139.196.34.133:19090")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateServeConfig(valid); err != nil {
+		t.Fatalf("generated config rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*Config){
+		"admin token":    func(config *Config) { config.AdminToken = "" },
+		"callback token": func(config *Config) { config.CallbackToken = "" },
+		"AES key":        func(config *Config) { config.EncodingAESKey = "short" },
+		"private key":    func(config *Config) { config.RSAPrivateKey = "" },
+		"public address": func(config *Config) { config.PublicAddr = "" },
+		"admin address":  func(config *Config) { config.AdminAddr = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			mutate(&candidate)
+			if err := ValidateServeConfig(candidate); err == nil {
+				t.Fatal("invalid config was accepted")
+			}
+		})
 	}
 }

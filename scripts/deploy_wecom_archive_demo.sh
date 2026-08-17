@@ -36,7 +36,7 @@ install -m 0600 -o 65532 -g 65532 secrets/config.json "$target/secrets/config.js
 install -m 0600 secrets/private_key.pem "$target/secrets/private_key.pem"
 install -m 0600 secrets/admin-token.txt "$target/secrets/admin-token.txt"
 install -m 0644 secrets/public_key.pem "$target/public_key.pem"
-install -m 0644 secrets/wecom-fill.txt "$target/wecom-fill.txt"
+install -m 0600 secrets/wecom-fill.txt "$target/wecom-fill.txt"
 install -m 0644 image-name.txt "$target/image-name.txt"
 install -m 0755 run_wecom_archive_demo.sh "$target/run_wecom_archive_demo.sh"
 install -m 0755 configure_wecom_archive_demo.sh "$target/configure_wecom_archive_demo.sh"

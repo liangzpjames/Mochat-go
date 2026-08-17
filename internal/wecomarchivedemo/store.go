@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -84,6 +87,10 @@ func (s *EvidenceStore) loadStateLocked() (State, error) {
 func (s *EvidenceStore) SaveState(state State) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.saveStateLocked(state)
+}
+
+func (s *EvidenceStore) saveStateLocked(state State) error {
 	value, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -116,6 +123,51 @@ func (s *EvidenceStore) SaveState(state State) error {
 	return os.Chmod(path, 0o600)
 }
 
+func (s *EvidenceStore) BindReceiveID(receiveID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	receiveID = strings.TrimSpace(receiveID)
+	if receiveID == "" {
+		return errors.New("callback receive ID is empty")
+	}
+	state, err := s.loadStateLocked()
+	if err != nil {
+		return err
+	}
+	if state.BoundReceiveID != "" && state.BoundReceiveID != receiveID {
+		return errors.New("callback receive ID is already bound to another enterprise")
+	}
+	if state.BoundReceiveID == receiveID {
+		return nil
+	}
+	state.BoundReceiveID = receiveID
+	return s.saveStateLocked(state)
+}
+
+func (s *EvidenceStore) RecordCallback(value CallbackEvidence) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value.ReceiveID = strings.TrimSpace(value.ReceiveID)
+	if value.ReceiveID == "" {
+		return errors.New("callback receive ID is empty")
+	}
+	state, err := s.loadStateLocked()
+	if err != nil {
+		return err
+	}
+	if state.BoundReceiveID != "" && state.BoundReceiveID != value.ReceiveID {
+		return errors.New("callback receive ID is already bound to another enterprise")
+	}
+	state.BoundReceiveID = value.ReceiveID
+	if err := s.appendJSONLineLocked("callback-events.jsonl", value); err != nil {
+		return err
+	}
+	state.CallbackCount++
+	state.LastCallbackAt = value.ReceivedAt
+	state.LastCallbackEvent = value.EventPath
+	return s.saveStateLocked(state)
+}
+
 func (s *EvidenceStore) AppendCallback(value CallbackEvidence) error {
 	return s.appendJSONLine("callback-events.jsonl", value)
 }
@@ -124,9 +176,72 @@ func (s *EvidenceStore) AppendArchive(value ArchiveEvidence) error {
 	return s.appendJSONLine("archive-messages.jsonl", value)
 }
 
+func (s *EvidenceStore) CommitArchivePage(state State, nextSeq uint64, lastVersion uint32, pulledAt time.Time, values []ArchiveEvidence) (State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	seen, err := s.archiveEvidenceKeysLocked()
+	if err != nil {
+		return state, err
+	}
+	for _, value := range values {
+		key := archiveEvidenceKey(value)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		if err := s.appendJSONLineLocked("archive-messages.jsonl", value); err != nil {
+			return state, err
+		}
+		seen[key] = struct{}{}
+	}
+	state.Seq = nextSeq
+	state.PullCount++
+	state.PulledMessageCount = uint64(len(seen))
+	state.LastPullAt = pulledAt
+	state.LastPullError = ""
+	if lastVersion != 0 {
+		state.LastPublicKeyVersion = lastVersion
+	}
+	if err := s.saveStateLocked(state); err != nil {
+		return state, err
+	}
+	return state, nil
+}
+
+func (s *EvidenceStore) archiveEvidenceKeysLocked() (map[string]struct{}, error) {
+	seen := make(map[string]struct{})
+	file, err := os.Open(filepath.Join(s.dir, "archive-messages.jsonl"))
+	if errors.Is(err, os.ErrNotExist) {
+		return seen, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	for {
+		var value ArchiveEvidence
+		if err := decoder.Decode(&value); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("read archive evidence: %w", err)
+		}
+		seen[archiveEvidenceKey(value)] = struct{}{}
+	}
+	return seen, nil
+}
+
+func archiveEvidenceKey(value ArchiveEvidence) string {
+	return fmt.Sprintf("%d|%s", value.Seq, strings.TrimSpace(value.MsgID))
+}
+
 func (s *EvidenceStore) appendJSONLine(name string, value any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.appendJSONLineLocked(name, value)
+}
+
+func (s *EvidenceStore) appendJSONLineLocked(name string, value any) error {
 	file, err := os.OpenFile(filepath.Join(s.dir, name), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err

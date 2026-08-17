@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,7 +82,7 @@ func GenerateConfig(dir, publicURL string) (Config, error) {
 		return Config{}, err
 	}
 	fill := fmt.Sprintf("企业微信回调配置\nURL: %s/wecom/callback\nToken: %s\nEncodingAESKey: %s\n\n会话内容存档 RSA 公钥：\n%s", config.PublicURL, config.CallbackToken, config.EncodingAESKey, config.RSAPublicKey)
-	if err := os.WriteFile(filepath.Join(dir, "wecom-fill.txt"), []byte(fill), 0o644); err != nil {
+	if err := writeProtected(filepath.Join(dir, "wecom-fill.txt"), []byte(fill)); err != nil {
 		return Config{}, err
 	}
 	return config, nil
@@ -107,6 +108,42 @@ func LoadConfig(path string) (Config, error) {
 		config.TimeoutSeconds = 5
 	}
 	return config, nil
+}
+
+func ValidateServeConfig(config Config) error {
+	if len(config.CallbackToken) < 8 {
+		return errors.New("callback token is missing or too short")
+	}
+	if _, err := decodeCallbackAESKey(config.EncodingAESKey); err != nil {
+		return err
+	}
+	if len(config.AdminToken) < 40 {
+		return errors.New("admin token is missing or too short")
+	}
+	if _, err := parseRSAPrivateKey(config.RSAPrivateKey); err != nil {
+		return err
+	}
+	publicBlock, _ := pem.Decode([]byte(strings.TrimSpace(config.RSAPublicKey)))
+	if publicBlock == nil {
+		return errors.New("invalid RSA public key PEM")
+	}
+	if _, err := x509.ParsePKIXPublicKey(publicBlock.Bytes); err != nil {
+		return errors.New("invalid RSA public key")
+	}
+	parsedURL, err := url.Parse(config.PublicURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+		return errors.New("public URL must be an absolute HTTP or HTTPS URL")
+	}
+	if config.PublicAddr != ":8080" || config.AdminAddr != ":9091" {
+		return errors.New("listener addresses must remain fixed at :8080 and :9091")
+	}
+	if strings.TrimSpace(config.DataDir) == "" {
+		return errors.New("data directory is required")
+	}
+	if (config.CorpID == "") != (config.ArchiveSecret == "") {
+		return errors.New("CorpID and archive Secret must be configured together")
+	}
+	return nil
 }
 
 func saveConfig(path string, config Config) error {

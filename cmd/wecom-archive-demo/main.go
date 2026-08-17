@@ -89,6 +89,9 @@ func serve(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+	if err := wecomarchivedemo.ValidateServeConfig(config); err != nil {
+		return fmt.Errorf("validate configuration: %w", err)
+	}
 	store, err := wecomarchivedemo.NewEvidenceStore(config.DataDir)
 	if err != nil {
 		return fmt.Errorf("open evidence store: %w", err)
