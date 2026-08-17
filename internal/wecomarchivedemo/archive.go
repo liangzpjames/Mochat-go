@@ -78,17 +78,17 @@ func (s *ArchiveService) Pull(ctx context.Context) (PullResult, error) {
 	startSeq := state.Seq
 	value, err := s.sdk.GetChatData(startSeq, s.limit, s.timeoutSeconds)
 	if err != nil {
-		s.recordPullError(state, err)
+		s.recordPullError(err)
 		return PullResult{}, err
 	}
 	var response getChatDataResponse
 	if err := json.Unmarshal(value, &response); err != nil {
-		s.recordPullError(state, err)
+		s.recordPullError(err)
 		return PullResult{}, fmt.Errorf("parse GetChatData response: %w", err)
 	}
 	if response.ErrCode != 0 {
 		err := SDKError{Operation: "GetChatData", Code: response.ErrCode}
-		s.recordPullError(state, err)
+		s.recordPullError(err)
 		return PullResult{}, err
 	}
 	now := s.now().UTC()
@@ -98,12 +98,12 @@ func (s *ArchiveService) Pull(ctx context.Context) (PullResult, error) {
 	for _, item := range response.ChatData {
 		randomKey, err := decryptRandomKey(s.privateKey, item.EncryptedRandomKey)
 		if err != nil {
-			s.recordPullError(state, err)
+			s.recordPullError(err)
 			return PullResult{}, fmt.Errorf("decrypt random key for seq %d: %w", item.Seq, err)
 		}
 		plain, err := s.sdk.DecryptData(string(randomKey), item.EncryptedChatMsg)
 		if err != nil {
-			s.recordPullError(state, err)
+			s.recordPullError(err)
 			return PullResult{}, fmt.Errorf("decrypt chat message for seq %d: %w", item.Seq, err)
 		}
 		evidence = append(evidence, archiveEvidenceFromPlain(now, item, plain))
@@ -118,10 +118,8 @@ func (s *ArchiveService) Pull(ctx context.Context) (PullResult, error) {
 	return PullResult{StartSeq: startSeq, NextSeq: nextSeq, MessageCount: len(evidence), PulledAt: now}, nil
 }
 
-func (s *ArchiveService) recordPullError(state State, pullErr error) {
-	state.LastPullAt = s.now().UTC()
-	state.LastPullError = pullErr.Error()
-	_ = s.store.SaveState(state)
+func (s *ArchiveService) recordPullError(pullErr error) {
+	_ = s.store.RecordPullError(s.now().UTC(), pullErr)
 }
 
 func parseRSAPrivateKey(value string) (*rsa.PrivateKey, error) {

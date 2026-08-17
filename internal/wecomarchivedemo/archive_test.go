@@ -14,16 +14,25 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 type fakeFinanceSDK struct {
-	chatData []byte
-	plain    map[string][]byte
-	getErr   error
-	keys     []string
+	chatData   []byte
+	plain      map[string][]byte
+	getErr     error
+	keys       []string
+	getStarted chan struct{}
+	getRelease chan struct{}
 }
 
 func (f *fakeFinanceSDK) GetChatData(_ uint64, _ uint32, _ int) ([]byte, error) {
+	if f.getStarted != nil {
+		close(f.getStarted)
+	}
+	if f.getRelease != nil {
+		<-f.getRelease
+	}
 	return f.chatData, f.getErr
 }
 
@@ -144,6 +153,73 @@ func TestArchiveServiceRecoversWhenEvidenceExistsBeforeCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.PulledMessageCount != 1 || state.Seq != 7 {
+		t.Fatalf("state=%+v", state)
+	}
+}
+
+func TestArchiveServiceDoesNotOverwriteCallbackRecordedDuringPull(t *testing.T) {
+	privatePEM, _ := archiveRSAFixture(t, []byte("unused"))
+	chatData, _ := json.Marshal(map[string]any{"errcode": 0, "chatdata": []any{}})
+	sdk := &fakeFinanceSDK{chatData: chatData, plain: map[string][]byte{}, getStarted: make(chan struct{}), getRelease: make(chan struct{})}
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewArchiveService(sdk, privatePEM, store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pullDone := make(chan error, 1)
+	go func() {
+		_, err := service.Pull(context.Background())
+		pullDone <- err
+	}()
+	<-sdk.getStarted
+	callbackAt := time.Now().UTC()
+	if err := store.RecordCallback(CallbackEvidence{ReceivedAt: callbackAt, ReceiveID: "ww-concurrent", EventPath: "event.concurrent", ContentSHA256: "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	close(sdk.getRelease)
+	if err := <-pullDone; err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.BoundReceiveID != "ww-concurrent" || state.CallbackCount != 1 || state.LastCallbackEvent != "event.concurrent" || state.PullCount != 1 {
+		t.Fatalf("state=%+v", state)
+	}
+}
+
+func TestArchiveServicePullErrorDoesNotOverwriteConcurrentCallback(t *testing.T) {
+	sdk := &fakeFinanceSDK{getErr: errors.New("sdk unavailable"), getStarted: make(chan struct{}), getRelease: make(chan struct{})}
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewArchiveService(sdk, testPrivateKeyPEM(t), store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pullDone := make(chan error, 1)
+	go func() {
+		_, err := service.Pull(context.Background())
+		pullDone <- err
+	}()
+	<-sdk.getStarted
+	if err := store.RecordCallback(CallbackEvidence{ReceivedAt: time.Now().UTC(), ReceiveID: "ww-concurrent", EventPath: "event.concurrent", ContentSHA256: "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	close(sdk.getRelease)
+	if err := <-pullDone; err == nil {
+		t.Fatal("pull error was ignored")
+	}
+	state, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.BoundReceiveID != "ww-concurrent" || state.CallbackCount != 1 || state.LastCallbackEvent != "event.concurrent" || state.LastPullError != "sdk unavailable" {
 		t.Fatalf("state=%+v", state)
 	}
 }

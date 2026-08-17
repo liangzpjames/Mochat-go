@@ -179,6 +179,11 @@ func (s *EvidenceStore) AppendArchive(value ArchiveEvidence) error {
 func (s *EvidenceStore) CommitArchivePage(state State, nextSeq uint64, lastVersion uint32, pulledAt time.Time, values []ArchiveEvidence) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	latest, err := s.loadStateLocked()
+	if err != nil {
+		return state, err
+	}
+	state = latest
 
 	seen, err := s.archiveEvidenceKeysLocked()
 	if err != nil {
@@ -206,6 +211,18 @@ func (s *EvidenceStore) CommitArchivePage(state State, nextSeq uint64, lastVersi
 		return state, err
 	}
 	return state, nil
+}
+
+func (s *EvidenceStore) RecordPullError(pulledAt time.Time, pullErr error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadStateLocked()
+	if err != nil {
+		return err
+	}
+	state.LastPullAt = pulledAt
+	state.LastPullError = pullErr.Error()
+	return s.saveStateLocked(state)
 }
 
 func (s *EvidenceStore) archiveEvidenceKeysLocked() (map[string]struct{}, error) {
