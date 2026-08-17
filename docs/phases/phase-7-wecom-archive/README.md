@@ -1,7 +1,7 @@
 # Phase 7：真实企业微信会话存档与 ECS 交付
 
 > 启动日期：2026-08-17（Asia/Shanghai）
-> 当前状态：**计划完成，实施未开始，Provider 继续保持 `limited`**
+> 当前状态：**隔离 Demo 已部署并通过合成双链路；真实企微配置与生产接入未完成，Provider 继续保持 `limited`**
 > 部署原则：本地构建 Linux amd64 镜像，上传阿里云 ECS 后只做 `docker load` 与 `docker compose --no-build`
 
 ## 阶段目标
@@ -23,6 +23,16 @@ Phase 7 交付真实企业微信会话存档闭环：
 - **发布方式**：本地 BuildKit 构建 app/bridge 两个 `linux/amd64` 镜像，生成不可变 tar 与 SHA-256，上传 ECS 后禁止编译。
 - **状态口径**：配置、SDK health、fake 测试或 worker running 都不等于 `ready`；只有真实 pull、解密、落库、回调和页面回读全部成功才升级状态。
 
+## 2026-08-18 Demo 里程碑
+
+- 新增独立 `wecom-archive-demo`：官方 Finance SDK v3、主动 `GetChatData/DecryptData`、加密回调 GET/POST、RSA/Token/AES keygen、JSONL 证据与 seq 状态；
+- 使用纯 Go 动态库加载层调用官方 C ABI，允许在 Windows 本地交叉编译 Linux/amd64；正式 Phase 7 的 MoChat sidecar/Unix socket 设计不因此变更；
+- 本地镜像构建、SDK checksum、SDK 符号装载、临时容器 smoke 和 `docker save` 已通过；
+- ECS 已部署 `mochat/wecom-archive-demo:083198b87da1`，公网回调为 `http://139.196.34.133:19090/wecom/callback`，管理端口仅绑定服务器本机；
+- 回调绑定/计数和拉取状态更新已原子化；重复拉取页与证据先落盘后重试均按 `seq+msgid` 去重，拉取不会覆盖并发到达的回调状态；
+- 合成加密 GET 和 POST 均通过，合成状态已清除；原 `standalone-app-1`、MySQL、Redis 容器保持原状态；
+- 当前等待在企业微信后台配置真实回调、公钥、存档范围和允许 IP，并通过交互脚本录入 CorpID/会话存档 Secret 后执行真实拉取。
+
 ## 实施顺序
 
 | 批次 | 交付 | 完成口径 |
@@ -37,7 +47,7 @@ Phase 7 交付真实企业微信会话存档闭环：
 ## ECS 安全边界
 
 - 服务器地址、账号、口令、SSH 私钥和企业微信凭据不进入 Git。
-- 已在会话中出现的登录口令需要在部署前轮换，并改用 SSH key。
+- 已在会话中出现的登录口令需要立即轮换，并改用 SSH key。
 - ECS 仅公开 HTTPS；SSH 限制管理来源；MySQL、Redis 与 bridge 不对公网开放。
 - 部署前后记录容器 ID、镜像 digest、迁移 ledger 和 named volumes；禁止 `down -v`、`volume rm/prune` 和 `system prune`。
 - 服务器不执行源码构建；失败时回滚 app/bridge 镜像，数据库迁移按 forward-compatible 策略处理。
@@ -69,14 +79,18 @@ Phase 7 交付真实企业微信会话存档闭环：
 
 - [详细设计](../../superpowers/specs/2026-08-17-phase7-wecom-archive-design.md)
 - [实施计划](../../superpowers/plans/2026-08-17-phase7-wecom-archive.md)
+- [Demo 设计](../../superpowers/specs/2026-08-17-wecom-archive-demo-design.md)
+- [Demo 实施计划](../../superpowers/plans/2026-08-17-wecom-archive-demo.md)
+- [Demo 使用说明](../../runbooks/2026-08-18-wecom-archive-demo.zh-CN.md)
+- [Demo 验收记录](acceptance/2026-08-18-wecom-archive-demo.md)
 - 企业微信官方《获取会话内容》：<https://developer.work.weixin.qq.com/document/path/91774>
 - 企业微信官方《接收消息与事件》：<https://developer.work.weixin.qq.com/document/path/90238>
 
 ## 当前未完成项
 
-- 官方 SDK 文件尚未纳入本地受控构建输入，checksum 与许可证记录尚未生成。
+- 官方 SDK v3 已进入 Demo 的本地受控构建和 checksum 门禁；正式 production bridge 的 SDK 供应链/许可证记录仍需收口。
 - `archive-bridge`、cgo adapter、版本化 RSA keyring、0140 媒体账本尚未实现。
-- ECS 尚未部署 Phase 7 镜像，未调用真实 `GetChatData/GetMediaData`。
-- 尚未取得真实 callback 与 Dashboard external 数据回读证据。
+- ECS 已部署隔离 Demo，但尚未录入真实 CorpID/会话存档 Secret，未取得真实 `GetChatData/GetMediaData` 证据。
+- 合成 callback 已通过；真实企业微信 callback 与 Dashboard external 数据回读证据尚未取得。
 
 因此当前 `wecom_archive` 必须继续显示 `limited`，不得标记为可生产使用。
