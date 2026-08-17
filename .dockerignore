@@ -4,6 +4,8 @@
 .workbuddy/
 .playwright-cli/
 .tmp*/
+!.tmp-wecom-archive-demo-build/
+!.tmp-wecom-archive-demo-build/wecom-archive-demo
 tmp
 output
 storage
