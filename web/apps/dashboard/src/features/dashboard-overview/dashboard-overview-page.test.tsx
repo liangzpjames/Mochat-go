@@ -212,15 +212,47 @@ describe('DashboardOverviewPage', () => {
       })),
     });
 
-    expect(await screen.findByRole('heading', { name: '经营概览' })).not.toBeNull();
+    expect(await screen.findByRole('heading', { name: '经营快照' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '数据概览' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: 'AI 洞察' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '经营趋势明细' })).not.toBeNull();
-    expect(screen.getByRole('heading', { name: '会话数据' })).not.toBeNull();
+    expect(screen.getByRole('heading', { name: '会话工作台' })).not.toBeNull();
+    expect(screen.getByText('AI 能力尚未接入')).not.toBeNull();
+    expect(screen.getByText('会话归档尚未接入')).not.toBeNull();
+    expect(screen.getByText('暂无增长趋势')).not.toBeNull();
+    expect(screen.getByText('暂无经营明细')).not.toBeNull();
     expect(screen.queryByRole('heading', { name: '质检数据' })).toBeNull();
     expect(screen.queryByRole('heading', { name: '员工会话数据排行' })).toBeNull();
     expect(screen.queryByRole('heading', { name: '员工会话轨迹一览' })).toBeNull();
-    expect(screen.getAllByText('暂无数据').length).toBeGreaterThan(0);
+  });
+
+  it('renders the overview as a five-layer operating cockpit', async () => {
+    renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
+    await screen.findByText('客户总数');
+
+    expect(screen.getByText('测试企业')).toBeTruthy();
+    expect(screen.getByText('统一报表口径')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '经营快照' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'AI 洞察' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: '客户增长趋势' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: '会话工作台' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: '经营趋势明细' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: '查看 AI 洞察' })).toBeTruthy();
+  });
+
+  it('keeps data visible while a manual refresh is pending', async () => {
+    let resolveRefresh: ((value: DashboardOverview) => void) | undefined;
+    const load = vi.fn()
+      .mockResolvedValueOnce(overview)
+      .mockImplementationOnce(() => new Promise<DashboardOverview>((resolve) => { resolveRefresh = resolve; }));
+    renderPage({ load });
+    expect(await screen.findByText('137')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    expect(screen.getByText('137')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新' }).hasAttribute('disabled')).toBe(true));
+    resolveRefresh?.(overview);
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新' }).hasAttribute('disabled')).toBe(false));
   });
 
   it('shows a dedicated forbidden state without stale statistics', async () => {

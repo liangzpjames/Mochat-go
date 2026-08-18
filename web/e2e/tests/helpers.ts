@@ -51,6 +51,7 @@ function accessProfile(menuRoutes: string[]) {
     userName: 'e2e',
     tenantId: 1,
     corpId: 7,
+    corpName: '测试企业',
     workEmployeeId: 1,
     departmentIds: [],
     departmentEmployeeIds: [],

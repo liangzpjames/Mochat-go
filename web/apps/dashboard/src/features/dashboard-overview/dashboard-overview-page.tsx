@@ -1,8 +1,8 @@
 import { ApiError } from '@mochat/api-client';
 import { useQuery } from '@tanstack/react-query';
+import { Button } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
@@ -13,9 +13,17 @@ import { updateSearch } from '../../shared/query-state';
 import type {
   DashboardOverviewApi,
   DashboardOverviewQuery,
-  ConversationTrendPoint,
-  DashboardOverviewTrendPoint,
 } from './dashboard-overview-api';
+import {
+  OverviewAISummary,
+  OverviewConversationWorkspace,
+  OverviewEmptyState,
+  OverviewMetricCard,
+  OverviewModuleHeader,
+  OverviewTrendChart,
+} from './dashboard-overview-widgets';
+
+export { parseAISummary } from './dashboard-overview-widgets';
 
 type OverviewRange = { from: string; to: string };
 
@@ -71,23 +79,6 @@ function calendarDaySpan(range: OverviewRange): number {
   return (to - from) / (24 * 60 * 60 * 1000);
 }
 
-function trendMaximum(points: readonly DashboardOverviewTrendPoint[]): number {
-  return Math.max(1, ...points.map((point) => point.addCustomerNum));
-}
-
-function TrendChart({ points }: { points: readonly DashboardOverviewTrendPoint[] }) {
-  const maximum = trendMaximum(points);
-  return <div className="dashboard-overview-chart" role="img" aria-label="企业趋势图">
-    {points.map((point) => <div className="dashboard-overview-chart-column" key={point.date}>
-      <span className="dashboard-overview-bar-value">{point.addCustomerNum}</span>
-      <div className="dashboard-overview-bars">
-        <span aria-label={`新增客户 ${point.addCustomerNum}`} className="dashboard-overview-bar dashboard-overview-bar-primary" style={{ height: `${Math.max(4, (point.addCustomerNum / maximum) * 100)}%` }} title={`新增客户 ${point.addCustomerNum}`} />
-      </div>
-      <span>{point.date}</span>
-    </div>)}
-  </div>;
-}
-
 function overviewSearch(current: URLSearchParams, draft: OverviewRange, page: number, pageSize: number): URLSearchParams {
   const next = updateSearch(current, { startDate: draft.from, endDate: draft.to, page, pageSize });
   next.delete('employeeIds');
@@ -105,203 +96,89 @@ function saveCsv(blob: Blob): void {
   URL.revokeObjectURL(href);
 }
 
-function MetricCard({ label, value, note, tone = 'blue' }: { label: string; value: number; note: string; tone?: string }) {
-  return <article className={`overview-metric overview-metric-${tone}`}>
-    <span className="overview-metric-icon" aria-hidden="true" />
-    <div><strong>{value.toLocaleString('zh-CN')}</strong><span>{label}</span><small>{note}</small></div>
-  </article>;
-}
-
-function ModuleHeader({ title, description, extra }: { title: string; description?: string; extra?: ReactNode }) {
-  return <header className="overview-module-header"><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{extra}</header>;
-}
-
-function EmptyVisual({ text = '暂无数据' }: { text?: string }) {
-  return <div className="overview-empty-visual"><span aria-hidden="true">⌁</span><p>{text}</p></div>;
-}
-
-type AISummaryLine =
-  | { kind: 'divider' }
-  | { kind: 'section'; text: string }
-  | { kind: 'numbered'; index: string; text: string }
-  | { kind: 'bullet'; text: string }
-  | { kind: 'paragraph'; text: string };
-
-export function parseAISummary(summary: string): AISummaryLine[] {
-  return summary.split(/\r?\n/).map((raw) => {
-    const line = raw.trim();
-    if (line === '') return null;
-    if (/^-{3,}$/.test(line)) return { kind: 'divider' };
-    if (/^[✅⚠️]/.test(line)) return { kind: 'section', text: line };
-    const numbered = line.match(/^(\d+)[.、．]\s*(.*)$/);
-    if (numbered) return { kind: 'numbered', index: numbered[1], text: numbered[2] };
-    if (/^[-•]\s+/.test(line)) return { kind: 'bullet', text: line.replace(/^[-•]\s+/, '') };
-    return { kind: 'paragraph', text: line };
-  }).filter((line): line is AISummaryLine => line !== null);
-}
-
-function renderInline(text: string): ReactNode {
-  const parts = text.split(/\*\*(.+?)\*\*/g);
-  return parts.map((part, index) => (index % 2 === 1 ? <strong key={index}>{part}</strong> : part));
-}
-
-function AISummary({ summary }: { summary: string }) {
-  const lines = parseAISummary(summary);
-  return <div className="overview-ai-summary">
-    {lines.map((line, index) => {
-      switch (line.kind) {
-        case 'divider':
-          return <hr className="overview-ai-summary-divider" key={index} />;
-        case 'section':
-          return <p className="overview-ai-summary-section" key={index}>{renderInline(line.text)}</p>;
-        case 'numbered':
-          return <p className="overview-ai-summary-item" key={index}>
-            <span className="overview-ai-summary-index">{line.index}.</span>
-            <span>{renderInline(line.text)}</span>
-          </p>;
-        case 'bullet':
-          return <p className="overview-ai-summary-bullet" key={index}>{renderInline(line.text)}</p>;
-        default:
-          return <p className="overview-ai-summary-paragraph" key={index}>{renderInline(line.text)}</p>;
-      }
-    })}
-  </div>;
-}
-
-function conversationKindLabel(kind: 'customer' | 'room'): string {
-  return kind === 'room' ? '客户群' : '客户会话';
-}
-
-function ConversationTrendChart({ kind, points }: { kind: 'customer' | 'room'; points: readonly ConversationTrendPoint[] }) {
-  const maximum = Math.max(1, ...points.map((point) => (kind === 'customer' ? point.customerSessions : point.roomSessions)));
-  return <div className="dashboard-overview-chart" role="img" aria-label={`近七日${conversationKindLabel(kind)}趋势`}>
-    {points.map((point) => <div className="dashboard-overview-chart-column" key={point.date}>
-      <span className="dashboard-overview-bar-value">{kind === 'customer' ? point.customerSessions : point.roomSessions}</span>
-      <div className="dashboard-overview-bars">
-        <span aria-label={`会话数 ${kind === 'customer' ? point.customerSessions : point.roomSessions}`} className="dashboard-overview-bar dashboard-overview-bar-primary" style={{ height: `${Math.max(4, ((kind === 'customer' ? point.customerSessions : point.roomSessions) / maximum) * 100)}%` }} title={`会话数 ${kind === 'customer' ? point.customerSessions : point.roomSessions}`} />
-      </div>
-      <span>{point.date.slice(5)}</span>
-    </div>)}
-  </div>;
-}
-
-function ConversationGroupBlock({ title, data, active, onClick }: {
-  title: string;
-  data: { sessions: number; employeeMessages: number; customerMessages: number };
-  active: boolean;
-  onClick: () => void;
-}) {
-  return <button aria-pressed={active} className={`overview-conversation-group${active ? ' overview-conversation-group-active' : ''}`} onClick={onClick} type="button">
-    <h3>{title}</h3>
-    <span className="overview-conversation-group-note">区间汇总</span>
-    <dl>
-      <div><dt>会话数</dt><dd>{data.sessions.toLocaleString('zh-CN')}</dd></div>
-      <div><dt>员工消息数</dt><dd>{data.employeeMessages.toLocaleString('zh-CN')}</dd></div>
-      <div><dt>客户消息数</dt><dd>{data.customerMessages.toLocaleString('zh-CN')}</dd></div>
-    </dl>
-  </button>;
-}
-
-function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams, current, trendRange, trendDraft, onTrendDraftChange, onTrendApply }: {
+function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams, current, trendDraft, onTrendDraftChange, onTrendApply }: {
   data: Awaited<ReturnType<DashboardOverviewApi['load']>>;
   page: number;
   pageSize: number;
   searchParams: URLSearchParams;
   setSearchParams: ReturnType<typeof useSearchParams>[1];
   current: OverviewRange;
-  trendRange: OverviewRange;
   trendDraft: OverviewRange;
   onTrendDraftChange: (value: OverviewRange) => void;
   onTrendApply: () => void;
 }) {
   const total = data.total ?? data.trend.length;
   const archiveUnavailable = data.limitations.some((item) => item.provider === 'conversation_archive');
-  const [activeConversationKind, setActiveConversationKind] = useState<'customer' | 'room'>('customer');
   const aiInsight = data.aiInsight;
   const conversation = data.conversation;
 
   return <div className="overview-dashboard">
-    <section className="overview-module dashboard-data-card">
-      <ModuleHeader title="经营概览" description="客户、线索、订单与行为事件，与数据报表同口径" extra={<span className="overview-update">更新于 {data.updatedAt || '--'}</span>} />
-      <div className="overview-metric-grid dashboard-stat-grid">
-        <MetricCard label={data.cards[0]?.label ?? '客户总数'} value={data.summary.customer} note="同客户分析口径（联系人+分配关系）" />
-        <MetricCard label={data.cards[1]?.label ?? '线索总数'} value={data.summary.lead} note="转化漏斗起始阶段" tone="green" />
-        <MetricCard label={data.cards[2]?.label ?? '订单总数'} value={data.summary.order} note="won/completed/paid 口径" tone="violet" />
-        <MetricCard label={data.cards[3]?.label ?? '行为事件'} value={data.summary.behavior} note="订单与设置审计事件" tone="orange" />
-      </div>
-    </section>
-
-    <section className="overview-module dashboard-data-card">
-      <ModuleHeader
-        title="AI 洞察"
-        description={aiInsight?.capability === 'ready' ? '每日 24 点自动生成的会话智能分析，页面只读展示' : 'AI 能力未接入，配置后展示会话风险与情绪信号'}
-        extra={aiInsight?.capability === 'ready'
-          ? <span className="overview-update">生成于 {aiInsight.generatedAt.replace('T', ' ').replace('Z', '').slice(0, 19)}</span>
-          : <Link className="overview-link-button" to="/ai-setting/ai-knowledge-base">前往配置</Link>}
+    <section aria-labelledby="overview-snapshot-title" className="overview-module overview-snapshot dashboard-data-card">
+      <OverviewModuleHeader
+        description="客户、线索、订单与行为事件，与数据报表保持同一口径"
+        extra={<span className="overview-update">更新于 {data.updatedAt || '--'}</span>}
+        headingId="overview-snapshot-title"
+        title="经营快照"
       />
-      {aiInsight?.capability === 'ready' && aiInsight.summary !== ''
-        ? <AISummary summary={aiInsight.summary} />
-        : <EmptyVisual text="AI 能力未接入，请在 AI 设置中配置后查看" />}
-    </section>
-
-    <section className="overview-module dashboard-data-card">
-      <ModuleHeader title="客户增长趋势" description="按天统计新增联系人，可选择展示日期区间（默认最近七天）" extra={<span className="overview-scope-chip">数据来源：SCRM</span>} />
-      <div className="overview-trend-range">
-        <DateRangeFields
-          value={{ startDate: trendDraft.from, endDate: trendDraft.to }}
-          endLabel="趋势结束"
-          startLabel="趋势开始"
-          submitLabel="应用区间"
-          onChange={(value) => onTrendDraftChange({ from: value.startDate, to: value.endDate })}
-          onValidSubmit={() => onTrendApply()}
-        />
+      <div className="overview-metric-grid dashboard-stat-grid">
+        <OverviewMetricCard label={data.cards[0]?.label ?? '客户总数'} note="同客户分析口径（联系人+分配关系）" value={data.summary.customer} />
+        <OverviewMetricCard label={data.cards[1]?.label ?? '线索总数'} note="转化漏斗起始阶段" tone="green" value={data.summary.lead} />
+        <OverviewMetricCard label={data.cards[2]?.label ?? '订单总数'} note="won/completed/paid 口径" tone="violet" value={data.summary.order} />
+        <OverviewMetricCard label={data.cards[3]?.label ?? '行为事件'} note="订单与设置审计事件" tone="orange" value={data.summary.behavior} />
       </div>
-      {data.trend.length === 0 ? <EmptyVisual /> : <TrendChart points={data.trend} />}
     </section>
 
-    <section className="overview-module dashboard-data-card">
-      <ModuleHeader title="会话数据" description="左侧为当前筛选区间的会话汇总，右侧为近七日每日趋势（点击左侧切换客户会话/客户群）" extra={<span className="overview-scope-chip">数据来源：会话归档</span>} />
-      {archiveUnavailable || conversation === undefined
-        ? <EmptyVisual text="暂无会话归档数据，配置企业微信会话存档后展示" />
-        : <div className="overview-conversation">
-            <div className="overview-conversation-groups">
-              <ConversationGroupBlock
-                active={activeConversationKind === 'customer'}
-                data={conversation.customer}
-                onClick={() => setActiveConversationKind('customer')}
-                title="客户会话"
-              />
-              <ConversationGroupBlock
-                active={activeConversationKind === 'room'}
-                data={conversation.room}
-                onClick={() => setActiveConversationKind('room')}
-                title="客户群"
-              />
-            </div>
-            <div className="overview-conversation-chart">
-              <h3>{conversationKindLabel(activeConversationKind)} · 近七日趋势</h3>
-              <div className="overview-conversation-legend"><span className="legend-customer">每日会话数</span></div>
-              {conversation.trend.length === 0 ? <EmptyVisual /> : <ConversationTrendChart kind={activeConversationKind} points={conversation.trend} />}
-            </div>
-          </div>}
-      {conversation !== undefined && (
-        <div aria-label="近七日会话趋势明细" className="overview-conversation-detail">
-          <header><h3>{conversationKindLabel(activeConversationKind)} · 近七日趋势明细</h3></header>
-          <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>会话数</th><th>员工消息数</th><th>客户消息数</th></tr></thead><tbody>
-            {conversation.trend.map((point) => <tr key={point.date}>
-              <td>{point.date}</td>
-              <td>{activeConversationKind === 'customer' ? point.customerSessions : point.roomSessions}</td>
-              <td>{activeConversationKind === 'customer' ? point.customerEmployeeMessages : point.roomEmployeeMessages}</td>
-              <td>{activeConversationKind === 'customer' ? point.customerCustomerMessages : point.roomCustomerMessages}</td>
-            </tr>)}
-          </tbody></table></div>
+    <div className="overview-intelligence-grid">
+      <section aria-labelledby="overview-ai-title" className="overview-module dashboard-data-card">
+        <OverviewModuleHeader
+          description="基于真实会话归档生成的经营信号与跟进建议"
+          extra={aiInsight?.capability === 'ready'
+            ? <span className="overview-update">生成于 {aiInsight.generatedAt.replace('T', ' ').replace('Z', '').slice(0, 19)}</span>
+            : <span className="overview-capability-chip">待配置</span>}
+          headingId="overview-ai-title"
+          title="AI 洞察"
+        />
+        <OverviewAISummary insight={aiInsight} />
+      </section>
+
+      <section aria-labelledby="overview-growth-title" className="overview-module dashboard-data-card">
+        <OverviewModuleHeader
+          description="按天统计新增联系人，默认展示最近七天"
+          extra={<span className="overview-scope-chip">SCRM · Asia/Shanghai</span>}
+          headingId="overview-growth-title"
+          title="客户增长趋势"
+        />
+        <div className="overview-trend-range">
+          <DateRangeFields
+            value={{ startDate: trendDraft.from, endDate: trendDraft.to }}
+            endLabel="趋势结束"
+            startLabel="趋势开始"
+            submitLabel="应用区间"
+            onChange={(value) => onTrendDraftChange({ from: value.startDate, to: value.endDate })}
+            onValidSubmit={() => onTrendApply()}
+          />
         </div>
-      )}
+        {data.trend.length === 0
+          ? <OverviewEmptyState description="当前日期范围没有新增客户记录。" title="暂无增长趋势" />
+          : <OverviewTrendChart points={data.trend} />}
+      </section>
+    </div>
+
+    <section aria-labelledby="overview-conversation-title" className="overview-module dashboard-data-card">
+      <OverviewModuleHeader
+        description="客户与客户群会话汇总、消息构成和近七日趋势"
+        extra={<span className="overview-scope-chip">数据来源：会话归档</span>}
+        headingId="overview-conversation-title"
+        title="会话工作台"
+      />
+      <OverviewConversationWorkspace conversation={conversation} unavailable={archiveUnavailable} />
     </section>
 
-    <section className="overview-module overview-detail-table dashboard-data-card">
-      <ModuleHeader title="经营趋势明细" description="与当前筛选和导出范围保持一致" />
-      {data.trend.length === 0 ? <EmptyVisual /> : <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>新增客户</th></tr></thead><tbody>{data.trend.map((point) => <tr key={point.date}><td>{point.date}</td><td>{point.addCustomerNum}</td></tr>)}</tbody></table></div>}
+    <section aria-labelledby="overview-detail-title" className="overview-module overview-detail-table dashboard-data-card">
+      <OverviewModuleHeader description="与当前筛选和导出范围保持一致" headingId="overview-detail-title" title="经营趋势明细" />
+      {data.trend.length === 0
+        ? <OverviewEmptyState description="调整日期范围后再次查询。" title="暂无经营明细" />
+        : <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>新增客户</th></tr></thead><tbody>{data.trend.map((point) => <tr key={point.date}><td>{point.date}</td><td>{point.addCustomerNum}</td></tr>)}</tbody></table></div>}
       <DashboardPagination
         page={page}
         pageSize={pageSize}
@@ -356,10 +233,17 @@ export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOve
   const forbidden = query.error instanceof ApiError && query.error.kind === 'forbidden';
   return <section className="dashboard-overview-page">
     <header className="dashboard-overview-header dashboard-page-header dashboard-data-card">
-      <div><p className="dashboard-overview-eyebrow">数据中心</p><h1>数据概览</h1><p>查看当前企业客户、线索、订单与行为数据（与数据报表同口径）。</p></div>
+      <div className="dashboard-overview-heading">
+        <p className="dashboard-overview-eyebrow">数据中心</p>
+        <div className="dashboard-overview-title-row"><h1>数据概览</h1><span>统一报表口径</span></div>
+        <p>当前企业：<strong>{access.corp.name}</strong> · 查看客户、转化、行为与会话经营状态。</p>
+      </div>
       <div className="dashboard-overview-filters dashboard-filter-bar">
         <DateRangeFields value={{ startDate: draft.from, endDate: draft.to }} onChange={(value) => setDraft((currentDraft) => ({ ...currentDraft, from: value.startDate, to: value.endDate }))} onValidSubmit={applyFilters} />
-        <button disabled={query.isFetching} onClick={() => void query.refetch()} type="button">刷新</button><button disabled={query.isFetching} onClick={() => void exportCsv()} type="button">导出 CSV</button>
+        <div className="dashboard-overview-actions">
+          <Button aria-label="刷新" disabled={query.isFetching} loading={query.isFetching} onClick={() => void query.refetch()}>刷新</Button>
+          <Button aria-label="导出 CSV" disabled={query.isFetching} onClick={() => void exportCsv()}>导出 CSV</Button>
+        </div>
       </div>
     </header>
     {rangeError !== null && <p className="dashboard-overview-inline-error" role="alert">{rangeError}</p>}
@@ -377,7 +261,6 @@ export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOve
       searchParams={searchParams}
       setSearchParams={setSearchParams}
       trendDraft={trendDraft}
-      trendRange={trendRange}
     />}
   </section>;
 }
