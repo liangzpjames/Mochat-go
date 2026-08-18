@@ -47,10 +47,20 @@ describe('dashboard overview widgets', () => {
 
   it('switches the conversation summary, chart and table together', () => {
     render(<OverviewConversationWorkspace conversation={conversation} unavailable={false} />);
+    const customerCard = screen.getByRole('button', { name: /客户会话/ });
+    expect(within(customerCard).getByText('11')).toBeTruthy();
+    expect(within(customerCard).getByText('16')).toBeTruthy();
+    expect(within(customerCard).getByText('22')).toBeTruthy();
     expect(screen.getByRole('img', { name: '近七日客户会话趋势' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /客户群/ }));
     expect(screen.getByRole('img', { name: '近七日客户群趋势' })).toBeTruthy();
     expect(screen.getByLabelText('会话数 2')).toBeTruthy();
+  });
+
+  it('shows an explicit empty state for conversation detail rows', () => {
+    render(<OverviewConversationWorkspace conversation={{ ...conversation, trend: [] }} unavailable={false} />);
+    expect(screen.getByText('暂无趋势明细')).toBeTruthy();
+    expect(screen.queryByRole('columnheader', { name: '日期' })).toBeNull();
   });
 
   it('shows a provider limitation instead of zero conversation metrics', () => {

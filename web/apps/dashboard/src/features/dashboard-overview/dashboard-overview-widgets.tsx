@@ -160,7 +160,6 @@ export function OverviewConversationWorkspace({ conversation, unavailable }: {
       title="会话归档尚未接入"
     />;
   }
-  const selected = conversation[kind];
   return <div className="overview-conversation">
     <div aria-label="会话类型" className="overview-conversation-groups" role="group">
       {(['customer', 'room'] as const).map((candidate) => {
@@ -173,15 +172,13 @@ export function OverviewConversationWorkspace({ conversation, unavailable }: {
           type="button"
         >
           <span>{conversationKindLabel(candidate)}</span>
-          <strong>{stats.sessions.toLocaleString('zh-CN')}</strong>
-          <small>区间会话数</small>
+          <div className="overview-conversation-group-stats">
+            <span><strong>{stats.sessions.toLocaleString('zh-CN')}</strong><small>会话数</small></span>
+            <span><strong>{stats.customerMessages.toLocaleString('zh-CN')}</strong><small>客户消息</small></span>
+            <span><strong>{stats.employeeMessages.toLocaleString('zh-CN')}</strong><small>员工消息</small></span>
+          </div>
         </button>;
       })}
-      <dl className="overview-conversation-summary">
-        <div><dt>会话数</dt><dd>{selected.sessions.toLocaleString('zh-CN')}</dd></div>
-        <div><dt>员工消息数</dt><dd>{selected.employeeMessages.toLocaleString('zh-CN')}</dd></div>
-        <div><dt>客户消息数</dt><dd>{selected.customerMessages.toLocaleString('zh-CN')}</dd></div>
-      </dl>
     </div>
     <div className="overview-conversation-chart">
       <div className="overview-conversation-chart-title"><h3>{conversationKindLabel(kind)}趋势</h3><span>近七日</span></div>
@@ -191,14 +188,16 @@ export function OverviewConversationWorkspace({ conversation, unavailable }: {
     </div>
     <div aria-label="近七日会话趋势明细" className="overview-conversation-detail">
       <h3>{conversationKindLabel(kind)} · 近七日趋势明细</h3>
-      <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>会话数</th><th>员工消息数</th><th>客户消息数</th></tr></thead><tbody>
-        {conversation.trend.map((point) => <tr key={point.date}>
-          <td>{point.date}</td>
-          <td>{kind === 'customer' ? point.customerSessions : point.roomSessions}</td>
-          <td>{kind === 'customer' ? point.customerEmployeeMessages : point.roomEmployeeMessages}</td>
-          <td>{kind === 'customer' ? point.customerCustomerMessages : point.roomCustomerMessages}</td>
-        </tr>)}
-      </tbody></table></div>
+      {conversation.trend.length === 0
+        ? <OverviewEmptyState description="当前周期内没有可展示的会话明细。" title="暂无趋势明细" />
+        : <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>会话数</th><th>员工消息数</th><th>客户消息数</th></tr></thead><tbody>
+          {conversation.trend.map((point) => <tr key={point.date}>
+            <td>{point.date}</td>
+            <td>{kind === 'customer' ? point.customerSessions : point.roomSessions}</td>
+            <td>{kind === 'customer' ? point.customerEmployeeMessages : point.roomEmployeeMessages}</td>
+            <td>{kind === 'customer' ? point.customerCustomerMessages : point.roomCustomerMessages}</td>
+          </tr>)}
+        </tbody></table></div>}
     </div>
   </div>;
 }
