@@ -1,16 +1,29 @@
 # MoChat Go 开发总进度
 
 > 更新时间：2026-08-18
-> 当前分支：`main`（本地 HEAD `883e216`；相对 `origin/main` 仍有待发布提交）
+> 当前分支：`main`（Phase 7 Demo 已快进合入；本次整理完成后与 `origin/main` 非强制同步）
 > 当前阶段：Phase 7 隔离 Demo 已完成代码、本地镜像、ECS 部署与合成双链路验收；真实企业配置和 production 接入待完成
 
 ## 当前结论
 
 主线已完成 Phase 0–3 Final 的 Go 单体、React Dashboard 和 53 页基准交付；Phase 4 Dashboard 页面 RBAC、单企业身份隔离、Sidebar/Operation 移动端基础、Provider/企业微信标准能力基础与客户/客户群 durable 精准群发也已进入当前本地 `main`。
 
-截至 2026-08-16，Dashboard 概览继续完成会话统计、AI 洞察、趋势范围、企业时区和展示一致性优化。当前产品缺口已从“页面是否存在”转为“真实外部 Provider、生产发布基线和持续运行证据是否闭合”。
+截至 2026-08-18，Dashboard 概览继续完成会话统计、AI 洞察、趋势范围、企业时区和展示一致性优化；SaaS/Dashboard 身份域、单企业切换、页面 RBAC、移动端基础、Provider 真实性和企业微信 durable 精准群发均已进入 `main`。当前产品缺口已从“页面是否存在”转为“真实外部 Provider、生产运行和持续证据是否闭合”。
 
 Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔离 Demo：官方 Linux SDK v3 已纳入 checksum 构建，本地 Linux/amd64 镜像已上传 ECS，公网加密 GET/POST 合成回调通过。真实会话存档仍是 `limited`：企业自己的 CorpID/会话存档 Secret、公钥后台配置、真实 `GetChatData/GetMediaData`、真实 callback 和 Dashboard external 数据回读证据尚未闭合。
+
+## 近期开发文档整理（2026-08-08—2026-08-18）
+
+| 日期 | 里程碑 | 已完成事实 | 当前边界与证据入口 |
+| --- | --- | --- | --- |
+| 08-08—08-09 | 数据口径与 Dashboard 交互统一 | 概览接入统一 reporting 口径；53 页桌面/390px 交互与视觉验收完成；分支已快进合入并推送主线 | 53/53 页面不等于所有外部 Provider 均真实可用；见 [主线合入记录](reviews/2026-08-09-dashboard-mainline-handoff.zh-CN.md) |
+| 08-10 | 真实企微标准同步与 Phase 4 RBAC | 通讯录、客户标签、客户、客户群同步两轮幂等；53 页权限目录、49 个可授予页、4 个超管页、238 条 API 资源及数据范围门禁完成真实 Docker/API/浏览器验收 | 会话存档和 AI 当时仍如实显示未接入；见 [企微同步验收](reviews/2026-08-10-wecom-production-sync-acceptance.zh-CN.md) 与 [RBAC 验收](reviews/2026-08-10-phase4-dashboard-page-rbac-acceptance.zh-CN.md) |
+| 08-11—08-12 | 身份域隔离与单企业切换 | SaaS/Dashboard token、principal、store 与认证流程分离；单企业绑定、身份迁移/预检/回填、租户门禁、独立 MFA 开关和失败关闭合同进入主线 | 生产切换仍须按只读预检、维护窗口、app-only 部署和精确回滚执行；见 [切换手册](runbooks/2026-08-11-identity-single-corp-cutover.zh-CN.md) |
+| 08-13—08-14 | 账号、鉴权、移动端与 Provider 基础 | 员工账号与归档模拟器、全局 401 会话处理、服务器 53 页点击验收完成；Sidebar/Operation 共享移动基础、独立会话、22 路由门禁和企微风格视觉进入主线；Provider 状态改为证据驱动 | 移动端只有已登记纵切面可称可用，待迁移页面不伪造成完成；Provider 仍按 configured/runtime/operation evidence 分级 |
+| 08-14—08-15 | Archive durable source 与企微标准能力 | `0138` archive source cursor/lease/idempotency/source identity、`0139` capability ledger、凭据 generation fencing、员工同步队列和 durable dispatch 基础完成 | 真实 archive bridge 尚未接入 `0138`；Provider completion 的普通门禁不能替代 real integration gate |
+| 08-15 | 客户/客户群精准群发 | contact 与 room batch durable 闭环合入 `main`：事务写入、稳定幂等、lease/attempt/generation fencing、submit/poll/reconcile、部分失败与数据范围门禁完成 | 生产外部群发未在收口测试中调用；见 [Contact 收口](reviews/2026-08-15-contact-batch-closeout.zh-CN.md) 与 [Phase 6 交接](reviews/2026-08-15-phase6-provider-foundation-model-handoff.zh-CN.md) |
+| 08-15—08-16 | Dashboard 概览与 AI 展示收口 | 修复归档报表 schema/群指标/群发标题；AI 改为每日持久化分析；概览补齐会话统计、AI 洞察、趋势联动、企业时区、完整日期序列与展示一致性 | 真实会话内容仍取决于 external archive source；AI 在 Phase 7 live 验收期间保持关闭 |
+| 08-17—08-18 | Phase 7 双链路 Demo | 官方 Finance SDK v3、`GetChatData/DecryptData`、RSA 解密、seq/JSONL 证据、加密 callback GET/POST、本地构建/ECS 部署和公网隔离验收完成 | 合成双链路 PASS，真实企业主动拉取/真实事件为 `WAITING_EXTERNAL_CONFIG`；见 [Phase 7 验收](phases/phase-7-wecom-archive/acceptance/2026-08-18-wecom-archive-demo.md) |
 
 ## Phase 7：真实企业微信会话存档（2026-08-17 启动）
 
@@ -19,7 +32,7 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 - 数据链路：会话正文通过 SDK 主动轮询；现有 `/weWork/callback` 负责企业微信事件被动接收，两者独立验收。
 - 持久化：真实 source 必须复用迁移 `0138_archive_source_sync` 的 cursor、lease、幂等、source identity 和审计；新增 `0140` 管理版本化 RSA keyring 和媒体任务/对象。
 - 发布：app 与 bridge 镜像在本地构建为 `linux/amd64`，生成不可变 tar、digest 和 checksum；阿里云 ECS 只执行 `docker load`、迁移和 `docker compose --no-build`。
-- 安全：服务器地址与凭据不入库；已在会话中出现的服务器口令部署前必须轮换并改用 SSH key；Phase 7 live 期间关闭 AI 自动分析。
+- 安全：服务器地址与凭据不入库；已在会话中出现的服务器口令必须立即轮换并改用 SSH key；Phase 7 live 期间关闭 AI 自动分析。
 - 入口：[Phase 7 指导文档](phases/phase-7-wecom-archive/README.md)、[详细设计](superpowers/specs/2026-08-17-phase7-wecom-archive-design.md)、[实施计划](superpowers/plans/2026-08-17-phase7-wecom-archive.md)。
 - Demo：运行镜像代码提交 `083198b87da1`，镜像 `mochat/wecom-archive-demo:083198b87da1`；独立目录/容器/端口，公网 `19090`，本机管理 `19091`；现有服务未变。
 - Demo 证据：官方 SDK `.so` 装载/符号解析、容器 smoke、公网合成加密 GET/POST、证据落盘与清理均 PASS；真实企微配置标记 `WAITING_EXTERNAL_CONFIG`。
@@ -48,7 +61,7 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 - 前端：`dashboard-overview-api.ts` 改为调用 `/reports/overview`（`timezone=Asia/Shanghai` + 东八区半开日期区间，与报表一致）；概览页移除硬编码 0 模块（会话数据/质检数据/员工排行/轨迹）与趋势周期下拉；KPI 改为客户总数/线索总数/订单总数/行为事件 4 卡（与综合报表同口径）；AI 与会话归档未接入时显示空态引导。
 - 验收：`go test ./...` 全绿；前端 88 文件 518 测试全绿；typecheck/build 通过；Docker 重建后 `/readyz` 200；Playwright 实测 overview 与 customer/conversion/behavior 报表各主指标一致，页面无硬编码 0。
 - 清理：验收数据清理已执行（AI 分析 16 行、音频 1 行、归档消息 5 行、P35 联系人/分配/订单/审计等），证据与备份在 `D:\workspace\mochat-go\output\acceptance-cleanup-20260808\`。
-- 分支：`feat/2026-08-08-data-calibre-unification`（含 `cf853c0`、`ea4f27f`、`59475cf` 等，待合入 `main`）。
+- 主线状态：`feat/2026-08-08-data-calibre-unification` 已于 2026-08-09 快进合入并推送 `main`，合入点与证据见主线合入记录。
 - 已知限制：`reportingPrincipalResolver` 未填充 `AllowedEmployeeIDs`，员工级数据权限（self/department）在报表与概览中暂未生效（菜单权限仍生效），已另行记录。
 
 ## 阶段总览
@@ -66,8 +79,10 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 | Phase 3.4：营销工具 | 已完成并合入 `main` | 9 页 native + 截图与验收记录 | 渠道活码、群活码、获客链接、微信客服、活码短链、一键加群、精准群发、朋友圈、素材管理 | [阶段详情](phases/phase-3-dashboard/phase-3.4/README.md) |
 | Phase 3.5：SCRM 扩展与数据报表 | 已完成并合入 `main` | 九页 native + 门禁 9/9 + 浏览器验收 | 好友、客户群、订单、客户设置、客户/会话/转化/行为/综合报表 | [阶段详情](phases/phase-3-dashboard/phase-3.5/README.md) |
 | Phase 3 Final：Provider 接入与总验收 | **已完成并合入 `main`** | 53/53 达标；门禁/部署/浏览器/识图/数据流证据闭合 | 音频存储 Provider + `/chat/file-audio`、AI 洞察真实化、企微存档适配层 | [阶段详情](phases/phase-3-dashboard/phase-3-final/README.md) |
-| Phase 4：Dashboard 页面 RBAC | 已完成并进入当前本地 `main` | 53 页目录、49 页可授予、4 页超管专属、真实 Docker/API/浏览器验收 | 多角色、直接权限、数据范围、失败关闭与授权审计 | [验收记录](reviews/2026-08-10-phase4-dashboard-page-rbac-acceptance.zh-CN.md) |
-| Phase 6：Provider 与企微标准能力收口 | 已进入当前本地 `main` | Provider completion、0138/0139、durable 客户/群群发和定向门禁 | truthful Provider、archive source 边界、能力账本与精准群发 | [交接记录](reviews/2026-08-15-phase6-provider-foundation-model-handoff.zh-CN.md) |
+| Phase 4：Dashboard 页面 RBAC | 已完成并进入 `main` | 当前门禁 53 页、48 页可授予、5 页超管专属、未映射 API 为 0、`scopeRequired=97` | 多角色、直接权限、数据范围、失败关闭与授权审计 | [验收记录](reviews/2026-08-10-phase4-dashboard-page-rbac-acceptance.zh-CN.md) |
+| 身份域与单企业切换 | 已进入 `main` | SaaS/Dashboard realm 隔离、single principal、单企业绑定、迁移预检/回填与 live smoke 合同 | 身份失败关闭、独立 MFA、app-only 切换与回滚边界 | [运行手册](runbooks/2026-08-11-identity-single-corp-cutover.zh-CN.md) |
+| Sidebar / Operation 移动端基础 | 基础与视觉已进入 `main` | 共享 runtime、独立会话、22 路由 completion gate、企微风格双端视觉 | 已实现纵切面可用；其余页面仍按迁移状态展示 | [基础计划](superpowers/plans/2026-08-14-mobile-clients-foundation.md) |
+| Phase 6：Provider 与企微标准能力收口 | 已进入 `main` | Provider completion、0138/0139、durable 客户/群群发和定向门禁 | truthful Provider、archive source 边界、能力账本、员工队列与精准群发 | [交接记录](reviews/2026-08-15-phase6-provider-foundation-model-handoff.zh-CN.md) |
 | Phase 7：真实企微会话存档 | **隔离 Demo 已部署，生产接入进行中** | Demo 合成双链路已过；最终仍以真实 SDK pull、callback、ECS、Dashboard 回读和恢复证据为准 | 官方 SDK Demo、主动拉取入口、被动回调、本地构建/ECS 部署；production sidecar/媒体待完成 | [阶段指导](phases/phase-7-wecom-archive/README.md) |
 
 ## 当前可测试范围
@@ -87,7 +102,7 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 
 ## 当前阻塞与风险
 
-1. **本地主线尚未形成远端发布基线。** 当前本地 `main` 含 Phase 4、Phase 6 和后续 Dashboard 改动，但相对 `origin/main` 仍有待发布提交；Phase 7 实施前必须先在干净工作树上跑新鲜全量门禁并固化基线 SHA。
+1. **主工作树仍有受保护的未提交内容。** `deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql` 的既有修改及 `.workbuddy/`、调试脚本、旧 `web/saas-admin/` 构建产物等未跟踪内容均未纳入本次同步；后续生产发布必须在干净工作树/独立 worktree 上固化门禁和发布 SHA。
 2. **真实会话存档仍未接通到 MoChat。** 隔离 Demo 已具备官方 SDK 和公网 callback，但当前 `Archive.Fetch` 仍 fail closed；真实 CorpID/Secret、公钥后台版本、`GetChatData/GetMediaData` 和 live message evidence 均未闭合。
 3. **现有旧 bridge 合同存在敏感数据边界问题。** 旧客户端会把 Chat Secret 与 RSA 私钥放入 HTTP JSON；Phase 7 必须改为同机 Unix socket，且真实同步必须复用 `0138` durable 账本。
 4. **RSA 密钥轮换尚不完整。** 当前凭据模型主要保存单个私钥，真实消息返回的 `publickey_ver` 需要版本化 keyring；缺少版本时必须停止并且不推进 cursor。
@@ -107,6 +122,7 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 ## 最近交付
 
 - 2026-08-18：隔离企业微信会话存档 Demo 完成本地构建、ECS 部署、官方 SDK 装载和公网合成 GET/POST 验收；最终镜像 `083198b87da1` 已补齐回调/拉取并发一致性、重复页幂等和管理端隔离检查，真实企业配置待用户在企微后台完成。
+- 2026-08-18：Phase 7 Demo 分支已快进合入 `main`；近期开发文档按 08-08—08-18 时间线重新整理，远端采用非强制推送同步。
 - 2026-08-17：Phase 7 真实企业微信会话存档指导、设计和实施计划完成；总进度同步，尚未开始代码实现与 ECS 部署。
 - `883e216`（本地 `main`）：Dashboard 会话卡片标签与趋势标题继续收口（2026-08-16）。
 - `8061ba8`：Phase 6 Provider 基础、0138/0139、客户/客户群 durable 精准群发合入当前本地 `main`（2026-08-15）。
