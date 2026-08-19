@@ -1,8 +1,8 @@
 # 会话轨迹元呼 AI 对标改造设计
 
-日期：2026-08-19  
-目标路由：`/chat/trajectory`  
-参考路由：`https://web-ai-analysis-work-wechat.yuanhu.com/#/chat/trajectory`  
+日期：2026-08-19
+目标路由：`/chat/trajectory`
+参考路由：`https://web-ai-analysis-work-wechat.yuanhu.com/#/chat/trajectory`
 停止点：完成本设计文档，经用户审阅确认后再编写实施计划；本轮不修改业务代码。
 
 ## 1. 目标与范围
