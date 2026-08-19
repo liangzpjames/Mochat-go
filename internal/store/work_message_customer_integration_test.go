@@ -71,6 +71,73 @@ func TestCustomerDirectoryMariaDBIntegration(t *testing.T) {
 	}
 }
 
+func TestCustomerConversationMariaDBIntegration(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")) == "" {
+		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
+	}
+	db := newDashboardAdminProvisioningDB(t)
+	createCustomerDirectoryFixture(t, db)
+	base := time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
+	statements := []string{
+		`INSERT INTO mc_work_room (id,corp_id,name) VALUES (504,27,'已退群'),(505,27,'无关联群')`,
+		`INSERT INTO mc_work_contact_room (room_id,contact_id,deleted_at) VALUES (504,101,UTC_TIMESTAMP())`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index, row := range []struct{ employeeID, targetType, targetID int }{
+		{9, 1, 101}, // same direct conversation, a later message
+		{10, 2, 501},
+		{9, 2, 504},
+		{9, 2, 505}, // no customer membership: must not be returned
+	} {
+		if _, err := db.Exec(`INSERT INTO mc_work_message_1 (corp_id,msgid,seq,work_employee_id,to_user_type,to_user_id,content,content_text,msg_data_time) VALUES (27,?,?,?,?,?,'{}','conversation fixture',?)`,
+			"customer-conversation-"+fmt.Sprint(index+1), 100+index, row.employeeID, row.targetType, row.targetID, base.Add(time.Duration(index)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := NewMySQLStore(db)
+	ctx := context.Background()
+
+	direct, err := store.WorkMessageCustomerConversations(ctx, dashboard.WorkMessageCustomerConversationFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 101, Mode: dashboard.WorkMessageCustomerConversationModeDirect, Page: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.Total != 2 || len(direct.List) != 2 {
+		t.Fatalf("direct=%#v", direct)
+	}
+	for _, conversation := range direct.List {
+		if conversation.ConversationID != "9:1:101" && conversation.ConversationID != "10:1:101" {
+			t.Fatalf("unexpected direct stable id: %#v", conversation)
+		}
+	}
+
+	groups, err := store.WorkMessageCustomerConversations(ctx, dashboard.WorkMessageCustomerConversationFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 101, Mode: dashboard.WorkMessageCustomerConversationModeGroup, Page: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if groups.Total != len(groups.List) || groups.Total != 3 {
+		t.Fatalf("group count/page must have the same base: %#v", groups)
+	}
+	seen := map[string]dashboard.WorkMessageCustomerConversation{}
+	for _, conversation := range groups.List {
+		seen[conversation.ConversationID] = conversation
+	}
+	for _, id := range []string{"9:2:501", "10:2:501", "9:2:504"} {
+		if _, ok := seen[id]; !ok {
+			t.Fatalf("missing group stable id %s: %#v", id, groups)
+		}
+	}
+	if seen["9:2:504"].MembershipStatus != "left" {
+		t.Fatalf("historical membership must be marked left: %#v", seen["9:2:504"])
+	}
+	if _, leaked := seen["9:2:505"]; leaked {
+		t.Fatalf("room without customer membership leaked: %#v", groups)
+	}
+}
+
 func createCustomerDirectoryFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
