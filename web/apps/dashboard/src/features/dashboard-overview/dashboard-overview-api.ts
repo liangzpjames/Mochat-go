@@ -1,7 +1,7 @@
 export type DashboardOverviewCard = {
   key: string;
   label: string;
-  value: number;
+  value: number | null;
 };
 
 export type DashboardOverviewTrendPoint = {
@@ -17,19 +17,19 @@ export type DashboardOverviewAIInsight = {
 };
 
 export type ConversationGroupStats = {
-  sessions: number;
-  employeeMessages: number;
-  customerMessages: number;
+  sessions: number | null;
+  employeeMessages: number | null;
+  customerMessages: number | null;
 };
 
 export type ConversationTrendPoint = {
   date: string;
-  customerSessions: number;
-  customerEmployeeMessages: number;
-  customerCustomerMessages: number;
-  roomSessions: number;
-  roomEmployeeMessages: number;
-  roomCustomerMessages: number;
+  customerSessions: number | null;
+  customerEmployeeMessages: number | null;
+  customerCustomerMessages: number | null;
+  roomSessions: number | null;
+  roomEmployeeMessages: number | null;
+  roomCustomerMessages: number | null;
 };
 
 export type DashboardOverviewConversation = {
@@ -45,14 +45,14 @@ export type DashboardOverviewLimitation = {
 };
 
 export type DashboardOverviewSummary = {
-  customer: number;
-  lead: number;
-  contact: number;
-  opportunity: number;
-  won: number;
-  order: number;
-  behavior: number;
-  employee: number;
+  customer: number | null;
+  lead: number | null;
+  contact: number | null;
+  opportunity: number | null;
+  won: number | null;
+  order: number | null;
+  behavior: number | null;
+  employee: number | null;
 };
 
 export type DashboardOverview = {
@@ -99,6 +99,10 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function nullableNumber(value: unknown): number | null {
+  return isFiniteNumber(value) ? value : null;
+}
+
 const timezone = 'Asia/Shanghai';
 
 const zonedStart = (date: string) => `${date}T00:00:00+08:00`;
@@ -128,7 +132,7 @@ function formatInZone(raw: string): string {
 
 function parseSummary(value: unknown): DashboardOverviewSummary {
   const source = isRecord(value) ? value : {};
-  return Object.fromEntries(summaryKeys.map((key) => [key, isFiniteNumber(source[key]) ? source[key] : 0])) as DashboardOverviewSummary;
+  return Object.fromEntries(summaryKeys.map((key) => [key, nullableNumber(source[key])])) as DashboardOverviewSummary;
 }
 
 function parseLimitations(value: unknown): DashboardOverviewLimitation[] {
@@ -154,20 +158,20 @@ function parseConversation(value: unknown): DashboardOverviewConversation | unde
   const group = (raw: unknown): ConversationGroupStats => {
     const source = isRecord(raw) ? raw : {};
     return {
-      sessions: isFiniteNumber(source.sessions) ? source.sessions : 0,
-      employeeMessages: isFiniteNumber(source.employeeMessages) ? source.employeeMessages : 0,
-      customerMessages: isFiniteNumber(source.customerMessages) ? source.customerMessages : 0,
+      sessions: nullableNumber(source.sessions),
+      employeeMessages: nullableNumber(source.employeeMessages),
+      customerMessages: nullableNumber(source.customerMessages),
     };
   };
   const trend = Array.isArray(value.trend)
-    ? value.trend.filter(isRecord).map((point) => ({
+      ? value.trend.filter(isRecord).map((point) => ({
         date: typeof point.date === 'string' ? point.date : '',
-        customerSessions: isFiniteNumber(point.customerSessions) ? point.customerSessions : 0,
-        customerEmployeeMessages: isFiniteNumber(point.customerEmployeeMessages) ? point.customerEmployeeMessages : 0,
-        customerCustomerMessages: isFiniteNumber(point.customerCustomerMessages) ? point.customerCustomerMessages : 0,
-        roomSessions: isFiniteNumber(point.roomSessions) ? point.roomSessions : 0,
-        roomEmployeeMessages: isFiniteNumber(point.roomEmployeeMessages) ? point.roomEmployeeMessages : 0,
-        roomCustomerMessages: isFiniteNumber(point.roomCustomerMessages) ? point.roomCustomerMessages : 0,
+        customerSessions: nullableNumber(point.customerSessions),
+        customerEmployeeMessages: nullableNumber(point.customerEmployeeMessages),
+        customerCustomerMessages: nullableNumber(point.customerCustomerMessages),
+        roomSessions: nullableNumber(point.roomSessions),
+        roomEmployeeMessages: nullableNumber(point.roomEmployeeMessages),
+        roomCustomerMessages: nullableNumber(point.roomCustomerMessages),
       }))
     : [];
   return { customer: group(value.customer), room: group(value.room), trend };

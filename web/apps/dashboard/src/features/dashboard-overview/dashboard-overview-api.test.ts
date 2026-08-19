@@ -73,6 +73,31 @@ describe('createDashboardOverviewApi', () => {
     );
   });
 
+  it('preserves missing metrics as null while retaining real zero values', async () => {
+    const request = vi.fn(() => Promise.resolve({
+      ...reportResponse,
+      summary: { ...reportResponse.summary, customer: null },
+      conversation: {
+        customer: { sessions: 0, employeeMessages: undefined, customerMessages: null },
+        room: { sessions: 1, employeeMessages: 0, customerMessages: 0 },
+        trend: [{ date: '2026-08-16', customerSessions: 0 }],
+      },
+    }));
+    const api = createDashboardOverviewApi({ request });
+
+    const result = await api.load({
+      corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01', trendStartDate: '', trendEndDate: '',
+      employeeIds: [], departmentIds: [], page: 1, pageSize: 20,
+    });
+
+    expect(result.summary.customer).toBeNull();
+    expect(result.summary.employee).toBe(0);
+    expect(result.conversation?.customer.sessions).toBe(0);
+    expect(result.conversation?.customer.employeeMessages).toBeNull();
+    expect(result.conversation?.trend[0]?.customerSessions).toBe(0);
+    expect(result.conversation?.trend[0]?.customerEmployeeMessages).toBeNull();
+  });
+
   it('exports csv with the same serialized query and a single trend column', async () => {
     const request = vi.fn(() => Promise.resolve(reportResponse));
     const api = createDashboardOverviewApi({ request });

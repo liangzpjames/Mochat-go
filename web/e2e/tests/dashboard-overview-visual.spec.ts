@@ -50,7 +50,11 @@ test('renders the desktop operating cockpit', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/index');
   await expect(page.getByRole('region', { name: '经营快照' })).toBeVisible();
+  await expect(page.getByRole('article', { name: '分析状态' })).toBeVisible();
+  await expect(page.getByRole('article', { name: '重点洞察' })).toBeVisible();
   await expect(page.getByRole('region', { name: '会话工作台' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '质检数据' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '经营趋势明细' })).toHaveCount(0);
   await page.screenshot({ fullPage: true, path: resolve(evidenceRoot, 'overview-desktop.png') });
 });
 

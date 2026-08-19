@@ -6,7 +6,6 @@ import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { PageState } from '../../components/page-state/page-state';
-import { DashboardPagination } from '../../components/dashboard-pagination';
 import { DateRangeFields } from '../../components/date-range-fields';
 import type { Phase35Api } from '../phase35/api';
 import { updateSearch } from '../../shared/query-state';
@@ -15,8 +14,10 @@ import type {
   DashboardOverviewQuery,
 } from './dashboard-overview-api';
 import {
-  OverviewAISummary,
+  OverviewAIInsightGrid,
+  OverviewCapabilityPanel,
   OverviewConversationWorkspace,
+  OverviewDataNotice,
   OverviewEmptyState,
   OverviewMetricCard,
   OverviewModuleHeader,
@@ -96,54 +97,63 @@ function saveCsv(blob: Blob): void {
   URL.revokeObjectURL(href);
 }
 
-function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams, current, trendDraft, onTrendDraftChange, onTrendApply }: {
+function BusinessDashboard({ data, trendDraft, onTrendDraftChange, onTrendApply }: {
   data: Awaited<ReturnType<DashboardOverviewApi['load']>>;
-  page: number;
-  pageSize: number;
-  searchParams: URLSearchParams;
-  setSearchParams: ReturnType<typeof useSearchParams>[1];
-  current: OverviewRange;
   trendDraft: OverviewRange;
   onTrendDraftChange: (value: OverviewRange) => void;
   onTrendApply: () => void;
 }) {
-  const total = data.total ?? data.trend.length;
   const archiveUnavailable = data.limitations.some((item) => item.provider === 'conversation_archive');
   const aiInsight = data.aiInsight;
   const conversation = data.conversation;
+  const snapshotMissing = Object.values(data.summary).some((value) => value === null);
 
   return <div className="overview-dashboard">
+    {data.limitations.length > 0 && <div aria-label="数据限制" className="overview-data-alerts">
+      {data.limitations.map((item) => <OverviewDataNotice
+        description="当前模块已按真实 Provider 返回结果展示，未使用缺失数据填充。"
+        kind="limited"
+        key={`${item.provider}-${item.code}`}
+        limitations={[item]}
+        title={`数据受限：${item.provider}`}
+      />)}
+    </div>}
     <section aria-labelledby="overview-snapshot-title" className="overview-module overview-snapshot dashboard-data-card">
       <OverviewModuleHeader
-        description="客户、线索、订单与行为事件，与数据报表保持同一口径"
+        description="客户、线索、订单与行为事件"
         extra={<span className="overview-update">更新于 {data.updatedAt || '--'}</span>}
         headingId="overview-snapshot-title"
         title="经营快照"
       />
+      {snapshotMissing && <OverviewDataNotice
+        description="概览接口没有返回全部经营快照字段，已保留缺失状态；补齐对应数据后这里会自动展示。"
+        kind="limited"
+        title="经营快照数据暂缺"
+      />}
       <div className="overview-metric-grid dashboard-stat-grid">
-        <OverviewMetricCard label={data.cards[0]?.label ?? '客户总数'} note="同客户分析口径（联系人+分配关系）" value={data.summary.customer} />
-        <OverviewMetricCard label={data.cards[1]?.label ?? '线索总数'} note="转化漏斗起始阶段" tone="green" value={data.summary.lead} />
-        <OverviewMetricCard label={data.cards[2]?.label ?? '订单总数'} note="won/completed/paid 口径" tone="violet" value={data.summary.order} />
-        <OverviewMetricCard label={data.cards[3]?.label ?? '行为事件'} note="订单与设置审计事件" tone="orange" value={data.summary.behavior} />
+        <OverviewMetricCard label={data.cards[0]?.label ?? '客户总数'} note="SCRM 真实数据" value={data.summary.customer} />
+        <OverviewMetricCard label={data.cards[1]?.label ?? '线索总数'} note="当前企业范围" tone="green" value={data.summary.lead} />
+        <OverviewMetricCard label={data.cards[2]?.label ?? '订单总数'} note="订单真实数据" tone="violet" value={data.summary.order} />
+        <OverviewMetricCard label={data.cards[3]?.label ?? '行为事件'} note="可审计业务行为" tone="orange" value={data.summary.behavior} />
       </div>
     </section>
 
     <div className="overview-intelligence-grid">
       <section aria-labelledby="overview-ai-title" className="overview-module dashboard-data-card">
         <OverviewModuleHeader
-          description="基于真实会话归档生成的经营信号与跟进建议"
+          description="真实 AI 分析摘要的快速入口"
           extra={aiInsight?.capability === 'ready'
             ? <span className="overview-update">生成于 {aiInsight.generatedAt.replace('T', ' ').replace('Z', '').slice(0, 19)}</span>
             : <span className="overview-capability-chip">待配置</span>}
           headingId="overview-ai-title"
           title="AI 洞察"
         />
-        <OverviewAISummary insight={aiInsight} />
+        <OverviewAIInsightGrid insight={aiInsight} />
       </section>
 
       <section aria-labelledby="overview-growth-title" className="overview-module dashboard-data-card">
         <OverviewModuleHeader
-          description="按天统计新增联系人，默认展示最近七天"
+          description="按天统计新增联系人"
           extra={<span className="overview-scope-chip">SCRM · Asia/Shanghai</span>}
           headingId="overview-growth-title"
           title="客户增长趋势"
@@ -166,26 +176,34 @@ function BusinessDashboard({ data, page, pageSize, searchParams, setSearchParams
 
     <section aria-labelledby="overview-conversation-title" className="overview-module dashboard-data-card">
       <OverviewModuleHeader
-        description="客户与客户群会话汇总、消息构成和近七日趋势"
+        description="左侧指标控件，右侧近七日趋势"
         extra={<span className="overview-scope-chip">数据来源：会话归档</span>}
         headingId="overview-conversation-title"
         title="会话工作台"
       />
-      <OverviewConversationWorkspace conversation={conversation} unavailable={archiveUnavailable} />
+      <OverviewConversationWorkspace conversation={conversation} limitations={data.limitations} unavailable={archiveUnavailable} />
     </section>
 
-    <section aria-labelledby="overview-detail-title" className="overview-module overview-detail-table dashboard-data-card">
-      <OverviewModuleHeader description="与当前筛选和导出范围保持一致" headingId="overview-detail-title" title="经营趋势明细" />
-      {data.trend.length === 0
-        ? <OverviewEmptyState description="调整日期范围后再次查询。" title="暂无经营明细" />
-        : <div className="dashboard-table-scroll"><table><thead><tr><th>日期</th><th>新增客户</th></tr></thead><tbody>{data.trend.map((point) => <tr key={point.date}><td>{point.date}</td><td>{point.addCustomerNum}</td></tr>)}</tbody></table></div>}
-      <DashboardPagination
-        page={page}
-        pageSize={pageSize}
-        total={total}
-        onPageChange={(nextPage) => setSearchParams(overviewSearch(searchParams, current, nextPage, pageSize))}
+    <div className="overview-capability-grid-layout">
+      <OverviewCapabilityPanel
+        description="风险监控与敏感词检查状态"
+        items={[{ label: '敏感词命中' }, { label: '风险行为' }, { label: '客户流失' }]}
+        source="风险监控/敏感词接口"
+        title="质检数据"
       />
-    </section>
+      <OverviewCapabilityPanel
+        description="按员工汇总会话表现"
+        items={[{ label: '会话员工' }, { label: '会话总数' }, { label: '平均响应' }]}
+        source="员工会话分析接口"
+        title="员工会话数据排行"
+      />
+      <OverviewCapabilityPanel
+        description="最近会话与消息轨迹"
+        items={[{ label: '最新会话' }, { label: '会话时间' }, { label: '消息数量' }]}
+        source="员工会话轨迹接口"
+        title="员工会话轨迹一览"
+      />
+    </div>
   </div>;
 }
 
@@ -252,14 +270,9 @@ export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOve
     {forbidden && <PageState description="请切换到已授权企业，或联系管理员开通权限。" state="forbidden" title="无权访问当前企业数据" />}
     {query.isError && !forbidden && <PageState description={query.error instanceof Error ? query.error.message : '请稍后重试'} onRetry={() => void query.refetch()} retryLabel="重试" state="error" title="数据加载失败" />}
     {query.data !== undefined && !query.isError && <BusinessDashboard
-      current={current}
       data={query.data}
       onTrendApply={() => setTrendRange(trendDraft)}
       onTrendDraftChange={setTrendDraft}
-      page={page}
-      pageSize={pageSize}
-      searchParams={searchParams}
-      setSearchParams={setSearchParams}
       trendDraft={trendDraft}
     />}
   </section>;

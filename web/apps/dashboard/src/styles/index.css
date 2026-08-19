@@ -1173,16 +1173,6 @@ body {
   width: 10px;
 }
 .overview-conversation-legend .legend-customer::before { background: #536bf4; }
-.overview-conversation-detail {
-  border-top: 1px solid #eef1f5;
-  margin-top: 18px;
-  padding-top: 14px;
-}
-.overview-conversation-detail h3 {
-  color: #3b4355;
-  font-size: .9rem;
-  margin: 0 0 10px;
-}
 .dashboard-overview-page .dashboard-overview-chart {
   height: auto;
   margin-top: 14px;
@@ -1272,19 +1262,17 @@ body {
 .overview-conversation-summary dd { color: #263043; font-size: 16px; font-weight: 700; margin: 0; }
 .overview-conversation-chart { border-left: 1px solid #edf0f6; min-width: 0; padding-left: 20px; }
 .overview-conversation-chart-title { align-items: center; display: flex; justify-content: space-between; }
-.overview-conversation-chart-title h3, .overview-conversation-detail h3 { color: #414b5f; font-size: 14px; margin: 0; }
+.overview-conversation-chart-title h3 { color: #414b5f; font-size: 14px; margin: 0; }
 .overview-conversation-chart-title span { color: #8c95a6; font-size: 12px; }
-.overview-conversation-detail { grid-column: 1 / -1; padding-top: 4px; }
-.overview-conversation-detail h3 { margin-bottom: 12px; }
 .overview-empty-visual { align-items: center; color: #8992a3; display: flex; flex-direction: column; justify-content: center; min-height: 210px; padding: 24px; text-align: center; }
 .overview-empty-symbol { background: #eef2ff; border-radius: 50%; height: 56px; margin-bottom: 14px; position: relative; width: 56px; }
 .overview-empty-symbol::after { border: 2px solid #91a1f4; border-radius: 50%; content: ''; height: 18px; left: 17px; position: absolute; top: 17px; width: 18px; }
 .overview-empty-visual strong { color: #4b566a; }
 .overview-empty-visual p { font-size: 13px; line-height: 1.6; margin: 7px 0 14px; max-width: 420px; }
-.dashboard-overview-page .overview-detail-table table, .dashboard-overview-page .overview-conversation-detail table { border-collapse: collapse; min-width: 520px; width: 100%; }
-.dashboard-overview-page .overview-detail-table th, .dashboard-overview-page .overview-detail-table td, .dashboard-overview-page .overview-conversation-detail th, .dashboard-overview-page .overview-conversation-detail td { border-bottom: 1px solid #eef1f5; padding: 12px 14px; text-align: left; }
-.dashboard-overview-page .overview-detail-table th, .dashboard-overview-page .overview-conversation-detail th { background: #fafbfe; color: #737d90; font-size: 12px; }
-.dashboard-overview-page .overview-detail-table td, .dashboard-overview-page .overview-conversation-detail td { color: #465065; font-size: 13px; }
+.dashboard-overview-page .overview-detail-table table { border-collapse: collapse; min-width: 520px; width: 100%; }
+.dashboard-overview-page .overview-detail-table th, .dashboard-overview-page .overview-detail-table td { border-bottom: 1px solid #eef1f5; padding: 12px 14px; text-align: left; }
+.dashboard-overview-page .overview-detail-table th { background: #fafbfe; color: #737d90; font-size: 12px; }
+.dashboard-overview-page .overview-detail-table td { color: #465065; font-size: 13px; }
 .dashboard-overview-page .dashboard-table-scroll { overflow-x: auto; }
 
 @media (max-width: 1180px) {
@@ -3353,4 +3341,465 @@ body {
 .phase35-page {
   margin: 0;
   max-width: none;
+}
+
+/* 统一交互态对比度：悬停时不覆盖选中态的深色底和白色字。 */
+.dashboard-overview-page .overview-conversation-group-active:hover {
+  background: linear-gradient(145deg, #5b78f6, #398cf5);
+  border-color: transparent;
+  color: #fff;
+}
+
+.dashboard-overview-page .overview-conversation-group-active:hover > span:first-child,
+.dashboard-overview-page .overview-conversation-group-active:hover .overview-conversation-group-stats strong,
+.dashboard-overview-page .overview-conversation-group-active:hover .overview-conversation-group-stats small {
+  color: #fff;
+}
+
+.dashboard-overview-page .overview-conversation-group:hover:not(.overview-conversation-group-active) {
+  background: #eef2ff;
+  border-color: #9badf7;
+  color: #3046bd;
+}
+
+.dashboard-overview-page .overview-conversation-group:hover:not(.overview-conversation-group-active) > span:first-child,
+.dashboard-overview-page .overview-conversation-group:hover:not(.overview-conversation-group-active) .overview-conversation-group-stats strong,
+.dashboard-overview-page .overview-conversation-group:hover:not(.overview-conversation-group-active) .overview-conversation-group-stats small {
+  color: #3046bd;
+}
+
+/* 统一分页 hover：当前页始终保持蓝底白字，普通页使用浅蓝底高对比文字。 */
+.dashboard-pagination button[aria-current="page"]:hover:not(:disabled),
+.benchmark-demo-pagination button[aria-current="page"]:hover:not(:disabled),
+.conversation-global-pagination button[aria-current="page"]:hover:not(:disabled),
+.employee-conversation-pagination button[aria-current="page"]:hover:not(:disabled),
+.phase35-page .dashboard-pagination button[aria-current="page"]:hover:not(:disabled) {
+  background: #536bf4;
+  border-color: #536bf4;
+  color: #fff;
+}
+
+.dashboard-pagination button:hover:not(:disabled):not([aria-current="page"]),
+.benchmark-demo-pagination button:hover:not(:disabled):not([aria-current="page"]),
+.conversation-global-pagination button:hover:not(:disabled):not([aria-current="page"]),
+.employee-conversation-pagination button:hover:not(:disabled):not([aria-current="page"]),
+.phase35-page .dashboard-pagination button:hover:not(:disabled):not([aria-current="page"]) {
+  background: #eef2ff;
+  border-color: #8797ef;
+  color: #3046bd;
+}
+
+.dashboard-pagination button:disabled,
+.benchmark-demo-pagination button:disabled,
+.conversation-global-pagination button:disabled,
+.employee-conversation-pagination button:disabled,
+.phase35-page .dashboard-pagination button:disabled {
+  color: #98a2b3;
+  opacity: 1;
+}
+
+/* 增长柱状图：给底部日期预留独立空间，完整显示日期且不被图表容器裁切。 */
+.dashboard-overview-page .dashboard-overview-chart {
+  gap: 4px;
+  height: auto;
+  min-height: 250px;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding-bottom: 16px;
+}
+
+.dashboard-overview-page .dashboard-overview-chart-column {
+  flex: 0 0 72px;
+  height: auto;
+  min-height: 224px;
+}
+
+.dashboard-overview-page .dashboard-overview-chart-date {
+  color: #687287;
+  display: block;
+  line-height: 1.4;
+  min-width: 72px;
+  white-space: nowrap;
+}
+
+/* 数据概览：圆弧 AI 风格的紧凑信息编排。模块保持白底、浅边框和短信息层级，
+   让用户先看状态和数值，再进入详情，不把原始长文本铺满首页。 */
+.dashboard-overview-page .overview-dashboard {
+  gap: 16px;
+}
+
+.dashboard-overview-page .overview-data-alerts {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-overview-page .overview-data-notice {
+  align-items: flex-start;
+  background: #fffaf0;
+  border: 1px solid #f3dfb4;
+  border-radius: 10px;
+  color: #7a5a20;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 13px;
+}
+
+.dashboard-overview-page .overview-data-notice-limited {
+  background: #fffaf0;
+  border-color: #f3dfb4;
+}
+
+.dashboard-overview-page .overview-data-notice-unavailable {
+  background: #fff7f6;
+  border-color: #f4d2cc;
+  color: #8b4f49;
+}
+
+.dashboard-overview-page .overview-data-notice-empty {
+  background: #f8faff;
+  border-color: #e1e7f5;
+  color: #667085;
+}
+
+.dashboard-overview-page .overview-data-notice-icon {
+  align-items: center;
+  background: currentColor;
+  border-radius: 50%;
+  color: inherit;
+  display: inline-flex;
+  flex: 0 0 18px;
+  font-size: 12px;
+  font-weight: 800;
+  height: 18px;
+  justify-content: center;
+  line-height: 1;
+  margin-top: 1px;
+  position: relative;
+  width: 18px;
+}
+
+.dashboard-overview-page .overview-data-notice-limited .overview-data-notice-icon {
+  background: #d89614;
+  color: #fff;
+}
+
+.dashboard-overview-page .overview-data-notice-unavailable .overview-data-notice-icon {
+  background: #cf6a5d;
+  color: #fff;
+}
+
+.dashboard-overview-page .overview-data-notice-empty .overview-data-notice-icon {
+  background: #8b9bb8;
+  color: #fff;
+}
+
+.dashboard-overview-page .overview-data-notice > div {
+  min-width: 0;
+}
+
+.dashboard-overview-page .overview-data-notice strong {
+  color: inherit;
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dashboard-overview-page .overview-data-notice p {
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 2px 0 0;
+}
+
+.dashboard-overview-page .overview-data-notice small {
+  color: inherit;
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 3px;
+  opacity: .82;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-overview-page .overview-snapshot,
+.dashboard-overview-page .overview-intelligence-grid > .overview-module,
+.dashboard-overview-page .overview-capability-panel,
+.dashboard-overview-page .overview-conversation-module {
+  background: #fff;
+  border: 1px solid #edf0f6;
+  border-radius: 12px;
+  box-shadow: 0 4px 18px rgb(31 36 51 / 4%);
+}
+
+.dashboard-overview-page .overview-snapshot {
+  padding: 20px 22px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-module-header {
+  margin-bottom: 14px;
+}
+
+.dashboard-overview-page .overview-snapshot > .overview-data-notice {
+  margin-bottom: 12px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-metric-grid {
+  gap: 10px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-metric {
+  background: #fafbfe;
+  border-radius: 10px;
+  min-height: 106px;
+  padding: 14px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-metric-icon {
+  border-radius: 8px;
+  flex-basis: 30px;
+  height: 30px;
+  width: 30px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-metric-icon::after {
+  height: 11px;
+  left: 9px;
+  top: 9px;
+  width: 11px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-metric-copy {
+  gap: 4px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-metric-copy > span {
+  font-size: 12px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-metric-copy strong {
+  font-size: 24px;
+}
+
+.dashboard-overview-page .overview-snapshot .overview-metric-copy small {
+  font-size: 11px;
+}
+
+.dashboard-overview-page .overview-metric-missing {
+  background: #fbfbfd;
+  border-style: dashed;
+}
+
+.dashboard-overview-page .overview-metric-missing .overview-metric-copy strong {
+  color: #98a2b3;
+  letter-spacing: .04em;
+}
+
+.dashboard-overview-page .overview-metric-missing em {
+  color: #a56b17;
+  font-size: 11px;
+  font-style: normal;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.dashboard-overview-page .overview-intelligence-grid {
+  gap: 16px;
+}
+
+.dashboard-overview-page .overview-intelligence-grid > .overview-module {
+  padding: 20px 22px;
+}
+
+.dashboard-overview-page .overview-intelligence-grid .overview-module-header {
+  margin-bottom: 14px;
+}
+
+.dashboard-overview-page .overview-ai-insight-grid {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-overview-page .overview-ai-insight-card {
+  background: #fafbfe;
+  border: 1px solid #edf0f6;
+  border-radius: 10px;
+  display: grid;
+  gap: 5px;
+  min-height: 94px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.dashboard-overview-page .overview-ai-insight-card > span {
+  color: #7b8497;
+  font-size: 11px;
+}
+
+.dashboard-overview-page .overview-ai-insight-card > strong {
+  color: #293042;
+  display: -webkit-box;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.dashboard-overview-page .overview-ai-insight-card > small {
+  color: #a0a7b4;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.dashboard-overview-page .overview-ai-insight-card-primary {
+  background: linear-gradient(145deg, #f0f3ff, #f7f8ff);
+  border-color: #dfe5ff;
+}
+
+.dashboard-overview-page .overview-ai-insight-card-primary > strong {
+  color: #526be8;
+}
+
+.dashboard-overview-page .overview-ai-insight-link {
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: 1px;
+}
+
+.dashboard-overview-page .overview-capability-grid-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-overview-page .overview-capability-panel {
+  min-width: 0;
+  padding: 18px;
+}
+
+.dashboard-overview-page .overview-capability-panel .overview-module-header {
+  margin-bottom: 13px;
+}
+
+.dashboard-overview-page .overview-capability-panel .overview-module-header h2 {
+  font-size: 15px;
+}
+
+.dashboard-overview-page .overview-capability-panel .overview-module-header p {
+  font-size: 11px;
+}
+
+.dashboard-overview-page .overview-capability-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.dashboard-overview-page .overview-capability-item {
+  background: #fafbfe;
+  border: 1px solid #edf0f6;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.dashboard-overview-page .overview-capability-item > span {
+  color: #7b8497;
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-overview-page .overview-capability-item > strong {
+  color: #98a2b3;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.dashboard-overview-page .overview-capability-item > small {
+  color: #a0a7b4;
+  font-size: 10px;
+}
+
+.dashboard-overview-page .overview-capability-panel .overview-data-notice {
+  min-height: 72px;
+  padding: 9px 10px;
+}
+
+.dashboard-overview-page .overview-capability-panel .overview-data-notice p {
+  font-size: 11px;
+}
+
+.dashboard-overview-page .overview-conversation-group {
+  border-radius: 10px;
+  min-height: 104px;
+  padding: 13px;
+}
+
+.dashboard-overview-page .overview-conversation > .overview-data-notice {
+  grid-column: 1 / -1;
+}
+
+.dashboard-overview-page .overview-conversation-groups {
+  gap: 9px;
+  grid-template-columns: 1fr;
+}
+
+.dashboard-overview-page .overview-conversation-chart {
+  background: #fff;
+  border: 0;
+  min-height: 290px;
+  padding-left: 20px;
+}
+
+.dashboard-overview-page .overview-dashboard-bars-missing {
+  align-items: center;
+  background: #f8f9fc;
+  border: 1px dashed #dfe4ee;
+  border-bottom: 1px dashed #dfe4ee;
+  color: #a0a7b4;
+  font-size: 11px;
+  justify-content: center;
+}
+
+@media (max-width: 1180px) {
+  .dashboard-overview-page .overview-capability-grid-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .dashboard-overview-page .overview-snapshot,
+  .dashboard-overview-page .overview-intelligence-grid > .overview-module {
+    padding: 18px;
+  }
+
+  .dashboard-overview-page .overview-ai-insight-grid,
+  .dashboard-overview-page .overview-capability-grid-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-overview-page .overview-capability-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-overview-page .overview-conversation-chart {
+    min-height: 260px;
+    padding-left: 0;
+    padding-top: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-overview-page .overview-ai-insight-card,
+  .dashboard-overview-page .overview-capability-item,
+  .dashboard-overview-page .overview-snapshot .overview-metric {
+    transition: none;
+  }
 }

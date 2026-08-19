@@ -29,4 +29,28 @@ describe('dashboard overview cockpit layout', () => {
     expect(css).toContain('.dashboard-overview-page .overview-intelligence-grid { grid-template-columns: 1fr; }');
     expect(css).toContain('.dashboard-overview-page .overview-metric-grid { grid-template-columns: 1fr; }');
   });
+
+  it('keeps conversation and pagination labels readable in hover states', () => {
+    expect(css).toContain('.dashboard-overview-page .overview-conversation-group-active:hover');
+    expect(css).toContain('.dashboard-overview-page .overview-conversation-group-active:hover > span:first-child');
+    expect(css).toContain('.dashboard-pagination button[aria-current="page"]:hover:not(:disabled)');
+    expect(css).toContain('.benchmark-demo-pagination button[aria-current="page"]:hover:not(:disabled)');
+    expect(css).toContain('.conversation-global-pagination button[aria-current="page"]:hover:not(:disabled)');
+    expect(css).toContain('.employee-conversation-pagination button[aria-current="page"]:hover:not(:disabled)');
+  });
+
+  it('keeps growth chart date labels inside the visible chart area', () => {
+    expect(css).toContain('overflow-y: visible');
+    expect(css).toContain('.dashboard-overview-page .dashboard-overview-chart-date');
+    expect(css).toContain('flex: 0 0 72px');
+    expect(css).toContain('white-space: nowrap');
+  });
+
+  it('defines compact insight, capability and data-notice modules', () => {
+    expect(css).toContain('.dashboard-overview-page .overview-ai-insight-grid');
+    expect(css).toContain('.dashboard-overview-page .overview-capability-grid-layout');
+    expect(css).toContain('.dashboard-overview-page .overview-data-notice');
+    expect(css).toContain('.dashboard-overview-page .overview-dashboard-bars-missing');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+  });
 });

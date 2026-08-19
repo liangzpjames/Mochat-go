@@ -4,8 +4,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   OverviewAISummary,
+  OverviewAIInsightGrid,
+  OverviewCapabilityPanel,
   OverviewConversationWorkspace,
   OverviewMetricCard,
+  OverviewTrendChart,
   parseAISummary,
 } from './dashboard-overview-widgets';
 
@@ -33,6 +36,21 @@ describe('dashboard overview widgets', () => {
     expect(within(card).queryByText(/%/)).toBeNull();
   });
 
+  it('shows a missing metric as a placeholder instead of a fabricated zero', () => {
+    render(<OverviewMetricCard label="客户总数" note="等待真实数据" tone="blue" value={null} />);
+    expect(screen.getByRole('article', { name: '客户总数' }).textContent).toContain('--');
+    expect(screen.getByText('数据暂缺')).toBeTruthy();
+  });
+
+  it('alerts when a conversation summary field is missing', () => {
+    render(<OverviewConversationWorkspace
+      conversation={{ ...conversation, customer: { ...conversation.customer, employeeMessages: null } }}
+      unavailable={false}
+    />);
+    expect(screen.getByRole('status', { name: '会话汇总数据暂缺' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /客户会话/ }).textContent).toContain('--');
+  });
+
   it('renders structured AI content and a real detail route', () => {
     render(<MemoryRouter><OverviewAISummary insight={{
       capability: 'ready',
@@ -45,7 +63,32 @@ describe('dashboard overview widgets', () => {
       .toBe('/ai-insight/smart-analysis');
   });
 
-  it('switches the conversation summary, chart and table together', () => {
+  it('assembles AI insight into compact controls without rendering the long summary', () => {
+    render(<MemoryRouter><OverviewAIInsightGrid insight={{
+      capability: 'ready',
+      provider: 'dashscope',
+      generatedAt: '2026-08-15T23:59:59+08:00',
+      summary: '✅ **核心客户意图识别**\n1. 商务洽谈与价格协商\n📌 **跟进建议**\n1. 今日内完成响应',
+    }} /></MemoryRouter>);
+    expect(screen.getByRole('article', { name: '分析状态' })).toBeTruthy();
+    expect(screen.getByRole('article', { name: '重点洞察' }).textContent).toContain('商务洽谈与价格协商');
+    expect(screen.getByRole('article', { name: '跟进建议' }).textContent).toContain('今日内完成响应');
+    expect(screen.queryByText(/核心客户意图识别/)).toBeNull();
+  });
+
+  it('shows a clear capability warning for unavailable modules', () => {
+    render(<OverviewCapabilityPanel
+      description="质检指标需要风险监控数据源。"
+      items={[{ label: '敏感词命中' }, { label: '风险行为' }]}
+      source="风险监控接口"
+      title="质检数据"
+    />);
+    expect(screen.getByRole('status', { name: '能力未接入' })).toBeTruthy();
+    expect(screen.getAllByText('--')).toHaveLength(2);
+    expect(screen.getByText(/风险监控接口/)).toBeTruthy();
+  });
+
+  it('switches the conversation summary and chart together', () => {
     render(<OverviewConversationWorkspace conversation={conversation} unavailable={false} />);
     const customerCard = screen.getByRole('button', { name: /客户会话/ });
     expect(within(customerCard).getByText('11')).toBeTruthy();
@@ -57,10 +100,16 @@ describe('dashboard overview widgets', () => {
     expect(screen.getByLabelText('会话数 2')).toBeTruthy();
   });
 
-  it('shows an explicit empty state for conversation detail rows', () => {
+  it('omits the seven-day conversation detail after the trend chart', () => {
     render(<OverviewConversationWorkspace conversation={{ ...conversation, trend: [] }} unavailable={false} />);
-    expect(screen.getByText('暂无趋势明细')).toBeTruthy();
+    expect(screen.queryByLabelText('近七日会话趋势明细')).toBeNull();
+    expect(screen.queryByText('近七日趋势明细')).toBeNull();
     expect(screen.queryByRole('columnheader', { name: '日期' })).toBeNull();
+  });
+
+  it('keeps the complete date visible beneath growth bars', () => {
+    render(<OverviewTrendChart points={[{ date: '2026-08-16', addCustomerNum: 12 }]} />);
+    expect(screen.getByText('2026-08-16')).toBeTruthy();
   });
 
   it('shows a provider limitation instead of zero conversation metrics', () => {
