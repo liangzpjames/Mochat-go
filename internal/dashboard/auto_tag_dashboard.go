@@ -146,6 +146,8 @@ type AutoTagContactTimeTaskResult struct {
 }
 
 type WorkMessageUserFilter struct {
+	TenantID            int
+	UserID              int
 	CorpID              int
 	WorkEmployeeID      int
 	ToUserType          int
@@ -158,6 +160,8 @@ type WorkMessageUserFilter struct {
 	RestrictEmployeeIDs bool
 	EmployeeIDs         []int
 	ArchiveSource       string
+	MessageTypes        []int
+	GlobalBucket        string
 	Page                int
 	PerPage             int
 }
@@ -188,6 +192,8 @@ type WorkMessageToUser struct {
 	MsgDataTime     string
 	ArchiveSource   string
 	ArchiveSourceID string
+	Type            int
+	Direction       string
 }
 
 type WorkMessageToUserPage struct {
@@ -301,6 +307,7 @@ type AutoTagStore interface {
 	AutoTagKeywordTask(ctx context.Context, corpID int) (AutoTagKeywordTaskResult, error)
 	WorkMessageFromUsers(ctx context.Context, filter WorkMessageFromUserFilter) ([]WorkMessageFromUser, error)
 	WorkMessageToUsers(ctx context.Context, filter WorkMessageUserFilter) (WorkMessageToUserPage, error)
+	WorkMessageGlobalStore
 	WorkMessagePage(ctx context.Context, filter WorkMessageFilter) (WorkMessagePage, error)
 	WorkMessageArchiveAuthorized(ctx context.Context, tenantID int, corpID int) (bool, error)
 	WorkMessageByArchiveID(ctx context.Context, filter WorkMessageArchiveFilter) (WorkMessageItem, bool, error)
@@ -528,7 +535,7 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	_, _, principalScope, access, ok := h.resolveAuthorized(w, r, workMessageConversationPermissionKey)
+	userID, _, principalScope, access, ok := h.resolveAuthorized(w, r, workMessageConversationPermissionKey)
 	if !ok {
 		return
 	}
@@ -557,6 +564,53 @@ func (h *AutoTagHandler) WorkMessageToUsers(w http.ResponseWriter, r *http.Reque
 		if !valid {
 			return
 		}
+		filter.TenantID = principalScope.Principal.TenantID
+		filter.UserID = userID
+		bucket := strings.TrimSpace(r.URL.Query().Get("bucket"))
+		if bucket == "" {
+			bucket = string(WorkMessageBucketAll)
+		}
+		filter.GlobalBucket = bucket
+		if types, validTypes := parseWorkMessageTypes(w, r.URL.Query()["messageTypes"]); !validTypes {
+			return
+		} else {
+			filter.MessageTypes = types
+		}
+	}
+	if global {
+		globalStore, supportsGlobal := h.store.(WorkMessageGlobalStore)
+		if !supportsGlobal {
+			writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "全局消息数据能力未接入", nil)
+			return
+		}
+		globalFilter := WorkMessageGlobalFilter{
+			TenantID:            filter.TenantID,
+			CorpID:              filter.CorpID,
+			UserID:              filter.UserID,
+			EmployeeIDs:         append([]int(nil), filter.EmployeeIDs...),
+			RestrictEmployeeIDs: filter.RestrictEmployeeIDs,
+			ToUserID:            filter.ToUserID,
+			Keyword:             filter.Keyword,
+			ConversationType:    workMessageTargetType(filter.ToUserType),
+			MessageTypes:        append([]int(nil), filter.MessageTypes...),
+			StartAt:             filter.DateTimeStart,
+			EndAt:               filter.DateTimeEnd,
+			ArchiveSource:       filter.ArchiveSource,
+			Bucket:              WorkMessageBucket(filter.GlobalBucket),
+			Page:                filter.Page,
+			PageSize:            filter.PerPage,
+		}
+		globalPage, globalErr := globalStore.WorkMessageGlobalPage(r.Context(), globalFilter)
+		if globalErr != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, globalErr.Error(), nil)
+			return
+		}
+		globalList := make([]WorkMessageGlobalConversation, 0, len(globalPage.Items))
+		for _, item := range globalPage.Items {
+			globalList = append(globalList, item)
+		}
+		writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{"list": globalList, "total": globalPage.Total, "page": globalPage.Page, "pageSize": globalPage.PageSize})
+		return
 	}
 	page, err := h.store.WorkMessageToUsers(r.Context(), filter)
 	if err != nil {
@@ -923,7 +977,7 @@ func parseWorkMessageConversationID(raw string) (int, int, int, bool) {
 	toUserType, typeErr := strconv.Atoi(parts[1])
 	toUserID, targetErr := strconv.Atoi(parts[2])
 	if employeeErr != nil || typeErr != nil || targetErr != nil ||
-		employeeID <= 0 || toUserType < 0 || toUserType > 2 || toUserID <= 0 {
+		employeeID <= 0 || toUserType < 0 || toUserType > 2 || toUserID < 0 || (toUserType != 2 && toUserID == 0) {
 		return 0, 0, 0, false
 	}
 	return employeeID, toUserType, toUserID, true

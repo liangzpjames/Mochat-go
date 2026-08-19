@@ -4,6 +4,17 @@
 > 当前分支：`main`（Phase 7 Demo 已快进合入，并已与 `origin/main` 非强制同步）
 > 当前阶段：Phase 7 隔离 Demo 已完成代码、本地镜像、ECS 部署与合成双链路验收；真实企业配置和 production 接入待完成
 
+## 会话轨迹工作台实施记录（2026-08-20）
+
+本次在隔离分支 `feat/conversation-trajectory-yuanhu-workspace` 完成 `/chat/trajectory` 的元呼 AI 对标改造：
+
+- 后端新增 `GET /dashboard/workMessage/trajectoryDay`，统一 `Asia/Shanghai` 自然日、企业范围、员工数据权限和会话存档授权；按日返回四类指标、24 小时活动、目标资料状态、未匹配消息告警和能力缺口。
+- 外部群会话统一使用 `COALESCE(NULLIF(to_user_id,0), NULLIF(room_id,0), 0)` 有效目标 ID，列表、详情和轨迹共享该口径。
+- 前端改为员工目录、指标卡、24 小时语义时间轴和当天消息详情抽屉；日期、员工、类型、详情锚点均可通过 URL 恢复，桌面端采用 `320px minmax(760px, 1fr)`，并覆盖 1600/1200/768 三档响应式降级。
+- 轨迹 API 资源已在现有 `0143_group_conversation_workspace` 迁移中幂等登记为 `dashboard.chat.trajectory`；内部群指标明确返回 `unavailable`，不会伪造为 0。
+
+验证记录：`go test ./internal/dashboard ./internal/store ./internal/server ./internal/migration -run 'Trajectory|WorkMessageGroupTarget|StaffDetail.*Room|MountedRoutes|MigrationContract' -count=1` 通过；Dashboard 轨迹/API 测试 16 项通过；`corepack pnpm --filter @mochat/dashboard typecheck` 和 `build` 通过。Dashboard 全量测试中已有的迁移计数合同仍报告 `expected 139, discovered 140`，原因是工作树已有 0143 迁移，不属于本次轨迹代码失败，未修改该既有合同。
+
 ## 当前结论
 
 主线已完成 Phase 0–3 Final 的 Go 单体、React Dashboard 和 53 页基准交付；Phase 4 Dashboard 页面 RBAC、单企业身份隔离、Sidebar/Operation 移动端基础、Provider/企业微信标准能力基础与客户/客户群 durable 精准群发也已进入当前本地 `main`。

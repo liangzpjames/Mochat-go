@@ -127,6 +127,38 @@ export type StaffConversationDetail = {
   capabilities: readonly ConversationCapability[];
 };
 
+export type ConversationTrajectoryType = 'all' | 'employee' | 'customer' | 'room';
+export type ConversationTrajectoryMetric = {
+  status: 'available' | 'unavailable';
+  subjectTotal: number | null;
+  messageTotal: number | null;
+  reason?: string;
+};
+export type ConversationTrajectoryEvent = {
+  id: string;
+  conversationId: string;
+  hour: string;
+  targetType: ConversationTargetType;
+  targetId: number;
+  targetName: string;
+  targetAvatar: string;
+  targetStatus: 'available' | 'missing' | 'deleted' | string;
+  messageTotal: number;
+  firstMessageAt: string;
+  lastMessageAt: string;
+};
+export type ConversationTrajectoryDay = {
+  employee: { id: number; name: string; avatar: string };
+  date: string;
+  timezone: string;
+  metrics: Record<string, ConversationTrajectoryMetric>;
+  events: readonly ConversationTrajectoryEvent[];
+  unmatchedTargetMessages: number;
+  limitations: readonly { key: string; reason: string }[];
+  capabilities: readonly ConversationCapability[];
+};
+export type ConversationTrajectoryInput = { employeeId: number; date: string; conversationType: ConversationTrajectoryType };
+
 export type CustomerDirectoryMode = 'all' | 'focused' | 'active' | 'lost';
 export type CustomerProfileStatus = 'available' | 'missing' | 'deleted';
 export type CustomerConversationMode = 'direct' | 'group';
@@ -211,6 +243,7 @@ export type ConversationGlobalApi = {
   employees?(input: { keyword: string }): Promise<readonly ConversationEmployee[]>;
   staffDirectory?(input: StaffDirectoryInput): Promise<StaffDirectoryPage>;
   staffDetail?(input: StaffDetailInput): Promise<StaffConversationDetail>;
+  trajectoryDay?(input: ConversationTrajectoryInput): Promise<ConversationTrajectoryDay>;
   customerDirectory?(input: CustomerDirectoryInput): Promise<CustomerDirectoryPage>;
   customerConversations?(input: CustomerConversationInput): Promise<CustomerConversationPage>;
   customerDetail?(input: CustomerDetailInput): Promise<CustomerConversationDetail>;
@@ -395,6 +428,44 @@ function parseStaffDetail(value: unknown): StaffConversationDetail {
     messages: messages as ConversationMessage[], nextBefore: value.nextBefore, hasMore: value.hasMore,
     capabilities: capabilities as ConversationCapability[],
   };
+}
+
+function isTrajectoryType(value: unknown): value is ConversationTrajectoryType {
+  return value === 'all' || value === 'employee' || value === 'customer' || value === 'room';
+}
+
+function parseTrajectoryDay(value: unknown): ConversationTrajectoryDay {
+  if (!isRecord(value) || !isRecord(value.employee) || !isFiniteNumber(value.employee.id)
+    || typeof value.employee.name !== 'string' || typeof value.employee.avatar !== 'string'
+    || typeof value.date !== 'string' || value.timezone !== 'Asia/Shanghai' || !isRecord(value.metrics)
+    || !Array.isArray(value.events) || !isFiniteNumber(value.unmatchedTargetMessages)
+    || !Array.isArray(value.limitations) || !Array.isArray(value.capabilities)) {
+    throw new Error('会话轨迹接口返回了无效数据');
+  }
+  const metrics: Record<string, ConversationTrajectoryMetric> = {};
+  for (const [key, raw] of Object.entries(value.metrics)) {
+    if (!isRecord(raw) || (raw.status !== 'available' && raw.status !== 'unavailable')
+      || !nullableFinite(raw.subjectTotal) || !nullableFinite(raw.messageTotal)
+      || (raw.reason !== undefined && typeof raw.reason !== 'string')) {
+      throw new Error('会话轨迹接口返回了无效数据');
+    }
+    metrics[key] = { status: raw.status, subjectTotal: raw.subjectTotal, messageTotal: raw.messageTotal, ...(typeof raw.reason === 'string' ? { reason: raw.reason } : {}) };
+  }
+  const events = value.events.map((raw): ConversationTrajectoryEvent | null => {
+    if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.conversationId !== 'string' || typeof raw.hour !== 'string'
+      || !isTargetType(raw.targetType) || !isFiniteNumber(raw.targetId) || typeof raw.targetName !== 'string'
+      || typeof raw.targetAvatar !== 'string' || typeof raw.targetStatus !== 'string' || !isFiniteNumber(raw.messageTotal)
+      || typeof raw.firstMessageAt !== 'string' || typeof raw.lastMessageAt !== 'string') return null;
+    return { id: raw.id, conversationId: raw.conversationId, hour: raw.hour, targetType: raw.targetType, targetId: raw.targetId,
+      targetName: raw.targetName, targetAvatar: raw.targetAvatar, targetStatus: raw.targetStatus, messageTotal: raw.messageTotal,
+      firstMessageAt: raw.firstMessageAt, lastMessageAt: raw.lastMessageAt };
+  });
+  const limitations = value.limitations.map((raw) => isRecord(raw) && typeof raw.key === 'string' && typeof raw.reason === 'string' ? { key: raw.key, reason: raw.reason } : null);
+  const capabilities = value.capabilities.map(parseCapability);
+  if (events.some((item) => item === null) || limitations.some((item) => item === null) || capabilities.some((item) => item === null)) throw new Error('会话轨迹接口返回了无效数据');
+  return { employee: { id: value.employee.id, name: value.employee.name, avatar: value.employee.avatar }, date: value.date, timezone: value.timezone,
+    metrics, events: events as ConversationTrajectoryEvent[], unmatchedTargetMessages: value.unmatchedTargetMessages,
+    limitations: limitations as ConversationTrajectoryDay['limitations'], capabilities: capabilities as ConversationCapability[] };
 }
 
 function isProfileStatus(value: unknown): value is CustomerProfileStatus {
@@ -650,6 +721,10 @@ export function createConversationGlobalApi(
       query.set('pageSize', String(input.pageSize));
       appendNonBlank(query, 'before', input.before ?? '');
       return parseStaffDetail(await client.request(`/workMessage/staffDetail?${query.toString()}`));
+    },
+    async trajectoryDay(input) {
+      const query = new URLSearchParams({ employeeId: String(input.employeeId), date: input.date, conversationType: input.conversationType });
+      return parseTrajectoryDay(await client.request(`/workMessage/trajectoryDay?${query.toString()}`));
     },
     async customerDirectory(input) {
       const query = new URLSearchParams({ mode: input.mode });

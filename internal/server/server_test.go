@@ -4202,6 +4202,15 @@ func TestAutoTagDashboardHandlersAreRouted(t *testing.T) {
 		WithWorkMessageToUsersHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("go work message to users"))
 		})),
+		WithWorkMessageStaffDirectoryHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("go work message staff directory"))
+		})),
+		WithWorkMessageStaffDetailHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("go work message staff detail"))
+		})),
+		WithWorkMessageTrajectoryDayHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("go work message trajectory day"))
+		})),
 		WithWorkMessageIndexHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("go work message index"))
 		})),
@@ -4243,6 +4252,9 @@ func TestAutoTagDashboardHandlersAreRouted(t *testing.T) {
 		{method: http.MethodGet, path: "/dashboard/autoTag/showContactTime", body: "go auto tag time contacts", route: "GET /dashboard/autoTag/showContactTime"},
 		{method: http.MethodGet, path: "/dashboard/workMessage/fromUsers", body: "go work message from users", route: "GET /dashboard/workMessage/fromUsers"},
 		{method: http.MethodGet, path: "/dashboard/workMessage/toUsers", body: "go work message to users", route: "GET /dashboard/workMessage/toUsers"},
+		{method: http.MethodGet, path: "/dashboard/workMessage/staffDirectory", body: "go work message staff directory", route: "GET /dashboard/workMessage/staffDirectory"},
+		{method: http.MethodGet, path: "/dashboard/workMessage/staffDetail?conversationId=9:1:31", body: "go work message staff detail", route: "GET /dashboard/workMessage/staffDetail"},
+		{method: http.MethodGet, path: "/dashboard/workMessage/trajectoryDay?employeeId=9&date=2026-08-19", body: "go work message trajectory day", route: "GET /dashboard/workMessage/trajectoryDay"},
 		{method: http.MethodGet, path: "/dashboard/workMessage/index", body: "go work message index", route: "GET /dashboard/workMessage/index"},
 		{method: http.MethodGet, path: "/dashboard/workMessage/detail", body: "go work message index", route: "GET /dashboard/workMessage/detail"},
 		{method: http.MethodPost, path: "/dashboard/workMessageConfig/corpStore", body: "go work message config corp store", route: "POST /dashboard/workMessageConfig/corpStore"},
@@ -4250,6 +4262,49 @@ func TestAutoTagDashboardHandlersAreRouted(t *testing.T) {
 		{method: http.MethodGet, path: "/dashboard/workMessageConfig/corpIndex", body: "go work message config corp index", route: "GET /dashboard/workMessageConfig/corpIndex"},
 		{method: http.MethodGet, path: "/dashboard/workMessageConfig/stepCreate", body: "go work message config step create", route: "GET /dashboard/workMessageConfig/stepCreate"},
 		{method: http.MethodPut, path: "/dashboard/workMessageConfig/stepUpdate", body: "go work message config step update", route: "PUT /dashboard/workMessageConfig/stepUpdate"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s %s status = %d", tc.method, tc.path, rec.Code)
+		}
+		if rec.Body.String() != tc.body {
+			t.Fatalf("%s %s body = %q", tc.method, tc.path, rec.Body.String())
+		}
+		if !containsString(srv.migratedRoutes(), tc.route) {
+			t.Fatalf("missing migrated route %q in %#v", tc.route, srv.migratedRoutes())
+		}
+	}
+}
+
+func TestWorkMessageCustomerHandlersAreRouted(t *testing.T) {
+	sourceRoot := t.TempDir()
+	srv, err := New(config.Config{
+		ListenAddr:   ":0",
+		PHPUpstream:  "http://127.0.0.1:9501",
+		SourceRoot:   sourceRoot,
+		ManifestPath: writeManifest(t),
+		ProxyTimeout: time.Second,
+	},
+		WithWorkMessageCustomerDirectoryHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("customer directory"))
+		})),
+		WithWorkMessageCustomerConversationsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("customer conversations"))
+		})),
+		WithWorkMessageCustomerDetailHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("customer detail"))
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ method, path, body, route string }{
+		{http.MethodGet, "/dashboard/workMessage/customerDirectory?mode=all&page=1&pageSize=50", "customer directory", "GET /dashboard/workMessage/customerDirectory"},
+		{http.MethodGet, "/dashboard/workMessage/customerConversations?customerId=31&mode=direct&page=1&pageSize=20", "customer conversations", "GET /dashboard/workMessage/customerConversations"},
+		{http.MethodGet, "/dashboard/workMessage/customerDetail?customerId=31&conversationId=9:1:31&pageSize=50", "customer detail", "GET /dashboard/workMessage/customerDetail"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		rec := httptest.NewRecorder()

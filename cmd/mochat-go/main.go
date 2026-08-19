@@ -1760,6 +1760,14 @@ func main() {
 			compatserver.WithAutoTagShowContactTimeHandler(http.HandlerFunc(autoTag.ShowContactTime)),
 			compatserver.WithWorkMessageFromUsersHandler(http.HandlerFunc(autoTag.WorkMessageFromUsers)),
 			compatserver.WithWorkMessageToUsersHandler(http.HandlerFunc(autoTag.WorkMessageToUsers)),
+			compatserver.WithWorkMessageGlobalOverviewHandler(http.HandlerFunc(autoTag.WorkMessageGlobalOverview)),
+			compatserver.WithWorkMessageFocusHandler(http.HandlerFunc(autoTag.WorkMessageFocus)),
+			compatserver.WithWorkMessageStaffDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageStaffDirectory)),
+			compatserver.WithWorkMessageStaffDetailHandler(http.HandlerFunc(autoTag.WorkMessageStaffDetail)),
+			compatserver.WithWorkMessageTrajectoryDayHandler(http.HandlerFunc(autoTag.WorkMessageTrajectoryDay)),
+			compatserver.WithWorkMessageCustomerDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageCustomerDirectory)),
+			compatserver.WithWorkMessageCustomerConversationsHandler(http.HandlerFunc(autoTag.WorkMessageCustomerConversations)),
+			compatserver.WithWorkMessageCustomerDetailHandler(http.HandlerFunc(autoTag.WorkMessageCustomerDetail)),
 			compatserver.WithRiskBehaviorRulesHandler(http.HandlerFunc(riskBehavior.Rules)),
 			compatserver.WithRiskBehaviorRecordsHandler(http.HandlerFunc(riskBehavior.Records)),
 			compatserver.WithRiskBehaviorRuleCreateHandler(http.HandlerFunc(riskBehavior.CreateRule)),
@@ -1824,6 +1832,9 @@ func main() {
 		log.Printf("go migrated route enabled: GET /dashboard/autoTag/showContactTime")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/fromUsers")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/toUsers")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerDirectory")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerConversations")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerDetail")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/index")
 		log.Printf("go migrated route enabled: POST /dashboard/workMessageConfig/corpStore")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessageConfig/corpShow")

@@ -9,6 +9,10 @@ import { PageState } from '../../components/page-state/page-state';
 import { updateSearch } from '../../shared/query-state';
 import type { ConversationGlobalApi, ConversationTargetType } from './conversation-global-api';
 import { messageText } from './conversation-global-api';
+import type { ConversationTrajectoryType } from './conversation-global-api';
+import { ConversationTrajectoryDirectory, type TrajectoryDirectoryMode } from './conversation-trajectory-directory';
+import { ConversationTrajectoryTimeline } from './conversation-trajectory-timeline';
+import { ConversationTrajectoryDrawer } from './conversation-trajectory-drawer';
 
 function targetLabel(type: ConversationTargetType): string {
   return type === 'customer' ? '客户' : type === 'room' ? '群聊' : '同事';
@@ -18,7 +22,7 @@ function isArchiveUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && error.status === 403 && error.code === 40301;
 }
 
-export function ConversationTrajectoryPage({ api }: { api: ConversationGlobalApi }) {
+function LegacyConversationTrajectoryPage({ api }: { api: ConversationGlobalApi }) {
   const access = useDashboardAccess();
   const [searchParams, setSearchParams] = useSearchParams();
   const [keyword, setKeyword] = useState(searchParams.get('keyword') ?? '');
@@ -72,4 +76,62 @@ export function ConversationTrajectoryPage({ api }: { api: ConversationGlobalApi
       </div>
     </section>
   );
+}
+
+function trajectoryToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+function validTrajectoryDate(value: string | null): string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return trajectoryToday();
+  const parsed = new Date(`${value}T00:00:00+08:00`);
+  const normalized = Number.isNaN(parsed.getTime()) ? '' : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(parsed);
+  return normalized !== value || value > trajectoryToday() ? trajectoryToday() : value;
+}
+
+export function clearTrajectoryDetail(params: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(params);
+  next.delete('conversationId'); next.delete('eventHour');
+  return next;
+}
+
+function TrajectoryWorkspace({ api }: { api: ConversationGlobalApi }) {
+  const access = useDashboardAccess();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const date = validTrajectoryDate(searchParams.get('date'));
+  const employeeIdRaw = Number(searchParams.get('employeeId'));
+  const employeeId = Number.isInteger(employeeIdRaw) && employeeIdRaw > 0 ? employeeIdRaw : null;
+  const conversationType = (['all', 'employee', 'customer', 'room'] as const).includes(searchParams.get('conversationType') as ConversationTrajectoryType) ? searchParams.get('conversationType') as ConversationTrajectoryType : 'all';
+  const directoryMode: TrajectoryDirectoryMode = searchParams.get('directoryMode') === 'organization' ? 'organization' : 'archived';
+  const keyword = searchParams.get('keyword') ?? '';
+  const [draftKeyword, setDraftKeyword] = useState(keyword);
+  const directoryQuery = useQuery({
+    queryKey: ['corp', access.corp.id, 'trajectory-directory', directoryMode, keyword, searchParams.get('departmentId') ?? '', Number(searchParams.get('employeePage') ?? '1')],
+    queryFn: () => api.staffDirectory!({ mode: directoryMode === 'organization' ? 'all' : 'archived', keyword, departmentId: searchParams.get('departmentId') ? Number(searchParams.get('departmentId')) : null, page: Math.max(1, Number(searchParams.get('employeePage') ?? '1')), pageSize: 50 }),
+    enabled: api.staffDirectory !== undefined,
+  });
+  const dayQuery = useQuery({
+    queryKey: ['corp', access.corp.id, 'trajectory-day', employeeId, date, conversationType],
+    queryFn: () => api.trajectoryDay!({ employeeId: employeeId!, date, conversationType }),
+    enabled: employeeId !== null && api.trajectoryDay !== undefined,
+    retry: false,
+  });
+  const update = (values: Record<string, string | undefined>, replace = false) => {
+    const next = new URLSearchParams(searchParams);
+    Object.entries(values).forEach(([key, value]) => value === undefined ? next.delete(key) : next.set(key, value));
+    setSearchParams(next, { replace });
+  };
+  const selectedEvent = dayQuery.data?.events.find((event) => event.conversationId === searchParams.get('conversationId') && (!searchParams.get('eventHour') || event.hour === searchParams.get('eventHour')));
+  return <section className="conversation-trajectory-page conversation-trajectory-page-v2"><div className="conversation-trajectory-workspace-v2">
+    <ConversationTrajectoryDirectory mode={directoryMode} draftKeyword={draftKeyword} data={directoryQuery.data} selectedEmployeeId={employeeId} isLoading={directoryQuery.isPending} isRefreshing={directoryQuery.isFetching} onDraftKeywordChange={setDraftKeyword} onKeywordSubmit={() => update({ keyword: draftKeyword.trim() || undefined, employeePage: '1', employeeId: undefined, conversationId: undefined, eventHour: undefined })} onModeChange={(mode) => update({ directoryMode: mode, employeePage: '1', departmentId: undefined, employeeId: undefined, conversationId: undefined, eventHour: undefined })} onDepartmentChange={(id) => update({ departmentId: id ? String(id) : undefined, employeePage: '1', employeeId: undefined, conversationId: undefined, eventHour: undefined })} onPageChange={(page) => update({ employeePage: String(page) })} onSelectEmployee={(id) => update({ employeeId: String(id), date, conversationType, conversationId: undefined, eventHour: undefined })} onRefresh={() => void directoryQuery.refetch()} />
+    <ConversationTrajectoryTimeline data={dayQuery.data} date={date} conversationType={conversationType} isLoading={dayQuery.isFetching} onDateChange={(nextDate) => update({ date: nextDate, conversationId: undefined, eventHour: undefined })} onTypeChange={(nextType) => update({ conversationType: nextType, conversationId: undefined, eventHour: undefined })} onRefresh={() => void dayQuery.refetch()} onOpenEvent={(event) => update({ conversationId: event.conversationId, eventHour: event.hour })} />
+    {selectedEvent && employeeId !== null && <ConversationTrajectoryDrawer api={api} conversationId={selectedEvent.conversationId} date={date} eventHour={selectedEvent.hour} onClose={() => setSearchParams(clearTrajectoryDetail(searchParams))} />}
+  </div></section>;
+}
+
+export function ConversationTrajectoryPage({ api }: { api: ConversationGlobalApi }) {
+  // Keep the old contract usable for deployments that have not yet rolled out
+  // the trajectory API; once the capability is present the page is entirely
+  // driven by the employee/day workspace above.
+  return api.trajectoryDay ? <TrajectoryWorkspace api={api} /> : <LegacyConversationTrajectoryPage api={api} />;
 }
