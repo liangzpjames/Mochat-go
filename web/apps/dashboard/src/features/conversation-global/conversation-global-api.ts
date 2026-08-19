@@ -172,6 +172,26 @@ export type CustomerDetailInput = { customerId: number; conversationId: string; 
 export type CustomerConversationProfile = { id: number; name: string; avatar: string; profileStatus: CustomerProfileStatus };
 export type CustomerConversationDetail = StaffConversationDetail & { customerId: number; customerName: string; profile: CustomerConversationProfile };
 
+export type GroupRoomMode = 'active' | 'dissolved';
+export type GroupMemberMode = 'all' | 'employee' | 'customer' | 'left';
+export type GroupRoomDirectoryInput = { mode: GroupRoomMode; keyword: string; page: number; pageSize: 50; employeeIds?: readonly number[]; customerIds?: readonly number[]; roomGroupIds?: readonly number[] };
+export type GroupRoomDirectoryItem = {
+  id: number; externalId: string; name: string; avatar: string; ownerId: number; ownerName: string;
+  memberCount: number; employeeCount: number; customerCount: number; messageCount: number;
+  lastMessage: string; lastMessageAt: string; focused: boolean; riskCount: number; timeoutCount: number; dissolved: boolean;
+};
+export type GroupRoomDirectoryPage = { items: readonly GroupRoomDirectoryItem[]; total: number; page: number; pageSize: 50; capabilities: readonly ConversationCapability[]; limitations: readonly { key: string; reason: string }[] };
+export type GroupRoomProfile = Omit<GroupRoomDirectoryItem, 'messageCount' | 'lastMessage' | 'lastMessageAt'> & { createdAt: string; status: string; capabilities: readonly ConversationCapability[]; limitations: readonly { key: string; reason: string }[] };
+export type GroupRoomMessage = { id: string; senderId: number; senderName: string; senderAvatar: string; senderKind: string; direction: 'inbound' | 'outbound'; sentAt: string; archiveSource: string; archiveSourceId: string; type: number; content: Record<string, unknown> };
+export type GroupRoomMessageStats = { messageTotal: number; employeeTotal: number; customerTotal: number; riskTotal: number; timeoutTotal: number };
+export type GroupRoomMessages = { roomId: number; stats: GroupRoomMessageStats; messages: readonly GroupRoomMessage[]; nextBefore: string; hasMore: boolean; capabilities: readonly ConversationCapability[] };
+export type GroupRoomMessagesInput = { roomId: number; keyword: string; date: string; messageTypes: readonly string[]; before?: string; pageSize: 50 };
+export type GroupRoomMember = { id: number; externalId: string; kind: string; name: string; avatar: string; joinedAt: string; leftAt: string; status: string; employeeId: number; customerId: number };
+export type GroupRoomMembersPage = { items: readonly GroupRoomMember[]; total: number; page: number; pageSize: 50; capabilities: readonly ConversationCapability[] };
+export type GroupRoomMembersInput = { roomId: number; mode: GroupMemberMode; keyword: string; page: number; pageSize: 50 };
+export type GroupRoomFilterOption = { value: string; label: string; count: number };
+export type GroupRoomFilterOptions = { employees: readonly GroupRoomFilterOption[]; customers: readonly GroupRoomFilterOption[]; groups: readonly GroupRoomFilterOption[]; capabilities: readonly ConversationCapability[] };
+
 // messageText 将归档消息内容还原为可读文本：内容为 JSON 时优先取 text 字段，
 // 避免在会话详情里直接展示 {"text":"..."} 原始串。
 export function messageText(message: ConversationMessage): string {
@@ -247,6 +267,11 @@ export type ConversationGlobalApi = {
   customerDirectory?(input: CustomerDirectoryInput): Promise<CustomerDirectoryPage>;
   customerConversations?(input: CustomerConversationInput): Promise<CustomerConversationPage>;
   customerDetail?(input: CustomerDetailInput): Promise<CustomerConversationDetail>;
+  groupRoomDirectory?(input: GroupRoomDirectoryInput): Promise<GroupRoomDirectoryPage>;
+  groupRoomProfile?(roomId: number): Promise<GroupRoomProfile>;
+  groupRoomMessages?(input: GroupRoomMessagesInput): Promise<GroupRoomMessages>;
+  groupRoomMembers?(input: GroupRoomMembersInput): Promise<GroupRoomMembersPage>;
+  groupRoomFilterOptions?(kind?: 'employee' | 'customer' | 'group'): Promise<GroupRoomFilterOptions>;
 };
 
 export type ConversationEmployee = {
@@ -465,7 +490,101 @@ function parseTrajectoryDay(value: unknown): ConversationTrajectoryDay {
   if (events.some((item) => item === null) || limitations.some((item) => item === null) || capabilities.some((item) => item === null)) throw new Error('会话轨迹接口返回了无效数据');
   return { employee: { id: value.employee.id, name: value.employee.name, avatar: value.employee.avatar }, date: value.date, timezone: value.timezone,
     metrics, events: events as ConversationTrajectoryEvent[], unmatchedTargetMessages: value.unmatchedTargetMessages,
-    limitations: limitations as ConversationTrajectoryDay['limitations'], capabilities: capabilities as ConversationCapability[] };
+     limitations: limitations as ConversationTrajectoryDay['limitations'], capabilities: capabilities as ConversationCapability[] };
+}
+
+function parseGroupLimitations(value: unknown): GroupRoomDirectoryPage['limitations'] | null {
+  if (!Array.isArray(value)) return null;
+  const items = value.map((item) => isRecord(item) && typeof item.key === 'string' && typeof item.reason === 'string' ? { key: item.key, reason: item.reason } : null);
+  return items.some((item) => item === null) ? null : items as GroupRoomDirectoryPage['limitations'];
+}
+
+function parseGroupCapabilities(value: unknown): readonly ConversationCapability[] | null {
+  if (!Array.isArray(value)) return null;
+  const items = value.map(parseCapability);
+  return items.some((item) => item === null) ? null : items as ConversationCapability[];
+}
+
+function parseGroupRoomDirectoryItem(value: unknown): GroupRoomDirectoryItem | null {
+  if (!isRecord(value) || !isFiniteNumber(value.id) || typeof value.externalId !== 'string' || typeof value.name !== 'string'
+    || typeof value.avatar !== 'string' || !isFiniteNumber(value.ownerId) || typeof value.ownerName !== 'string'
+    || !isFiniteNumber(value.memberCount) || !isFiniteNumber(value.employeeCount) || !isFiniteNumber(value.customerCount)
+    || !isFiniteNumber(value.messageCount) || typeof value.lastMessage !== 'string' || typeof value.lastMessageAt !== 'string'
+    || typeof value.focused !== 'boolean' || !isFiniteNumber(value.riskCount) || !isFiniteNumber(value.timeoutCount)
+    || typeof value.dissolved !== 'boolean') return null;
+  return {
+    id: value.id, externalId: value.externalId, name: value.name, avatar: value.avatar, ownerId: value.ownerId, ownerName: value.ownerName,
+    memberCount: value.memberCount, employeeCount: value.employeeCount, customerCount: value.customerCount, messageCount: value.messageCount,
+    lastMessage: value.lastMessage, lastMessageAt: value.lastMessageAt, focused: value.focused, riskCount: value.riskCount,
+    timeoutCount: value.timeoutCount, dissolved: value.dissolved,
+  };
+}
+
+function parseGroupRoomDirectory(value: unknown): GroupRoomDirectoryPage {
+  if (!isRecord(value) || !Array.isArray(value.items) || !isFiniteNumber(value.total) || !isFiniteNumber(value.page)
+    || value.pageSize !== 50) throw new Error('群聊目录接口返回了无效数据');
+  const items = value.items.map(parseGroupRoomDirectoryItem);
+  const capabilities = parseGroupCapabilities(value.capabilities);
+  const limitations = parseGroupLimitations(value.limitations);
+  if (items.some((item) => item === null) || capabilities === null || limitations === null) throw new Error('群聊目录接口返回了无效数据');
+  return { items: items as GroupRoomDirectoryItem[], total: value.total, page: value.page, pageSize: 50, capabilities, limitations };
+}
+
+function parseGroupRoomProfile(value: unknown): GroupRoomProfile {
+  if (!isRecord(value) || !isFiniteNumber(value.id) || typeof value.externalId !== 'string' || typeof value.name !== 'string'
+    || typeof value.avatar !== 'string' || !isFiniteNumber(value.ownerId) || typeof value.ownerName !== 'string'
+    || !isFiniteNumber(value.memberCount) || !isFiniteNumber(value.employeeCount) || !isFiniteNumber(value.customerCount)
+    || typeof value.createdAt !== 'string' || typeof value.status !== 'string' || typeof value.dissolved !== 'boolean'
+    || typeof value.focused !== 'boolean' || !isFiniteNumber(value.riskCount) || !isFiniteNumber(value.timeoutCount)) throw new Error('群聊资料接口返回了无效数据');
+  const capabilities = parseGroupCapabilities(value.capabilities);
+  const limitations = parseGroupLimitations(value.limitations);
+  if (capabilities === null || limitations === null) throw new Error('群聊资料接口返回了无效数据');
+  return {
+    id: value.id, externalId: value.externalId, name: value.name, avatar: value.avatar, ownerId: value.ownerId, ownerName: value.ownerName,
+    memberCount: value.memberCount, employeeCount: value.employeeCount, customerCount: value.customerCount, createdAt: value.createdAt,
+    status: value.status, dissolved: value.dissolved, focused: value.focused, riskCount: value.riskCount, timeoutCount: value.timeoutCount,
+    capabilities, limitations,
+  };
+}
+
+function parseGroupRoomMessages(value: unknown): GroupRoomMessages {
+  if (!isRecord(value) || !isFiniteNumber(value.roomId) || !isRecord(value.stats) || !Array.isArray(value.messages)
+    || typeof value.nextBefore !== 'string' || typeof value.hasMore !== 'boolean') throw new Error('群聊消息接口返回了无效数据');
+  const stats = value.stats;
+  if (!isFiniteNumber(stats.messageTotal) || !isFiniteNumber(stats.employeeTotal) || !isFiniteNumber(stats.customerTotal)
+    || !isFiniteNumber(stats.riskTotal) || !isFiniteNumber(stats.timeoutTotal)) throw new Error('群聊消息接口返回了无效数据');
+  const messages = value.messages.map((item): GroupRoomMessage | null => {
+    if (!isRecord(item) || typeof item.id !== 'string' || !isFiniteNumber(item.senderId) || typeof item.senderName !== 'string'
+      || typeof item.senderAvatar !== 'string' || typeof item.senderKind !== 'string'
+      || (item.direction !== 'inbound' && item.direction !== 'outbound') || typeof item.sentAt !== 'string'
+      || typeof item.archiveSource !== 'string' || typeof item.archiveSourceId !== 'string' || !isFiniteNumber(item.type)
+      || !isRecord(item.content)) return null;
+    return { id: item.id, senderId: item.senderId, senderName: item.senderName, senderAvatar: item.senderAvatar, senderKind: item.senderKind, direction: item.direction, sentAt: item.sentAt, archiveSource: item.archiveSource, archiveSourceId: item.archiveSourceId, type: item.type, content: item.content };
+  });
+  const capabilities = parseGroupCapabilities(value.capabilities);
+  if (messages.some((item) => item === null) || capabilities === null) throw new Error('群聊消息接口返回了无效数据');
+  return { roomId: value.roomId, stats: { messageTotal: stats.messageTotal, employeeTotal: stats.employeeTotal, customerTotal: stats.customerTotal, riskTotal: stats.riskTotal, timeoutTotal: stats.timeoutTotal }, messages: messages as GroupRoomMessage[], nextBefore: value.nextBefore, hasMore: value.hasMore, capabilities };
+}
+
+function parseGroupRoomMembers(value: unknown): GroupRoomMembersPage {
+  if (!isRecord(value) || !Array.isArray(value.items) || !isFiniteNumber(value.total) || !isFiniteNumber(value.page) || value.pageSize !== 50) throw new Error('群成员接口返回了无效数据');
+  const items = value.items.map((item): GroupRoomMember | null => {
+    if (!isRecord(item) || !isFiniteNumber(item.id) || typeof item.externalId !== 'string' || typeof item.kind !== 'string'
+      || typeof item.name !== 'string' || typeof item.avatar !== 'string' || typeof item.joinedAt !== 'string' || typeof item.leftAt !== 'string'
+      || typeof item.status !== 'string' || !isFiniteNumber(item.employeeId) || !isFiniteNumber(item.customerId)) return null;
+    return { id: item.id, externalId: item.externalId, kind: item.kind, name: item.name, avatar: item.avatar, joinedAt: item.joinedAt, leftAt: item.leftAt, status: item.status, employeeId: item.employeeId, customerId: item.customerId };
+  });
+  const capabilities = parseGroupCapabilities(value.capabilities);
+  if (items.some((item) => item === null) || capabilities === null) throw new Error('群成员接口返回了无效数据');
+  return { items: items as GroupRoomMember[], total: value.total, page: value.page, pageSize: 50, capabilities };
+}
+
+function parseGroupRoomFilterOptions(value: unknown): GroupRoomFilterOptions {
+  if (!isRecord(value) || !Array.isArray(value.employees) || !Array.isArray(value.customers) || !Array.isArray(value.groups)) throw new Error('群聊筛选接口返回了无效数据');
+  const parseOptions = (raw: unknown): GroupRoomFilterOption | null => isRecord(raw) && typeof raw.value === 'string' && typeof raw.label === 'string' && isFiniteNumber(raw.count) ? { value: raw.value, label: raw.label, count: raw.count } : null;
+  const employees = value.employees.map(parseOptions); const customers = value.customers.map(parseOptions); const groups = value.groups.map(parseOptions); const capabilities = parseGroupCapabilities(value.capabilities);
+  if (employees.some((item) => item === null) || customers.some((item) => item === null) || groups.some((item) => item === null) || capabilities === null) throw new Error('群聊筛选接口返回了无效数据');
+  return { employees: employees as GroupRoomFilterOption[], customers: customers as GroupRoomFilterOption[], groups: groups as GroupRoomFilterOption[], capabilities };
 }
 
 function isProfileStatus(value: unknown): value is CustomerProfileStatus {
@@ -745,6 +864,41 @@ export function createConversationGlobalApi(
       query.set('pageSize', '50');
       appendNonBlank(query, 'before', input.before ?? '');
       return parseCustomerDetail(await client.request(`/workMessage/customerDetail?${query.toString()}`), input.customerId, input.conversationId);
+    },
+    async groupRoomDirectory(input) {
+      const query = new URLSearchParams({ roomMode: input.mode });
+      appendNonBlank(query, 'keyword', input.keyword);
+      (input.employeeIds ?? []).forEach((id) => { if (Number.isInteger(id) && id > 0) query.append('employeeIds', String(id)); });
+      (input.customerIds ?? []).forEach((id) => { if (Number.isInteger(id) && id > 0) query.append('customerIds', String(id)); });
+      (input.roomGroupIds ?? []).forEach((id) => { if (Number.isInteger(id) && id > 0) query.append('roomGroupIds', String(id)); });
+      query.set('page', String(input.page));
+      query.set('pageSize', '50');
+      return parseGroupRoomDirectory(await client.request(`/workMessage/roomDirectory?${query.toString()}`));
+    },
+    async groupRoomProfile(roomId) {
+      return parseGroupRoomProfile(await client.request(`/workMessage/roomProfile?roomId=${encodeURIComponent(String(roomId))}`));
+    },
+    async groupRoomMessages(input) {
+      const query = new URLSearchParams({ roomId: String(input.roomId) });
+      appendNonBlank(query, 'keyword', input.keyword);
+      appendNonBlank(query, 'date', input.date);
+      appendAllNonBlank(query, 'messageTypes', input.messageTypes);
+      appendNonBlank(query, 'before', input.before ?? '');
+      query.set('pageSize', '50');
+      return parseGroupRoomMessages(await client.request(`/workMessage/roomMessages?${query.toString()}`));
+    },
+    async groupRoomMembers(input) {
+      const query = new URLSearchParams({ roomId: String(input.roomId), mode: input.mode });
+      appendNonBlank(query, 'keyword', input.keyword);
+      query.set('page', String(input.page));
+      query.set('pageSize', '50');
+      return parseGroupRoomMembers(await client.request(`/workMessage/roomMembers?${query.toString()}`));
+    },
+    async groupRoomFilterOptions(kind) {
+      const query = new URLSearchParams();
+      appendNonBlank(query, 'kind', kind ?? '');
+      const suffix = query.toString();
+      return parseGroupRoomFilterOptions(await client.request(`/workMessage/roomFilterOptions${suffix ? `?${suffix}` : ''}`));
     },
   };
 }
