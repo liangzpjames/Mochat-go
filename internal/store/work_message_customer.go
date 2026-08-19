@@ -399,10 +399,18 @@ func (s *MySQLStore) customerRoomMembershipExists(ctx context.Context, corpID, c
 }
 
 func customerDetailFromStaff(profile dashboard.WorkMessageCustomerProfile, detail dashboard.WorkMessageStaffDetail) dashboard.WorkMessageCustomerDetail {
+	if strings.TrimSpace(profile.Name) == "" {
+		if detail.TargetType == "customer" && strings.TrimSpace(detail.TargetName) != "" {
+			profile.Name = strings.TrimSpace(detail.TargetName)
+		} else {
+			profile.Name = fmt.Sprintf("客户 #%d", profile.ID)
+		}
+	}
 	return dashboard.WorkMessageCustomerDetail{
 		WorkMessageStaffDetail: detail,
 		CustomerID:             profile.ID,
 		CustomerName:           profile.Name,
+		Profile:                profile,
 	}
 }
 

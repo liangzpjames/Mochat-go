@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"regexp"
@@ -68,16 +69,50 @@ func TestCustomerDetailRejectsEmployeeOutsideRestrictedScope(t *testing.T) {
 	}
 }
 
-func TestCustomerDetailFromStaffPreservesStaffDetail(t *testing.T) {
+func TestCustomerDetailFromStaffIncludesAvailableProfileInJSONContract(t *testing.T) {
 	staff := dashboard.WorkMessageStaffDetail{
-		ConversationID: "9:2:44", EmployeeID: 9, TargetID: 44, EmployeeName: "员工", TargetName: "群聊",
+		ConversationID: "9:1:31", EmployeeID: 9, TargetID: 31, EmployeeName: "员工", TargetType: "customer", TargetName: "归档客户",
 		Stats:      dashboard.WorkMessageStaffStats{CommunicationDays: 2, MessageTotal: 3, InboundTotal: 2, OutboundTotal: 1},
 		Messages:   []dashboard.WorkMessageStaffMessage{{ID: "msg:1", Direction: "inbound", SenderName: "群成员"}},
 		NextBefore: "cursor", HasMore: true, Capabilities: []dashboard.WorkMessageCapability{{Key: "archive", Available: true}},
 	}
-	got := customerDetailFromStaff(dashboard.WorkMessageCustomerProfile{ID: 31, Name: "客户"}, staff)
-	if got.CustomerID != 31 || got.CustomerName != "客户" || !reflect.DeepEqual(got.WorkMessageStaffDetail, staff) {
+	profile := dashboard.WorkMessageCustomerProfile{ID: 31, Name: "客户资料", Avatar: "https://example.test/avatar.png", ProfileStatus: "available"}
+	got := customerDetailFromStaff(profile, staff)
+	if got.CustomerID != 31 || got.CustomerName != "客户资料" || !reflect.DeepEqual(got.WorkMessageStaffDetail, staff) {
 		t.Fatalf("detail=%#v", got)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if gotProfile, ok := payload["profile"].(map[string]any); !ok || !reflect.DeepEqual(gotProfile, map[string]any{
+		"id": float64(31), "name": "客户资料", "avatar": "https://example.test/avatar.png", "profileStatus": "available",
+	}) {
+		t.Fatalf("profile=%#v payload=%s", payload["profile"], encoded)
+	}
+}
+
+func TestCustomerDetailFromStaffUsesCustomerArchiveNameForMissingProfile(t *testing.T) {
+	got := customerDetailFromStaff(
+		dashboard.WorkMessageCustomerProfile{ID: 31, Avatar: "", ProfileStatus: "missing"},
+		dashboard.WorkMessageStaffDetail{TargetType: "customer", TargetName: "归档客户"},
+	)
+	if got.CustomerName != "归档客户" || got.Profile.ID != 31 || got.Profile.Name != "归档客户" || got.Profile.Avatar != "" || got.Profile.ProfileStatus != "missing" {
+		t.Fatalf("detail=%#v", got)
+	}
+}
+
+func TestCustomerDetailFromStaffUsesStableNameWhenArchiveDoesNotRepresentCustomer(t *testing.T) {
+	got := customerDetailFromStaff(
+		dashboard.WorkMessageCustomerProfile{ID: 31, ProfileStatus: "missing"},
+		dashboard.WorkMessageStaffDetail{TargetType: "room", TargetName: "群聊"},
+	)
+	if got.CustomerName != "客户 #31" {
+		t.Fatalf("customerName=%q", got.CustomerName)
 	}
 }
 

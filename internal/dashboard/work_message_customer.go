@@ -126,8 +126,9 @@ type WorkMessageCustomerConversationPage struct {
 
 type WorkMessageCustomerDetail struct {
 	WorkMessageStaffDetail
-	CustomerID   int    `json:"customerId"`
-	CustomerName string `json:"customerName"`
+	CustomerID   int                        `json:"customerId"`
+	CustomerName string                     `json:"customerName"`
+	Profile      WorkMessageCustomerProfile `json:"profile"`
 }
 
 type WorkMessageCustomerDirectoryStore interface {
