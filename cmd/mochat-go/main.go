@@ -1763,6 +1763,11 @@ func main() {
 			compatserver.WithWorkMessageCustomerDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageCustomerDirectory)),
 			compatserver.WithWorkMessageCustomerConversationsHandler(http.HandlerFunc(autoTag.WorkMessageCustomerConversations)),
 			compatserver.WithWorkMessageCustomerDetailHandler(http.HandlerFunc(autoTag.WorkMessageCustomerDetail)),
+			compatserver.WithWorkMessageRoomDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageRoomDirectory)),
+			compatserver.WithWorkMessageRoomProfileHandler(http.HandlerFunc(autoTag.WorkMessageRoomProfile)),
+			compatserver.WithWorkMessageRoomMessagesHandler(http.HandlerFunc(autoTag.WorkMessageRoomMessages)),
+			compatserver.WithWorkMessageRoomMembersHandler(http.HandlerFunc(autoTag.WorkMessageRoomMembers)),
+			compatserver.WithWorkMessageRoomFilterOptionsHandler(http.HandlerFunc(autoTag.WorkMessageRoomFilterOptions)),
 			compatserver.WithRiskBehaviorRulesHandler(http.HandlerFunc(riskBehavior.Rules)),
 			compatserver.WithRiskBehaviorRecordsHandler(http.HandlerFunc(riskBehavior.Records)),
 			compatserver.WithRiskBehaviorRuleCreateHandler(http.HandlerFunc(riskBehavior.CreateRule)),
@@ -1830,6 +1835,11 @@ func main() {
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerDirectory")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerConversations")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerDetail")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomDirectory")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomProfile")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomMessages")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomMembers")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomFilterOptions")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/index")
 		log.Printf("go migrated route enabled: POST /dashboard/workMessageConfig/corpStore")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessageConfig/corpShow")

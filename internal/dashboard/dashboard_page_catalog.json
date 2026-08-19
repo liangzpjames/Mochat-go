@@ -148,6 +148,31 @@
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
           "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/roomDirectory",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/roomProfile",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/roomMessages",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/roomMembers",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/roomFilterOptions",
+          "scopeRequired": true
         }
       ]
     },

@@ -340,6 +340,11 @@ type Server struct {
 	workMessageCustomerDirectory                    http.Handler
 	workMessageCustomerConversations                http.Handler
 	workMessageCustomerDetail                       http.Handler
+	workMessageRoomDirectory                        http.Handler
+	workMessageRoomProfile                          http.Handler
+	workMessageRoomMessages                         http.Handler
+	workMessageRoomMembers                          http.Handler
+	workMessageRoomFilterOptions                    http.Handler
 	riskBehaviorRules                               http.Handler
 	riskBehaviorRecords                             http.Handler
 	riskBehaviorRuleCreate                          http.Handler
@@ -2579,6 +2584,36 @@ func WithWorkMessageCustomerConversationsHandler(handler http.Handler) Option {
 func WithWorkMessageCustomerDetailHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.workMessageCustomerDetail = handler
+	}
+}
+
+func WithWorkMessageRoomDirectoryHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomDirectory = handler
+	}
+}
+
+func WithWorkMessageRoomProfileHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomProfile = handler
+	}
+}
+
+func WithWorkMessageRoomMessagesHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomMessages = handler
+	}
+}
+
+func WithWorkMessageRoomMembersHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomMembers = handler
+	}
+}
+
+func WithWorkMessageRoomFilterOptionsHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomFilterOptions = handler
 	}
 }
 
@@ -5076,6 +5111,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageCustomerConversations.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/customerDetail" && r.Method == http.MethodGet && s.workMessageCustomerDetail != nil:
 		s.workMessageCustomerDetail.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomDirectory" && r.Method == http.MethodGet && s.workMessageRoomDirectory != nil:
+		s.workMessageRoomDirectory.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomProfile" && r.Method == http.MethodGet && s.workMessageRoomProfile != nil:
+		s.workMessageRoomProfile.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomMessages" && r.Method == http.MethodGet && s.workMessageRoomMessages != nil:
+		s.workMessageRoomMessages.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomMembers" && r.Method == http.MethodGet && s.workMessageRoomMembers != nil:
+		s.workMessageRoomMembers.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomFilterOptions" && r.Method == http.MethodGet && s.workMessageRoomFilterOptions != nil:
+		s.workMessageRoomFilterOptions.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodGet && s.riskBehaviorRules != nil:
 		s.riskBehaviorRules.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/records" && r.Method == http.MethodGet && s.riskBehaviorRecords != nil:
@@ -6909,6 +6954,21 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.workMessageCustomerDetail != nil {
 		routes = append(routes, "GET /dashboard/workMessage/customerDetail")
+	}
+	if s.workMessageRoomDirectory != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomDirectory")
+	}
+	if s.workMessageRoomProfile != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomProfile")
+	}
+	if s.workMessageRoomMessages != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomMessages")
+	}
+	if s.workMessageRoomMembers != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomMembers")
+	}
+	if s.workMessageRoomFilterOptions != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomFilterOptions")
 	}
 	if s.workMessageIndex != nil {
 		routes = append(routes, "GET /dashboard/workMessage/index", "GET /dashboard/workMessage/detail")
