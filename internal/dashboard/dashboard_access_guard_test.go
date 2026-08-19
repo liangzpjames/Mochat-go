@@ -625,6 +625,55 @@ func TestDashboardAccessGuardProvidesScopeContextForEveryCatalogScopedResource(t
 	}
 }
 
+func TestDashboardPageCatalogCustomerConversationResources(t *testing.T) {
+	raw, err := os.ReadFile("dashboard_page_catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Pages []struct {
+			Code      string                        `json:"code"`
+			Resources []DashboardPermissionResource `json:"resources"`
+		} `json:"pages"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	var customerResources []DashboardPermissionResource
+	for _, page := range catalog.Pages {
+		if page.Code == "dashboard.chat.v2_customer" {
+			customerResources = page.Resources
+			break
+		}
+	}
+	if customerResources == nil {
+		t.Fatal("customer conversation page is missing")
+	}
+	for _, want := range []DashboardPermissionResource{
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/customerDirectory", ScopeRequired: true},
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/customerConversations", ScopeRequired: true},
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/customerDetail", ScopeRequired: true},
+		{Method: http.MethodPut, PathPattern: "/dashboard/workMessage/focus", ScopeRequired: true},
+		{Method: http.MethodDelete, PathPattern: "/dashboard/workMessage/focus", ScopeRequired: true},
+	} {
+		found := false
+		for _, resource := range customerResources {
+			if resource.Method == want.Method && resource.PathPattern == want.PathPattern && resource.ScopeRequired == want.ScopeRequired {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("customer page missing resource %+v", want)
+		}
+	}
+	for _, resource := range customerResources {
+		if resource.PathPattern == "/dashboard/workContact/index" {
+			t.Fatal("customer conversation page must not depend on /dashboard/workContact/index")
+		}
+	}
+}
+
 func TestDashboardResourceMatcherOnlySupportsIDSegmentsAndPrefersStatic(t *testing.T) {
 	resources := []DashboardPermissionResource{
 		{PermissionCode: "dynamic", Method: http.MethodGet, PathPattern: "/dashboard/reports/{id}"},

@@ -4266,6 +4266,45 @@ func TestAutoTagDashboardHandlersAreRouted(t *testing.T) {
 	}
 }
 
+func TestWorkMessageCustomerHandlersAreRouted(t *testing.T) {
+	sourceRoot := t.TempDir()
+	srv, err := New(config.Config{
+		ListenAddr:   ":0",
+		PHPUpstream:  "http://127.0.0.1:9501",
+		SourceRoot:   sourceRoot,
+		ManifestPath: writeManifest(t),
+		ProxyTimeout: time.Second,
+	},
+		WithWorkMessageCustomerDirectoryHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("customer directory"))
+		})),
+		WithWorkMessageCustomerConversationsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("customer conversations"))
+		})),
+		WithWorkMessageCustomerDetailHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("customer detail"))
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ method, path, body, route string }{
+		{http.MethodGet, "/dashboard/workMessage/customerDirectory?mode=all&page=1&pageSize=50", "customer directory", "GET /dashboard/workMessage/customerDirectory"},
+		{http.MethodGet, "/dashboard/workMessage/customerConversations?customerId=31&mode=direct&page=1&pageSize=20", "customer conversations", "GET /dashboard/workMessage/customerConversations"},
+		{http.MethodGet, "/dashboard/workMessage/customerDetail?customerId=31&conversationId=9:1:31&pageSize=50", "customer detail", "GET /dashboard/workMessage/customerDetail"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != tc.body {
+			t.Fatalf("%s %s status=%d body=%q", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+		if !containsString(srv.migratedRoutes(), tc.route) {
+			t.Fatalf("missing migrated route %q in %#v", tc.route, srv.migratedRoutes())
+		}
+	}
+}
+
 func TestSidebarRoomSOPHandlersAreRouted(t *testing.T) {
 	sourceRoot := t.TempDir()
 	srv, err := New(config.Config{

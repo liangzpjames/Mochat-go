@@ -318,6 +318,56 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 	}
 }
 
+func TestCustomerConversationWorkspaceRBAC0142MigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	var target Migration
+	for _, migration := range migrations {
+		if migration.Version == "0142_customer_conversation_workspace_rbac" {
+			target = migration
+			break
+		}
+	}
+	if target.Version == "" {
+		t.Fatal("0142 customer conversation workspace RBAC migration was not discovered")
+	}
+	upBody, err := os.ReadFile(target.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downBody, err := os.ReadFile(target.DownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := string(upBody)
+	down := string(downBody)
+	for _, required := range []string{
+		"dashboard.chat.v2_customer",
+		"/dashboard/workMessage/customerDirectory",
+		"/dashboard/workMessage/customerConversations",
+		"/dashboard/workMessage/customerDetail",
+		"/dashboard/workMessage/focus",
+		"WHERE NOT EXISTS",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("0142 up migration missing %q", required)
+		}
+	}
+	for _, path := range []string{
+		"/dashboard/workMessage/customerDirectory",
+		"/dashboard/workMessage/customerConversations",
+		"/dashboard/workMessage/customerDetail",
+		"/dashboard/workMessage/focus",
+	} {
+		if !strings.Contains(down, path) {
+			t.Fatalf("0142 down migration missing %q", path)
+		}
+	}
+	if strings.Count(down, "/dashboard/workMessage/focus") != 1 {
+		t.Fatalf("0142 down migration must target the focus resource exactly once, got %d", strings.Count(down, "/dashboard/workMessage/focus"))
+	}
+}
+
 func TestDefaultCorpReconciliationIsTenantScopedAndIdempotent(t *testing.T) {
 	root := filepath.Join("..", "..")
 	body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0120_saas_tenant_default_corp_reconcile.up.sql"))

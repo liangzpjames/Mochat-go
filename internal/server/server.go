@@ -337,6 +337,9 @@ type Server struct {
 	autoTagShowContactTime                          http.Handler
 	workMessageFromUsers                            http.Handler
 	workMessageToUsers                              http.Handler
+	workMessageCustomerDirectory                    http.Handler
+	workMessageCustomerConversations                http.Handler
+	workMessageCustomerDetail                       http.Handler
 	riskBehaviorRules                               http.Handler
 	riskBehaviorRecords                             http.Handler
 	riskBehaviorRuleCreate                          http.Handler
@@ -2558,6 +2561,24 @@ func WithWorkMessageFromUsersHandler(handler http.Handler) Option {
 func WithWorkMessageToUsersHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.workMessageToUsers = handler
+	}
+}
+
+func WithWorkMessageCustomerDirectoryHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageCustomerDirectory = handler
+	}
+}
+
+func WithWorkMessageCustomerConversationsHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageCustomerConversations = handler
+	}
+}
+
+func WithWorkMessageCustomerDetailHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageCustomerDetail = handler
 	}
 }
 
@@ -5049,6 +5070,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageFromUsers.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/toUsers" && r.Method == http.MethodGet && s.workMessageToUsers != nil:
 		s.workMessageToUsers.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/customerDirectory" && r.Method == http.MethodGet && s.workMessageCustomerDirectory != nil:
+		s.workMessageCustomerDirectory.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/customerConversations" && r.Method == http.MethodGet && s.workMessageCustomerConversations != nil:
+		s.workMessageCustomerConversations.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/customerDetail" && r.Method == http.MethodGet && s.workMessageCustomerDetail != nil:
+		s.workMessageCustomerDetail.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodGet && s.riskBehaviorRules != nil:
 		s.riskBehaviorRules.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/records" && r.Method == http.MethodGet && s.riskBehaviorRecords != nil:
@@ -6873,6 +6900,15 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.workMessageToUsers != nil {
 		routes = append(routes, "GET /dashboard/workMessage/toUsers")
+	}
+	if s.workMessageCustomerDirectory != nil {
+		routes = append(routes, "GET /dashboard/workMessage/customerDirectory")
+	}
+	if s.workMessageCustomerConversations != nil {
+		routes = append(routes, "GET /dashboard/workMessage/customerConversations")
+	}
+	if s.workMessageCustomerDetail != nil {
+		routes = append(routes, "GET /dashboard/workMessage/customerDetail")
 	}
 	if s.workMessageIndex != nil {
 		routes = append(routes, "GET /dashboard/workMessage/index", "GET /dashboard/workMessage/detail")
