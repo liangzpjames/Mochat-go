@@ -88,6 +88,18 @@ func TestDefaultArchiveSourceSQLUsesRegistryForEachMode(t *testing.T) {
 	}
 }
 
+func TestWorkMessageUnionNormalizesArchivedRoomID(t *testing.T) {
+	query, _ := workMessageUnionSQL(7)
+	normalizedQuery := strings.Join(strings.Fields(query), " ")
+	effectiveRoomID := "CASE WHEN COALESCE(wm.to_user_type, 0) = 2 THEN COALESCE(NULLIF(wm.to_user_id, 0), NULLIF(wm.room_id, 0), 0) ELSE COALESCE(wm.to_user_id, 0) END AS to_user_id"
+	if got := strings.Count(normalizedQuery, effectiveRoomID); got != dashboard.WorkMessageArchiveMessageTableCount {
+		t.Fatalf("effective room id expression count=%d, want %d", got, dashboard.WorkMessageArchiveMessageTableCount)
+	}
+	if strings.Contains(query, "COALESCE(wm.to_user_id, 0) AS to_user_id") {
+		t.Fatalf("archive union still exposes raw to_user_id: %s", query)
+	}
+}
+
 func TestArchiveMessageSourceFilterUsesRegistryIdentity(t *testing.T) {
 	simulated := archiveMessageSourceShardPredicate("simulated")
 	if !strings.Contains(simulated, "archive_source_filter.source_kind = 'simulated'") || strings.Contains(simulated, "MOCHAT-SIM:%") {

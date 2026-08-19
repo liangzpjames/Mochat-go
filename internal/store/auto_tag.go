@@ -2718,7 +2718,11 @@ func workMessageTableSQLWithWhere(_ int, index int, where string) string {
 			COALESCE(wm.corp_id, 0) AS corp_id,
 			COALESCE(wm.work_employee_id, 0) AS work_employee_id,
 			COALESCE(wm.to_user_type, 0) AS to_user_type,
-			COALESCE(wm.to_user_id, 0) AS to_user_id,
+			CASE
+				WHEN COALESCE(wm.to_user_type, 0) = 2
+				THEN COALESCE(NULLIF(wm.to_user_id, 0), NULLIF(wm.room_id, 0), 0)
+				ELSE COALESCE(wm.to_user_id, 0)
+			END AS to_user_id,
 			COALESCE(wm.action, 0) AS action,
 			COALESCE(wm.msg_type, wm.type, 100) AS msg_type,
 			COALESCE(CAST(wm.content AS CHAR), '') AS content_raw,
