@@ -79,8 +79,9 @@ func TestCustomerConversationMariaDBIntegration(t *testing.T) {
 	createCustomerDirectoryFixture(t, db)
 	base := time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
 	statements := []string{
-		`INSERT INTO mc_work_room (id,corp_id,name) VALUES (504,27,'已退群'),(505,27,'无关联群')`,
-		`INSERT INTO mc_work_contact_room (room_id,contact_id,deleted_at) VALUES (504,101,UTC_TIMESTAMP())`,
+		`INSERT INTO mc_work_contact (id,corp_id,name) VALUES (104,28,'跨企业客户')`,
+		`INSERT INTO mc_work_room (id,corp_id,name) VALUES (504,27,'已退群'),(505,27,'无关联群'),(506,27,'员工范围群')`,
+		`INSERT INTO mc_work_contact_room (room_id,contact_id,employee_id,deleted_at) VALUES (504,101,9,UTC_TIMESTAMP()),(501,104,9,NULL),(506,102,10,NULL)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -92,6 +93,7 @@ func TestCustomerConversationMariaDBIntegration(t *testing.T) {
 		{10, 2, 501},
 		{9, 2, 504},
 		{9, 2, 505}, // no customer membership: must not be returned
+		{9, 2, 506}, // customer 102 belongs only to employee 10: must not authorize employee 9
 	} {
 		if _, err := db.Exec(`INSERT INTO mc_work_message_1 (corp_id,msgid,seq,work_employee_id,to_user_type,to_user_id,content,content_text,msg_data_time) VALUES (27,?,?,?,?,?,'{}','conversation fixture',?)`,
 			"customer-conversation-"+fmt.Sprint(index+1), 100+index, row.employeeID, row.targetType, row.targetID, base.Add(time.Duration(index)*time.Minute)); err != nil {
@@ -136,6 +138,23 @@ func TestCustomerConversationMariaDBIntegration(t *testing.T) {
 	if _, leaked := seen["9:2:505"]; leaked {
 		t.Fatalf("room without customer membership leaked: %#v", groups)
 	}
+
+	crossCorp, err := store.WorkMessageCustomerConversations(ctx, dashboard.WorkMessageCustomerConversationFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 104, Mode: dashboard.WorkMessageCustomerConversationModeGroup, Page: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crossCorp.Total != 0 || len(crossCorp.List) != 0 {
+		t.Fatalf("cross-corp contact membership leaked group conversations: %#v", crossCorp)
+	}
+
+	_, err = store.WorkMessageCustomerConversations(ctx, dashboard.WorkMessageCustomerConversationFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 102, Mode: dashboard.WorkMessageCustomerConversationModeGroup, Page: 1, RestrictEmployeeIDs: true, EmployeeIDs: []int{9}})
+	if err != dashboard.ErrWorkMessageConversationNotFound {
+		t.Fatalf("unrelated group member must not authorize employee 9: %v", err)
+	}
+	_, err = store.WorkMessageCustomerConversations(ctx, dashboard.WorkMessageCustomerConversationFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 103, Mode: dashboard.WorkMessageCustomerConversationModeDirect, Page: 1, RestrictEmployeeIDs: true, EmployeeIDs: []int{9}})
+	if err != dashboard.ErrWorkMessageConversationNotFound {
+		t.Fatalf("missing customer profile without allowed relationship must be hidden: %v", err)
+	}
 }
 
 func createCustomerDirectoryFixture(t *testing.T, db *sql.DB) {
@@ -146,7 +165,7 @@ func createCustomerDirectoryFixture(t *testing.T, db *sql.DB) {
 		`CREATE TABLE mc_work_employee (id INT UNSIGNED NOT NULL PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', alias VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL) ENGINE=InnoDB`,
 		`CREATE TABLE mc_work_contact (id INT UNSIGNED NOT NULL PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', alias VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_external_userid VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL) ENGINE=InnoDB`,
 		`CREATE TABLE mc_work_room (id INT UNSIGNED NOT NULL PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_chat_id VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_contact_room (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, room_id INT UNSIGNED NOT NULL, contact_id INT UNSIGNED NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,
+		`CREATE TABLE mc_work_contact_room (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, room_id INT UNSIGNED NOT NULL, contact_id INT UNSIGNED NOT NULL, employee_id INT UNSIGNED NOT NULL DEFAULT 0, deleted_at DATETIME NULL) ENGINE=InnoDB`,
 		`CREATE TABLE mc_work_contact_employee (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, contact_id INT UNSIGNED NOT NULL, employee_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, status TINYINT NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,
 		`CREATE TABLE mochat_go_work_message_focus (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, user_id INT UNSIGNED NOT NULL, work_employee_id INT UNSIGNED NOT NULL, to_user_type TINYINT NOT NULL, to_user_id INT UNSIGNED NOT NULL) ENGINE=InnoDB`,
 		`INSERT INTO mc_corp (id,tenant_id,chat_status) VALUES (27,11,1)`,
@@ -154,7 +173,7 @@ func createCustomerDirectoryFixture(t *testing.T, db *sql.DB) {
 		`INSERT INTO mc_work_contact (id,corp_id,name,wx_external_userid) VALUES (101,27,'客户甲','wx-101'),(102,27,'客户乙','wx-102')`,
 		`INSERT INTO mc_work_room (id,corp_id,name) VALUES (501,27,'客户甲所在群'),(502,28,'跨企业群'),(503,27,'已删除群')`,
 		`UPDATE mc_work_room SET deleted_at=UTC_TIMESTAMP() WHERE id=503`,
-		`INSERT INTO mc_work_contact_room (room_id,contact_id) VALUES (501,101),(502,104),(503,105)`,
+		`INSERT INTO mc_work_contact_room (room_id,contact_id,employee_id) VALUES (501,101,9),(502,104,9),(503,105,9)`,
 		`INSERT INTO mc_work_contact_employee (contact_id,employee_id,corp_id,status) VALUES (101,9,27,1),(102,10,27,2)`,
 		`INSERT INTO mochat_go_work_message_focus (tenant_id,corp_id,user_id,work_employee_id,to_user_type,to_user_id) VALUES (11,27,77,9,1,101)`,
 	}

@@ -304,14 +304,14 @@ func (s *MySQLStore) WorkMessageCustomerConversations(ctx context.Context, filte
 		return dashboard.WorkMessageCustomerConversationPage{}, dashboard.ErrWorkMessageConversationNotFound
 	}
 	if filter.RestrictEmployeeIDs && len(uniquePositiveInts(filter.EmployeeIDs)) == 0 {
-		return emptyCustomerConversationPage(profile, filter), nil
+		return s.emptyCustomerConversationPageWithCapabilities(ctx, profile, filter, true)
 	}
 	baseSQL, args, available, err := s.customerConversationSource(ctx, filter)
 	if err != nil {
 		return dashboard.WorkMessageCustomerConversationPage{}, err
 	}
 	if !available {
-		return emptyCustomerConversationPage(profile, filter), nil
+		return s.emptyCustomerConversationPageWithCapabilities(ctx, profile, filter, false)
 	}
 	total, err := countCustomerConversations(ctx, s.db, baseSQL, args)
 	if err != nil {
@@ -354,10 +354,6 @@ func (s *MySQLStore) customerWorkspaceProfile(ctx context.Context, corpID, custo
 	if len(ids) == 0 {
 		return profile, false, nil
 	}
-	if err == sql.ErrNoRows {
-		// The archive query is still the authority for an archived-only profile.
-		return profile, true, nil
-	}
 	var visible bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM mc_work_contact_employee relation
@@ -371,8 +367,9 @@ func (s *MySQLStore) customerWorkspaceProfile(ctx context.Context, corpID, custo
 	err = s.db.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM mc_work_contact_room membership
 		JOIN mc_work_room room ON room.id=membership.room_id AND room.corp_id=? AND room.deleted_at IS NULL
-		WHERE membership.contact_id=?
-	)`, corpID, customerID).Scan(&visible)
+		JOIN mc_work_contact contact_scope ON contact_scope.id=membership.contact_id AND contact_scope.corp_id=?
+		WHERE membership.contact_id=? AND membership.employee_id IN (`+placeholders(len(ids))+`)
+	)`, append([]any{corpID, corpID, customerID}, intsToAny(ids)...)...).Scan(&visible)
 	return profile, visible, err
 }
 
@@ -467,6 +464,7 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 			CASE WHEN EXISTS (SELECT 1 FROM mc_work_contact_room membership_current WHERE membership_current.room_id=membership.room_id AND membership_current.contact_id=membership.contact_id AND membership_current.deleted_at IS NULL) THEN 1 ELSE 0 END AS current_member
 			FROM mc_work_contact_room membership
 			JOIN mc_work_room room ON room.id=membership.room_id AND room.corp_id=? AND room.deleted_at IS NULL
+			JOIN mc_work_contact contact_scope ON contact_scope.id=membership.contact_id AND contact_scope.corp_id=?
 			WHERE membership.contact_id = ?)`
 		baseSQL := `SELECT ` + projections + `
 			FROM (
@@ -486,9 +484,9 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 			` + joins + `
 			WHERE latest.rn=1`
 		args := append([]any{}, archiveArgs...)
-		args = append(args, filter.CorpID, filter.CustomerID)
+		args = append(args, filter.CorpID, filter.CorpID, filter.CustomerID)
 		args = append(args, archiveArgs...)
-		args = append(args, filter.CorpID, filter.CustomerID)
+		args = append(args, filter.CorpID, filter.CorpID, filter.CustomerID)
 		args = append(args, joinArgs...)
 		return baseSQL, args, nil
 	default:
@@ -536,6 +534,27 @@ func (s *MySQLStore) customerConversationPage(ctx context.Context, baseSQL strin
 func (s *MySQLStore) decorateCustomerConversationFlags(ctx context.Context, filter dashboard.WorkMessageCustomerConversationFilter, list []dashboard.WorkMessageCustomerConversation) ([]dashboard.WorkMessageCapability, error) {
 	capabilities := append([]dashboard.WorkMessageCapability{}, dashboard.WorkMessageCustomerCapabilities()...)
 	capabilities = append(capabilities, dashboard.WorkMessageCapability{Key: "archive", Available: true})
+	flags := []struct {
+		table, key, reason string
+		apply              func(*dashboard.WorkMessageCustomerConversation, int)
+	}{
+		{"mochat_go_work_message_focus", "focus", "会话关注表不可用", func(item *dashboard.WorkMessageCustomerConversation, count int) { item.Focused = count > 0 }},
+		{"mochat_go_risk_records", "riskRecords", "系统没有风险记录数据表", func(item *dashboard.WorkMessageCustomerConversation, count int) { item.RiskCount = count }},
+		{"mochat_go_timeout_records", "timeoutRecords", "系统没有超时记录数据表", func(item *dashboard.WorkMessageCustomerConversation, count int) { item.TimeoutCount = count }},
+	}
+	available := make([]bool, len(flags))
+	for index, flag := range flags {
+		var err error
+		available[index], err = s.tableExists(ctx, flag.table)
+		if err != nil {
+			return nil, err
+		}
+		if available[index] {
+			capabilities = append(capabilities, dashboard.WorkMessageCapability{Key: flag.key, Available: true})
+		} else {
+			capabilities = append(capabilities, dashboard.WorkMessageCapability{Key: flag.key, Available: false, Reason: flag.reason})
+		}
+	}
 	if len(list) == 0 {
 		return capabilities, nil
 	}
@@ -547,54 +566,36 @@ func (s *MySQLStore) decorateCustomerConversationFlags(ctx context.Context, filt
 	}
 	marks := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
 
-	focusAvailable, err := s.tableExists(ctx, "mochat_go_work_message_focus")
-	if err != nil {
-		return nil, err
-	}
-	if !focusAvailable {
-		capabilities = append(capabilities, dashboard.WorkMessageCapability{Key: "focus", Available: false, Reason: "会话关注表不可用"})
-	} else {
-		queryArgs := []any{filter.TenantID, filter.CorpID, filter.UserID}
-		for _, id := range ids {
-			queryArgs = append(queryArgs, id)
+	for index, flag := range flags {
+		if !available[index] {
+			continue
 		}
-		rows, err := s.db.QueryContext(ctx, `SELECT CONCAT(work_employee_id, ':', to_user_type, ':', to_user_id)
+		if flag.key == "focus" {
+			queryArgs := []any{filter.TenantID, filter.CorpID, filter.UserID}
+			for _, id := range ids {
+				queryArgs = append(queryArgs, id)
+			}
+			rows, err := s.db.QueryContext(ctx, `SELECT CONCAT(work_employee_id, ':', to_user_type, ':', to_user_id)
 			FROM mochat_go_work_message_focus WHERE tenant_id=? AND corp_id=? AND user_id=?
 			AND CONCAT(work_employee_id, ':', to_user_type, ':', to_user_id) IN (`+marks+`)`, queryArgs...)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
+			if err != nil {
+				return nil, err
+			}
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				if item := byID[id]; item != nil {
+					flag.apply(item, 1)
+				}
+			}
+			if err := rows.Err(); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			if item := byID[id]; item != nil {
-				item.Focused = true
-			}
-		}
-		if err := rows.Err(); err != nil {
 			rows.Close()
-			return nil, err
-		}
-		rows.Close()
-		capabilities = append(capabilities, dashboard.WorkMessageCapability{Key: "focus", Available: true})
-	}
-
-	for _, flag := range []struct {
-		table, key, reason string
-		apply              func(*dashboard.WorkMessageCustomerConversation, int)
-	}{
-		{"mochat_go_risk_records", "riskRecords", "系统没有风险记录数据表", func(item *dashboard.WorkMessageCustomerConversation, count int) { item.RiskCount = count }},
-		{"mochat_go_timeout_records", "timeoutRecords", "系统没有超时记录数据表", func(item *dashboard.WorkMessageCustomerConversation, count int) { item.TimeoutCount = count }},
-	} {
-		available, err := s.tableExists(ctx, flag.table)
-		if err != nil {
-			return nil, err
-		}
-		if !available {
-			capabilities = append(capabilities, dashboard.WorkMessageCapability{Key: flag.key, Available: false, Reason: flag.reason})
 			continue
 		}
 		queryArgs := []any{filter.TenantID, filter.CorpID}
@@ -622,9 +623,23 @@ func (s *MySQLStore) decorateCustomerConversationFlags(ctx context.Context, filt
 			return nil, err
 		}
 		rows.Close()
-		capabilities = append(capabilities, dashboard.WorkMessageCapability{Key: flag.key, Available: true})
 	}
 	return capabilities, nil
+}
+
+func (s *MySQLStore) emptyCustomerConversationPageWithCapabilities(ctx context.Context, profile dashboard.WorkMessageCustomerProfile, filter dashboard.WorkMessageCustomerConversationFilter, archiveAvailable bool) (dashboard.WorkMessageCustomerConversationPage, error) {
+	page := emptyCustomerConversationPage(profile, filter)
+	capabilities, err := s.decorateCustomerConversationFlags(ctx, filter, nil)
+	if err != nil {
+		return dashboard.WorkMessageCustomerConversationPage{}, err
+	}
+	for index := range capabilities {
+		if capabilities[index].Key == "archive" && !archiveAvailable {
+			capabilities[index] = dashboard.WorkMessageCapability{Key: "archive", Available: false, Reason: "当前企业没有可用的会话存档数据"}
+		}
+	}
+	page.Capabilities = capabilities
+	return page, nil
 }
 
 func emptyCustomerConversationPage(profile dashboard.WorkMessageCustomerProfile, filter dashboard.WorkMessageCustomerConversationFilter) dashboard.WorkMessageCustomerConversationPage {

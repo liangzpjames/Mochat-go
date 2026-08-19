@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"regexp"
 	"strings"
 	"testing"
@@ -192,6 +193,82 @@ func TestCustomerConversationBaseKeepsHistoricalGroupMembership(t *testing.T) {
 	}
 }
 
+func TestCustomerConversationGroupRoomsScopeContactCorpAndBindEachSource(t *testing.T) {
+	filter := dashboard.WorkMessageCustomerConversationFilter{
+		CorpID: 27, CustomerID: 31, Mode: dashboard.WorkMessageCustomerConversationModeGroup,
+	}
+	sqlText, args, err := customerConversationBaseSQL(filter, "SELECT * FROM archive WHERE source=?", []any{"archive-source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(sqlText, "JOIN mc_work_contact contact_scope ON contact_scope.id=membership.contact_id AND contact_scope.corp_id=?"); got != 2 {
+		t.Fatalf("group source must scope contact corp twice, got %d in %s", got, sqlText)
+	}
+	want := []any{"archive-source", 27, 27, 31, "archive-source", 27, 27, 31, 27, 27, 27, 27}
+	if len(args) != len(want) {
+		t.Fatalf("args=%#v want=%#v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("args[%d]=%#v want=%#v; args=%#v", i, args[i], want[i], args)
+		}
+	}
+}
+
+func TestCustomerConversationWorkspaceProfileRestrictedGroupRequiresAllowedEmployeeMember(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta("FROM mc_work_contact WHERE id=? AND corp_id=? LIMIT 1")).
+		WithArgs(31, 27).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "avatar", "profile_status"}).AddRow("客户", "", "available"))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM mc_work_contact_employee relation")).
+		WithArgs(27, 31, 9).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM mc_work_contact_room membership\n\t\tJOIN mc_work_room room ON room.id=membership.room_id AND room.corp_id=? AND room.deleted_at IS NULL\n\t\tJOIN mc_work_contact contact_scope ON contact_scope.id=membership.contact_id AND contact_scope.corp_id=?\n\t\tWHERE membership.contact_id=? AND membership.employee_id IN (?)")).
+		WithArgs(27, 27, 31, 9).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	_, visible, err := NewMySQLStore(db).customerWorkspaceProfile(context.Background(), 27, 31, true, []int{9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visible {
+		t.Fatal("a group member attached only to another employee must not authorize this scope")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCustomerConversationWorkspaceProfileMissingRestrictedCustomerRequiresAuthorizedRelationship(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta("FROM mc_work_contact WHERE id=? AND corp_id=? LIMIT 1")).
+		WithArgs(103, 27).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta("FROM mc_work_contact_employee relation")).
+		WithArgs(27, 103, 9).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM mc_work_contact_room membership\n\t\tJOIN mc_work_room room ON room.id=membership.room_id AND room.corp_id=? AND room.deleted_at IS NULL\n\t\tJOIN mc_work_contact contact_scope ON contact_scope.id=membership.contact_id AND contact_scope.corp_id=?\n\t\tWHERE membership.contact_id=? AND membership.employee_id IN (?)")).
+		WithArgs(27, 27, 103, 9).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	_, visible, err := NewMySQLStore(db).customerWorkspaceProfile(context.Background(), 27, 103, true, []int{9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visible {
+		t.Fatal("a missing profile without an allowed relationship must be hidden")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCustomerConversationCountAndPageWrapTheSameBaseSQL(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -244,6 +321,35 @@ func TestCustomerConversationDecorationReportsUnavailableTables(t *testing.T) {
 	for _, key := range []string{"focus", "riskRecords", "timeoutRecords"} {
 		if availability[key] {
 			t.Fatalf("missing %s table must be explicitly unavailable: %#v", key, capabilities)
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCustomerConversationDecorationReportsCapabilitiesForEmptyPage(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, table := range []string{"mochat_go_work_message_focus", "mochat_go_risk_records", "mochat_go_timeout_records"} {
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?`)).
+			WithArgs(table).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	}
+	capabilities, err := NewMySQLStore(db).decorateCustomerConversationFlags(context.Background(), dashboard.WorkMessageCustomerConversationFilter{}, []dashboard.WorkMessageCustomerConversation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	availability := map[string]bool{}
+	for _, capability := range capabilities {
+		availability[capability.Key] = capability.Available
+	}
+	for _, key := range []string{"focus", "riskRecords", "timeoutRecords"} {
+		if availability[key] {
+			t.Fatalf("empty page must report missing %s table: %#v", key, capabilities)
 		}
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
