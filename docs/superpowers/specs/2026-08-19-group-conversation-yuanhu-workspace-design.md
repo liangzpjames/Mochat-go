@@ -1,8 +1,8 @@
 # 群聊会话圆弧 AI 对标改造设计
 
-日期：2026-08-19  
-目标路由：`/chat/v2-group`  
-参考路由：`https://web-ai-analysis-work-wechat.yuanhu.com/#/chat/v2-group`  
+日期：2026-08-19
+目标路由：`/chat/v2-group`
+参考路由：`https://web-ai-analysis-work-wechat.yuanhu.com/#/chat/v2-group`
 停止点：完成本设计文档和实施文档后暂停，不进入编码。
 
 ## 1. 范围与约束
