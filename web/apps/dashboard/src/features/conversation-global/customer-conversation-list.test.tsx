@@ -44,6 +44,7 @@ describe('CustomerConversationList', () => {
     expect(onModeChange).toHaveBeenCalledWith('direct');
     fireEvent.click(screen.getByRole('button', { name: /产品交流群.*张伟/ }));
     expect(onSelectConversation).toHaveBeenCalledWith('9:2:44');
+    expect(screen.getByText('资料已同步')).toBeTruthy();
     expect(screen.getByText('已退群')).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toContain('无法稳定识别群聊入站消息');
   });
@@ -53,13 +54,13 @@ describe('CustomerConversationList', () => {
       ...groupPage,
       mode: 'direct',
       list: [{ ...groupPage.list[0]!, targetType: 'customer', targetId: 31, targetName: '陈晓明',
-        conversationId: '9:1:31', lastMessage: '已发送合同', membershipStatus: 'active', relationStatus: 'lost' }],
+        conversationId: '9:1:31', lastMessage: '已发送合同', membershipStatus: 'active', relationStatus: 'lost', employeeAvatar: 'https://cdn.example/employee.png' }],
       total: 21,
       capabilities: [],
     };
     const onPageChange = vi.fn();
 
-    render(<CustomerConversationList
+    const { container } = render(<CustomerConversationList
       data={directPage}
       error={null}
       fetching={false}
@@ -74,6 +75,7 @@ describe('CustomerConversationList', () => {
     />);
 
     expect(screen.getByRole('button', { name: /张伟.*陈晓明/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('.customer-conversation-card-avatar img')?.getAttribute('src')).toBe('https://cdn.example/employee.png');
     expect(screen.getByText('关系已流失')).toBeTruthy();
     expect(screen.getByText('风险 2')).toBeTruthy();
     expect(screen.getByText('超时 1')).toBeTruthy();

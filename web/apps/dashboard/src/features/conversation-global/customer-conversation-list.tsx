@@ -36,6 +36,12 @@ function capabilityReason(key: string, reason?: string) {
   return '当前归档能力不可用';
 }
 
+function profileStatusLabel(status: CustomerConversationPage['customer']['profileStatus']) {
+  if (status === 'available') return '资料已同步';
+  if (status === 'deleted') return '客户已删除';
+  return '客户资料未同步';
+}
+
 function ConversationCard({
   item,
   selected,
@@ -63,7 +69,7 @@ function ConversationCard({
     type="button"
   >
     <span className="customer-conversation-card-avatar" aria-hidden="true">
-      {item.targetAvatar?.trim() ? <img alt="" loading="lazy" src={item.targetAvatar} /> : title.slice(0, 1)}
+      {(isGroup ? item.targetAvatar : item.employeeAvatar)?.trim() ? <img alt="" loading="lazy" src={isGroup ? item.targetAvatar : item.employeeAvatar} /> : title.slice(0, 1)}
     </span>
     <span className="customer-conversation-card-copy">
       <span className="customer-conversation-card-title"><strong>{title}</strong><time>{shortTime(item.sentAt)}</time></span>
@@ -94,9 +100,15 @@ export function CustomerConversationList(props: Props) {
 
   return <section aria-label="客户关联会话" className="customer-conversation-pane customer-conversation-list">
     <header className="customer-conversation-pane-header">
-      <div>
-        <small>客户关联会话</small>
-        <strong>{customerTitle}</strong>
+      <div className="customer-conversation-customer-header">
+        <span className="customer-conversation-customer-avatar" aria-hidden="true">
+          {customer?.avatar.trim() ? <img alt="" loading="lazy" src={customer.avatar} /> : customerTitle.slice(0, 1)}
+        </span>
+        <span>
+          <small>客户关联会话</small>
+          <strong>{customerTitle}</strong>
+          {customer !== undefined && <em className={`customer-conversation-profile-status is-${customer.profileStatus}`}>{profileStatusLabel(customer.profileStatus)}</em>}
+        </span>
       </div>
       <button aria-label="刷新客户会话" disabled={props.fetching || customer === undefined} onClick={props.onRefresh} type="button">
         {props.fetching ? '刷新中' : '刷新'}
