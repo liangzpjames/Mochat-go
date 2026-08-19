@@ -41,6 +41,11 @@ func TestCustomerDirectoryMariaDBIntegration(t *testing.T) {
 	if customer := byID[103]; customer.ProfileStatus != "missing" {
 		t.Fatalf("missing profile customer=%#v", customer)
 	}
+	for _, leakedID := range []int{104, 105} {
+		if _, exists := byID[leakedID]; exists {
+			t.Fatalf("cross-corp or deleted room membership leaked customer %d into directory: %#v", leakedID, page)
+		}
+	}
 	for mode, wantID := range map[dashboard.WorkMessageCustomerMode]int{
 		dashboard.WorkMessageCustomerModeFocused: 101,
 		dashboard.WorkMessageCustomerModeActive:  101,
@@ -80,8 +85,9 @@ func createCustomerDirectoryFixture(t *testing.T, db *sql.DB) {
 		`INSERT INTO mc_corp (id,tenant_id,chat_status) VALUES (27,11,1)`,
 		`INSERT INTO mc_work_employee (id,corp_id,name) VALUES (9,27,'员工甲'),(10,27,'员工乙')`,
 		`INSERT INTO mc_work_contact (id,corp_id,name,wx_external_userid) VALUES (101,27,'客户甲','wx-101'),(102,27,'客户乙','wx-102')`,
-		`INSERT INTO mc_work_room (id,corp_id,name) VALUES (501,27,'客户甲所在群')`,
-		`INSERT INTO mc_work_contact_room (room_id,contact_id) VALUES (501,101)`,
+		`INSERT INTO mc_work_room (id,corp_id,name) VALUES (501,27,'客户甲所在群'),(502,28,'跨企业群'),(503,27,'已删除群')`,
+		`UPDATE mc_work_room SET deleted_at=UTC_TIMESTAMP() WHERE id=503`,
+		`INSERT INTO mc_work_contact_room (room_id,contact_id) VALUES (501,101),(502,104),(503,105)`,
 		`INSERT INTO mc_work_contact_employee (contact_id,employee_id,corp_id,status) VALUES (101,9,27,1),(102,10,27,2)`,
 		`INSERT INTO mochat_go_work_message_focus (tenant_id,corp_id,user_id,work_employee_id,to_user_type,to_user_id) VALUES (11,27,77,9,1,101)`,
 	}
@@ -102,7 +108,7 @@ func createCustomerDirectoryFixture(t *testing.T, db *sql.DB) {
 	}
 	base := time.Date(2026, 8, 19, 9, 0, 0, 0, time.UTC)
 	for index, row := range []struct{ employeeID, targetType, targetID int }{
-		{9, 1, 101}, {10, 1, 101}, {9, 2, 501}, {10, 1, 102}, {10, 1, 103},
+		{9, 1, 101}, {10, 1, 101}, {9, 2, 501}, {10, 1, 102}, {10, 1, 103}, {9, 2, 502}, {9, 2, 503},
 	} {
 		if _, err := db.Exec(`INSERT INTO mc_work_message_1 (corp_id,msgid,seq,work_employee_id,to_user_type,to_user_id,content,content_text,msg_data_time) VALUES (27,?,?,?,?,?,'{}','fixture',?)`,
 			"customer-directory-"+fmt.Sprint(index+1), index+1, row.employeeID, row.targetType, row.targetID, base.Add(time.Duration(index)*time.Minute)); err != nil {
