@@ -43,10 +43,18 @@ afterEach(cleanup);
 describe('CustomerConversationPage', () => {
   it('normalizes URL values and queries all three layers with fixed page sizes', async () => {
     const api = createApi();
+    // Keep the original Vitest spy identity for matcher assertions.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const customerDirectory = api.customerDirectory;
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const customerConversations = api.customerConversations;
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const customerDetail = api.customerDetail;
+    if (!customerDirectory || !customerConversations || !customerDetail) throw new Error('customer API mocks missing');
     renderPage(api, '/chat/v2-customer?customerMode=focused&customerPage=2&customerId=31&conversationMode=group&page=3&pageSize=99&conversationId=9:2:44&messageTypes=image');
-    await waitFor(() => expect(api.customerDirectory).toHaveBeenCalledWith({ mode: 'focused', keyword: '', page: 2, pageSize: 50 }));
-    await waitFor(() => expect(api.customerConversations).toHaveBeenCalledWith({ customerId: 31, mode: 'group', page: 3, pageSize: 20 }));
-    await waitFor(() => expect(api.customerDetail).toHaveBeenCalledWith(expect.objectContaining({ customerId: 31, conversationId: '9:2:44', messageTypes: ['image'], pageSize: 50 })));
+    await waitFor(() => expect(customerDirectory).toHaveBeenCalledWith({ mode: 'focused', keyword: '', page: 2, pageSize: 50 }));
+    await waitFor(() => expect(customerConversations).toHaveBeenCalledWith({ customerId: 31, mode: 'group', page: 3, pageSize: 20 }));
+    await waitFor(() => expect(customerDetail).toHaveBeenCalledWith(expect.objectContaining({ customerId: 31, conversationId: '9:2:44', messageTypes: ['image'], pageSize: 50 })));
     expect(screen.getByTestId('location').textContent).toContain('pageSize=20');
   });
 
@@ -73,11 +81,17 @@ describe('CustomerConversationPage', () => {
 
   it('invalidates customer query layers after focus succeeds', async () => {
     const api = createApi();
+    // Keep the original Vitest spy identity for matcher assertions.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const setFocus = api.setFocus;
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const customerDirectory = api.customerDirectory;
+    if (!setFocus || !customerDirectory) throw new Error('focus/customer API mocks missing');
     renderPage(api, '/chat/v2-customer?customerId=31&conversationId=9%3A2%3A44');
     await screen.findByText('你好');
     fireEvent.click(screen.getByRole('button', { name: '重点关注' }));
-    await waitFor(() => expect(api.setFocus).toHaveBeenCalledWith('9:2:44'));
-    await waitFor(() => expect(api.customerDirectory).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(setFocus).toHaveBeenCalledWith('9:2:44'));
+    await waitFor(() => expect(customerDirectory).toHaveBeenCalledTimes(2));
   });
 
   it('blocks the entire page when archive authorization returns 40301', async () => {
