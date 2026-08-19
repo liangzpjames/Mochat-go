@@ -88,6 +88,13 @@ describe('CustomerConversationDetailPane', () => {
     expect(screen.getAllByText('--').length).toBe(4);
   });
 
+  it('uses the customer profile name when a direct target name is unavailable', () => {
+    const { rerender } = render(<CustomerConversationDetailPane {...baseProps} data={{ ...directDetail, targetName: '', customerName: '客户资料名' }} messages={directDetail.messages} />);
+    expect(screen.getByText('客户资料名')).toBeTruthy();
+    rerender(<CustomerConversationDetailPane {...baseProps} data={{ ...directDetail, targetName: '', customerName: '', profile: { ...directDetail.profile, name: '资料回退名' } }} messages={directDetail.messages} />);
+    expect(screen.getByText('资料回退名')).toBeTruthy();
+  });
+
   it('renders loading, error and empty states without replacing the detail header contract', () => {
     const { rerender } = render(<CustomerConversationDetailPane {...baseProps} data={undefined} messages={[]} />);
     expect(screen.getByText('请选择会话')).toBeTruthy();

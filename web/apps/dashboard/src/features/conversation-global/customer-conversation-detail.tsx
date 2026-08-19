@@ -32,8 +32,10 @@ function stat(value: number | null) {
   return value === null ? '--' : value.toLocaleString();
 }
 
-function displayTargetName(data: Pick<CustomerConversationDetail, 'targetType' | 'targetId' | 'targetName'>) {
+function displayTargetName(data: Pick<CustomerConversationDetail, 'targetType' | 'targetId' | 'targetName' | 'customerName' | 'profile'>) {
   if (data.targetName.trim()) return data.targetName;
+  if (data.targetType !== 'room' && data.customerName.trim()) return data.customerName;
+  if (data.targetType !== 'room' && data.profile.name.trim()) return data.profile.name;
   return data.targetType === 'room' ? `客户群 ${data.targetId}` : `客户 ${data.targetId}`;
 }
 
