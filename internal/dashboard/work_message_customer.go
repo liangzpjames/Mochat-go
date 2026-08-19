@@ -288,7 +288,7 @@ func workMessageCustomerDirectoryFilter(w http.ResponseWriter, r *http.Request, 
 }
 
 func workMessageCustomerConversationFilter(w http.ResponseWriter, r *http.Request, tenantID, corpID, userID int, access AccessContext) (WorkMessageCustomerConversationFilter, bool) {
-	customerID, ok := workMessageCustomerID(w, r)
+	customerID, ok := requiredPositiveCustomerID(w, r)
 	if !ok {
 		return WorkMessageCustomerConversationFilter{}, false
 	}
@@ -319,7 +319,7 @@ func workMessageCustomerConversationFilter(w http.ResponseWriter, r *http.Reques
 }
 
 func workMessageCustomerDetailFilter(w http.ResponseWriter, r *http.Request, tenantID, corpID, userID int, access AccessContext) (WorkMessageCustomerDetailFilter, bool) {
-	customerID, ok := workMessageCustomerID(w, r)
+	customerID, ok := requiredPositiveCustomerID(w, r)
 	if !ok {
 		return WorkMessageCustomerDetailFilter{}, false
 	}
@@ -366,12 +366,14 @@ func (filter WorkMessageCustomerDirectoryFilter) withAccess(access AccessContext
 	return filter
 }
 
-func workMessageCustomerID(w http.ResponseWriter, r *http.Request) (int, bool) {
-	customerID, ok := optionalPositiveInt(w, r, "customerId")
-	if !ok {
+func requiredPositiveCustomerID(w http.ResponseWriter, r *http.Request) (int, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("customerId"))
+	if raw == "" {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "customerId is required", nil)
 		return 0, false
 	}
-	if customerID <= 0 {
+	customerID, err := strconv.Atoi(raw)
+	if err != nil || customerID <= 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid customerId", nil)
 		return 0, false
 	}

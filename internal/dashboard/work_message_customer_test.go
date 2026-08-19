@@ -16,6 +16,8 @@ type fakeWorkMessageCustomerStore struct {
 	conversationFilter WorkMessageCustomerConversationFilter
 	detail             WorkMessageCustomerDetail
 	detailFilter       WorkMessageCustomerDetailFilter
+	conversationCalls  int
+	detailCalls        int
 }
 
 func (s *fakeWorkMessageCustomerStore) WorkMessageCustomerDirectory(_ context.Context, filter WorkMessageCustomerDirectoryFilter) (WorkMessageCustomerDirectoryPage, error) {
@@ -24,13 +26,45 @@ func (s *fakeWorkMessageCustomerStore) WorkMessageCustomerDirectory(_ context.Co
 }
 
 func (s *fakeWorkMessageCustomerStore) WorkMessageCustomerConversations(_ context.Context, filter WorkMessageCustomerConversationFilter) (WorkMessageCustomerConversationPage, error) {
+	s.conversationCalls++
 	s.conversationFilter = filter
 	return s.conversations, nil
 }
 
 func (s *fakeWorkMessageCustomerStore) WorkMessageCustomerDetail(_ context.Context, filter WorkMessageCustomerDetailFilter) (WorkMessageCustomerDetail, error) {
+	s.detailCalls++
 	s.detailFilter = filter
 	return s.detail, nil
+}
+
+func TestWorkMessageCustomerRequiresCustomerID(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*AutoTagHandler, http.ResponseWriter, *http.Request)
+	}{
+		{"conversations", (*AutoTagHandler).WorkMessageCustomerConversations},
+		{"detail", (*AutoTagHandler).WorkMessageCustomerDetail},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newWorkMessageCustomerStore()
+			handler := NewAutoTagHandler(store, staticAdminCache("7-9"), HeaderUserIDResolver{}, nil)
+			rec := httptest.NewRecorder()
+
+			test.call(handler, rec, customerDashboardRequest("/dashboard/workMessage/"+map[string]string{"conversations": "customerConversations", "detail": "customerDetail"}[test.name]+"?pageSize=50"))
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			body := decodeBody(t, rec.Body.Bytes())
+			if body["msg"] != "customerId is required" {
+				t.Fatalf("body=%#v", body)
+			}
+			if store.conversationCalls != 0 || store.detailCalls != 0 {
+				t.Fatalf("store calls: conversations=%d detail=%d", store.conversationCalls, store.detailCalls)
+			}
+		})
+	}
 }
 
 func newWorkMessageCustomerStore() *fakeWorkMessageCustomerStore {
