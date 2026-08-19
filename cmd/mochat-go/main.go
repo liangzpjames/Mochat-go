@@ -1760,6 +1760,11 @@ func main() {
 			compatserver.WithAutoTagShowContactTimeHandler(http.HandlerFunc(autoTag.ShowContactTime)),
 			compatserver.WithWorkMessageFromUsersHandler(http.HandlerFunc(autoTag.WorkMessageFromUsers)),
 			compatserver.WithWorkMessageToUsersHandler(http.HandlerFunc(autoTag.WorkMessageToUsers)),
+			compatserver.WithWorkMessageGlobalOverviewHandler(http.HandlerFunc(autoTag.WorkMessageGlobalOverview)),
+			compatserver.WithWorkMessageFocusHandler(http.HandlerFunc(autoTag.WorkMessageFocus)),
+			compatserver.WithWorkMessageStaffDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageStaffDirectory)),
+			compatserver.WithWorkMessageStaffDetailHandler(http.HandlerFunc(autoTag.WorkMessageStaffDetail)),
+			compatserver.WithWorkMessageTrajectoryDayHandler(http.HandlerFunc(autoTag.WorkMessageTrajectoryDay)),
 			compatserver.WithWorkMessageCustomerDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageCustomerDirectory)),
 			compatserver.WithWorkMessageCustomerConversationsHandler(http.HandlerFunc(autoTag.WorkMessageCustomerConversations)),
 			compatserver.WithWorkMessageCustomerDetailHandler(http.HandlerFunc(autoTag.WorkMessageCustomerDetail)),
@@ -1835,6 +1840,7 @@ func main() {
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerDirectory")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerConversations")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerDetail")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/trajectoryDay")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomDirectory")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomProfile")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomMessages")

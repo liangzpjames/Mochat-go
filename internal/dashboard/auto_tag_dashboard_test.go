@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -743,6 +744,15 @@ type fakeAutoTagStore struct {
 	archiveAuthorizationCalls int
 	archiveLookupCalls        int
 	employeeLookupCalls       int
+	globalOverview            WorkMessageGlobalOverview
+	globalOverviewFilter      WorkMessageGlobalFilter
+	globalPage                WorkMessageGlobalPage
+	globalConversationExists  bool
+	globalFocusCalls          int
+	staffDirectory            WorkMessageStaffDirectoryPage
+	staffDirectoryFilter      WorkMessageStaffDirectoryFilter
+	staffDetail               WorkMessageStaffDetail
+	staffDetailFilter         WorkMessageStaffDetailFilter
 }
 
 func (s *fakeAutoTagStore) UserByID(_ context.Context, userID int) (User, bool, error) {
@@ -813,6 +823,47 @@ func (s *fakeAutoTagStore) WorkMessageToUsers(_ context.Context, filter WorkMess
 	s.lastToUserFilter = filter
 	s.toUserCalls++
 	return s.toUserPage, nil
+}
+
+func (s *fakeAutoTagStore) WorkMessageGlobalPage(_ context.Context, filter WorkMessageGlobalFilter) (WorkMessageGlobalPage, error) {
+	s.toUserCalls++
+	s.lastToUserFilter = WorkMessageUserFilter{TenantID: filter.TenantID, UserID: filter.UserID, CorpID: filter.CorpID, ToUserType: -1, ToUserID: filter.ToUserID, Keyword: filter.Keyword, DateTimeStart: filter.StartAt, DateTimeEnd: filter.EndAt, RestrictEmployeeIDs: filter.RestrictEmployeeIDs, EmployeeIDs: append([]int{}, filter.EmployeeIDs...), ArchiveSource: filter.ArchiveSource, MessageTypes: append([]int{}, filter.MessageTypes...), GlobalBucket: string(filter.Bucket), Page: filter.Page, PerPage: filter.PageSize}
+	if filter.ConversationType == "employee" {
+		s.lastToUserFilter.ToUserType = 0
+	}
+	if filter.ConversationType == "customer" {
+		s.lastToUserFilter.ToUserType = 1
+	}
+	if filter.ConversationType == "room" {
+		s.lastToUserFilter.ToUserType = 2
+	}
+	if s.globalPage.Items != nil {
+		return s.globalPage, nil
+	}
+	items := make([]WorkMessageGlobalConversation, 0, len(s.toUserPage.Items))
+	for _, item := range s.toUserPage.Items {
+		items = append(items, WorkMessageGlobalConversation{ID: workMessageArchiveID(item.MsgID, item.Seq, item.TableIndex, item.ID), ConversationID: fmt.Sprintf("%d:%d:%d", item.WorkEmployeeID, item.ToUserType, item.ToUserID), EmployeeID: item.WorkEmployeeID, EmployeeName: item.EmployeeName, EmployeeAvatar: item.EmployeeAvatar, TargetType: workMessageTargetType(item.ToUserType), TargetID: item.ToUserID, TargetName: item.Name, TargetAvatar: item.Avatar, LastMessage: item.Content, SentAt: item.MsgDataTime})
+	}
+	return WorkMessageGlobalPage{Items: items, Total: s.toUserPage.Total, Page: filter.Page, PageSize: filter.PageSize}, nil
+}
+
+func (s *fakeAutoTagStore) WorkMessageGlobalOverview(_ context.Context, filter WorkMessageGlobalFilter) (WorkMessageGlobalOverview, error) {
+	s.globalOverviewFilter = filter
+	return s.globalOverview, nil
+}
+
+func (s *fakeAutoTagStore) SetWorkMessageFocus(context.Context, WorkMessageFocusInput) error {
+	s.globalFocusCalls++
+	return nil
+}
+
+func (s *fakeAutoTagStore) DeleteWorkMessageFocus(context.Context, WorkMessageFocusInput) error {
+	s.globalFocusCalls++
+	return nil
+}
+
+func (s *fakeAutoTagStore) WorkMessageGlobalConversationExists(context.Context, WorkMessageGlobalFilter) (bool, error) {
+	return s.globalConversationExists, nil
 }
 
 func (s *fakeAutoTagStore) WorkMessagePage(_ context.Context, filter WorkMessageFilter) (WorkMessagePage, error) {

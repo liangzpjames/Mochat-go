@@ -152,6 +152,21 @@ describe('createConversationGlobalApi', () => {
     await expect(api.staffDirectory!({ mode: 'all', keyword: '', departmentId: null, page: 1, pageSize: 50 })).rejects.toThrow('员工目录接口返回了无效数据');
   });
 
+  it('loads a strict Shanghai day trajectory contract', async () => {
+    const response = {
+      employee: { id: 9, name: '张三', avatar: '' }, date: '2026-08-19', timezone: 'Asia/Shanghai',
+      metrics: { internalSingle: { status: 'available', subjectTotal: 1, messageTotal: 2 }, internalGroup: { status: 'unavailable', subjectTotal: null, messageTotal: null, reason: '未接入' } },
+      events: [{ id: '9:2:3001@2026-08-19T23', conversationId: '9:2:3001', hour: '23', targetType: 'room', targetId: 3001, targetName: '客户群', targetAvatar: '', targetStatus: 'available', messageTotal: 1, firstMessageAt: '2026-08-19 23:08:00', lastMessageAt: '2026-08-19 23:08:00' }],
+      unmatchedTargetMessages: 0, limitations: [], capabilities: [],
+    };
+    const request = vi.fn<() => Promise<unknown>>(() => Promise.resolve(response));
+    const api = createConversationGlobalApi({ request });
+    await expect(api.trajectoryDay!({ employeeId: 9, date: '2026-08-19', conversationType: 'room' })).resolves.toEqual(response);
+    expect(request).toHaveBeenCalledWith('/workMessage/trajectoryDay?employeeId=9&date=2026-08-19&conversationType=room');
+    request.mockResolvedValueOnce({ ...response, timezone: 'UTC' });
+    await expect(api.trajectoryDay!({ employeeId: 9, date: '2026-08-19', conversationType: 'all' })).rejects.toThrow('会话轨迹接口返回了无效数据');
+  });
+
   it('loads filtered staff detail by stable conversation id', async () => {
     const response = {
       conversationId: '9:1:31', employeeId: 9, employeeName: '张三', targetType: 'customer', targetId: 31, targetName: '星河科技', focused: true,

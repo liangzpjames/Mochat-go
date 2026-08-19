@@ -1465,6 +1465,63 @@ body {
 .conversation-trajectory-event header span { color: #536bf4; font-size: .74rem; }
 .conversation-trajectory-event time { color: #9299a8; font-size: .72rem; margin-left: auto; }
 .conversation-trajectory-event p { color: #4a5264; line-height: 1.55; margin: 8px 0 0; overflow-wrap: anywhere; }
+
+/* Yuanhu-aligned trajectory workspace: one bounded shell, independent
+   directory/timeline scrolling, and an accessible detail drawer. */
+.conversation-trajectory-page-v2 { height: calc(100dvh - 104px); min-height: 0; }
+.conversation-trajectory-workspace-v2 { background: #fff; border: 1px solid #e8ebf2; border-radius: 14px; display: grid; grid-template-columns: 320px minmax(760px, 1fr); height: 100%; min-height: 0; overflow: hidden; }
+.conversation-trajectory-directory { border-right: 1px solid #edf0f5; display: grid; grid-template-rows: auto auto auto 1fr auto; min-height: 0; overflow: hidden; }
+.conversation-trajectory-directory-tabs { display: flex; gap: 4px; padding: 14px 14px 8px; }
+.conversation-trajectory-directory button, .conversation-trajectory-main button { background: #fff; border: 1px solid #dfe4ee; border-radius: 7px; color: #53617a; cursor: pointer; font: inherit; padding: 7px 10px; }
+.conversation-trajectory-directory button:hover, .conversation-trajectory-main button:hover { background-color: #f3f5ff; border-color: #aeb9fa; color: #465dd7; }
+.conversation-trajectory-directory-tabs button { border-color: transparent; flex: 1; }
+.conversation-trajectory-directory-tabs button[aria-selected='true'] { background: #eef1ff; color: #536bf4; font-weight: 650; }
+.conversation-trajectory-directory-search { display: grid; gap: 7px; grid-template-columns: 1fr auto; padding: 8px 14px 12px; }
+.conversation-trajectory-directory-search label { color: #7a8294; font-size: .76rem; grid-column: 1 / -1; }
+.conversation-trajectory-directory-search input { background: #f8f9fc; border: 1px solid #dfe4ee; border-radius: 7px; font: inherit; min-width: 0; padding: 8px; }
+.conversation-trajectory-directory-search button { padding: 7px 9px; }
+.conversation-trajectory-departments { border-bottom: 1px solid #edf0f5; display: flex; gap: 6px; overflow-x: auto; padding: 0 14px 10px; }
+.conversation-trajectory-departments button { flex: 0 0 auto; font-size: .76rem; }
+.conversation-trajectory-departments span { color: #9299a8; margin-left: 4px; }
+.conversation-trajectory-employees { min-height: 0; overflow-y: auto; padding: 8px; }
+.conversation-trajectory-employees > button { align-items: center; border-color: transparent; display: flex; gap: 10px; text-align: left; width: 100%; }
+.conversation-trajectory-employees > button.is-selected, .conversation-trajectory-employees > button:hover { background-color: #eef1ff; border-color: #dbe1ff; }
+.conversation-trajectory-employees strong, .conversation-trajectory-employees small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-trajectory-employees small { color: #9299a8; font-size: .7rem; margin-top: 4px; }
+.conversation-trajectory-avatar { align-items: center; background: #eef1ff; border-radius: 50%; color: #536bf4; display: inline-flex; flex: 0 0 32px; height: 32px; justify-content: center; overflow: hidden; width: 32px; }
+.conversation-trajectory-avatar img { height: 100%; object-fit: cover; width: 100%; }
+.conversation-trajectory-limitation { background: #fff8e8; color: #987018; font-size: .74rem; margin: 0 12px 8px; padding: 7px 9px; }
+.conversation-trajectory-pagination { align-items: center; border-top: 1px solid #edf0f5; display: flex; gap: 8px; justify-content: center; padding: 10px; }
+.conversation-trajectory-main { display: grid; grid-template-rows: auto auto 1fr; min-width: 0; min-height: 0; }
+.conversation-trajectory-toolbar { align-items: center; border-bottom: 1px solid #edf0f5; display: flex; gap: 10px; justify-content: space-between; padding: 14px 18px; }
+.conversation-trajectory-toolbar > div { align-items: center; display: flex; gap: 8px; }
+.conversation-trajectory-toolbar strong { color: #2f3749; min-width: 100px; text-align: center; }
+.conversation-trajectory-metrics { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 14px 18px; }
+.conversation-trajectory-metrics article { background: linear-gradient(145deg, #fff, #fafbff); border: 1px solid #edf0f6; border-radius: 10px; display: grid; gap: 5px; min-width: 0; padding: 12px 14px; }
+.conversation-trajectory-metrics span { color: #788196; font-size: .76rem; }
+.conversation-trajectory-metrics strong { color: #293042; font-size: 1.45rem; }
+.conversation-trajectory-metrics small { color: #9aa1af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-trajectory-scroll { min-height: 0; overflow-y: auto; padding: 0 18px 18px; }
+.conversation-trajectory-hour { display: grid; gap: 12px; grid-template-columns: 64px minmax(0, 1fr); min-height: 58px; scroll-margin-top: 12px; }
+.conversation-trajectory-hour > time { color: #8991a1; font-size: .76rem; padding-top: 12px; }
+.conversation-trajectory-hour > div { align-items: flex-start; border-top: 1px solid #f0f2f7; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; padding: 8px 0; }
+.conversation-trajectory-hour button { background: #f7f8fc; border-color: #e4e8f1; display: grid; gap: 4px; min-width: 180px; text-align: left; }
+.conversation-trajectory-hour button span { color: #828b9e; font-size: .72rem; }
+.conversation-trajectory-hour-empty { color: #c0c5cf; font-size: .74rem; padding: 8px 0; }
+.conversation-trajectory-drawer-layer { background: rgb(24 30 45 / 34%); inset: 0; position: fixed; z-index: 90; }
+.conversation-trajectory-drawer { background: #fff; box-shadow: -16px 0 40px rgb(28 36 56 / 18%); height: 100%; margin-left: auto; max-width: 880px; overflow-y: auto; padding: 20px; width: min(880px, 72vw); }
+.conversation-trajectory-drawer > header { align-items: flex-start; border-bottom: 1px solid #edf0f5; display: flex; justify-content: space-between; padding-bottom: 14px; position: sticky; top: 0; z-index: 1; }
+.conversation-trajectory-drawer > header strong, .conversation-trajectory-drawer > header small { display: block; }
+.conversation-trajectory-drawer > header small { color: #9299a8; font-size: .76rem; margin-top: 5px; }
+.conversation-trajectory-messages { display: grid; gap: 10px; padding: 18px 0; }
+.conversation-trajectory-messages article { background: #f7f8fc; border: 1px solid #edf0f6; border-radius: 10px; max-width: 78%; padding: 10px 12px; }
+.conversation-trajectory-messages article.outbound { background: #eef1ff; justify-self: end; }
+.conversation-trajectory-messages article header { display: flex; gap: 10px; justify-content: space-between; }
+.conversation-trajectory-messages article time { color: #9299a8; font-size: .72rem; }
+.conversation-trajectory-messages article p { color: #40485a; line-height: 1.5; margin: 7px 0 0; overflow-wrap: anywhere; }
+@media (max-width: 1599px) { .conversation-trajectory-workspace-v2 { grid-template-columns: 288px minmax(0, 1fr); } .conversation-trajectory-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .conversation-trajectory-drawer { width: min(760px, 78vw); } }
+@media (max-width: 1199px) { .conversation-trajectory-workspace-v2 { display: block; position: relative; } .conversation-trajectory-directory { background: #fff; box-shadow: 12px 0 35px rgb(28 36 56 / 15%); height: 100%; left: 0; position: absolute; top: 0; width: 288px; z-index: 20; } .conversation-trajectory-main { height: 100%; } }
+@media (max-width: 768px) { .conversation-trajectory-page-v2 { height: calc(100dvh - 84px); } .conversation-trajectory-workspace-v2 { border-radius: 0; border-left: 0; border-right: 0; } .conversation-trajectory-directory { position: relative; width: 100%; } .conversation-trajectory-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .conversation-trajectory-toolbar { flex-wrap: wrap; padding: 10px; } .conversation-trajectory-scroll { padding: 0 10px 10px; } .conversation-trajectory-hour { grid-template-columns: 52px minmax(0, 1fr); } .conversation-trajectory-drawer { max-width: none; width: 100%; } }
 .conversation-export-page { display: grid; gap: 16px; margin: 0 auto; max-width: 1320px; }
 .conversation-export-filter { align-items: end; display: grid; gap: 10px; grid-template-columns: auto minmax(220px, 1fr) auto auto; padding: 16px 20px; }
 .conversation-export-filter label { color: #737b8c; font-size: .8rem; }

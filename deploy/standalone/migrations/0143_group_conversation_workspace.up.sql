@@ -32,3 +32,18 @@ WHERE NOT EXISTS (
     AND existing.`http_method` = 'GET'
     AND existing.`path_pattern` = resource_seed.`path_pattern`
 );
+
+-- Conversation trajectory uses the same archive and staff data scope as the
+-- existing conversation workspace endpoints.
+INSERT INTO `mochat_go_dashboard_permission_resources`
+  (`permission_id`, `resource_type`, `http_method`, `path_pattern`, `scope_required`, `status`, `version`)
+SELECT p.`id`, 'api', 'GET', '/dashboard/workMessage/trajectoryDay', 1, 1, 1
+FROM `mochat_go_dashboard_permissions` p
+WHERE p.`code` = 'dashboard.chat.trajectory'
+  AND NOT EXISTS (
+    SELECT 1 FROM `mochat_go_dashboard_permission_resources` existing
+    WHERE existing.`permission_id` = p.`id`
+      AND existing.`resource_type` = 'api'
+      AND existing.`http_method` = 'GET'
+      AND existing.`path_pattern` = '/dashboard/workMessage/trajectoryDay'
+  );
