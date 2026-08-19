@@ -137,7 +137,8 @@ export type CustomerConversationInput = { customerId: number; mode: CustomerConv
 export type CustomerConversationSummary = ConversationSummary & { relationStatus?: 'active' | 'lost' | 'unknown'; membershipStatus?: 'active' | 'left' };
 export type CustomerConversationPage = { customer: { id: number; name: string; avatar: string; profileStatus: CustomerProfileStatus }; mode: CustomerConversationMode; list: readonly CustomerConversationSummary[]; total: number; page: number; pageSize: 20; capabilities: readonly ConversationCapability[] };
 export type CustomerDetailInput = { customerId: number; conversationId: string; keyword: string; messageTypes: readonly string[]; date: string; pageSize: 50; before?: string };
-export type CustomerConversationDetail = StaffConversationDetail & { customerId: number; customerName: string };
+export type CustomerConversationProfile = { id: number; name: string; avatar: string; profileStatus: CustomerProfileStatus };
+export type CustomerConversationDetail = StaffConversationDetail & { customerId: number; customerName: string; profile: CustomerConversationProfile };
 
 // messageText 将归档消息内容还原为可读文本：内容为 JSON 时优先取 text 字段，
 // 避免在会话详情里直接展示 {"text":"..."} 原始串。
@@ -442,8 +443,9 @@ function parseCustomerConversations(value: unknown): CustomerConversationPage {
     || value.pageSize !== 20 || !Array.isArray(value.capabilities)) throw new Error('客户会话列表接口返回了无效数据');
   const list = value.list.map((item): CustomerConversationSummary | null => {
     const summary = parseSummary(item);
-    if (!summary || (isRecord(item) && item.relationStatus !== undefined && !isRelationStatus(item.relationStatus))
-      || (isRecord(item) && item.membershipStatus !== undefined && !isMembershipStatus(item.membershipStatus))) return null;
+    if (!summary || !isRecord(item) || typeof item.conversationId !== 'string' || item.conversationId.trim() === ''
+      || (item.relationStatus !== undefined && !isRelationStatus(item.relationStatus))
+      || (item.membershipStatus !== undefined && !isMembershipStatus(item.membershipStatus))) return null;
     const result: CustomerConversationSummary = { ...summary };
     if (isRecord(item) && isRelationStatus(item.relationStatus)) result.relationStatus = item.relationStatus;
     if (isRecord(item) && isMembershipStatus(item.membershipStatus)) result.membershipStatus = item.membershipStatus;
@@ -462,10 +464,27 @@ function isCustomerConversationMode(value: unknown): value is CustomerConversati
 function isRelationStatus(value: unknown): value is NonNullable<CustomerConversationSummary['relationStatus']> { return value === 'active' || value === 'lost' || value === 'unknown'; }
 function isMembershipStatus(value: unknown): value is NonNullable<CustomerConversationSummary['membershipStatus']> { return value === 'active' || value === 'left'; }
 
-function parseCustomerDetail(value: unknown): CustomerConversationDetail {
-  if (!isRecord(value) || !isFiniteNumber(value.customerId) || typeof value.customerName !== 'string') throw new Error('客户会话详情接口返回了无效数据');
-  const detail = parseStaffDetail(value);
-  return { ...detail, customerId: value.customerId, customerName: value.customerName };
+function parseCustomerDetail(value: unknown, expectedCustomerId: number, expectedConversationId: string): CustomerConversationDetail {
+  if (!isRecord(value) || !isFiniteNumber(value.customerId) || value.customerId !== expectedCustomerId
+    || typeof value.customerName !== 'string' || value.customerName.trim() === ''
+    || typeof value.conversationId !== 'string' || value.conversationId.trim() === '' || value.conversationId !== expectedConversationId
+    || !isRecord(value.profile) || !isFiniteNumber(value.profile.id) || value.profile.id !== value.customerId
+    || typeof value.profile.name !== 'string' || value.profile.name.trim() === '' || typeof value.profile.avatar !== 'string'
+    || !isProfileStatus(value.profile.profileStatus) || (value.targetType !== 'customer' && value.targetType !== 'room')) {
+    throw new Error('客户会话详情接口返回了无效数据');
+  }
+  let detail: StaffConversationDetail;
+  try {
+    detail = parseStaffDetail(value);
+  } catch {
+    throw new Error('客户会话详情接口返回了无效数据');
+  }
+  return {
+    ...detail,
+    customerId: value.customerId,
+    customerName: value.customerName,
+    profile: { id: value.profile.id, name: value.profile.name, avatar: value.profile.avatar, profileStatus: value.profile.profileStatus },
+  };
 }
 
 function parseDetail(value: unknown): ConversationDetail {
@@ -650,7 +669,7 @@ export function createConversationGlobalApi(
       appendNonBlank(query, 'date', input.date);
       query.set('pageSize', '50');
       appendNonBlank(query, 'before', input.before ?? '');
-      return parseCustomerDetail(await client.request(`/workMessage/customerDetail?${query.toString()}`));
+      return parseCustomerDetail(await client.request(`/workMessage/customerDetail?${query.toString()}`), input.customerId, input.conversationId);
     },
   };
 }

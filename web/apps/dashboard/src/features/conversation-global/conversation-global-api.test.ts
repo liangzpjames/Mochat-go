@@ -175,7 +175,7 @@ describe('createConversationGlobalApi', () => {
     client.request
       .mockResolvedValueOnce({ customers: [], counts: { all: 0, focused: 0, active: 0, lost: 0 }, page: 1, pageSize: 50, total: 0, limitations: [], capabilities: [] })
       .mockResolvedValueOnce({ customer: { id: 31, name: '陈晓明', avatar: '', profileStatus: 'available' }, mode: 'direct', list: [], total: 0, page: 1, pageSize: 20, capabilities: [] })
-      .mockResolvedValueOnce({ conversationId: '9:1:31', customerId: 31, customerName: '陈晓明', employeeId: 9, employeeName: '张伟', targetType: 'customer', targetId: 31, targetName: '陈晓明', focused: false, stats: { communicationDays: 1, messageTotal: 1, inboundTotal: 1, outboundTotal: 0 }, messages: [], nextBefore: '', hasMore: false, capabilities: [] });
+      .mockResolvedValueOnce({ conversationId: '9:1:31', customerId: 31, customerName: '陈晓明', profile: { id: 31, name: '陈晓明', avatar: '', profileStatus: 'available' }, employeeId: 9, employeeName: '张伟', targetType: 'customer', targetId: 31, targetName: '陈晓明', focused: false, stats: { communicationDays: 1, messageTotal: 1, inboundTotal: 1, outboundTotal: 0 }, messages: [], nextBefore: '', hasMore: false, capabilities: [] });
     const api = createConversationGlobalApi(client);
     await api.customerDirectory?.({ mode: 'focused', keyword: '陈', page: 2, pageSize: 50 });
     await api.customerConversations?.({ customerId: 31, mode: 'group', page: 3, pageSize: 20 });
@@ -190,5 +190,47 @@ describe('createConversationGlobalApi', () => {
     client.request.mockResolvedValue({ customers: [], counts: { all: 0 }, page: 1, pageSize: 50, total: 0, limitations: [], capabilities: [] });
     const api = createConversationGlobalApi(client);
     await expect(api.customerDirectory?.({ mode: 'all', keyword: '', page: 1, pageSize: 50 })).rejects.toThrow('客户目录接口返回了无效数据');
+  });
+
+  it('rejects customer conversation rows without a non-blank stable conversation id', async () => {
+    const client = { request: vi.fn<() => Promise<unknown>>() };
+    client.request.mockResolvedValue({
+      customer: { id: 31, name: '陈晓明', avatar: '', profileStatus: 'available' }, mode: 'direct',
+      list: [{ id: 'row-1', employeeId: 9, employeeName: '张伟', employeeAvatar: '', targetType: 'customer', targetId: 31, targetName: '陈晓明', targetAvatar: '', lastMessage: '你好', sentAt: '2026-08-16', conversationId: '   ' }],
+      total: 1, page: 1, pageSize: 20, capabilities: [],
+    });
+    const api = createConversationGlobalApi(client);
+    await expect(api.customerConversations?.({ customerId: 31, mode: 'direct', page: 1, pageSize: 20 })).rejects.toThrow('客户会话列表接口返回了无效数据');
+  });
+
+  it('rejects customer detail outside the customer detail contract', async () => {
+    const client = { request: vi.fn<() => Promise<unknown>>() };
+    const valid = {
+      conversationId: '9:1:31', customerId: 31, customerName: '陈晓明',
+      profile: { id: 31, name: '陈晓明', avatar: '', profileStatus: 'available' },
+      employeeId: 9, employeeName: '张伟', targetType: 'customer', targetId: 31, targetName: '陈晓明', focused: false,
+      stats: { communicationDays: 1, messageTotal: 1, inboundTotal: 1, outboundTotal: 0 }, messages: [], nextBefore: '', hasMore: false, capabilities: [],
+    };
+    const api = createConversationGlobalApi(client);
+    for (const response of [
+      { ...valid, profile: undefined },
+      { ...valid, targetType: 'employee' },
+      { ...valid, conversationId: '9:1:32' },
+      { ...valid, stats: { ...valid.stats, messageTotal: '1' } },
+      { ...valid, messages: [{ id: 'bad' }] },
+      { ...valid, capabilities: [{ key: 'x', available: 'yes' }] },
+    ]) {
+      client.request.mockResolvedValueOnce(response);
+      await expect(api.customerDetail?.({ customerId: 31, conversationId: '9:1:31', keyword: '', messageTypes: [], date: '', pageSize: 50 })).rejects.toThrow('客户会话详情接口返回了无效数据');
+    }
+  });
+
+  it('rejects customer pages with non-canonical page sizes or enum values', async () => {
+    const client = { request: vi.fn<() => Promise<unknown>>() };
+    const api = createConversationGlobalApi(client);
+    client.request.mockResolvedValueOnce({ customers: [], counts: { all: 0, focused: 0, active: 0, lost: 0 }, page: 1, pageSize: 20, total: 0, limitations: [], capabilities: [] });
+    await expect(api.customerDirectory?.({ mode: 'all', keyword: '', page: 1, pageSize: 50 })).rejects.toThrow('客户目录接口返回了无效数据');
+    client.request.mockResolvedValueOnce({ customer: { id: 31, name: '陈晓明', avatar: '', profileStatus: 'available' }, mode: 'invalid', list: [], total: 0, page: 1, pageSize: 20, capabilities: [] });
+    await expect(api.customerConversations?.({ customerId: 31, mode: 'direct', page: 1, pageSize: 20 })).rejects.toThrow('客户会话列表接口返回了无效数据');
   });
 });
