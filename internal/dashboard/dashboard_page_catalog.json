@@ -91,6 +91,31 @@
         },
         {
           "method": "GET",
+          "pathPattern": "/dashboard/workMessage/customerDirectory",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/customerConversations",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/customerDetail",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/workMessage/focus",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/workMessage/focus",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
           "pathPattern": "/dashboard/workMessage/detail",
           "scopeRequired": true
         },

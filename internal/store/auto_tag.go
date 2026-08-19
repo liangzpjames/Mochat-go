@@ -2747,7 +2747,13 @@ func workMessageTableSQLWithWhere(_ int, index int, where string) string {
 		LEFT JOIN mc_work_employee sender ON sender.id = wm.work_employee_id AND sender.corp_id = wm.corp_id AND sender.deleted_at IS NULL
 		LEFT JOIN mc_work_employee target_employee ON wm.to_user_type = 0 AND target_employee.id = wm.to_user_id AND target_employee.corp_id = wm.corp_id AND target_employee.deleted_at IS NULL
 		LEFT JOIN mc_work_contact target_contact ON wm.to_user_type = 1 AND target_contact.id = wm.to_user_id AND target_contact.corp_id = wm.corp_id AND target_contact.deleted_at IS NULL
-		LEFT JOIN mc_work_room target_room ON wm.to_user_type = 2 AND target_room.id = wm.to_user_id AND target_room.corp_id = wm.corp_id AND target_room.deleted_at IS NULL
+		LEFT JOIN mc_work_room target_room ON wm.to_user_type = 2
+			AND target_room.id = CASE
+				WHEN COALESCE(wm.to_user_type, 0) = 2
+				THEN COALESCE(NULLIF(wm.to_user_id, 0), NULLIF(wm.room_id, 0), 0)
+				ELSE COALESCE(wm.to_user_id, 0)
+			END
+			AND target_room.corp_id = wm.corp_id AND target_room.deleted_at IS NULL
 		WHERE wm.corp_id = ? AND wm.deleted_at IS NULL` + extraWhere + `
 	`
 }

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0139_wecom_capability_ledger"
-	SaaSAdminExpectedMigrationCount   = 139
+	SaaSAdminExpectedMigrationVersion = "0143_group_conversation_workspace"
+	SaaSAdminExpectedMigrationCount   = 143
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"
