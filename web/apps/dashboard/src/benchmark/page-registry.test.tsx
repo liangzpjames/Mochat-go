@@ -9,6 +9,7 @@ import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
 import { EmployeeConversationPage } from '../features/conversation-global/employee-conversation-page';
+import { CustomerConversationPage } from '../features/conversation-global/customer-conversation-page';
 import { ConversationTrajectoryPage } from '../features/conversation-global/conversation-trajectory-page';
 import { ConversationExportPage } from '../features/conversation-global/conversation-export-page';
 import { RiskWarningPage } from '../features/phase33/risk-warning-pages';
@@ -112,7 +113,7 @@ describe('createPageRegistry', () => {
     expect((pages['/chat/file-audio'] as { type?: unknown }).type).toBe(FileAudioPage);
   });
 
-  it('registers customer and room pages with fixed conversation scopes', () => {
+  it('registers the customer workspace page and keeps the room scope on the shared page', () => {
     const conversationGlobalApi = {
       search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
       detail: () => Promise.reject(new Error('not loaded')),
@@ -125,10 +126,7 @@ describe('createPageRegistry', () => {
       conversationGlobalApi,
     });
 
-    expect((pages['/chat/v2-customer'] as { type?: unknown; props?: { fixedConversationType?: string } }).type)
-      .toBe(ConversationGlobalPage);
-    expect((pages['/chat/v2-customer'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
-      .toBe('customer');
+    expect((pages['/chat/v2-customer'] as { type?: unknown }).type).toBe(CustomerConversationPage);
     expect((pages['/chat/v2-group'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
       .toBe('room');
   });
