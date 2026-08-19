@@ -51,7 +51,7 @@
 
 ---
 
-### Task 1：统一外部群有效目标 ID
+### Task 1：补齐外部群有效目标 ID 的过滤和资料关联
 
 **Files:**
 
@@ -62,12 +62,13 @@
 **Interfaces:**
 
 - Produces: `workMessageEffectiveTargetIDSQL(alias string) string`
-- Produces: 联合归档查询中的 `to_user_id` 已是规范化后的有效目标 ID。
+- Consumes: 提交 `835c6ee` 已完成的联合查询 `to_user_id` 规范化投影。
+- Produces: 规范化目标 ID 同时用于分表投影、目标资料 join 和按会话 ID 过滤。
 - Consumes: `mc_work_message_*.to_user_type`、`to_user_id`、`room_id`。
 
 - [ ] **Step 1：写外部群目标 ID 的失败测试**
 
-在 `internal/store/work_message_test.go` 增加完整 SQL 契约测试：
+保留提交 `835c6ee` 已新增的 `TestWorkMessageUnionNormalizesArchivedRoomID`，再增加过滤和共享表达式的失败测试：
 
 ```go
 func TestWorkMessageEffectiveTargetIDSQL(t *testing.T) {
@@ -77,15 +78,6 @@ func TestWorkMessageEffectiveTargetIDSQL(t *testing.T) {
 	}
 	if got := strings.Join(strings.Fields(workMessageEffectiveTargetIDSQL("")), " "); strings.Contains(got, "wm.") {
 		t.Fatalf("unqualified target SQL = %q", got)
-	}
-}
-
-func TestWorkMessageUnionNormalizesArchivedRoomID(t *testing.T) {
-	query, _ := workMessageUnionSQL(7)
-	normalized := strings.Join(strings.Fields(query), " ")
-	want := strings.Join(strings.Fields(workMessageEffectiveTargetIDSQL("wm")+" AS to_user_id"), " ")
-	if got := strings.Count(normalized, want); got != dashboard.WorkMessageArchiveMessageTableCount {
-		t.Fatalf("effective target expression count=%d, want %d", got, dashboard.WorkMessageArchiveMessageTableCount)
 	}
 }
 
@@ -105,7 +97,7 @@ func TestWorkMessageUserWhereUsesEffectiveRoomTarget(t *testing.T) {
 
 Run: `go test ./internal/store -run 'TestWorkMessageGroupTarget|TestStaffDetail.*Room' -count=1`
 
-Expected: FAIL；当前联合查询只投影和过滤原始 `to_user_id`，回退群消息仍是 0 或详情查不到。
+Expected: FAIL；投影规范化测试已通过，但共享 helper 尚不存在，群详情预过滤和 `target_room` join 仍使用原始 `to_user_id`。
 
 - [ ] **Step 3：实现共享有效目标表达式**
 
@@ -127,7 +119,7 @@ func workMessageEffectiveTargetIDSQL(alias string) string {
 effectiveTargetID := workMessageEffectiveTargetIDSQL("wm")
 ```
 
-把投影的 `COALESCE(wm.to_user_id, 0) AS to_user_id` 改为 `effectiveTargetID + " AS to_user_id"`；`target_room.id` 的 join 也使用同一表达式。`workMessageUserBaseWhere` 在 `ToUserType == 2 && ToUserID > 0` 时使用有效目标表达式过滤，其他类型继续按原始 `to_user_id`。
+把提交 `835c6ee` 内联在投影中的 CASE 表达式提取为 `effectiveTargetID + " AS to_user_id"`，保持已有行为不变；`target_room.id` 的 join 改为使用同一表达式。`workMessageUserBaseWhere` 在 `ToUserType == 2 && ToUserID > 0` 时使用有效目标表达式过滤，其他类型继续按原始 `to_user_id`。
 
 - [ ] **Step 4：运行测试确认 GREEN**
 
@@ -139,7 +131,7 @@ Expected: PASS；外部群摘要和员工详情使用同一有效群 ID。
 
 ```powershell
 git add internal/store/auto_tag.go internal/store/work_message_test.go internal/store/work_message_staff_test.go
-git commit -m "fix: normalize archived group conversation targets"
+git commit -m "fix: complete archived group target normalization"
 ```
 
 ---
