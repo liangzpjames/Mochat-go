@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -154,6 +155,71 @@ func TestCustomerConversationMariaDBIntegration(t *testing.T) {
 	_, err = store.WorkMessageCustomerConversations(ctx, dashboard.WorkMessageCustomerConversationFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 103, Mode: dashboard.WorkMessageCustomerConversationModeDirect, Page: 1, RestrictEmployeeIDs: true, EmployeeIDs: []int{9}})
 	if err != dashboard.ErrWorkMessageConversationNotFound {
 		t.Fatalf("missing customer profile without allowed relationship must be hidden: %v", err)
+	}
+}
+
+func TestCustomerDetailMariaDBIntegration(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")) == "" {
+		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
+	}
+	db := newDashboardAdminProvisioningDB(t)
+	createCustomerDirectoryFixture(t, db)
+	base := time.Date(2026, 8, 19, 11, 0, 0, 0, time.UTC)
+	for index := 1; index <= 52; index++ {
+		if _, err := db.Exec(`INSERT INTO mc_work_message_1 (corp_id,msgid,seq,work_employee_id,to_user_type,to_user_id,sender_type,content,content_text,msg_data_time) VALUES (27,?,?,?,?,?,?,'{}',?,?)`,
+			"customer-detail-"+fmt.Sprint(index), index, 9, 1, 101, index%2, fmt.Sprintf("detail-%02d", index), base.Add(time.Duration(index)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := NewMySQLStore(db)
+	filter := dashboard.WorkMessageCustomerDetailFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 101, EmployeeID: 9, ToUserType: 1, ToUserID: 101, PageSize: 50}
+	first, err := store.WorkMessageCustomerDetail(context.Background(), filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Messages) != 50 || !first.HasMore || first.NextBefore == "" {
+		t.Fatalf("first=%#v", first)
+	}
+	secondFilter := filter
+	secondFilter.Before = first.NextBefore
+	second, err := store.WorkMessageCustomerDetail(context.Background(), secondFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]struct{}{}
+	lastSentAt := ""
+	for _, message := range append(first.Messages, second.Messages...) {
+		if _, duplicate := seen[message.ID]; duplicate {
+			t.Fatalf("cursor pages overlap at %s", message.ID)
+		}
+		seen[message.ID] = struct{}{}
+		if lastSentAt != "" && message.SentAt < lastSentAt {
+			t.Fatalf("messages must stay globally ascending: %s before %s", message.SentAt, lastSentAt)
+		}
+		lastSentAt = message.SentAt
+	}
+	keywordFilter := filter
+	keywordFilter.Keyword = "detail-01"
+	keyword, err := store.WorkMessageCustomerDetail(context.Background(), keywordFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyword.Stats != first.Stats {
+		t.Fatalf("stats must ignore keyword: keyword=%#v all=%#v", keyword.Stats, first.Stats)
+	}
+	_, err = store.WorkMessageCustomerDetail(context.Background(), dashboard.WorkMessageCustomerDetailFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 101, EmployeeID: 9, ToUserType: 2, ToUserID: 999, PageSize: 50})
+	if !errors.Is(err, dashboard.ErrWorkMessageConversationNotFound) {
+		t.Fatalf("unrelated group err=%v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO mc_work_message_1 (corp_id,msgid,seq,work_employee_id,to_user_type,to_user_id,sender_type,content,content_text,msg_data_time) VALUES (27,'customer-detail-group',999,9,2,501,1,'{}','group inbound',?)`, base.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	group, err := store.WorkMessageCustomerDetail(context.Background(), dashboard.WorkMessageCustomerDetailFilter{TenantID: 11, CorpID: 27, UserID: 77, CustomerID: 101, EmployeeID: 9, ToUserType: 2, ToUserID: 501, PageSize: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(group.Messages) == 0 || group.Messages[len(group.Messages)-1].Direction != "inbound" || group.Messages[len(group.Messages)-1].SenderName != "群成员" {
+		t.Fatalf("group inbound identity must remain the staff detail result: %#v", group.Messages)
 	}
 }
 

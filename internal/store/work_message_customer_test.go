@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -11,6 +13,73 @@ import (
 
 	"jiyi/mochat-go/internal/dashboard"
 )
+
+func TestCustomerDetailAssociationRules(t *testing.T) {
+	if err := validateCustomerConversationAssociation(31, 1, 99, false); !errors.Is(err, dashboard.ErrWorkMessageConversationNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+	if err := validateCustomerConversationAssociation(31, 1, 31, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCustomerConversationAssociation(31, 2, 44, false); !errors.Is(err, dashboard.ErrWorkMessageConversationNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+	if err := validateCustomerConversationAssociation(31, 2, 44, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCustomerConversationAssociation(31, 3, 44, true); !errors.Is(err, dashboard.ErrWorkMessageConversationNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestCustomerDetailRoomMembershipScopesCustomerCorpAndKeepsHistoricalMembership(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS(
+		SELECT 1 FROM mc_work_contact_room membership
+		JOIN mc_work_room room ON room.id=membership.room_id AND room.corp_id=? AND room.deleted_at IS NULL
+		JOIN mc_work_contact contact_scope ON contact_scope.id=membership.contact_id AND contact_scope.corp_id=?
+		WHERE membership.contact_id=? AND membership.room_id=?
+	)`)).
+		WithArgs(27, 27, 31, 44).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	related, err := NewMySQLStore(db).customerRoomMembershipExists(context.Background(), 27, 31, 44)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !related {
+		t.Fatal("historical same-corp membership must authorize the room")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCustomerDetailRejectsEmployeeOutsideRestrictedScope(t *testing.T) {
+	_, err := NewMySQLStore(nil).WorkMessageCustomerDetail(context.Background(), dashboard.WorkMessageCustomerDetailFilter{
+		CustomerID: 31, EmployeeID: 9, ToUserType: 1, ToUserID: 31,
+		RestrictEmployeeIDs: true, EmployeeIDs: []int{10},
+	})
+	if !errors.Is(err, dashboard.ErrWorkMessageConversationNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestCustomerDetailFromStaffPreservesStaffDetail(t *testing.T) {
+	staff := dashboard.WorkMessageStaffDetail{
+		ConversationID: "9:2:44", EmployeeID: 9, TargetID: 44, EmployeeName: "员工", TargetName: "群聊",
+		Stats:      dashboard.WorkMessageStaffStats{CommunicationDays: 2, MessageTotal: 3, InboundTotal: 2, OutboundTotal: 1},
+		Messages:   []dashboard.WorkMessageStaffMessage{{ID: "msg:1", Direction: "inbound", SenderName: "群成员"}},
+		NextBefore: "cursor", HasMore: true, Capabilities: []dashboard.WorkMessageCapability{{Key: "archive", Available: true}},
+	}
+	got := customerDetailFromStaff(dashboard.WorkMessageCustomerProfile{ID: 31, Name: "客户"}, staff)
+	if got.CustomerID != 31 || got.CustomerName != "客户" || !reflect.DeepEqual(got.WorkMessageStaffDetail, staff) {
+		t.Fatalf("detail=%#v", got)
+	}
+}
 
 func TestCustomerDirectoryModePredicateIsMutuallyExclusive(t *testing.T) {
 	cases := map[dashboard.WorkMessageCustomerMode]string{

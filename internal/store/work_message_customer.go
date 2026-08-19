@@ -331,6 +331,81 @@ func (s *MySQLStore) WorkMessageCustomerConversations(ctx context.Context, filte
 	}, nil
 }
 
+// WorkMessageCustomerDetail validates that the requested conversation belongs
+// to the customer, then delegates message shaping to StaffDetail so the staff
+// and customer workspaces use exactly the same pagination and direction rules.
+func (s *MySQLStore) WorkMessageCustomerDetail(ctx context.Context, filter dashboard.WorkMessageCustomerDetailFilter) (dashboard.WorkMessageCustomerDetail, error) {
+	if filter.RestrictEmployeeIDs && !containsPositiveInt(uniquePositiveInts(filter.EmployeeIDs), filter.EmployeeID) {
+		return dashboard.WorkMessageCustomerDetail{}, dashboard.ErrWorkMessageConversationNotFound
+	}
+
+	roomMembershipExists := false
+	if filter.ToUserType == 2 {
+		var err error
+		roomMembershipExists, err = s.customerRoomMembershipExists(ctx, filter.CorpID, filter.CustomerID, filter.ToUserID)
+		if err != nil {
+			return dashboard.WorkMessageCustomerDetail{}, err
+		}
+	}
+	if err := validateCustomerConversationAssociation(filter.CustomerID, filter.ToUserType, filter.ToUserID, roomMembershipExists); err != nil {
+		return dashboard.WorkMessageCustomerDetail{}, err
+	}
+
+	profile, visible, err := s.customerWorkspaceProfile(ctx, filter.CorpID, filter.CustomerID, filter.RestrictEmployeeIDs, filter.EmployeeIDs)
+	if err != nil {
+		return dashboard.WorkMessageCustomerDetail{}, err
+	}
+	if !visible {
+		return dashboard.WorkMessageCustomerDetail{}, dashboard.ErrWorkMessageConversationNotFound
+	}
+
+	detail, err := s.StaffDetail(ctx, dashboard.WorkMessageStaffDetailFilter{
+		TenantID: filter.TenantID, CorpID: filter.CorpID, UserID: filter.UserID,
+		EmployeeID: filter.EmployeeID, ToUserType: filter.ToUserType, ToUserID: filter.ToUserID,
+		Keyword: filter.Keyword, MessageTypes: filter.MessageTypes, Date: filter.Date,
+		PageSize: 50, Before: filter.Before,
+	})
+	if err != nil {
+		return dashboard.WorkMessageCustomerDetail{}, err
+	}
+	return customerDetailFromStaff(profile, detail), nil
+}
+
+func validateCustomerConversationAssociation(customerID, toUserType, toUserID int, roomMembershipExists bool) error {
+	switch toUserType {
+	case 1:
+		if toUserID == customerID {
+			return nil
+		}
+	case 2:
+		if roomMembershipExists {
+			return nil
+		}
+	}
+	return dashboard.ErrWorkMessageConversationNotFound
+}
+
+// customerRoomMembershipExists deliberately does not filter membership.deleted_at:
+// an external contact who has left a group may still have archived messages.
+func (s *MySQLStore) customerRoomMembershipExists(ctx context.Context, corpID, customerID, roomID int) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM mc_work_contact_room membership
+		JOIN mc_work_room room ON room.id=membership.room_id AND room.corp_id=? AND room.deleted_at IS NULL
+		JOIN mc_work_contact contact_scope ON contact_scope.id=membership.contact_id AND contact_scope.corp_id=?
+		WHERE membership.contact_id=? AND membership.room_id=?
+	)`, corpID, corpID, customerID, roomID).Scan(&exists)
+	return exists, err
+}
+
+func customerDetailFromStaff(profile dashboard.WorkMessageCustomerProfile, detail dashboard.WorkMessageStaffDetail) dashboard.WorkMessageCustomerDetail {
+	return dashboard.WorkMessageCustomerDetail{
+		WorkMessageStaffDetail: detail,
+		CustomerID:             profile.ID,
+		CustomerName:           profile.Name,
+	}
+}
+
 // customerWorkspaceProfile permits an archived-only customer (whose profile
 // has since been removed), while still rejecting scoped callers that have no
 // employee relationship and no same-corp room membership to the customer.
