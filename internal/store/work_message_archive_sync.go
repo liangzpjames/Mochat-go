@@ -105,7 +105,29 @@ func (s *MySQLStore) WorkMessageArchiveCursor(ctx context.Context, corpID int) (
 }
 
 func (s *MySQLStore) UpsertWorkMessageArchive(ctx context.Context, corpID int, message dashboard.WorkMessageArchiveMessage) (dashboard.WorkMessageArchiveUpsertResult, error) {
-	return s.upsertWorkMessageArchiveWithExecutor(ctx, s.db, corpID, message)
+	if corpID <= 0 || message.Seq <= 0 || strings.TrimSpace(message.MsgID) == "" {
+		return dashboard.WorkMessageArchiveUpsertResult{Skipped: true}, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return dashboard.WorkMessageArchiveUpsertResult{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	result, err := s.upsertWorkMessageArchiveWithExecutor(ctx, tx, corpID, message)
+	if err != nil {
+		return dashboard.WorkMessageArchiveUpsertResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return dashboard.WorkMessageArchiveUpsertResult{}, err
+	}
+	committed = true
+	return result, nil
 }
 
 func (s *MySQLStore) upsertWorkMessageArchiveWithExecutor(ctx context.Context, executor archiveDBTX, corpID int, message dashboard.WorkMessageArchiveMessage) (dashboard.WorkMessageArchiveUpsertResult, error) {
@@ -122,6 +144,20 @@ func (s *MySQLStore) upsertWorkMessageArchiveWithExecutor(ctx context.Context, e
 	table, err := workMessageArchiveTable(message.Seq)
 	if err != nil {
 		return dashboard.WorkMessageArchiveUpsertResult{}, err
+	}
+	if strings.TrimSpace(message.From) != "" || strings.TrimSpace(message.RoomID) != "" {
+		_, err = executor.ExecContext(ctx, `
+			INSERT INTO mochat_go_work_message_participant_identity
+				(corp_id, msgid, seq, sender_wx_id, room_wx_id, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+			ON DUPLICATE KEY UPDATE
+				sender_wx_id = VALUES(sender_wx_id),
+				room_wx_id = VALUES(room_wx_id),
+				updated_at = NOW()
+		`, corpID, strings.TrimSpace(message.MsgID), message.Seq, strings.TrimSpace(message.From), strings.TrimSpace(message.RoomID))
+		if err != nil {
+			return dashboard.WorkMessageArchiveUpsertResult{}, err
+		}
 	}
 	sendTime := sql.NullTime{Time: item.MsgDataTime, Valid: !item.MsgDataTime.IsZero()}
 	result, err := executor.ExecContext(ctx, `
