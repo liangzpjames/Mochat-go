@@ -31,7 +31,7 @@ const detail: CustomerConversationDetail = {
 
 function LocationProbe() { const location = useLocation(); return <output data-testid="location">{location.search}</output>; }
 function createApi(overrides: Partial<ConversationGlobalApi> = {}): ConversationGlobalApi {
-  return { search: vi.fn(), detail: vi.fn(), customerDirectory: vi.fn(() => Promise.resolve(directory)), customerConversations: vi.fn(() => Promise.resolve(conversations)), customerDetail: vi.fn(() => Promise.resolve(detail)), setFocus: vi.fn(() => Promise.resolve()), removeFocus: vi.fn(() => Promise.resolve()), ...overrides };
+  return { search: vi.fn(), detail: vi.fn(), customerDirectory: vi.fn(() => Promise.resolve(directory)), customerConversations: vi.fn((input) => Promise.resolve({ ...conversations, mode: input.mode })), customerDetail: vi.fn(() => Promise.resolve(detail)), setFocus: vi.fn(() => Promise.resolve()), removeFocus: vi.fn(() => Promise.resolve()), ...overrides };
 }
 function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-customer') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -105,5 +105,15 @@ describe('CustomerConversationPage', () => {
     renderPage(api);
     expect(await screen.findByText('客户资料未同步')).toBeTruthy();
     expect(screen.getByRole('heading', { name: '请选择会话' })).toBeTruthy();
+  });
+
+  it('opens the first available conversation after selecting a customer', async () => {
+    const api = createApi();
+    renderPage(api);
+
+    fireEvent.click(await screen.findByRole('button', { name: /星河科技/ }));
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('conversationId=9%3A2%3A44'));
+    await waitFor(() => expect(api.customerDetail).toHaveBeenCalledWith(expect.objectContaining({ customerId: 31, conversationId: '9:2:44' })));
+    expect(await screen.findByText('你好')).toBeTruthy();
   });
 });

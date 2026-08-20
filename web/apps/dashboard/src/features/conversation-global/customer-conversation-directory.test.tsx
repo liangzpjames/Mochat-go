@@ -138,4 +138,27 @@ describe('CustomerConversationDirectory', () => {
     rerender(<CustomerConversationDirectory {...common} data={{ ...page, customers: [], total: 0 }} error={null} pending={false} />);
     expect(screen.getByText('暂无客户')).toBeTruthy();
   });
+
+  it('renders customer rows as a list with a time column', () => {
+    render(<CustomerConversationDirectory
+      data={page}
+      error={null}
+      fetching={false}
+      keywordDraft=""
+      mode="all"
+      onKeywordDraftChange={() => undefined}
+      onModeChange={() => undefined}
+      onPageChange={() => undefined}
+      onRefresh={() => undefined}
+      onSearch={(event) => event.preventDefault()}
+      onSelectCustomer={() => undefined}
+      page={1}
+      pending={false}
+      selectedCustomerId={null}
+    />);
+
+    expect(screen.getByRole('list', { name: '客户列表' })).toBeTruthy();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getByText('08-19 10:00')).toBeTruthy();
+  });
 });

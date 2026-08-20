@@ -25,6 +25,10 @@ function customerName(customer: CustomerDirectoryCustomer) {
   return customer.name.trim() || `客户 ${customer.id}`;
 }
 
+function shortTime(value: string) {
+  return value.length >= 16 ? value.slice(5, 16) : value || '--';
+}
+
 function CustomerAvatar({ customer }: { customer: CustomerDirectoryCustomer }) {
   const name = customerName(customer);
   return customer.avatar.trim() === ''
@@ -47,27 +51,28 @@ export function CustomerConversationDirectory(props: Props) {
       <button aria-label="刷新客户" disabled={props.fetching} onClick={props.onRefresh} type="button">{props.fetching && !props.pending ? '刷新中' : '刷新'}</button>
     </form>
     {props.data?.limitations.map((item) => <p className="customer-conversation-limitation" key={item.key} role="status">{item.reason}</p>)}
-    <div className="customer-conversation-scroll customer-conversation-customer-list">
+    <div aria-label="客户列表" className="customer-conversation-scroll customer-conversation-customer-list" role="list">
       {props.pending && <PageState state="loading" title="正在加载客户" />}
       {props.error !== null && <PageState description={props.error.message} onRetry={props.onRefresh} state="error" title="客户目录加载失败" />}
       {!props.pending && props.error === null && customers.length === 0 && <PageState description="当前筛选条件下没有可访问客户。" state="empty" title="暂无客户" />}
       {customers.map((customer) => {
         const name = customerName(customer);
-        return <button
-          aria-pressed={props.selectedCustomerId === customer.id}
-          className={props.selectedCustomerId === customer.id ? 'is-selected' : ''}
-          key={customer.id}
-          onClick={() => props.onSelectCustomer(customer.id)}
-          type="button"
-        >
-          <span className="customer-conversation-avatar"><CustomerAvatar customer={customer} /></span>
-          <span className="customer-conversation-customer-copy">
-            <strong>{name}</strong>
-            <small>{customer.directConversationCount} 单聊 · {customer.groupConversationCount} 群聊</small>
-          </span>
-          {customer.focusedConversationCount > 0 && <em title="重点关注会话">★ {customer.focusedConversationCount}</em>}
-          {customer.profileStatus !== 'available' && <span className="customer-conversation-profile-warning" role="alert">客户资料未同步</span>}
-        </button>;
+        return <div key={customer.id} role="listitem">
+          <button
+            aria-pressed={props.selectedCustomerId === customer.id}
+            className={`customer-conversation-customer-card${props.selectedCustomerId === customer.id ? ' is-selected' : ''}`}
+            onClick={() => props.onSelectCustomer(customer.id)}
+            type="button"
+          >
+            <span className="customer-conversation-avatar"><CustomerAvatar customer={customer} /></span>
+            <span className="customer-conversation-customer-copy">
+              <span className="customer-conversation-customer-title"><strong>{name}</strong><time dateTime={customer.lastConversationAt || undefined}>{shortTime(customer.lastConversationAt)}</time></span>
+              <small>{customer.directConversationCount} 单聊 · {customer.groupConversationCount} 群聊</small>
+            </span>
+            {customer.focusedConversationCount > 0 && <em title="重点关注会话">★ {customer.focusedConversationCount}</em>}
+            {customer.profileStatus !== 'available' && <span className="customer-conversation-profile-warning" role="alert">客户资料未同步</span>}
+          </button>
+        </div>;
       })}
     </div>
     {props.data !== undefined && !props.pending && props.error === null && <DashboardPagination

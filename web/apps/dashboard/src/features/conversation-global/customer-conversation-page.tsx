@@ -1,11 +1,11 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { updateSearch } from '../../shared/query-state';
-import type { CustomerConversationMode, ConversationGlobalApi, CustomerDirectoryMode } from './conversation-global-api';
+import type { CustomerConversationMode, ConversationGlobalApi, CustomerDirectoryMode, CustomerConversationProfile } from './conversation-global-api';
 import { ConversationArchiveUnavailableState, isConversationArchiveUnavailable } from './conversation-archive-state';
 import { CustomerConversationDetailPane } from './customer-conversation-detail';
 import { CustomerConversationDirectory } from './customer-conversation-directory';
@@ -61,6 +61,7 @@ export function CustomerConversationPage({ api }: { api: ConversationGlobalApi }
   const messageTypes = searchParams.getAll('messageTypes').filter(Boolean);
   const [customerKeywordDraft, setCustomerKeywordDraft] = useState(customerKeyword);
   const [messageKeywordDraft, setMessageKeywordDraft] = useState(messageKeyword);
+  const autoSelectedConversationKey = useRef<string | null>(null);
 
   useEffect(() => { setCustomerKeywordDraft(customerKeyword); }, [customerKeyword]);
   useEffect(() => { setMessageKeywordDraft(messageKeyword); }, [messageKeyword, conversationId]);
@@ -101,6 +102,23 @@ export function CustomerConversationPage({ api }: { api: ConversationGlobalApi }
   });
   const directoryData = directoryQuery.data;
   const conversationData = conversationsQuery.data;
+  const selectedCustomer = useMemo<CustomerConversationProfile | undefined>(() => {
+    if (customerId === null) return undefined;
+    const directoryCustomer = directoryData?.customers.find((item) => item.id === customerId);
+    return directoryCustomer
+      ? { id: directoryCustomer.id, name: directoryCustomer.name, avatar: directoryCustomer.avatar, profileStatus: directoryCustomer.profileStatus }
+      : { id: customerId, name: `客户 ${customerId}`, avatar: '', profileStatus: 'missing' };
+  }, [customerId, directoryData]);
+  useEffect(() => {
+    if (customerId === null || conversationData === undefined || conversationData.customer.id !== customerId || conversationData.mode !== conversationMode) return;
+    const key = `${customerId}:${conversationMode}`;
+    if (autoSelectedConversationKey.current === key) return;
+    autoSelectedConversationKey.current = key;
+    if (conversationId === null) {
+      const firstConversationId = conversationData.list.find((item) => item.conversationId?.trim())?.conversationId;
+      if (firstConversationId) setSearchParams(updateSearch(searchParams, { conversationId: firstConversationId }));
+    }
+  }, [conversationData, conversationId, conversationMode, customerId, searchParams, setSearchParams]);
   const detailData = detailQuery.data?.pages[0];
   const detailMessages = useMemo(() => {
     const seen = new Set<string>();
@@ -168,7 +186,7 @@ export function CustomerConversationPage({ api }: { api: ConversationGlobalApi }
         onRefresh={() => void directoryQuery.refetch()} onSearch={submitCustomerSearch} onSelectCustomer={selectCustomer} pending={directoryQuery.isPending} selectedCustomerId={customerId}
       />
       <CustomerConversationList
-        data={conversationData} error={asError(conversationsQuery.error)} fetching={conversationsQuery.isFetching} mode={conversationMode} onModeChange={changeConversationMode}
+        customer={selectedCustomer} data={conversationData} error={asError(conversationsQuery.error)} fetching={conversationsQuery.isFetching} mode={conversationMode} onModeChange={changeConversationMode}
         onPageChange={(nextPage) => setSearchParams(updateSearch(searchParams, { page: nextPage, conversationId: undefined, pageSize: conversationPageSize }))} onRefresh={() => void conversationsQuery.refetch()}
         onSelectConversation={selectConversation} page={page} pending={conversationsQuery.isPending} selectedConversationId={conversationId}
       />

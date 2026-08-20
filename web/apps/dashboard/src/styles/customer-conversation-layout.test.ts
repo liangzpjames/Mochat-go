@@ -12,7 +12,8 @@ describe('customer conversation workspace layout contract', () => {
   });
 
   it('provides drawer and single-column fallbacks for narrow screens', () => {
-    expect(css).toMatch(/@media\s*\(max-width:\s*1599px\)[\s\S]*\.customer-conversation-directory[^}]*position:\s*fixed/s);
+    expect(css).not.toMatch(/@media\s*\(max-width:\s*1599px\)[\s\S]{0,500}\.customer-conversation-directory[\s\S]{0,250}position:\s*fixed/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*1199px\)[\s\S]*\.customer-conversation-directory[^}]*position:\s*fixed/s);
     expect(css).toMatch(/@media\s*\(max-width:\s*1199px\)[\s\S]*customer-conversation-workspace/s);
     expect(css).toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*\.customer-conversation-workspace[^}]*grid-template-columns:\s*1fr/s);
   });
@@ -25,5 +26,6 @@ describe('customer conversation workspace layout contract', () => {
     expect(css).toContain('.customer-conversation-directory-filters button[aria-pressed="true"]');
     expect(css).toContain('.customer-conversation-list .dashboard-pagination button:hover:not(:disabled)');
     expect(css).toContain('.customer-conversation-list .dashboard-pagination button:disabled');
+    expect(css).toContain(".customer-conversation-customer-list[role='list']");
   });
 });

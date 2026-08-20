@@ -402,6 +402,27 @@ func TestCustomerConversationCountAndPageWrapTheSameBaseSQL(t *testing.T) {
 	}
 }
 
+func TestCustomerConversationBaseSQLUsesArchiveAvatarForRooms(t *testing.T) {
+	sqlText, _, err := customerConversationBaseSQLWithSource(
+		dashboard.WorkMessageCustomerConversationFilter{CorpID: 27, CustomerID: 31, Mode: dashboard.WorkMessageCustomerConversationModeDirect},
+		"SELECT 1 AS work_employee_id, 1 AS to_user_id",
+		[]any{},
+		"archive_messages",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sqlText, "room.avatar") {
+		t.Fatalf("customer conversation SQL must not depend on missing mc_work_room.avatar column: %s", sqlText)
+	}
+	if !strings.Contains(sqlText, "NULLIF(latest.target_avatar,'')") {
+		t.Fatalf("room avatar must fall back to archived target_avatar: %s", sqlText)
+	}
+	if strings.Contains(sqlText, "latest.current_member") {
+		t.Fatalf("direct customer conversation SQL must not depend on group-only current_member: %s", sqlText)
+	}
+}
+
 func TestCustomerConversationDecorationReportsUnavailableTables(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

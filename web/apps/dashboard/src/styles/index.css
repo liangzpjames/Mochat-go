@@ -4027,6 +4027,15 @@ body {
   padding: 4px 8px;
 }
 
+.customer-conversation-customer-list[role='list'] {
+  display: flex;
+  flex-direction: column;
+}
+
+.customer-conversation-customer-list > [role='listitem'] {
+  min-width: 0;
+}
+
 .customer-conversation-customer-card,
 .customer-conversation-card {
   align-items: center;
@@ -4088,6 +4097,21 @@ body {
   width: 100%;
 }
 
+.customer-conversation-empty-avatar {
+  align-items: center;
+  color: #9aa4b5;
+  display: inline-flex;
+  height: 18px;
+  justify-content: center;
+  width: 18px;
+}
+
+.customer-conversation-empty-avatar svg {
+  fill: currentColor;
+  height: 18px;
+  width: 18px;
+}
+
 .customer-conversation-customer-copy,
 .customer-conversation-card-copy {
   display: grid;
@@ -4101,6 +4125,20 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.customer-conversation-customer-title {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.customer-conversation-customer-title time {
+  color: #9ba3b3;
+  flex: 0 0 auto;
+  font-size: 10px;
 }
 
 .customer-conversation-customer-copy small,
@@ -4339,7 +4377,7 @@ body {
   display: none;
 }
 
-@media (max-width: 1599px) {
+@media (max-width: 1199px) {
   .customer-conversation-workspace {
     grid-template-columns: 360px minmax(520px, 1fr);
   }

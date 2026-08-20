@@ -492,6 +492,10 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 	if filter.CorpID < 0 || filter.CustomerID <= 0 || strings.TrimSpace(archiveSQL) == "" {
 		return "", nil, fmt.Errorf("invalid customer conversation source")
 	}
+	membershipStatusSQL := `''`
+	if filter.Mode == dashboard.WorkMessageCustomerConversationModeGroup {
+		membershipStatusSQL = `CASE WHEN latest.current_member=1 THEN 'active' ELSE 'left' END`
+	}
 	projections := `
 		grouped.conversation_id,
 		latest.work_employee_id,
@@ -499,14 +503,14 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 		COALESCE(NULLIF(employee.avatar,''), NULLIF(latest.employee_avatar,''), '') AS employee_avatar,
 		latest.to_user_type, latest.to_user_id,
 		CASE WHEN latest.to_user_type=1 THEN COALESCE(NULLIF(contact.name,''), NULLIF(latest.target_name,''), '') ELSE COALESCE(NULLIF(room.name,''), NULLIF(latest.target_name,''), '') END AS target_name,
-		CASE WHEN latest.to_user_type=1 THEN COALESCE(NULLIF(contact.avatar,''), NULLIF(latest.target_avatar,''), '') ELSE COALESCE(NULLIF(room.avatar,''), NULLIF(latest.target_avatar,''), '') END AS target_avatar,
+		CASE WHEN latest.to_user_type=1 THEN COALESCE(NULLIF(contact.avatar,''), NULLIF(latest.target_avatar,''), '') ELSE COALESCE(NULLIF(latest.target_avatar,''), '') END AS target_avatar,
 		COALESCE(latest.content_text,'') AS content_text, COALESCE(latest.msg_type,100) AS msg_type,
 		CASE WHEN COALESCE(latest.is_current_user,0)=1 THEN 'outbound' ELSE 'inbound' END AS direction,
 		latest.msg_data_time AS last_at, grouped.message_total,
 		'ARCHIVE_SOURCE' AS archive_source,
 		CASE WHEN NULLIF(latest.msgid,'') IS NOT NULL THEN CONCAT('msg:',latest.msgid) WHEN latest.seq>0 THEN CONCAT('seq:',latest.seq) ELSE CONCAT('table:',latest.table_index,':',latest.id) END AS archive_source_id,
 		CASE WHEN latest.to_user_type=1 THEN COALESCE(relation.relation_status,'none') ELSE '' END AS relation_status,
-		CASE WHEN latest.to_user_type=2 THEN CASE WHEN latest.current_member=1 THEN 'active' ELSE 'left' END ELSE '' END AS membership_status`
+		MEMBERSHIP_STATUS_SQL AS membership_status`
 	joins := `
 		LEFT JOIN mc_work_employee employee ON employee.id=latest.work_employee_id AND employee.corp_id=? AND employee.deleted_at IS NULL
 		LEFT JOIN mc_work_contact contact ON contact.id=latest.to_user_id AND contact.corp_id=?
@@ -519,6 +523,7 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 		) relation ON relation.contact_id=latest.to_user_id AND relation.employee_id=latest.work_employee_id`
 	archiveSource = strings.ReplaceAll(archiveSource, "'", "")
 	projections = strings.ReplaceAll(projections, "ARCHIVE_SOURCE", archiveSource)
+	projections = strings.ReplaceAll(projections, "MEMBERSHIP_STATUS_SQL", membershipStatusSQL)
 	joinArgs := []any{filter.CorpID, filter.CorpID, filter.CorpID, filter.CorpID}
 	switch filter.Mode {
 	case dashboard.WorkMessageCustomerConversationModeDirect:

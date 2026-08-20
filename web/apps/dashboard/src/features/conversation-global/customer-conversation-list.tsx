@@ -1,8 +1,9 @@
 import { DashboardPagination } from '../../components/dashboard-pagination';
 import { PageState } from '../../components/page-state/page-state';
-import type { CustomerConversationMode, CustomerConversationPage, CustomerConversationSummary } from './conversation-global-api';
+import type { CustomerConversationMode, CustomerConversationPage, CustomerConversationProfile, CustomerConversationSummary } from './conversation-global-api';
 
 type Props = {
+  customer?: CustomerConversationProfile | undefined;
   data: CustomerConversationPage | undefined;
   mode: CustomerConversationMode;
   page: number;
@@ -91,7 +92,7 @@ function ConversationCard({
 }
 
 export function CustomerConversationList(props: Props) {
-  const customer = props.data?.customer;
+  const customer = props.customer ?? props.data?.customer;
   const customerTitle = customer
     ? displayName(customer.name, `客户 ${customer.id}`)
     : '请选择客户';
@@ -102,7 +103,11 @@ export function CustomerConversationList(props: Props) {
     <header className="customer-conversation-pane-header">
       <div className="customer-conversation-customer-header">
         <span className="customer-conversation-customer-avatar" aria-hidden="true">
-          {customer?.avatar.trim() ? <img alt="" loading="lazy" src={customer.avatar} /> : customerTitle.slice(0, 1)}
+          {customer?.avatar.trim()
+            ? <img alt="" loading="lazy" src={customer.avatar} />
+            : customer
+              ? customerTitle.slice(0, 1)
+              : <span aria-hidden="true" data-testid="customer-conversation-empty-avatar"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z" /></svg></span>}
         </span>
         <span>
           <small>客户关联会话</small>

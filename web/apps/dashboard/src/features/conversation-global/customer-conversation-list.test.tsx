@@ -83,4 +83,45 @@ describe('CustomerConversationList', () => {
     expect(onPageChange).toHaveBeenCalledWith(2);
     expect(screen.getByRole('navigation', { name: '客户会话分页' }).textContent).toContain('共 21 条');
   });
+
+  it('uses a neutral placeholder icon when no customer is selected', () => {
+    render(<CustomerConversationList
+      data={undefined}
+      error={null}
+      fetching={false}
+      mode="direct"
+      onModeChange={() => undefined}
+      onPageChange={() => undefined}
+      onRefresh={() => undefined}
+      onSelectConversation={() => undefined}
+      page={1}
+      pending={false}
+      selectedConversationId={null}
+    />);
+
+    expect(screen.getAllByText('请选择客户')).toHaveLength(2);
+    expect(screen.getByTestId('customer-conversation-empty-avatar')).toBeTruthy();
+    expect(screen.queryByText('请', { selector: '.customer-conversation-customer-avatar > span' })).toBeNull();
+  });
+
+  it('keeps the selected customer visible while associated conversations are loading', () => {
+    render(<CustomerConversationList
+      customer={{ id: 31, name: '星河科技', avatar: '', profileStatus: 'available' }}
+      data={undefined}
+      error={null}
+      fetching={true}
+      mode="direct"
+      onModeChange={() => undefined}
+      onPageChange={() => undefined}
+      onRefresh={() => undefined}
+      onSelectConversation={() => undefined}
+      page={1}
+      pending={true}
+      selectedConversationId={null}
+    />);
+
+    expect(screen.getByText('星河科技')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '正在加载客户会话' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '请选择客户' })).toBeNull();
+  });
 });
