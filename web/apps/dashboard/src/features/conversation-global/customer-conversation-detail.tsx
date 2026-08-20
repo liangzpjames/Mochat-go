@@ -44,15 +44,8 @@ function senderName(data: Pick<CustomerConversationDetail, 'targetType'>, name: 
   return data.targetType === 'room' ? '群成员' : '未知成员';
 }
 
-function capabilityReason(key: string, reason?: string) {
-  if (reason?.trim()) return reason;
-  if (key === 'groupMemberIdentity') return '无法稳定识别群聊消息发送方';
-  return '当前客户会话能力不可用';
-}
-
 export function CustomerConversationDetailPane(props: Props) {
   const data = props.data;
-  const unavailableCapabilities = data?.capabilities.filter((item) => !item.available) ?? [];
   const inboundLabel = data?.targetType === 'room' ? '非员工消息' : '客户发送';
 
   return <section aria-label="客户消息详情" className="customer-conversation-pane customer-conversation-detail">
@@ -79,9 +72,6 @@ export function CustomerConversationDetailPane(props: Props) {
       </header>
       {data.profile.profileStatus !== 'available' && <p className="customer-conversation-limitation" role="alert">客户资料未同步</p>}
       {props.focusError && <p className="customer-conversation-limitation" role="alert">{props.focusError}</p>}
-      {unavailableCapabilities.length > 0 && <div className="customer-conversation-capability-alert" role="alert">
-        {unavailableCapabilities.map((item) => <p key={item.key}>{capabilityReason(item.key, item.reason)}</p>)}
-      </div>}
       <section aria-label="会话统计" className="customer-conversation-stats">
         <article><span>沟通天数</span><strong>{stat(data.stats.communicationDays)}</strong><small>天</small></article>
         <article><span>消息总数</span><strong>{stat(data.stats.messageTotal)}</strong><small>条</small></article>

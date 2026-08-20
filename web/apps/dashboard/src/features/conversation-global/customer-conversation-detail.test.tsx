@@ -71,7 +71,7 @@ describe('CustomerConversationDetailPane', () => {
     expect(screen.getByText('您好')).toBeTruthy();
   });
 
-  it('uses group inbound label, capability warning and 群成员 sender fallback', () => {
+  it('uses group inbound label without capability-gap copy and 群成员 sender fallback', () => {
     const groupDetail: CustomerConversationDetail = {
       ...directDetail,
       conversationId: '9:2:44',
@@ -87,7 +87,9 @@ describe('CustomerConversationDetailPane', () => {
 
     expect(screen.getByText('非员工消息')).toBeTruthy();
     expect(screen.queryByText('客户发送')).toBeNull();
-    expect(screen.getByText('无法稳定识别群聊成员')).toBeTruthy();
+    expect(screen.queryByText('无法稳定识别群聊成员')).toBeNull();
+    expect(screen.queryByText('当前归档数据无法稳定识别群聊入站消息的具体外部成员')).toBeNull();
+    expect(screen.queryByRole('alert', { name: '' })).toBeNull();
     expect(screen.getByText('群成员')).toBeTruthy();
     expect(screen.getAllByText('--').length).toBe(4);
   });

@@ -31,12 +31,6 @@ function targetName(item: CustomerConversationSummary) {
     : displayName(item.targetName, `客户 ${item.targetId}`);
 }
 
-function capabilityReason(key: string, reason?: string) {
-  if (reason?.trim()) return reason;
-  if (key === 'groupMemberIdentity') return '无法稳定识别群聊入站消息';
-  return '当前归档能力不可用';
-}
-
 function profileStatusLabel(status: CustomerConversationPage['customer']['profileStatus']) {
   if (status === 'available') return '资料已同步';
   if (status === 'deleted') return '客户已删除';
@@ -96,7 +90,6 @@ export function CustomerConversationList(props: Props) {
   const customerTitle = customer
     ? displayName(customer.name, `客户 ${customer.id}`)
     : '请选择客户';
-  const unavailableCapabilities = props.data?.capabilities.filter((item) => !item.available) ?? [];
   const list = props.data?.list ?? [];
 
   return <section aria-label="客户关联会话" className="customer-conversation-pane customer-conversation-list">
@@ -125,10 +118,6 @@ export function CustomerConversationList(props: Props) {
       <button aria-selected={props.mode === 'direct'} aria-pressed={props.mode === 'direct'} onClick={() => props.onModeChange('direct')} role="tab" type="button">单聊</button>
       <button aria-selected={props.mode === 'group'} aria-pressed={props.mode === 'group'} onClick={() => props.onModeChange('group')} role="tab" type="button">群聊</button>
     </nav>
-
-    {unavailableCapabilities.length > 0 && <div className="customer-conversation-capability-alert" role="alert">
-      {unavailableCapabilities.map((item) => <p key={item.key}>{capabilityReason(item.key, item.reason)}</p>)}
-    </div>}
 
     <div className="customer-conversation-scroll customer-conversation-items">
       {customer === undefined && <PageState state="empty" title="请选择客户" description="从客户目录选择客户后查看关联单聊和群聊。" />}

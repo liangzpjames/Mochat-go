@@ -38,4 +38,13 @@ describe('customer conversation workspace layout contract', () => {
     expect(css).toContain('.customer-conversation-action-button svg');
     expect(css).toMatch(/\.customer-conversation-detail-header\s*\{[^}]*display:\s*flex/s);
   });
+
+  it('keeps customer detail statistics and filters compact on desktop', () => {
+    expect(css).toMatch(/\.customer-conversation-stats\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
+    expect(css).toMatch(/\.customer-conversation-stats article\s*\{[^}]*min-height:\s*0/s);
+    expect(css).toMatch(/\.customer-conversation-detail-filters\s*\{[^}]*display:\s*grid/s);
+    expect(css).toMatch(/\.customer-conversation-detail-filters\s*\{[^}]*grid-template-columns:/s);
+    expect(css).toContain('.customer-conversation-message-types input:checked + span');
+    expect(css).toContain('.customer-conversation-message-types input { position: absolute; opacity: 0; pointer-events: none; }');
+  });
 });

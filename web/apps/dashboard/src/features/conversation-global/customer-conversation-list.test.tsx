@@ -46,7 +46,9 @@ describe('CustomerConversationList', () => {
     expect(onSelectConversation).toHaveBeenCalledWith('9:2:44');
     expect(screen.getByText('资料已同步')).toBeTruthy();
     expect(screen.getByText('已退群')).toBeTruthy();
-    expect(screen.getByRole('alert').textContent).toContain('无法稳定识别群聊入站消息');
+    expect(screen.queryByText('无法稳定识别群聊入站消息')).toBeNull();
+    expect(screen.queryByText('当前归档数据无法稳定识别群聊入站消息的具体外部成员')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('button', { name: '刷新会话' }).textContent).toContain('刷新会话');
   });
 
