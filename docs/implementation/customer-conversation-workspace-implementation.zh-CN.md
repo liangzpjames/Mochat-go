@@ -57,17 +57,17 @@
 
 | 验证项 | 命令/结果 |
 | --- | --- |
-| 客户目标前端测试 | 5 个文件、25 个测试通过 |
+| 客户目标前端测试 | 5 个文件、26 个测试通过 |
 | Dashboard 全量前端测试 | `corepack pnpm --filter @mochat/dashboard test`：114 个文件中 113 个完成，701/702 个测试通过；唯一失败为既有轨迹滚动用例的全量时序波动，隔离重跑该文件 4/4 通过 |
-| 类型检查 | `corepack pnpm --filter @mochat/dashboard typecheck` 通过 |
-| 生产构建 | `corepack pnpm --filter @mochat/dashboard build` 通过；仅有既有的大 chunk 警告 |
+| 类型检查 | 本轮客户目标代码未新增类型错误；完整 `corepack pnpm --filter @mochat/dashboard typecheck` 受工作树并行修改阻塞（`contact-transfer-api.test.ts` 缺失模块） |
+| 生产构建 | `corepack pnpm --filter @mochat/dashboard exec vite build` 通过；完整 Docker app 构建受并行 `refuse-archive-page.tsx` 类型错误阻塞；仅有既有的大 chunk 警告 |
 | Go 客户目标 | 客户目录 SQL、客户会话 SQL/详情相关目标测试通过 |
 | Go 相关包全量 | 工作区并行增量已发现 0144 migration，而既有健康/迁移断言仍期望 0143，导致全量包命令出现基线断言失配；不影响本轮客户目标测试 |
 | 启动命令 | `go test ./cmd/mochat-go -count=1` 通过 |
 | MariaDB 方言集成 | `TestCustomerDirectoryMariaDBIntegration`、`TestCustomerConversationMariaDBIntegration`、`TestCustomerDetailMariaDBIntegration` 因未设置 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 明确 SKIP；不能记为方言集成通过 |
 | 空白检查 | 暂存客户变更 `git diff --cached --check` 通过 |
 
-Dashboard 全量测试期间出现的 `jsdom window.getComputedStyle` stderr 是现有 Ant Design 测试环境警告，不影响退出码；生产构建的 chunk 大小警告也未导致构建失败。
+Dashboard 全量测试期间出现的 `jsdom window.getComputedStyle` stderr 是现有 Ant Design 测试环境警告，不影响退出码；Vite 构建的 chunk 大小警告也未导致构建失败。完整 typecheck 与 Docker 镜像构建被工作树中的并行增量阻塞（缺失 `contact-transfer-api` 模块、`refuse-archive-page.tsx` 的 `employeeId` 类型不匹配），不属于客户会话改动。
 
 ## 7. Docker 验收
 
@@ -89,6 +89,7 @@ Dashboard 全量测试期间出现的 `jsdom window.getComputedStyle` stderr 是
 5. 客户目录搜索 `朱晨` 正常返回客户列表；浏览器控制台错误日志为空。
 6. 最新 app 重建后在嵌入浏览器 `1064×1272` 群聊场景复测：能力缺口提示节点为 0；四张统计卡同一行、高度约 `56px`；筛选区高度约 `84px`；消息类型选项的背景、边框、圆角、内边距与员工会话一致。
 7. 点击“文字”后选中态变为蓝色并将 `messageTypes=text` 写入 URL；点击“选择客户”打开窄屏目录抽屉，再选择“陈晓明”后客户标题、选中行和详情请求同步更新；控制台日志为空。
+8. 消息内容对齐复测：员工与客户 outbound 气泡 computed style 均为 `12px / 19.2px`、`padding: 9px 11px`、`background: #eaf2ff`、`border-radius: 10px 4px 10px 10px`、`color: #3f5064`；消息头高度约 `15.7px`，客户消息区与员工保持同一滚动和间距节奏，控制台日志为空。
 
 ## 9. 已知缺口与后续动作
 
@@ -110,18 +111,19 @@ Dashboard 全量测试期间出现的 `jsdom window.getComputedStyle` stderr 是
 8. 客户目录和中栏客户资料无头像时统一显示中性用户 SVG 图标；取消客户选择后不再使用 React Query 的旧客户快照填充中间栏。
 9. 客户页不再在目录或详情中渲染能力缺口提示卡；能力字段仍随真实 API 保留，后续专项记录统一维护在[总进度文档](../PROJECT_PROGRESS.zh-CN.md)。
 10. 客户详情消息类型选择框对齐员工会话样式：隐藏原生复选框，使用轻量矩形选项、统一间距和蓝色选中态，减少筛选区高度并保持可键盘操作。
+11. 客户会话内容完全复用员工会话的消息节奏与文字规范：消息区背景、独立滚动、消息头间距、`12px / 1.6` 正文、气泡内边距、圆角、发送方向、媒体最大高度与未知类型提示均与员工会话一致。
 
-本次反馈修复的定向回归覆盖 5 个前端文件、25 个测试；Go 侧客户目录 SQL、客户会话 SQL/详情相关目标测试均通过。
+本次反馈修复的定向回归覆盖 5 个前端文件、26 个测试；Go 侧客户目录 SQL、客户会话 SQL/详情相关目标测试均通过。
 
 ## 11. 交付判定
 
 - [x] 客户会话菜单与员工会话菜单保持同一布局语言。
 - [x] 客户目录、消息、详情、关联会话使用真实 API 与权限链路。
 - [x] 宽屏、桌面、抽屉和单栏响应式 CSS 合同通过。
-- [x] 客户目标前端测试、类型检查、生产构建通过；Dashboard 全量回归仅有既有轨迹滚动用例时序波动，隔离重跑通过。
+- [x] 客户目标前端测试与 Vite 生产编译通过；完整 typecheck/Docker image build 的并行工作树阻塞已在测试证据中注明。
 - [x] Go 客户目标测试与启动命令通过；相关包全量断言受工作区并行 0144 migration 基线失配影响，已在测试证据中注明。
-- [x] Docker app 已重建，MySQL、Redis 和数据卷保持健康。
+- [x] 现有 Docker app、MySQL、Redis 和数据卷保持健康；本轮浏览器验收使用通过 Vite 编译的静态资源更新 app，完整 app 镜像重建受并行类型错误阻塞。
 - [x] 客户会话操作按钮完成文案、图标、主次层级、焦点和禁用态统一。
 - [x] 真实登录态下 `1064×1272`/`1216×1272` 客户选择、会话自动打开、无选择空态、紧凑统计筛选和右侧详情关键路径浏览器验收；详情操作按钮均在视口内。
 
-本轮实施代码、测试、浏览器验收和交付文档均已完成。
+本轮实施代码、目标测试、浏览器验收和既有交付文档更新均已完成；完整工作区门禁阻塞已如实登记。

@@ -47,4 +47,13 @@ describe('customer conversation workspace layout contract', () => {
     expect(css).toContain('.customer-conversation-message-types input:checked + span');
     expect(css).toContain('.customer-conversation-message-types input { position: absolute; opacity: 0; pointer-events: none; }');
   });
+
+  it('matches employee conversation message rhythm and bubble typography', () => {
+    expect(css).toMatch(/\.customer-conversation-messages\s*\{[^}]*background:\s*#f8fafc;[^}]*flex:\s*1;[^}]*padding:\s*15px 18px 22px;/s);
+    expect(css).toMatch(/\.customer-conversation-message\s*\{[^}]*margin:\s*0 auto 13px 0;[^}]*max-width:\s*min\(74%, 720px\);/s);
+    expect(css).toMatch(/\.customer-conversation-message > div\s*\{[^}]*background:\s*#fff;[^}]*font-size:\s*12px;[^}]*line-height:\s*1\.6;[^}]*padding:\s*9px 11px;/s);
+    expect(css).toMatch(/\.customer-conversation-message\.outbound > div\s*\{[^}]*background:\s*#eaf2ff;[^}]*border-color:\s*#d7e5ff;[^}]*border-radius:\s*10px 4px 10px 10px;/s);
+    expect(css).toMatch(/\.customer-conversation-message header strong\s*\{[^}]*color:\s*#64758a;[^}]*font-size:\s*10px;/s);
+    expect(css).toMatch(/\.customer-conversation-message header time\s*\{[^}]*color:\s*#a1acb9;[^}]*font-size:\s*9px;/s);
+  });
 });

@@ -4415,7 +4415,9 @@ body {
 .customer-conversation-detail-filters > input[type='date'] { min-width: 0; width: 100%; }
 
 .customer-conversation-messages {
-  padding: 4px 16px 16px;
+  background: #f8fafc;
+  flex: 1;
+  padding: 15px 18px 22px;
 }
 
 .customer-conversation-load-more {
@@ -4429,26 +4431,47 @@ body {
 }
 
 .customer-conversation-message {
-  background: #f8f9fc;
-  border: 1px solid #edf0f5;
-  border-radius: 8px;
-  margin: 8px 0;
-  max-width: min(760px, 94%);
-  padding: 9px 11px;
+  margin: 0 auto 13px 0;
+  max-width: min(74%, 720px);
 }
 
 .customer-conversation-message.outbound {
-  background: #f1f4ff;
-  border-color: #dce2ff;
   margin-left: auto;
+  margin-right: 0;
 }
 
-.customer-conversation-message time {
-  color: #929aac;
-  display: block;
-  font-size: 10px;
-  margin-top: 5px;
+.customer-conversation-message header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin: 0 4px 4px;
 }
+
+.customer-conversation-message.outbound header { justify-content: flex-end; }
+.customer-conversation-message header strong { color: #64758a; font-size: 10px; }
+.customer-conversation-message header time { color: #a1acb9; font-size: 9px; }
+.customer-conversation-message > div {
+  background: #fff;
+  border: 1px solid #e5ebf2;
+  border-radius: 4px 10px 10px;
+  box-shadow: 0 3px 8px rgb(47 65 89 / 4%);
+  color: #3f5064;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 9px 11px;
+}
+
+.customer-conversation-message.outbound > div {
+  background: #eaf2ff;
+  border-color: #d7e5ff;
+  border-radius: 10px 4px 10px 10px;
+}
+
+.customer-conversation-message p { margin: 0; overflow-wrap: anywhere; }
+.customer-conversation-message img,
+.customer-conversation-message video { border-radius: 7px; display: block; max-height: 320px; max-width: 100%; }
+.customer-conversation-message audio { max-width: 100%; }
+.customer-conversation-message .conversation-message-unsupported { color: #9a6e20; font-size: 11px; }
 
 .customer-conversation-detail .dashboard-data-state,
 .customer-conversation-directory .dashboard-data-state,
