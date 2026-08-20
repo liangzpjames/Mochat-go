@@ -92,7 +92,7 @@ function ConversationCard({
 }
 
 export function CustomerConversationList(props: Props) {
-  const customer = props.customer ?? props.data?.customer;
+  const customer = 'customer' in props ? props.customer : props.data?.customer;
   const customerTitle = customer
     ? displayName(customer.name, `客户 ${customer.id}`)
     : '请选择客户';
@@ -106,7 +106,7 @@ export function CustomerConversationList(props: Props) {
           {customer?.avatar.trim()
             ? <img alt="" loading="lazy" src={customer.avatar} />
             : customer
-              ? customerTitle.slice(0, 1)
+              ? <span aria-hidden="true" className="customer-conversation-empty-avatar"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z" /></svg></span>
               : <span aria-hidden="true" data-testid="customer-conversation-empty-avatar"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z" /></svg></span>}
         </span>
         <span>
@@ -115,8 +115,9 @@ export function CustomerConversationList(props: Props) {
           {customer !== undefined && <em className={`customer-conversation-profile-status is-${customer.profileStatus}`}>{profileStatusLabel(customer.profileStatus)}</em>}
         </span>
       </div>
-      <button aria-label="刷新客户会话" disabled={props.fetching || customer === undefined} onClick={props.onRefresh} type="button">
-        {props.fetching ? '刷新中' : '刷新'}
+      <button aria-label="刷新会话" className="customer-conversation-action-button" disabled={props.fetching || customer === undefined} onClick={props.onRefresh} type="button">
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M19 8.5V4l-1.65 1.65A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.93-4.4L14 9.5h5Z" /></svg>
+        <span>{props.fetching ? '刷新中' : '刷新会话'}</span>
       </button>
     </header>
 

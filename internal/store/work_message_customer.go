@@ -123,6 +123,7 @@ func (s *MySQLStore) customerDirectorySourceResult(ctx context.Context, filter d
 	}
 	baseSQL := `SELECT candidate.customer_id,
 		COALESCE(NULLIF(contact.name,''), NULLIF(candidate.archive_name,''), '') AS name,
+		COALESCE(candidate.archive_name,'') AS archive_name,
 		COALESCE(contact.avatar,'') AS avatar,
 		COALESCE(contact.wx_external_userid,'') AS external_userid,
 		CASE WHEN contact.id IS NULL THEN 'missing' WHEN contact.deleted_at IS NOT NULL THEN 'deleted' ELSE 'available' END AS profile_status,

@@ -173,6 +173,9 @@ func TestCustomerDirectorySourceScopesGroupMembershipToActiveCorpRoom(t *testing
 	if !strings.Contains(sourceSQL, "JOIN mc_work_room room ON room.id=membership.room_id AND room.corp_id=? AND room.deleted_at IS NULL") {
 		t.Fatalf("group membership must be constrained to the active room in the requested corp: %s", sourceSQL)
 	}
+	if !strings.Contains(sourceSQL, "AS archive_name") {
+		t.Fatalf("customer directory keyword filtering requires archive_name in the derived projection: %s", sourceSQL)
+	}
 	if len(sourceArgs) != 26 || sourceArgs[10] != 27 {
 		t.Fatalf("room corp placeholder must follow first archive args; args=%#v", sourceArgs)
 	}

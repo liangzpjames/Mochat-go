@@ -22,7 +22,7 @@
 
 - 三栏宽屏栅格：目录 `288px`、详情 `360px`、消息区 `minmax(560px, 1fr)`，在 2560×1440 下利用主内容区并避免大块无意义留白。
 - 每个栏位独立滚动，消息区不会推动目录或详情；页面高度使用 `100dvh`，兼容移动浏览器地址栏变化。
-- 客户页在 `1200px` 以上保持左侧客户列表、中间关联会话、右侧消息详情三栏；`1199px` 以下目录切换为抽屉，`768px` 以下进入单栏模式。
+- 客户页在 `1200px` 以上保持左侧客户列表、中间关联会话、右侧消息详情三栏；`1200–1399px` 使用收缩列宽确保详情操作按钮仍在视口内；`1199px` 以下目录切换为抽屉，`768px` 以下进入单栏模式。
 - 加入 hover、选中、键盘焦点、禁用和错误状态，避免仅靠颜色表达状态。
 - 保留员工会话菜单既有布局节奏，客户页面通过独立的 `CustomerConversationPage` 编排，避免复制员工业务数据。
 
@@ -56,15 +56,15 @@
 
 | 验证项 | 命令/结果 |
 | --- | --- |
-| 客户目标前端测试 | 8 个文件、57 个测试通过 |
-| Dashboard 全量前端测试 | `corepack pnpm --filter @mochat/dashboard test`：113 个文件、698 个测试通过 |
+| 客户目标前端测试 | 5 个文件、24 个测试通过 |
+| Dashboard 全量前端测试 | `corepack pnpm --filter @mochat/dashboard test`：114 个文件中 113 个完成，701/702 个测试通过；唯一失败为既有轨迹滚动用例的全量时序波动，隔离重跑该文件 4/4 通过 |
 | 类型检查 | `corepack pnpm --filter @mochat/dashboard typecheck` 通过 |
 | 生产构建 | `corepack pnpm --filter @mochat/dashboard build` 通过；仅有既有的大 chunk 警告 |
-| Go 目标包 | `go test ./internal/dashboard ./internal/store ./internal/server ./internal/migration -run 'Test.*(WorkMessageCustomer\|CustomerConversation\|CustomerDirectory\|CustomerDetail\|DashboardPageCatalog\|0142)' -count=1` 通过 |
-| Go 相关包全量 | `go test ./internal/dashboard ./internal/store ./internal/server ./internal/migration -count=1` 通过 |
+| Go 客户目标 | 客户目录 SQL、客户会话 SQL/详情相关目标测试通过 |
+| Go 相关包全量 | 工作区并行增量已发现 0144 migration，而既有健康/迁移断言仍期望 0143，导致全量包命令出现基线断言失配；不影响本轮客户目标测试 |
 | 启动命令 | `go test ./cmd/mochat-go -count=1` 通过 |
 | MariaDB 方言集成 | `TestCustomerDirectoryMariaDBIntegration`、`TestCustomerConversationMariaDBIntegration`、`TestCustomerDetailMariaDBIntegration` 因未设置 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 明确 SKIP；不能记为方言集成通过 |
-| 空白检查 | `git diff --check` 通过 |
+| 空白检查 | 暂存客户变更 `git diff --cached --check` 通过 |
 
 Dashboard 全量测试期间出现的 `jsdom window.getComputedStyle` stderr 是现有 Ant Design 测试环境警告，不影响退出码；生产构建的 chunk 大小警告也未导致构建失败。
 
@@ -79,12 +79,13 @@ Dashboard 全量测试期间出现的 `jsdom window.getComputedStyle` stderr 是
 
 ## 8. 浏览器验收
 
-已在本地 Compose 的真实登录态下打开 `http://127.0.0.1:18080/chat/v2-customer`，视口为 `1280×720`。验收步骤与结果如下：
+已在本地 Compose 的真实登录态下打开 `http://127.0.0.1:18080/chat/v2-customer`，视口为 `1216×1272`。验收步骤与结果如下：
 
-1. 未选择客户时，左侧列表首行位于可视区域（按钮边界 `x=285`），中栏显示中性用户图标和“请选择客户”，不出现“请”字头像。
-2. 点击“陈晓明”后，URL 更新为 `customerId=2001&page=1`；中栏先显示已选客户和加载状态，接口修复后自动打开首条稳定会话。
-3. 最终 URL 为 `customerId=2001&conversationId=1001:1:2001`；中栏显示“张伟 / 客户：陈晓明 / 15 条消息”，右侧显示“客户单聊 陈晓明 张伟”和消息列表（实测 9 条渲染消息）。
-4. 中栏与右侧出现的 `role=alert` 均为真实能力缺口提示（群聊成员识别、单会话下载），不是接口加载失败；页面无“客户会话加载失败”或“请选择客户”的误空态。
+1. 清除客户选择后，左侧客户目录仍显示真实客户列表；中栏显示中性用户图标和“请选择客户”，右侧显示“请选择会话”，不出现“请”字头像，也不沿用缓存客户资料。
+2. 点击“朱晨”后，URL 更新为 `customerId=2009&conversationId=1006:1:2009`；中栏显示朱晨的关联会话，右侧详情正常加载。
+3. 详情操作区按钮边界为 `x=970..1154`，均在 `1216px` 视口内；“刷新详情”“关注客户”可见且可点击。
+4. 实际点击验证“刷新客户”“刷新会话”“刷新详情”、关注切换和消息内容搜索；关注按钮在“关注客户/已关注”之间切换后恢复原状态，消息搜索将 URL 更新为 `messageKeyword=红包` 并渲染 2 条消息。
+5. 客户目录搜索 `朱晨` 正常返回客户列表；浏览器控制台错误日志为空。
 
 ## 9. 已知缺口与后续动作
 
@@ -101,17 +102,21 @@ Dashboard 全量测试期间出现的 `jsdom window.getComputedStyle` stderr 是
 3. 未选择客户时，中间栏头像改为中性 SVG 用户图标；空态仍明确显示“请选择客户”，不再把“请”误当作客户头像。
 4. 修正客户关联会话 SQL 对不存在的 `mc_work_room.avatar` 和直聊场景不存在的 `latest.current_member` 的引用：群聊头像回退到归档消息 `target_avatar`，直聊不读取群成员字段。
 5. 新增列表语义、时间列、空态图标、“选客户后打开首条会话”以及 SQL 字段兼容性的回归测试，并完成本地浏览器真实点击验收。
+6. 复用员工会话工作台的轻量操作区规范：客户搜索改为“搜索”，目录/会话/详情刷新分别明确为“刷新客户”“刷新会话”“刷新详情”，关注切换显示“关注客户/已关注”，消息历史显示“加载更早”；按钮统一使用浅底圆角、内联图标、主次色、焦点和禁用态。
+7. 修复客户目录关键词查询的 SQL 投影，确保 `archive_name` 可参与筛选；关键词搜索不再触发 `Unknown column 'archive_name'`。
+8. 客户目录和中栏客户资料无头像时统一显示中性用户 SVG 图标；取消客户选择后不再使用 React Query 的旧客户快照填充中间栏。
 
-本次反馈修复的定向回归为 6 个前端测试文件、53 个测试通过；Go 侧客户会话 SQL/详情相关测试与全量相关包均通过。
+本次反馈修复的定向回归覆盖 5 个前端文件、24 个测试；Go 侧客户目录 SQL、客户会话 SQL/详情相关目标测试均通过。
 
 ## 11. 交付判定
 
 - [x] 客户会话菜单与员工会话菜单保持同一布局语言。
 - [x] 客户目录、消息、详情、关联会话使用真实 API 与权限链路。
 - [x] 宽屏、桌面、抽屉和单栏响应式 CSS 合同通过。
-- [x] 前端全量测试、类型检查、生产构建通过。
-- [x] Go 相关包与启动命令通过。
+- [x] 客户目标前端测试、类型检查、生产构建通过；Dashboard 全量回归仅有既有轨迹滚动用例时序波动，隔离重跑通过。
+- [x] Go 客户目标测试与启动命令通过；相关包全量断言受工作区并行 0144 migration 基线失配影响，已在测试证据中注明。
 - [x] Docker app 已重建，MySQL、Redis 和数据卷保持健康。
-- [x] 真实登录态下 `1280×720` 客户选择、会话自动打开和右侧详情关键路径浏览器验收；四视口扩展回归列入后续视觉迭代。
+- [x] 客户会话操作按钮完成文案、图标、主次层级、焦点和禁用态统一。
+- [x] 真实登录态下 `1216×1272` 客户选择、会话自动打开、无选择空态和右侧详情关键路径浏览器验收；详情操作按钮均在视口内。
 
 本轮实施代码、测试、浏览器验收和交付文档均已完成。

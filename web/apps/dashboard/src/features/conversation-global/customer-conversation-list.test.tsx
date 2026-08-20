@@ -47,6 +47,7 @@ describe('CustomerConversationList', () => {
     expect(screen.getByText('资料已同步')).toBeTruthy();
     expect(screen.getByText('已退群')).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toContain('无法稳定识别群聊入站消息');
+    expect(screen.getByRole('button', { name: '刷新会话' }).textContent).toContain('刷新会话');
   });
 
   it('renders direct conversation labels, optional signals and fixed-size pagination', () => {
@@ -102,6 +103,28 @@ describe('CustomerConversationList', () => {
     expect(screen.getAllByText('请选择客户')).toHaveLength(2);
     expect(screen.getByTestId('customer-conversation-empty-avatar')).toBeTruthy();
     expect(screen.queryByText('请', { selector: '.customer-conversation-customer-avatar > span' })).toBeNull();
+  });
+
+  it('does not keep cached customer data after the selection is cleared', () => {
+    render(<CustomerConversationList
+      customer={undefined}
+      data={groupPage}
+      error={null}
+      fetching={false}
+      mode="direct"
+      onModeChange={() => undefined}
+      onPageChange={() => undefined}
+      onRefresh={() => undefined}
+      onSelectConversation={() => undefined}
+      page={1}
+      pending={false}
+      selectedConversationId={null}
+    />);
+
+    expect(screen.getAllByText('请选择客户')).toHaveLength(2);
+    expect(screen.getByTestId('customer-conversation-empty-avatar')).toBeTruthy();
+    expect(screen.queryByText('资料已同步')).toBeNull();
+    expect(screen.queryByRole('button', { name: /产品交流群.*张伟/ })).toBeNull();
   });
 
   it('keeps the selected customer visible while associated conversations are loading', () => {

@@ -66,9 +66,15 @@ export function CustomerConversationDetailPane(props: Props) {
           <strong>{displayTargetName(data)}</strong>
           <span>{data.employeeName.trim() || `员工 ${data.employeeId}`}</span>
         </div>
-        <div>
-          <button aria-label="刷新客户详情" disabled={props.fetching} onClick={props.onRefresh} type="button">{props.fetching ? '刷新中' : '刷新'}</button>
-          <button aria-label={data.focused ? '取消重点关注' : '重点关注'} className={data.focused ? 'is-focused' : ''} disabled={props.focusPending} onClick={props.onToggleFocus} type="button">{data.focused ? '取消关注' : '重点关注'}</button>
+        <div className="customer-conversation-detail-actions">
+          <button aria-label="刷新详情" className="customer-conversation-action-button" disabled={props.fetching} onClick={props.onRefresh} type="button">
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M19 8.5V4l-1.65 1.65A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.93-4.4L14 9.5h5Z" /></svg>
+            <span>{props.fetching ? '刷新中' : '刷新详情'}</span>
+          </button>
+          <button aria-label={data.focused ? '取消关注' : '关注客户'} className={`customer-conversation-action-button customer-conversation-action-button--focus${data.focused ? ' is-focused' : ''}`} disabled={props.focusPending} onClick={props.onToggleFocus} type="button">
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 20.2 10.55 19C5.4 14.45 2 11.45 2 7.75A4.75 4.75 0 0 1 6.75 3 5.15 5.15 0 0 1 12 6.05 5.15 5.15 0 0 1 17.25 3 4.75 4.75 0 0 1 22 7.75c0 3.7-3.4 6.7-8.55 11.25L12 20.2Z" /></svg>
+            <span>{data.focused ? '已关注' : '关注客户'}</span>
+          </button>
         </div>
       </header>
       {data.profile.profileStatus !== 'available' && <p className="customer-conversation-limitation" role="alert">客户资料未同步</p>}
@@ -88,12 +94,18 @@ export function CustomerConversationDetailPane(props: Props) {
         </div>
         <form aria-label="消息内容查询" className="customer-conversation-keyword-search" onSubmit={props.onKeywordSearch}>
           <input aria-label="搜索会话内容" onChange={(event) => props.onKeywordChange(event.target.value)} placeholder="搜索会话内容" value={props.keyword} />
-          <button aria-label="查询会话内容" type="submit">查询</button>
+          <button aria-label="搜索会话内容" className="customer-conversation-action-button customer-conversation-action-button--primary" type="submit">
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="m10.8 4a6.8 6.8 0 1 0 4.26 12.1l4.42 4.42 1.42-1.42-4.42-4.42A6.8 6.8 0 0 0 10.8 4Zm0 2a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6Z" /></svg>
+            <span>搜索</span>
+          </button>
         </form>
         <input aria-label="检索日期" onChange={(event) => props.onDateChange(event.target.value)} type="date" value={props.date} />
       </div>
       <div className="customer-conversation-scroll customer-conversation-messages">
-        {props.hasMore && <button className="customer-conversation-load-more" disabled={props.loadingOlder} onClick={props.onLoadOlder} type="button">{props.loadingOlder ? '加载中…' : '加载更早消息'}</button>}
+        {props.hasMore && <button aria-label="加载更早消息" className="customer-conversation-action-button customer-conversation-load-more" disabled={props.loadingOlder} onClick={props.onLoadOlder} type="button">
+          <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 5v14m0-14 5 5m-5-5-5 5" /></svg>
+          <span>{props.loadingOlder ? '加载中…' : '加载更早'}</span>
+        </button>}
         {props.messages.length === 0 && <PageState state="empty" title="暂无匹配消息" description="当前会话在所选筛选条件下没有消息。" />}
         {props.messages.map((message) => <article className={`customer-conversation-message ${message.direction}`} key={message.id}>
           <header><strong>{senderName(data, message.senderName)}</strong><time>{message.sentAt}</time></header>

@@ -89,7 +89,7 @@ describe('CustomerConversationPage', () => {
     if (!setFocus || !customerDirectory) throw new Error('focus/customer API mocks missing');
     renderPage(api, '/chat/v2-customer?customerId=31&conversationId=9%3A2%3A44');
     await screen.findByText('你好');
-    fireEvent.click(screen.getByRole('button', { name: '重点关注' }));
+    fireEvent.click(screen.getByRole('button', { name: '关注客户' }));
     await waitFor(() => expect(setFocus).toHaveBeenCalledWith('9:2:44'));
     await waitFor(() => expect(customerDirectory).toHaveBeenCalledTimes(2));
   });
