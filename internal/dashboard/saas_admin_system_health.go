@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0149_message_intercept_silent_filters"
-	SaaSAdminExpectedMigrationCount   = 149
+	SaaSAdminExpectedMigrationVersion = "0151_ai_conversation_insight_api_resources"
+	SaaSAdminExpectedMigrationCount   = 151
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"
