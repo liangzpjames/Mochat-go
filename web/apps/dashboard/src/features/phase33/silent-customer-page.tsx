@@ -6,7 +6,7 @@ import { useDashboardAccess } from '../../app/access-context';
 import { ConfirmAction } from '../../components/confirm-action';
 import { DashboardPagination } from '../../components/dashboard-pagination';
 import { PageState, pageStateForError } from '../../components/page-state/page-state';
-import { RiskWarningDrawer, RiskWarningPageHeader, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
+import { RiskWarningDrawer, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
 import type { SilentCustomerApi, SilentCustomerRecord, SilentCustomerRule } from './silent-customer-api';
 
 const recordDefault = { customer: '', status: '', assignedEmployeeId: 0, page: 1, perPage: 20 };
@@ -69,7 +69,6 @@ export function SilentCustomerPage({ api }: { api: SilentCustomerApi }) {
   const updateRecordDraft = (key: keyof typeof recordDefault, value: string | number) => setRecordDraft((current) => ({ ...current, [key]: value, page: 1 }));
   const updateRuleDraft = (key: keyof typeof ruleDefault, value: string) => setRuleDraft((current) => ({ ...current, [key]: value, page: 1 }));
   return <RiskWarningShell className="silent-customer-page">
-    <RiskWarningPageHeader eyebrow="风险预警" title="沉默客户" meta="按真实客户互动时间识别沉默记录，分派跟进并留下处置结果。" />
     <RiskWarningTabs active={tab} tabs={[{ id: 'records', label: '沉默记录' }, { id: 'rules', label: '规则配置' }]} onChange={setTab} />
     <RiskWarningQueryBar fetching={records.isFetching || rules.isFetching} onQuery={tab === 'records' ? queryRecords : queryRules} onReset={tab === 'records' ? resetRecords : resetRules} onRefresh={refresh}>{tab === 'records' ? <><label>客户<input aria-label="客户" placeholder="客户名称或 ID" value={recordDraft.customer} onChange={(event) => updateRecordDraft('customer', event.target.value)} /></label><label>沉默状态<select aria-label="沉默状态" value={recordDraft.status} onChange={(event) => updateRecordDraft('status', event.target.value)}><option value="">全部</option><option value="pending">待跟进</option><option value="assigned">已分派</option><option value="followed">已跟进</option><option value="awakened">已唤醒</option><option value="closed">已关闭</option></select></label><label>负责人<select aria-label="负责人" value={recordDraft.assignedEmployeeId || ''} onChange={(event) => updateRecordDraft('assignedEmployeeId', Number(event.target.value) || 0)}><option value="">全部</option>{(staff.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}{item.departments.length ? ` · ${item.departments.join('、')}` : ''}</option>)}</select></label></> : <><label>规则名称<input aria-label="规则名称" placeholder="输入规则名称" value={ruleDraft.name} onChange={(event) => updateRuleDraft('name', event.target.value)} /></label><label>状态<select aria-label="规则状态" value={ruleDraft.status} onChange={(event) => updateRuleDraft('status', event.target.value)}><option value="">全部</option><option value="enabled">启用</option><option value="disabled">停用</option></select></label></>}</RiskWarningQueryBar>
     {feedback ? <p className="risk-warning-inline-feedback" role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p> : null}

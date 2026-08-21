@@ -6,7 +6,7 @@ import { useDashboardAccess } from '../../app/access-context';
 import { DashboardPagination } from '../../components/dashboard-pagination';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import { ConfirmAction } from '../../components/confirm-action';
-import { RiskWarningDrawer, RiskWarningPageHeader, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
+import { RiskWarningDrawer, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
 import { createRiskWarningApi, type TimeoutFilter, type TimeoutRecord, type TimeoutRule } from '../risk-warning/risk-warning-api';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
 
@@ -95,7 +95,6 @@ export function TimeoutWarningPage({ api: workbenchApi }: { api: BusinessWorkben
   }, [loadedSettings, settingsData]);
 
   return <RiskWarningShell className="timeout-warning-page">
-    <RiskWarningPageHeader title="超时预警" meta="按真实归档消息的等待时长识别风险，并在同一工作台完成处置。" />
     <RiskWarningTabs active={tab} tabs={[{ id: 'records', label: '超时记录' }, { id: 'rules', label: '规则配置' }, { id: 'settings', label: '高级设置' }]} onChange={(next) => { const value = new URLSearchParams(params); value.set('tab', next); value.delete('recordId'); setParams(value); setSelected(null); }} />
     {tab === 'records' ? <>
       <RiskWarningQueryBar fetching={records.isFetching} onQuery={submit} onReset={reset} onRefresh={refresh}><label>客户<input aria-label="客户" value={draft.customer} placeholder="客户名称或 ID" onChange={(event) => setDraft((current) => ({ ...current, customer: event.target.value }))} /></label><label>风险等级<select aria-label="风险等级" value={draft.riskLevel} onChange={(event) => setDraft((current) => ({ ...current, riskLevel: event.target.value }))}><option value="">全部</option><option value="low">低风险</option><option value="medium">中风险</option><option value="high">高风险</option></select></label><label>会话类型<select aria-label="会话类型" value={draft.conversationType} onChange={(event) => setDraft((current) => ({ ...current, conversationType: event.target.value }))}><option value="">全部</option><option value="single">单聊</option><option value="group">群聊</option></select></label><label>处置状态<select aria-label="处置状态" value={draft.auditStatus} onChange={(event) => setDraft((current) => ({ ...current, auditStatus: event.target.value }))}><option value="">全部</option><option value="pending">待处置</option><option value="confirmed">已确认</option><option value="ignored">已忽略</option><option value="closed">已关闭</option></select></label></RiskWarningQueryBar>

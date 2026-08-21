@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router';
 import { useDashboardAccess } from '../../app/access-context';
 import { DashboardPagination } from '../../components/dashboard-pagination';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
-import { RiskWarningDrawer, RiskWarningPageHeader, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
+import { RiskWarningDrawer, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
 import { createRiskWarningApi, type CustomerLossFilter, type CustomerLossRecord } from '../risk-warning/risk-warning-api';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
 
@@ -55,7 +55,6 @@ export function CustomerLossPage({ api: workbenchApi }: { api: BusinessWorkbench
   const rows = records.data?.items ?? [];
 
   return <RiskWarningShell className="customer-loss-page">
-    <RiskWarningPageHeader title="客户流失" meta="复核企业微信客户关系变化，保留客户与责任员工的历史关联。" />
     <RiskWarningTabs active={tab} tabs={[{ id: 'records', label: '客户流失' }, { id: 'rules', label: '流失规则' }]} onChange={(next) => { const value = new URLSearchParams(params); value.set('tab', next); value.delete('recordId'); setParams(value); setSelected(null); }} />
     {tab === 'records' ? <>
       <RiskWarningQueryBar fetching={records.isFetching} onQuery={submit} onReset={reset} onRefresh={refresh}>

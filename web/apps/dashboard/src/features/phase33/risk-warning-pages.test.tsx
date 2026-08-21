@@ -83,7 +83,7 @@ describe('RiskWarningPage', () => {
       const api: BusinessWorkbenchApi = { read, write: vi.fn() };
       view(path, api);
 
-      expect(screen.getByRole('heading', { name: '数据提供方未接入' })).toBeTruthy();
+      expect(screen.getByRole('heading', { name: '暂无可用记录' })).toBeTruthy();
       expect(screen.getByRole('button', { name: '查询' }).hasAttribute('disabled')).toBe(true);
       expect(read).not.toHaveBeenCalled();
       expect(screen.queryByRole('button', { name: '详情' })).toBeNull();

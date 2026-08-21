@@ -121,8 +121,8 @@ export function Phase33OperationsPage({
         <div className="dashboard-data-card phase33-operations-unavailable">
           <PageState
             state="not-found"
-            title="能力未接入"
-            description="当前环境尚未接入可用的媒体或拒绝存档数据提供方。"
+            title="暂无可用记录"
+            description="当前筛选范围没有可展示的会话运营记录。"
           />
         </div>
       ) : (

@@ -34,9 +34,38 @@ describe('risk warning operation pages', () => {
     expect(await screen.findByText('违禁词库')).toBeTruthy();
     expect(container.querySelector('.sensitive-word-config-workspace')).not.toBeNull();
     expect(screen.queryByText('AI 洞察')).toBeNull();
+    expect(screen.queryByText('风险预警')).toBeNull();
+    expect(screen.queryByRole('heading', { name: '关键词库' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '添加关键词' })).toBeNull();
+    expect(screen.getByRole('button', { name: '新建词库' }).className).toContain('risk-warning-primary-button');
     fireEvent.click(screen.getByRole('button', { name: /违禁词库/ }));
     expect(await screen.findByText('报价')).toBeTruthy();
     expect(api.libraries).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 20 }));
+    expect(screen.getByRole('button', { name: '添加关键词' }).className).toContain('risk-warning-primary-button');
+    expect(screen.getByRole('button', { name: '编辑词库' }).className).toContain('risk-warning-primary-button');
+
+    fireEvent.click(screen.getByRole('button', { name: '新建词库' }));
+    expect(await screen.findByRole('heading', { name: '新建词库' })).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: '编辑词库名称' }) as HTMLInputElement).value).toBe('');
+    expect((screen.getByRole('textbox', { name: '词库说明' }) as HTMLTextAreaElement).value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '选择词库 违禁词库' }));
+    fireEvent.click(screen.getByRole('button', { name: '编辑词库' }));
+    expect(await screen.findByRole('heading', { name: '编辑词库' })).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: '编辑词库名称' }) as HTMLInputElement).value).toBe('违禁词库');
+  });
+
+  it('keeps the risk-warning child pages free of redundant top banners', async () => {
+    const api = messageApi();
+    const { unmount } = renderPage(<MessageInterceptPage api={api} />);
+    await screen.findByText('报价不可外发');
+    expect(screen.queryByText('风险预警')).toBeNull();
+    unmount();
+
+    renderPage(<SilentCustomerPage api={silentApi()} />);
+    await screen.findByText('客户A');
+    expect(screen.queryByText('风险预警')).toBeNull();
   });
 
   it('keeps intercept filters explicit and opens a human-readable detail drawer', async () => {

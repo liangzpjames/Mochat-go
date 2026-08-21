@@ -167,8 +167,8 @@ describe('Phase33OperationsPage', () => {
       const api: BusinessWorkbenchApi = { read, write: vi.fn() };
       view(path, api);
 
-      expect(screen.getByRole('heading', { name: '能力未接入' })).toBeTruthy();
-      expect(screen.getByText('当前环境尚未接入可用的媒体或拒绝存档数据提供方。')).toBeTruthy();
+      expect(screen.getByRole('heading', { name: '暂无可用记录' })).toBeTruthy();
+      expect(screen.getByText('当前筛选范围没有可展示的会话运营记录。')).toBeTruthy();
       expect(read).not.toHaveBeenCalled();
       expect(screen.queryByRole('link', { name: /下载/ })).toBeNull();
     },

@@ -113,20 +113,11 @@ export function RiskWarningPage({
 
   return (
     <section className="phase33-risk-warning-page">
-      <header className="phase33-risk-warning-header dashboard-page-header dashboard-data-card">
-        <div>
-          <p className="phase33-risk-warning-eyebrow">风险预警</p>
-          <h1>{config.title}</h1>
-          <p>{config.description}</p>
-        </div>
-        <button type="button" disabled={!enabled || query.isFetching} onClick={() => void query.refetch()}>刷新</button>
-      </header>
-
       <div className="dashboard-filter-bar phase33-risk-warning-filters" aria-label="风险预警筛选">
         <label>员工 ID<input aria-label="员工 ID" disabled={!enabled} inputMode="numeric" value={draftEmployeeID} onChange={(event) => setDraftEmployeeID(event.target.value)} /></label>
-        <label>关键词<input aria-label="关键词" disabled title="当前数据提供方未声明关键词筛选能力" /></label>
-        <label>日期<input aria-label="日期" disabled type="date" title="当前数据提供方未声明日期筛选能力" /></label>
-        <label>状态<select aria-label="状态" disabled title="当前数据提供方未声明状态筛选能力"><option>未接入</option></select></label>
+        <label>关键词<input aria-label="关键词" disabled title="当前页面暂不支持该筛选条件" /></label>
+        <label>日期<input aria-label="日期" disabled type="date" title="当前页面暂不支持该筛选条件" /></label>
+        <label>状态<select aria-label="状态" disabled title="当前页面暂不支持该筛选条件"><option>全部</option></select></label>
         <div className="dashboard-table-actions">
           <button type="button" disabled={!enabled} onClick={() => { setSelected(null); setEmployeeID(draftEmployeeID.trim()); }}>查询</button>
           <button type="button" disabled={!enabled} onClick={() => { setDraftEmployeeID(''); setEmployeeID(''); setSelected(null); }}>重置</button>
@@ -137,7 +128,7 @@ export function RiskWarningPage({
         <div className="dashboard-data-card phase33-risk-warning-state"><PageState state="forbidden" title="无权访问当前企业数据" description="请切换到已授权企业，或联系管理员开通权限。" /></div>
       ) : !providerConnected ? (
         <div className="dashboard-data-card phase33-risk-warning-state">
-          <PageState state="not-found" title="数据提供方未接入" description="当前页面尚无可用的风险预警 Provider；不会展示虚构的命中、规则或客户数据。" />
+          <PageState state="empty" title="暂无可用记录" description="当前筛选范围没有可展示的风险预警记录。" />
         </div>
       ) : (
         <div className="dashboard-data-card phase33-risk-warning-results">

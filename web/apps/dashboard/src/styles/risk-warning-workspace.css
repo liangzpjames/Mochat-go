@@ -88,10 +88,11 @@
 .sensitive-word-config-workspace { display: grid; gap: 14px; grid-template-columns: 260px minmax(0, 1fr); min-height: calc(100dvh - 250px); }
 .sensitive-word-group-column, .sensitive-word-word-column { background: #fff; border: 1px solid #e7ebf2; border-radius: 12px; min-width: 0; overflow: hidden; }
 .sensitive-word-group-column { display: flex; flex-direction: column; }
-.sensitive-word-column-header { border-bottom: 1px solid #edf0f5; padding: 16px; }
+.sensitive-word-column-header { align-items: center; border-bottom: 1px solid #edf0f5; display: flex; gap: 10px; justify-content: space-between; padding: 14px 16px; }
 .sensitive-word-column-header h2 { color: #28334a; font-size: 15px; margin: 0; }
 .sensitive-word-column-header p { color: #929bad; font-size: 12px; margin: 5px 0 0; }
-.sensitive-word-group-list { display: grid; gap: 4px; overflow-y: auto; padding: 8px; }
+.sensitive-word-column-header .keyword-library-primary-action { flex: 0 0 auto; min-height: 32px; padding: 6px 10px; }
+.sensitive-word-group-list { display: grid; flex: 1 1 auto; gap: 4px; min-height: 0; overflow-y: auto; padding: 8px; }
 .sensitive-word-group-list button { align-items: center; background: transparent; border: 0; border-radius: 9px; color: #53617a; cursor: pointer; display: flex; font: inherit; gap: 8px; justify-content: space-between; padding: 11px 10px; text-align: left; width: 100%; }
 .sensitive-word-group-list button:hover, .sensitive-word-group-list button[aria-pressed='true'] { background: #eef2ff; color: #536bf4; }
 .sensitive-word-group-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -121,6 +122,9 @@
 .sensitive-word-column-toolbar h2 { color: #28334a; font-size: 16px; margin: 0; }
 .sensitive-word-column-toolbar p { color: #929bad; font-size: 12px; margin: 5px 0 0; }
 .sensitive-word-column-toolbar .risk-warning-page-actions { gap: 8px; }
+.sensitive-word-library-pagination { flex: 0 0 auto; margin-top: auto; min-width: 0; padding: 0; }
+.sensitive-word-library-pagination .dashboard-pagination { flex-wrap: nowrap; min-width: 0; overflow-x: auto; padding: 10px 12px; white-space: nowrap; }
+.sensitive-word-library-pagination .dashboard-pagination-summary, .sensitive-word-library-pagination .dashboard-pagination-pages { flex-wrap: nowrap; white-space: nowrap; }
 .sensitive-word-config-workspace { align-items: stretch; }
 .message-intercept-record-table { min-width: 1240px; }
 .message-intercept-rule-table { min-width: 1080px; }
