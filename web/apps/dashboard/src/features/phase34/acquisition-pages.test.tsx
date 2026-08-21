@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -73,6 +73,44 @@ describe('Phase 3.4 acquisition pages', () => {
 
     expect(screen.getByLabelText('渠道活码详情').textContent).toContain('新增好友数');
     expect(screen.getByLabelText('渠道活码详情').textContent).toContain('8');
+  });
+
+  it('groups channel details into a scannable drawer and exposes one close action', async () => {
+    const api: BusinessWorkbenchApi = {
+      read: vi.fn().mockResolvedValue({ list: [{ channelCodeId: 12, name: '官网咨询', contactNum: 8, statisticsAvailable: false }] }),
+      write: vi.fn(),
+    };
+    view(<ChannelCodePage api={api} />);
+
+    await screen.findByText('官网咨询');
+    fireEvent.click(screen.getByRole('button', { name: '详情' }));
+    const drawer = screen.getByLabelText('渠道活码详情');
+
+    expect(drawer.querySelectorAll('button[aria-label="关闭详情"]')).toHaveLength(1);
+    expect(within(drawer).getByRole('heading', { name: '基础信息' })).toBeTruthy();
+    expect(within(drawer).getByRole('heading', { name: '归因与效果' })).toBeTruthy();
+    expect(within(drawer).getAllByText('暂无可验证数据')).toHaveLength(2);
+
+    fireEvent.click(drawer.querySelector('[data-phase34-detail-backdrop]') as HTMLElement);
+    expect(screen.queryByLabelText('渠道活码详情')).toBeNull();
+  });
+
+  it('shows group configuration as an explicit empty state in the detail drawer', async () => {
+    const api: BusinessWorkbenchApi = {
+      read: vi.fn().mockResolvedValue({ list: [{ id: 21, qrcodeName: '售后服务群', isVerified: 0, rooms: '' }] }),
+      write: vi.fn(),
+    };
+    view(<GroupCodePage api={api} />);
+
+    await screen.findByText('售后服务群');
+    fireEvent.click(screen.getByRole('button', { name: '详情' }));
+    const drawer = screen.getByLabelText('群活码详情');
+
+    expect(within(drawer).getByRole('heading', { name: '基础信息' })).toBeTruthy();
+    expect(within(drawer).getByRole('heading', { name: '配置与关系' })).toBeTruthy();
+    expect(within(drawer).getByText('暂无关联群聊')).toBeTruthy();
+    fireEvent.click(within(drawer).getByRole('button', { name: '返回列表' }));
+    expect(screen.queryByLabelText('群活码详情')).toBeNull();
   });
 
   it('loads group code-compatible records from the real auto-pull endpoint', async () => {
