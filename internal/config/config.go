@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -133,6 +134,9 @@ type Config struct {
 	WorkMessageArchiveSyncLimit                        int
 	WorkMessageArchiveBridgeBaseURL                    string
 	WorkMessageArchiveBridgeToken                      string
+	EnableConversationExportWorker                     bool
+	ConversationExportWorkerInterval                   time.Duration
+	ConversationExportRoot                             string
 	EnableSaaSStorageReconcileCron                     bool
 	SaaSStorageReconcileCronInterval                   time.Duration
 	SaaSStorageReconcileCronRunOnStart                 bool
@@ -722,6 +726,13 @@ func FromEnv() (Config, error) {
 	if workMessageArchiveSyncLimit <= 0 {
 		return Config{}, fmt.Errorf("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_LIMIT must be a positive integer")
 	}
+	conversationExportWorkerInterval, err := envInt("MOCHAT_GO_CONVERSATION_EXPORT_WORKER_INTERVAL_SECONDS", "", 2)
+	if err != nil {
+		return Config{}, err
+	}
+	if conversationExportWorkerInterval <= 0 {
+		return Config{}, fmt.Errorf("MOCHAT_GO_CONVERSATION_EXPORT_WORKER_INTERVAL_SECONDS must be a positive integer")
+	}
 	saasStorageReconcileCronInterval, err := envInt("MOCHAT_GO_SAAS_STORAGE_RECONCILE_CRON_INTERVAL_SECONDS", "", 86400)
 	if err != nil {
 		return Config{}, err
@@ -1121,6 +1132,7 @@ func FromEnv() (Config, error) {
 	defaultSidebarFrontendAddr := ""
 	defaultOperationFrontendAddr := ""
 	defaultSourceRoot := "../mochat"
+	defaultConversationExportRoot := filepath.Join(filepath.Dir(filepath.Dir(defaultFileStorageRoot)), "conversation-exports")
 	// The compatibility manifest is embedded in the Go server binary. Keep the
 	// default independent from the source-tree docs directory so production
 	// images do not need to ship docs just to serve route metadata.
@@ -1353,6 +1365,9 @@ func FromEnv() (Config, error) {
 		WorkMessageArchiveSyncLimit:                        workMessageArchiveSyncLimit,
 		WorkMessageArchiveBridgeBaseURL:                    os.Getenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL"),
 		WorkMessageArchiveBridgeToken:                      os.Getenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN"),
+		EnableConversationExportWorker:                     envBool("MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER"),
+		ConversationExportWorkerInterval:                   time.Duration(conversationExportWorkerInterval) * time.Second,
+		ConversationExportRoot:                             envOrDefault("MOCHAT_GO_CONVERSATION_EXPORT_ROOT", defaultConversationExportRoot),
 		EnableSaaSStorageReconcileCron:                     envBool("MOCHAT_GO_ENABLE_SAAS_STORAGE_RECONCILE_CRON"),
 		SaaSStorageReconcileCronInterval:                   time.Duration(saasStorageReconcileCronInterval) * time.Second,
 		SaaSStorageReconcileCronRunOnStart:                 envBool("MOCHAT_GO_SAAS_STORAGE_RECONCILE_CRON_RUN_ON_START"),
@@ -2086,7 +2101,7 @@ func FromEnv() (Config, error) {
 	jwtWorkerEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || cfg.EnableWorkDepartmentListWorker
 	mysqlWorkerEnabled := jwtWorkerEnabled || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker
 	redisWorkerEnabled := mysqlWorkerEnabled || cfg.EnableAsyncFileUploadWorker
-	cronEnabled := cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSPaymentSettlementSyncCron
+	cronEnabled := cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableConversationExportWorker || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSPaymentSettlementSyncCron
 	if (mysqlBacked || mysqlWorkerEnabled || cronEnabled) && cfg.MySQLDSN == "" {
 		return Config{}, fmt.Errorf("MOCHAT_MYSQL_DSN is required when migrated MySQL-backed routes, MySQL-backed Go workers, or Go cron tasks are enabled")
 	}

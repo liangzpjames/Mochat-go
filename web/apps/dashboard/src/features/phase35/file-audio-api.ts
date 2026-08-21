@@ -1,10 +1,15 @@
 export type AudioObject = {
   id: number;
   originalName: string;
+  source: string;
+  messageId: string;
+  senderName: string;
+  receiverName: string;
   contentType: string;
   sizeBytes: number;
   durationSeconds: number;
   createdAt: string;
+  syncedAt?: string;
   playUrl: string;
 };
 
@@ -15,37 +20,41 @@ export type AudioListResult = {
   perPage: number;
 };
 
-type Client = {
-  request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T>;
+export type AudioListFilter = {
+  sender: string;
+  receiver: string;
+  from: string;
+  to: string;
 };
 
-export function createFileAudioApi(client: Client) {
+type Client = {
+  request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T>;
+  download?: (input: RequestInfo | URL, init?: RequestInit) => Promise<{ blob: Blob; filename: string }>;
+};
+
+export type FileAudioApi = {
+  list(page: number, perPage: number, filter: AudioListFilter): Promise<AudioListResult>;
+  content?: (id: number) => Promise<Blob>;
+};
+
+export function createFileAudioApi(client: Client): FileAudioApi {
   return {
-    list(corpId: number, page: number, perPage: number, keyword = ''): Promise<AudioListResult> {
+    list(page: number, perPage: number, filter: AudioListFilter): Promise<AudioListResult> {
       const params = new URLSearchParams({
-        corpId: String(corpId),
         page: String(page),
         perPage: String(perPage),
       });
-      if (keyword.trim() !== '') {
-        params.set('keyword', keyword.trim());
-      }
+      if (filter.sender.trim() !== '') params.set('sender', filter.sender.trim());
+      if (filter.receiver.trim() !== '') params.set('receiver', filter.receiver.trim());
+      if (filter.from) params.set('from', filter.from);
+      if (filter.to) params.set('to', filter.to);
       return client.request<AudioListResult>(`/chat/media?${params.toString()}`);
     },
-    upload(corpId: number, file: File): Promise<{ id: number; playUrl: string }> {
-      const form = new FormData();
-      form.append('file', file);
-      return client.request<{ id: number; playUrl: string }>(`/chat/media?corpId=${corpId}`, {
-        method: 'POST',
-        body: form,
-      });
-    },
-    remove(corpId: number, id: number): Promise<{ id: number }> {
-      return client.request<{ id: number }>(`/chat/media/${id}?corpId=${corpId}`, {
-        method: 'DELETE',
-      });
+    content(id: number): Promise<Blob> {
+      if (client.download === undefined) {
+        return Promise.reject(new Error('录音播放请求未配置'));
+      }
+      return client.download(`/chat/media/${id}/content`).then((result) => result.blob);
     },
   };
 }
-
-export type FileAudioApi = ReturnType<typeof createFileAudioApi>;

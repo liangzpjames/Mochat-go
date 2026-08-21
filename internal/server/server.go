@@ -276,6 +276,7 @@ type Server struct {
 	sensitiveWordGroupStore                         http.Handler
 	sensitiveWordGroupUpdate                        http.Handler
 	sensitiveWordsMonitorIndex                      http.Handler
+	sensitiveWordsMonitorStatus                     http.Handler
 	sensitiveWordsMonitorShow                       http.Handler
 	contactSOPIndex                                 http.Handler
 	contactSOPStore                                 http.Handler
@@ -350,6 +351,9 @@ type Server struct {
 	workMessageRoomMessages                         http.Handler
 	workMessageRoomMembers                          http.Handler
 	workMessageRoomFilterOptions                    http.Handler
+	workMessageExportCandidates                     http.Handler
+	workMessageExportTasks                          http.Handler
+	workMessageExportDownload                       http.Handler
 	riskBehaviorRules                               http.Handler
 	riskBehaviorRecords                             http.Handler
 	riskBehaviorRuleCreate                          http.Handler
@@ -358,6 +362,8 @@ type Server struct {
 	riskBehaviorRuleDelete                          http.Handler
 	riskBehaviorRecordsAudit                        http.Handler
 	riskBehaviorEvaluate                            http.Handler
+	riskBehaviorRecordDetail                        http.Handler
+	riskBehaviorScannerStatus                       http.Handler
 	timeoutWarningRules                             http.Handler
 	timeoutWarningRecords                           http.Handler
 	timeoutWarningRuleCreate                        http.Handler
@@ -2208,6 +2214,12 @@ func WithSensitiveWordsMonitorIndexHandler(handler http.Handler) Option {
 	}
 }
 
+func WithSensitiveWordsMonitorStatusHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.sensitiveWordsMonitorStatus = handler
+	}
+}
+
 func WithSensitiveWordsMonitorShowHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.sensitiveWordsMonitorShow = handler
@@ -2650,6 +2662,18 @@ func WithWorkMessageRoomFilterOptionsHandler(handler http.Handler) Option {
 		server.workMessageRoomFilterOptions = handler
 	}
 }
+
+func WithWorkMessageExportCandidatesHandler(handler http.Handler) Option {
+	return func(server *Server) { server.workMessageExportCandidates = handler }
+}
+
+func WithWorkMessageExportTasksHandler(handler http.Handler) Option {
+	return func(server *Server) { server.workMessageExportTasks = handler }
+}
+
+func WithWorkMessageExportDownloadHandler(handler http.Handler) Option {
+	return func(server *Server) { server.workMessageExportDownload = handler }
+}
 func WithRiskBehaviorRulesHandler(handler http.Handler) Option {
 	return func(server *Server) { server.riskBehaviorRules = handler }
 }
@@ -2673,6 +2697,12 @@ func WithRiskBehaviorRecordsAuditHandler(handler http.Handler) Option {
 }
 func WithRiskBehaviorEvaluateHandler(handler http.Handler) Option {
 	return func(server *Server) { server.riskBehaviorEvaluate = handler }
+}
+func WithRiskBehaviorRecordDetailHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRecordDetail = handler }
+}
+func WithRiskBehaviorScannerStatusHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorScannerStatus = handler }
 }
 func WithTimeoutWarningRulesHandler(handler http.Handler) Option {
 	return func(s *Server) { s.timeoutWarningRules = handler }
@@ -4658,6 +4688,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.contactTransferLog.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/contactTransfer/saveUnassignedList" && r.Method == http.MethodGet && s.contactTransferSync != nil:
 		s.contactTransferSync.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/contactTransfer/sync" && r.Method == http.MethodPost && s.contactTransferSync != nil:
+		s.contactTransferSync.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/contactTransfer/index" && r.Method == http.MethodPost && s.contactTransferCustomer != nil:
 		s.contactTransferCustomer.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/contactTransfer/room" && r.Method == http.MethodPost && s.contactTransferRoomStore != nil:
@@ -5016,6 +5048,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.sensitiveWordGroupUpdate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/sensitiveWordsMonitor/index" && r.Method == http.MethodGet && s.sensitiveWordsMonitorIndex != nil:
 		s.sensitiveWordsMonitorIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/sensitiveWordsMonitor/status" && r.Method == http.MethodGet && s.sensitiveWordsMonitorStatus != nil:
+		s.sensitiveWordsMonitorStatus.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/sensitiveWordsMonitor/show" && r.Method == http.MethodGet && s.sensitiveWordsMonitorShow != nil:
 		s.sensitiveWordsMonitorShow.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/contactSop/index" && r.Method == http.MethodGet && s.contactSOPIndex != nil:
@@ -5164,10 +5198,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageRoomMembers.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/roomFilterOptions" && r.Method == http.MethodGet && s.workMessageRoomFilterOptions != nil:
 		s.workMessageRoomFilterOptions.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/exportCandidates" && r.Method == http.MethodGet && s.workMessageExportCandidates != nil:
+		s.workMessageExportCandidates.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/exportTasks" && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.workMessageExportTasks != nil:
+		s.workMessageExportTasks.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/exportDownload" && r.Method == http.MethodGet && s.workMessageExportDownload != nil:
+		s.workMessageExportDownload.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodGet && s.riskBehaviorRules != nil:
 		s.riskBehaviorRules.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/records" && r.Method == http.MethodGet && s.riskBehaviorRecords != nil:
 		s.riskBehaviorRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/records/detail" && r.Method == http.MethodGet && s.riskBehaviorRecordDetail != nil:
+		s.riskBehaviorRecordDetail.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/scanner-status" && r.Method == http.MethodGet && s.riskBehaviorScannerStatus != nil:
+		s.riskBehaviorScannerStatus.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodPost && s.riskBehaviorRuleCreate != nil:
 		s.riskBehaviorRuleCreate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodPut && s.riskBehaviorRuleUpdate != nil:
@@ -6261,6 +6305,7 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.contactTransferSync != nil {
 		routes = append(routes, "GET /dashboard/contactTransfer/saveUnassignedList")
+		routes = append(routes, "POST /dashboard/contactTransfer/sync")
 	}
 	if s.contactTransferCustomer != nil {
 		routes = append(routes, "POST /dashboard/contactTransfer/index")
@@ -6805,6 +6850,9 @@ func (s *Server) migratedRoutes() []string {
 	if s.sensitiveWordsMonitorIndex != nil {
 		routes = append(routes, "GET /dashboard/sensitiveWordsMonitor/index")
 	}
+	if s.sensitiveWordsMonitorStatus != nil {
+		routes = append(routes, "GET /dashboard/sensitiveWordsMonitor/status")
+	}
 	if s.sensitiveWordsMonitorShow != nil {
 		routes = append(routes, "GET /dashboard/sensitiveWordsMonitor/show")
 	}
@@ -7027,6 +7075,15 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.workMessageRoomFilterOptions != nil {
 		routes = append(routes, "GET /dashboard/workMessage/roomFilterOptions")
+	}
+	if s.workMessageExportCandidates != nil {
+		routes = append(routes, "GET /dashboard/workMessage/exportCandidates")
+	}
+	if s.workMessageExportTasks != nil {
+		routes = append(routes, "GET|POST /dashboard/workMessage/exportTasks")
+	}
+	if s.workMessageExportDownload != nil {
+		routes = append(routes, "GET /dashboard/workMessage/exportDownload")
 	}
 	if s.workMessageIndex != nil {
 		routes = append(routes, "GET /dashboard/workMessage/index", "GET /dashboard/workMessage/detail")

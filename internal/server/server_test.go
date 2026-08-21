@@ -32,6 +32,40 @@ func TestRootKeepsMoChatCompatibility(t *testing.T) {
 	}
 }
 
+func TestWorkMessageExportRoutes(t *testing.T) {
+	handler := func(body string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) })
+	}
+	srv, err := New(config.Config{},
+		WithWorkMessageExportCandidatesHandler(handler("candidates")),
+		WithWorkMessageExportTasksHandler(handler("tasks")),
+		WithWorkMessageExportDownloadHandler(handler("download")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		method string
+		path   string
+		body   string
+		route  string
+	}{
+		{http.MethodGet, "/dashboard/workMessage/exportCandidates?type=customer&page=1&pageSize=20", "candidates", "GET /dashboard/workMessage/exportCandidates"},
+		{http.MethodGet, "/dashboard/workMessage/exportTasks?page=1&pageSize=20", "tasks", "GET|POST /dashboard/workMessage/exportTasks"},
+		{http.MethodPost, "/dashboard/workMessage/exportTasks", "tasks", "GET|POST /dashboard/workMessage/exportTasks"},
+		{http.MethodGet, "/dashboard/workMessage/exportDownload?taskId=7", "download", "GET /dashboard/workMessage/exportDownload"},
+	} {
+		recorder := httptest.NewRecorder()
+		srv.ServeHTTP(recorder, httptest.NewRequest(test.method, test.path, nil))
+		if recorder.Code != http.StatusOK || recorder.Body.String() != test.body {
+			t.Fatalf("%s %s: status=%d body=%q", test.method, test.path, recorder.Code, recorder.Body.String())
+		}
+		if !containsString(srv.migratedRoutes(), test.route) {
+			t.Fatalf("missing route %q in %v", test.route, srv.migratedRoutes())
+		}
+	}
+}
+
 func TestFriendsCircleProviderRoutes(t *testing.T) {
 	handler := func(body string) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) })
@@ -4300,6 +4334,7 @@ func TestWorkMessageCustomerHandlersAreRouted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	for _, tc := range []struct{ method, path, body, route string }{
 		{http.MethodGet, "/dashboard/workMessage/customerDirectory?mode=all&page=1&pageSize=50", "customer directory", "GET /dashboard/workMessage/customerDirectory"},
 		{http.MethodGet, "/dashboard/workMessage/customerConversations?customerId=31&mode=direct&page=1&pageSize=20", "customer conversations", "GET /dashboard/workMessage/customerConversations"},
@@ -4912,6 +4947,7 @@ func TestContactTransferRoutesUseMigratedHandlersWhenConfigured(t *testing.T) {
 		{method: http.MethodGet, path: "/dashboard/contactTransfer/room", body: "go contact transfer room", route: "GET /dashboard/contactTransfer/room"},
 		{method: http.MethodGet, path: "/dashboard/contactTransfer/log", body: "go contact transfer log", route: "GET /dashboard/contactTransfer/log"},
 		{method: http.MethodGet, path: "/dashboard/contactTransfer/saveUnassignedList", body: "go contact transfer sync", route: "GET /dashboard/contactTransfer/saveUnassignedList"},
+		{method: http.MethodPost, path: "/dashboard/contactTransfer/sync", body: "go contact transfer sync", route: "POST /dashboard/contactTransfer/sync"},
 		{method: http.MethodPost, path: "/dashboard/contactTransfer/index", body: "go contact transfer customer", route: "POST /dashboard/contactTransfer/index"},
 		{method: http.MethodPost, path: "/dashboard/contactTransfer/room", body: "go contact transfer room store", route: "POST /dashboard/contactTransfer/room"},
 	} {

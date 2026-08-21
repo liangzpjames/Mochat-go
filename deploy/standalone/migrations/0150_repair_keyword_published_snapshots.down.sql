@@ -1,0 +1,2 @@
+-- Snapshot repair is intentionally not destructive on rollback; published
+-- versions may have been referenced by rules after this migration ran.

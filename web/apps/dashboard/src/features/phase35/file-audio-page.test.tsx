@@ -1,25 +1,25 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../app/access-context';
 import { FileAudioPage } from './file-audio-page';
 import type { FileAudioApi } from './file-audio-api';
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+afterEach(() => cleanup());
 
-function renderPage(api: FileAudioApi) {
+function renderPage(api: FileAudioApi, initialEntry = '/chat/file-audio') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const access = { corp: { id: '9' }, session: {}, menu: [], allowedRoutes: new Set(), allowedActions: new Set() } as never;
   return render(
-    <DashboardAccessProvider value={access}>
-      <QueryClientProvider client={client}>
-        <FileAudioPage api={api} />
-      </QueryClientProvider>
-    </DashboardAccessProvider>,
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <DashboardAccessProvider value={access}>
+        <QueryClientProvider client={client}>
+          <FileAudioPage api={api} />
+        </QueryClientProvider>
+      </DashboardAccessProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -27,10 +27,15 @@ const sample = {
   list: [
     {
       id: 1,
-      originalName: 'p36-accept.wav',
+      originalName: '企微同步-客户咨询-001.wav',
       contentType: 'audio/wav',
       sizeBytes: 4096,
-      durationSeconds: 0,
+      durationSeconds: 32,
+      source: 'wecom_sync',
+      messageId: 'wecom-dev-001',
+      senderName: '张伟',
+      receiverName: '陈经理',
+      syncedAt: '2026-08-07T10:00:00+08:00',
       createdAt: '2026-08-07T10:00:00+08:00',
       playUrl: '/dashboard/chat/media/1/content',
     },
@@ -41,70 +46,47 @@ const sample = {
 };
 
 describe('FileAudioPage', () => {
-  it('loads the audio list for the current corp and renders playback controls', async () => {
+  it('renders synchronized recordings as a read-only table without upload or delete controls', async () => {
     const list = vi.fn().mockResolvedValue(sample);
-    const api: FileAudioApi = { list, upload: vi.fn(), remove: vi.fn() };
+    const api: FileAudioApi = { list };
     renderPage(api);
-    expect(await screen.findByText('p36-accept.wav')).not.toBeNull();
-    expect(list).toHaveBeenCalledWith(9, 1, 20, '');
-    expect(screen.getByText('WAV')).not.toBeNull();
-    expect(screen.getByRole('button', { name: /删除 p36-accept.wav/ })).not.toBeNull();
-    expect(document.querySelector('audio')?.getAttribute('src')).toBe('/dashboard/chat/media/1/content');
+
+    expect(await screen.findByText('企微同步-客户咨询-001.wav')).not.toBeNull();
+    expect(list).toHaveBeenCalledWith(1, 20, { sender: '', receiver: '', from: '', to: '' });
+    expect(screen.queryByRole('button', { name: '上传录音' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /删除/ })).toBeNull();
+    expect(screen.queryByText('人工上传')).toBeNull();
+    expect(screen.getAllByText('企微同步').length).toBeGreaterThan(0);
+    expect(screen.getByText('32 秒')).not.toBeNull();
+    expect(screen.queryByText(/能力未接入|功能未接入/)).toBeNull();
   });
 
-  it('uploads a supported audio file and refreshes the list', async () => {
-    const upload = vi.fn().mockResolvedValue({ id: 2, playUrl: '/dashboard/chat/media/2/content' });
+  it('queries sender, receiver and synced date range then resets active page', async () => {
     const list = vi.fn().mockResolvedValue(sample);
-    const api: FileAudioApi = { list, upload, remove: vi.fn() };
-    renderPage(api);
-    await screen.findByText('p36-accept.wav');
-    const file = new File(['wave'], 'new.wav', { type: 'audio/wav' });
-    const input = screen.getByLabelText('选择音频文件');
-    fireEvent.change(input, { target: { files: [file] } });
-    expect(screen.getByText('new.wav')).not.toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '上传' }));
-    expect(await screen.findByText('上传成功，已写入存储并可回读播放')).not.toBeNull();
-    expect(upload).toHaveBeenCalledWith(9, file);
+    const api: FileAudioApi = { list };
+    renderPage(api, '/chat/file-audio?page=3');
+    await screen.findByText('企微同步-客户咨询-001.wav');
+
+    fireEvent.change(screen.getByLabelText('发送人'), { target: { value: '张伟' } });
+    fireEvent.change(screen.getByLabelText('接收人'), { target: { value: '陈经理' } });
+    fireEvent.change(screen.getByLabelText('发送日期-开始'), { target: { value: '2026-08-01' } });
+    fireEvent.change(screen.getByLabelText('发送日期-结束'), { target: { value: '2026-08-20' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, 20, {
+      sender: '张伟', receiver: '陈经理', from: '2026-08-01', to: '2026-08-20',
+    }));
   });
 
-  it('rejects non-audio files client-side before calling the API', async () => {
-    const upload = vi.fn();
-    const api: FileAudioApi = { list: vi.fn().mockResolvedValue(sample), upload, remove: vi.fn() };
-    renderPage(api);
-    await screen.findByText('p36-accept.wav');
-    const file = new File(['text'], 'notes.txt', { type: 'text/plain' });
-    fireEvent.change(screen.getByLabelText('选择音频文件'), { target: { files: [file] } });
-    expect(await screen.findByText('仅支持常见音频格式（如 WAV、MP3、AAC）')).not.toBeNull();
-    expect(upload).not.toHaveBeenCalled();
-  });
-
-  it('keeps the upload button disabled until a file is chosen', async () => {
-    const api: FileAudioApi = { list: vi.fn().mockResolvedValue(sample), upload: vi.fn(), remove: vi.fn() };
-    renderPage(api);
-    await screen.findByText('p36-accept.wav');
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: '上传' }).disabled).toBe(true);
-    expect(screen.getByText('未选择文件')).not.toBeNull();
-  });
-
-  it('soft deletes after confirmation', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true));
-    const remove = vi.fn().mockResolvedValue({ id: 1 });
+  it('keeps the audio source authenticated and resets filters without write actions', async () => {
     const list = vi.fn().mockResolvedValue(sample);
-    const api: FileAudioApi = { list, upload: vi.fn(), remove };
-    renderPage(api);
-    fireEvent.click(await screen.findByRole('button', { name: /删除 p36-accept.wav/ }));
-    await waitFor(() => expect(remove).toHaveBeenCalledWith(9, 1));
-    expect(await screen.findByText('已删除')).not.toBeNull();
-  });
+    const api: FileAudioApi = { list };
+    renderPage(api, '/chat/file-audio?sender=张伟&receiver=陈经理&from=2026-08-01&to=2026-08-20');
+    await screen.findByText('企微同步-客户咨询-001.wav');
 
-  it('renders the empty explanation when there are no files', async () => {
-    const api: FileAudioApi = {
-      list: vi.fn().mockResolvedValue({ list: [], total: 0, page: 1, perPage: 20 }),
-      upload: vi.fn(),
-      remove: vi.fn(),
-    };
-    renderPage(api);
-    expect(await screen.findByText('还没有可展示的音频文件')).not.toBeNull();
-    expect(screen.getByText(/写入本地存储卷/)).not.toBeNull();
+    const audio = document.querySelector('audio');
+    expect(audio?.getAttribute('src')).toBe('/dashboard/chat/media/1/content');
+    fireEvent.click(screen.getByRole('button', { name: '重置' }));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, 20, { sender: '', receiver: '', from: '', to: '' }));
   });
 });

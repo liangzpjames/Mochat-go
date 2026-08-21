@@ -15,13 +15,13 @@ import type {
 } from './dashboard-overview-api';
 import {
   OverviewAIInsightGrid,
-  OverviewCapabilityPanel,
   OverviewConversationWorkspace,
+  OverviewEmployeeRanking,
   OverviewDataNotice,
-  OverviewEmptyState,
   OverviewMetricCard,
   OverviewModuleHeader,
-  OverviewTrendChart,
+  OverviewQualityPanel,
+  OverviewTrajectory,
 } from './dashboard-overview-widgets';
 
 export { parseAISummary } from './dashboard-overview-widgets';
@@ -97,28 +97,18 @@ function saveCsv(blob: Blob): void {
   URL.revokeObjectURL(href);
 }
 
-function BusinessDashboard({ data, trendDraft, onTrendDraftChange, onTrendApply }: {
+function BusinessDashboard({ data, onRefresh, refreshing }: {
   data: Awaited<ReturnType<DashboardOverviewApi['load']>>;
-  trendDraft: OverviewRange;
-  onTrendDraftChange: (value: OverviewRange) => void;
-  onTrendApply: () => void;
+  onRefresh: () => void;
+  refreshing: boolean;
 }) {
   const archiveUnavailable = data.limitations.some((item) => item.provider === 'conversation_archive');
-  const aiInsight = data.aiInsight;
   const conversation = data.conversation;
   const snapshotMissing = Object.values(data.summary).some((value) => value === null);
 
   return <div className="overview-dashboard">
-    {data.limitations.length > 0 && <div aria-label="数据限制" className="overview-data-alerts">
-      {data.limitations.map((item) => <OverviewDataNotice
-        description="当前模块已按真实 Provider 返回结果展示，未使用缺失数据填充。"
-        kind="limited"
-        key={`${item.provider}-${item.code}`}
-        limitations={[item]}
-        title={`数据受限：${item.provider}`}
-      />)}
-    </div>}
-    <section aria-labelledby="overview-snapshot-title" className="overview-module overview-snapshot dashboard-data-card">
+    <div className="overview-dashboard-main">
+      <section aria-labelledby="overview-snapshot-title" className="overview-module overview-snapshot dashboard-data-card">
       <OverviewModuleHeader
         description="客户、线索、订单与行为事件"
         extra={<span className="overview-update">更新于 {data.updatedAt || '--'}</span>}
@@ -136,74 +126,29 @@ function BusinessDashboard({ data, trendDraft, onTrendDraftChange, onTrendApply 
         <OverviewMetricCard label={data.cards[2]?.label ?? '订单总数'} note="订单真实数据" tone="violet" value={data.summary.order} />
         <OverviewMetricCard label={data.cards[3]?.label ?? '行为事件'} note="可审计业务行为" tone="orange" value={data.summary.behavior} />
       </div>
-    </section>
+      </section>
 
-    <div className="overview-intelligence-grid">
       <section aria-labelledby="overview-ai-title" className="overview-module dashboard-data-card">
-        <OverviewModuleHeader
-          description="真实 AI 分析摘要的快速入口"
-          extra={aiInsight?.capability === 'ready'
-            ? <span className="overview-update">生成于 {aiInsight.generatedAt.replace('T', ' ').replace('Z', '').slice(0, 19)}</span>
-            : <span className="overview-capability-chip">待配置</span>}
-          headingId="overview-ai-title"
-          title="AI 洞察"
-        />
-        <OverviewAIInsightGrid insight={aiInsight} />
-      </section>
-
-      <section aria-labelledby="overview-growth-title" className="overview-module dashboard-data-card">
-        <OverviewModuleHeader
-          description="按天统计新增联系人"
-          extra={<span className="overview-scope-chip">SCRM · Asia/Shanghai</span>}
-          headingId="overview-growth-title"
-          title="客户增长趋势"
-        />
-        <div className="overview-trend-range">
-          <DateRangeFields
-            value={{ startDate: trendDraft.from, endDate: trendDraft.to }}
-            endLabel="趋势结束"
-            startLabel="趋势开始"
-            submitLabel="应用区间"
-            onChange={(value) => onTrendDraftChange({ from: value.startDate, to: value.endDate })}
-            onValidSubmit={() => onTrendApply()}
-          />
-        </div>
-        {data.trend.length === 0
-          ? <OverviewEmptyState description="当前日期范围没有新增客户记录。" title="暂无增长趋势" />
-          : <OverviewTrendChart points={data.trend} />}
-      </section>
-    </div>
-
-    <section aria-labelledby="overview-conversation-title" className="overview-module dashboard-data-card">
       <OverviewModuleHeader
-        description="左侧指标控件，右侧近七日趋势"
-        extra={<span className="overview-scope-chip">数据来源：会话归档</span>}
-        headingId="overview-conversation-title"
-        title="会话工作台"
+        description="只展示结构化数字，缺失字段不以 0 代替"
+        extra={<span className="overview-scope-chip">真实 AI 数据</span>}
+        headingId="overview-ai-title"
+        title="AI 洞察"
       />
-      <OverviewConversationWorkspace conversation={conversation} limitations={data.limitations} unavailable={archiveUnavailable} />
-    </section>
+      <OverviewAIInsightGrid limitations={data.limitations} metrics={data.aiMetrics} />
+      </section>
 
-    <div className="overview-capability-grid-layout">
-      <OverviewCapabilityPanel
-        description="风险监控与敏感词检查状态"
-        items={[{ label: '敏感词命中' }, { label: '风险行为' }, { label: '客户流失' }]}
-        source="风险监控/敏感词接口"
-        title="质检数据"
-      />
-      <OverviewCapabilityPanel
-        description="按员工汇总会话表现"
-        items={[{ label: '会话员工' }, { label: '会话总数' }, { label: '平均响应' }]}
-        source="员工会话分析接口"
-        title="员工会话数据排行"
-      />
-      <OverviewCapabilityPanel
-        description="最近会话与消息轨迹"
-        items={[{ label: '最新会话' }, { label: '会话时间' }, { label: '消息数量' }]}
-        source="员工会话轨迹接口"
-        title="员工会话轨迹一览"
-      />
+      <section aria-labelledby="overview-conversation-title" className="overview-module dashboard-data-card">
+      <OverviewModuleHeader description="左侧完整控件，右侧铺满七日趋势" extra={<span className="overview-scope-chip">数据来源：会话归档</span>} headingId="overview-conversation-title" title="会话数据" />
+      <OverviewConversationWorkspace conversation={conversation} limitations={data.limitations} unavailable={archiveUnavailable} />
+      </section>
+
+      <OverviewQualityPanel limitations={data.limitations} quality={data.quality} />
+
+      <OverviewEmployeeRanking items={data.employeeRanking ?? []} />
     </div>
+
+    <OverviewTrajectory items={data.trajectory ?? []} onRefresh={onRefresh} refreshing={refreshing} />
   </div>;
 }
 
@@ -218,8 +163,7 @@ export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOve
   const [draft, setDraft] = useState<OverviewRange>(current);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [trendRange, setTrendRange] = useState<OverviewRange>(() => lastSevenDays());
-  const [trendDraft, setTrendDraft] = useState<OverviewRange>(() => lastSevenDays());
+  const trendRange = useMemo(() => lastSevenDays(), []);
 
   useEffect(() => { setDraft(filtersFromSearch(new URLSearchParams(searchText), fallback)); }, [fallback.from, fallback.to, searchText]);
 
@@ -271,9 +215,8 @@ export function DashboardOverviewPage({ api, initialRange }: { api: DashboardOve
     {query.isError && !forbidden && <PageState description={query.error instanceof Error ? query.error.message : '请稍后重试'} onRetry={() => void query.refetch()} retryLabel="重试" state="error" title="数据加载失败" />}
     {query.data !== undefined && !query.isError && <BusinessDashboard
       data={query.data}
-      onTrendApply={() => setTrendRange(trendDraft)}
-      onTrendDraftChange={setTrendDraft}
-      trendDraft={trendDraft}
+      onRefresh={() => void query.refetch()}
+      refreshing={query.isFetching}
     />}
   </section>;
 }

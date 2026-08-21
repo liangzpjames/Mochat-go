@@ -582,6 +582,8 @@ git commit -m "feat: add conversation export api contract"
 - Create: `web/apps/dashboard/src/features/conversation-global/conversation-export-candidates.test.tsx`
 - Modify: `web/apps/dashboard/src/features/conversation-global/conversation-export-page.tsx`
 - Modify: `web/apps/dashboard/src/features/conversation-global/conversation-export-page.test.tsx`
+- Modify: `web/apps/dashboard/src/features/conversation-global/conversation-export-candidates.tsx`
+- Modify: `web/apps/dashboard/src/benchmark/page-registry.test.tsx`
 
 - [ ] **Step 1: 写页面结构和交互失败测试**
 
@@ -790,6 +792,67 @@ git add docs/PROJECT_PROGRESS.zh-CN.md
 git commit -m "docs: record conversation export delivery"
 ```
 
+### Task 13: 纠正任务抽屉密度与后台刷新反馈（2026-08-21 增补）
+
+**Files:**
+- Create: `web/apps/dashboard/src/features/conversation-global/conversation-export-tasks.test.tsx`
+- Modify: `web/apps/dashboard/src/features/conversation-global/conversation-export-tasks.tsx`
+- Modify: `web/apps/dashboard/src/features/conversation-global/conversation-export-page.tsx`
+- Modify: `web/apps/dashboard/src/features/conversation-global/conversation-export-page.test.tsx`
+- Modify: `web/apps/dashboard/src/styles/index.css`
+- Modify: `web/apps/dashboard/src/styles/conversation-export-layout.test.ts`
+- Modify: `docs/superpowers/plans/2026-08-20-conversation-export-yuanhu-workflow.md`
+
+**Interfaces:**
+- `shouldPollExportTasks(data: ConversationExportTaskPage | undefined): boolean`：仅当前页存在 `pending` 或 `running` 时返回 `true`。
+- `ConversationExportTasks` 分离 `loading` 与 `refreshing`：首次请求才显示空白加载态，后台同步始终保留已有任务。
+- 抽屉继续使用 `ConversationExportTaskPage` 的真实字段，不增加前端统计常量或模拟进度。
+
+- [x] **Step 1: 写任务抽屉和轮询失败测试**
+
+覆盖：三个完成任务以紧凑列表展示；下载按钮不显示冗长文件名；日期、对象数、实际/预计消息数、创建时间来自 API；`refreshing=true` 时列表不消失；只有活动任务触发 3 秒轮询，全部终态停止。
+
+- [x] **Step 2: 运行并确认 RED**
+
+Run: `corepack pnpm --filter @mochat/dashboard exec vitest run src/features/conversation-global/conversation-export-tasks.test.tsx src/features/conversation-global/conversation-export-page.test.tsx src/styles/conversation-export-layout.test.ts`
+
+Expected: FAIL，旧实现缺少静默刷新接口，终态任务仍持续轮询，任务卡被网格行拉伸。
+
+- [x] **Step 3: 实现紧凑任务列表和条件轮询**
+
+任务列表使用内容高度行：`align-content: start` 与 `grid-auto-rows: max-content`；抽屉桌面宽度改为 520px。任务卡分为标题状态、日期范围、对象/消息/文件指标和底部时间/下载操作。下载按钮统一显示“下载文件”，完整文件名保留在可访问标签中。
+
+查询配置使用：
+
+```ts
+refetchInterval: (query) => shouldPollExportTasks(query.state.data) ? 3000 : false
+```
+
+组件入参使用：
+
+```tsx
+<ConversationExportTasks
+  data={tasks.data}
+  loading={tasks.isPending}
+  refreshing={tasks.isFetching && !tasks.isPending}
+  {...actions}
+/>
+```
+
+- [x] **Step 4: 运行 GREEN、生产构建和浏览器验收**
+
+Run: `corepack pnpm --filter @mochat/dashboard exec vitest run src/features/conversation-global/conversation-export-tasks.test.tsx src/features/conversation-global/conversation-export-page.test.tsx src/styles/conversation-export-layout.test.ts`
+
+Run: `corepack pnpm --filter @mochat/dashboard typecheck`
+
+Run: `corepack pnpm --filter @mochat/dashboard build`
+
+浏览器检查：三个终态任务静置 10 秒不再请求、不闪动；新活动任务保留列表静默更新，完成后停止；遮罩、关闭按钮、Escape、分页和下载仍可用；1366×1272 与 2560×1440 下卡片不拉伸。
+
+- [x] **Step 5: 只重建 app 并记录结果**
+
+保留 MySQL、Redis 与四个命名卷，只重建 `mochat-go-desktop-app-1`。将实际测试、浏览器与容器结果追加到本文“实施结果”，不创建第二份文档。
+
 ---
 
 ## 完成定义
@@ -803,3 +866,21 @@ git commit -m "docs: record conversation export delivery"
 - 本地 Docker app/MySQL/Redis 健康且原数据卷保留。
 - 真实小任务能生成并下载正确 ZIP，四种尺寸浏览器验收通过。
 - 所有能力缺口均明确显示，没有静态假数据、无效按钮或静默截断。
+
+## 实施结果（2026-08-20）
+
+### 2026-08-21 任务抽屉增补结果
+
+- 任务抽屉改为 520px 紧凑右侧栏，任务卡按内容高度排列，不再随抽屉高度拉伸；每张卡仅展示真实导出类型、任务号、状态、日期范围、对象数、实际/预计消息数、文件数、创建时间和下载操作。
+- 修正抽屉静置时的周期性整块刷新：只有当前任务页存在 `pending` 或 `running` 时才每 3 秒同步；后台同步保留现有任务卡，仅显示轻量同步状态；全部任务终态后停止轮询。
+- 导出对象列表和任务列表统一接入 `DashboardPagination`，固定每页 20 条，并修正前端分页契约检查。
+- 验证结果：导出抽屉与分页专项 11 项通过，dashboard TypeScript 类型检查通过，Vite 生产构建通过；浏览器在 1251×1272 可视区域确认 3 个真实完成任务紧凑展示，静置 10 秒无闪动，关闭与重新打开均生效。
+- Docker Desktop 仅重建 `mochat-go-desktop-app-1`；app、MySQL、Redis 均为 healthy，`/healthz` 返回 `ok: true`，`app-storage`、`audit-anchor-storage`、`mysql-data`、`redis-data` 四个命名卷全部保留。
+
+- 已完成后端候选对象、导出任务、下载工件及后台 worker；候选、数量和消息内容均复用系统现有员工、客户、客户群目录与会话归档数据。
+- 已完成前端两步式工作台：对象类型卡片、服务端查询、固定 20 条分页、跨页选择、导出参数弹窗、任务抽屉、轮询和下载；保留原菜单导航与顶部 banner，移除顶部介绍框。
+- 已完成权限、租户/企业/登录用户范围、幂等键、数量/时间上限、CSV 公式前缀防护、路径安全、租约恢复与过期清理的自动化测试。
+- 已应用 `0144_work_message_export_tasks` 数据库迁移；Docker Desktop 仅重建 app，MySQL、Redis 及原有数据卷保留，app/MySQL/Redis 均已健康运行。
+- 已完成 2560×1440 与 390×844 浏览器验收，并检查查询按钮仅在提交后请求、弹窗/抽屉遮罩关闭和控制台无异常。未在浏览器创建真实导出任务，避免验收产生无意义的持久任务；CSV/ZIP 生成链路由 worker 测试覆盖。
+- 验证记录：相关 Go 测试 5 个包通过，API 客户端 21 项、导出前端专项 22 项通过，Vite 生产打包通过，`/chat/export` 返回 HTTP 200。全量 dashboard `tsc/build` 被工作树中另一功能的 `page-registry.test.tsx` 与 `refuseArchiveApi` 类型不一致阻断，该问题不属于本次导出改造，未混入修复范围。
+- 当前明确缺口：内部会话、媒体二进制及未接入的媒体能力不纳入本次导出，界面会展示对应限制说明。

@@ -60,6 +60,25 @@ func TestContactTransferSaveUnassignedListSyncsWeComData(t *testing.T) {
 	}
 }
 
+func TestContactTransferSyncAcceptsPostAlias(t *testing.T) {
+	store := &fakeContactTransferStore{
+		users:      map[int]User{1: {ID: 1, IsSuperAdmin: 1}},
+		credential: RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "wwid", ContactSecret: "secret"},
+	}
+	client := &fakeContactTransferWeComClient{}
+	handler := NewContactTransferHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil, client)
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/contactTransfer/sync", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.SaveUnassignedList(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if client.getUnassignedCredential.WXCorpID != "wwid" {
+		t.Fatalf("credential = %+v", client.getUnassignedCredential)
+	}
+}
+
 func TestContactTransferTransferCustomerWritesSuccessLog(t *testing.T) {
 	store := &fakeContactTransferStore{
 		users:       map[int]User{1: {ID: 1, IsSuperAdmin: 1}},

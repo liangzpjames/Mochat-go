@@ -73,6 +73,11 @@ type SensitiveWordMonitorCronStore interface {
 	UpdateSensitiveWordMessageCursor(ctx context.Context, corpID int, tableIndex int, lastID int) error
 }
 
+type SensitiveWordMonitorStatusWriter interface {
+	RecordSensitiveWordScanStarted(context.Context, int) error
+	RecordSensitiveWordScanFinished(context.Context, int, error) error
+}
+
 type SensitiveWordMonitorCron struct {
 	store           SensitiveWordMonitorCronStore
 	logger          *log.Logger
@@ -108,11 +113,28 @@ func (c *SensitiveWordMonitorCron) RunOnce(ctx context.Context) error {
 	}
 	var firstErr error
 	for corpID, corpWords := range grouped {
+		statusWriter, hasStatus := c.store.(SensitiveWordMonitorStatusWriter)
+		if hasStatus {
+			if statusErr := statusWriter.RecordSensitiveWordScanStarted(ctx, corpID); statusErr != nil && firstErr == nil {
+				firstErr = statusErr
+			}
+		}
+		var corpErr error
 		for tableIndex := 1; tableIndex <= SensitiveWordMonitorMessageTableCount; tableIndex++ {
 			tableResult, err := c.scanTable(ctx, corpID, tableIndex, corpWords, limit)
 			mergeSensitiveWordMonitorCronResult(&result, tableResult)
-			if err != nil && firstErr == nil {
-				firstErr = err
+			if err != nil {
+				if corpErr == nil {
+					corpErr = err
+				}
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+		if hasStatus {
+			if statusErr := statusWriter.RecordSensitiveWordScanFinished(ctx, corpID, corpErr); statusErr != nil && firstErr == nil {
+				firstErr = statusErr
 			}
 		}
 	}

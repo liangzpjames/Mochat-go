@@ -20,6 +20,53 @@ async function expectApiError(
 }
 
 describe('createApiClient', () => {
+  it('downloads an authenticated attachment and resolves its UTF-8 filename', async () => {
+    let authorization: string | null = null;
+    server.use(
+      http.get('https://api.example.test/dashboard/workMessage/exportDownload', ({ request }) => {
+        authorization = request.headers.get('authorization');
+        return new HttpResponse('zip-bytes', {
+          status: 200,
+          headers: {
+            'Content-Disposition': "attachment; filename*=UTF-8''conversation-export.zip",
+            'Content-Type': 'application/zip',
+          },
+        });
+      }),
+    );
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/dashboard/',
+      getToken: () => 'secret-token',
+      onUnauthorized: vi.fn(),
+    });
+
+    const result = await client.download('/workMessage/exportDownload?taskId=7');
+
+    expect(authorization).toBe('Bearer secret-token');
+    expect(result.filename).toBe('conversation-export.zip');
+    expect(await result.blob.text()).toBe('zip-bytes');
+  });
+
+  it('maps an unauthorized attachment response and invokes onUnauthorized', async () => {
+    server.use(
+      http.get('https://api.example.test/private-download', () =>
+        HttpResponse.json({ code: 40101, msg: 'login required', data: null }, { status: 401 })),
+    );
+    const onUnauthorized = vi.fn();
+    const client = createApiClient({
+      baseUrl: 'https://api.example.test/',
+      getToken: () => null,
+      onUnauthorized,
+    });
+
+    await expectApiError(client.download('/private-download'), {
+      kind: 'unauthorized',
+      status: 401,
+      message: 'login required',
+    });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
   it('adds a Bearer token to a relative request', async () => {
     let authorization: string | null = null;
     server.use(

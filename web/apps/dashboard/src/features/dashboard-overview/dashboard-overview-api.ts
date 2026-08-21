@@ -16,6 +16,46 @@ export type DashboardOverviewAIInsight = {
   generatedAt: string;
 };
 
+export type DashboardOverviewAIMetrics = {
+  analysisCount: number | null;
+  employeeNegativeEmotion: number | null;
+  customerNegativeEmotion: number | null;
+  riskBehavior: number | null;
+  sensitiveWords: number | null;
+};
+
+export type DashboardOverviewQuality = {
+  sensitiveWords: number | null;
+  riskBehavior: number | null;
+  customerLoss: number | null;
+  timeoutWarning: number | null;
+  trend: readonly DashboardOverviewQualityTrendPoint[];
+};
+
+export type DashboardOverviewQualityTrendPoint = {
+  date: string;
+  sensitiveWords: number | null;
+  riskBehavior: number | null;
+  customerLoss: number | null;
+  timeoutWarning: number | null;
+};
+
+export type DashboardOverviewEmployeeRankingItem = {
+  employeeId: number;
+  employeeName: string;
+  sessions: number;
+  messages: number;
+};
+
+export type DashboardOverviewTrajectoryItem = {
+  id: string;
+  targetType: string;
+  targetId: string;
+  employeeName: string;
+  messageCount: number;
+  latestAt: string;
+};
+
 export type ConversationGroupStats = {
   sessions: number | null;
   employeeMessages: number | null;
@@ -61,7 +101,11 @@ export type DashboardOverview = {
   summary: DashboardOverviewSummary;
   limitations: readonly DashboardOverviewLimitation[];
   aiInsight?: DashboardOverviewAIInsight;
+  aiMetrics?: DashboardOverviewAIMetrics;
   conversation?: DashboardOverviewConversation;
+  quality?: DashboardOverviewQuality;
+  employeeRanking?: readonly DashboardOverviewEmployeeRankingItem[];
+  trajectory?: readonly DashboardOverviewTrajectoryItem[];
   updatedAt: string;
   page: number;
   pageSize: number;
@@ -153,6 +197,58 @@ function parseAIInsight(value: unknown): DashboardOverviewAIInsight | undefined 
   };
 }
 
+function parseAIMetrics(value: unknown): DashboardOverviewAIMetrics | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    analysisCount: nullableNumber(value.analysisCount),
+    employeeNegativeEmotion: nullableNumber(value.employeeNegativeEmotion),
+    customerNegativeEmotion: nullableNumber(value.customerNegativeEmotion),
+    riskBehavior: nullableNumber(value.riskBehavior),
+    sensitiveWords: nullableNumber(value.sensitiveWords),
+  };
+}
+
+function parseQuality(value: unknown): DashboardOverviewQuality | undefined {
+  if (!isRecord(value)) return undefined;
+  const trend = Array.isArray(value.trend) ? value.trend.filter((point): point is Row =>
+    isRecord(point) && typeof point.date === 'string' && point.date !== '').map((point) => ({
+      date: point.date as string,
+      sensitiveWords: nullableNumber(point.sensitiveWords),
+      riskBehavior: nullableNumber(point.riskBehavior),
+      customerLoss: nullableNumber(point.customerLoss),
+      timeoutWarning: nullableNumber(point.timeoutWarning),
+    })) : [];
+  return {
+    sensitiveWords: nullableNumber(value.sensitiveWords),
+    riskBehavior: nullableNumber(value.riskBehavior),
+    customerLoss: nullableNumber(value.customerLoss),
+    timeoutWarning: nullableNumber(value.timeoutWarning),
+    trend,
+  };
+}
+
+function parseEmployeeRanking(value: unknown): DashboardOverviewEmployeeRankingItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((row) => ({
+    employeeId: isFiniteNumber(row.employeeId) ? row.employeeId : 0,
+    employeeName: typeof row.employeeName === 'string' ? row.employeeName : '',
+    sessions: isFiniteNumber(row.sessions) ? row.sessions : 0,
+    messages: isFiniteNumber(row.messages) ? row.messages : 0,
+  }));
+}
+
+function parseTrajectory(value: unknown): DashboardOverviewTrajectoryItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((row) => ({
+    id: typeof row.id === 'string' ? row.id : '',
+    targetType: typeof row.targetType === 'string' ? row.targetType : '',
+    targetId: typeof row.targetId === 'string' || typeof row.targetId === 'number' ? String(row.targetId) : '',
+    employeeName: typeof row.employeeName === 'string' ? row.employeeName : '',
+    messageCount: isFiniteNumber(row.messageCount) ? row.messageCount : 0,
+    latestAt: typeof row.latestAt === 'string' ? row.latestAt : '',
+  }));
+}
+
 function parseConversation(value: unknown): DashboardOverviewConversation | undefined {
   if (!isRecord(value)) return undefined;
   const group = (raw: unknown): ConversationGroupStats => {
@@ -215,6 +311,12 @@ function parseOverview(value: unknown): DashboardOverview {
   if (aiInsight !== undefined) parsed.aiInsight = aiInsight;
   const conversation = parseConversation(value.conversation);
   if (conversation !== undefined) parsed.conversation = conversation;
+  const aiMetrics = parseAIMetrics(value.aiMetrics);
+  if (aiMetrics !== undefined) parsed.aiMetrics = aiMetrics;
+  const quality = parseQuality(value.quality);
+  if (quality !== undefined) parsed.quality = quality;
+  parsed.employeeRanking = parseEmployeeRanking(value.employeeRanking);
+  parsed.trajectory = parseTrajectory(value.trajectory);
   return parsed;
 }
 

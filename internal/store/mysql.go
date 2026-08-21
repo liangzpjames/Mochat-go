@@ -1387,9 +1387,7 @@ func (s *MySQLStore) SensitiveWordPage(ctx context.Context, filter dashboard.Sen
 	if filter.Page <= 0 {
 		filter.Page = 1
 	}
-	if filter.PerPage <= 0 {
-		filter.PerPage = 10
-	}
+	filter.PerPage = 20
 	where := []string{"w.corp_id = ?", "w.deleted_at IS NULL"}
 	args := []any{filter.CorpID}
 	if filter.GroupID > 0 {
@@ -1399,6 +1397,10 @@ func (s *MySQLStore) SensitiveWordPage(ctx context.Context, filter dashboard.Sen
 	if strings.TrimSpace(filter.KeyWords) != "" {
 		where = append(where, "w.name LIKE ?")
 		args = append(args, "%"+strings.TrimSpace(filter.KeyWords)+"%")
+	}
+	if filter.Status == 1 || filter.Status == 2 {
+		where = append(where, "w.status = ?")
+		args = append(args, filter.Status)
 	}
 	whereSQL := strings.Join(where, " AND ")
 
@@ -1533,10 +1535,12 @@ func (s *MySQLStore) DeleteSensitiveWord(ctx context.Context, corpID int, wordID
 
 func (s *MySQLStore) SensitiveWordGroups(ctx context.Context, corpID int) ([]dashboard.SensitiveWordGroup, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, COALESCE(updated_at, created_at, NOW())
-		FROM mc_sensitive_word_group
-		WHERE corp_id = ? AND deleted_at IS NULL
-		ORDER BY id ASC
+		SELECT g.id, g.name, COALESCE(g.updated_at, g.created_at, NOW()),
+		       (SELECT COUNT(*) FROM mc_sensitive_word w WHERE w.group_id = g.id AND w.corp_id = g.corp_id AND w.deleted_at IS NULL),
+		       (SELECT COUNT(*) FROM mc_sensitive_word w WHERE w.group_id = g.id AND w.corp_id = g.corp_id AND w.status = 1 AND w.deleted_at IS NULL)
+		FROM mc_sensitive_word_group g
+		WHERE g.corp_id = ? AND g.deleted_at IS NULL
+		ORDER BY g.id ASC
 	`, corpID)
 	if err != nil {
 		return nil, err
@@ -1547,7 +1551,7 @@ func (s *MySQLStore) SensitiveWordGroups(ctx context.Context, corpID int) ([]das
 	for rows.Next() {
 		var group dashboard.SensitiveWordGroup
 		var updatedAt time.Time
-		if err := rows.Scan(&group.ID, &group.Name, &updatedAt); err != nil {
+		if err := rows.Scan(&group.ID, &group.Name, &updatedAt, &group.WordCount, &group.EnabledCount); err != nil {
 			return nil, err
 		}
 		group.Version = sensitiveWordGroupVersion(sensitiveWordState{ID: group.ID, Name: group.Name, UpdatedAt: updatedAt})
@@ -1594,12 +1598,7 @@ func (s *MySQLStore) SensitiveWordsMonitorPage(ctx context.Context, filter dashb
 	if filter.Page <= 0 {
 		filter.Page = 1
 	}
-	if filter.PerPage <= 0 {
-		filter.PerPage = 10
-	}
-	if filter.PerPage > 100 {
-		filter.PerPage = 100
-	}
+	filter.PerPage = 20
 	where := []string{"m.corp_id = ?", "m.deleted_at IS NULL"}
 	args := []any{filter.CorpID}
 	if len(filter.EmployeeIDs) > 0 {
@@ -1622,6 +1621,18 @@ func (s *MySQLStore) SensitiveWordsMonitorPage(ctx context.Context, filter dashb
 	if filter.IntelligentGroupID > 0 {
 		where = append(where, "w.group_id = ?")
 		args = append(args, filter.IntelligentGroupID)
+	}
+	if filter.SensitiveWordID > 0 {
+		where = append(where, "m.sensitive_word_id = ?")
+		args = append(args, filter.SensitiveWordID)
+	}
+	if filter.Source > 0 {
+		where = append(where, "m.source = ?")
+		args = append(args, filter.Source)
+	}
+	if strings.TrimSpace(filter.Scenario) != "" {
+		where = append(where, "m.trigger_scenario = ?")
+		args = append(args, strings.TrimSpace(filter.Scenario))
 	}
 	if strings.TrimSpace(filter.TriggerStart) != "" {
 		where = append(where, "m.send_time >= ?")
@@ -1653,7 +1664,9 @@ func (s *MySQLStore) SensitiveWordsMonitorPage(ctx context.Context, filter dashb
 			m.source,
 			m.trigger_name,
 			m.trigger_scenario,
-			m.send_time
+			m.send_time,
+			m.work_room_id,
+			CAST(m.content AS CHAR)
 		`+fromSQL+`
 		WHERE `+whereSQL+`
 		ORDER BY m.send_time DESC, m.id DESC
@@ -1668,10 +1681,12 @@ func (s *MySQLStore) SensitiveWordsMonitorPage(ctx context.Context, filter dashb
 	for rows.Next() {
 		var item dashboard.SensitiveWordsMonitorItem
 		var sendTime sql.NullTime
-		if err := rows.Scan(&item.ID, &item.SensitiveWordID, &item.SensitiveWordName, &item.Source, &item.TriggerName, &item.TriggerScenario, &sendTime); err != nil {
+		var content string
+		if err := rows.Scan(&item.ID, &item.SensitiveWordID, &item.SensitiveWordName, &item.Source, &item.TriggerName, &item.TriggerScenario, &sendTime, &item.WorkRoomID, &content); err != nil {
 			return dashboard.SensitiveWordsMonitorPage{}, err
 		}
 		item.TriggerTime = formatTime(sendTime)
+		item.ContentPreview = sensitiveWordContentPreview(content)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -1682,6 +1697,29 @@ func (s *MySQLStore) SensitiveWordsMonitorPage(ctx context.Context, filter dashb
 		totalPage = (total + filter.PerPage - 1) / filter.PerPage
 	}
 	return dashboard.SensitiveWordsMonitorPage{Items: items, Total: total, TotalPage: totalPage, PerPage: filter.PerPage}, nil
+}
+
+func sensitiveWordContentPreview(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var payload any
+	if json.Unmarshal([]byte(raw), &payload) == nil {
+		if object, ok := payload.(map[string]any); ok {
+			for _, key := range []string{"content", "text", "title", "description", "desc", "name"} {
+				if value, ok := object[key].(string); ok && strings.TrimSpace(value) != "" {
+					raw = value
+					break
+				}
+			}
+		}
+	}
+	runes := []rune(raw)
+	if len(runes) > 120 {
+		return string(runes[:120]) + "…"
+	}
+	return raw
 }
 
 func (s *MySQLStore) SensitiveWordsMonitorMessages(ctx context.Context, filter dashboard.SensitiveWordsMonitorMessageFilter) ([]dashboard.SensitiveWordsMonitorMessage, bool, error) {
@@ -8137,9 +8175,35 @@ func (s *MySQLStore) RoomWelcomeCorpCredentialByID(ctx context.Context, corpID i
 	}
 	secret, err := s.decodeCorpCredential(item)
 	if err != nil {
+		if simulationSecret, ok := s.localContactTransferSimulationSecret(ctx, item.ID, item.WXCorpID); ok {
+			return dashboard.RoomWelcomeCorpCredential{CorpID: item.ID, WXCorpID: item.WXCorpID, ContactSecret: simulationSecret}, true, nil
+		}
 		return dashboard.RoomWelcomeCorpCredential{}, false, err
 	}
 	return dashboard.RoomWelcomeCorpCredential{CorpID: item.ID, WXCorpID: item.WXCorpID, ContactSecret: secret.ContactSecret}, true, nil
+}
+
+// localContactTransferSimulationSecret is deliberately restricted to the
+// seeded development fixture. Production credentials remain encrypted-only;
+// this fallback exists solely so the local wwSIM enterprise can exercise the
+// transfer workflow without provisioning a real WeCom encryption key.
+func (s *MySQLStore) localContactTransferSimulationSecret(ctx context.Context, corpID int, wxCorpID string) (string, bool) {
+	if s == nil || s.db == nil || !strings.HasPrefix(strings.TrimSpace(wxCorpID), "wwSIM") {
+		return "", false
+	}
+	var secret string
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(contact_secret, '')
+		FROM mc_corp
+		WHERE id = ? AND deleted_at IS NULL
+	`, corpID).Scan(&secret); err != nil {
+		return "", false
+	}
+	secret = strings.TrimSpace(secret)
+	if !strings.HasPrefix(secret, "SIM-") {
+		return "", false
+	}
+	return secret, true
 }
 
 func (s *MySQLStore) RoomWelcomeCorpCredentialByWXCorpID(ctx context.Context, wxCorpID string) (dashboard.RoomWelcomeCorpCredential, bool, error) {

@@ -36,7 +36,7 @@ func (s *MySQLStore) workMessageRoomArchiveSource(ctx context.Context, filter da
 }
 
 func workMessageRoomDirectoryBaseSQL() string {
-	return roomDirectoryAggregateSQL(`SELECT to_user_id, to_user_type, msgid, seq, content_text, msg_data_time, corp_id
+	return roomDirectoryAggregateSQL(`SELECT to_user_id, to_user_type, msgid, seq, content_text, msg_data_time, corp_id, 0 AS work_employee_id
 		FROM mc_work_message_1`, "room.deleted_at IS NULL")
 }
 
@@ -71,6 +71,20 @@ func workMessageRoomDirectoryWhere(filter dashboard.WorkMessageRoomDirectoryFilt
 		where = append(where, `(room.name LIKE ? ESCAPE '\\' OR room.wx_chat_id LIKE ? ESCAPE '\\' OR owner.name LIKE ? ESCAPE '\\')`)
 		pattern := workMessageLikePattern(keyword)
 		args = append(args, pattern, pattern, pattern)
+	}
+	if employeeIDs := uniquePositiveInts(filter.EmployeeIDs); len(employeeIDs) > 0 {
+		where = append(where, "(room.owner_id IN ("+placeholders(len(employeeIDs)+0)+") OR membership.employee_id IN ("+placeholders(len(employeeIDs))+") OR wm.work_employee_id IN ("+placeholders(len(employeeIDs))+"))")
+		args = append(args, intsToAny(employeeIDs)...)
+		args = append(args, intsToAny(employeeIDs)...)
+		args = append(args, intsToAny(employeeIDs)...)
+	}
+	if customerIDs := uniquePositiveInts(filter.CustomerIDs); len(customerIDs) > 0 {
+		where = append(where, "membership.contact_id IN ("+placeholders(len(customerIDs))+")")
+		args = append(args, intsToAny(customerIDs)...)
+	}
+	if roomGroupIDs := uniquePositiveInts(filter.RoomGroupIDs); len(roomGroupIDs) > 0 {
+		where = append(where, "room.room_group_id IN ("+placeholders(len(roomGroupIDs))+")")
+		args = append(args, intsToAny(roomGroupIDs)...)
 	}
 	if len(where) == 0 {
 		return "1 = 1", args

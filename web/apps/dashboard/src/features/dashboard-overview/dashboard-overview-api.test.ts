@@ -13,6 +13,13 @@ const reportResponse = {
   pagination: { page: 1, pageSize: 20, total: 1 },
   freshness: { provider: 'scrm', status: 'available', dataThrough: '2026-07-31T09:30:00Z' },
   limitations: [{ provider: 'conversation_archive', code: 'provider_unavailable', message: '会话归档表不可用' }],
+  aiMetrics: { analysisCount: 5, employeeNegativeEmotion: null, customerNegativeEmotion: null, riskBehavior: null, sensitiveWords: null },
+  quality: {
+    sensitiveWords: 2, riskBehavior: 4, customerLoss: 0, timeoutWarning: 3,
+    trend: [{ date: '2026-08-15', sensitiveWords: 1, riskBehavior: 2, customerLoss: 0, timeoutWarning: 2 }],
+  },
+  employeeRanking: [{ employeeId: 1001, employeeName: '张伟', sessions: 1, messages: 13 }],
+  trajectory: [{ id: 'customer:2001', targetType: 'customer', targetId: '2001', employeeName: '张伟', messageCount: 13, latestAt: '2026-08-16 13:50:08' }],
 };
 
 describe('createDashboardOverviewApi', () => {
@@ -46,6 +53,10 @@ describe('createDashboardOverviewApi', () => {
       page: 1,
       pageSize: 20,
       total: 1,
+      aiMetrics: reportResponse.aiMetrics,
+      quality: reportResponse.quality,
+      employeeRanking: reportResponse.employeeRanking,
+      trajectory: reportResponse.trajectory,
     }));
     expect(request).toHaveBeenCalledWith(
       '/reports/overview?corpId=7&timezone=Asia%2FShanghai&startAt=2026-07-01T00%3A00%3A00%2B08%3A00&endAt=2026-08-01T00%3A00%3A00%2B08%3A00&page=1&pageSize=20',
@@ -96,6 +107,22 @@ describe('createDashboardOverviewApi', () => {
     expect(result.conversation?.customer.employeeMessages).toBeNull();
     expect(result.conversation?.trend[0]?.customerSessions).toBe(0);
     expect(result.conversation?.trend[0]?.customerEmployeeMessages).toBeNull();
+  });
+
+  it('preserves real overview modules and explicit null gaps from the response', async () => {
+    const request = vi.fn(() => Promise.resolve(reportResponse));
+    const api = createDashboardOverviewApi({ request });
+
+    const result = await api.load({
+      corpId: '7', startDate: '2026-07-01', endDate: '2026-08-01', trendStartDate: '', trendEndDate: '',
+      employeeIds: [], departmentIds: [], page: 1, pageSize: 20,
+    });
+
+    expect(result.aiMetrics?.analysisCount).toBe(5);
+    expect(result.aiMetrics?.customerNegativeEmotion).toBeNull();
+    expect(result.quality).toEqual(reportResponse.quality);
+    expect(result.employeeRanking?.[0]).toEqual(reportResponse.employeeRanking[0]);
+    expect(result.trajectory?.[0]).toEqual(reportResponse.trajectory[0]);
   });
 
   it('exports csv with the same serialized query and a single trend column', async () => {

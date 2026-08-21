@@ -90,6 +90,18 @@ func TestOverviewIncludesConversationAIInsightAndFreshness(t *testing.T) {
 	} else if result.AIInsight.Capability != "ready" {
 		t.Fatalf("overview aiInsight capability = %q, want ready", result.AIInsight.Capability)
 	}
+	if result.AIMetrics == nil || result.AIMetrics.AnalysisCount == nil {
+		t.Fatal("overview aiMetrics.analysisCount is not populated from persisted analyses")
+	}
+	if result.Quality == nil || result.Quality.RiskBehavior == nil || result.Quality.SensitiveWords == nil || result.Quality.TimeoutWarning == nil || result.Quality.CustomerLoss == nil {
+		t.Fatalf("overview quality metrics are incomplete: %+v", result.Quality)
+	}
+	if len(result.EmployeeRanking) == 0 {
+		t.Fatal("overview employee ranking is empty despite retained archive data")
+	}
+	if len(result.Trajectory) == 0 {
+		t.Fatal("overview conversation trajectory is empty despite retained archive data")
+	}
 }
 
 func TestOverviewConversationTrendWindowUsesLocalDays(t *testing.T) {
@@ -111,15 +123,15 @@ func TestOverviewConversationTrendWindowUsesLocalDays(t *testing.T) {
 	trendEnd := time.Date(2026, 8, 15, 16, 0, 0, 0, time.UTC) // 2026-08-16T00:00+08:00
 	trendStart := trendEnd.AddDate(0, 0, -7)
 	q := ReportQuery{
-		TenantID:    1,
-		CorpID:      1,
-		StartAt:     trendStart,
-		EndAt:       trendEnd,
+		TenantID:     1,
+		CorpID:       1,
+		StartAt:      trendStart,
+		EndAt:        trendEnd,
 		TrendStartAt: &trendStart,
 		TrendEndAt:   &trendEnd,
-		Timezone:    "Asia/Shanghai",
-		Page:        1,
-		PageSize:    20,
+		Timezone:     "Asia/Shanghai",
+		Page:         1,
+		PageSize:     20,
 	}
 	result, err := service.Query(ctx, OverviewReport, q)
 	if err != nil {
@@ -127,6 +139,9 @@ func TestOverviewConversationTrendWindowUsesLocalDays(t *testing.T) {
 	}
 	if result.Conversation == nil {
 		t.Fatal("overview conversation stats are missing")
+	}
+	if result.Quality == nil {
+		t.Fatal("overview quality stats are missing")
 	}
 	trend := result.Conversation.Trend
 	if len(trend) != 7 {
@@ -145,6 +160,22 @@ func TestOverviewConversationTrendWindowUsesLocalDays(t *testing.T) {
 	if totalCustomerSessions == 0 {
 		t.Fatalf("conversation trend carries no message data, expected non-zero session counts: %+v", trend)
 	}
+	qualityTrend := result.Quality.Trend
+	if len(qualityTrend) != 7 {
+		t.Fatalf("quality trend has %d points, want 7", len(qualityTrend))
+	}
+	qualitySignals := 0
+	for i := range want {
+		if qualityTrend[i].Date != want[i] {
+			t.Fatalf("quality trend[%d].Date = %q, want %q", i, qualityTrend[i].Date, want[i])
+		}
+		qualitySignals += pointerValue(qualityTrend[i].RiskBehavior)
+		qualitySignals += pointerValue(qualityTrend[i].SensitiveWords)
+		qualitySignals += pointerValue(qualityTrend[i].TimeoutWarning)
+	}
+	if qualitySignals == 0 {
+		t.Fatalf("quality trend carries no retained risk data: %+v", qualityTrend)
+	}
 	if len(result.Series) != 7 {
 		t.Fatalf("customer growth series has %d points, want 7 local days: %+v", len(result.Series), result.Series)
 	}
@@ -155,6 +186,13 @@ func TestOverviewConversationTrendWindowUsesLocalDays(t *testing.T) {
 	if totalGrowth == 0 {
 		t.Fatalf("customer growth series carries no data: %+v", result.Series)
 	}
+}
+
+func pointerValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func datesOf(points []ConversationTrendPoint) []string {

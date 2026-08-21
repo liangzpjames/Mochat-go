@@ -46,7 +46,7 @@ func (p *closureProvider) SilentRecordPage(_ context.Context, f SilentRecordFilt
 }
 func (p *closureProvider) RefuseArchivePage(_ context.Context, f RefuseArchiveFilter) (RefuseArchivePage, error) {
 	p.filter = f
-	return RefuseArchivePage{Items: []RefuseArchiveRecord{{ID: 3, SubjectName: "张三", AuthorizationStatus: "refused"}}, Total: 1}, nil
+	return RefuseArchivePage{Items: []RefuseArchiveRecord{{ID: 3, SubjectName: "张三", AuthorizationStatus: "refused"}}, Total: 1, Page: f.Page, PerPage: f.PerPage}, nil
 }
 
 func (p *closureProvider) SaveSilentRule(_ context.Context, v SilentCustomerRule) (int64, error) {
@@ -208,7 +208,7 @@ func TestPhase33ClosureActSilentRecords(t *testing.T) {
 
 func TestPhase33ClosureRefuseRecordsScopesFilter(t *testing.T) {
 	h, p := newClosureHandler()
-	req := authenticatedClosureRequest(http.MethodGet, "/dashboard/refuse-archive/records?subject=%E5%BC%A0&authorizationStatus=refused&page=1&perPage=50", nil)
+	req := authenticatedClosureRequest(http.MethodGet, "/dashboard/refuse-archive/records?subject=%E5%BC%A0&subjectType=room&employeeId=9&refusedFrom=2026-08-01&refusedTo=2026-08-20&authorizationStatus=refused&page=1&perPage=50", nil)
 	rec := httptest.NewRecorder()
 	h.RefuseRecords(rec, req)
 	if rec.Code != http.StatusOK {
@@ -218,8 +218,39 @@ func TestPhase33ClosureRefuseRecordsScopesFilter(t *testing.T) {
 	if !ok {
 		t.Fatalf("filter type=%T", p.filter)
 	}
-	if f.CorpID != 5 || f.TenantID != 23 || f.Subject != "张" || f.AuthorizationStatus != "refused" {
+	if f.CorpID != 5 || f.TenantID != 23 || f.Subject != "张" || f.SubjectType != "room" || f.EmployeeID != 9 || f.RefusedFrom != "2026-08-01" || f.RefusedTo != "2026-08-20" || f.AuthorizationStatus != "refused" {
 		t.Fatalf("filter=%+v", f)
+	}
+	page := envelopeData(t, rec.Body.String())
+	if page["total"] != float64(1) || page["page"] != float64(1) || page["perPage"] != float64(50) {
+		t.Fatalf("pagination payload=%v", page)
+	}
+}
+
+func TestPhase33ClosureSilentRecordsScopesAndAssigneeFilter(t *testing.T) {
+	h, p := newClosureHandler()
+	req := authenticatedClosureRequest(http.MethodGet, "/dashboard/silent-customer/records?customer=%E6%9D%8E&status=pending&assignedEmployeeId=9&page=1&perPage=20", nil)
+	rec := httptest.NewRecorder()
+	h.SilentRecords(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	f, ok := p.filter.(SilentRecordFilter)
+	if !ok {
+		t.Fatalf("filter type=%T", p.filter)
+	}
+	if f.CorpID != 5 || f.TenantID != 23 || f.Customer != "李" || f.Status != "pending" || f.AssignedEmployeeID != 9 || f.Page != 1 || f.PerPage != 20 {
+		t.Fatalf("filter=%+v", f)
+	}
+}
+
+func TestPhase33ClosureRefuseRecordsRejectsInvalidDateRange(t *testing.T) {
+	h, _ := newClosureHandler()
+	req := authenticatedClosureRequest(http.MethodGet, "/dashboard/refuse-archive/records?refusedFrom=2026-08-20&refusedTo=2026-08-01", nil)
+	rec := httptest.NewRecorder()
+	h.RefuseRecords(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

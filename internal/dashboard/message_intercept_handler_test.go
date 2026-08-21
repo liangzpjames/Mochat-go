@@ -266,7 +266,7 @@ func TestMessageInterceptEvaluateReturnsDecision(t *testing.T) {
 
 func TestMessageInterceptRecordsScopesFilter(t *testing.T) {
 	h, p := newInterceptHandler()
-	req := authenticatedInterceptRequest(http.MethodGet, "/dashboard/message-intercept/records?keyword=%E5%8A%A0&decision=blocked&ruleId=1&page=1&perPage=20", nil)
+	req := authenticatedInterceptRequest(http.MethodGet, "/dashboard/message-intercept/records?keyword=%E5%8A%A0&decision=blocked&auditStatus=pending&conversationType=group&ruleId=1&page=1&perPage=20", nil)
 	rec := httptest.NewRecorder()
 	h.Records(rec, req)
 	if rec.Code != http.StatusOK {
@@ -276,7 +276,7 @@ func TestMessageInterceptRecordsScopesFilter(t *testing.T) {
 	if !ok {
 		t.Fatalf("filter type=%T", p.filter)
 	}
-	if f.CorpID != 5 || f.TenantID != 23 || f.Keyword != "加" || f.Decision != "blocked" || f.RuleID != 1 {
+	if f.CorpID != 5 || f.TenantID != 23 || f.Keyword != "加" || f.Decision != "blocked" || f.AuditStatus != "pending" || f.ConversationType != "group" || f.RuleID != 1 {
 		t.Fatalf("filter=%+v", f)
 	}
 }

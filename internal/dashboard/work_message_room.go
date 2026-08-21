@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,6 +33,8 @@ type WorkMessageRoomDirectoryFilter struct {
 	Keyword             string
 	Page                int
 	PageSize            int
+	CustomerIDs         []int
+	RoomGroupIDs        []int
 	RestrictEmployeeIDs bool
 	EmployeeIDs         []int
 }
@@ -384,12 +387,51 @@ func workMessageRoomDirectoryFilter(w http.ResponseWriter, r *http.Request, tena
 		}
 		return WorkMessageRoomDirectoryFilter{}, false
 	}
+	employeeIDs, ok := workMessageEmployeeIDs(w, r)
+	if !ok {
+		return WorkMessageRoomDirectoryFilter{}, false
+	}
+	customerIDs, ok := workMessageRoomPositiveIDs(w, r, "customerIds")
+	if !ok {
+		return WorkMessageRoomDirectoryFilter{}, false
+	}
+	roomGroupIDs, ok := workMessageRoomPositiveIDs(w, r, "roomGroupIds")
+	if !ok {
+		return WorkMessageRoomDirectoryFilter{}, false
+	}
+	if access.DataPermission != DataPermissionAll {
+		if len(r.URL.Query()["employeeIds"]) > 0 || r.URL.Query().Has("employeeId") {
+			employeeIDs = workMessageEmployeeIntersection(employeeIDs, access.DeptEmployeeIDs)
+		} else {
+			employeeIDs = workMessageUniquePositiveInts(access.DeptEmployeeIDs)
+		}
+	}
 	return WorkMessageRoomDirectoryFilter{
 		TenantID: tenantID, CorpID: corpID, UserID: userID, RoomMode: roomMode,
 		Keyword: strings.TrimSpace(r.URL.Query().Get("keyword")), Page: page, PageSize: pageSize,
 		RestrictEmployeeIDs: access.DataPermission != DataPermissionAll,
-		EmployeeIDs:         workMessageUniquePositiveInts(access.DeptEmployeeIDs),
+		EmployeeIDs:         employeeIDs, CustomerIDs: customerIDs, RoomGroupIDs: roomGroupIDs,
 	}, true
+}
+
+func workMessageRoomPositiveIDs(w http.ResponseWriter, r *http.Request, key string) ([]int, bool) {
+	rawValues := r.URL.Query()[key]
+	ids := make([]int, 0, len(rawValues))
+	for _, rawValue := range rawValues {
+		for _, raw := range strings.Split(rawValue, ",") {
+			raw = strings.TrimSpace(raw)
+			if raw == "" {
+				continue
+			}
+			value, err := strconv.Atoi(raw)
+			if err != nil || value <= 0 {
+				writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid "+key, nil)
+				return nil, false
+			}
+			ids = append(ids, value)
+		}
+	}
+	return workMessageUniquePositiveInts(ids), true
 }
 
 func workMessageRoomMessagesFilter(w http.ResponseWriter, r *http.Request, tenantID, corpID, userID, roomID int, access AccessContext) (WorkMessageRoomMessagesFilter, bool) {

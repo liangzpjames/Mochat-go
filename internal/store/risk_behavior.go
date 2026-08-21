@@ -10,6 +10,57 @@ import (
 	"time"
 )
 
+func parseRiskRelatedUser(raw []byte) map[string]any {
+	var payload any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return map[string]any{}
+	}
+	if object, ok := payload.(map[string]any); ok {
+		return object
+	}
+	items, ok := payload.([]any)
+	if !ok {
+		return map[string]any{}
+	}
+	result := map[string]any{}
+	for _, item := range items {
+		person, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := person["role"].(string)
+		name, _ := person["userName"].(string)
+		if name == "" {
+			name, _ = person["name"].(string)
+		}
+		id, _ := person["userId"].(float64)
+		if id == 0 {
+			id, _ = person["id"].(float64)
+		}
+		switch role {
+		case "employee":
+			if name != "" {
+				result["employeeName"] = name
+			}
+			if id > 0 {
+				result["employeeId"] = id
+			}
+		case "customer":
+			if name != "" {
+				result["customerName"] = name
+			}
+			if id > 0 {
+				result["customerId"] = id
+			}
+		case "room":
+			if name != "" {
+				result["roomName"] = name
+			}
+		}
+	}
+	return result
+}
+
 func (s *MySQLStore) RiskRulePage(ctx context.Context, f dashboard.RiskRuleFilter) (dashboard.RiskRulePage, error) {
 	if f.Page < 1 {
 		f.Page = 1
@@ -100,9 +151,7 @@ func (s *MySQLStore) RiskRecordPage(ctx context.Context, f dashboard.RiskRecordF
 	if f.Page < 1 {
 		f.Page = 1
 	}
-	if f.PerPage < 1 || f.PerPage > 100 {
-		f.PerPage = 20
-	}
+	f.PerPage = 20
 	where := " WHERE corp_id = ?"
 	args := []any{f.CorpID}
 	if f.TenantID > 0 {
@@ -121,9 +170,28 @@ func (s *MySQLStore) RiskRecordPage(ctx context.Context, f dashboard.RiskRecordF
 		where += " AND conversation_type = ?"
 		args = append(args, f.ConversationType)
 	}
+	if f.AuditStatus != "" {
+		where += " AND audit_status = ?"
+		args = append(args, f.AuditStatus)
+	}
+	if strings.TrimSpace(f.OccurredFrom) != "" {
+		where += " AND occurred_at >= ?"
+		args = append(args, strings.TrimSpace(f.OccurredFrom))
+	}
+	if strings.TrimSpace(f.OccurredTo) != "" {
+		where += " AND occurred_at <= ?"
+		args = append(args, strings.TrimSpace(f.OccurredTo))
+	}
 	if f.RuleID > 0 {
 		where += " AND rule_id = ?"
 		args = append(args, f.RuleID)
+	}
+	if len(f.EmployeeIDs) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(f.EmployeeIDs)), ",")
+		where += " AND CAST(JSON_UNQUOTE(JSON_EXTRACT(related_user_json, '$.employeeId')) AS UNSIGNED) IN (" + placeholders + ")"
+		for _, id := range f.EmployeeIDs {
+			args = append(args, id)
+		}
 	}
 	if f.RestrictEmployeeIDs {
 		if len(f.AllowedEmployeeIDs) == 0 {
@@ -140,6 +208,10 @@ func (s *MySQLStore) RiskRecordPage(ctx context.Context, f dashboard.RiskRecordF
 	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mochat_go_risk_records"+where, args...).Scan(&total); err != nil {
 		return dashboard.RiskRecordPage{}, err
 	}
+	var pending, highRisk, processed int
+	if err := s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(CASE WHEN audit_status='pending' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN risk_level='high' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN audit_status IN ('confirmed','ignored','reviewed') THEN 1 ELSE 0 END),0) FROM mochat_go_risk_records"+where, args...).Scan(&pending, &highRisk, &processed); err != nil {
+		return dashboard.RiskRecordPage{}, err
+	}
 	rows, err := s.db.QueryContext(ctx, "SELECT id,tenant_id,corp_id,rule_id,strategy_id,behavior,risk_level,conversation_type,conversation_id,message_id,trigger_message,related_user_json,COALESCE(ai_summary,''),audit_status,occurred_at FROM mochat_go_risk_records"+where+" ORDER BY occurred_at DESC,id DESC LIMIT ? OFFSET ?", append(args, f.PerPage, (f.Page-1)*f.PerPage)...)
 	if err != nil {
 		return dashboard.RiskRecordPage{}, err
@@ -153,14 +225,73 @@ func (s *MySQLStore) RiskRecordPage(ctx context.Context, f dashboard.RiskRecordF
 		if err := rows.Scan(&v.ID, &v.TenantID, &v.CorpID, &v.RuleID, &v.StrategyID, &v.Behavior, &v.RiskLevel, &v.ConversationType, &v.ConversationID, &v.MessageID, &v.TriggerMessage, &user, &v.AISummary, &v.AuditStatus, &occurred); err != nil {
 			return dashboard.RiskRecordPage{}, err
 		}
-		_ = json.Unmarshal(user, &v.RelatedUser)
+		v.RelatedUser = parseRiskRelatedUser(user)
 		v.OccurredAt = occurred.Format(time.RFC3339)
 		items = append(items, v)
 	}
 	if err := rows.Err(); err != nil {
 		return dashboard.RiskRecordPage{}, err
 	}
-	return dashboard.RiskRecordPage{Items: items, Total: total, Page: f.Page, PerPage: f.PerPage}, nil
+	return dashboard.RiskRecordPage{Items: items, Total: total, Page: f.Page, PerPage: f.PerPage, Summary: &dashboard.RiskRecordSummary{Total: total, Pending: pending, HighRisk: highRisk, Processed: processed}}, nil
+}
+
+func (s *MySQLStore) RiskRecordDetail(ctx context.Context, f dashboard.RiskRecordDetailFilter) (dashboard.RiskRecordDetail, error) {
+	if f.ID <= 0 {
+		return dashboard.RiskRecordDetail{}, fmt.Errorf("风险记录不存在")
+	}
+	where := "tenant_id=? AND corp_id=? AND id=?"
+	args := []any{f.TenantID, f.CorpID, f.ID}
+	if f.RestrictEmployeeIDs {
+		if len(f.AllowedEmployeeIDs) == 0 {
+			return dashboard.RiskRecordDetail{}, fmt.Errorf("风险记录不存在")
+		}
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(f.AllowedEmployeeIDs)), ",")
+		where += " AND CAST(JSON_UNQUOTE(JSON_EXTRACT(related_user_json, '$.employeeId')) AS UNSIGNED) IN (" + placeholders + ")"
+		for _, id := range f.AllowedEmployeeIDs {
+			args = append(args, id)
+		}
+	}
+	var record dashboard.RiskRecord
+	var user []byte
+	var occurred time.Time
+	err := s.db.QueryRowContext(ctx, `SELECT id,tenant_id,corp_id,rule_id,strategy_id,behavior,risk_level,conversation_type,conversation_id,message_id,trigger_message,related_user_json,COALESCE(ai_summary,''),audit_status,occurred_at FROM mochat_go_risk_records WHERE `+where, args...).Scan(&record.ID, &record.TenantID, &record.CorpID, &record.RuleID, &record.StrategyID, &record.Behavior, &record.RiskLevel, &record.ConversationType, &record.ConversationID, &record.MessageID, &record.TriggerMessage, &user, &record.AISummary, &record.AuditStatus, &occurred)
+	if err == sql.ErrNoRows {
+		return dashboard.RiskRecordDetail{}, fmt.Errorf("风险记录不存在")
+	}
+	if err != nil {
+		return dashboard.RiskRecordDetail{}, err
+	}
+	record.RelatedUser = parseRiskRelatedUser(user)
+	record.OccurredAt = occurred.Format(time.RFC3339)
+	auditRows, err := s.db.QueryContext(ctx, `SELECT id,actor_id,action,remark,created_at FROM mochat_go_risk_record_audits WHERE tenant_id=? AND corp_id=? AND record_id=? ORDER BY created_at DESC,id DESC`, f.TenantID, f.CorpID, f.ID)
+	if err != nil {
+		return dashboard.RiskRecordDetail{}, err
+	}
+	defer auditRows.Close()
+	audits := []dashboard.RiskRecordAudit{}
+	for auditRows.Next() {
+		var audit dashboard.RiskRecordAudit
+		var created time.Time
+		if err := auditRows.Scan(&audit.ID, &audit.ActorID, &audit.Action, &audit.Remark, &created); err != nil {
+			return dashboard.RiskRecordDetail{}, err
+		}
+		audit.CreatedAt = created.Format(time.RFC3339)
+		audits = append(audits, audit)
+	}
+	conversationAvailable := false
+	if record.MessageID != "" {
+		employeeIDs := f.AllowedEmployeeIDs
+		if value, ok := record.RelatedUser["employeeId"].(float64); ok && value > 0 {
+			employeeIDs = []int{int(value)}
+		}
+		// Session positioning is optional enrichment. A missing archive source,
+		// legacy simulation row, or unavailable archive index must not hide the
+		// risk record and its audit history; the UI reports the positioning gap.
+		if _, found, lookupErr := s.WorkMessageByArchiveID(ctx, dashboard.WorkMessageArchiveFilter{CorpID: f.CorpID, ArchiveMessageID: record.MessageID, EmployeeIDs: employeeIDs, RestrictEmployeeIDs: f.RestrictEmployeeIDs}); lookupErr == nil {
+			conversationAvailable = found
+		}
+	}
+	return dashboard.RiskRecordDetail{Record: record, Audits: audits, ConversationAvailable: conversationAvailable}, nil
 }
 
 func (s *MySQLStore) CreateRiskRule(ctx context.Context, rule dashboard.RiskRule) (int64, error) {

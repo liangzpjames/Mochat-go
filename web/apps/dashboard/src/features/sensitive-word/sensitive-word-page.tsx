@@ -1,246 +1,113 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
-import { ConfirmAction } from '../../components/confirm-action';
-import { DashboardPagination } from '../../components/dashboard-pagination';
-import { pageStateForError, PageState } from '../../components/page-state/page-state';
-import type { SensitiveWordApi, SensitiveWordMatchFilters } from './sensitive-word-api';
+import { pageStateForError } from '../../components/page-state/page-state';
+import { RiskWarningDrawer, RiskWarningPageHeader, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
+import { SensitiveWordConfig } from './sensitive-word-config';
+import { SensitiveWordRecords } from './sensitive-word-records';
+import type { SensitiveWordApi, SensitiveWordItem, SensitiveWordMatchFilters } from './sensitive-word-api';
 
 type Partition = 'records' | 'config';
+type Feedback = { kind: 'success' | 'error'; message: string } | null;
+const emptyRecords: SensitiveWordMatchFilters = { employeeIds: [], workRoomId: 0, groupId: 0, triggerStart: '', triggerEnd: '', page: 1, perPage: 20 };
+const emptyWords = { groupId: 0, keywords: '', status: 0, page: 1 };
 
-const emptyRecordFilters: SensitiveWordMatchFilters = {
-  employeeIds: [], workRoomId: 0, groupId: 0, triggerStart: '', triggerEnd: '', page: 1, perPage: 10,
-};
-
-function idempotencyKey(action: string, id: number | string = 0): string {
-  return `sensitive-word-${action}-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function readRecordFilters(params: URLSearchParams): SensitiveWordMatchFilters {
+  const employeeParam = params.get('employeeId') ?? params.get('employeeIds') ?? '';
+  const filters: SensitiveWordMatchFilters = {
+    employeeIds: employeeParam.split(',').map(Number).filter((item) => item > 0),
+    workRoomId: Number(params.get('workRoomId') ?? 0) || 0,
+    groupId: Number(params.get('intelligentGroupId') ?? params.get('groupId') ?? 0) || 0,
+    scenario: params.get('scenario') ?? '',
+    triggerStart: params.get('triggerStart') ?? '',
+    triggerEnd: params.get('triggerEnd') ?? '',
+    page: Number(params.get('page') ?? 1) || 1,
+    perPage: 20,
+  };
+  const sensitiveWordId = Number(params.get('sensitiveWordId') ?? 0) || 0;
+  const source = Number(params.get('source') ?? 0) || 0;
+  if (sensitiveWordId > 0) filters.sensitiveWordId = sensitiveWordId;
+  if (source > 0) filters.source = source;
+  return filters;
 }
 
-function dashboardDateTime(value: string): string {
-  if (!value) return '';
-  return `${value.replace('T', ' ')}${value.length === 16 ? ':00' : ''}`;
+function writeRecordFilters(params: URLSearchParams, filters: SensitiveWordMatchFilters): URLSearchParams {
+  const next = new URLSearchParams(params);
+  for (const key of ['employeeId', 'employeeIds', 'workRoomId', 'intelligentGroupId', 'groupId', 'sensitiveWordId', 'source', 'scenario', 'triggerStart', 'triggerEnd', 'page']) next.delete(key);
+  if (filters.employeeIds.length) next.set('employeeId', filters.employeeIds.join(','));
+  if (filters.workRoomId > 0) next.set('workRoomId', String(filters.workRoomId));
+  if (filters.groupId > 0) next.set('intelligentGroupId', String(filters.groupId));
+  if (filters.sensitiveWordId && filters.sensitiveWordId > 0) next.set('sensitiveWordId', String(filters.sensitiveWordId));
+  if (filters.source && filters.source > 0) next.set('source', String(filters.source));
+  if (filters.scenario) next.set('scenario', filters.scenario);
+  if (filters.triggerStart) next.set('triggerStart', filters.triggerStart);
+  if (filters.triggerEnd) next.set('triggerEnd', filters.triggerEnd);
+  if (filters.page > 1) next.set('page', String(filters.page));
+  return next;
 }
 
-function mutationFeedback(error: unknown): string {
-  if (pageStateForError(error) === 'conflict') return '数据已被其他人更新，请刷新后重试。';
-  if (pageStateForError(error) === 'forbidden') return '没有执行此操作的权限。';
-  if (error instanceof Error && error.message.includes('套餐额度已达上限')) return error.message;
-  return '操作失败，请稍后重试。';
-}
-
-function detailValue(value: unknown): string {
-  if (value === null || value === undefined) return '--';
-  if (Array.isArray(value)) return value.length === 0 ? '--' : value.map(detailValue).join(' · ');
-  if (typeof value === 'object') {
-	const entries = Object.entries(value as Record<string, unknown>);
-	return entries.length === 0 ? '--' : entries.map(([key, item]) => `${key}: ${detailValue(item)}`).join(' · ');
-  }
-  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint' ? String(value) : '--';
-}
+function idempotencyKey(action: string, id: number | string = 0): string { return `sensitive-word-${action}-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
+function mutationFeedback(error: unknown): string { const state = pageStateForError(error); if (state === 'conflict') return '数据已被其他人更新，请刷新后重试。'; if (state === 'forbidden') return '没有执行此操作的权限。'; if (error instanceof Error && error.message.includes('套餐额度已达上限')) return error.message; return error instanceof Error && error.message ? error.message : '操作失败，请稍后重试。'; }
+function normalizeDate(value: string): string { return value ? `${value.replace('T', ' ')}${value.length === 16 ? ':00' : ''}` : ''; }
 
 export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
   const access = useDashboardAccess();
   const queryClient = useQueryClient();
+  const [params, setParams] = useSearchParams();
   const corpID = access.corp.id;
-  const [partition, setPartition] = useState<Partition>('records');
-  const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+  const partition: Partition = params.get('tab') === 'config' ? 'config' : 'records';
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const initialRecords = useMemo(() => readRecordFilters(params), [params]);
+  const [recordDraft, setRecordDraft] = useState<SensitiveWordMatchFilters>(initialRecords);
+  const [recordApplied, setRecordApplied] = useState<SensitiveWordMatchFilters>(initialRecords);
   const [selectedMatchID, setSelectedMatchID] = useState<number | null>(null);
-  const detailCloseRef = useRef<HTMLButtonElement>(null);
-  const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
-
-  const [recordEmployees, setRecordEmployees] = useState('');
-  const [recordRoomID, setRecordRoomID] = useState(0);
-  const [recordGroupID, setRecordGroupID] = useState(0);
-  const [recordStart, setRecordStart] = useState('');
-  const [recordEnd, setRecordEnd] = useState('');
-  const [recordFilters, setRecordFilters] = useState<SensitiveWordMatchFilters>(emptyRecordFilters);
-
-  const [groupID, setGroupID] = useState(0);
-  const [keywords, setKeywords] = useState('');
-  const [wordName, setWordName] = useState('');
-  const [groupName, setGroupName] = useState('');
+  const [selectedGroupID, setSelectedGroupID] = useState(0);
+  const [wordDraft, setWordDraft] = useState(emptyWords);
+  const [wordApplied, setWordApplied] = useState(emptyWords);
   const [moveTargets, setMoveTargets] = useState<Record<number, number>>({});
-  const [renameValues, setRenameValues] = useState<Record<number, string>>({});
+  const [actionDrawer, setActionDrawer] = useState<'group' | 'word' | null>(null);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newWordNames, setNewWordNames] = useState('');
+  const [newWordGroupID, setNewWordGroupID] = useState(0);
 
   const groupsKey = useMemo(() => ['sensitive-word', corpID, 'groups'] as const, [corpID]);
   const wordsKey = useMemo(() => ['sensitive-word', corpID, 'words'] as const, [corpID]);
   const recordsKey = useMemo(() => ['sensitive-word', corpID, 'records'] as const, [corpID]);
+  const groups = useQuery({ queryKey: groupsKey, queryFn: api.groups, retry: false });
+  const options = useQuery({ queryKey: ['sensitive-word', corpID, 'filter-options'], queryFn: api.filterOptions, enabled: partition === 'records', retry: false });
+  const scanner = useQuery({ queryKey: ['sensitive-word', corpID, 'scanner-status'], queryFn: api.monitorStatus, enabled: partition === 'records', retry: false });
+  const records = useQuery({ queryKey: [...recordsKey, recordApplied], queryFn: () => api.matches(recordApplied), enabled: partition === 'records', retry: false });
+  const words = useQuery({ queryKey: [...wordsKey, wordApplied], queryFn: () => { const input = { groupId: wordApplied.groupId, keywords: wordApplied.keywords, page: wordApplied.page, perPage: 20 }; return api.list(wordApplied.status ? { ...input, status: wordApplied.status } : input); }, enabled: partition === 'config', retry: false });
+  const detail = useQuery({ queryKey: ['sensitive-word', corpID, 'detail', selectedMatchID], queryFn: () => api.matchDetail(selectedMatchID ?? 0), enabled: selectedMatchID !== null, retry: false });
 
-  const groups = useQuery({ queryKey: groupsKey, queryFn: () => api.groups() });
-  const words = useQuery({
-	queryKey: [...wordsKey, groupID, keywords],
-	queryFn: () => api.list({ groupId: groupID, keywords, page: 1, perPage: 10 }),
-	enabled: partition === 'config',
-  });
-  const records = useQuery({
-	queryKey: [...recordsKey, recordFilters],
-	queryFn: () => api.matches(recordFilters),
-	enabled: partition === 'records',
-  });
-  const detail = useMutation({ mutationFn: (id: number) => api.matchDetail(id) });
-
-  const success = (message: string, keys: readonly (readonly unknown[])[]) => {
-	setFeedback({ kind: 'success', message });
-	for (const key of keys) void queryClient.invalidateQueries({ queryKey: key });
-  };
+  const invalidate = (keys: readonly (readonly unknown[])[]) => { for (const key of keys) void queryClient.invalidateQueries({ queryKey: key }); };
+  const success = (message: string, keys: readonly (readonly unknown[])[]) => { setFeedback({ kind: 'success', message }); invalidate(keys); };
   const failed = (error: unknown) => setFeedback({ kind: 'error', message: mutationFeedback(error) });
+  const createGroup = useMutation({ mutationFn: () => api.createGroup({ names: [newGroupName.trim()], version: '0', idempotencyKey: idempotencyKey('create-group', newGroupName.trim()) }), onSuccess: () => { setNewGroupName(''); setActionDrawer(null); success('词组已新增。', [groupsKey]); }, onError: failed });
+  const createWord = useMutation({ mutationFn: () => api.create({ groupId: newWordGroupID, names: newWordNames.split(/[，,\n]+/).map((item) => item.trim()).filter(Boolean), version: '0', idempotencyKey: idempotencyKey('create-word', newWordNames) }), onSuccess: () => { setNewWordNames(''); setActionDrawer(null); success('敏感词已新增。', [groupsKey, wordsKey]); }, onError: failed });
+  const setEnabled = useMutation({ mutationFn: (item: SensitiveWordItem) => api.setEnabled({ id: item.id, enabled: item.status !== 1, version: item.version, idempotencyKey: idempotencyKey('status', item.id) }), onSuccess: () => success('敏感词状态已更新。', [groupsKey, wordsKey]), onError: failed });
+  const moveWord = useMutation({ mutationFn: ({ item, groupId }: { item: SensitiveWordItem; groupId: number }) => api.move({ id: item.id, groupId, version: item.version, idempotencyKey: idempotencyKey('move', item.id) }), onSuccess: () => success('敏感词已移动。', [groupsKey, wordsKey]), onError: failed });
+  const removeWord = useMutation({ mutationFn: (item: SensitiveWordItem) => api.remove({ id: item.id, version: item.version, confirmed: true, idempotencyKey: idempotencyKey('delete', item.id) }), onSuccess: () => success('敏感词已删除。', [groupsKey, wordsKey]), onError: failed });
 
-  const createWord = useMutation({
-	mutationFn: () => api.create({ groupId: groupID, names: [wordName.trim()], version: '0', idempotencyKey: idempotencyKey('create-word', wordName.trim()) }),
-	onSuccess: () => { setWordName(''); success('操作成功：敏感词已新增。', [wordsKey]); },
-	onError: failed,
-  });
-  const createGroup = useMutation({
-	mutationFn: () => api.createGroup({ names: [groupName.trim()], version: '0', idempotencyKey: idempotencyKey('create-group', groupName.trim()) }),
-	onSuccess: () => { setGroupName(''); success('操作成功：词组已新增。', [groupsKey]); },
-	onError: failed,
-  });
-  const renameGroup = useMutation({
-	mutationFn: ({ id, name, version }: { id: number; name: string; version: string }) => api.renameGroup({ id, name, version, idempotencyKey: idempotencyKey('rename-group', id) }),
-	onSuccess: () => success('操作成功：词组已改名。', [groupsKey, wordsKey]),
-	onError: failed,
-  });
-  const setEnabled = useMutation({
-	mutationFn: ({ id, enabled, version }: { id: number; enabled: boolean; version: string }) => api.setEnabled({ id, enabled, version, idempotencyKey: idempotencyKey('status', id) }),
-	onSuccess: () => success('操作成功：敏感词状态已更新。', [wordsKey]),
-	onError: failed,
-  });
-  const moveWord = useMutation({
-	mutationFn: ({ id, targetGroupID, version }: { id: number; targetGroupID: number; version: string }) => api.move({ id, groupId: targetGroupID, version, idempotencyKey: idempotencyKey('move', id) }),
-	onSuccess: () => success('操作成功：敏感词已移动。', [wordsKey]),
-	onError: failed,
-  });
-  const removeWord = useMutation({
-	mutationFn: ({ id, version }: { id: number; version: string }) => api.remove({ id, version, confirmed: true, idempotencyKey: idempotencyKey('delete', id) }),
-	onSuccess: () => success('操作成功：敏感词已删除。', [wordsKey]),
-	onError: failed,
-  });
-
-  const canAdd = access.allowedActions.size === 0 || access.allowedActions.has('/ai-insight/v2/sensitive-word@add');
-  const canEdit = access.allowedActions.size === 0 || access.allowedActions.has('/ai-insight/v2/sensitive-word@edit');
-  const canDelete = access.allowedActions.size === 0 || access.allowedActions.has('/ai-insight/v2/sensitive-word@delete');
-
-  const applyRecordFilters = () => {
-	const employeeIds = recordEmployees.split(/[，,\s]+/).map(Number).filter((id) => Number.isInteger(id) && id > 0);
-	setRecordFilters({
-	  employeeIds, workRoomId: recordRoomID, groupId: recordGroupID,
-	  triggerStart: dashboardDateTime(recordStart), triggerEnd: dashboardDateTime(recordEnd), page: 1, perPage: 10,
-	});
-  };
-
+  const can = (action: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/ai-insight/v2/sensitive-word@${action}`);
+  const queryRecords = () => { const next = { ...recordDraft, triggerStart: normalizeDate(recordDraft.triggerStart), triggerEnd: normalizeDate(recordDraft.triggerEnd), page: 1, perPage: 20 }; setRecordApplied(next); setParams(writeRecordFilters(params, next)); };
+  const resetRecords = () => { setRecordDraft(emptyRecords); setRecordApplied(emptyRecords); setParams(writeRecordFilters(params, emptyRecords)); };
+  const queryWords = (input = { keywords: wordDraft.keywords, status: wordDraft.status }) => setWordApplied({ ...wordDraft, ...input, groupId: selectedGroupID, page: 1 });
+  const resetWords = () => { setWordDraft({ ...emptyWords, groupId: selectedGroupID }); setWordApplied({ ...emptyWords, groupId: selectedGroupID }); };
+  const refresh = () => { void groups.refetch(); if (partition === 'records') { void records.refetch(); void options.refetch(); void scanner.refetch(); } else void words.refetch(); };
+  const switchPartition = (next: string) => { const value = new URLSearchParams(params); value.set('tab', next); value.delete('matchId'); setParams(value); setFeedback(null); };
   const queryError = groups.error ?? (partition === 'records' ? records.error : words.error);
   const queryPending = groups.isPending || (partition === 'records' ? records.isPending : words.isPending);
-  const recordTotalPages = Math.max(1, Math.ceil((records.data?.total ?? 0) / recordFilters.perPage));
 
-  const changeRecordPage = (page: number) => {
-	setRecordFilters((current) => ({ ...current, page }));
-  };
-
-  const closeDetail = () => {
-	setSelectedMatchID(null);
-	detail.reset();
-	detailTriggerRef.current?.focus();
-  };
-
-  useEffect(() => {
-	if (records.data && recordFilters.page > recordTotalPages) changeRecordPage(recordTotalPages);
-  }, [recordFilters.page, recordTotalPages, records.data]);
-
-  useEffect(() => {
-	if (selectedMatchID === null) return undefined;
-	detailCloseRef.current?.focus();
-	const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') closeDetail(); };
-	document.addEventListener('keydown', onKeyDown);
-	return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selectedMatchID]);
-
-  return (
-	<section className="sensitive-word-page">
-	  <header className="sensitive-word-header dashboard-page-header dashboard-data-card">
-		<div>
-		  <p className="sensitive-word-eyebrow">风险预警</p>
-		  <h1>敏感词管理</h1>
-		  <p>集中查看命中记录，并维护当前企业的敏感词组与词条。</p>
-		</div>
-	  </header>
-
-	  <nav aria-label="敏感词页面分区" className="sensitive-word-partitions dashboard-data-card dashboard-table-actions">
-		<button aria-pressed={partition === 'records'} type="button" onClick={() => { setPartition('records'); setFeedback(null); }}>敏感词记录</button>
-		<button aria-pressed={partition === 'config'} type="button" onClick={() => { setPartition('config'); setFeedback(null); }}>敏感词配置</button>
-	  </nav>
-
-	  {feedback && <p aria-live="polite" role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.message}</p>}
-
-	  {partition === 'records' && (
-		<section aria-label="敏感词记录" className="sensitive-word-records">
-		  <div className="sensitive-word-record-filters dashboard-filter-bar">
-			<label>员工 ID<input aria-label="员工 ID" placeholder="例如 3,5" value={recordEmployees} onChange={(event) => setRecordEmployees(event.target.value)} /></label>
-			<label>客户群 ID<input aria-label="客户群 ID" min={0} type="number" value={recordRoomID || ''} onChange={(event) => setRecordRoomID(Number(event.target.value) || 0)} /></label>
-			<label>记录词组<select aria-label="记录词组" value={recordGroupID} onChange={(event) => setRecordGroupID(Number(event.target.value))}><option value={0}>全部词组</option>{(groups.data ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-			<label>开始时间<input aria-label="开始时间" type="datetime-local" value={recordStart} onChange={(event) => setRecordStart(event.target.value)} /></label>
-			<label>结束时间<input aria-label="结束时间" type="datetime-local" value={recordEnd} onChange={(event) => setRecordEnd(event.target.value)} /></label>
-			<button type="button" onClick={applyRecordFilters}>查询记录</button>
-		  </div>
-		  {records.data !== undefined && (
-			<section aria-label="记录概览" className="sensitive-word-overview">
-			  <article><span>命中记录总数</span><strong>{records.data.total}</strong><small>符合当前筛选条件</small></article>
-			  <article><span>当前页记录</span><strong>{records.data.items.length}</strong><small>第 {recordFilters.page} / {recordTotalPages} 页</small></article>
-			  <article><span>当前词组</span><strong>{recordFilters.groupId > 0 ? (groups.data ?? []).find((group) => group.id === recordFilters.groupId)?.name ?? '指定词组' : '全部词组'}</strong><small>真实监控命中范围</small></article>
-			</section>
-		  )}
-		  <div className="sensitive-word-record-toolbar dashboard-data-card">
-			<div><strong>命中记录</strong><span>查看当前企业的真实敏感词触发记录</span></div>
-			<button disabled={records.isFetching} onClick={() => void records.refetch()} type="button">刷新记录</button>
-		  </div>
-		  {queryPending && <PageState state="loading" />}
-		  {queryError && <PageState state={pageStateForError(queryError)} onRetry={() => { void groups.refetch(); void records.refetch(); }} />}
-		  {!queryPending && !queryError && records.data?.items.length === 0 && <PageState state="empty" />}
-		  {!queryPending && !queryError && (records.data?.items.length ?? 0) > 0 && (
-			<div className="sensitive-word-record-results dashboard-data-card"><div className="dashboard-table-scroll"><table>
-			  <thead><tr><th>敏感词</th><th>来源</th><th>触发人</th><th>场景</th><th>触发时间</th><th>操作</th></tr></thead>
-			  <tbody>{records.data?.items.map((item) => <tr key={item.id}><td><strong className="sensitive-word-trigger">{item.sensitiveWordName}</strong></td><td>{item.sourceText}</td><td>{item.triggerName}</td><td>{item.triggerScenario}</td><td>{item.triggerTime}</td><td><button type="button" onClick={(event) => { detailTriggerRef.current = event.currentTarget; setSelectedMatchID(item.id); detail.mutate(item.id); }}>查看详情</button></td></tr>)}</tbody>
-			</table></div><DashboardPagination page={recordFilters.page} pageSize={recordFilters.perPage} total={records.data?.total ?? 0} onPageChange={changeRecordPage} /></div>
-		  )}
-		  {selectedMatchID !== null && (
-			<div className="sensitive-word-detail-backdrop">
-			  <aside aria-label="命中详情" aria-modal="true" className="sensitive-word-detail" role="dialog">
-				<header><div><p>敏感词记录</p><h2>命中详情</h2></div><button aria-label="关闭详情" onClick={closeDetail} ref={detailCloseRef} type="button">关闭</button></header>
-				{detail.isPending && <PageState state="loading" title="正在加载命中详情" />}
-				{detail.isError && <PageState state={pageStateForError(detail.error)} title="扫描结果联通失败" description="消息归档暂时不可用，请稍后重试。" onRetry={() => detail.mutate(selectedMatchID)} />}
-				{detail.data && <div className="sensitive-word-detail-list">{detail.data.map((row, index) => <article key={`${selectedMatchID}-${index}`}><dl>{Object.entries(row).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></article>)}</div>}
-			  </aside>
-			</div>
-		  )}
-		</section>
-	  )}
-
-	  {partition === 'config' && (
-		<section aria-label="敏感词配置" className="sensitive-word-config">
-		  <div className="sensitive-word-config-actions dashboard-filter-bar dashboard-data-card">
-			<label>新词组名称<input aria-label="新词组名称" value={groupName} onChange={(event) => setGroupName(event.target.value)} /></label>
-			{canAdd && <button disabled={!groupName.trim() || createGroup.isPending} type="button" onClick={() => createGroup.mutate()}>新增词组</button>}
-			<label>敏感词名称<input aria-label="敏感词名称" value={wordName} onChange={(event) => setWordName(event.target.value)} /></label>
-			<label>敏感词分组<select aria-label="敏感词分组" value={groupID} onChange={(event) => setGroupID(Number(event.target.value))}><option value={0}>请选择词组</option>{(groups.data ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-			{canAdd && <button disabled={!wordName.trim() || groupID <= 0 || createWord.isPending} type="button" onClick={() => createWord.mutate()}>新增敏感词</button>}
-			<label>搜索敏感词<input aria-label="搜索敏感词" value={keywords} onChange={(event) => setKeywords(event.target.value)} /></label>
-		  </div>
-		  {queryPending && <PageState state="loading" />}
-		  {queryError && <PageState state={pageStateForError(queryError)} onRetry={() => { void groups.refetch(); void words.refetch(); }} />}
-		  {!queryPending && !queryError && (
-			<>
-			  <div className="sensitive-word-config-card dashboard-data-card"><header><h2>词组管理</h2><span>{(groups.data ?? []).length} 个词组</span></header><div className="dashboard-table-scroll"><table>
-				<thead><tr><th>词组名称</th><th>操作</th></tr></thead>
-				<tbody>{(groups.data ?? []).map((group) => <tr key={group.id}><td><input aria-label={`词组名称 ${group.name}`} value={renameValues[group.id] ?? group.name} onChange={(event) => setRenameValues((current) => ({ ...current, [group.id]: event.target.value }))} /></td><td>{canEdit && <button type="button" onClick={() => renameGroup.mutate({ id: group.id, name: renameValues[group.id] ?? group.name, version: group.version })}>保存改名</button>}</td></tr>)}</tbody>
-			  </table></div></div>
-			  {(words.data?.items.length ?? 0) === 0 ? <PageState state="empty" /> : <div className="sensitive-word-config-card dashboard-data-card"><header><h2>敏感词条</h2><span>{words.data?.total ?? 0} 个词条</span></header><div className="dashboard-table-scroll"><table>
-				<thead><tr><th>敏感词</th><th>分组</th><th>状态</th><th>移动到</th><th>操作</th></tr></thead>
-				<tbody>{words.data?.items.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.groupName}</td><td>{item.status === 1 ? '启用' : '停用'}</td><td><select aria-label={`移动 ${item.name}`} value={moveTargets[item.id] ?? item.groupId} onChange={(event) => setMoveTargets((current) => ({ ...current, [item.id]: Number(event.target.value) }))}>{(groups.data ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></td><td><div className="dashboard-table-actions">{canEdit && <ConfirmAction title={`确认${item.status === 1 ? '停用' : '启用'}敏感词“${item.name}”？`} onConfirm={() => setEnabled.mutate({ id: item.id, enabled: item.status !== 1, version: item.version })}><button aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} type="button">{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>}{canEdit && <button aria-label={`确认移动 ${item.name}`} type="button" onClick={() => moveWord.mutate({ id: item.id, targetGroupID: moveTargets[item.id] ?? item.groupId, version: item.version })}>移动</button>}{canDelete && <ConfirmAction title={`确认删除敏感词“${item.name}”？`} description="删除后无法恢复。" onConfirm={() => removeWord.mutate({ id: item.id, version: item.version })}><button aria-label={`删除 ${item.name}`} type="button">删除</button></ConfirmAction>}</div></td></tr>)}</tbody>
-			  </table></div></div>}
-			</>
-		  )}
-		</section>
-	  )}
-	</section>
-  );
+  return <RiskWarningShell className="sensitive-word-page"><RiskWarningPageHeader title="敏感词" meta="按企业真实命中记录复核风险，并维护已接入的词库。" />
+    <RiskWarningTabs active={partition} tabs={[{ id: 'records', label: '命中记录' }, { id: 'config', label: '敏感词配置' }]} onChange={switchPartition} />
+    {feedback ? <p className="risk-warning-inline-feedback" role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.message}</p> : null}
+    {queryError && queryPending ? <p className="risk-warning-inline-feedback" role="alert">{mutationFeedback(queryError)}</p> : null}
+    {partition === 'records' ? <SensitiveWordRecords draft={recordDraft} setDraft={setRecordDraft} groups={groups.data ?? []} options={options.data} optionsLoading={options.isPending} data={records.data} loading={records.isPending} error={records.error} detailID={selectedMatchID} detail={detail.data} detailLoading={detail.isPending} detailError={detail.error} scanner={scanner.data} fetching={records.isFetching || options.isFetching} onQuery={queryRecords} onReset={resetRecords} onRefresh={refresh} onPageChange={(page) => { const next = { ...recordApplied, page }; setRecordApplied(next); setParams(writeRecordFilters(params, next)); }} onOpen={setSelectedMatchID} onCloseDetail={() => setSelectedMatchID(null)} onRetryDetail={() => void detail.refetch()} /> : <SensitiveWordConfig groups={groups.data ?? []} selectedGroupID={selectedGroupID} onSelectGroup={(id) => { setSelectedGroupID(id); setWordDraft((current) => ({ ...current, groupId: id, page: 1 })); setWordApplied((current) => ({ ...current, groupId: id, page: 1 })); }} words={words.data} keywords={wordDraft.keywords} status={wordDraft.status} onKeywordsChange={(value) => setWordDraft((current) => ({ ...current, keywords: value }))} onStatusChange={(value) => setWordDraft((current) => ({ ...current, status: value }))} onQuery={queryWords} onReset={resetWords} onRefresh={refresh} fetching={words.isFetching} loading={words.isPending} error={words.error} page={wordApplied.page} onPageChange={(page) => setWordApplied((current) => ({ ...current, page }))} canAdd={can('add')} canEdit={can('edit')} canDelete={can('delete')} onCreateGroup={() => setActionDrawer('group')} onCreateWord={() => { setNewWordGroupID(selectedGroupID || groups.data?.[0]?.id || 0); setActionDrawer('word'); }} onToggle={(item) => setEnabled.mutate(item)} onMove={(item) => moveWord.mutate({ item, groupId: moveTargets[item.id] ?? item.groupId })} onDelete={(item) => removeWord.mutate(item)} moveTargets={moveTargets} setMoveTarget={(id, value) => setMoveTargets((current) => ({ ...current, [id]: value }))} />}
+    <RiskWarningDrawer open={actionDrawer !== null} title={actionDrawer === 'group' ? '新增词组' : '新增敏感词'} description="提交后将写入当前企业词库。" onClose={() => setActionDrawer(null)}>
+      {actionDrawer === 'group' ? <form className="risk-warning-form" onSubmit={(event) => { event.preventDefault(); if (newGroupName.trim()) createGroup.mutate(); }}><label>词组名称<input aria-label="词组名称" value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} autoFocus /></label><p className="risk-warning-form-note">词组名称来自你的配置，不会自动创建业务数据。</p><button className="risk-warning-primary-button" type="submit" disabled={!newGroupName.trim() || createGroup.isPending}>保存词组</button></form> : <form className="risk-warning-form" onSubmit={(event) => { event.preventDefault(); if (newWordNames.trim() && newWordGroupID > 0) createWord.mutate(); }}><label>所属词组<select aria-label="新词所属词组" value={newWordGroupID} onChange={(event) => setNewWordGroupID(Number(event.target.value))}><option value={0}>请选择词组</option>{(groups.data ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label>敏感词<textarea aria-label="新敏感词" value={newWordNames} onChange={(event) => setNewWordNames(event.target.value)} placeholder="多个词条可用逗号或换行分隔" autoFocus /></label><p className="risk-warning-form-note">只提交你输入的词条，命中数据由会话存档扫描任务产生。</p><button className="risk-warning-primary-button" type="submit" disabled={!newWordNames.trim() || newWordGroupID <= 0 || createWord.isPending}>保存敏感词</button></form>}
+    </RiskWarningDrawer>
+  </RiskWarningShell>;
 }

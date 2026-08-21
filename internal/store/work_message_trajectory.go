@@ -168,7 +168,12 @@ func (s *MySQLStore) trajectoryTargets(ctx context.Context, corpID int, rows []t
 		ph := placeholders(len(list))
 		args := []any{corpID}
 		args = append(args, intsToAny(list)...)
-		rowsDB, err := s.db.QueryContext(ctx, `SELECT id, COALESCE(name,''), COALESCE(avatar,'') FROM `+table+` WHERE corp_id=? AND id IN (`+ph+`) AND deleted_at IS NULL`, args...)
+		avatarColumn := "COALESCE(avatar,'')"
+		if kind == 2 {
+			// mc_work_room has no avatar column in the production schema.
+			avatarColumn = "''"
+		}
+		rowsDB, err := s.db.QueryContext(ctx, `SELECT id, COALESCE(name,''), `+avatarColumn+` FROM `+table+` WHERE corp_id=? AND id IN (`+ph+`) AND deleted_at IS NULL`, args...)
 		if err != nil {
 			return nil, err
 		}

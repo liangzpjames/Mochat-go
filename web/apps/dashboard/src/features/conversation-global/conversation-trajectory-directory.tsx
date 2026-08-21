@@ -8,19 +8,13 @@ type Props = {
   data: StaffDirectoryPage | undefined;
   selectedEmployeeId: number | null;
   isLoading: boolean;
-  isRefreshing: boolean;
   onDraftKeywordChange(value: string): void;
   onKeywordSubmit(): void;
   onModeChange(mode: TrajectoryDirectoryMode): void;
   onDepartmentChange(id: number | null): void;
   onPageChange(page: number): void;
   onSelectEmployee(id: number): void;
-  onRefresh(): void;
 };
-
-function employeeLabel(employee: StaffDirectoryEmployee): string {
-  return employee.archived ? `${employee.name} · 已归档` : employee.name;
-}
 
 export function ConversationTrajectoryDirectory(props: Props) {
   const { data } = props;
@@ -33,7 +27,6 @@ export function ConversationTrajectoryDirectory(props: Props) {
       <label htmlFor="trajectory-employee-keyword">员工名称</label>
       <input id="trajectory-employee-keyword" aria-label="员工名称" value={props.draftKeyword} onChange={(event) => props.onDraftKeywordChange(event.target.value)} />
       <button type="submit" aria-label="查询员工">查询</button>
-      <button type="button" onClick={props.onRefresh} disabled={props.isRefreshing}>刷新</button>
     </form>
     <div className="conversation-trajectory-departments">
       <button type="button" className={!data?.departments.length ? 'is-selected' : ''} onClick={() => props.onDepartmentChange(null)}>全部员工</button>
@@ -43,7 +36,7 @@ export function ConversationTrajectoryDirectory(props: Props) {
     <div className="conversation-trajectory-employees" aria-busy={props.isLoading}>
       {data?.employees.map((employee) => <button type="button" key={employee.id} aria-current={props.selectedEmployeeId === employee.id ? 'true' : undefined} className={props.selectedEmployeeId === employee.id ? 'is-selected' : ''} onClick={() => props.onSelectEmployee(employee.id)}>
         <span className="conversation-trajectory-avatar">{employee.avatar ? <img src={employee.avatar} alt="" /> : employee.name.slice(0, 1)}</span>
-        <span><strong>{employeeLabel(employee)}</strong><small>{employee.conversationCount} 个会话{employee.lastConversationAt ? ` · ${employee.lastConversationAt}` : ''}</small></span>
+        <span><strong>{employee.name}</strong></span>
       </button>)}
       {!props.isLoading && data?.employees.length === 0 && <p className="conversation-trajectory-empty">暂无符合条件的员工</p>}
     </div>

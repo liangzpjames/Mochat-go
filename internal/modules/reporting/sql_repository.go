@@ -113,16 +113,312 @@ func (r *SQLRepository) queryOverview(ctx context.Context, q ReportQuery) (Repor
 	if conversationErr != nil {
 		return ReportResult{}, conversationErr
 	}
+	extras, extrasErr := r.queryOverviewExtras(ctx, q)
+	if extrasErr != nil {
+		return ReportResult{}, extrasErr
+	}
+	limitations = append(limitations, extras.Limitations...)
 	return ReportResult{
-		Summary:     summary,
-		Series:      customer.Series,
-		Items:       customer.Items,
-		Pagination:  customer.Pagination,
-		Freshness:   Freshness{Provider: "scrm", Status: "available", DataThrough: time.Now().UTC()},
-		Limitations: limitations,
-		AIInsight:   aiInsight,
-		Conversation: conversation,
+		Summary:         summary,
+		Series:          customer.Series,
+		Items:           customer.Items,
+		Pagination:      customer.Pagination,
+		Freshness:       Freshness{Provider: "scrm", Status: "available", DataThrough: time.Now().UTC()},
+		Limitations:     limitations,
+		AIInsight:       aiInsight,
+		AIMetrics:       extras.AIMetrics,
+		Conversation:    conversation,
+		Quality:         extras.Quality,
+		EmployeeRanking: extras.EmployeeRanking,
+		Trajectory:      extras.Trajectory,
 	}, nil
+}
+
+type overviewExtras struct {
+	AIMetrics       *AIMetrics
+	Quality         *QualityStats
+	EmployeeRanking []EmployeeRankingItem
+	Trajectory      []ConversationTrajectoryItem
+	Limitations     []Limitation
+}
+
+type qualityAvailability struct {
+	SensitiveWords bool
+	RiskBehavior   bool
+	CustomerLoss   bool
+	TimeoutWarning bool
+}
+
+func (r *SQLRepository) queryOverviewExtras(ctx context.Context, q ReportQuery) (overviewExtras, error) {
+	extras := overviewExtras{
+		AIMetrics: &AIMetrics{},
+		Quality:   &QualityStats{Trend: []QualityTrendPoint{}},
+	}
+	availability := qualityAvailability{}
+
+	if count, available, err := r.optionalCount(ctx, "mochat_go_ai_analysis", "corp_id=? AND status='succeeded' AND created_at>=? AND created_at<?", q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()); err != nil {
+		return overviewExtras{}, err
+	} else if available {
+		extras.AIMetrics.AnalysisCount = count
+	} else {
+		extras.Limitations = append(extras.Limitations, Limitation{Provider: "ai_insight", Code: "analysis_table_unavailable", Message: "AI 分析记录表不可用"})
+	}
+	extras.AIMetrics.EmployeeNegativeEmotion = nil
+	extras.AIMetrics.CustomerNegativeEmotion = nil
+	extras.Limitations = append(extras.Limitations, Limitation{Provider: "ai_insight", Code: "structured_metrics_unavailable", Message: "AI 分析结果只有自然语言摘要，没有员工/客户负面情绪数字字段"})
+
+	if count, available, err := r.optionalCount(ctx, "mochat_go_risk_records", "corp_id=? AND occurred_at>=? AND occurred_at<?", q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()); err != nil {
+		return overviewExtras{}, err
+	} else if available {
+		extras.Quality.RiskBehavior = count
+		availability.RiskBehavior = true
+	} else {
+		extras.Limitations = append(extras.Limitations, Limitation{Provider: "risk_behavior", Code: "table_unavailable", Message: "风险行为记录表不可用"})
+	}
+	if count, available, err := r.optionalCount(ctx, "mc_sensitive_words_monitor", "corp_id=? AND COALESCE(send_time,created_at)>=? AND COALESCE(send_time,created_at)<? AND deleted_at IS NULL", q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()); err != nil {
+		return overviewExtras{}, err
+	} else if available {
+		extras.Quality.SensitiveWords = count
+		availability.SensitiveWords = true
+	} else {
+		extras.Limitations = append(extras.Limitations, Limitation{Provider: "sensitive_word_monitor", Code: "table_unavailable", Message: "敏感词命中记录表不可用"})
+	}
+	if count, available, err := r.optionalCount(ctx, "mochat_go_timeout_records", "corp_id=? AND occurred_at>=? AND occurred_at<?", q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()); err != nil {
+		return overviewExtras{}, err
+	} else if available {
+		extras.Quality.TimeoutWarning = count
+		availability.TimeoutWarning = true
+	} else {
+		extras.Limitations = append(extras.Limitations, Limitation{Provider: "timeout_warning", Code: "table_unavailable", Message: "超时预警记录表不可用"})
+	}
+	if count, available, err := r.optionalCount(ctx, "mc_work_contact_employee", "corp_id=? AND deleted_at>=? AND deleted_at<? AND status IN (2,3)", q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()); err != nil {
+		return overviewExtras{}, err
+	} else if available {
+		extras.Quality.CustomerLoss = count
+		availability.CustomerLoss = true
+	} else {
+		extras.Limitations = append(extras.Limitations, Limitation{Provider: "customer_lifecycle", Code: "table_unavailable", Message: "客户关系记录表不可用"})
+	}
+	extras.AIMetrics.RiskBehavior = extras.Quality.RiskBehavior
+	extras.AIMetrics.SensitiveWords = extras.Quality.SensitiveWords
+	qualityTrend, err := r.queryQualityTrend(ctx, q, availability)
+	if err != nil {
+		return overviewExtras{}, err
+	}
+	extras.Quality.Trend = qualityTrend
+
+	tables, err := r.archiveTables(ctx)
+	if err != nil {
+		return overviewExtras{}, err
+	}
+	if len(tables) == 0 {
+		extras.Limitations = append(extras.Limitations, Limitation{Provider: "conversation_archive", Code: "provider_unavailable", Message: "会话归档表不可用，无法生成员工排行和会话轨迹"})
+		return extras, nil
+	}
+	extras.EmployeeRanking, err = r.queryEmployeeRanking(ctx, q, tables)
+	if err != nil {
+		return overviewExtras{}, err
+	}
+	extras.Trajectory, err = r.queryConversationTrajectory(ctx, q, tables)
+	if err != nil {
+		return overviewExtras{}, err
+	}
+	return extras, nil
+}
+
+func (r *SQLRepository) queryQualityTrend(ctx context.Context, q ReportQuery, available qualityAvailability) ([]QualityTrendPoint, error) {
+	trendEnd := q.EndAt.UTC()
+	if q.TrendEndAt != nil {
+		trendEnd = q.TrendEndAt.UTC()
+	}
+	trendStart := trendEnd.AddDate(0, 0, -7)
+	days := conversationTrendDays(trendEnd, q.Timezone)
+	dayMap := make(map[string]QualityTrendPoint, len(days))
+	for _, day := range days {
+		point := QualityTrendPoint{Date: day}
+		if available.SensitiveWords {
+			point.SensitiveWords = reportIntPtr(0)
+		}
+		if available.RiskBehavior {
+			point.RiskBehavior = reportIntPtr(0)
+		}
+		if available.CustomerLoss {
+			point.CustomerLoss = reportIntPtr(0)
+		}
+		if available.TimeoutWarning {
+			point.TimeoutWarning = reportIntPtr(0)
+		}
+		dayMap[day] = point
+	}
+
+	type source struct {
+		key       string
+		table     string
+		timestamp string
+		extra     string
+		available bool
+	}
+	sources := []source{
+		{key: "sensitiveWords", table: "mc_sensitive_words_monitor", timestamp: "COALESCE(send_time,created_at)", extra: " AND deleted_at IS NULL", available: available.SensitiveWords},
+		{key: "riskBehavior", table: "mochat_go_risk_records", timestamp: "occurred_at", available: available.RiskBehavior},
+		{key: "customerLoss", table: "mc_work_contact_employee", timestamp: "deleted_at", extra: " AND status IN (2,3)", available: available.CustomerLoss},
+		{key: "timeoutWarning", table: "mochat_go_timeout_records", timestamp: "occurred_at", available: available.TimeoutWarning},
+	}
+	parts := make([]string, 0, len(sources))
+	args := make([]any, 0, len(sources)*4)
+	for _, item := range sources {
+		if !item.available {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf(`SELECT '%s' AS metric,
+			DATE_FORMAT(CONVERT_TZ(%s, @@session.time_zone, ?), '%%Y-%%m-%%d') AS day,
+			COUNT(*) AS total
+			FROM %s
+			WHERE corp_id=? AND %s>=? AND %s<?%s
+			GROUP BY day`, item.key, item.timestamp, item.table, item.timestamp, item.timestamp, item.extra))
+		args = append(args, q.Timezone, q.CorpID, trendStart, trendEnd)
+	}
+	if len(parts) == 0 {
+		return qualityTrendPoints(days, dayMap), nil
+	}
+	rows, err := r.db.QueryContext(ctx, strings.Join(parts, " UNION ALL "), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var metric, day string
+		var total int
+		if err := rows.Scan(&metric, &day, &total); err != nil {
+			return nil, err
+		}
+		point, ok := dayMap[day]
+		if !ok {
+			continue
+		}
+		value := total
+		switch metric {
+		case "sensitiveWords":
+			point.SensitiveWords = &value
+		case "riskBehavior":
+			point.RiskBehavior = &value
+		case "customerLoss":
+			point.CustomerLoss = &value
+		case "timeoutWarning":
+			point.TimeoutWarning = &value
+		}
+		dayMap[day] = point
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return qualityTrendPoints(days, dayMap), nil
+}
+
+func qualityTrendPoints(days []string, dayMap map[string]QualityTrendPoint) []QualityTrendPoint {
+	points := make([]QualityTrendPoint, 0, len(days))
+	for _, day := range days {
+		points = append(points, dayMap[day])
+	}
+	return points
+}
+
+func reportIntPtr(value int) *int { return &value }
+
+func (r *SQLRepository) optionalCount(ctx context.Context, table, where string, args ...any) (*int, bool, error) {
+	var exists int
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?", table).Scan(&exists); err != nil {
+		return nil, false, err
+	}
+	if exists == 0 {
+		return nil, false, nil
+	}
+	var value int
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE "+where, args...).Scan(&value); err != nil {
+		return nil, true, err
+	}
+	return &value, true, nil
+}
+
+func archiveMessageUnion(tables []archiveTableShape, q ReportQuery) (string, []any) {
+	parts := make([]string, 0, len(tables))
+	args := make([]any, 0, len(tables)*3)
+	for _, table := range tables {
+		parts = append(parts, "SELECT "+table.employeeCol+" AS employee_id, to_user_id, room_id, msg_data_time, corp_id FROM "+table.name+" WHERE corp_id=? AND msg_data_time>=? AND msg_data_time<?")
+		args = append(args, q.CorpID, q.StartAt.UTC(), q.EndAt.UTC())
+	}
+	return strings.Join(parts, " UNION ALL "), args
+}
+
+func (r *SQLRepository) queryEmployeeRanking(ctx context.Context, q ReportQuery, tables []archiveTableShape) ([]EmployeeRankingItem, error) {
+	union, args := archiveMessageUnion(tables, q)
+	query := `SELECT m.employee_id, COALESCE(e.name,''),
+COUNT(DISTINCT CASE WHEN m.room_id>0 THEN CONCAT('room:',m.room_id) ELSE CONCAT('customer:',m.to_user_id) END),
+COUNT(*)
+FROM (` + union + `) m
+JOIN mc_corp c ON c.id=m.corp_id AND c.tenant_id=?
+LEFT JOIN mc_work_employee e ON e.corp_id=m.corp_id AND e.id=m.employee_id AND e.deleted_at IS NULL
+WHERE 1=1`
+	args = append(args, q.TenantID)
+	if len(q.EmployeeIDs) > 0 {
+		query += " AND m.employee_id IN (" + placeholders(len(q.EmployeeIDs)) + ")"
+		for _, id := range q.EmployeeIDs {
+			args = append(args, id)
+		}
+	}
+	query += " GROUP BY m.employee_id,e.name ORDER BY 3 DESC,4 DESC,m.employee_id LIMIT 10"
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]EmployeeRankingItem, 0, 10)
+	for rows.Next() {
+		var item EmployeeRankingItem
+		if err := rows.Scan(&item.EmployeeID, &item.EmployeeName, &item.Sessions, &item.Messages); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *SQLRepository) queryConversationTrajectory(ctx context.Context, q ReportQuery, tables []archiveTableShape) ([]ConversationTrajectoryItem, error) {
+	union, args := archiveMessageUnion(tables, q)
+	query := `SELECT m.employee_id, COALESCE(e.name,''),
+CASE WHEN m.room_id>0 THEN 'room' ELSE 'customer' END,
+CASE WHEN m.room_id>0 THEN m.room_id ELSE m.to_user_id END,
+COUNT(*), DATE_FORMAT(MAX(m.msg_data_time),'%Y-%m-%d %H:%i:%s')
+FROM (` + union + `) m
+JOIN mc_corp c ON c.id=m.corp_id AND c.tenant_id=?
+LEFT JOIN mc_work_employee e ON e.corp_id=m.corp_id AND e.id=m.employee_id AND e.deleted_at IS NULL
+WHERE 1=1`
+	args = append(args, q.TenantID)
+	if len(q.EmployeeIDs) > 0 {
+		query += " AND m.employee_id IN (" + placeholders(len(q.EmployeeIDs)+0) + ")"
+		for _, id := range q.EmployeeIDs {
+			args = append(args, id)
+		}
+	}
+	query += " GROUP BY m.employee_id,e.name,m.room_id,m.to_user_id ORDER BY MAX(m.msg_data_time) DESC LIMIT 8"
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]ConversationTrajectoryItem, 0, 8)
+	for rows.Next() {
+		var employeeID, targetID, messageCount int
+		var employeeName, targetType, latestAt string
+		if err := rows.Scan(&employeeID, &employeeName, &targetType, &targetID, &messageCount, &latestAt); err != nil {
+			return nil, err
+		}
+		items = append(items, ConversationTrajectoryItem{
+			ID: fmt.Sprintf("%s:%d", targetType, targetID), TargetType: targetType, TargetID: fmt.Sprintf("%d", targetID),
+			EmployeeName: employeeName, MessageCount: messageCount, LatestAt: latestAt,
+		})
+	}
+	return items, rows.Err()
 }
 
 func placeholders(n int) string {

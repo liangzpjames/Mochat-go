@@ -11,11 +11,20 @@ import (
 )
 
 func (s *MySQLStore) ContactTransferAssignedContacts(ctx context.Context, filter dashboard.ContactTransferContactFilter) ([]dashboard.ContactTransferContactItem, error) {
-	where := []string{"ce.corp_id = ?", "ce.deleted_at IS NULL", "c.deleted_at IS NULL", "ce.remark LIKE ?"}
-	args := []any{filter.CorpID, "%" + filter.ContactName + "%"}
-	if filter.AddTimeStart != "" && filter.AddTimeEnd != "" {
-		where = append(where, "ce.create_time > ?", "ce.create_time < ?")
-		args = append(args, filter.AddTimeStart, filter.AddTimeEnd)
+	where := []string{"ce.corp_id = ?", "ce.deleted_at IS NULL", "c.deleted_at IS NULL"}
+	args := []any{filter.CorpID}
+	if filter.ContactName != "" {
+		where = append(where, "(ce.remark LIKE ? OR c.name LIKE ? OR c.wx_external_userid LIKE ?)")
+		needle := "%" + filter.ContactName + "%"
+		args = append(args, needle, needle, needle)
+	}
+	if filter.AddTimeStart != "" {
+		where = append(where, "ce.create_time >= ?")
+		args = append(args, filter.AddTimeStart)
+	}
+	if filter.AddTimeEnd != "" {
+		where = append(where, "ce.create_time < DATE_ADD(?, INTERVAL 1 DAY)")
+		args = append(args, filter.AddTimeEnd)
 	}
 	if len(filter.EmployeeIDs) > 0 {
 		where = append(where, "ce.employee_id IN ("+placeholders(len(filter.EmployeeIDs))+")")
@@ -96,8 +105,9 @@ func (s *MySQLStore) ContactTransferUnassignedContacts(ctx context.Context, filt
 	where := []string{"wu.corp_id = ?", "wu.deleted_at IS NULL", "c.deleted_at IS NULL", "ce.deleted_at IS NULL"}
 	args := []any{filter.CorpID}
 	if filter.ContactName != "" {
-		where = append(where, "c.name LIKE ?")
-		args = append(args, "%"+filter.ContactName+"%")
+		where = append(where, "(ce.remark LIKE ? OR c.name LIKE ? OR c.wx_external_userid LIKE ?)")
+		needle := "%" + filter.ContactName + "%"
+		args = append(args, needle, needle, needle)
 	}
 	if len(filter.EmployeeIDs) > 0 {
 		where = append(where, "e.id IN ("+placeholders(len(filter.EmployeeIDs))+")")
@@ -105,9 +115,13 @@ func (s *MySQLStore) ContactTransferUnassignedContacts(ctx context.Context, filt
 			args = append(args, id)
 		}
 	}
-	if filter.AddTimeStart != "" && filter.AddTimeEnd != "" {
-		where = append(where, "ce.create_time > ?", "ce.create_time < ?")
-		args = append(args, filter.AddTimeStart, filter.AddTimeEnd)
+	if filter.AddTimeStart != "" {
+		where = append(where, "ce.create_time >= ?")
+		args = append(args, filter.AddTimeStart)
+	}
+	if filter.AddTimeEnd != "" {
+		where = append(where, "ce.create_time < DATE_ADD(?, INTERVAL 1 DAY)")
+		args = append(args, filter.AddTimeEnd)
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
@@ -215,9 +229,13 @@ func (s *MySQLStore) ContactTransferLogs(ctx context.Context, filter dashboard.C
 		where = append(where, "log.takeover_employee_id = ?")
 		args = append(args, filter.EmployeeWXID)
 	}
-	if filter.CreateTimeStart != "" && filter.CreateTimeEnd != "" {
-		where = append(where, "log.created_at > ?", "log.created_at < ?")
-		args = append(args, filter.CreateTimeStart, filter.CreateTimeEnd)
+	if filter.CreateTimeStart != "" {
+		where = append(where, "log.created_at >= ?")
+		args = append(args, filter.CreateTimeStart)
+	}
+	if filter.CreateTimeEnd != "" {
+		where = append(where, "log.created_at < DATE_ADD(?, INTERVAL 1 DAY)")
+		args = append(args, filter.CreateTimeEnd)
 	}
 	if filter.Mode == 2 {
 		rows, err := s.db.QueryContext(ctx, `

@@ -349,6 +349,14 @@ func (s *MySQLStore) MessageInterceptRecordPage(ctx context.Context, f dashboard
 		w += " AND audit_status=?"
 		a = append(a, f.AuditStatus)
 	}
+	if f.ConversationType != "" {
+		conversationType := f.ConversationType
+		if conversationType == "group" {
+			conversationType = "room"
+		}
+		w += " AND conversation_type=?"
+		a = append(a, conversationType)
+	}
 	if f.Keyword != "" {
 		w += " AND (message_content LIKE ? OR JSON_SEARCH(matched_keywords_json,'one',?) IS NOT NULL)"
 		a = append(a, "%"+f.Keyword+"%", f.Keyword)

@@ -3,6 +3,51 @@ import { describe, expect, it, vi } from 'vitest';
 import { createConversationGlobalApi } from './conversation-global-api';
 
 describe('createConversationGlobalApi', () => {
+  it('loads the real group conversation workspace contracts with fixed page sizes', async () => {
+    const room = {
+      id: 71, externalId: 'wr_71', name: '星河客户群', avatar: '', ownerId: 9, ownerName: '张三',
+      memberCount: 6, employeeCount: 2, customerCount: 4, messageCount: 18, lastMessage: '请确认排期',
+      lastMessageAt: '2026-08-19 11:00:00', focused: false, riskCount: 1, timeoutCount: 0, dissolved: false,
+    };
+    const profile = {
+      id: 71, externalId: 'wr_71', name: '星河客户群', avatar: '', ownerId: 9, ownerName: '张三',
+      memberCount: 6, employeeCount: 2, customerCount: 4, createdAt: '2026-08-01 10:00:00', status: 'active',
+      dissolved: false, focused: false, riskCount: 1, timeoutCount: 0, capabilities: [], limitations: [],
+    };
+    const messages = {
+      roomId: 71,
+      stats: { messageTotal: 18, employeeTotal: 8, customerTotal: 10, riskTotal: 1, timeoutTotal: 0 },
+      messages: [{ id: 'msg:room-1', senderId: 9, senderName: '张三', senderAvatar: '', senderKind: 'employee', direction: 'outbound', sentAt: '2026-08-19 11:00:00', archiveSource: 'external', archiveSourceId: 'wecom', type: 1, content: { text: '请确认排期' } }],
+      nextBefore: 'cursor-1', hasMore: true, capabilities: [],
+    };
+    const members = { items: [{ id: 9, externalId: 'zhangsan', kind: 'employee', name: '张三', avatar: '', joinedAt: '2026-08-01', leftAt: '', status: 'active', employeeId: 9, customerId: 0 }], total: 1, page: 2, pageSize: 50, capabilities: [] };
+    const options = { employees: [{ value: '9', label: '张三', count: 4 }], customers: [], groups: [], capabilities: [] };
+    const request = vi.fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce({ items: [room], total: 1, page: 1, pageSize: 50, capabilities: [], limitations: [] })
+      .mockResolvedValueOnce(profile)
+      .mockResolvedValueOnce(messages)
+      .mockResolvedValueOnce(members)
+      .mockResolvedValueOnce(options);
+    const api = createConversationGlobalApi({ request });
+
+    await expect(api.groupRoomDirectory!({ mode: 'active', keyword: '星河', page: 1, pageSize: 50 })).resolves.toMatchObject({ items: [room], pageSize: 50 });
+    await expect(api.groupRoomProfile!(71)).resolves.toEqual(profile);
+    await expect(api.groupRoomMessages!({ roomId: 71, keyword: '排期', date: '2026-08-19', messageTypes: ['1'], before: 'cursor-1', pageSize: 50 })).resolves.toEqual(messages);
+    await expect(api.groupRoomMembers!({ roomId: 71, mode: 'employee', keyword: '张', page: 2, pageSize: 50 })).resolves.toEqual(members);
+    await expect(api.groupRoomFilterOptions!('employee')).resolves.toEqual(options);
+
+    expect(request).toHaveBeenNthCalledWith(1, '/workMessage/roomDirectory?roomMode=active&keyword=%E6%98%9F%E6%B2%B3&page=1&pageSize=50');
+    expect(request).toHaveBeenNthCalledWith(2, '/workMessage/roomProfile?roomId=71');
+    expect(request).toHaveBeenNthCalledWith(3, '/workMessage/roomMessages?roomId=71&keyword=%E6%8E%92%E6%9C%9F&date=2026-08-19&messageTypes=1&before=cursor-1&pageSize=50');
+    expect(request).toHaveBeenNthCalledWith(4, '/workMessage/roomMembers?roomId=71&mode=employee&keyword=%E5%BC%A0&page=2&pageSize=50');
+    expect(request).toHaveBeenNthCalledWith(5, '/workMessage/roomFilterOptions?kind=employee');
+  });
+
+  it('rejects group room payloads that hide missing business data behind partial values', async () => {
+    const request = vi.fn<() => Promise<unknown>>().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20, capabilities: [], limitations: [] });
+    const api = createConversationGlobalApi({ request });
+    await expect(api.groupRoomDirectory!({ mode: 'active', keyword: '', page: 1, pageSize: 50 })).rejects.toThrow('群聊目录接口返回了无效数据');
+  });
   it('serializes current-corp search filters and parses the explicit page contract', async () => {
     const response = {
       list: [{
@@ -247,5 +292,24 @@ describe('createConversationGlobalApi', () => {
     await expect(api.customerDirectory?.({ mode: 'all', keyword: '', page: 1, pageSize: 50 })).rejects.toThrow('客户目录接口返回了无效数据');
     client.request.mockResolvedValueOnce({ customer: { id: 31, name: '陈晓明', avatar: '', profileStatus: 'available' }, mode: 'invalid', list: [], total: 0, page: 1, pageSize: 20, capabilities: [] });
     await expect(api.customerConversations?.({ customerId: 31, mode: 'direct', page: 1, pageSize: 20 })).rejects.toThrow('客户会话列表接口返回了无效数据');
+  });
+
+  it('uses the fixed 20-row export endpoints and authenticated binary download', async () => {
+    const task = { id: 7, exportType: 'customer', objectCount: 1, startAt: '2026-08-01T00:00:00+08:00', endAt: '2026-08-20T23:59:59+08:00', fileMode: 'split', format: 'zip', status: 'completed', estimatedMessageCount: 2, messageCount: 2, fileCount: 1, artifactName: 'conversation-export-7.zip', artifactSize: 128, expiresAt: '2026-08-27T00:00:00+08:00', createdAt: '2026-08-20T00:00:00+08:00' };
+    const request = vi.fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce({ items: [{ id: 31, name: '星河科技', avatar: '', subtitle: 'customer', conversationCount: 1, messageCount: 2, selectable: true }], total: 1, page: 1, pageSize: 20, limitations: [], capabilities: [] })
+      .mockResolvedValueOnce({ items: [task], total: 1, page: 1, pageSize: 20 })
+      .mockResolvedValueOnce({ task, reused: false, limitations: [] });
+    const download = vi.fn().mockResolvedValue({ blob: new Blob(['zip']), filename: task.artifactName });
+    const api = createConversationGlobalApi({ request, download });
+
+    await expect(api.exportCandidates?.({ type: 'customer', keyword: '星河', departmentId: null, page: 1, pageSize: 20 })).resolves.toMatchObject({ pageSize: 20 });
+    await expect(api.exportTasks?.(1)).resolves.toMatchObject({ pageSize: 20 });
+    await expect(api.createExportTask?.({ exportType: 'customer', objectIds: [31], conversationScopes: ['customer_direct'], employeeIds: [], startAt: task.startAt, endAt: task.endAt, fileMode: 'split', format: 'zip' })).resolves.toMatchObject({ task });
+    await expect(api.downloadExport?.(7)).resolves.toMatchObject({ filename: task.artifactName });
+    expect(request).toHaveBeenNthCalledWith(1, '/workMessage/exportCandidates?type=customer&page=1&pageSize=20&keyword=%E6%98%9F%E6%B2%B3');
+    expect(request).toHaveBeenNthCalledWith(2, '/workMessage/exportTasks?page=1&pageSize=20');
+    expect(request).toHaveBeenNthCalledWith(3, '/workMessage/exportTasks', expect.objectContaining({ method: 'POST' }));
+    expect(download).toHaveBeenCalledWith('/workMessage/exportDownload?taskId=7');
   });
 });

@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
+import { DashboardPagination } from '../../components/dashboard-pagination';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import { RiskWarningDrawer, RiskWarningPageHeader, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
 import { createRiskWarningApi, type CustomerLossFilter, type CustomerLossRecord } from '../risk-warning/risk-warning-api';
@@ -67,7 +68,7 @@ export function CustomerLossPage({ api: workbenchApi }: { api: BusinessWorkbench
       <section className="risk-warning-results"><div className="risk-warning-results-header"><div><h2>流失记录</h2><p>列表按当前企业权限返回的真实客户关系记录展示。</p></div><span className="risk-warning-muted">共 {records.data?.total ?? 0} 条</span></div>
         {!access.corp.authorized ? <PageState state="forbidden" title="无权访问当前企业数据" description="请切换到已授权企业，或联系管理员开通权限。" /> : records.isPending ? <PageState state="loading" /> : records.isError ? <PageState state={pageStateForError(records.error)} onRetry={() => void records.refetch()} /> : rows.length === 0 ? <PageState state="empty" title="暂无客户流失记录" description="当前筛选条件下没有可复核的真实记录。" /> : <>
           <div className="risk-warning-table-wrap"><table className="risk-warning-table customer-loss-record-table"><thead><tr><th>流失类型</th><th>最近消息</th><th>客户</th><th>关联员工</th><th>风险等级</th><th>处置状态</th><th>流失时间</th><th>操作</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{lossTypeLabels[row.lossType] ?? '客户关系变化'}</td><td><span className="risk-warning-inline-preview" title={row.lastMessage}>{row.lastMessage || '--'}</span></td><td><span className="risk-warning-person"><Avatar name={row.customerName} src={row.customerAvatar} /><span>{row.customerName}</span></span></td><td>{row.employeeName}</td><td>{riskPill(row.riskLevel, riskLabels)}</td><td>{statusLabels[row.auditStatus] ?? row.auditStatus}</td><td>{formatDate(row.occurredAt)}</td><td className="risk-warning-row-control"><button type="button" onClick={() => { setSelected(row); const value = new URLSearchParams(params); value.set('recordId', String(row.id)); setParams(value); }}>查看详情</button></td></tr>)}</tbody></table></div>
-          <div className="risk-warning-pagination"><button type="button" disabled={(filters.page ?? 1) <= 1} onClick={() => onPage((filters.page ?? 1) - 1)}>上一页</button><span>第 {filters.page ?? 1} 页</span><button type="button" disabled={rows.length < pageSize} onClick={() => onPage((filters.page ?? 1) + 1)}>下一页</button></div>
+          <div className="risk-warning-pagination"><DashboardPagination page={filters.page ?? 1} pageSize={pageSize} total={records.data?.total ?? 0} onPageChange={onPage} ariaLabel="客户流失记录分页" /></div>
         </>}
       </section>
       <RiskWarningDrawer open={selected !== null} title="客户流失详情" {...(selected ? { description: `${selected.customerName} · ${lossTypeLabels[selected.lossType] ?? '客户关系变化'}` } : {})} onClose={() => { setSelected(null); const value = new URLSearchParams(params); value.delete('recordId'); setParams(value); }}>

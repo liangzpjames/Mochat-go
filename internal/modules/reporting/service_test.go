@@ -2,9 +2,35 @@ package reporting
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestReportResultMarshalsOverviewModules(t *testing.T) {
+	result := ReportResult{
+		AIMetrics: &AIMetrics{AnalysisCount: intPtr(5)},
+		Quality: &QualityStats{
+			SensitiveWords: intPtr(2), RiskBehavior: intPtr(4), CustomerLoss: intPtr(0), TimeoutWarning: intPtr(3),
+			Trend: []QualityTrendPoint{{Date: "2026-08-15", SensitiveWords: intPtr(1), RiskBehavior: intPtr(2), CustomerLoss: intPtr(0), TimeoutWarning: intPtr(2)}},
+		},
+		EmployeeRanking: []EmployeeRankingItem{{EmployeeID: 1001, EmployeeName: "张伟", Sessions: 1, Messages: 13}},
+		Trajectory:      []ConversationTrajectoryItem{{ID: "customer:2001", TargetType: "customer", TargetID: "2001", EmployeeName: "张伟", MessageCount: 13, LatestAt: "2026-08-16 13:50:08"}},
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"aiMetrics"`, `"quality"`, `"employeeRanking"`, `"trajectory"`} {
+		if !strings.Contains(string(payload), field) {
+			t.Fatalf("overview response is missing %s: %s", field, payload)
+		}
+	}
+	if !strings.Contains(string(payload), `"trend":[{"date":"2026-08-15","sensitiveWords":1,"riskBehavior":2,"customerLoss":0,"timeoutWarning":2}]`) {
+		t.Fatalf("overview quality trend is missing: %s", payload)
+	}
+}
 
 type sourceStub struct {
 	result ReportResult
@@ -92,6 +118,8 @@ func TestServiceRunsOverviewThroughItsSource(t *testing.T) {
 }
 
 func floatPtr(value float64) *float64 { return &value }
+
+func intPtr(value int) *int { return &value }
 
 func validQuery() ReportQuery {
 	return ReportQuery{TenantID: 1, CorpID: 2, Timezone: "Asia/Shanghai", StartAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), EndAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), Page: 1, PageSize: 20}

@@ -146,6 +146,10 @@ func (s *MySQLStore) SilentRecordPage(ctx context.Context, f dashboard.SilentRec
 		w += " AND status=?"
 		a = append(a, f.Status)
 	}
+	if f.AssignedEmployeeID > 0 {
+		w += " AND assigned_employee_id=?"
+		a = append(a, f.AssignedEmployeeID)
+	}
 	if f.RuleID > 0 {
 		w += " AND rule_id=?"
 		a = append(a, f.RuleID)
@@ -227,6 +231,22 @@ func (s *MySQLStore) RefuseArchivePage(ctx context.Context, f dashboard.RefuseAr
 	if f.Subject != "" {
 		w += " AND (subject_name LIKE ? OR subject_id LIKE ?)"
 		a = append(a, "%"+f.Subject+"%", "%"+f.Subject+"%")
+	}
+	if f.SubjectType != "" {
+		w += " AND subject_type=?"
+		a = append(a, f.SubjectType)
+	}
+	if f.EmployeeID > 0 {
+		w += " AND employee_id=?"
+		a = append(a, f.EmployeeID)
+	}
+	if f.RefusedFrom != "" {
+		w += " AND refused_at >= ?"
+		a = append(a, f.RefusedFrom+" 00:00:00")
+	}
+	if f.RefusedTo != "" {
+		w += " AND refused_at < DATE_ADD(?, INTERVAL 1 DAY)"
+		a = append(a, f.RefusedTo+" 00:00:00")
 	}
 	if f.AuthorizationStatus != "" {
 		w += " AND authorization_status=?"

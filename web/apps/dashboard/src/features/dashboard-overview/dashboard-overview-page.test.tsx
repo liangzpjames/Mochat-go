@@ -73,6 +73,13 @@ const overview: DashboardOverview = {
       { date: '2026-08-16', customerSessions: 1, customerEmployeeMessages: 3, customerCustomerMessages: 0, roomSessions: 0, roomEmployeeMessages: 0, roomCustomerMessages: 0 },
     ],
   },
+  aiMetrics: { analysisCount: 5, employeeNegativeEmotion: null, customerNegativeEmotion: null, riskBehavior: 4, sensitiveWords: 2 },
+  quality: {
+    sensitiveWords: 2, riskBehavior: 4, customerLoss: 0, timeoutWarning: 3,
+    trend: [{ date: '2026-08-15', sensitiveWords: 1, riskBehavior: 2, customerLoss: 0, timeoutWarning: 2 }],
+  },
+  employeeRanking: [{ employeeId: 1001, employeeName: '张伟', sessions: 1, messages: 13 }],
+  trajectory: [{ id: 'customer:2001', targetType: 'customer', targetId: '2001', employeeName: '张伟', messageCount: 13, latestAt: '2026-08-16 13:50:08' }],
   page: 1,
   pageSize: 20,
   total: 1,
@@ -165,7 +172,7 @@ describe('DashboardOverviewPage', () => {
     expect(firstCall).not.toHaveProperty('period');
   });
 
-  it('shows loading, then renders cards and trend values from the API response', async () => {
+  it('shows loading, then renders cards and conversation data from the API response', async () => {
     let resolve: ((value: DashboardOverview) => void) | undefined;
     const load = vi.fn(() => new Promise<DashboardOverview>((accept) => {
       resolve = accept;
@@ -177,8 +184,7 @@ describe('DashboardOverviewPage', () => {
 
     expect(await screen.findByText('客户总数')).not.toBeNull();
     expect(screen.getByText('137')).not.toBeNull();
-    expect(screen.getAllByText('2026-07-30')).not.toHaveLength(0);
-    expect(screen.getByLabelText('新增客户 12')).not.toBeNull();
+    expect(screen.queryByRole('region', { name: '客户增长趋势' })).toBeNull();
     expect(screen.getByText(/2026-07-31 09:30:00/)).not.toBeNull();
     expect(load).toHaveBeenCalledWith({
       corpId: '7',
@@ -205,6 +211,8 @@ describe('DashboardOverviewPage', () => {
           customer: 0, lead: 0, contact: 0, opportunity: 0, won: 0, order: 0, behavior: 0, employee: 0,
         },
         limitations: [],
+        employeeRanking: [],
+        trajectory: [],
         updatedAt: '',
         page: 1,
         pageSize: 20,
@@ -215,13 +223,16 @@ describe('DashboardOverviewPage', () => {
     expect(await screen.findByRole('heading', { name: '经营快照' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '数据概览' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: 'AI 洞察' })).not.toBeNull();
-    expect(screen.getByRole('heading', { name: '会话工作台' })).not.toBeNull();
-    expect(screen.getAllByText('能力未接入')).toHaveLength(4);
+    expect(screen.getByRole('heading', { name: '会话数据' })).not.toBeNull();
     expect(screen.getByText('会话归档尚未接入')).not.toBeNull();
-    expect(screen.getByText('暂无增长趋势')).not.toBeNull();
+    expect(screen.queryByRole('region', { name: '客户增长趋势' })).toBeNull();
     expect(screen.getByRole('heading', { name: '质检数据' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '员工会话数据排行' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '员工会话轨迹一览' })).not.toBeNull();
+    expect(screen.getByRole('status', { name: 'AI 数字字段暂缺' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: '部分质检数据暂缺' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: '员工排行数据暂缺' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: '会话轨迹数据暂缺' })).toBeTruthy();
   });
 
   it('alerts when a real snapshot field is missing instead of masking it as zero', async () => {
@@ -237,27 +248,30 @@ describe('DashboardOverviewPage', () => {
     expect(screen.getByRole('article', { name: '订单总数' }).textContent).toContain('--');
   });
 
-  it('renders the overview as a five-layer operating cockpit', async () => {
-    renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
+  it('renders the overview as a Yuanhu-style operating cockpit while preserving the banner', async () => {
+    const { container } = renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
     await screen.findByText('客户总数');
 
     expect(screen.getByText('测试企业')).toBeTruthy();
     expect(screen.getByText('统一报表口径')).toBeTruthy();
     expect(screen.getByRole('region', { name: '经营快照' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'AI 洞察' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: '客户增长趋势' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: '会话工作台' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: '客户增长趋势' })).toBeNull();
+    expect(screen.getByRole('region', { name: '会话数据' })).toBeTruthy();
+    expect(container.querySelector('.overview-dashboard-main')).not.toBeNull();
+    expect(container.querySelector('.overview-dashboard > .overview-trajectory-panel')).not.toBeNull();
     expect(screen.queryByRole('region', { name: '经营趋势明细' })).toBeNull();
-    expect(screen.getByRole('link', { name: '查看 AI 洞察' })).toBeTruthy();
+    expect(screen.queryByText(/根据提供的20条企业微信/)).toBeNull();
   });
 
   it('uses compact Yuanhu-style insight controls and explicit missing-data modules', async () => {
     renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
     await screen.findByText('客户总数');
 
-    expect(screen.getByRole('article', { name: '分析状态' })).toBeTruthy();
+    expect(screen.getByRole('article', { name: 'AI分析次数' })).toBeTruthy();
     expect(screen.getByRole('region', { name: '质检数据' })).toBeTruthy();
-    expect(screen.getAllByRole('status', { name: '能力未接入' })).toHaveLength(3);
+    expect(screen.getByRole('article', { name: '员工负面情绪' }).textContent).toContain('--');
+    expect(screen.getByRole('status', { name: 'AI 数字字段暂缺' })).toBeTruthy();
     expect(screen.queryByText(/根据提供的20条企业微信/)).toBeNull();
     expect(screen.queryByRole('region', { name: '经营趋势明细' })).toBeNull();
     expect(screen.queryByRole('navigation', { name: '分页' })).toBeNull();
@@ -417,12 +431,13 @@ describe('DashboardOverviewPage', () => {
     expect(screen.queryByText('近七日趋势明细')).toBeNull();
   });
 
-  it('renders compact AI insight controls from the structured summary', async () => {
+  it('renders numeric AI insight controls without the natural-language summary', async () => {
     renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
     await screen.findByText('客户总数');
 
-    expect(screen.getByRole('article', { name: '重点洞察' }).textContent).toContain('商务洽谈与价格协商');
-    expect(screen.getByRole('article', { name: '跟进建议' }).textContent).toContain('立即响应并闭环技术问题');
+    expect(screen.getByRole('article', { name: 'AI分析次数' }).textContent).toContain('5');
+    expect(screen.getAllByRole('article', { name: '风险行为' })[0]?.textContent).toContain('4');
+    expect(screen.getByRole('article', { name: '敏感词' }).textContent).toContain('2');
     expect(screen.queryByText('核心客户意图识别：')).toBeNull();
   });
 

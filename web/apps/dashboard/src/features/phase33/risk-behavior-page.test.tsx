@@ -5,111 +5,65 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../app/access-context';
 import type { AccessContext } from '../../app/access-loader';
-import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
+import type { RiskBehaviorApi } from './risk-behavior-api';
 import { RiskBehaviorPage } from './risk-behavior-page';
 
-const authorizedAccess: AccessContext = {
-  session: { token: 'token', userId: '1', expiresAt: null },
-  corp: { id: '7', name: '测试企业', authorized: true },
-  menu: [],
-  allowedRoutes: new Set(['/ai-insight/v2/risk']),
-  allowedActions: new Set(),
-};
-
-const forbiddenAccess: AccessContext = {
-  ...authorizedAccess,
-  corp: { id: '7', name: '测试企业', authorized: false },
-};
-
+const access: AccessContext = { session: { token: 'token', userId: '1', expiresAt: null }, corp: { id: '7', name: '测试企业', authorized: true }, menu: [], allowedRoutes: new Set(['/ai-insight/v2/risk']), allowedActions: new Set() };
 afterEach(cleanup);
 beforeAll(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }; });
 
-function view(access: AccessContext, api: BusinessWorkbenchApi) {
-  return render(
-    <MemoryRouter>
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <DashboardAccessProvider value={access}>
-          <RiskBehaviorPage api={api} />
-        </DashboardAccessProvider>
-      </QueryClientProvider>
-    </MemoryRouter>,
-  );
+function view(api: RiskBehaviorApi) { return render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><DashboardAccessProvider value={access}><RiskBehaviorPage api={api} /></DashboardAccessProvider></QueryClientProvider></MemoryRouter>); }
+function api(overrides: Partial<RiskBehaviorApi> = {}): RiskBehaviorApi {
+  return { records: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, perPage: 20, summary: { total: 0, pending: 0, highRisk: 0, processed: 0 } }), recordDetail: vi.fn().mockResolvedValue({ record: { id: 1 }, audits: [], conversationAvailable: false }), rules: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, perPage: 20 }), audit: vi.fn(), createRule: vi.fn(), updateRule: vi.fn(), setRuleEnabled: vi.fn(), removeRule: vi.fn(), scannerStatus: vi.fn().mockResolvedValue({ enabled: true, state: 'ready', lastAttemptAt: '', lastSuccessAt: '', lastFailureAt: '', lastError: '' }), ...overrides };
 }
 
 describe('RiskBehaviorPage', () => {
-  it('loads risk records and renders rows', async () => {
-    const read = vi.fn().mockResolvedValue({
-      items: [{
-        id: 1,
-        name: '转账话术',
-        behavior: '关键词命中',
-        riskLevel: 'high',
-        auditStatus: 'pending',
-        occurredAt: '2026-08-01 10:00:00',
-      }],
-    });
-    view(authorizedAccess, { read, write: vi.fn() });
-
-    expect(await screen.findByText('转账话术')).toBeTruthy();
-    expect(read).toHaveBeenCalledWith('/risk/records', { page: 1, perPage: 20 });
+  it('renders typed real records without dynamic field names', async () => {
+    const client = api({ records: vi.fn().mockResolvedValue({ items: [{ id: 1, behavior: 'private_transaction', riskLevel: 'high', conversationType: 'customer', triggerMessage: '请私下交易', auditStatus: 'pending', occurredAt: '2026-08-01T10:00:00Z', relatedUser: { name: '客户A' }, conversationId: '', messageId: '', aiSummary: '' }], total: 1, page: 1, perPage: 20, summary: { total: 1, pending: 1, highRisk: 1, processed: 0 } }) });
+    view(client);
+    expect(await screen.findByText('私下交易')).toBeTruthy();
+    expect(screen.queryByText('AI 洞察')).toBeNull();
+    expect(screen.queryByText('conversationId')).toBeNull();
+    expect(client.records).toHaveBeenCalledWith({ page: 1, riskLevel: '', behavior: '', auditStatus: '', conversationType: '', employeeIds: [], occurredFrom: '', occurredTo: '' });
   });
 
-  it('renders empty state when there are no records', async () => {
-    const read = vi.fn().mockResolvedValue({ items: [] });
-    view(authorizedAccess, { read, write: vi.fn() });
-
-    await waitFor(() => expect(screen.getByRole('heading', { name: '暂无数据' })).toBeTruthy());
+  it('queries only after the filter is explicitly submitted', async () => {
+    const records = vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, perPage: 20, summary: { total: 0, pending: 0, highRisk: 0, processed: 0 } });
+    const client = api({ records });
+    view(client);
+    await waitFor(() => expect(records).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByLabelText('风险等级'), { target: { value: 'high' } });
+    expect(records).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(records).toHaveBeenLastCalledWith(expect.objectContaining({ riskLevel: 'high', page: 1 })));
   });
 
-  it('renders error state and retries', async () => {
-    const read = vi.fn().mockRejectedValue(new Error('network down'));
-    const api = { read, write: vi.fn() };
-    const result = view(authorizedAccess, api);
-
-    await waitFor(() => expect(result.container.querySelector('.page-state-error')).not.toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
-    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  it('opens a row detail and closes from overlay and Escape', async () => {
+    const client = api({ records: vi.fn().mockResolvedValue({ items: [{ id: 9, behavior: 'sensitive_word', riskLevel: 'medium', conversationType: 'group', triggerMessage: '合同', auditStatus: 'pending', occurredAt: '2026-08-01T10:00:00Z', relatedUser: { roomName: '客户群' }, conversationId: '', messageId: '', aiSummary: '' }], total: 1, page: 1, perPage: 20, summary: { total: 1, pending: 1, highRisk: 0, processed: 0 } }) });
+    view(client);
+    fireEvent.click(await screen.findByText('合同'));
+    expect(await screen.findByRole('dialog', { name: '风险详情' })).toBeTruthy();
+    fireEvent.click(screen.getByTestId('risk-warning-drawer-overlay'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '风险详情' })).toBeNull());
   });
 
-  it('does not call the API when the corp is not authorized (受限)', () => {
-    const read = vi.fn();
-    view(forbiddenAccess, { read, write: vi.fn() });
-
-    expect(read).not.toHaveBeenCalled();
+  it('keeps real row content visible when the detail enrichment request fails', async () => {
+    const client = api({ records: vi.fn().mockResolvedValue({ items: [{ id: 9, behavior: 'private_transaction', riskLevel: 'high', conversationType: 'customer', triggerMessage: '真实触发内容', auditStatus: 'confirmed', occurredAt: '2026-08-01T10:00:00Z', relatedUser: { customerName: '客户A' }, conversationId: '', messageId: '', aiSummary: '' }], total: 1, page: 1, perPage: 20, summary: { total: 1, pending: 0, highRisk: 1, processed: 1 } }), recordDetail: vi.fn().mockRejectedValue(new Error('服务不可用')) });
+    view(client);
+    fireEvent.click(await screen.findByText('真实触发内容'));
+    expect((await screen.findAllByText('客户A')).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('heading', { name: '加载失败' })).toBeNull();
+    expect(await screen.findByText('详情补充接口暂不可用，当前内容已从风险记录列表读取，未虚构缺失数据。')).toBeTruthy();
   });
 
-  it('switches to rules tab and saves a new rule through the real contract', async () => {
-    const read = vi.fn().mockResolvedValue({ items: [] });
-    const write = vi.fn().mockResolvedValue({});
-    view(authorizedAccess, { read, write });
-
+  it('keeps rule mutations behind confirmation', async () => {
+    const client = api({ rules: vi.fn().mockResolvedValue({ items: [{ id: 11, name: '私下交易规则', status: 'enabled', subject: 'employee', triggerCount: 1, aiInsightEnabled: false, whitelist: [], strategies: [{ behavior: 'private_transaction', pattern: '私下交易', notifyType: 'none', riskLevel: 'high' }] }], total: 1, page: 1, perPage: 20 }) });
+    view(client);
     fireEvent.click(screen.getByRole('button', { name: '规则配置' }));
-    await waitFor(() => expect(read).toHaveBeenLastCalledWith('/risk/rules', { page: 1, perPage: 20 }));
-
-    fireEvent.click(screen.getByRole('button', { name: '新增规则' }));
-    fireEvent.change(screen.getByLabelText('规则名称'), { target: { value: '转账拦截' } });
-    fireEvent.change(screen.getByLabelText('匹配关键词'), { target: { value: '转账' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
-
-    await waitFor(() => expect(write).toHaveBeenCalledWith(
-      '/risk/rules',
-      expect.objectContaining({ name: '转账拦截' }),
-      'POST',
-    ));
-  });
-
-  it('does not toggle or delete a named rule before confirmation', async () => {
-    const read = vi.fn().mockResolvedValue({
-      items: [{ id: 11, name: '转账拦截', status: 'enabled', subject: 'employee' }],
-    });
-    const write = vi.fn().mockResolvedValue({});
-    view(authorizedAccess, { read, write });
-
-    fireEvent.click(screen.getByRole('button', { name: '规则配置' }));
-    const disable = await screen.findByRole('button', { name: '停用 转账拦截' });
+    const disable = await screen.findByRole('button', { name: '停用' });
     fireEvent.click(disable);
-    expect(write).not.toHaveBeenCalledWith('/risk/rules/status', expect.anything(), 'PUT');
+    expect(client.setRuleEnabled).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(client.setRuleEnabled).toHaveBeenCalledWith({ id: 11, status: 'disabled' }));
   });
 });

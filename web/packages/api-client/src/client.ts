@@ -8,6 +8,11 @@ export type ApiClientOptions = {
   onTenantAccessDenied?: () => void;
 };
 
+export type ApiDownload = {
+  blob: Blob;
+  filename: string;
+};
+
 function bearerToken(token: string): string {
   return /^Bearer\s/i.test(token) ? token : `Bearer ${token}`;
 }
@@ -22,6 +27,7 @@ function resolveInput(input: RequestInfo | URL, baseUrl: string): RequestInfo | 
 
 export function createApiClient(options: ApiClientOptions): {
   request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T>;
+  download(input: RequestInfo | URL, init?: RequestInit): Promise<ApiDownload>;
 } {
   return {
     async request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
@@ -108,5 +114,94 @@ export function createApiClient(options: ApiClientOptions): {
       }
       return envelope.data;
     },
+    async download(input: RequestInfo | URL, init?: RequestInit): Promise<ApiDownload> {
+      const headers = new Headers(init?.headers);
+      const token = options.getToken();
+      if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', bearerToken(token));
+      }
+
+      let response: Response;
+      try {
+        response = await fetch(resolveInput(input, options.baseUrl), { ...init, headers });
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : 'Network request failed';
+        throw new ApiError('network', message, { cause: error });
+      }
+
+      if (!response.ok) {
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          if (response.status === 401) {
+            options.onUnauthorized();
+            throw new ApiError('unauthorized', response.statusText || 'Unauthorized', {
+              status: response.status,
+              cause: error,
+            });
+          }
+          if (response.status === 403) {
+            throw new ApiError('forbidden', response.statusText || 'Forbidden', {
+              status: response.status,
+              cause: error,
+            });
+          }
+          if (response.status >= 500) {
+            throw new ApiError('server', response.statusText || 'Server error', {
+              status: response.status,
+              cause: error,
+            });
+          }
+          throw error;
+        }
+        const envelope = parseApiEnvelope(payload);
+        const errorDetails = {
+          status: response.status,
+          code: envelope.code,
+          ...(envelope.errorCode === undefined ? {} : { machineCode: envelope.errorCode }),
+        };
+        if (response.status === 401) {
+          options.onUnauthorized();
+          throw new ApiError('unauthorized', envelope.msg, errorDetails);
+        }
+        if (response.status === 403) {
+          if (envelope.errorCode === 'TENANT_ACCESS_DENIED') {
+            options.onTenantAccessDenied?.();
+          }
+          throw new ApiError('forbidden', envelope.msg, errorDetails);
+        }
+        if (response.status >= 500) {
+          throw new ApiError('server', envelope.msg, errorDetails);
+        }
+        throw new ApiError('validation', envelope.msg, errorDetails);
+      }
+
+      return {
+        blob: await response.blob(),
+        filename: filenameFromContentDisposition(response.headers.get('Content-Disposition')),
+      };
+    },
   };
+}
+
+function filenameFromContentDisposition(value: string | null): string {
+  if (!value) return 'conversation-export.zip';
+  const encoded = value.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i)?.[1];
+  const plain = value.match(/filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;]+)/i);
+  let filename = encoded ? decodeFilename(encoded) : (plain?.[1] ?? plain?.[2] ?? '');
+  filename = filename.trim().replace(/[\u0000-\u001f\\/:*?"<>|]/g, '_');
+  return filename || 'conversation-export.zip';
+}
+
+function decodeFilename(value: string): string {
+  const trimmed = value.trim();
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
 }

@@ -192,6 +192,67 @@ export type GroupRoomMembersInput = { roomId: number; mode: GroupMemberMode; key
 export type GroupRoomFilterOption = { value: string; label: string; count: number };
 export type GroupRoomFilterOptions = { employees: readonly GroupRoomFilterOption[]; customers: readonly GroupRoomFilterOption[]; groups: readonly GroupRoomFilterOption[]; capabilities: readonly ConversationCapability[] };
 
+export type ConversationExportType = 'employee' | 'customer' | 'room';
+export type ConversationExportCandidate = {
+  id: number;
+  name: string;
+  avatar: string;
+  externalId?: string;
+  subtitle?: string;
+  conversationCount: number;
+  messageCount: number;
+  lastMessageAt?: string;
+  selectable: boolean;
+  limitation?: string;
+};
+export type ConversationExportCandidatesInput = {
+  type: ConversationExportType;
+  keyword: string;
+  departmentId: number | null;
+  page: number;
+  pageSize: 20;
+};
+export type ConversationExportCandidatesPage = {
+  items: readonly ConversationExportCandidate[];
+  total: number;
+  page: number;
+  pageSize: 20;
+  limitations: readonly { key: string; reason: string }[];
+  capabilities: readonly ConversationCapability[];
+};
+export type ConversationExportTask = {
+  id: number;
+  exportType: ConversationExportType;
+  objectCount: number;
+  startAt: string;
+  endAt: string;
+  fileMode: 'split' | 'merge';
+  format: 'zip';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'expired' | string;
+  estimatedMessageCount: number;
+  messageCount: number;
+  fileCount: number;
+  artifactName: string;
+  artifactSize: number;
+  errorCode?: string;
+  errorMessage?: string;
+  expiresAt: string;
+  createdAt: string;
+  finishedAt?: string;
+};
+export type ConversationExportTaskPage = { items: readonly ConversationExportTask[]; total: number; page: number; pageSize: 20 };
+export type ConversationExportTaskInput = {
+  exportType: ConversationExportType;
+  objectIds: readonly number[];
+  conversationScopes: readonly string[];
+  employeeIds: readonly number[];
+  startAt: string;
+  endAt: string;
+  fileMode: 'split' | 'merge';
+  format: 'zip';
+  idempotencyKey?: string;
+};
+
 // messageText 将归档消息内容还原为可读文本：内容为 JSON 时优先取 text 字段，
 // 避免在会话详情里直接展示 {"text":"..."} 原始串。
 export function messageText(message: ConversationMessage): string {
@@ -272,6 +333,10 @@ export type ConversationGlobalApi = {
   groupRoomMessages?(input: GroupRoomMessagesInput): Promise<GroupRoomMessages>;
   groupRoomMembers?(input: GroupRoomMembersInput): Promise<GroupRoomMembersPage>;
   groupRoomFilterOptions?(kind?: 'employee' | 'customer' | 'group'): Promise<GroupRoomFilterOptions>;
+  exportCandidates?(input: ConversationExportCandidatesInput): Promise<ConversationExportCandidatesPage>;
+  exportTasks?(page?: number): Promise<ConversationExportTaskPage>;
+  createExportTask?(input: ConversationExportTaskInput): Promise<{ task: ConversationExportTask; reused: boolean; limitations: readonly { key: string; reason: string }[] }>;
+  downloadExport?(taskId: number): Promise<{ blob: Blob; filename: string }>;
 };
 
 export type ConversationEmployee = {
@@ -282,6 +347,7 @@ export type ConversationEmployee = {
 
 type ApiClient = {
   request(input: RequestInfo | URL, init?: RequestInit): Promise<unknown>;
+  download?(input: RequestInfo | URL, init?: RequestInit): Promise<{ blob: Blob; filename: string }>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -757,6 +823,71 @@ function parseOverview(value: unknown): ConversationOverview {
   return { metrics, capabilities: capabilities as ConversationOverview['capabilities'] };
 }
 
+function parseExportCandidate(value: unknown): ConversationExportCandidate | null {
+  if (!isRecord(value) || !isFiniteNumber(value.id) || typeof value.name !== 'string' || typeof value.avatar !== 'string'
+    || !isFiniteNumber(value.conversationCount) || !isFiniteNumber(value.messageCount) || typeof value.selectable !== 'boolean') {
+    return null;
+  }
+  const candidate: ConversationExportCandidate = {
+    id: value.id, name: value.name, avatar: value.avatar, conversationCount: value.conversationCount,
+    messageCount: value.messageCount, selectable: value.selectable,
+  };
+  if (typeof value.externalId === 'string') candidate.externalId = value.externalId;
+  if (typeof value.subtitle === 'string') candidate.subtitle = value.subtitle;
+  if (typeof value.lastMessageAt === 'string') candidate.lastMessageAt = value.lastMessageAt;
+  if (typeof value.limitation === 'string') candidate.limitation = value.limitation;
+  return candidate;
+}
+
+function parseExportCandidatesPage(value: unknown): ConversationExportCandidatesPage {
+  if (!isRecord(value) || !Array.isArray(value.items) || !isFiniteNumber(value.total) || !isFiniteNumber(value.page) || value.pageSize !== 20
+    || !Array.isArray(value.limitations) || !Array.isArray(value.capabilities)) {
+    throw new Error('会话导出候选对象接口返回了无效数据');
+  }
+  const items = value.items.map(parseExportCandidate);
+  if (items.some((item) => item === null)) throw new Error('会话导出候选对象接口返回了无效数据');
+  const limitations = value.limitations.map((raw) => isRecord(raw) && typeof raw.key === 'string' && typeof raw.reason === 'string' ? { key: raw.key, reason: raw.reason } : null);
+  const capabilities = value.capabilities.map((raw) => isRecord(raw) && typeof raw.key === 'string' && typeof raw.available === 'boolean' ? { key: raw.key, available: raw.available, reason: typeof raw.reason === 'string' ? raw.reason : undefined } : null);
+  if (limitations.some((item) => item === null) || capabilities.some((item) => item === null)) throw new Error('会话导出候选对象接口返回了无效数据');
+  return { items: items as ConversationExportCandidate[], total: value.total, page: value.page, pageSize: 20, limitations: limitations as { key: string; reason: string }[], capabilities: capabilities as ConversationCapability[] };
+}
+
+function parseExportTask(value: unknown): ConversationExportTask | null {
+  if (!isRecord(value) || !isFiniteNumber(value.id) || !isTargetType(value.exportType) || !isFiniteNumber(value.objectCount)
+    || typeof value.startAt !== 'string' || typeof value.endAt !== 'string' || (value.fileMode !== 'split' && value.fileMode !== 'merge')
+    || value.format !== 'zip' || typeof value.status !== 'string' || !isFiniteNumber(value.estimatedMessageCount) || !isFiniteNumber(value.messageCount)
+    || !isFiniteNumber(value.fileCount) || typeof value.artifactName !== 'string' || !isFiniteNumber(value.artifactSize)
+    || typeof value.expiresAt !== 'string' || typeof value.createdAt !== 'string') return null;
+  const task: ConversationExportTask = {
+    id: value.id, exportType: value.exportType, objectCount: value.objectCount, startAt: value.startAt, endAt: value.endAt,
+    fileMode: value.fileMode, format: 'zip', status: value.status, estimatedMessageCount: value.estimatedMessageCount,
+    messageCount: value.messageCount, fileCount: value.fileCount, artifactName: value.artifactName, artifactSize: value.artifactSize,
+    expiresAt: value.expiresAt, createdAt: value.createdAt,
+  };
+  if (typeof value.errorCode === 'string') task.errorCode = value.errorCode;
+  if (typeof value.errorMessage === 'string') task.errorMessage = value.errorMessage;
+  if (typeof value.finishedAt === 'string') task.finishedAt = value.finishedAt;
+  return task;
+}
+
+function parseExportTaskPage(value: unknown): ConversationExportTaskPage {
+  if (!isRecord(value) || !Array.isArray(value.items) || !isFiniteNumber(value.total) || !isFiniteNumber(value.page) || value.pageSize !== 20) {
+    throw new Error('会话导出任务接口返回了无效数据');
+  }
+  const items = value.items.map(parseExportTask);
+  if (items.some((item) => item === null)) throw new Error('会话导出任务接口返回了无效数据');
+  return { items: items as ConversationExportTask[], total: value.total, page: value.page, pageSize: 20 };
+}
+
+function parseExportCreateResult(value: unknown): { task: ConversationExportTask; reused: boolean; limitations: readonly { key: string; reason: string }[] } {
+  if (!isRecord(value) || typeof value.reused !== 'boolean') throw new Error('会话导出任务接口返回了无效数据');
+  const task = parseExportTask(value.task);
+  if (!task) throw new Error('会话导出任务接口返回了无效数据');
+  const limitations = Array.isArray(value.limitations) ? value.limitations.map((raw) => isRecord(raw) && typeof raw.key === 'string' && typeof raw.reason === 'string' ? { key: raw.key, reason: raw.reason } : null) : [];
+  if (limitations.some((item) => item === null)) throw new Error('会话导出任务接口返回了无效数据');
+  return { task, reused: value.reused, limitations: limitations as { key: string; reason: string }[] };
+}
+
 function appendNonBlank(query: URLSearchParams, key: string, value: string) {
   if (value.trim() !== '') {
     query.set(key, value.trim());
@@ -899,6 +1030,26 @@ export function createConversationGlobalApi(
       appendNonBlank(query, 'kind', kind ?? '');
       const suffix = query.toString();
       return parseGroupRoomFilterOptions(await client.request(`/workMessage/roomFilterOptions${suffix ? `?${suffix}` : ''}`));
+    },
+    async exportCandidates(input) {
+      const query = new URLSearchParams({ type: input.type, page: String(input.page), pageSize: '20' });
+      appendNonBlank(query, 'keyword', input.keyword);
+      if (input.departmentId !== null) query.set('departmentId', String(input.departmentId));
+      return parseExportCandidatesPage(await client.request(`/workMessage/exportCandidates?${query.toString()}`));
+    },
+    async exportTasks(page = 1) {
+      return parseExportTaskPage(await client.request(`/workMessage/exportTasks?page=${encodeURIComponent(String(page))}&pageSize=20`));
+    },
+    async createExportTask(input) {
+      return parseExportCreateResult(await client.request('/workMessage/exportTasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }));
+    },
+    async downloadExport(taskId) {
+      if (!client.download) throw new Error('当前客户端未接入导出文件下载能力');
+      return client.download(`/workMessage/exportDownload?taskId=${encodeURIComponent(String(taskId))}`);
     },
   };
 }

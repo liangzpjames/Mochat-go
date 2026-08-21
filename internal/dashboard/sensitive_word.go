@@ -12,6 +12,7 @@ type SensitiveWordFilter struct {
 	CorpID   int
 	GroupID  int
 	KeyWords string
+	Status   int
 	Page     int
 	PerPage  int
 }
@@ -37,9 +38,11 @@ type SensitiveWordPage struct {
 }
 
 type SensitiveWordGroup struct {
-	ID      int
-	Name    string
-	Version string
+	ID           int
+	Name         string
+	Version      string
+	WordCount    int
+	EnabledCount int
 }
 
 const (
@@ -86,6 +89,9 @@ type SensitiveWordsMonitorFilter struct {
 	EmployeeIDs        []int
 	WorkRoomID         int
 	IntelligentGroupID int
+	SensitiveWordID    int
+	Source             int
+	Scenario           string
 	TriggerStart       string
 	TriggerEnd         string
 	Page               int
@@ -100,6 +106,8 @@ type SensitiveWordsMonitorItem struct {
 	TriggerName       string
 	TriggerScenario   string
 	TriggerTime       string
+	ContentPreview    string
+	WorkRoomID        int
 }
 
 type SensitiveWordsMonitorPage struct {
@@ -159,11 +167,25 @@ type SensitiveWordStore interface {
 	SensitiveWordsMonitorMessages(ctx context.Context, filter SensitiveWordsMonitorMessageFilter) ([]SensitiveWordsMonitorMessage, bool, error)
 }
 
+type SensitiveWordScanStatus struct {
+	Enabled       bool   `json:"enabled"`
+	State         string `json:"state"`
+	LastAttemptAt string `json:"lastAttemptAt"`
+	LastSuccessAt string `json:"lastSuccessAt"`
+	LastFailureAt string `json:"lastFailureAt"`
+	LastError     string `json:"lastError"`
+}
+
+type SensitiveWordScanStatusStore interface {
+	SensitiveWordScanStatus(ctx context.Context, corpID int) (SensitiveWordScanStatus, error)
+}
+
 type SensitiveWordHandler struct {
-	store      SensitiveWordStore
-	cache      LoginCache
-	resolver   UserIDResolver
-	authorizer CorpAdminAuthorizer
+	store          SensitiveWordStore
+	cache          LoginCache
+	resolver       UserIDResolver
+	authorizer     CorpAdminAuthorizer
+	monitorEnabled bool
 }
 
 type sensitiveWordBadRequest string
@@ -182,7 +204,12 @@ func isBadRequestError(err error) bool {
 }
 
 func NewSensitiveWordHandler(store SensitiveWordStore, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer) *SensitiveWordHandler {
-	return &SensitiveWordHandler{store: store, cache: cache, resolver: resolver, authorizer: authorizer}
+	return &SensitiveWordHandler{store: store, cache: cache, resolver: resolver, authorizer: authorizer, monitorEnabled: true}
+}
+
+func (h *SensitiveWordHandler) WithMonitorEnabled(enabled bool) *SensitiveWordHandler {
+	h.monitorEnabled = enabled
+	return h
 }
 
 func (h *SensitiveWordHandler) Index(w http.ResponseWriter, r *http.Request) {
@@ -202,8 +229,9 @@ func (h *SensitiveWordHandler) Index(w http.ResponseWriter, r *http.Request) {
 		CorpID:   corpID,
 		GroupID:  positiveQueryInt(r, "groupId", 0),
 		KeyWords: strings.TrimSpace(r.URL.Query().Get("keyWords")),
+		Status:   positiveQueryInt(r, "status", 0),
 		Page:     positiveQueryInt(r, "page", 1),
-		PerPage:  positiveQueryInt(r, "perPage", 10),
+		PerPage:  20,
 	})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -330,7 +358,7 @@ func (h *SensitiveWordHandler) GroupSelect(w http.ResponseWriter, r *http.Reques
 	}
 	payload := make([]map[string]any, 0, len(groups))
 	for _, group := range groups {
-		payload = append(payload, map[string]any{"groupId": group.ID, "name": group.Name, "version": group.Version})
+		payload = append(payload, map[string]any{"groupId": group.ID, "name": group.Name, "version": group.Version, "wordCount": group.WordCount, "enabledCount": group.EnabledCount})
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", payload)
 }
@@ -390,10 +418,13 @@ func (h *SensitiveWordHandler) MonitorIndex(w http.ResponseWriter, r *http.Reque
 		EmployeeIDs:        employeeIDs,
 		WorkRoomID:         positiveQueryInt(r, "workRoomId", 0),
 		IntelligentGroupID: positiveQueryInt(r, "intelligentGroupId", 0),
+		SensitiveWordID:    positiveQueryInt(r, "sensitiveWordId", 0),
+		Source:             positiveQueryInt(r, "source", 0),
+		Scenario:           strings.TrimSpace(r.URL.Query().Get("scenario")),
 		TriggerStart:       strings.TrimSpace(r.URL.Query().Get("triggerStart")),
 		TriggerEnd:         strings.TrimSpace(r.URL.Query().Get("triggerEnd")),
 		Page:               positiveQueryInt(r, "page", 1),
-		PerPage:            positiveQueryInt(r, "perPage", 10),
+		PerPage:            20,
 	})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
@@ -407,6 +438,37 @@ func (h *SensitiveWordHandler) MonitorIndex(w http.ResponseWriter, r *http.Reque
 		"page": map[string]any{"perPage": page.PerPage, "total": page.Total, "totalPage": page.TotalPage},
 		"list": list,
 	})
+}
+
+func (h *SensitiveWordHandler) MonitorStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
+		return
+	}
+	_, _, _, _, ok := h.resolveAuthorized(w, r, "/dashboard/sensitiveWordsMonitor/status#get")
+	if !ok {
+		return
+	}
+	corpID, ok := principalCorpID(w, r)
+	if !ok {
+		return
+	}
+	state := SensitiveWordScanStatus{Enabled: h.monitorEnabled, State: "never_run"}
+	if !h.monitorEnabled {
+		state.State = "disabled"
+	}
+	if provider, ok := h.store.(SensitiveWordScanStatusStore); ok {
+		stored, err := provider.SensitiveWordScanStatus(r.Context(), corpID)
+		if err != nil {
+			writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "扫描状态暂时无法读取", nil)
+			return
+		}
+		state.LastAttemptAt, state.LastSuccessAt, state.LastFailureAt, state.LastError = stored.LastAttemptAt, stored.LastSuccessAt, stored.LastFailureAt, stored.LastError
+		if h.monitorEnabled {
+			state.State = stored.State
+		}
+	}
+	writeEnvelope(w, http.StatusOK, 200, "success", state)
 }
 
 func (h *SensitiveWordHandler) MonitorShow(w http.ResponseWriter, r *http.Request) {
@@ -591,6 +653,8 @@ func sensitiveWordsMonitorPayload(item SensitiveWordsMonitorItem) map[string]any
 		"triggerName":             item.TriggerName,
 		"triggerScenario":         item.TriggerScenario,
 		"triggerTime":             item.TriggerTime,
+		"contentPreview":          item.ContentPreview,
+		"workRoomId":              item.WorkRoomID,
 	}
 }
 

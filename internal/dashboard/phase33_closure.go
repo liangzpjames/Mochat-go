@@ -64,15 +64,18 @@ type SilentRuleFilter struct {
 type SilentRecordFilter struct {
 	TenantID, CorpID    int
 	Customer, Status    string
+	AssignedEmployeeID  int64
 	RuleID              int64
 	Page, PerPage       int
 	AllowedEmployeeIDs  []int
 	RestrictEmployeeIDs bool
 }
 type RefuseArchiveFilter struct {
-	TenantID, CorpID                             int
-	Subject, AuthorizationStatus, FollowUpStatus string
-	Page, PerPage                                int
+	TenantID, CorpID                                          int
+	Subject, SubjectType, AuthorizationStatus, FollowUpStatus string
+	EmployeeID                                                int64
+	RefusedFrom, RefusedTo                                    string
+	Page, PerPage                                             int
 }
 type SilentRulePage struct {
 	Items                []SilentCustomerRule `json:"items"`
@@ -83,8 +86,10 @@ type SilentRecordPage struct {
 	Total, Page, PerPage int
 }
 type RefuseArchivePage struct {
-	Items                []RefuseArchiveRecord `json:"items"`
-	Total, Page, PerPage int
+	Items   []RefuseArchiveRecord `json:"items"`
+	Total   int                   `json:"total"`
+	Page    int                   `json:"page"`
+	PerPage int                   `json:"perPage"`
 }
 type Phase33ClosureProvider interface {
 	SilentRulePage(context.Context, SilentRuleFilter) (SilentRulePage, error)
