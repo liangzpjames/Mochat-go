@@ -11,6 +11,36 @@ import (
 
 func (s *MySQLStore) ChannelCodeWorkspaceEnabled() bool { return true }
 
+func (s *MySQLStore) ChannelCodeProviderConfig(ctx context.Context, channelCodeID int, corpID int) (dashboard.RoomWelcomeCorpCredential, string, bool, error) {
+	var configID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT wx_config_id
+		FROM mc_channel_code
+		WHERE id = ? AND corp_id = ? AND deleted_at IS NULL
+		LIMIT 1
+	`, channelCodeID, corpID).Scan(&configID)
+	if err == sql.ErrNoRows {
+		return dashboard.RoomWelcomeCorpCredential{}, "", false, nil
+	}
+	if err != nil {
+		return dashboard.RoomWelcomeCorpCredential{}, "", false, err
+	}
+	credential, found, err := s.RoomWelcomeCorpCredentialByID(ctx, corpID)
+	if err != nil || !found {
+		return dashboard.RoomWelcomeCorpCredential{}, "", false, err
+	}
+	return credential, configID, true, nil
+}
+
+func (s *MySQLStore) SetChannelCodeLifecycle(ctx context.Context, channelCodeID int, corpID int, state string, providerState string, providerError string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE mc_channel_code
+		SET lifecycle_state = ?, provider_state = ?, provider_error = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND corp_id = ? AND deleted_at IS NULL
+	`, state, providerState, providerError, channelCodeID, corpID)
+	return err
+}
+
 func (s *MySQLStore) ChannelCodeWorkspacePage(ctx context.Context, filter dashboard.ChannelCodeWorkspaceFilter) (dashboard.ChannelCodeListPage, error) {
 	filter.Page = positivePage(filter.Page)
 	filter.PerPage = positivePerPage(filter.PerPage, 20)

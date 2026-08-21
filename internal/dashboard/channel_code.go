@@ -169,6 +169,15 @@ type ChannelCodeWorkspaceStore interface {
 	ChannelCodeWorkspacePage(ctx context.Context, filter ChannelCodeWorkspaceFilter) (ChannelCodeListPage, error)
 }
 
+type ChannelCodeLifecycleStore interface {
+	ChannelCodeProviderConfig(ctx context.Context, channelCodeID int, corpID int) (RoomWelcomeCorpCredential, string, bool, error)
+	SetChannelCodeLifecycle(ctx context.Context, channelCodeID int, corpID int, state string, providerState string, providerError string) error
+}
+
+type ChannelCodeContactWayDeleter interface {
+	DeleteContactWay(ctx context.Context, credential RoomWelcomeCorpCredential, configID string) error
+}
+
 type ChannelCodeWeComClient interface {
 	CreateContactWay(ctx context.Context, credential RoomWelcomeCorpCredential, userIDs []string, skipVerify bool, state string) (qrCodeURL string, configID string, err error)
 	UpdateContactWay(ctx context.Context, credential RoomWelcomeCorpCredential, configID string, userIDs []string, skipVerify bool, state string) error
