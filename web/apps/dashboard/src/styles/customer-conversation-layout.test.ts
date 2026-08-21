@@ -22,6 +22,11 @@ describe('customer conversation workspace layout contract', () => {
     expect(css).toMatch(/@media\s*\(min-width:\s*1200px\)\s*and\s*\(max-width:\s*1399px\)[\s\S]*\.customer-conversation-workspace[\s\S]*grid-template-columns:\s*240px\s+minmax\(260px,\s*1fr\)\s+minmax\(320px,\s*1\.2fr\)/s);
   });
 
+  it('lets empty and loading states fill the pane instead of leaving a short card at the top', () => {
+    expect(css).toMatch(/\.customer-conversation-detail\s+\.page-state[\s\S]*flex:\s*1 1 auto/s);
+    expect(css).toMatch(/\.customer-conversation-list\s+\.page-state[\s\S]*flex:\s*1 1 auto/s);
+  });
+
   it('defines keyboard, state and pagination contrast hooks for customer controls', () => {
     expect(css).toContain('.customer-conversation-card.is-selected');
     expect(css).toContain('.customer-conversation-card:focus-visible');
@@ -41,7 +46,8 @@ describe('customer conversation workspace layout contract', () => {
 
   it('keeps customer detail statistics and filters compact on desktop', () => {
     expect(css).toMatch(/\.customer-conversation-stats\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
-    expect(css).toMatch(/\.customer-conversation-stats article\s*\{[^}]*min-height:\s*0/s);
+    expect(css).toMatch(/\.customer-conversation-stats article\s*\{[^}]*border-right:\s*1px solid/s);
+    expect(css).toMatch(/\.customer-conversation-stats article:last-child\s*\{[^}]*border-right:\s*0/s);
     expect(css).toMatch(/\.customer-conversation-detail-filters\s*\{[^}]*display:\s*grid/s);
     expect(css).toMatch(/\.customer-conversation-detail-filters\s*\{[^}]*grid-template-columns:/s);
     expect(css).toContain('.customer-conversation-message-types input:checked + span');

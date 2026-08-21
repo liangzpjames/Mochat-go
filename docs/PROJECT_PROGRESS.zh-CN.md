@@ -1,12 +1,51 @@
 # MoChat Go 开发总进度
 
-> 更新时间：2026-08-18
-> 当前分支：`main`（Phase 7 Demo 已快进合入，并已与 `origin/main` 非强制同步）
-> 当前阶段：Phase 7 隔离 Demo 已完成代码、本地镜像、ECS 部署与合成双链路验收；真实企业配置和 production 接入待完成
+> 更新时间：2026-08-21
+> 当前分支：`feat/conversation-operations-pages`（HEAD `a0019c1`，领先本地 `main` 2 个提交；当前工作树 117 项改动尚未提交，本次监督检查未执行 reset/clean/commit）
+> 主线同步：本地 `main` 为 `718330d`，领先已在线核实的 `origin/main=e6d238e` 53 个提交；当前分支成果尚未进入 `main` 或远端
+> 当前阶段：Phase 7 因真实企微会话存档外部配置阻塞而暂停；转入 Dashboard 与 Sidebar/Operation 移动端逐页功能、交互和布局优化
+> 监督模式：本文件是唯一总进度台账；由用户在本会话触发检查，本会话不承担业务开发
+
+## 会话运营四页后续专项登记（2026-08-20）
+
+`/chat/file-audio`、`/chat/resign-staff`、`/chat/refuse-archive`、`/customer/inheritance` 本轮优化只在页面中呈现已有真实接口能够完成的业务闭环，不再把产品建设进度做成用户可见的标签、禁用按钮、提示卡或占位模块。常规布局、按钮样式、筛选、分页、抽屉、确认、错误反馈、URL 恢复和响应式问题均纳入本轮优化，不列为后续事项。
+
+以下能力经当前接口和存储口径核对，不能靠页面调整完成，必须另立专项：
+
+| 后续专项 | 当前事实 | 必须专项建设的原因 | 本轮四页处理 |
+| --- | --- | --- | --- |
+| 会话存档媒体与文件中心 | `mochat_go_audio_objects` 只承载上传音频对象；当前没有把 `mc_work_message_%` 中的消息、发送方、接收方、媒体对象、摘要、统计和导出任务串成可查询链路 | 需要接入 `GetMediaData`/内容存储、消息对象关联、媒体索引、聚合查询和异步导出合同，不能用现有上传列表替代 | 文件录音页只完成上传、日期/名称筛选、鉴权播放、删除和分页；不增加聊天文件入口或参考页专属字段 |
+| 继承侧边栏 H5 | 当前仓库没有可验证的继承 H5 路由、侧边栏身份鉴权和历史会话查询接口 | 需要独立的 Sidebar 路由、企业微信上下文鉴权、客户继承关系读取和历史会话链，并单独做移动端验收 | 客户继承页只呈现离职继承、在职继承和继承记录，不提供侧边栏配置入口 |
+| 在职员工群聊继承 | 当前 `contactTransfer/room` 对应离职待分配群聊及企业微信群主转接，缺少在职员工群资产读取和可验证的转接合同 | 需要先确定群资产归属口径、数据权限、企业微信能力边界、接口和审计日志，再实现批量转接 | 在职继承只完成客户读取与客户转接，不增加在职群聊入口 |
+| 离职员工内部群会话归档 | 当前员工会话工作区已有外部联系人、客户群和员工单聊链路，内部群归档没有完整查询与详情合同 | 需要补内部群会话标识、成员资料、消息聚合、详情权限和归档同步链，再独立回归现有员工会话页 | 离职员工页直接隐藏内部群筛选项，只呈现能够查询详情的会话类型 |
+
+以上四项是本次设计审阅确认的专项边界，尚未实施或排期；后续启动时必须另写设计、实施计划和真实数据验收证据。除表中四项外，本轮四页发现的问题原则上都应在当前优化中完成。
+
+## 会话运营四页实施记录（2026-08-21）
+
+四页已按设计和实施计划完成当前接口合同范围内的开发，并在最新 Docker 构建上完成真实登录态浏览器验收：
+
+- `/chat/file-audio`：真实落盘音频列表、文件名/日期筛选、URL 恢复、上传弹窗、鉴权播放和删除确认。
+- `/chat/resign-staff`：离职员工目录、会话类型/日期筛选、会话列表与详情工作区、URL 恢复和移动窄屏返回路径；当前企业无离职员工数据时展示普通空态。
+- `/chat/refuse-archive`：客户/群聊切换、授权/跟进筛选、分页、跟进抽屉和状态备注保存；补齐分页 JSON 字段，历史 `followed` 状态归一为“跟进完成”。
+- `/customer/inheritance`：离职客户/群聊、在职客户、员工选择、勾选分配确认、同步确认、继承记录抽屉和 URL 恢复；转接写操作仅在确认后执行。
+
+验收证据见 [会话运营四页实施验收记录](reviews/2026-08-21-conversation-operations-pages-acceptance.zh-CN.md)。本次浏览器检查的 2560×1440 与 1440×900 均未发现页面级横向溢出，控制台无 error/warn，页面未展示“能力未接入”“功能未接入”类建设提示。完整工作区 typecheck/go test 的既有失败项已在验收记录登记，未修改其所属用户工作。
+
+监督复核边界：上述四页和会话导出仍位于当前未提交工作树，不能按已合入交付计。2026-08-21 新鲜复验中 Dashboard typecheck、production build 和相关 Go 五包通过，但 Dashboard 全量测试为 728/729、Phase 4 RBAC 门禁和圆弧 benchmark 门禁仍为 RED；必须先完成分支级整体验收和固化。
+
+## 文件录音菜单修复记录（2026-08-21）
+
+用户复核后将 `/chat/file-audio` 的产品口径改为“企微同步录音只读查询”，本次追加实施：
+
+- 移除上传录音、删除录音、文件名/上传日期筛选和“人工上传”来源；查询改为发送人、接收人、发送日期区间，列表对齐圆弧 AI 的音视频通话信息结构。
+- 修复播放链路：录音列表只返回已落盘媒体；对已有对象的缺失时长从 WAV/MP3 文件头补算并回写，播放继续使用登录鉴权内容接口。
+- 开发环境允许使用 3 条明确标记为 `wecom_sync` 的模拟企微录音数据和有效 WAV 字节，用于验证播放、时长、筛选和响应式布局；该数据不代表真实企业微信生产同步。
+- 真实企微 `GetMediaData` 拉取、媒体对象索引、发送人/接收人关联和生产媒体回读仍需后续专项，页面不展示建设提示，只在本台账登记。
 
 ## 客户会话工作台紧凑化记录（2026-08-20）
 
-`/chat/v2-customer` 本轮已直接完成页面可优化项：右侧会话统计改为四列紧凑卡片，消息类型筛选改为参考员工会话的轻量选择框，搜索与日期控件压缩到同一筛选区；无客户、选中客户、刷新和筛选后的详情链路继续由真实 API 驱动。客户页不再展示“当前归档数据无法稳定识别群聊入站消息的具体外部成员”等能力缺口说明，避免把后台能力状态占用工作区空间。
+`/chat/v2-customer` 本轮已直接完成页面可优化项：右侧会话统计改为与员工会话一致的四列分隔统计条，消息类型筛选改为参考员工会话的轻量选择框，查询/刷新按钮统一为短文案并压缩到同一筛选区；无客户、选中客户、刷新和筛选后的详情链路继续由真实 API 驱动。另修复群聊重点关注后的刷新查询，外层只使用规范 `to_user_id` 投影，不再触发 MariaDB `Unknown column 'room_id'`。客户页不再展示“当前归档数据无法稳定识别群聊入站消息的具体外部成员”等能力缺口说明，避免把后台能力状态占用工作区空间。
 
 当前不能仅靠页面优化完成、必须后续单独建设的事项只有：真实会话存档仍未稳定提供群聊入站外部成员的权威身份字段，以及内部群聊能力尚未接入。后续专项需要补齐真实 archive source/成员资料、权限口径和回读证据；在此之前，前端继续使用现有真实消息与“群成员”安全回退，不伪造外部成员身份，也不在页面重复展示能力缺口文案。
 
@@ -25,11 +64,26 @@
 
 主线已完成 Phase 0–3 Final 的 Go 单体、React Dashboard 和 53 页基准交付；Phase 4 Dashboard 页面 RBAC、单企业身份隔离、Sidebar/Operation 移动端基础、Provider/企业微信标准能力基础与客户/客户群 durable 精准群发也已进入当前本地 `main`。
 
-截至 2026-08-18，Dashboard 概览继续完成会话统计、AI 洞察、趋势范围、企业时区和展示一致性优化；SaaS/Dashboard 身份域、单企业切换、页面 RBAC、移动端基础、Provider 真实性和企业微信 durable 精准群发均已进入 `main`。当前产品缺口已从“页面是否存在”转为“真实外部 Provider、生产运行和持续证据是否闭合”。
+截至 2026-08-21，本地 `main` 已新增 Dashboard 概览、员工会话、客户会话、群会话与会话轨迹等高价值工作台优化；当前功能分支继续完成会话导出及文件录音、离职员工、拒绝存档、客户继承四页的真实接口范围优化。上述进展显著提升了 Dashboard 会话模块，但当前功能分支尚未固化，移动端自 2026-08-14 后无新提交，53 个 Dashboard 路由与 22 个移动端路由的“存在/有门禁”仍不能代表整体功能对等。
 
-Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔离 Demo：官方 Linux SDK v3 已纳入 checksum 构建，本地 Linux/amd64 镜像已上传 ECS，公网加密 GET/POST 合成回调通过。真实会话存档仍是 `limited`：企业自己的 CorpID/会话存档 Secret、公钥后台配置、真实 `GetChatData/GetMediaData`、真实 callback 和 Dashboard external 数据回读证据尚未闭合。
+Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔离 Demo：官方 Linux SDK v3 已纳入 checksum 构建，本地 Linux/amd64 镜像已上传 ECS，公网加密 GET/POST 合成回调通过。真实会话存档仍是 `limited`：企业自己的 CorpID/会话存档 Secret、公钥后台配置、真实 `GetChatData/GetMediaData`、真实 callback 和 Dashboard external 数据回读证据尚未闭合。按 2026-08-18 用户决策，Phase 7 保留现有 Demo 与证据、暂停继续投入，不计为完成或放弃；恢复条件是外部配置具备。
 
-## 近期开发文档整理（2026-08-08—2026-08-18）
+## 监督口径与距离最终目标
+
+- 每次由用户触发后，固定检查：`main`、全部本地/远端分支、全部 worktree 未提交状态、最近提交、关键门禁、外部阻塞和当前阶段证据。
+- 每次输出并回写：最新事实、今日唯一主攻方向、可并行任务、所需资源、阻塞与总体距离；不在本会话写业务代码或扩写阶段设计。
+- 最终停止条件：不仅页面相似，而是核心功能与圆弧 AI 会话基本对等，并具备真实 Provider、租户隔离、权限、安全、部署、备份恢复、监控和首个客户交付证据，可作为产品对外售卖。
+- 2026-08-21 复核估算：**整体约 60%（合理区间 58%–62%），距可售卖终点约 40%**。本地 `main` 的会话工作台进展贡献约 2 个百分点；当前未提交分支只按部分成果计权，不把专项验收等同于主线交付。移动端 17 个业务路由待迁移、真实企微会话存档和首客生产交付仍是主要差距。该比例是监督指标，不是工期承诺。
+
+| 维度 | 当前判断 | 距离终点的主要差距 |
+| --- | --- | --- |
+| 圆弧 Dashboard 页面与功能面 | 路由覆盖 53 页；概览及会话类核心页已进入产品化中后段 | 本地 `main` 已改造概览、员工/客户/群会话与轨迹；当前分支增加导出和四个运营页，但全量分页合同、RBAC 种子、benchmark 契约仍未绿，好友、群活码等非会话代表页也仍待逐页深挖 |
+| Sidebar / Operation 移动端 | 基础门禁已覆盖 12 + 10 路由，产品化仍在早中期 | Sidebar 仅工作台、客户概要 2 个业务纵切面，Operation 仅工作裂变 1 个业务纵切面；其余 8 + 9 个业务路由仍为通用待迁移页 |
+| 核心真实业务 | 中后期 | 通讯录、客户、群发、SCRM 已有真实/持久化基础；会话存档、媒体与部分外部发布仍未生产闭环 |
+| SaaS 可交付能力 | 中期偏后 | 租户、套餐、RBAC、身份隔离已有基础；仍缺首客环境的完整开户、运行、支持与退出/恢复证据 |
+| 生产可信度 | 中期 | ECS Demo 已有；正式 bridge、真实 Provider gate、监控告警、备份回滚和安全收口未全部闭合 |
+
+## 近期开发文档整理（2026-08-08—2026-08-21）
 
 | 日期 | 里程碑 | 已完成事实 | 当前边界与证据入口 |
 | --- | --- | --- | --- |
@@ -41,8 +95,10 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 | 08-15 | 客户/客户群精准群发 | contact 与 room batch durable 闭环合入 `main`：事务写入、稳定幂等、lease/attempt/generation fencing、submit/poll/reconcile、部分失败与数据范围门禁完成 | 生产外部群发未在收口测试中调用；见 [Contact 收口](reviews/2026-08-15-contact-batch-closeout.zh-CN.md) 与 [Phase 6 交接](reviews/2026-08-15-phase6-provider-foundation-model-handoff.zh-CN.md) |
 | 08-15—08-16 | Dashboard 概览与 AI 展示收口 | 修复归档报表 schema/群指标/群发标题；AI 改为每日持久化分析；概览补齐会话统计、AI 洞察、趋势联动、企业时区、完整日期序列与展示一致性 | 真实会话内容仍取决于 external archive source；AI 在 Phase 7 live 验收期间保持关闭 |
 | 08-17—08-18 | Phase 7 双链路 Demo | 官方 Finance SDK v3、`GetChatData/DecryptData`、RSA 解密、seq/JSONL 证据、加密 callback GET/POST、本地构建/ECS 部署和公网隔离验收完成 | 合成双链路 PASS，真实企业主动拉取/真实事件为 `WAITING_EXTERNAL_CONFIG`；见 [Phase 7 验收](phases/phase-7-wecom-archive/acceptance/2026-08-18-wecom-archive-demo.md) |
+| 08-19—08-20 | Dashboard 概览与会话工作台产品化 | 本地 `main` 新增概览、员工会话、客户会话、群会话和会话轨迹的真实查询、筛选、详情、URL 恢复与响应式工作台 | 本地 `main` 领先远端 53 个提交，尚未形成远端可追溯基线；内部群和真实 archive 成员身份仍受数据源限制 |
+| 08-20—08-21 | 会话导出与运营四页 | 当前功能分支已完成会话导出，以及文件录音、离职员工、拒绝存档、客户继承的目标测试和浏览器验收 | 当前工作树仍有 117 项未提交改动；Dashboard 全量 728/729，RBAC 与 benchmark 门禁为 RED，尚不能计入主线交付 |
 
-## Phase 7：真实企业微信会话存档（2026-08-17 启动）
+## Phase 7：真实企业微信会话存档（2026-08-17 启动，2026-08-18 暂停）
 
 - SDK 方案：企业微信官方 Linux x86_64 C SDK + 项目内薄 `cgo` adapter，不采用第三方 Go wrapper 作为生产信任根。
 - 运行架构：新增 Debian/glibc `archive-bridge` sidecar，只通过同机 Unix socket 服务主应用，不暴露 TCP。
@@ -54,6 +110,7 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 - Demo：运行镜像代码提交 `083198b87da1`，镜像 `mochat/wecom-archive-demo:083198b87da1`；独立目录/容器/端口，公网 `19090`，本机管理 `19091`；现有服务未变。
 - Demo 证据：官方 SDK `.so` 装载/符号解析、容器 smoke、公网合成加密 GET/POST、证据落盘与清理均 PASS；真实企微配置标记 `WAITING_EXTERNAL_CONFIG`。
 - Demo 入口：[使用说明](runbooks/2026-08-18-wecom-archive-demo.zh-CN.md)、[验收记录](phases/phase-7-wecom-archive/acceptance/2026-08-18-wecom-archive-demo.md)。
+- 暂停边界：不继续开发 production bridge、媒体账本或 live 接入；现有 Demo、镜像和验收证据保留。外部 CorpID/会话存档 Secret、公钥、测试范围和白名单齐备后再恢复。
 
 ## Phase 3 Final（2026-08-07）
 
@@ -95,12 +152,12 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 | Phase 3.3：会话与风险预警菜单 | 已合入 `main` | 菜单与路由按基准呈现；业务证据为准 | 菜单合入；`/chat/file-audio` 保持未完成（无真实音频存储/读取 Provider） | [阶段详情](phases/phase-3-dashboard/README.md) |
 | Phase 3.4：营销工具 | 已完成并合入 `main` | 9 页 native + 截图与验收记录 | 渠道活码、群活码、获客链接、微信客服、活码短链、一键加群、精准群发、朋友圈、素材管理 | [阶段详情](phases/phase-3-dashboard/phase-3.4/README.md) |
 | Phase 3.5：SCRM 扩展与数据报表 | 已完成并合入 `main` | 九页 native + 门禁 9/9 + 浏览器验收 | 好友、客户群、订单、客户设置、客户/会话/转化/行为/综合报表 | [阶段详情](phases/phase-3-dashboard/phase-3.5/README.md) |
-| Phase 3 Final：Provider 接入与总验收 | **已完成并合入 `main`** | 53/53 达标；门禁/部署/浏览器/识图/数据流证据闭合 | 音频存储 Provider + `/chat/file-audio`、AI 洞察真实化、企微存档适配层 | [阶段详情](phases/phase-3-dashboard/phase-3-final/README.md) |
+| Phase 3 Final：Provider 接入与总验收 | **历史验收完成并合入 `main`；当前基准门禁待复验** | 历史 53/53 达标；2026-08-18 新鲜检查发现 manifest 的 `3-final` 与校验器允许值不一致 | 音频存储 Provider + `/chat/file-audio`、AI 洞察真实化、企微存档适配层 | [阶段详情](phases/phase-3-dashboard/phase-3-final/README.md) |
 | Phase 4：Dashboard 页面 RBAC | 已完成并进入 `main` | 当前门禁 53 页、48 页可授予、5 页超管专属、未映射 API 为 0、`scopeRequired=97` | 多角色、直接权限、数据范围、失败关闭与授权审计 | [验收记录](reviews/2026-08-10-phase4-dashboard-page-rbac-acceptance.zh-CN.md) |
 | 身份域与单企业切换 | 已进入 `main` | SaaS/Dashboard realm 隔离、single principal、单企业绑定、迁移预检/回填与 live smoke 合同 | 身份失败关闭、独立 MFA、app-only 切换与回滚边界 | [运行手册](runbooks/2026-08-11-identity-single-corp-cutover.zh-CN.md) |
-| Sidebar / Operation 移动端基础 | 基础与视觉已进入 `main` | 共享 runtime、独立会话、22 路由 completion gate、企微风格双端视觉 | 已实现纵切面可用；其余页面仍按迁移状态展示 | [基础计划](superpowers/plans/2026-08-14-mobile-clients-foundation.md) |
+| Sidebar / Operation 移动端基础 | 基础门禁已进入 `main`，业务产品化待逐页推进 | 共享 runtime、独立会话、12 + 10 路由门禁与企微风格视觉；新鲜检查 57/57 测试通过 | 仅 Sidebar 2 个、Operation 1 个业务纵切面不是通用待迁移页；其余 17 个业务路由待完成真实功能 | [基础计划](superpowers/plans/2026-08-14-mobile-clients-foundation.md) |
 | Phase 6：Provider 与企微标准能力收口 | 已进入 `main` | Provider completion、0138/0139、durable 客户/群群发和定向门禁 | truthful Provider、archive source 边界、能力账本、员工队列与精准群发 | [交接记录](reviews/2026-08-15-phase6-provider-foundation-model-handoff.zh-CN.md) |
-| Phase 7：真实企微会话存档 | **隔离 Demo 已部署，生产接入进行中** | Demo 合成双链路已过；最终仍以真实 SDK pull、callback、ECS、Dashboard 回读和恢复证据为准 | 官方 SDK Demo、主动拉取入口、被动回调、本地构建/ECS 部署；production sidecar/媒体待完成 | [阶段指导](phases/phase-7-wecom-archive/README.md) |
+| Phase 7：真实企微会话存档 | **已暂停（外部配置阻塞）** | Demo 合成双链路已过并保留；暂停期间不推进 production 接入，恢复后仍以真实 SDK pull、callback、ECS、Dashboard 回读和恢复证据为准 | 官方 SDK Demo、主动拉取入口、被动回调、本地构建/ECS 部署；production sidecar/媒体待完成 | [阶段指导](phases/phase-7-wecom-archive/README.md) |
 
 ## 当前可测试范围
 
@@ -111,35 +168,61 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 | Phase 3.4 九页 | 可测试 | `/acquisition/*` 全部 native，截图版本 2026-08-04 |
 | Phase 3.5 九页 | 可测试 | `/customer/friends|group|order|settings`、`/data/*` |
 | `/chat/file-audio` | 可测试 | 上传/播放/删除闭环，真实本地存储 Provider |
+| `/chat/v2-staff` | 可测试 | 员工目录、会话筛选、详情统计与消息检索均读取本系统会话存档；URL 可恢复选择与筛选状态 |
+| `/chat/v2-customer`、群会话、`/chat/trajectory` | 本地 `main` 可测试 | 已完成真实归档查询、目录/详情工作区与响应式优化；内部群及部分权威成员身份仍取决于真实 archive source |
+| `/chat/export`、会话运营四页 | 当前分支专项可测试，未合入 | 目标测试、Docker 和浏览器证据已有；全量分页、RBAC、benchmark 三个整体验收缺口闭合前不按主线可交付计 |
 | AI 洞察五页 | 受限态（测试期） | AI API 默认关闭（`MOCHAT_GO_AI_INSIGHT_ENABLED=0`）；开启开关并配置 key 后走归档文本→分析→落库→回读 |
 | `/saas-admin/` | 可测试 | Docker 独立产物与资源前缀已验证 |
-| Sidebar / Operation | 基础可测试 | 当前主线已有会话隔离、移动端 shell 和企微风格视觉基础；完整业务仍需持续 E2E |
-| 53 页基准 | 53/53 达标 | 唯一遗留阻塞 `/chat/file-audio` 已于 Phase 3 Final 解锁 |
+| Sidebar / Operation | 基础门禁可测试，完整业务不可按 22/22 计 | `check:mobile-clients-foundation` 新鲜 PASS、57/57 测试通过；Sidebar 2 个、Operation 1 个业务纵切面可继续验收，另有 17 个业务路由仍为通用待迁移页 |
+| 53 页基准 | 历史路由加载 53/53；当前功能对等与门禁待复验 | manifest 仍登记 53 页且均为 `documented`；当前门禁因 `/chat/file-audio` 的 `phase=3-final` 不在校验器允许集合中而失败，历史加载证据不能替代逐页真实功能验收 |
 | 真实企微会话存档 | `limited`（Demo 可配置） | SDK/公网回调 Demo 已部署；等待真实 CorpID/Secret、公钥、存档范围和企微事件后完成 live pull/callback |
 
 ## 当前阻塞与风险
 
-1. **主工作树仍有受保护的未提交内容。** `deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql` 的既有修改及 `.workbuddy/`、调试脚本、旧 `web/saas-admin/` 构建产物等未跟踪内容均未纳入本次同步；后续生产发布必须在干净工作树/独立 worktree 上固化门禁和发布 SHA。
+1. **当前功能分支规模大且尚未固化。** `feat/conversation-operations-pages` 领先本地 `main` 2 个提交，但工作树仍有 117 项改动，tracked diff 已达 57 文件、约 `+4273/-1347`，另含迁移、后端、前端和验收文档等未跟踪文件。禁止 reset/clean；继续开新页面会进一步放大集成风险。
 2. **真实会话存档仍未接通到 MoChat。** 隔离 Demo 已具备官方 SDK 和公网 callback，但当前 `Archive.Fetch` 仍 fail closed；真实 CorpID/Secret、公钥后台版本、`GetChatData/GetMediaData` 和 live message evidence 均未闭合。
 3. **现有旧 bridge 合同存在敏感数据边界问题。** 旧客户端会把 Chat Secret 与 RSA 私钥放入 HTTP JSON；Phase 7 必须改为同机 Unix socket，且真实同步必须复用 `0138` durable 账本。
 4. **RSA 密钥轮换尚不完整。** 当前凭据模型主要保存单个私钥，真实消息返回的 `publickey_ver` 需要版本化 keyring；缺少版本时必须停止并且不推进 cursor。
 5. **服务器口令已在会话中出现。** 应立即轮换并改用 SSH key；口令不得写入仓库、脚本、命令历史或验收材料。
 6. **AI 与真实会话的处理边界。** Phase 7 live 验收期间保持 AI 自动分析关闭；将真实会话用于 AI 前需要单独确认处理目的、权限、告知/同意和保存期限。
 7. **未跟踪产物仍需保护。** `.workbuddy/`、调试脚本、旧 `web/saas-admin/` 构建产物及其他未跟踪内容属于现有工作区，Phase 7 不得通过 `clean/reset` 清除。
+8. **当前圆弧基准门禁仍为 RED。** 2026-08-21 新鲜执行 `corepack pnpm check:yuanhu-benchmark` 仍失败：第 8 页 `/chat/file-audio` 使用 `phase=3-final`，校验器仅允许 `3.1`–`3.6`；该 P0 已连续三天未闭合。
+9. **历史 Phase 4 验收 worktree 仍有未提交差异。** `.worktrees/phase4-dashboard-rbac-acceptance` 处于 detached `3915a2d`，5 个文件有 39 行新增、9 行删除；多数能力已在后续主线以其他实现存在，但仍需只读归档判断，禁止直接清理或误当成未合入的新分支提交。
+10. **Phase 7 暂停不消除可售卖阻塞。** 暂停仅改变当前投入顺序，真实企微会话存档、生产 Provider 和首客运行证据仍计入最终差距。
+11. **页面数量会高估产品完成度。** Dashboard 53 页和移动端 22 路由目前主要证明覆盖面；逐页检查必须继续验证真实 API、业务操作、状态处理、权限、响应式布局和可恢复失败，不能以壳页面或通用“待迁移”页计为完成。
+12. **Dashboard 全量测试仍为 RED。** 2026-08-21 新鲜执行 124 个测试文件：123 个文件通过，728/729 测试通过；唯一失败是会话导出的候选列表和任务抽屉共 4 个字面“上一页/下一页”按钮未复用统一 `DashboardPagination`。
+13. **Phase 4 RBAC 门禁被新资源打破。** 新鲜执行 `check:phase4-dashboard-page-rbac` 失败，`dashboard_page_catalog.json` 与迁移中的 permission resource seed 不精确一致；必须先对齐资源、迁移和授权合同。
+14. **主线尚未同步远端。** 已在线核实 `origin/main` 仍停留在 `e6d238e`；本地 `main=718330d` 领先 53 个提交，当前分支又领先本地 `main` 2 个提交。未形成干净、门禁全绿、可追溯的远端基线前，不进行生产发布。
 
-## 精确下一任务
+## 今日/下一工作日任务（每次检查刷新）
 
-1. 按 [Demo 使用说明](runbooks/2026-08-18-wecom-archive-demo.zh-CN.md) 在企微后台填写回调 URL/Token/AES Key，并配置 RSA 公钥、测试成员范围和允许 IP。
-2. 在 ECS 运行 `/opt/wecom-archive-demo/configure_wecom_archive_demo.sh`，隐藏输入 CorpID/会话存档 Secret，执行第一次真实 `GetChatData/DecryptData`。
-3. 产生最小真实文本与事件，核对 `callback_count`、`pull_count`、`pulled_message_count`、seq、公钥版本和 JSONL 证据。
-4. 固化当前本地 `main` 的发布基线后，按正式实施计划完成 Unix socket bridge、RSA keyring、`0140` 媒体账本和 `GetMediaData`。
-5. 把真实 bridge source 接入 `0138` durable sync，停用旧生产 cron composition；完成 Dashboard external 数据回读、权限、重启与回滚验收。
-6. 立即轮换已在会话中出现的服务器口令并配置 SSH key。
+**今日唯一主攻方向：停止新增 Dashboard 页面，先把当前会话功能分支收口为可合入基线；门禁全绿后立即恢复移动端第一批产品化。**
+
+1. P0 整体门禁修复（当前分支原位处理，不新建并行 Dashboard 分支）：
+   - 会话导出候选表和任务抽屉统一改用 `DashboardPagination`，目标为 Dashboard 全量 729/729。
+   - 对齐 `dashboard_page_catalog.json` 与 0141/0144 等迁移中的 permission resource seed，恢复 Phase 4 RBAC 门禁。
+   - 统一 `/chat/file-audio` 的 manifest `phase` 与 benchmark 校验器契约，恢复 53 页基准门禁。
+2. P0 完整复验：Dashboard 全量测试、typecheck、production build，相关 Go 五包、Phase 4 RBAC、圆弧 benchmark、53 页证据合同、`git diff --check` 全部通过；Provider 门禁中的 MariaDB integration 若无 DSN，只能记录 SKIP。
+3. P0 真实闭环：在隔离种子企业创建一个最小会话导出任务，等待 worker 完成并下载 ZIP，核对 CSV 行数、中文/换行、公式前缀防护、企业/员工权限与工件路径；补齐当前“只测 worker、未在浏览器创建任务”的证据缺口。
+4. P0 固化与同步：把 117 项改动按迁移/后端、前端、验收证据拆成可审阅提交，确认没有误纳入 `.workbuddy/`、调试脚本和旧构建产物；合入本地 `main` 后再复跑最终门禁并同步 `origin/main`。
+5. P1 移动端恢复：只有上述 P0 闭合后，才启动 Sidebar `/contact/editDetail`、`/contact/remark`、`/contact/settingTag`，随后启动 Operation `/speed`；必须复用真实客户/裂变 API，完成 390×844 与 1280px 浏览器证据。移动端四页完成前，不再扩散到其他 Dashboard 页面。
+6. 后续 Dashboard 队列：移动端第一批完成后，再回到 `/customer/contact` 与 `/acquisition/group-code` 的功能深度和布局对标；Phase 7 继续冻结。
+
+所需资源：保留当前脏分支上下文的单一 Dashboard 收口会话、一个在主线更新后再创建的干净移动端 worktree/会话、可登录圆弧环境、本地 Docker 稳定种子企业、可运行真实导出 worker 的 app-storage，以及可选的隔离 MariaDB integration DSN。今日无需新增外部服务，Phase 7 的企微凭据不占用本轮资源。
+
+2026-08-21 新鲜门禁：Dashboard typecheck PASS、production build PASS、相关 Go 五包 PASS、`check:dashboard-all-pages-evidence` 12/12 PASS、`check:mobile-clients-foundation` 57/57 PASS、`check:provider-completion` PASS（真实 MariaDB integration 明确 SKIP）、`git diff --check` PASS；Dashboard 全量测试 728/729 FAIL、`check:phase4-dashboard-page-rbac` FAIL、`check:yuanhu-benchmark` FAIL。
 
 ## 最近交付
 
 - 2026-08-20：客户会话 `/chat/v2-customer` 完成紧凑化收口；统计卡改为四列低高度布局，筛选区压缩，消息类型选择框对齐员工会话的轻量选项样式，移除客户页能力缺口提示卡；真实客户选择、群聊详情和 URL 筛选状态完成 Docker/浏览器复测。群聊外部成员权威身份字段与内部群聊能力仍按本文件“客户会话工作台紧凑化记录”登记为后续专项，页面不再重复展示限制文案。
 - 2026-08-20：客户会话消息内容继续对齐员工会话；统一消息区背景、独立滚动、消息头间距、`12px / 1.6` 正文、气泡内边距/圆角、发送方向和媒体展示上限。完整工作区 typecheck/Docker 镜像重建受并行增量类型错误阻塞，客户目标测试与 Vite 编译已通过，浏览器 computed style 对比一致。
+- 2026-08-20：会话导出 `/chat/export` 完成圆弧式两步工作台实施；保留菜单与顶部 banner，移除顶部介绍框和独立刷新，新增员工/客户/群聊真实候选选择、显式查询、固定 20 条分页、日期与会话范围确认、异步导出任务抽屉、遮罩/Escape 关闭和安全下载。后端新增迁移 `0144_work_message_export_tasks`、权限资源、任务租约 worker 与 UTF-8 BOM CSV/ZIP 工件；数据仅来自现有会话归档，当前不接入内部会话、媒体二进制，缺口在界面显式提示。设计文档与实施计划见 `docs/superpowers/specs/2026-08-20-conversation-export-yuanhu-workflow-design.md`、`docs/superpowers/plans/2026-08-20-conversation-export-yuanhu-workflow.md`。
+- 2026-08-19：修复员工会话部门切换加载态的布局抖动；使用 `keepPreviousData` 保留上一份真实目录数据，部门控制区固定 190px 高度，查询/刷新按钮固定 56px，避免按钮短暂归零、操作栏位移和员工列表扩张重排。
+- 2026-08-19：修复员工会话详情搜索输入框逐字输入时自动失焦；详情查询切换期间保留上一份真实详情数据，确保筛选区和输入焦点持续稳定。
+- 2026-08-19：优化员工会话详情关键词检索；输入阶段仅保留前端草稿，新增“查询会话内容”按钮，点击或回车后才提交 `messageKeyword` 并请求后端，避免逐字触发查询。
+- 2026-08-19：修复员工会话总公司筛选不含子部门成员、部门筛选后其他部门统计归零、群聊会话详情加载失败三项问题；部门筛选改为基于真实组织树后端内存匹配，目录统计保持全量可切换，群聊 `<员工ID>:2:0` 会话允许真实归档详情读取并以“客户群/群成员”展示。相关 Go/前端回归、Docker 重建和浏览器真实数据验收通过。
+- 2026-08-19：修复员工会话部门筛选和重复会话选中问题；部门筛选后保留完整组织树，空部门仍保留页面组件，员工会话摘要改用确定性窗口分组并以唯一摘要 ID选中，URL 增加 `conversationRowId`，完成真实 Docker/浏览器回归。
+- 2026-08-19：员工会话 `/chat/v2-staff` 按圆弧 AI 工作区结构完成产品化改造；新增真实员工目录与会话详情接口、严格分页和 URL 状态、消息类型/关键词/日期筛选、归档授权失败关闭、迁移 `0141_conversation_workspace_rbac`，并完成 Docker 与浏览器验收。当前数据能力不支持“内部群”和单会话完整下载，界面按能力状态禁用，不构造替代数据。设计与实施计划见 `docs/superpowers/specs/2026-08-19-employee-conversation-yuanhu-workspace-design.md`、`docs/superpowers/plans/2026-08-19-employee-conversation-yuanhu-workspace.md`。
 - 2026-08-18：隔离企业微信会话存档 Demo 完成本地构建、ECS 部署、官方 SDK 装载和公网合成 GET/POST 验收；最终镜像 `083198b87da1` 已补齐回调/拉取并发一致性、重复页幂等和管理端隔离检查，真实企业配置待用户在企微后台完成。
 - 2026-08-18：Phase 7 Demo 分支已快进合入 `main`；近期开发文档按 08-08—08-18 时间线重新整理，远端采用非强制推送同步。
 - 2026-08-17：Phase 7 真实企业微信会话存档指导、设计和实施计划完成；总进度同步，尚未开始代码实现与 ECS 部署。
@@ -169,3 +252,23 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 - 只有任务清单和验收定义已基线化时才给出完成比例。
 - 证据生成文件不得直接覆盖人工维护的总进度。
 - 用户审阅/确认文档使用中文；代码标识符、命令、路径与接口字段保留原文。
+
+## 离职员工部门选择器优化记录（2026-08-21）
+
+- 目标：移除部门名称后的员工数，统一员工会话与离职员工的部门选择控件，并补齐本地可验收的离职员工数据。
+- 方案：共享紧凑部门触发器与展开式部门树，使用真实 `/workMessage/staffDirectory` 数据；员工条目继续展示真实会话数。
+- 开发数据：新增 3 名 `status=5` 离职员工、销售/客服部门关系和归档消息夹具，脚本使用 `MOCHAT-DEV-RESIGNED` 前缀幂等执行。
+- 后续专项：真实企业微信离职状态同步和历史会话完整性仍需生产同步链路验证，仅记录在本台账，不在页面显示能力提示。
+
+## 客户继承实测修复记录（2026-08-21）
+
+- 浏览器复现并修复客户名称筛选空列表问题：后端现在同时匹配员工侧备注、客户名称和外部联系人 ID。
+- 开始日期、结束日期改为独立生效，结束日期包含当天；继承记录查询沿用同一日期边界口径。
+- 群聊转接响应按 chat ID 归一化为逐项成功/失败结果；离职客户和离职群聊均可从同一个“同步离职数据”入口刷新真实待分配快照。
+- 未在真实企业微信上点击最终转接确认；浏览器仅验证选择、筛选、确认弹窗、取消和记录抽屉，写链路由前端 mock 与 Go fake Provider 测试覆盖。
+
+## 客户继承确认分配错误修复记录（2026-08-21）
+
+- 复现发现开发样例企业的 `wwSIM...` 凭据被送往真实企业微信，接口返回 `40013 invalid corpid`，前端显示“分配失败，请检查网络后重试”。
+- 已将开发模拟凭据限定在客户/群聊转接本地成功路径，避免外部请求；真实企业凭据仍使用企业微信 HTTP 接口。
+- 已补 Provider 回归测试并完成 app 重建；浏览器将继续验证确认分配成功反馈、列表更新和继承记录落库。

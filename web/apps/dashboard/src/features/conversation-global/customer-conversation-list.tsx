@@ -109,8 +109,7 @@ export function CustomerConversationList(props: Props) {
         </span>
       </div>
       <button aria-label="刷新会话" className="customer-conversation-action-button" disabled={props.fetching || customer === undefined} onClick={props.onRefresh} type="button">
-        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M19 8.5V4l-1.65 1.65A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.93-4.4L14 9.5h5Z" /></svg>
-        <span>{props.fetching ? '刷新中' : '刷新会话'}</span>
+        <span>{props.fetching ? '刷新中' : '刷新'}</span>
       </button>
     </header>
 

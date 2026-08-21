@@ -2871,7 +2871,7 @@ func workMessageUserBaseWhere(filter dashboard.WorkMessageUserFilter, prefix str
 	}
 	if filter.ToUserID > 0 {
 		targetColumn := column("to_user_id")
-		if filter.ToUserType == 2 {
+		if filter.ToUserType == 2 && strings.TrimSpace(prefix) != "" {
 			// The raw archive row can store an external room id in room_id.
 			// Use the same canonical expression as the union projection.
 			targetColumn = workMessageEffectiveTargetIDSQL(prefix)

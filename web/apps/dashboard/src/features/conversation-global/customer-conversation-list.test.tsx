@@ -49,7 +49,7 @@ describe('CustomerConversationList', () => {
     expect(screen.queryByText('无法稳定识别群聊入站消息')).toBeNull();
     expect(screen.queryByText('当前归档数据无法稳定识别群聊入站消息的具体外部成员')).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.getByRole('button', { name: '刷新会话' }).textContent).toContain('刷新会话');
+    expect(screen.getByRole('button', { name: '刷新会话' }).textContent).toBe('刷新');
   });
 
   it('renders direct conversation labels, optional signals and fixed-size pagination', () => {

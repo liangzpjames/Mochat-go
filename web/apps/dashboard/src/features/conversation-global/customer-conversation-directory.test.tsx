@@ -73,8 +73,8 @@ describe('CustomerConversationDirectory', () => {
     expect(onKeywordDraftChange).toHaveBeenCalledWith('陈');
     fireEvent.submit(screen.getByRole('search', { name: '客户搜索' }));
     expect(onSearch).toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: '搜索客户' }).textContent).toContain('搜索');
-    expect(screen.getByRole('button', { name: '刷新客户' }).textContent).toContain('刷新客户');
+    expect(screen.getByRole('button', { name: '搜索客户' }).textContent).toBe('查询');
+    expect(screen.getByRole('button', { name: '刷新客户' }).textContent).toBe('刷新');
     fireEvent.click(screen.getByRole('button', { name: /陈晓明/ }));
     expect(onSelectCustomer).toHaveBeenCalledWith(31);
     expect(screen.getByRole('alert').textContent).toContain('客户资料未同步');

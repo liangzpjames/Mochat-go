@@ -52,20 +52,20 @@ describe('CustomerConversationDetailPane', () => {
 
     expect(screen.getByText('客户发送')).toBeTruthy();
     expect(screen.getByText('5')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '刷新详情' }).textContent).toContain('刷新详情');
+    expect(screen.getByRole('button', { name: '刷新详情' }).textContent).toBe('刷新');
     fireEvent.click(screen.getByLabelText('图片'));
     expect(baseProps.onToggleMessageType).toHaveBeenCalledWith('image');
     fireEvent.change(screen.getByRole('textbox', { name: '搜索会话内容' }), { target: { value: '报价' } });
     expect(baseProps.onKeywordChange).toHaveBeenCalledWith('报价');
     fireEvent.change(screen.getByLabelText('检索日期'), { target: { value: '2026-08-19' } });
     expect(baseProps.onDateChange).toHaveBeenCalledWith('2026-08-19');
-    expect(screen.getByRole('button', { name: '搜索会话内容' }).textContent).toContain('搜索');
+    expect(screen.getByRole('button', { name: '搜索会话内容' }).textContent).toBe('查询');
     fireEvent.submit(screen.getByRole('button', { name: '搜索会话内容' }).closest('form')!);
     expect(baseProps.onKeywordSearch).toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '加载更早消息' }).textContent).toContain('加载更早');
     fireEvent.click(screen.getByRole('button', { name: '加载更早消息' }));
     expect(baseProps.onLoadOlder).toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: '关注客户' }).textContent).toContain('关注客户');
+    expect(screen.getByRole('button', { name: '关注客户' }).textContent).toBe('重点关注');
     fireEvent.click(screen.getByRole('button', { name: '关注客户' }));
     expect(baseProps.onToggleFocus).toHaveBeenCalled();
     expect(screen.getByText('您好')).toBeTruthy();

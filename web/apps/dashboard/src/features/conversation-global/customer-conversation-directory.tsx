@@ -47,12 +47,10 @@ export function CustomerConversationDirectory(props: Props) {
     <form aria-label="客户搜索" className="customer-conversation-directory-search" onSubmit={props.onSearch} role="search">
       <input aria-label="搜索客户" onChange={(event) => props.onKeywordDraftChange(event.target.value)} placeholder="搜索客户" value={props.keywordDraft} />
       <button aria-label="搜索客户" className="customer-conversation-action-button customer-conversation-action-button--primary" disabled={props.fetching} type="submit">
-        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="m10.8 4a6.8 6.8 0 1 0 4.26 12.1l4.42 4.42 1.42-1.42-4.42-4.42A6.8 6.8 0 0 0 10.8 4Zm0 2a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6Z" /></svg>
-        <span>{props.fetching ? '搜索中…' : '搜索'}</span>
+        <span>{props.fetching ? '查询中…' : '查询'}</span>
       </button>
       <button aria-label="刷新客户" className="customer-conversation-action-button" disabled={props.fetching} onClick={props.onRefresh} type="button">
-        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M19 8.5V4l-1.65 1.65A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.93-4.4L14 9.5h5Z" /></svg>
-        <span>{props.fetching && !props.pending ? '刷新中' : '刷新客户'}</span>
+        <span>{props.fetching && !props.pending ? '刷新中' : '刷新'}</span>
       </button>
     </form>
     {props.data?.limitations.map((item) => <p className="customer-conversation-limitation" key={item.key} role="status">{item.reason}</p>)}
