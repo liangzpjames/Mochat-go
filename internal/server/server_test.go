@@ -5294,6 +5294,12 @@ func TestChannelCodeGroupHandlersAreRouted(t *testing.T) {
 		_, _ = w.Write([]byte("go channel code statistics"))
 	})), WithChannelCodeStatisticsIndexHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("go channel code statistics index"))
+	})), WithChannelCodeWorkspaceStatisticsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("go channel code workspace statistics"))
+	})), WithChannelCodeWorkspaceStatisticsIndexHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("go channel code workspace statistics index"))
+	})), WithChannelCodeExportHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("go channel code export"))
 	})), WithChannelCodeStoreHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("go channel code store"))
 	})), WithChannelCodeUpdateHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -5325,6 +5331,9 @@ func TestChannelCodeGroupHandlersAreRouted(t *testing.T) {
 		{method: http.MethodGet, path: "/dashboard/channelCode/contact", body: "go channel code contact"},
 		{method: http.MethodGet, path: "/dashboard/channelCode/statistics", body: "go channel code statistics"},
 		{method: http.MethodGet, path: "/dashboard/channelCode/statisticsIndex", body: "go channel code statistics index"},
+		{method: http.MethodGet, path: "/dashboard/channelCode/workspaceStatistics", body: "go channel code workspace statistics"},
+		{method: http.MethodGet, path: "/dashboard/channelCode/workspaceStatisticsIndex", body: "go channel code workspace statistics index"},
+		{method: http.MethodGet, path: "/dashboard/channelCode/export", body: "go channel code export"},
 		{method: http.MethodPost, path: "/dashboard/channelCode/store", body: "go channel code store"},
 		{method: http.MethodPut, path: "/dashboard/channelCode/update", body: "go channel code update"},
 		{method: http.MethodPost, path: "/dashboard/channelCode/batchInvalidate", body: "go channel code batch invalidate"},

@@ -1401,6 +1401,14 @@ func main() {
 		}
 		options = append(options, compatserver.WithChannelCodeBatchInvalidateHandler(http.HandlerFunc(channelCode.BatchInvalidate)))
 		log.Printf("go migrated route enabled: POST /dashboard/channelCode/batchInvalidate")
+		options = append(options,
+			compatserver.WithChannelCodeWorkspaceStatisticsHandler(http.HandlerFunc(channelCode.WorkspaceStatistics)),
+			compatserver.WithChannelCodeWorkspaceStatisticsIndexHandler(http.HandlerFunc(channelCode.WorkspaceStatisticsIndex)),
+			compatserver.WithChannelCodeExportHandler(http.HandlerFunc(channelCode.ExportWorkspaceStatistics)),
+		)
+		log.Printf("go migrated route enabled: GET /dashboard/channelCode/workspaceStatistics")
+		log.Printf("go migrated route enabled: GET /dashboard/channelCode/workspaceStatisticsIndex")
+		log.Printf("go migrated route enabled: GET /dashboard/channelCode/export")
 		if cfg.MigrateChannelCodeGroupIndex {
 			options = append(options, compatserver.WithChannelCodeGroupIndexHandler(http.HandlerFunc(channelCode.GroupIndex)))
 			log.Printf("go migrated route enabled: GET /dashboard/channelCodeGroup/index")
