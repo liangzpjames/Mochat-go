@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"strconv"
 	"strings"
+	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
 )
@@ -159,6 +160,111 @@ func (s *MySQLStore) ChannelCodeWorkspacePage(ctx context.Context, filter dashbo
 		}
 	}
 	page.Items = items
+	return page, nil
+}
+
+func (s *MySQLStore) ChannelCodeWorkspaceStatistics(ctx context.Context, filter dashboard.ChannelCodeStatisticsFilter) (dashboard.ChannelCodeStatisticsPage, error) {
+	filter.Page = positivePage(filter.Page)
+	filter.PerPage = positivePerPage(filter.PerPage, 20)
+	filter.CorpIDs = uniquePositiveInts(filter.CorpIDs)
+	page := dashboard.ChannelCodeStatisticsPage{
+		Rows:    []dashboard.ChannelCodeStatisticsRow{},
+		PerPage: filter.PerPage,
+	}
+	if len(filter.CorpIDs) == 0 {
+		page.Summary = dashboard.ChannelCodeStatisticsSummary{
+			Available:  true,
+			AsOf:       time.Now().Format(time.RFC3339),
+			Timezone:   "Asia/Shanghai",
+			Definition: "按渠道码归因的客户关联状态变化",
+		}
+		return page, nil
+	}
+	where, whereArgs := channelCodeWorkspaceWhere(dashboard.ChannelCodeWorkspaceFilter{
+		CorpIDs: filter.CorpIDs,
+		GroupID: filter.GroupID,
+		Name:    filter.Name,
+	})
+	whereSQL := strings.Join(where, " AND ")
+	startAt := strings.TrimSpace(filter.StartDate) + " 00:00:00"
+	endDate := strings.TrimSpace(filter.EndDate)
+	if endDate == "" {
+		endDate = time.Now().Format("2006-01-02")
+	}
+	endAt := endDate + " 00:00:00"
+
+	args := []any{startAt, endAt, startAt, endAt, startAt, endAt, endAt, endAt}
+	args = append(args, whereArgs...)
+	var summary dashboard.ChannelCodeStatisticsSummary
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(SUM(CASE WHEN rel.create_time >= ? AND rel.create_time < DATE_ADD(?, INTERVAL 1 DAY) THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN rel.deleted_at >= ? AND rel.deleted_at < DATE_ADD(?, INTERVAL 1 DAY) THEN 1 ELSE 0 END), 0),
+			COUNT(DISTINCT CASE WHEN rel.create_time >= ? AND rel.create_time < DATE_ADD(?, INTERVAL 1 DAY) THEN rel.contact_id END),
+			COUNT(DISTINCT CASE WHEN rel.create_time < DATE_ADD(?, INTERVAL 1 DAY) AND (rel.deleted_at IS NULL OR rel.deleted_at >= DATE_ADD(?, INTERVAL 1 DAY)) THEN rel.contact_id END),
+			COUNT(DISTINCT cc.id)
+		FROM mc_channel_code AS cc
+		LEFT JOIN mc_work_contact_employee AS rel ON rel.state = CONCAT('channelCode-', cc.id)
+		WHERE `+whereSQL, args...).Scan(
+		&summary.AddedAttempts,
+		&summary.LostAttempts,
+		&summary.AddedCustomers,
+		&summary.RetainedCustomers,
+		&summary.CodeCount,
+	); err != nil {
+		return dashboard.ChannelCodeStatisticsPage{}, err
+	}
+	summary.Available = true
+	summary.AsOf = time.Now().Format(time.RFC3339)
+	summary.Timezone = "Asia/Shanghai"
+	summary.Definition = "按渠道码归因的客户关联状态变化"
+	page.Summary = summary
+	page.Total = summary.CodeCount
+	page.TotalPage = pageCount(page.Total, filter.PerPage)
+	if page.Total == 0 {
+		return page, nil
+	}
+
+	rowArgs := []any{startAt, endAt, startAt, endAt, startAt, endAt, endAt, endAt}
+	rowArgs = append(rowArgs, whereArgs...)
+	rowArgs = append(rowArgs, filter.PerPage, (filter.Page-1)*filter.PerPage)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			cc.id,
+			cc.name,
+			COALESCE(SUM(CASE WHEN rel.create_time >= ? AND rel.create_time < DATE_ADD(?, INTERVAL 1 DAY) THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN rel.deleted_at >= ? AND rel.deleted_at < DATE_ADD(?, INTERVAL 1 DAY) THEN 1 ELSE 0 END), 0),
+			COUNT(DISTINCT CASE WHEN rel.create_time >= ? AND rel.create_time < DATE_ADD(?, INTERVAL 1 DAY) THEN rel.contact_id END),
+			COUNT(DISTINCT CASE WHEN rel.create_time < DATE_ADD(?, INTERVAL 1 DAY) AND (rel.deleted_at IS NULL OR rel.deleted_at >= DATE_ADD(?, INTERVAL 1 DAY)) THEN rel.contact_id END)
+		FROM mc_channel_code AS cc
+		LEFT JOIN mc_work_contact_employee AS rel ON rel.state = CONCAT('channelCode-', cc.id)
+		WHERE `+whereSQL+`
+		GROUP BY cc.id, cc.name, cc.updated_at
+		ORDER BY cc.updated_at DESC, cc.id DESC
+		LIMIT ? OFFSET ?
+	`, rowArgs...)
+	if err != nil {
+		return dashboard.ChannelCodeStatisticsPage{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item dashboard.ChannelCodeStatisticsRow
+		if err := rows.Scan(
+			&item.ID,
+			&item.Name,
+			&item.AddedAttempts,
+			&item.LostAttempts,
+			&item.AddedCustomers,
+			&item.RetainedCustomers,
+		); err != nil {
+			return dashboard.ChannelCodeStatisticsPage{}, err
+		}
+		item.Available = true
+		page.Rows = append(page.Rows, item)
+	}
+	if err := rows.Err(); err != nil {
+		return dashboard.ChannelCodeStatisticsPage{}, err
+	}
 	return page, nil
 }
 

@@ -178,6 +178,50 @@ type ChannelCodeContactWayDeleter interface {
 	DeleteContactWay(ctx context.Context, credential RoomWelcomeCorpCredential, configID string) error
 }
 
+type ChannelCodeStatisticsFilter struct {
+	CorpIDs   []int
+	GroupID   int
+	Name      string
+	StartDate string
+	EndDate   string
+	Page      int
+	PerPage   int
+}
+
+type ChannelCodeStatisticsSummary struct {
+	AddedAttempts     int
+	LostAttempts      int
+	AddedCustomers    int
+	RetainedCustomers int
+	CodeCount         int
+	Available         bool
+	AsOf              string
+	Timezone          string
+	Definition        string
+}
+
+type ChannelCodeStatisticsRow struct {
+	ID                int
+	Name              string
+	AddedAttempts     int
+	LostAttempts      int
+	AddedCustomers    int
+	RetainedCustomers int
+	Available         bool
+}
+
+type ChannelCodeStatisticsPage struct {
+	Summary   ChannelCodeStatisticsSummary
+	Rows      []ChannelCodeStatisticsRow
+	Total     int
+	TotalPage int
+	PerPage   int
+}
+
+type ChannelCodeStatisticsStore interface {
+	ChannelCodeWorkspaceStatistics(ctx context.Context, filter ChannelCodeStatisticsFilter) (ChannelCodeStatisticsPage, error)
+}
+
 type ChannelCodeWeComClient interface {
 	CreateContactWay(ctx context.Context, credential RoomWelcomeCorpCredential, userIDs []string, skipVerify bool, state string) (qrCodeURL string, configID string, err error)
 	UpdateContactWay(ctx context.Context, credential RoomWelcomeCorpCredential, configID string, userIDs []string, skipVerify bool, state string) error
