@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
 import { useDashboardAccess } from '../../../app/access-context';
-import { DashboardDialog } from '../../../components/dashboard-dialog';
 import { PageState, pageStateForError } from '../../../components/page-state/page-state';
 import type { BusinessWorkbenchApi } from '../../business-workbench/business-workbench-page';
 import { numberOf, paginationFrom, recordsFrom, stateClass, stateText, statisticsFrom, textOf } from './live-code-api';
@@ -17,7 +16,7 @@ function value(row: LiveCodeRecord, ...keys: string[]): unknown {
 
 function isVerified(row: LiveCodeRecord): boolean {
   if (numberOf(value(row, 'isVerified', 'verified')) === 1) return true;
-  const state = String(value(row, 'state', 'lifecycleState') ?? '').toLowerCase();
+  const state = textOf(value(row, 'state', 'lifecycleState'), '').toLowerCase();
   return state === 'active' || state === 'verified' || state === 'running';
 }
 
@@ -99,49 +98,66 @@ function LiveCodeCreateDialog({
     }
   };
   return (
-    <DashboardDialog
-      confirmLoading={saving}
-      confirmDisabled={!valid}
-      confirmText={saving ? '保存中…' : `保存${kind === 'channel' ? '渠道活码' : '群活码'}`}
-      mode="drawer"
-      onCancel={onCancel}
-      onConfirm={submit}
-      open
-      title={`新建${kind === 'channel' ? '渠道活码' : '群活码'}`}
-    >
-      <form className="live-code-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <div className="live-code-form-intro"><strong>先完成基础配置</strong><span>保存后会调用企业微信 Provider，未配置企业授信时不会生成虚假二维码。</span></div>
-        <label>名称 <b>*</b><input aria-label={`${kind === 'channel' ? '渠道活码' : '群活码'}名称`} value={name} maxLength={30} onChange={(event) => setName(event.target.value)} placeholder={`例如：${kind === 'channel' ? '官网咨询' : '售后服务群'}`} /></label>
-        <label>使用成员 ID <b>*</b><input aria-label="使用成员 ID" inputMode="numeric" value={employees} onChange={(event) => setEmployees(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
-        {kind === 'group' && <>
-          <label>入群引导语 <b>*</b><textarea aria-label="入群引导语" value={leadingWords} maxLength={1000} onChange={(event) => setLeadingWords(event.target.value)} placeholder="欢迎加入我们的服务群" /></label>
-          <label>客户标签 ID <b>*</b><input aria-label="客户标签 ID" inputMode="numeric" value={tags} onChange={(event) => setTags(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
-          <label>群聊配置 JSON <b>*</b><textarea aria-label="群聊配置 JSON" value={rooms} onChange={(event) => setRooms(event.target.value)} /></label>
-        </>}
-        {(error || localError) && <p className="live-code-form-error" role="alert">{error || localError}</p>}
-      </form>
-    </DashboardDialog>
+    <aside className="phase34-detail phase34-live-code-drawer phase34-live-code-create-drawer" aria-label={`新建${kind === 'channel' ? '渠道活码' : '群活码'}`}>
+      <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onCancel} />
+      <div className="phase34-detail-panel" role="dialog" aria-modal="true">
+        <header className="phase34-live-code-drawer-header">
+          <div className="phase34-live-code-drawer-title"><span className="phase34-live-code-drawer-icon" aria-hidden="true">+</span><div><p className="phase34-eyebrow">营销工具 · 新建配置</p><h2>新建{kind === 'channel' ? '渠道活码' : '群活码'}</h2><p>填写必要信息后提交到当前企业微信 Provider。</p></div></div>
+          <button type="button" className="phase34-live-code-close" aria-label={`关闭新建${kind === 'channel' ? '渠道活码' : '群活码'}`} title="关闭" onClick={onCancel}>×</button>
+        </header>
+        <div className="phase34-live-code-drawer-body">
+          <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+            <div className="phase34-live-code-form-intro"><strong>先完成基础配置</strong><span>保存后会调用企业微信 Provider，未配置企业授信时不会生成虚假二维码。</span></div>
+            <label>{kind === 'channel' ? '渠道活码' : '群活码'}名称 <b>*</b><input aria-label={`${kind === 'channel' ? '渠道活码' : '群活码'}名称`} value={name} maxLength={30} onChange={(event) => setName(event.target.value)} placeholder={`例如：${kind === 'channel' ? '官网咨询' : '售后服务群'}`} /></label>
+            <label>使用成员 ID <b>*</b><input aria-label="使用成员 ID" inputMode="numeric" value={employees} onChange={(event) => setEmployees(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+            {kind === 'group' && <>
+              <label>入群引导语 <b>*</b><textarea aria-label="入群引导语" value={leadingWords} maxLength={1000} onChange={(event) => setLeadingWords(event.target.value)} placeholder="欢迎加入我们的服务群" /></label>
+              <label>客户标签 ID <b>*</b><input aria-label="客户标签 ID" inputMode="numeric" value={tags} onChange={(event) => setTags(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+              <label>群聊配置 JSON <b>*</b><textarea aria-label="群聊配置 JSON" value={rooms} onChange={(event) => setRooms(event.target.value)} /></label>
+            </>}
+            {(error || localError) && <p className="phase34-inline-error" role="alert">{error || localError}</p>}
+          </form>
+        </div>
+        <footer className="phase34-live-code-drawer-footer"><span>带 * 为必填项</span><div><button type="button" className="phase34-secondary-button" disabled={saving} onClick={onCancel}>取消</button><button type="button" disabled={saving || !valid} onClick={submit}>{saving ? '保存中…' : `保存${kind === 'channel' ? '渠道活码' : '群活码'}`}</button></div></footer>
+      </div>
+    </aside>
   );
 }
 
 function DetailDrawer({ kind, row, onClose }: { kind: LiveCodeKind; row: LiveCodeRecord; onClose: () => void }) {
+  const isChannel = kind === 'channel';
+  const name = textOf(value(row, 'name', 'qrcodeName'), '未命名活码');
+  const qrURL = imageURL(row);
+  const statisticsUnavailable = row.statisticsAvailable === false;
+  const detail = (fallback: string, ...keys: string[]) => textOf(value(row, ...keys), fallback);
   return (
     <aside className="live-code-detail" aria-label={`${kind === 'channel' ? '渠道活码' : '群活码'}详情`}>
-      <button type="button" className="live-code-detail-backdrop" aria-label="关闭详情" onClick={onClose} />
-      <div className="live-code-detail-panel">
-        <header><div><span className="live-code-kicker">{kind === 'channel' ? '渠道获客' : '社群获客'}</span><h2>{textOf(value(row, 'name', 'qrcodeName'), '未命名活码')}</h2><p>{kind === 'channel' ? '查看归因、人员与有效期信息' : '查看引导语、关联群聊与配置状态'}</p></div><button type="button" className="live-code-close" onClick={onClose} aria-label="关闭详情">×</button></header>
-        <div className="live-code-detail-qr"><QRPreview row={row} /><div><StatusPill state={value(row, 'state', 'status', 'isVerified') === 1 ? 'active' : value(row, 'state', 'status')} /><p>{kind === 'channel' ? `新增好友 ${textOf(value(row, 'addedFriendCount', 'contactNum'), '0')} 人` : `关联群聊 ${textOf(value(row, 'roomNum', 'rooms'), '0')}`}</p></div></div>
-        <dl>
-          <div><dt>创建时间</dt><dd>{textOf(value(row, 'createdAt', 'created_at'), '—')}</dd></div>
-          <div><dt>{kind === 'channel' ? '创建人' : '入群引导语'}</dt><dd>{kind === 'channel' ? textOf(value(row, 'creator', 'creatorName')) : textOf(value(row, 'leadingWords'))}</dd></div>
-          <div><dt>使用成员</dt><dd>{employeesText(row)}</dd></div>
-          {kind === 'channel' ? <>
-            <div><dt>客户标签</dt><dd>{textOf(value(row, 'tags'))}</dd></div>
-            <div><dt>有效期</dt><dd>{validityText(row)}</dd></div>
-            <div><dt>新增好友数</dt><dd>{textOf(value(row, 'addedFriendCount', 'contactNum'), '0')}</dd></div>
-            <div><dt>统计口径</dt><dd>{value(row, 'statisticsAvailable') === false ? '暂无可验证数据' : '已接入真实关联记录'}</dd></div>
-          </> : <div><dt>关联群聊</dt><dd>{textOf(value(row, 'rooms'))}</dd></div>}
-        </dl>
+      <div className="phase34-detail-backdrop" data-phase34-detail-backdrop aria-hidden="true" onClick={onClose} />
+      <div className="phase34-detail-panel" role="dialog" aria-modal="true">
+        <header className="phase34-live-code-drawer-header">
+          <div className="phase34-live-code-drawer-title"><span className="phase34-live-code-drawer-icon" aria-hidden="true">码</span><div><p className="phase34-eyebrow">营销工具 · {isChannel ? '渠道获客' : '社群获客'}</p><h2>{name}</h2><p>{isChannel ? '查看二维码、使用成员和新增好友数据。' : '查看二维码、入群引导和关联群聊配置。'}</p></div></div>
+          <button type="button" className="phase34-live-code-close" aria-label="关闭详情" title="关闭详情" onClick={onClose}>×</button>
+        </header>
+        <div className="phase34-live-code-drawer-body">
+          <section className="phase34-live-code-summary" aria-label="二维码与状态">
+            <div className="phase34-live-code-qr">{qrURL ? <img src={qrURL} alt="二维码" /> : <span><strong>二维码</strong><small>未提供</small></span>}</div>
+            <div><span className={`phase34-live-code-status ${qrURL ? 'is-ready' : 'is-pending'}`}>{qrURL ? '已接入二维码' : '待配置二维码'}</span><strong>{name}</strong><small>{isChannel ? statisticsUnavailable ? '暂无可验证统计' : `新增好友 ${detail('0', 'addedFriendCount', 'contactNum')}` : `关联群聊 ${detail('0', 'roomNum', 'rooms')}`}</small></div>
+          </section>
+          <section className="phase34-live-code-section"><h3>基础信息</h3><dl>
+            <div><dt>创建时间</dt><dd>{detail('—', 'createdAt', 'created_at')}</dd></div>
+            <div><dt>{isChannel ? '创建人' : '入群引导语'}</dt><dd>{isChannel ? detail('—', 'creator', 'creatorName') : detail('—', 'leadingWords')}</dd></div>
+            <div><dt>使用成员</dt><dd>{employeesText(row)}</dd></div>
+            <div><dt>{isChannel ? '有效期' : '状态'}</dt><dd>{isChannel ? validityText(row) : stateText(value(row, 'state', 'status', 'isVerified'))}</dd></div>
+          </dl></section>
+          <section className="phase34-live-code-section"><h3>{isChannel ? '归因与效果' : '配置与关系'}</h3><dl>
+            {isChannel ? <>
+              <div><dt>客户标签</dt><dd>{detail('—', 'tags')}</dd></div>
+              <div><dt>新增好友数</dt><dd>{statisticsUnavailable ? '暂无可验证数据' : detail('0', 'addedFriendCount', 'contactNum')}</dd></div>
+              <div><dt>统计口径</dt><dd>{statisticsUnavailable ? '暂无可验证数据' : '已接入真实关联记录'}</dd></div>
+            </> : <div><dt>关联群聊</dt><dd>{detail('暂无关联群聊', 'rooms')}</dd></div>}
+          </dl></section>
+        </div>
+        <footer className="phase34-live-code-drawer-footer"><span>信息来自当前企业权限范围</span><button type="button" className="phase34-secondary-button" onClick={onClose}>返回列表</button></footer>
       </div>
     </aside>
   );

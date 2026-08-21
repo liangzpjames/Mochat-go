@@ -332,11 +332,11 @@ function ConnectedAcquisitionPage({
   );
 }
 
-function LegacyChannelCodePage({ api }: { api: BusinessWorkbenchApi }) {
+export function LegacyChannelCodePage({ api }: { api: BusinessWorkbenchApi }) {
   return <ConnectedAcquisitionPage api={api} path="/acquisition/v2-channel-code" title="渠道活码" description="通过员工与部门活码承接客户，并追踪新增好友与渠道效果。" endpoint="/channelCode/index" inputLabel="活码名称" inputPlaceholder="请输入名称" columns={channelColumns} detailLabel="渠道活码详情" kind="channel" />;
 }
 
-function LegacyGroupCodePage({ api }: { api: BusinessWorkbenchApi }) {
+export function LegacyGroupCodePage({ api }: { api: BusinessWorkbenchApi }) {
   return <ConnectedAcquisitionPage api={api} path="/acquisition/group-code" title="群活码" description="基于现有自动拉群能力查看群二维码配置和关联群聊。扫码统计未有统一口径时不构造数据。" endpoint="/workRoomAutoPull/index" inputLabel="群活码名称" inputPlaceholder="请输入名称" columns={groupColumns} detailLabel="群活码详情" kind="group" nameParam="qrcodeName" />;
 }
 

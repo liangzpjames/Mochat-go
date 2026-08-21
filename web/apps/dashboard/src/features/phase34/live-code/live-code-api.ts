@@ -40,9 +40,9 @@ export function statisticsFrom(payload: unknown): LiveCodeStatisticsPage {
       retainedCustomers: Number(source.retainedCustomers ?? 0),
       codeCount: Number(source.codeCount ?? page.total),
       available: source.available !== false,
-      asOf: String(source.asOf ?? ''),
-      timezone: String(source.timezone ?? 'Asia/Shanghai'),
-      definition: String(source.definition ?? '按渠道码归因的客户关联状态变化'),
+      asOf: textOf(source.asOf, ''),
+      timezone: textOf(source.timezone, 'Asia/Shanghai'),
+      definition: textOf(source.definition, '按渠道码归因的客户关联状态变化'),
     },
     rows,
     total: page.total,
@@ -55,7 +55,9 @@ export function textOf(value: unknown, fallback = '—'): string {
   if (value === null || value === undefined || value === '') return fallback;
   if (Array.isArray(value)) return value.map((item) => textOf(item, '')).filter(Boolean).join('、') || fallback;
   if (isRecord(value)) return textOf(value.name ?? value.title ?? value.label, fallback);
-  return String(value);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return value.toString();
+  return fallback;
 }
 
 export function numberOf(value: unknown): number {
@@ -64,7 +66,7 @@ export function numberOf(value: unknown): number {
 }
 
 export function stateText(value: unknown): string {
-  switch (String(value ?? '')) {
+  switch (textOf(value, '')) {
     case 'active': return '运行中';
     case 'paused': return '已暂停';
     case 'expired': return '已过期';
@@ -74,7 +76,7 @@ export function stateText(value: unknown): string {
 }
 
 export function stateClass(value: unknown): string {
-  switch (String(value ?? '')) {
+  switch (textOf(value, '')) {
     case 'active': return 'is-active';
     case 'paused': return 'is-paused';
     case 'expired': return 'is-expired';
