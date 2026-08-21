@@ -21,6 +21,7 @@ describe('CustomerLossPage', () => {
     view(access, { read, write: vi.fn() });
     expect(screen.getByRole('button', { name: '客户流失' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '流失规则' })).toBeTruthy();
+    expect(screen.queryByText('AI 洞察 / 风险预警')).toBeNull();
     expect(await screen.findByText('李雷')).toBeTruthy();
     expect(screen.getAllByText('员工删除客户').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('columnheader', { name: '客户' })).toBeTruthy();

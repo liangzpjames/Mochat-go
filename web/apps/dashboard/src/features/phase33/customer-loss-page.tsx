@@ -54,7 +54,7 @@ export function CustomerLossPage({ api: workbenchApi }: { api: BusinessWorkbench
   const rows = records.data?.items ?? [];
 
   return <RiskWarningShell className="customer-loss-page">
-    <RiskWarningPageHeader eyebrow="AI 洞察 / 风险预警" title="客户流失" meta="复核企业微信客户关系变化，保留客户与责任员工的历史关联。" />
+    <RiskWarningPageHeader title="客户流失" meta="复核企业微信客户关系变化，保留客户与责任员工的历史关联。" />
     <RiskWarningTabs active={tab} tabs={[{ id: 'records', label: '客户流失' }, { id: 'rules', label: '流失规则' }]} onChange={(next) => { const value = new URLSearchParams(params); value.set('tab', next); value.delete('recordId'); setParams(value); setSelected(null); }} />
     {tab === 'records' ? <>
       <RiskWarningQueryBar fetching={records.isFetching} onQuery={submit} onReset={reset} onRefresh={refresh}>

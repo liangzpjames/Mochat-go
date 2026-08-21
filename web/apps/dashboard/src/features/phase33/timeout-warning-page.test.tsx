@@ -23,6 +23,7 @@ describe('TimeoutWarningPage', () => {
     expect(screen.getByRole('button', { name: '超时记录' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '规则配置' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '高级设置' })).toBeTruthy();
+    expect(screen.queryByText('AI 洞察 / 风险预警')).toBeNull();
     expect(await screen.findByText('十分钟未回复')).toBeTruthy();
     expect(screen.getByText('10 分 20 秒')).toBeTruthy();
     expect(screen.queryByText('aiSummary')).toBeNull();
