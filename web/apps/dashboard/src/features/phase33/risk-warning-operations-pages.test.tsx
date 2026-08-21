@@ -42,7 +42,9 @@ describe('risk warning operation pages', () => {
     expect(await screen.findByText('报价')).toBeTruthy();
     expect(api.libraries).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 20 }));
     expect(screen.getByRole('button', { name: '添加关键词' }).className).toContain('risk-warning-primary-button');
-    expect(screen.getByRole('button', { name: '编辑词库' }).className).toContain('risk-warning-primary-button');
+    expect(screen.getByRole('button', { name: '编辑词库' }).className).toContain('risk-warning-secondary-button');
+    expect(screen.getByRole('button', { name: '发布' }).className).toContain('risk-warning-primary-button');
+    expect(screen.getByRole('button', { name: '删除' }).className).toContain('risk-warning-danger-button');
 
     fireEvent.click(screen.getByRole('button', { name: '新建词库' }));
     expect(await screen.findByRole('heading', { name: '新建词库' })).toBeTruthy();
@@ -54,6 +56,12 @@ describe('risk warning operation pages', () => {
     fireEvent.click(screen.getByRole('button', { name: '编辑词库' }));
     expect(await screen.findByRole('heading', { name: '编辑词库' })).toBeTruthy();
     expect((screen.getByRole('textbox', { name: '编辑词库名称' }) as HTMLInputElement).value).toBe('违禁词库');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '新建词库' }));
+    expect(await screen.findByRole('heading', { name: '新建词库' })).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: '编辑词库名称' }) as HTMLInputElement).value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(await screen.findByRole('button', { name: '添加关键词' })).toBeTruthy();
   });
 
   it('keeps the risk-warning child pages free of redundant top banners', async () => {

@@ -316,6 +316,13 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 - 页面移除旧版“AI 能力未接入”三张指标卡和大段能力说明；空态、头像 fallback 和规则抽屉均使用稳定业务文案，不展示固定“请”字或技术故障长文。
 - 自动化证据：Go `internal/modules/ai-insight`、`internal/dashboard`、`internal/migration`、`internal/server` 回归通过；Dashboard 全量 Vitest `136 files / 764 tests passed`，typecheck、定向 ESLint、`git diff --check` 通过；Docker app-only 重建、迁移、`/readyz=200` 通过。
 - 浏览器证据：在 `2560×1440` 和 `1366×900` 逐页点击打开、查询、重置、刷新、标签切换、规则抽屉和规则保存；两页 `scrollWidth=innerWidth`，控制台 error/warn 为 0，无权限拒绝和旧 banner。验收期间创建的“验收规则”及其版本已精确清理。
+
+## 关键词库页面浏览器复核与交互收口（2026-08-21）
+
+- 真实登录态复核发现两项布局问题：左侧唯一词库按钮曾被网格默认拉伸成整列高度；选中词库后右侧操作区同时使用多个蓝色主按钮，且关键词表在常规宽度下出现横向滚动，操作按钮被截断。
+- 已完成收口：左侧词库项改为内容高度并固定分页到底部；“发布”保留唯一蓝色主操作，“编辑词库/启停”统一次级样式，“删除”使用低强调危险样式；关键词表改为固定列比例并在 `1366px` 左右视口内完整展示。
+- 新建流程已修复为“表单保持空白但保留当前词库上下文”，关闭新建抽屉后仍可继续添加关键词；编辑、添加关键词抽屉均已通过真实点击验证。
+- 浏览器验收证据：常规视口 `1353×1272` 与宽屏 `2560×1440` 均无页面或表格横向溢出，关键词库操作按钮层级符合预期，控制台 error/warn 为 0；目标 Vitest 5/5、Dashboard production build 通过。
 - 后续专项（只记录，不在页面展示）：正式企业微信会话存档凭据/授权与持续同步、正式 AI Provider Key/配额/脱敏/成本治理、外部模型调用前授权告知与审计流程；本地开发库暂无新增会话级分析结果，页面按真实数据展示空态。
 - 设计与验收文档：`docs/superpowers/specs/2026-08-21-ai-insight-session-smart-yuanhu-design.md`、`docs/superpowers/plans/2026-08-21-ai-insight-session-smart-yuanhu.md`、`docs/reviews/2026-08-21-ai-insight-session-smart-acceptance.zh-CN.md`。
 
