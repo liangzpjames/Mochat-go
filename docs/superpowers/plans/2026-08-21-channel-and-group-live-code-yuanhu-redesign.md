@@ -27,8 +27,8 @@
 
 **Files:**
 
-- Create: deploy/standalone/migrations/0148_live_code_workspace.up.sql
-- Create: deploy/standalone/migrations/0148_live_code_workspace.down.sql
+- Create: deploy/standalone/migrations/0150_live_code_workspace.up.sql
+- Create: deploy/standalone/migrations/0150_live_code_workspace.down.sql
 - Create: internal/migration/live_code_workspace_migration_test.go
 - Modify: internal/migration/migration_test.go
 - Modify: internal/dashboard/dashboard_page_catalog.json
@@ -39,7 +39,7 @@
 
 ~~~go
 func TestLiveCodeWorkspaceMigrationContract(t *testing.T) {
-    up := migrationSQL(t, "0148_live_code_workspace.up.sql")
+    up := migrationSQL(t, "0150_live_code_workspace.up.sql")
     required := []string{
         "ALTER TABLE mc_channel_code",
         "validity_kind", "valid_from", "valid_until",
@@ -64,7 +64,7 @@ Run:
 go test ./internal/migration -run 'TestLiveCodeWorkspaceMigrationContract|TestMigrationFiles' -count=1
 ~~~
 
-Expected: FAIL，提示缺少 0148 migration 或必需字段。
+Expected: FAIL，提示缺少 0150 migration 或必需字段。
 
 - [ ] **Step 3: 编写可回滚迁移**
 
@@ -112,13 +112,13 @@ CREATE TABLE mc_live_code_event (
 
 - [ ] **Step 4: 增加页面动作权限**
 
-在页面目录和 migration 中为两个页面建立 view、create、edit、statistics、export、move、invalidate、upload 动作。SQL 必须幂等，写入现有 mc_rbac_menu 体系。
+在页面目录和 0150 migration 中为两个页面建立 view、create、edit、statistics、export、move、invalidate、upload 动作。SQL 必须幂等，写入现有 mc_rbac_menu 体系。
 
 - [ ] **Step 5: 验证并提交**
 
 ~~~bash
 go test ./internal/migration -run 'TestLiveCodeWorkspaceMigrationContract|TestMigrationFiles|TestDashboardPage' -count=1
-git add deploy/standalone/migrations/0148_live_code_workspace.* internal/migration/live_code_workspace_migration_test.go internal/migration/migration_test.go internal/dashboard/dashboard_page_catalog.json
+git add deploy/standalone/migrations/0150_live_code_workspace.* internal/migration/live_code_workspace_migration_test.go internal/migration/migration_test.go internal/dashboard/dashboard_page_catalog.json
 git diff --cached --check
 git commit -m "feat: add live code workspace schema"
 ~~~
@@ -634,7 +634,7 @@ Expected: PASS，/acquisition/group-code 渲染新双模式页面。
 
 - [ ] **Step 1: 写完成度脚本并确认失败**
 
-脚本检查新页面、两种模式、0148 migration、权限动作、新路由、样式命名空间、无刷新按钮、无前端 example.invalid 过滤。
+脚本检查新页面、两种模式、0150 migration、权限动作、新路由、样式命名空间、无刷新按钮、无前端 example.invalid 过滤。
 
 ~~~bash
 node scripts/check_live_code_workspace.mjs
