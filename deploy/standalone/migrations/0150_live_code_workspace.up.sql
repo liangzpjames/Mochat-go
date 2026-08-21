@@ -21,6 +21,18 @@ ALTER TABLE `mc_room_infinite`
   ADD COLUMN `data_source` varchar(16) NOT NULL DEFAULT 'business',
   ADD KEY `idx_mc_room_infinite_group` (`corp_id`, `group_id`, `deleted_at`);
 
+UPDATE `mc_channel_code`
+SET `data_source` = 'simulation'
+WHERE `qrcode_url` LIKE 'https://example.invalid/%' OR `name` LIKE 'sim-%';
+
+UPDATE `mc_work_room_auto_pull`
+SET `data_source` = 'simulation'
+WHERE `qrcode_url` LIKE 'https://example.invalid/%' OR `qrcode_name` LIKE 'sim-%';
+
+UPDATE `mc_room_infinite`
+SET `data_source` = 'simulation'
+WHERE `name` LIKE 'sim-%';
+
 CREATE TABLE `mc_group_code_group` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `corp_id` int unsigned NOT NULL,

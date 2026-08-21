@@ -30,6 +30,7 @@ func TestLiveCodeWorkspaceMigrationContract(t *testing.T) {
 		"CREATE TABLE `mc_group_code_group`",
 		"CREATE TABLE `mc_live_code_event`",
 		"UNIQUE KEY `uk_live_code_event_source`",
+		"SET `data_source` = 'simulation'",
 	} {
 		if !strings.Contains(string(upBody), required) {
 			t.Fatalf("0150 up migration missing %q", required)

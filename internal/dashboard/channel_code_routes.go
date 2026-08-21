@@ -29,6 +29,16 @@ func (h *ChannelCodeHandler) Index(w http.ResponseWriter, r *http.Request) {
 		Page:    positiveQueryInt(r, "page", 1),
 		PerPage: positiveQueryInt(r, "perPage", 20),
 	}
+	workspaceFilter := ChannelCodeWorkspaceFilter{
+		CorpIDs:    append([]int{}, principalScope.CorpIDs...),
+		GroupID:    positiveQueryInt(r, "groupId", 0),
+		Name:       strings.TrimSpace(r.URL.Query().Get("name")),
+		Creator:    strings.TrimSpace(r.URL.Query().Get("creator")),
+		EmployeeID: positiveQueryInt(r, "employeeId", 0),
+		State:      strings.TrimSpace(r.URL.Query().Get("state")),
+		Page:       filter.Page,
+		PerPage:    filter.PerPage,
+	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("type")); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil {
 			filter.Type = &value
@@ -57,14 +67,23 @@ func (h *ChannelCodeHandler) Index(w http.ResponseWriter, r *http.Request) {
 		filter.BusinessIDs = ids
 	}
 
-	page, err := h.store.ChannelCodePage(r.Context(), filter)
+	var page ChannelCodeListPage
+	preferWorkspace := workspaceFilter.Creator != "" || workspaceFilter.EmployeeID > 0 || workspaceFilter.State != ""
+	if enabledStore, ok := h.store.(interface{ ChannelCodeWorkspaceEnabled() bool }); ok {
+		preferWorkspace = enabledStore.ChannelCodeWorkspaceEnabled()
+	}
+	if workspaceStore, ok := h.store.(ChannelCodeWorkspaceStore); ok && preferWorkspace {
+		page, err = workspaceStore.ChannelCodeWorkspacePage(r.Context(), workspaceFilter)
+	} else {
+		page, err = h.store.ChannelCodePage(r.Context(), filter)
+	}
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
 	if len(page.Items) == 0 {
 		writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
-			"page": map[string]any{"perPage": 20, "total": 0, "totalPage": 0},
+			"page": map[string]any{"perPage": page.PerPage, "total": 0, "totalPage": 0},
 			"list": []any{},
 		})
 		return
@@ -73,6 +92,14 @@ func (h *ChannelCodeHandler) Index(w http.ResponseWriter, r *http.Request) {
 	userPayload := workContactIndexUserPayload(user, principalScope, access)
 	list := make([]map[string]any, 0, len(page.Items))
 	for _, item := range page.Items {
+		state := item.State
+		if state == "" {
+			state = "active"
+		}
+		var addedFriendCount any
+		if item.AddedFriendCount != nil {
+			addedFriendCount = *item.AddedFriendCount
+		}
 		list = append(list, map[string]any{
 			"id":            item.ID,
 			"channelCodeId": item.ID,
@@ -84,7 +111,21 @@ func (h *ChannelCodeHandler) Index(w http.ResponseWriter, r *http.Request) {
 			"tags":          item.Tags,
 			"type":          channelCodeTypeText(item.Type),
 			"contactNum":    item.ContactNum,
-			"user":          userPayload,
+			"creator": map[string]any{
+				"id":   item.Creator.ID,
+				"name": item.Creator.Name,
+			},
+			"createdAt": item.CreatedAt,
+			"employees": item.Employees,
+			"validity": map[string]any{
+				"kind":  item.Validity.Kind,
+				"from":  item.Validity.From,
+				"until": item.Validity.Until,
+			},
+			"state":               state,
+			"addedFriendCount":    addedFriendCount,
+			"statisticsAvailable": item.StatisticsAvailable,
+			"user":                userPayload,
 		})
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
