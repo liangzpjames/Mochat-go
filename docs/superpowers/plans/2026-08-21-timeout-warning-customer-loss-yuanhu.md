@@ -1,4 +1,6 @@
-# 超时预警与客户流失页面优化 Implementation Plan
+# 超时预警与客户流失页面优化实施计划
+
+> 当前状态：已确认并实施中。执行范围仅包含 `/ai-insight/v2/timeout` 与 `/ai-insight/v2/customer-loss`；会话菜单相关改动不属于本计划。
 
 > **实施要求：** 使用 `executing-plans` 或 `subagent-driven-development` 按任务执行。每个行为变更必须先取得正确的失败测试证据，再写最小实现；每个任务完成后只暂存该任务文件。
 
@@ -11,7 +13,7 @@
 ## Global Constraints
 
 - 设计基准：`docs/superpowers/specs/2026-08-21-timeout-warning-customer-loss-yuanhu-design.md`。
-- 审阅通过前不得实施本计划；实施时所有新增用户文案使用中文。
+- 用户已确认实施本计划；实施时所有新增用户文案使用中文。
 - 不修改左侧菜单名称、顺序、图标、顶部 banner 和两个现有页面路由。
 - 不复制圆弧 AI 的企业数据、统计数字、AI 摘要、H5 地址或示例记录。
 - 页面不得显示“能力未接入”“当前无法识别”一类说明卡，也不得显示无真实写链路的开关或按钮。

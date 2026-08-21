@@ -1,46 +1,78 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
+import { RiskWarningDrawer, RiskWarningPageHeader, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
+import { createRiskWarningApi, type CustomerLossFilter, type CustomerLossRecord } from '../risk-warning/risk-warning-api';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
 
-type RecordItem = Record<string, unknown>;
+const pageSize = 20;
+const lossTypeLabels: Record<string, string> = { employee_removed_customer: '员工删除客户', customer_removed_employee: '客户删除员工' };
+const riskLabels: Record<string, string> = { unclassified: '未分级', low: '低风险', medium: '中风险', high: '高风险' };
+const statusLabels: Record<string, string> = { pending: '待处置', confirmed: '已确认', ignored: '已忽略', closed: '已关闭' };
 
-function rowsFrom(value: unknown): RecordItem[] {
-  if (Array.isArray(value)) return value.filter((item): item is RecordItem => typeof item === 'object' && item !== null);
-  if (!value || typeof value !== 'object') return [];
-  const source = value as Record<string, unknown>;
-  const body = source.data && typeof source.data === 'object' ? source.data as Record<string, unknown> : source;
-  const rows = [body.list, body.items, body.rows].find(Array.isArray);
-  return Array.isArray(rows) ? rows.filter((item): item is RecordItem => typeof item === 'object' && item !== null) : [];
+function formatDate(value: string): string {
+  if (!value) return '--';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value.replace('T', ' ').replace(/Z$/, '') : date.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
 }
 
-function display(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '--';
-  if (typeof value === 'object') return JSON.stringify(value);
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
-  return '--';
+function formatAvatar(name: string): string { return (name.trim().slice(0, 1) || '客').toUpperCase(); }
+
+function Avatar({ name, src }: { name: string; src: string }) {
+  return src ? <img className="risk-warning-avatar" src={src} alt="" /> : <span className="risk-warning-avatar risk-warning-avatar-fallback" aria-hidden="true">{formatAvatar(name)}</span>;
 }
 
-export function CustomerLossPage({ api }: { api: BusinessWorkbenchApi }) {
+function riskPill(value: string, labels: Record<string, string>, kind = value) {
+  const tone = kind === 'high' ? 'risk-warning-pill-high' : kind === 'medium' ? 'risk-warning-pill-medium' : kind === 'low' ? 'risk-warning-pill-low' : 'risk-warning-pill-neutral';
+  return <span className={`risk-warning-pill ${tone}`}>{(labels[value] ?? value) || '--'}</span>;
+}
+
+export function CustomerLossPage({ api: workbenchApi }: { api: BusinessWorkbenchApi }) {
   const access = useDashboardAccess();
-  const [draftEmployeeId, setDraftEmployeeId] = useState('');
-  const [employeeId, setEmployeeId] = useState('');
-  const [selected, setSelected] = useState<RecordItem | null>(null);
-  const enabled = access.corp.authorized;
-  const query = useQuery({
-    queryKey: ['phase33-customer-loss', access.corp.id, employeeId],
-    queryFn: () => api.read('/workContact/lossContact', { ...(employeeId ? { employeeId } : {}), page: 1, perPage: 20 }),
-    enabled,
-  });
-  const rows = useMemo(() => rowsFrom(query.data), [query.data]);
-  const columns = useMemo(() => Object.keys(rows[0] ?? {}).slice(0, 7), [rows]);
+  const api = useMemo(() => createRiskWarningApi(workbenchApi), [workbenchApi]);
+  const queryClient = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') === 'rules' ? 'rules' : 'records';
+  const [draft, setDraft] = useState({ customer: params.get('customer') ?? '', employeeId: params.get('employeeId') ?? '', lossType: params.get('lossType') ?? '', auditStatus: params.get('auditStatus') ?? '', occurredFrom: params.get('occurredFrom') ?? '', occurredTo: params.get('occurredTo') ?? '' });
+  const [filters, setFilters] = useState<CustomerLossFilter>({ employeeId: params.get('employeeId') ?? undefined, page: Number(params.get('page') ?? 1) || 1, perPage: pageSize });
+  const [selected, setSelected] = useState<CustomerLossRecord | null>(null);
+  const records = useQuery({ queryKey: ['customer-loss-records', access.corp.id, filters, draft.customer, draft.lossType, draft.auditStatus, draft.occurredFrom, draft.occurredTo], queryFn: () => api.customerLossRecords(filters), enabled: access.corp.authorized && tab === 'records', retry: false });
 
-  return <section className="phase33-risk-warning-page">
-    <header className="phase33-risk-warning-header dashboard-page-header dashboard-data-card"><div><p className="phase33-risk-warning-eyebrow">风险预警</p><h1>客户流失</h1><p>查看近期客户流失情况，及时跟进高价值客户。</p></div><button type="button" disabled={!enabled || query.isFetching} onClick={() => void query.refetch()}>刷新</button></header>
-    <div className="dashboard-filter-bar phase33-risk-warning-filters" aria-label="客户流失筛选"><label>员工 ID<input aria-label="员工 ID" inputMode="numeric" value={draftEmployeeId} onChange={(event) => setDraftEmployeeId(event.target.value)} /></label><div className="dashboard-table-actions"><button type="button" disabled={!enabled} onClick={() => { setSelected(null); setEmployeeId(draftEmployeeId.trim()); }}>查询</button><button type="button" disabled={!enabled} onClick={() => { setDraftEmployeeId(''); setEmployeeId(''); setSelected(null); }}>重置</button></div></div>
-    {!enabled ? <div className="dashboard-data-card phase33-risk-warning-state"><PageState state="forbidden" title="无权访问当前企业数据" description="请切换到已授权企业，或联系管理员开通权限。" /></div> : <div className="dashboard-data-card phase33-risk-warning-results"><div className="dashboard-card-heading"><div><h2>流失记录</h2><p>关注客户状态变化，及时安排后续跟进。</p></div></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={() => void query.refetch()} /> : rows.length === 0 ? <PageState state="empty" /> : <div className="dashboard-table-scroll"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}<th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={display(row.id ?? row.contactId ?? index)}>{columns.map((column) => <td key={column}>{display(row[column])}</td>)}<td><button type="button" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>}</div>}
-    {selected && <aside className="phase33-risk-warning-detail dashboard-data-card" aria-label="客户流失详情"><div className="dashboard-card-heading"><div><h2>客户流失详情</h2><p>查看客户信息和流失记录。</p></div><button type="button" onClick={() => setSelected(null)}>关闭</button></div><dl>{Object.entries(selected).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{display(value)}</dd></div>)}</dl></aside>}
-  </section>;
+  const updateURL = (next: Partial<typeof draft> & { page?: number; tab?: string }) => {
+    const value = new URLSearchParams(params);
+    for (const key of ['customer', 'employeeId', 'lossType', 'auditStatus', 'occurredFrom', 'occurredTo', 'page', 'tab']) value.delete(key);
+    for (const [key, raw] of Object.entries(next)) if (raw !== undefined && raw !== '') value.set(key, String(raw));
+    setParams(value);
+  };
+  const submit = () => { const next = { employeeId: draft.employeeId.trim() || undefined, page: 1, perPage: pageSize }; setFilters(next); updateURL({ ...draft, employeeId: draft.employeeId.trim(), page: 1 }); setSelected(null); };
+  const reset = () => { const next = { customer: '', employeeId: '', lossType: '', auditStatus: '', occurredFrom: '', occurredTo: '' }; setDraft(next); setFilters({ page: 1, perPage: pageSize }); updateURL({ page: 1 }); setSelected(null); };
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['customer-loss-records', access.corp.id] });
+  const onPage = (page: number) => { setFilters((current) => ({ ...current, page })); updateURL({ ...draft, page }); };
+  const rows = records.data?.items ?? [];
+
+  return <RiskWarningShell className="customer-loss-page">
+    <RiskWarningPageHeader eyebrow="AI 洞察 / 风险预警" title="客户流失" meta="复核企业微信客户关系变化，保留客户与责任员工的历史关联。" />
+    <RiskWarningTabs active={tab} tabs={[{ id: 'records', label: '客户流失' }, { id: 'rules', label: '流失规则' }]} onChange={(next) => { const value = new URLSearchParams(params); value.set('tab', next); value.delete('recordId'); setParams(value); setSelected(null); }} />
+    {tab === 'records' ? <>
+      <RiskWarningQueryBar fetching={records.isFetching} onQuery={submit} onReset={reset} onRefresh={refresh}>
+        <label>客户<input aria-label="客户" value={draft.customer} placeholder="客户名称或 ID" onChange={(event) => setDraft((current) => ({ ...current, customer: event.target.value }))} /></label>
+        <label>关联员工<input aria-label="关联员工" inputMode="numeric" value={draft.employeeId} placeholder="员工 ID" onChange={(event) => setDraft((current) => ({ ...current, employeeId: event.target.value }))} /></label>
+        <label>流失类型<select aria-label="流失类型" value={draft.lossType} onChange={(event) => setDraft((current) => ({ ...current, lossType: event.target.value }))}><option value="">全部</option><option value="employee_removed_customer">员工删除客户</option><option value="customer_removed_employee">客户删除员工</option></select></label>
+        <label>处置状态<select aria-label="处置状态" value={draft.auditStatus} onChange={(event) => setDraft((current) => ({ ...current, auditStatus: event.target.value }))}><option value="">全部</option><option value="pending">待处置</option><option value="confirmed">已确认</option><option value="ignored">已忽略</option><option value="closed">已关闭</option></select></label>
+        <label>流失日期<input aria-label="流失日期" type="date" value={draft.occurredFrom} onChange={(event) => setDraft((current) => ({ ...current, occurredFrom: event.target.value }))} /></label>
+      </RiskWarningQueryBar>
+      <section className="risk-warning-results"><div className="risk-warning-results-header"><div><h2>流失记录</h2><p>列表按当前企业权限返回的真实客户关系记录展示。</p></div><span className="risk-warning-muted">共 {records.data?.total ?? 0} 条</span></div>
+        {!access.corp.authorized ? <PageState state="forbidden" title="无权访问当前企业数据" description="请切换到已授权企业，或联系管理员开通权限。" /> : records.isPending ? <PageState state="loading" /> : records.isError ? <PageState state={pageStateForError(records.error)} onRetry={() => void records.refetch()} /> : rows.length === 0 ? <PageState state="empty" title="暂无客户流失记录" description="当前筛选条件下没有可复核的真实记录。" /> : <>
+          <div className="risk-warning-table-wrap"><table className="risk-warning-table customer-loss-record-table"><thead><tr><th>流失类型</th><th>最近消息</th><th>客户</th><th>关联员工</th><th>风险等级</th><th>处置状态</th><th>流失时间</th><th>操作</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{lossTypeLabels[row.lossType] ?? '客户关系变化'}</td><td><span className="risk-warning-inline-preview" title={row.lastMessage}>{row.lastMessage || '--'}</span></td><td><span className="risk-warning-person"><Avatar name={row.customerName} src={row.customerAvatar} /><span>{row.customerName}</span></span></td><td>{row.employeeName}</td><td>{riskPill(row.riskLevel, riskLabels)}</td><td>{statusLabels[row.auditStatus] ?? row.auditStatus}</td><td>{formatDate(row.occurredAt)}</td><td className="risk-warning-row-control"><button type="button" onClick={() => { setSelected(row); const value = new URLSearchParams(params); value.set('recordId', String(row.id)); setParams(value); }}>查看详情</button></td></tr>)}</tbody></table></div>
+          <div className="risk-warning-pagination"><button type="button" disabled={(filters.page ?? 1) <= 1} onClick={() => onPage((filters.page ?? 1) - 1)}>上一页</button><span>第 {filters.page ?? 1} 页</span><button type="button" disabled={rows.length < pageSize} onClick={() => onPage((filters.page ?? 1) + 1)}>下一页</button></div>
+        </>}
+      </section>
+      <RiskWarningDrawer open={selected !== null} title="客户流失详情" {...(selected ? { description: `${selected.customerName} · ${lossTypeLabels[selected.lossType] ?? '客户关系变化'}` } : {})} onClose={() => { setSelected(null); const value = new URLSearchParams(params); value.delete('recordId'); setParams(value); }}>
+        {selected ? <dl className="risk-warning-detail-grid"><div><dt>客户</dt><dd><span className="risk-warning-person"><Avatar name={selected.customerName} src={selected.customerAvatar} /><span>{selected.customerName}</span></span></dd></div><div><dt>责任员工</dt><dd>{selected.employeeName}</dd></div><div><dt>流失类型</dt><dd>{lossTypeLabels[selected.lossType] ?? '客户关系变化'}</dd></div><div><dt>最近消息</dt><dd>{selected.lastMessage || '--'}</dd></div><div><dt>客户标签</dt><dd>{selected.tags.length ? selected.tags.join('、') : '--'}</dd></div><div><dt>风险等级</dt><dd>{riskPill(selected.riskLevel, riskLabels)}</dd></div><div><dt>处置状态</dt><dd>{statusLabels[selected.auditStatus] ?? selected.auditStatus}</dd></div><div><dt>流失时间</dt><dd>{formatDate(selected.occurredAt)}</dd></div></dl> : null}
+      </RiskWarningDrawer>
+    </> : <section className="risk-warning-results"><div className="risk-warning-results-header"><div><h2>流失规则</h2><p>按企业微信删除事件维护流失识别规则。</p></div></div><PageState state="empty" title="暂无可配置规则" description="当前企业还没有返回可编辑的流失规则。" /></section>}
+  </RiskWarningShell>;
 }
