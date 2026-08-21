@@ -310,11 +310,188 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0139_wecom_capability_ledger" {
-		t.Fatalf("latest migration = %q, want 0139_wecom_capability_ledger", latest.Version)
+	if latest.Version != "0151_ai_conversation_insight_api_resources" {
+		t.Fatalf("latest migration = %q, want 0151_ai_conversation_insight_api_resources", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
+	}
+}
+
+func TestConversationWorkspaceRBACMigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	var target Migration
+	for _, migration := range migrations {
+		if migration.Version == "0141_conversation_workspace_rbac" {
+			target = migration
+			break
+		}
+	}
+	if target.Version == "" {
+		t.Fatal("0141 conversation workspace RBAC migration was not discovered")
+	}
+	upBody, err := os.ReadFile(target.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downBody, err := os.ReadFile(target.DownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"dashboard.chat.v2_all",
+		"/dashboard/workMessage/globalOverview",
+		"dashboard.chat.v2_staff",
+		"/dashboard/workMessage/staffDirectory",
+		"/dashboard/workMessage/staffDetail",
+		"/dashboard/workMessage/focus",
+	} {
+		if !strings.Contains(string(upBody), required) {
+			t.Fatalf("0141 up migration missing %q", required)
+		}
+	}
+	if !strings.Contains(string(downBody), "DELETE resource") {
+		t.Fatal("0141 down migration must remove only the workspace resources")
+	}
+}
+
+func TestCustomerConversationWorkspaceRBAC0142MigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	var target Migration
+	for _, migration := range migrations {
+		if migration.Version == "0142_customer_conversation_workspace_rbac" {
+			target = migration
+			break
+		}
+	}
+	if target.Version == "" {
+		t.Fatal("0142 customer conversation workspace RBAC migration was not discovered")
+	}
+	upBody, err := os.ReadFile(target.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downBody, err := os.ReadFile(target.DownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := string(upBody)
+	down := string(downBody)
+	for _, required := range []string{
+		"dashboard.chat.v2_customer",
+		"/dashboard/workMessage/customerDirectory",
+		"/dashboard/workMessage/customerConversations",
+		"/dashboard/workMessage/customerDetail",
+		"/dashboard/workMessage/focus",
+		"WHERE NOT EXISTS",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("0142 up migration missing %q", required)
+		}
+	}
+	for _, path := range []string{
+		"/dashboard/workMessage/customerDirectory",
+		"/dashboard/workMessage/customerConversations",
+		"/dashboard/workMessage/customerDetail",
+		"/dashboard/workMessage/focus",
+	} {
+		if !strings.Contains(down, path) {
+			t.Fatalf("0142 down migration missing %q", path)
+		}
+	}
+	if strings.Count(down, "/dashboard/workMessage/focus") != 1 {
+		t.Fatalf("0142 down migration must target the focus resource exactly once, got %d", strings.Count(down, "/dashboard/workMessage/focus"))
+	}
+}
+
+func TestAIConversationInsights0148MigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var target Migration
+	for _, migration := range DefaultMigrations(root) {
+		if migration.Version == "0148_ai_conversation_insights" {
+			target = migration
+			break
+		}
+	}
+	if target.Version == "" {
+		t.Fatal("0148 AI conversation insights migration was not discovered")
+	}
+	upBody, err := os.ReadFile(target.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downBody, err := os.ReadFile(target.DownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := string(upBody)
+	down := string(downBody)
+	for _, required := range []string{
+		"mochat_go_ai_analysis_rules",
+		"mochat_go_ai_analysis_rule_versions",
+		"mochat_go_ai_conversation_insights",
+		"mochat_go_ai_insight_runs",
+		"uq_ai_conversation_source",
+		"idx_ai_insight_scope_page",
+		"result_json",
+		"source_fingerprint",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("0148 up migration missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"DROP TABLE IF EXISTS `mochat_go_ai_insight_runs`",
+		"DROP TABLE IF EXISTS `mochat_go_ai_conversation_insights`",
+		"DROP TABLE IF EXISTS `mochat_go_ai_analysis_rule_versions`",
+		"DROP TABLE IF EXISTS `mochat_go_ai_analysis_rules`",
+	} {
+		if !strings.Contains(down, required) {
+			t.Fatalf("0148 down migration missing %q", required)
+		}
+	}
+}
+
+func TestGlobalMessageFocusMigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	var target Migration
+	for _, migration := range migrations {
+		if migration.Version == "0140_global_message_focus_and_indexes" {
+			target = migration
+			break
+		}
+	}
+	if target.Version == "" {
+		t.Fatal("0140 global message migration was not discovered")
+	}
+	upBody, err := os.ReadFile(target.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downBody, err := os.ReadFile(target.DownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := string(upBody)
+	down := string(downBody)
+	for _, required := range []string{
+		"mochat_go_work_message_focus",
+		"uk_work_message_focus_subject",
+		"idx_mc_work_message_1_global",
+		"idx_mc_work_message_10_global",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("0140 up migration missing %q", required)
+		}
+	}
+	if !strings.Contains(down, "DROP TABLE IF EXISTS `mochat_go_work_message_focus`") {
+		t.Fatal("0140 down migration must drop the focus table")
+	}
+	if strings.Contains(strings.ToUpper(down), "DROP TABLE `MC_WORK_MESSAGE_") {
+		t.Fatal("0140 down migration must preserve message partitions")
 	}
 }
 
@@ -370,8 +547,8 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0139_wecom_capability_ledger" {
-		t.Fatalf("latest migration = %q, want 0139_wecom_capability_ledger", latest.Version)
+	if latest.Version != "0151_ai_conversation_insight_api_resources" {
+		t.Fatalf("latest migration = %q, want 0151_ai_conversation_insight_api_resources", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
 	if err != nil {
@@ -490,6 +667,55 @@ func TestDashboardPageRBACMigrationContract(t *testing.T) {
 	} {
 		if !strings.Contains(down, required) {
 			t.Fatalf("0127 down migration missing %q", required)
+		}
+	}
+}
+
+func TestWorkMessageExportTaskMigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	var target Migration
+	for _, migration := range migrations {
+		if migration.Version == "0144_work_message_export_tasks" {
+			target = migration
+			break
+		}
+	}
+	if target.Version == "" {
+		t.Fatal("0144 work message export migration not found")
+	}
+	upBody, err := os.ReadFile(target.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	downBody, err := os.ReadFile(target.DownPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := string(upBody)
+	for _, required := range []string{
+		"mochat_go_work_message_export_tasks",
+		"uk_mg_wmet_idempotency",
+		"idx_mg_wmet_claim",
+		"idx_mg_wmet_owner",
+		"idx_mg_wmet_expiry",
+		"selected_objects_json",
+		"conversation_scopes_json",
+		"employee_scope_json",
+		"artifact_sha256",
+	} {
+		if !strings.Contains(up, required) {
+			t.Fatalf("0144 up migration missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"mochat_go_work_message_export_tasks",
+		"/dashboard/workMessage/exportCandidates",
+		"/dashboard/workMessage/exportTasks",
+		"/dashboard/workMessage/exportDownload",
+	} {
+		if !strings.Contains(string(downBody), required) {
+			t.Fatalf("0144 down migration missing %q", required)
 		}
 	}
 }

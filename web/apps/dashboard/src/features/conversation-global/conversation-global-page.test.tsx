@@ -93,12 +93,13 @@ function renderPage(
 describe('ConversationGlobalPage', () => {
   it('locks a scoped page to its menu conversation type', async () => {
     const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
-    renderPage({ search, detail: vi.fn() }, '/chat/v2-staff?page=1&pageSize=20', 'employee');
+    const { container } = renderPage({ search, detail: vi.fn() }, '/chat/v2-staff?page=1&pageSize=20', 'employee');
 
     await screen.findByText('星河科技');
 
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ conversationType: 'employee' }));
-    expect(screen.getByRole('heading', { name: '员工会话' })).not.toBeNull();
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '会话对象类型' }).value).toBe('employee');
+    expect(container.querySelector('.conversation-global-header')).toBeNull();
     expect(screen.queryByRole('button', { name: '客户会话' })).toBeNull();
   });
 
@@ -120,15 +121,44 @@ describe('ConversationGlobalPage', () => {
     });
   });
 
-  it('refreshes the current query without changing its URL filters', async () => {
+  it('writes timeout and risk buckets into the URL when their tabs are clicked', async () => {
     const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
-    renderPage(
+    renderPage({ search, detail: vi.fn() }, '/chat/v2-all?page=1&pageSize=20');
+    await screen.findByText('星河科技');
+
+    fireEvent.click(screen.getByRole('button', { name: '超时回复' }));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('bucket=timeout'));
+
+    fireEvent.click(screen.getByRole('button', { name: '风险会话' }));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('bucket=risk'));
+  });
+
+  it('uses a compact message type picker instead of a tall native multi-select', async () => {
+    const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
+    const { container } = renderPage({ search, detail: vi.fn() });
+    await screen.findByText('星河科技');
+
+    expect(container.querySelector('select[multiple]')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '选择消息类型' }));
+    expect(screen.getByRole('group', { name: '消息类型选项' })).not.toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: '图片' }));
+    expect(screen.getByRole('button', { name: '已选 1 项消息类型' })).not.toBeNull();
+  });
+
+  it('renders one refresh action beside query and keeps URL filters when refreshing', async () => {
+    const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
+    const { container } = renderPage(
       { search, detail: vi.fn() },
       '/chat/v2-all?keyword=%E6%8A%A5%E4%BB%B7&page=1&pageSize=20',
     );
     await screen.findByText('星河科技');
 
-    fireEvent.click(screen.getByRole('button', { name: '刷新消息' }));
+    expect(container.querySelector('.conversation-global-header')).toBeNull();
+    const refreshButton = screen.getByRole('button', { name: '刷新消息' });
+    expect(screen.getAllByRole('button', { name: '刷新消息' })).toHaveLength(1);
+    expect(refreshButton.closest('form')).toBe(screen.getByRole('button', { name: '查询' }).closest('form'));
+
+    fireEvent.click(refreshButton);
 
     await waitFor(() => expect(search).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText('当前地址').textContent).toContain('keyword=');
@@ -151,7 +181,7 @@ describe('ConversationGlobalPage', () => {
       page: 2,
       pageSize: 20,
     });
-    expect(container.querySelector('.dashboard-page-header')).not.toBeNull();
+    expect(container.querySelector('.conversation-global-header')).toBeNull();
     expect(container.querySelector('.dashboard-filter-bar')).not.toBeNull();
     expect(container.querySelector('.dashboard-data-card')).not.toBeNull();
     expect(container.querySelector('.dashboard-table-scroll')).not.toBeNull();
@@ -244,6 +274,19 @@ describe('ConversationGlobalPage', () => {
     expect(screen.getByText('你好')).not.toBeNull();
     expect(screen.getByLabelText('当前地址').textContent).toContain('keyword=');
     expect(loadDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens detail when clicking the conversation card and closes when clicking the backdrop', async () => {
+    renderPage({
+      search: vi.fn(() => Promise.resolve({ ...page, page: 1 })),
+      detail: vi.fn(() => Promise.resolve(detail)),
+    });
+    await screen.findByText('星河科技');
+
+    fireEvent.click(screen.getByText('请确认报价'));
+    expect(await screen.findByRole('dialog', { name: '会话详情' })).not.toBeNull();
+    fireEvent.click(screen.getByTestId('conversation-global-drawer-backdrop'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '会话详情' })).toBeNull());
   });
 
   it('shows a dedicated forbidden state', async () => {

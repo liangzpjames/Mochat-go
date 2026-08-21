@@ -38,6 +38,9 @@ func (c *RoomWelcomeWeComClient) GetUnassigned(ctx context.Context, credential R
 }
 
 func (c *RoomWelcomeWeComClient) TransferCustomer(ctx context.Context, credential RoomWelcomeCorpCredential, externalUserIDs []string, handoverUserID string, takeoverUserID string, successMsg string) (map[string]any, error) {
+	if isLocalContactTransferSimulation(credential) {
+		return map[string]any{"errcode": 0, "errmsg": "simulated success"}, nil
+	}
 	token, err := c.accessToken(ctx, credential)
 	if err != nil {
 		return nil, err
@@ -56,6 +59,9 @@ func (c *RoomWelcomeWeComClient) TransferCustomer(ctx context.Context, credentia
 }
 
 func (c *RoomWelcomeWeComClient) TransferGroupChat(ctx context.Context, credential RoomWelcomeCorpCredential, chatIDs []string, takeoverUserID string) ([]map[string]any, error) {
+	if isLocalContactTransferSimulation(credential) {
+		return []map[string]any{}, nil
+	}
 	token, err := c.accessToken(ctx, credential)
 	if err != nil {
 		return nil, err
@@ -75,6 +81,15 @@ func (c *RoomWelcomeWeComClient) TransferGroupChat(ctx context.Context, credenti
 		response.FailedChatList = []map[string]any{}
 	}
 	return response.FailedChatList, nil
+}
+
+// isLocalContactTransferSimulation is intentionally limited to the explicit
+// development fixture credentials. Real enterprise credentials always use the
+// HTTP provider path above; this keeps local seeded data testable without ever
+// treating a production credential as a simulated transfer.
+func isLocalContactTransferSimulation(credential RoomWelcomeCorpCredential) bool {
+	return strings.HasPrefix(strings.TrimSpace(credential.WXCorpID), "wwSIM") &&
+		strings.HasPrefix(strings.TrimSpace(credential.ContactSecret), "SIM-")
 }
 
 func (c *RoomWelcomeWeComClient) TransferResult(ctx context.Context, credential RoomWelcomeCorpCredential, handoverUserID string, takeoverUserID string) ([]ContactTransferStateResult, error) {

@@ -1897,7 +1897,7 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 		args = append(args, workMessageLikePattern(filter.Name))
 	}
 	var total int
-	groupColumns, groupKey := workMessageConversationGrouping()
+	groupColumns, _ := workMessageConversationGrouping()
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM (
@@ -1916,13 +1916,11 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 	offset := (filter.Page - 1) * filter.PerPage
 	queryArgs := append(append([]any{}, args...), filter.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time`+archiveSourceProjectionForState(registryState)+`
+		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time, COALESCE(msg_type, 100), CASE WHEN COALESCE(is_current_user, 0) = 1 THEN 'outbound' ELSE 'inbound' END`+archiveSourceProjectionForState(registryState)+`
 		FROM (
 			SELECT wm.*`+archiveSourceInnerProjectionForState(registryState)+`,
-			       @rn := IF(@grp = `+groupKey+`, @rn + 1, 1) AS rn,
-			       @grp := `+groupKey+` AS grp
+			       `+workMessageConversationRankingExpression()+`
 			FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
-			CROSS JOIN (SELECT @rn := 0, @grp := '') vars
 			WHERE `+whereSQL+`
 			ORDER BY wm.work_employee_id, wm.to_user_type, wm.to_user_id,
 			         wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC
@@ -2703,8 +2701,21 @@ func workMessageTableSQL(_ int, index int) string {
 	return workMessageTableSQLWithWhere(0, index, "")
 }
 
+// workMessageEffectiveTargetIDSQL returns the canonical conversation target
+// used by all archive projections. External group rows may carry the room id
+// in room_id while to_user_id is zero; keeping this expression in one place
+// prevents list, detail and trajectory queries from diverging.
+func workMessageEffectiveTargetIDSQL(alias string) string {
+	alias = strings.TrimSuffix(strings.TrimSpace(alias), ".")
+	if alias != "" {
+		alias += "."
+	}
+	return `CASE WHEN COALESCE(` + alias + `to_user_type, 0) = 2 THEN COALESCE(NULLIF(` + alias + `to_user_id, 0), NULLIF(` + alias + `room_id, 0), 0) ELSE COALESCE(` + alias + `to_user_id, 0) END`
+}
+
 func workMessageTableSQLWithWhere(_ int, index int, where string) string {
 	table := fmt.Sprintf("mc_work_message_%d", index)
+	effectiveTargetID := workMessageEffectiveTargetIDSQL("wm")
 	extraWhere := ""
 	if strings.TrimSpace(where) != "" && strings.TrimSpace(where) != "1 = 1" {
 		extraWhere = " AND (" + where + ")"
@@ -2718,7 +2729,7 @@ func workMessageTableSQLWithWhere(_ int, index int, where string) string {
 			COALESCE(wm.corp_id, 0) AS corp_id,
 			COALESCE(wm.work_employee_id, 0) AS work_employee_id,
 			COALESCE(wm.to_user_type, 0) AS to_user_type,
-			COALESCE(wm.to_user_id, 0) AS to_user_id,
+			` + effectiveTargetID + ` AS to_user_id,
 			COALESCE(wm.action, 0) AS action,
 			COALESCE(wm.msg_type, wm.type, 100) AS msg_type,
 			COALESCE(CAST(wm.content AS CHAR), '') AS content_raw,
@@ -2743,7 +2754,7 @@ func workMessageTableSQLWithWhere(_ int, index int, where string) string {
 		LEFT JOIN mc_work_employee sender ON sender.id = wm.work_employee_id AND sender.corp_id = wm.corp_id AND sender.deleted_at IS NULL
 		LEFT JOIN mc_work_employee target_employee ON wm.to_user_type = 0 AND target_employee.id = wm.to_user_id AND target_employee.corp_id = wm.corp_id AND target_employee.deleted_at IS NULL
 		LEFT JOIN mc_work_contact target_contact ON wm.to_user_type = 1 AND target_contact.id = wm.to_user_id AND target_contact.corp_id = wm.corp_id AND target_contact.deleted_at IS NULL
-		LEFT JOIN mc_work_room target_room ON wm.to_user_type = 2 AND target_room.id = wm.to_user_id AND target_room.corp_id = wm.corp_id AND target_room.deleted_at IS NULL
+		LEFT JOIN mc_work_room target_room ON wm.to_user_type = 2 AND target_room.id = ` + effectiveTargetID + ` AND target_room.corp_id = wm.corp_id AND target_room.deleted_at IS NULL
 		WHERE wm.corp_id = ? AND wm.deleted_at IS NULL` + extraWhere + `
 	`
 }
@@ -2758,7 +2769,7 @@ func scanWorkMessageToUserRowWithSource(rows *sql.Rows, registryAvailable bool) 
 	var employeeName, employeeAvatar, name, alias, avatar, content, archiveSource, archiveSourceID sql.NullString
 	dest := []any{&item.ID, &item.TableIndex, &item.Seq, &item.MsgID,
 		&item.WorkEmployeeID, &employeeName, &employeeAvatar, &item.ToUserType, &item.ToUserID,
-		&name, &alias, &avatar, &content, &msgDataTime}
+		&name, &alias, &avatar, &content, &msgDataTime, &item.Type, &item.Direction}
 	if registryAvailable {
 		dest = append(dest, &archiveSource, &archiveSourceID)
 	}
@@ -2777,6 +2788,9 @@ func scanWorkMessageToUserRowWithSource(rows *sql.Rows, registryAvailable bool) 
 		item.ArchiveSource, item.ArchiveSourceID = nullString(archiveSource), nullString(archiveSourceID)
 	} else {
 		item.ArchiveSource, item.ArchiveSourceID = "external", "wecom"
+	}
+	if item.Direction == "" {
+		item.Direction = "inbound"
 	}
 	return item, nil
 }
@@ -2845,8 +2859,8 @@ func workMessageUserBaseWhere(filter dashboard.WorkMessageUserFilter, prefix str
 		return "1 = 0", nil
 	}
 	column := func(name string) string { return prefix + name }
-	where := make([]string, 0, 7)
-	args := make([]any, 0, 8)
+	where := make([]string, 0, 8)
+	args := make([]any, 0, 10)
 	if (!filter.AllowAllEmployees && !filter.RestrictEmployeeIDs) || filter.WorkEmployeeID > 0 {
 		where = append(where, column("work_employee_id")+" = ?")
 		args = append(args, filter.WorkEmployeeID)
@@ -2856,7 +2870,13 @@ func workMessageUserBaseWhere(filter dashboard.WorkMessageUserFilter, prefix str
 		args = append(args, filter.ToUserType)
 	}
 	if filter.ToUserID > 0 {
-		where = append(where, column("to_user_id")+" = ?")
+		targetColumn := column("to_user_id")
+		if filter.ToUserType == 2 && strings.TrimSpace(prefix) != "" {
+			// The raw archive row can store an external room id in room_id.
+			// Use the same canonical expression as the union projection.
+			targetColumn = workMessageEffectiveTargetIDSQL(prefix)
+		}
+		where = append(where, targetColumn+" = ?")
 		args = append(args, filter.ToUserID)
 	}
 	if filter.DateTimeStart != "" {
@@ -2866,6 +2886,36 @@ func workMessageUserBaseWhere(filter dashboard.WorkMessageUserFilter, prefix str
 	if filter.DateTimeEnd != "" {
 		where = append(where, column("msg_data_time")+" < ?")
 		args = append(args, filter.DateTimeEnd)
+	}
+	if len(filter.MessageTypes) > 0 {
+		types := uniquePositiveInts(filter.MessageTypes)
+		if len(types) == 0 {
+			return "1 = 0", args
+		}
+		where = append(where, column("msg_type")+" IN ("+placeholders(len(types))+")")
+		args = append(args, intsToAny(types)...)
+	}
+	if filter.GlobalBucket == "focused" {
+		where = append(where, `EXISTS (
+			SELECT 1 FROM mochat_go_work_message_focus focus
+			WHERE focus.tenant_id = ? AND focus.corp_id = `+column("corp_id")+` AND focus.user_id = ?
+			  AND focus.work_employee_id = `+column("work_employee_id")+`
+			  AND focus.to_user_type = `+column("to_user_type")+` AND focus.to_user_id = `+column("to_user_id")+`
+		)`)
+		args = append(args, filter.TenantID, filter.UserID)
+	}
+	if filter.GlobalBucket == "risk" || filter.GlobalBucket == "timeout" {
+		table := "mochat_go_risk_records"
+		if filter.GlobalBucket == "timeout" {
+			table = "mochat_go_timeout_records"
+		}
+		where = append(where, `EXISTS (
+			SELECT 1 FROM `+table+` flagged
+			WHERE flagged.tenant_id = ? AND flagged.corp_id = `+column("corp_id")+`
+			  AND flagged.conversation_id = CONCAT(`+column("work_employee_id")+`, ':', `+column("to_user_type")+`, ':', `+column("to_user_id")+`)
+			  AND flagged.occurred_at >= `+column("msg_data_time")+` - INTERVAL 100 YEAR
+		)`)
+		args = append(args, filter.TenantID)
 	}
 	if filter.RestrictEmployeeIDs {
 		ids := uniquePositiveInts(filter.EmployeeIDs)
@@ -2924,6 +2974,13 @@ func workMessageArchiveSource(corpID int, archiveMessageID string) (string, []an
 func workMessageConversationGrouping() (string, string) {
 	return "work_employee_id, to_user_type, to_user_id",
 		"CONCAT(wm.work_employee_id, ':', wm.to_user_type, ':', wm.to_user_id)"
+}
+
+func workMessageConversationRankingExpression() string {
+	return `ROW_NUMBER() OVER (
+		PARTITION BY wm.work_employee_id, wm.to_user_type, wm.to_user_id
+		ORDER BY wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC
+	) AS rn`
 }
 
 func workMessagePageWindow(filter dashboard.WorkMessageFilter) (string, int, bool) {

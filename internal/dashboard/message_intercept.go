@@ -91,10 +91,10 @@ type MessageInterceptRuleFilter struct {
 	Page, PerPage    int
 }
 type MessageInterceptRecordFilter struct {
-	TenantID, CorpID               int
-	Keyword, Decision, AuditStatus string
-	RuleID                         int64
-	Page, PerPage                  int
+	TenantID, CorpID                                 int
+	Keyword, Decision, AuditStatus, ConversationType string
+	RuleID                                           int64
+	Page, PerPage                                    int
 }
 type MessageInterceptRulePage struct {
 	Items   []MessageInterceptRule `json:"items"`

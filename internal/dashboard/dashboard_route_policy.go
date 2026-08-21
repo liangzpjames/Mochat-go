@@ -19,6 +19,7 @@ var exactExemptDashboardRouteContracts = []string{
 	"GET /dashboard/auth/session",
 	"POST /dashboard/auth/logout",
 	"POST /dashboard/user/securityMFA",
+	"POST /dashboard/contactTransfer/sync",
 	"PUT /dashboard/user/logout",
 	"PUT /dashboard/user/securityMFA",
 }

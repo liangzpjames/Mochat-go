@@ -1,7 +1,7 @@
 export type DashboardOverviewCard = {
   key: string;
   label: string;
-  value: number;
+  value: number | null;
 };
 
 export type DashboardOverviewTrendPoint = {
@@ -16,20 +16,60 @@ export type DashboardOverviewAIInsight = {
   generatedAt: string;
 };
 
-export type ConversationGroupStats = {
+export type DashboardOverviewAIMetrics = {
+  analysisCount: number | null;
+  employeeNegativeEmotion: number | null;
+  customerNegativeEmotion: number | null;
+  riskBehavior: number | null;
+  sensitiveWords: number | null;
+};
+
+export type DashboardOverviewQuality = {
+  sensitiveWords: number | null;
+  riskBehavior: number | null;
+  customerLoss: number | null;
+  timeoutWarning: number | null;
+  trend: readonly DashboardOverviewQualityTrendPoint[];
+};
+
+export type DashboardOverviewQualityTrendPoint = {
+  date: string;
+  sensitiveWords: number | null;
+  riskBehavior: number | null;
+  customerLoss: number | null;
+  timeoutWarning: number | null;
+};
+
+export type DashboardOverviewEmployeeRankingItem = {
+  employeeId: number;
+  employeeName: string;
   sessions: number;
-  employeeMessages: number;
-  customerMessages: number;
+  messages: number;
+};
+
+export type DashboardOverviewTrajectoryItem = {
+  id: string;
+  targetType: string;
+  targetId: string;
+  employeeName: string;
+  messageCount: number;
+  latestAt: string;
+};
+
+export type ConversationGroupStats = {
+  sessions: number | null;
+  employeeMessages: number | null;
+  customerMessages: number | null;
 };
 
 export type ConversationTrendPoint = {
   date: string;
-  customerSessions: number;
-  customerEmployeeMessages: number;
-  customerCustomerMessages: number;
-  roomSessions: number;
-  roomEmployeeMessages: number;
-  roomCustomerMessages: number;
+  customerSessions: number | null;
+  customerEmployeeMessages: number | null;
+  customerCustomerMessages: number | null;
+  roomSessions: number | null;
+  roomEmployeeMessages: number | null;
+  roomCustomerMessages: number | null;
 };
 
 export type DashboardOverviewConversation = {
@@ -45,14 +85,14 @@ export type DashboardOverviewLimitation = {
 };
 
 export type DashboardOverviewSummary = {
-  customer: number;
-  lead: number;
-  contact: number;
-  opportunity: number;
-  won: number;
-  order: number;
-  behavior: number;
-  employee: number;
+  customer: number | null;
+  lead: number | null;
+  contact: number | null;
+  opportunity: number | null;
+  won: number | null;
+  order: number | null;
+  behavior: number | null;
+  employee: number | null;
 };
 
 export type DashboardOverview = {
@@ -61,7 +101,11 @@ export type DashboardOverview = {
   summary: DashboardOverviewSummary;
   limitations: readonly DashboardOverviewLimitation[];
   aiInsight?: DashboardOverviewAIInsight;
+  aiMetrics?: DashboardOverviewAIMetrics;
   conversation?: DashboardOverviewConversation;
+  quality?: DashboardOverviewQuality;
+  employeeRanking?: readonly DashboardOverviewEmployeeRankingItem[];
+  trajectory?: readonly DashboardOverviewTrajectoryItem[];
   updatedAt: string;
   page: number;
   pageSize: number;
@@ -99,6 +143,10 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function nullableNumber(value: unknown): number | null {
+  return isFiniteNumber(value) ? value : null;
+}
+
 const timezone = 'Asia/Shanghai';
 
 const zonedStart = (date: string) => `${date}T00:00:00+08:00`;
@@ -128,7 +176,7 @@ function formatInZone(raw: string): string {
 
 function parseSummary(value: unknown): DashboardOverviewSummary {
   const source = isRecord(value) ? value : {};
-  return Object.fromEntries(summaryKeys.map((key) => [key, isFiniteNumber(source[key]) ? source[key] : 0])) as DashboardOverviewSummary;
+  return Object.fromEntries(summaryKeys.map((key) => [key, nullableNumber(source[key])])) as DashboardOverviewSummary;
 }
 
 function parseLimitations(value: unknown): DashboardOverviewLimitation[] {
@@ -149,25 +197,77 @@ function parseAIInsight(value: unknown): DashboardOverviewAIInsight | undefined 
   };
 }
 
+function parseAIMetrics(value: unknown): DashboardOverviewAIMetrics | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    analysisCount: nullableNumber(value.analysisCount),
+    employeeNegativeEmotion: nullableNumber(value.employeeNegativeEmotion),
+    customerNegativeEmotion: nullableNumber(value.customerNegativeEmotion),
+    riskBehavior: nullableNumber(value.riskBehavior),
+    sensitiveWords: nullableNumber(value.sensitiveWords),
+  };
+}
+
+function parseQuality(value: unknown): DashboardOverviewQuality | undefined {
+  if (!isRecord(value)) return undefined;
+  const trend = Array.isArray(value.trend) ? value.trend.filter((point): point is Row =>
+    isRecord(point) && typeof point.date === 'string' && point.date !== '').map((point) => ({
+      date: point.date as string,
+      sensitiveWords: nullableNumber(point.sensitiveWords),
+      riskBehavior: nullableNumber(point.riskBehavior),
+      customerLoss: nullableNumber(point.customerLoss),
+      timeoutWarning: nullableNumber(point.timeoutWarning),
+    })) : [];
+  return {
+    sensitiveWords: nullableNumber(value.sensitiveWords),
+    riskBehavior: nullableNumber(value.riskBehavior),
+    customerLoss: nullableNumber(value.customerLoss),
+    timeoutWarning: nullableNumber(value.timeoutWarning),
+    trend,
+  };
+}
+
+function parseEmployeeRanking(value: unknown): DashboardOverviewEmployeeRankingItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((row) => ({
+    employeeId: isFiniteNumber(row.employeeId) ? row.employeeId : 0,
+    employeeName: typeof row.employeeName === 'string' ? row.employeeName : '',
+    sessions: isFiniteNumber(row.sessions) ? row.sessions : 0,
+    messages: isFiniteNumber(row.messages) ? row.messages : 0,
+  }));
+}
+
+function parseTrajectory(value: unknown): DashboardOverviewTrajectoryItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((row) => ({
+    id: typeof row.id === 'string' ? row.id : '',
+    targetType: typeof row.targetType === 'string' ? row.targetType : '',
+    targetId: typeof row.targetId === 'string' || typeof row.targetId === 'number' ? String(row.targetId) : '',
+    employeeName: typeof row.employeeName === 'string' ? row.employeeName : '',
+    messageCount: isFiniteNumber(row.messageCount) ? row.messageCount : 0,
+    latestAt: typeof row.latestAt === 'string' ? row.latestAt : '',
+  }));
+}
+
 function parseConversation(value: unknown): DashboardOverviewConversation | undefined {
   if (!isRecord(value)) return undefined;
   const group = (raw: unknown): ConversationGroupStats => {
     const source = isRecord(raw) ? raw : {};
     return {
-      sessions: isFiniteNumber(source.sessions) ? source.sessions : 0,
-      employeeMessages: isFiniteNumber(source.employeeMessages) ? source.employeeMessages : 0,
-      customerMessages: isFiniteNumber(source.customerMessages) ? source.customerMessages : 0,
+      sessions: nullableNumber(source.sessions),
+      employeeMessages: nullableNumber(source.employeeMessages),
+      customerMessages: nullableNumber(source.customerMessages),
     };
   };
   const trend = Array.isArray(value.trend)
-    ? value.trend.filter(isRecord).map((point) => ({
+      ? value.trend.filter(isRecord).map((point) => ({
         date: typeof point.date === 'string' ? point.date : '',
-        customerSessions: isFiniteNumber(point.customerSessions) ? point.customerSessions : 0,
-        customerEmployeeMessages: isFiniteNumber(point.customerEmployeeMessages) ? point.customerEmployeeMessages : 0,
-        customerCustomerMessages: isFiniteNumber(point.customerCustomerMessages) ? point.customerCustomerMessages : 0,
-        roomSessions: isFiniteNumber(point.roomSessions) ? point.roomSessions : 0,
-        roomEmployeeMessages: isFiniteNumber(point.roomEmployeeMessages) ? point.roomEmployeeMessages : 0,
-        roomCustomerMessages: isFiniteNumber(point.roomCustomerMessages) ? point.roomCustomerMessages : 0,
+        customerSessions: nullableNumber(point.customerSessions),
+        customerEmployeeMessages: nullableNumber(point.customerEmployeeMessages),
+        customerCustomerMessages: nullableNumber(point.customerCustomerMessages),
+        roomSessions: nullableNumber(point.roomSessions),
+        roomEmployeeMessages: nullableNumber(point.roomEmployeeMessages),
+        roomCustomerMessages: nullableNumber(point.roomCustomerMessages),
       }))
     : [];
   return { customer: group(value.customer), room: group(value.room), trend };
@@ -211,6 +311,12 @@ function parseOverview(value: unknown): DashboardOverview {
   if (aiInsight !== undefined) parsed.aiInsight = aiInsight;
   const conversation = parseConversation(value.conversation);
   if (conversation !== undefined) parsed.conversation = conversation;
+  const aiMetrics = parseAIMetrics(value.aiMetrics);
+  if (aiMetrics !== undefined) parsed.aiMetrics = aiMetrics;
+  const quality = parseQuality(value.quality);
+  if (quality !== undefined) parsed.quality = quality;
+  parsed.employeeRanking = parseEmployeeRanking(value.employeeRanking);
+  parsed.trajectory = parseTrajectory(value.trajectory);
   return parsed;
 }
 

@@ -88,6 +88,27 @@ func TestDefaultArchiveSourceSQLUsesRegistryForEachMode(t *testing.T) {
 	}
 }
 
+func TestWorkMessageUnionNormalizesArchivedRoomID(t *testing.T) {
+	query, _ := workMessageUnionSQL(7)
+	normalizedQuery := strings.Join(strings.Fields(query), " ")
+	effectiveRoomID := "CASE WHEN COALESCE(wm.to_user_type, 0) = 2 THEN COALESCE(NULLIF(wm.to_user_id, 0), NULLIF(wm.room_id, 0), 0) ELSE COALESCE(wm.to_user_id, 0) END AS to_user_id"
+	if got := strings.Count(normalizedQuery, effectiveRoomID); got != dashboard.WorkMessageArchiveMessageTableCount {
+		t.Fatalf("effective room id expression count=%d, want %d", got, dashboard.WorkMessageArchiveMessageTableCount)
+	}
+	if strings.Contains(query, "COALESCE(wm.to_user_id, 0) AS to_user_id") {
+		t.Fatalf("archive union still exposes raw to_user_id: %s", query)
+	}
+}
+
+func TestWorkMessageUnionUsesEffectiveRoomIDForRoomNameJoin(t *testing.T) {
+	query, _ := workMessageUnionSQL(7)
+	normalizedQuery := strings.Join(strings.Fields(query), " ")
+	join := "target_room.id = CASE WHEN COALESCE(wm.to_user_type, 0) = 2 THEN COALESCE(NULLIF(wm.to_user_id, 0), NULLIF(wm.room_id, 0), 0) ELSE COALESCE(wm.to_user_id, 0) END"
+	if got := strings.Count(normalizedQuery, join); got != dashboard.WorkMessageArchiveMessageTableCount {
+		t.Fatalf("effective room join count=%d, want %d", got, dashboard.WorkMessageArchiveMessageTableCount)
+	}
+}
+
 func TestArchiveMessageSourceFilterUsesRegistryIdentity(t *testing.T) {
 	simulated := archiveMessageSourceShardPredicate("simulated")
 	if !strings.Contains(simulated, "archive_source_filter.source_kind = 'simulated'") || strings.Contains(simulated, "MOCHAT-SIM:%") {
@@ -156,6 +177,24 @@ func TestWorkMessageUserWhereAppliesConversationFiltersAndPermissionScope(t *tes
 	}
 }
 
+func TestWorkMessageUserWhereUsesCanonicalRoomIDForOuterArchiveQuery(t *testing.T) {
+	where, args := workMessageUserWhere(dashboard.WorkMessageUserFilter{
+		AllowAllEmployees: true,
+		ToUserType:        2,
+		ToUserID:          3001,
+	})
+
+	if !strings.Contains(where, "to_user_id = ?") {
+		t.Fatalf("where=%q must filter the projected canonical room id", where)
+	}
+	if strings.Contains(where, "room_id") {
+		t.Fatalf("where=%q must not reference the raw room_id outside the archive union", where)
+	}
+	if !reflect.DeepEqual(args, []any{2, 3001}) {
+		t.Fatalf("args=%#v, want %#v", args, []any{2, 3001})
+	}
+}
+
 func TestWorkMessageUserWhereUsesRequestedEmployeeSetWithoutSingleEmployeeFallback(t *testing.T) {
 	where, args := workMessageUserWhere(dashboard.WorkMessageUserFilter{
 		AllowAllEmployees:   true,
@@ -216,6 +255,27 @@ func TestWorkMessageUserWherePreservesLegacyEmployeeRequirement(t *testing.T) {
 	}
 	if !reflect.DeepEqual(args, []any{0, 1}) {
 		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestWorkMessageUserWhereUsesMariaDBIntervalSyntaxForGlobalStatusBuckets(t *testing.T) {
+	for _, bucket := range []string{"risk", "timeout"} {
+		t.Run(bucket, func(t *testing.T) {
+			where, args := workMessageUserWhere(dashboard.WorkMessageUserFilter{
+				TenantID:          1,
+				UserID:            42,
+				CorpID:            7,
+				AllowAllEmployees: true,
+				ToUserType:        -1,
+				GlobalBucket:      bucket,
+			})
+			if strings.Contains(where, "INTERVAL 100 YEARS") || !strings.Contains(where, "INTERVAL 100 YEAR") {
+				t.Fatalf("bucket=%s where=%q", bucket, where)
+			}
+			if len(args) != 1 || args[0] != 1 {
+				t.Fatalf("bucket=%s args=%#v", bucket, args)
+			}
+		})
 	}
 }
 
@@ -372,6 +432,19 @@ func TestWorkMessagePageWindowCanBeQualifiedForRegistryJoins(t *testing.T) {
 	want := "wm.msg_data_time ASC, wm.seq ASC, wm.table_index ASC, wm.id ASC"
 	if qualified != want {
 		t.Fatalf("qualified order=%q, want %q", qualified, want)
+	}
+}
+
+func TestWorkMessageConversationRankingUsesDeterministicWindow(t *testing.T) {
+	ranking := workMessageConversationRankingExpression()
+	for _, fragment := range []string{
+		"ROW_NUMBER() OVER",
+		"PARTITION BY wm.work_employee_id, wm.to_user_type, wm.to_user_id",
+		"ORDER BY wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC",
+	} {
+		if !strings.Contains(ranking, fragment) {
+			t.Fatalf("ranking expression missing %q: %s", fragment, ranking)
+		}
 	}
 }
 

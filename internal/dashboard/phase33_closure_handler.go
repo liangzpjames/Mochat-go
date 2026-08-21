@@ -1,8 +1,11 @@
 package dashboard
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type Phase33ClosureHandler struct {
@@ -101,7 +104,8 @@ func (h *Phase33ClosureHandler) SilentRecords(w http.ResponseWriter, r *http.Req
 	p, n := pageQuery(r)
 	rid, _ := strconv.ParseInt(r.URL.Query().Get("ruleId"), 10, 64)
 	access, _ := DashboardAccessFromContext(r.Context())
-	v, e := h.provider.SilentRecordPage(r.Context(), SilentRecordFilter{TenantID: t, CorpID: c, Customer: r.URL.Query().Get("customer"), Status: r.URL.Query().Get("status"), RuleID: rid, Page: p, PerPage: n, AllowedEmployeeIDs: append([]int(nil), access.AllowedEmployeeIDs...), RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
+	assignedEmployeeID, _ := strconv.ParseInt(r.URL.Query().Get("assignedEmployeeId"), 10, 64)
+	v, e := h.provider.SilentRecordPage(r.Context(), SilentRecordFilter{TenantID: t, CorpID: c, Customer: r.URL.Query().Get("customer"), Status: r.URL.Query().Get("status"), AssignedEmployeeID: assignedEmployeeID, RuleID: rid, Page: p, PerPage: n, AllowedEmployeeIDs: append([]int(nil), access.AllowedEmployeeIDs...), RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
 	if e != nil {
 		writeEnvelope(w, 500, 500, e.Error(), nil)
 		return
@@ -165,12 +169,45 @@ func (h *Phase33ClosureHandler) RefuseRecords(w http.ResponseWriter, r *http.Req
 		return
 	}
 	p, n := pageQuery(r)
-	v, e := h.provider.RefuseArchivePage(r.Context(), RefuseArchiveFilter{TenantID: t, CorpID: c, Subject: r.URL.Query().Get("subject"), AuthorizationStatus: r.URL.Query().Get("authorizationStatus"), FollowUpStatus: r.URL.Query().Get("followUpStatus"), Page: p, PerPage: n})
+	refusedFrom, refusedTo, dateErr := refuseArchiveDateRange(r)
+	if dateErr != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, dateErr.Error(), nil)
+		return
+	}
+	employeeID := int64(0)
+	if rawEmployeeID := strings.TrimSpace(r.URL.Query().Get("employeeId")); rawEmployeeID != "" {
+		parsed, err := strconv.ParseInt(rawEmployeeID, 10, 64)
+		if err != nil || parsed <= 0 {
+			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "关联员工参数无效", nil)
+			return
+		}
+		employeeID = parsed
+	}
+	v, e := h.provider.RefuseArchivePage(r.Context(), RefuseArchiveFilter{
+		TenantID: t, CorpID: c, Subject: r.URL.Query().Get("subject"), SubjectType: r.URL.Query().Get("subjectType"), EmployeeID: employeeID,
+		RefusedFrom: refusedFrom, RefusedTo: refusedTo, AuthorizationStatus: r.URL.Query().Get("authorizationStatus"), FollowUpStatus: r.URL.Query().Get("followUpStatus"), Page: p, PerPage: n,
+	})
 	if e != nil {
 		writeEnvelope(w, 500, 500, e.Error(), nil)
 		return
 	}
 	writeEnvelope(w, 200, 0, "ok", v)
+}
+
+func refuseArchiveDateRange(r *http.Request) (string, string, error) {
+	from, to := strings.TrimSpace(r.URL.Query().Get("refusedFrom")), strings.TrimSpace(r.URL.Query().Get("refusedTo"))
+	for _, value := range []string{from, to} {
+		if value == "" {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", value); err != nil {
+			return "", "", errors.New("拒绝日期格式必须为 YYYY-MM-DD")
+		}
+	}
+	if from != "" && to != "" && from > to {
+		return "", "", errors.New("拒绝开始日期不能晚于结束日期")
+	}
+	return from, to, nil
 }
 func (h *Phase33ClosureHandler) SyncRefuse(w http.ResponseWriter, r *http.Request) {
 	t, c, a, ok := h.base.resolve(w, r, "/chat/refuse-archive#sync")

@@ -309,7 +309,7 @@ func (h *MessageInterceptHandler) Records(w http.ResponseWriter, r *http.Request
 	}
 	p, n := pageQuery(r)
 	rid, _ := strconv.ParseInt(r.URL.Query().Get("ruleId"), 10, 64)
-	v, e := h.provider.MessageInterceptRecordPage(r.Context(), MessageInterceptRecordFilter{TenantID: t, CorpID: c, RuleID: rid, Keyword: r.URL.Query().Get("keyword"), Decision: r.URL.Query().Get("decision"), AuditStatus: r.URL.Query().Get("auditStatus"), Page: p, PerPage: n})
+	v, e := h.provider.MessageInterceptRecordPage(r.Context(), MessageInterceptRecordFilter{TenantID: t, CorpID: c, RuleID: rid, Keyword: r.URL.Query().Get("keyword"), Decision: r.URL.Query().Get("decision"), AuditStatus: r.URL.Query().Get("auditStatus"), ConversationType: r.URL.Query().Get("conversationType"), Page: p, PerPage: n})
 	if e != nil {
 		writeEnvelope(w, 500, 500, e.Error(), nil)
 		return

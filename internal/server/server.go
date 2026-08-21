@@ -276,6 +276,7 @@ type Server struct {
 	sensitiveWordGroupStore                         http.Handler
 	sensitiveWordGroupUpdate                        http.Handler
 	sensitiveWordsMonitorIndex                      http.Handler
+	sensitiveWordsMonitorStatus                     http.Handler
 	sensitiveWordsMonitorShow                       http.Handler
 	contactSOPIndex                                 http.Handler
 	contactSOPStore                                 http.Handler
@@ -337,6 +338,22 @@ type Server struct {
 	autoTagShowContactTime                          http.Handler
 	workMessageFromUsers                            http.Handler
 	workMessageToUsers                              http.Handler
+	workMessageGlobalOverview                       http.Handler
+	workMessageFocus                                http.Handler
+	workMessageStaffDirectory                       http.Handler
+	workMessageStaffDetail                          http.Handler
+	workMessageTrajectoryDay                        http.Handler
+	workMessageCustomerDirectory                    http.Handler
+	workMessageCustomerConversations                http.Handler
+	workMessageCustomerDetail                       http.Handler
+	workMessageRoomDirectory                        http.Handler
+	workMessageRoomProfile                          http.Handler
+	workMessageRoomMessages                         http.Handler
+	workMessageRoomMembers                          http.Handler
+	workMessageRoomFilterOptions                    http.Handler
+	workMessageExportCandidates                     http.Handler
+	workMessageExportTasks                          http.Handler
+	workMessageExportDownload                       http.Handler
 	riskBehaviorRules                               http.Handler
 	riskBehaviorRecords                             http.Handler
 	riskBehaviorRuleCreate                          http.Handler
@@ -345,6 +362,8 @@ type Server struct {
 	riskBehaviorRuleDelete                          http.Handler
 	riskBehaviorRecordsAudit                        http.Handler
 	riskBehaviorEvaluate                            http.Handler
+	riskBehaviorRecordDetail                        http.Handler
+	riskBehaviorScannerStatus                       http.Handler
 	timeoutWarningRules                             http.Handler
 	timeoutWarningRecords                           http.Handler
 	timeoutWarningRuleCreate                        http.Handler
@@ -2195,6 +2214,12 @@ func WithSensitiveWordsMonitorIndexHandler(handler http.Handler) Option {
 	}
 }
 
+func WithSensitiveWordsMonitorStatusHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.sensitiveWordsMonitorStatus = handler
+	}
+}
+
 func WithSensitiveWordsMonitorShowHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.sensitiveWordsMonitorShow = handler
@@ -2561,6 +2586,94 @@ func WithWorkMessageToUsersHandler(handler http.Handler) Option {
 	}
 }
 
+func WithWorkMessageGlobalOverviewHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageGlobalOverview = handler
+	}
+}
+
+func WithWorkMessageFocusHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageFocus = handler
+	}
+}
+
+func WithWorkMessageStaffDirectoryHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageStaffDirectory = handler
+	}
+}
+
+func WithWorkMessageStaffDetailHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageStaffDetail = handler
+	}
+}
+
+func WithWorkMessageTrajectoryDayHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageTrajectoryDay = handler
+	}
+}
+func WithWorkMessageCustomerDirectoryHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageCustomerDirectory = handler
+	}
+}
+
+func WithWorkMessageCustomerConversationsHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageCustomerConversations = handler
+	}
+}
+
+func WithWorkMessageCustomerDetailHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageCustomerDetail = handler
+	}
+}
+
+func WithWorkMessageRoomDirectoryHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomDirectory = handler
+	}
+}
+
+func WithWorkMessageRoomProfileHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomProfile = handler
+	}
+}
+
+func WithWorkMessageRoomMessagesHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomMessages = handler
+	}
+}
+
+func WithWorkMessageRoomMembersHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomMembers = handler
+	}
+}
+
+func WithWorkMessageRoomFilterOptionsHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.workMessageRoomFilterOptions = handler
+	}
+}
+
+func WithWorkMessageExportCandidatesHandler(handler http.Handler) Option {
+	return func(server *Server) { server.workMessageExportCandidates = handler }
+}
+
+func WithWorkMessageExportTasksHandler(handler http.Handler) Option {
+	return func(server *Server) { server.workMessageExportTasks = handler }
+}
+
+func WithWorkMessageExportDownloadHandler(handler http.Handler) Option {
+	return func(server *Server) { server.workMessageExportDownload = handler }
+}
 func WithRiskBehaviorRulesHandler(handler http.Handler) Option {
 	return func(server *Server) { server.riskBehaviorRules = handler }
 }
@@ -2584,6 +2697,12 @@ func WithRiskBehaviorRecordsAuditHandler(handler http.Handler) Option {
 }
 func WithRiskBehaviorEvaluateHandler(handler http.Handler) Option {
 	return func(server *Server) { server.riskBehaviorEvaluate = handler }
+}
+func WithRiskBehaviorRecordDetailHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorRecordDetail = handler }
+}
+func WithRiskBehaviorScannerStatusHandler(handler http.Handler) Option {
+	return func(server *Server) { server.riskBehaviorScannerStatus = handler }
 }
 func WithTimeoutWarningRulesHandler(handler http.Handler) Option {
 	return func(s *Server) { s.timeoutWarningRules = handler }
@@ -4569,6 +4688,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.contactTransferLog.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/contactTransfer/saveUnassignedList" && r.Method == http.MethodGet && s.contactTransferSync != nil:
 		s.contactTransferSync.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/contactTransfer/sync" && r.Method == http.MethodPost && s.contactTransferSync != nil:
+		s.contactTransferSync.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/contactTransfer/index" && r.Method == http.MethodPost && s.contactTransferCustomer != nil:
 		s.contactTransferCustomer.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/contactTransfer/room" && r.Method == http.MethodPost && s.contactTransferRoomStore != nil:
@@ -4927,6 +5048,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.sensitiveWordGroupUpdate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/sensitiveWordsMonitor/index" && r.Method == http.MethodGet && s.sensitiveWordsMonitorIndex != nil:
 		s.sensitiveWordsMonitorIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/sensitiveWordsMonitor/status" && r.Method == http.MethodGet && s.sensitiveWordsMonitorStatus != nil:
+		s.sensitiveWordsMonitorStatus.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/sensitiveWordsMonitor/show" && r.Method == http.MethodGet && s.sensitiveWordsMonitorShow != nil:
 		s.sensitiveWordsMonitorShow.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/contactSop/index" && r.Method == http.MethodGet && s.contactSOPIndex != nil:
@@ -5049,10 +5172,46 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageFromUsers.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/toUsers" && r.Method == http.MethodGet && s.workMessageToUsers != nil:
 		s.workMessageToUsers.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/globalOverview" && r.Method == http.MethodGet && s.workMessageGlobalOverview != nil:
+		s.workMessageGlobalOverview.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/focus" && (r.Method == http.MethodPut || r.Method == http.MethodDelete) && s.workMessageFocus != nil:
+		s.workMessageFocus.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/staffDirectory" && r.Method == http.MethodGet && s.workMessageStaffDirectory != nil:
+		s.workMessageStaffDirectory.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/staffDetail" && r.Method == http.MethodGet && s.workMessageStaffDetail != nil:
+		s.workMessageStaffDetail.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/trajectoryDay" && r.Method == http.MethodGet && s.workMessageTrajectoryDay != nil:
+		s.workMessageTrajectoryDay.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/customerDirectory" && r.Method == http.MethodGet && s.workMessageCustomerDirectory != nil:
+		s.workMessageCustomerDirectory.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/customerConversations" && r.Method == http.MethodGet && s.workMessageCustomerConversations != nil:
+		s.workMessageCustomerConversations.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/customerDetail" && r.Method == http.MethodGet && s.workMessageCustomerDetail != nil:
+		s.workMessageCustomerDetail.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomDirectory" && r.Method == http.MethodGet && s.workMessageRoomDirectory != nil:
+		s.workMessageRoomDirectory.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomProfile" && r.Method == http.MethodGet && s.workMessageRoomProfile != nil:
+		s.workMessageRoomProfile.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomMessages" && r.Method == http.MethodGet && s.workMessageRoomMessages != nil:
+		s.workMessageRoomMessages.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomMembers" && r.Method == http.MethodGet && s.workMessageRoomMembers != nil:
+		s.workMessageRoomMembers.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/roomFilterOptions" && r.Method == http.MethodGet && s.workMessageRoomFilterOptions != nil:
+		s.workMessageRoomFilterOptions.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/exportCandidates" && r.Method == http.MethodGet && s.workMessageExportCandidates != nil:
+		s.workMessageExportCandidates.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/exportTasks" && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.workMessageExportTasks != nil:
+		s.workMessageExportTasks.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/workMessage/exportDownload" && r.Method == http.MethodGet && s.workMessageExportDownload != nil:
+		s.workMessageExportDownload.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodGet && s.riskBehaviorRules != nil:
 		s.riskBehaviorRules.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/records" && r.Method == http.MethodGet && s.riskBehaviorRecords != nil:
 		s.riskBehaviorRecords.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/records/detail" && r.Method == http.MethodGet && s.riskBehaviorRecordDetail != nil:
+		s.riskBehaviorRecordDetail.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/risk/scanner-status" && r.Method == http.MethodGet && s.riskBehaviorScannerStatus != nil:
+		s.riskBehaviorScannerStatus.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodPost && s.riskBehaviorRuleCreate != nil:
 		s.riskBehaviorRuleCreate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodPut && s.riskBehaviorRuleUpdate != nil:
@@ -6146,6 +6305,7 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.contactTransferSync != nil {
 		routes = append(routes, "GET /dashboard/contactTransfer/saveUnassignedList")
+		routes = append(routes, "POST /dashboard/contactTransfer/sync")
 	}
 	if s.contactTransferCustomer != nil {
 		routes = append(routes, "POST /dashboard/contactTransfer/index")
@@ -6690,6 +6850,9 @@ func (s *Server) migratedRoutes() []string {
 	if s.sensitiveWordsMonitorIndex != nil {
 		routes = append(routes, "GET /dashboard/sensitiveWordsMonitor/index")
 	}
+	if s.sensitiveWordsMonitorStatus != nil {
+		routes = append(routes, "GET /dashboard/sensitiveWordsMonitor/status")
+	}
 	if s.sensitiveWordsMonitorShow != nil {
 		routes = append(routes, "GET /dashboard/sensitiveWordsMonitor/show")
 	}
@@ -6873,6 +7036,54 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.workMessageToUsers != nil {
 		routes = append(routes, "GET /dashboard/workMessage/toUsers")
+	}
+	if s.workMessageGlobalOverview != nil {
+		routes = append(routes, "GET /dashboard/workMessage/globalOverview")
+	}
+	if s.workMessageFocus != nil {
+		routes = append(routes, "PUT|DELETE /dashboard/workMessage/focus")
+	}
+	if s.workMessageStaffDirectory != nil {
+		routes = append(routes, "GET /dashboard/workMessage/staffDirectory")
+	}
+	if s.workMessageStaffDetail != nil {
+		routes = append(routes, "GET /dashboard/workMessage/staffDetail")
+	}
+	if s.workMessageTrajectoryDay != nil {
+		routes = append(routes, "GET /dashboard/workMessage/trajectoryDay")
+	}
+	if s.workMessageCustomerDirectory != nil {
+		routes = append(routes, "GET /dashboard/workMessage/customerDirectory")
+	}
+	if s.workMessageCustomerConversations != nil {
+		routes = append(routes, "GET /dashboard/workMessage/customerConversations")
+	}
+	if s.workMessageCustomerDetail != nil {
+		routes = append(routes, "GET /dashboard/workMessage/customerDetail")
+	}
+	if s.workMessageRoomDirectory != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomDirectory")
+	}
+	if s.workMessageRoomProfile != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomProfile")
+	}
+	if s.workMessageRoomMessages != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomMessages")
+	}
+	if s.workMessageRoomMembers != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomMembers")
+	}
+	if s.workMessageRoomFilterOptions != nil {
+		routes = append(routes, "GET /dashboard/workMessage/roomFilterOptions")
+	}
+	if s.workMessageExportCandidates != nil {
+		routes = append(routes, "GET /dashboard/workMessage/exportCandidates")
+	}
+	if s.workMessageExportTasks != nil {
+		routes = append(routes, "GET|POST /dashboard/workMessage/exportTasks")
+	}
+	if s.workMessageExportDownload != nil {
+		routes = append(routes, "GET /dashboard/workMessage/exportDownload")
 	}
 	if s.workMessageIndex != nil {
 		routes = append(routes, "GET /dashboard/workMessage/index", "GET /dashboard/workMessage/detail")

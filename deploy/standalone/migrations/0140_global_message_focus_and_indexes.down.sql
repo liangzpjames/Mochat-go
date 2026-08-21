@@ -1,0 +1,11 @@
+ALTER TABLE `mc_work_message_10` DROP INDEX `idx_mc_work_message_10_global`;
+ALTER TABLE `mc_work_message_9` DROP INDEX `idx_mc_work_message_9_global`;
+ALTER TABLE `mc_work_message_8` DROP INDEX `idx_mc_work_message_8_global`;
+ALTER TABLE `mc_work_message_7` DROP INDEX `idx_mc_work_message_7_global`;
+ALTER TABLE `mc_work_message_6` DROP INDEX `idx_mc_work_message_6_global`;
+ALTER TABLE `mc_work_message_5` DROP INDEX `idx_mc_work_message_5_global`;
+ALTER TABLE `mc_work_message_4` DROP INDEX `idx_mc_work_message_4_global`;
+ALTER TABLE `mc_work_message_3` DROP INDEX `idx_mc_work_message_3_global`;
+ALTER TABLE `mc_work_message_2` DROP INDEX `idx_mc_work_message_2_global`;
+ALTER TABLE `mc_work_message_1` DROP INDEX `idx_mc_work_message_1_global`;
+DROP TABLE IF EXISTS `mochat_go_work_message_focus`;

@@ -39,15 +39,22 @@ import { businessRouteCatalog } from './features/business-workbench/catalog';
 import { createDashboardOverviewApi } from './features/dashboard-overview/dashboard-overview-api';
 import { createConversationGlobalApi } from './features/conversation-global/conversation-global-api';
 import { createSensitiveWordApi } from './features/sensitive-word/sensitive-word-api';
+import { createRiskBehaviorApi } from './features/phase33/risk-behavior-api';
 import { createLeadApi } from './features/scrm/lead-api';
 import { createScrmApi } from './features/scrm/scrm-api';
 import { createContactApi } from './features/scrm/contact-api';
 import { createAISettingsApi } from './features/ai-settings/ai-settings-api';
 import { createAiInsightApi } from './features/ai-insight/ai-insight-api';
+import { createAiInsightWorkspaceApi } from './features/ai-insight/ai-insight-workspace-api';
 import { createFileAudioApi } from './features/phase35/file-audio-api';
+import { createRefuseArchiveApi } from './features/conversation-operations/refuse-archive-api';
+import { createContactTransferApi } from './features/conversation-operations/contact-transfer-api';
 import { createCompanyProfileApi } from './features/company-settings/company-profile-api';
 import { createProviderStatusApi } from './features/provider-status/provider-status-api';
 import './styles/index.css';
+import './styles/conversation-operations.css';
+import './styles/risk-warning-workspace.css';
+import './styles/ai-insight-workspace.css';
 
 const PasswordPage = lazy(async () => ({ default: (await import('./features/password/password-page')).PasswordPage }));
 const EmployeePage = lazy(async () => ({ default: (await import('./features/employee/employee-page')).EmployeePage }));
@@ -104,12 +111,16 @@ const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
 const dashboardOverviewApi = createDashboardOverviewApi(apiClient);
 const conversationGlobalApi = createConversationGlobalApi(apiClient);
 const sensitiveWordApi = createSensitiveWordApi(apiClient);
+const riskBehaviorApi = createRiskBehaviorApi(apiClient);
 const leadApi = createLeadApi(apiClient);
 const scrmApi = createScrmApi(apiClient);
 const contactApi = createContactApi(apiClient);
 const aiSettingsApi = createAISettingsApi(apiClient);
 const aiInsightApi = createAiInsightApi(apiClient);
+const aiInsightWorkspaceApi = createAiInsightWorkspaceApi(apiClient);
 const fileAudioApi = createFileAudioApi(apiClient);
+const refuseArchiveApi = createRefuseArchiveApi(apiClient);
+const contactTransferApi = createContactTransferApi(apiClient);
 const migratedPages = Object.fromEntries(
   Object.entries(businessRouteCatalog).map(([path, config]) => [
     path,
@@ -156,13 +167,17 @@ const router = createDashboardRouter({
         dashboardOverviewApi,
         conversationGlobalApi,
         sensitiveWordApi,
+        riskBehaviorApi,
         leadApi,
         scrmApi,
         contactApi,
         businessWorkbenchApi,
         aiSettingsApi,
         aiInsightApi,
+        aiInsightWorkspaceApi,
         fileAudioApi,
+        refuseArchiveApi,
+        contactTransferApi,
         companyProfileApi,
         providerStatusApi,
         onTenantAccessDenied: handleUnauthorized,

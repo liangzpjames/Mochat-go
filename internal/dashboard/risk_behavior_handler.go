@@ -4,15 +4,22 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type RiskBehaviorHandler struct {
-	provider   RiskBehaviorProvider
-	authorizer CorpAdminAuthorizer
+	provider       RiskBehaviorProvider
+	authorizer     CorpAdminAuthorizer
+	scannerEnabled bool
 }
 
 func NewRiskBehaviorHandler(provider RiskBehaviorProvider, _ LoginCache, _ UserIDResolver, authorizer CorpAdminAuthorizer) *RiskBehaviorHandler {
 	return &RiskBehaviorHandler{provider: provider, authorizer: authorizer}
+}
+
+func (h *RiskBehaviorHandler) WithScannerEnabled(enabled bool) *RiskBehaviorHandler {
+	h.scannerEnabled = enabled
+	return h
 }
 func (h *RiskBehaviorHandler) resolve(w http.ResponseWriter, r *http.Request, permission string) (int, int, bool) {
 	identity, err := ResolveDashboardHandlerIdentity(r.Context())
@@ -51,12 +58,76 @@ func (h *RiskBehaviorHandler) Records(w http.ResponseWriter, r *http.Request) {
 	per, _ := strconv.Atoi(r.URL.Query().Get("perPage"))
 	ruleID, _ := strconv.ParseInt(r.URL.Query().Get("ruleId"), 10, 64)
 	access, _ := DashboardAccessFromContext(r.Context())
-	result, err := h.provider.RiskRecordPage(r.Context(), RiskRecordFilter{TenantID: tenant, CorpID: corp, RiskLevel: r.URL.Query().Get("riskLevel"), Behavior: r.URL.Query().Get("behavior"), ConversationType: r.URL.Query().Get("conversationType"), RuleID: ruleID, Page: page, PerPage: per, AllowedEmployeeIDs: append([]int(nil), access.AllowedEmployeeIDs...), RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
+	result, err := h.provider.RiskRecordPage(r.Context(), RiskRecordFilter{TenantID: tenant, CorpID: corp, RiskLevel: r.URL.Query().Get("riskLevel"), Behavior: r.URL.Query().Get("behavior"), ConversationType: r.URL.Query().Get("conversationType"), AuditStatus: r.URL.Query().Get("auditStatus"), OccurredFrom: r.URL.Query().Get("occurredFrom"), OccurredTo: r.URL.Query().Get("occurredTo"), RuleID: ruleID, Page: page, PerPage: per, EmployeeIDs: parseRiskEmployeeIDs(r.URL.Query().Get("employeeIds")), AllowedEmployeeIDs: append([]int(nil), access.AllowedEmployeeIDs...), RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
 	writeEnvelope(w, http.StatusOK, 0, "ok", result)
+}
+
+func parseRiskEmployeeIDs(value string) []int {
+	parts := strings.Split(value, ",")
+	result := make([]int, 0, len(parts))
+	for _, part := range parts {
+		id, err := strconv.Atoi(strings.TrimSpace(part))
+		if err == nil && id > 0 {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+func (h *RiskBehaviorHandler) RecordDetail(w http.ResponseWriter, r *http.Request) {
+	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#read")
+	if !ok {
+		return
+	}
+	provider, ok := h.provider.(RiskRecordDetailProvider)
+	if !ok {
+		writeEnvelope(w, http.StatusNotImplemented, http.StatusNotImplemented, "风险详情能力未启用", nil)
+		return
+	}
+	id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	access, _ := DashboardAccessFromContext(r.Context())
+	result, err := provider.RiskRecordDetail(r.Context(), RiskRecordDetailFilter{TenantID: tenant, CorpID: corp, ID: id, AllowedEmployeeIDs: append([]int(nil), access.AllowedEmployeeIDs...), RestrictEmployeeIDs: access.ScopeRequired && access.Scope != DataScopeTenant})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "不存在") {
+			status = http.StatusNotFound
+		}
+		writeEnvelope(w, status, status, err.Error(), nil)
+		return
+	}
+	if result.Record.ID <= 0 {
+		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "风险记录不存在", nil)
+		return
+	}
+	writeEnvelope(w, http.StatusOK, 0, "ok", result)
+}
+
+func (h *RiskBehaviorHandler) ScannerStatus(w http.ResponseWriter, r *http.Request) {
+	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#read")
+	if !ok {
+		return
+	}
+	state := RiskScanStatus{Enabled: h.scannerEnabled, State: "never_run"}
+	if !h.scannerEnabled {
+		state.State = "disabled"
+	}
+	if provider, ok := h.provider.(RiskScanStatusProvider); ok {
+		stored, err := provider.RiskScanStatus(r.Context(), tenant, corp)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			return
+		}
+		stored.Enabled = h.scannerEnabled
+		if !h.scannerEnabled {
+			stored.State = "disabled"
+		}
+		state = stored
+	}
+	writeEnvelope(w, http.StatusOK, 0, "ok", state)
 }
 
 func (h *RiskBehaviorHandler) CreateRule(w http.ResponseWriter, r *http.Request) {

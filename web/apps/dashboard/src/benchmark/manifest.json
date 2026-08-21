@@ -392,8 +392,8 @@
       "risk": "medium",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-session-analysis/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
+        "spec": "docs/superpowers/specs/2026-08-21-ai-insight-session-smart-yuanhu-design.md",
+        "acceptance": "docs/reviews/2026-08-21-ai-insight-session-smart-acceptance.zh-CN.md"
       }
     },
     {
@@ -411,8 +411,8 @@
       "risk": "low",
       "legacyRoutes": [],
       "evidence": {
-        "spec": "docs/phases/phase-3-dashboard/phase-3.2/pages-ai-insight-smart-analysis/spec.md",
-        "acceptance": "docs/phases/phase-3-dashboard/debt-clearance/2026-08-07-debt-clearance-acceptance.zh-CN.md"
+        "spec": "docs/superpowers/specs/2026-08-21-ai-insight-session-smart-yuanhu-design.md",
+        "acceptance": "docs/reviews/2026-08-21-ai-insight-session-smart-acceptance.zh-CN.md"
       }
     },
     {

@@ -5,17 +5,24 @@ import { MemoryRouter, RouterProvider } from 'react-router';
 import { benchmarkManifest, type BenchmarkManifest } from './benchmark-manifest';
 import { createBenchmarkP0Pages, createPageRegistry } from './page-registry';
 import { FileAudioPage } from '../features/phase35/file-audio-page';
+import { ResignedEmployeePage } from '../features/conversation-operations/resigned-employee-page';
+import { RefuseArchivePage } from '../features/conversation-operations/refuse-archive-page';
+import { CustomerInheritancePage } from '../features/conversation-operations/customer-inheritance-page';
 import { createDashboardRouter } from '../app/router';
 import { DashboardSessionActionsProvider } from '../features/auth/session-actions';
 import { ConversationGlobalPage } from '../features/conversation-global/conversation-global-page';
 import { EmployeeConversationPage } from '../features/conversation-global/employee-conversation-page';
+import { CustomerConversationPage } from '../features/conversation-global/customer-conversation-page';
+import { GroupConversationPage } from '../features/conversation-global/group-conversation-page';
 import { ConversationTrajectoryPage } from '../features/conversation-global/conversation-trajectory-page';
 import { ConversationExportPage } from '../features/conversation-global/conversation-export-page';
 import { RiskWarningPage } from '../features/phase33/risk-warning-pages';
+import { CustomerLossPage } from '../features/phase33/customer-loss-page';
 import { RiskBehaviorPage } from '../features/phase33/risk-behavior-page';
 import { TimeoutWarningPage } from '../features/phase33/timeout-warning-page';
-import { KeywordLibraryPage, MessageInterceptPage } from '../features/phase33/message-intercept-pages';
-import { SilentCustomerPage } from '../features/phase33/phase33-closure-pages';
+import { KeywordLibraryPage } from '../features/phase33/keyword-library-page';
+import { MessageInterceptPage } from '../features/phase33/message-intercept-page';
+import { SilentCustomerPage } from '../features/phase33/silent-customer-page';
 import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../features/phase34/acquisition-pages';
 import { GroupTemplatePage, RedirectLinkPage, WechatCustomerServicePage } from '../features/phase34/conversion-pages';
 import { FriendsCirclePage, PreciseGroupSendPage } from '../features/phase34/content-reach-pages';
@@ -107,12 +114,26 @@ describe('createPageRegistry', () => {
       dashboardOverviewApi: { load: () => Promise.resolve(emptyOverview), exportCsv: () => Promise.resolve(new Blob()) },
       conversationGlobalApi: { search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }), detail: () => Promise.reject(new Error('not loaded')) },
       businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
-      fileAudioApi: { list: () => Promise.resolve({ list: [], total: 0, page: 1, perPage: 20 }), upload: () => Promise.resolve({ id: 1, playUrl: '' }), remove: () => Promise.resolve({ id: 1 }) },
+      fileAudioApi: { list: () => Promise.resolve({ list: [], total: 0, page: 1, perPage: 20 }) },
     });
     expect((pages['/chat/file-audio'] as { type?: unknown }).type).toBe(FileAudioPage);
   });
 
-  it('registers customer and room pages with fixed conversation scopes', () => {
+  it('registers all four conversation operation pages with their typed APIs', () => {
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: { load: () => Promise.resolve(emptyOverview), exportCsv: () => Promise.resolve(new Blob()) },
+      conversationGlobalApi: {} as never,
+      fileAudioApi: {} as never,
+      refuseArchiveApi: {} as never,
+      contactTransferApi: {} as never,
+    });
+    expect((pages['/chat/file-audio'] as { type?: unknown }).type).toBe(FileAudioPage);
+    expect((pages['/chat/resign-staff'] as { type?: unknown }).type).toBe(ResignedEmployeePage);
+    expect((pages['/chat/refuse-archive'] as { type?: unknown }).type).toBe(RefuseArchivePage);
+    expect((pages['/customer/inheritance'] as { type?: unknown }).type).toBe(CustomerInheritancePage);
+  });
+
+  it('registers the customer workspace page and keeps the room scope on the shared page', () => {
     const conversationGlobalApi = {
       search: () => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 }),
       detail: () => Promise.reject(new Error('not loaded')),
@@ -125,12 +146,8 @@ describe('createPageRegistry', () => {
       conversationGlobalApi,
     });
 
-    expect((pages['/chat/v2-customer'] as { type?: unknown; props?: { fixedConversationType?: string } }).type)
-      .toBe(ConversationGlobalPage);
-    expect((pages['/chat/v2-customer'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
-      .toBe('customer');
-    expect((pages['/chat/v2-group'] as { props?: { fixedConversationType?: string } }).props?.fixedConversationType)
-      .toBe('room');
+    expect((pages['/chat/v2-customer'] as { type?: unknown }).type).toBe(CustomerConversationPage);
+    expect((pages['/chat/v2-group'] as { type?: unknown }).type).toBe(GroupConversationPage);
   });
 
   it('registers the conversation trajectory page', () => {
@@ -174,6 +191,7 @@ describe('createPageRegistry', () => {
         detail: () => Promise.reject(new Error('not loaded')),
         employees: () => Promise.resolve([]),
       },
+      riskBehaviorApi: {} as never,
       businessWorkbenchApi: { read: () => Promise.resolve({ list: [] }), write: () => Promise.resolve() },
     });
 
@@ -190,6 +208,7 @@ describe('createPageRegistry', () => {
         : path === '/ai-insight/v2/message-intercept' ? MessageInterceptPage
         : path === '/ai-insight/v2/keyword-library' ? KeywordLibraryPage
         : path === '/ai-insight/v2/silent-customer' ? SilentCustomerPage
+        : path === '/ai-insight/v2/customer-loss' ? CustomerLossPage
         : RiskWarningPage;
       expect((pages[path] as { type?: unknown }).type).toBe(expected);
     }

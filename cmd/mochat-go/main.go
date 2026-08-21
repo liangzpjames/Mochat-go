@@ -1582,7 +1582,7 @@ func main() {
 	if cfg.MigrateSensitiveWordsDashboard {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("sensitiveWords")
-		sensitiveWords := dashboard.NewSensitiveWordHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		sensitiveWords := dashboard.NewSensitiveWordHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore)).WithMonitorEnabled(cfg.EnableSensitiveWordMonitorCron)
 		options = append(options,
 			compatserver.WithSensitiveWordsPageHandler(dashboard.NewSensitiveWordPageHandler()),
 			compatserver.WithSensitiveWordIndexHandler(http.HandlerFunc(sensitiveWords.Index)),
@@ -1594,6 +1594,7 @@ func main() {
 			compatserver.WithSensitiveWordGroupStoreHandler(http.HandlerFunc(sensitiveWords.GroupStore)),
 			compatserver.WithSensitiveWordGroupUpdateHandler(http.HandlerFunc(sensitiveWords.GroupUpdate)),
 			compatserver.WithSensitiveWordsMonitorIndexHandler(http.HandlerFunc(sensitiveWords.MonitorIndex)),
+			compatserver.WithSensitiveWordsMonitorStatusHandler(http.HandlerFunc(sensitiveWords.MonitorStatus)),
 			compatserver.WithSensitiveWordsMonitorShowHandler(http.HandlerFunc(sensitiveWords.MonitorShow)),
 		)
 		log.Printf("go migrated route enabled: GET /dashboard/sensitiveWords/page")
@@ -1606,6 +1607,7 @@ func main() {
 		log.Printf("go migrated route enabled: POST /dashboard/sensitiveWordGroup/store")
 		log.Printf("go migrated route enabled: PUT /dashboard/sensitiveWordGroup/update")
 		log.Printf("go migrated route enabled: GET /dashboard/sensitiveWordsMonitor/index")
+		log.Printf("go migrated route enabled: GET /dashboard/sensitiveWordsMonitor/status")
 		log.Printf("go migrated route enabled: GET /dashboard/sensitiveWordsMonitor/show")
 	}
 
@@ -1741,7 +1743,7 @@ func main() {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("autoTagDashboard")
 		autoTag := dashboard.NewAutoTagHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
-		riskBehavior := dashboard.NewRiskBehaviorHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		riskBehavior := dashboard.NewRiskBehaviorHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore)).WithScannerEnabled(false)
 		timeoutWarning := dashboard.NewTimeoutWarningHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		messageIntercept := dashboard.NewMessageInterceptHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		phase33Closure := dashboard.NewPhase33ClosureHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
@@ -1760,8 +1762,26 @@ func main() {
 			compatserver.WithAutoTagShowContactTimeHandler(http.HandlerFunc(autoTag.ShowContactTime)),
 			compatserver.WithWorkMessageFromUsersHandler(http.HandlerFunc(autoTag.WorkMessageFromUsers)),
 			compatserver.WithWorkMessageToUsersHandler(http.HandlerFunc(autoTag.WorkMessageToUsers)),
+			compatserver.WithWorkMessageGlobalOverviewHandler(http.HandlerFunc(autoTag.WorkMessageGlobalOverview)),
+			compatserver.WithWorkMessageFocusHandler(http.HandlerFunc(autoTag.WorkMessageFocus)),
+			compatserver.WithWorkMessageStaffDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageStaffDirectory)),
+			compatserver.WithWorkMessageStaffDetailHandler(http.HandlerFunc(autoTag.WorkMessageStaffDetail)),
+			compatserver.WithWorkMessageTrajectoryDayHandler(http.HandlerFunc(autoTag.WorkMessageTrajectoryDay)),
+			compatserver.WithWorkMessageCustomerDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageCustomerDirectory)),
+			compatserver.WithWorkMessageCustomerConversationsHandler(http.HandlerFunc(autoTag.WorkMessageCustomerConversations)),
+			compatserver.WithWorkMessageCustomerDetailHandler(http.HandlerFunc(autoTag.WorkMessageCustomerDetail)),
+			compatserver.WithWorkMessageRoomDirectoryHandler(http.HandlerFunc(autoTag.WorkMessageRoomDirectory)),
+			compatserver.WithWorkMessageRoomProfileHandler(http.HandlerFunc(autoTag.WorkMessageRoomProfile)),
+			compatserver.WithWorkMessageRoomMessagesHandler(http.HandlerFunc(autoTag.WorkMessageRoomMessages)),
+			compatserver.WithWorkMessageRoomMembersHandler(http.HandlerFunc(autoTag.WorkMessageRoomMembers)),
+			compatserver.WithWorkMessageRoomFilterOptionsHandler(http.HandlerFunc(autoTag.WorkMessageRoomFilterOptions)),
+			compatserver.WithWorkMessageExportCandidatesHandler(http.HandlerFunc(autoTag.WorkMessageExportCandidates)),
+			compatserver.WithWorkMessageExportTasksHandler(http.HandlerFunc(autoTag.WorkMessageExportTasks)),
+			compatserver.WithWorkMessageExportDownloadHandler(http.HandlerFunc(autoTag.WorkMessageExportDownload)),
 			compatserver.WithRiskBehaviorRulesHandler(http.HandlerFunc(riskBehavior.Rules)),
 			compatserver.WithRiskBehaviorRecordsHandler(http.HandlerFunc(riskBehavior.Records)),
+			compatserver.WithRiskBehaviorRecordDetailHandler(http.HandlerFunc(riskBehavior.RecordDetail)),
+			compatserver.WithRiskBehaviorScannerStatusHandler(http.HandlerFunc(riskBehavior.ScannerStatus)),
 			compatserver.WithRiskBehaviorRuleCreateHandler(http.HandlerFunc(riskBehavior.CreateRule)),
 			compatserver.WithRiskBehaviorRuleUpdateHandler(http.HandlerFunc(riskBehavior.UpdateRule)),
 			compatserver.WithRiskBehaviorRuleStatusHandler(http.HandlerFunc(riskBehavior.RuleStatus)),
@@ -1824,6 +1844,15 @@ func main() {
 		log.Printf("go migrated route enabled: GET /dashboard/autoTag/showContactTime")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/fromUsers")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/toUsers")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerDirectory")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerConversations")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/customerDetail")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/trajectoryDay")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomDirectory")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomProfile")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomMessages")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomMembers")
+		log.Printf("go migrated route enabled: GET /dashboard/workMessage/roomFilterOptions")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessage/index")
 		log.Printf("go migrated route enabled: POST /dashboard/workMessageConfig/corpStore")
 		log.Printf("go migrated route enabled: GET /dashboard/workMessageConfig/corpShow")
@@ -2824,7 +2853,21 @@ func main() {
 
 	backgroundTasksEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || cfg.EnableAsyncFileUploadWorker || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
 	persistentBackgroundRecorderEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || (cfg.EnableAsyncFileUploadWorker && strings.TrimSpace(cfg.MySQLDSN) != "") || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
+	if cfg.EnableConversationExportWorker {
+		backgroundTasksEnabled = true
+		persistentBackgroundRecorderEnabled = true
+	}
 	workerGroup := taskrunner.New(log.Default())
+	if cfg.EnableConversationExportWorker {
+		owner := fmt.Sprintf("conversation-export-%d", os.Getpid())
+		workerGroup.Add("conversation-export-worker", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name: "conversation-export-worker", Interval: cfg.ConversationExportWorkerInterval, RunOnStart: true, Logger: log.Default(),
+		}, func(ctx context.Context) error {
+			_, err := getMySQLStore().RunWorkMessageExportWorker(ctx, cfg.ConversationExportRoot, owner)
+			return err
+		}))
+		log.Printf("go worker enabled: conversation export interval=%s root=%s", cfg.ConversationExportWorkerInterval, cfg.ConversationExportRoot)
+	}
 	if cfg.EnablePullAgentCron {
 		cron := dashboard.NewWorkAgentSyncCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), log.Default())
 		workerGroup.Add("cron-pull-agent", taskrunner.Periodic(taskrunner.PeriodicConfig{

@@ -10,8 +10,9 @@ import (
 )
 
 type riskHandlerProvider struct {
-	tenantID int
-	filter   RiskRuleFilter
+	tenantID     int
+	filter       RiskRuleFilter
+	recordFilter RiskRecordFilter
 }
 
 func (p *riskHandlerProvider) TenantIDByCorpID(context.Context, int) (int, error) {
@@ -23,8 +24,13 @@ func (p *riskHandlerProvider) RiskRulePage(_ context.Context, filter RiskRuleFil
 	return RiskRulePage{}, nil
 }
 
-func (p *riskHandlerProvider) RiskRecordPage(context.Context, RiskRecordFilter) (RiskRecordPage, error) {
-	return RiskRecordPage{}, nil
+func (p *riskHandlerProvider) RiskRecordPage(_ context.Context, filter RiskRecordFilter) (RiskRecordPage, error) {
+	p.recordFilter = filter
+	return RiskRecordPage{Summary: &RiskRecordSummary{Total: 1, Pending: 1, HighRisk: 1, Processed: 0}}, nil
+}
+
+func (p *riskHandlerProvider) RiskRecordDetail(context.Context, RiskRecordDetailFilter) (RiskRecordDetail, error) {
+	return RiskRecordDetail{Record: RiskRecord{ID: 9}, Audits: []RiskRecordAudit{}, ConversationAvailable: true}, nil
 }
 
 type riskHandlerResolver struct{}
@@ -111,5 +117,42 @@ func TestRiskAuditRejectsRestrictedScopeBeforeMutation(t *testing.T) {
 	body := decodeBody(t, rec.Body.Bytes())
 	if rec.Code != http.StatusForbidden || body["errorCode"] != DashboardPermissionDeniedCode {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRiskRecordsPassesFullFilterAndSummary(t *testing.T) {
+	provider := &riskHandlerProvider{tenantID: 23}
+	handler := NewRiskBehaviorHandler(provider, nil, nil, nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/risk/records?riskLevel=high&auditStatus=pending&conversationType=customer&behavior=private_transaction&occurredFrom=2026-08-01%2000:00:00&occurredTo=2026-08-21%2023:59:59&employeeIds=3,5&page=2&perPage=20", nil, 7, 23, 5, 9)
+	rec := httptest.NewRecorder()
+	handler.Records(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if provider.recordFilter.RiskLevel != "high" || provider.recordFilter.AuditStatus != "pending" || provider.recordFilter.Page != 2 || len(provider.recordFilter.EmployeeIDs) != 2 {
+		t.Fatalf("filter=%+v", provider.recordFilter)
+	}
+	body := decodeBody(t, rec.Body.Bytes())
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("data=%v", body["data"])
+	}
+	if data["summary"] == nil {
+		t.Fatalf("summary missing: %s", rec.Body.String())
+	}
+}
+
+func TestRiskRecordDetailReturnsConversationAvailability(t *testing.T) {
+	handler := NewRiskBehaviorHandler(&riskHandlerProvider{tenantID: 23}, nil, nil, nil)
+	req := authenticatedDashboardRequestForTestAs(http.MethodGet, "/dashboard/risk/records/detail?id=9", nil, 7, 23, 5, 9)
+	rec := httptest.NewRecorder()
+	handler.RecordDetail(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec.Body.Bytes())
+	data, ok := body["data"].(map[string]any)
+	if !ok || data["conversationAvailable"] != true {
+		t.Fatalf("data=%v", body["data"])
 	}
 }

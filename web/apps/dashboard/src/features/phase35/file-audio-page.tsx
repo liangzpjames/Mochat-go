@@ -1,245 +1,134 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router';
 
-import { useOptionalDashboardAccess } from '../../app/access-context';
 import { DashboardPagination } from '../../components/dashboard-pagination';
 import { Phase35DataState } from './components/data-state';
-import { Phase35PageShell } from './components/phase35-page-shell';
-import type { AudioObject, FileAudioApi } from './file-audio-api';
+import { ConversationOperationsShell, ConversationQueryBar } from '../conversation-operations/conversation-operations-shell';
+import { displayValue, formatDateTime } from '../conversation-operations/conversation-operations-format';
+import type { FileAudioApi } from './file-audio-api';
 
-const maxAudioBytes = 50 * 1024 * 1024;
 const pageSize = 20;
 
-function formatBytes(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return '--';
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDate(value: string): string {
-  if (!value) return '--';
-  return value.slice(0, 19).replace('T', ' ');
-}
-
-function formatType(value: string): string {
-  const map: Record<string, string> = {
-    'audio/wav': 'WAV',
-    'audio/mpeg': 'MP3',
-    'audio/mp4': 'M4A',
-    'audio/aac': 'AAC',
-    'audio/ogg': 'OGG',
-    'audio/flac': 'FLAC',
-  };
-  if (map[value]) return map[value];
-  if (value.startsWith('audio/')) return value.slice(6).toUpperCase();
-  return '音频';
-}
-
-function messageText(error: unknown): string {
-  return error instanceof Error ? error.message : '操作失败';
+function positivePage(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 }
 
 export function FileAudioPage({ api }: { api: FileAudioApi }) {
-  const corpId = Number(useOptionalDashboardAccess()?.corp.id ?? 0);
-  const [page, setPage] = useState(1);
-  const [keyword, setKeyword] = useState('');
-  const [appliedKeyword, setAppliedKeyword] = useState('');
-  const [selectedName, setSelectedName] = useState('');
-  const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = positivePage(searchParams.get('page'));
+  const appliedSender = searchParams.get('sender') ?? '';
+  const appliedReceiver = searchParams.get('receiver') ?? '';
+  const appliedFrom = searchParams.get('from') ?? '';
+  const appliedTo = searchParams.get('to') ?? '';
+  const [sender, setSender] = useState(appliedSender);
+  const [receiver, setReceiver] = useState(appliedReceiver);
+  const [from, setFrom] = useState(appliedFrom);
+  const [to, setTo] = useState(appliedTo);
 
   const list = useQuery({
-    queryKey: ['chat-media', corpId, page, appliedKeyword],
-    queryFn: () => api.list(corpId, page, pageSize, appliedKeyword),
-    enabled: corpId > 0,
+    queryKey: ['chat-media', page, appliedSender, appliedReceiver, appliedFrom, appliedTo],
+    queryFn: () => api.list(page, pageSize, { sender: appliedSender, receiver: appliedReceiver, from: appliedFrom, to: appliedTo }),
   });
   const result = list.data;
   const items = result?.list ?? [];
   const total = Number(result?.total ?? 0);
+  const [playbackUrls, setPlaybackUrls] = useState<Record<number, string>>({});
 
-  const refresh = (): void => {
-    void queryClient.invalidateQueries({ queryKey: ['chat-media', corpId] });
-  };
-
-  const upload = useMutation({
-    mutationFn: (file: File) => api.upload(corpId, file),
-    onSuccess: () => {
-      setNotice({ kind: 'success', text: '上传成功，已写入存储并可回读播放' });
-      if (fileInput.current !== null) {
-        fileInput.current.value = '';
+  useEffect(() => {
+    if (api.content === undefined || items.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    const urls: string[] = [];
+    setPlaybackUrls({});
+    void Promise.all(items.map(async (item) => {
+      try {
+        const blob = await api.content?.(item.id);
+        if (blob === undefined || cancelled) return;
+        const url = URL.createObjectURL(blob);
+        urls.push(url);
+        setPlaybackUrls((current) => ({ ...current, [item.id]: url }));
+      } catch {
+        // Keep the row visible; a failed media fetch does not change synced metadata.
       }
-      setSelectedName('');
-      setPage(1);
-      refresh();
-    },
-    onError: (error) => setNotice({ kind: 'error', text: messageText(error) }),
-  });
+    }));
+    return () => {
+      cancelled = true;
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [api, items]);
 
-  const remove = useMutation({
-    mutationFn: (id: number) => api.remove(corpId, id),
-    onSuccess: () => {
-      setNotice({ kind: 'success', text: '已删除' });
-      refresh();
-    },
-    onError: (error) => setNotice({ kind: 'error', text: messageText(error) }),
-  });
-
-  const handleFile = (file: File | undefined): void => {
-    if (file === undefined) return;
-    if (!file.type.startsWith('audio/')) {
-      setNotice({ kind: 'error', text: '仅支持常见音频格式（如 WAV、MP3、AAC）' });
-      setSelectedName('');
-      return;
-    }
-    if (file.size > maxAudioBytes) {
-      setNotice({ kind: 'error', text: '上传文件超过 50MB 限制' });
-      setSelectedName('');
-      return;
-    }
-    setSelectedName(file.name);
+  const applyFilters = (): void => {
+    const next = new URLSearchParams();
+    if (sender.trim()) next.set('sender', sender.trim());
+    if (receiver.trim()) next.set('receiver', receiver.trim());
+    if (from) next.set('from', from);
+    if (to) next.set('to', to);
+    next.set('page', '1');
+    setSearchParams(next);
   };
 
-  const submitUpload = (): void => {
-    const file = fileInput.current?.files?.[0];
-    if (file !== undefined && selectedName !== '') {
-      upload.mutate(file);
-    }
+  const resetFilters = (): void => {
+    setSender('');
+    setReceiver('');
+    setFrom('');
+    setTo('');
+    setSearchParams({ page: '1' });
   };
 
-  const handleDelete = (item: AudioObject): void => {
-    if (window.confirm(`确认删除「${item.originalName}」？删除后列表不再展示。`)) {
-      remove.mutate(item.id);
-    }
+  const changePage = (nextPage: number): void => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set('page', String(nextPage));
+      return next;
+    });
   };
-
 
   return (
-    <Phase35PageShell
+    <ConversationOperationsShell
       title="文件录音"
-      description="集中管理会话文件与录音：上传后可在线播放或下载"
-      actions={<span className="phase35-chip">存储：已接入</span>}
+      description="查询企业微信同步的音视频通话，播放使用登录鉴权地址"
     >
-      <div className="phase35-page">
-        <section className="phase35-card phase35-filter-card">
-          <form
-            className="dashboard-filter-bar"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setPage(1);
-              setAppliedKeyword(keyword.trim());
-            }}
-          >
-            <label>
-              文件名
-              <input aria-label="文件名" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="按文件名筛选" />
-            </label>
-            <button type="submit">查询</button>
-            <button
-              type="button"
-              onClick={() => {
-                setKeyword('');
-                setAppliedKeyword('');
-                setPage(1);
-              }}
-            >
-              重置
-            </button>
-          </form>
-        </section>
+      <ConversationQueryBar fetching={list.isFetching} onQuery={applyFilters} onReset={resetFilters} onRefresh={() => void list.refetch()}>
+        <label>发送人<input aria-label="按发送人姓名搜索" value={sender} placeholder="按发送人姓名搜索" onChange={(event) => setSender(event.target.value)} /></label>
+        <label>接收人<input aria-label="按接收人姓名搜索" value={receiver} placeholder="按接收人姓名搜索" onChange={(event) => setReceiver(event.target.value)} /></label>
+        <label>发送日期-开始<input aria-label="发送日期-开始" type="date" value={from} onChange={(event) => setFrom(event.target.value)} onInput={(event) => setFrom(event.currentTarget.value)} /></label>
+        <label>发送日期-结束<input aria-label="发送日期-结束" type="date" value={to} onChange={(event) => setTo(event.target.value)} onInput={(event) => setTo(event.currentTarget.value)} /></label>
+      </ConversationQueryBar>
 
-        <section className="phase35-card phase35-filter-card">
-          <header className="phase35-card-header">
-            <div>
-              <h2>上传音频</h2>
-              <p>支持常见音频格式（WAV、MP3、AAC 等），单个文件不超过 50MB</p>
-            </div>
-          </header>
-          <div className="dashboard-filter-bar phase35-file-picker">
-            <input
-              ref={fileInput}
-              type="file"
-              accept="audio/*"
-              aria-label="选择音频文件"
-              className="phase35-file-input-hidden"
-              onChange={(event) => handleFile(event.target.files?.[0])}
-            />
-            <span className="phase35-file-name">{selectedName === '' ? '未选择文件' : selectedName}</span>
-            <button type="button" disabled={selectedName === ''} onClick={() => fileInput.current?.click()}>
-              选择文件
-            </button>
-            <button
-              type="button"
-              disabled={selectedName === '' || upload.isPending}
-              onClick={submitUpload}
-            >
-              {upload.isPending ? '上传中…' : '上传'}
-            </button>
-          </div>
-          {notice !== null && (
-            <p className={notice.kind === 'error' ? 'phase35-notice-error' : 'phase35-notice-success'} role={notice.kind === 'error' ? 'alert' : 'status'}>
-              {notice.text}
-            </p>
-          )}
-        </section>
-
-        <section className="phase35-card phase35-table-card">
-          <header className="phase35-card-header">
-            <div>
-              <h2>音频文件列表</h2>
-              <p>真实落盘文件，播放使用鉴权 URL</p>
-            </div>
-            <span className="phase35-chip">共 {total} 条</span>
-          </header>
-          <Phase35DataState
-            loading={list.isLoading}
-            error={list.isError}
-            empty={!list.isLoading && !items.length}
-            emptyContent={
-              <section aria-label="音频数据说明">
-                <h2>还没有可展示的音频文件</h2>
-                <p>上传后文件会写入本地存储卷，并在此列表回读；播放链接经过登录鉴权。</p>
-              </section>
-            }
-            onRetry={() => void list.refetch()}
-          >
+      <section className="conversation-operations-card">
+        <header className="phase35-card-header">
+          <div><h2>音视频通话</h2><p>仅展示来自企业微信同步的录音数据</p></div>
+          <span className="phase35-chip">共 {total} 条</span>
+        </header>
+        <Phase35DataState
+          loading={list.isLoading}
+          error={list.isError}
+          empty={!list.isLoading && !items.length}
+          emptyContent={<section aria-label="音频数据说明"><h2>暂无同步录音</h2><p>企业微信同步后，录音会自动出现在这里。</p></section>}
+          onRetry={() => void list.refetch()}
+        >
+          <div className="conversation-operations-table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>文件名</th>
-                  <th>类型</th>
-                  <th>大小</th>
-                  <th>上传时间</th>
-                  <th>播放</th>
-                  <th>操作</th>
+              <thead><tr><th>音视频通话</th><th>发送人</th><th>接收人</th><th>发送时间</th><th>时长</th><th>来源</th><th>播放</th></tr></thead>
+              <tbody>{items.map((item) => (
+                <tr key={item.id}>
+                  <td>{displayValue(item.originalName)}</td>
+                  <td>{displayValue(item.senderName)}</td>
+                  <td>{displayValue(item.receiverName)}</td>
+                  <td>{formatDateTime(item.syncedAt ?? item.createdAt)}</td>
+                  <td>{item.durationSeconds > 0 ? `${item.durationSeconds} 秒` : '--'}</td>
+                  <td>{item.source === 'wecom_sync' ? '企微同步' : displayValue(item.source)}</td>
+                  <td><audio controls preload="metadata" aria-label={`播放 ${item.originalName}`} src={api.content === undefined ? item.playUrl : playbackUrls[item.id]} /></td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.originalName || `--`}</td>
-                  <td>{formatType(item.contentType || '')}</td>
-                    <td>{formatBytes(item.sizeBytes)}</td>
-                    <td>{formatDate(item.createdAt)}</td>
-                    <td>
-                      <audio controls preload="none" src={item.playUrl}>
-                        当前浏览器不支持音频播放
-                      </audio>
-                    </td>
-                    <td>
-                      <button type="button" aria-label={`删除 ${item.originalName}`} onClick={() => handleDelete(item)} disabled={remove.isPending}>
-                        删除
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              ))}</tbody>
             </table>
-            <DashboardPagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
-          </Phase35DataState>
-        </section>
-      </div>
-    </Phase35PageShell>
+          </div>
+          <DashboardPagination page={page} pageSize={pageSize} total={total} onPageChange={changePage} />
+        </Phase35DataState>
+      </section>
+    </ConversationOperationsShell>
   );
 }

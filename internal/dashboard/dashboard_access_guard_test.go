@@ -353,6 +353,7 @@ func TestDashboardAccessGuardExemptionsAreExactAndProtectedOnSessionRoutes(t *te
 		{method: http.MethodPost, path: "/dashboard/user/auth", want: true},
 		{method: http.MethodPost, path: "/dashboard/officialAccount/authEventCallback", want: true},
 		{method: http.MethodGet, path: "/dashboard/user/securityMFA", want: true},
+		{method: http.MethodPost, path: "/dashboard/contactTransfer/sync", want: true},
 		{method: http.MethodGet, path: "/dashboard/user/securityMFAExtra", want: false},
 		{method: http.MethodPost, path: "/dashboard/user/authExtra", want: false},
 		{method: http.MethodGet, path: "/dashboard/officialAccount/authRedirect", want: false},
@@ -622,6 +623,146 @@ func TestDashboardAccessGuardProvidesScopeContextForEveryCatalogScopedResource(t
 	}
 	if tested == 0 {
 		t.Fatal("catalog has no scopeRequired resources")
+	}
+}
+
+func TestDashboardPageCatalogCustomerConversationResources(t *testing.T) {
+	raw, err := os.ReadFile("dashboard_page_catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Pages []struct {
+			Code      string                        `json:"code"`
+			Resources []DashboardPermissionResource `json:"resources"`
+		} `json:"pages"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatal(err)
+	}
+
+	var customerResources []DashboardPermissionResource
+	for _, page := range catalog.Pages {
+		if page.Code == "dashboard.chat.v2_customer" {
+			customerResources = page.Resources
+			break
+		}
+	}
+	if customerResources == nil {
+		t.Fatal("customer conversation page is missing")
+	}
+	for _, want := range []DashboardPermissionResource{
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/customerDirectory", ScopeRequired: true},
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/customerConversations", ScopeRequired: true},
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/customerDetail", ScopeRequired: true},
+		{Method: http.MethodPut, PathPattern: "/dashboard/workMessage/focus", ScopeRequired: true},
+		{Method: http.MethodDelete, PathPattern: "/dashboard/workMessage/focus", ScopeRequired: true},
+	} {
+		found := false
+		for _, resource := range customerResources {
+			if resource.Method == want.Method && resource.PathPattern == want.PathPattern && resource.ScopeRequired == want.ScopeRequired {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("customer page missing resource %+v", want)
+		}
+	}
+	for _, resource := range customerResources {
+		if resource.PathPattern == "/dashboard/workContact/index" {
+			t.Fatal("customer conversation page must not depend on /dashboard/workContact/index")
+		}
+	}
+}
+
+func TestDashboardPageCatalogCustomerInheritanceResources(t *testing.T) {
+	raw, err := os.ReadFile("dashboard_page_catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Pages []struct {
+			Code      string                        `json:"code"`
+			Resources []DashboardPermissionResource `json:"resources"`
+		} `json:"pages"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	var resources []DashboardPermissionResource
+	for _, page := range catalog.Pages {
+		if page.Code == "dashboard.customer.inheritance" {
+			resources = page.Resources
+			break
+		}
+	}
+	if resources == nil {
+		t.Fatal("customer inheritance page is missing")
+	}
+	for _, want := range []DashboardPermissionResource{
+		{Method: http.MethodGet, PathPattern: "/dashboard/contactTransfer/unassignedList"},
+		{Method: http.MethodGet, PathPattern: "/dashboard/contactTransfer/info"},
+		{Method: http.MethodGet, PathPattern: "/dashboard/contactTransfer/room"},
+		{Method: http.MethodGet, PathPattern: "/dashboard/contactTransfer/log"},
+		{Method: http.MethodGet, PathPattern: "/dashboard/workEmployee/index"},
+		{Method: http.MethodPost, PathPattern: "/dashboard/contactTransfer/sync"},
+		{Method: http.MethodPost, PathPattern: "/dashboard/contactTransfer/index"},
+		{Method: http.MethodPost, PathPattern: "/dashboard/contactTransfer/room"},
+	} {
+		found := false
+		for _, resource := range resources {
+			if resource.Method == want.Method && resource.PathPattern == want.PathPattern && !resource.ScopeRequired {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("customer inheritance page missing resource %+v", want)
+		}
+	}
+}
+
+func TestDashboardPageCatalogConversationExportResources(t *testing.T) {
+	raw, err := os.ReadFile("dashboard_page_catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Pages []struct {
+			Code      string                        `json:"code"`
+			Resources []DashboardPermissionResource `json:"resources"`
+		} `json:"pages"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	var resources []DashboardPermissionResource
+	for _, page := range catalog.Pages {
+		if page.Code == "dashboard.chat.export" {
+			resources = page.Resources
+			break
+		}
+	}
+	if resources == nil {
+		t.Fatal("conversation export page is missing")
+	}
+	for _, want := range []DashboardPermissionResource{
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/exportCandidates"},
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/exportTasks"},
+		{Method: http.MethodPost, PathPattern: "/dashboard/workMessage/exportTasks"},
+		{Method: http.MethodGet, PathPattern: "/dashboard/workMessage/exportDownload"},
+	} {
+		found := false
+		for _, resource := range resources {
+			if resource.Method == want.Method && resource.PathPattern == want.PathPattern {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("conversation export page missing resource %+v", want)
+		}
 	}
 }
 

@@ -12,3 +12,18 @@ Visual Task 1: complete (commit 7b8610c, review Important fixed, parent verifica
 Visual Task 2: complete (commits 045be25 + e090e79, OAuth state leak fixed, parent verification 60/60)
 Visual Task 3: complete (Operation activity visual; 74/74 tests)
 Visual Task 4: complete (57/57 gate tests, 48/48 Playwright, 7 decoded fixed-viewport screenshots)
+
+Plan: docs/superpowers/plans/2026-08-19-customer-conversation-yuanhu-workspace.md
+
+Task 1: complete (commits 203d2ab..75fcd54, review clean)
+Task 2: complete (commits 0be27ba..c073a3e, review clean)
+Task 3: complete (commits 7482fcd..05904d5, review clean; MariaDB DSN pending)
+Task 4: complete (commits c2c220a..c687862, review clean; MariaDB DSN pending)
+Task 5: complete (commits 6a393dd..d1a467a, review clean; MariaDB DSN pending)
+Task 6: complete (commit 5c36eaf, independent review SPEC/QUALITY PASS; MariaDB DSN pending)
+Task 7: complete (commit 7c5ff27, independent review SPEC/QUALITY PASS; target Vitest/typecheck/lint pass)
+Task 8: complete (commits 2a94bde + 390291a, review PASS after header/avatar fix; target Vitest pass)
+Task 9: complete (commits b0dc60b + 13f7969 + cb2cd80, review PASS; target Vitest/typecheck pass)
+Task 10: complete (commits 8787fa7 + d2b60ee, review PASS; target Vitest 26/26 and ESLint pass)
+Task 11: complete (commit 42eb452, independent review PASS; style contract 3/3 pass)
+Task 12: in_progress (Docker/browser acceptance, Chinese implementation document, final verification)

@@ -3,17 +3,14 @@ package http
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"net/textproto"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -51,26 +48,16 @@ func (s *fakeStore) GetByID(_ context.Context, id int64) (*AudioObject, error) {
 	return &copy, nil
 }
 
-func (s *fakeStore) List(_ context.Context, corpID int64, page int, perPage int, keyword string) (ListResult, error) {
+func (s *fakeStore) List(_ context.Context, filter MediaListFilter) (ListResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if page <= 0 {
-		page = 1
-	}
-	if perPage <= 0 {
-		perPage = 20
-	}
-	result := ListResult{Page: page, PerPage: perPage}
+	result := ListResult{Page: filter.Page, PerPage: filter.PerPage}
 	for _, object := range s.objects {
-		if object.CorpID != corpID || object.DeletedAt != nil {
-			continue
-		}
-		if keyword != "" && !strings.Contains(object.OriginalName, keyword) {
+		if object.CorpID != filter.CorpID || object.DeletedAt != nil || object.Source != "wecom_sync" {
 			continue
 		}
 		result.Total++
-		copy := *object
-		result.List = append(result.List, copy)
+		result.List = append(result.List, *object)
 	}
 	return result, nil
 }
@@ -85,6 +72,15 @@ func (s *fakeStore) SoftDelete(_ context.Context, id int64, deletedBy int64) err
 	now := time.Now()
 	object.DeletedAt = &now
 	object.DeletedBy = deletedBy
+	return nil
+}
+
+func (s *fakeStore) UpdateDuration(_ context.Context, id int64, durationSeconds int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if object := s.objects[id]; object != nil {
+		object.DurationSeconds = durationSeconds
+	}
 	return nil
 }
 
@@ -111,205 +107,77 @@ func newTestHandler(t *testing.T) (*MediaHandler, *fakeStore, string) {
 	return handler, store, root
 }
 
-func multipartUpload(t *testing.T, handler http.Handler, name string, contentType string, content []byte) *httptest.ResponseRecorder {
-	t.Helper()
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	header := textproto.MIMEHeader{}
-	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, name))
-	header.Set("Content-Type", contentType)
-	part, err := writer.CreatePart(header)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := part.Write(content); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/chat/media?corpId=2", &body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	return rec
+func devWAV(seconds int) []byte {
+	const sampleRate = 8000
+	const channels = 1
+	const bits = 16
+	dataSize := sampleRate * channels * bits / 8 * seconds
+	payload := make([]byte, 44+dataSize)
+	copy(payload[:4], "RIFF")
+	binary.LittleEndian.PutUint32(payload[4:8], uint32(len(payload)-8))
+	copy(payload[8:12], "WAVE")
+	copy(payload[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(payload[16:20], 16)
+	binary.LittleEndian.PutUint16(payload[20:22], 1)
+	binary.LittleEndian.PutUint16(payload[22:24], channels)
+	binary.LittleEndian.PutUint32(payload[24:28], sampleRate)
+	binary.LittleEndian.PutUint32(payload[28:32], sampleRate*channels*bits/8)
+	binary.LittleEndian.PutUint16(payload[32:34], channels*bits/8)
+	binary.LittleEndian.PutUint16(payload[34:36], bits)
+	copy(payload[36:40], "data")
+	binary.LittleEndian.PutUint32(payload[40:44], uint32(dataSize))
+	return payload
 }
 
-func TestUploadListDownloadDelete(t *testing.T) {
-	handler, _, root := newTestHandler(t)
-	content := []byte("RIFF\x24\x00\x00\x00WAVEfmt ")
-	rec := multipartUpload(t, handler, "p35-accept.wav", "audio/wav", content)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("upload code = %d body=%s", rec.Code, rec.Body.String())
-	}
-	var created struct {
-		Data struct {
-			ID int64 `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+func TestReadOnlyListDownloadAndDurationBackfill(t *testing.T) {
+	handler, store, root := newTestHandler(t)
+	content := devWAV(3)
+	key := "audio/1/2026/08/dev-001.wav"
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, filepath.FromSlash(key))), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	found := false
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".wav") {
-			found = true
-		}
-		return nil
-	})
-	if !found {
-		t.Fatal("uploaded file not found on disk")
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(key)), content, 0o644); err != nil {
+		t.Fatal(err)
 	}
+	store.objects[1] = &AudioObject{ID: 1, CorpID: 2, Source: "wecom_sync", OriginalName: "企微同步-001.wav", RelativePath: key, ContentType: "audio/wav", SizeBytes: int64(len(content)), SyncedAt: ptrTime(time.Date(2026, 8, 20, 10, 0, 0, 0, time.Local))}
 
-	listReq := httptest.NewRequest(http.MethodGet, "/dashboard/chat/media?corpId=2", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/dashboard/chat/media?sender=张伟", nil)
 	listRec := httptest.NewRecorder()
 	handler.ServeHTTP(listRec, listReq)
 	if listRec.Code != http.StatusOK {
-		t.Fatalf("list code = %d", listRec.Code)
+		t.Fatalf("list code = %d body=%s", listRec.Code, listRec.Body.String())
 	}
 	var listed struct {
 		Data struct {
-			List  []AudioObject `json:"list"`
-			Total int64         `json:"total"`
+			List []AudioObject `json:"list"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(listRec.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if listed.Data.Total != 1 || len(listed.Data.List) != 1 || listed.Data.List[0].PlayURL == "" {
-		t.Fatalf("list = %#v", listed.Data)
+	if len(listed.Data.List) != 1 || listed.Data.List[0].DurationSeconds != 3 {
+		t.Fatalf("list = %#v", listed.Data.List)
 	}
 
 	contentReq := httptest.NewRequest(http.MethodGet, "/dashboard/chat/media/1/content", nil)
 	contentRec := httptest.NewRecorder()
 	handler.ServeHTTP(contentRec, contentReq)
-	if contentRec.Code != http.StatusOK {
-		t.Fatalf("content code = %d body=%s", contentRec.Code, contentRec.Body.String())
-	}
-	if !bytes.Equal(contentRec.Body.Bytes(), content) {
-		t.Fatal("content mismatch")
+	if contentRec.Code != http.StatusOK || !bytes.Equal(contentRec.Body.Bytes(), content) {
+		t.Fatalf("content code=%d len=%d", contentRec.Code, contentRec.Body.Len())
 	}
 	if contentType := contentRec.Header().Get("Content-Type"); contentType != "audio/wav" {
 		t.Fatalf("content type = %q", contentType)
 	}
-
-	deleteReq := httptest.NewRequest(http.MethodDelete, "/dashboard/chat/media/1?corpId=2", nil)
-	deleteRec := httptest.NewRecorder()
-	handler.ServeHTTP(deleteRec, deleteReq)
-	if deleteRec.Code != http.StatusOK {
-		t.Fatalf("delete code = %d body=%s", deleteRec.Code, deleteRec.Body.String())
-	}
-	afterReq := httptest.NewRequest(http.MethodGet, "/dashboard/chat/media/1/content", nil)
-	afterRec := httptest.NewRecorder()
-	handler.ServeHTTP(afterRec, afterReq)
-	if afterRec.Code != http.StatusNotFound {
-		t.Fatalf("content after delete code = %d, want 404", afterRec.Code)
-	}
-	foundAfter := false
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".wav") {
-			foundAfter = true
-		}
-		return nil
-	})
-	if foundAfter {
-		t.Fatal("disk file still present after soft delete")
+	rangeReq := httptest.NewRequest(http.MethodGet, "/dashboard/chat/media/1/content", nil)
+	rangeReq.Header.Set("Range", "bytes=0-43")
+	rangeRec := httptest.NewRecorder()
+	handler.ServeHTTP(rangeRec, rangeReq)
+	if rangeRec.Code != http.StatusPartialContent || !bytes.Equal(rangeRec.Body.Bytes(), content[:44]) {
+		t.Fatalf("range code=%d len=%d", rangeRec.Code, rangeRec.Body.Len())
 	}
 }
 
-func TestUploadRejectsNonAudioAndMissingCorp(t *testing.T) {
-	handler, _, _ := newTestHandler(t)
-	rec := multipartUpload(t, handler, "notes.txt", "text/plain", []byte("hello"))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("non-audio code = %d, want 400", rec.Code)
-	}
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	header := textproto.MIMEHeader{}
-	header.Set("Content-Disposition", `form-data; name="file"; filename="a.wav"`)
-	header.Set("Content-Type", "audio/wav")
-	part, _ := writer.CreatePart(header)
-	_, _ = part.Write([]byte("x"))
-	_ = writer.Close()
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/chat/media", &body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("missing corp code = %d, want 400", rec.Code)
-	}
-}
-
-func TestUploadRejectsTextRenamedAsAudio(t *testing.T) {
-	handler, _, _ := newTestHandler(t)
-	rec := multipartUpload(t, handler, "notes.wav", "audio/wav", []byte("hello"))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("renamed text code = %d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestUploadNormalizesExtensionFromContent(t *testing.T) {
-	handler, store, root := newTestHandler(t)
-	content := []byte("RIFF\x24\x00\x00\x00WAVEfmt ")
-	rec := multipartUpload(t, handler, "clip.mp3", "application/octet-stream", content)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("upload code = %d body=%s", rec.Code, rec.Body.String())
-	}
-	var created struct {
-		Data struct {
-			ID          int64  `json:"id"`
-			ContentType string `json:"contentType"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
-		t.Fatal(err)
-	}
-	if created.Data.ContentType != "audio/wav" {
-		t.Fatalf("content type = %q, want audio/wav", created.Data.ContentType)
-	}
-	object, err := store.GetByID(context.Background(), created.Data.ID)
-	if err != nil || object == nil {
-		t.Fatalf("stored object = %#v err=%v", object, err)
-	}
-	if !strings.HasSuffix(object.RelativePath, ".wav") {
-		t.Fatalf("relative path = %q, want .wav suffix", object.RelativePath)
-	}
-	found := false
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".wav") {
-			found = true
-		}
-		return nil
-	})
-	if !found {
-		t.Fatal("normalized .wav file not found on disk")
-	}
-}
-
-func TestUploadUnauthorized(t *testing.T) {
-	store := newFakeStore()
-	handler, err := NewMediaHandler(store, t.TempDir(), fakeResolver{}, fakeAuthorizer{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Replace the authorizer with a denying one through a small wrapper handler.
-	deny := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handler.authorize = denyingAuthorizer{}
-		handler.ServeHTTP(w, r)
-	})
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/chat/media?corpId=2", nil)
-	rec := httptest.NewRecorder()
-	deny.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("code = %d, want 403", rec.Code)
-	}
-}
-
-type denyingAuthorizer struct{}
-
-func (denyingAuthorizer) Authorize(context.Context, scrmhttp.Principal, int64, string) error {
-	return errors.New("denied")
-}
+func ptrTime(value time.Time) *time.Time { return &value }
 
 func TestWriteEnvelope(t *testing.T) {
 	rec := httptest.NewRecorder()

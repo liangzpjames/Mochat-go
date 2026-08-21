@@ -1,0 +1,248 @@
+.conversation-operations-page {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  max-width: none;
+  min-width: 0;
+}
+
+.conversation-operations-header {
+  align-items: flex-end;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 4px 0 0;
+}
+
+.conversation-operations-header h1 {
+  color: #20283a;
+  font-size: 24px;
+  margin: 0;
+}
+
+.conversation-operations-header p {
+  color: #737b8c;
+  margin: 8px 0 0;
+}
+
+.conversation-operations-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.conversation-operations-tabs {
+  border-bottom: 1px solid #e9edf4;
+  display: flex;
+  gap: 28px;
+}
+
+.conversation-operations-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #687287;
+  cursor: pointer;
+  padding: 12px 2px;
+}
+
+.conversation-operations-tabs button[aria-selected='true'] {
+  border-bottom-color: #536bf4;
+  color: #3046bd;
+  font-weight: 650;
+}
+
+.conversation-operations-tabs button:hover {
+  color: #3046bd;
+}
+
+.conversation-operations-query {
+  align-items: end;
+  background: #fff;
+  border: 1px solid #e7eaf2;
+  border-radius: 12px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.conversation-operations-query-fields {
+  align-items: end;
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.conversation-operations-query-fields label {
+  color: #535d70;
+  display: grid;
+  font-size: 13px;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.conversation-operations-query-fields input,
+.conversation-operations-query-fields select {
+  border: 1px solid #dfe4ee;
+  border-radius: 8px;
+  color: #20283a;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.conversation-operations-query-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.conversation-operations-page button {
+  background: #fff;
+  border: 1px solid #dfe4ee;
+  border-radius: 8px;
+  color: #536bf4;
+  cursor: pointer;
+  padding: 9px 15px;
+}
+
+.conversation-operations-page button.is-primary {
+  background: #536bf4;
+  border-color: #536bf4;
+  color: #fff;
+}
+
+.conversation-operations-page button:hover:not(:disabled) {
+  background: #eef2ff;
+  border-color: #8797ef;
+}
+
+.conversation-operations-page button.is-primary:hover:not(:disabled) {
+  background: #4059df;
+  border-color: #4059df;
+}
+
+.conversation-operations-page button:disabled {
+  color: #98a2b3;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.conversation-operations-card {
+  background: #fff;
+  border: 1px solid #e7eaf2;
+  border-radius: 12px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.conversation-operations-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.conversation-operations-table-wrap table {
+  border-collapse: collapse;
+  min-width: 760px;
+  width: 100%;
+}
+
+.conversation-operations-table-wrap th,
+.conversation-operations-table-wrap td {
+  border-bottom: 1px solid #edf0f5;
+  padding: 12px 10px;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.conversation-operations-table-wrap th {
+  color: #687287;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.conversation-operations-table-wrap td {
+  color: #30394c;
+  font-size: 13px;
+}
+
+.customer-inheritance-workspace {
+  display: grid;
+  gap: 14px;
+}
+
+.customer-inheritance-toolbar {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.customer-inheritance-toolbar label,
+.customer-inheritance-record-filters label {
+  color: #535d70;
+  display: grid;
+  font-size: 13px;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.customer-inheritance-toolbar select,
+.customer-inheritance-record-filters input {
+  border: 1px solid #dfe4ee;
+  border-radius: 8px;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.customer-inheritance-warning {
+  color: #c03b34;
+  font-size: 13px;
+}
+
+.customer-inheritance-status {
+  color: #2d7b52;
+  font-size: 13px;
+}
+
+.customer-inheritance-placeholder {
+  color: #7a8496;
+  padding: 44px 12px;
+  text-align: center;
+}
+
+.customer-inheritance-record-filters {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.resigned-employee-workspace {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 300px minmax(360px, 0.9fr) minmax(560px, 1.35fr);
+  min-height: calc(100vh - 245px);
+}
+
+@media (max-width: 1024px) {
+  .conversation-operations-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .conversation-operations-query {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .conversation-operations-query-actions {
+    flex-wrap: wrap;
+  }
+
+  .resigned-employee-workspace {
+    grid-template-columns: 1fr;
+  }
+}

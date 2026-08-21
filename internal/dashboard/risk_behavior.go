@@ -25,21 +25,72 @@ type RiskRecordFilter struct {
 	RiskLevel           string
 	Behavior            string
 	ConversationType    string
+	AuditStatus         string
+	OccurredFrom        string
+	OccurredTo          string
 	RuleID              int64
 	Page                int
 	PerPage             int
+	EmployeeIDs         []int
 	AllowedEmployeeIDs  []int
 	RestrictEmployeeIDs bool
 }
+type RiskRecordSummary struct {
+	Total     int `json:"total"`
+	Pending   int `json:"pending"`
+	HighRisk  int `json:"highRisk"`
+	Processed int `json:"processed"`
+}
 type RiskRecordPage struct {
-	Items   []RiskRecord `json:"items"`
-	Total   int          `json:"total"`
-	Page    int          `json:"page"`
-	PerPage int          `json:"perPage"`
+	Items   []RiskRecord       `json:"items"`
+	Total   int                `json:"total"`
+	Page    int                `json:"page"`
+	PerPage int                `json:"perPage"`
+	Summary *RiskRecordSummary `json:"summary"`
 }
 type RiskBehaviorProvider interface {
 	RiskRulePage(context.Context, RiskRuleFilter) (RiskRulePage, error)
 	RiskRecordPage(context.Context, RiskRecordFilter) (RiskRecordPage, error)
+}
+
+type RiskRecordDetailFilter struct {
+	TenantID            int
+	CorpID              int
+	ID                  int64
+	AllowedEmployeeIDs  []int
+	RestrictEmployeeIDs bool
+}
+
+type RiskRecordAudit struct {
+	ID        int64  `json:"id"`
+	ActorID   int64  `json:"actorId"`
+	ActorName string `json:"actorName"`
+	Action    string `json:"action"`
+	Remark    string `json:"remark"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type RiskRecordDetail struct {
+	Record                RiskRecord        `json:"record"`
+	Audits                []RiskRecordAudit `json:"audits"`
+	ConversationAvailable bool              `json:"conversationAvailable"`
+}
+
+type RiskRecordDetailProvider interface {
+	RiskRecordDetail(context.Context, RiskRecordDetailFilter) (RiskRecordDetail, error)
+}
+
+type RiskScanStatus struct {
+	Enabled       bool   `json:"enabled"`
+	State         string `json:"state"`
+	LastAttemptAt string `json:"lastAttemptAt"`
+	LastSuccessAt string `json:"lastSuccessAt"`
+	LastFailureAt string `json:"lastFailureAt"`
+	LastError     string `json:"lastError"`
+}
+
+type RiskScanStatusProvider interface {
+	RiskScanStatus(context.Context, int, int) (RiskScanStatus, error)
 }
 
 type RiskTenantResolver interface {

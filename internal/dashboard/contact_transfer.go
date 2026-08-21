@@ -270,7 +270,7 @@ func (h *ContactTransferHandler) Log(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ContactTransferHandler) SaveUnassignedList(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
@@ -284,6 +284,14 @@ func (h *ContactTransferHandler) SaveUnassignedList(w http.ResponseWriter, r *ht
 	}
 	credential, ok := h.resolveCredential(w, r.Context(), corpID)
 	if !ok {
+		return
+	}
+	// The seeded local enterprise uses an explicit fixture credential. Keep its
+	// snapshot local during development instead of sending it to real WeCom.
+	// This check intentionally keys only off the fixture values, so real
+	// credentials (regardless of client implementation) still sync normally.
+	if isLocalContactTransferSimulation(credential) {
+		writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 		return
 	}
 	items, err := h.wecom.GetUnassigned(r.Context(), credential)
