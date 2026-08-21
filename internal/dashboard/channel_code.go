@@ -33,15 +33,39 @@ type ChannelCodeListPage struct {
 }
 
 type ChannelCodeListItem struct {
-	ID            int
-	GroupID       int
-	GroupName     string
-	Name          string
-	QRCodeURL     string
-	AutoAddFriend int
-	Tags          []string
-	Type          int
-	ContactNum    int
+	ID                  int
+	GroupID             int
+	GroupName           string
+	Name                string
+	QRCodeURL           string
+	AutoAddFriend       int
+	Tags                []string
+	Type                int
+	ContactNum          int
+	Creator             ChannelCodeCreator
+	CreatedAt           string
+	Employees           []ChannelCodeEmployee
+	Validity            ChannelCodeValidity
+	State               string
+	AddedFriendCount    *int
+	StatisticsAvailable bool
+}
+
+type ChannelCodeCreator struct {
+	ID   int
+	Name string
+}
+
+type ChannelCodeEmployee struct {
+	ID          int
+	Name        string
+	Departments []string
+}
+
+type ChannelCodeValidity struct {
+	Kind  string
+	From  string
+	Until string
 }
 
 type ChannelCodeTagGroup struct {
@@ -128,6 +152,74 @@ type ChannelCodeStore interface {
 	ChannelCodeShowByID(ctx context.Context, channelCodeID int, corpID int) (ChannelCodeShow, bool, error)
 	ChannelCodeContactPage(ctx context.Context, filter ChannelCodeContactFilter) (ChannelCodeContactPage, error)
 	ChannelCodeStatContacts(ctx context.Context, channelCodeID int) ([]ChannelCodeStatContact, error)
+}
+
+type ChannelCodeWorkspaceFilter struct {
+	CorpIDs    []int
+	GroupID    int
+	Name       string
+	Creator    string
+	EmployeeID int
+	State      string
+	Page       int
+	PerPage    int
+}
+
+type ChannelCodeWorkspaceStore interface {
+	ChannelCodeWorkspacePage(ctx context.Context, filter ChannelCodeWorkspaceFilter) (ChannelCodeListPage, error)
+}
+
+type ChannelCodeLifecycleStore interface {
+	ChannelCodeProviderConfig(ctx context.Context, channelCodeID int, corpID int) (RoomWelcomeCorpCredential, string, bool, error)
+	SetChannelCodeLifecycle(ctx context.Context, channelCodeID int, corpID int, state string, providerState string, providerError string) error
+}
+
+type ChannelCodeContactWayDeleter interface {
+	DeleteContactWay(ctx context.Context, credential RoomWelcomeCorpCredential, configID string) error
+}
+
+type ChannelCodeStatisticsFilter struct {
+	CorpIDs   []int
+	GroupID   int
+	Name      string
+	StartDate string
+	EndDate   string
+	Page      int
+	PerPage   int
+}
+
+type ChannelCodeStatisticsSummary struct {
+	AddedAttempts     int
+	LostAttempts      int
+	AddedCustomers    int
+	RetainedCustomers int
+	CodeCount         int
+	Available         bool
+	AsOf              string
+	Timezone          string
+	Definition        string
+}
+
+type ChannelCodeStatisticsRow struct {
+	ID                int
+	Name              string
+	AddedAttempts     int
+	LostAttempts      int
+	AddedCustomers    int
+	RetainedCustomers int
+	Available         bool
+}
+
+type ChannelCodeStatisticsPage struct {
+	Summary   ChannelCodeStatisticsSummary
+	Rows      []ChannelCodeStatisticsRow
+	Total     int
+	TotalPage int
+	PerPage   int
+}
+
+type ChannelCodeStatisticsStore interface {
+	ChannelCodeWorkspaceStatistics(ctx context.Context, filter ChannelCodeStatisticsFilter) (ChannelCodeStatisticsPage, error)
 }
 
 type ChannelCodeWeComClient interface {

@@ -228,8 +228,12 @@ type Server struct {
 	channelCodeContact                              http.Handler
 	channelCodeStatistics                           http.Handler
 	channelCodeStatsIndex                           http.Handler
+	channelCodeWorkspaceStatistics                  http.Handler
+	channelCodeWorkspaceStatsIndex                  http.Handler
+	channelCodeExport                               http.Handler
 	channelCodeStore                                http.Handler
 	channelCodeUpdate                               http.Handler
+	channelCodeBatchInvalidate                      http.Handler
 	channelCodeGroupIndex                           http.Handler
 	channelCodeGroupDetail                          http.Handler
 	channelCodeGroupStore                           http.Handler
@@ -1908,6 +1912,24 @@ func WithChannelCodeStatisticsIndexHandler(handler http.Handler) Option {
 	}
 }
 
+func WithChannelCodeWorkspaceStatisticsHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.channelCodeWorkspaceStatistics = handler
+	}
+}
+
+func WithChannelCodeWorkspaceStatisticsIndexHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.channelCodeWorkspaceStatsIndex = handler
+	}
+}
+
+func WithChannelCodeExportHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.channelCodeExport = handler
+	}
+}
+
 func WithChannelCodeStoreHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.channelCodeStore = handler
@@ -1917,6 +1939,12 @@ func WithChannelCodeStoreHandler(handler http.Handler) Option {
 func WithChannelCodeUpdateHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.channelCodeUpdate = handler
+	}
+}
+
+func WithChannelCodeBatchInvalidateHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.channelCodeBatchInvalidate = handler
 	}
 }
 
@@ -4918,10 +4946,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.channelCodeStatistics.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/channelCode/statisticsIndex" && r.Method == http.MethodGet && s.channelCodeStatsIndex != nil:
 		s.channelCodeStatsIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/channelCode/workspaceStatistics" && r.Method == http.MethodGet && s.channelCodeWorkspaceStatistics != nil:
+		s.channelCodeWorkspaceStatistics.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/channelCode/workspaceStatisticsIndex" && r.Method == http.MethodGet && s.channelCodeWorkspaceStatsIndex != nil:
+		s.channelCodeWorkspaceStatsIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/channelCode/export" && r.Method == http.MethodGet && s.channelCodeExport != nil:
+		s.channelCodeExport.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/channelCode/store" && r.Method == http.MethodPost && s.channelCodeStore != nil:
 		s.channelCodeStore.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/channelCode/update" && r.Method == http.MethodPut && s.channelCodeUpdate != nil:
 		s.channelCodeUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/channelCode/batchInvalidate" && r.Method == http.MethodPost && s.channelCodeBatchInvalidate != nil:
+		s.channelCodeBatchInvalidate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/channelCodeGroup/index" && r.Method == http.MethodGet && s.channelCodeGroupIndex != nil:
 		s.channelCodeGroupIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/channelCodeGroup/detail" && r.Method == http.MethodGet && s.channelCodeGroupDetail != nil:
@@ -6659,11 +6695,23 @@ func (s *Server) migratedRoutes() []string {
 	if s.channelCodeStatsIndex != nil {
 		routes = append(routes, "GET /dashboard/channelCode/statisticsIndex")
 	}
+	if s.channelCodeWorkspaceStatistics != nil {
+		routes = append(routes, "GET /dashboard/channelCode/workspaceStatistics")
+	}
+	if s.channelCodeWorkspaceStatsIndex != nil {
+		routes = append(routes, "GET /dashboard/channelCode/workspaceStatisticsIndex")
+	}
+	if s.channelCodeExport != nil {
+		routes = append(routes, "GET /dashboard/channelCode/export")
+	}
 	if s.channelCodeStore != nil {
 		routes = append(routes, "POST /dashboard/channelCode/store")
 	}
 	if s.channelCodeUpdate != nil {
 		routes = append(routes, "PUT /dashboard/channelCode/update")
+	}
+	if s.channelCodeBatchInvalidate != nil {
+		routes = append(routes, "POST /dashboard/channelCode/batchInvalidate")
 	}
 	if s.channelCodeGroupIndex != nil {
 		routes = append(routes, "GET /dashboard/channelCodeGroup/index")

@@ -728,6 +728,31 @@
           "method": "POST",
           "pathPattern": "/dashboard/channelCode/store",
           "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/channelCode/update",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/channelCode/workspaceStatistics",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/channelCode/workspaceStatisticsIndex",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/channelCode/export",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/channelCode/batchInvalidate",
+          "scopeRequired": true
         }
       ]
     },
@@ -747,6 +772,66 @@
         {
           "method": "POST",
           "pathPattern": "/dashboard/workRoomAutoPull/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/groupCode/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/groupCode/show",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/groupCode/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/groupCode/update",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/groupCode/export",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/groupCode/download",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/groupCode/batchInvalidate",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/groupCodeGroup/index",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/groupCodeGroup/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/groupCodeGroup/update",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/groupCodeGroup/move",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/groupCodeGroup/destroy",
           "scopeRequired": true
         }
       ]
