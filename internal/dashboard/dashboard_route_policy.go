@@ -315,7 +315,6 @@ var denyOnlyDashboardRouteContracts = []string{
 	"POST /dashboard/workMessageConfig/corpStore",
 	"POST /dashboard/workRoomGroup/store",
 	"PUT /dashboard/autoTag/onOff",
-	"PUT /dashboard/channelCode/update",
 	"PUT /dashboard/channelCodeGroup/move",
 	"PUT /dashboard/channelCodeGroup/update",
 	"PUT /dashboard/contactField/batchUpdate",

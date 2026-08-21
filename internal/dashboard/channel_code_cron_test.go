@@ -85,14 +85,37 @@ func TestChannelCodeCronRequiresDependencies(t *testing.T) {
 	}
 }
 
+func TestChannelCodeCronExpiresFixedValidityAfterProviderSync(t *testing.T) {
+	store := &fakeChannelCodeCronStore{
+		items: []ChannelCodeCronItem{{
+			ID: 900005, CorpID: 7, WXConfigID: "config-expired",
+			ValidUntil: "2026-07-03 23:00:00", LifecycleState: "active",
+		}},
+		credential:       RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "secret"},
+		providerConfigID: "config-expired",
+	}
+	client := &fakeChannelCodeCronClient{}
+	cron := NewChannelCodeCron(store, client, nil)
+	cron.now = func() time.Time { return time.Date(2026, 7, 4, 10, 0, 0, 0, time.Local) }
+
+	if err := cron.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if client.deletedConfigID != "config-expired" || store.lifecycleState != "expired" {
+		t.Fatalf("expiry sync = client %q state %q", client.deletedConfigID, store.lifecycleState)
+	}
+}
+
 type fakeChannelCodeCronStore struct {
-	items      []ChannelCodeCronItem
-	wxUserIDs  []string
-	credential RoomWelcomeCorpCredential
-	qrCodeID   int
-	qrCodeURL  string
-	configID   string
-	deletedID  int
+	items            []ChannelCodeCronItem
+	wxUserIDs        []string
+	credential       RoomWelcomeCorpCredential
+	qrCodeID         int
+	qrCodeURL        string
+	configID         string
+	deletedID        int
+	providerConfigID string
+	lifecycleState   string
 }
 
 func (s *fakeChannelCodeCronStore) ChannelCodesForCron(context.Context) ([]ChannelCodeCronItem, error) {
@@ -123,6 +146,15 @@ func (s *fakeChannelCodeCronStore) DeleteChannelCode(_ context.Context, channelC
 	return nil
 }
 
+func (s *fakeChannelCodeCronStore) ChannelCodeProviderConfig(_ context.Context, _ int, _ int) (RoomWelcomeCorpCredential, string, bool, error) {
+	return s.credential, s.providerConfigID, s.providerConfigID != "", nil
+}
+
+func (s *fakeChannelCodeCronStore) SetChannelCodeLifecycle(_ context.Context, _ int, _ int, state string, _ string, _ string) error {
+	s.lifecycleState = state
+	return nil
+}
+
 type fakeChannelCodeCronClient struct {
 	createQRCode     string
 	createConfigID   string
@@ -133,6 +165,7 @@ type fakeChannelCodeCronClient struct {
 	updateUsers      []string
 	updateSkipVerify bool
 	updateState      string
+	deletedConfigID  string
 }
 
 func (c *fakeChannelCodeCronClient) CreateContactWay(_ context.Context, _ RoomWelcomeCorpCredential, userIDs []string, skipVerify bool, state string) (string, string, error) {
@@ -147,5 +180,10 @@ func (c *fakeChannelCodeCronClient) UpdateContactWay(_ context.Context, _ RoomWe
 	c.updateUsers = append([]string{}, userIDs...)
 	c.updateSkipVerify = skipVerify
 	c.updateState = state
+	return nil
+}
+
+func (c *fakeChannelCodeCronClient) DeleteContactWay(_ context.Context, _ RoomWelcomeCorpCredential, configID string) error {
+	c.deletedConfigID = configID
 	return nil
 }

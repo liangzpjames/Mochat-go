@@ -14,6 +14,8 @@ type ChannelCodeCronItem struct {
 	AutoAddFriend    int
 	DrainageEmployee map[string]any
 	WXConfigID       string
+	ValidUntil       string
+	LifecycleState   string
 }
 
 type ChannelCodeCronStore interface {
@@ -66,6 +68,23 @@ func (c *ChannelCodeCron) RunOnce(ctx context.Context) error {
 			continue
 		}
 		result.ItemsScanned++
+		if item.LifecycleState != "" && item.LifecycleState != "active" {
+			result.ItemsSkipped++
+			continue
+		}
+		expired, err := c.expireIfNeeded(ctx, item)
+		if err != nil {
+			c.logger.Printf("channelCode cron expiry failed: channel=%d corp=%d err=%v", item.ID, item.CorpID, err)
+			result.ItemsFailed++
+			if firstErr == nil {
+				firstErr = fmt.Errorf("channel %d expiry: %w", item.ID, err)
+			}
+			continue
+		}
+		if expired {
+			result.ItemsUpdated++
+			continue
+		}
 		updated, err := c.refreshItem(ctx, item)
 		if err != nil {
 			c.logger.Printf("channelCode cron refresh failed: channel=%d corp=%d err=%v", item.ID, item.CorpID, err)
@@ -83,6 +102,41 @@ func (c *ChannelCodeCron) RunOnce(ctx context.Context) error {
 	}
 	c.logger.Printf("channelCode cron finished: scanned=%d updated=%d skipped=%d failed=%d", result.ItemsScanned, result.ItemsUpdated, result.ItemsSkipped, result.ItemsFailed)
 	return firstErr
+}
+
+func (c *ChannelCodeCron) expireIfNeeded(ctx context.Context, item ChannelCodeCronItem) (bool, error) {
+	if strings.TrimSpace(item.ValidUntil) == "" {
+		return false, nil
+	}
+	validUntil, err := time.ParseInLocation("2006-01-02 15:04:05", strings.TrimSpace(item.ValidUntil), time.Local)
+	if err != nil {
+		return false, fmt.Errorf("invalid valid_until: %w", err)
+	}
+	if c.currentTime().Before(validUntil) {
+		return false, nil
+	}
+	lifecycleStore, ok := c.store.(ChannelCodeLifecycleStore)
+	if !ok {
+		return false, fmt.Errorf("channelCode lifecycle store is not configured")
+	}
+	deleter, ok := c.client.(ChannelCodeContactWayDeleter)
+	if !ok {
+		return false, fmt.Errorf("channelCode contact way deleter is not configured")
+	}
+	credential, configID, found, err := lifecycleStore.ChannelCodeProviderConfig(ctx, item.ID, item.CorpID)
+	if err != nil {
+		return false, err
+	}
+	if !found || configID == "" {
+		return false, fmt.Errorf("channelCode provider config is missing")
+	}
+	if err := deleter.DeleteContactWay(ctx, credential, configID); err != nil {
+		return false, err
+	}
+	if err := lifecycleStore.SetChannelCodeLifecycle(ctx, item.ID, item.CorpID, "expired", "synced", ""); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (c *ChannelCodeCron) refreshItem(ctx context.Context, item ChannelCodeCronItem) (bool, error) {

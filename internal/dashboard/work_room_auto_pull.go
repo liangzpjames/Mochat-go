@@ -11,7 +11,9 @@ import (
 
 type WorkRoomAutoPullFilter struct {
 	CorpIDs             []int
+	GroupID             int
 	QRCodeName          string
+	LifecycleState      string
 	RestrictBusinessIDs bool
 	BusinessIDs         []int
 	Page                int
@@ -26,16 +28,20 @@ type WorkRoomAutoPullPage struct {
 }
 
 type WorkRoomAutoPullItem struct {
-	WorkRoomAutoPullID int
-	MediumID           int
-	QRCodeName         string
-	QRCodeURL          string
-	LeadingWords       string
-	Tags               []string
-	Employees          []string
-	Rooms              []WorkRoomAutoPullListRoom
-	ContactNum         int
-	CreatedAt          string
+	WorkRoomAutoPullID  int
+	GroupID             int
+	MediumID            int
+	QRCodeName          string
+	QRCodeURL           string
+	LeadingWords        string
+	Tags                []string
+	Employees           []string
+	Rooms               []WorkRoomAutoPullListRoom
+	ContactNum          int
+	CreatedAt           string
+	LifecycleState      string
+	DataSource          string
+	StatisticsAvailable bool
 }
 
 type WorkRoomAutoPullListRoom struct {
@@ -159,10 +165,12 @@ func (h *WorkRoomAutoPullHandler) Index(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	filter := WorkRoomAutoPullFilter{
-		CorpIDs:    append([]int{}, principalScope.CorpIDs...),
-		QRCodeName: strings.TrimSpace(r.URL.Query().Get("qrcodeName")),
-		Page:       positiveQueryInt(r, "page", 1),
-		PerPage:    positiveQueryInt(r, "perPage", 10),
+		CorpIDs:        append([]int{}, principalScope.CorpIDs...),
+		GroupID:        positiveQueryInt(r, "groupId", 0),
+		QRCodeName:     strings.TrimSpace(r.URL.Query().Get("qrcodeName")),
+		LifecycleState: strings.TrimSpace(r.URL.Query().Get("state")),
+		Page:           positiveQueryInt(r, "page", 1),
+		PerPage:        positiveQueryInt(r, "perPage", 10),
 	}
 	if dashboardAccess, hasDashboardAccess := DashboardAccessFromContext(r.Context()); hasDashboardAccess && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant {
 		ids, err := h.store.WorkRoomAutoPullBusinessIDsByOperators(r.Context(), dashboardAccess.AllowedEmployeeIDs)
@@ -189,16 +197,21 @@ func (h *WorkRoomAutoPullHandler) Index(w http.ResponseWriter, r *http.Request) 
 	list := make([]map[string]any, 0, len(page.Items))
 	for _, item := range page.Items {
 		list = append(list, map[string]any{
-			"workRoomAutoPullId": item.WorkRoomAutoPullID,
-			"mediumId":           item.MediumID,
-			"qrcodeName":         item.QRCodeName,
-			"qrcodeUrl":          h.fileFullURL(item.QRCodeURL),
-			"leadingWords":       item.LeadingWords,
-			"tags":               item.Tags,
-			"employees":          item.Employees,
-			"rooms":              item.Rooms,
-			"contactNum":         item.ContactNum,
-			"createdAt":          item.CreatedAt,
+			"workRoomAutoPullId":  item.WorkRoomAutoPullID,
+			"id":                  item.WorkRoomAutoPullID,
+			"groupId":             item.GroupID,
+			"mediumId":            item.MediumID,
+			"qrcodeName":          item.QRCodeName,
+			"qrcodeUrl":           h.fileFullURL(item.QRCodeURL),
+			"leadingWords":        item.LeadingWords,
+			"tags":                item.Tags,
+			"employees":           item.Employees,
+			"rooms":               item.Rooms,
+			"contactNum":          item.ContactNum,
+			"createdAt":           item.CreatedAt,
+			"state":               item.LifecycleState,
+			"dataSource":          item.DataSource,
+			"statisticsAvailable": item.StatisticsAvailable,
 		})
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{

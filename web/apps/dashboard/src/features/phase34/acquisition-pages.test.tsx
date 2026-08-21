@@ -123,6 +123,26 @@ describe('Phase 3.4 acquisition pages', () => {
     expect(screen.getByText('关联群聊')).toBeTruthy();
   });
 
+  it('filters group codes by verification state without changing the list tab', async () => {
+    const api: BusinessWorkbenchApi = {
+      read: vi.fn().mockResolvedValue({ list: [
+        { id: 21, qrcodeName: '已验证群', isVerified: 1 },
+        { id: 22, qrcodeName: '待配置群', isVerified: 0 },
+      ] }),
+      write: vi.fn(),
+    };
+    view(<GroupCodePage api={api} />);
+
+    expect(await screen.findByText('已验证群')).toBeTruthy();
+    expect(screen.getByText('待配置群')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '已验证' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('已验证群')).toBeTruthy();
+      expect(screen.queryByText('待配置群')).toBeNull();
+    });
+  });
+
   it('renders a retryable error returned by a connected provider', async () => {
     const read = vi.fn()
       .mockRejectedValueOnce(new Error('provider unavailable'))
@@ -143,7 +163,7 @@ describe('Phase 3.4 acquisition pages', () => {
     await screen.findByRole('heading', { name: '暂无记录' });
     expect(screen.getByRole('button', { name: '查询' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '重置' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '刷新' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
   });
 
   it('creates a channel code through the existing write Provider', async () => {

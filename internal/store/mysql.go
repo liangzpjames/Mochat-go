@@ -5824,7 +5824,8 @@ func (s *MySQLStore) MoveChannelCodeToGroup(ctx context.Context, channelCodeID i
 
 func (s *MySQLStore) ChannelCodesForCron(ctx context.Context) ([]dashboard.ChannelCodeCronItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, corp_id, auto_add_friend, COALESCE(drainage_employee, '{}'), COALESCE(wx_config_id, '')
+		SELECT id, corp_id, auto_add_friend, COALESCE(drainage_employee, '{}'), COALESCE(wx_config_id, ''),
+		       COALESCE(DATE_FORMAT(valid_until, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(lifecycle_state, 'active')
 		FROM mc_channel_code
 		WHERE deleted_at IS NULL
 		ORDER BY id ASC
@@ -5838,7 +5839,7 @@ func (s *MySQLStore) ChannelCodesForCron(ctx context.Context) ([]dashboard.Chann
 	for rows.Next() {
 		var item dashboard.ChannelCodeCronItem
 		var rawDrainage []byte
-		if err := rows.Scan(&item.ID, &item.CorpID, &item.AutoAddFriend, &rawDrainage, &item.WXConfigID); err != nil {
+		if err := rows.Scan(&item.ID, &item.CorpID, &item.AutoAddFriend, &rawDrainage, &item.WXConfigID, &item.ValidUntil, &item.LifecycleState); err != nil {
 			return nil, err
 		}
 		if len(rawDrainage) > 0 {
@@ -17172,7 +17173,8 @@ func (s *MySQLStore) WorkRoomAutoPullPage(ctx context.Context, filter dashboard.
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, page.PerPage, (filter.Page-1)*page.PerPage)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, medium_id, qrcode_name, qrcode_url, leading_words, tags, employees, rooms, created_at
+		SELECT id, group_id, medium_id, qrcode_name, qrcode_url, leading_words, tags, employees, rooms, created_at,
+		       lifecycle_state, data_source
 		FROM mc_work_room_auto_pull
 		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY id DESC
@@ -17196,9 +17198,16 @@ func (s *MySQLStore) WorkRoomAutoPullPage(ctx context.Context, filter dashboard.
 		var raw autoPullRaw
 		var rawTags, rawEmployees, rawRooms []byte
 		var createdAt sql.NullTime
-		if err := rows.Scan(&raw.item.WorkRoomAutoPullID, &raw.item.MediumID, &raw.item.QRCodeName, &raw.item.QRCodeURL, &raw.item.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt); err != nil {
+		if err := rows.Scan(&raw.item.WorkRoomAutoPullID, &raw.item.GroupID, &raw.item.MediumID, &raw.item.QRCodeName, &raw.item.QRCodeURL, &raw.item.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt, &raw.item.LifecycleState, &raw.item.DataSource); err != nil {
 			return dashboard.WorkRoomAutoPullPage{}, err
 		}
+		if raw.item.LifecycleState == "" {
+			raw.item.LifecycleState = "active"
+		}
+		if raw.item.DataSource == "" {
+			raw.item.DataSource = "provider"
+		}
+		raw.item.StatisticsAvailable = true
 		raw.item.CreatedAt = formatTime(createdAt)
 		raw.tagIDs = intSliceFromJSON(rawTags)
 		raw.employeeIDs = intSliceFromJSON(rawEmployees)
@@ -18035,10 +18044,14 @@ func (s *MySQLStore) DeleteWorkRoomAutoPull(ctx context.Context, id int) error {
 }
 
 func workRoomAutoPullWhere(filter dashboard.WorkRoomAutoPullFilter) ([]string, []any) {
-	where := []string{"deleted_at IS NULL", "corp_id IN (" + placeholders(len(filter.CorpIDs)) + ")"}
+	where := []string{"deleted_at IS NULL", "corp_id IN (" + placeholders(len(filter.CorpIDs)) + ")", "data_source <> 'simulation'"}
 	args := make([]any, 0, len(filter.CorpIDs)+len(filter.BusinessIDs)+1)
 	for _, id := range filter.CorpIDs {
 		args = append(args, id)
+	}
+	if filter.GroupID > 0 {
+		where = append(where, "group_id = ?")
+		args = append(args, filter.GroupID)
 	}
 	if filter.RestrictBusinessIDs {
 		where = append(where, "id IN ("+placeholders(len(filter.BusinessIDs))+")")
@@ -18049,6 +18062,10 @@ func workRoomAutoPullWhere(filter dashboard.WorkRoomAutoPullFilter) ([]string, [
 	if filter.QRCodeName != "" {
 		where = append(where, "qrcode_name LIKE ?")
 		args = append(args, "%"+filter.QRCodeName+"%")
+	}
+	if state := strings.TrimSpace(filter.LifecycleState); state != "" {
+		where = append(where, "lifecycle_state = ?")
+		args = append(args, state)
 	}
 	return where, args
 }
