@@ -1,8 +1,8 @@
 # MoChat Go 开发总进度
 
 > 更新时间：2026-08-21
-> 当前分支：`feat/conversation-operations-pages`（HEAD `e7de0ca`，已提交本轮风险预警菜单优化；当前工作树仍保留其他专项未提交改动，本次未执行 reset/clean）
-> 主线同步：本地 `main` 为 `718330d`，领先已在线核实的 `origin/main=e6d238e` 53 个提交；当前分支成果尚未进入 `main` 或远端
+> 当前分支：`feat/conversation-operations-pages`（HEAD `4922649`，关键词库布局与交互收口已提交；当前工作树仍保留其他专项未提交改动，本次未执行 reset/clean）
+> 主线同步：本轮优化已推送至 `origin/main=4922649`；当前分支与远端主线同步，其他专项未提交改动仍保留在工作树
 > 当前阶段：Phase 7 因真实企微会话存档外部配置阻塞而暂停；转入 Dashboard 与 Sidebar/Operation 移动端逐页功能、交互和布局优化
 > 监督模式：本文件是唯一总进度台账；由用户在本会话触发检查，本会话不承担业务开发
 
