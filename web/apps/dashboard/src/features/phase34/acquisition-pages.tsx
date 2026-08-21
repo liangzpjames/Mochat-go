@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
-import { DashboardDialog } from '../../components/dashboard-dialog';
 import { ConfirmAction } from '../../components/confirm-action';
 import { pageStateForError, PageState } from '../../components/page-state/page-state';
 import type { BusinessWorkbenchApi } from '../business-workbench/business-workbench-page';
@@ -97,27 +96,51 @@ function AcquisitionTable({
 }
 
 function RecordDetail({
+  kind,
   title,
   row,
   columns,
   onClose,
 }: {
+  kind: AcquisitionKind;
   title: string;
   row: AcquisitionRecord;
   columns: Column[];
   onClose: () => void;
 }) {
+  const isGroup = kind === 'group';
+  const qrValue = valueFor(row, columns[0]!);
+  const qrURL = typeof qrValue === 'string' ? qrValue.trim() : '';
+  const statisticUnavailable = row.statisticsAvailable === false;
+  const detailValue = (column: Column, fallback = '--') => display(valueFor(row, column)) === '--' ? fallback : display(valueFor(row, column));
+  const baseColumns = columns.slice(2, isGroup ? 4 : 4);
+  const effectColumns = columns.slice(isGroup ? 4 : 4);
   return (
-    <aside className="phase34-detail" aria-label={title}>
-      <div className="phase34-detail-backdrop" onClick={onClose} />
-      <div className="phase34-detail-panel">
-        <div className="dashboard-card-heading">
-          <div><p className="phase34-eyebrow">营销工具</p><h2>{title}</h2></div>
-          <button type="button" onClick={onClose}>关闭</button>
+    <aside className="phase34-detail phase34-live-code-drawer" aria-label={title}>
+      <div className="phase34-detail-backdrop" data-phase34-detail-backdrop aria-hidden="true" onClick={onClose} />
+      <div className="phase34-detail-panel" role="dialog" aria-modal="true">
+        <header className="phase34-live-code-drawer-header">
+          <div className="phase34-live-code-drawer-title">
+            <span className="phase34-live-code-drawer-icon" aria-hidden="true">码</span>
+            <div><p className="phase34-eyebrow">营销工具 · {isGroup ? '社群获客' : '渠道获客'}</p><h2>{title}</h2><p>{isGroup ? '查看群引导、关联群聊和配置状态。' : '查看二维码、使用成员和新增好友数据。'}</p></div>
+          </div>
+          <button type="button" className="phase34-live-code-close" aria-label="关闭详情" title="关闭详情" onClick={onClose}>×</button>
+        </header>
+        <div className="phase34-live-code-drawer-body">
+          <section className="phase34-live-code-summary" aria-label="二维码与状态">
+            <div className="phase34-live-code-qr">
+              {qrURL ? <img src={qrURL} alt="二维码" onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.nextElementSibling?.removeAttribute('hidden'); }} /> : null}
+              <span hidden={Boolean(qrURL)}><strong>二维码</strong><small>{qrURL ? '暂无法预览' : '未提供'}</small></span>
+            </div>
+            <div><span className={`phase34-live-code-status ${qrURL ? 'is-ready' : 'is-pending'}`}>{qrURL ? '已接入二维码' : '待配置二维码'}</span><strong>{detailValue(columns[1]!, '未命名活码')}</strong><small>{isGroup ? '扫码后进入群聊' : statisticUnavailable ? '暂无可验证统计' : `新增好友 ${detailValue(columns[columns.length - 1]!, '0')}`}</small></div>
+          </section>
+          <section className="phase34-live-code-section"><h3>基础信息</h3><dl>{baseColumns.map((column) => <div key={column.key}><dt>{column.title}</dt><dd>{detailValue(column)}</dd></div>)}</dl></section>
+          <section className="phase34-live-code-section"><h3>{isGroup ? '配置与关系' : '归因与效果'}</h3><dl>
+            {effectColumns.map((column) => <div key={column.key}><dt>{column.title}</dt><dd>{!isGroup && statisticUnavailable && column.key === 'contacts' ? '暂无可验证数据' : isGroup && column.key === 'rooms' && detailValue(column) === '--' ? '暂无关联群聊' : detailValue(column)}</dd></div>)}
+            {!isGroup && <div><dt>统计口径</dt><dd>{statisticUnavailable ? '暂无可验证数据' : '已接入真实关联记录'}</dd></div>}
+          </dl></section>
         </div>
-        <dl>{columns.map((column) => (
-          <div key={column.key}><dt>{column.title}</dt><dd>{display(valueFor(row, column))}</dd></div>
-        ))}</dl>
+        <footer className="phase34-live-code-drawer-footer"><span>信息来自当前企业权限范围</span><button type="button" className="phase34-secondary-button" onClick={onClose}>返回列表</button></footer>
       </div>
     </aside>
   );
@@ -166,29 +189,31 @@ function AcquisitionCreateDrawer({
   const required = name.trim() !== ''
     && positiveIDs(employeeIDs).length > 0
     && (kind === 'channel' || (leadingWords.trim() !== '' && positiveIDs(tagIDs).length > 0 && rooms.trim() !== ''));
+  if (!open) return null;
   return (
-    <DashboardDialog
-      confirmLoading={saving}
-      confirmDisabled={!required}
-      confirmText={`保存${label}`}
-      mode="drawer"
-      onCancel={onCancel}
-      onConfirm={onConfirm}
-      open={open}
-      title={`新建${label}`}
-    >
-      <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); if (required) onConfirm(); }}>
-        <label>{label}名称<input aria-label={`${label}名称`} required value={name} onChange={(event) => onNameChange(event.target.value)} /></label>
-        <label>使用成员 ID<input aria-label="使用成员 ID" inputMode="numeric" required value={employeeIDs} onChange={(event) => onEmployeeIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
-        {kind === 'group' && <>
-          <label>入群引导语<textarea aria-label="入群引导语" required value={leadingWords} onChange={(event) => onLeadingWordsChange(event.target.value)} /></label>
-          <label>客户标签 ID<input aria-label="客户标签 ID" inputMode="numeric" required value={tagIDs} onChange={(event) => onTagIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
-          <label>群聊配置 JSON<textarea aria-label="群聊配置 JSON" required value={rooms} onChange={(event) => onRoomsChange(event.target.value)} /></label>
-        </>}
-        <p className="phase34-field-hint">保存会调用现有 Go Provider；企业微信配置或业务对象无效时会保留真实错误，不生成假二维码。</p>
-        {error && <p className="phase34-inline-error" role="alert">{error}</p>}
-      </form>
-    </DashboardDialog>
+    <aside className="phase34-detail phase34-live-code-drawer phase34-live-code-create-drawer" aria-label={`新建${label}`}>
+      <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onCancel} />
+      <div className="phase34-detail-panel" role="dialog" aria-modal="true">
+        <header className="phase34-live-code-drawer-header">
+          <div className="phase34-live-code-drawer-title"><span className="phase34-live-code-drawer-icon" aria-hidden="true">+</span><div><p className="phase34-eyebrow">营销工具 · 新建配置</p><h2>新建{label}</h2><p>填写必要信息后提交到当前企业微信 Provider。</p></div></div>
+          <button type="button" className="phase34-live-code-close" aria-label={`关闭新建${label}`} title="关闭" onClick={onCancel}>×</button>
+        </header>
+        <div className="phase34-live-code-drawer-body">
+          <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); if (required) onConfirm(); }}>
+            <div className="phase34-live-code-form-intro"><strong>先完成基础配置</strong><span>未配置企业授信或业务对象无效时保留真实错误，不生成假二维码。</span></div>
+            <label>{label}名称 <b>*</b><input aria-label={`${label}名称`} required value={name} onChange={(event) => onNameChange(event.target.value)} placeholder={`例如：${kind === 'channel' ? '官网咨询' : '售后服务群'}`} /></label>
+            <label>使用成员 ID <b>*</b><input aria-label="使用成员 ID" inputMode="numeric" required value={employeeIDs} onChange={(event) => onEmployeeIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+            {kind === 'group' && <>
+              <label>入群引导语 <b>*</b><textarea aria-label="入群引导语" required value={leadingWords} onChange={(event) => onLeadingWordsChange(event.target.value)} placeholder="欢迎加入我们的服务群" /></label>
+              <label>客户标签 ID <b>*</b><input aria-label="客户标签 ID" inputMode="numeric" required value={tagIDs} onChange={(event) => onTagIDsChange(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+              <label>群聊配置 JSON <b>*</b><textarea aria-label="群聊配置 JSON" required value={rooms} onChange={(event) => onRoomsChange(event.target.value)} /></label>
+            </>}
+            {error && <p className="phase34-inline-error" role="alert">{error}</p>}
+          </form>
+        </div>
+        <footer className="phase34-live-code-drawer-footer"><span>带 * 为必填项</span><div><button type="button" className="phase34-secondary-button" disabled={saving} onClick={onCancel}>取消</button><button type="button" disabled={saving || !required} onClick={onConfirm}>{saving ? '保存中…' : `保存${label}`}</button></div></footer>
+      </div>
+    </aside>
   );
 }
 
@@ -301,7 +326,7 @@ function ConnectedAcquisitionPage({
         <div className="dashboard-card-heading"><div><h2>{title}列表</h2><p>当前企业：{access.corp.name}，仅展示权限范围内的真实记录。</p></div><span>{rows.length} 条</span></div>
         {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} {...(can('refresh') ? { onRetry: refresh } : {})} /> : rows.length === 0 ? <PageState state="empty" title="暂无记录" description="当前筛选条件下没有可展示的数据。" /> : <AcquisitionTable rows={rows} columns={columns} onDetail={setSelected} />}
       </div>
-      {selected !== null && <RecordDetail title={detailLabel} row={selected} columns={columns} onClose={() => setSelected(null)} />}
+      {selected !== null && <RecordDetail kind={kind} title={detailLabel} row={selected} columns={columns} onClose={() => setSelected(null)} />}
       {createOpen && <AcquisitionCreateDrawer kind={kind} open saving={saving} name={createName} employeeIDs={createEmployeeIDs} leadingWords={createLeadingWords} tagIDs={createTagIDs} rooms={createRooms} error={writeError} onNameChange={setCreateName} onEmployeeIDsChange={setCreateEmployeeIDs} onLeadingWordsChange={setCreateLeadingWords} onTagIDsChange={setCreateTagIDs} onRoomsChange={setCreateRooms} onCancel={() => { if (!saving) setCreateOpen(false); }} onConfirm={() => { void saveCreate(); }} />}
     </section>
   );
