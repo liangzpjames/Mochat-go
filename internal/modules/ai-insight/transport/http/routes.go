@@ -14,3 +14,26 @@ func RegisterRoutes(registrar appmodules.RouteRegistrar, handler *InsightHandler
 	}
 	return nil
 }
+
+func RegisterWorkspaceRoutes(registrar appmodules.RouteRegistrar, handler http.Handler) error {
+	routes := []struct{ method, path string }{
+		{http.MethodGet, "/dashboard/ai-insight/session-analysis/records"},
+		{http.MethodGet, "/dashboard/ai-insight/session-analysis/detail"},
+		{http.MethodGet, "/dashboard/ai-insight/session-analysis/status"},
+		{http.MethodGet, "/dashboard/ai-insight/session-analysis/export"},
+		{http.MethodGet, "/dashboard/ai-insight/smart-analysis/records"},
+		{http.MethodGet, "/dashboard/ai-insight/smart-analysis/detail"},
+		{http.MethodGet, "/dashboard/ai-insight/smart-analysis/status"},
+		{http.MethodGet, "/dashboard/ai-insight/smart-analysis/rules"},
+		{http.MethodPost, "/dashboard/ai-insight/smart-analysis/rules"},
+		{http.MethodPut, "/dashboard/ai-insight/smart-analysis/rules"},
+		{http.MethodDelete, "/dashboard/ai-insight/smart-analysis/rules"},
+		{http.MethodPost, "/dashboard/ai-insight/smart-analysis/rules/status"},
+	}
+	for _, route := range routes {
+		if err := registrar.Handle(route.method, route.path, handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}

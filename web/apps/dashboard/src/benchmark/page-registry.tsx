@@ -40,8 +40,11 @@ import { CustomerLossPage } from '../features/phase33/customer-loss-page';
 import { RiskBehaviorPage } from '../features/phase33/risk-behavior-page';
 import type { RiskBehaviorApi } from '../features/phase33/risk-behavior-api';
 import { TimeoutWarningPage } from '../features/phase33/timeout-warning-page';
-import { KeywordLibraryPage, MessageInterceptPage } from '../features/phase33/message-intercept-pages';
-import { SilentCustomerPage } from '../features/phase33/phase33-closure-pages';
+import { KeywordLibraryPage } from '../features/phase33/keyword-library-page';
+import { MessageInterceptPage } from '../features/phase33/message-intercept-page';
+import { SilentCustomerPage } from '../features/phase33/silent-customer-page';
+import { createMessageInterceptApi } from '../features/phase33/message-intercept-api';
+import { createSilentCustomerApi } from '../features/phase33/silent-customer-api';
 import type { BusinessWorkbenchApi } from '../features/business-workbench/business-workbench-page';
 import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../features/phase34/acquisition-pages';
 import { GroupTemplatePage, RedirectLinkPage, WechatCustomerServicePage } from '../features/phase34/conversion-pages';
@@ -61,6 +64,9 @@ import { KnowledgeBasePage } from '../features/ai-settings/knowledge-base-page';
 import { AgentPage } from '../features/ai-settings/agent-page';
 import type { AiInsightApi } from '../features/ai-insight/ai-insight-api';
 import { AiInsightPage } from '../features/ai-insight/ai-insight-pages';
+import type { AiInsightWorkspaceApi } from '../features/ai-insight/ai-insight-workspace-api';
+import { SessionAnalysisPage } from '../features/ai-insight/session-analysis-page';
+import { SmartAnalysisPage } from '../features/ai-insight/smart-analysis-page';
 import { CompanyWebsitePage } from '../features/company-settings/website-page';
 import { CompanyStaffPage } from '../features/company-settings/staff-page';
 import { CompanyRolePage } from '../features/company-settings/role-page';
@@ -93,6 +99,7 @@ export function createBenchmarkP0Pages({
   businessWorkbenchApi,
   aiSettingsApi,
   aiInsightApi,
+  aiInsightWorkspaceApi,
   fileAudioApi,
   refuseArchiveApi,
   contactTransferApi,
@@ -114,6 +121,7 @@ export function createBenchmarkP0Pages({
   businessWorkbenchApi?: BusinessWorkbenchApi;
   aiSettingsApi?: AISettingsApi;
   aiInsightApi?: AiInsightApi;
+  aiInsightWorkspaceApi?: AiInsightWorkspaceApi;
   fileAudioApi?: FileAudioApi;
   refuseArchiveApi?: RefuseArchiveApi;
   contactTransferApi?: ContactTransferApi;
@@ -125,6 +133,8 @@ export function createBenchmarkP0Pages({
   roleApi?: RoleApi | DashboardAccessAdminApi;
   menuAdminApi?: MenuAdminApi | DashboardAccessAdminApi;
 }): PageRegistry {
+  const messageInterceptApi = businessWorkbenchApi === undefined ? undefined : createMessageInterceptApi(businessWorkbenchApi);
+  const silentCustomerApi = businessWorkbenchApi === undefined ? undefined : createSilentCustomerApi(businessWorkbenchApi);
   return {
     '/index': <DashboardOverviewPage api={dashboardOverviewApi} optionsApi={businessWorkbenchApi} />,
     '/chat/v2-all': <ConversationGlobalPage api={conversationGlobalApi} />,
@@ -160,10 +170,12 @@ export function createBenchmarkP0Pages({
     )),
     ...(riskBehaviorApi === undefined ? {} : { '/ai-insight/v2/risk': <RiskBehaviorPage api={riskBehaviorApi} /> }),
     ...(businessWorkbenchApi === undefined ? {} : { '/ai-insight/v2/timeout': <TimeoutWarningPage api={businessWorkbenchApi} /> }),
+    ...(messageInterceptApi === undefined || silentCustomerApi === undefined ? {} : {
+      '/ai-insight/v2/message-intercept': <MessageInterceptPage api={messageInterceptApi} />,
+      '/ai-insight/v2/keyword-library': <KeywordLibraryPage api={messageInterceptApi} />,
+      '/ai-insight/v2/silent-customer': <SilentCustomerPage api={silentCustomerApi} />,
+    }),
     ...(businessWorkbenchApi === undefined ? {} : {
-      '/ai-insight/v2/message-intercept': <MessageInterceptPage api={businessWorkbenchApi} />,
-      '/ai-insight/v2/keyword-library': <KeywordLibraryPage api={businessWorkbenchApi} />,
-      '/ai-insight/v2/silent-customer': <SilentCustomerPage api={businessWorkbenchApi} />,
       '/acquisition/v2-channel-code': <ChannelCodePage api={businessWorkbenchApi} />,
       '/acquisition/group-code': <GroupCodePage api={businessWorkbenchApi} />,
       '/acquisition/live-code-short-chain': <LiveCodeShortChainPage api={businessWorkbenchApi} />,
@@ -188,11 +200,13 @@ export function createBenchmarkP0Pages({
       '/ai-setting/agent': <AgentPage api={aiSettingsApi} />,
     }),
     ...(aiInsightApi === undefined ? {} : {
-      '/ai-insight/session-analysis': <AiInsightPage api={aiInsightApi} page="session-analysis" />,
-      '/ai-insight/smart-analysis': <AiInsightPage api={aiInsightApi} page="smart-analysis" />,
       '/ai-insight/emotion': <AiInsightPage api={aiInsightApi} page="emotion" />,
       '/ai-insight/employee-score': <AiInsightPage api={aiInsightApi} page="employee-score" />,
       '/ai-insight/communication-keyword': <AiInsightPage api={aiInsightApi} page="communication-keyword" />,
+    }),
+    ...(aiInsightWorkspaceApi === undefined ? {} : {
+      '/ai-insight/session-analysis': <SessionAnalysisPage api={aiInsightWorkspaceApi} />,
+      '/ai-insight/smart-analysis': <SmartAnalysisPage api={aiInsightWorkspaceApi} />,
     }),
     ...(companyProfileApi === undefined ? {} : {
       '/company-setting/website': <CompanyWebsitePage

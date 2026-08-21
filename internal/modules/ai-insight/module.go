@@ -1,12 +1,14 @@
 package aiinsight
 
 import (
+	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 
 	appmodules "jiyi/mochat-go/internal/app/modules"
-	"jiyi/mochat-go/internal/modules/providers"
 	transporthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
+	"jiyi/mochat-go/internal/modules/providers"
 )
 
 type Dependencies struct {
@@ -17,22 +19,53 @@ type Dependencies struct {
 }
 
 type Module struct {
-	handler *transporthttp.InsightHandler
+	handler   *transporthttp.InsightHandler
+	workspace *WorkspaceHandler
 }
 
 func New(dependencies Dependencies) (*Module, error) {
 	if dependencies.PrincipalResolver == nil {
 		return nil, errors.New("AI insight principal resolver is required")
 	}
-	if dependencies.AIProvider != nil {
-		return &Module{handler: transporthttp.NewInsightHandlerWithProvider(dependencies.PrincipalResolver, dependencies.Authorizer, dependencies.DB, dependencies.AIProvider)}, nil
+	handler := transporthttp.NewInsightHandlerWithProvider(dependencies.PrincipalResolver, dependencies.Authorizer, dependencies.DB, dependencies.AIProvider)
+	var workspace *WorkspaceHandler
+	if dependencies.DB != nil {
+		var workspaceAuthorizer WorkspaceAuthorizer
+		if dependencies.Authorizer != nil {
+			workspaceAuthorizer = workspaceAuthorizerAdapter{authorizer: dependencies.Authorizer}
+		}
+		workspace = NewWorkspaceHandler(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProvider)
 	}
-	return &Module{handler: transporthttp.NewInsightHandler(dependencies.PrincipalResolver, dependencies.Authorizer)}, nil
+	return &Module{handler: handler, workspace: workspace}, nil
+}
+
+type workspacePrincipalAdapter struct {
+	resolver transporthttp.PrincipalResolver
+}
+
+func (a workspacePrincipalAdapter) Resolve(r *http.Request) (WorkspacePrincipal, error) {
+	p, err := a.resolver.Resolve(r)
+	if err != nil {
+		return WorkspacePrincipal{}, err
+	}
+	return WorkspacePrincipal{UserID: p.UserID, TenantID: p.TenantID, CorpID: p.CorpID, AllowedEmployeeIDs: p.AllowedEmployeeIDs, EmployeeScopeRestricted: p.EmployeeScopeRestricted}, nil
+}
+
+type workspaceAuthorizerAdapter struct{ authorizer transporthttp.Authorizer }
+
+func (a workspaceAuthorizerAdapter) Authorize(ctx context.Context, p WorkspacePrincipal, corpID int64, permission string) error {
+	return a.authorizer.Authorize(ctx, transporthttp.Principal{UserID: p.UserID, TenantID: p.TenantID, CorpID: p.CorpID, AllowedEmployeeIDs: p.AllowedEmployeeIDs, EmployeeScopeRestricted: p.EmployeeScopeRestricted}, corpID, permission)
 }
 
 func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
 	if m == nil || m.handler == nil {
 		return errors.New("AI insight module is not initialized")
 	}
-	return transporthttp.RegisterRoutes(registrar, m.handler)
+	if err := transporthttp.RegisterRoutes(registrar, m.handler); err != nil {
+		return err
+	}
+	if m.workspace != nil {
+		return transporthttp.RegisterWorkspaceRoutes(registrar, m.workspace)
+	}
+	return nil
 }

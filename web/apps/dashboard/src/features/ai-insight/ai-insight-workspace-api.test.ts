@@ -1,0 +1,22 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createAiInsightWorkspaceApi } from './ai-insight-workspace-api';
+
+const valid = { id: 1, conversationKey: '1001:1:2001', employee: { id: 1001, name: '员工甲', avatar: '' }, target: { type: 'direct', id: '2001', name: '客户甲', avatar: '' }, sourceWindow: { startedAt: '2026-08-21T09:00:00Z', endedAt: '2026-08-21T09:10:00Z', messageCount: 4, fingerprint: 'a'.repeat(64) }, status: 'succeeded', summary: '客户有明确采购意向', analysisAt: '2026-08-21T09:11:00Z', result: {} };
+
+describe('AI 洞察工作台 API', () => {
+  it('拒绝没有真实会话键的结果行', async () => {
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [{ id: 1 }] }) };
+    await expect(createAiInsightWorkspaceApi(client).sessionRecords({ page: 1 })).rejects.toThrow('AI 洞察列表接口返回了无效数据');
+  });
+  it('解析会话结果并固定每页 20 条', async () => {
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 99, total: 1, items: [valid] }) };
+    const page = await createAiInsightWorkspaceApi(client).sessionRecords({ page: 1 });
+    expect(page.items[0]!.conversationKey).toBe('1001:1:2001');
+    expect(page.pageSize).toBe(20);
+    expect(client.request).toHaveBeenCalledWith(expect.stringContaining('page=1'));
+  });
+  it('智能结果必须带规则快照', async () => {
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [valid] }) };
+    await expect(createAiInsightWorkspaceApi(client).smartRecords({ page: 1 })).rejects.toThrow('智能分析结果缺少规则快照');
+  });
+});

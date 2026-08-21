@@ -7,13 +7,11 @@ import (
 	"log"
 	"time"
 
-	"jiyi/mochat-go/internal/modules/providers"
 	transporthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
+	"jiyi/mochat-go/internal/modules/providers"
 )
 
 var dailyAnalysisPages = []string{
-	"session-analysis",
-	"smart-analysis",
 	"emotion",
 	"employee-score",
 	"communication-keyword",
@@ -32,17 +30,19 @@ type DailyConfig struct {
 // active corp. Page-open reads never call the model; this job is the only
 // writer so each analysis page is refreshed at most once per day.
 type DailyAnalysisRunner struct {
-	db       *sql.DB
-	ai       providers.AIProvider
-	analysis transporthttp.AnalysisStore
-	logger   *log.Logger
+	db           *sql.DB
+	ai           providers.AIProvider
+	analysis     transporthttp.AnalysisStore
+	conversation *ConversationAnalysisRunner
+	logger       *log.Logger
 }
 
 func NewDailyAnalysisRunner(db *sql.DB, ai providers.AIProvider, logger *log.Logger) *DailyAnalysisRunner {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &DailyAnalysisRunner{db: db, ai: ai, analysis: transporthttp.NewSQLAnalysisStore(db), logger: logger}
+	repo := NewSQLRepository(db)
+	return &DailyAnalysisRunner{db: db, ai: ai, analysis: transporthttp.NewSQLAnalysisStore(db), conversation: NewConversationAnalysisRunner(repo, ai, RunnerConfig{}, logger), logger: logger}
 }
 
 // RunOnce analyzes archive texts for every active corp and persists the
@@ -55,7 +55,7 @@ func (r *DailyAnalysisRunner) RunOnce(ctx context.Context) error {
 		return errors.New("AI insight daily analysis skipped: AI provider is not ready")
 	}
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT c.id
+		SELECT c.tenant_id, c.id
 		FROM mc_corp c
 		JOIN mochat_go_tenant_corp_bindings b ON b.tenant_id = c.tenant_id AND b.corp_id = c.id
 		WHERE c.deleted_at IS NULL AND b.status = 2
@@ -64,23 +64,29 @@ func (r *DailyAnalysisRunner) RunOnce(ctx context.Context) error {
 		return err
 	}
 	defer rows.Close()
-	corpIDs := []int64{}
+	type corpRef struct{ tenantID, corpID int64 }
+	corps := []corpRef{}
 	for rows.Next() {
-		var corpID int64
-		if rows.Scan(&corpID) == nil {
-			corpIDs = append(corpIDs, corpID)
+		var ref corpRef
+		if rows.Scan(&ref.tenantID, &ref.corpID) == nil {
+			corps = append(corps, ref)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if len(corpIDs) == 0 {
+	if len(corps) == 0 {
 		r.logger.Printf("AI insight daily analysis: no active corps, nothing to analyze")
 		return nil
 	}
-	for _, corpID := range corpIDs {
-		if err := r.runCorp(ctx, corpID); err != nil {
-			r.logger.Printf("AI insight daily analysis failed for corp %d: %v", corpID, err)
+	for _, corp := range corps {
+		if r.conversation != nil {
+			if err := r.conversation.RunCorp(ctx, corp.tenantID, corp.corpID); err != nil {
+				r.logger.Printf("AI insight conversation analysis failed for corp %d: %v", corp.corpID, err)
+			}
+		}
+		if err := r.runCorp(ctx, corp.corpID); err != nil {
+			r.logger.Printf("AI insight daily analysis failed for corp %d: %v", corp.corpID, err)
 		}
 	}
 	return nil

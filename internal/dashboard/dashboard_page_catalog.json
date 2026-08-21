@@ -48,6 +48,21 @@
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
           "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/globalOverview",
+          "scopeRequired": false
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/workMessage/focus",
+          "scopeRequired": false
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/workMessage/focus",
+          "scopeRequired": false
         }
       ]
     },
@@ -73,6 +88,26 @@
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
           "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/staffDirectory",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/staffDetail",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/workMessage/focus",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/workMessage/focus",
+          "scopeRequired": true
         }
       ]
     },
@@ -87,6 +122,16 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/toUsers",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/fromUsers",
           "scopeRequired": true
         },
         {
@@ -112,16 +157,6 @@
         {
           "method": "DELETE",
           "pathPattern": "/dashboard/workMessage/focus",
-          "scopeRequired": true
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/workMessage/detail",
-          "scopeRequired": true
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/workMessage/fromUsers",
           "scopeRequired": true
         }
       ]
@@ -211,12 +246,22 @@
       "resources": [
         {
           "method": "GET",
-          "pathPattern": "/dashboard/workMessage/toUsers",
+          "pathPattern": "/dashboard/workMessage/exportCandidates",
           "scopeRequired": true
         },
         {
           "method": "GET",
-          "pathPattern": "/dashboard/workMessage/detail",
+          "pathPattern": "/dashboard/workMessage/exportTasks",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/workMessage/exportTasks",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/exportDownload",
           "scopeRequired": true
         }
       ]
@@ -232,16 +277,6 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/chat/media",
-          "scopeRequired": false
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/chat/media",
-          "scopeRequired": false
-        },
-        {
-          "method": "DELETE",
-          "pathPattern": "/dashboard/chat/media/{id}",
           "scopeRequired": false
         }
       ]
@@ -292,6 +327,41 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/contactTransfer/unassignedList",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/contactTransfer/info",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/contactTransfer/room",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/contactTransfer/log",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/contactTransfer/sync",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/contactTransfer/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/contactTransfer/room",
           "scopeRequired": false
         }
       ]
@@ -648,6 +718,26 @@
           "method": "GET",
           "pathPattern": "/dashboard/ai-insight/session-analysis",
           "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/session-analysis/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/session-analysis/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/session-analysis/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/session-analysis/export",
+          "scopeRequired": true
         }
       ]
     },
@@ -662,6 +752,46 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/ai-insight/smart-analysis",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules",
+          "scopeRequired": true
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules/status",
           "scopeRequired": true
         }
       ]
