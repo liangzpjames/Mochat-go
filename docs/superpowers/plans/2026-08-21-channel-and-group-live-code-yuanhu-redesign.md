@@ -112,7 +112,7 @@ CREATE TABLE mc_live_code_event (
 
 - [ ] **Step 4: 增加页面动作权限**
 
-在页面目录和 0150 migration 中为两个页面建立 view、create、edit、statistics、export、move、invalidate、upload 动作。SQL 必须幂等，写入现有 mc_rbac_menu 体系。
+在页面目录和 0150 migration 中为两个页面建立 view、create、edit、statistics、export、move、invalidate、upload 动作。SQL 必须幂等，写入现有 mochat_go_dashboard_permission_resources 体系。
 
 - [ ] **Step 5: 验证并提交**
 
