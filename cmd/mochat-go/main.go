@@ -1399,6 +1399,8 @@ func main() {
 			options = append(options, compatserver.WithChannelCodeUpdateHandler(http.HandlerFunc(channelCode.Update)))
 			log.Printf("go migrated route enabled: PUT /dashboard/channelCode/update")
 		}
+		options = append(options, compatserver.WithChannelCodeBatchInvalidateHandler(http.HandlerFunc(channelCode.BatchInvalidate)))
+		log.Printf("go migrated route enabled: POST /dashboard/channelCode/batchInvalidate")
 		if cfg.MigrateChannelCodeGroupIndex {
 			options = append(options, compatserver.WithChannelCodeGroupIndexHandler(http.HandlerFunc(channelCode.GroupIndex)))
 			log.Printf("go migrated route enabled: GET /dashboard/channelCodeGroup/index")

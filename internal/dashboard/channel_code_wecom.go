@@ -41,3 +41,14 @@ func (c *RoomWelcomeWeComClient) UpdateContactWay(ctx context.Context, credentia
 	var response weComBaseResponse
 	return c.postJSON(ctx, "cgi-bin/externalcontact/update_contact_way", token, request, &response)
 }
+
+func (c *RoomWelcomeWeComClient) DeleteContactWay(ctx context.Context, credential RoomWelcomeCorpCredential, configID string) error {
+	token, err := c.accessToken(ctx, credential)
+	if err != nil {
+		return err
+	}
+	var response weComBaseResponse
+	return c.postJSON(ctx, "cgi-bin/externalcontact/del_contact_way", token, map[string]any{
+		"config_id": configID,
+	}, &response)
+}

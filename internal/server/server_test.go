@@ -5298,6 +5298,8 @@ func TestChannelCodeGroupHandlersAreRouted(t *testing.T) {
 		_, _ = w.Write([]byte("go channel code store"))
 	})), WithChannelCodeUpdateHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("go channel code update"))
+	})), WithChannelCodeBatchInvalidateHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("go channel code batch invalidate"))
 	})), WithChannelCodeGroupIndexHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("go channel code group index"))
 	})), WithChannelCodeGroupDetailHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -5325,6 +5327,7 @@ func TestChannelCodeGroupHandlersAreRouted(t *testing.T) {
 		{method: http.MethodGet, path: "/dashboard/channelCode/statisticsIndex", body: "go channel code statistics index"},
 		{method: http.MethodPost, path: "/dashboard/channelCode/store", body: "go channel code store"},
 		{method: http.MethodPut, path: "/dashboard/channelCode/update", body: "go channel code update"},
+		{method: http.MethodPost, path: "/dashboard/channelCode/batchInvalidate", body: "go channel code batch invalidate"},
 		{method: http.MethodGet, path: "/dashboard/channelCodeGroup/index", body: "go channel code group index"},
 		{method: http.MethodGet, path: "/dashboard/channelCodeGroup/detail", body: "go channel code group detail"},
 		{method: http.MethodPost, path: "/dashboard/channelCodeGroup/store", body: "go channel code group store"},

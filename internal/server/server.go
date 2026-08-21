@@ -230,6 +230,7 @@ type Server struct {
 	channelCodeStatsIndex                           http.Handler
 	channelCodeStore                                http.Handler
 	channelCodeUpdate                               http.Handler
+	channelCodeBatchInvalidate                      http.Handler
 	channelCodeGroupIndex                           http.Handler
 	channelCodeGroupDetail                          http.Handler
 	channelCodeGroupStore                           http.Handler
@@ -1917,6 +1918,12 @@ func WithChannelCodeStoreHandler(handler http.Handler) Option {
 func WithChannelCodeUpdateHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.channelCodeUpdate = handler
+	}
+}
+
+func WithChannelCodeBatchInvalidateHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.channelCodeBatchInvalidate = handler
 	}
 }
 
@@ -4922,6 +4929,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.channelCodeStore.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/channelCode/update" && r.Method == http.MethodPut && s.channelCodeUpdate != nil:
 		s.channelCodeUpdate.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/channelCode/batchInvalidate" && r.Method == http.MethodPost && s.channelCodeBatchInvalidate != nil:
+		s.channelCodeBatchInvalidate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/channelCodeGroup/index" && r.Method == http.MethodGet && s.channelCodeGroupIndex != nil:
 		s.channelCodeGroupIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/channelCodeGroup/detail" && r.Method == http.MethodGet && s.channelCodeGroupDetail != nil:
@@ -6664,6 +6673,9 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.channelCodeUpdate != nil {
 		routes = append(routes, "PUT /dashboard/channelCode/update")
+	}
+	if s.channelCodeBatchInvalidate != nil {
+		routes = append(routes, "POST /dashboard/channelCode/batchInvalidate")
 	}
 	if s.channelCodeGroupIndex != nil {
 		routes = append(routes, "GET /dashboard/channelCodeGroup/index")

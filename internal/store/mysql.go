@@ -5786,7 +5786,8 @@ func (s *MySQLStore) MoveChannelCodeToGroup(ctx context.Context, channelCodeID i
 
 func (s *MySQLStore) ChannelCodesForCron(ctx context.Context) ([]dashboard.ChannelCodeCronItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, corp_id, auto_add_friend, COALESCE(drainage_employee, '{}'), COALESCE(wx_config_id, '')
+		SELECT id, corp_id, auto_add_friend, COALESCE(drainage_employee, '{}'), COALESCE(wx_config_id, ''),
+		       COALESCE(DATE_FORMAT(valid_until, '%Y-%m-%d %H:%i:%s'), ''), COALESCE(lifecycle_state, 'active')
 		FROM mc_channel_code
 		WHERE deleted_at IS NULL
 		ORDER BY id ASC
@@ -5800,7 +5801,7 @@ func (s *MySQLStore) ChannelCodesForCron(ctx context.Context) ([]dashboard.Chann
 	for rows.Next() {
 		var item dashboard.ChannelCodeCronItem
 		var rawDrainage []byte
-		if err := rows.Scan(&item.ID, &item.CorpID, &item.AutoAddFriend, &rawDrainage, &item.WXConfigID); err != nil {
+		if err := rows.Scan(&item.ID, &item.CorpID, &item.AutoAddFriend, &rawDrainage, &item.WXConfigID, &item.ValidUntil, &item.LifecycleState); err != nil {
 			return nil, err
 		}
 		if len(rawDrainage) > 0 {
