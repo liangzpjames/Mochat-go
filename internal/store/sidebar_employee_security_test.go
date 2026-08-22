@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"jiyi/mochat-go/internal/dashboard"
 )
 
 func TestSidebarWorkContactQueriesBindEmployeeAndCorp(t *testing.T) {
@@ -81,6 +83,88 @@ func TestContactSOPInfoBindsCorpAcrossBothLookupBranches(t *testing.T) {
 		t.Fatalf("found=%v err=%v", found, err)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApplyWorkContactTagsRejectsTagIDsOutsideCurrentCorp(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &MySQLStore{db: db}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)FROM mc_work_contact.*WHERE id = \? AND corp_id = \? AND deleted_at IS NULL`).
+		WithArgs(31, 7).
+		WillReturnRows(sqlmock.NewRows([]string{"wx_external_userid"}).AddRow("external-31"))
+	mock.ExpectQuery(`(?s)FROM mc_work_employee.*WHERE id = \? AND corp_id = \? AND deleted_at IS NULL`).
+		WithArgs(5, 7).
+		WillReturnRows(sqlmock.NewRows([]string{"wx_user_id"}).AddRow("employee-5"))
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_tag.*WHERE corp_id = \?.*id IN \(\?,\?\).*deleted_at IS NULL`).
+		WithArgs(7, 11, 99).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "wx_contact_tag_id", "name"}).
+			AddRow(11, "wx-tag-11", "当前企业标签"))
+	mock.ExpectRollback()
+
+	result, found, err := store.ApplyWorkContactTags(context.Background(), dashboard.MarkTagsApplyValues{
+		CorpID: 7, ContactID: 31, EmployeeID: 5, TagIDs: []int{11, 99},
+	})
+	if found || !errors.Is(err, errWorkContactTagScope) {
+		t.Fatalf("result=%#v found=%v err=%v", result, found, err)
+	}
+	if len(result.AddedWXTagIDs) != 0 || len(result.AddedTagNames) != 0 {
+		t.Fatalf("rejected request returned added tags: %#v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApplyWorkContactTagsKeepsCurrentCorpTagWrite(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &MySQLStore{db: db}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)FROM mc_work_contact.*WHERE id = \? AND corp_id = \? AND deleted_at IS NULL`).
+		WithArgs(31, 7).
+		WillReturnRows(sqlmock.NewRows([]string{"wx_external_userid"}).AddRow("external-31"))
+	mock.ExpectQuery(`(?s)FROM mc_work_employee.*WHERE id = \? AND corp_id = \? AND deleted_at IS NULL`).
+		WithArgs(5, 7).
+		WillReturnRows(sqlmock.NewRows([]string{"wx_user_id"}).AddRow("employee-5"))
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_tag.*WHERE corp_id = \?.*id IN \(\?\).*deleted_at IS NULL`).
+		WithArgs(7, 11).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "wx_contact_tag_id", "name"}).
+			AddRow(11, "wx-tag-11", "当前企业标签"))
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_tag_pivot AS pivot.*JOIN mc_work_contact_tag AS tag.*tag.corp_id = \?.*pivot.contact_id = \?.*pivot.employee_id = \?`).
+		WithArgs(7, 31, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"contact_tag_id"}))
+	mock.ExpectExec(`(?s)INSERT INTO mc_work_contact_tag_pivot.*VALUES \(\?, \?, \?, 1, NOW\(\), NOW\(\)\)`).
+		WithArgs(31, 5, 11).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`(?s)INSERT INTO mc_contact_employee_track`).
+		WithArgs(5, 31, "系统对该客户打标签【当前企业标签】", 7, 2).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	result, found, err := store.ApplyWorkContactTags(context.Background(), dashboard.MarkTagsApplyValues{
+		CorpID: 7, ContactID: 31, EmployeeID: 5, TagIDs: []int{11},
+	})
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if len(result.AddedWXTagIDs) != 1 || result.AddedWXTagIDs[0] != "wx-tag-11" {
+		t.Fatalf("added wx tag ids = %#v", result.AddedWXTagIDs)
+	}
+	if len(result.AddedTagNames) != 1 || result.AddedTagNames[0] != "当前企业标签" {
+		t.Fatalf("added tag names = %#v", result.AddedTagNames)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}

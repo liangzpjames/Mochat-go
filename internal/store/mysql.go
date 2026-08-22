@@ -20978,7 +20978,7 @@ func (s *MySQLStore) UpdateWorkContactProfile(ctx context.Context, values dashbo
 	}
 
 	if values.HasTag {
-		addedWXTagIDs, addedTagNames, err := addWorkContactTagsTx(ctx, tx, values.ContactID, values.EmployeeID, values.TagIDs)
+		addedWXTagIDs, addedTagNames, err := addWorkContactTagsTx(ctx, tx, values.CorpID, values.ContactID, values.EmployeeID, values.TagIDs)
 		if err != nil {
 			return dashboard.WorkContactUpdateResult{}, false, err
 		}
@@ -21034,7 +21034,7 @@ func (s *MySQLStore) ApplyWorkContactTags(ctx context.Context, values dashboard.
 		return dashboard.MarkTagsApplyResult{}, false, err
 	}
 
-	addedWXTagIDs, addedTagNames, err := addWorkContactTagsTx(ctx, tx, values.ContactID, values.EmployeeID, tagIDs)
+	addedWXTagIDs, addedTagNames, err := addWorkContactTagsTx(ctx, tx, values.CorpID, values.ContactID, values.EmployeeID, tagIDs)
 	if err != nil {
 		return dashboard.MarkTagsApplyResult{}, false, err
 	}
@@ -21051,16 +21051,50 @@ func (s *MySQLStore) ApplyWorkContactTags(ctx context.Context, values dashboard.
 	return result, true, nil
 }
 
-func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, contactID int, employeeID int, tagIDs []int) ([]string, []string, error) {
+var errWorkContactTagScope = errors.New("work contact tag is outside corp scope")
+
+func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID int, employeeID int, tagIDs []int) ([]string, []string, error) {
 	tagIDs = uniquePositiveInts(tagIDs)
 	if len(tagIDs) == 0 {
 		return []string{}, []string{}, nil
 	}
+	type tagDetails struct {
+		wxID string
+		name string
+	}
+	tagArgs := append([]any{corpID}, intsToAny(tagIDs)...)
 	rows, err := tx.QueryContext(ctx, `
-		SELECT contact_tag_id
-		FROM mc_work_contact_tag_pivot
-		WHERE contact_id = ? AND employee_id = ? AND deleted_at IS NULL
-	`, contactID, employeeID)
+		SELECT id, COALESCE(wx_contact_tag_id, ''), COALESCE(name, '')
+		FROM mc_work_contact_tag
+		WHERE corp_id = ? AND id IN (`+placeholders(len(tagIDs))+`) AND deleted_at IS NULL
+	`, tagArgs...)
+	if err != nil {
+		return nil, nil, err
+	}
+	allowed := make(map[int]tagDetails, len(tagIDs))
+	for rows.Next() {
+		var id int
+		var details tagDetails
+		if err := rows.Scan(&id, &details.wxID, &details.name); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		allowed[id] = details
+	}
+	if err := rows.Close(); err != nil {
+		return nil, nil, err
+	}
+	if len(allowed) != len(tagIDs) {
+		return nil, nil, errWorkContactTagScope
+	}
+
+	rows, err = tx.QueryContext(ctx, `
+		SELECT pivot.contact_tag_id
+		FROM mc_work_contact_tag_pivot AS pivot
+		JOIN mc_work_contact_tag AS tag
+		  ON tag.id = pivot.contact_tag_id AND tag.corp_id = ? AND tag.deleted_at IS NULL
+		WHERE pivot.contact_id = ? AND pivot.employee_id = ? AND pivot.deleted_at IS NULL
+	`, corpID, contactID, employeeID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -21079,6 +21113,9 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, contactID int, employ
 
 	addIDs := make([]int, 0, len(tagIDs))
 	for _, tagID := range tagIDs {
+		if _, ok := allowed[tagID]; !ok {
+			continue
+		}
 		if _, ok := existing[tagID]; !ok {
 			addIDs = append(addIDs, tagID)
 		}
@@ -21096,31 +21133,18 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, contactID int, employ
 		}
 	}
 
-	args := intsToAny(addIDs)
-	rows, err = tx.QueryContext(ctx, `
-		SELECT wx_contact_tag_id, name
-		FROM mc_work_contact_tag
-		WHERE id IN (`+placeholders(len(addIDs))+`) AND deleted_at IS NULL
-	`, args...)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
 	wxTagIDs := []string{}
 	names := []string{}
-	for rows.Next() {
-		var wxTagID, name sql.NullString
-		if err := rows.Scan(&wxTagID, &name); err != nil {
-			return nil, nil, err
+	for _, tagID := range addIDs {
+		details := allowed[tagID]
+		if details.wxID != "" {
+			wxTagIDs = append(wxTagIDs, details.wxID)
 		}
-		if value := nullString(wxTagID); value != "" {
-			wxTagIDs = append(wxTagIDs, value)
-		}
-		if value := nullString(name); value != "" {
-			names = append(names, value)
+		if details.name != "" {
+			names = append(names, details.name)
 		}
 	}
-	return wxTagIDs, names, rows.Err()
+	return wxTagIDs, names, nil
 }
 
 func (s *MySQLStore) BatchLabelWorkContacts(ctx context.Context, contactIDs []int, tagIDs []int, employeeID int) (int, error) {
