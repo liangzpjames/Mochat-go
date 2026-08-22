@@ -462,11 +462,10 @@ export function LiveCodeWorkspacePage({ api, kind }: { api: BusinessWorkbenchApi
     try {
       const editID = editing ? numberOf(value(editing.row, isChannel ? 'channelCodeId' : 'workRoomAutoPullId', 'id')) : 0;
       const payload = editID > 0 ? { [isChannel ? 'channelCodeId' : 'workRoomAutoPullId']: editID, ...values } : values;
-      await api.write(
-        isChannel ? (editID > 0 ? '/channelCode/update' : '/channelCode/store') : (editID > 0 ? '/workRoomAutoPull/update' : '/workRoomAutoPull/store'),
-        payload,
-        editID > 0 ? 'PUT' : 'POST',
-      );
+      if (isChannel && editID > 0) await api.write('/channelCode/update', payload, 'PUT');
+      else if (isChannel) await api.write('/channelCode/store', payload, 'POST');
+      else if (editID > 0) await api.write('/workRoomAutoPull/update', payload, 'PUT');
+      else await api.write('/workRoomAutoPull/store', payload, 'POST');
       setCreateOpen(false);
       setEditing(null);
       await query.refetch();

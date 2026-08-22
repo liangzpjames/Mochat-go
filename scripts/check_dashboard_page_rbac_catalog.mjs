@@ -437,11 +437,18 @@ export function extractBackendRegisteredAPIs(sourceBodies) {
     }
 
     if (/registrar\.Handle\(\s*route\.method\s*,\s*route\.path\s*,/.test(source)) {
-      for (const match of source.matchAll(/\{\s*((?:[A-Za-z_][A-Za-z0-9_]*\.)?Method(?:Get|Post|Put|Patch|Delete)|['"][A-Z]+['"]),\s*([^,\n]+),\s*[^,\n]+\}/g)) {
-        const methods = expressionValues(match[1], 'method', constants, [], match.index);
-        const paths = expressionValues(match[2], 'path', constants, [], match.index);
-        for (const method of methods) for (const routePath of paths) {
-          addRoute(method, routePath, file, source, match.index);
+      const methodExpression = "((?:[A-Za-z_][A-Za-z0-9_]*\\.)?Method(?:Get|Post|Put|Patch|Delete)|['\"][A-Z]+['\"])";
+      const entryPatterns = [
+        new RegExp(`\\{\\s*${methodExpression},\\s*([^,\\n]+),\\s*[A-Za-z_][A-Za-z0-9_.]*\\s*\\}`, 'g'),
+        new RegExp(`\\{\\s*${methodExpression},\\s*([^,\\n]+)\\s*\\}`, 'g'),
+      ];
+      for (const entryPattern of entryPatterns) {
+        for (const match of source.matchAll(entryPattern)) {
+          const methods = expressionValues(match[1], 'method', constants, [], match.index);
+          const paths = expressionValues(match[2], 'path', constants, [], match.index);
+          for (const method of methods) for (const routePath of paths) {
+            addRoute(method, routePath, file, source, match.index);
+          }
         }
       }
     }
@@ -465,10 +472,42 @@ export function extractGoDashboardRoutePolicy(source) {
 
 export function extractMigrationPermissionResourceMappings(source) {
   const mappings = [];
-  for (const match of source.matchAll(/(?:SELECT|UNION ALL SELECT)\s+'([^']+)'(?:\s+AS `permission_code`)?\s*,\s*'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS `http_method`)?\s*,\s*'(\/dashboard\/[^']+)'(?:\s+AS `path_pattern`)?\s*,\s*([01])(?:\s+AS `scope_required`)?/g)) {
+  for (const match of source.matchAll(/(?:SELECT|UNION ALL SELECT)\s+'([^']+)'(?:\s+AS\s+`?permission_code`?)?\s*,\s*'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS\s+`?http_method`?)?\s*,\s*'(\/dashboard\/[^']+)'(?:\s+AS\s+`?path_pattern`?)?\s*,\s*([01])(?:\s+AS\s+`?scope_required`?)?/g)) {
     mappings.push(`${match[1]}\t${match[2]} ${match[3]}\t${match[4]}`);
   }
   return mappings;
+}
+
+export function applyPermissionResourceReconciliation({ mappings, overlaySource }) {
+  if (!Array.isArray(mappings) || typeof overlaySource !== 'string') {
+    throw new Error('0154 permission resource reconciliation inputs are invalid');
+  }
+  const additions = extractMigrationPermissionResourceMappings(overlaySource);
+  const result = [...mappings];
+  for (const addition of additions) {
+    if (result.includes(addition)) {
+      throw new Error(`0154 reconciliation duplicates effective mapping: ${addition}`);
+    }
+    result.push(addition);
+  }
+
+  const deactivationBlock = overlaySource.match(/UPDATE[\s\S]*?INNER\s+JOIN\s*\(([\s\S]*?)\)\s*deactivation_seed/i);
+  const deactivations = [];
+  if (deactivationBlock) {
+    for (const match of deactivationBlock[1].matchAll(/(?:SELECT|UNION ALL SELECT)\s+'([^']+)'(?:\s+AS\s+`?\w+`?)?\s*,\s*'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS\s+`?\w+`?)?\s*,\s*'(\/dashboard\/[^']+)'(?:\s+AS\s+`?\w+`?)?/g)) {
+      deactivations.push(`${match[1]}\t${match[2]} ${match[3]}`);
+    }
+  }
+  for (const deactivation of deactivations) {
+    const indexes = result
+      .map((mapping, index) => mapping.startsWith(`${deactivation}\t`) ? index : -1)
+      .filter((index) => index >= 0);
+    if (indexes.length !== 1) {
+      throw new Error(`0154 reconciliation deactivation does not match effective seed: ${deactivation}`);
+    }
+    result.splice(indexes[0], 1);
+  }
+  return result;
 }
 
 export function extractCutoverPermissionResourceMappings(source) {
@@ -742,10 +781,20 @@ async function main() {
       'utf8',
     ),
   });
-  const seededMappings = applyEmployeeAccountResourceOverlay({
+  const employeeAccountMappings = applyEmployeeAccountResourceOverlay({
     mappings: companyCredentialMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0133_archive_simulation_registry.up.sql',
+      'utf8',
+    ),
+  });
+  const liveCodeMappings = [...new Set(employeeAccountMappings.concat(extractMigrationPermissionResourceMappings(
+    await readFile('deploy/standalone/migrations/0153_live_code_workspace.up.sql', 'utf8'),
+  )))];
+  const seededMappings = applyPermissionResourceReconciliation({
+    mappings: liveCodeMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0154_dashboard_permission_resource_reconciliation.up.sql',
       'utf8',
     ),
   });

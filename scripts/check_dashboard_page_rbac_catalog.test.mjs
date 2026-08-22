@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  applyPermissionResourceReconciliation,
   applyCompanySettingsCredentialResourceOverlay,
   extractBackendRegisteredAPIs,
   extractCutoverPermissionResourceMappings,
@@ -324,6 +325,72 @@ test('migration resource seed is independently parsed and must match the catalog
   assert.throws(
     () => validateDashboardPageRBACCatalog(input),
     /migration permission resource seed must exactly match catalog/,
+  );
+});
+
+test('extracts two-field route table entries dispatched through route.method and route.path', () => {
+  const routes = extractBackendRegisteredAPIs([{
+    file: 'internal/modules/example/routes.go',
+    body: `package example
+
+func Register(registrar Registrar, handler Handler) {
+  routes := []struct{ method, path string }{
+    {http.MethodGet, "/dashboard/example/records"},
+    {http.MethodPost, "/dashboard/example/records"},
+  }
+  for _, route := range routes {
+    registrar.Handle(route.method, route.path, handler)
+  }
+}`,
+  }]);
+  assert.deepEqual(routes.map((route) => route.contract), [
+    'GET /dashboard/example/records',
+    'POST /dashboard/example/records',
+  ]);
+});
+
+test('0154 reconciliation adds current resources and deactivates only exact stale mappings', () => {
+  const mappings = [
+    'dashboard.page.0\tGET /dashboard/reports/overview\t1',
+    'dashboard.page.0\tPOST /dashboard/reports/stale\t1',
+  ];
+  const overlaySource = `
+    INSERT INTO mochat_go_dashboard_permission_resources
+    SELECT permission.id, resource_seed.http_method, resource_seed.path_pattern, resource_seed.scope_required
+    FROM mochat_go_dashboard_permissions permission
+    INNER JOIN (
+      SELECT 'dashboard.page.1' AS permission_code, 'GET' AS http_method,
+        '/dashboard/reports/current' AS path_pattern, 0 AS scope_required
+    ) resource_seed ON resource_seed.permission_code = permission.code;
+
+    UPDATE mochat_go_dashboard_permission_resources resource
+    INNER JOIN mochat_go_dashboard_permissions permission ON permission.id = resource.permission_id
+    INNER JOIN (
+      SELECT 'dashboard.page.0' AS permission_code, 'POST' AS http_method,
+        '/dashboard/reports/stale' AS path_pattern
+    ) deactivation_seed ON deactivation_seed.permission_code = permission.code
+      AND deactivation_seed.http_method = resource.http_method
+      AND deactivation_seed.path_pattern = resource.path_pattern
+    SET resource.status = 0, resource.deleted_at = NOW();
+  `;
+
+  assert.deepEqual(applyPermissionResourceReconciliation({ mappings, overlaySource }), [
+    'dashboard.page.0\tGET /dashboard/reports/overview\t1',
+    'dashboard.page.1\tGET /dashboard/reports/current\t0',
+  ]);
+});
+
+test('0154 reconciliation rejects a deactivation that is absent from the effective seed', () => {
+  assert.throws(
+    () => applyPermissionResourceReconciliation({
+      mappings: ['dashboard.page.0\tGET /dashboard/reports/overview\t1'],
+      overlaySource: `
+        UPDATE mochat_go_dashboard_permission_resources resource
+        INNER JOIN (SELECT 'dashboard.page.0' AS permission_code, 'POST' AS http_method,
+          '/dashboard/reports/missing' AS path_pattern) deactivation_seed ON 1 = 1;
+      `,
+    }),
+    /0154 reconciliation deactivation does not match effective seed/,
   );
 });
 

@@ -233,6 +233,11 @@
           "method": "GET",
           "pathPattern": "/dashboard/workMessage/fromUsers",
           "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/workMessage/trajectoryDay",
+          "scopeRequired": true
         }
       ]
     },
@@ -336,32 +341,7 @@
         },
         {
           "method": "GET",
-          "pathPattern": "/dashboard/contactTransfer/room",
-          "scopeRequired": false
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/contactTransfer/log",
-          "scopeRequired": false
-        },
-        {
-          "method": "GET",
           "pathPattern": "/dashboard/workEmployee/index",
-          "scopeRequired": false
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/contactTransfer/sync",
-          "scopeRequired": false
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/contactTransfer/index",
-          "scopeRequired": false
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/contactTransfer/room",
           "scopeRequired": false
         }
       ]
@@ -378,6 +358,16 @@
           "method": "GET",
           "pathPattern": "/dashboard/risk/records",
           "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/risk/records/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/risk/scanner-status",
+          "scopeRequired": false
         },
         {
           "method": "GET",
@@ -468,6 +458,11 @@
           "method": "GET",
           "pathPattern": "/dashboard/sensitiveWordsMonitor/show",
           "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/sensitiveWordsMonitor/status",
+          "scopeRequired": false
         }
       ]
     },
@@ -860,11 +855,6 @@
           "scopeRequired": true
         },
         {
-          "method": "PUT",
-          "pathPattern": "/dashboard/channelCode/update",
-          "scopeRequired": true
-        },
-        {
           "method": "GET",
           "pathPattern": "/dashboard/channelCode/workspaceStatistics",
           "scopeRequired": true
@@ -902,66 +892,6 @@
         {
           "method": "POST",
           "pathPattern": "/dashboard/workRoomAutoPull/store",
-          "scopeRequired": true
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/groupCode/index",
-          "scopeRequired": true
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/groupCode/show",
-          "scopeRequired": true
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/groupCode/store",
-          "scopeRequired": true
-        },
-        {
-          "method": "PUT",
-          "pathPattern": "/dashboard/groupCode/update",
-          "scopeRequired": true
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/groupCode/export",
-          "scopeRequired": true
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/groupCode/download",
-          "scopeRequired": true
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/groupCode/batchInvalidate",
-          "scopeRequired": true
-        },
-        {
-          "method": "GET",
-          "pathPattern": "/dashboard/groupCodeGroup/index",
-          "scopeRequired": true
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/groupCodeGroup/store",
-          "scopeRequired": true
-        },
-        {
-          "method": "PUT",
-          "pathPattern": "/dashboard/groupCodeGroup/update",
-          "scopeRequired": true
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/groupCodeGroup/move",
-          "scopeRequired": true
-        },
-        {
-          "method": "DELETE",
-          "pathPattern": "/dashboard/groupCodeGroup/destroy",
           "scopeRequired": true
         }
       ]

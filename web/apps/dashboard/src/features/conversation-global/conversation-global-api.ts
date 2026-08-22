@@ -1029,7 +1029,7 @@ export function createConversationGlobalApi(
       const query = new URLSearchParams();
       appendNonBlank(query, 'kind', kind ?? '');
       const suffix = query.toString();
-      return parseGroupRoomFilterOptions(await client.request(`/workMessage/roomFilterOptions${suffix ? `?${suffix}` : ''}`));
+      return parseGroupRoomFilterOptions(await client.request(`/workMessage/roomFilterOptions?${suffix}`));
     },
     async exportCandidates(input) {
       const query = new URLSearchParams({ type: input.type, page: String(input.page), pageSize: '20' });

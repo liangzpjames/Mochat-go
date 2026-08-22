@@ -74,18 +74,6 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.acquisition.v2_channel_code', 'GET', '/dashboard/channelCode/workspaceStatisticsIndex', 1
   UNION ALL SELECT 'dashboard.acquisition.v2_channel_code', 'GET', '/dashboard/channelCode/export', 1
   UNION ALL SELECT 'dashboard.acquisition.v2_channel_code', 'POST', '/dashboard/channelCode/batchInvalidate', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'GET', '/dashboard/groupCode/index', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'GET', '/dashboard/groupCode/show', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'POST', '/dashboard/groupCode/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'PUT', '/dashboard/groupCode/update', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'GET', '/dashboard/groupCode/export', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'GET', '/dashboard/groupCode/download', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'POST', '/dashboard/groupCode/batchInvalidate', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'GET', '/dashboard/groupCodeGroup/index', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'POST', '/dashboard/groupCodeGroup/store', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'PUT', '/dashboard/groupCodeGroup/update', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'POST', '/dashboard/groupCodeGroup/move', 1
-  UNION ALL SELECT 'dashboard.acquisition.group_code', 'DELETE', '/dashboard/groupCodeGroup/destroy', 1
 ) resource_seed ON resource_seed.`permission_code` = p.`code`
 WHERE NOT EXISTS (
   SELECT 1

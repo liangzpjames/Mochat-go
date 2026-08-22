@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  applyPermissionResourceReconciliation,
   applyCompanySettingsCredentialResourceOverlay,
   applyCutoverPermissionResourceOverlay,
   applyEmployeeAccountResourceOverlay,
@@ -77,10 +78,20 @@ export async function runCompletionGate(root = process.cwd()) {
       'utf8',
     ),
   });
-  const seededMappings = applyEmployeeAccountResourceOverlay({
+  const employeeAccountMappings = applyEmployeeAccountResourceOverlay({
     mappings: companyCredentialMappings,
     overlaySource: await readFile(
       path.join(root, 'deploy/standalone/migrations/0133_archive_simulation_registry.up.sql'),
+      'utf8',
+    ),
+  });
+  const liveCodeMappings = [...new Set(employeeAccountMappings.concat(catalog.extractMigrationPermissionResourceMappings(
+    await readFile(path.join(root, 'deploy/standalone/migrations/0153_live_code_workspace.up.sql'), 'utf8'),
+  )))];
+  const seededMappings = applyPermissionResourceReconciliation({
+    mappings: liveCodeMappings,
+    overlaySource: await readFile(
+      path.join(root, 'deploy/standalone/migrations/0154_dashboard_permission_resource_reconciliation.up.sql'),
       'utf8',
     ),
   });
@@ -162,7 +173,7 @@ export async function runCompletionGate(root = process.cwd()) {
     { test: /roomMessageBatchSend/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|RestrictEmployeeIDs|employee scope denied/, files: [/internal[\\/]dashboard[\\/]room_message_batch_send\.go$/], symbolForRoute: (r) => /store/i.test(r.pathPattern) ? 'func (h *RoomMessageBatchSendHandler) Store' : 'func (h *RoomMessageBatchSendHandler) Index' },
     { test: /contactMessageBatchSend/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|RestrictEmployeeIDs|employee scope denied/, files: [/internal[\\/]dashboard[\\/]contact_message_batch_send\.go$/], symbolForRoute: (r) => /store/i.test(r.pathPattern) ? 'func (h *ContactMessageBatchSendHandler) Store' : 'func (h *ContactMessageBatchSendHandler) Index' },
     { test: /friendsCircle\/(taskIndex|taskResultIndex|exportData|publish|taskStore|materialStore)/i, evidence: /DashboardAccessFromContext|employeeIDsWithinDashboardScope|filterFriendsCircle/, files: [/internal[\\/]dashboard[\\/]friends_circle\.go$/], symbolForRoute: (r) => { const p=r.pathPattern; if (/taskIndex/.test(p)) return 'func (h *FriendsCircleHandler) TaskIndex'; if (/taskResultIndex/.test(p)) return 'func (h *FriendsCircleHandler) TaskResultIndex'; if (/taskStore/.test(p)) return 'func (h *FriendsCircleHandler) TaskStore'; if (/publish/.test(p)) return 'func (h *FriendsCircleHandler) Publish'; if (/exportData/.test(p)) return 'func (h *FriendsCircleHandler) ExportData'; return 'func (h *FriendsCircleHandler) MaterialStore'; } },
-    { test: /risk[\\/]records/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|RestrictEmployeeIDs|JSON_EXTRACT/, files: [/internal[\\/]dashboard[\\/]risk_behavior_handler\.go$/, /internal[\\/]store[\\/]risk_behavior\.go$/], symbolForRoute: (r) => /audit/i.test(r.pathPattern) ? 'func (h *RiskBehaviorHandler) AuditRecords' : 'func (h *RiskBehaviorHandler) Records' },
+    { test: /risk[\\/]records/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|RestrictEmployeeIDs|JSON_EXTRACT/, files: [/internal[\\/]dashboard[\\/]risk_behavior_handler\.go$/, /internal[\\/]store[\\/]risk_behavior\.go$/], symbolForRoute: (r) => /audit/i.test(r.pathPattern) ? 'func (h *RiskBehaviorHandler) AuditRecords' : /detail/i.test(r.pathPattern) ? 'func (h *RiskBehaviorHandler) RecordDetail' : 'func (h *RiskBehaviorHandler) Records' },
     { test: /timeout-warning[\\/]records/i, evidence: /DashboardAccessFromContext|AllowedEmployeeIDs|RestrictEmployeeIDs|assigned_employee_id/, files: [/internal[\\/]dashboard[\\/]timeout_warning_handler\.go$/, /internal[\\/]store[\\/]timeout_warning\.go$/], symbolForRoute: (r) => /audit/i.test(r.pathPattern) ? 'func (h *TimeoutWarningHandler) AuditRecords' : /assign/i.test(r.pathPattern) ? 'func (h *TimeoutWarningHandler) AssignRecords' : 'func (h *TimeoutWarningHandler) Records' },
     { test: /sensitiveWordsMonitor/i, evidence: /AllowedEmployeeIDs|intersectPositiveIntIDs|SensitiveWordsMonitorMessageFilter|RestrictEmployeeIDs/, files: [/internal[\\/]dashboard[\\/]sensitive_word\.go$/], symbolForRoute: (r) => /show/i.test(r.pathPattern) ? 'func (h *SensitiveWordHandler) MonitorShow' : 'func (h *SensitiveWordHandler) MonitorIndex' },
     { test: /workContact[\\/]lossContact|contactTransfer/i, evidence: /AllowedEmployeeIDs|intersectPositiveIntIDs|EmployeeIDs/, files: [/internal[\\/]dashboard[\\/]contact_transfer\.go$/] },

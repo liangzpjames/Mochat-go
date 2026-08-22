@@ -18,7 +18,7 @@
 - 用户当前工作树已从委派快照继续演进到 `main=bd10fca5` 且存在未提交内容，本任务不在该树开发。
 - 隔离 worktree 精确从 `b9a47cab` 创建，不包含当前脏树的修改。
 - 远端迁移 0140—0151 各编号唯一；0150 为关键词快照修复，0151 为 AI 洞察 API 资源。
-- 用户当前工作树另有未跟踪 `0152_group_code_direct_join.{up,down}.sql`。为避免并行开发占号冲突，本任务将活码迁移命名为 `0153_live_code_workspace`，RBAC 对账迁移命名为 `0154_dashboard_page_rbac_reconciliation`。迁移加载器按完整版本字符串排序且不要求编号连续，因此隔离分支暂时没有 0152 不影响发现和执行；集成时 0152 可由其所有者独立处理。
+- 用户当前工作树另有未跟踪 `0152_group_code_direct_join.{up,down}.sql`。为避免并行开发占号冲突，本任务将活码迁移命名为 `0153_live_code_workspace`，RBAC 对账迁移命名为 `0154_dashboard_permission_resource_reconciliation`。迁移加载器按完整版本字符串排序且不要求编号连续，因此隔离分支暂时没有 0152 不影响发现和执行；集成时 0152 可由其所有者独立处理。
 
 ### 2.2 活码实现差异
 
@@ -74,7 +74,7 @@
 | 渠道作废 | `POST /channelCode/batchInvalidate` | 生命周期字段与企微同步结果 | 部分失败逐条反馈；不物理删除 |
 | 群列表/详情 | `GET /workRoomAutoPull/index|show` | `mc_work_room_auto_pull` 与当前企业群聊 | 无可验证入群统计时显示未知态 |
 | 群创建/编辑 | `POST /workRoomAutoPull/store`、`PUT /workRoomAutoPull/update` | 现有真实写链路；员工、群聊选项来自 `/workEmployee/index`、`/workRoom/roomIndex` | 缺少实体、权限或 Provider 时禁止提交并给出明确原因 |
-| 群分组 | `GET/POST/PUT/DELETE /groupCodeGroup/*` | `mc_group_code_group`，按企业隔离 | 删除/移动需确认与错误反馈 |
+| 群分组 | 本期无可注册的 `/groupCodeGroup/*` Handler | `mc_group_code_group` 仅保留兼容表结构 | 不在目录、RBAC 或界面暴露未注册能力；后续实现 Handler 后另行启用 |
 
 前端不得写生产假数据、猜测人员名称、伪造二维码或用成员存量冒充扫码归因。所有查询、更新、统计和导出按当前租户、企业与数据权限执行。
 
@@ -82,7 +82,7 @@
 
 `0153_live_code_workspace` 包含渠道生命周期、Provider 状态、数据来源、群活码分组、活码事件账本、索引及活码资源 seed。down 先删除本迁移资源，再删除新表、索引与字段。所有测试、文档和迁移顺序引用统一改为 0153。
 
-`0154_dashboard_page_rbac_reconciliation` 以 catalog 当前合同为输入语义：幂等补种 catalog 所需资源，停用 catalog 已删除的旧导出/文件录音写资源。其 down 只撤回本迁移新引入的客户继承资源并恢复此前仍活跃的两条旧导出资源；0145 已停用的媒体写资源不被错误恢复。校验器读取该迁移的 additions/deactivations overlay，最终 seed 必须与 catalog 逐条、逐 scope 精确相等。
+`0154_dashboard_permission_resource_reconciliation` 以 catalog 当前合同为输入语义：幂等补种 catalog 所需资源，修正两条租户级扫描状态资源的 scope，并停用 catalog 已删除的旧导出、文件录音写入和 deny-only 渠道更新资源。其 down 只撤回本迁移首次引入的两条客户继承读取资源并恢复此前仍活跃的两条旧导出资源；0145 已停用的媒体写资源和 deny-only 更新资源不被错误恢复。校验器读取该迁移的 additions/deactivations overlay，最终 seed 必须与 catalog 逐条、逐 scope 精确相等。
 
 资源同时满足三层合同：前端真实 API 使用、Go 生产路由注册、catalog 所属页面。新增接口若不能通过三方交叉检查，不得以 exemptions 放行。
 

@@ -200,8 +200,8 @@ Commit: `fix: align file audio benchmark phase`
 ### Task 5: 用 0154 对齐 RBAC catalog、迁移和校验器
 
 **Files:**
-- Create: `deploy/standalone/migrations/0154_dashboard_page_rbac_reconciliation.up.sql`
-- Create: `deploy/standalone/migrations/0154_dashboard_page_rbac_reconciliation.down.sql`
+- Create: `deploy/standalone/migrations/0154_dashboard_permission_resource_reconciliation.up.sql`
+- Create: `deploy/standalone/migrations/0154_dashboard_permission_resource_reconciliation.down.sql`
 - Modify: `scripts/check_dashboard_page_rbac_catalog.mjs`
 - Modify: `scripts/check_dashboard_page_rbac_catalog.test.mjs`
 - Modify: `internal/dashboard/dashboard_page_catalog.json`
@@ -235,7 +235,7 @@ Expected: 因函数不存在或未处理 deactivations 而 FAIL。
 ```js
 const seededMappings = applyPermissionResourceReconciliation({
   mappings: employeeAccountMappings,
-  overlaySource: await readFile('deploy/standalone/migrations/0154_dashboard_page_rbac_reconciliation.up.sql', 'utf8'),
+  overlaySource: await readFile('deploy/standalone/migrations/0154_dashboard_permission_resource_reconciliation.up.sql', 'utf8'),
 });
 ```
 

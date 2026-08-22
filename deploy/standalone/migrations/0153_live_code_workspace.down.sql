@@ -9,19 +9,7 @@ WHERE permission.`code` IN ('dashboard.acquisition.v2_channel_code', 'dashboard.
     '/dashboard/channelCode/workspaceStatistics',
     '/dashboard/channelCode/workspaceStatisticsIndex',
     '/dashboard/channelCode/export',
-    '/dashboard/channelCode/batchInvalidate',
-    '/dashboard/groupCode/index',
-    '/dashboard/groupCode/show',
-    '/dashboard/groupCode/store',
-    '/dashboard/groupCode/update',
-    '/dashboard/groupCode/export',
-    '/dashboard/groupCode/download',
-    '/dashboard/groupCode/batchInvalidate',
-    '/dashboard/groupCodeGroup/index',
-    '/dashboard/groupCodeGroup/store',
-    '/dashboard/groupCodeGroup/update',
-    '/dashboard/groupCodeGroup/move',
-    '/dashboard/groupCodeGroup/destroy'
+    '/dashboard/channelCode/batchInvalidate'
   );
 
 DROP TABLE IF EXISTS `mc_live_code_event`;
