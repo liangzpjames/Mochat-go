@@ -102,21 +102,28 @@ test.describe('employee Sidebar compact density', () => {
     await installFixtures(page);
     await injectSession(page);
     await page.goto('/sidebar-app/');
+    const tiles = page.locator('.sidebar-workbench__tiles .mobile-icon-tile');
+    await expect(tiles).toHaveCount(8);
+    const tileHeights: number[] = [];
+    for (let index = 0; index < await tiles.count(); index += 1) {
+      const box = await tiles.nth(index).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box?.width ?? 0).toBeGreaterThan(0);
+      expect(box?.height ?? 0).toBeGreaterThan(0);
+      tileHeights.push(box?.height ?? 0);
+    }
     const density = await page.evaluate(() => {
       const hero = document.querySelector('.mobile-shell__hero .mobile-card')?.getBoundingClientRect();
-      const tiles = [...document.querySelectorAll('.sidebar-workbench__tiles .mobile-icon-tile')];
       const grid = document.querySelector('.sidebar-workbench__tiles');
       return {
         heroHeight: hero?.height ?? 999,
-        maxTileHeight: Math.max(...tiles.map((item) => item.getBoundingClientRect().height)),
         gap: grid ? Number.parseFloat(getComputedStyle(grid).gap) : 999,
-        minActionHeight: Math.min(...tiles.map((item) => item.getBoundingClientRect().height)),
       };
     });
     expect(density.heroHeight).toBeLessThanOrEqual(128);
-    expect(density.maxTileHeight).toBeLessThanOrEqual(92);
+    expect(Math.max(...tileHeights)).toBeLessThanOrEqual(92);
     expect(density.gap).toBeLessThanOrEqual(12);
-    expect(density.minActionHeight).toBeGreaterThanOrEqual(44);
+    expect(Math.min(...tileHeights)).toBeGreaterThanOrEqual(44);
   });
 });
 
