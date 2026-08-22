@@ -158,6 +158,7 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
   await sidebarFixture('**/sidebar/workContactTag/allTag*', [{ id: 7, name: '高意向' }, { id: 9, name: '待回访' }], 'sidebar-tags-e2e');
   await sidebarFixture('**/sidebar/contactBatchAdd/detail?*', { employeeName: '员工甲', list: [{ id: 1, phone: '13800000000', status: '待添加' }] }, 'sidebar-batch-e2e');
   await sidebarFixture('**/sidebar/contactSop/getSopInfo?*', { id: 4, contactSopId: 12, creator: '员工甲', time: '09:00', tipTime: '2026-08-22 09:00', task: { content: [{ type: 0, value: '请今日回访' }] }, contact: { id: 23, name: '浏览器验收客户', avatar: null } }, 'sidebar-contact-sop-e2e');
+  await sidebarFixture('**/sidebar/contactSop/getSopTipInfo?*', [{ id: 4, time: '2026-08-22 09:00' }], 'sidebar-contact-sop-tip-e2e');
   await sidebarFixture('**/sidebar/roomSop/getSopInfo?*', { id: 5, roomSopId: 13, creator: '员工甲', time: '10:00', state: 0, task: { content: [{ type: 0, value: '群内发送活动提醒' }] }, room: { id: 21, name: '浏览器客户群' } }, 'sidebar-room-sop-e2e');
   await sidebarFixture('**/sidebar/mediumGroup/index', [{ id: 0, name: '未分组' }], 'sidebar-medium-group-e2e');
   await sidebarFixture('**/sidebar/medium/index?*', { page: { perPage: 20, total: 1, totalPage: 1 }, list: [{ id: 8, type: '文本', mediaId: '', content: { content: '浏览器素材' } }] }, 'sidebar-medium-e2e');
@@ -218,7 +219,7 @@ async function assertVisiblePage(
   expect(pageShape.scrollWidth, `${title} overflowed horizontally`).toBeLessThanOrEqual(pageShape.clientWidth);
 
   const controls = page.locator(
-    'a.sidebar-primary-link:visible, a.operation-primary-link:visible, button.mobile-state__action:visible',
+    'button:visible, a.sidebar-primary-link:visible, a.operation-primary-link:visible',
   );
   if (expectsAction) {
     expect(await controls.count()).toBeGreaterThanOrEqual(1);
@@ -421,5 +422,55 @@ test.describe('employee Sidebar visual acceptance', () => {
     await expect(page.getByRole('button', { name: '保存备注' })).toBeVisible();
     await page.screenshot({ path: resolve(employeeSidebarEvidenceDir, 'landscape-focused-remark-844x390.png') });
     await assertStableCleanAudit(page, audit, 'visual landscape focused form');
+  });
+
+  test('remark validation, save and cancel use one persisted write', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const audit = await installRawGoFixtures(page);
+    await injectSidebarSession(page);
+    let updates = 0;
+    await page.route('**/sidebar/workContact/update', async (route) => {
+      updates += 1;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: rawGoEnvelope([], 'sidebar-remark-write-e2e') });
+    });
+    await page.goto('/sidebar-app/contact/remark?wxExternalUserid=external-user-1&agentId=7');
+    await page.getByLabel('备注名').fill('');
+    await page.getByRole('button', { name: '保存备注' }).click();
+    await expect(page.getByRole('alert')).toContainText('请输入 1 至 10 个字符');
+    expect(updates).toBe(0);
+    await page.getByLabel('备注名').fill('新备注');
+    await page.getByRole('button', { name: '保存备注' }).click();
+    await expect(page.getByRole('heading', { name: '浏览器验收客户' })).toBeVisible();
+    expect(updates).toBe(1);
+    await page.goto('/sidebar-app/contact/remark?wxExternalUserid=external-user-1&agentId=7');
+    await page.getByRole('button', { name: '取消' }).click();
+    await expect(page.getByRole('heading', { name: '浏览器验收客户' })).toBeVisible();
+    expect(updates).toBe(1);
+    await assertStableCleanAudit(page, audit, 'remark persisted flow');
+  });
+
+  test('batch add accepts the real string-timestamp JSSDK contract and copies the chosen number', async ({ page }) => {
+    await page.setViewportSize({ width: 430, height: 932 });
+    await page.addInitScript(() => {
+      const state = window as typeof window & { copiedPhone?: string; invokedAction?: string; ww?: unknown };
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (value: string) => { state.copiedPhone = value; return Promise.resolve(); } } });
+      state.ww = {
+        agentConfig: (input: { success: () => void }) => input.success(),
+        invoke: (name: string, _payload: unknown, callback: (result: Record<string, unknown>) => void) => { state.invokedAction = name; callback({ err_msg: `${name}:ok` }); },
+      };
+    });
+    const audit = await installRawGoFixtures(page);
+    await injectSidebarSession(page);
+    await page.route('**/sidebar/agent/jssdkConfig?*', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: rawGoEnvelope({ corpid: 'wx-corp', agentid: '100001', timestamp: '1787360000', nonceStr: 'nonce', signature: 'sig' }, 'sidebar-jssdk-e2e'),
+    }));
+    await page.goto('/sidebar-app/contactBatchAdd?batchId=9&agentId=7');
+    await page.getByRole('button', { name: '复制并添加' }).click();
+    await expect(page.getByText(/已复制 13800000000/)).toBeVisible();
+    expect(await page.evaluate(() => (window as typeof window & { copiedPhone?: string }).copiedPhone)).toBe('13800000000');
+    expect(await page.evaluate(() => (window as typeof window & { invokedAction?: string }).invokedAction)).toBe('navigateToAddCustomer');
+    await assertStableCleanAudit(page, audit, 'batch add real JSSDK contract');
   });
 });

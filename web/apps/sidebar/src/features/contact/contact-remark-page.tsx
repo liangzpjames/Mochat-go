@@ -23,6 +23,7 @@ export function ContactRemarkPage(props: {
   >({ kind: 'loading' });
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [reloadVersion, setReloadVersion] = useState(0);
 
   useEffect(() => {
     if (!externalUserId) {
@@ -41,10 +42,10 @@ export function ContactRemarkPage(props: {
         else setState({ kind: 'error', message: error instanceof Error ? error.message : '备注加载失败。' });
       });
     return () => { active = false; };
-  }, [externalUserId, props.onReauthenticate, props.request]);
+  }, [externalUserId, props.onReauthenticate, props.request, reloadVersion]);
 
   if (state.kind === 'loading') return <MobileCard padding="comfortable" tone="surface"><MobileState kind="loading" description="正在加载当前备注。" /></MobileCard>;
-  if (state.kind === 'error') return <MobileCard padding="comfortable" tone="surface"><MobileState kind="error" title="备注加载失败" description={state.message} /></MobileCard>;
+  if (state.kind === 'error') return <MobileCard padding="comfortable" tone="surface"><MobileState actionLabel="重试" kind="error" onAction={() => { setState({ kind: 'loading' }); setReloadVersion((value) => value + 1); }} title="备注加载失败" description={state.message} /></MobileCard>;
 
   const submit = async () => {
     const remark = state.remark.trim();
@@ -78,9 +79,12 @@ export function ContactRemarkPage(props: {
         />
         <p className="sidebar-form__hint">最多 10 个字符，保存后同步到当前员工的客户备注。</p>
         {message ? <p className="sidebar-form__error" role="alert">{message}</p> : null}
-        <button className="sidebar-form__primary" disabled={submitting} type="submit">
-          {submitting ? '保存中' : '保存备注'}
-        </button>
+        <div className="sidebar-form__actions">
+          <button className="sidebar-form__secondary" disabled={submitting} onClick={props.onDone} type="button">取消</button>
+          <button className="sidebar-form__primary" disabled={submitting} type="submit">
+            {submitting ? '保存中' : '保存备注'}
+          </button>
+        </div>
       </form>
     </MobileCard>
   );

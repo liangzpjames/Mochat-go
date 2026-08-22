@@ -68,10 +68,16 @@ export function createWeComBridge(_input: {
         throw new WeComBridgeError('configuration', '企业微信签名配置无效。');
       }
       const config = raw as Record<string, unknown>;
+      const timestamp = typeof config.timestamp === 'number'
+        ? config.timestamp
+        : typeof config.timestamp === 'string' && /^\d+$/.test(config.timestamp)
+          ? Number(config.timestamp)
+          : Number.NaN;
       if (
         typeof config.corpid !== 'string'
         || typeof config.agentid !== 'string'
-        || typeof config.timestamp !== 'number'
+        || !Number.isSafeInteger(timestamp)
+        || timestamp <= 0
         || typeof config.nonceStr !== 'string'
         || typeof config.signature !== 'string'
       ) {
@@ -81,7 +87,7 @@ export function createWeComBridge(_input: {
         sdk.agentConfig({
           corpid: config.corpid as string,
           agentid: config.agentid as string,
-          timestamp: config.timestamp as number,
+          timestamp,
           nonceStr: config.nonceStr as string,
           signature: config.signature as string,
           jsApiList: ['sendChatMessage', 'navigateToAddCustomer'],

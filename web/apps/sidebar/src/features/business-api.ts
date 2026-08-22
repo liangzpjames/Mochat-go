@@ -43,11 +43,15 @@ function stringContent(value: unknown): Record<string, string> {
   return content;
 }
 
-export async function loadMediums(request: BusinessRequest, filter: { groupId: number | null; keyword: string; page: number }): Promise<{ items: MediumItem[]; total: number; totalPage: number }> {
+export async function loadMediums(request: BusinessRequest, filter: { groupId: number | null; keyword: string; page: number; type: number | null }): Promise<{ items: MediumItem[]; total: number; totalPage: number }> {
   if (!Number.isSafeInteger(filter.page) || filter.page <= 0) fail('页码无效。');
   const query = new URLSearchParams();
   if (filter.groupId !== null) query.set('mediumGroupId', String(filter.groupId));
   if (filter.keyword.trim()) query.set('searchStr', filter.keyword.trim());
+  if (filter.type !== null) {
+    if (!Number.isSafeInteger(filter.type) || filter.type < 1 || filter.type > 7) fail('素材类型无效。');
+    query.set('type', String(filter.type));
+  }
   query.set('page', String(filter.page)); query.set('perPage', '20');
   const raw = object(await request<unknown>(`/medium/index?${query.toString()}`, { method: 'GET' }));
   const page = raw === null ? null : object(raw.page);

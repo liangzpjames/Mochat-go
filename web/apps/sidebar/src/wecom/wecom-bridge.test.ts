@@ -20,6 +20,16 @@ const config = {
 };
 
 describe('WeCom bridge', () => {
+  it('accepts the numeric timestamp string returned by the Go JSSDK contract', async () => {
+    const request = vi.fn().mockResolvedValue({ ...config, timestamp: '123' });
+    const fixture = sdkFixture();
+    const bridge = createWeComBridge({ request, agentId: () => '7', href: () => 'https://sidebar.test/contact', sdk: () => fixture.sdk });
+
+    await bridge.sendChatMessage({ type: 'text', content: '你好' });
+
+    expect(fixture.agentConfig).toHaveBeenCalledWith(expect.objectContaining({ timestamp: 123 }));
+  });
+
   it('fails honestly outside the WeCom host and sends no API request', async () => {
     const request = vi.fn();
     const bridge = createWeComBridge({ request, agentId: () => '7', href: () => 'https://sidebar.test/contact', sdk: () => undefined });

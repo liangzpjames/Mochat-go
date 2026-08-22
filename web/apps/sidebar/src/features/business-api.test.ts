@@ -20,11 +20,11 @@ describe('Sidebar persisted business APIs', () => {
       });
 
     await expect(loadMediumGroups(request)).resolves.toHaveLength(2);
-    await expect(loadMediums(request, { groupId: 3, keyword: '海报', page: 1 })).resolves.toMatchObject({
+    await expect(loadMediums(request, { groupId: 3, keyword: '海报', page: 1, type: 2 })).resolves.toMatchObject({
       total: 1,
       items: [{ id: 8, kind: 'image', mediaId: 'media-8' }],
     });
-    expect(request).toHaveBeenNthCalledWith(2, '/medium/index?mediumGroupId=3&searchStr=%E6%B5%B7%E6%8A%A5&page=1&perPage=20', { method: 'GET' });
+    expect(request).toHaveBeenNthCalledWith(2, '/medium/index?mediumGroupId=3&searchStr=%E6%B5%B7%E6%8A%A5&type=2&page=1&perPage=20', { method: 'GET' });
   });
 
   it('refreshes a media id through the persisted endpoint', async () => {
@@ -66,7 +66,7 @@ describe('Sidebar persisted business APIs', () => {
 
   it('rejects malformed payloads and invalid identifiers honestly', async () => {
     const request = vi.fn().mockResolvedValue({ list: 'fake' });
-    await expect(loadMediums(request, { groupId: null, keyword: '', page: 1 })).rejects.toMatchObject({ kind: 'validation' });
+    await expect(loadMediums(request, { groupId: null, keyword: '', page: 1, type: null })).rejects.toMatchObject({ kind: 'validation' });
     await expect(loadBatchAdd(request, 0, 4)).rejects.toMatchObject({ kind: 'validation' });
   });
 });

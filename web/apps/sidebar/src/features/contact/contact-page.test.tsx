@@ -34,7 +34,8 @@ describe('Sidebar contact summary', () => {
         roomName: ['客户交流群'], employeeName: ['员工甲'],
       })
       .mockResolvedValueOnce([{ id: 1, content: '更新客户备注', createdAt: '2026-08-22 10:00' }])
-      .mockResolvedValueOnce([{ contactFieldId: 31, contactFieldPivotId: 901, name: '城市', type: 0, typeText: '文本', options: [], value: '上海' }]);
+      .mockResolvedValueOnce([{ contactFieldId: 31, contactFieldPivotId: 901, name: '城市', type: 0, typeText: '文本', options: [], value: '上海' }])
+      .mockResolvedValueOnce([{ id: 4, time: '2026-08-22 14:00' }]);
 
     renderContact(contactPath, request);
 
@@ -43,6 +44,7 @@ describe('Sidebar contact summary', () => {
     expect(screen.getByText('客户交流群')).not.toBeNull();
     expect(screen.getByText('更新客户备注')).not.toBeNull();
     expect(screen.getByText('城市：上海')).not.toBeNull();
+    expect(screen.getByText('当前有 1 条待办提醒')).not.toBeNull();
     expect(screen.getByRole('link', { name: '修改备注' }).getAttribute('href')).toContain('/contact/remark?');
     expect(screen.getByRole('link', { name: '设置标签' }).getAttribute('href')).toContain('/contact/settingTag?');
     expect(screen.getByRole('link', { name: '编辑画像' }).getAttribute('href')).toContain('/contact/editDetail?');
@@ -56,7 +58,9 @@ describe('Sidebar contact summary', () => {
     renderContact(contactPath, request);
 
     expect(await screen.findByRole('heading', { name: '测试客户' })).not.toBeNull();
-    expect(await screen.findByText('客户扩展资料加载失败')).not.toBeNull();
+    expect(await screen.findByText('客户概览加载失败')).not.toBeNull();
+    expect(screen.getByText('互动轨迹加载失败')).not.toBeNull();
+    expect(screen.getByText('客户画像加载失败')).not.toBeNull();
   });
 
   it('requests and renders the current external contact summary', async () => {

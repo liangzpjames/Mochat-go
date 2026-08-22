@@ -439,6 +439,7 @@ type WorkReadStore interface {
 	MoveWorkContactTags(ctx context.Context, corpID int, tagIDs []int, groupID int) (bool, error)
 	SyncWorkContactTags(ctx context.Context, corpID int, groups []WorkContactTagSyncGroup) (WorkContactTagSyncResult, error)
 	WorkContactByExternalUserID(ctx context.Context, externalUserID string) (WorkContactDetail, bool, error)
+	ContactAccessibleToEmployee(ctx context.Context, contactID int, employeeID int, corpID int) (bool, error)
 	WorkContactIndexPage(ctx context.Context, filter WorkContactIndexFilter) (WorkContactIndexPage, error)
 	WorkContactLossPage(ctx context.Context, filter WorkContactLossFilter) (WorkContactLossPage, error)
 	WorkContactShowByID(ctx context.Context, contactID int, employeeID int) (WorkContactShow, bool, error)
@@ -1128,7 +1129,8 @@ func (h *WorkReadHandler) SidebarWorkContactDetail(w http.ResponseWriter, r *htt
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	if _, ok := h.resolveSidebarAccess(w, r); !ok {
+	employee, ok := h.resolveSidebarAccess(w, r)
+	if !ok {
 		return
 	}
 
@@ -1144,6 +1146,15 @@ func (h *WorkReadHandler) SidebarWorkContactDetail(w http.ResponseWriter, r *htt
 	}
 	if !found {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户不存在", nil)
+		return
+	}
+	allowed, err := h.store.ContactAccessibleToEmployee(r.Context(), contact.ID, employee.ID, employee.CorpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if contact.CorpID != employee.CorpID || !allowed {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权访问该客户", nil)
 		return
 	}
 

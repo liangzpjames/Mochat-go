@@ -20,6 +20,36 @@ function frame(node: React.ReactNode) {
 }
 
 describe('customer write pages', () => {
+  it('offers an explicit cancel path without persisting on every write page', async () => {
+    const remarkDone = vi.fn();
+    frame(<ContactRemarkPage request={vi.fn().mockResolvedValueOnce(summary).mockResolvedValueOnce(workspace)} onDone={remarkDone} onReauthenticate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(remarkDone).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    const tagDone = vi.fn();
+    frame(<ContactTagPage request={vi.fn().mockResolvedValueOnce(summary).mockResolvedValueOnce(workspace).mockResolvedValueOnce([]).mockResolvedValueOnce([])} onDone={tagDone} onReauthenticate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(tagDone).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    const editDone = vi.fn();
+    frame(<ContactEditPage request={vi.fn().mockResolvedValueOnce(summary).mockResolvedValueOnce([{ contactFieldId: 31, contactFieldPivotId: '', name: '城市', type: 0, typeText: '文本', options: [], value: '上海' }])} onDone={editDone} onReauthenticate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(editDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a failed remark load without leaving the page', async () => {
+    const request = vi.fn()
+      .mockRejectedValueOnce(new Error('网络暂不可用'))
+      .mockResolvedValueOnce(summary)
+      .mockResolvedValueOnce(workspace);
+    frame(<ContactRemarkPage request={request} onDone={vi.fn()} onReauthenticate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '重试' }));
+    expect(await screen.findByDisplayValue('旧备注')).not.toBeNull();
+  });
+
   it('loads, validates and persists a remark once', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(summary)
@@ -57,7 +87,7 @@ describe('customer write pages', () => {
 
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     const update = request.mock.calls.find(([path]) => path === '/workContact/update');
-    expect(update?.[1]).toMatchObject({ body: JSON.stringify({ contactId: 11, tag: [7, 9] }) });
+    expect(update?.[1]).toMatchObject({ body: JSON.stringify({ contactId: 11, tag: [9] }) });
   });
 
   it('renders portrait field types and persists edited values', async () => {

@@ -167,11 +167,12 @@ function WorkbenchIcon() {
 
 function SidebarWorkbenchTile({
   route,
-  suffix,
+  search,
 }: {
   route: SidebarRouteRegistration;
-  suffix: string;
+  search: string;
 }) {
+  const suffix = sidebarBusinessContextSuffix(route.path, search);
   const href = useHref(`${route.path}${suffix}`);
   return (
     <MobileIconTile
@@ -186,7 +187,6 @@ function SidebarWorkbenchTile({
 function SidebarWorkbenchPage() {
   const location = useLocation();
   const routes = sidebarRouteRegistry.filter((route) => route.auth && route.path !== '/');
-  const suffix = sidebarBusinessContextSuffix(location.search, location.hash);
   return (
     <SidebarPageShell
       eyebrow="员工工作台"
@@ -199,7 +199,7 @@ function SidebarWorkbenchPage() {
           <SidebarWorkbenchTile
             key={route.moduleKey}
             route={route}
-            suffix={suffix}
+            search={location.search}
           />
         ))}
       </section>

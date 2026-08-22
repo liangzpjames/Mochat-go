@@ -263,10 +263,32 @@ func TestSidebarContactFieldPivotIndexUsesEmployeeTokenWithoutRBAC(t *testing.T)
 	}
 }
 
+func TestSidebarContactFieldPivotIndexRejectsAContactOutsideTheEmployeeScope(t *testing.T) {
+	store := &fakeContactFieldStore{
+		sidebarEmployees:  map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+		denyContactAccess: true,
+		portraitFields:    []ContactField{{ID: 31, Label: "城市", Type: 0}},
+	}
+	handler := NewContactFieldHandler(store, nil, HeaderUserIDResolver{}, nil, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/contactFieldPivot/index?contactId=55", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarFieldPivotIndex(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastContactID != 0 {
+		t.Fatalf("portrait data was queried for forbidden contact %d", store.lastContactID)
+	}
+}
+
 func TestContactFieldPivotUpdateCreatesUpdatesAndTracks(t *testing.T) {
 	store := &fakeContactFieldStore{
 		users:         map[int]User{1: {ID: 1}},
-		pivotsByID:    map[int]ContactFieldPivot{901: {ID: 901, ContactFieldID: 31, Value: "旧备注"}},
+		pivotsByID:    map[int]ContactFieldPivot{901: {ID: 901, ContactID: 55, ContactFieldID: 31, Value: "旧备注"}},
 		updatedPivots: map[int]string{},
 		createdPivots: []ContactFieldPivotCreate{},
 		createdTracks: []ContactEmployeeTrackCreate{},
@@ -306,7 +328,7 @@ func TestContactFieldPivotUpdateCreatesUpdatesAndTracks(t *testing.T) {
 func TestSidebarContactFieldPivotUpdateUsesEmployeeContext(t *testing.T) {
 	store := &fakeContactFieldStore{
 		sidebarEmployees: map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
-		pivotsByID:       map[int]ContactFieldPivot{902: {ID: 902, ContactFieldID: 33, Value: "旧城市"}},
+		pivotsByID:       map[int]ContactFieldPivot{902: {ID: 902, ContactID: 66, ContactFieldID: 33, Value: "旧城市"}},
 		updatedPivots:    map[int]string{},
 		createdTracks:    []ContactEmployeeTrackCreate{},
 	}
@@ -337,6 +359,30 @@ func TestSidebarContactFieldPivotUpdateUsesEmployeeContext(t *testing.T) {
 	track := store.createdTracks[0]
 	if track.EmployeeID != 5 || track.ContactID != 66 || track.CorpID != 7 || track.Event != 4 || track.Content != "编辑用户画像：城市 " {
 		t.Fatalf("track = %#v", track)
+	}
+}
+
+func TestSidebarContactFieldPivotUpdateRejectsAPivotFromAnotherContact(t *testing.T) {
+	store := &fakeContactFieldStore{
+		sidebarEmployees: map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+		pivotsByID:       map[int]ContactFieldPivot{902: {ID: 902, ContactID: 77, ContactFieldID: 33, Value: "旧城市"}},
+	}
+	handler := NewContactFieldHandler(store, nil, HeaderUserIDResolver{}, nil, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/contactFieldPivot/update", strings.NewReader(`{
+		"contactId":66,
+		"userPortrait":[{"contactFieldPivotId":902,"contactFieldId":33,"name":"城市","type":3,"value":"新城市"}]
+	}`))
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarFieldPivotUpdate(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.updatedPivots) != 0 {
+		t.Fatalf("foreign pivot was updated: %#v", store.updatedPivots)
 	}
 }
 
@@ -460,6 +506,7 @@ type fakeContactFieldStore struct {
 	updatedPivots         map[int]string
 	createdPivots         []ContactFieldPivotCreate
 	createdTracks         []ContactEmployeeTrackCreate
+	denyContactAccess     bool
 }
 
 func (s *fakeContactFieldStore) UserByID(_ context.Context, userID int) (User, bool, error) {
@@ -479,6 +526,10 @@ func (s *fakeContactFieldStore) EmployeeIDByUserCorp(_ context.Context, _ int, _
 
 func (s *fakeContactFieldStore) FirstEmployeeByUser(_ context.Context, _ int) (int, int, bool, error) {
 	return 0, 0, false, nil
+}
+
+func (s *fakeContactFieldStore) ContactAccessibleToEmployee(_ context.Context, _ int, _ int, _ int) (bool, error) {
+	return !s.denyContactAccess, nil
 }
 
 func (s *fakeContactFieldStore) ContactFieldPage(_ context.Context, filter ContactFieldFilter) (ContactFieldPage, error) {

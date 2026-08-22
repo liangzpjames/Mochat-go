@@ -35,6 +35,7 @@ type ContactFieldPage struct {
 
 type ContactFieldPivot struct {
 	ID             int
+	ContactID      int
 	ContactFieldID int
 	Value          string
 }
@@ -78,6 +79,7 @@ type ContactFieldStore interface {
 	SidebarEmployeeByID(ctx context.Context, employeeID int) (SidebarEmployee, bool, error)
 	EmployeeIDByUserCorp(ctx context.Context, userID int, corpID int) (int, error)
 	FirstEmployeeByUser(ctx context.Context, userID int) (corpID int, employeeID int, ok bool, err error)
+	ContactAccessibleToEmployee(ctx context.Context, contactID int, employeeID int, corpID int) (bool, error)
 	ContactFieldPage(ctx context.Context, filter ContactFieldFilter) (ContactFieldPage, error)
 	ContactFieldByID(ctx context.Context, fieldID int) (ContactField, bool, error)
 	ContactFieldsByStatusOrder(ctx context.Context, status int) ([]ContactField, error)
@@ -250,7 +252,7 @@ func (h *ContactFieldHandler) FieldPivotIndex(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	h.writeFieldPivotIndex(w, r)
+	h.writeFieldPivotIndex(w, r, principalScope.WorkEmployeeID, corpID, false)
 }
 
 func (h *ContactFieldHandler) SidebarFieldPivotIndex(w http.ResponseWriter, r *http.Request) {
@@ -258,11 +260,12 @@ func (h *ContactFieldHandler) SidebarFieldPivotIndex(w http.ResponseWriter, r *h
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	if _, ok := h.resolveSidebarAccess(w, r); !ok {
+	employee, ok := h.resolveSidebarAccess(w, r)
+	if !ok {
 		return
 	}
 
-	h.writeFieldPivotIndex(w, r)
+	h.writeFieldPivotIndex(w, r, employee.ID, employee.CorpID, true)
 }
 
 func (h *ContactFieldHandler) FieldPivotUpdate(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +286,7 @@ func (h *ContactFieldHandler) FieldPivotUpdate(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
 		return
 	}
-	h.writeFieldPivotUpdate(w, r, params, principalScope.WorkEmployeeID, corpID)
+	h.writeFieldPivotUpdate(w, r, params, principalScope.WorkEmployeeID, corpID, false)
 }
 
 func (h *ContactFieldHandler) SidebarFieldPivotUpdate(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +303,7 @@ func (h *ContactFieldHandler) SidebarFieldPivotUpdate(w http.ResponseWriter, r *
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
 		return
 	}
-	h.writeFieldPivotUpdate(w, r, params, employee.ID, employee.CorpID)
+	h.writeFieldPivotUpdate(w, r, params, employee.ID, employee.CorpID, true)
 }
 
 func (h *ContactFieldHandler) Store(w http.ResponseWriter, r *http.Request) {
@@ -560,10 +563,13 @@ func (h *ContactFieldHandler) BatchUpdate(w http.ResponseWriter, r *http.Request
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
-func (h *ContactFieldHandler) writeFieldPivotIndex(w http.ResponseWriter, r *http.Request) {
+func (h *ContactFieldHandler) writeFieldPivotIndex(w http.ResponseWriter, r *http.Request, employeeID int, corpID int, enforceContactAccess bool) {
 	contactID, err := positiveQueryIntRequired(r, "contactId")
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
+		return
+	}
+	if enforceContactAccess && !h.requireContactAccess(w, r, contactID, employeeID, corpID) {
 		return
 	}
 	fields, err := h.store.ContactFieldsByStatusOrder(r.Context(), 1)
@@ -627,10 +633,13 @@ func (h *ContactFieldHandler) writeFieldPivotIndex(w http.ResponseWriter, r *htt
 	writeEnvelope(w, http.StatusOK, 200, "success", list)
 }
 
-func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *http.Request, params map[string]any, employeeID int, corpID int) {
+func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *http.Request, params map[string]any, employeeID int, corpID int, enforceContactAccess bool) {
 	contactID, okInt, err := intParam(params, "contactId")
 	if err != nil || !okInt || contactID <= 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
+		return
+	}
+	if enforceContactAccess && !h.requireContactAccess(w, r, contactID, employeeID, corpID) {
 		return
 	}
 	rawPortrait, ok := params["userPortrait"]
@@ -667,7 +676,11 @@ func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *ht
 			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 			return
 		}
-		if found && pivot.Value != item.Value {
+		if !found || pivot.ContactID != contactID || pivot.ContactFieldID != item.ContactFieldID {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权修改该客户画像", nil)
+			return
+		}
+		if pivot.Value != item.Value {
 			content += item.Name + " "
 		}
 		updated, err := h.store.UpdateContactFieldPivotValue(r.Context(), item.PivotID, item.Value)
@@ -696,6 +709,19 @@ func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *ht
 		}
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+}
+
+func (h *ContactFieldHandler) requireContactAccess(w http.ResponseWriter, r *http.Request, contactID int, employeeID int, corpID int) bool {
+	allowed, err := h.store.ContactAccessibleToEmployee(r.Context(), contactID, employeeID, corpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return false
+	}
+	if !allowed {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权访问该客户", nil)
+		return false
+	}
+	return true
 }
 
 func (h *ContactFieldHandler) parseContactFieldValues(w http.ResponseWriter, params map[string]any, existing ContactField, update bool) (ContactFieldWriteValues, bool) {

@@ -23,6 +23,7 @@ export function ContactEditPage(props: {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
+  const [reloadVersion, setReloadVersion] = useState(0);
 
   useEffect(() => {
     if (!externalUserId) { setMessage('缺少 wxExternalUserid，无法识别当前客户。'); setLoading(false); return; }
@@ -36,7 +37,7 @@ export function ContactEditPage(props: {
         else { setMessage(error instanceof Error ? error.message : '客户画像加载失败。'); setLoading(false); }
       });
     return () => { active = false; };
-  }, [externalUserId, props.onReauthenticate, props.request]);
+  }, [externalUserId, props.onReauthenticate, props.request, reloadVersion]);
 
   const updateField = (id: number, value: string | string[], pictureUrl?: string) => {
     setFields((items) => items.map((field) => field.contactFieldId === id
@@ -49,7 +50,10 @@ export function ContactEditPage(props: {
       setMessage('请选择不超过 5MB 的 PNG、JPG 或 WebP 图片。'); return;
     }
     try { const result = await uploadPortraitImage(props.request, file); updateField(field.contactFieldId, result.path, result.fullPath); }
-    catch (error) { setMessage(error instanceof Error ? error.message : '图片上传失败。'); }
+    catch (error) {
+      if (error instanceof MobileApiError && error.kind === 'unauthorized') props.onReauthenticate();
+      else setMessage(error instanceof Error ? error.message : '图片上传失败。');
+    }
   };
   const submit = async () => {
     if (submitting || contactId <= 0) return;
@@ -62,6 +66,7 @@ export function ContactEditPage(props: {
   };
 
   if (loading) return <MobileCard padding="comfortable" tone="surface"><MobileState kind="loading" description="正在加载客户画像。" /></MobileCard>;
+  if (contactId === 0 && message) return <MobileCard padding="comfortable" tone="surface"><MobileState actionLabel="重试" description={message} kind="error" onAction={() => { setMessage(''); setLoading(true); setReloadVersion((value) => value + 1); }} title="客户画像加载失败" /></MobileCard>;
   if (fields.length === 0 && !message) return <MobileCard padding="comfortable" tone="surface"><MobileState kind="empty" title="暂无可编辑画像字段" /></MobileCard>;
   return (
     <MobileCard padding="comfortable" tone="surface">
@@ -87,7 +92,10 @@ export function ContactEditPage(props: {
           return <label key={field.contactFieldId}>{field.name}<input aria-label={field.name} onChange={(event) => updateField(field.contactFieldId, event.target.value)} type={field.typeText === '日期' ? 'date' : 'text'} value={String(field.value)} /></label>;
         })}
         {message ? <p className="sidebar-form__error" role="alert">{message}</p> : null}
-        <button className="sidebar-form__primary" disabled={submitting} type="submit">{submitting ? '保存中' : '保存画像'}</button>
+        <div className="sidebar-form__actions">
+          <button className="sidebar-form__secondary" disabled={submitting} onClick={props.onDone} type="button">取消</button>
+          <button className="sidebar-form__primary" disabled={submitting} type="submit">{submitting ? '保存中' : '保存画像'}</button>
+        </div>
       </form>
     </MobileCard>
   );

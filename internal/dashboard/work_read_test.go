@@ -952,7 +952,7 @@ func TestSidebarWorkContactDetailReturnsContact(t *testing.T) {
 			ID:     900001,
 			Name:   "Go迁移客户",
 			Avatar: "avatars/customer.png",
-			CorpID: 1,
+			CorpID: 7,
 		},
 		workContactFound: true,
 	}
@@ -975,8 +975,27 @@ func TestSidebarWorkContactDetailReturnsContact(t *testing.T) {
 	}
 	body := decodeBody(t, rec.Body.Bytes())
 	data := body["data"].(map[string]any)
-	if int(data["id"].(float64)) != 900001 || data["name"] != "Go迁移客户" || data["avatar"] != "http://api.example.com/static/avatars/customer.png" || int(data["corpId"].(float64)) != 1 {
+	if int(data["id"].(float64)) != 900001 || data["name"] != "Go迁移客户" || data["avatar"] != "http://api.example.com/static/avatars/customer.png" || int(data["corpId"].(float64)) != 7 {
 		t.Fatalf("data = %#v", data)
+	}
+}
+
+func TestSidebarWorkContactDetailRejectsAContactOutsideTheEmployeeScope(t *testing.T) {
+	store := &fakeWorkReadStore{
+		sidebarEmployees:  map[int]SidebarEmployee{5: {ID: 5, CorpID: 7}},
+		workContactDetail: WorkContactDetail{ID: 31, CorpID: 8, Name: "其他企业客户"},
+		workContactFound:  true,
+		denyContactAccess: true,
+	}
+	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/detail?wxExternalUserid=external-other", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarWorkContactDetail(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -2058,6 +2077,7 @@ type fakeWorkReadStore struct {
 	workContactLossPage               WorkContactLossPage
 	workContactShow                   WorkContactShow
 	workContactShowFound              bool
+	denyContactAccess                 bool
 	workContactUpdateResult           WorkContactUpdateResult
 	workContactUpdateFound            bool
 	batchLabelInserted                int
@@ -2144,6 +2164,10 @@ type fakeWorkReadStore struct {
 	lastContactTrackContactID         int
 	lastProcessCorpID                 int
 	lastProcessStatusID               int
+}
+
+func (s *fakeWorkReadStore) ContactAccessibleToEmployee(_ context.Context, _ int, _ int, _ int) (bool, error) {
+	return !s.denyContactAccess, nil
 }
 
 func (s *fakeWorkReadStore) UserByID(_ context.Context, userID int) (User, bool, error) {

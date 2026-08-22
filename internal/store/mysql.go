@@ -21275,7 +21275,7 @@ func (s *MySQLStore) ContactFieldPivotsByContactID(ctx context.Context, contactI
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, contact_field_id, value
+		SELECT id, contact_id, contact_field_id, value
 		FROM mc_contact_field_pivot
 		WHERE contact_id = ? AND contact_field_id IN (`+strings.Join(placeholders, ",")+`) AND deleted_at IS NULL
 	`, args...)
@@ -21288,7 +21288,7 @@ func (s *MySQLStore) ContactFieldPivotsByContactID(ctx context.Context, contactI
 	for rows.Next() {
 		var pivot dashboard.ContactFieldPivot
 		var value sql.NullString
-		if err := rows.Scan(&pivot.ID, &pivot.ContactFieldID, &value); err != nil {
+		if err := rows.Scan(&pivot.ID, &pivot.ContactID, &pivot.ContactFieldID, &value); err != nil {
 			return nil, err
 		}
 		pivot.Value = nullString(value)
@@ -21302,7 +21302,7 @@ func (s *MySQLStore) ContactFieldPivotsByContactID(ctx context.Context, contactI
 
 func (s *MySQLStore) ContactFieldPivotByID(ctx context.Context, pivotID int) (dashboard.ContactFieldPivot, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, contact_field_id, value
+		SELECT id, contact_id, contact_field_id, value
 		FROM mc_contact_field_pivot
 		WHERE id = ? AND deleted_at IS NULL
 		LIMIT 1
@@ -21310,7 +21310,7 @@ func (s *MySQLStore) ContactFieldPivotByID(ctx context.Context, pivotID int) (da
 
 	var pivot dashboard.ContactFieldPivot
 	var value sql.NullString
-	if err := row.Scan(&pivot.ID, &pivot.ContactFieldID, &value); err != nil {
+	if err := row.Scan(&pivot.ID, &pivot.ContactID, &pivot.ContactFieldID, &value); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return dashboard.ContactFieldPivot{}, false, nil
 		}
@@ -21318,6 +21318,19 @@ func (s *MySQLStore) ContactFieldPivotByID(ctx context.Context, pivotID int) (da
 	}
 	pivot.Value = nullString(value)
 	return pivot, true, nil
+}
+
+func (s *MySQLStore) ContactAccessibleToEmployee(ctx context.Context, contactID int, employeeID int, corpID int) (bool, error) {
+	var total int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mc_work_contact contact
+		JOIN mc_work_contact_employee relation
+			ON relation.contact_id = contact.id AND relation.deleted_at IS NULL
+		WHERE contact.id = ? AND contact.corp_id = ? AND relation.employee_id = ?
+			AND contact.deleted_at IS NULL
+	`, contactID, corpID, employeeID).Scan(&total)
+	return total > 0, err
 }
 
 func (s *MySQLStore) UpdateContactFieldPivotValue(ctx context.Context, pivotID int, value string) (bool, error) {

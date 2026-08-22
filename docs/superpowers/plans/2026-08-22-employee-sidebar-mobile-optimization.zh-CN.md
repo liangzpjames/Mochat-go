@@ -632,7 +632,7 @@ corepack pnpm --filter @mochat/e2e typecheck
 corepack pnpm --filter @mochat/e2e exec playwright test tests/mobile-clients-foundation.spec.ts tests/sidebar-employee-mobile.spec.ts --workers=1
 ```
 
-若没有 Go diff，报告写 `Go/API tests: N/A（未修改 Go/API）`；若有 Go diff，运行 `go test ./internal/dashboard ./internal/server ./internal/store -count=1` 及精确合同测试。
+本次独立审阅确认需要 Go 资源级授权修复；运行 `go test ./internal/dashboard ./internal/server ./internal/store -count=1`，并单独记录跨员工、跨企业、外来 pivot ID 返回 403 的合同测试。
 
 - [ ] **Step 3: 运行仓库完整性检查**
 
@@ -690,8 +690,9 @@ After commit, rerun the exact full gate commands and `git status --short`. Compl
 3. `feat(sidebar): add validated ...`：领域契约；回滚不影响基线 UI。
 4. `feat(sidebar): secure ...`：壳与授权；可单独回滚到旧壳。
 5. `feat(sidebar): build/restore ...`：按客户、写入、企微/素材、SOP、批量原子回滚。
-6. `test(sidebar): ...`：E2E 与证据，不改变生产行为。
-7. `docs: record ...`：最终结果。
+6. `fix(sidebar): enforce employee contact boundaries`：JSSDK 合同、客户资源授权与交互状态；可按提交整体回滚。
+7. `test(sidebar): ...`：E2E 与证据，不改变生产行为。
+8. `docs: record ...`：最终结果。
 
 不 squash 掉安全/业务边界，不直接合入 main，不强推。若 `origin/main` 在任务期间前进，报告记录新 SHA 和“需显式 rebase/cherry-pick”，不盲目合并未验收工作。
 

@@ -28,6 +28,7 @@ export function ContactTagPage(props: {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
+  const [reloadVersion, setReloadVersion] = useState(0);
 
   useEffect(() => {
     if (!externalUserId) {
@@ -55,22 +56,27 @@ export function ContactTagPage(props: {
       else { setMessage(error instanceof Error ? error.message : '标签加载失败。'); setLoading(false); }
     });
     return () => { active = false; };
-  }, [externalUserId, props.onReauthenticate, props.request]);
+  }, [externalUserId, props.onReauthenticate, props.request, reloadVersion]);
 
   const changeGroup = async (value: string) => {
     const next = value === '' ? null : Number(value);
     setGroupId(next);
     setLoading(true);
     try { setTags(await loadTags(props.request, next)); }
-    catch (error) { setMessage(error instanceof Error ? error.message : '标签加载失败。'); }
+    catch (error) {
+      if (error instanceof MobileApiError && error.kind === 'unauthorized') props.onReauthenticate();
+      else setMessage(error instanceof Error ? error.message : '标签加载失败。');
+    }
     finally { setLoading(false); }
   };
 
   const submit = async () => {
     if (submitting || contactId <= 0) return;
+    const added = selected.filter((id) => !existing.includes(id));
+    if (added.length === 0) { setMessage('请选择至少一个新标签。'); return; }
     setSubmitting(true);
     setMessage('');
-    try { await appendContactTags(props.request, contactId, selected); props.onDone(); }
+    try { await appendContactTags(props.request, contactId, added); props.onDone(); }
     catch (error) {
       if (error instanceof MobileApiError && error.kind === 'unauthorized') props.onReauthenticate();
       else setMessage(error instanceof Error ? error.message : '标签保存失败，请重试。');
@@ -78,6 +84,7 @@ export function ContactTagPage(props: {
   };
 
   if (loading && contactId === 0) return <MobileCard padding="comfortable" tone="surface"><MobileState kind="loading" description="正在加载企业标签。" /></MobileCard>;
+  if (!loading && contactId === 0 && message) return <MobileCard padding="comfortable" tone="surface"><MobileState actionLabel="重试" description={message} kind="error" onAction={() => { setMessage(''); setLoading(true); setReloadVersion((value) => value + 1); }} title="标签加载失败" /></MobileCard>;
   return (
     <div className="sidebar-form-stack">
       <MobileCard padding="comfortable" tone="surface">
@@ -110,9 +117,12 @@ export function ContactTagPage(props: {
           </fieldset>
         )}
         {message ? <p className="sidebar-form__error" role="alert">{message}</p> : null}
-        <button className="sidebar-form__primary" disabled={submitting || loading} onClick={() => { void submit(); }} type="button">
-          {submitting ? '保存中' : '保存标签'}
-        </button>
+        <div className="sidebar-form__actions">
+          <button className="sidebar-form__secondary" disabled={submitting} onClick={props.onDone} type="button">取消</button>
+          <button className="sidebar-form__primary" disabled={submitting || loading || selected.every((id) => existing.includes(id))} onClick={() => { void submit(); }} type="button">
+            {submitting ? '保存中' : '保存标签'}
+          </button>
+        </div>
       </MobileCard>
     </div>
   );

@@ -27,6 +27,7 @@ export type ContactTrack = {
   content: string;
   createdAt: string;
 };
+export type ContactSopReminder = { id: number; time: string };
 
 export type ContactPortraitValue = string | string[];
 
@@ -160,6 +161,17 @@ export async function loadContactTrack(
     }
     if (!(track.id === undefined || integer(track.id))) validation('互动轨迹响应格式无效。');
     return { id: integer(track.id) ? track.id : null, content: track.content, createdAt: track.createdAt };
+  });
+}
+
+export async function loadContactSopReminders(request: ContactRequest, contactId: number): Promise<ContactSopReminder[]> {
+  if (!Number.isSafeInteger(contactId) || contactId <= 0) validation('客户 ID 无效。');
+  const raw = await request<unknown>(`/contactSop/getSopTipInfo?contactId=${contactId}`, { method: 'GET' });
+  if (!Array.isArray(raw)) validation('客户 SOP 提醒响应格式无效。');
+  return raw.map((entry) => {
+    const item = record(entry);
+    if (item === null || !integer(item.id) || item.id <= 0 || typeof item.time !== 'string') validation('客户 SOP 提醒响应格式无效。');
+    return { id: item.id, time: item.time };
   });
 }
 

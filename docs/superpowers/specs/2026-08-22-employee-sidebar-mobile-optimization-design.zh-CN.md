@@ -179,7 +179,7 @@ SidebarRouter/AuthBoundary
     └invoke ok→ 仅报告该动作成功
 ```
 
-群 SOP 的“已完成”只由 `PUT /roomSop/logState` 决定；复制文本成功不等于消息已发送；素材逐项发送，部分失败不会被汇总成全部成功。
+群 SOP 的“已完成”由 `PUT /roomSop/logState` 写入并再次 `GET /roomSop/getSopInfo` 确认后决定；复制文本成功不等于消息已发送；素材逐项发送，部分失败不会被汇总成全部成功。
 
 ## 8. API、数据真实性、鉴权与错误策略
 
@@ -195,6 +195,7 @@ SidebarRouter/AuthBoundary
 - `/sidebar-app` 使用 Path 为 `/sidebar-app` 的 `token`、`agentId` cookie；根挂载测试只使用 Sidebar 专用 sessionStorage。
 - API 客户端固定 `basePath:'/sidebar'`，覆盖调用方传入的 Authorization，阻止跨 scope 路径和开放重定向。
 - 401 清理 Sidebar 会话并重新授权；403 保留会话；OAuth target 只允许同源内部路径。
+- `/workContact/detail` 与 Sidebar 画像读写必须在 Go 层校验员工—客户—企业归属；已有画像 pivot 还必须匹配本次 `contactId` 与字段 ID，越权统一返回 403。
 - `/codeAuth` 不信任旧 Dashboard realm token，不把 `callValues` 直接写入 Sidebar 会话；只提取 agentId/目标意图并进入 `/login`。
 - 日志和错误 UI 不输出 token、OAuth code、Base64 state、secret 或完整敏感 URL。
 
@@ -203,6 +204,7 @@ SidebarRouter/AuthBoundary
 - `workContact/update` 的标签行为是“新增缺失项，不删除旧标签”；界面必须如实表达。
 - `contactSop` 没有“已发送”写接口；只提供读取、复制和企微动作，不保存假完成状态。
 - 当前 Go `agentJSSDKAPIs` 包含 `getCurExternalContact`、`sendChatMessage`、`getContext`、`shareAppMessage`、`navigateToAddCustomer`，不包含 `openUserProfile`、`openExistedChatWithMsg`；相关按钮不得伪报可用。
+- 当前 Go JSSDK 合同把 `timestamp` 序列化为十进制字符串；前端必须严格校验正整数后转换为 SDK 所需数字，合同测试不得使用理想化数字夹具掩盖真实响应。
 - 真正的 OAuth、JS-SDK 签名和宿主 invoke 需要企业微信可信域名、应用凭证和会话环境；自动化只能验证可控的 URL、签名请求、能力检测和错误分支，真实宿主链路标记 SKIP。
 
 ## 9. 响应式、安全区、键盘与可访问性
@@ -224,13 +226,13 @@ SidebarRouter/AuthBoundary
 - 新客户上下文优先使用 `wxExternalUserid`，再通过 `/workContact/detail` 获取可信 `contactId`；已有 `contactId` 仅在正整数且仍由服务端权限约束时使用。
 - 先增加领域 API 校验和组件测试，再逐路由替换占位；每一阶段保持构建可运行。
 - 若需要扩展 `mobile-foundation`，仅增加通用 sticky/action 状态，不引入 Sidebar token、客户或企微 SDK。
-- 不修改 Go 契约，除非实现中发现现有持久化接口无法满足已承诺行为；若发生则先补 Go 合同测试并仅增加向后兼容字段。
+- Go 调研确认 Sidebar 客户详情与画像接口缺少资源级授权，因此增加只收紧非法访问的员工—客户—企业归属校验，并先补 403 合同测试；不改成功响应结构、不迁移数据库。
 
 ### 10.2 回滚
 
 - 设计/计划、领域 API、客户维护、素材/企微、SOP/批量、验收证据分别原子提交。
 - 任一业务域可通过回退对应提交恢复为基线占位页，不影响 Sidebar OAuth 和其他端。
-- 不迁移数据库、不删除 Docker 命名卷，因此回滚不涉及数据恢复。
+- 不迁移数据库、不删除 Docker 命名卷；Go 安全收紧可随对应原子提交回滚，因此回滚不涉及数据恢复。
 - 最终不直接合入 main；功能分支保留精确 base SHA，若 `origin/main` 推进，由主线负责人基于验收后的提交做显式 rebase/cherry-pick。
 
 ## 11. 客观验收标准

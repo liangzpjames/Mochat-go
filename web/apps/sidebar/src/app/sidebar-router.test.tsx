@@ -149,7 +149,7 @@ describe('Sidebar route registry', () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.getByRole('link', { name: /^客户资料/ }).getAttribute('href')).toBe(
-      '/contact?wxExternalUserid=external-1#profile',
+      '/contact?wxExternalUserid=external-1',
     );
     router.dispose();
   });

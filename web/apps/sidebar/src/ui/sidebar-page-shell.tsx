@@ -22,11 +22,18 @@ function navigationKey(pathname: string): SidebarNavigationKey {
   return 'customers';
 }
 
-export function sidebarBusinessContextSuffix(search: string, hash: string): string {
-  const params = new URLSearchParams(search);
-  params.delete('state');
-  const serialized = params.toString();
-  return `${serialized.length === 0 ? '' : `?${serialized}`}${hash}`;
+export function sidebarBusinessContextSuffix(targetPath: string, search: string): string {
+  const source = new URLSearchParams(search);
+  const target = new URLSearchParams();
+  const copy = (name: string) => {
+    const value = source.get(name)?.trim();
+    if (value) target.set(name, value);
+  };
+  copy('agentId');
+  if (targetPath.startsWith('/contact') && targetPath !== '/contactBatchAdd') copy('wxExternalUserid');
+  if (targetPath === '/contactBatchAdd') copy('batchId');
+  const serialized = target.toString();
+  return serialized.length === 0 ? '' : `?${serialized}`;
 }
 
 function SidebarLineIcon({ kind }: { kind: SidebarNavigationKey }) {
@@ -62,11 +69,10 @@ export function SidebarPageShell({
   children,
 }: SidebarPageShellProps) {
   const location = useLocation();
-  const suffix = sidebarBusinessContextSuffix(location.search, location.hash);
   const current = navigationKey(location.pathname);
-  const customersHref = useHref(`/contact${suffix}`);
-  const conversationsHref = useHref(`/contactSop${suffix}`);
-  const profileHref = useHref(`/${suffix}`);
+  const customersHref = useHref(`/contact${sidebarBusinessContextSuffix('/contact', location.search)}`);
+  const conversationsHref = useHref(`/contactSop${sidebarBusinessContextSuffix('/contactSop', location.search)}`);
+  const profileHref = useHref(`/${sidebarBusinessContextSuffix('/', location.search)}`);
   const items: MobileBottomNavigationItem[] = [
     { key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: customersHref, current: current === 'customers' },
     { key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: conversationsHref, current: current === 'conversations' },
