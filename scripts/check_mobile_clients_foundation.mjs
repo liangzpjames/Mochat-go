@@ -398,7 +398,9 @@ function validateSidebarNavigationCases(sidebarCasesBody, errors) {
       }
       continue;
     }
-    const expected = path === '/' ? '我的' : path === '/contactSop' ? '会话' : '客户';
+    const expected = path === '/'
+      ? '我的'
+      : ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
     if (
       !/needsSession\s*:\s*true/.test(source)
       || !new RegExp(`activeNavigation\\s*:\\s*['"]${expected}['"]`).test(source)

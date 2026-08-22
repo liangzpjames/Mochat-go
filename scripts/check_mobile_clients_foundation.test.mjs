@@ -123,7 +123,7 @@ function registry(name, paths) {
 function routeCases(name, paths) {
   return `const ${name}Cases = [\n${paths.map((path) => {
     const needsSession = name === 'sidebar' && !['/auth', '/codeAuth', '/login'].includes(path);
-    const activeNavigation = path === '/' ? '我的' : path === '/contactSop' ? '会话' : '客户';
+    const activeNavigation = path === '/' ? '我的' : ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
     return `  { path: ${JSON.stringify(path)}, title: ${JSON.stringify(`${name}-${path}`)}, expectsAction: ${name === 'sidebar' && path === '/login'}${name === 'sidebar' ? `, needsSession: ${needsSession}${needsSession ? `, activeNavigation: ${JSON.stringify(activeNavigation)}` : ''}` : ''}${name === 'operation' && path === '/workFission' ? ", query: '?id=17'" : ''} },`;
   }).join('\n')}\n] as const;`;
 }
@@ -541,6 +541,19 @@ test('rejects a wrong source-independent Sidebar route-to-tab mapping', (t) => {
     validE2E().replace('activeNavigation: "我的"', 'activeNavigation: "客户"'),
   );
   expectDefect(root, /Sidebar \/.*active navigation.*我的/i);
+});
+
+test('rejects mapping room SOP away from the conversation tab', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace(
+      /(\{ path: "\/roomSop"[^\n]*activeNavigation: )"会话"/,
+      '$1"客户"',
+    ),
+  );
+  expectDefect(root, /Sidebar \/roomSop.*active navigation.*会话/i);
 });
 
 test('rejects a missing content-not-covered assertion independently', (t) => {
