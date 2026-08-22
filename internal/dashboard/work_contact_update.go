@@ -32,6 +32,12 @@ type WorkContactUpdateResult struct {
 	AddedTagNames    []string
 }
 
+type WorkContactUpdateOutcome struct {
+	SavedLocally bool `json:"savedLocally"`
+	WeComSynced  bool `json:"wecomSynced"`
+	Retryable    bool `json:"retryable"`
+}
+
 type WorkContactUpdateWeComClient interface {
 	UpdateExternalContactRemark(ctx context.Context, credential RoomWelcomeCorpCredential, payload WorkContactRemarkPayload) error
 	MarkExternalContactTags(ctx context.Context, credential RoomWelcomeCorpCredential, payload WorkContactMarkTagsPayload) error
@@ -122,39 +128,52 @@ func (h *WorkReadHandler) writeWorkContactUpdate(w http.ResponseWriter, r *http.
 		writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 		return
 	}
-	if h.workContactUpdateClient != nil && result.WXUserID != "" && result.WXExternalUserID != "" {
+	outcome := WorkContactUpdateOutcome{SavedLocally: true, WeComSynced: true}
+	needsRemarkSync := values.Remark != nil || values.Description != nil
+	needsTagSync := len(result.AddedWXTagIDs) > 0
+	needsWeComSync := needsRemarkSync || needsTagSync
+	writePartial := func() {
+		outcome.WeComSynced = false
+		outcome.Retryable = true
+		writeEnvelope(w, http.StatusOK, 200, "本地已保存，企业微信同步失败，请重试", outcome)
+	}
+	if needsWeComSync {
+		if h.workContactUpdateClient == nil || result.WXUserID == "" || result.WXExternalUserID == "" {
+			writePartial()
+			return
+		}
 		credential, found, err := h.store.RoomWelcomeCorpCredentialByID(r.Context(), values.CorpID)
 		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+			writePartial()
 			return
 		}
 		if !found || strings.TrimSpace(credential.WXCorpID) == "" || strings.TrimSpace(credential.ContactSecret) == "" {
-			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "企业微信配置不存在", nil)
+			writePartial()
 			return
 		}
-		if values.Remark != nil || values.Description != nil {
+		if needsRemarkSync {
 			if err := h.workContactUpdateClient.UpdateExternalContactRemark(r.Context(), credential, WorkContactRemarkPayload{
 				UserID:         result.WXUserID,
 				ExternalUserID: result.WXExternalUserID,
 				Remark:         values.Remark,
 				Description:    values.Description,
 			}); err != nil {
-				writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+				writePartial()
 				return
 			}
 		}
-		if len(result.AddedWXTagIDs) > 0 {
+		if needsTagSync {
 			if err := h.workContactUpdateClient.MarkExternalContactTags(r.Context(), credential, WorkContactMarkTagsPayload{
 				UserID:         result.WXUserID,
 				ExternalUserID: result.WXExternalUserID,
 				AddTag:         result.AddedWXTagIDs,
 			}); err != nil {
-				writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+				writePartial()
 				return
 			}
 		}
 	}
-	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+	writeEnvelope(w, http.StatusOK, 200, "success", outcome)
 }
 
 func parseWorkContactUpdateRequest(r *http.Request) (WorkContactUpdateValues, error) {

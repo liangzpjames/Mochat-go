@@ -386,6 +386,58 @@ func TestSidebarContactFieldPivotUpdateRejectsAPivotFromAnotherContact(t *testin
 	}
 }
 
+func TestSidebarContactFieldPivotUpdateRejectsWholeBatchBeforeWritingWhenLaterPivotBelongsToAnotherContact(t *testing.T) {
+	store := &fakeContactFieldStore{
+		sidebarEmployees: map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+		pivotsByID: map[int]ContactFieldPivot{
+			901: {ID: 901, ContactID: 66, ContactFieldID: 31, Value: "旧备注"},
+			902: {ID: 902, ContactID: 77, ContactFieldID: 32, Value: "旧城市"},
+		},
+		updatedPivots: map[int]string{},
+	}
+	handler := NewContactFieldHandler(store, nil, HeaderUserIDResolver{}, nil, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/contactFieldPivot/update", strings.NewReader(`{
+		"contactId":66,
+		"userPortrait":[
+			{"contactFieldPivotId":901,"contactFieldId":31,"name":"备注","type":0,"value":"新备注"},
+			{"contactFieldPivotId":902,"contactFieldId":32,"name":"城市","type":0,"value":"新城市"}
+		]
+	}`))
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarFieldPivotUpdate(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.updatedPivots) != 0 {
+		t.Fatalf("batch wrote a valid earlier pivot before rejecting the later foreign pivot: %#v", store.updatedPivots)
+	}
+}
+
+func TestSidebarContactFieldPivotUpdateStillChecksContactAccessForAnEmptyBatch(t *testing.T) {
+	store := &fakeContactFieldStore{
+		sidebarEmployees:  map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+		denyContactAccess: true,
+	}
+	handler := NewContactFieldHandler(store, nil, HeaderUserIDResolver{}, nil, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/sidebar/contactFieldPivot/update", strings.NewReader(`{
+		"contactId":66,
+		"userPortrait":[]
+	}`))
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarFieldPivotUpdate(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestContactFieldStoreCreatesCustomField(t *testing.T) {
 	store := &fakeContactFieldStore{users: map[int]User{1: {ID: 1}}}
 	authorizer := &recordingAuthorizer{}
@@ -582,6 +634,59 @@ func (s *fakeContactFieldStore) CreateContactFieldPivots(_ context.Context, pivo
 
 func (s *fakeContactFieldStore) CreateContactEmployeeTrack(_ context.Context, track ContactEmployeeTrackCreate) error {
 	s.createdTracks = append(s.createdTracks, track)
+	return nil
+}
+
+func (s *fakeContactFieldStore) UpdateContactFieldPivotsAtomically(_ context.Context, write ContactFieldPivotBatchWrite) error {
+	if write.RequireEmployeeAccess && s.denyContactAccess {
+		return ErrContactFieldPivotAccess
+	}
+	for _, item := range write.Items {
+		if s.fields != nil {
+			if _, ok := s.fields[item.ContactFieldID]; !ok {
+				return ErrContactFieldPivotFieldNotFound
+			}
+		}
+		if item.PivotID <= 0 {
+			continue
+		}
+		pivot, ok := s.pivotsByID[item.PivotID]
+		if !ok || pivot.ContactID != write.ContactID || pivot.ContactFieldID != item.ContactFieldID {
+			return ErrContactFieldPivotAccess
+		}
+	}
+
+	content := "编辑用户画像："
+	for _, item := range write.Items {
+		if item.PivotID > 0 {
+			pivot := s.pivotsByID[item.PivotID]
+			if pivot.Value != item.Value {
+				content += item.Name + " "
+			}
+			if s.updatedPivots == nil {
+				s.updatedPivots = map[int]string{}
+			}
+			s.updatedPivots[item.PivotID] = item.Value
+			continue
+		}
+		s.createdPivots = append(s.createdPivots, ContactFieldPivotCreate{
+			ContactID:      write.ContactID,
+			ContactFieldID: item.ContactFieldID,
+			Value:          item.Value,
+		})
+		if item.Value != "" {
+			content += item.Name + " "
+		}
+	}
+	if content != "编辑用户画像：" {
+		s.createdTracks = append(s.createdTracks, ContactEmployeeTrackCreate{
+			EmployeeID: write.EmployeeID,
+			ContactID:  write.ContactID,
+			Content:    content,
+			CorpID:     write.CorpID,
+			Event:      4,
+		})
+	}
 	return nil
 }
 

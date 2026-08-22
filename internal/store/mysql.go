@@ -16569,7 +16569,35 @@ func (s *MySQLStore) WorkContactByExternalUserID(ctx context.Context, externalUs
 	return contact, true, nil
 }
 
-func (s *MySQLStore) WorkContactShowByID(ctx context.Context, contactID int, employeeID int) (dashboard.WorkContactShow, bool, error) {
+func (s *MySQLStore) SidebarWorkContactByExternalUserID(ctx context.Context, externalUserID string, corpID int, employeeID int) (dashboard.WorkContactDetail, bool, error) {
+	var contact dashboard.WorkContactDetail
+	var avatar sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT contact.id, contact.name, contact.avatar, contact.corp_id
+		FROM mc_work_contact AS contact
+		JOIN mc_work_contact_employee AS pivot
+		  ON pivot.contact_id = contact.id
+		 AND pivot.employee_id = ?
+		 AND pivot.corp_id = contact.corp_id
+		 AND pivot.deleted_at IS NULL
+		JOIN mc_work_employee AS employee
+		  ON employee.id = pivot.employee_id
+		 AND employee.corp_id = contact.corp_id
+		 AND employee.deleted_at IS NULL
+		WHERE contact.wx_external_userid = ? AND contact.corp_id = ? AND contact.deleted_at IS NULL
+		LIMIT 1
+	`, employeeID, externalUserID, corpID).Scan(&contact.ID, &contact.Name, &avatar, &contact.CorpID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.WorkContactDetail{}, false, nil
+	}
+	if err != nil {
+		return dashboard.WorkContactDetail{}, false, err
+	}
+	contact.Avatar = nullString(avatar)
+	return contact, true, nil
+}
+
+func (s *MySQLStore) WorkContactShowByID(ctx context.Context, contactID int, employeeID int, corpID int) (dashboard.WorkContactShow, bool, error) {
 	info := dashboard.WorkContactShow{
 		Tags:         []dashboard.WorkContactShowTag{},
 		RoomNames:    []string{},
@@ -16580,12 +16608,15 @@ func (s *MySQLStore) WorkContactShowByID(ctx context.Context, contactID int, emp
 		SELECT contact.name, contact.avatar, contact.gender, contact.business_no, pivot.remark, pivot.description
 		FROM mc_work_contact AS contact
 		JOIN mc_work_contact_employee AS pivot
-		  ON pivot.contact_id = contact.id AND pivot.employee_id = ? AND pivot.deleted_at IS NULL
+		  ON pivot.contact_id = contact.id
+		 AND pivot.employee_id = ?
+		 AND pivot.corp_id = contact.corp_id
+		 AND pivot.deleted_at IS NULL
 		JOIN mc_work_employee AS employee
 		  ON employee.id = pivot.employee_id AND employee.corp_id = contact.corp_id AND employee.deleted_at IS NULL
-		WHERE contact.id = ? AND contact.deleted_at IS NULL
+		WHERE contact.id = ? AND contact.corp_id = ? AND contact.deleted_at IS NULL
 		LIMIT 1
-	`, employeeID, contactID).Scan(&name, &avatar, &info.Gender, &businessNo, &remark, &description)
+	`, employeeID, contactID, corpID).Scan(&name, &avatar, &info.Gender, &businessNo, &remark, &description)
 	if errors.Is(err, sql.ErrNoRows) {
 		return info, false, nil
 	}
@@ -16598,7 +16629,7 @@ func (s *MySQLStore) WorkContactShowByID(ctx context.Context, contactID int, emp
 	info.Remark = nullString(remark)
 	info.Description = nullString(description)
 
-	tags, err := s.workContactShowTags(ctx, contactID)
+	tags, err := s.workContactShowTags(ctx, contactID, employeeID, corpID)
 	if err != nil {
 		return dashboard.WorkContactShow{}, false, err
 	}
@@ -16617,14 +16648,20 @@ func (s *MySQLStore) WorkContactShowByID(ctx context.Context, contactID int, emp
 	return info, true, nil
 }
 
-func (s *MySQLStore) workContactShowTags(ctx context.Context, contactID int) ([]dashboard.WorkContactShowTag, error) {
+func (s *MySQLStore) workContactShowTags(ctx context.Context, contactID int, employeeID int, corpID int) ([]dashboard.WorkContactShowTag, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT tag.id, tag.name
 		FROM mc_work_contact_tag_pivot AS pivot
-		JOIN mc_work_contact_tag AS tag ON tag.id = pivot.contact_tag_id AND tag.deleted_at IS NULL
-		WHERE pivot.contact_id = ? AND pivot.deleted_at IS NULL
+		JOIN mc_work_contact AS contact
+		  ON contact.id = pivot.contact_id AND contact.corp_id = ? AND contact.deleted_at IS NULL
+		JOIN mc_work_contact_tag AS tag
+		  ON tag.id = pivot.contact_tag_id AND tag.corp_id = ? AND tag.deleted_at IS NULL
+		WHERE pivot.contact_id = ?
+		  AND pivot.employee_id = ?
+		  AND pivot.corp_id = contact.corp_id
+		  AND pivot.deleted_at IS NULL
 		ORDER BY tag.id ASC
-	`, contactID)
+	`, corpID, corpID, contactID, employeeID)
 	if err != nil {
 		return nil, err
 	}
@@ -20918,14 +20955,22 @@ func (s *MySQLStore) UpdateWorkContactProfile(ctx context.Context, values dashbo
 	defer tx.Rollback()
 
 	var result dashboard.WorkContactUpdateResult
+	var currentRemark, currentDescription, currentBusinessNo string
 	err = tx.QueryRowContext(ctx, `
-		SELECT COALESCE(employee.wx_user_id, ''), COALESCE(contact.wx_external_userid, '')
+		SELECT COALESCE(employee.wx_user_id, ''), COALESCE(contact.wx_external_userid, ''),
+		       COALESCE(ce.remark, ''), COALESCE(ce.description, ''), COALESCE(contact.business_no, '')
 		FROM mc_work_contact_employee AS ce
 		JOIN mc_work_employee AS employee ON employee.id = ce.employee_id AND employee.deleted_at IS NULL
 		JOIN mc_work_contact AS contact ON contact.id = ce.contact_id AND contact.deleted_at IS NULL
 		WHERE ce.employee_id = ? AND ce.contact_id = ? AND ce.corp_id = ? AND ce.deleted_at IS NULL
 		LIMIT 1
-	`, values.EmployeeID, values.ContactID, values.CorpID).Scan(&result.WXUserID, &result.WXExternalUserID)
+	`, values.EmployeeID, values.ContactID, values.CorpID).Scan(
+		&result.WXUserID,
+		&result.WXExternalUserID,
+		&currentRemark,
+		&currentDescription,
+		&currentBusinessNo,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.WorkContactUpdateResult{}, false, nil
 	}
@@ -20933,14 +20978,16 @@ func (s *MySQLStore) UpdateWorkContactProfile(ctx context.Context, values dashbo
 		return dashboard.WorkContactUpdateResult{}, false, err
 	}
 
-	if values.Remark != nil || values.Description != nil {
+	remarkChanged := values.Remark != nil && *values.Remark != currentRemark
+	descriptionChanged := values.Description != nil && *values.Description != currentDescription
+	if remarkChanged || descriptionChanged {
 		sets := []string{"updated_at = NOW()"}
 		args := []any{}
-		if values.Remark != nil {
+		if remarkChanged {
 			sets = append(sets, "remark = ?")
 			args = append(args, *values.Remark)
 		}
-		if values.Description != nil {
+		if descriptionChanged {
 			sets = append(sets, "description = ?")
 			args = append(args, *values.Description)
 		}
@@ -20952,19 +20999,19 @@ func (s *MySQLStore) UpdateWorkContactProfile(ctx context.Context, values dashbo
 		`, args...); err != nil {
 			return dashboard.WorkContactUpdateResult{}, false, err
 		}
-		if values.Remark != nil {
+		if remarkChanged {
 			if err := insertContactTrackTx(ctx, tx, values.EmployeeID, values.ContactID, "修改用户资料：备注", values.CorpID, 3); err != nil {
 				return dashboard.WorkContactUpdateResult{}, false, err
 			}
 		}
-		if values.Description != nil {
+		if descriptionChanged {
 			if err := insertContactTrackTx(ctx, tx, values.EmployeeID, values.ContactID, "修改用户资料：描述", values.CorpID, 3); err != nil {
 				return dashboard.WorkContactUpdateResult{}, false, err
 			}
 		}
 	}
 
-	if values.BusinessNo != nil {
+	if values.BusinessNo != nil && *values.BusinessNo != currentBusinessNo {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE mc_work_contact
 			SET business_no = ?, updated_at = NOW()
@@ -21087,6 +21134,12 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 	if len(allowed) != len(tagIDs) {
 		return nil, nil, errWorkContactTagScope
 	}
+	syncWXTagIDs := make([]string, 0, len(tagIDs))
+	for _, tagID := range tagIDs {
+		if wxID := allowed[tagID].wxID; wxID != "" {
+			syncWXTagIDs = append(syncWXTagIDs, wxID)
+		}
+	}
 
 	rows, err = tx.QueryContext(ctx, `
 		SELECT pivot.contact_tag_id
@@ -21121,7 +21174,7 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 		}
 	}
 	if len(addIDs) == 0 {
-		return []string{}, []string{}, nil
+		return syncWXTagIDs, []string{}, nil
 	}
 	for _, tagID := range addIDs {
 		if _, err := tx.ExecContext(ctx, `
@@ -21133,18 +21186,14 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 		}
 	}
 
-	wxTagIDs := []string{}
 	names := []string{}
 	for _, tagID := range addIDs {
 		details := allowed[tagID]
-		if details.wxID != "" {
-			wxTagIDs = append(wxTagIDs, details.wxID)
-		}
 		if details.name != "" {
 			names = append(names, details.name)
 		}
 	}
-	return wxTagIDs, names, nil
+	return syncWXTagIDs, names, nil
 }
 
 func (s *MySQLStore) BatchLabelWorkContacts(ctx context.Context, contactIDs []int, tagIDs []int, employeeID int) (int, error) {
@@ -21453,6 +21502,177 @@ func (s *MySQLStore) CreateContactEmployeeTrack(ctx context.Context, track dashb
 		VALUES (?, ?, ?, ?, ?, NOW())
 	`, track.EmployeeID, track.ContactID, track.Content, track.CorpID, track.Event)
 	return err
+}
+
+func (s *MySQLStore) UpdateContactFieldPivotsAtomically(ctx context.Context, write dashboard.ContactFieldPivotBatchWrite) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollbackQuietly(tx)
+
+	var authorizedContactID int
+	if write.RequireEmployeeAccess {
+		err = tx.QueryRowContext(ctx, `
+			SELECT contact.id
+			FROM mc_work_contact AS contact
+			JOIN mc_work_contact_employee AS relation
+				ON relation.contact_id = contact.id
+				AND relation.corp_id = contact.corp_id
+				AND relation.deleted_at IS NULL
+			JOIN mc_work_employee AS employee
+				ON employee.id = relation.employee_id
+				AND employee.corp_id = contact.corp_id
+				AND employee.deleted_at IS NULL
+			WHERE contact.id = ? AND contact.corp_id = ? AND relation.employee_id = ?
+				AND contact.deleted_at IS NULL
+			LIMIT 1
+			FOR UPDATE
+		`, write.ContactID, write.CorpID, write.EmployeeID).Scan(&authorizedContactID)
+	} else {
+		err = tx.QueryRowContext(ctx, `
+			SELECT contact.id
+			FROM mc_work_contact AS contact
+			JOIN mc_work_employee AS employee
+				ON employee.id = ?
+				AND employee.corp_id = contact.corp_id
+				AND employee.deleted_at IS NULL
+			WHERE contact.id = ? AND contact.corp_id = ? AND contact.deleted_at IS NULL
+			LIMIT 1
+			FOR UPDATE
+		`, write.EmployeeID, write.ContactID, write.CorpID).Scan(&authorizedContactID)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.ErrContactFieldPivotAccess
+	}
+	if err != nil {
+		return err
+	}
+	if len(write.Items) == 0 {
+		return nil
+	}
+
+	fieldIDs := make([]int, 0, len(write.Items))
+	pivotIDs := make([]int, 0, len(write.Items))
+	for _, item := range write.Items {
+		fieldIDs = append(fieldIDs, item.ContactFieldID)
+		if item.PivotID > 0 {
+			pivotIDs = append(pivotIDs, item.PivotID)
+		}
+	}
+	fieldIDs = uniquePositiveInts(fieldIDs)
+	if len(fieldIDs) == 0 {
+		return dashboard.ErrContactFieldPivotFieldNotFound
+	}
+	fieldArgs := make([]any, 0, len(fieldIDs))
+	for _, fieldID := range fieldIDs {
+		fieldArgs = append(fieldArgs, fieldID)
+	}
+	fieldRows, err := tx.QueryContext(ctx, `
+		SELECT id
+		FROM mc_contact_field
+		WHERE id IN (`+placeholders(len(fieldIDs))+`) AND deleted_at IS NULL
+		FOR UPDATE
+	`, fieldArgs...)
+	if err != nil {
+		return err
+	}
+	validFieldIDs := make(map[int]struct{}, len(fieldIDs))
+	for fieldRows.Next() {
+		var fieldID int
+		if err := fieldRows.Scan(&fieldID); err != nil {
+			fieldRows.Close()
+			return err
+		}
+		validFieldIDs[fieldID] = struct{}{}
+	}
+	if err := fieldRows.Err(); err != nil {
+		fieldRows.Close()
+		return err
+	}
+	fieldRows.Close()
+	if len(validFieldIDs) != len(fieldIDs) {
+		return dashboard.ErrContactFieldPivotFieldNotFound
+	}
+
+	pivots := make(map[int]dashboard.ContactFieldPivot, len(pivotIDs))
+	pivotIDs = uniquePositiveInts(pivotIDs)
+	if len(pivotIDs) > 0 {
+		pivotArgs := make([]any, 0, len(pivotIDs))
+		for _, pivotID := range pivotIDs {
+			pivotArgs = append(pivotArgs, pivotID)
+		}
+		rows, err := tx.QueryContext(ctx, `
+			SELECT id, contact_id, contact_field_id, value
+			FROM mc_contact_field_pivot
+			WHERE id IN (`+placeholders(len(pivotIDs))+`) AND deleted_at IS NULL
+			FOR UPDATE
+		`, pivotArgs...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var pivot dashboard.ContactFieldPivot
+			var value sql.NullString
+			if err := rows.Scan(&pivot.ID, &pivot.ContactID, &pivot.ContactFieldID, &value); err != nil {
+				rows.Close()
+				return err
+			}
+			pivot.Value = nullString(value)
+			pivots[pivot.ID] = pivot
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
+	for _, item := range write.Items {
+		if item.PivotID <= 0 {
+			continue
+		}
+		pivot, ok := pivots[item.PivotID]
+		if !ok || pivot.ContactID != write.ContactID || pivot.ContactFieldID != item.ContactFieldID {
+			return dashboard.ErrContactFieldPivotAccess
+		}
+	}
+
+	content := "编辑用户画像："
+	for _, item := range write.Items {
+		if item.PivotID > 0 {
+			if pivots[item.PivotID].Value != item.Value {
+				content += item.Name + " "
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE mc_contact_field_pivot
+				SET value = ?, updated_at = NOW()
+				WHERE id = ? AND deleted_at IS NULL
+			`, item.Value, item.PivotID); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO mc_contact_field_pivot
+				(contact_id, contact_field_id, value, created_at, updated_at)
+			VALUES (?, ?, ?, NOW(), NOW())
+		`, write.ContactID, item.ContactFieldID, item.Value); err != nil {
+			return err
+		}
+		if item.Value != "" {
+			content += item.Name + " "
+		}
+	}
+	if content != "编辑用户画像：" {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO mc_contact_employee_track
+				(employee_id, contact_id, content, corp_id, event, created_at)
+			VALUES (?, ?, ?, ?, ?, NOW())
+		`, write.EmployeeID, write.ContactID, content, write.CorpID, 4); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *MySQLStore) ContactFieldLabelExists(ctx context.Context, label string, excludeFieldID int) (bool, error) {

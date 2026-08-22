@@ -9,6 +9,28 @@ import (
 	"jiyi/mochat-go/internal/dashboard"
 )
 
+func TestSidebarWorkContactByExternalUserIDBindsDuplicateIDToCorpAndEmployee(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &MySQLStore{db: db}
+
+	mock.ExpectQuery(`(?s)FROM mc_work_contact AS contact.*JOIN mc_work_contact_employee AS pivot.*pivot.employee_id = \?.*pivot.corp_id = contact.corp_id.*JOIN mc_work_employee AS employee.*employee.corp_id = contact.corp_id.*WHERE contact.wx_external_userid = \? AND contact.corp_id = \?`).
+		WithArgs(5, "duplicate-external-id", 7).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "avatar", "corp_id"}).
+			AddRow(31, "当前员工客户", "avatar.png", 7))
+
+	contact, found, err := store.SidebarWorkContactByExternalUserID(context.Background(), "duplicate-external-id", 7, 5)
+	if err != nil || !found || contact.ID != 31 || contact.CorpID != 7 {
+		t.Fatalf("contact=%#v found=%v err=%v", contact, found, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSidebarWorkContactQueriesBindEmployeeAndCorp(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -17,10 +39,10 @@ func TestSidebarWorkContactQueriesBindEmployeeAndCorp(t *testing.T) {
 	defer db.Close()
 	store := &MySQLStore{db: db}
 
-	mock.ExpectQuery(`(?s)FROM mc_work_contact AS contact.*JOIN mc_work_contact_employee AS pivot.*pivot.employee_id = \?.*employee.corp_id = contact.corp_id.*WHERE contact.id = \?`).
-		WithArgs(5, 31).
+	mock.ExpectQuery(`(?s)FROM mc_work_contact AS contact.*JOIN mc_work_contact_employee AS pivot.*pivot.employee_id = \?.*pivot.corp_id = contact.corp_id.*employee.corp_id = contact.corp_id.*WHERE contact.id = \? AND contact.corp_id = \?`).
+		WithArgs(5, 31, 7).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "avatar", "gender", "business_no", "remark", "description"}))
-	if _, found, err := store.WorkContactShowByID(context.Background(), 31, 5); err != nil || found {
+	if _, found, err := store.WorkContactShowByID(context.Background(), 31, 5, 7); err != nil || found {
 		t.Fatalf("show found=%v err=%v", found, err)
 	}
 
@@ -31,6 +53,40 @@ func TestSidebarWorkContactQueriesBindEmployeeAndCorp(t *testing.T) {
 		t.Fatalf("tracks=%#v err=%v", tracks, err)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkContactShowTagsExcludeOtherEmployeeAndCorpNoise(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &MySQLStore{db: db}
+
+	mock.ExpectQuery(`(?s)FROM mc_work_contact AS contact.*JOIN mc_work_contact_employee AS pivot.*pivot.employee_id = \?.*pivot.corp_id = contact.corp_id.*WHERE contact.id = \? AND contact.corp_id = \?`).
+		WithArgs(5, 31, 7).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "avatar", "gender", "business_no", "remark", "description"}).
+			AddRow("客户", "avatar.png", 1, "NO-31", "备注", "描述"))
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_tag_pivot AS pivot.*JOIN mc_work_contact AS contact.*contact.corp_id = \?.*JOIN mc_work_contact_tag AS tag.*tag.corp_id = \?.*WHERE pivot.contact_id = \? AND pivot.employee_id = \?`).
+		WithArgs(7, 7, 31, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(11, "当前员工当前企业标签"))
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_room AS contact_room.*WHERE contact_room.contact_id = \?`).
+		WithArgs(31).
+		WillReturnRows(sqlmock.NewRows([]string{"name"}))
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_employee AS contact_employee.*WHERE contact_employee.contact_id = \?`).
+		WithArgs(31).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "corp_name"}))
+
+	info, found, err := store.WorkContactShowByID(context.Background(), 31, 5, 7)
+	if err != nil || !found {
+		t.Fatalf("info=%#v found=%v err=%v", info, found, err)
+	}
+	if len(info.Tags) != 1 || info.Tags[0].TagID != 11 || info.Tags[0].TagName != "当前员工当前企业标签" {
+		t.Fatalf("tags=%#v", info.Tags)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}

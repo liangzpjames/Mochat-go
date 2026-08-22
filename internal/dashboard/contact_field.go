@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -45,6 +46,26 @@ type ContactFieldPivotCreate struct {
 	ContactFieldID int
 	Value          string
 }
+
+type ContactFieldPivotWrite struct {
+	PivotID        int
+	ContactFieldID int
+	Name           string
+	Value          string
+}
+
+type ContactFieldPivotBatchWrite struct {
+	ContactID             int
+	EmployeeID            int
+	CorpID                int
+	RequireEmployeeAccess bool
+	Items                 []ContactFieldPivotWrite
+}
+
+var (
+	ErrContactFieldPivotAccess        = errors.New("contact field pivot access denied")
+	ErrContactFieldPivotFieldNotFound = errors.New("contact field not found")
+)
 
 type ContactEmployeeTrackCreate struct {
 	EmployeeID int
@@ -88,6 +109,7 @@ type ContactFieldStore interface {
 	UpdateContactFieldPivotValue(ctx context.Context, pivotID int, value string) (bool, error)
 	CreateContactFieldPivots(ctx context.Context, pivots []ContactFieldPivotCreate) error
 	CreateContactEmployeeTrack(ctx context.Context, track ContactEmployeeTrackCreate) error
+	UpdateContactFieldPivotsAtomically(ctx context.Context, write ContactFieldPivotBatchWrite) error
 	ContactFieldLabelExists(ctx context.Context, label string, excludeFieldID int) (bool, error)
 	CreateContactField(ctx context.Context, values ContactFieldWriteValues) (int, error)
 	UpdateContactField(ctx context.Context, fieldID int, values ContactFieldWriteValues) (bool, error)
@@ -639,9 +661,6 @@ func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *ht
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
 		return
 	}
-	if enforceContactAccess && !h.requireContactAccess(w, r, contactID, employeeID, corpID) {
-		return
-	}
 	rawPortrait, ok := params["userPortrait"]
 	if !ok || isEmptyParam(rawPortrait) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "修改内容必传", nil)
@@ -651,62 +670,33 @@ func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	if len(items) == 0 {
-		writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+	writes := make([]ContactFieldPivotWrite, 0, len(items))
+	for _, item := range items {
+		writes = append(writes, ContactFieldPivotWrite{
+			PivotID:        item.PivotID,
+			ContactFieldID: item.ContactFieldID,
+			Name:           item.Name,
+			Value:          item.Value,
+		})
+	}
+	err = h.store.UpdateContactFieldPivotsAtomically(r.Context(), ContactFieldPivotBatchWrite{
+		ContactID:             contactID,
+		EmployeeID:            employeeID,
+		CorpID:                corpID,
+		RequireEmployeeAccess: enforceContactAccess,
+		Items:                 writes,
+	})
+	if errors.Is(err, ErrContactFieldPivotAccess) {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权修改该客户画像", nil)
 		return
 	}
-
-	content := "编辑用户画像："
-	creates := make([]ContactFieldPivotCreate, 0)
-	for _, item := range items {
-		if item.PivotID <= 0 {
-			creates = append(creates, ContactFieldPivotCreate{
-				ContactID:      contactID,
-				ContactFieldID: item.ContactFieldID,
-				Value:          item.Value,
-			})
-			if item.Value != "" {
-				content += item.Name + " "
-			}
-			continue
-		}
-
-		pivot, found, err := h.store.ContactFieldPivotByID(r.Context(), item.PivotID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return
-		}
-		if !found || pivot.ContactID != contactID || pivot.ContactFieldID != item.ContactFieldID {
-			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权修改该客户画像", nil)
-			return
-		}
-		if pivot.Value != item.Value {
-			content += item.Name + " "
-		}
-		updated, err := h.store.UpdateContactFieldPivotValue(r.Context(), item.PivotID, item.Value)
-		if err != nil || !updated {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "编辑用户画像失败", nil)
-			return
-		}
+	if errors.Is(err, ErrContactFieldPivotFieldNotFound) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "用户画像字段不存在", nil)
+		return
 	}
-
-	if content != "编辑用户画像：" {
-		if err := h.store.CreateContactEmployeeTrack(r.Context(), ContactEmployeeTrackCreate{
-			EmployeeID: employeeID,
-			ContactID:  contactID,
-			Content:    content,
-			CorpID:     corpID,
-			Event:      4,
-		}); err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "记录轨迹失败", nil)
-			return
-		}
-	}
-	if len(creates) > 0 {
-		if err := h.store.CreateContactFieldPivots(r.Context(), creates); err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "添加用户画像失败", nil)
-			return
-		}
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "编辑用户画像失败", nil)
+		return
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
