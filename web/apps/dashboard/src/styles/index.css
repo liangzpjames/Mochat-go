@@ -1835,7 +1835,7 @@ body {
 .phase34-live-code-picker > footer button:focus-visible, .phase34-live-code-picker button:focus-visible { box-shadow: 0 0 0 3px rgb(83 107 244 / 18%); outline: none; }
 .phase34-live-code-create-drawer .phase34-inline-error { background: #fff1f1; border-radius: 8px; margin: 0; padding: 9px 11px; }
 @media (max-width: 640px) {
-  .phase34-live-code-drawer .phase34-detail-panel { border-radius: 0; width: 100%; }
+  .phase34-live-code-drawer .phase34-detail-panel { border-radius: 0; height: 100dvh; width: 100%; }
   .phase34-live-code-drawer-header { padding: 18px 18px 16px; }
   .phase34-live-code-drawer-body { padding: 16px 18px 20px; }
   .phase34-live-code-summary { gap: 11px; grid-template-columns: 68px minmax(0, 1fr); padding: 10px; }
@@ -1847,7 +1847,7 @@ body {
   .phase34-live-code-drawer-footer > div, .phase34-live-code-drawer-footer button { flex: 1; }
   .phase34-live-code-choice-list { grid-template-columns: 1fr; }
   .phase34-live-code-picker-layer { padding: 10px; }
-  .phase34-live-code-picker { max-height: calc(100vh - 20px); width: calc(100vw - 20px); }
+  .phase34-live-code-picker { max-height: calc(100dvh - 20px); width: calc(100vw - 20px); }
   .phase34-live-code-picker-grid { grid-template-columns: 1fr; overflow-y: auto; }
   .phase34-live-code-picker-grid > section { min-height: 280px; }
   .phase34-live-code-picker-grid > section + section { border-left: 0; border-top: 1px solid #edf0f5; }
