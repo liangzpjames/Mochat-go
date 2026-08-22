@@ -189,7 +189,7 @@ func (h *SidebarAgentHandler) AgentJSSDKConfig(w http.ResponseWriter, r *http.Re
 		return
 	}
 	agentID := queryInt(r, "agentId")
-	uriPath, _ := url.QueryUnescape(r.URL.Query().Get("uriPath"))
+	uriPath := r.URL.Query().Get("uriPath")
 	h.writeJSSDKConfig(w, r, employee.CorpID, agentID, uriPath, agentJSSDKAPIs)
 }
 
@@ -208,6 +208,11 @@ func (h *SidebarAgentHandler) WxJSSDKConfig(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *SidebarAgentHandler) writeJSSDKConfig(w http.ResponseWriter, r *http.Request, corpID int, agentID int, uri string, jsAPIs []string) {
+	normalizedURI, ok := h.normalizeJSSDKURI(uri)
+	if !ok {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "forbidden", nil)
+		return
+	}
 	credential := SidebarAgentCredential{CorpID: corpID}
 	if agentID > 0 {
 		agentCredential, found, err := h.store.WorkAgentCredentialByID(r.Context(), agentID)
@@ -217,6 +222,10 @@ func (h *SidebarAgentHandler) writeJSSDKConfig(w http.ResponseWriter, r *http.Re
 		}
 		if !found {
 			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "应用不存在", nil)
+			return
+		}
+		if agentCredential.CorpID != corpID {
+			writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "forbidden", nil)
 			return
 		}
 		credential = agentCredential
@@ -232,12 +241,30 @@ func (h *SidebarAgentHandler) writeJSSDKConfig(w http.ResponseWriter, r *http.Re
 		}
 		credential = corpCredential
 	}
-	config, err := h.wecom.JSSDKConfig(r.Context(), credential, agentID > 0, uri, jsAPIs)
+	config, err := h.wecom.JSSDKConfig(r.Context(), credential, agentID > 0, normalizedURI, jsAPIs)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", config)
+}
+
+func (h *SidebarAgentHandler) normalizeJSSDKURI(raw string) (string, bool) {
+	if strings.Contains(raw, "#") {
+		return "", false
+	}
+	uri, err := url.ParseRequestURI(raw)
+	if err != nil || !uri.IsAbs() || uri.Opaque != "" || uri.Host == "" || uri.User != nil || uri.Fragment != "" {
+		return "", false
+	}
+	if !strings.EqualFold(uri.Scheme, "http") && !strings.EqualFold(uri.Scheme, "https") {
+		return "", false
+	}
+	base, err := url.ParseRequestURI(h.sidebarBaseURL)
+	if err != nil || !strings.EqualFold(uri.Scheme, base.Scheme) || !strings.EqualFold(uri.Host, base.Host) {
+		return "", false
+	}
+	return uri.String(), true
 }
 
 func (h *SidebarAgentHandler) sidebarTokenByCode(ctx context.Context, credential SidebarAgentCredential, code string, r *http.Request, sidebar bool) (map[string]any, error) {

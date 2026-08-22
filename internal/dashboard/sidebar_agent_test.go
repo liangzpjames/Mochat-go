@@ -126,6 +126,105 @@ func TestSidebarAgentJSSDKUsesSidebarEmployeeCorp(t *testing.T) {
 	}
 }
 
+func TestSidebarAgentJSSDKRejectsAgentFromAnotherCorp(t *testing.T) {
+	store := &fakeSidebarAgentStore{
+		sidebarEmployee: SidebarEmployee{ID: 5, CorpID: 7, LogUserID: 3},
+		credential:      SidebarAgentCredential{ID: 9, CorpID: 8, WXCorpID: "other-corp", WXAgentID: "100002", WXSecret: "other-secret"},
+	}
+	wecom := &fakeSidebarAgentWeCom{jssdk: map[string]any{"agentid": "100002", "signature": "sig"}}
+	handler := NewSidebarAgentHandler(store, wecom, HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"}, "https://api.example.com", "https://sidebar.example.com", "simple-secret", "sidebar-secret", time.Hour)
+
+	req := httptest.NewRequest(http.MethodGet, "/sidebar/agent/jssdkConfig?agentId=9&uriPath=https%3A%2F%2Fsidebar.example.com%2Fcontact", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+	handler.AgentJSSDKConfig(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	if wecom.lastAgentConfig {
+		t.Fatal("cross-corp credential reached the WeCom JSSDK client")
+	}
+}
+
+func TestSidebarAgentJSSDKRejectsURLFromAnotherOrigin(t *testing.T) {
+	store := &fakeSidebarAgentStore{
+		sidebarEmployee: SidebarEmployee{ID: 5, CorpID: 7, LogUserID: 3},
+		credential:      SidebarAgentCredential{ID: 9, CorpID: 7, WXCorpID: "wx-corp", WXAgentID: "100001", WXSecret: "agent-secret"},
+	}
+	wecom := &fakeSidebarAgentWeCom{jssdk: map[string]any{"agentid": "100001", "signature": "sig"}}
+	handler := NewSidebarAgentHandler(store, wecom, HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"}, "https://api.example.com", "https://sidebar.example.com", "simple-secret", "sidebar-secret", time.Hour)
+
+	query := url.Values{"agentId": {"9"}, "uriPath": {"https://outside.example.com/contact"}}
+	req := httptest.NewRequest(http.MethodGet, "/sidebar/agent/jssdkConfig?"+query.Encode(), nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+	handler.AgentJSSDKConfig(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	if wecom.lastAgentConfig {
+		t.Fatal("off-origin URL reached the WeCom JSSDK client")
+	}
+}
+
+func TestSidebarAgentJSSDKRejectsUnsafeURLForms(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		uri  string
+	}{
+		{name: "userinfo", uri: "https://attacker@sidebar.example.com/contact"},
+		{name: "fragment", uri: "https://sidebar.example.com/contact#section"},
+		{name: "control character", uri: "https://sidebar.example.com/contact\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeSidebarAgentStore{
+				sidebarEmployee: SidebarEmployee{ID: 5, CorpID: 7, LogUserID: 3},
+				credential:      SidebarAgentCredential{ID: 9, CorpID: 7, WXCorpID: "wx-corp", WXAgentID: "100001", WXSecret: "agent-secret"},
+			}
+			wecom := &fakeSidebarAgentWeCom{jssdk: map[string]any{"agentid": "100001", "signature": "sig"}}
+			handler := NewSidebarAgentHandler(store, wecom, HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"}, "https://api.example.com", "https://sidebar.example.com", "simple-secret", "sidebar-secret", time.Hour)
+
+			query := url.Values{"agentId": {"9"}, "uriPath": {tc.uri}}
+			req := httptest.NewRequest(http.MethodGet, "/sidebar/agent/jssdkConfig?"+query.Encode(), nil)
+			req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+			rec := httptest.NewRecorder()
+			handler.AgentJSSDKConfig(rec, req)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+			}
+			if wecom.lastAgentConfig {
+				t.Fatal("unsafe URL reached the WeCom JSSDK client")
+			}
+		})
+	}
+}
+
+func TestSidebarAgentJSSDKPreservesSameOriginURLQuery(t *testing.T) {
+	store := &fakeSidebarAgentStore{
+		sidebarEmployee: SidebarEmployee{ID: 5, CorpID: 7, LogUserID: 3},
+		credential:      SidebarAgentCredential{ID: 9, CorpID: 7, WXCorpID: "wx-corp", WXAgentID: "100001", WXSecret: "agent-secret"},
+	}
+	wecom := &fakeSidebarAgentWeCom{jssdk: map[string]any{"agentid": "100001", "signature": "sig"}}
+	handler := NewSidebarAgentHandler(store, wecom, HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"}, "https://api.example.com", "https://sidebar.example.com", "simple-secret", "sidebar-secret", time.Hour)
+
+	uri := "https://sidebar.example.com/contact?keyword=a%20b&tab=1"
+	query := url.Values{"agentId": {"9"}, "uriPath": {uri}}
+	req := httptest.NewRequest(http.MethodGet, "/sidebar/agent/jssdkConfig?"+query.Encode(), nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+	handler.AgentJSSDKConfig(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if wecom.lastURI != uri {
+		t.Fatalf("signed URI = %q, want %q", wecom.lastURI, uri)
+	}
+}
+
 func requestWithBearer(token string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
