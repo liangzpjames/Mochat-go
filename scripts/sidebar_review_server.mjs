@@ -20,6 +20,7 @@ const SIDEBAR_ROUTES = new Set([
   '/roomSop',
 ]);
 const READ_ENDPOINTS = new Map([
+  ['/sidebar/workbench/summary', 'workbenchSummary'],
   ['/sidebar/workContact/detail', 'contactDetail'],
   ['/sidebar/workContact/show', 'contactSummary'],
   ['/sidebar/workContact/track', 'tracks'],
@@ -346,6 +347,41 @@ async function handleAPI(request, response, url, state, fixture) {
   }
   if (WRITE_ENDPOINTS.has(url.pathname)) {
     await handleWrite(request, response, url.pathname, state);
+    return;
+  }
+  if (url.pathname === '/sidebar/workContact/index') {
+    if (request.method !== 'GET') {
+      sendError(response, 405, 'method not allowed; use GET', request.method, { Allow: 'GET' });
+      return;
+    }
+    const keyword = (url.searchParams.get('keyword') ?? '').trim().toLocaleLowerCase('zh-CN');
+    const items = state.workContacts.items.filter((item) => keyword === ''
+      || item.name.toLocaleLowerCase('zh-CN').includes(keyword)
+      || item.remark.toLocaleLowerCase('zh-CN').includes(keyword));
+    sendSuccess(response, {
+      ...state.workContacts,
+      total: items.length,
+      totalPage: items.length === 0 ? 0 : 1,
+      items,
+    }, request.method);
+    return;
+  }
+  if (url.pathname === '/sidebar/workbench/tasks') {
+    if (request.method !== 'GET') {
+      sendError(response, 405, 'method not allowed; use GET', request.method, { Allow: 'GET' });
+      return;
+    }
+    const kind = url.searchParams.get('kind');
+    const selected = kind === null ? undefined : state.workbenchTasks[kind];
+    if (selected === undefined) {
+      sendError(response, 422, 'valid task kind required', request.method);
+      return;
+    }
+    if (url.searchParams.get('state') === 'done') {
+      sendSuccess(response, { ...selected, total: 0, totalPage: 0, items: [] }, request.method);
+      return;
+    }
+    sendSuccess(response, selected, request.method);
     return;
   }
   if (url.pathname === '/sidebar/contactBatchAdd/detail') {

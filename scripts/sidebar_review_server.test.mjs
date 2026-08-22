@@ -168,6 +168,9 @@ test('requires the fixed bearer token and fails unknown APIs closed', async () =
 test('serves every explicit fixture read API in the success envelope', async () => {
   review.reset();
   const endpoints = new Map([
+    ['/sidebar/workbench/summary', fixture.workbenchSummary],
+    ['/sidebar/workContact/index?page=1&perPage=20&keyword=', fixture.workContacts],
+    ['/sidebar/workbench/tasks?kind=contactSop&state=pending&page=1&perPage=20', fixture.workbenchTasks.contactSop],
     ['/sidebar/workContact/detail?wxExternalUserid=external-user-1', fixture.contactDetail],
     ['/sidebar/workContact/show?contactId=23', fixture.contactSummary],
     ['/sidebar/workContact/track?contactId=23', fixture.tracks],

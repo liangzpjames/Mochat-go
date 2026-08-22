@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import reviewFixture from '../fixtures/sidebar-employee-review.json' with { type: 'json' };
 
 const routes = [
-  { path: '/', title: '客户侧边栏', label: '从当前客户会话开始工作', protected: true },
+  { path: '/', title: '客户', label: '客户经营工作台', protected: true },
   { path: '/auth', title: '企业微信授权回调', label: '登录失败', protected: false },
   { path: '/codeAuth', title: '企业微信扫码授权', label: '兼容授权参数无效', protected: false },
   { path: '/contact', title: '客户资料', label: '专项验收客户', protected: true, query: '?wxExternalUserid=external-user-1&agentId=7' },
@@ -47,6 +47,21 @@ async function installFixtures(page: Page): Promise<Audit> {
   });
   for (const script of ['**/jweixin-1.2.0.js', '**/jwxwork-1.0.0.js']) {
     await page.route(script, async (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+  }
+  await fixture(page, '**/sidebar/workbench/summary', reviewFixture.workbenchSummary);
+  await page.route('**/sidebar/workContact/index?*', async (route) => {
+    expect(route.request().headers().authorization).toBe(`Bearer ${reviewFixture.token}`);
+    const keyword = new URL(route.request().url()).searchParams.get('keyword')?.trim() ?? '';
+    const items = reviewFixture.workContacts.items.filter((item) => keyword === ''
+      || item.name.includes(keyword) || item.remark.includes(keyword));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: envelope({ ...reviewFixture.workContacts, total: items.length, totalPage: items.length === 0 ? 0 : 1, items }),
+    });
+  });
+  for (const [kind, taskPage] of Object.entries(reviewFixture.workbenchTasks)) {
+    await fixture(page, `**/sidebar/workbench/tasks?kind=${kind}&*`, taskPage);
   }
   await fixture(page, '**/sidebar/workContact/detail?*', reviewFixture.contactDetail);
   await fixture(page, '**/sidebar/workContact/show?*', reviewFixture.contactSummary);
@@ -103,33 +118,59 @@ test.describe('employee Sidebar compact density', () => {
     await installFixtures(page);
     await injectSession(page);
     await page.goto('/sidebar-app/');
-    const tiles = page.locator('.sidebar-workbench__tiles .mobile-icon-tile');
-    await expect(tiles).toHaveCount(8);
-    const tileHeights: number[] = [];
-    for (let index = 0; index < await tiles.count(); index += 1) {
-      const box = await tiles.nth(index).boundingBox();
+    const features = page.locator('.workbench-features--five .workbench-feature');
+    await expect(features).toHaveCount(5);
+    const featureHeights: number[] = [];
+    for (let index = 0; index < await features.count(); index += 1) {
+      const box = await features.nth(index).boundingBox();
       expect(box).not.toBeNull();
       expect(box?.width ?? 0).toBeGreaterThan(0);
       expect(box?.height ?? 0).toBeGreaterThan(0);
-      tileHeights.push(box?.height ?? 0);
+      featureHeights.push(box?.height ?? 0);
     }
     const density = await page.evaluate(() => {
-      const hero = document.querySelector('.mobile-shell__hero .mobile-card')?.getBoundingClientRect();
-      const grid = document.querySelector('.sidebar-workbench__tiles');
+      const hero = document.querySelector('.workbench-hero')?.getBoundingClientRect();
+      const metrics = document.querySelector('.workbench-metrics')?.getBoundingClientRect();
       return {
         heroHeight: hero?.height ?? 999,
-        gap: grid ? Number.parseFloat(getComputedStyle(grid).gap) : 999,
+        metricsHeight: metrics?.height ?? 999,
       };
     });
-    expect(density.heroHeight).toBeLessThanOrEqual(128);
-    expect(Math.max(...tileHeights)).toBeLessThanOrEqual(92);
-    expect(density.gap).toBeLessThanOrEqual(12);
-    expect(Math.min(...tileHeights)).toBeGreaterThanOrEqual(44);
+    expect(density.heroHeight).toBeLessThanOrEqual(170);
+    expect(density.metricsHeight).toBeLessThanOrEqual(74);
+    expect(Math.max(...featureHeights)).toBeLessThanOrEqual(82);
+    expect(Math.min(...featureHeights)).toBeGreaterThanOrEqual(44);
   });
 });
 
 test.describe('employee Sidebar business states at 390x844', () => {
   test.use({ viewport: { width: 390, height: 844 } });
+
+  test('renders all four reference-mapped workspaces from real review APIs', async ({ page }) => {
+    const audit = await installFixtures(page);
+    await injectSession(page);
+    await page.goto('/sidebar-app/?agentId=7');
+    await expect(page.getByText('126', { exact: true })).toBeVisible();
+
+    await page.getByTestId('mobile-shell').getByRole('link', { name: '会话', exact: true }).click();
+    await expect(page.getByText('数据范围说明', { exact: true })).toBeVisible();
+    await page.getByRole('link', { name: /^个人客户 SOP/ }).click();
+    await expect(page.getByText('新客首日回访', { exact: true })).toBeVisible();
+
+    await page.getByTestId('mobile-shell').getByRole('link', { name: '我的', exact: true }).click();
+    await expect(page.getByText('企业微信身份已验证', { exact: true })).toBeVisible();
+
+    await page.getByTestId('mobile-shell').getByRole('link', { name: '客户', exact: true }).click();
+    await page.getByRole('link', { name: /^通讯录/ }).click();
+    await expect(page.getByText('星河科技有限公司采购负责人', { exact: true })).toBeVisible();
+    await page.getByRole('searchbox', { name: '搜索客户' }).fill('陈晨');
+    await page.getByRole('searchbox', { name: '搜索客户' }).press('Enter');
+    await expect(page.getByText('陈晨', { exact: true })).toBeVisible();
+    await expect(page.getByText('专项验收客户', { exact: true })).toHaveCount(0);
+    const geometry = await page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
+    expect(geometry.scroll).toBeLessThanOrEqual(geometry.client);
+    expect(audit).toEqual({ console: [], page: [], failed: [], badResponses: [], unexpected: [] });
+  });
 
   test('shows delayed loading, retryable server error and persisted empty state', async ({ page }) => {
     await installFixtures(page);
@@ -159,8 +200,10 @@ test.describe('employee Sidebar business states at 390x844', () => {
     await expect(page.getByRole('heading', { name: '专项验收客户' })).toBeVisible();
 
     await page.getByRole('link', { name: '我的' }).click();
-    await expect(page).toHaveURL(/\/sidebar-app\/\?agentId=7&wxExternalUserid=external-user-1$/);
-    await page.locator('.sidebar-workbench__tiles').getByRole('link', { name: /^客户资料/ }).click();
+    await expect(page).toHaveURL(/\/sidebar-app\?agentId=7&wxExternalUserid=external-user-1&tab=profile$/);
+    await expect(page.getByText('员工甲', { exact: true })).toBeVisible();
+    await page.getByTestId('mobile-shell').getByRole('link', { name: '客户', exact: true }).click();
+    await page.getByRole('link', { name: /^当前客户/ }).click();
     await expect(page.getByRole('heading', { name: '专项验收客户' })).toBeVisible();
 
     await page.getByRole('link', { name: '查看 SOP 提醒' }).click();

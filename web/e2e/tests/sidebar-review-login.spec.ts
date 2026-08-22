@@ -14,7 +14,8 @@ test('continue authorization completes the local review callback and opens the w
   await page.getByRole('link', { name: '继续授权' }).click();
 
   await expect(page).toHaveURL(/\/sidebar-app\/?(?:\?.*)?$/);
-  await expect(page.getByRole('heading', { name: '客户侧边栏' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '客户' })).toBeVisible();
+  await expect(page.getByText('客户经营工作台', { exact: true })).toBeVisible();
   const cookies = await page.context().cookies();
   expect(cookies.some((cookie) => cookie.name === 'token' && cookie.path === '/sidebar-app')).toBe(true);
   expect(cookies.some((cookie) => cookie.name === 'agentId' && cookie.value === '7' && cookie.path === '/sidebar-app')).toBe(true);
