@@ -25,6 +25,40 @@ const contactPath = '/contact?wxExternalUserid=external-user-1&agentId=7';
 const rawContact = { id: 11, name: '测试客户', avatar: null, corpId: 3 };
 
 describe('Sidebar contact summary', () => {
+  it('renders the persisted customer workspace with maintenance links and real secondary data', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(rawContact)
+      .mockResolvedValueOnce({
+        name: '测试客户', avatar: null, gender: 2, genderText: '女', businessNo: 'C-11',
+        remark: '重点客户', description: '下午联系', tag: [{ tagId: 7, tagName: '高意向' }],
+        roomName: ['客户交流群'], employeeName: ['员工甲'],
+      })
+      .mockResolvedValueOnce([{ id: 1, content: '更新客户备注', createdAt: '2026-08-22 10:00' }])
+      .mockResolvedValueOnce([{ contactFieldId: 31, contactFieldPivotId: 901, name: '城市', type: 0, typeText: '文本', options: [], value: '上海' }]);
+
+    renderContact(contactPath, request);
+
+    expect(await screen.findByText('重点客户')).not.toBeNull();
+    expect(screen.getByText('高意向')).not.toBeNull();
+    expect(screen.getByText('客户交流群')).not.toBeNull();
+    expect(screen.getByText('更新客户备注')).not.toBeNull();
+    expect(screen.getByText('城市：上海')).not.toBeNull();
+    expect(screen.getByRole('link', { name: '修改备注' }).getAttribute('href')).toContain('/contact/remark?');
+    expect(screen.getByRole('link', { name: '设置标签' }).getAttribute('href')).toContain('/contact/settingTag?');
+    expect(screen.getByRole('link', { name: '编辑画像' }).getAttribute('href')).toContain('/contact/editDetail?');
+  });
+
+  it('keeps the trusted summary when secondary APIs fail', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(rawContact)
+      .mockRejectedValue(new MobileApiError('server', '详情服务不可用', { status: 503, retryable: true }));
+
+    renderContact(contactPath, request);
+
+    expect(await screen.findByRole('heading', { name: '测试客户' })).not.toBeNull();
+    expect(await screen.findByText('客户扩展资料加载失败')).not.toBeNull();
+  });
+
   it('requests and renders the current external contact summary', async () => {
     const request = vi.fn().mockResolvedValue({
       ...rawContact,
@@ -119,7 +153,9 @@ describe('Sidebar contact summary', () => {
     fireEvent.click(await screen.findByRole('button', { name: '重试' }));
 
     expect(await screen.findByRole('heading', { name: '测试客户' })).not.toBeNull();
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls.filter(([path]) => (
+      path === '/workContact/detail?wxExternalUserid=external-user-1'
+    ))).toHaveLength(2);
   });
 
   it('rejects malformed successful data instead of rendering an empty contact', async () => {

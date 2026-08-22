@@ -5,12 +5,18 @@ import {
   type MobileStateKind,
 } from '@mochat/mobile-foundation';
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { useHref, useSearchParams } from 'react-router';
 
 import {
   loadContactSummary,
+  loadContactPortrait,
+  loadContactTrack,
+  loadContactWorkspace,
   type ContactRequest,
+  type ContactPortraitField,
   type ContactSummary,
+  type ContactTrack,
+  type ContactWorkspace,
 } from './contact-api';
 
 type ContactPageProps = {
@@ -30,6 +36,17 @@ type ContactPageState =
   | { kind: 'success'; contact: ContactSummary }
   | { kind: 'unauthorized' }
   | ({ kind: 'failure' } & ContactFailure);
+
+type ContactSecondaryState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | {
+      kind: 'success';
+      workspace: ContactWorkspace;
+      tracks: ContactTrack[];
+      portrait: ContactPortraitField[];
+    }
+  | { kind: 'failure'; message: string };
 
 function contactFailure(error: unknown): ContactFailure {
   const message = error instanceof Error ? error.message : '客户资料加载失败。';
@@ -55,6 +72,16 @@ export function ContactPage({ request, onReauthenticate }: ContactPageProps) {
   const externalUserId = params.get('wxExternalUserid')?.trim() ?? '';
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<ContactPageState>({ kind: 'loading' });
+  const [secondaryAttempt, setSecondaryAttempt] = useState(0);
+  const [secondary, setSecondary] = useState<ContactSecondaryState>({ kind: 'idle' });
+  const context = new URLSearchParams();
+  if (externalUserId.length > 0) context.set('wxExternalUserid', externalUserId);
+  const agentId = params.get('agentId')?.trim();
+  if (agentId) context.set('agentId', agentId);
+  const suffix = context.size === 0 ? '' : `?${context.toString()}`;
+  const remarkHref = useHref(`/contact/remark${suffix}`);
+  const tagHref = useHref(`/contact/settingTag${suffix}`);
+  const portraitHref = useHref(`/contact/editDetail${suffix}`);
 
   useEffect(() => {
     if (externalUserId.length === 0) return undefined;
@@ -77,6 +104,32 @@ export function ContactPage({ request, onReauthenticate }: ContactPageProps) {
       active = false;
     };
   }, [attempt, externalUserId, onReauthenticate, request]);
+
+  useEffect(() => {
+    if (state.kind !== 'success') return undefined;
+    let active = true;
+    setSecondary({ kind: 'loading' });
+    void Promise.all([
+      loadContactWorkspace(request, state.contact.id),
+      loadContactTrack(request, state.contact.id),
+      loadContactPortrait(request, state.contact.id),
+    ]).then(([workspace, tracks, portrait]) => {
+      if (active) setSecondary({ kind: 'success', workspace, tracks, portrait });
+    }).catch((error: unknown) => {
+      if (!active) return;
+      if (error instanceof MobileApiError && error.kind === 'unauthorized') {
+        onReauthenticate();
+        return;
+      }
+      setSecondary({
+        kind: 'failure',
+        message: error instanceof Error ? error.message : '请稍后重试。',
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [onReauthenticate, request, secondaryAttempt, state]);
 
   if (externalUserId.length === 0) {
     return (
@@ -127,7 +180,8 @@ export function ContactPage({ request, onReauthenticate }: ContactPageProps) {
   }
 
   return (
-    <MobileCard padding="comfortable" tone="surface">
+    <div className="contact-workspace">
+      <MobileCard padding="comfortable" tone="surface">
       <article className="contact-summary">
         {state.contact.avatar === null ? (
           <div aria-label="客户暂无头像" className="contact-summary__avatar-placeholder" role="img">
@@ -149,6 +203,76 @@ export function ContactPage({ request, onReauthenticate }: ContactPageProps) {
           <p>企业编号：{state.contact.corpId}</p>
         </div>
       </article>
-    </MobileCard>
+      </MobileCard>
+      <nav aria-label="客户资料操作" className="contact-workspace__actions">
+        <a href={remarkHref}>修改备注</a>
+        <a href={tagHref}>设置标签</a>
+        <a href={portraitHref}>编辑画像</a>
+      </nav>
+      {secondary.kind === 'loading' || secondary.kind === 'idle' ? (
+        <MobileCard padding="comfortable" tone="surface">
+          <MobileState kind="loading" title="正在加载客户扩展资料" />
+        </MobileCard>
+      ) : secondary.kind === 'failure' ? (
+        <MobileCard padding="comfortable" tone="surface">
+          <MobileState
+            actionLabel="重试扩展资料"
+            description={secondary.message}
+            kind="error"
+            onAction={() => setSecondaryAttempt((value) => value + 1)}
+            title="客户扩展资料加载失败"
+          />
+        </MobileCard>
+      ) : (
+        <>
+          <MobileCard padding="comfortable" tone="surface">
+            <section aria-labelledby="contact-basics-heading" className="contact-workspace__section">
+              <h3 id="contact-basics-heading">客户概览</h3>
+              <dl className="contact-workspace__details">
+                <div><dt>备注</dt><dd>{secondary.workspace.remark || '暂无备注'}</dd></div>
+                <div><dt>性别</dt><dd>{secondary.workspace.genderText || '未知'}</dd></div>
+                <div><dt>客户编号</dt><dd>{secondary.workspace.businessNo || '暂无'}</dd></div>
+                <div><dt>描述</dt><dd>{secondary.workspace.description || '暂无描述'}</dd></div>
+                <div><dt>所在群</dt><dd>{secondary.workspace.roomNames.join('、') || '暂未加入客户群'}</dd></div>
+                <div><dt>归属员工</dt><dd>{secondary.workspace.employeeNames.join('、') || '暂无'}</dd></div>
+              </dl>
+              <div aria-label="客户标签" className="contact-workspace__tags">
+                {secondary.workspace.tags.length === 0
+                  ? <span className="contact-workspace__muted">暂无标签</span>
+                  : secondary.workspace.tags.map((tag) => <span key={tag.id}>{tag.name}</span>)}
+              </div>
+            </section>
+          </MobileCard>
+          <MobileCard padding="comfortable" tone="surface">
+            <section aria-labelledby="contact-track-heading" className="contact-workspace__section">
+              <h3 id="contact-track-heading">互动轨迹</h3>
+              {secondary.tracks.length === 0 ? <p className="contact-workspace__muted">暂无互动轨迹</p> : (
+                <ol className="contact-workspace__timeline">
+                  {secondary.tracks.map((track, index) => (
+                    <li key={track.id ?? `${track.createdAt}-${index}`}>
+                      <time>{track.createdAt}</time><p>{track.content}</p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          </MobileCard>
+          <MobileCard padding="comfortable" tone="surface">
+            <section aria-labelledby="contact-portrait-heading" className="contact-workspace__section">
+              <h3 id="contact-portrait-heading">客户画像</h3>
+              {secondary.portrait.length === 0 ? <p className="contact-workspace__muted">暂无画像字段</p> : (
+                <ul className="contact-workspace__portrait">
+                  {secondary.portrait.map((field) => (
+                    <li key={field.contactFieldId}>
+                      {field.name}：{Array.isArray(field.value) ? field.value.join('、') || '暂无' : field.value || '暂无'}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </MobileCard>
+        </>
+      )}
+    </div>
   );
 }

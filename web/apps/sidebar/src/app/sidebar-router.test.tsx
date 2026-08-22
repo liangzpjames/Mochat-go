@@ -12,11 +12,26 @@ import {
   type SidebarSessionAdapter,
 } from '../auth/sidebar-session';
 import { sidebarRouteRegistry } from '../routes/registry';
-import { createSidebarRouter } from './sidebar-router';
+import type { WeComBridge } from '../wecom/wecom-bridge';
+import { createSidebarRouter, type SidebarRequest } from './sidebar-router';
 
 const emptyCookies: CookieAdapter = {
   get: vi.fn(() => null),
   set: vi.fn(),
+};
+
+const bridge: WeComBridge = {
+  available: () => false,
+  sendChatMessage: vi.fn(),
+  navigateToAddCustomer: vi.fn(),
+};
+
+const businessRequest: SidebarRequest = <T,>(path: string): Promise<T> => {
+  if (path === '/mediumGroup/index') return Promise.resolve([] as T);
+  if (path.startsWith('/medium/index?')) {
+    return Promise.resolve({ page: { perPage: 20, total: 0, totalPage: 0 }, list: [] } as T);
+  }
+  return Promise.reject(new Error(`Unexpected request: ${path}`));
 };
 
 function successfulAuthPath(target = '/login?agentId=7'): string {
@@ -50,7 +65,8 @@ function authRuntime(session: SidebarSessionAdapter) {
     basename: '/',
     session,
     origin: window.location.origin,
-    request: vi.fn(),
+    request: businessRequest,
+    bridge,
   };
 }
 
@@ -68,7 +84,8 @@ function renderPath(path: string) {
       basename: '/',
       session: createCookieSidebarSessionAdapter(emptyCookies, false),
     origin: window.location.origin,
-    request: vi.fn(),
+    request: businessRequest,
+    bridge,
   });
   render(<RouterProvider router={router} />);
   return router;
@@ -101,7 +118,7 @@ describe('Sidebar route registry', () => {
   it.each([
     ['/login?agentId=7', '侧边栏登录'],
     ['/auth', '登录失败'],
-    ['/codeAuth', '企业微信扫码授权模块待迁移'],
+    ['/codeAuth', '兼容授权参数无效'],
     ['/not-a-sidebar-page', '页面不存在'],
   ])('does not render employee navigation on %s', (path, expectedText) => {
     const router = renderPath(path);
@@ -137,6 +154,25 @@ describe('Sidebar route registry', () => {
     router.dispose();
   });
 
+  it.each([
+    ['/', '客户侧边栏'],
+    ['/contact', '客户资料'],
+    ['/contact/editDetail', '编辑客户资料'],
+    ['/contact/remark', '客户备注'],
+    ['/contact/settingTag', '设置客户标签'],
+    ['/contactBatchAdd', '批量加好友'],
+    ['/contactSop', '个人客户 SOP'],
+    ['/medium', '素材库'],
+    ['/roomSop', '客户群 SOP'],
+  ])('renders the real protected route shell for %s', (path, title) => {
+    window.history.replaceState(null, '', path);
+    const router = createSidebarRouter(authenticatedRuntime());
+    render(<RouterProvider router={router} />);
+    expect(screen.getByRole('heading', { level: 1, name: title })).not.toBeNull();
+    expect(screen.queryByText(/模块待迁移/)).toBeNull();
+    router.dispose();
+  });
+
   it('keeps workbench module links inside the prefixed Sidebar mount', () => {
     window.history.replaceState(null, '', '/sidebar-app/');
     const router = createSidebarRouter({
@@ -155,7 +191,7 @@ describe('Sidebar route registry', () => {
     const router = renderPath('/medium?agentId=7');
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
-    expect(screen.queryByText('素材库模块待迁移')).toBeNull();
+    expect(screen.queryByText('素材库')).toBeNull();
     expect(screen.getByRole('link', { name: '继续授权' }).getAttribute('href')).toContain(
       '/sidebar/agent/auth?agentId=7&target=',
     );
@@ -208,7 +244,7 @@ describe('Sidebar route registry', () => {
     render(<RouterProvider router={router} />);
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/sidebar-app/medium'));
-    expect(screen.getByText('素材库模块待迁移')).not.toBeNull();
+    expect(await screen.findByText('暂无可用素材')).not.toBeNull();
     expect(writes).toHaveBeenCalledTimes(2);
     expect(writes.mock.calls.every(([value]) => value.includes('Path=/sidebar-app'))).toBe(true);
     router.dispose();
@@ -222,7 +258,7 @@ describe('Sidebar route registry', () => {
     render(<RouterProvider router={router} />);
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/medium'));
-    expect(screen.getByText('素材库模块待迁移')).not.toBeNull();
+    expect(await screen.findByText('暂无可用素材')).not.toBeNull();
     router.dispose();
   });
 });

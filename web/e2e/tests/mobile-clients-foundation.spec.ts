@@ -3,16 +3,16 @@ import { expect, test, type Page } from '@playwright/test';
 const sidebarCases = [
   { path: '/', title: '客户侧边栏', moduleLabel: '从当前客户会话开始工作', needsSession: true, expectsAction: false, activeNavigation: '我的' },
   { path: '/auth', title: '企业微信授权回调', moduleLabel: '登录失败', needsSession: false, expectsAction: false },
-  { path: '/codeAuth', title: '企业微信扫码授权', moduleLabel: '企业微信扫码授权模块待迁移', needsSession: false, expectsAction: false },
+  { path: '/codeAuth', title: '企业微信扫码授权', moduleLabel: '兼容授权参数无效', needsSession: false, expectsAction: false },
   { path: '/contact', title: '客户资料', moduleLabel: '浏览器验收客户', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
-  { path: '/contact/editDetail', title: '编辑客户资料', moduleLabel: '编辑客户资料模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
-  { path: '/contact/remark', title: '客户备注', moduleLabel: '客户备注模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
-  { path: '/contact/settingTag', title: '设置客户标签', moduleLabel: '设置客户标签模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
-  { path: '/contactBatchAdd', title: '批量加好友', moduleLabel: '批量加好友模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
-  { path: '/contactSop', title: '个人客户 SOP', moduleLabel: '个人客户 SOP模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '会话' },
+  { path: '/contact/editDetail', title: '编辑客户资料', moduleLabel: '画像备注', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
+  { path: '/contact/remark', title: '客户备注', moduleLabel: '保存备注', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
+  { path: '/contact/settingTag', title: '设置客户标签', moduleLabel: '保存标签', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
+  { path: '/contactBatchAdd', title: '批量加好友', moduleLabel: '13800000000', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?batchId=9&agentId=7' },
+  { path: '/contactSop', title: '个人客户 SOP', moduleLabel: '浏览器验收客户', needsSession: true, expectsAction: false, activeNavigation: '会话', query: '?id=4&agentId=7' },
   { path: '/login', title: '侧边栏登录', moduleLabel: '继续授权', needsSession: false, expectsAction: true, query: '?agentId=7&target=%2Fcontact' },
-  { path: '/medium', title: '素材库', moduleLabel: '素材库模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
-  { path: '/roomSop', title: '客户群 SOP', moduleLabel: '客户群 SOP模块待迁移', needsSession: true, expectsAction: false, activeNavigation: '客户' },
+  { path: '/medium', title: '素材库', moduleLabel: '浏览器素材', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?agentId=7' },
+  { path: '/roomSop', title: '客户群 SOP', moduleLabel: '浏览器客户群', needsSession: true, expectsAction: false, activeNavigation: '会话', query: '?id=5&agentId=7' },
 ] as const;
 
 const operationCases = [
@@ -136,6 +136,29 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
       body: JSON.stringify({ code: 500, msg: 'unexpected Operation request', data: null }),
     });
   });
+  for (const script of ['**/jweixin-1.2.0.js', '**/jwxwork-1.0.0.js']) {
+    await page.route(script, async (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+  }
+  const sidebarFixture = async (pattern: string, data: unknown, requestId: string) => {
+    await page.route(pattern, async (route) => {
+      expect(route.request().headers().authorization).toBe('Bearer sidebar-browser-token');
+      await route.fulfill({ status: 200, contentType: 'application/json', body: rawGoEnvelope(data, requestId) });
+    });
+  };
+  await sidebarFixture('**/sidebar/workContact/show?*', {
+    name: '浏览器验收客户', avatar: null, gender: 2, genderText: '女', businessNo: 'C-23',
+    remark: '重点客户', description: '偏好下午沟通', tag: [{ tagId: 7, tagName: '高意向' }],
+    roomName: ['浏览器客户群'], employeeName: ['员工甲'],
+  }, 'sidebar-show-e2e');
+  await sidebarFixture('**/sidebar/workContact/track?*', [{ id: 1, content: '已完成首次沟通', createdAt: '2026-08-22 09:00' }], 'sidebar-track-e2e');
+  await sidebarFixture('**/sidebar/contactFieldPivot/index?*', [{ contactFieldId: 31, contactFieldPivotId: 901, name: '画像备注', type: 0, typeText: '文本', options: [], value: '已核验' }], 'sidebar-portrait-e2e');
+  await sidebarFixture('**/sidebar/workContactTagGroup/index', [{ groupId: 3, groupName: '阶段' }], 'sidebar-tag-groups-e2e');
+  await sidebarFixture('**/sidebar/workContactTag/allTag?*', [{ id: 7, name: '高意向' }, { id: 9, name: '待回访' }], 'sidebar-tags-e2e');
+  await sidebarFixture('**/sidebar/contactBatchAdd/detail?*', { employeeName: '员工甲', list: [{ id: 1, phone: '13800000000', status: '待添加' }] }, 'sidebar-batch-e2e');
+  await sidebarFixture('**/sidebar/contactSop/getSopInfo?*', { id: 4, contactSopId: 12, creator: '员工甲', time: '09:00', tipTime: '2026-08-22 09:00', task: { content: [{ type: 0, value: '请今日回访' }] }, contact: { id: 23, name: '浏览器验收客户', avatar: null } }, 'sidebar-contact-sop-e2e');
+  await sidebarFixture('**/sidebar/roomSop/getSopInfo?*', { id: 5, roomSopId: 13, creator: '员工甲', time: '10:00', state: 0, task: { content: [{ type: 0, value: '群内发送活动提醒' }] }, room: { id: 21, name: '浏览器客户群' } }, 'sidebar-room-sop-e2e');
+  await sidebarFixture('**/sidebar/mediumGroup/index', [{ id: 0, name: '未分组' }], 'sidebar-medium-group-e2e');
+  await sidebarFixture('**/sidebar/medium/index?*', { page: { perPage: 20, total: 1, totalPage: 1 }, list: [{ id: 8, type: '文本', mediaId: '', content: { content: '浏览器素材' } }] }, 'sidebar-medium-e2e');
   await page.route(browserContract.fixtures.contact, async (route) => {
     audit.contactRequests.push(route.request().url());
     expect(route.request().headers().authorization).toBe('Bearer sidebar-browser-token');
@@ -264,7 +287,7 @@ for (const viewport of viewports) {
         } else {
           await expect(navigation).toHaveCount(0);
         }
-        expect(audit.contactRequests).toHaveLength(routeCase.path === '/contact' ? 1 : 0);
+        expect(audit.contactRequests).toHaveLength(['/contact', '/contact/editDetail', '/contact/remark', '/contact/settingTag'].includes(routeCase.path) ? 1 : 0);
         await assertStableCleanAudit(page, audit, `${viewport.name} Sidebar ${routeCase.path}`);
       });
     }

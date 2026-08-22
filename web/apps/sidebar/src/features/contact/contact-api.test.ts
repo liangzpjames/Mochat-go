@@ -72,7 +72,16 @@ describe('Sidebar contact domain API', () => {
 
     expect(request).toHaveBeenCalledWith('/contactFieldPivot/update', expect.objectContaining({
       method: 'PUT',
-      body: JSON.stringify({ contactId: 11, userPortrait: fields }),
+      body: JSON.stringify({
+        contactId: 11,
+        userPortrait: [{
+          contactFieldPivotId: 901,
+          contactFieldId: 31,
+          name: '爱好',
+          type: 2,
+          value: ['跑步', '读书'],
+        }],
+      }),
     }));
   });
 

@@ -5,7 +5,7 @@ import {
   MobileState,
   safeInternalTarget,
 } from '@mochat/mobile-foundation';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   createBrowserRouter,
   Navigate,
@@ -23,12 +23,18 @@ import {
   type SidebarAuthCallbackResult,
   type SidebarSessionAdapter,
 } from '../auth/sidebar-session';
+import { parseLegacyCodeAuth } from '../auth/code-auth';
+import { BatchAddPage, ContactSopPage, MediumPage, RoomSopPage } from '../features/business-pages';
+import { ContactEditPage } from '../features/contact/contact-edit-page';
 import { ContactPage } from '../features/contact/contact-page';
+import { ContactRemarkPage } from '../features/contact/contact-remark-page';
+import { ContactTagPage } from '../features/contact/contact-tag-page';
 import {
   sidebarRouteRegistry,
   type SidebarRouteRegistration,
 } from '../routes/registry';
 import { SidebarPageShell, sidebarBusinessContextSuffix } from '../ui/sidebar-page-shell';
+import type { WeComBridge } from '../wecom/wecom-bridge';
 
 export type SidebarRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
 
@@ -37,6 +43,7 @@ export type SidebarRuntime = {
   session: SidebarSessionAdapter;
   origin: string;
   request: SidebarRequest;
+  bridge: WeComBridge;
 };
 
 function currentTarget(pathname: string, search: string, hash: string): string {
@@ -140,30 +147,14 @@ function SidebarAuthCallbackPage({ runtime }: { runtime: SidebarRuntime }) {
   );
 }
 
-function PendingModulePage({ route }: { route: SidebarRouteRegistration }) {
-  const content = (
-    <MobileCard padding="comfortable" tone="surface">
-      <MobileState
-        kind="empty"
-        title={`${route.title}模块待迁移`}
-        description="该历史入口已由新路由承接，业务功能将在后续迁移。"
-      />
-    </MobileCard>
-  );
-
-  if (!route.auth) {
-    return (
-      <MobileShell appName="MoChat 客户侧边栏" title={route.title} subtitle={route.description}>
-        {content}
-      </MobileShell>
-    );
+function SidebarCodeAuthPage() {
+  const [params] = useSearchParams();
+  const result = parseLegacyCodeAuth(params);
+  if (result.ok) {
+    const login = new URLSearchParams({ agentId: result.agentId, target: result.target });
+    return <Navigate replace to={`/login?${login.toString()}`} />;
   }
-
-  return (
-    <SidebarPageShell title={route.title} subtitle={route.description}>
-      {content}
-    </SidebarPageShell>
-  );
+  return <MobileShell appName="MoChat 客户侧边栏" title="企业微信扫码授权"><MobileState description={result.message} kind="error" title="兼容授权参数无效" /></MobileShell>;
 }
 
 function WorkbenchIcon() {
@@ -236,16 +227,57 @@ function SidebarContactPage({ runtime }: { runtime: SidebarRuntime }) {
   );
 }
 
+function useSidebarActions(runtime: SidebarRuntime) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const onReauthenticate = useCallback(() => {
+    const session = readSidebarSession(runtime.session);
+    const queryAgentId = new URLSearchParams(location.search).get('agentId');
+    clearSidebarSession(runtime.session);
+    const loginQuery = new URLSearchParams({
+      agentId: session.agentId ?? queryAgentId ?? '',
+      target: currentTarget(location.pathname, location.search, location.hash),
+    });
+    void navigate(`/login?${loginQuery.toString()}`, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate, runtime.session]);
+  const onContactDone = useCallback(() => {
+    const params = new URLSearchParams(location.search);
+    const kept = new URLSearchParams();
+    for (const key of ['wxExternalUserid', 'agentId']) {
+      const value = params.get(key); if (value) kept.set(key, value);
+    }
+    void navigate(`/contact${kept.size ? `?${kept.toString()}` : ''}`, { replace: true });
+  }, [location.search, navigate]);
+  return { onReauthenticate, onContactDone };
+}
+
+function SidebarBusinessPage({ runtime, route }: { runtime: SidebarRuntime; route: SidebarRouteRegistration }) {
+  const actions = useSidebarActions(runtime);
+  let content: ReactNode;
+  switch (route.moduleKey) {
+    case 'contact-edit-detail': content = <ContactEditPage request={runtime.request} onDone={actions.onContactDone} onReauthenticate={actions.onReauthenticate} />; break;
+    case 'contact-remark': content = <ContactRemarkPage request={runtime.request} onDone={actions.onContactDone} onReauthenticate={actions.onReauthenticate} />; break;
+    case 'contact-setting-tag': content = <ContactTagPage request={runtime.request} onDone={actions.onContactDone} onReauthenticate={actions.onReauthenticate} />; break;
+    case 'contact-batch-add': content = <BatchAddPage bridge={runtime.bridge} request={runtime.request} onReauthenticate={actions.onReauthenticate} />; break;
+    case 'contact-sop': content = <ContactSopPage request={runtime.request} onReauthenticate={actions.onReauthenticate} />; break;
+    case 'medium-library': content = <MediumPage bridge={runtime.bridge} request={runtime.request} onReauthenticate={actions.onReauthenticate} />; break;
+    case 'room-sop': content = <RoomSopPage request={runtime.request} onReauthenticate={actions.onReauthenticate} />; break;
+    default: content = null;
+  }
+  return <SidebarPageShell subtitle={route.description} title={route.title}>{content}</SidebarPageShell>;
+}
+
 function routeElement(route: SidebarRouteRegistration, runtime: SidebarRuntime): ReactNode {
   if (route.moduleKey === 'sidebar-login') return <SidebarLoginPage />;
   if (route.moduleKey === 'sidebar-auth-callback') {
     return <SidebarAuthCallbackPage runtime={runtime} />;
   }
+  if (route.moduleKey === 'sidebar-code-auth') return <SidebarCodeAuthPage />;
   const content = route.moduleKey === 'contact-summary'
     ? <SidebarContactPage runtime={runtime} />
     : route.moduleKey === 'sidebar-home'
       ? <SidebarWorkbenchPage />
-      : <PendingModulePage route={route} />;
+      : <SidebarBusinessPage route={route} runtime={runtime} />;
   return route.auth ? (
     <SidebarAuthBoundary runtime={runtime}>{content}</SidebarAuthBoundary>
   ) : content;

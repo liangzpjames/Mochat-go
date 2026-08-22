@@ -17,7 +17,7 @@ type SidebarPageShellProps = {
 type SidebarNavigationKey = 'customers' | 'conversations' | 'profile';
 
 function navigationKey(pathname: string): SidebarNavigationKey {
-  if (pathname === '/contactSop') return 'conversations';
+  if (pathname === '/contactSop' || pathname === '/roomSop') return 'conversations';
   if (pathname === '/' || pathname === '') return 'profile';
   return 'customers';
 }

@@ -55,6 +55,7 @@ describe('SidebarPageShell', () => {
 
   it.each([
     ['/contactSop', '会话'],
+    ['/roomSop?id=5', '会话'],
     ['/', '我的'],
   ])('marks %s as the current employee workspace section', (path, currentLabel) => {
     render(

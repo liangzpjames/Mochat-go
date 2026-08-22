@@ -209,7 +209,13 @@ export async function updateContactPortrait(
 ): Promise<void> {
   await request<unknown>('/contactFieldPivot/update', jsonRequest({
     contactId,
-    userPortrait: fields,
+    userPortrait: fields.map((field) => ({
+      contactFieldPivotId: field.pivotId ?? '',
+      contactFieldId: field.contactFieldId,
+      name: field.name,
+      type: field.type,
+      value: field.value,
+    })),
   }));
 }
 
