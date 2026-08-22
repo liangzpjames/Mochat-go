@@ -98,6 +98,8 @@ describe('SidebarPageShell', () => {
   it.each([
     ['/contactSop?id=4', '会话'],
     ['/roomSop?id=5', '会话'],
+    ['/contactBatchAdd?batchId=9', '我的'],
+    ['/medium?agentId=7', '我的'],
     ['/', '我的'],
   ])('marks %s as the current employee workspace section', (path, currentLabel) => {
     render(

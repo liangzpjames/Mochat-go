@@ -123,7 +123,7 @@ function registry(name, paths) {
 function routeCases(name, paths) {
   return `const ${name}Cases = [\n${paths.map((path) => {
     const needsSession = name === 'sidebar' && !['/auth', '/codeAuth', '/login'].includes(path);
-    const activeNavigation = path === '/' ? '我的' : ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
+    const activeNavigation = ['/', '/contactBatchAdd', '/medium'].includes(path) ? '我的' : ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
     return `  { path: ${JSON.stringify(path)}, title: ${JSON.stringify(`${name}-${path}`)}, expectsAction: ${name === 'sidebar' && path === '/login'}${name === 'sidebar' ? `, needsSession: ${needsSession}${needsSession ? `, activeNavigation: ${JSON.stringify(activeNavigation)}` : ''}` : ''}${name === 'operation' && path === '/workFission' ? ", query: '?id=17'" : ''} },`;
   }).join('\n')}\n] as const;`;
 }
@@ -233,8 +233,8 @@ for (const viewport of viewports) {
         const navigationHrefs = await navigation.locator('a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
         expect(navigationHrefs.every((href) => href?.startsWith('/sidebar-app'))).toBe(true);
         if (routeCase.path === '/') {
-          await navigation.getByRole('link', { name: '会话' }).click();
-          expect(new URL(page.url()).pathname).toBe('/sidebar-app/contactSop');
+          await expect(navigation.getByRole('link', { name: '客户' })).toHaveCount(0);
+          await expect(navigation.getByRole('link', { name: '会话' })).toHaveCount(0);
         }
       } else {
         await expect(navigation).toHaveCount(0);

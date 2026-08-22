@@ -24,7 +24,7 @@ export type SidebarBusinessNavigation = {
 
 function navigationKey(pathname: string): SidebarNavigationKey {
   if (pathname === '/contactSop' || pathname === '/roomSop') return 'conversations';
-  if (pathname === '/' || pathname === '') return 'profile';
+  if (pathname === '/' || pathname === '' || pathname === '/contactBatchAdd' || pathname === '/medium') return 'profile';
   return 'customers';
 }
 

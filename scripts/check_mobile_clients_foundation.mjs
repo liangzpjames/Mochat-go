@@ -398,7 +398,7 @@ function validateSidebarNavigationCases(sidebarCasesBody, errors) {
       }
       continue;
     }
-    const expected = path === '/'
+    const expected = ['/', '/contactBatchAdd', '/medium'].includes(path)
       ? '我的'
       : ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
     if (
@@ -610,9 +610,9 @@ function validateViewportRouteLoops(source, operationCasesBody, errors) {
   }
   if (
     !/navigation\.locator\(\s*['"]a['"]\s*\)[\s\S]{0,220}?\/sidebar-app/.test(sidebarBody)
-    || !/\.click\(\)[\s\S]{0,220}?\/sidebar-app\/contactSop/.test(sidebarBody)
+    || !/routeCase\.path\s*===\s*['"]\/['"][\s\S]{0,240}?['"]客户['"][\s\S]{0,160}?toHaveCount\(\s*0\s*\)[\s\S]{0,160}?['"]会话['"][\s\S]{0,160}?toHaveCount\(\s*0\s*\)/.test(sidebarBody)
   ) {
-    errors.push('Sidebar viewport loop must click a basename-scoped navigation link');
+    errors.push('Sidebar viewport loop must verify scoped links and hide unavailable home navigation');
   }
   if (
     !/employeeNavigationLabel[\s\S]{0,240}?toHaveCount\(\s*0\s*\)/.test(operationBody)

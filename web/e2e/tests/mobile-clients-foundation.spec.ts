@@ -10,10 +10,10 @@ const sidebarCases = [
   { path: '/contact/editDetail', title: '编辑客户资料', moduleLabel: '画像备注', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
   { path: '/contact/remark', title: '客户备注', moduleLabel: '保存备注', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
   { path: '/contact/settingTag', title: '设置客户标签', moduleLabel: '保存标签', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
-  { path: '/contactBatchAdd', title: '批量加好友', moduleLabel: '13800000000', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?batchId=9&agentId=7' },
+  { path: '/contactBatchAdd', title: '批量加好友', moduleLabel: '13800000000', needsSession: true, expectsAction: false, activeNavigation: '我的', query: '?batchId=9&agentId=7' },
   { path: '/contactSop', title: '个人客户 SOP', moduleLabel: '浏览器验收客户', needsSession: true, expectsAction: false, activeNavigation: '会话', query: '?id=4&agentId=7' },
   { path: '/login', title: '侧边栏登录', moduleLabel: '继续授权', needsSession: false, expectsAction: true, query: '?agentId=7&target=%2Fcontact' },
-  { path: '/medium', title: '素材库', moduleLabel: '浏览器素材', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?agentId=7' },
+  { path: '/medium', title: '素材库', moduleLabel: '浏览器素材', needsSession: true, expectsAction: false, activeNavigation: '我的', query: '?agentId=7' },
   { path: '/roomSop', title: '客户群 SOP', moduleLabel: '浏览器客户群', needsSession: true, expectsAction: false, activeNavigation: '会话', query: '?id=5&agentId=7' },
 ] as const;
 
@@ -285,8 +285,8 @@ for (const viewport of viewports) {
           ));
           expect(navigationHrefs.every((href) => href?.startsWith('/sidebar-app'))).toBe(true);
           if (routeCase.path === '/') {
-            await navigation.getByRole('link', { name: '会话' }).click();
-            expect(new URL(page.url()).pathname).toBe('/sidebar-app/contactSop');
+            await expect(navigation.getByRole('link', { name: '客户' })).toHaveCount(0);
+            await expect(navigation.getByRole('link', { name: '会话' })).toHaveCount(0);
           }
         } else {
           await expect(navigation).toHaveCount(0);
