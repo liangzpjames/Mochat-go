@@ -1790,6 +1790,18 @@ body {
 .phase34-live-code-select-trigger { background: #eef1ff; border: 1px solid #d8defd; border-radius: 999px; color: #4d63d8; cursor: pointer; flex: 0 0 auto; font: inherit; font-size: .72rem; font-weight: 650; min-height: 34px; padding: 6px 13px; }
 .phase34-live-code-select-trigger:hover { background: #e5e9ff; border-color: #cbd3fb; }
 .phase34-live-code-room-empty { align-items: center; background: #f8f9fc; border: 1px dashed #dfe4ed; border-radius: 8px; color: #929aaa; display: flex; font-size: .72rem; justify-content: center; min-height: 58px; }
+.phase34-live-code-auto-room { background: linear-gradient(145deg, #fff 0%, #f8f9ff 100%); border: 1px solid #e2e6f2; border-radius: 11px; display: grid; gap: 12px; padding: 13px; }
+.phase34-live-code-auto-room > div:first-child { display: grid; gap: 4px; }
+.phase34-live-code-auto-room > div:first-child strong { color: #465168; font-size: .8rem; }
+.phase34-live-code-auto-room > div:first-child small { color: #929aaa; font-size: .68rem; line-height: 1.45; }
+.phase34-live-code-switch { align-items: center; color: #596477 !important; cursor: pointer; display: flex !important; font-size: .74rem !important; font-weight: 550 !important; gap: 9px !important; grid-template-columns: auto auto 1fr; }
+.phase34-live-code-switch input { height: 1px; opacity: 0; position: absolute; width: 1px; }
+.phase34-live-code-switch > span { background: #ccd2df; border-radius: 999px; display: inline-flex; height: 22px; padding: 2px; transition: background-color .18s ease; width: 38px; }
+.phase34-live-code-switch > span::after { background: #fff; border-radius: 50%; box-shadow: 0 1px 4px rgb(30 40 60 / 22%); content: ''; height: 18px; transition: transform .18s ease; width: 18px; }
+.phase34-live-code-switch input:checked + span { background: #536bf4; }
+.phase34-live-code-switch input:checked + span::after { transform: translateX(16px); }
+.phase34-live-code-switch input:focus-visible + span { box-shadow: 0 0 0 3px rgb(83 107 244 / 18%); }
+.phase34-live-code-auto-room-fields { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) 118px; }
 .phase34-live-code-selected-rooms { display: grid; gap: 6px; }
 .phase34-live-code-selected-rooms > span { color: #5368d8; font-size: .7rem; font-weight: 650; }
 .phase34-live-code-selected-rooms > div, .phase34-live-code-picker-selected-list > div { align-items: center; background: #f8f9fc; border: 1px solid #e8ebf1; border-radius: 8px; display: grid; gap: 8px; grid-template-columns: 24px minmax(0, 1fr) 26px; padding: 7px 8px; }
@@ -1834,6 +1846,15 @@ body {
 .phase34-live-code-picker > footer button:disabled { background: #e8ebf5; border-color: #dfe3ed; color: #99a1b1; cursor: not-allowed; }
 .phase34-live-code-picker > footer button:focus-visible, .phase34-live-code-picker button:focus-visible { box-shadow: 0 0 0 3px rgb(83 107 244 / 18%); outline: none; }
 .phase34-live-code-create-drawer .phase34-inline-error { background: #fff1f1; border-radius: 8px; margin: 0; padding: 9px 11px; }
+.phase34-live-code-result { align-items: center; display: flex; justify-content: center; padding: 20px; z-index: 100; }
+.phase34-live-code-result .phase34-detail-backdrop { backdrop-filter: blur(3px); background: rgb(24 30 45 / 46%); }
+.phase34-live-code-result-card { align-items: center; background: #fff; border: 1px solid #e4e8f0; border-radius: 18px; box-shadow: 0 28px 80px rgb(24 31 48 / 30%); display: flex; flex-direction: column; max-width: 420px; padding: 30px 34px 28px; position: relative; text-align: center; width: min(420px, calc(100vw - 40px)); }
+.phase34-live-code-result-mark { align-items: center; background: #e9f8f0; border-radius: 50%; color: #27855b; display: inline-flex; font-size: 1rem; font-weight: 800; height: 42px; justify-content: center; width: 42px; }
+.phase34-live-code-result-card h2 { color: #30394c; font-size: 1.08rem; margin: 13px 0 6px; }
+.phase34-live-code-result-card p { color: #7f899b; font-size: .74rem; line-height: 1.65; margin: 0; max-width: 310px; }
+.phase34-live-code-result-card img { background: #fff; border: 1px solid #e2e6ef; border-radius: 12px; height: 190px; margin: 20px 0 10px; object-fit: contain; padding: 8px; width: 190px; }
+.phase34-live-code-result-card strong { color: #465168; font-size: .82rem; }
+.phase34-live-code-result-card button { background: linear-gradient(135deg, #6278f5, #4f67ea); border: 1px solid #536bf4; border-radius: 999px; color: #fff; cursor: pointer; font: inherit; font-size: .78rem; font-weight: 650; margin-top: 20px; min-height: 40px; min-width: 132px; padding: 8px 20px; }
 @media (max-width: 640px) {
   .phase34-live-code-drawer .phase34-detail-panel { border-radius: 0; width: 100%; }
   .phase34-live-code-drawer-header { padding: 18px 18px 16px; }
@@ -1852,6 +1873,7 @@ body {
   .phase34-live-code-picker-grid > section { min-height: 280px; }
   .phase34-live-code-picker-grid > section + section { border-left: 0; border-top: 1px solid #edf0f5; }
   .phase34-live-code-picker > footer button { flex: 1; }
+  .phase34-live-code-auto-room-fields { grid-template-columns: 1fr; }
 }
 .phase34-preview-headings { background: #f7f8fc; border-bottom: 1px solid #eef1f6; color: #70798b; display: grid; font-size: .76rem; font-weight: 650; grid-template-columns: 1.2fr .7fr .9fr 1.2fr .6fr; padding: 13px 18px; }
 .phase34-preview-headings-wide { grid-template-columns: 1.2fr .8fr .8fr .8fr 1.2fr .6fr; }

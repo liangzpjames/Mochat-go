@@ -28,6 +28,11 @@ var composeInitCrossStageTables = []string{
 
 const knownLegacyInitialSchemaChecksum = "b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9"
 
+// The standalone schema checksum immediately before the direct group join
+// columns were added. Existing deployments legitimately retain this value in
+// their immutable 0001 ledger while applying 0152 incrementally.
+const knownPreviousInitialSchemaChecksum = "03425c87c5584e82b7991d7f5fe4c75f8918b31799e191dda7160a0cad150ace"
+
 // The standalone seed shipped by the first identity-cutover deployment. Its
 // statements are a compatible historical predecessor of the current
 // idempotent seed and remain present in deployed migration ledgers.
@@ -101,12 +106,19 @@ func DefaultMigrations(projectRoot string) []Migration {
 
 func legacyInitialSchemaChecksums(schemaPath, seedPath string) []string {
 	aliases := legacyCombinedInitialChecksums(schemaPath, seedPath)
-	for _, alias := range aliases {
-		if alias == knownLegacyInitialSchemaChecksum {
-			return aliases
+	for _, known := range []string{knownLegacyInitialSchemaChecksum, knownPreviousInitialSchemaChecksum} {
+		found := false
+		for _, alias := range aliases {
+			if alias == known {
+				found = true
+				break
+			}
+		}
+		if !found {
+			aliases = append(aliases, known)
 		}
 	}
-	return append(aliases, knownLegacyInitialSchemaChecksum)
+	return aliases
 }
 
 func (r *Runner) Apply(ctx context.Context) ([]StatusItem, error) {

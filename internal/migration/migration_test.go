@@ -63,10 +63,14 @@ func TestDefaultMigrationsAcceptsKnownHistoricalInitialChecksum(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const historicalChecksum = "b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9"
 	initial := DefaultMigrations(root)[0]
-	if !checksumMatches(historicalChecksum, "current-checksum", initial.ChecksumAliases) {
-		t.Fatalf("known historical checksum %s not accepted by aliases %#v", historicalChecksum, initial.ChecksumAliases)
+	for _, historicalChecksum := range []string{
+		"b7dbd66b24b93a4be64e33fa51d2e1a1fcbc0d305532145644c37ed1a26075e9",
+		"03425c87c5584e82b7991d7f5fe4c75f8918b31799e191dda7160a0cad150ace",
+	} {
+		if !checksumMatches(historicalChecksum, "current-checksum", initial.ChecksumAliases) {
+			t.Fatalf("known historical checksum %s not accepted by aliases %#v", historicalChecksum, initial.ChecksumAliases)
+		}
 	}
 }
 
@@ -310,8 +314,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0151_ai_conversation_insight_api_resources" {
-		t.Fatalf("latest migration = %q, want 0151_ai_conversation_insight_api_resources", latest.Version)
+	if latest.Version != "0152_group_code_direct_join" {
+		t.Fatalf("latest migration = %q, want 0152_group_code_direct_join", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -547,8 +551,8 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0151_ai_conversation_insight_api_resources" {
-		t.Fatalf("latest migration = %q, want 0151_ai_conversation_insight_api_resources", latest.Version)
+	if latest.Version != "0152_group_code_direct_join" {
+		t.Fatalf("latest migration = %q, want 0152_group_code_direct_join", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
 	if err != nil {
