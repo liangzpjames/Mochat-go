@@ -3685,6 +3685,50 @@ func TestSidebarContactSOPHandlersAreRouted(t *testing.T) {
 	}
 }
 
+func TestSidebarWorkbenchRoutes(t *testing.T) {
+	tests := []struct {
+		path   string
+		body   string
+		option Option
+		route  string
+	}{
+		{
+			path: "/sidebar/workbench/summary", body: "summary",
+			option: WithSidebarWorkbenchSummaryHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("summary")) })),
+			route:  "GET /sidebar/workbench/summary",
+		},
+		{
+			path: "/sidebar/workContact/index", body: "contacts",
+			option: WithSidebarWorkContactIndexHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("contacts")) })),
+			route:  "GET /sidebar/workContact/index",
+		},
+		{
+			path: "/sidebar/workbench/tasks?kind=contactSop&state=pending", body: "tasks",
+			option: WithSidebarWorkbenchTasksHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("tasks")) })),
+			route:  "GET /sidebar/workbench/tasks",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.route, func(t *testing.T) {
+			srv, err := New(config.Config{
+				ListenAddr: ":0", PHPUpstream: "http://127.0.0.1:9501", SourceRoot: t.TempDir(),
+				ManifestPath: writeManifest(t), ProxyTimeout: time.Second,
+			}, test.option)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if rec.Code != http.StatusOK || rec.Body.String() != test.body {
+				t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
+			}
+			if !containsString(srv.migratedRoutes(), test.route) {
+				t.Fatalf("missing migrated route %q", test.route)
+			}
+		})
+	}
+}
+
 func TestSidebarContactBatchAddDetailHandlerIsRouted(t *testing.T) {
 	sourceRoot := t.TempDir()
 	srv, err := New(config.Config{
