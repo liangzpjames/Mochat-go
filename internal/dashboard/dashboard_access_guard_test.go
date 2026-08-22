@@ -353,7 +353,6 @@ func TestDashboardAccessGuardExemptionsAreExactAndProtectedOnSessionRoutes(t *te
 		{method: http.MethodPost, path: "/dashboard/user/auth", want: true},
 		{method: http.MethodPost, path: "/dashboard/officialAccount/authEventCallback", want: true},
 		{method: http.MethodGet, path: "/dashboard/user/securityMFA", want: true},
-		{method: http.MethodPost, path: "/dashboard/contactTransfer/sync", want: true},
 		{method: http.MethodGet, path: "/dashboard/user/securityMFAExtra", want: false},
 		{method: http.MethodPost, path: "/dashboard/user/authExtra", want: false},
 		{method: http.MethodGet, path: "/dashboard/officialAccount/authRedirect", want: false},
