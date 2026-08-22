@@ -95,6 +95,31 @@ for (const viewport of viewports) {
   });
 }
 
+test.describe('employee Sidebar compact density', () => {
+  test.use({ viewport: { width: 360, height: 800 } });
+
+  test('keeps the workbench compact without shrinking touch targets', async ({ page }) => {
+    await installFixtures(page);
+    await injectSession(page);
+    await page.goto('/sidebar-app/');
+    const density = await page.evaluate(() => {
+      const hero = document.querySelector('.mobile-shell__hero .mobile-card')?.getBoundingClientRect();
+      const tiles = [...document.querySelectorAll('.sidebar-workbench__tiles .mobile-icon-tile')];
+      const grid = document.querySelector('.sidebar-workbench__tiles');
+      return {
+        heroHeight: hero?.height ?? 999,
+        maxTileHeight: Math.max(...tiles.map((item) => item.getBoundingClientRect().height)),
+        gap: grid ? Number.parseFloat(getComputedStyle(grid).gap) : 999,
+        minActionHeight: Math.min(...tiles.map((item) => item.getBoundingClientRect().height)),
+      };
+    });
+    expect(density.heroHeight).toBeLessThanOrEqual(128);
+    expect(density.maxTileHeight).toBeLessThanOrEqual(92);
+    expect(density.gap).toBeLessThanOrEqual(12);
+    expect(density.minActionHeight).toBeGreaterThanOrEqual(44);
+  });
+});
+
 test.describe('employee Sidebar business states at 390x844', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
