@@ -13,6 +13,7 @@
 | 功能分支 | `feat/employee-sidebar-mobile-optimization` |
 | 精确基线 | `b9a47cab45ec872bc81e61a20b06a8a3529311b2`（任务开始时已获取并验证的 `origin/main`） |
 | 代码验收提交 | `2bca48e669da7fd37324302e649ccf82036fcb69` |
+| 最终测试与复审提交 | `2d032af5a9aabf15a1b6249e7f4aff7742beb498` |
 | 截图证据提交 | `d6ccc8b` |
 | 验收时远端主线 | `43c781514a4549e806517ab2b2a707f1320e2df7` |
 | 主线漂移策略 | 不盲目合并；集成前由主线维护者显式 rebase 或逐提交 cherry-pick，并重新运行本文门禁 |
@@ -40,6 +41,7 @@
 | `d6ccc8b` | 最新多尺寸截图证据 | 仅证据，可单独回滚 |
 | `7408c82` | 初版中文验收报告 | 仅文档，可单独回滚 |
 | `2bca48e` | 二次复审发现的多租户边界、交互降级与专项 E2E 收口 | 最终安全代码验收点 |
+| `2d032af` | 专项业务状态 E2E、设计同步与完整范围空白修复 | 最终测试与独立复审点 |
 
 未直接合入 `main`，未强推，未重置或清理用户工作树，未删除任何 Docker 命名卷。
 
@@ -116,9 +118,9 @@
 
 ### 7.3 Docker 与应用内浏览器
 
-- 使用隔离 Compose 项目 `mochat-sidebar-mobile-acceptance` 从当前提交重新构建；应用、MySQL、Redis 全部健康。
+- 使用隔离 Compose 项目 `mochat-sidebar-mobile-acceptance` 从最终生产代码提交 `2bca48e` 重新构建；后续 `2d032af` 只改 E2E/文档。应用、MySQL、Redis 全部健康。
 - 映射端口：应用 `28080`、MySQL `23316`、Redis `36389`；`/readyz` 与 `/sidebar-app/login?agentId=1` 均返回 HTTP 200。
-- Docker 环境下的四张参考映射视觉用例为 `PASS`（8/8）。
+- Docker 环境下两套 Playwright 合并执行为 `PASS`（98/98），其中包含四张参考映射、多尺寸视觉、12 路由三主视口和专项业务状态。
 - 应用内浏览器实测登录页标题为“MoChat 客户侧边栏”，主标题为“侧边栏登录”，操作为“继续授权”；1280 宽视口无横向溢出，控制台错误为空。
 - 验收容器已停止，但以下命名卷全部保留：
   - `mochat-sidebar-mobile-acceptance_app-storage`
@@ -136,6 +138,8 @@
 | `SKIP` | 真实企业微信 OAuth、真实企业可信域名内 JSSDK 与外部联系人/消息发送；当前环境没有可用企业应用凭证、可信域名和真实会话上下文 |
 
 `SKIP` 部分已通过仓库安全测试入口验证可控边界：OAuth 参数/目标白名单、会话解析、Go 返回契约、字符串时间戳、`agentConfig`、JSSDK invoke、失败处理和重授权均为 `PASS`。使用虚拟 `agentId` 访问真实授权入口会得到“应用不存在”，这正是环境缺凭证的预期外部阻塞，不计为产品通过。
+
+独立代码审阅共执行四轮：前两轮发现并推动关闭 JSSDK 契约、客户/画像权限、导航上下文、状态恢复及多租户 IDOR；第三轮要求补足专项业务状态 E2E 和完整范围空白门禁；最终对 `2d032af` 的复审结论为 `Ready: Yes`，剩余 `Critical: 0`、`Important: 0`。
 
 ## 9. 已知风险与集成要求
 
