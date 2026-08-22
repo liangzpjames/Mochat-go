@@ -150,7 +150,7 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
   await sidebarFixture('**/sidebar/workbench/summary', {
     employee: { id: 7, name: '员工甲', avatar: null, departmentNames: ['客户成功部'], corpName: '浏览器验收企业' },
     customers: { total: 126, addedToday: 8, taggedTotal: 93, ownedRoomTotal: 12 },
-    tasks: { contactSopPending: 3, roomSopPending: 2, batchAddPending: 1 },
+    tasks: { contactSopRecords: 3, roomSopPending: 2, batchAddPending: 1 },
   }, 'sidebar-workbench-e2e');
   await sidebarFixture('**/sidebar/workContact/show?*', {
     name: '浏览器验收客户', avatar: null, gender: 2, genderText: '女', businessNo: 'C-23',

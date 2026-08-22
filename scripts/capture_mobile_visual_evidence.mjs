@@ -127,7 +127,7 @@ async function installFixtures(page) {
     body: envelope({
       employee: { id: 7, name: '员工甲', avatar: null, departmentNames: ['客户成功部'], corpName: '视觉验收企业' },
       customers: { total: 126, addedToday: 8, taggedTotal: 93, ownedRoomTotal: 12 },
-      tasks: { contactSopPending: 3, roomSopPending: 2, batchAddPending: 1 },
+      tasks: { contactSopRecords: 3, roomSopPending: 2, batchAddPending: 1 },
     }, 'visual-workbench-summary'),
   }));
   await page.route('**/sidebar/workContact/show?*', (route) => route.fulfill({
@@ -201,7 +201,12 @@ try {
   for (const capture of capturePlan) {
     await page.setViewportSize(viewports[capture.viewport]);
     await page.goto(`${baseURL}${capture.url}`);
-    await page.getByText(capture.readyText, { exact: true }).first().waitFor({ state: 'visible' });
+    try {
+      await page.getByText(capture.readyText, { exact: true }).first().waitFor({ state: 'visible' });
+    } catch (error) {
+      const visibleText = (await page.locator('body').innerText()).replaceAll(/\s+/g, ' ').slice(0, 500);
+      throw new Error(`capture ${capture.url} ended at ${page.url()}: ${visibleText}`, { cause: error });
+    }
     const screenshotPath = join(outputDirectory, capture.filename);
     await page.screenshot({ path: screenshotPath });
     process.stdout.write(`${screenshotPath}\n`);

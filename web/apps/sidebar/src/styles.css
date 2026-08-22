@@ -927,6 +927,10 @@ a:focus-visible {
 
 .workbench-honest-notice strong { color: #34425a; font-size: 13px; }
 .workbench-honest-notice p { margin-top: 4px; font-size: 11px; line-height: 1.55; }
+.workbench-summary-warning { margin: 0 0 8px; padding: 7px 9px; color: #9a6715; font-size: 11px; background: #fff7e8; border-radius: 7px; }
+.workbench-state-tabs { display: flex; gap: 8px; margin: 0 0 8px; }
+.workbench-state-tabs a { min-height: 36px; padding: 0 14px; color: #68758a; font-size: 12px; line-height: 36px; text-decoration: none; background: #f1f4f8; border-radius: 8px; }
+.workbench-state-tabs a.is-active { color: #fff; background: #397af5; }
 
 .workbench-list,
 .workbench-contact-list {
@@ -1016,6 +1020,11 @@ a:focus-visible {
 .workbench-contact__body > span { display: flex; flex-wrap: wrap; gap: 4px; }
 .workbench-contact__body em { padding: 2px 5px; color: #4c73aa; font-size: 10px; font-style: normal; background: #edf4ff; border-radius: 3px; }
 .workbench-contact > svg { width: 16px; height: 16px; color: #aab2bf; }
+.workbench-pagination { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 2px 0; color: #7d8798; font-size: 11px; }
+.workbench-pagination > div { display: flex; gap: 6px; }
+.workbench-pagination__link,
+.workbench-pagination [aria-disabled="true"] { display: grid; min-width: 62px; min-height: 36px; place-items: center; color: #397af5; text-decoration: none; background: #edf4ff; border-radius: 8px; }
+.workbench-pagination [aria-disabled="true"] { color: #aab2bf; background: #f3f5f8; }
 
 .workbench-profile { gap: 14px; }
 .workbench-profile-card { display: grid; min-height: 126px; grid-template-columns: 68px minmax(0, 1fr); align-items: center; gap: 16px; padding: 20px; color: #fff; background: linear-gradient(135deg, #5b96ff, #3a70ec); border-radius: 11px; box-shadow: 0 8px 24px rgb(47 116 255 / 17%); }
@@ -1042,6 +1051,7 @@ a:focus-visible {
 .workbench-setting-group small { color: #8993a4; font-size: 11px; overflow-wrap: anywhere; }
 .workbench-setting-group em { padding: 3px 7px; color: #179a68; font-size: 10px; font-style: normal; background: #e9f8f1; border-radius: 999px; }
 .workbench-setting-link > svg { width: 16px; height: 16px; fill: none; stroke: #aab2bf; stroke-width: 1.7; }
+.workbench-setting-group button.workbench-setting-link { width: 100%; font: inherit; text-align: left; background: transparent; border-right: 0; border-bottom: 0; border-left: 0; }
 .workbench-version { margin: 6px 0 0; color: #a0a8b5; font-size: 10px; text-align: center; }
 
 @media (max-width: 359px) {

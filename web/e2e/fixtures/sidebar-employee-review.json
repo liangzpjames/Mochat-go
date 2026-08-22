@@ -10,7 +10,7 @@
       "corpName": "MoChat 验收企业"
     },
     "customers": { "total": 126, "addedToday": 8, "taggedTotal": 93, "ownedRoomTotal": 12 },
-    "tasks": { "contactSopPending": 3, "roomSopPending": 2, "batchAddPending": 1 }
+    "tasks": { "contactSopRecords": 3, "roomSopPending": 2, "batchAddPending": 1 }
   },
   "workContacts": {
     "page": 1,
@@ -26,7 +26,7 @@
   "workbenchTasks": {
     "contactSop": {
       "page": 1, "perPage": 20, "total": 1, "totalPage": 1,
-      "items": [{ "id": 4, "kind": "contactSop", "title": "新客首日回访", "subjectName": "专项验收客户", "scheduledAt": "2026-08-23 09:00", "state": "pending" }]
+      "items": [{ "id": 4, "kind": "contactSop", "title": "新客首日回访", "subjectName": "专项验收客户", "scheduledAt": "2026-08-23 09:00", "state": "recorded" }]
     },
     "roomSop": {
       "page": 1, "perPage": 20, "total": 1, "totalPage": 1,

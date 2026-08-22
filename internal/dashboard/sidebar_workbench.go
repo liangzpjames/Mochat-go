@@ -23,7 +23,7 @@ type SidebarCustomerMetrics struct {
 }
 
 type SidebarTaskMetrics struct {
-	ContactSOPPending int `json:"contactSopPending"`
+	ContactSOPRecords int `json:"contactSopRecords"`
 	RoomSOPPending    int `json:"roomSopPending"`
 	BatchAddPending   int `json:"batchAddPending"`
 }
@@ -147,7 +147,7 @@ func (h *SidebarWorkbenchHandler) Tasks(w http.ResponseWriter, r *http.Request) 
 	}
 	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
 	state := strings.TrimSpace(r.URL.Query().Get("state"))
-	if !validSidebarTaskKind(kind) || !validSidebarTaskState(state) {
+	if !validSidebarTaskKind(kind) || !validSidebarTaskState(kind, state) {
 		writeEnvelope(w, http.StatusUnprocessableEntity, http.StatusUnprocessableEntity, "任务筛选参数错误", nil)
 		return
 	}
@@ -222,6 +222,9 @@ func validSidebarTaskKind(kind string) bool {
 	return kind == "contactSop" || kind == "roomSop" || kind == "batchAdd"
 }
 
-func validSidebarTaskState(state string) bool {
+func validSidebarTaskState(kind, state string) bool {
+	if kind == "contactSop" {
+		return state == "recorded"
+	}
 	return state == "pending" || state == "done"
 }

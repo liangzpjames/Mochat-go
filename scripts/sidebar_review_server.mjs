@@ -233,6 +233,21 @@ function fixedContactId(state) {
   return state.contactDetail?.id;
 }
 
+function positiveIntegerParam(searchParams, name, fallback, maximum = 100) {
+  const raw = searchParams.get(name);
+  if (raw === null) return fallback;
+  if (!/^\d+$/.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 && value <= maximum ? value : null;
+}
+
+function paged(items, page, perPage) {
+  const total = items.length;
+  const totalPage = total === 0 ? 0 : Math.ceil(total / perPage);
+  const start = (page - 1) * perPage;
+  return { page, perPage, total, totalPage, items: items.slice(start, start + perPage) };
+}
+
 function validContactUpdate(body, state) {
   if (body.contactId !== fixedContactId(state)) return false;
   const fields = ['remark', 'description'].filter((name) => body[name] !== undefined);
@@ -354,16 +369,17 @@ async function handleAPI(request, response, url, state, fixture) {
       sendError(response, 405, 'method not allowed; use GET', request.method, { Allow: 'GET' });
       return;
     }
+    const page = positiveIntegerParam(url.searchParams, 'page', 1, 10_000);
+    const perPage = positiveIntegerParam(url.searchParams, 'perPage', 20);
+    if (page === null || perPage === null) {
+      sendError(response, 422, 'valid pagination required', request.method);
+      return;
+    }
     const keyword = (url.searchParams.get('keyword') ?? '').trim().toLocaleLowerCase('zh-CN');
     const items = state.workContacts.items.filter((item) => keyword === ''
       || item.name.toLocaleLowerCase('zh-CN').includes(keyword)
       || item.remark.toLocaleLowerCase('zh-CN').includes(keyword));
-    sendSuccess(response, {
-      ...state.workContacts,
-      total: items.length,
-      totalPage: items.length === 0 ? 0 : 1,
-      items,
-    }, request.method);
+    sendSuccess(response, paged(items, page, perPage), request.method);
     return;
   }
   if (url.pathname === '/sidebar/workbench/tasks') {
@@ -377,11 +393,18 @@ async function handleAPI(request, response, url, state, fixture) {
       sendError(response, 422, 'valid task kind required', request.method);
       return;
     }
-    if (url.searchParams.get('state') === 'done') {
-      sendSuccess(response, { ...selected, total: 0, totalPage: 0, items: [] }, request.method);
+    const taskState = url.searchParams.get('state');
+    const validState = kind === 'contactSop'
+      ? taskState === 'recorded'
+      : taskState === 'pending' || taskState === 'done';
+    const page = positiveIntegerParam(url.searchParams, 'page', 1, 10_000);
+    const perPage = positiveIntegerParam(url.searchParams, 'perPage', 20);
+    if (!validState || page === null || perPage === null) {
+      sendError(response, 422, 'valid task state and pagination required', request.method);
       return;
     }
-    sendSuccess(response, selected, request.method);
+    const items = taskState === 'done' ? [] : selected.items;
+    sendSuccess(response, paged(items, page, perPage), request.method);
     return;
   }
   if (url.pathname === '/sidebar/contactBatchAdd/detail') {

@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import reviewFixture from '../fixtures/sidebar-employee-review.json' with { type: 'json' };
+
+const referenceEvidenceDir = resolve(
+  import.meta.dirname,
+  '../../../docs/reviews/evidence/2026-08-23-sidebar-reference-replica',
+);
+mkdirSync(referenceEvidenceDir, { recursive: true });
 
 const routes = [
   { path: '/', title: '客户', label: '客户经营工作台', protected: true },
@@ -151,18 +159,22 @@ test.describe('employee Sidebar business states at 390x844', () => {
     await injectSession(page);
     await page.goto('/sidebar-app/?agentId=7');
     await expect(page.getByText('126', { exact: true })).toBeVisible();
+    await page.screenshot({ path: resolve(referenceEvidenceDir, 'implemented-customer-390x844.png') });
 
     await page.getByTestId('mobile-shell').getByRole('link', { name: '会话', exact: true }).click();
     await expect(page.getByText('数据范围说明', { exact: true })).toBeVisible();
+    await page.screenshot({ path: resolve(referenceEvidenceDir, 'implemented-conversation-390x844.png') });
     await page.getByRole('link', { name: /^个人客户 SOP/ }).click();
     await expect(page.getByText('新客首日回访', { exact: true })).toBeVisible();
 
     await page.getByTestId('mobile-shell').getByRole('link', { name: '我的', exact: true }).click();
-    await expect(page.getByText('企业微信身份已验证', { exact: true })).toBeVisible();
+    await expect(page.getByText('员工会话已建立', { exact: true })).toBeVisible();
+    await page.screenshot({ path: resolve(referenceEvidenceDir, 'implemented-profile-390x844.png') });
 
     await page.getByTestId('mobile-shell').getByRole('link', { name: '客户', exact: true }).click();
     await page.getByRole('link', { name: /^通讯录/ }).click();
     await expect(page.getByText('星河科技有限公司采购负责人', { exact: true })).toBeVisible();
+    await page.screenshot({ path: resolve(referenceEvidenceDir, 'implemented-contacts-390x844.png') });
     await page.getByRole('searchbox', { name: '搜索客户' }).fill('陈晨');
     await page.getByRole('searchbox', { name: '搜索客户' }).press('Enter');
     await expect(page.getByText('陈晨', { exact: true })).toBeVisible();

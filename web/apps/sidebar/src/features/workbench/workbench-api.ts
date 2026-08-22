@@ -17,7 +17,7 @@ export type WorkbenchSummary = {
     ownedRoomTotal: number;
   };
   tasks: {
-    contactSopPending: number;
+    contactSopRecords: number;
     roomSopPending: number;
     batchAddPending: number;
   };
@@ -37,7 +37,7 @@ export type EmployeeContact = {
 export type ContactListFilter = { keyword: string; page: number; perPage: number };
 export type ContactListPage = { page: number; perPage: number; total: number; totalPage: number; items: EmployeeContact[] };
 export type EmployeeTaskKind = 'contactSop' | 'roomSop' | 'batchAdd';
-export type EmployeeTaskState = 'pending' | 'done';
+export type EmployeeTaskState = 'pending' | 'done' | 'recorded';
 export type EmployeeTask = { id: number; kind: EmployeeTaskKind; title: string; subjectName: string; scheduledAt: string; state: EmployeeTaskState };
 export type TaskListFilter = { kind: EmployeeTaskKind; state: EmployeeTaskState; page: number; perPage: number };
 export type TaskListPage = { page: number; perPage: number; total: number; totalPage: number; items: EmployeeTask[] };
@@ -99,7 +99,7 @@ export async function loadWorkbenchSummary(request: BusinessRequest): Promise<Wo
       ownedRoomTotal: integer(customers.ownedRoomTotal),
     },
     tasks: {
-      contactSopPending: integer(tasks.contactSopPending),
+      contactSopRecords: integer(tasks.contactSopRecords),
       roomSopPending: integer(tasks.roomSopPending),
       batchAddPending: integer(tasks.batchAddPending),
     },
@@ -148,12 +148,15 @@ function isTaskKind(value: string): value is EmployeeTaskKind {
 }
 
 function isTaskState(value: string): value is EmployeeTaskState {
-  return value === 'pending' || value === 'done';
+  return value === 'pending' || value === 'done' || value === 'recorded';
 }
 
 export async function loadEmployeeTasks(request: BusinessRequest, filter: TaskListFilter): Promise<TaskListPage> {
   validPagination(filter.page, filter.perPage);
-  if (!isTaskKind(filter.kind) || !isTaskState(filter.state)) fail('任务筛选参数无效。');
+  if (!isTaskKind(filter.kind) || !isTaskState(filter.state)
+    || (filter.kind === 'contactSop' ? filter.state !== 'recorded' : filter.state === 'recorded')) {
+    fail('任务筛选参数无效。');
+  }
   const query = new URLSearchParams({ kind: filter.kind, state: filter.state, page: String(filter.page), perPage: String(filter.perPage) });
   const raw = record(await request<unknown>(`/workbench/tasks?${query.toString()}`, { method: 'GET' }));
   if (raw === null || !Array.isArray(raw.items)) fail('员工任务列表响应格式无效。');

@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { MobileApiError } from '@mochat/mobile-foundation';
+
 import type { SidebarRequest } from '../../app/sidebar-router';
 import type { WeComBridge } from '../../wecom/wecom-bridge';
 import { WorkbenchPage } from './workbench-page';
@@ -21,7 +23,7 @@ const summary = {
     corpName: 'MoChat 演示企业',
   },
   customers: { total: 126, addedToday: 8, taggedTotal: 93, ownedRoomTotal: 12 },
-  tasks: { contactSopPending: 3, roomSopPending: 2, batchAddPending: 1 },
+  tasks: { contactSopRecords: 3, roomSopPending: 2, batchAddPending: 1 },
 };
 
 function requestFixture<T>(path: string): Promise<T> {
@@ -56,18 +58,18 @@ function requestFixture<T>(path: string): Promise<T> {
         title: '新客首日跟进',
         subjectName: '陈晨',
         scheduledAt: '2026-08-23 10:00:00',
-        state: 'pending',
+        state: 'recorded',
       }],
     } as T);
   }
   return Promise.reject(new Error(`Unexpected request: ${path}`));
 }
 
-function renderPage(path = '/?agentId=7', request?: SidebarRequest) {
+function renderPage(path = '/?agentId=7', request?: SidebarRequest, onReauthenticate = vi.fn()) {
   const client = request ?? vi.fn(requestFixture) as unknown as SidebarRequest;
   render(
     <MemoryRouter initialEntries={[path]}>
-      <WorkbenchPage bridge={bridge} request={client} />
+      <WorkbenchPage bridge={bridge} onReauthenticate={onReauthenticate} request={client} />
     </MemoryRouter>,
   );
   return client;
@@ -97,7 +99,7 @@ describe('WorkbenchPage', () => {
     expect(screen.getByText('陈晨')).not.toBeNull();
     expect(screen.getByRole('link', { name: /打开任务/ }).getAttribute('href')).toContain('/contactSop?');
     expect(request).toHaveBeenCalledWith(
-      expect.stringContaining('kind=contactSop'),
+      expect.stringContaining('kind=contactSop&state=recorded'),
       { method: 'GET' },
     );
   });
@@ -105,12 +107,12 @@ describe('WorkbenchPage', () => {
   it('keeps root workspace links query-safe inside the prefixed Sidebar mount', async () => {
     render(
       <MemoryRouter basename="/sidebar-app" initialEntries={['/sidebar-app/?agentId=7&tab=conversations']}>
-        <WorkbenchPage bridge={bridge} request={vi.fn(requestFixture) as unknown as SidebarRequest} />
+        <WorkbenchPage bridge={bridge} onReauthenticate={vi.fn()} request={vi.fn(requestFixture) as unknown as SidebarRequest} />
       </MemoryRouter>,
     );
 
     expect((await screen.findByRole('link', { name: /^个人客户 SOP/ })).getAttribute('href')).toBe(
-      '/sidebar-app/?agentId=7&tab=conversations&view=contactSop',
+      '/sidebar-app/?agentId=7&tab=conversations&view=contactSop&page=1',
     );
   });
 
@@ -120,7 +122,8 @@ describe('WorkbenchPage', () => {
     expect(await screen.findByText('林小满')).not.toBeNull();
     expect(screen.getAllByText('MoChat 演示企业')).toHaveLength(2);
     expect(screen.getByText('客户成功部 · 华东组')).not.toBeNull();
-    expect(screen.getByText('企业微信身份已验证')).not.toBeNull();
+    expect(screen.getByText('员工会话已建立')).not.toBeNull();
+    expect(screen.getByText('权限明细未接入')).not.toBeNull();
   });
 
   it('loads the contact directory and keeps a submitted search in the real request', async () => {
@@ -147,5 +150,66 @@ describe('WorkbenchPage', () => {
     expect(screen.queryByText('客户总数')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
     await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  });
+
+  it('reauthenticates when a workbench API reports an expired session', async () => {
+    const request = vi.fn(() => Promise.reject(new MobileApiError('unauthorized', '登录已失效', { status: 401 })));
+    const onReauthenticate = vi.fn();
+    renderPage('/', request, onReauthenticate);
+
+    await waitFor(() => expect(onReauthenticate).toHaveBeenCalledTimes(1));
+  });
+
+  it('loads the contact directory even when the independent summary endpoint fails', async () => {
+    const request = vi.fn(<T,>(path: string) => {
+      if (path === '/workbench/summary') return Promise.reject(new Error('汇总服务不可用'));
+      return requestFixture<T>(path);
+    }) as unknown as SidebarRequest;
+    renderPage('/?agentId=7&tab=customers&view=contacts', request);
+
+    expect(await screen.findByRole('link', { name: /查看陈晨/ })).not.toBeNull();
+    expect(screen.queryByText('工作台加载失败')).toBeNull();
+  });
+
+  it('restores contact search and pagination from the URL', async () => {
+    const request = vi.fn(<T,>(path: string) => {
+      if (path.startsWith('/workContact/index?')) {
+        return Promise.resolve({ page: 2, perPage: 20, total: 41, totalPage: 3, items: [] } as T);
+      }
+      return requestFixture<T>(path);
+    }) as unknown as SidebarRequest;
+    renderPage('/?agentId=7&tab=customers&view=contacts&q=%E9%99%88%E6%99%A8&page=2', request);
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      expect.stringContaining('keyword=%E9%99%88%E6%99%A8&page=2&perPage=20'),
+      { method: 'GET' },
+    ));
+    expect(screen.getByRole('searchbox', { name: '搜索客户' }).getAttribute('value')).toBe('陈晨');
+    expect(screen.getByRole('link', { name: '下一页' }).getAttribute('href')).toContain('page=3');
+  });
+
+  it('restores task status and pagination from the URL even on an empty page', async () => {
+    const request = vi.fn(<T,>(path: string) => {
+      if (path.startsWith('/workbench/tasks?')) {
+        return Promise.resolve({ page: 2, perPage: 20, total: 41, totalPage: 3, items: [] } as T);
+      }
+      return requestFixture<T>(path);
+    }) as unknown as SidebarRequest;
+    renderPage('/?agentId=7&tab=conversations&view=roomSop&state=done&page=2', request);
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      expect.stringContaining('kind=roomSop&state=done&page=2&perPage=20'),
+      { method: 'GET' },
+    ));
+    expect(screen.getByRole('link', { name: '上一页' }).getAttribute('href')).toContain('page=1');
+    expect(screen.getByRole('link', { name: '下一页' }).getAttribute('href')).toContain('page=3');
+  });
+
+  it('clears only the Sidebar session through the profile safety action', async () => {
+    const onReauthenticate = vi.fn();
+    renderPage('/?agentId=7&tab=profile', undefined, onReauthenticate);
+
+    fireEvent.click(await screen.findByRole('button', { name: '清理本端登录缓存' }));
+    expect(onReauthenticate).toHaveBeenCalledTimes(1);
   });
 });

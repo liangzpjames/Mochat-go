@@ -192,7 +192,7 @@ corepack pnpm --filter @mochat/sidebar test -- workbench-api.test.ts
 export type WorkbenchSummary = {
   employee: { id: number; name: string; avatar: string | null; departmentNames: string[]; corpName: string };
   customers: { total: number; addedToday: number; taggedTotal: number; ownedRoomTotal: number };
-  tasks: { contactSopPending: number; roomSopPending: number; batchAddPending: number };
+  tasks: { contactSopRecords: number; roomSopPending: number; batchAddPending: number };
 };
 
 export function loadWorkbenchSummary(request: BusinessRequest): Promise<WorkbenchSummary>;
@@ -234,7 +234,7 @@ git commit -m "feat(sidebar): expose employee workbench APIs"
 
 - [ ] **步骤 1：先写工作区失败测试**
 
-测试覆盖：缺省客户页；三栏始终存在；tab 写入 URL；统计错误不显示零；联系人搜索/分页；长名称；未接入 tab 的诚实说明；无上下文不暴露伪详情链接。
+测试覆盖：缺省客户页；三栏始终存在；tab、搜索词、页码与适用的任务状态写入 URL；统计错误不显示零且不阻断联系人/任务区；`401` 进入重新授权；联系人搜索/分页；个人客户 SOP 只显示触达记录；长名称；未接入 tab 的诚实说明；无上下文不暴露伪详情链接；个人中心明确权限明细未接入并可清理本端 Sidebar 会话。
 
 ```tsx
 it('switches among three real workspaces through the tab query', async () => {

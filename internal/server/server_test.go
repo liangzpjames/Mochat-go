@@ -3703,7 +3703,7 @@ func TestSidebarWorkbenchRoutes(t *testing.T) {
 			route:  "GET /sidebar/workContact/index",
 		},
 		{
-			path: "/sidebar/workbench/tasks?kind=contactSop&state=pending", body: "tasks",
+			path: "/sidebar/workbench/tasks?kind=contactSop&state=recorded", body: "tasks",
 			option: WithSidebarWorkbenchTasksHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("tasks")) })),
 			route:  "GET /sidebar/workbench/tasks",
 		},

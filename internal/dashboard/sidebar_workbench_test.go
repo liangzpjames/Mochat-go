@@ -14,7 +14,7 @@ func TestSidebarWorkbenchSummaryUsesResolvedEmployee(t *testing.T) {
 		summary: SidebarWorkbenchSummary{
 			Employee:  SidebarEmployeeProfile{ID: 7, Name: "员工甲", DepartmentNames: []string{"销售部"}, CorpName: "示例企业"},
 			Customers: SidebarCustomerMetrics{Total: 12, AddedToday: 2, TaggedTotal: 4, OwnedRoomTotal: 1},
-			Tasks:     SidebarTaskMetrics{ContactSOPPending: 3, RoomSOPPending: 2, BatchAddPending: 1},
+			Tasks:     SidebarTaskMetrics{ContactSOPRecords: 3, RoomSOPPending: 2, BatchAddPending: 1},
 		},
 	}
 	handler := NewSidebarWorkbenchHandler(store, HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
@@ -48,7 +48,7 @@ func TestSidebarWorkbenchRequiresEmployeeIdentity(t *testing.T) {
 	}{
 		{name: "summary", path: "/sidebar/workbench/summary"},
 		{name: "contacts", path: "/sidebar/workContact/index"},
-		{name: "tasks", path: "/sidebar/workbench/tasks?kind=contactSop&state=pending"},
+		{name: "tasks", path: "/sidebar/workbench/tasks?kind=contactSop&state=recorded"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, test.path, nil)
@@ -91,7 +91,9 @@ func TestSidebarWorkbenchTasksRejectsUnknownKindAndState(t *testing.T) {
 	for _, path := range []string{
 		"/sidebar/workbench/tasks?kind=archive&state=pending",
 		"/sidebar/workbench/tasks?kind=contactSop&state=unknown",
-		"/sidebar/workbench/tasks?kind=contactSop&state=pending&page=bad",
+		"/sidebar/workbench/tasks?kind=contactSop&state=pending",
+		"/sidebar/workbench/tasks?kind=roomSop&state=recorded",
+		"/sidebar/workbench/tasks?kind=contactSop&state=recorded&page=bad",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("X-Mochat-Go-Employee-ID", "7")

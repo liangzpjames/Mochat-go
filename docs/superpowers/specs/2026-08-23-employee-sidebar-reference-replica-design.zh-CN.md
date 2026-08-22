@@ -79,7 +79,7 @@
     "ownedRoomTotal": 0
   },
   "tasks": {
-    "contactSopPending": 0,
+    "contactSopRecords": 0,
     "roomSopPending": 0,
     "batchAddPending": 0
   }
@@ -96,9 +96,9 @@
 
 ### 4.3 `GET /sidebar/workbench/tasks`
 
-查询参数：`kind=contactSop|roomSop|batchAdd`、`state=pending|done`、`page`、`perPage`。返回统一任务摘要：`id`、`kind`、`title`、`subjectName`、`scheduledAt`、`state`。
+查询参数：`kind=contactSop|roomSop|batchAdd`、`state`、`page`、`perPage`。`contactSop` 只接受 `state=recorded`，表示已有、且仍能关联到有效 SOP 与未删除客户的触达日志；该数据源没有完成字段，因此不得伪装成待办或已完成。`roomSop` 与 `batchAdd` 接受 `state=pending|done`。响应统一包含 `id`、`kind`、`title`、`subjectName`、`scheduledAt`、`state`。
 
-每类任务必须通过现有任务日志/分配表验证当前员工和企业范围；查不到、越权或已删除时不得返回。详情继续调用既有 `/contactSop/getSopInfo`、`/roomSop/getSopInfo`、`/contactBatchAdd/detail`。
+每类任务必须通过现有任务日志/分配表验证当前员工和企业范围；查不到、越权、已删除或只剩孤立日志时不得返回。详情继续调用既有 `/contactSop/getSopInfo`、`/roomSop/getSopInfo`、`/contactBatchAdd/detail`。
 
 ### 4.4 错误与兼容
 
@@ -135,13 +135,14 @@ Sidebar 专用组件：
 
 ## 7. 状态机与交互
 
-每个分区独立使用 `idle → loading → ready|empty|unavailable|error → retrying`，避免一个统计接口失败导致整页不可用。写操作使用 `ready → submitting → success|partial|error`，提交期间禁用重复动作。
+每个分区独立使用 `idle → loading → ready|empty|unavailable|error → retrying`，汇总、联系人和任务请求互不阻断，避免一个统计接口失败导致整页不可用。任何工作台接口返回 `401` 都清除 Sidebar 自己的会话并进入保留安全内部目标的重新授权；写操作使用 `ready → submitting → success|partial|error`，提交期间禁用重复动作。
 
 - 根工作区切换更新 `tab` 查询参数，刷新和返回后保持选择。
 - 搜索在提交或 300ms 防抖后请求；新请求开始时废弃旧响应，避免竞态覆盖。
 - 列表滚动位置在详情返回后恢复。
 - 未接入模块可点击查看原因，但不会展示假数字或假成功。
-- 清理缓存只删除 Sidebar 自己的会话键和本地 UI 偏好，不清理浏览器或其他 Mochat 端数据。
+- “员工会话已建立”只表示服务端已识别员工，不宣称全部企业应用权限均已授权；权限明细未接入时必须明示。
+- 清理缓存只删除 Sidebar 自己的会话键和本地 UI 偏好，不清理浏览器或其他 Mochat 端数据，并进入重新授权。
 
 ## 8. 测试与验收标准
 

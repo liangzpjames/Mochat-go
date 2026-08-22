@@ -30,7 +30,7 @@ const businessRequest: SidebarRequest = <T,>(path: string): Promise<T> => {
   if (path === '/workbench/summary') return Promise.resolve({
     employee: { id: 7, name: '测试员工', avatar: null, departmentNames: ['客户成功部'], corpName: '测试企业' },
     customers: { total: 12, addedToday: 2, taggedTotal: 8, ownedRoomTotal: 3 },
-    tasks: { contactSopPending: 4, roomSopPending: 5, batchAddPending: 6 },
+    tasks: { contactSopRecords: 4, roomSopPending: 5, batchAddPending: 6 },
   } as T);
   if (path === '/mediumGroup/index') return Promise.resolve([] as T);
   if (path.startsWith('/medium/index?')) {

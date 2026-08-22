@@ -170,7 +170,7 @@ test('serves every explicit fixture read API in the success envelope', async () 
   const endpoints = new Map([
     ['/sidebar/workbench/summary', fixture.workbenchSummary],
     ['/sidebar/workContact/index?page=1&perPage=20&keyword=', fixture.workContacts],
-    ['/sidebar/workbench/tasks?kind=contactSop&state=pending&page=1&perPage=20', fixture.workbenchTasks.contactSop],
+    ['/sidebar/workbench/tasks?kind=contactSop&state=recorded&page=1&perPage=20', fixture.workbenchTasks.contactSop],
     ['/sidebar/workContact/detail?wxExternalUserid=external-user-1', fixture.contactDetail],
     ['/sidebar/workContact/show?contactId=23', fixture.contactSummary],
     ['/sidebar/workContact/track?contactId=23', fixture.tracks],
@@ -196,6 +196,27 @@ test('serves every explicit fixture read API in the success envelope', async () 
   }
   const filtered = jsonBody(await authorized('/sidebar/contactBatchAdd/detail?batchId=9&status=3'));
   assert.deepEqual(filtered.data, { employeeName: fixture.batch.employeeName, list: [] });
+});
+
+test('enforces task state semantics and real pagination in review fixtures', async () => {
+  review.reset();
+  for (const endpoint of [
+    '/sidebar/workbench/tasks?kind=contactSop&state=pending&page=1&perPage=20',
+    '/sidebar/workbench/tasks?kind=roomSop&state=recorded&page=1&perPage=20',
+    '/sidebar/workContact/index?page=0&perPage=20',
+    '/sidebar/workContact/index?page=1&perPage=101',
+  ]) {
+    assert.equal((await authorized(endpoint)).status, 422, endpoint);
+  }
+
+  const response = await authorized('/sidebar/workContact/index?page=2&perPage=1&keyword=');
+  assert.equal(response.status, 200);
+  const data = jsonBody(response).data;
+  assert.equal(data.page, 2);
+  assert.equal(data.perPage, 1);
+  assert.equal(data.items.length, 1);
+  assert.equal(data.total, fixture.workContacts.items.length);
+  assert.equal(data.totalPage, fixture.workContacts.items.length);
 });
 
 test('returns explicit 4xx/501 responses for invalid methods, bodies, and unsupported upload', async () => {

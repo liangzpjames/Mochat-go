@@ -178,7 +178,10 @@ function SidebarContactPage({ runtime }: { runtime: SidebarRuntime }) {
 function useSidebarActions(runtime: SidebarRuntime) {
   const location = useLocation();
   const navigate = useNavigate();
+  const reauthenticating = useRef(false);
   const onReauthenticate = useCallback(() => {
+    if (reauthenticating.current) return;
+    reauthenticating.current = true;
     const session = readSidebarSession(runtime.session);
     const queryAgentId = new URLSearchParams(location.search).get('agentId');
     clearSidebarSession(runtime.session);
@@ -215,6 +218,11 @@ function SidebarBusinessPage({ runtime, route }: { runtime: SidebarRuntime; rout
   return <SidebarPageShell subtitle={route.description} title={route.title}>{content}</SidebarPageShell>;
 }
 
+function SidebarWorkbenchPage({ runtime }: { runtime: SidebarRuntime }) {
+  const actions = useSidebarActions(runtime);
+  return <WorkbenchPage bridge={runtime.bridge} onReauthenticate={actions.onReauthenticate} request={runtime.request} />;
+}
+
 function routeElement(route: SidebarRouteRegistration, runtime: SidebarRuntime): ReactNode {
   if (route.moduleKey === 'sidebar-login') return <SidebarLoginPage />;
   if (route.moduleKey === 'sidebar-auth-callback') {
@@ -224,7 +232,7 @@ function routeElement(route: SidebarRouteRegistration, runtime: SidebarRuntime):
   const content = route.moduleKey === 'contact-summary'
     ? <SidebarContactPage runtime={runtime} />
     : route.moduleKey === 'sidebar-home'
-      ? <WorkbenchPage bridge={runtime.bridge} request={runtime.request} />
+      ? <SidebarWorkbenchPage runtime={runtime} />
       : <SidebarBusinessPage route={route} runtime={runtime} />;
   return route.auth ? (
     <SidebarAuthBoundary runtime={runtime}>{content}</SidebarAuthBoundary>

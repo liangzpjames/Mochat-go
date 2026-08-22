@@ -35,7 +35,11 @@ func (s *MySQLStore) SidebarWorkbenchSummary(ctx context.Context, employee dashb
 			 JOIN mc_work_contact_tag AS tag ON tag.id = pivot.contact_tag_id AND tag.corp_id = employee.corp_id AND tag.deleted_at IS NULL
 			 WHERE rel.employee_id = employee.id AND rel.corp_id = employee.corp_id AND rel.deleted_at IS NULL),
 			(SELECT COUNT(*) FROM mc_work_room AS room WHERE room.owner_id = employee.id AND room.corp_id = employee.corp_id AND room.deleted_at IS NULL),
-			(SELECT COUNT(*) FROM mc_contact_sop_log AS contact_log WHERE contact_log.corp_id = employee.corp_id AND contact_log.employee = employee.wx_user_id),
+			(SELECT COUNT(*)
+			 FROM mc_contact_sop_log AS contact_log
+			 JOIN mc_contact_sop AS contact_sop ON contact_sop.id = contact_log.contact_sop_id AND contact_sop.corp_id = contact_log.corp_id
+			 JOIN mc_work_contact AS sop_contact ON sop_contact.wx_external_userid = contact_log.contact AND sop_contact.corp_id = contact_log.corp_id AND sop_contact.deleted_at IS NULL
+			 WHERE contact_log.corp_id = employee.corp_id AND contact_log.employee = employee.wx_user_id),
 			(SELECT COUNT(*) FROM mc_room_sop_log AS room_log WHERE room_log.corp_id = employee.corp_id AND room_log.employee = employee.wx_user_id AND room_log.state = 0),
 			(SELECT COUNT(DISTINCT batch.record_id) FROM mc_contact_batch_add_import AS batch WHERE batch.employee_id = employee.id AND batch.corp_id = employee.corp_id AND batch.status IN (0, 1, 2) AND batch.deleted_at IS NULL)
 		FROM mc_work_employee AS employee
@@ -54,7 +58,7 @@ func (s *MySQLStore) SidebarWorkbenchSummary(ctx context.Context, employee dashb
 		&summary.Customers.AddedToday,
 		&summary.Customers.TaggedTotal,
 		&summary.Customers.OwnedRoomTotal,
-		&summary.Tasks.ContactSOPPending,
+		&summary.Tasks.ContactSOPRecords,
 		&summary.Tasks.RoomSOPPending,
 		&summary.Tasks.BatchAddPending,
 	)
@@ -138,9 +142,6 @@ func (s *MySQLStore) SidebarContacts(ctx context.Context, employee dashboard.Sid
 
 func (s *MySQLStore) SidebarTasks(ctx context.Context, employee dashboard.SidebarEmployee, filter dashboard.SidebarTaskFilter) (dashboard.SidebarTaskPage, error) {
 	page := dashboard.SidebarTaskPage{Page: filter.Page, PerPage: filter.PerPage, Items: []dashboard.SidebarTaskListItem{}}
-	if filter.Kind == "contactSop" && filter.State == "done" {
-		return page, nil
-	}
 	from, selectSQL, args, err := sidebarTaskQuery(employee, filter)
 	if err != nil {
 		return dashboard.SidebarTaskPage{}, err
@@ -183,10 +184,10 @@ func sidebarTaskQuery(employee dashboard.SidebarEmployee, filter dashboard.Sideb
 		return `
 			FROM mc_contact_sop_log AS log
 			JOIN mc_work_employee AS employee ON employee.id = ? AND employee.corp_id = ? AND employee.wx_user_id = log.employee AND employee.deleted_at IS NULL
-			LEFT JOIN mc_contact_sop AS sop ON sop.id = log.contact_sop_id AND sop.corp_id = log.corp_id
-			LEFT JOIN mc_work_contact AS contact ON contact.wx_external_userid = log.contact AND contact.corp_id = log.corp_id AND contact.deleted_at IS NULL
+			JOIN mc_contact_sop AS sop ON sop.id = log.contact_sop_id AND sop.corp_id = log.corp_id
+			JOIN mc_work_contact AS contact ON contact.wx_external_userid = log.contact AND contact.corp_id = log.corp_id AND contact.deleted_at IS NULL
 			WHERE log.corp_id = employee.corp_id
-		`, `SELECT log.id, 'contactSop', COALESCE(sop.name, '个人客户 SOP'), COALESCE(contact.name, ''), COALESCE(DATE_FORMAT(log.created_at, '%Y-%m-%d %H:%i:%s'), ''), 'pending' `, []any{employee.ID, employee.CorpID}, nil
+		`, `SELECT log.id, 'contactSop', COALESCE(sop.name, '个人客户 SOP 触达'), contact.name, COALESCE(DATE_FORMAT(log.created_at, '%Y-%m-%d %H:%i:%s'), ''), 'recorded' `, []any{employee.ID, employee.CorpID}, nil
 	case "roomSop":
 		return `
 			FROM mc_room_sop_log AS log

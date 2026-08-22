@@ -13,12 +13,12 @@ describe('employee workbench API contracts', () => {
     const request = vi.fn().mockResolvedValue({
       employee: { id: 7, name: '员工甲', avatar: null, departmentNames: ['销售部'], corpName: '示例企业' },
       customers: { total: 12, addedToday: 2, taggedTotal: 4, ownedRoomTotal: 1 },
-      tasks: { contactSopPending: 3, roomSopPending: 2, batchAddPending: 1 },
+      tasks: { contactSopRecords: 3, roomSopPending: 2, batchAddPending: 1 },
     });
     await expect(loadWorkbenchSummary(request)).resolves.toMatchObject({
       employee: { id: 7, name: '员工甲' },
       customers: { total: 12 },
-      tasks: { contactSopPending: 3 },
+      tasks: { contactSopRecords: 3 },
     });
     expect(request).toHaveBeenCalledWith('/workbench/summary', { method: 'GET' });
   });
@@ -41,6 +41,13 @@ describe('employee workbench API contracts', () => {
   it('rejects unknown task kinds before a request is sent', async () => {
     const request = vi.fn();
     await expect(loadEmployeeTasks(request, { kind: 'archive' as 'contactSop', state: 'pending', page: 1, perPage: 20 })).rejects.toBeInstanceOf(MobileApiError);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('rejects task states that are unsupported for the selected kind', async () => {
+    const request = vi.fn();
+    await expect(loadEmployeeTasks(request, { kind: 'contactSop', state: 'pending', page: 1, perPage: 20 })).rejects.toBeInstanceOf(MobileApiError);
+    await expect(loadEmployeeTasks(request, { kind: 'roomSop', state: 'recorded', page: 1, perPage: 20 })).rejects.toBeInstanceOf(MobileApiError);
     expect(request).not.toHaveBeenCalled();
   });
 
