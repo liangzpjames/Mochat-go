@@ -30,7 +30,7 @@
 
 ## 4. 提交清单
 
-本分支相对当前 `origin/main` 的提交如下；早期活码页面提交在最终 merge 中已被权威上游实现覆盖，最终工作树不保留重复页面实现。
+本次归档前的业务、同步与修复提交如下；归档文档自身的提交以最终 `git log origin/main..HEAD` 为准。早期活码页面提交在最终 merge 中已被权威上游实现覆盖，最终工作树不保留重复页面实现。
 
 1. `e02c9656` `docs: design P0 live code integration`
 2. `17ab6716` `docs: plan P0 live code integration`
