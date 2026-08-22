@@ -1,7 +1,7 @@
 # Mochat 员工移动端整体优化验收报告
 
-> 验收日期：2026-08-22  
-> 验收对象：员工在企业微信中使用的移动侧边栏 `web/apps/sidebar` 及其实际依赖契约  
+> 验收日期：2026-08-22<br>
+> 验收对象：员工在企业微信中使用的移动侧边栏 `web/apps/sidebar` 及其实际依赖契约<br>
 > 结论：本任务所有可控实现、测试、构建、Docker 加载和浏览器验收均通过；真实企业微信 OAuth 与可信域名内 JSSDK 调用因缺少外部企业凭证和已登记域名，按要求记为 `SKIP`，未伪报为 `PASS`。
 
 ## 1. 基线、分支与交付边界
@@ -12,7 +12,7 @@
 | 隔离 worktree | `D:\workspace\mochat-go\mochat-go\.worktrees\employee-sidebar-mobile-optimization` |
 | 功能分支 | `feat/employee-sidebar-mobile-optimization` |
 | 精确基线 | `b9a47cab45ec872bc81e61a20b06a8a3529311b2`（任务开始时已获取并验证的 `origin/main`） |
-| 代码验收提交 | `486bd6fa72d8296ee2d1b0bd90f867ea3ca74d0a` |
+| 代码验收提交 | `2bca48e669da7fd37324302e649ccf82036fcb69` |
 | 截图证据提交 | `d6ccc8b` |
 | 验收时远端主线 | `43c781514a4549e806517ab2b2a707f1320e2df7` |
 | 主线漂移策略 | 不盲目合并；集成前由主线维护者显式 rebase 或逐提交 cherry-pick，并重新运行本文门禁 |
@@ -38,6 +38,8 @@
 | `11e3058` | 群 SOP 基础契约对齐 | 共享基础包回滚点 |
 | `486bd6f` | 独立审阅问题整改与安全收口 | 推荐代码验收点 |
 | `d6ccc8b` | 最新多尺寸截图证据 | 仅证据，可单独回滚 |
+| `7408c82` | 初版中文验收报告 | 仅文档，可单独回滚 |
+| `2bca48e` | 二次复审发现的多租户边界、交互降级与专项 E2E 收口 | 最终安全代码验收点 |
 
 未直接合入 `main`，未强推，未重置或清理用户工作树，未删除任何 Docker 命名卷。
 
@@ -52,17 +54,18 @@
 | `/contact/editDetail` | `PASS` | 多类型画像字段、图片上传、校验、保存、取消、重复提交锁和失败重试 | `/contactFieldPivot/index`、`/contactFieldPivot/update`、`/common/upload` |
 | `/contact/remark` | `PASS` | 真实备注/描述回显、长度校验、保存、取消、失败重试 | 客户详情读取与备注更新 API |
 | `/contact/settingTag` | `PASS` | 已有标签、可选标签、仅提交新增 ID、空态、保存/取消、失败重试 | 标签分组与客户标签更新 API |
-| `/contactBatchAdd` | `PASS` | 批次客户列表、筛选状态、复制并添加、JSSDK 外部联系人动作、重复提交锁、空态/错误/重试 | `/contactBatchAdd/detail` + 剪贴板 + 企业微信桥接 |
+| `/contactBatchAdd` | `PASS` | 批次客户列表、筛选状态、复制并添加、Clipboard API 缺失降级、JSSDK 外部联系人动作、重复提交锁、空态/错误/重试 | `/contactBatchAdd/detail` + 剪贴板 + 企业微信桥接 |
 | `/contactSop` | `PASS` | 个人客户 SOP 任务、客户信息、任务内容、复制失败反馈、空态/错误/重试 | `/contactSop/getSopInfo`、`/contactSop/getSopTipInfo` |
 | `/login` | `PASS` | 明确保留授权安全语义、继续授权、失败恢复，不弱化鉴权 | `/sidebar/agent/auth` |
 | `/medium` | `PASS` | 素材分组、类型、搜索、分页、跨页选择、未知类型禁用、真实发送结果与失败反馈 | `/mediumGroup/index`、`/medium/index`、`/medium/mediaIdUpdate`、JSSDK 消息发送 |
-| `/roomSop` | `PASS` | 群 SOP 内容、群信息、完成动作、服务端回读确认、重复提交锁、空态/错误/重试 | `/roomSop/getSopInfo`、`/roomSop/logState` |
+| `/roomSop` | `PASS` | 群 SOP 内容、群信息、完成动作、服务端回读确认、任意非零终态禁用、重复提交锁、空态/错误/重试 | `/roomSop/getSopInfo`、`/roomSop/logState` |
 
 ## 5. 数据真实性、鉴权与错误策略
 
 - 生产业务页面只消费真实持久化 API；单元测试和 E2E 中的固定数据均是明确测试夹具，不进入生产 bundle，也未将随机成功或纯内存状态包装为生产能力。
 - 缺数据时显示诚实空态；网络或服务器失败显示错误与重试；`401` 触发重新授权；`403`、`404` 和校验错误分别给出可理解反馈，避免将权限问题伪装为网络问题。
-- Sidebar 客户详情、画像读取和画像更新均新增“当前员工—客户—企业”可访问性校验；跨企业客户、非当前员工持有客户、外来画像 pivot 或 field 均返回 `403`，关闭 IDOR 风险。
+- Sidebar 客户详情、客户摘要、客户轨迹、画像读取和画像更新均新增“当前员工—客户—企业”可访问性校验；摘要和轨迹 SQL 本身绑定员工关系与企业，跨企业客户、非当前员工持有客户、外来画像 pivot 或 field 均无法返回数据。
+- 素材 `mediaIdUpdate` 使用 Sidebar 专用读写合同，读取和更新 SQL 都绑定当前企业、Sidebar 可见和可用状态；个人 SOP 两个 ID 查找分支及 SOP/客户/员工 JOIN 全部绑定 `corp_id`，避免企业间相同 userid 导致的跨租户读取。
 - JSSDK 配置严格接受正安全整数的字符串或数字时间戳，兼容 Go JSON 响应的字符串格式；浏览器契约测试使用真实响应形态覆盖 `agentConfig` 和调用链。
 - 页面导航仅传播目标页面允许的上下文字段，清除 hash，禁止把 `wxExternalUserid`、`batchId`、SOP `id` 等跨业务泄漏。
 - 没有新增数据库迁移；后端变更为既有关系上的权限验证和契约收紧。Dashboard 已有成功路径由回归测试保持，但未改其界面。
@@ -89,7 +92,7 @@
 
 | 检查项 | 命令/覆盖 | 结果 |
 | --- | --- | --- |
-| Sidebar 全部单元/组件/路由测试 | `corepack pnpm --filter @mochat/sidebar test` | `PASS`，12 文件、117/117 |
+| Sidebar 全部单元/组件/路由测试 | `corepack pnpm --filter @mochat/sidebar test` | `PASS`，12 文件、119/119 |
 | Sidebar 类型检查 | `corepack pnpm --filter @mochat/sidebar typecheck` | `PASS` |
 | Sidebar lint | `corepack pnpm --filter @mochat/sidebar lint` | `PASS` |
 | Sidebar production build | `corepack pnpm --filter @mochat/sidebar build` | `PASS` |
@@ -100,14 +103,16 @@
 | 相关 Go/API | `go test ./internal/dashboard ./internal/server ./internal/store -count=1` | `PASS` |
 | 移动 E2E 类型与 lint | E2E workspace typecheck/lint | `PASS` |
 | 移动 E2E | `mobile-clients-foundation.spec.ts` | `PASS`，56/56 |
+| Sidebar 专项移动 E2E | `sidebar-employee-mobile.spec.ts` | `PASS`，42/42；12 路由分别覆盖 360×800、390×844、430×932，并在 390×844 覆盖核心业务状态 |
+| Sidebar SQL 安全合同 | `internal/store/sidebar_employee_security_test.go` | `PASS`；客户摘要/轨迹、素材读写和个人 SOP 两个分支均断言企业/员工约束 |
 | Git 空白错误 | `git diff --check` | `PASS` |
 
 ### 7.2 E2E 覆盖
 
-- Sidebar 12 条路由全部验证可达；授权路由验证安全回调与失败路径，业务路由验证真实夹具内容、加载、空态、错误、重试和返回。
+- Sidebar 12 条路由全部验证可达；专项用例在 360×800、390×844、430×932 三个主视口逐路由执行，授权路由验证安全回调与失败路径，业务路由验证真实夹具内容、加载、空态、错误、重试和返回。
 - 主视觉尺寸覆盖 360×800、390×844、430×932；额外覆盖 320×568 窄屏和 844×390 横屏/输入聚焦等价场景。
 - 备注流程覆盖持久化回显、校验、保存和取消；素材覆盖筛选与多选；SOP 覆盖复制/完成；批量加好友覆盖字符串时间戳 JSSDK 配置及调用。
-- 56 个用例统一检查可操作按钮触控几何、页面横向溢出和路由加载。
+- 56 个移动基础用例加 42 个 Sidebar 专项用例统一检查可操作按钮触控几何、页面横向溢出、控制台/未处理错误和路由加载；专项业务用例另覆盖延迟加载、空态、5xx/重试、备注校验/保存/取消、标签追加、画像保存、SDK 不可用、群 SOP 完成回读和批次筛选。
 
 ### 7.3 Docker 与应用内浏览器
 
@@ -126,7 +131,7 @@
 
 | 状态 | 数量与说明 |
 | --- | --- |
-| `PASS` | 所有本任务可控单元、组件、路由、类型、lint、构建、基础门禁、Go 契约、56 项移动 E2E、Docker 加载、8 项 Docker 视觉测试、应用内浏览器控制台与溢出检查 |
+| `PASS` | 所有本任务可控单元、组件、路由、类型、lint、构建、基础门禁、Go/SQL 安全契约、56 项移动基础 E2E、42 项 Sidebar 专项 E2E、Docker 加载、8 项 Docker 视觉测试、应用内浏览器控制台与溢出检查 |
 | `FAIL` | 0 |
 | `SKIP` | 真实企业微信 OAuth、真实企业可信域名内 JSSDK 与外部联系人/消息发送；当前环境没有可用企业应用凭证、可信域名和真实会话上下文 |
 
@@ -137,7 +142,7 @@
 1. `origin/main` 已从本任务基线推进到 `43c7815`。分支未吸收其他未验收工作；集成前必须显式 rebase/cherry-pick 并重新跑本文全部门禁。
 2. 真实企业微信 WebView 仍需在持有企业应用凭证、可信域名和真实客户/群会话的环境做最终冒烟；重点复核 OAuth 回跳、底部安全区、软键盘、外部联系人添加与素材发送。
 3. 本任务未实现真实企微会话存档，也未扩展 Operation、Dashboard UI 或 Phase 7；这些是明确非目标，不应在本分支继续膨胀。
-4. 若回滚，优先回到 `486bd6f` 前一提交定位整改差异，或按第 3 节的功能/API/共享基础包原子提交分别回滚；不需要删除数据库卷，也没有数据库 schema 回退动作。
+4. 若回滚，优先以 `2bca48e` 作为最终安全边界；如需定位可分别回滚该提交或第 3 节的功能/API/共享基础包原子提交。不需要删除数据库卷，也没有数据库 schema 回退动作。
 
 ## 10. 最终结论
 

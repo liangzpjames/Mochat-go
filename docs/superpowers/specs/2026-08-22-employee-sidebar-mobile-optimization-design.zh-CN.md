@@ -195,7 +195,9 @@ SidebarRouter/AuthBoundary
 - `/sidebar-app` 使用 Path 为 `/sidebar-app` 的 `token`、`agentId` cookie；根挂载测试只使用 Sidebar 专用 sessionStorage。
 - API 客户端固定 `basePath:'/sidebar'`，覆盖调用方传入的 Authorization，阻止跨 scope 路径和开放重定向。
 - 401 清理 Sidebar 会话并重新授权；403 保留会话；OAuth target 只允许同源内部路径。
-- `/workContact/detail` 与 Sidebar 画像读写必须在 Go 层校验员工—客户—企业归属；已有画像 pivot 还必须匹配本次 `contactId` 与字段 ID，越权统一返回 403。
+- `/workContact/detail`、`/workContact/show`、`/workContact/track` 与 Sidebar 画像读写必须在 Go 层校验员工—客户—企业归属；摘要和轨迹 SQL 本身也必须绑定员工关系与企业，已有画像 pivot 还必须匹配本次 `contactId` 与字段 ID，越权统一返回 403。
+- `/medium/mediaIdUpdate` 的读取与写回必须同时绑定当前企业、`sidebar_visible=1` 和 `status=available`，不能使用当前企业凭证处理其他企业素材。
+- `/contactSop/getSopInfo` 的 log、SOP、客户与员工匹配都必须绑定同一 `corp_id`；不能把只在企业内唯一的 `wx_user_id` 当作全局身份。
 - `/codeAuth` 不信任旧 Dashboard realm token，不把 `callValues` 直接写入 Sidebar 会话；只提取 agentId/目标意图并进入 `/login`。
 - 日志和错误 UI 不输出 token、OAuth code、Base64 state、secret 或完整敏感 URL。
 
@@ -203,6 +205,7 @@ SidebarRouter/AuthBoundary
 
 - `workContact/update` 的标签行为是“新增缺失项，不删除旧标签”；界面必须如实表达。
 - `contactSop` 没有“已发送”写接口；只提供读取、复制和企微动作，不保存假完成状态。
+- 群 SOP 的任何非零 `state` 都视为终态并禁止重复提交；缺少 Clipboard API 时使用临时只读文本域进行复制降级，降级仍失败则提示员工长按手动复制。
 - 当前 Go `agentJSSDKAPIs` 包含 `getCurExternalContact`、`sendChatMessage`、`getContext`、`shareAppMessage`、`navigateToAddCustomer`，不包含 `openUserProfile`、`openExistedChatWithMsg`；相关按钮不得伪报可用。
 - 当前 Go JSSDK 合同把 `timestamp` 序列化为十进制字符串；前端必须严格校验正整数后转换为 SDK 所需数字，合同测试不得使用理想化数字夹具掩盖真实响应。
 - 真正的 OAuth、JS-SDK 签名和宿主 invoke 需要企业微信可信域名、应用凭证和会话环境；自动化只能验证可控的 URL、签名请求、能力检测和错误分支，真实宿主链路标记 SKIP。

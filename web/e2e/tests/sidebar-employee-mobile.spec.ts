@@ -94,3 +94,125 @@ for (const viewport of viewports) {
     }
   });
 }
+
+test.describe('employee Sidebar business states at 390x844', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('shows delayed loading, retryable server error and persisted empty state', async ({ page }) => {
+    await installFixtures(page);
+    await injectSession(page);
+    let attempts = 0;
+    await page.route('**/sidebar/medium/index?*', async (route) => {
+      attempts += 1;
+      if (attempts === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 500, msg: '专项服务器错误', data: null }) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: envelope({ page: { perPage: 20, total: 0, totalPage: 0 }, list: [] }) });
+    });
+    await page.goto('/sidebar-app/medium?agentId=7');
+    await expect(page.getByText('正在读取持久化数据。')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '加载失败' })).toBeVisible();
+    await page.getByRole('button', { name: '重试' }).click();
+    await expect(page.getByText('暂无可用素材')).toBeVisible();
+    expect(attempts).toBe(2);
+  });
+
+  test('validates, saves and cancels a persisted remark without duplicate writes', async ({ page }) => {
+    await installFixtures(page);
+    await injectSession(page);
+    const writes: Array<Record<string, unknown>> = [];
+    await page.route('**/sidebar/workContact/update', async (route) => {
+      writes.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: envelope([]) });
+    });
+    await page.goto('/sidebar-app/contact/remark?wxExternalUserid=external-user-1&agentId=7');
+    await page.getByLabel('备注名').fill('');
+    await page.getByRole('button', { name: '保存备注' }).click();
+    await expect(page.getByRole('alert')).toContainText('请输入 1 至 10 个字符');
+    expect(writes).toHaveLength(0);
+    await page.getByLabel('备注名').fill('新备注');
+    await page.getByRole('button', { name: '保存备注' }).click();
+    await expect(page.getByRole('heading', { name: '专项验收客户' })).toBeVisible();
+    expect(writes).toEqual([{ contactId: 23, remark: '新备注' }]);
+    await page.goto('/sidebar-app/contact/remark?wxExternalUserid=external-user-1&agentId=7');
+    await page.getByRole('button', { name: '取消' }).click();
+    expect(writes).toHaveLength(1);
+  });
+
+  test('appends only a new tag and saves an edited portrait field', async ({ page }) => {
+    await installFixtures(page);
+    await injectSession(page);
+    const contactWrites: Array<Record<string, unknown>> = [];
+    const portraitWrites: Array<Record<string, unknown>> = [];
+    await page.route('**/sidebar/workContact/update', async (route) => {
+      contactWrites.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: envelope([]) });
+    });
+    await page.route('**/sidebar/contactFieldPivot/update', async (route) => {
+      portraitWrites.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: envelope([]) });
+    });
+    await page.goto('/sidebar-app/contact/settingTag?wxExternalUserid=external-user-1&agentId=7');
+    await page.getByLabel('待回访').check();
+    await page.getByRole('button', { name: '保存标签' }).click();
+    await expect(page.getByRole('heading', { name: '专项验收客户' })).toBeVisible();
+    expect(contactWrites).toEqual([{ contactId: 23, tag: [9] }]);
+    await page.goto('/sidebar-app/contact/editDetail?wxExternalUserid=external-user-1&agentId=7');
+    await page.getByLabel('画像备注').fill('浏览器新画像');
+    await page.getByRole('button', { name: '保存画像' }).click();
+    await expect(page.getByRole('heading', { name: '专项验收客户' })).toBeVisible();
+    expect(portraitWrites).toHaveLength(1);
+    expect(portraitWrites[0]?.contactId).toBe(23);
+    expect(portraitWrites[0]?.userPortrait).toEqual([expect.objectContaining({ contactFieldId: 31, value: '浏览器新画像' })]);
+  });
+
+  test('keeps material browsing honest when the WeCom SDK is unavailable', async ({ page }) => {
+    await installFixtures(page);
+    await injectSession(page);
+    await page.goto('/sidebar-app/medium?agentId=7');
+    await expect(page.getByText('专项验收素材')).toBeVisible();
+    await expect(page.getByText(/需在企业微信客户端中打开才能发送/)).toBeVisible();
+    await page.getByRole('checkbox', { name: '专项验收素材' }).check();
+    await page.getByRole('button', { name: '发送已选素材' }).click();
+    await expect(page.getByText('需在企业微信客户端中打开才能发送素材。')).toBeVisible();
+  });
+
+  test('persists room SOP completion and confirms the non-zero terminal state', async ({ page }) => {
+    await installFixtures(page);
+    await injectSession(page);
+    let state = 0;
+    let updates = 0;
+    await page.route('**/sidebar/roomSop/getSopInfo?*', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: envelope({ id: 5, roomSopId: 13, creator: '员工甲', time: '10:00', state, task: { content: [] }, room: { id: 21, name: '专项验收客户群' } }),
+    }));
+    await page.route('**/sidebar/roomSop/logState', async (route) => {
+      updates += 1;
+      state = 2;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: envelope([]) });
+    });
+    await page.goto('/sidebar-app/roomSop?id=5&agentId=7');
+    await page.getByRole('button', { name: '标记为已完成' }).click();
+    const completed = page.getByRole('button', { name: '已完成' });
+    await expect(completed).toBeDisabled();
+    expect(updates).toBe(1);
+  });
+
+  test('reloads the persisted batch for the selected status filter', async ({ page }) => {
+    await installFixtures(page);
+    await injectSession(page);
+    const statuses: string[] = [];
+    await page.route('**/sidebar/contactBatchAdd/detail?*', async (route) => {
+      statuses.push(new URL(route.request().url()).searchParams.get('status') ?? '');
+      await route.fulfill({ status: 200, contentType: 'application/json', body: envelope(statuses.at(-1) === '1' ? { employeeName: '员工甲', list: [] } : { employeeName: '员工甲', list: [{ id: 1, phone: '13800000000', status: '待添加' }] }) });
+    });
+    await page.goto('/sidebar-app/contactBatchAdd?batchId=9&agentId=7');
+    await expect(page.getByText('13800000000')).toBeVisible();
+    await page.getByLabel('添加状态').selectOption('1');
+    await expect(page.getByText('当前筛选下暂无客户')).toBeVisible();
+    expect(statuses).toEqual(['4', '1']);
+  });
+});
