@@ -7373,6 +7373,23 @@ func (s *MySQLStore) MediumMediaForUpdateByID(ctx context.Context, mediumID int)
 	return item, true, nil
 }
 
+func (s *MySQLStore) SidebarMediumMediaForUpdateByID(ctx context.Context, corpID int, mediumID int) (dashboard.MediumMediaUpdateItem, bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, media_id, last_upload_time, type, content
+		FROM mc_medium
+		WHERE id = ? AND corp_id = ? AND sidebar_visible = 1 AND status = 'available' AND deleted_at IS NULL
+		LIMIT 1
+	`, mediumID, corpID)
+	item, err := scanMediumMediaUpdateItem(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return dashboard.MediumMediaUpdateItem{}, false, nil
+		}
+		return dashboard.MediumMediaUpdateItem{}, false, err
+	}
+	return item, true, nil
+}
+
 func (s *MySQLStore) MediumMediaForUpdateByCorp(ctx context.Context, corpID int, olderThan int64) ([]dashboard.MediumMediaUpdateItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, media_id, last_upload_time, type, content
@@ -7405,6 +7422,19 @@ func (s *MySQLStore) UpdateMediumMediaID(ctx context.Context, mediumID int, medi
 		SET media_id = ?, last_upload_time = ?, updated_at = NOW()
 		WHERE id = ? AND deleted_at IS NULL
 	`, mediaID, lastUploadTime, mediumID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected > 0, err
+}
+
+func (s *MySQLStore) UpdateSidebarMediumMediaID(ctx context.Context, corpID int, mediumID int, mediaID string, lastUploadTime int64) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mc_medium
+		SET media_id = ?, last_upload_time = ?, updated_at = NOW()
+		WHERE id = ? AND corp_id = ? AND sidebar_visible = 1 AND status = 'available' AND deleted_at IS NULL
+	`, mediaID, lastUploadTime, mediumID, corpID)
 	if err != nil {
 		return false, err
 	}
@@ -16545,13 +16575,17 @@ func (s *MySQLStore) WorkContactShowByID(ctx context.Context, contactID int, emp
 		RoomNames:    []string{},
 		EmployeeName: []string{},
 	}
-	var name, avatar, businessNo sql.NullString
+	var name, avatar, businessNo, remark, description sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT name, avatar, gender, business_no
-		FROM mc_work_contact
-		WHERE id = ? AND deleted_at IS NULL
+		SELECT contact.name, contact.avatar, contact.gender, contact.business_no, pivot.remark, pivot.description
+		FROM mc_work_contact AS contact
+		JOIN mc_work_contact_employee AS pivot
+		  ON pivot.contact_id = contact.id AND pivot.employee_id = ? AND pivot.deleted_at IS NULL
+		JOIN mc_work_employee AS employee
+		  ON employee.id = pivot.employee_id AND employee.corp_id = contact.corp_id AND employee.deleted_at IS NULL
+		WHERE contact.id = ? AND contact.deleted_at IS NULL
 		LIMIT 1
-	`, contactID).Scan(&name, &avatar, &info.Gender, &businessNo)
+	`, employeeID, contactID).Scan(&name, &avatar, &info.Gender, &businessNo, &remark, &description)
 	if errors.Is(err, sql.ErrNoRows) {
 		return info, false, nil
 	}
@@ -16561,17 +16595,6 @@ func (s *MySQLStore) WorkContactShowByID(ctx context.Context, contactID int, emp
 	info.Name = nullString(name)
 	info.Avatar = nullString(avatar)
 	info.BusinessNo = nullString(businessNo)
-
-	var remark, description sql.NullString
-	err = s.db.QueryRowContext(ctx, `
-		SELECT remark, description
-		FROM mc_work_contact_employee
-		WHERE employee_id = ? AND contact_id = ? AND deleted_at IS NULL
-		LIMIT 1
-	`, employeeID, contactID).Scan(&remark, &description)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return dashboard.WorkContactShow{}, false, err
-	}
 	info.Remark = nullString(remark)
 	info.Description = nullString(description)
 
@@ -20773,6 +20796,37 @@ func (s *MySQLStore) ContactEmployeeTracksByContactID(ctx context.Context, conta
 		return nil, err
 	}
 	return tracks, nil
+}
+
+func (s *MySQLStore) SidebarContactEmployeeTracksByContactID(ctx context.Context, contactID int, employeeID int, corpID int) ([]dashboard.ContactEmployeeTrack, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT track.id, track.content, track.created_at
+		FROM mc_contact_employee_track AS track
+		JOIN mc_work_contact AS contact
+		  ON contact.id = track.contact_id AND contact.corp_id = ? AND contact.deleted_at IS NULL
+		JOIN mc_work_contact_employee AS pivot
+		  ON pivot.contact_id = contact.id AND pivot.employee_id = ? AND pivot.deleted_at IS NULL
+		JOIN mc_work_employee AS employee
+		  ON employee.id = pivot.employee_id AND employee.corp_id = contact.corp_id AND employee.deleted_at IS NULL
+		WHERE track.contact_id = ? AND track.deleted_at IS NULL
+		ORDER BY track.created_at DESC
+	`, corpID, employeeID, contactID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tracks := make([]dashboard.ContactEmployeeTrack, 0)
+	for rows.Next() {
+		var track dashboard.ContactEmployeeTrack
+		var createdAt sql.NullTime
+		if err := rows.Scan(&track.ID, &track.Content, &createdAt); err != nil {
+			return nil, err
+		}
+		track.CreatedAt = formatTime(createdAt)
+		tracks = append(tracks, track)
+	}
+	return tracks, rows.Err()
 }
 
 func (s *MySQLStore) ContactProcessesByCorpID(ctx context.Context, corpID int) ([]dashboard.ContactProcessStatus, error) {
@@ -26694,15 +26748,15 @@ func (s *MySQLStore) ContactSOPTips(ctx context.Context, employeeID int, contact
 	`, employee.CorpID, employee.WXUserID, contact.WXExternalUserID, contact.ID)
 }
 
-func (s *MySQLStore) ContactSOPInfo(ctx context.Context, employeeID int, id int) (dashboard.ContactSOPItem, bool, error) {
-	items, err := s.contactSOPItems(ctx, employeeID, "log.id = ?", id)
+func (s *MySQLStore) ContactSOPInfo(ctx context.Context, employeeID int, corpID int, id int) (dashboard.ContactSOPItem, bool, error) {
+	items, err := s.contactSOPItems(ctx, employeeID, "log.corp_id = ? AND log.id = ?", corpID, id)
 	if err != nil {
 		return dashboard.ContactSOPItem{}, false, err
 	}
 	if len(items) > 0 {
 		return items[0], true, nil
 	}
-	items, err = s.contactSOPItems(ctx, employeeID, "log.contact_sop_id = ?", id)
+	items, err = s.contactSOPItems(ctx, employeeID, "log.corp_id = ? AND log.contact_sop_id = ?", corpID, id)
 	if err != nil {
 		return dashboard.ContactSOPItem{}, false, err
 	}
@@ -26819,14 +26873,14 @@ func (s *MySQLStore) contactSOPItems(ctx context.Context, employeeID int, predic
 			COALESCE(contact.wx_external_userid, ''),
 			contact.updated_at
 		FROM mc_contact_sop_log AS log
-		LEFT JOIN mc_contact_sop AS sop ON sop.id = log.contact_sop_id
+		LEFT JOIN mc_contact_sop AS sop ON sop.id = log.contact_sop_id AND sop.corp_id = log.corp_id
 		LEFT JOIN mc_user AS user ON user.id = sop.creator_id AND user.deleted_at IS NULL
-		LEFT JOIN mc_work_contact AS contact ON contact.wx_external_userid = log.contact AND contact.deleted_at IS NULL
+		LEFT JOIN mc_work_contact AS contact ON contact.wx_external_userid = log.contact AND contact.corp_id = log.corp_id AND contact.deleted_at IS NULL
 		WHERE `+predicate+`
 		  AND EXISTS (
 			SELECT 1
 			FROM mc_work_employee AS employee
-			WHERE employee.id = ? AND employee.wx_user_id = log.employee AND employee.deleted_at IS NULL
+			WHERE employee.id = ? AND employee.corp_id = log.corp_id AND employee.wx_user_id = log.employee AND employee.deleted_at IS NULL
 		  )
 		ORDER BY log.created_at DESC, log.id DESC
 	`, queryArgs...)

@@ -452,6 +452,7 @@ type WorkReadStore interface {
 	UpdateWorkRoomsGroup(ctx context.Context, values WorkRoomBatchUpdateValues) (int, error)
 	SyncWorkRooms(ctx context.Context, corpID int, rooms []WorkRoomSyncRoom) (WorkRoomSyncResult, error)
 	ContactEmployeeTracksByContactID(ctx context.Context, contactID int) ([]ContactEmployeeTrack, error)
+	SidebarContactEmployeeTracksByContactID(ctx context.Context, contactID int, employeeID int, corpID int) ([]ContactEmployeeTrack, error)
 	ContactProcessesByCorpID(ctx context.Context, corpID int) ([]ContactProcessStatus, error)
 	CreateDefaultContactProcesses(ctx context.Context, corpID int) error
 	ContactProcessByID(ctx context.Context, statusID int) (ContactProcessStatus, bool, error)
@@ -1180,6 +1181,15 @@ func (h *WorkReadHandler) SidebarWorkContactShow(w http.ResponseWriter, r *http.
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
 		return
 	}
+	allowed, err := h.store.ContactAccessibleToEmployee(r.Context(), contactID, employee.ID, employee.CorpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !allowed {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权访问该客户", nil)
+		return
+	}
 
 	h.writeWorkContactShow(w, r, contactID, employee.ID)
 }
@@ -1783,11 +1793,24 @@ func (h *WorkReadHandler) SidebarWorkContactTrack(w http.ResponseWriter, r *http
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	if _, ok := h.resolveSidebarAccess(w, r); !ok {
+	employee, ok := h.resolveSidebarAccess(w, r)
+	if !ok {
 		return
 	}
-
-	h.writeContactEmployeeTrack(w, r)
+	contactID, ok := contactEmployeeTrackID(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.store.ContactAccessibleToEmployee(r.Context(), contactID, employee.ID, employee.CorpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !allowed {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权访问该客户", nil)
+		return
+	}
+	h.writeSidebarContactEmployeeTrackByID(w, r, contactID, employee)
 }
 
 func (h *WorkReadHandler) WorkContactTrack(w http.ResponseWriter, r *http.Request) {
@@ -1864,21 +1887,46 @@ func (h *WorkReadHandler) SidebarContactProcessStatusIndex(w http.ResponseWriter
 }
 
 func (h *WorkReadHandler) writeContactEmployeeTrack(w http.ResponseWriter, r *http.Request) {
+	contactID, ok := contactEmployeeTrackID(w, r)
+	if !ok {
+		return
+	}
+	h.writeContactEmployeeTrackByID(w, r, contactID)
+}
+
+func contactEmployeeTrackID(w http.ResponseWriter, r *http.Request) (int, bool) {
 	rawContactID := strings.TrimSpace(r.URL.Query().Get("contactId"))
 	if rawContactID == "" {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
-		return
+		return 0, false
 	}
 	contactID, err := strconv.Atoi(rawContactID)
 	if err != nil || contactID < 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户ID 不可小于1", nil)
-		return
+		return 0, false
 	}
+	return contactID, true
+}
+
+func (h *WorkReadHandler) writeContactEmployeeTrackByID(w http.ResponseWriter, r *http.Request, contactID int) {
 	tracks, err := h.store.ContactEmployeeTracksByContactID(r.Context(), contactID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
+	h.writeContactEmployeeTrackPayload(w, tracks)
+}
+
+func (h *WorkReadHandler) writeSidebarContactEmployeeTrackByID(w http.ResponseWriter, r *http.Request, contactID int, employee SidebarEmployee) {
+	tracks, err := h.store.SidebarContactEmployeeTracksByContactID(r.Context(), contactID, employee.ID, employee.CorpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	h.writeContactEmployeeTrackPayload(w, tracks)
+}
+
+func (h *WorkReadHandler) writeContactEmployeeTrackPayload(w http.ResponseWriter, tracks []ContactEmployeeTrack) {
 	list := make([]map[string]any, 0, len(tracks))
 	for _, track := range tracks {
 		list = append(list, map[string]any{

@@ -109,10 +109,40 @@ export function MediumPage({ request, onReauthenticate, bridge }: CommonProps & 
   </div>;
 }
 
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.dataset.sidebarCopyFallback = 'true';
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.append(textarea);
+  try {
+    textarea.focus();
+    textarea.select();
+    if (typeof document.execCommand !== 'function' || !document.execCommand('copy')) throw new Error('当前环境无法自动复制，请长按号码手动复制。');
+  } finally {
+    textarea.remove();
+  }
+}
+
+function sopContent(item: SopContent, index: number) {
+  const key = `${item.type}-${index}`;
+  if (item.type === '0' || item.type === 'text') return <p key={key}>{item.value}</p>;
+  if (item.type === '1' || item.type === 'image') return <img alt="SOP 图片素材" key={key} src={item.value} />;
+  if (item.type === '2' || item.type === 'video' || item.type === '3' || item.type === 'file') return <a href={item.value} key={key} rel="noreferrer" target="_blank">查看 SOP 附件</a>;
+  return <p className="contact-workspace__muted" key={key}>暂不支持的 SOP 素材类型</p>;
+}
+
 function SopContentList({ content, onCopied, onCopyError }: { content: SopContent[]; onCopied: () => void; onCopyError: (message: string) => void }) {
   const texts = content.filter((item) => item.type === '0' || item.type === 'text').map((item) => item.value).filter(Boolean);
-  const copy = async () => { try { if (!navigator.clipboard) throw new Error('当前环境不支持剪贴板。'); await navigator.clipboard.writeText(texts.join('\n')); onCopied(); } catch (error) { onCopyError(errorMessage(error, '复制失败，请重试。')); } };
-  return <section className="sidebar-sop-content"><h3>任务内容</h3>{content.length === 0 ? <p className="contact-workspace__muted">暂无任务内容</p> : content.map((item, index) => item.type === '0' || item.type === 'text' ? <p key={`${item.type}-${index}`}>{item.value}</p> : <img alt="SOP 素材" key={`${item.type}-${index}`} src={item.value} />)}{texts.length ? <button onClick={() => { void copy(); }} type="button">复制文本</button> : null}</section>;
+  const copy = async () => { try { await copyText(texts.join('\n')); onCopied(); } catch (error) { onCopyError(errorMessage(error, '复制失败，请重试。')); } };
+  return <section className="sidebar-sop-content"><h3>任务内容</h3>{content.length === 0 ? <p className="contact-workspace__muted">暂无任务内容</p> : content.map(sopContent)}{texts.length ? <button onClick={() => { void copy(); }} type="button">复制文本</button> : null}</section>;
 }
 
 function ContactSopCard({ sop }: { sop: ContactSop }) { const [notice, setNotice] = useState(''); const [failed, setFailed] = useState(false); return <MobileCard padding="comfortable" tone="surface"><article className="sidebar-sop-card"><header><div>{sop.avatar ? <img alt={`${sop.customerName}头像`} src={sop.avatar} /> : <span aria-hidden="true">客</span>}<div><h2>{sop.customerName}</h2><p>{sop.tipTime || sop.time}</p></div></div></header><SopContentList content={sop.content} onCopied={() => { setFailed(false); setNotice('文本已复制，尚未发送。'); }} onCopyError={(message) => { setFailed(true); setNotice(message); }} />{notice ? <p className={failed ? 'sidebar-form__error' : 'sidebar-inline-notice'} {...(failed ? { role: 'alert' } : {})}>{notice}</p> : null}</article></MobileCard>; }
@@ -129,7 +159,7 @@ export function RoomSopPage({ request, onReauthenticate }: CommonProps) {
   const [params] = useSearchParams(); const id = Number(params.get('id')); const loader = useCallback(() => loadRoomSop(request, id), [id, request]); const [state, retry, setReady] = useAuthenticatedLoad(loader, onReauthenticate); const [saving, setSaving] = useState(false); const [notice, setNotice] = useState('');
   useEffect(() => { setNotice(''); setSaving(false); }, [id]);
   if (state.kind !== 'ready') return <StateCard retry={retry} state={state} />;
-  const sop: RoomSop = state.value; const completed = sop.state === 1;
+  const sop: RoomSop = state.value; const completed = sop.state !== 0;
   const markDone = async () => { if (saving || completed) return; setSaving(true); setNotice(''); try { await updateRoomSopState(request, sop.taskId); setReady(await loadRoomSop(request, id)); } catch (error) { if (error instanceof MobileApiError && error.kind === 'unauthorized') onReauthenticate(); else setNotice(errorMessage(error, '保存失败，请重试。')); } finally { setSaving(false); } };
   return <MobileCard padding="comfortable" tone="surface"><article className="sidebar-sop-card"><h2>{sop.roomName}</h2><p>执行时间：{sop.time || '未设置'}</p><SopContentList content={sop.content} onCopied={() => setNotice('文本已复制，尚未发送。')} onCopyError={setNotice} />{notice ? <p className="sidebar-form__error" role="alert">{notice}</p> : null}<button className="sidebar-form__primary" disabled={saving || completed} onClick={() => { void markDone(); }} type="button">{completed ? '已完成' : saving ? '保存并确认中' : '标记为已完成'}</button></article></MobileCard>;
 }
@@ -137,6 +167,6 @@ export function RoomSopPage({ request, onReauthenticate }: CommonProps) {
 const statusOptions = [{ value: 4, label: '全部' }, { value: 0, label: '待分配' }, { value: 1, label: '待添加' }, { value: 2, label: '待通过' }, { value: 3, label: '已添加' }];
 export function BatchAddPage({ request, onReauthenticate, bridge }: CommonProps & { bridge: WeComBridge }) {
   const [params] = useSearchParams(); const batchId = Number(params.get('batchId')); const [status, setStatus] = useState(4); const loader = useCallback(() => loadBatchAdd(request, batchId, status), [batchId, request, status]); const [state, retry] = useAuthenticatedLoad(loader, onReauthenticate); const [notice, setNotice] = useState(''); const [addingId, setAddingId] = useState<number | null>(null);
-  const add = async (contact: { id: number; phone: string }) => { if (addingId !== null) return; if (!bridge.available()) { setNotice('需在企业微信客户端中打开加客户能力。'); return; } setAddingId(contact.id); setNotice(''); try { if (!navigator.clipboard) throw new Error('当前环境不支持复制手机号。'); await navigator.clipboard.writeText(contact.phone); await bridge.navigateToAddCustomer(); setNotice(`已复制 ${contact.phone} 并打开企业微信；添加结果以企业微信为准。`); } catch (error) { if (error instanceof MobileApiError && error.kind === 'unauthorized') onReauthenticate(); else setNotice(errorMessage(error, '无法复制号码或打开加客户页面。')); } finally { setAddingId(null); } };
+  const add = async (contact: { id: number; phone: string }) => { if (addingId !== null) return; if (!bridge.available()) { setNotice('需在企业微信客户端中打开加客户能力。'); return; } setAddingId(contact.id); setNotice(''); try { await copyText(contact.phone); await bridge.navigateToAddCustomer(); setNotice(`已复制 ${contact.phone} 并打开企业微信；添加结果以企业微信为准。`); } catch (error) { if (error instanceof MobileApiError && error.kind === 'unauthorized') onReauthenticate(); else setNotice(errorMessage(error, '无法复制号码或打开加客户页面。')); } finally { setAddingId(null); } };
   return <div className="sidebar-business-stack"><MobileCard padding="comfortable" tone="surface"><label className="sidebar-form__label" htmlFor="batch-status">添加状态</label><select id="batch-status" onChange={(event) => setStatus(Number(event.target.value))} value={status}>{statusOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></MobileCard>{state.kind !== 'ready' ? <StateCard retry={retry} state={state} /> : <MobileCard padding="comfortable" tone="surface"><h2 className="sidebar-section-title">{state.value.employeeName || '当前员工'}</h2>{state.value.contacts.length === 0 ? <MobileState kind="empty" title="当前筛选下暂无客户" /> : <ul className="sidebar-batch-list">{state.value.contacts.map((contact) => <li key={contact.id}><span>{contact.phone}</span><strong>{contact.status}</strong><button disabled={addingId !== null} onClick={() => { void add(contact); }} type="button">{addingId === contact.id ? '处理中' : '复制并添加'}</button></li>)}</ul>}</MobileCard>}{notice ? <p className="sidebar-inline-notice">{notice}</p> : null}</div>;
 }

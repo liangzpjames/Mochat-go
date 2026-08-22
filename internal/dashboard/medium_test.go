@@ -184,8 +184,8 @@ func TestSidebarMediumMediaIDUpdateUploadsExpiredMedium(t *testing.T) {
 	if client.calls != 1 || client.lastMediaType != "image" || client.lastFilePath != localFile || client.lastCredential.EmployeeSecret != "employee-secret" {
 		t.Fatalf("client = %#v", client)
 	}
-	if store.updatedMediaMediumID != 21 || store.updatedMediaID != "new-media-id" || store.updatedMediaLastUploadTime <= 0 {
-		t.Fatalf("updated media = id %d media %q time %d", store.updatedMediaMediumID, store.updatedMediaID, store.updatedMediaLastUploadTime)
+	if store.updatedMediaCorpID != 7 || store.updatedMediaMediumID != 21 || store.updatedMediaID != "new-media-id" || store.updatedMediaLastUploadTime <= 0 {
+		t.Fatalf("updated media = corp %d id %d media %q time %d", store.updatedMediaCorpID, store.updatedMediaMediumID, store.updatedMediaID, store.updatedMediaLastUploadTime)
 	}
 	body := decodeBody(t, rec.Body.Bytes())
 	if body["data"].(map[string]any)["mediaId"] != "new-media-id" {
@@ -222,6 +222,26 @@ func TestSidebarMediumMediaIDUpdateKeepsFreshMedium(t *testing.T) {
 	}
 }
 
+func TestSidebarMediumMediaIDUpdateScopesLookupToEmployeeCorp(t *testing.T) {
+	store := &fakeMediumStore{
+		sidebarEmployees: map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+	}
+	handler := NewMediumHandlerWithMediaClient(store, nil, HeaderUserIDResolver{}, nil, "http://api.example.com", t.TempDir(), &fakeMediumMediaClient{}).
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/medium/mediaIdUpdate?mediumId=21", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.MediaIDUpdate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastSidebarMediaCorpID != 7 || store.lastSidebarMediaID != 21 {
+		t.Fatalf("sidebar lookup = corp %d medium %d", store.lastSidebarMediaCorpID, store.lastSidebarMediaID)
+	}
+}
+
 type fakeMediumStore struct {
 	users                      map[int]User
 	sidebarEmployees           map[int]SidebarEmployee
@@ -241,6 +261,9 @@ type fakeMediumStore struct {
 	updatedMediaMediumID       int
 	updatedMediaID             string
 	updatedMediaLastUploadTime int64
+	updatedMediaCorpID         int
+	lastSidebarMediaCorpID     int
+	lastSidebarMediaID         int
 	deletedCorpID              int
 	deletedMediumID            int
 	movedCorpID                int
@@ -303,11 +326,14 @@ func (s *fakeMediumStore) UpdateMediumGroupID(_ context.Context, corpID int, med
 	return true, nil
 }
 
-func (s *fakeMediumStore) MediumMediaForUpdateByID(_ context.Context, _ int) (MediumMediaUpdateItem, bool, error) {
+func (s *fakeMediumStore) SidebarMediumMediaForUpdateByID(_ context.Context, corpID int, mediumID int) (MediumMediaUpdateItem, bool, error) {
+	s.lastSidebarMediaCorpID = corpID
+	s.lastSidebarMediaID = mediumID
 	return s.mediumMedia, s.mediumMediaFound, nil
 }
 
-func (s *fakeMediumStore) UpdateMediumMediaID(_ context.Context, mediumID int, mediaID string, lastUploadTime int64) (bool, error) {
+func (s *fakeMediumStore) UpdateSidebarMediumMediaID(_ context.Context, corpID int, mediumID int, mediaID string, lastUploadTime int64) (bool, error) {
+	s.updatedMediaCorpID = corpID
 	s.updatedMediaMediumID = mediumID
 	s.updatedMediaID = mediaID
 	s.updatedMediaLastUploadTime = lastUploadTime

@@ -60,6 +60,12 @@ describe('Sidebar business pages', () => {
     expect(screen.getByRole('button', { name: '已完成' }).hasAttribute('disabled')).toBe(true);
   });
 
+  it('treats every persisted non-zero room SOP state as completed', async () => {
+    const request = vi.fn().mockResolvedValue({ id: 5, roomSopId: 13, creator: '员工乙', time: '10:00', state: 2, task: { content: [] }, room: { id: 21, name: '客户群' } });
+    render(<MemoryRouter initialEntries={['/roomSop?id=5']}><RoomSopPage onReauthenticate={vi.fn()} request={request} /></MemoryRouter>);
+    expect((await screen.findByRole('button', { name: '已完成' })).hasAttribute('disabled')).toBe(true);
+  });
+
   it('filters persisted batch-add contacts and invokes the authorized add action', async () => {
     const request = vi.fn().mockResolvedValue({ employeeName: '员工甲', list: [{ id: 1, phone: '13800000000', status: '待添加' }] });
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -69,6 +75,18 @@ describe('Sidebar business pages', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制并添加' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('13800000000'));
     await waitFor(() => expect(navigateToAddCustomer).toHaveBeenCalledTimes(1));
+  });
+
+  it('falls back to a temporary selection when the Clipboard API is unavailable', async () => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    const execCommand = vi.fn().mockReturnValue(true);
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+    const request = vi.fn().mockResolvedValue({ employeeName: '员工甲', list: [{ id: 1, phone: '13800000000', status: '待添加' }] });
+    render(<MemoryRouter initialEntries={['/contactBatchAdd?batchId=9']}><BatchAddPage bridge={bridge} onReauthenticate={vi.fn()} request={request} /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '复制并添加' }));
+    await waitFor(() => expect(execCommand).toHaveBeenCalledWith('copy'));
+    await waitFor(() => expect(navigateToAddCustomer).toHaveBeenCalledTimes(1));
+    expect(document.querySelector('textarea[data-sidebar-copy-fallback]')).toBeNull();
   });
 
   it('keeps selected material objects across pages and blocks unknown types', async () => {

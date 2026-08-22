@@ -1105,6 +1105,27 @@ func TestSidebarWorkContactShowRequiresContactID(t *testing.T) {
 	}
 }
 
+func TestSidebarWorkContactShowRejectsContactOutsideEmployeeScope(t *testing.T) {
+	store := &fakeWorkReadStore{
+		sidebarEmployees:  map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+		denyContactAccess: true,
+	}
+	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/show?contactId=900001", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarWorkContactShow(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastWorkContactShowContactID != 0 {
+		t.Fatalf("unauthorized contact was loaded: %d", store.lastWorkContactShowContactID)
+	}
+}
+
 func TestWorkContactShowReturnsBasicInfoWithAuthorization(t *testing.T) {
 	store := &fakeWorkReadStore{
 		users: map[int]User{1: {ID: 1}},
@@ -1817,6 +1838,27 @@ func TestSidebarWorkContactTrackReturnsTracks(t *testing.T) {
 	}
 }
 
+func TestSidebarWorkContactTrackRejectsContactOutsideEmployeeScope(t *testing.T) {
+	store := &fakeWorkReadStore{
+		sidebarEmployees:  map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+		denyContactAccess: true,
+	}
+	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/track?contactId=900001", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarWorkContactTrack(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastContactTrackContactID != 0 {
+		t.Fatalf("unauthorized tracks were loaded: %d", store.lastContactTrackContactID)
+	}
+}
+
 func TestWorkContactTrackReturnsTracksWithAuthorization(t *testing.T) {
 	store := &fakeWorkReadStore{
 		users: map[int]User{1: {ID: 1}},
@@ -2168,6 +2210,11 @@ type fakeWorkReadStore struct {
 
 func (s *fakeWorkReadStore) ContactAccessibleToEmployee(_ context.Context, _ int, _ int, _ int) (bool, error) {
 	return !s.denyContactAccess, nil
+}
+
+func (s *fakeWorkReadStore) SidebarContactEmployeeTracksByContactID(_ context.Context, contactID int, _ int, _ int) ([]ContactEmployeeTrack, error) {
+	s.lastContactTrackContactID = contactID
+	return s.contactEmployeeTracks, nil
 }
 
 func (s *fakeWorkReadStore) UserByID(_ context.Context, userID int) (User, bool, error) {

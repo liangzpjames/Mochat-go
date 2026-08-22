@@ -9,6 +9,7 @@
     "test:e2e": "playwright test",
     "test:dashboard-page-rbac": "playwright test tests/dashboard-page-rbac.spec.ts --workers=1",
     "test:mobile-clients-foundation": "playwright test tests/mobile-clients-foundation.spec.ts --workers=1",
+    "test:sidebar-employee-mobile": "playwright test tests/sidebar-employee-mobile.spec.ts --workers=1",
     "test:identity-single-corp": "playwright test tests/identity-single-corp.spec.ts --workers=1",
     "test:dashboard-all-pages-auth": "playwright test tests/dashboard-all-pages-auth.spec.ts --workers=1"
   },
