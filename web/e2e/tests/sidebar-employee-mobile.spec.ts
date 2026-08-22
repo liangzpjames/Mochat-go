@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import reviewFixture from '../fixtures/sidebar-employee-review.json' with { type: 'json' };
 
 const routes = [
   { path: '/', title: '客户侧边栏', label: '从当前客户会话开始工作', protected: true },
@@ -29,7 +30,7 @@ function envelope(data: unknown): string {
 
 async function fixture(page: Page, pattern: string, data: unknown): Promise<void> {
   await page.route(pattern, async (route) => {
-    expect(route.request().headers().authorization).toBe('Bearer sidebar-browser-token');
+    expect(route.request().headers().authorization).toBe(`Bearer ${reviewFixture.token}`);
     await route.fulfill({ status: 200, contentType: 'application/json', body: envelope(data) });
   });
 }
@@ -47,25 +48,25 @@ async function installFixtures(page: Page): Promise<Audit> {
   for (const script of ['**/jweixin-1.2.0.js', '**/jwxwork-1.0.0.js']) {
     await page.route(script, async (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   }
-  await fixture(page, '**/sidebar/workContact/detail?*', { id: 23, name: '专项验收客户', avatar: null, corpId: 9 });
-  await fixture(page, '**/sidebar/workContact/show?*', { name: '专项验收客户', avatar: null, gender: 2, genderText: '女', businessNo: 'C-23', remark: '重点客户', description: '偏好下午沟通', tag: [{ tagId: 7, tagName: '高意向' }], roomName: ['专项验收客户群'], employeeName: ['员工甲'] });
-  await fixture(page, '**/sidebar/workContact/track?*', [{ id: 1, content: '已完成首次沟通', createdAt: '2026-08-22 09:00' }]);
-  await fixture(page, '**/sidebar/contactFieldPivot/index?*', [{ contactFieldId: 31, contactFieldPivotId: 901, name: '画像备注', type: 0, typeText: '文本', options: [], value: '已核验' }]);
-  await fixture(page, '**/sidebar/workContactTagGroup/index', [{ groupId: 3, groupName: '阶段' }]);
-  await fixture(page, '**/sidebar/workContactTag/allTag*', [{ id: 7, name: '高意向' }, { id: 9, name: '待回访' }]);
-  await fixture(page, '**/sidebar/contactBatchAdd/detail?*', { employeeName: '员工甲', list: [{ id: 1, phone: '13800000000', status: '待添加' }] });
-  await fixture(page, '**/sidebar/contactSop/getSopInfo?*', { id: 4, contactSopId: 12, creator: '员工甲', time: '09:00', tipTime: '2026-08-22 09:00', task: { content: [{ type: 0, value: '请今日回访' }] }, contact: { id: 23, name: '专项验收客户', avatar: null } });
-  await fixture(page, '**/sidebar/contactSop/getSopTipInfo?*', [{ id: 4, time: '2026-08-22 09:00' }]);
-  await fixture(page, '**/sidebar/roomSop/getSopInfo?*', { id: 5, roomSopId: 13, creator: '员工甲', time: '10:00', state: 0, task: { content: [{ type: 0, value: '群内发送活动提醒' }] }, room: { id: 21, name: '专项验收客户群' } });
-  await fixture(page, '**/sidebar/mediumGroup/index', [{ id: 0, name: '未分组' }]);
-  await fixture(page, '**/sidebar/medium/index?*', { page: { perPage: 20, total: 1, totalPage: 1 }, list: [{ id: 8, type: '文本', mediaId: '', content: { content: '专项验收素材' } }] });
+  await fixture(page, '**/sidebar/workContact/detail?*', reviewFixture.contactDetail);
+  await fixture(page, '**/sidebar/workContact/show?*', reviewFixture.contactSummary);
+  await fixture(page, '**/sidebar/workContact/track?*', reviewFixture.tracks);
+  await fixture(page, '**/sidebar/contactFieldPivot/index?*', reviewFixture.portraitFields);
+  await fixture(page, '**/sidebar/workContactTagGroup/index', reviewFixture.tagGroups);
+  await fixture(page, '**/sidebar/workContactTag/allTag*', reviewFixture.tags);
+  await fixture(page, '**/sidebar/contactBatchAdd/detail?*', reviewFixture.batch);
+  await fixture(page, '**/sidebar/contactSop/getSopInfo?*', reviewFixture.contactSop);
+  await fixture(page, '**/sidebar/contactSop/getSopTipInfo?*', reviewFixture.contactSopTips);
+  await fixture(page, '**/sidebar/roomSop/getSopInfo?*', reviewFixture.roomSop);
+  await fixture(page, '**/sidebar/mediumGroup/index', reviewFixture.mediumGroups);
+  await fixture(page, '**/sidebar/medium/index?*', reviewFixture.mediumPage);
   return audit;
 }
 
 async function injectSession(page: Page): Promise<void> {
   await page.context().addCookies([
-    { name: 'token', value: 'sidebar-browser-token', domain: '127.0.0.1', path: '/sidebar-app' },
-    { name: 'agentId', value: '7', domain: '127.0.0.1', path: '/sidebar-app' },
+    { name: 'token', value: reviewFixture.token, domain: '127.0.0.1', path: '/sidebar-app' },
+    { name: 'agentId', value: reviewFixture.agentId, domain: '127.0.0.1', path: '/sidebar-app' },
   ]);
 }
 
@@ -219,7 +220,7 @@ test.describe('employee Sidebar business states at 390x844', () => {
     await page.route('**/sidebar/roomSop/getSopInfo?*', async (route) => route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: envelope({ id: 5, roomSopId: 13, creator: '员工甲', time: '10:00', state, task: { content: [] }, room: { id: 21, name: '专项验收客户群' } }),
+      body: envelope(state === reviewFixture.roomSop.state ? reviewFixture.roomSop : { ...reviewFixture.roomSop, state }),
     }));
     await page.route('**/sidebar/roomSop/logState', async (route) => {
       updates += 1;
@@ -239,7 +240,7 @@ test.describe('employee Sidebar business states at 390x844', () => {
     const statuses: string[] = [];
     await page.route('**/sidebar/contactBatchAdd/detail?*', async (route) => {
       statuses.push(new URL(route.request().url()).searchParams.get('status') ?? '');
-      await route.fulfill({ status: 200, contentType: 'application/json', body: envelope(statuses.at(-1) === '1' ? { employeeName: '员工甲', list: [] } : { employeeName: '员工甲', list: [{ id: 1, phone: '13800000000', status: '待添加' }] }) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: envelope(statuses.at(-1) === '1' ? { ...reviewFixture.batch, list: [] } : reviewFixture.batch) });
     });
     await page.goto('/sidebar-app/contactBatchAdd?batchId=9&agentId=7');
     await expect(page.getByText('13800000000')).toBeVisible();

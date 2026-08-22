@@ -1,0 +1,54 @@
+{
+  "agentId": "7",
+  "token": "sidebar-browser-token",
+  "contactDetail": {
+    "id": 23,
+    "name": "专项验收客户",
+    "avatar": null,
+    "corpId": 9
+  },
+  "contactSummary": {
+    "name": "专项验收客户",
+    "avatar": null,
+    "gender": 2,
+    "genderText": "女",
+    "businessNo": "C-23",
+    "remark": "重点客户",
+    "description": "偏好下午沟通",
+    "tag": [{ "tagId": 7, "tagName": "高意向" }],
+    "roomName": ["专项验收客户群"],
+    "employeeName": ["员工甲"]
+  },
+  "tracks": [{ "id": 1, "content": "已完成首次沟通", "createdAt": "2026-08-22 09:00" }],
+  "portraitFields": [{ "contactFieldId": 31, "contactFieldPivotId": 901, "name": "画像备注", "type": 0, "typeText": "文本", "options": [], "value": "已核验" }],
+  "tagGroups": [{ "groupId": 3, "groupName": "阶段" }],
+  "tags": [{ "id": 7, "name": "高意向" }, { "id": 9, "name": "待回访" }],
+  "batch": {
+    "employeeName": "员工甲",
+    "list": [{ "id": 1, "phone": "13800000000", "status": "待添加" }]
+  },
+  "contactSop": {
+    "id": 4,
+    "contactSopId": 12,
+    "creator": "员工甲",
+    "time": "09:00",
+    "tipTime": "2026-08-22 09:00",
+    "task": { "content": [{ "type": 0, "value": "请今日回访" }] },
+    "contact": { "id": 23, "name": "专项验收客户", "avatar": null }
+  },
+  "contactSopTips": [{ "id": 4, "time": "2026-08-22 09:00" }],
+  "roomSop": {
+    "id": 5,
+    "roomSopId": 13,
+    "creator": "员工甲",
+    "time": "10:00",
+    "state": 0,
+    "task": { "content": [{ "type": 0, "value": "群内发送活动提醒" }] },
+    "room": { "id": 21, "name": "专项验收客户群" }
+  },
+  "mediumGroups": [{ "id": 0, "name": "未分组" }],
+  "mediumPage": {
+    "page": { "perPage": 20, "total": 1, "totalPage": 1 },
+    "list": [{ "id": 8, "type": "文本", "mediaId": "", "content": { "content": "专项验收素材" } }]
+  }
+}
