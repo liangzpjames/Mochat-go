@@ -398,9 +398,7 @@ function validateSidebarNavigationCases(sidebarCasesBody, errors) {
       }
       continue;
     }
-    const expected = ['/', '/contactBatchAdd', '/medium'].includes(path)
-      ? '我的'
-      : ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
+    const expected = ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
     if (
       !/needsSession\s*:\s*true/.test(source)
       || !new RegExp(`activeNavigation\\s*:\\s*['"]${expected}['"]`).test(source)
@@ -610,9 +608,11 @@ function validateViewportRouteLoops(source, operationCasesBody, errors) {
   }
   if (
     !/navigation\.locator\(\s*['"]a['"]\s*\)[\s\S]{0,220}?\/sidebar-app/.test(sidebarBody)
-    || !/routeCase\.path\s*===\s*['"]\/['"][\s\S]{0,240}?['"]客户['"][\s\S]{0,160}?toHaveCount\(\s*0\s*\)[\s\S]{0,160}?['"]会话['"][\s\S]{0,160}?toHaveCount\(\s*0\s*\)/.test(sidebarBody)
+    || !/navigation\.getByRole\(\s*['"]link['"]\s*,\s*\{\s*name\s*:\s*['"]客户['"]\s*,\s*exact\s*:\s*true\s*\}\s*\)[\s\S]{0,80}?toBeVisible/.test(sidebarBody)
+    || !/navigation\.getByRole\(\s*['"]link['"]\s*,\s*\{\s*name\s*:\s*['"]会话['"]\s*,\s*exact\s*:\s*true\s*\}\s*\)[\s\S]{0,80}?toBeVisible/.test(sidebarBody)
+    || !/navigation\.getByRole\(\s*['"]link['"]\s*,\s*\{\s*name\s*:\s*['"]我的['"]\s*,\s*exact\s*:\s*true\s*\}\s*\)[\s\S]{0,80}?toBeVisible/.test(sidebarBody)
   ) {
-    errors.push('Sidebar viewport loop must verify scoped links and hide unavailable home navigation');
+    errors.push('Sidebar viewport loop must verify scoped links and all three employee navigation tabs');
   }
   if (
     !/employeeNavigationLabel[\s\S]{0,240}?toHaveCount\(\s*0\s*\)/.test(operationBody)
