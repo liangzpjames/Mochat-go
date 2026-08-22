@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useDashboardAccess } from '../../../app/access-context';
+import { DashboardPagination } from '../../../components/dashboard-pagination';
 import { PageState, pageStateForError } from '../../../components/page-state/page-state';
 import type { BusinessWorkbenchApi } from '../../business-workbench/business-workbench-page';
 import { numberOf, paginationFrom, recordsFrom, stateClass, stateText, statisticsFrom, textOf } from './live-code-api';
@@ -51,7 +52,64 @@ function QRPreview({ row }: { row: LiveCodeRecord }) {
   return url ? <img className="live-code-qr" src={url} alt="二维码" loading="lazy" /> : <span className="live-code-qr-placeholder">码</span>;
 }
 
+type LiveCodeEmployeeOption = {
+  id: number;
+  name: string;
+};
+
+type LiveCodeRoomOption = {
+  id: number;
+  name: string;
+  currentNum: number;
+  roomMax: number;
+};
+
+function toggleNumericChoice(values: number[], id: number): number[] {
+  return values.includes(id) ? values.filter((value) => value !== id) : [...values, id];
+}
+
+async function fetchAllLiveCodeEmployees(api: BusinessWorkbenchApi): Promise<LiveCodeEmployeeOption[]> {
+  const perPage = 100;
+  const options: LiveCodeEmployeeOption[] = [];
+  const seen = new Set<number>();
+  let page = 1;
+  let totalPage = 1;
+  do {
+    const payload = await api.read('/workEmployee/index', { status: 1, page, perPage });
+    const rows = recordsFrom(payload);
+    for (const row of rows) {
+      const id = numberOf(value(row, 'id', 'employeeId'));
+      if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+      seen.add(id);
+      options.push({ id, name: textOf(value(row, 'name', 'employeeName'), `成员 ${id}`) });
+    }
+    totalPage = paginationFrom(payload, rows.length).totalPage;
+    if (rows.length === 0 || page >= totalPage || rows.length < perPage) break;
+    page += 1;
+  } while (page <= totalPage);
+  return options;
+}
+
+async function fetchLiveCodeRooms(api: BusinessWorkbenchApi): Promise<LiveCodeRoomOption[]> {
+  const rows = recordsFrom(await api.read('/workRoom/roomIndex', {}));
+  const seen = new Set<number>();
+  const rooms: LiveCodeRoomOption[] = [];
+  for (const row of rows) {
+    const id = numberOf(value(row, 'roomId', 'workRoomId', 'id'));
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    rooms.push({
+      id,
+      name: textOf(value(row, 'roomName', 'name'), `未命名群聊 ${id}`),
+      currentNum: numberOf(value(row, 'currentNum', 'memberNum', 'memberCount')),
+      roomMax: numberOf(value(row, 'roomMax')),
+    });
+  }
+  return rooms;
+}
+
 function LiveCodeCreateDialog({
+  api,
   kind,
   open,
   saving,
@@ -59,6 +117,7 @@ function LiveCodeCreateDialog({
   onCancel,
   onSave,
 }: {
+  api: BusinessWorkbenchApi;
   kind: LiveCodeKind;
   open: boolean;
   saving: boolean;
@@ -68,21 +127,84 @@ function LiveCodeCreateDialog({
 }) {
   const access = useDashboardAccess();
   const [name, setName] = useState('');
-  const [employees, setEmployees] = useState('');
+  const [employeeIDs, setEmployeeIDs] = useState<number[]>([]);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [employeeSelectionNotice, setEmployeeSelectionNotice] = useState('');
   const [leadingWords, setLeadingWords] = useState('');
   const [tags, setTags] = useState('');
-  const [rooms, setRooms] = useState('[{"roomId": 0, "maxNum": 50}]');
-  const [localError, setLocalError] = useState('');
+  const [selectedRoomIDs, setSelectedRoomIDs] = useState<number[]>([]);
+  const [roomDraftIDs, setRoomDraftIDs] = useState<number[]>([]);
+  const [roomSearch, setRoomSearch] = useState('');
+  const [roomPickerOpen, setRoomPickerOpen] = useState(false);
+  const [roomSelectionNotice, setRoomSelectionNotice] = useState('');
+  const employeesQuery = useQuery({
+    queryKey: ['live-code-employees', access.corp.id],
+    queryFn: () => fetchAllLiveCodeEmployees(api),
+    enabled: open,
+  });
+  const roomsQuery = useQuery({
+    queryKey: ['live-code-rooms', access.corp.id],
+    queryFn: () => fetchLiveCodeRooms(api),
+    enabled: open && kind === 'group',
+  });
+  useEffect(() => {
+    if (!employeesQuery.isSuccess) return;
+    const validIDs = new Set((employeesQuery.data ?? []).map((employee) => employee.id));
+    const nextIDs = employeeIDs.filter((id) => validIDs.has(id));
+    if (nextIDs.length === employeeIDs.length) return;
+    setEmployeeIDs(nextIDs);
+    setEmployeeSelectionNotice('部分已选成员已失效，请重新选择。');
+  }, [employeeIDs, employeesQuery.data, employeesQuery.isSuccess]);
+  useEffect(() => {
+    if (kind !== 'group' || !roomsQuery.isSuccess) return;
+    const validIDs = new Set((roomsQuery.data ?? []).filter((room) => Number.isInteger(room.roomMax) && room.roomMax > 0).map((room) => room.id));
+    const nextSelectedIDs = selectedRoomIDs.filter((id) => validIDs.has(id));
+    const nextDraftIDs = roomDraftIDs.filter((id) => validIDs.has(id));
+    if (nextSelectedIDs.length !== selectedRoomIDs.length) {
+      setSelectedRoomIDs(nextSelectedIDs);
+      setRoomSelectionNotice('部分已选群聊已失效，请重新选择。');
+    }
+    if (nextDraftIDs.length !== roomDraftIDs.length) setRoomDraftIDs(nextDraftIDs);
+  }, [kind, roomDraftIDs, roomsQuery.data, roomsQuery.isSuccess, selectedRoomIDs]);
   if (!open) return null;
-  const employeeIDs = employees.split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0);
+  const employeeOptions = employeesQuery.data ?? [];
+  const selectedEmployeeIDs = new Set(employeeIDs);
+  const normalizedSearch = employeeSearch.trim().toLowerCase();
+  const visibleEmployees = employeeOptions.filter((employee) => {
+    if (selectedEmployeeIDs.has(employee.id)) return true;
+    return normalizedSearch === '' || employee.name.toLowerCase().includes(normalizedSearch) || String(employee.id).includes(normalizedSearch);
+  });
+  const roomOptions = roomsQuery.data ?? [];
+  const selectedRooms = selectedRoomIDs
+    .map((id) => roomOptions.find((room) => room.id === id))
+    .filter((room): room is LiveCodeRoomOption => room !== undefined);
+  const normalizedRoomSearch = roomSearch.trim().toLowerCase();
+  const visibleRooms = roomOptions.filter((room) => normalizedRoomSearch === '' || room.name.toLowerCase().includes(normalizedRoomSearch));
   const tagIDs = tags.split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0);
-  const valid = name.trim() !== '' && employeeIDs.length > 0 && (kind === 'channel' || (leadingWords.trim() !== '' && tagIDs.length > 0 && rooms.trim() !== ''));
+  const selectedEmployeesValid = employeesQuery.isSuccess && employeeIDs.length > 0 && employeeIDs.every((id) => employeeOptions.some((employee) => employee.id === id));
+  const selectedRoomsValid = roomsQuery.isSuccess
+    && selectedRoomIDs.length > 0
+    && selectedRooms.length === selectedRoomIDs.length
+    && selectedRooms.every((room) => Number.isInteger(room.roomMax) && room.roomMax > 0);
+  const valid = name.trim() !== '' && selectedEmployeesValid && (kind === 'channel' || (leadingWords.trim() !== '' && tagIDs.length > 0 && selectedRoomsValid));
+  const closeRoomPicker = () => {
+    setRoomPickerOpen(false);
+    setRoomSearch('');
+  };
+  const openRoomPicker = () => {
+    setRoomDraftIDs([...selectedRoomIDs]);
+    setRoomSearch('');
+    setRoomPickerOpen(true);
+  };
+  const toggleRoomDraft = (room: LiveCodeRoomOption) => {
+    if (!Number.isInteger(room.roomMax) || room.roomMax <= 0) return;
+    setRoomDraftIDs((current) => {
+      if (current.includes(room.id)) return current.filter((id) => id !== room.id);
+      return current.length >= 5 ? current : [...current, room.id];
+    });
+  };
   const submit = () => {
     if (!valid) return;
-    if (kind === 'group') {
-      try { JSON.parse(rooms); } catch { setLocalError('群聊配置需要是有效的 JSON。'); return; }
-    }
-    setLocalError('');
     if (kind === 'channel') {
       onSave({
         baseInfo: { groupId: 0, name: name.trim(), autoAddFriend: 1, tags: [] },
@@ -94,7 +216,15 @@ function LiveCodeCreateDialog({
         welcomeMessage: { scanCodePush: 2, messageDetail: [] },
       });
     } else {
-      onSave({ corpId: Number(access.corp.id), qrcodeName: name.trim(), isVerified: 2, leadingWords: leadingWords.trim(), employees: employeeIDs, tags: tagIDs, rooms: rooms.trim() });
+      onSave({
+        corpId: Number(access.corp.id),
+        qrcodeName: name.trim(),
+        isVerified: 2,
+        leadingWords: leadingWords.trim(),
+        employees: employeeIDs,
+        tags: tagIDs,
+        rooms: JSON.stringify(selectedRooms.map((room) => ({ roomId: room.id, maxNum: room.roomMax }))),
+      });
     }
   };
   return (
@@ -109,17 +239,59 @@ function LiveCodeCreateDialog({
           <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
             <div className="phase34-live-code-form-intro"><strong>先完成基础配置</strong><span>保存后会调用企业微信 Provider，未配置企业授信时不会生成虚假二维码。</span></div>
             <label>{kind === 'channel' ? '渠道活码' : '群活码'}名称 <b>*</b><input aria-label={`${kind === 'channel' ? '渠道活码' : '群活码'}名称`} value={name} maxLength={30} onChange={(event) => setName(event.target.value)} placeholder={`例如：${kind === 'channel' ? '官网咨询' : '售后服务群'}`} /></label>
-            <label>使用成员 ID <b>*</b><input aria-label="使用成员 ID" inputMode="numeric" value={employees} onChange={(event) => setEmployees(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
+            <div className="phase34-live-code-member-field">
+              <label htmlFor="live-code-employee-search">使用成员 <b>*</b></label>
+              <input id="live-code-employee-search" aria-label="搜索使用成员" value={employeeSearch} onChange={(event) => setEmployeeSearch(event.target.value)} placeholder="搜索成员姓名" />
+              <div className="phase34-live-code-choice-summary"><span>已选择 {employeeIDs.length} 人</span><small>单击选择，再次单击取消</small></div>
+              <div className="phase34-live-code-choice-list" aria-label="使用成员选择">
+                {visibleEmployees.map((employee) => {
+                  const selected = selectedEmployeeIDs.has(employee.id);
+                  return <button key={employee.id} type="button" aria-label={`${selected ? '取消选择' : '选择'}成员 ${employee.name}`} aria-pressed={selected} onClick={() => { setEmployeeSelectionNotice(''); setEmployeeIDs((current) => toggleNumericChoice(current, employee.id)); }}><span>{employee.name}</span><span aria-hidden="true">{selected ? '✓' : '+'}</span></button>;
+                })}
+              </div>
+              {employeeSelectionNotice && <span role="alert" className="phase34-inline-error">{employeeSelectionNotice}</span>}
+              {employeesQuery.isSuccess && employeeOptions.length > 0 && visibleEmployees.length === 0 && <span role="status" className="phase34-field-hint">没有匹配的成员。</span>}
+              {employeesQuery.isPending && <span role="status" className="phase34-field-hint">正在加载可用成员…</span>}
+              {employeesQuery.isError && <span role="alert" className="phase34-inline-error">成员列表加载失败，请重试后再提交。</span>}
+              {employeesQuery.isSuccess && employeeOptions.length === 0 && <span role="status" className="phase34-field-hint">暂无当前权限范围内的在职成员。</span>}
+            </div>
             {kind === 'group' && <>
               <label>入群引导语 <b>*</b><textarea aria-label="入群引导语" value={leadingWords} maxLength={1000} onChange={(event) => setLeadingWords(event.target.value)} placeholder="欢迎加入我们的服务群" /></label>
               <label>客户标签 ID <b>*</b><input aria-label="客户标签 ID" inputMode="numeric" value={tags} onChange={(event) => setTags(event.target.value)} placeholder="多个 ID 用逗号分隔" /></label>
-              <label>群聊配置 JSON <b>*</b><textarea aria-label="群聊配置 JSON" value={rooms} onChange={(event) => setRooms(event.target.value)} /></label>
+              <div className="phase34-live-code-room-field" role="group" aria-label="可加入的群聊">
+                <div className="phase34-live-code-room-field-heading"><div><strong>可加入的群聊 <b>*</b></strong><small>按选择顺序使用，最多选择 5 个群聊。</small></div><button type="button" className="phase34-live-code-select-trigger" onClick={openRoomPicker}>选择群聊</button></div>
+                {selectedRooms.length === 0 ? <div className="phase34-live-code-room-empty">尚未选择群聊</div> : <div className="phase34-live-code-selected-rooms"><span>已选择 {selectedRooms.length} 个群聊</span>{selectedRooms.map((room, index) => <div key={room.id}><em>{index + 1}</em><span><strong>{room.name}</strong><small>当前 {room.currentNum} 人 · 容量 {room.roomMax} 人</small></span><button type="button" aria-label={`移除群聊 ${room.name}`} onClick={() => { setRoomSelectionNotice(''); setSelectedRoomIDs((current) => current.filter((id) => id !== room.id)); }}>×</button></div>)}</div>}
+                {roomSelectionNotice && <span role="alert" className="phase34-inline-error">{roomSelectionNotice}</span>}
+                {roomsQuery.isPending && <span role="status" className="phase34-field-hint">正在加载可用群聊…</span>}
+                {roomsQuery.isError && <span role="alert" className="phase34-inline-error">群聊列表加载失败，请重试后再提交。</span>}
+                {roomsQuery.isSuccess && roomOptions.length === 0 && <span role="status" className="phase34-field-hint">暂无当前权限范围内的群聊，请先完成群聊同步。</span>}
+              </div>
             </>}
-            {(error || localError) && <p className="phase34-inline-error" role="alert">{error || localError}</p>}
+            {error && <p className="phase34-inline-error" role="alert">{error}</p>}
           </form>
         </div>
         <footer className="phase34-live-code-drawer-footer"><span>带 * 为必填项</span><div><button type="button" className="phase34-secondary-button" disabled={saving} onClick={onCancel}>取消</button><button type="button" disabled={saving || !valid} onClick={submit}>{saving ? '保存中…' : `保存${kind === 'channel' ? '渠道活码' : '群活码'}`}</button></div></footer>
       </div>
+      {roomPickerOpen && <div className="phase34-live-code-picker-layer">
+        <div className="phase34-live-code-picker-backdrop" aria-hidden="true" onClick={closeRoomPicker} />
+        <section className="phase34-live-code-picker" role="dialog" aria-label="选择群聊" aria-modal="true">
+          <header><div><h3>选择群聊</h3><p>按顺序选择，最多 5 个群聊</p></div><button type="button" aria-label="关闭群聊选择" onClick={closeRoomPicker}>×</button></header>
+          <div className="phase34-live-code-picker-grid">
+            <section aria-label="可选群聊"><label>搜索群聊<input aria-label="搜索群聊" value={roomSearch} onChange={(event) => setRoomSearch(event.target.value)} placeholder="输入群聊名称" /></label><div className="phase34-live-code-room-options">{visibleRooms.map((room) => {
+              const selected = roomDraftIDs.includes(room.id);
+              const capacityUnavailable = !Number.isInteger(room.roomMax) || room.roomMax <= 0;
+              const limitReached = roomDraftIDs.length >= 5 && !selected;
+              return <button key={room.id} type="button" aria-label={`${selected ? '取消选择' : '选择'}群聊 ${room.name}`} aria-pressed={selected} disabled={capacityUnavailable || limitReached} onClick={() => toggleRoomDraft(room)}><span className="phase34-live-code-room-mark" aria-hidden="true">{selected ? '✓' : ''}</span><span><strong>{room.name}</strong><small>{capacityUnavailable ? '容量未同步，暂不可选' : `当前 ${room.currentNum} 人 · 容量 ${room.roomMax} 人`}</small></span></button>;
+            })}{roomsQuery.isSuccess && visibleRooms.length === 0 && <div className="phase34-live-code-picker-empty">没有匹配的群聊</div>}</div></section>
+            <section aria-label="已选群聊"><div className="phase34-live-code-picker-selected-heading"><strong>已选择 {roomDraftIDs.length} 个群聊</strong>{roomDraftIDs.length > 0 && <button type="button" onClick={() => setRoomDraftIDs([])}>清空选择</button>}</div><p className="phase34-live-code-picker-limit">最多选择 5 个群聊</p><div className="phase34-live-code-picker-selected-list">{roomDraftIDs.length === 0 ? <div className="phase34-live-code-picker-empty">请选择群聊</div> : roomDraftIDs.map((id, index) => {
+              const room = roomOptions.find((option) => option.id === id);
+              if (!room) return null;
+              return <div key={room.id}><em>{index + 1}</em><span><strong>{room.name}</strong><small>当前 {room.currentNum} 人 · 容量 {room.roomMax} 人</small></span><button type="button" aria-label={`移除群聊 ${room.name}`} onClick={() => setRoomDraftIDs((current) => current.filter((value) => value !== room.id))}>×</button></div>;
+            })}</div></section>
+          </div>
+          <footer><button type="button" className="phase34-secondary-button" onClick={closeRoomPicker}>取消</button><button type="button" disabled={roomsQuery.isPending || roomsQuery.isError} onClick={() => { setRoomSelectionNotice(''); setSelectedRoomIDs([...roomDraftIDs]); closeRoomPicker(); }}>确认选择</button></footer>
+        </section>
+      </div>}
     </aside>
   );
 }
@@ -247,12 +419,12 @@ export function LiveCodeWorkspacePage({ api, kind }: { api: BusinessWorkbenchApi
           {tab === 'statistics' && isChannel ? <StatisticsPanel api={api} access={access} path={path} /> : <>
             {!isChannel && <div className="live-code-mode-tabs"><button type="button" className={!filters.state ? 'active' : ''} onClick={() => setFilters((old) => ({ ...old, state: '' }))}>全部</button><button type="button" className={filters.state === 'verified' ? 'active' : ''} onClick={() => setFilters((old) => ({ ...old, state: 'verified' }))}>已验证</button><button type="button" className={filters.state === 'pending' ? 'active' : ''} onClick={() => setFilters((old) => ({ ...old, state: 'pending' }))}>待配置</button></div>}
             <div className="live-code-filter"><label>{isChannel ? '活码名称' : '群活码名称'}<input aria-label={isChannel ? '活码名称' : '群活码名称'} value={draft.name} onChange={(event) => setDraft((old) => ({ ...old, name: event.target.value }))} placeholder={isChannel ? '搜索名称' : '搜索群活码'} /></label>{isChannel && <><label>创建人<input aria-label="创建人" value={draft.creator} onChange={(event) => setDraft((old) => ({ ...old, creator: event.target.value }))} placeholder="输入姓名" /></label><label>使用成员<input aria-label="使用成员" value={draft.employee} onChange={(event) => setDraft((old) => ({ ...old, employee: event.target.value }))} placeholder="输入姓名" /></label><label>状态<select aria-label="活码状态" value={draft.state} onChange={(event) => setDraft((old) => ({ ...old, state: event.target.value }))}><option value="">全部状态</option><option value="active">运行中</option><option value="paused">已暂停</option><option value="expired">已过期</option></select></label></>}<div className="live-code-filter-actions"><button type="button" onClick={search}>查询</button><button type="button" className="live-code-secondary-button" onClick={reset}>重置</button></div></div>
-            <div className="live-code-table-card"><div className="live-code-table-heading"><div><h2>{isChannel ? '渠道活码列表' : '群活码列表'}</h2><p>{isChannel ? '创建人、使用成员、有效期和效果指标均来自已接入的业务数据。' : '扫码二维码、查看关联群聊并确认群活码配置状态。'}</p></div><span>{pagination.total} 条记录</span></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={() => { void query.refetch(); }} /> : rows.length === 0 ? <PageState state="empty" title="暂无记录" description="调整筛选条件或创建一条新的配置。" /> : <div className="live-code-table-scroll"><table className="live-code-table"><thead><tr><th>二维码</th><th>{isChannel ? '活码名称' : '群活码名称'}</th><th>{isChannel ? '创建人 / 创建时间' : '入群引导语'}</th><th>{isChannel ? '使用成员' : '关联群聊'}</th><th>{isChannel ? '有效期 / 新增好友' : '状态 / 创建时间'}</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={rowID(row, index)}><td><QRPreview row={row} /></td><td><strong>{textOf(value(row, nameKey, 'name'), '未命名活码')}</strong><small>{textOf(value(row, 'groupName'), '未分组')}</small></td><td>{isChannel ? <><span>{textOf(value(row, 'creator', 'creatorName'))}</span><small>{textOf(value(row, 'createdAt', 'created_at'))}</small></> : <span className="live-code-clamp">{textOf(value(row, 'leadingWords'))}</span>}</td><td>{isChannel ? <span className="live-code-clamp">{employeesText(row)}</span> : <span>{textOf(value(row, 'rooms'), '—')}</span>}</td><td>{isChannel ? <><span>{validityText(row)}</span><small>{value(row, 'statisticsAvailable') === false ? '暂无统计' : `新增好友 ${textOf(value(row, 'addedFriendCount', 'contactNum'), '0')}`}</small></> : <><StatusPill state={isVerified(row) ? 'active' : 'draft'} /><small>{textOf(value(row, 'createdAt', 'created_at'))}</small></>}</td><td><button type="button" className="live-code-link" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>}<div className="live-code-pagination">{pagination.totalPage > 1 && <><button type="button" disabled={pageNumber <= 1} onClick={() => setPageNumber((old) => Math.max(1, old - 1))}>上一页</button><span>第 {pageNumber} / {pagination.totalPage} 页</span><button type="button" disabled={pageNumber >= pagination.totalPage} onClick={() => setPageNumber((old) => old + 1)}>下一页</button></>}</div></div>
+            <div className="live-code-table-card"><div className="live-code-table-heading"><div><h2>{isChannel ? '渠道活码列表' : '群活码列表'}</h2><p>{isChannel ? '创建人、使用成员、有效期和效果指标均来自已接入的业务数据。' : '扫码二维码、查看关联群聊并确认群活码配置状态。'}</p></div><span>{pagination.total} 条记录</span></div>{query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={() => { void query.refetch(); }} /> : rows.length === 0 ? <PageState state="empty" title="暂无记录" description="调整筛选条件或创建一条新的配置。" /> : <div className="live-code-table-scroll"><table className="live-code-table"><thead><tr><th>二维码</th><th>{isChannel ? '活码名称' : '群活码名称'}</th><th>{isChannel ? '创建人 / 创建时间' : '入群引导语'}</th><th>{isChannel ? '使用成员' : '关联群聊'}</th><th>{isChannel ? '有效期 / 新增好友' : '状态 / 创建时间'}</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={rowID(row, index)}><td><QRPreview row={row} /></td><td><strong>{textOf(value(row, nameKey, 'name'), '未命名活码')}</strong><small>{textOf(value(row, 'groupName'), '未分组')}</small></td><td>{isChannel ? <><span>{textOf(value(row, 'creator', 'creatorName'))}</span><small>{textOf(value(row, 'createdAt', 'created_at'))}</small></> : <span className="live-code-clamp">{textOf(value(row, 'leadingWords'))}</span>}</td><td>{isChannel ? <span className="live-code-clamp">{employeesText(row)}</span> : <span>{textOf(value(row, 'rooms'), '—')}</span>}</td><td>{isChannel ? <><span>{validityText(row)}</span><small>{value(row, 'statisticsAvailable') === false ? '暂无统计' : `新增好友 ${textOf(value(row, 'addedFriendCount', 'contactNum'), '0')}`}</small></> : <><StatusPill state={isVerified(row) ? 'active' : 'draft'} /><small>{textOf(value(row, 'createdAt', 'created_at'))}</small></>}</td><td><button type="button" className="live-code-link" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>}<div className="live-code-pagination">{pagination.total > 0 && <DashboardPagination page={pageNumber} pageSize={pagination.perPage} total={pagination.total} onPageChange={setPageNumber} ariaLabel={`${title}分页`} />}</div></div>
           </>}
         </main>
       </div>
       {selected && <DetailDrawer kind={kind} row={selected} onClose={() => setSelected(null)} />}
-      <LiveCodeCreateDialog kind={kind} open={createOpen} saving={saving} error={writeError} onCancel={() => { if (!saving) setCreateOpen(false); }} onSave={(values) => { void save(values); }} />
+      {createOpen && <LiveCodeCreateDialog api={api} kind={kind} open saving={saving} error={writeError} onCancel={() => { if (!saving) setCreateOpen(false); }} onSave={(values) => { void save(values); }} />}
     </section>
   );
 }
