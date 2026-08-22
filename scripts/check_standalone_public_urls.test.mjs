@@ -65,23 +65,21 @@ function appEnvironment(config) {
   return config.services.app.environment;
 }
 
-test('standalone defaults publish browser-reachable URLs for every frontend', () => {
+test('standalone defaults publish browser-reachable URLs for Sidebar dependencies only', () => {
   const environment = appEnvironment(renderCompose());
 
   assert.deepEqual(
     {
       api: environment.MOCHAT_API_BASE_URL,
-      dashboard: environment.MOCHAT_DASHBOARD_BASE_URL,
       sidebar: environment.MOCHAT_SIDEBAR_BASE_URL,
-      operation: environment.MOCHAT_OPERATION_BASE_URL,
     },
     {
       api: 'http://127.0.0.1:18080',
-      dashboard: 'http://127.0.0.1:18080',
       sidebar: 'http://127.0.0.1:18081',
-      operation: 'http://127.0.0.1:18082',
     },
   );
+  assert.equal(environment.MOCHAT_DASHBOARD_BASE_URL, undefined);
+  assert.equal(environment.MOCHAT_OPERATION_BASE_URL, undefined);
   assert.notEqual(environment.MOCHAT_SIDEBAR_BASE_URL, 'http://127.0.0.1:8081');
 });
 
@@ -95,15 +93,11 @@ test('standalone public URLs follow overridden host ports', () => {
   assert.deepEqual(
     {
       api: environment.MOCHAT_API_BASE_URL,
-      dashboard: environment.MOCHAT_DASHBOARD_BASE_URL,
       sidebar: environment.MOCHAT_SIDEBAR_BASE_URL,
-      operation: environment.MOCHAT_OPERATION_BASE_URL,
     },
     {
       api: 'http://127.0.0.1:28080',
-      dashboard: 'http://127.0.0.1:28080',
       sidebar: 'http://127.0.0.1:28081',
-      operation: 'http://127.0.0.1:28082',
     },
   );
 });
