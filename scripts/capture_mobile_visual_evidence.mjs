@@ -8,7 +8,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, '..');
 const capturePlan = [
   { viewport: 'mobile', url: '/sidebar-app/contact?wxExternalUserid=visual-contact&agentId=7', filename: 'sidebar-contact-390.png', readyText: '林小青' },
-  { viewport: 'mobile', url: '/sidebar-app/', filename: 'sidebar-workbench-390.png', readyText: '从当前客户会话开始工作' },
+  { viewport: 'mobile', url: '/sidebar-app/', filename: 'sidebar-workbench-390.png', readyText: '客户经营工作台' },
   { viewport: 'mobile', url: '/sidebar-app/roomSop?id=5', filename: 'sidebar-pending-390.png', readyText: '视觉验收客户群' },
   { viewport: 'mobile', url: '/operation-app/workFission?id=17', filename: 'operation-work-fission-390.png', readyText: '已邀请 2 位好友' },
   { viewport: 'mobile', url: '/operation-app/lottery', filename: 'operation-pending-390.png', readyText: '抽奖活动模块待迁移' },
@@ -120,6 +120,15 @@ async function installFixtures(page) {
     status: 200,
     contentType: 'application/json',
     body: envelope({ id: 23, name: '林小青', avatar: null, corpId: 9 }, 'visual-contact'),
+  }));
+  await page.route('**/sidebar/workbench/summary', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: envelope({
+      employee: { id: 7, name: '员工甲', avatar: null, departmentNames: ['客户成功部'], corpName: '视觉验收企业' },
+      customers: { total: 126, addedToday: 8, taggedTotal: 93, ownedRoomTotal: 12 },
+      tasks: { contactSopPending: 3, roomSopPending: 2, batchAddPending: 1 },
+    }, 'visual-workbench-summary'),
   }));
   await page.route('**/sidebar/workContact/show?*', (route) => route.fulfill({
     status: 200,

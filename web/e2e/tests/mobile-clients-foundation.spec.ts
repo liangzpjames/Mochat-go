@@ -3,17 +3,17 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const sidebarCases = [
-  { path: '/', title: '客户侧边栏', moduleLabel: '从当前客户会话开始工作', needsSession: true, expectsAction: false, activeNavigation: '我的' },
+  { path: '/', title: '客户', moduleLabel: '客户经营工作台', needsSession: true, expectsAction: false, activeNavigation: '客户' },
   { path: '/auth', title: '企业微信授权回调', moduleLabel: '登录失败', needsSession: false, expectsAction: false },
   { path: '/codeAuth', title: '企业微信扫码授权', moduleLabel: '兼容授权参数无效', needsSession: false, expectsAction: false },
   { path: '/contact', title: '客户资料', moduleLabel: '浏览器验收客户', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
   { path: '/contact/editDetail', title: '编辑客户资料', moduleLabel: '画像备注', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
   { path: '/contact/remark', title: '客户备注', moduleLabel: '保存备注', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
   { path: '/contact/settingTag', title: '设置客户标签', moduleLabel: '保存标签', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?wxExternalUserid=external-user-1&agentId=7' },
-  { path: '/contactBatchAdd', title: '批量加好友', moduleLabel: '13800000000', needsSession: true, expectsAction: false, activeNavigation: '我的', query: '?batchId=9&agentId=7' },
+  { path: '/contactBatchAdd', title: '批量加好友', moduleLabel: '13800000000', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?batchId=9&agentId=7' },
   { path: '/contactSop', title: '个人客户 SOP', moduleLabel: '浏览器验收客户', needsSession: true, expectsAction: false, activeNavigation: '会话', query: '?id=4&agentId=7' },
   { path: '/login', title: '侧边栏登录', moduleLabel: '继续授权', needsSession: false, expectsAction: true, query: '?agentId=7&target=%2Fcontact' },
-  { path: '/medium', title: '素材库', moduleLabel: '浏览器素材', needsSession: true, expectsAction: false, activeNavigation: '我的', query: '?agentId=7' },
+  { path: '/medium', title: '素材库', moduleLabel: '浏览器素材', needsSession: true, expectsAction: false, activeNavigation: '客户', query: '?agentId=7' },
   { path: '/roomSop', title: '客户群 SOP', moduleLabel: '浏览器客户群', needsSession: true, expectsAction: false, activeNavigation: '会话', query: '?id=5&agentId=7' },
 ] as const;
 
@@ -147,6 +147,11 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
       await route.fulfill({ status: 200, contentType: 'application/json', body: rawGoEnvelope(data, requestId) });
     });
   };
+  await sidebarFixture('**/sidebar/workbench/summary', {
+    employee: { id: 7, name: '员工甲', avatar: null, departmentNames: ['客户成功部'], corpName: '浏览器验收企业' },
+    customers: { total: 126, addedToday: 8, taggedTotal: 93, ownedRoomTotal: 12 },
+    tasks: { contactSopPending: 3, roomSopPending: 2, batchAddPending: 1 },
+  }, 'sidebar-workbench-e2e');
   await sidebarFixture('**/sidebar/workContact/show?*', {
     name: '浏览器验收客户', avatar: null, gender: 2, genderText: '女', businessNo: 'C-23',
     remark: '重点客户', description: '偏好下午沟通', tag: [{ tagId: 7, tagName: '高意向' }],
@@ -284,10 +289,9 @@ for (const viewport of viewports) {
             links.map((link) => link.getAttribute('href'))
           ));
           expect(navigationHrefs.every((href) => href?.startsWith('/sidebar-app'))).toBe(true);
-          if (routeCase.path === '/') {
-            await expect(navigation.getByRole('link', { name: '客户' })).toHaveCount(0);
-            await expect(navigation.getByRole('link', { name: '会话' })).toHaveCount(0);
-          }
+          await expect(navigation.getByRole('link', { name: '客户', exact: true })).toBeVisible();
+          await expect(navigation.getByRole('link', { name: '会话', exact: true })).toBeVisible();
+          await expect(navigation.getByRole('link', { name: '我的', exact: true })).toBeVisible();
         } else {
           await expect(navigation).toHaveCount(0);
         }
@@ -341,7 +345,7 @@ for (const viewport of viewports) {
       const audit = await installRawGoFixtures(page);
       await page.goto('/sidebar-app/not-a-sidebar-page');
       await expect(page.getByRole('heading', { name: '页面不存在' })).toBeVisible();
-      await expect(page.getByRole('heading', { level: 1, name: '客户侧边栏' })).toHaveCount(0);
+      await expect(page.getByRole('heading', { level: 1, name: '客户', exact: true })).toHaveCount(0);
       await expect(page.getByRole('navigation', {
         name: browserContract.employeeNavigationLabel,
       })).toHaveCount(0);
@@ -372,7 +376,7 @@ test.describe('employee Sidebar visual acceptance', () => {
   test.beforeAll(() => mkdirSync(employeeSidebarEvidenceDir, { recursive: true }));
 
   const visualCases = [
-    { name: 'reference-2e667-home-360x800.png', width: 360, height: 800, path: '/', label: '从当前客户会话开始工作' },
+    { name: 'reference-2e667-home-360x800.png', width: 360, height: 800, path: '/', label: '客户经营工作台' },
     { name: 'reference-b8e1-contact-390x844.png', width: 390, height: 844, path: '/contact?wxExternalUserid=external-user-1&agentId=7', label: '客户概览' },
     { name: 'reference-7837-contact-sop-430x932.png', width: 430, height: 932, path: '/contactSop?id=4&agentId=7', label: '请今日回访' },
     { name: 'reference-cb8f-batch-add-360x800.png', width: 360, height: 800, path: '/contactBatchAdd?batchId=9&agentId=7', label: '13800000000' },
