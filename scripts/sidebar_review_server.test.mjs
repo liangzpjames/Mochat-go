@@ -101,6 +101,27 @@ test('returns the fixed default review URL', () => {
   );
 });
 
+test('forces the configured loopback binding when a caller requests a wildcard host', async (t) => {
+  const guarded = createSidebarReviewServer({
+    distRoot,
+    fixture,
+    host: '127.0.0.1',
+    port: 0,
+  });
+  t.after(async () => {
+    if (!guarded.server.listening) return;
+    const closed = once(guarded.server, 'close');
+    guarded.server.close();
+    await closed;
+  });
+
+  guarded.server.listen(0, '0.0.0.0');
+  await once(guarded.server, 'listening');
+  const address = guarded.server.address();
+  assert(address && typeof address === 'object');
+  assert.equal(address.address, '127.0.0.1');
+});
+
 test('accepts only the fixed review agent and a safe Sidebar target', () => {
   assert.equal(
     reviewAuthLocation('/sidebar/agent/auth?agentId=8&target=%2F', fixture, origin),

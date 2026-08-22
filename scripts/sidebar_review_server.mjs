@@ -118,6 +118,22 @@ function allowedHost(rawHost, server, configuredPort) {
   return rawHost === `127.0.0.1:${port}` || rawHost.toLowerCase() === `localhost:${port}`;
 }
 
+function constrainListenToLoopback(server, host, port) {
+  const nativeListen = server.listen.bind(server);
+  Object.defineProperty(server, 'listen', {
+    configurable: false,
+    writable: false,
+    value(...args) {
+      const lastArgument = args.at(-1);
+      const callback = typeof lastArgument === 'function' ? lastArgument : undefined;
+      const options = { host, port };
+      return callback === undefined
+        ? nativeListen(options)
+        : nativeListen(options, callback);
+    },
+  });
+}
+
 function routeFromTarget(rawTarget, origin) {
   const absoluteTarget = typeof rawTarget === 'string'
     && /^[a-z][a-z\d+.-]*:\/\//i.test(rawTarget);
@@ -537,6 +553,7 @@ export function createSidebarReviewServer({
       }
     });
   });
+  constrainListenToLoopback(server, host, port);
 
   return {
     server,
