@@ -101,6 +101,20 @@ describe('Sidebar contact domain API', () => {
     }));
   });
 
+  it('preserves an honest partial-sync outcome for retryable writes', async () => {
+    const request = vi.fn().mockResolvedValue({
+      savedLocally: true,
+      wecomSynced: false,
+      retryable: true,
+    });
+
+    await expect(updateContactRemark(request, 11, '新备注')).resolves.toEqual({
+      savedLocally: true,
+      wecomSynced: false,
+      retryable: true,
+    });
+  });
+
   it('loads persisted tag groups and tags with exact query encoding', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce([{ groupId: 3, groupName: '阶段' }])

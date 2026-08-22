@@ -92,7 +92,9 @@ export function ContactPage({ request, onReauthenticate }: ContactPageProps) {
   const remarkHref = useHref(`/contact/remark${suffix}`);
   const tagHref = useHref(`/contact/settingTag${suffix}`);
   const portraitHref = useHref(`/contact/editDetail${suffix}`);
-  const sopHref = useHref(`/contactSop${suffix}`);
+  const sopContext = new URLSearchParams(context);
+  if (state.kind === 'success') sopContext.set('contactId', String(state.contact.id));
+  const sopHref = useHref(`/contactSop${sopContext.size === 0 ? '' : `?${sopContext.toString()}`}`);
 
   useEffect(() => {
     if (externalUserId.length === 0) return undefined;

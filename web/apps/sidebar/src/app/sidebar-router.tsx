@@ -33,7 +33,7 @@ import {
   sidebarRouteRegistry,
   type SidebarRouteRegistration,
 } from '../routes/registry';
-import { SidebarPageShell, sidebarBusinessContextSuffix } from '../ui/sidebar-page-shell';
+import { SidebarPageShell, sidebarBusinessNavigation } from '../ui/sidebar-page-shell';
 import type { WeComBridge } from '../wecom/wecom-bridge';
 
 export type SidebarRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -167,17 +167,20 @@ function WorkbenchIcon() {
 
 function SidebarWorkbenchTile({
   route,
+  sourcePath,
   search,
 }: {
   route: SidebarRouteRegistration;
+  sourcePath: string;
   search: string;
 }) {
-  const suffix = sidebarBusinessContextSuffix(route.path, search);
-  const href = useHref(`${route.path}${suffix}`);
+  const navigation = sidebarBusinessNavigation(route.path, sourcePath, search);
+  const href = useHref(`${route.path}${navigation.suffix}`);
   return (
     <MobileIconTile
-      description={route.description}
-      href={href}
+      description={navigation.reason ?? route.description}
+      disabled={!navigation.available}
+      {...(navigation.available ? { href } : {})}
       icon={<WorkbenchIcon />}
       title={route.title}
     />
@@ -200,6 +203,7 @@ function SidebarWorkbenchPage() {
             key={route.moduleKey}
             route={route}
             search={location.search}
+            sourcePath={location.pathname}
           />
         ))}
       </section>

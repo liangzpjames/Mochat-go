@@ -231,23 +231,47 @@ export async function updateContactPortrait(
   }));
 }
 
+export type ContactUpdateOutcome = {
+  savedLocally: boolean;
+  wecomSynced: boolean;
+  retryable: boolean;
+};
+
+function contactUpdateOutcome(raw: unknown): ContactUpdateOutcome {
+  if (Array.isArray(raw)) {
+    return { savedLocally: true, wecomSynced: true, retryable: false };
+  }
+  const outcome = record(raw);
+  if (
+    outcome === null
+    || typeof outcome.savedLocally !== 'boolean'
+    || typeof outcome.wecomSynced !== 'boolean'
+    || typeof outcome.retryable !== 'boolean'
+  ) validation('客户更新响应格式无效。');
+  return {
+    savedLocally: outcome.savedLocally,
+    wecomSynced: outcome.wecomSynced,
+    retryable: outcome.retryable,
+  };
+}
+
 export async function updateContactRemark(
   request: ContactRequest,
   contactId: number,
   remark: string,
-): Promise<void> {
-  await request<unknown>('/workContact/update', jsonRequest({ contactId, remark }));
+): Promise<ContactUpdateOutcome> {
+  return contactUpdateOutcome(await request<unknown>('/workContact/update', jsonRequest({ contactId, remark })));
 }
 
 export async function appendContactTags(
   request: ContactRequest,
   contactId: number,
   tagIds: number[],
-): Promise<void> {
-  await request<unknown>('/workContact/update', jsonRequest({
+): Promise<ContactUpdateOutcome> {
+  return contactUpdateOutcome(await request<unknown>('/workContact/update', jsonRequest({
     contactId,
     tag: [...new Set(tagIds)],
-  }));
+  })));
 }
 
 export async function loadTagGroups(request: ContactRequest): Promise<ContactTag[]> {

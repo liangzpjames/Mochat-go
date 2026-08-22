@@ -235,12 +235,18 @@ test('injects the review marker and links for all 12 Sidebar routes without rewr
 
 test('persists remark, description, and appended tags until reset', async () => {
   review.reset();
-  assert.equal((await jsonWrite('/sidebar/workContact/update', {
+  const writeResponse = await jsonWrite('/sidebar/workContact/update', {
     contactId: 23,
     remark: '新备注',
     description: '新描述',
     tag: [9],
-  })).status, 200);
+  });
+  assert.equal(writeResponse.status, 200);
+  assert.deepEqual(jsonBody(writeResponse).data, {
+    savedLocally: true,
+    wecomSynced: true,
+    retryable: false,
+  });
   const current = jsonBody(await authorized('/sidebar/workContact/show?contactId=23')).data;
   assert.equal(current.remark, '新备注');
   assert.equal(current.description, '新描述');

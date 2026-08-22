@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ContactEditPage } from './contact-edit-page';
 import { ContactRemarkPage } from './contact-remark-page';
 import { ContactTagPage } from './contact-tag-page';
+import type { ContactRequest } from './contact-api';
 
 afterEach(cleanup);
 
@@ -17,6 +18,16 @@ const workspace = {
 
 function frame(node: React.ReactNode) {
   return render(<MemoryRouter initialEntries={['/contact/remark?wxExternalUserid=external-1&agentId=7']}>{node}</MemoryRouter>);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
 
 describe('customer write pages', () => {
@@ -71,6 +82,27 @@ describe('customer write pages', () => {
     expect(request.mock.calls.filter(([path]) => path === '/workContact/update')).toHaveLength(1);
   });
 
+  it('keeps a locally saved remark on screen until WeCom retry succeeds', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(summary)
+      .mockResolvedValueOnce(workspace)
+      .mockResolvedValueOnce({ savedLocally: true, wecomSynced: false, retryable: true })
+      .mockResolvedValueOnce({ savedLocally: true, wecomSynced: true, retryable: false });
+    const onDone = vi.fn();
+    frame(<ContactRemarkPage request={request} onDone={onDone} onReauthenticate={vi.fn()} />);
+
+    const input = await screen.findByLabelText('备注名');
+    fireEvent.change(input, { target: { value: '新备注' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存备注' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('本地已保存');
+    expect(onDone).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(request.mock.calls.filter(([path]) => path === '/workContact/update')).toHaveLength(2);
+  });
+
   it('locks existing tags and appends selected persisted tags', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(summary)
@@ -88,6 +120,77 @@ describe('customer write pages', () => {
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     const update = request.mock.calls.find(([path]) => path === '/workContact/update');
     expect(update?.[1]).toMatchObject({ body: JSON.stringify({ contactId: 11, tag: [9] }) });
+  });
+
+  it('retries WeCom tag sync without losing the locally saved selection', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(summary)
+      .mockResolvedValueOnce(workspace)
+      .mockResolvedValueOnce([{ groupId: 3, groupName: '阶段' }])
+      .mockResolvedValueOnce([{ id: 7, name: '已有标签' }, { id: 9, name: '新标签' }])
+      .mockResolvedValueOnce({ savedLocally: true, wecomSynced: false, retryable: true })
+      .mockResolvedValueOnce({ savedLocally: true, wecomSynced: true, retryable: false });
+    const onDone = vi.fn();
+    frame(<ContactTagPage request={request} onDone={onDone} onReauthenticate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '新标签' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存标签' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('本地已保存');
+    expect(onDone).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(request.mock.calls.filter(([path]) => path === '/workContact/update')).toHaveLength(2);
+  });
+
+  it('keeps only the latest tag-group response during rapid switching', async () => {
+    const slow = deferred<Array<{ id: number; name: string }>>();
+    const latest = deferred<Array<{ id: number; name: string }>>();
+    const request = vi.fn((path: string): Promise<unknown> => {
+      if (path.startsWith('/workContact/detail?')) return Promise.resolve(summary);
+      if (path.startsWith('/workContact/show?')) return Promise.resolve(workspace);
+      if (path === '/workContactTagGroup/index') return Promise.resolve([
+        { groupId: 3, groupName: '阶段' },
+        { groupId: 4, groupName: '来源' },
+      ]);
+      if (path === '/workContactTag/allTag') return Promise.resolve([{ id: 7, name: '已有标签' }]);
+      if (path === '/workContactTag/allTag?groupId=3') return slow.promise;
+      if (path === '/workContactTag/allTag?groupId=4') return latest.promise;
+      return Promise.reject(new Error(`unexpected request ${path}`));
+    }) as unknown as ContactRequest;
+    frame(<ContactTagPage request={request} onDone={vi.fn()} onReauthenticate={vi.fn()} />);
+
+    expect(await screen.findByText('已有标签（已存在）')).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('标签分组'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('标签分组'), { target: { value: '4' } });
+    latest.resolve([{ id: 12, name: '最新分组标签' }]);
+    expect(await screen.findByRole('checkbox', { name: '最新分组标签' })).not.toBeNull();
+    slow.resolve([{ id: 13, name: '过期分组标签' }]);
+
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: '过期分组标签' })).toBeNull());
+    expect(screen.getByRole('checkbox', { name: '最新分组标签' })).not.toBeNull();
+  });
+
+  it('clears stale tags and disables save when the latest group load fails', async () => {
+    const failed = deferred<Array<{ id: number; name: string }>>();
+    const request = vi.fn((path: string): Promise<unknown> => {
+      if (path.startsWith('/workContact/detail?')) return Promise.resolve(summary);
+      if (path.startsWith('/workContact/show?')) return Promise.resolve(workspace);
+      if (path === '/workContactTagGroup/index') return Promise.resolve([{ groupId: 3, groupName: '阶段' }]);
+      if (path === '/workContactTag/allTag') return Promise.resolve([{ id: 7, name: '已有标签' }, { id: 9, name: '新标签' }]);
+      if (path === '/workContactTag/allTag?groupId=3') return failed.promise;
+      return Promise.reject(new Error(`unexpected request ${path}`));
+    }) as unknown as ContactRequest;
+    frame(<ContactTagPage request={request} onDone={vi.fn()} onReauthenticate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '新标签' }));
+    expect(screen.getByRole('button', { name: '保存标签' }).hasAttribute('disabled')).toBe(false);
+    fireEvent.change(screen.getByLabelText('标签分组'), { target: { value: '3' } });
+    failed.reject(new Error('分组标签加载失败'));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('分组标签加载失败');
+    expect(screen.queryByRole('checkbox', { name: '新标签' })).toBeNull();
+    expect(screen.getByRole('button', { name: '保存标签' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('renders portrait field types and persists edited values', async () => {

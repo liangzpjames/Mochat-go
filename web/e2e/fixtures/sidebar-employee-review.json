@@ -36,7 +36,15 @@
     "task": { "content": [{ "type": 0, "value": "请今日回访" }] },
     "contact": { "id": 23, "name": "专项验收客户", "avatar": null }
   },
-  "contactSopTips": [{ "id": 4, "time": "2026-08-22 09:00" }],
+  "contactSopTips": [{
+    "id": 4,
+    "contactSopId": 12,
+    "creator": "员工甲",
+    "time": "09:00",
+    "tipTime": "2026-08-22 09:00",
+    "task": { "content": [{ "type": 0, "value": "请今日回访" }] },
+    "contact": { "id": 23, "name": "专项验收客户", "avatar": null }
+  }],
   "roomSop": {
     "id": 5,
     "roomSopId": 13,

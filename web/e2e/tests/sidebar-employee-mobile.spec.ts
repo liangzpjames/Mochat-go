@@ -152,6 +152,25 @@ test.describe('employee Sidebar business states at 390x844', () => {
     expect(attempts).toBe(2);
   });
 
+  test('round-trips customer context through profile and opens real SOP reminders', async ({ page }) => {
+    const audit = await installFixtures(page);
+    await injectSession(page);
+    await page.goto('/sidebar-app/contact?wxExternalUserid=external-user-1&agentId=7');
+    await expect(page.getByRole('heading', { name: '专项验收客户' })).toBeVisible();
+
+    await page.getByRole('link', { name: '我的' }).click();
+    await expect(page).toHaveURL(/\/sidebar-app\/\?agentId=7&wxExternalUserid=external-user-1$/);
+    await page.locator('.sidebar-workbench__tiles').getByRole('link', { name: /^客户资料/ }).click();
+    await expect(page.getByRole('heading', { name: '专项验收客户' })).toBeVisible();
+
+    await page.getByRole('link', { name: '查看 SOP 提醒' }).click();
+    await expect(page).toHaveURL(/\/sidebar-app\/contactSop\?.*contactId=23/);
+    await expect(page.getByRole('heading', { name: '个人客户 SOP' })).toBeVisible();
+    await expect(page.getByText('专项验收客户', { exact: true })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    expect(audit).toEqual({ console: [], page: [], failed: [], badResponses: [], unexpected: [] });
+  });
+
   test('validates, saves and cancels a persisted remark without duplicate writes', async ({ page }) => {
     await installFixtures(page);
     await injectSession(page);

@@ -16,24 +16,83 @@ type SidebarPageShellProps = {
 
 type SidebarNavigationKey = 'customers' | 'conversations' | 'profile';
 
+export type SidebarBusinessNavigation = {
+  available: boolean;
+  reason?: string;
+  suffix: string;
+};
+
 function navigationKey(pathname: string): SidebarNavigationKey {
   if (pathname === '/contactSop' || pathname === '/roomSop') return 'conversations';
   if (pathname === '/' || pathname === '') return 'profile';
   return 'customers';
 }
 
-export function sidebarBusinessContextSuffix(targetPath: string, search: string): string {
+function positiveParam(params: URLSearchParams, name: string): string | null {
+  const value = params.get(name)?.trim() ?? '';
+  return /^[1-9]\d*$/.test(value) ? value : null;
+}
+
+export function sidebarBusinessNavigation(
+  targetPath: string,
+  sourcePath: string,
+  search: string,
+): SidebarBusinessNavigation {
   const source = new URLSearchParams(search);
-  const target = new URLSearchParams();
+  const context = new URLSearchParams();
   const copy = (name: string) => {
     const value = source.get(name)?.trim();
-    if (value) target.set(name, value);
+    if (value) context.set(name, value);
   };
   copy('agentId');
-  if (targetPath.startsWith('/contact') && targetPath !== '/contactBatchAdd') copy('wxExternalUserid');
-  if (targetPath === '/contactBatchAdd') copy('batchId');
+  copy('wxExternalUserid');
+  for (const name of ['contactId', 'contactSopId', 'roomSopId', 'batchId']) {
+    const value = positiveParam(source, name);
+    if (value !== null) context.set(name, value);
+  }
+  const sourceTaskId = positiveParam(source, 'id');
+  if (sourceTaskId !== null && sourcePath === '/contactSop') context.set('contactSopId', sourceTaskId);
+  if (sourceTaskId !== null && sourcePath === '/roomSop') context.set('roomSopId', sourceTaskId);
+
+  const customerRoute = targetPath === '/contact'
+    || targetPath === '/contact/editDetail'
+    || targetPath === '/contact/remark'
+    || targetPath === '/contact/settingTag';
+  let available = true;
+  let reason: string | undefined;
+  if (customerRoute && !context.has('wxExternalUserid')) {
+    available = false;
+    reason = '需从企业微信客户会话进入';
+  } else if (targetPath === '/contactSop' && !context.has('contactSopId') && !context.has('contactId')) {
+    available = false;
+    reason = '需从个人客户 SOP 任务或客户详情进入';
+  } else if (targetPath === '/roomSop' && !context.has('roomSopId')) {
+    available = false;
+    reason = '需从客户群 SOP 任务进入';
+  } else if (targetPath === '/contactBatchAdd' && !context.has('batchId')) {
+    available = false;
+    reason = '需从批量加好友任务进入';
+  }
+
+  const target = new URLSearchParams(context);
+  if (targetPath === '/contactSop' && target.has('contactSopId')) {
+    target.set('id', target.get('contactSopId') ?? '');
+    target.delete('contactSopId');
+  }
+  if (targetPath === '/roomSop' && target.has('roomSopId')) {
+    target.set('id', target.get('roomSopId') ?? '');
+    target.delete('roomSopId');
+  }
   const serialized = target.toString();
-  return serialized.length === 0 ? '' : `?${serialized}`;
+  return {
+    available,
+    ...(reason === undefined ? {} : { reason }),
+    suffix: serialized.length === 0 ? '' : `?${serialized}`,
+  };
+}
+
+export function sidebarBusinessContextSuffix(targetPath: string, search: string, sourcePath = ''): string {
+  return sidebarBusinessNavigation(targetPath, sourcePath, search).suffix;
 }
 
 function SidebarLineIcon({ kind }: { kind: SidebarNavigationKey }) {
@@ -70,14 +129,24 @@ export function SidebarPageShell({
 }: SidebarPageShellProps) {
   const location = useLocation();
   const current = navigationKey(location.pathname);
-  const customersHref = useHref(`/contact${sidebarBusinessContextSuffix('/contact', location.search)}`);
-  const conversationsHref = useHref(`/contactSop${sidebarBusinessContextSuffix('/contactSop', location.search)}`);
-  const profileHref = useHref(`/${sidebarBusinessContextSuffix('/', location.search)}`);
-  const items: MobileBottomNavigationItem[] = [
-    { key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: customersHref, current: current === 'customers' },
-    { key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: conversationsHref, current: current === 'conversations' },
-    { key: 'profile', label: '我的', icon: <SidebarLineIcon kind="profile" />, href: profileHref, current: current === 'profile' },
-  ];
+  const customers = sidebarBusinessNavigation('/contact', location.pathname, location.search);
+  const contactConversation = sidebarBusinessNavigation('/contactSop', location.pathname, location.search);
+  const roomConversation = sidebarBusinessNavigation('/roomSop', location.pathname, location.search);
+  const conversationPath = location.pathname === '/roomSop' || (!contactConversation.available && roomConversation.available)
+    ? '/roomSop'
+    : '/contactSop';
+  const conversation = conversationPath === '/roomSop' ? roomConversation : contactConversation;
+  const profile = sidebarBusinessNavigation('/', location.pathname, location.search);
+  const customersHref = useHref(`/contact${customers.suffix}`);
+  const conversationsHref = useHref(`${conversationPath}${conversation.suffix}`);
+  const profileRootHref = useHref('/');
+  const profileHref = profile.suffix.length === 0
+    ? profileRootHref
+    : `${profileRootHref.endsWith('/') ? profileRootHref : `${profileRootHref}/`}${profile.suffix}`;
+  const items: MobileBottomNavigationItem[] = [];
+  if (customers.available) items.push({ key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: customersHref, current: current === 'customers' });
+  if (conversation.available) items.push({ key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: conversationsHref, current: current === 'conversations' });
+  items.push({ key: 'profile', label: '我的', icon: <SidebarLineIcon kind="profile" />, href: profileHref, current: current === 'profile' });
 
   return (
     <MobileShell

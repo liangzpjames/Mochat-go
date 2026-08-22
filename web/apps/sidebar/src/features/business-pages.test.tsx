@@ -48,6 +48,14 @@ describe('Sidebar business pages', () => {
     expect(screen.getByText('文本已复制，尚未发送。')).not.toBeNull();
   });
 
+  it('loads personal SOP reminders from the real contactId contract', async () => {
+    const request = vi.fn().mockResolvedValue([{ id: 4, contactSopId: 12, creator: '员工甲', time: '09:00', tipTime: '2026-08-22', task: { content: [{ type: 0, value: '请今日回访' }] }, contact: { id: 11, name: '林晓', avatar: null } }]);
+    render(<MemoryRouter initialEntries={['/contactSop?contactId=23&agentId=7']}><ContactSopPage onReauthenticate={vi.fn()} request={request} /></MemoryRouter>);
+
+    expect(await screen.findByText('林晓')).not.toBeNull();
+    expect(request).toHaveBeenCalledWith('/contactSop/getSopTipInfo?contactId=23', { method: 'GET' });
+  });
+
   it('persists room completion once and disables repeated submission', async () => {
     const request = vi.fn()
       .mockResolvedValueOnce({ id: 5, roomSopId: 13, creator: '员工乙', time: '10:00', state: 0, task: { content: [] }, room: { id: 21, name: '客户群' } })

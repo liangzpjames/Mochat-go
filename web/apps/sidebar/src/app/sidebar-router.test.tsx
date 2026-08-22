@@ -127,18 +127,19 @@ describe('Sidebar route registry', () => {
     router.dispose();
   });
 
-  it('renders the workbench with only registered authenticated business links', () => {
+  it('disables workbench entries that lack their required business context', () => {
     window.history.replaceState(null, '', '/');
     const router = createSidebarRouter(authenticatedRuntime());
     render(<RouterProvider router={router} />);
 
-    const links = screen.getAllByRole('link').filter((link) => link.classList.contains('mobile-icon-tile'));
-    const authenticatedPaths = sidebarRouteRegistry
-      .filter((route) => route.auth && route.path !== '/')
-      .map((route) => route.path)
-      .sort();
+    const tiles = [...document.querySelectorAll('.sidebar-workbench__tiles .mobile-icon-tile')];
+    const links = tiles.filter((tile) => tile.tagName === 'A');
 
-    expect(links.map((link) => link.getAttribute('href')).sort()).toEqual(authenticatedPaths);
+    expect(tiles).toHaveLength(8);
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/medium']);
+    expect(tiles.filter((tile) => tile.getAttribute('aria-disabled') === 'true')).toHaveLength(7);
+    expect(screen.getAllByText('需从企业微信客户会话进入')).toHaveLength(4);
+    expect(screen.getByText('需从个人客户 SOP 任务或客户详情进入')).not.toBeNull();
     expect(screen.queryByText(/成功|客户总数|今日/)).toBeNull();
     router.dispose();
   });
@@ -151,6 +152,18 @@ describe('Sidebar route registry', () => {
     expect(screen.getByRole('link', { name: /^客户资料/ }).getAttribute('href')).toBe(
       '/contact?wxExternalUserid=external-1',
     );
+    router.dispose();
+  });
+
+  it('builds only context-valid task links from a restored profile context', () => {
+    window.history.replaceState(null, '', '/?agentId=7&wxExternalUserid=external-1&contactId=23&contactSopId=4&roomSopId=5&batchId=9');
+    const router = createSidebarRouter(authenticatedRuntime());
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByRole('link', { name: /^客户资料/ }).getAttribute('href')).toContain('wxExternalUserid=external-1');
+    expect(screen.getByRole('link', { name: /^个人客户 SOP/ }).getAttribute('href')).toContain('id=4');
+    expect(screen.getByRole('link', { name: /^客户群 SOP/ }).getAttribute('href')).toContain('id=5');
+    expect(screen.getByRole('link', { name: /^批量加好友/ }).getAttribute('href')).toContain('batchId=9');
     router.dispose();
   });
 
@@ -174,7 +187,7 @@ describe('Sidebar route registry', () => {
   });
 
   it('keeps workbench module links inside the prefixed Sidebar mount', () => {
-    window.history.replaceState(null, '', '/sidebar-app/');
+    window.history.replaceState(null, '', '/sidebar-app/?wxExternalUserid=external-1');
     const router = createSidebarRouter({
       ...authenticatedRuntime(),
       basename: '/sidebar-app',
@@ -182,7 +195,7 @@ describe('Sidebar route registry', () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.getByRole('link', { name: /^客户资料/ }).getAttribute('href')).toBe(
-      '/sidebar-app/contact',
+      '/sidebar-app/contact?wxExternalUserid=external-1',
     );
     router.dispose();
   });

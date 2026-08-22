@@ -1,5 +1,5 @@
 import { MobileApiError, MobileCard, MobileState } from '@mochat/mobile-foundation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import {
@@ -26,9 +26,12 @@ export function ContactTagPage(props: {
   const [selected, setSelected] = useState<number[]>([]);
   const [groupId, setGroupId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [filterFailed, setFilterFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [syncPending, setSyncPending] = useState(false);
   const [message, setMessage] = useState('');
   const [reloadVersion, setReloadVersion] = useState(0);
+  const tagRequestSequence = useRef(0);
 
   useEffect(() => {
     if (!externalUserId) {
@@ -60,14 +63,28 @@ export function ContactTagPage(props: {
 
   const changeGroup = async (value: string) => {
     const next = value === '' ? null : Number(value);
+    const sequence = tagRequestSequence.current + 1;
+    tagRequestSequence.current = sequence;
     setGroupId(next);
+    setMessage('');
+    setFilterFailed(false);
+    setTags([]);
     setLoading(true);
-    try { setTags(await loadTags(props.request, next)); }
+    try {
+      const loadedTags = await loadTags(props.request, next);
+      if (sequence !== tagRequestSequence.current) return;
+      setTags(loadedTags);
+    }
     catch (error) {
+      if (sequence !== tagRequestSequence.current) return;
+      setTags([]);
+      setFilterFailed(true);
       if (error instanceof MobileApiError && error.kind === 'unauthorized') props.onReauthenticate();
       else setMessage(error instanceof Error ? error.message : '标签加载失败。');
     }
-    finally { setLoading(false); }
+    finally {
+      if (sequence === tagRequestSequence.current) setLoading(false);
+    }
   };
 
   const submit = async () => {
@@ -76,7 +93,16 @@ export function ContactTagPage(props: {
     if (added.length === 0) { setMessage('请选择至少一个新标签。'); return; }
     setSubmitting(true);
     setMessage('');
-    try { await appendContactTags(props.request, contactId, added); props.onDone(); }
+    try {
+      const outcome = await appendContactTags(props.request, contactId, added);
+      if (!outcome.wecomSynced) {
+        setSyncPending(outcome.retryable);
+        setMessage('本地已保存，但企业微信标签同步失败，请重试。');
+        return;
+      }
+      setSyncPending(false);
+      props.onDone();
+    }
     catch (error) {
       if (error instanceof MobileApiError && error.kind === 'unauthorized') props.onReauthenticate();
       else setMessage(error instanceof Error ? error.message : '标签保存失败，请重试。');
@@ -119,8 +145,8 @@ export function ContactTagPage(props: {
         {message ? <p className="sidebar-form__error" role="alert">{message}</p> : null}
         <div className="sidebar-form__actions">
           <button className="sidebar-form__secondary" disabled={submitting} onClick={props.onDone} type="button">取消</button>
-          <button className="sidebar-form__primary" disabled={submitting || loading || selected.every((id) => existing.includes(id))} onClick={() => { void submit(); }} type="button">
-            {submitting ? '保存中' : '保存标签'}
+          <button className="sidebar-form__primary" disabled={submitting || loading || filterFailed || selected.every((id) => existing.includes(id))} onClick={() => { void submit(); }} type="button">
+            {submitting ? '保存中' : syncPending ? '重试同步' : '保存标签'}
           </button>
         </div>
       </MobileCard>

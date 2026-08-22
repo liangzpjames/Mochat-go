@@ -23,6 +23,7 @@ export function ContactRemarkPage(props: {
   >({ kind: 'loading' });
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [syncPending, setSyncPending] = useState(false);
   const [reloadVersion, setReloadVersion] = useState(0);
 
   useEffect(() => {
@@ -57,7 +58,13 @@ export function ContactRemarkPage(props: {
     setSubmitting(true);
     setMessage('');
     try {
-      await updateContactRemark(props.request, state.contactId, remark);
+      const outcome = await updateContactRemark(props.request, state.contactId, remark);
+      if (!outcome.wecomSynced) {
+        setSyncPending(outcome.retryable);
+        setMessage('本地已保存，但企业微信同步失败，请重试。');
+        return;
+      }
+      setSyncPending(false);
       props.onDone();
     } catch (error) {
       if (error instanceof MobileApiError && error.kind === 'unauthorized') props.onReauthenticate();
@@ -82,7 +89,7 @@ export function ContactRemarkPage(props: {
         <div className="sidebar-form__actions">
           <button className="sidebar-form__secondary" disabled={submitting} onClick={props.onDone} type="button">取消</button>
           <button className="sidebar-form__primary" disabled={submitting} type="submit">
-            {submitting ? '保存中' : '保存备注'}
+            {submitting ? '保存中' : syncPending ? '重试同步' : '保存备注'}
           </button>
         </div>
       </form>

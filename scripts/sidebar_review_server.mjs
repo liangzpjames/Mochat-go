@@ -308,12 +308,14 @@ async function handleWrite(request, response, pathname, state) {
   }
   const body = parsed.value;
 
+  let responseData = [];
   if (pathname === '/sidebar/workContact/update') {
     if (!validContactUpdate(body, state)) {
       sendError(response, 422, 'invalid contact update body', request.method);
       return;
     }
     updateContact(body, state);
+    responseData = { savedLocally: true, wecomSynced: true, retryable: false };
   } else if (pathname === '/sidebar/contactFieldPivot/update') {
     if (!validPortrait(body, state)) {
       sendError(response, 422, 'invalid userPortrait update body', request.method);
@@ -327,7 +329,7 @@ async function handleWrite(request, response, pathname, state) {
     }
     state.roomSop.state = Number.isSafeInteger(body.state) && body.state !== 0 ? body.state : 1;
   }
-  sendSuccess(response, [], request.method);
+  sendSuccess(response, responseData, request.method);
 }
 
 async function handleAPI(request, response, url, state, fixture) {
