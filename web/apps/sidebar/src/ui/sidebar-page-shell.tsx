@@ -22,9 +22,13 @@ export type SidebarBusinessNavigation = {
   suffix: string;
 };
 
-function navigationKey(pathname: string): SidebarNavigationKey {
+function navigationKey(pathname: string, search: string): SidebarNavigationKey {
+  if (pathname === '/' || pathname === '') {
+    const tab = new URLSearchParams(search).get('tab');
+    if (tab === 'conversations' || tab === 'profile') return tab;
+    return 'customers';
+  }
   if (pathname === '/contactSop' || pathname === '/roomSop') return 'conversations';
-  if (pathname === '/' || pathname === '' || pathname === '/contactBatchAdd' || pathname === '/medium') return 'profile';
   return 'customers';
 }
 
@@ -128,25 +132,23 @@ export function SidebarPageShell({
   children,
 }: SidebarPageShellProps) {
   const location = useLocation();
-  const current = navigationKey(location.pathname);
-  const customers = sidebarBusinessNavigation('/contact', location.pathname, location.search);
-  const contactConversation = sidebarBusinessNavigation('/contactSop', location.pathname, location.search);
-  const roomConversation = sidebarBusinessNavigation('/roomSop', location.pathname, location.search);
-  const conversationPath = location.pathname === '/roomSop' || (!contactConversation.available && roomConversation.available)
-    ? '/roomSop'
-    : '/contactSop';
-  const conversation = conversationPath === '/roomSop' ? roomConversation : contactConversation;
-  const profile = sidebarBusinessNavigation('/', location.pathname, location.search);
-  const customersHref = useHref(`/contact${customers.suffix}`);
-  const conversationsHref = useHref(`${conversationPath}${conversation.suffix}`);
-  const profileRootHref = useHref('/');
-  const profileHref = profile.suffix.length === 0
-    ? profileRootHref
-    : `${profileRootHref.endsWith('/') ? profileRootHref : `${profileRootHref}/`}${profile.suffix}`;
-  const items: MobileBottomNavigationItem[] = [];
-  if (customers.available) items.push({ key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: customersHref, current: current === 'customers' });
-  if (conversation.available) items.push({ key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: conversationsHref, current: current === 'conversations' });
-  items.push({ key: 'profile', label: '我的', icon: <SidebarLineIcon kind="profile" />, href: profileHref, current: current === 'profile' });
+  const current = navigationKey(location.pathname, location.search);
+  const context = new URLSearchParams(
+    sidebarBusinessNavigation('/', location.pathname, location.search).suffix.replace(/^\?/, ''),
+  );
+  const rootTarget = (tab: SidebarNavigationKey) => {
+    const query = new URLSearchParams(context);
+    query.set('tab', tab);
+    return `/?${query.toString()}`;
+  };
+  const customersHref = useHref(rootTarget('customers'));
+  const conversationsHref = useHref(rootTarget('conversations'));
+  const profileHref = useHref(rootTarget('profile'));
+  const items: MobileBottomNavigationItem[] = [
+    { key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: customersHref, current: current === 'customers' },
+    { key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: conversationsHref, current: current === 'conversations' },
+    { key: 'profile', label: '我的', icon: <SidebarLineIcon kind="profile" />, href: profileHref, current: current === 'profile' },
+  ];
 
   return (
     <MobileShell

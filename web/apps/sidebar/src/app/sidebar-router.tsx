@@ -1,6 +1,4 @@
 import {
-  MobileCard,
-  MobileIconTile,
   MobileShell,
   MobileState,
   safeInternalTarget,
@@ -9,7 +7,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   createBrowserRouter,
   Navigate,
-  useHref,
   useLocation,
   useNavigate,
   useSearchParams,
@@ -29,11 +26,12 @@ import { ContactEditPage } from '../features/contact/contact-edit-page';
 import { ContactPage } from '../features/contact/contact-page';
 import { ContactRemarkPage } from '../features/contact/contact-remark-page';
 import { ContactTagPage } from '../features/contact/contact-tag-page';
+import { WorkbenchPage } from '../features/workbench/workbench-page';
 import {
   sidebarRouteRegistry,
   type SidebarRouteRegistration,
 } from '../routes/registry';
-import { SidebarPageShell, sidebarBusinessNavigation } from '../ui/sidebar-page-shell';
+import { SidebarPageShell } from '../ui/sidebar-page-shell';
 import type { WeComBridge } from '../wecom/wecom-bridge';
 
 export type SidebarRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -157,60 +155,6 @@ function SidebarCodeAuthPage() {
   return <MobileShell appName="MoChat 客户侧边栏" title="企业微信扫码授权"><MobileState description={result.message} kind="error" title="兼容授权参数无效" /></MobileShell>;
 }
 
-function WorkbenchIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      <path d="M5 5.5h5v5H5zM14 5.5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z" fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
-    </svg>
-  );
-}
-
-function SidebarWorkbenchTile({
-  route,
-  sourcePath,
-  search,
-}: {
-  route: SidebarRouteRegistration;
-  sourcePath: string;
-  search: string;
-}) {
-  const navigation = sidebarBusinessNavigation(route.path, sourcePath, search);
-  const href = useHref(`${route.path}${navigation.suffix}`);
-  return (
-    <MobileIconTile
-      description={navigation.reason ?? route.description}
-      disabled={!navigation.available}
-      {...(navigation.available ? { href } : {})}
-      icon={<WorkbenchIcon />}
-      title={route.title}
-    />
-  );
-}
-
-function SidebarWorkbenchPage() {
-  const location = useLocation();
-  const routes = sidebarRouteRegistry.filter((route) => route.auth && route.path !== '/');
-  return (
-    <SidebarPageShell
-      eyebrow="员工工作台"
-      hero={<MobileCard padding="comfortable" tone="accent"><p className="sidebar-workbench__hero-kicker">企业微信工作台</p><h2>从当前客户会话开始工作</h2><p>已为你保留现有业务入口。</p></MobileCard>}
-      subtitle="查看当前会话客户与可用工作模块。"
-      title="客户侧边栏"
-    >
-      <section aria-label="可用工作模块" className="sidebar-workbench__tiles">
-        {routes.map((route) => (
-          <SidebarWorkbenchTile
-            key={route.moduleKey}
-            route={route}
-            search={location.search}
-            sourcePath={location.pathname}
-          />
-        ))}
-      </section>
-    </SidebarPageShell>
-  );
-}
-
 function SidebarContactPage({ runtime }: { runtime: SidebarRuntime }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -280,7 +224,7 @@ function routeElement(route: SidebarRouteRegistration, runtime: SidebarRuntime):
   const content = route.moduleKey === 'contact-summary'
     ? <SidebarContactPage runtime={runtime} />
     : route.moduleKey === 'sidebar-home'
-      ? <SidebarWorkbenchPage />
+      ? <WorkbenchPage bridge={runtime.bridge} request={runtime.request} />
       : <SidebarBusinessPage route={route} runtime={runtime} />;
   return route.auth ? (
     <SidebarAuthBoundary runtime={runtime}>{content}</SidebarAuthBoundary>
