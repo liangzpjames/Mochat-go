@@ -133,7 +133,7 @@ func (h *WorkReadHandler) writeWorkContactUpdate(w http.ResponseWriter, r *http.
 	outcome := WorkContactUpdateOutcome{SavedLocally: true, WeComSynced: true}
 	needsRemarkSync := values.Remark != nil || values.Description != nil
 	needsTagSync := len(result.AddedWXTagIDs) > 0
-	hasUnsyncableTags := result.TagSyncRequested && len(result.UnsyncableTagIDs) > 0
+	hasUnsyncableTags := len(result.UnsyncableTagIDs) > 0
 	needsWeComSync := needsRemarkSync || needsTagSync
 	writePartial := func() {
 		outcome.WeComSynced = false

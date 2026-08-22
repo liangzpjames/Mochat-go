@@ -496,6 +496,24 @@ func TestWeWorkCallbackWorkerMarksWorkRoomAutoPullTagsForNewContact(t *testing.T
 	}
 }
 
+func TestWeWorkCallbackWorkerRejectsUnmappedContactWelcomeTags(t *testing.T) {
+	store := &fakeWeWorkCallbackWorkerStore{
+		workRoomAutoPullWelcomes: map[int]WorkRoomAutoPullWelcome{77: {ID: 77, TagIDs: []int{31}}},
+		updateProfileFound:       true,
+		updateProfileResult: WorkContactUpdateResult{
+			WXUserID: "go-user", WXExternalUserID: "external-user", TagSyncRequested: true, UnsyncableTagIDs: []int{31},
+		},
+	}
+	worker := NewWeWorkCallbackWorker(nil, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+
+	err := worker.markContactTagsFromState(context.Background(), 7, RoomWelcomeCorpCredential{CorpID: 7}, 3, 101, WeWorkCallbackEvent{
+		Message: map[string]string{"State": "workRoomAutoPullId-77"},
+	})
+	if err == nil {
+		t.Fatal("unmapped callback tag was reported as fully synchronized")
+	}
+}
+
 func TestWeWorkCallbackWorkerMarksFissionTagsForNewContact(t *testing.T) {
 	store := &fakeWeWorkCallbackWorkerStore{
 		credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},

@@ -72,6 +72,8 @@ type MarkTagsApplyResult struct {
 	WXExternalUserID string
 	AddedWXTagIDs    []string
 	AddedTagNames    []string
+	TagSyncRequested bool
+	UnsyncableTagIDs []int
 }
 
 type MarkTagsWorkerQueue interface {
@@ -236,7 +238,10 @@ func (w *MarkTagsWorker) Process(ctx context.Context, event MarkTagsEvent) error
 	if err != nil {
 		return err
 	}
-	if !found || len(result.AddedWXTagIDs) == 0 {
+	if !found {
+		return nil
+	}
+	if len(result.AddedWXTagIDs) == 0 && len(result.UnsyncableTagIDs) == 0 {
 		if found && event.AutoTagRecordID > 0 {
 			if err := w.store.MarkAutoTagRecordApplied(ctx, event.AutoTagRecordID, event.AutoTagID); err != nil {
 				return err
@@ -244,20 +249,25 @@ func (w *MarkTagsWorker) Process(ctx context.Context, event MarkTagsEvent) error
 		}
 		return nil
 	}
+	if strings.TrimSpace(result.WXUserID) == "" || strings.TrimSpace(result.WXExternalUserID) == "" {
+		return fmt.Errorf("work contact tag sync identity is incomplete")
+	}
+	if len(result.AddedWXTagIDs) > 0 {
+		if err := w.client.MarkExternalContactTags(ctx, credential, WorkContactMarkTagsPayload{
+			UserID:         result.WXUserID,
+			ExternalUserID: result.WXExternalUserID,
+			AddTag:         result.AddedWXTagIDs,
+		}); err != nil {
+			return fmt.Errorf("mark tags WeCom sync failed after local apply: %w", err)
+		}
+	}
+	if len(result.UnsyncableTagIDs) > 0 {
+		return fmt.Errorf("work contact tags are missing WeCom mappings: %v", result.UnsyncableTagIDs)
+	}
 	if event.AutoTagRecordID > 0 {
 		if err := w.store.MarkAutoTagRecordApplied(ctx, event.AutoTagRecordID, event.AutoTagID); err != nil {
 			return err
 		}
-	}
-	if strings.TrimSpace(result.WXUserID) == "" || strings.TrimSpace(result.WXExternalUserID) == "" {
-		return nil
-	}
-	if err := w.client.MarkExternalContactTags(ctx, credential, WorkContactMarkTagsPayload{
-		UserID:         result.WXUserID,
-		ExternalUserID: result.WXExternalUserID,
-		AddTag:         result.AddedWXTagIDs,
-	}); err != nil {
-		w.logger.Printf("mark tags WeCom sync failed after local apply: corp_id=%d contact_id=%d employee_id=%d err=%v", event.CorpID, event.ContactID, event.EmployeeID, err)
 	}
 	return nil
 }

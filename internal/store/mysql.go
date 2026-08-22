@@ -21088,6 +21088,8 @@ func (s *MySQLStore) ApplyWorkContactTags(ctx context.Context, values dashboard.
 	}
 	result.AddedWXTagIDs = appliedTags.wxIDs
 	result.AddedTagNames = appliedTags.names
+	result.TagSyncRequested = len(tagIDs) > 0
+	result.UnsyncableTagIDs = appliedTags.unsyncableIDs
 	if len(appliedTags.names) > 0 {
 		if err := insertContactTrackTx(ctx, tx, values.EmployeeID, values.ContactID, workContactUpdateTagContent(appliedTags.names), values.CorpID, 2); err != nil {
 			return dashboard.MarkTagsApplyResult{}, false, err
