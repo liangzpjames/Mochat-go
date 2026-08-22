@@ -1,5 +1,19 @@
 -- Reconcile the effective Dashboard page-resource seed with the authoritative
 -- catalog. Existing rows are preserved and only missing exact contracts are added.
+-- An earlier development overlay disabled the channel update mapping. Restore the
+-- 0153-owned contract before the idempotent seed insert so historical workspaces
+-- and clean databases converge on the same active resource.
+UPDATE `mochat_go_dashboard_permission_resources` resource
+INNER JOIN `mochat_go_dashboard_permissions` permission ON permission.`id` = resource.`permission_id`
+SET resource.`status` = 1,
+    resource.`deleted_at` = NULL,
+    resource.`scope_required` = 1,
+    resource.`version` = resource.`version` + 1
+WHERE permission.`code` = 'dashboard.acquisition.v2_channel_code'
+  AND resource.`resource_type` = 'api'
+  AND resource.`http_method` = 'PUT'
+  AND resource.`path_pattern` = '/dashboard/channelCode/update';
+
 INSERT INTO `mochat_go_dashboard_permission_resources`
   (`permission_id`, `resource_type`, `http_method`, `path_pattern`, `scope_required`, `status`, `version`)
 SELECT p.`id`, 'api', resource_seed.`http_method`, resource_seed.`path_pattern`, resource_seed.`scope_required`, 1, 1

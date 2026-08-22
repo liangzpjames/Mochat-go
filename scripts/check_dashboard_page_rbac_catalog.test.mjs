@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 import {
@@ -378,6 +379,12 @@ test('0154 reconciliation adds current resources and deactivates only exact stal
     'dashboard.page.0\tGET /dashboard/reports/overview\t1',
     'dashboard.page.1\tGET /dashboard/reports/current\t0',
   ]);
+});
+
+test('0154 reconciliation restores the channel update mapping after an older overlay disabled it', async () => {
+  const body = await readFile('deploy/standalone/migrations/0154_dashboard_permission_resource_reconciliation.up.sql', 'utf8');
+  assert.match(body, /dashboard\.acquisition\.v2_channel_code[\s\S]*PUT[\s\S]*\/dashboard\/channelCode\/update/);
+  assert.match(body, /SET resource\.`status` = 1,[\s\S]*resource\.`deleted_at` = NULL/);
 });
 
 test('0154 reconciliation rejects a deactivation that is absent from the effective seed', () => {

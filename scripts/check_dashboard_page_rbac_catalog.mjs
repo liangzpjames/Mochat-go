@@ -491,10 +491,23 @@ export function applyPermissionResourceReconciliation({ mappings, overlaySource 
     result.push(addition);
   }
 
-  const deactivationBlock = overlaySource.match(/UPDATE[\s\S]*?INNER\s+JOIN\s*\(([\s\S]*?)\)\s*deactivation_seed/i);
+  const deactivationAlias = /\)\s*deactivation_seed/i.exec(overlaySource);
+  let deactivationSource = '';
+  if (deactivationAlias) {
+    const prefix = overlaySource.slice(0, deactivationAlias.index);
+    const joins = [...prefix.matchAll(/INNER\s+JOIN\s*\(/gi)];
+    const nearestJoin = joins.at(-1);
+    if (!nearestJoin || nearestJoin.index === undefined) {
+      throw new Error('0154 reconciliation deactivation seed is malformed');
+    }
+    deactivationSource = overlaySource.slice(
+      nearestJoin.index + nearestJoin[0].length,
+      deactivationAlias.index,
+    );
+  }
   const deactivations = [];
-  if (deactivationBlock) {
-    for (const match of deactivationBlock[1].matchAll(/(?:SELECT|UNION ALL SELECT)\s+'([^']+)'(?:\s+AS\s+`?\w+`?)?\s*,\s*'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS\s+`?\w+`?)?\s*,\s*'(\/dashboard\/[^']+)'(?:\s+AS\s+`?\w+`?)?/g)) {
+  if (deactivationSource !== '') {
+    for (const match of deactivationSource.matchAll(/(?:SELECT|UNION ALL SELECT)\s+'([^']+)'(?:\s+AS\s+`?\w+`?)?\s*,\s*'(GET|POST|PUT|PATCH|DELETE)'(?:\s+AS\s+`?\w+`?)?\s*,\s*'(\/dashboard\/[^']+)'(?:\s+AS\s+`?\w+`?)?/g)) {
       deactivations.push(`${match[1]}\t${match[2]} ${match[3]}`);
     }
   }
