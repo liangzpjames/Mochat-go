@@ -16,7 +16,7 @@
 | 最终测试与复审提交 | `2d032af5a9aabf15a1b6249e7f4aff7742beb498` |
 | 截图证据提交 | `d6ccc8b` |
 | 第二轮紧凑化验收提交 | `16de3a93b76cb57474ff3822d921614c7787252b` |
-| 验收时远端主线 | `de902ef1797ae1dea2933ee9be2838253b34248e`；当前分支相对 `origin/main` 为 ahead 21 / behind 35 |
+| 代码门禁时远端主线 | `de902ef1797ae1dea2933ee9be2838253b34248e`；代码 HEAD `16de3a9` 时为 ahead 21 / behind 35，首个报告提交 `8537d98` 后复验为 ahead 22 / behind 35 |
 | 主线漂移策略 | 不盲目合并；集成前由主线维护者显式 rebase 或逐提交 cherry-pick，并重新运行本文门禁 |
 
 本次只修改 Sidebar、确有必要的 `mobile-foundation` 契约、员工侧边栏实际调用的 Go/API 契约、相关测试、E2E、部署验证脚本与本任务文档。未修改运营 H5 业务、Dashboard 管理界面、SaaS Admin、Phase 7、真实企微会话存档，也未修改监督台账 `docs/PROJECT_PROGRESS.zh-CN.md`。
@@ -117,19 +117,31 @@
 | Sidebar lint | `corepack pnpm --filter @mochat/sidebar lint` | `PASS` |
 | Sidebar production build | `corepack pnpm --filter @mochat/sidebar build` | `PASS` |
 | mobile-foundation 全部测试 | `corepack pnpm --filter @mochat/mobile-foundation test` | `PASS`，5 文件、30/30 |
-| mobile-foundation typecheck/lint/build | 对应三个 workspace 命令 | `PASS` |
-| Operation 基准不回退 | Operation test/typecheck/lint/build | `PASS`，5 文件、74/74；仅作为回归基准，未优化其业务 |
+| mobile-foundation 类型检查 | `corepack pnpm --filter @mochat/mobile-foundation typecheck` | `PASS` |
+| mobile-foundation lint | `corepack pnpm --filter @mochat/mobile-foundation lint` | `PASS` |
+| mobile-foundation build | `corepack pnpm --filter @mochat/mobile-foundation build` | `PASS` |
+| Operation 回归测试 | `corepack pnpm --filter @mochat/operation test` | `PASS`，5 文件、74/74；仅作为回归基准，未优化其业务 |
+| Operation 类型检查 | `corepack pnpm --filter @mochat/operation typecheck` | `PASS`；仅回归 |
+| Operation lint | `corepack pnpm --filter @mochat/operation lint` | `PASS`；仅回归 |
+| Operation build | `corepack pnpm --filter @mochat/operation build` | `PASS`；仅回归 |
 | 移动客户端基础门禁 | `corepack pnpm check:mobile-clients-foundation` | `PASS`，58/58；Sidebar 12 路由、Operation 10 路由、直接 fetch 0、Dashboard 会话引用 0、伪业务结果 0 |
 | Review/Compose Node 合同 | `node --test scripts/sidebar_review_server.test.mjs scripts/check_standalone_public_urls.test.mjs` | `PASS`，15/15；Review 绑定/Host/Bearer/安全 target/进程内写入/失败关闭及四个公开 URL 均有覆盖 |
 | Review Server 语法检查 | `node --check scripts/sidebar_review_server.mjs` | `PASS` |
 | 相关 Go/API | `go test ./internal/dashboard ./internal/server ./internal/store -count=1` | `PASS` |
-| 移动 E2E 类型与 lint | E2E workspace typecheck/lint | `PASS` |
-| 移动 E2E | `mobile-clients-foundation.spec.ts` | `PASS`，56/56 |
-| Sidebar 专项移动 E2E | `sidebar-employee-mobile.spec.ts` | `PASS`，43/43；12 路由分别覆盖 360×800、390×844、430×932，并覆盖紧凑密度与 390×844 核心业务状态 |
-| 合并移动 E2E | `MOCHAT_E2E_BASE_URL=http://127.0.0.1:28080`，两份 spec，`--workers=1` | `PASS`，99/99（56 + 43），耗时 1.2 分钟 |
+| E2E 类型检查 | `corepack pnpm --filter @mochat/e2e typecheck` | `PASS` |
+| E2E lint | `corepack pnpm --filter @mochat/e2e lint` | `PASS` |
+| 合并移动 E2E | `$env:MOCHAT_E2E_BASE_URL='http://127.0.0.1:28080'; corepack pnpm --filter @mochat/e2e exec playwright test tests/mobile-clients-foundation.spec.ts tests/sidebar-employee-mobile.spec.ts --workers=1` | `PASS`，99/99（移动基础 56 + Sidebar 专项 43），耗时 1.2 分钟；专项覆盖 12 路由三主视口、紧凑密度与 390×844 业务状态 |
 | Sidebar SQL 安全合同 | `internal/store/sidebar_employee_security_test.go` | `PASS`；客户摘要/轨迹、素材读写和个人 SOP 两个分支均断言企业/员工约束 |
-| Git 完整范围 | `git diff --check b9a47cab45ec872bc81e61a20b06a8a3529311b2..HEAD` | `PASS`，退出码 0 |
-| 监督台账未改 | `git diff --exit-code b9a47cab45ec872bc81e61a20b06a8a3529311b2..HEAD -- docs/PROJECT_PROGRESS.zh-CN.md` | `PASS`，退出码 0 |
+
+### 7.1.1 报告提交 `8537d98` 后的 Git 复验
+
+以下三条命令在 `8537d98114c8c97354ff987171b74cf701dd2bf0` 已成为 HEAD 后重新运行，不是报告提交前结果：
+
+| 命令 | 输出摘要 | 退出码 |
+| --- | --- | --- |
+| `git status --short --branch` | `## feat/employee-sidebar-mobile-optimization...origin/main [ahead 22, behind 35]`；首次输出另列控制器 ledger `.superpowers/sdd/progress.md`，但 `git diff --quiet -- .superpowers/sdd/progress.md` 退出码为 0，确认无内容差异；刷新索引 stat 后工作树只剩本次报告修订 | 0 |
+| `git diff --check b9a47cab45ec872bc81e61a20b06a8a3529311b2..HEAD` | 无空白错误输出 | 0 |
+| `git diff --exit-code b9a47cab45ec872bc81e61a20b06a8a3529311b2..HEAD -- docs/PROJECT_PROGRESS.zh-CN.md` | 无差异输出，监督台账 `docs/PROJECT_PROGRESS.zh-CN.md` 未被本分支修改 | 0 |
 
 ### 7.2 E2E 覆盖
 
@@ -168,7 +180,7 @@
 
 ## 9. 已知风险与集成要求
 
-1. `origin/main` 已从本任务基线推进到 `de902ef`，当前分支相对其 ahead 21 / behind 35。分支未吸收其他未验收工作；集成前必须显式 rebase/cherry-pick 并重新跑本文全部门禁，不能把本报告的通过结论直接外推到集成结果。
+1. `origin/main` 已从本任务基线推进到 `de902ef`；代码 HEAD `16de3a9` 时分支为 ahead 21 / behind 35，首个报告提交 `8537d98` 后复验为 ahead 22 / behind 35。分支未吸收其他未验收工作；集成前必须显式 rebase/cherry-pick 并重新跑本文全部门禁，不能把本报告的通过结论直接外推到集成结果。
 2. 真实企业微信 WebView 仍需在持有企业应用凭证、可信域名和真实客户/群会话的环境做最终冒烟；重点复核 OAuth 回跳、底部安全区、软键盘、外部联系人添加与素材发送。
 3. Review Server 是本机固定夹具入口，重启会重置写入，且不具备生产鉴权；其可点击验收结果不能替代真实企业微信环境冒烟。
 4. 本任务未实现真实企微会话存档，也未扩展 Operation、Dashboard UI 或 Phase 7；Operation 本轮只作 74 项回归，不应描述为紧凑化改造成果。
