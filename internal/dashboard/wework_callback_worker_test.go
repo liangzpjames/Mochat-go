@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
@@ -1250,6 +1251,60 @@ func TestWeWorkCallbackWorkerRetriesFailedDelivery(t *testing.T) {
 	}
 }
 
+func TestWeWorkCallbackWorkerRetriesContactTagSyncFailuresThroughDeliveryChain(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		result    WorkContactUpdateResult
+		clientErr error
+	}{
+		{
+			name:   "unmapped",
+			result: WorkContactUpdateResult{WXUserID: "go-user", WXExternalUserID: "external-user", TagSyncRequested: true, UnsyncableTagIDs: []int{31}},
+		},
+		{
+			name:   "mixed mapping",
+			result: WorkContactUpdateResult{WXUserID: "go-user", WXExternalUserID: "external-user", TagSyncRequested: true, AddedWXTagIDs: []string{"wx-tag-31"}, UnsyncableTagIDs: []int{32}},
+		},
+		{
+			name:      "remote failure",
+			result:    WorkContactUpdateResult{WXUserID: "go-user", WXExternalUserID: "external-user", TagSyncRequested: true, AddedWXTagIDs: []string{"wx-tag-31"}},
+			clientErr: fmt.Errorf("wecom unavailable"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			queue := &fakeWeWorkCallbackWorkerQueue{}
+			store := &fakeWeWorkCallbackWorkerStore{
+				credential:               RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+				contactSyncEmployees:     []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+				syncResult:               WorkContactSyncResult{ContactID: 101},
+				workRoomAutoPullWelcomes: map[int]WorkRoomAutoPullWelcome{77: {ID: 77, TagIDs: []int{31, 32}}},
+				updateProfileFound:       true,
+				updateProfileResult:      tc.result,
+			}
+			client := &fakeWeWorkCallbackWorkerClient{
+				contacts:    map[string]WorkContactSyncContact{"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}}},
+				markTagsErr: tc.clientErr,
+			}
+			worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default())
+
+			worker.handleDelivery(context.Background(), WeWorkCallbackDelivery{
+				Raw: "tag-sync-job",
+				Event: WeWorkCallbackEvent{
+					CorpID: 7, EventPath: "event.change_external_contact.add_external_contact",
+					Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "workRoomAutoPullId-77"},
+				},
+			})
+
+			if queue.retryRaw != "tag-sync-job" || queue.retryReason == "" {
+				t.Fatalf("retry raw=%q reason=%q", queue.retryRaw, queue.retryReason)
+			}
+			if queue.ackedRaw != "" {
+				t.Fatalf("tag sync failure was acknowledged: %q", queue.ackedRaw)
+			}
+		})
+	}
+}
+
 type fakeWeWorkCallbackWorkerStore struct {
 	tenantIDs                map[int]int
 	employeeCredentials      []WorkEmployeeSyncCredential
@@ -1586,6 +1641,7 @@ type fakeWeWorkCallbackWorkerClient struct {
 	groupIDCalls               []string
 	tagIDCalls                 []string
 	markTagsPayload            WorkContactMarkTagsPayload
+	markTagsErr                error
 	uploadedImagePath          string
 	contactBatchSendCredential RoomWelcomeCorpCredential
 	contactBatchSendPayload    ContactMessageBatchSendMessagePayload
@@ -1632,7 +1688,7 @@ func (c *fakeWeWorkCallbackWorkerClient) ExternalContactDetail(_ context.Context
 
 func (c *fakeWeWorkCallbackWorkerClient) MarkExternalContactTags(_ context.Context, _ RoomWelcomeCorpCredential, payload WorkContactMarkTagsPayload) error {
 	c.markTagsPayload = payload
-	return nil
+	return c.markTagsErr
 }
 
 func (c *fakeWeWorkCallbackWorkerClient) UploadTemporaryImage(_ context.Context, _ RoomWelcomeCorpCredential, filePath string) (string, error) {

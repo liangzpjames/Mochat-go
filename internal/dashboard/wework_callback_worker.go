@@ -609,7 +609,7 @@ func (w *WeWorkCallbackWorker) syncContactFromEvent(ctx context.Context, corpID 
 			return err
 		}
 		if err := w.markContactTagsFromState(ctx, corpID, credential, employee.ID, result.ContactID, event); err != nil {
-			w.logger.Printf("wework callback mark contact tags skipped: corp=%d employee=%d contact=%d state=%q err=%v", corpID, employee.ID, result.ContactID, contactWelcomeState(event), err)
+			return fmt.Errorf("wework callback mark contact tags failed: corp=%d employee=%d contact=%d state=%q: %w", corpID, employee.ID, result.ContactID, contactWelcomeState(event), err)
 		}
 		if err := w.handleFissionAddContactFromState(ctx, corpID, credential, employee, contact, result, event); err != nil {
 			w.logger.Printf("wework callback work fission add contact skipped: corp=%d employee=%d contact=%d state=%q err=%v", corpID, employee.ID, result.ContactID, contactWelcomeState(event), err)
