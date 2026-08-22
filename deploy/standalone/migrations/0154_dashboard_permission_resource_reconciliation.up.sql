@@ -28,7 +28,12 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.chat.export', 'POST', '/dashboard/workMessage/exportTasks', 1
   UNION ALL SELECT 'dashboard.chat.export', 'GET', '/dashboard/workMessage/exportDownload', 1
   UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/contactTransfer/info', 0
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/contactTransfer/room', 0
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/contactTransfer/log', 0
   UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/workEmployee/index', 0
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'POST', '/dashboard/contactTransfer/sync', 0
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'POST', '/dashboard/contactTransfer/index', 0
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'POST', '/dashboard/contactTransfer/room', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_risk', 'GET', '/dashboard/risk/records/detail', 1
   UNION ALL SELECT 'dashboard.ai_insight.v2_risk', 'GET', '/dashboard/risk/scanner-status', 0
   UNION ALL SELECT 'dashboard.ai_insight.v2_sensitive_word', 'GET', '/dashboard/sensitiveWordsMonitor/status', 0
@@ -84,7 +89,6 @@ INNER JOIN (
   UNION ALL SELECT 'dashboard.chat.export', 'GET', '/dashboard/workMessage/detail'
   UNION ALL SELECT 'dashboard.chat.file_audio', 'POST', '/dashboard/chat/media'
   UNION ALL SELECT 'dashboard.chat.file_audio', 'DELETE', '/dashboard/chat/media/{id}'
-  UNION ALL SELECT 'dashboard.acquisition.v2_channel_code', 'PUT', '/dashboard/channelCode/update'
 ) deactivation_seed ON deactivation_seed.`permission_code` = permission.`code`
   AND deactivation_seed.`http_method` = resource.`http_method`
   AND deactivation_seed.`path_pattern` = resource.`path_pattern`

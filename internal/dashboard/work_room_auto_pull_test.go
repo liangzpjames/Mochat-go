@@ -2,8 +2,10 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -335,6 +337,95 @@ func TestWorkRoomAutoPullStoreValidatesRequiredName(t *testing.T) {
 	}
 }
 
+func TestWorkRoomAutoPullStoreCreatesDirectJoinQRCodeWithoutLegacyFields(t *testing.T) {
+	store := &fakeWorkRoomAutoPullStore{
+		users: map[int]User{1: {ID: 1}}, credential: RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "wwid", ContactSecret: "secret"}, createID: 920001,
+		roomChatIDs: []string{"chat-22", "chat-11"},
+	}
+	client := &fakeWorkRoomAutoPullJoinWayClient{qrcode: WorkRoomAutoPullQRCode{ConfigID: "join-920001", QRCodeURL: "https://wecom.example/join.png"}}
+	handler := NewWorkRoomAutoPullHandlerWithJoinWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 99}}, "", client)
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"corpId":7,"qrcodeName":"售后群活码","rooms":[22,11],"autoCreateRoom":true,"roomBaseName":"售后服务群","roomBaseId":8}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Store(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.roomLookupCorpID != 7 || !reflect.DeepEqual(store.roomLookupIDs, []int{22, 11}) {
+		t.Fatalf("room lookup corp=%d ids=%#v", store.roomLookupCorpID, store.roomLookupIDs)
+	}
+	if !reflect.DeepEqual(client.payload.ChatIDs, []string{"chat-22", "chat-11"}) || !client.payload.AutoCreateRoom || client.payload.RoomBaseName != "售后服务群" || client.payload.RoomBaseID != 8 {
+		t.Fatalf("payload=%#v", client.payload)
+	}
+	if store.created.ProviderKind != "join_way" || store.created.Employees != "[]" || store.created.Tags != "[]" || store.created.LeadingWords != "" {
+		t.Fatalf("created=%#v", store.created)
+	}
+	body := decodeBody(t, rec.Body.Bytes())
+	data := body["data"].(map[string]any)
+	if int(data["workRoomAutoPullId"].(float64)) != 920001 || data["qrcodeUrl"] != "https://wecom.example/join.png" {
+		t.Fatalf("data=%#v", data)
+	}
+}
+
+func TestWorkRoomAutoPullStoreDoesNotPersistWhenJoinWayCreationFails(t *testing.T) {
+	store := &fakeWorkRoomAutoPullStore{
+		users: map[int]User{1: {ID: 1}}, credential: RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "wwid", ContactSecret: "secret"},
+		roomChatIDs: []string{"chat-22"},
+	}
+	client := &fakeWorkRoomAutoPullJoinWayClient{createErr: fmt.Errorf("provider unavailable")}
+	handler := NewWorkRoomAutoPullHandlerWithJoinWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 99}}, "", client)
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"qrcodeName":"售后群活码","rooms":[22],"autoCreateRoom":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Store(rec, req)
+
+	if rec.Code != http.StatusBadRequest || store.createCalls != 0 {
+		t.Fatalf("status=%d createCalls=%d body=%s", rec.Code, store.createCalls, rec.Body.String())
+	}
+}
+
+func TestWorkRoomAutoPullStoreCleansRemoteJoinWayWhenDatabaseSaveFails(t *testing.T) {
+	store := &fakeWorkRoomAutoPullStore{
+		users: map[int]User{1: {ID: 1}}, credential: RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "wwid", ContactSecret: "secret"},
+		roomChatIDs: []string{"chat-22"}, createErr: fmt.Errorf("database unavailable"),
+	}
+	client := &fakeWorkRoomAutoPullJoinWayClient{qrcode: WorkRoomAutoPullQRCode{ConfigID: "join-920002", QRCodeURL: "https://wecom.example/join.png"}}
+	handler := NewWorkRoomAutoPullHandlerWithJoinWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{accessSet: true, access: AccessContext{DataPermission: DataPermissionAll, WorkEmployeeID: 99}}, "", client)
+	req := authenticatedDashboardRequestForTest(http.MethodPost, "/dashboard/workRoomAutoPull/store", strings.NewReader(`{"qrcodeName":"售后群活码","rooms":[22],"autoCreateRoom":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Store(rec, req)
+
+	if rec.Code != http.StatusInternalServerError || client.deletedConfigID != "join-920002" {
+		t.Fatalf("status=%d deleted=%q body=%s", rec.Code, client.deletedConfigID, rec.Body.String())
+	}
+	if body := decodeBody(t, rec.Body.Bytes()); body["msg"] != "群活码保存失败，已清理企业微信配置" {
+		t.Fatalf("body=%#v", body)
+	}
+}
+
+func TestWorkRoomAutoPullUpdateRejectsDirectJoinWayBeforeMutation(t *testing.T) {
+	store := &fakeWorkRoomAutoPullStore{
+		users: map[int]User{1: {ID: 1}}, updateFound: true,
+		updateTarget: WorkRoomAutoPullUpdateTarget{CorpID: 7, WXConfigID: "join-920001", ProviderKind: "join_way"},
+	}
+	client := &fakeWorkRoomAutoPullContactWayClient{}
+	handler := NewWorkRoomAutoPullHandlerWithContactWayClient(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, &recordingAuthorizer{accessSet: true, access: AccessContext{WorkEmployeeID: 99}}, "", client)
+	req := authenticatedDashboardRequestForTest(http.MethodPut, "/dashboard/workRoomAutoPull/update", strings.NewReader(`{"workRoomAutoPullId":920001,"isVerified":1,"employees":"1","tags":"900001","rooms":"[{\"roomId\":900001,\"maxNum\":40}]"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.Update(rec, req)
+
+	if rec.Code != http.StatusConflict || store.updateID != 0 || client.updateConfigID != "" {
+		t.Fatalf("status=%d updateID=%d providerConfig=%q body=%s", rec.Code, store.updateID, client.updateConfigID, rec.Body.String())
+	}
+}
+
 type fakeWorkRoomAutoPullStore struct {
 	users                  map[int]User
 	credential             RoomWelcomeCorpCredential
@@ -347,6 +438,7 @@ type fakeWorkRoomAutoPullStore struct {
 	showID                 int
 	createID               int
 	createCalls            int
+	createErr              error
 	created                WorkRoomAutoPullWrite
 	createOperationID      int
 	updated                WorkRoomAutoPullWrite
@@ -364,6 +456,15 @@ type fakeWorkRoomAutoPullStore struct {
 	quotaMetric            string
 	refreshTenantID        int
 	refreshMetric          string
+	roomChatIDs            []string
+	roomLookupCorpID       int
+	roomLookupIDs          []int
+}
+
+func (s *fakeWorkRoomAutoPullStore) WorkRoomAutoPullRoomWXChatIDs(_ context.Context, corpID int, roomIDs []int) ([]string, error) {
+	s.roomLookupCorpID = corpID
+	s.roomLookupIDs = append([]int{}, roomIDs...)
+	return append([]string{}, s.roomChatIDs...), nil
 }
 
 func (s *fakeWorkRoomAutoPullStore) UserByID(_ context.Context, userID int) (User, bool, error) {
@@ -420,7 +521,11 @@ func (s *fakeWorkRoomAutoPullStore) CreateWorkRoomAutoPullWithLog(_ context.Cont
 	if s.createID == 0 {
 		s.createID = 900001
 	}
-	return s.createID, nil
+	return s.createID, s.createErr
+}
+
+func (s *fakeWorkRoomAutoPullStore) WorkRoomAutoPullUpdateTargetByID(_ context.Context, _ int) (WorkRoomAutoPullUpdateTarget, bool, error) {
+	return s.updateTarget, s.updateFound, nil
 }
 
 func (s *fakeWorkRoomAutoPullStore) UpdateWorkRoomAutoPullWithLog(_ context.Context, id int, values WorkRoomAutoPullWrite, operationID int) (WorkRoomAutoPullUpdateTarget, bool, error) {
@@ -482,4 +587,27 @@ func (c *fakeWorkRoomAutoPullContactWayClient) UpdateContactWay(_ context.Contex
 	c.updateSkipVerify = skipVerify
 	c.updateState = state
 	return nil
+}
+
+type fakeWorkRoomAutoPullJoinWayClient struct {
+	qrcode          WorkRoomAutoPullQRCode
+	payload         WorkRoomAutoPullJoinWayPayload
+	deletedConfigID string
+	createErr       error
+	deleteErr       error
+}
+
+func (c *fakeWorkRoomAutoPullJoinWayClient) CreateJoinWay(_ context.Context, _ RoomWelcomeCorpCredential, payload WorkRoomAutoPullJoinWayPayload) (WorkRoomAutoPullQRCode, error) {
+	c.payload = payload
+	return c.qrcode, c.createErr
+}
+
+func (c *fakeWorkRoomAutoPullJoinWayClient) UpdateJoinWay(_ context.Context, _ RoomWelcomeCorpCredential, _ string, payload WorkRoomAutoPullJoinWayPayload) error {
+	c.payload = payload
+	return nil
+}
+
+func (c *fakeWorkRoomAutoPullJoinWayClient) DeleteJoinWay(_ context.Context, _ RoomWelcomeCorpCredential, configID string) error {
+	c.deletedConfigID = configID
+	return c.deleteErr
 }

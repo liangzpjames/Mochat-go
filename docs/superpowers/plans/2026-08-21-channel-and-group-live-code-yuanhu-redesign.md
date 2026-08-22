@@ -4,8 +4,6 @@
 
 **Goal:** 在保留 MoChat 三条真实业务链路的前提下，将渠道活码、无限群活码和自建群活码改造成与圆弧 AI 信息架构一致、数据可验证、交互可闭环的专用页面。
 
-> 2026-08-22 集成说明：本计划中的 `/groupCode/*` 与 `/groupCodeGroup/*` 是未落地的后续设想；本期权威实现按 `2026-08-22-p0-live-code-integration-design.md` 收敛为已注册的 `channelCode` 与 `workRoomAutoPull`，不得据此文档暴露未注册接口。
-
 **Architecture:** 渠道活码继续使用 channelCode，无限群活码继续使用 workRoomAutoPull，自建群活码继续使用 roomInfinitePull；后端新增展示聚合、生命周期、分组、事件归因和导出能力，前端拆成两个专用页面并共享轻量工作区组件。写入仍进入既有领域方法，不通过内部 HTTP 转发。
 
 **Tech Stack:** Go 1.26、MySQL 8、React 19、TypeScript 5.9、Ant Design 6、TanStack Query、React Router、Vitest、Testing Library、Playwright、Docker Compose。
@@ -29,8 +27,8 @@
 
 **Files:**
 
-- Create: deploy/standalone/migrations/0153_live_code_workspace.up.sql
-- Create: deploy/standalone/migrations/0153_live_code_workspace.down.sql
+- Create: deploy/standalone/migrations/0150_live_code_workspace.up.sql
+- Create: deploy/standalone/migrations/0150_live_code_workspace.down.sql
 - Create: internal/migration/live_code_workspace_migration_test.go
 - Modify: internal/migration/migration_test.go
 - Modify: internal/dashboard/dashboard_page_catalog.json
@@ -41,7 +39,7 @@
 
 ~~~go
 func TestLiveCodeWorkspaceMigrationContract(t *testing.T) {
-    up := migrationSQL(t, "0153_live_code_workspace.up.sql")
+    up := migrationSQL(t, "0150_live_code_workspace.up.sql")
     required := []string{
         "ALTER TABLE mc_channel_code",
         "validity_kind", "valid_from", "valid_until",
@@ -120,7 +118,7 @@ CREATE TABLE mc_live_code_event (
 
 ~~~bash
 go test ./internal/migration -run 'TestLiveCodeWorkspaceMigrationContract|TestMigrationFiles|TestDashboardPage' -count=1
-git add deploy/standalone/migrations/0153_live_code_workspace.* internal/migration/live_code_workspace_migration_test.go internal/migration/migration_test.go internal/dashboard/dashboard_page_catalog.json
+git add deploy/standalone/migrations/0150_live_code_workspace.* internal/migration/live_code_workspace_migration_test.go internal/migration/migration_test.go internal/dashboard/dashboard_page_catalog.json
 git diff --cached --check
 git commit -m "feat: add live code workspace schema"
 ~~~

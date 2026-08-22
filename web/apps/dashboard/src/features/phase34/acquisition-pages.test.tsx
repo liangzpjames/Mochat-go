@@ -192,53 +192,9 @@ describe('Phase 3.4 acquisition pages', () => {
     ));
   });
 
-  it('loads a channel code into the edit drawer, validates it, and updates through the Provider', async () => {
-    const write = vi.fn().mockResolvedValue(undefined);
+  it('creates a direct-join group code and shows the real provider QR code', async () => {
+    const write = vi.fn().mockResolvedValue({ workRoomAutoPullId: 91, qrcodeUrl: 'https://wecom.example/join.png' });
     const read = vi.fn().mockImplementation((path: string) => {
-      if (path === '/channelCode/index') return Promise.resolve({ list: [{ channelCodeId: 12, name: '官网咨询' }] });
-      if (path === '/channelCode/show') return Promise.resolve({
-        baseInfo: { groupId: 0, name: '官网咨询', autoAddFriend: 1, tags: [] },
-        drainageEmployee: {
-          type: 1,
-          specialPeriod: { status: 1, detail: [{ timeSlot: [{ employeeId: [21] }] }] },
-          addMax: { status: 2, employees: [], spareEmployeeIds: [] },
-        },
-        welcomeMessage: { scanCodePush: 2, messageDetail: [] },
-      });
-      if (path === '/workEmployee/index') return Promise.resolve({ page: { totalPage: 1 }, list: [{ id: 21, name: '李娜', status: 1 }] });
-      return Promise.resolve({ list: [] });
-    });
-    view(<ChannelCodePage api={{ read, write }} />);
-
-    await screen.findByText('官网咨询');
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-    const drawer = await screen.findByRole('dialog', { name: '编辑渠道活码' });
-    const nameInput = within(drawer).getByLabelText<HTMLInputElement>('渠道活码名称');
-    expect(nameInput.value).toBe('官网咨询');
-    expect(await within(drawer).findByRole('button', { name: '取消选择成员 李娜' })).toBeTruthy();
-
-    fireEvent.change(nameInput, { target: { value: '' } });
-    fireEvent.click(within(drawer).getByRole('button', { name: '保存渠道活码' }));
-    expect(within(drawer).getByText('请输入活码名称')).toBeTruthy();
-    expect(within(drawer).getByRole('alert').textContent).toContain('请检查填写是否合规');
-    expect(write).not.toHaveBeenCalled();
-
-    fireEvent.change(nameInput, { target: { value: '官网咨询更新' } });
-    fireEvent.click(within(drawer).getByRole('button', { name: '保存渠道活码' }));
-    await waitFor(() => expect(write).toHaveBeenCalledWith(
-      '/channelCode/update',
-      expect.objectContaining({
-        channelCodeId: 12,
-        baseInfo: expect.objectContaining({ name: '官网咨询更新' }),
-      }),
-      'PUT',
-    ));
-  });
-
-  it('creates a group code through the existing auto-pull Provider', async () => {
-    const write = vi.fn().mockResolvedValue(undefined);
-    const read = vi.fn().mockImplementation((path: string) => {
-      if (path === '/workEmployee/index') return Promise.resolve({ page: { totalPage: 1 }, list: [{ id: 21, name: '李娜', status: 1 }] });
       if (path === '/workRoom/roomIndex') return Promise.resolve({ list: [{ roomId: 41, roomName: '客户群一', currentNum: 18, roomMax: 200 }] });
       return Promise.resolve({ list: [] });
     });
@@ -247,58 +203,48 @@ describe('Phase 3.4 acquisition pages', () => {
     await screen.findByRole('heading', { name: '暂无记录' });
     fireEvent.click(screen.getByRole('button', { name: '新建群活码' }));
     fireEvent.change(screen.getAllByLabelText('群活码名称')[1]!, { target: { value: '售后服务群' } });
-    fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '欢迎入群' } });
-    fireEvent.click(await screen.findByRole('button', { name: '选择成员 李娜' }));
-    fireEvent.change(screen.getByLabelText('客户标签 ID'), { target: { value: '31' } });
+    expect(screen.queryByLabelText('入群引导语')).toBeNull();
+    expect(screen.queryByLabelText('客户标签 ID')).toBeNull();
+    expect(screen.queryByLabelText('搜索使用成员')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '选择群聊' }));
     const roomDialog = await screen.findByRole('dialog', { name: '选择群聊' });
     fireEvent.click(await within(roomDialog).findByRole('button', { name: '选择群聊 客户群一' }));
     fireEvent.click(within(roomDialog).getByRole('button', { name: '确认选择' }));
-    fireEvent.click(screen.getByRole('button', { name: '保存群活码' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '群满后自动创建新群' }));
+    fireEvent.change(screen.getByLabelText('新群名称'), { target: { value: '售后服务群' } });
+    fireEvent.change(screen.getByLabelText('起始序号'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存并生成二维码' }));
 
     await waitFor(() => expect(write).toHaveBeenCalledWith(
       '/workRoomAutoPull/store',
-      expect.objectContaining({ corpId: 7, qrcodeName: '售后服务群', employees: [21], tags: [31] }),
+      { corpId: 7, qrcodeName: '售后服务群', rooms: [41], autoCreateRoom: true, roomBaseName: '售后服务群', roomBaseId: 8 },
       'POST',
     ));
+    expect(await screen.findByRole('img', { name: '售后服务群群活码二维码' })).toHaveProperty('src', 'https://wecom.example/join.png');
   });
 
-  it('keeps a failed group edit open with the loaded business choices', async () => {
-    const write = vi.fn().mockRejectedValue(new Error('企微 Provider 暂不可用'));
-    const read = vi.fn().mockImplementation((path: string) => {
-      if (path === '/workRoomAutoPull/index') return Promise.resolve({ list: [{ workRoomAutoPullId: 21, qrcodeName: '售后服务群' }] });
-      if (path === '/workRoomAutoPull/show') return Promise.resolve({
-        workRoomAutoPullId: 21,
-        qrcodeName: '售后服务群',
-        leadingWords: '欢迎入群',
-        employees: [21],
-        tags: [31],
-        rooms: [{ roomId: 41, maxNum: 200 }],
-      });
-      if (path === '/workEmployee/index') return Promise.resolve({ page: { totalPage: 1 }, list: [{ id: 21, name: '李娜', status: 1 }] });
-      if (path === '/workRoom/roomIndex') return Promise.resolve({ list: [{ roomId: 41, roomName: '客户群一', currentNum: 18, roomMax: 200 }] });
-      return Promise.resolve({ list: [] });
-    });
+  it('keeps the create drawer open when the provider response has no QR code', async () => {
+    const write = vi.fn().mockResolvedValue({ workRoomAutoPullId: 92 });
+    const read = vi.fn().mockImplementation((path: string) => Promise.resolve(path === '/workRoom/roomIndex'
+      ? { list: [{ roomId: 41, roomName: '客户群一', currentNum: 18, roomMax: 200 }] }
+      : { list: [] }));
     view(<GroupCodePage api={{ read, write }} />);
 
-    await screen.findByText('售后服务群');
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
-    const drawer = await screen.findByRole('dialog', { name: '编辑群活码' });
-    expect(within(drawer).getByLabelText<HTMLInputElement>('群活码名称').value).toBe('售后服务群');
-    expect(await within(drawer).findByRole('button', { name: '取消选择成员 李娜' })).toBeTruthy();
-    expect(within(drawer).getByText('已选择 1 个群聊')).toBeTruthy();
+    await screen.findByRole('heading', { name: '暂无记录' });
+    fireEvent.click(screen.getByRole('button', { name: '新建群活码' }));
+    fireEvent.change(screen.getAllByLabelText('群活码名称')[1]!, { target: { value: '缺少二维码的群活码' } });
+    fireEvent.click(screen.getByRole('button', { name: '选择群聊' }));
+    const roomDialog = await screen.findByRole('dialog', { name: '选择群聊' });
+    fireEvent.click(await within(roomDialog).findByRole('button', { name: '选择群聊 客户群一' }));
+    fireEvent.click(within(roomDialog).getByRole('button', { name: '确认选择' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存并生成二维码' }));
 
-    fireEvent.click(within(drawer).getByRole('button', { name: '保存群活码' }));
-    await waitFor(() => expect(write).toHaveBeenCalledWith(
-      '/workRoomAutoPull/update',
-      expect.objectContaining({ workRoomAutoPullId: 21, qrcodeName: '售后服务群' }),
-      'PUT',
-    ));
-    expect(await within(drawer).findByText('企微 Provider 暂不可用')).toBeTruthy();
-    expect(screen.getByRole('dialog', { name: '编辑群活码' })).toBeTruthy();
+    expect(await screen.findByText('企业微信未返回可用的群活码二维码，请稍后重试')).toBeTruthy();
+    expect(screen.getByLabelText('新建群活码')).toBeTruthy();
+    expect(screen.getAllByLabelText('群活码名称')[1]).toHaveProperty('value', '缺少二维码的群活码');
   });
 
-  it('loads real employees and rooms from scoped providers without exposing raw JSON', async () => {
+  it('loads real rooms without requesting members or exposing raw JSON', async () => {
     const read = vi.fn().mockImplementation((path: string) => {
       if (path === '/workEmployee/index') return Promise.resolve({ page: { totalPage: 1 }, list: [{ id: 21, name: '李娜', status: 1 }, { id: 22, name: '王强', status: 1 }] });
       if (path === '/workRoom/roomIndex') return Promise.resolve({ list: [{ roomId: 41, roomName: '客户群一', currentNum: 18, roomMax: 200 }] });
@@ -309,12 +255,12 @@ describe('Phase 3.4 acquisition pages', () => {
 
     await screen.findByRole('heading', { name: '暂无记录' });
     fireEvent.click(screen.getByRole('button', { name: '新建群活码' }));
-    expect(await screen.findByRole('button', { name: '选择成员 李娜' })).toBeTruthy();
+    expect(screen.queryByLabelText('搜索使用成员')).toBeNull();
     expect(screen.queryByLabelText('群聊配置 JSON')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '选择群聊' }));
     const roomDialog = await screen.findByRole('dialog', { name: '选择群聊' });
     expect(await within(roomDialog).findByRole('button', { name: '选择群聊 客户群一' })).toBeTruthy();
-    expect(read).toHaveBeenCalledWith('/workEmployee/index', expect.objectContaining({ status: 1, page: 1, perPage: 100 }));
+    expect(read).not.toHaveBeenCalledWith('/workEmployee/index', expect.anything());
     expect(read).toHaveBeenCalledWith('/workRoom/roomIndex', {});
   });
 
@@ -371,19 +317,16 @@ describe('Phase 3.4 acquisition pages', () => {
     expect(screen.getByText('已选择 2 个群聊')).toBeTruthy();
 
     fireEvent.change(screen.getAllByLabelText('群活码名称')[1]!, { target: { value: '售后服务群' } });
-    fireEvent.click(screen.getByRole('button', { name: '选择成员 李娜' }));
-    fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '欢迎入群' } });
-    fireEvent.change(screen.getByLabelText('客户标签 ID'), { target: { value: '31' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存群活码' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存并生成二维码' }));
 
     await waitFor(() => expect(write).toHaveBeenCalledWith(
       '/workRoomAutoPull/store',
-      expect.objectContaining({ rooms: JSON.stringify([{ roomId: 41, maxNum: 200 }, { roomId: 42, maxNum: 180 }]) }),
+      expect.objectContaining({ rooms: [41, 42], autoCreateRoom: false }),
       'POST',
     ));
   });
 
-  it('caps selectable rooms at five and disables rooms without synced capacity', async () => {
+  it('caps selectable rooms at five while keeping synced room identities selectable', async () => {
     const rooms = Array.from({ length: 7 }, (_, index) => ({
       roomId: index + 1,
       roomName: `客户群${index + 1}`,
@@ -408,7 +351,7 @@ describe('Phase 3.4 acquisition pages', () => {
     expect(within(dialog).getByText('最多选择 5 个群聊')).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: '选择群聊 客户群6' })).toHaveProperty('disabled', true);
     expect(within(dialog).getByRole('button', { name: '选择群聊 客户群7' })).toHaveProperty('disabled', true);
-    expect(within(dialog).getByText('容量未同步，暂不可选')).toBeTruthy();
+    expect(within(dialog).getByText('人数与容量待同步')).toBeTruthy();
   });
 
   it('writes an explicitly cleared room draft back to the form', async () => {
@@ -436,11 +379,9 @@ describe('Phase 3.4 acquisition pages', () => {
     expect(screen.getByText('尚未选择群聊')).toBeTruthy();
   });
 
-  it('drops selections that disappear after scoped provider refresh and asks for reselection', async () => {
-    let employeeRows = [{ id: 21, name: '李娜', status: 1 }];
+  it('drops room selections that disappear after scoped provider refresh and asks for reselection', async () => {
     let roomRows = [{ roomId: 41, roomName: '客户群一', currentNum: 18, roomMax: 200 }];
     const read = vi.fn().mockImplementation((path: string) => {
-      if (path === '/workEmployee/index') return Promise.resolve({ page: { totalPage: 1 }, list: employeeRows });
       if (path === '/workRoom/roomIndex') return Promise.resolve({ list: roomRows });
       return Promise.resolve({ list: [] });
     });
@@ -448,21 +389,16 @@ describe('Phase 3.4 acquisition pages', () => {
 
     await screen.findByRole('heading', { name: '暂无记录' });
     fireEvent.click(screen.getByRole('button', { name: '新建群活码' }));
-    fireEvent.click(await screen.findByRole('button', { name: '选择成员 李娜' }));
     fireEvent.click(screen.getByRole('button', { name: '选择群聊' }));
     const dialog = await screen.findByRole('dialog', { name: '选择群聊' });
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择群聊 客户群一' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '确认选择' }));
 
-    employeeRows = [];
     roomRows = [];
-    await queryClient.invalidateQueries({ queryKey: ['live-code-employees', access.corp.id] });
     await queryClient.invalidateQueries({ queryKey: ['live-code-rooms', access.corp.id] });
 
     await waitFor(() => {
-      expect(screen.getByText('已选择 0 人')).toBeTruthy();
       expect(screen.getByText('尚未选择群聊')).toBeTruthy();
-      expect(screen.getByText('部分已选成员已失效，请重新选择。')).toBeTruthy();
       expect(screen.getByText('部分已选群聊已失效，请重新选择。')).toBeTruthy();
     });
   });

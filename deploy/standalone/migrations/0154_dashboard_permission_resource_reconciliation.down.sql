@@ -5,7 +5,12 @@ FROM `mochat_go_dashboard_permission_resources` resource
 INNER JOIN `mochat_go_dashboard_permissions` permission ON permission.`id` = resource.`permission_id`
 INNER JOIN (
   SELECT 'dashboard.customer.inheritance' AS `permission_code`, 'GET' AS `http_method`, '/dashboard/contactTransfer/info' AS `path_pattern`
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/contactTransfer/room'
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/contactTransfer/log'
   UNION ALL SELECT 'dashboard.customer.inheritance', 'GET', '/dashboard/workEmployee/index'
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'POST', '/dashboard/contactTransfer/sync'
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'POST', '/dashboard/contactTransfer/index'
+  UNION ALL SELECT 'dashboard.customer.inheritance', 'POST', '/dashboard/contactTransfer/room'
 ) resource_seed ON resource_seed.`permission_code` = permission.`code`
   AND resource_seed.`http_method` = resource.`http_method`
   AND resource_seed.`path_pattern` = resource.`path_pattern`

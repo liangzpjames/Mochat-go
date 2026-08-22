@@ -26,7 +26,7 @@ func (s *MySQLStore) SaaSAdminSystemHealthChecks(ctx context.Context, options da
 		return nil, err
 	}
 	var currentMigration string
-	err := s.db.QueryRowContext(ctx, `SELECT version FROM mochat_go_schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1`).Scan(&currentMigration)
+	err := s.db.QueryRowContext(ctx, `SELECT version FROM mochat_go_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&currentMigration)
 	if errors.Is(err, sql.ErrNoRows) {
 		currentMigration = ""
 	} else if err != nil {

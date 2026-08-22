@@ -42,6 +42,8 @@ type WorkRoomAutoPullItem struct {
 	LifecycleState      string
 	DataSource          string
 	StatisticsAvailable bool
+	ProviderKind        string
+	AutoCreateRoom      bool
 }
 
 type WorkRoomAutoPullListRoom struct {
@@ -62,6 +64,10 @@ type WorkRoomAutoPullShow struct {
 	Tags               []ChannelCodeTagGroup
 	SelectedTags       []int
 	Rooms              []WorkRoomAutoPullShowRoom
+	ProviderKind       string
+	AutoCreateRoom     bool
+	RoomBaseName       string
+	RoomBaseID         int
 }
 
 type WorkRoomAutoPullEmployee struct {
@@ -85,20 +91,28 @@ type WorkRoomAutoPullShowRoom struct {
 }
 
 type WorkRoomAutoPullWrite struct {
-	CorpID       int
-	MediumID     int
-	QRCodeName   string
-	IsVerified   int
-	LeadingWords string
-	Employees    string
-	Tags         string
-	Rooms        string
-	EmployeeIDs  []int
+	CorpID         int
+	MediumID       int
+	QRCodeName     string
+	IsVerified     int
+	LeadingWords   string
+	Employees      string
+	Tags           string
+	Rooms          string
+	EmployeeIDs    []int
+	RoomIDs        []int
+	ProviderKind   string
+	AutoCreateRoom bool
+	RoomBaseName   string
+	RoomBaseID     int
+	QRCodeURL      string
+	WXConfigID     string
 }
 
 type WorkRoomAutoPullUpdateTarget struct {
-	CorpID     int
-	WXConfigID string
+	CorpID       int
+	WXConfigID   string
+	ProviderKind string
 }
 
 type WorkRoomAutoPullQRCode struct {
@@ -115,7 +129,9 @@ type WorkRoomAutoPullStore interface {
 	WorkRoomAutoPullBusinessIDsByOperators(ctx context.Context, operationIDs []int) ([]int, error)
 	WorkRoomAutoPullShowByID(ctx context.Context, id int) (WorkRoomAutoPullShow, bool, error)
 	WorkRoomAutoPullEmployeeWXUserIDs(ctx context.Context, employeeIDs []int) ([]string, error)
+	WorkRoomAutoPullRoomWXChatIDs(ctx context.Context, corpID int, roomIDs []int) ([]string, error)
 	CreateWorkRoomAutoPullWithLog(ctx context.Context, values WorkRoomAutoPullWrite, operationID int) (int, error)
+	WorkRoomAutoPullUpdateTargetByID(ctx context.Context, id int) (WorkRoomAutoPullUpdateTarget, bool, error)
 	UpdateWorkRoomAutoPullWithLog(ctx context.Context, id int, values WorkRoomAutoPullWrite, operationID int) (WorkRoomAutoPullUpdateTarget, bool, error)
 	UpdateWorkRoomAutoPullQRCode(ctx context.Context, id int, qrcodeURL string, configID string) error
 	DeleteWorkRoomAutoPull(ctx context.Context, id int) error
@@ -132,11 +148,12 @@ type WorkRoomAutoPullHandler struct {
 	resolver         UserIDResolver
 	authorizer       CorpAdminAuthorizer
 	contactWayClient WorkRoomAutoPullContactWayClient
+	joinWayClient    WorkRoomAutoPullJoinWayClient
 	apiBaseURL       string
 }
 
 func NewWorkRoomAutoPullHandler(store WorkRoomAutoPullStore, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer, apiBaseURL string) *WorkRoomAutoPullHandler {
-	return NewWorkRoomAutoPullHandlerWithContactWayClient(store, cache, resolver, authorizer, apiBaseURL, NewWorkRoomAutoPullWeComClient(defaultWeComAPIBaseURL))
+	return NewWorkRoomAutoPullHandlerWithJoinWayClient(store, cache, resolver, authorizer, apiBaseURL, NewWorkRoomAutoPullJoinWayWeComClient(defaultWeComAPIBaseURL))
 }
 
 func NewWorkRoomAutoPullHandlerWithContactWayClient(store WorkRoomAutoPullStore, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer, apiBaseURL string, contactWayClient WorkRoomAutoPullContactWayClient) *WorkRoomAutoPullHandler {
@@ -148,6 +165,10 @@ func NewWorkRoomAutoPullHandlerWithContactWayClient(store WorkRoomAutoPullStore,
 		contactWayClient: contactWayClient,
 		apiBaseURL:       strings.TrimRight(apiBaseURL, "/"),
 	}
+}
+
+func NewWorkRoomAutoPullHandlerWithJoinWayClient(store WorkRoomAutoPullStore, cache LoginCache, resolver UserIDResolver, authorizer CorpAdminAuthorizer, apiBaseURL string, joinWayClient WorkRoomAutoPullJoinWayClient) *WorkRoomAutoPullHandler {
+	return &WorkRoomAutoPullHandler{store: store, cache: cache, resolver: resolver, authorizer: authorizer, joinWayClient: joinWayClient, contactWayClient: NewWorkRoomAutoPullWeComClient(defaultWeComAPIBaseURL), apiBaseURL: strings.TrimRight(apiBaseURL, "/")}
 }
 
 func (h *WorkRoomAutoPullHandler) Index(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +233,8 @@ func (h *WorkRoomAutoPullHandler) Index(w http.ResponseWriter, r *http.Request) 
 			"state":               item.LifecycleState,
 			"dataSource":          item.DataSource,
 			"statisticsAvailable": item.StatisticsAvailable,
+			"providerKind":        item.ProviderKind,
+			"autoCreateRoom":      item.AutoCreateRoom,
 		})
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
@@ -273,6 +296,10 @@ func (h *WorkRoomAutoPullHandler) Show(w http.ResponseWriter, r *http.Request) {
 		"tags":               info.Tags,
 		"selectedTags":       info.SelectedTags,
 		"rooms":              h.fullRoomURLs(info.Rooms),
+		"providerKind":       info.ProviderKind,
+		"autoCreateRoom":     info.AutoCreateRoom,
+		"roomBaseName":       info.RoomBaseName,
+		"roomBaseId":         info.RoomBaseID,
 	})
 }
 
@@ -297,6 +324,10 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 	params, err := parseRequestParams(r)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
+		return
+	}
+	if h.joinWayClient != nil {
+		h.storeDirectJoinWay(w, r, params, user, access, corpID)
 		return
 	}
 	values, ok := parseWorkRoomAutoPullStoreParams(w, params)
@@ -357,6 +388,51 @@ func (h *WorkRoomAutoPullHandler) Store(w http.ResponseWriter, r *http.Request) 
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
+func (h *WorkRoomAutoPullHandler) storeDirectJoinWay(w http.ResponseWriter, r *http.Request, params map[string]any, user User, access AccessContext, corpID int) {
+	values, ok := parseWorkRoomAutoPullDirectJoinParams(w, params)
+	if !ok {
+		return
+	}
+	values.CorpID = corpID
+	if !enforceSaaSQuota(r.Context(), w, h.store, user.TenantID, SaaSMetricWorkRoomAutoPulls, 1) {
+		return
+	}
+	chatIDs, err := h.store.WorkRoomAutoPullRoomWXChatIDs(r.Context(), corpID, values.RoomIDs)
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	credential, ok := h.resolveCorpCredential(w, r.Context(), corpID)
+	if !ok {
+		return
+	}
+	payload := WorkRoomAutoPullJoinWayPayload{QRCodeName: values.QRCodeName, ChatIDs: chatIDs, AutoCreateRoom: values.AutoCreateRoom, RoomBaseName: values.RoomBaseName, RoomBaseID: values.RoomBaseID}
+	qrcode, err := h.joinWayClient.CreateJoinWay(r.Context(), credential, payload)
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, fmt.Sprintf("请求企业微信生成入群二维码失败：%s", err.Error()), nil)
+		return
+	}
+	values.QRCodeURL = qrcode.QRCodeURL
+	values.WXConfigID = qrcode.ConfigID
+	id, err := h.store.CreateWorkRoomAutoPullWithLog(r.Context(), values, access.WorkEmployeeID)
+	if err != nil {
+		cleanupCtx, cancel := workRoomAutoPullCleanupContext(r.Context())
+		cleanupErr := h.joinWayClient.DeleteJoinWay(cleanupCtx, credential, qrcode.ConfigID)
+		cancel()
+		if cleanupErr != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, fmt.Sprintf("群活码保存失败，企业微信配置清理失败，请人工检查：%s", cleanupErr.Error()), nil)
+			return
+		}
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "群活码保存失败，已清理企业微信配置", nil)
+		return
+	}
+	if err := refreshSaaSUsageCounter(r.Context(), h.store, user.TenantID, SaaSMetricWorkRoomAutoPulls); err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{"workRoomAutoPullId": id, "qrcodeUrl": qrcode.QRCodeURL})
+}
+
 func (h *WorkRoomAutoPullHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
@@ -382,6 +458,19 @@ func (h *WorkRoomAutoPullHandler) Update(w http.ResponseWriter, r *http.Request)
 	}
 	id, values, ok := parseWorkRoomAutoPullUpdateParams(w, params)
 	if !ok {
+		return
+	}
+	preflight, found, err := h.store.WorkRoomAutoPullUpdateTargetByID(r.Context(), id)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "自动拉群信息读取失败", nil)
+		return
+	}
+	if !found || preflight.CorpID != corpID {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "自动拉群信息不存在", nil)
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(preflight.ProviderKind), "join_way") {
+		writeEnvelope(w, http.StatusConflict, http.StatusConflict, "新版群活码暂不支持编辑，请重新创建", nil)
 		return
 	}
 	if dashboardAccess, scoped := DashboardAccessFromContext(r.Context()); scoped && dashboardAccess.ScopeRequired && dashboardAccess.Scope != DataScopeTenant && !workRoomAutoPullEmployeesAllowed(values.EmployeeIDs, dashboardAccess.AllowedEmployeeIDs) {
@@ -559,6 +648,67 @@ func parseWorkRoomAutoPullStoreParams(w http.ResponseWriter, params map[string]a
 	values.QRCodeName = qrcodeName
 	values.LeadingWords = leadingWords
 	return values, true
+}
+
+func parseWorkRoomAutoPullDirectJoinParams(w http.ResponseWriter, params map[string]any) (WorkRoomAutoPullWrite, bool) {
+	qrcodeName := stringParam(params, "qrcodeName")
+	if qrcodeName == "" {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "群活码名称必填", nil)
+		return WorkRoomAutoPullWrite{}, false
+	}
+	if len([]rune(qrcodeName)) > 30 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "群活码名称最多30个字符", nil)
+		return WorkRoomAutoPullWrite{}, false
+	}
+	roomIDs, err := intSliceParam(params, "rooms")
+	roomIDs = uniquePositiveInts(roomIDs)
+	if err != nil || len(roomIDs) == 0 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "请选择至少一个可加入群聊", nil)
+		return WorkRoomAutoPullWrite{}, false
+	}
+	if len(roomIDs) > 5 {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "可加入群聊最多选择5个", nil)
+		return WorkRoomAutoPullWrite{}, false
+	}
+	autoCreateRoom, found, err := boolParam(params, "autoCreateRoom")
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "自动建群开关格式错误", nil)
+		return WorkRoomAutoPullWrite{}, false
+	}
+	if !found {
+		autoCreateRoom = false
+	}
+	roomBaseName := stringParam(params, "roomBaseName")
+	roomBaseID := 1
+	if value, present, valueErr := intParam(params, "roomBaseId"); present {
+		if valueErr != nil {
+			roomBaseID = 0
+		} else {
+			roomBaseID = value
+		}
+	}
+	if autoCreateRoom {
+		if roomBaseName == "" || len([]rune(roomBaseName)) > 30 {
+			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "新群名称必填且最多30个字符", nil)
+			return WorkRoomAutoPullWrite{}, false
+		}
+		if roomBaseID < 1 {
+			writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "起始序号必须为大于0的整数", nil)
+			return WorkRoomAutoPullWrite{}, false
+		}
+	} else {
+		roomBaseName = ""
+		roomBaseID = 1
+	}
+	roomValues := make([]map[string]int, 0, len(roomIDs))
+	for _, id := range roomIDs {
+		roomValues = append(roomValues, map[string]int{"roomId": id, "maxNum": 0})
+	}
+	roomsRaw, _ := json.Marshal(roomValues)
+	return WorkRoomAutoPullWrite{
+		QRCodeName: qrcodeName, IsVerified: 2, LeadingWords: "", Employees: "[]", Tags: "[]", Rooms: string(roomsRaw), RoomIDs: roomIDs,
+		ProviderKind: "join_way", AutoCreateRoom: autoCreateRoom, RoomBaseName: roomBaseName, RoomBaseID: roomBaseID,
+	}, true
 }
 
 func parseWorkRoomAutoPullUpdateParams(w http.ResponseWriter, params map[string]any) (int, WorkRoomAutoPullWrite, bool) {

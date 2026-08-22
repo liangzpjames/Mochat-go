@@ -17174,7 +17174,7 @@ func (s *MySQLStore) WorkRoomAutoPullPage(ctx context.Context, filter dashboard.
 	queryArgs = append(queryArgs, page.PerPage, (filter.Page-1)*page.PerPage)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, group_id, medium_id, qrcode_name, qrcode_url, leading_words, tags, employees, rooms, created_at,
-		       lifecycle_state, data_source
+		       lifecycle_state, data_source, provider_kind, auto_create_room
 		FROM mc_work_room_auto_pull
 		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY id DESC
@@ -17198,7 +17198,7 @@ func (s *MySQLStore) WorkRoomAutoPullPage(ctx context.Context, filter dashboard.
 		var raw autoPullRaw
 		var rawTags, rawEmployees, rawRooms []byte
 		var createdAt sql.NullTime
-		if err := rows.Scan(&raw.item.WorkRoomAutoPullID, &raw.item.GroupID, &raw.item.MediumID, &raw.item.QRCodeName, &raw.item.QRCodeURL, &raw.item.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt, &raw.item.LifecycleState, &raw.item.DataSource); err != nil {
+		if err := rows.Scan(&raw.item.WorkRoomAutoPullID, &raw.item.GroupID, &raw.item.MediumID, &raw.item.QRCodeName, &raw.item.QRCodeURL, &raw.item.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt, &raw.item.LifecycleState, &raw.item.DataSource, &raw.item.ProviderKind, &raw.item.AutoCreateRoom); err != nil {
 			return dashboard.WorkRoomAutoPullPage{}, err
 		}
 		if raw.item.LifecycleState == "" {
@@ -17263,6 +17263,10 @@ func (s *MySQLStore) WorkRoomAutoPullPage(ctx context.Context, filter dashboard.
 			stat := stats[roomPayload.RoomID]
 			item.ContactNum += stat.ContactNum
 			state := 1
+			if item.ProviderKind == "join_way" {
+				item.Rooms = append(item.Rooms, dashboard.WorkRoomAutoPullListRoom{RoomName: room.Name, StateText: "直接进群"})
+				continue
+			}
 			if stat.Total < room.RoomMax && stat.Total < roomPayload.MaxNum {
 				if !isDrawing {
 					state = 2
@@ -17311,11 +17315,12 @@ func (s *MySQLStore) WorkRoomAutoPullShowByID(ctx context.Context, id int) (dash
 	var rawTags, rawEmployees, rawRooms []byte
 	var createdAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, corp_id, medium_id, qrcode_name, qrcode_url, is_verified, leading_words, tags, employees, rooms, created_at
+		SELECT id, corp_id, medium_id, qrcode_name, qrcode_url, is_verified, leading_words, tags, employees, rooms, created_at,
+		       provider_kind, auto_create_room, room_base_name, room_base_id
 		FROM mc_work_room_auto_pull
 		WHERE id = ? AND deleted_at IS NULL
 		LIMIT 1
-	`, id).Scan(&info.WorkRoomAutoPullID, &corpID, &info.MediumID, &info.QRCodeName, &info.QRCodeURL, &info.IsVerified, &info.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt)
+	`, id).Scan(&info.WorkRoomAutoPullID, &corpID, &info.MediumID, &info.QRCodeName, &info.QRCodeURL, &info.IsVerified, &info.LeadingWords, &rawTags, &rawEmployees, &rawRooms, &createdAt, &info.ProviderKind, &info.AutoCreateRoom, &info.RoomBaseName, &info.RoomBaseID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.WorkRoomAutoPullShow{}, false, nil
 	}
@@ -17912,16 +17917,60 @@ func (s *MySQLStore) WorkRoomAutoPullEmployeeWXUserIDs(ctx context.Context, empl
 	return result, nil
 }
 
+func (s *MySQLStore) WorkRoomAutoPullRoomWXChatIDs(ctx context.Context, corpID int, roomIDs []int) ([]string, error) {
+	roomIDs = uniquePositiveInts(roomIDs)
+	if corpID <= 0 || len(roomIDs) == 0 || len(roomIDs) > 5 {
+		return nil, fmt.Errorf("群聊选择无效")
+	}
+	args := make([]any, 0, len(roomIDs)+1)
+	args = append(args, corpID)
+	for _, id := range roomIDs {
+		args = append(args, id)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, wx_chat_id
+		FROM mc_work_room
+		WHERE corp_id = ? AND id IN (`+placeholders(len(roomIDs))+`) AND wx_chat_id <> '' AND deleted_at IS NULL`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byID := make(map[int]string, len(roomIDs))
+	for rows.Next() {
+		var id int
+		var wxChatID string
+		if err := rows.Scan(&id, &wxChatID); err != nil {
+			return nil, err
+		}
+		byID[id] = strings.TrimSpace(wxChatID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(roomIDs))
+	for _, id := range roomIDs {
+		chatID := byID[id]
+		if chatID == "" {
+			return nil, fmt.Errorf("群聊 %d 未同步或不属于当前企业", id)
+		}
+		result = append(result, chatID)
+	}
+	return result, nil
+}
+
 func (s *MySQLStore) CreateWorkRoomAutoPullWithLog(ctx context.Context, values dashboard.WorkRoomAutoPullWrite, operationID int) (int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer rollbackQuietly(tx)
+	providerKind := strings.TrimSpace(values.ProviderKind)
+	if providerKind == "" {
+		providerKind = "contact_way"
+	}
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO mc_work_room_auto_pull (corp_id, medium_id, qrcode_name, qrcode_url, wx_config_id, is_verified, leading_words, tags, employees, rooms, created_at, updated_at)
-		VALUES (?, ?, ?, '', '', ?, ?, ?, ?, ?, NOW(), NOW())
-	`, values.CorpID, values.MediumID, values.QRCodeName, values.IsVerified, values.LeadingWords, values.Tags, values.Employees, values.Rooms)
+		INSERT INTO mc_work_room_auto_pull (corp_id, medium_id, qrcode_name, qrcode_url, wx_config_id, provider_kind, auto_create_room, room_base_name, room_base_id, is_verified, leading_words, tags, employees, rooms, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+	`, values.CorpID, values.MediumID, values.QRCodeName, values.QRCodeURL, values.WXConfigID, providerKind, values.AutoCreateRoom, values.RoomBaseName, values.RoomBaseID, values.IsVerified, values.LeadingWords, values.Tags, values.Employees, values.Rooms)
 	if err != nil {
 		return 0, err
 	}
@@ -17938,6 +17987,30 @@ func (s *MySQLStore) CreateWorkRoomAutoPullWithLog(ctx context.Context, values d
 	return int(id), nil
 }
 
+func (s *MySQLStore) WorkRoomAutoPullUpdateTargetByID(ctx context.Context, id int) (dashboard.WorkRoomAutoPullUpdateTarget, bool, error) {
+	var target dashboard.WorkRoomAutoPullUpdateTarget
+	var wxConfigID sql.NullString
+	var providerKind sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT corp_id, wx_config_id, provider_kind
+		FROM mc_work_room_auto_pull
+		WHERE id = ? AND deleted_at IS NULL
+		LIMIT 1
+	`, id).Scan(&target.CorpID, &wxConfigID, &providerKind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboard.WorkRoomAutoPullUpdateTarget{}, false, nil
+	}
+	if err != nil {
+		return dashboard.WorkRoomAutoPullUpdateTarget{}, false, err
+	}
+	target.WXConfigID = nullString(wxConfigID)
+	target.ProviderKind = strings.TrimSpace(nullString(providerKind))
+	if target.ProviderKind == "" {
+		target.ProviderKind = "contact_way"
+	}
+	return target, true, nil
+}
+
 func (s *MySQLStore) UpdateWorkRoomAutoPullWithLog(ctx context.Context, id int, values dashboard.WorkRoomAutoPullWrite, operationID int) (dashboard.WorkRoomAutoPullUpdateTarget, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -17946,15 +18019,16 @@ func (s *MySQLStore) UpdateWorkRoomAutoPullWithLog(ctx context.Context, id int, 
 	defer rollbackQuietly(tx)
 	var target dashboard.WorkRoomAutoPullUpdateTarget
 	var wxConfigID sql.NullString
+	var providerKind sql.NullString
 	var oldRooms sql.NullString
 	tenantID := 0
 	err = tx.QueryRowContext(ctx, `
-		SELECT p.corp_id, p.wx_config_id, p.rooms, COALESCE(c.tenant_id, 0)
+		SELECT p.corp_id, p.wx_config_id, p.provider_kind, p.rooms, COALESCE(c.tenant_id, 0)
 		FROM mc_work_room_auto_pull AS p
 		LEFT JOIN mc_corp AS c ON c.id = p.corp_id AND c.deleted_at IS NULL
 		WHERE p.id = ? AND p.deleted_at IS NULL
 		LIMIT 1
-	`, id).Scan(&target.CorpID, &wxConfigID, &oldRooms, &tenantID)
+	`, id).Scan(&target.CorpID, &wxConfigID, &providerKind, &oldRooms, &tenantID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return dashboard.WorkRoomAutoPullUpdateTarget{}, false, nil
 	}
@@ -17962,6 +18036,7 @@ func (s *MySQLStore) UpdateWorkRoomAutoPullWithLog(ctx context.Context, id int, 
 		return dashboard.WorkRoomAutoPullUpdateTarget{}, false, err
 	}
 	target.WXConfigID = nullString(wxConfigID)
+	target.ProviderKind = strings.TrimSpace(nullString(providerKind))
 	reclaimPaths := storagePathsRemoved(
 		workRoomAutoPullStoragePathsFromRooms(nullString(oldRooms)),
 		workRoomAutoPullStoragePathsFromRooms(values.Rooms),
@@ -18083,6 +18158,10 @@ func workRoomAutoPullBusinessLogPayload(values dashboard.WorkRoomAutoPullWrite, 
 		payload["corp_id"] = values.CorpID
 		payload["qrcode_name"] = values.QRCodeName
 		payload["leading_words"] = values.LeadingWords
+		payload["provider_kind"] = values.ProviderKind
+		payload["auto_create_room"] = values.AutoCreateRoom
+		payload["room_base_name"] = values.RoomBaseName
+		payload["room_base_id"] = values.RoomBaseID
 		payload["created_at"] = time.Now().Format("2006-01-02 15:04:05")
 	}
 	raw, _ := json.Marshal(payload)

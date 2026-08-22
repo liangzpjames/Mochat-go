@@ -2,23 +2,23 @@
 
 > 日期：2026-08-22  
 > 状态：已获用户授权按推荐方案连续实施，完成后统一审阅  
-> 基线：`origin/main=b9a47cab45ec872bc81e61a20b06a8a3529311b2`  
+> 初始基线：`origin/main=b9a47cab45ec872bc81e61a20b06a8a3529311b2`；实施中按用户指令同步 `origin/main=43c781514a4549e806517ab2b2a707f1320e2df7`
 > 实施分支：`feat/p0-live-code-integration-20260822`
 
 ## 1. 目标与范围
 
 本任务把渠道活码与群活码收敛为 Mochat 内唯一、可运行、可审计的专用工作区，同时修复 Dashboard RBAC catalog 与迁移 seed 不一致、圆弧 benchmark 阶段值非法两项 P0 门禁。交付包含设计、实施计划、代码、迁移、测试、Docker 三视口浏览器验收和中文自测报告。
 
-本期不修改 Phase 7，不接入真实企微会话存档，不删除或提交用户当前工作树的受保护未跟踪内容，也不把尚未提交的 `0152_group_code_direct_join` 草案作为本任务能力。群活码继续使用当前已存在且可测试的 `workRoomAutoPull` 写链路；未来若切换企微 Join Way，必须另行做 Provider、数据兼容和真实凭证验收。
+本期不修改 Phase 7，不接入真实企微会话存档，不删除或提交用户当前工作树的受保护未跟踪内容。实施中用户明确要求渠道活码和群活码页面以另一会话已经完成的优化为准，因此本分支同步 `origin/main@43c7815` 的 `0152_group_code_direct_join`、群直连 Provider 适配和前端交互，不再自行修改两类活码页面；本任务继续负责迁移改号兼容、RBAC、benchmark 与完整验收。
 
 ## 2. 现状、差异与根因
 
 ### 2.1 Git 与迁移现状
 
-- 用户当前工作树已从委派快照继续演进到 `main=bd10fca5` 且存在未提交内容，本任务不在该树开发。
+- 用户当前工作树与远端已继续演进到 `main/origin/main=43c7815`；本任务仍只在隔离 worktree 开发。
 - 隔离 worktree 精确从 `b9a47cab` 创建，不包含当前脏树的修改。
 - 远端迁移 0140—0151 各编号唯一；0150 为关键词快照修复，0151 为 AI 洞察 API 资源。
-- 用户当前工作树另有未跟踪 `0152_group_code_direct_join.{up,down}.sql`。为避免并行开发占号冲突，本任务将活码迁移命名为 `0153_live_code_workspace`，RBAC 对账迁移命名为 `0154_dashboard_permission_resource_reconciliation`。迁移加载器按完整版本字符串排序且不要求编号连续，因此隔离分支暂时没有 0152 不影响发现和执行；集成时 0152 可由其所有者独立处理。
+- `0152_group_code_direct_join.{up,down}.sql` 已由另一会话提交并进入 `origin/main@43c7815`。本任务将活码 workspace 迁移保持为 `0153_live_code_workspace`，RBAC 对账保持为 `0154_dashboard_permission_resource_reconciliation`；最终顺序为 0150 关键词修复、0151 AI 洞察资源、0152 群直连、0153 活码 workspace、0154 RBAC 对账，编号与版本名均唯一。
 
 ### 2.2 活码实现差异
 
@@ -56,7 +56,7 @@
 
 ### 方案 B：语义重放有效提交并补齐门禁（采用）
 
-逐个吸收 6 个有效活码提交的业务能力，迁移改号到 0153；吸收 `a28dd4b`/`341b2585` 的抽屉适配和 `b01f2d1d` 的真实选择交互；再以 TDD 增加编辑、校验、错误和移动布局。通过 0154 对账迁移与校验器 overlay 恢复 RBAC 单一合同。该方案改动可追踪、回滚边界清晰，且不覆盖用户当前树。
+先逐个吸收 6 个有效活码提交并把迁移改号到 0153；随后按用户最新指令把 `origin/main@43c7815` 已完成的选择交互、群直连能力及页面实现整体作为权威版本同步进来，不再叠加本分支的页面改造。通过 0154 对账迁移与校验器 overlay 恢复 RBAC 单一合同。该方案改动可追踪、回滚边界清晰，且不覆盖用户当前树。
 
 ### 方案 C：从远端重新实现全部能力
 
@@ -73,7 +73,7 @@
 | 渠道创建/编辑 | `POST /channelCode/store`、`PUT /channelCode/update` | 既有 channelCode + 企微 Provider | Provider 失败不生成占位二维码，表单保留且展示错误 |
 | 渠道作废 | `POST /channelCode/batchInvalidate` | 生命周期字段与企微同步结果 | 部分失败逐条反馈；不物理删除 |
 | 群列表/详情 | `GET /workRoomAutoPull/index|show` | `mc_work_room_auto_pull` 与当前企业群聊 | 无可验证入群统计时显示未知态 |
-| 群创建/编辑 | `POST /workRoomAutoPull/store`、`PUT /workRoomAutoPull/update` | 现有真实写链路；员工、群聊选项来自 `/workEmployee/index`、`/workRoom/roomIndex` | 缺少实体、权限或 Provider 时禁止提交并给出明确原因 |
+| 群创建与直连 | `POST /workRoomAutoPull/store` | `0152` 提供的 Join Way 生成链路；员工、群聊选项来自真实业务接口 | 缺少实体、权限或 Provider 时禁止提交并给出明确原因；页面行为以 `43c7815` 为权威 |
 | 群分组 | 本期无可注册的 `/groupCodeGroup/*` Handler | `mc_group_code_group` 仅保留兼容表结构 | 不在目录、RBAC 或界面暴露未注册能力；后续实现 Handler 后另行启用 |
 
 前端不得写生产假数据、猜测人员名称、伪造二维码或用成员存量冒充扫码归因。所有查询、更新、统计和导出按当前租户、企业与数据权限执行。
@@ -82,7 +82,7 @@
 
 `0153_live_code_workspace` 包含渠道生命周期、Provider 状态、数据来源、群活码分组、活码事件账本、索引及活码资源 seed。字段、索引与表均采用 `IF NOT EXISTS` 增量补齐，使已经误应用旧 `0150_live_code_workspace` 的开发环境和全新环境都能安全升级；down 会检查迁移台账，若存在旧版本事实则保留其拥有的数据结构与资源，否则删除 0153 新建的资源、表、索引与字段。所有测试、文档和迁移顺序引用统一改为 0153。
 
-`0154_dashboard_permission_resource_reconciliation` 以 catalog 当前合同为输入语义：幂等补种 catalog 所需资源，修正两条租户级扫描状态资源的 scope，并停用 catalog 已删除的旧导出、文件录音写入和 deny-only 渠道更新资源。其 down 只撤回本迁移首次引入的两条客户继承读取资源并恢复此前仍活跃的两条旧导出资源；0145 已停用的媒体写资源和 deny-only 更新资源不被错误恢复。校验器读取该迁移的 additions/deactivations overlay，最终 seed 必须与 catalog 逐条、逐 scope 精确相等。
+`0154_dashboard_permission_resource_reconciliation` 以 catalog 当前合同为输入语义：幂等补种 catalog 所需资源，修正两条租户级扫描状态资源的 scope，并停用 catalog 已删除的旧导出与文件录音写入资源。同步新基线后，渠道更新路由继续沿用 0153 的正式授权；客户继承页所需的 8 条读取/写入资源统一由 0154 补齐，down 只撤回这 8 条首次引入资源并恢复此前仍活跃的两条旧导出资源；0145 已停用的媒体写资源不被错误恢复。校验器读取该迁移的 additions/deactivations overlay，最终 seed 必须与 catalog 逐条、逐 scope 精确相等。
 
 资源同时满足三层合同：前端真实 API 使用、Go 生产路由注册、catalog 所属页面。新增接口若不能通过三方交叉检查，不得以 exemptions 放行。
 
@@ -92,11 +92,11 @@
 
 `idle → loading → success(empty|rows)`；查询失败进入 `error` 并保留上一次成功列表。筛选草稿只有点击查询才生效；重置清空筛选、分组和页码。翻页、创建/编辑成功和重试触发真实请求。
 
-### 7.2 创建/编辑抽屉
+### 7.2 创建抽屉
 
-`closed → loading-options/detail → editing → validating → saving → success|save-error`。
+`closed → loading-options → editing → validating → saving → success|save-error`。原计划中的独立编辑增强已被用户指定的 `43c7815` 权威页面替换，本分支不再改动其交互范围。
 
-- 创建打开时加载当前权限范围内的员工/群聊；编辑先加载详情并回填真实选项。
+- 创建打开时加载当前权限范围内的员工/群聊。
 - 关闭按钮、遮罩和取消统一触发关闭；saving 时禁止关闭和重复提交。
 - 校验失败显示字段错误与总摘要，不发请求。
 - 保存失败保留输入和选择；成功关闭抽屉、刷新列表并显示成功反馈。
@@ -121,7 +121,7 @@ Docker 只重建必要服务，禁止 `down -v`、`down --volumes` 或删除命�
 
 ## 10. 验收标准
 
-1. 两个路由只有一套权威页面，列表、查询、分页、详情、创建、编辑、校验、空态、错误态和权限态可操作。
+1. 两个路由只有一套权威页面；活码页面行为和测试以用户指定同步的 `43c7815` 为准，本分支不再叠加重复实现。
 2. 0150、0151 保持远端语义，活码使用 0153，RBAC 对账使用 0154；所有引用一致，无重复编号。
 3. catalog、前端 API、Go 注册路由和迁移最终资源 seed 精确一致，RBAC 门禁通过。
 4. `/chat/file-audio` phase 为真实 `3.5`，benchmark 门禁通过且校验器未放宽。

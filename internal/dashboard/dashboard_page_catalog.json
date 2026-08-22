@@ -341,7 +341,32 @@
         },
         {
           "method": "GET",
+          "pathPattern": "/dashboard/contactTransfer/room",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/contactTransfer/log",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
           "pathPattern": "/dashboard/workEmployee/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/contactTransfer/sync",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/contactTransfer/index",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/contactTransfer/room",
           "scopeRequired": false
         }
       ]
@@ -852,6 +877,11 @@
         {
           "method": "POST",
           "pathPattern": "/dashboard/channelCode/store",
+          "scopeRequired": true
+        },
+        {
+          "method": "PUT",
+          "pathPattern": "/dashboard/channelCode/update",
           "scopeRequired": true
         },
         {

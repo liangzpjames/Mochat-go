@@ -12,7 +12,7 @@
 
 - 设计依据：`docs/superpowers/specs/2026-08-22-p0-live-code-integration-design.md`。
 - 不修改 Phase 7 与 `docs/PROJECT_PROGRESS.zh-CN.md`。
-- 不读取后提交用户当前树的 `.workbuddy/`、debug 脚本、`tmp/`、`web/saas-admin/` 或未跟踪 0152 实现。
+- 不读取或提交用户当前树的 `.workbuddy/`、debug 脚本、`tmp/`、`web/saas-admin/`；`0152` 只从用户指定同步的 `origin/main@43c7815` 获取。
 - 所有生产行为先有正确失败的测试或门禁复现；失败先定位根因。
 - 不引入生产假数据、占位二维码或伪造统计。
 - Docker 不删除命名卷，不执行 `down -v` 或 `down --volumes`。
