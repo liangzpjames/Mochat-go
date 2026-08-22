@@ -85,13 +85,13 @@ describe('SidebarPageShell', () => {
     );
 
     expect(screen.getByRole('link', { name: '客户' }).getAttribute('href')).toBe(
-      '/sidebar-app?wxExternalUserid=external-1&contactId=23&tab=customers',
+      '/sidebar-app/?wxExternalUserid=external-1&contactId=23&tab=customers',
     );
     expect(screen.getByRole('link', { name: '会话' }).getAttribute('href')).toBe(
-      '/sidebar-app?wxExternalUserid=external-1&contactId=23&tab=conversations',
+      '/sidebar-app/?wxExternalUserid=external-1&contactId=23&tab=conversations',
     );
     expect(screen.getByRole('link', { name: '我的' }).getAttribute('href')).toBe(
-      '/sidebar-app?wxExternalUserid=external-1&contactId=23&tab=profile',
+      '/sidebar-app/?wxExternalUserid=external-1&contactId=23&tab=profile',
     );
   });
 

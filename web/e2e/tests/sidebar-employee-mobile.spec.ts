@@ -200,7 +200,7 @@ test.describe('employee Sidebar business states at 390x844', () => {
     await expect(page.getByRole('heading', { name: '专项验收客户' })).toBeVisible();
 
     await page.getByRole('link', { name: '我的' }).click();
-    await expect(page).toHaveURL(/\/sidebar-app\?agentId=7&wxExternalUserid=external-user-1&tab=profile$/);
+    await expect(page).toHaveURL(/\/sidebar-app\/\?agentId=7&wxExternalUserid=external-user-1&tab=profile$/);
     await expect(page.getByText('员工甲', { exact: true })).toBeVisible();
     await page.getByTestId('mobile-shell').getByRole('link', { name: '客户', exact: true }).click();
     await page.getByRole('link', { name: /^当前客户/ }).click();

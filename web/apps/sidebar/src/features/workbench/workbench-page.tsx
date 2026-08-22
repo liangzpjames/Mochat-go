@@ -47,7 +47,11 @@ function contextTarget(path: string, search: string, entries: Record<string, str
 }
 
 function WorkbenchLink({ to, className, children, ariaLabel }: { to: string; className: string; children: ReactNode; ariaLabel?: string }) {
-  const href = useHref(to);
+  const resolvedHref = useHref(to);
+  const mountedRootHref = useHref('/');
+  const href = to.startsWith('/?') && !mountedRootHref.endsWith('/')
+    ? `${mountedRootHref}/${to.slice(1)}`
+    : resolvedHref;
   return <a {...(ariaLabel ? { 'aria-label': ariaLabel } : {})} className={className} href={href}>{children}</a>;
 }
 

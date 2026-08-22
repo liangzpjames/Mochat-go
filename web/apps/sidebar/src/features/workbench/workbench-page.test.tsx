@@ -102,6 +102,18 @@ describe('WorkbenchPage', () => {
     );
   });
 
+  it('keeps root workspace links query-safe inside the prefixed Sidebar mount', async () => {
+    render(
+      <MemoryRouter basename="/sidebar-app" initialEntries={['/sidebar-app/?agentId=7&tab=conversations']}>
+        <WorkbenchPage bridge={bridge} request={vi.fn(requestFixture) as unknown as SidebarRequest} />
+      </MemoryRouter>,
+    );
+
+    expect((await screen.findByRole('link', { name: /^个人客户 SOP/ })).getAttribute('href')).toBe(
+      '/sidebar-app/?agentId=7&tab=conversations&view=contactSop',
+    );
+  });
+
   it('renders employee identity and account facts on the profile workspace', async () => {
     renderPage('/?agentId=7&tab=profile');
 

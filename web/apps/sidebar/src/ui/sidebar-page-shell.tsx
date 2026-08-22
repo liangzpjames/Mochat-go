@@ -136,14 +136,16 @@ export function SidebarPageShell({
   const context = new URLSearchParams(
     sidebarBusinessNavigation('/', location.pathname, location.search).suffix.replace(/^\?/, ''),
   );
-  const rootTarget = (tab: SidebarNavigationKey) => {
+  const mountedRootHref = useHref('/');
+  const rootTargetHref = (tab: SidebarNavigationKey) => {
     const query = new URLSearchParams(context);
     query.set('tab', tab);
-    return `/?${query.toString()}`;
+    const root = mountedRootHref.endsWith('/') ? mountedRootHref : `${mountedRootHref}/`;
+    return `${root}?${query.toString()}`;
   };
-  const customersHref = useHref(rootTarget('customers'));
-  const conversationsHref = useHref(rootTarget('conversations'));
-  const profileHref = useHref(rootTarget('profile'));
+  const customersHref = rootTargetHref('customers');
+  const conversationsHref = rootTargetHref('conversations');
+  const profileHref = rootTargetHref('profile');
   const items: MobileBottomNavigationItem[] = [
     { key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: customersHref, current: current === 'customers' },
     { key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: conversationsHref, current: current === 'conversations' },
