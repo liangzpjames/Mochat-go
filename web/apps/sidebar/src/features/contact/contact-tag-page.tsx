@@ -34,6 +34,17 @@ export function ContactTagPage(props: {
   const tagRequestSequence = useRef(0);
 
   useEffect(() => {
+    const sequence = tagRequestSequence.current + 1;
+    tagRequestSequence.current = sequence;
+    setContactId(0);
+    setGroups([]);
+    setTags([]);
+    setExisting([]);
+    setSelected([]);
+    setGroupId(null);
+    setFilterFailed(false);
+    setMessage('');
+    setLoading(true);
     if (!externalUserId) {
       setMessage('缺少 wxExternalUserid，无法识别当前客户。');
       setLoading(false);
@@ -45,7 +56,7 @@ export function ContactTagPage(props: {
       const workspace = await loadContactWorkspace(props.request, summary.id);
       const loadedGroups = await loadTagGroups(props.request);
       const loadedTags = await loadTags(props.request, null);
-      if (!active) return;
+      if (!active || sequence !== tagRequestSequence.current) return;
       const current = workspace.tags.map((tag) => tag.id);
       setContactId(summary.id);
       setExisting(current);
@@ -54,11 +65,14 @@ export function ContactTagPage(props: {
       setTags(loadedTags);
       setLoading(false);
     })().catch((error: unknown) => {
-      if (!active) return;
+      if (!active || sequence !== tagRequestSequence.current) return;
       if (error instanceof MobileApiError && error.kind === 'unauthorized') props.onReauthenticate();
       else { setMessage(error instanceof Error ? error.message : '标签加载失败。'); setLoading(false); }
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      if (sequence === tagRequestSequence.current) tagRequestSequence.current += 1;
+    };
   }, [externalUserId, props.onReauthenticate, props.request, reloadVersion]);
 
   const changeGroup = async (value: string) => {
@@ -97,7 +111,14 @@ export function ContactTagPage(props: {
       const outcome = await appendContactTags(props.request, contactId, added);
       if (!outcome.wecomSynced) {
         setSyncPending(outcome.retryable);
-        setMessage('本地已保存，但企业微信标签同步失败，请重试。');
+        if (outcome.retryable) {
+          setMessage('本地已保存，但企业微信标签同步失败，请重试。');
+        } else {
+          const persisted = [...new Set([...existing, ...added])];
+          setExisting(persisted);
+          setSelected(persisted);
+          setMessage('本地已保存，但企业标签尚未完成企业微信映射，请联系管理员。');
+        }
         return;
       }
       setSyncPending(false);

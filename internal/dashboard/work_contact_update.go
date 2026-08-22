@@ -30,6 +30,8 @@ type WorkContactUpdateResult struct {
 	WXExternalUserID string
 	AddedWXTagIDs    []string
 	AddedTagNames    []string
+	TagSyncRequested bool
+	UnsyncableTagIDs []int
 }
 
 type WorkContactUpdateOutcome struct {
@@ -125,17 +127,23 @@ func (h *WorkReadHandler) writeWorkContactUpdate(w http.ResponseWriter, r *http.
 		return
 	}
 	if !found {
-		writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "客户关系不存在或已失效", nil)
 		return
 	}
 	outcome := WorkContactUpdateOutcome{SavedLocally: true, WeComSynced: true}
 	needsRemarkSync := values.Remark != nil || values.Description != nil
 	needsTagSync := len(result.AddedWXTagIDs) > 0
+	hasUnsyncableTags := result.TagSyncRequested && len(result.UnsyncableTagIDs) > 0
 	needsWeComSync := needsRemarkSync || needsTagSync
 	writePartial := func() {
 		outcome.WeComSynced = false
 		outcome.Retryable = true
 		writeEnvelope(w, http.StatusOK, 200, "本地已保存，企业微信同步失败，请重试", outcome)
+	}
+	writeUnsyncable := func() {
+		outcome.WeComSynced = false
+		outcome.Retryable = false
+		writeEnvelope(w, http.StatusOK, 200, "本地已保存，但部分标签未映射到企业微信，暂无法同步", outcome)
 	}
 	if needsWeComSync {
 		if h.workContactUpdateClient == nil || result.WXUserID == "" || result.WXExternalUserID == "" {
@@ -172,6 +180,10 @@ func (h *WorkReadHandler) writeWorkContactUpdate(w http.ResponseWriter, r *http.
 				return
 			}
 		}
+	}
+	if hasUnsyncableTags {
+		writeUnsyncable()
+		return
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", outcome)
 }

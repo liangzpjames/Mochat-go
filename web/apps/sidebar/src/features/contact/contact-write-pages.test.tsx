@@ -143,6 +143,25 @@ describe('customer write pages', () => {
     expect(request.mock.calls.filter(([path]) => path === '/workContact/update')).toHaveLength(2);
   });
 
+  it('reports an unmapped enterprise tag without offering a futile sync retry', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(summary)
+      .mockResolvedValueOnce(workspace)
+      .mockResolvedValueOnce([{ groupId: 3, groupName: '阶段' }])
+      .mockResolvedValueOnce([{ id: 7, name: '已有标签' }, { id: 9, name: '未映射标签' }])
+      .mockResolvedValueOnce({ savedLocally: true, wecomSynced: false, retryable: false });
+    frame(<ContactTagPage request={request} onDone={vi.fn()} onReauthenticate={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '未映射标签' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存标签' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('尚未完成企业微信映射');
+    expect(alert.textContent).not.toContain('请重试');
+    expect(screen.queryByRole('button', { name: '重试同步' })).toBeNull();
+    expect(screen.getByRole('button', { name: '保存标签' }).hasAttribute('disabled')).toBe(true);
+  });
+
   it('keeps only the latest tag-group response during rapid switching', async () => {
     const slow = deferred<Array<{ id: number; name: string }>>();
     const latest = deferred<Array<{ id: number; name: string }>>();
@@ -169,6 +188,39 @@ describe('customer write pages', () => {
 
     await waitFor(() => expect(screen.queryByRole('checkbox', { name: '过期分组标签' })).toBeNull());
     expect(screen.getByRole('checkbox', { name: '最新分组标签' })).not.toBeNull();
+  });
+
+  it('invalidates an old group request when the page context reloads', async () => {
+    const stale = deferred<Array<{ id: number; name: string }>>();
+    const firstRequest = vi.fn((path: string): Promise<unknown> => {
+      if (path.startsWith('/workContact/detail?')) return Promise.resolve(summary);
+      if (path.startsWith('/workContact/show?')) return Promise.resolve(workspace);
+      if (path === '/workContactTagGroup/index') return Promise.resolve([{ groupId: 3, groupName: '阶段' }]);
+      if (path === '/workContactTag/allTag') return Promise.resolve([{ id: 7, name: '已有标签' }]);
+      if (path === '/workContactTag/allTag?groupId=3') return stale.promise;
+      return Promise.reject(new Error(`unexpected request ${path}`));
+    }) as unknown as ContactRequest;
+    const secondRequest = vi.fn((path: string): Promise<unknown> => {
+      if (path.startsWith('/workContact/detail?')) return Promise.resolve(summary);
+      if (path.startsWith('/workContact/show?')) return Promise.resolve(workspace);
+      if (path === '/workContactTagGroup/index') return Promise.resolve([{ groupId: 4, groupName: '来源' }]);
+      if (path === '/workContactTag/allTag') return Promise.resolve([{ id: 12, name: '新上下文标签' }]);
+      return Promise.reject(new Error(`unexpected request ${path}`));
+    }) as unknown as ContactRequest;
+    const view = frame(<ContactTagPage request={firstRequest} onDone={vi.fn()} onReauthenticate={vi.fn()} />);
+
+    expect(await screen.findByText('已有标签（已存在）')).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('标签分组'), { target: { value: '3' } });
+    view.rerender(
+      <MemoryRouter initialEntries={['/contact/remark?wxExternalUserid=external-1&agentId=7']}>
+        <ContactTagPage request={secondRequest} onDone={vi.fn()} onReauthenticate={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('checkbox', { name: '新上下文标签' })).not.toBeNull();
+    stale.resolve([{ id: 13, name: '旧上下文过期标签' }]);
+
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: '旧上下文过期标签' })).toBeNull());
+    expect(screen.getByRole('checkbox', { name: '新上下文标签' })).not.toBeNull();
   });
 
   it('clears stale tags and disables save when the latest group load fails', async () => {

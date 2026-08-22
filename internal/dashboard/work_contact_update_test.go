@@ -69,7 +69,7 @@ func TestWorkContactUpdateWritesProfileAndSyncsWeCom(t *testing.T) {
 	}
 }
 
-func TestWorkContactUpdateMissingRelationReturnsSuccessWithoutWeCom(t *testing.T) {
+func TestWorkContactUpdateMissingRelationReturnsNotFoundWithoutWeCom(t *testing.T) {
 	store := &fakeWorkReadStore{
 		users: map[int]User{1: {ID: 1}},
 	}
@@ -83,11 +83,49 @@ func TestWorkContactUpdateMissingRelationReturnsSuccessWithoutWeCom(t *testing.T
 	rec := httptest.NewRecorder()
 	handler.WorkContactUpdate(rec, req)
 
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 	if client.remarkCalls != 0 || client.markTagCalls != 0 || store.lastCredentialCorpID != 0 {
 		t.Fatalf("unexpected side effects: client=%#v store=%#v", client, store)
+	}
+}
+
+func TestSidebarWorkContactUpdateReportsUnsyncableTagHonestly(t *testing.T) {
+	store := &fakeWorkReadStore{
+		sidebarEmployees:       map[int]SidebarEmployee{5: {ID: 5, CorpID: 7}},
+		workContactUpdateFound: true,
+		workContactUpdateResult: WorkContactUpdateResult{
+			WXUserID:         "go-user-5",
+			WXExternalUserID: "external-user-1",
+			TagSyncRequested: true,
+			UnsyncableTagIDs: []int{2},
+		},
+	}
+	client := &fakeWorkContactUpdateClient{}
+	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"}).
+		WithWorkContactUpdateClient(client)
+
+	req := httptest.NewRequest(http.MethodPut, "/sidebar/workContact/update", strings.NewReader(`{"contactId":21,"tag":[2]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+	handler.SidebarWorkContactUpdate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec.Body.Bytes())
+	data := body["data"].(map[string]any)
+	if data["savedLocally"] != true || data["wecomSynced"] != false || data["retryable"] != false {
+		t.Fatalf("body = %#v", body)
+	}
+	if !strings.Contains(body["msg"].(string), "未映射") {
+		t.Fatalf("msg = %#v", body["msg"])
+	}
+	if client.markTagCalls != 0 {
+		t.Fatalf("mark tag calls = %d", client.markTagCalls)
 	}
 }
 

@@ -16658,7 +16658,6 @@ func (s *MySQLStore) workContactShowTags(ctx context.Context, contactID int, emp
 		  ON tag.id = pivot.contact_tag_id AND tag.corp_id = ? AND tag.deleted_at IS NULL
 		WHERE pivot.contact_id = ?
 		  AND pivot.employee_id = ?
-		  AND pivot.corp_id = contact.corp_id
 		  AND pivot.deleted_at IS NULL
 		ORDER BY tag.id ASC
 	`, corpID, corpID, contactID, employeeID)
@@ -20960,10 +20959,10 @@ func (s *MySQLStore) UpdateWorkContactProfile(ctx context.Context, values dashbo
 		SELECT COALESCE(employee.wx_user_id, ''), COALESCE(contact.wx_external_userid, ''),
 		       COALESCE(ce.remark, ''), COALESCE(ce.description, ''), COALESCE(contact.business_no, '')
 		FROM mc_work_contact_employee AS ce
-		JOIN mc_work_employee AS employee ON employee.id = ce.employee_id AND employee.deleted_at IS NULL
-		JOIN mc_work_contact AS contact ON contact.id = ce.contact_id AND contact.deleted_at IS NULL
+		JOIN mc_work_employee AS employee ON employee.id = ce.employee_id AND employee.corp_id = ce.corp_id AND employee.deleted_at IS NULL
+		JOIN mc_work_contact AS contact ON contact.id = ce.contact_id AND contact.corp_id = ce.corp_id AND contact.deleted_at IS NULL
 		WHERE ce.employee_id = ? AND ce.contact_id = ? AND ce.corp_id = ? AND ce.deleted_at IS NULL
-		LIMIT 1
+		LIMIT 1 FOR UPDATE
 	`, values.EmployeeID, values.ContactID, values.CorpID).Scan(
 		&result.WXUserID,
 		&result.WXExternalUserID,
@@ -21025,14 +21024,16 @@ func (s *MySQLStore) UpdateWorkContactProfile(ctx context.Context, values dashbo
 	}
 
 	if values.HasTag {
-		addedWXTagIDs, addedTagNames, err := addWorkContactTagsTx(ctx, tx, values.CorpID, values.ContactID, values.EmployeeID, values.TagIDs)
+		appliedTags, err := addWorkContactTagsTx(ctx, tx, values.CorpID, values.ContactID, values.EmployeeID, values.TagIDs)
 		if err != nil {
 			return dashboard.WorkContactUpdateResult{}, false, err
 		}
-		result.AddedWXTagIDs = addedWXTagIDs
-		result.AddedTagNames = addedTagNames
-		if len(addedTagNames) > 0 {
-			if err := insertContactTrackTx(ctx, tx, values.EmployeeID, values.ContactID, workContactUpdateTagContent(addedTagNames), values.CorpID, 2); err != nil {
+		result.TagSyncRequested = len(uniquePositiveInts(values.TagIDs)) > 0
+		result.AddedWXTagIDs = appliedTags.wxIDs
+		result.AddedTagNames = appliedTags.names
+		result.UnsyncableTagIDs = appliedTags.unsyncableIDs
+		if len(appliedTags.names) > 0 {
+			if err := insertContactTrackTx(ctx, tx, values.EmployeeID, values.ContactID, workContactUpdateTagContent(appliedTags.names), values.CorpID, 2); err != nil {
 				return dashboard.WorkContactUpdateResult{}, false, err
 			}
 		}
@@ -21081,14 +21082,14 @@ func (s *MySQLStore) ApplyWorkContactTags(ctx context.Context, values dashboard.
 		return dashboard.MarkTagsApplyResult{}, false, err
 	}
 
-	addedWXTagIDs, addedTagNames, err := addWorkContactTagsTx(ctx, tx, values.CorpID, values.ContactID, values.EmployeeID, tagIDs)
+	appliedTags, err := addWorkContactTagsTx(ctx, tx, values.CorpID, values.ContactID, values.EmployeeID, tagIDs)
 	if err != nil {
 		return dashboard.MarkTagsApplyResult{}, false, err
 	}
-	result.AddedWXTagIDs = addedWXTagIDs
-	result.AddedTagNames = addedTagNames
-	if len(addedTagNames) > 0 {
-		if err := insertContactTrackTx(ctx, tx, values.EmployeeID, values.ContactID, workContactUpdateTagContent(addedTagNames), values.CorpID, 2); err != nil {
+	result.AddedWXTagIDs = appliedTags.wxIDs
+	result.AddedTagNames = appliedTags.names
+	if len(appliedTags.names) > 0 {
+		if err := insertContactTrackTx(ctx, tx, values.EmployeeID, values.ContactID, workContactUpdateTagContent(appliedTags.names), values.CorpID, 2); err != nil {
 			return dashboard.MarkTagsApplyResult{}, false, err
 		}
 	}
@@ -21100,10 +21101,16 @@ func (s *MySQLStore) ApplyWorkContactTags(ctx context.Context, values dashboard.
 
 var errWorkContactTagScope = errors.New("work contact tag is outside corp scope")
 
-func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID int, employeeID int, tagIDs []int) ([]string, []string, error) {
+type appliedWorkContactTags struct {
+	wxIDs         []string
+	names         []string
+	unsyncableIDs []int
+}
+
+func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID int, employeeID int, tagIDs []int) (appliedWorkContactTags, error) {
 	tagIDs = uniquePositiveInts(tagIDs)
 	if len(tagIDs) == 0 {
-		return []string{}, []string{}, nil
+		return appliedWorkContactTags{wxIDs: []string{}, names: []string{}, unsyncableIDs: []int{}}, nil
 	}
 	type tagDetails struct {
 		wxID string
@@ -21116,7 +21123,7 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 		WHERE corp_id = ? AND id IN (`+placeholders(len(tagIDs))+`) AND deleted_at IS NULL
 	`, tagArgs...)
 	if err != nil {
-		return nil, nil, err
+		return appliedWorkContactTags{}, err
 	}
 	allowed := make(map[int]tagDetails, len(tagIDs))
 	for rows.Next() {
@@ -21124,20 +21131,23 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 		var details tagDetails
 		if err := rows.Scan(&id, &details.wxID, &details.name); err != nil {
 			rows.Close()
-			return nil, nil, err
+			return appliedWorkContactTags{}, err
 		}
 		allowed[id] = details
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, err
+		return appliedWorkContactTags{}, err
 	}
 	if len(allowed) != len(tagIDs) {
-		return nil, nil, errWorkContactTagScope
+		return appliedWorkContactTags{}, errWorkContactTagScope
 	}
 	syncWXTagIDs := make([]string, 0, len(tagIDs))
+	unsyncableTagIDs := make([]int, 0)
 	for _, tagID := range tagIDs {
 		if wxID := allowed[tagID].wxID; wxID != "" {
 			syncWXTagIDs = append(syncWXTagIDs, wxID)
+		} else {
+			unsyncableTagIDs = append(unsyncableTagIDs, tagID)
 		}
 	}
 
@@ -21149,19 +21159,19 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 		WHERE pivot.contact_id = ? AND pivot.employee_id = ? AND pivot.deleted_at IS NULL
 	`, corpID, contactID, employeeID)
 	if err != nil {
-		return nil, nil, err
+		return appliedWorkContactTags{}, err
 	}
 	existing := map[int]struct{}{}
 	for rows.Next() {
 		var id int
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return nil, nil, err
+			return appliedWorkContactTags{}, err
 		}
 		existing[id] = struct{}{}
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, err
+		return appliedWorkContactTags{}, err
 	}
 
 	addIDs := make([]int, 0, len(tagIDs))
@@ -21174,7 +21184,7 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 		}
 	}
 	if len(addIDs) == 0 {
-		return syncWXTagIDs, []string{}, nil
+		return appliedWorkContactTags{wxIDs: syncWXTagIDs, names: []string{}, unsyncableIDs: unsyncableTagIDs}, nil
 	}
 	for _, tagID := range addIDs {
 		if _, err := tx.ExecContext(ctx, `
@@ -21182,7 +21192,7 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 					(contact_id, employee_id, contact_tag_id, type, created_at, updated_at)
 				VALUES (?, ?, ?, 1, NOW(), NOW())
 			`, contactID, employeeID, tagID); err != nil {
-			return nil, nil, err
+			return appliedWorkContactTags{}, err
 		}
 	}
 
@@ -21193,13 +21203,13 @@ func addWorkContactTagsTx(ctx context.Context, tx *sql.Tx, corpID int, contactID
 			names = append(names, details.name)
 		}
 	}
-	return syncWXTagIDs, names, nil
+	return appliedWorkContactTags{wxIDs: syncWXTagIDs, names: names, unsyncableIDs: unsyncableTagIDs}, nil
 }
 
-func (s *MySQLStore) BatchLabelWorkContacts(ctx context.Context, contactIDs []int, tagIDs []int, employeeID int) (int, error) {
+func (s *MySQLStore) BatchLabelWorkContacts(ctx context.Context, contactIDs []int, tagIDs []int, employeeID int, corpID int) (int, error) {
 	contactIDs = uniquePositiveInts(contactIDs)
 	tagIDs = uniquePositiveInts(tagIDs)
-	if len(contactIDs) == 0 || len(tagIDs) == 0 || employeeID <= 0 {
+	if len(contactIDs) == 0 || len(tagIDs) == 0 || employeeID <= 0 || corpID <= 0 {
 		return 0, nil
 	}
 
@@ -21211,14 +21221,63 @@ func (s *MySQLStore) BatchLabelWorkContacts(ctx context.Context, contactIDs []in
 		_ = tx.Rollback()
 	}()
 
+	var employeeCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mc_work_employee
+		WHERE id = ? AND corp_id = ? AND deleted_at IS NULL
+	`, employeeID, corpID).Scan(&employeeCount); err != nil {
+		return 0, err
+	}
+	if employeeCount != 1 {
+		return 0, dashboard.ErrWorkContactBatchLabelScope
+	}
+
+	contactArgs := append([]any{employeeID, corpID}, intsToAny(contactIDs)...)
+	var contactCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT contact.id)
+		FROM mc_work_contact AS contact
+		JOIN mc_work_contact_employee AS relation
+		  ON relation.contact_id = contact.id
+		 AND relation.employee_id = ?
+		 AND relation.corp_id = contact.corp_id
+		 AND relation.deleted_at IS NULL
+		WHERE contact.corp_id = ?
+		  AND contact.id IN (`+placeholders(len(contactIDs))+`)
+		  AND contact.deleted_at IS NULL
+	`, contactArgs...).Scan(&contactCount); err != nil {
+		return 0, err
+	}
+	if contactCount != len(contactIDs) {
+		return 0, dashboard.ErrWorkContactBatchLabelScope
+	}
+
+	tagArgs := append([]any{corpID}, intsToAny(tagIDs)...)
+	var tagCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM mc_work_contact_tag
+		WHERE corp_id = ?
+		  AND id IN (`+placeholders(len(tagIDs))+`)
+		  AND deleted_at IS NULL
+	`, tagArgs...).Scan(&tagCount); err != nil {
+		return 0, err
+	}
+	if tagCount != len(tagIDs) {
+		return 0, dashboard.ErrWorkContactBatchLabelScope
+	}
+
 	args := make([]any, 0, len(contactIDs)+len(tagIDs))
 	args = append(args, intsToAny(contactIDs)...)
 	args = append(args, intsToAny(tagIDs)...)
+	args = append(args, employeeID)
 	rows, err := tx.QueryContext(ctx, `
 		SELECT contact_id, contact_tag_id
 		FROM mc_work_contact_tag_pivot
 		WHERE contact_id IN (`+placeholders(len(contactIDs))+`)
 		  AND contact_tag_id IN (`+placeholders(len(tagIDs))+`)
+		  AND employee_id = ?
 		  AND deleted_at IS NULL
 	`, args...)
 	if err != nil {

@@ -70,7 +70,7 @@ func TestWorkContactShowTagsExcludeOtherEmployeeAndCorpNoise(t *testing.T) {
 		WithArgs(5, 31, 7).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "avatar", "gender", "business_no", "remark", "description"}).
 			AddRow("客户", "avatar.png", 1, "NO-31", "备注", "描述"))
-	mock.ExpectQuery(`(?s)FROM mc_work_contact_tag_pivot AS pivot.*JOIN mc_work_contact AS contact.*contact.corp_id = \?.*JOIN mc_work_contact_tag AS tag.*tag.corp_id = \?.*WHERE pivot.contact_id = \? AND pivot.employee_id = \?`).
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_tag_pivot AS pivot.*JOIN mc_work_contact AS contact.*contact.corp_id = \?.*JOIN mc_work_contact_tag AS tag.*tag.corp_id = \?.*WHERE pivot.contact_id = \?\s+AND pivot.employee_id = \?\s+AND pivot.deleted_at IS NULL`).
 		WithArgs(7, 7, 31, 5).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(11, "当前员工当前企业标签"))
 	mock.ExpectQuery(`(?s)FROM mc_work_contact_room AS contact_room.*WHERE contact_room.contact_id = \?`).
@@ -220,6 +220,47 @@ func TestApplyWorkContactTagsKeepsCurrentCorpTagWrite(t *testing.T) {
 	}
 	if len(result.AddedTagNames) != 1 || result.AddedTagNames[0] != "当前企业标签" {
 		t.Fatalf("added tag names = %#v", result.AddedTagNames)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateWorkContactProfileReportsTagWithoutWeComMapping(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &MySQLStore{db: db}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_employee AS ce.*employee.corp_id = ce.corp_id.*contact.corp_id = ce.corp_id.*WHERE ce.employee_id = \? AND ce.contact_id = \? AND ce.corp_id = \?.*FOR UPDATE`).
+		WithArgs(5, 31, 7).
+		WillReturnRows(sqlmock.NewRows([]string{"wx_external_userid", "wx_user_id", "remark", "description", "business_no"}).
+			AddRow("external-31", "employee-5", "", "", ""))
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_tag.*corp_id = \?.*id IN \(\?\)`).
+		WithArgs(7, 11).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "wx_contact_tag_id", "name"}).AddRow(11, "", "尚未同步标签"))
+	mock.ExpectQuery(`(?s)FROM mc_work_contact_tag_pivot AS pivot.*tag.corp_id = \?.*pivot.contact_id = \?.*pivot.employee_id = \?`).
+		WithArgs(7, 31, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"contact_tag_id"}))
+	mock.ExpectExec(`(?s)INSERT INTO mc_work_contact_tag_pivot.*VALUES \(\?, \?, \?, 1, NOW\(\), NOW\(\)\)`).
+		WithArgs(31, 5, 11).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`(?s)INSERT INTO mc_contact_employee_track`).
+		WithArgs(5, 31, "系统对该客户打标签【尚未同步标签】", 7, 2).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	result, found, err := store.UpdateWorkContactProfile(context.Background(), dashboard.WorkContactUpdateValues{
+		CorpID: 7, ContactID: 31, EmployeeID: 5, HasTag: true, TagIDs: []int{11},
+	})
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if !result.TagSyncRequested || len(result.UnsyncableTagIDs) != 1 || result.UnsyncableTagIDs[0] != 11 || len(result.AddedWXTagIDs) != 0 {
+		t.Fatalf("result=%#v", result)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

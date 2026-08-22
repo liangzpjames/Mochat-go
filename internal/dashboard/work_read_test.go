@@ -2129,6 +2129,7 @@ type fakeWorkReadStore struct {
 	workContactUpdateResult           WorkContactUpdateResult
 	workContactUpdateFound            bool
 	batchLabelInserted                int
+	batchLabelErr                     error
 	roomWelcomeCredential             RoomWelcomeCorpCredential
 	roomWelcomeCredentialFound        bool
 	workContactRoomPage               WorkContactRoomPage
@@ -2203,6 +2204,7 @@ type fakeWorkReadStore struct {
 	lastBatchLabelContactIDs          []int
 	lastBatchLabelTagIDs              []int
 	lastBatchLabelEmployeeID          int
+	lastBatchLabelCorpID              int
 	lastCredentialCorpID              int
 	lastWorkContactRoomFilter         WorkContactRoomFilter
 	lastWorkRoomOptionFilter          WorkRoomOptionFilter
@@ -2580,11 +2582,12 @@ func (s *fakeWorkReadStore) UpdateWorkContactProfile(_ context.Context, values W
 	return s.workContactUpdateResult, s.workContactUpdateFound, nil
 }
 
-func (s *fakeWorkReadStore) BatchLabelWorkContacts(_ context.Context, contactIDs []int, tagIDs []int, employeeID int) (int, error) {
+func (s *fakeWorkReadStore) BatchLabelWorkContacts(_ context.Context, contactIDs []int, tagIDs []int, employeeID int, corpID int) (int, error) {
 	s.lastBatchLabelContactIDs = append([]int{}, contactIDs...)
 	s.lastBatchLabelTagIDs = append([]int{}, tagIDs...)
 	s.lastBatchLabelEmployeeID = employeeID
-	return s.batchLabelInserted, nil
+	s.lastBatchLabelCorpID = corpID
+	return s.batchLabelInserted, s.batchLabelErr
 }
 
 func (s *fakeWorkReadStore) RoomWelcomeCorpCredentialByID(_ context.Context, corpID int) (RoomWelcomeCorpCredential, bool, error) {

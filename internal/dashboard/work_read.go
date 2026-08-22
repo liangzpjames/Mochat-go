@@ -459,7 +459,7 @@ type WorkReadStore interface {
 	ContactProcessByID(ctx context.Context, statusID int) (ContactProcessStatus, bool, error)
 	UpdateContactProcessStatus(ctx context.Context, update ContactProcessStatusUpdate) error
 	UpdateWorkContactProfile(ctx context.Context, values WorkContactUpdateValues) (WorkContactUpdateResult, bool, error)
-	BatchLabelWorkContacts(ctx context.Context, contactIDs []int, tagIDs []int, employeeID int) (int, error)
+	BatchLabelWorkContacts(ctx context.Context, contactIDs []int, tagIDs []int, employeeID int, corpID int) (int, error)
 	RoomWelcomeCorpCredentialByID(ctx context.Context, corpID int) (RoomWelcomeCorpCredential, bool, error)
 }
 
@@ -1612,15 +1612,15 @@ func (h *WorkReadHandler) WorkRoomIndex(w http.ResponseWriter, r *http.Request) 
 			activeTotal++
 		}
 		list = append(list, map[string]any{
-			"workRoomId": item.WorkRoomID,
-			"memberNum":  item.MemberNum,
+			"workRoomId":  item.WorkRoomID,
+			"memberNum":   item.MemberNum,
 			"memberCount": item.MemberNum,
-			"roomName":   item.RoomName,
-			"ownerId":    item.OwnerID,
-			"ownerName":  item.OwnerName,
-			"roomGroup":  item.RoomGroup,
-			"status":     item.Status,
-			"statusText": workRoomStatusText(item.Status),
+			"roomName":    item.RoomName,
+			"ownerId":     item.OwnerID,
+			"ownerName":   item.OwnerName,
+			"roomGroup":   item.RoomGroup,
+			"status":      item.Status,
+			"statusText":  workRoomStatusText(item.Status),
 			"activeStatus": func() string {
 				if item.Status == 1 {
 					return "active"

@@ -61,7 +61,9 @@ export function ContactRemarkPage(props: {
       const outcome = await updateContactRemark(props.request, state.contactId, remark);
       if (!outcome.wecomSynced) {
         setSyncPending(outcome.retryable);
-        setMessage('本地已保存，但企业微信同步失败，请重试。');
+        setMessage(outcome.retryable
+          ? '本地已保存，但企业微信同步失败，请重试。'
+          : '本地已保存，但当前内容暂无法同步到企业微信，请联系管理员。');
         return;
       }
       setSyncPending(false);

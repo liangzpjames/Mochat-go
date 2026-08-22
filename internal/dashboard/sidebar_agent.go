@@ -198,13 +198,31 @@ func (h *SidebarAgentHandler) WxJSSDKConfig(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	corpID := queryInt(r, "corpId")
-	if corpID <= 0 {
-		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "企业ID必须", nil)
+	if h.resolver == nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "sidebar employee resolver not configured", nil)
+		return
+	}
+	employeeID, err := h.resolver.UserID(r)
+	if err != nil || employeeID <= 0 {
+		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized", nil)
+		return
+	}
+	employee, found, err := h.store.SidebarEmployeeByID(r.Context(), employeeID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !found {
+		writeEnvelope(w, http.StatusUnauthorized, http.StatusUnauthorized, "employee not found", nil)
+		return
+	}
+	requestedCorpID := queryInt(r, "corpId")
+	if requestedCorpID > 0 && requestedCorpID != employee.CorpID {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "forbidden", nil)
 		return
 	}
 	uriPath := h.sidebarBaseURL + r.URL.Query().Get("uriPath")
-	h.writeJSSDKConfig(w, r, corpID, queryInt(r, "agentId"), uriPath, wxJSSDKAPIs)
+	h.writeJSSDKConfig(w, r, employee.CorpID, queryInt(r, "agentId"), uriPath, wxJSSDKAPIs)
 }
 
 func (h *SidebarAgentHandler) writeJSSDKConfig(w http.ResponseWriter, r *http.Request, corpID int, agentID int, uri string, jsAPIs []string) {
