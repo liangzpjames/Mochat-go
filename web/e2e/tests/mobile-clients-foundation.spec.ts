@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const sidebarCases = [
   { path: '/', title: '客户侧边栏', moduleLabel: '从当前客户会话开始工作', needsSession: true, expectsAction: false, activeNavigation: '我的' },
@@ -153,7 +155,7 @@ async function installRawGoFixtures(page: Page): Promise<BrowserAudit> {
   await sidebarFixture('**/sidebar/workContact/track?*', [{ id: 1, content: '已完成首次沟通', createdAt: '2026-08-22 09:00' }], 'sidebar-track-e2e');
   await sidebarFixture('**/sidebar/contactFieldPivot/index?*', [{ contactFieldId: 31, contactFieldPivotId: 901, name: '画像备注', type: 0, typeText: '文本', options: [], value: '已核验' }], 'sidebar-portrait-e2e');
   await sidebarFixture('**/sidebar/workContactTagGroup/index', [{ groupId: 3, groupName: '阶段' }], 'sidebar-tag-groups-e2e');
-  await sidebarFixture('**/sidebar/workContactTag/allTag?*', [{ id: 7, name: '高意向' }, { id: 9, name: '待回访' }], 'sidebar-tags-e2e');
+  await sidebarFixture('**/sidebar/workContactTag/allTag*', [{ id: 7, name: '高意向' }, { id: 9, name: '待回访' }], 'sidebar-tags-e2e');
   await sidebarFixture('**/sidebar/contactBatchAdd/detail?*', { employeeName: '员工甲', list: [{ id: 1, phone: '13800000000', status: '待添加' }] }, 'sidebar-batch-e2e');
   await sidebarFixture('**/sidebar/contactSop/getSopInfo?*', { id: 4, contactSopId: 12, creator: '员工甲', time: '09:00', tipTime: '2026-08-22 09:00', task: { content: [{ type: 0, value: '请今日回访' }] }, contact: { id: 23, name: '浏览器验收客户', avatar: null } }, 'sidebar-contact-sop-e2e');
   await sidebarFixture('**/sidebar/roomSop/getSopInfo?*', { id: 5, roomSopId: 13, creator: '员工甲', time: '10:00', state: 0, task: { content: [{ type: 0, value: '群内发送活动提醒' }] }, room: { id: 21, name: '浏览器客户群' } }, 'sidebar-room-sop-e2e');
@@ -233,7 +235,8 @@ async function assertContentAboveBottomNavigation(page: Page): Promise<void> {
     name: browserContract.employeeNavigationLabel,
   });
   const lastContent = page.locator('main > :last-child');
-  await lastContent.scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect(lastContent).toBeVisible();
   const navigationBox = await navigation.boundingBox();
   const contentBox = await lastContent.boundingBox();
   expect(navigationBox).not.toBeNull();
@@ -358,3 +361,65 @@ for (const viewport of viewports) {
     });
   });
 }
+
+const employeeSidebarEvidenceDir = resolve(
+  process.cwd(),
+  '../../docs/reviews/evidence/employee-sidebar-mobile',
+);
+
+test.describe('employee Sidebar visual acceptance', () => {
+  test.beforeAll(() => mkdirSync(employeeSidebarEvidenceDir, { recursive: true }));
+
+  const visualCases = [
+    { name: 'reference-2e667-home-360x800.png', width: 360, height: 800, path: '/', label: '从当前客户会话开始工作' },
+    { name: 'reference-b8e1-contact-390x844.png', width: 390, height: 844, path: '/contact?wxExternalUserid=external-user-1&agentId=7', label: '客户概览' },
+    { name: 'reference-7837-contact-sop-430x932.png', width: 430, height: 932, path: '/contactSop?id=4&agentId=7', label: '请今日回访' },
+    { name: 'reference-cb8f-batch-add-360x800.png', width: 360, height: 800, path: '/contactBatchAdd?batchId=9&agentId=7', label: '13800000000' },
+  ] as const;
+
+  for (const visual of visualCases) {
+    test(`${visual.width}x${visual.height} captures ${visual.path}`, async ({ page }) => {
+      await page.setViewportSize({ width: visual.width, height: visual.height });
+      const audit = await installRawGoFixtures(page);
+      await injectSidebarSession(page);
+      await page.goto(`/sidebar-app${visual.path}`);
+      await expect(page.getByText(visual.label, { exact: true })).toBeVisible();
+      const dimensions = await page.evaluate(() => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      }));
+      expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+      await page.screenshot({ path: resolve(employeeSidebarEvidenceDir, visual.name) });
+      await assertStableCleanAudit(page, audit, `visual ${visual.name}`);
+    });
+  }
+
+  test('320x568 narrow material view remains usable', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    const audit = await installRawGoFixtures(page);
+    await injectSidebarSession(page);
+    await page.goto('/sidebar-app/medium?agentId=7');
+    await expect(page.getByText('浏览器素材', { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    const checkbox = page.getByRole('checkbox', { name: '浏览器素材' });
+    const box = await checkbox.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(22);
+    await page.screenshot({ path: resolve(employeeSidebarEvidenceDir, 'narrow-medium-320x568.png') });
+    await assertStableCleanAudit(page, audit, 'visual narrow medium');
+  });
+
+  test('844x390 focused form is not horizontally clipped', async ({ page }) => {
+    await page.setViewportSize({ width: 844, height: 390 });
+    const audit = await installRawGoFixtures(page);
+    await injectSidebarSession(page);
+    await page.goto('/sidebar-app/contact/remark?wxExternalUserid=external-user-1&agentId=7');
+    const input = page.getByLabel('备注名');
+    await input.focus();
+    await expect(input).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(844);
+    await page.getByRole('button', { name: '保存备注' }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: '保存备注' })).toBeVisible();
+    await page.screenshot({ path: resolve(employeeSidebarEvidenceDir, 'landscape-focused-remark-844x390.png') });
+    await assertStableCleanAudit(page, audit, 'visual landscape focused form');
+  });
+});
