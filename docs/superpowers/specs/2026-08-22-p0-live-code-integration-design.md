@@ -80,7 +80,7 @@
 
 ## 6. 数据库、迁移与 RBAC
 
-`0153_live_code_workspace` 包含渠道生命周期、Provider 状态、数据来源、群活码分组、活码事件账本、索引及活码资源 seed。down 先删除本迁移资源，再删除新表、索引与字段。所有测试、文档和迁移顺序引用统一改为 0153。
+`0153_live_code_workspace` 包含渠道生命周期、Provider 状态、数据来源、群活码分组、活码事件账本、索引及活码资源 seed。字段、索引与表均采用 `IF NOT EXISTS` 增量补齐，使已经误应用旧 `0150_live_code_workspace` 的开发环境和全新环境都能安全升级；down 会检查迁移台账，若存在旧版本事实则保留其拥有的数据结构与资源，否则删除 0153 新建的资源、表、索引与字段。所有测试、文档和迁移顺序引用统一改为 0153。
 
 `0154_dashboard_permission_resource_reconciliation` 以 catalog 当前合同为输入语义：幂等补种 catalog 所需资源，修正两条租户级扫描状态资源的 scope，并停用 catalog 已删除的旧导出、文件录音写入和 deny-only 渠道更新资源。其 down 只撤回本迁移首次引入的两条客户继承读取资源并恢复此前仍活跃的两条旧导出资源；0145 已停用的媒体写资源和 deny-only 更新资源不被错误恢复。校验器读取该迁移的 additions/deactivations overlay，最终 seed 必须与 catalog 逐条、逐 scope 精确相等。
 
@@ -115,7 +115,7 @@
 
 ## 9. 兼容、发布与回滚
 
-后端和迁移先于新前端发布，新增字段均提供兼容默认值。旧记录保留，`data_source` 与 Provider 状态决定是否进入业务展示。前端回滚不删除 0153 数据；后端回滚前先停用新页面和生命周期任务，再依次执行 0154、0153 down。RBAC 对账 down 只恢复可确定的前态，不猜测用户自定义权限。
+后端和迁移先于新前端发布，新增字段均提供兼容默认值。旧记录保留，`data_source` 与 Provider 状态决定是否进入业务展示。前端回滚不删除 0153 数据；后端回滚前先停用新页面和生命周期任务，再依次执行 0154、0153 down。若台账存在历史 `0150_live_code_workspace`，0153 down 只撤销自身版本事实并保留旧迁移拥有的 schema，避免误删共享字段和业务数据；RBAC 对账 down 只恢复可确定的前态，不猜测用户自定义权限。
 
 Docker 只重建必要服务，禁止 `down -v`、`down --volumes` 或删除命名卷。若无 `MOCHAT_GO_MYSQL_INTEGRATION_DSN`，真实 MariaDB integration 必须报告 SKIP，不能写成 PASS。
 

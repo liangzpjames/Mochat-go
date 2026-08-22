@@ -21,14 +21,17 @@ func TestLiveCodeWorkspaceMigrationContract(t *testing.T) {
 	}
 	for _, required := range []string{
 		"ALTER TABLE `mc_channel_code`",
+		"ADD COLUMN IF NOT EXISTS `validity_kind`",
+		"ADD COLUMN IF NOT EXISTS `group_id`",
+		"ADD KEY IF NOT EXISTS `idx_mc_work_room_auto_pull_group`",
 		"validity_kind",
 		"valid_from",
 		"valid_until",
 		"lifecycle_state",
 		"provider_state",
 		"data_source",
-		"CREATE TABLE `mc_group_code_group`",
-		"CREATE TABLE `mc_live_code_event`",
+		"CREATE TABLE IF NOT EXISTS `mc_group_code_group`",
+		"CREATE TABLE IF NOT EXISTS `mc_live_code_event`",
 		"UNIQUE KEY `uk_live_code_event_source`",
 		"SET `data_source` = 'simulation'",
 	} {
@@ -37,6 +40,8 @@ func TestLiveCodeWorkspaceMigrationContract(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
+		"@mochat_live_code_legacy",
+		"0150_live_code_workspace",
 		"DROP TABLE IF EXISTS `mc_live_code_event`",
 		"DROP TABLE IF EXISTS `mc_group_code_group`",
 		"DROP COLUMN `data_source`",

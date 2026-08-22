@@ -59,7 +59,7 @@ upPath := filepath.Join(root, "deploy", "standalone", "migrations", "0153_live_c
 downPath := filepath.Join(root, "deploy", "standalone", "migrations", "0153_live_code_workspace.down.sql")
 ```
 
-迁移内容保留本地有效提交的字段、表、索引和资源 seed，错误文字统一写 0153。
+迁移内容保留本地有效提交的字段、表、索引和资源 seed，错误文字统一写 0153。字段、索引和表使用 `IF NOT EXISTS`，并为曾应用旧 `0150_live_code_workspace` 的环境提供 down 所有权保护，保证真实旧卷可增量升级且回滚不误删共享结构。
 
 - [ ] **Step 4: 运行迁移、Dashboard、store 与 server 目标测试**
 

@@ -1,25 +1,25 @@
 -- Live code workspace fields and verifiable event ledger.
 ALTER TABLE `mc_channel_code`
-  ADD COLUMN `validity_kind` varchar(16) NOT NULL DEFAULT 'permanent',
-  ADD COLUMN `valid_from` datetime NULL,
-  ADD COLUMN `valid_until` datetime NULL,
-  ADD COLUMN `lifecycle_state` varchar(16) NOT NULL DEFAULT 'active',
-  ADD COLUMN `provider_state` varchar(16) NOT NULL DEFAULT 'synced',
-  ADD COLUMN `provider_error` varchar(512) NOT NULL DEFAULT '',
-  ADD COLUMN `data_source` varchar(16) NOT NULL DEFAULT 'business';
+  ADD COLUMN IF NOT EXISTS `validity_kind` varchar(16) NOT NULL DEFAULT 'permanent',
+  ADD COLUMN IF NOT EXISTS `valid_from` datetime NULL,
+  ADD COLUMN IF NOT EXISTS `valid_until` datetime NULL,
+  ADD COLUMN IF NOT EXISTS `lifecycle_state` varchar(16) NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS `provider_state` varchar(16) NOT NULL DEFAULT 'synced',
+  ADD COLUMN IF NOT EXISTS `provider_error` varchar(512) NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS `data_source` varchar(16) NOT NULL DEFAULT 'business';
 
 ALTER TABLE `mc_work_room_auto_pull`
-  ADD COLUMN `group_id` int unsigned NOT NULL DEFAULT '0',
-  ADD COLUMN `lifecycle_state` varchar(16) NOT NULL DEFAULT 'active',
-  ADD COLUMN `data_source` varchar(16) NOT NULL DEFAULT 'business',
-  ADD KEY `idx_mc_work_room_auto_pull_group` (`corp_id`, `group_id`, `deleted_at`);
+  ADD COLUMN IF NOT EXISTS `group_id` int unsigned NOT NULL DEFAULT '0',
+  ADD COLUMN IF NOT EXISTS `lifecycle_state` varchar(16) NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS `data_source` varchar(16) NOT NULL DEFAULT 'business',
+  ADD KEY IF NOT EXISTS `idx_mc_work_room_auto_pull_group` (`corp_id`, `group_id`, `deleted_at`);
 
 ALTER TABLE `mc_room_infinite`
-  ADD COLUMN `group_id` bigint unsigned NOT NULL DEFAULT '0',
-  ADD COLUMN `code_type` varchar(24) NOT NULL DEFAULT 'uploadedGroup',
-  ADD COLUMN `lifecycle_state` varchar(16) NOT NULL DEFAULT 'active',
-  ADD COLUMN `data_source` varchar(16) NOT NULL DEFAULT 'business',
-  ADD KEY `idx_mc_room_infinite_group` (`corp_id`, `group_id`, `deleted_at`);
+  ADD COLUMN IF NOT EXISTS `group_id` bigint unsigned NOT NULL DEFAULT '0',
+  ADD COLUMN IF NOT EXISTS `code_type` varchar(24) NOT NULL DEFAULT 'uploadedGroup',
+  ADD COLUMN IF NOT EXISTS `lifecycle_state` varchar(16) NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS `data_source` varchar(16) NOT NULL DEFAULT 'business',
+  ADD KEY IF NOT EXISTS `idx_mc_room_infinite_group` (`corp_id`, `group_id`, `deleted_at`);
 
 UPDATE `mc_channel_code`
 SET `data_source` = 'simulation'
@@ -33,7 +33,7 @@ UPDATE `mc_room_infinite`
 SET `data_source` = 'simulation'
 WHERE `name` LIKE 'sim-%';
 
-CREATE TABLE `mc_group_code_group` (
+CREATE TABLE IF NOT EXISTS `mc_group_code_group` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `corp_id` int unsigned NOT NULL,
   `name` varchar(30) NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE `mc_group_code_group` (
   KEY `idx_group_code_group_corp_deleted` (`corp_id`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `mc_live_code_event` (
+CREATE TABLE IF NOT EXISTS `mc_live_code_event` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `corp_id` int unsigned NOT NULL,
   `mode` varchar(20) NOT NULL,
