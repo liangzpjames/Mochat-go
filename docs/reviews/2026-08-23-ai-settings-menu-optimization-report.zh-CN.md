@@ -183,7 +183,7 @@
 - `0fc206f docs(ai-settings): plan optimization implementation`
 - `5bf8e9b docs(ai-settings): define optimization design`
 
-所有后端、RBAC、前端分项均经过独立规格与质量复审。最终分支复审发现并发校验窗口、失败态指标真实性、引用数量和顶层 `null` 合同四项问题后，均已按测试驱动补齐并重新执行全量验证。
+所有后端、RBAC、前端分项均经过独立规格与质量复审。最终分支复审发现并发校验窗口、失败态指标真实性、引用数量和顶层 `null` 合同四项问题后，均已按测试驱动补齐并重新执行全量验证；同一独立复审代理复查后给出 `PASS`，未发现新的 Critical、Important 或 Minor 问题。
 
 ## 10. 回滚边界与已知限制
 
@@ -191,6 +191,7 @@
 - 迁移 down 会删除审计表并移除 Agent→知识库 GET 依赖；执行前必须先导出审计数据。当前未执行 down，保留卷数据库维持已迁移状态。
 - 文档、检索和真实智能体运行均不在本任务范围内；页面对这些能力保持诚实受限，不做伪成功。
 - 没有执行任何外部 Provider 写操作，也不对未接入能力宣称通过。
+- 并发正确性已有 SQL 锁顺序合同测试覆盖，但尚未增加高并发真实 MariaDB 竞争型集成测试；这是非阻塞的后续加固项。
 - 仓库全量 Dashboard lint 的 86 个既有错误仍需由对应页面任务处理。
 - `docs:check` 仍会命中仓库既有的 Phase 3 benchmark README 断链；该链接不属于本任务文档或改动范围。
 - 没有修改总进度台账、旧 `web/saas-admin/`、`.workbuddy/`、`tmp/` 或其他任务成果。
