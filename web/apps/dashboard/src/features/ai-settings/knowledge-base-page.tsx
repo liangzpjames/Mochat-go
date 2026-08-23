@@ -61,9 +61,17 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const items = query.data ?? [];
   const page = filterAndPageAISettings(items, listState);
   useEffect(() => {
-    if (!query.isSuccess || page.page === listState.page) return;
-    setSearchParams(updateSearch(searchParams, { page: page.page, pageSize: page.pageSize }), { replace: true });
-  }, [listState.page, page.page, page.pageSize, query.isSuccess, searchParams, setSearchParams]);
+    const changes: Record<string, string | number> = {};
+    const resolvedPage = query.isSuccess ? page.page : listState.page;
+    const rawPage = searchParams.get('page');
+    const rawPageSize = searchParams.get('pageSize');
+    const rawStatus = searchParams.get('status');
+    if (rawPage !== null && rawPage !== String(resolvedPage)) changes.page = resolvedPage;
+    if (rawPageSize !== null && rawPageSize !== String(listState.pageSize)) changes.pageSize = listState.pageSize;
+    if (rawStatus !== null && rawStatus !== listState.status) changes.status = listState.status;
+    if (Object.keys(changes).length === 0) return;
+    setSearchParams(updateSearch(searchParams, changes), { replace: true });
+  }, [listState.page, listState.pageSize, listState.status, page.page, query.isSuccess, searchParams, setSearchParams]);
   const total = items.length;
   const enabledCount = items.filter((item) => item.status === 1).length;
   const documents = items.reduce((sum, item) => sum + Number(item.documentCount ?? 0), 0);

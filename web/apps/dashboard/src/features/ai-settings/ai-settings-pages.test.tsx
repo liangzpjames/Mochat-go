@@ -297,6 +297,38 @@ describe('AI 设置页面', () => {
     expect(screen.getByLabelText('当前地址').textContent).not.toContain('page=999');
   });
 
+  it('知识库：显式非法列表参数规范化为实际状态', async () => {
+    renderPage(createApi({
+      listKnowledgeBases: vi.fn().mockResolvedValue([{ id: 'kb-1', corpId: 9, name: '参数知识库', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }]),
+    }), 'kb', '/ai-setting/ai-knowledge-base?page=1&pageSize=999&status=invalid');
+    await screen.findByText('参数知识库');
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toBe('/ai-setting/ai-knowledge-base?page=1&pageSize=10&status=all'));
+    expect(screen.getByRole('combobox', { name: '状态' })).toHaveProperty('value', 'all');
+    expect(screen.getByRole('combobox', { name: '每页条数' })).toHaveProperty('value', '10');
+  });
+
+  it('智能体：显式非法列表参数规范化为实际状态', async () => {
+    renderPage(createApi({
+      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '参数智能体', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+    }), 'agent', '/ai-setting/agent?page=1&pageSize=999&status=invalid');
+    await screen.findByText('参数智能体');
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toBe('/ai-setting/agent?page=1&pageSize=10&status=all'));
+    expect(screen.getByRole('combobox', { name: '状态' })).toHaveProperty('value', 'all');
+    expect(screen.getByRole('combobox', { name: '每页条数' })).toHaveProperty('value', '10');
+  });
+
+  it.each([
+    ['知识库', 'kb' as const, '/ai-setting/ai-knowledge-base', '默认知识库'],
+    ['智能体', 'agent' as const, '/ai-setting/agent', '默认智能体'],
+  ])('%s：未提供列表参数时默认 URL 保持简洁', async (_label, pageKind, path, itemName) => {
+    const api = pageKind === 'kb'
+      ? createApi({ listKnowledgeBases: vi.fn().mockResolvedValue([{ id: 'kb-default', corpId: 9, name: itemName, description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }]) })
+      : createApi({ listAgents: vi.fn().mockResolvedValue([{ id: 'agent-default', corpId: 9, name: itemName, description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]) });
+    renderPage(api, pageKind, path);
+    await screen.findByText(itemName);
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toBe(path));
+  });
+
   it('知识库：删除最后一页唯一记录后回退并规范化为第一页', async () => {
     const items = Array.from({ length: 11 }, (_, index) => ({
       id: `kb-${index + 1}`, corpId: 9, name: `知识库 ${index + 1}`, description: '', documentCount: 0, status: 1,
