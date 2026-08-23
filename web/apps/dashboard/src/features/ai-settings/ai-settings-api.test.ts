@@ -47,9 +47,11 @@ describe('AI 设置 API', () => {
   it('persists an explicit disabled agent status', async () => {
     const request = vi.fn().mockResolvedValue({});
     await createAISettingsApi({ request }).updateAgent(9, 'agent-1', { name: '客服助手', description: '', knowledgeBaseIds: [], status: 0 });
-    expect(request).toHaveBeenCalledWith('/ai-settings/agents/agent-1?corpId=9', expect.objectContaining({
-      method: 'PUT', body: expect.stringContaining('"status":0'),
-    }));
+    expect(request).toHaveBeenCalledWith('/ai-settings/agents/agent-1?corpId=9', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '客服助手', description: '', knowledgeBaseIds: [], status: 0, corpId: 9 }),
+    });
   });
 
   it('uses the agent delete contract', async () => {

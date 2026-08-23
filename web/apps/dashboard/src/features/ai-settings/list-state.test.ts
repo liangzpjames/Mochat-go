@@ -10,6 +10,7 @@ const items = [
   { id: 'enabled-agent', name: '客服助手', description: '处理售后', status: 1 },
   { id: 'disabled-agent', name: '客服助手', description: '已停用', status: 0 },
   { id: 'sales-agent', name: '销售助手', description: '跟进线索', status: 1 },
+  { id: 'customer-success-agent', name: 'Customer Success', description: 'Escalation Workflow', status: 1 },
 ];
 
 describe('AI 设置列表 URL 状态', () => {
@@ -37,7 +38,12 @@ describe('AI 设置列表过滤与分页', () => {
   it('matches name and description without mutating records', () => {
     const result = filterAndPageAISettings(items, { q: '线索', status: 'all', page: 1, pageSize: 10 });
     expect(result.items.map((item) => item.id)).toEqual(['sales-agent']);
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(4);
+  });
+
+  it('matches English keywords regardless of mixed case', () => {
+    const result = filterAndPageAISettings(items, { q: 'cUsToMeR sUcCeSs', status: 'all', page: 1, pageSize: 10 });
+    expect(result.items.map((item) => item.id)).toEqual(['customer-success-agent']);
   });
 
   it('returns an empty first page when no real record matches', () => {
@@ -53,10 +59,25 @@ describe('AI 设置显示格式', () => {
     expect(formatAISettingsTime('not-a-time')).toBe('—');
   });
 
+  it('formats a valid ISO timestamp with the configured local formatter', () => {
+    const value = '2026-08-23T12:34:56.000Z';
+    const expected = new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(new Date(value));
+    expect(formatAISettingsTime(value)).toBe(expected);
+  });
+
   it('resolves only names returned by the real knowledge-base list', () => {
     expect(resolveKnowledgeBaseNames(['kb-1', 'removed-kb'], [
       { id: 'kb-1', name: '售后话术库' },
     ])).toBe('售后话术库、已失效（ID: removed-kb）');
+  });
+
+  it('deduplicates IDs in first-seen order while preserving duplicate names and orphan clarity', () => {
+    expect(resolveKnowledgeBaseNames(['kb-1', 'kb-1', 'same-name-kb', 'removed-kb', 'removed-kb'], [
+      { id: 'kb-1', name: '售后话术库' },
+      { id: 'same-name-kb', name: '售后话术库' },
+    ])).toBe('售后话术库、售后话术库、已失效（ID: removed-kb）');
   });
 
   it('uses a placeholder when an agent has no associated knowledge base', () => {

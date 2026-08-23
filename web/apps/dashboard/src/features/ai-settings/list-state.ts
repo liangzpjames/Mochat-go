@@ -9,6 +9,9 @@ type ListItem = { name: string; description: string; status: number };
 type KnowledgeBaseName = { id: string; name: string };
 
 const pageSizes = new Set<AISettingsListState['pageSize']>([10, 20, 50]);
+const aiSettingsTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
 
 function positiveInteger(value: string | null): number | undefined {
   if (!value || !/^\d+$/.test(value)) return undefined;
@@ -53,12 +56,11 @@ export function formatAISettingsTime(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  const twoDigits = (part: number) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())} ${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
+  return aiSettingsTimeFormatter.format(date);
 }
 
 export function resolveKnowledgeBaseNames(ids: readonly string[], knowledgeBases: readonly KnowledgeBaseName[]): string {
   if (ids.length === 0) return '—';
   const names = new Map(knowledgeBases.map((knowledgeBase) => [knowledgeBase.id, knowledgeBase.name]));
-  return ids.map((id) => names.get(id) ?? `已失效（ID: ${id}）`).join('、');
+  return [...new Set(ids)].map((id) => names.get(id) ?? `已失效（ID: ${id}）`).join('、');
 }
