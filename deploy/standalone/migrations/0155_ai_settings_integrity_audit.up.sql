@@ -3,9 +3,9 @@
 
 CREATE TABLE IF NOT EXISTS `mochat_go_ai_settings_audits` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `tenant_id` int unsigned NOT NULL,
-  `corp_id` int unsigned NOT NULL,
-  `actor_user_id` int unsigned NOT NULL,
+  `tenant_id` bigint NOT NULL,
+  `corp_id` bigint NOT NULL,
+  `actor_user_id` bigint NOT NULL,
   `entity_type` varchar(32) NOT NULL,
   `entity_id` varchar(64) NOT NULL,
   `action` varchar(16) NOT NULL,

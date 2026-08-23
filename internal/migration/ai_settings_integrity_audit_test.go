@@ -22,6 +22,11 @@ func TestAISettingsIntegrityAuditMigration(t *testing.T) {
 			t.Fatalf("migration missing %q", fragment)
 		}
 	}
+	for _, column := range []string{"`tenant_id` bigint not null", "`corp_id` bigint not null", "`actor_user_id` bigint not null"} {
+		if !strings.Contains(strings.ToLower(string(up)), column) {
+			t.Fatalf("audit scope column must preserve int64 domain: missing %q", column)
+		}
+	}
 	if !strings.Contains(string(down), "DROP TABLE IF EXISTS `mochat_go_ai_settings_audits`") {
 		t.Fatal("rollback must remove only the audit table introduced by 0155")
 	}
