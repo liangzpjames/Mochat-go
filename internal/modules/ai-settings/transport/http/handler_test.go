@@ -14,9 +14,11 @@ import (
 )
 
 type fakeKBRepo struct {
-	items     []ports.KnowledgeBase
-	updateErr error
-	deleteErr error
+	items       []ports.KnowledgeBase
+	createErr   error
+	getByIDsErr error
+	updateErr   error
+	deleteErr   error
 }
 
 func (f *fakeKBRepo) List(_ context.Context, tenantID, corpID int64) ([]ports.KnowledgeBase, error) {
@@ -30,6 +32,9 @@ func (f *fakeKBRepo) List(_ context.Context, tenantID, corpID int64) ([]ports.Kn
 }
 
 func (f *fakeKBRepo) GetByIDs(_ context.Context, tenantID, corpID int64, ids []string) ([]ports.KnowledgeBase, error) {
+	if f.getByIDsErr != nil {
+		return nil, f.getByIDsErr
+	}
 	wanted := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		wanted[id] = struct{}{}
@@ -46,6 +51,9 @@ func (f *fakeKBRepo) GetByIDs(_ context.Context, tenantID, corpID int64, ids []s
 }
 
 func (f *fakeKBRepo) Create(_ context.Context, v ports.KnowledgeBase) (ports.KnowledgeBase, error) {
+	if f.createErr != nil {
+		return ports.KnowledgeBase{}, f.createErr
+	}
 	f.items = append(f.items, v)
 	return v, nil
 }
@@ -78,6 +86,7 @@ func (f *fakeKBRepo) Delete(_ context.Context, tenantID, corpID int64, id string
 
 type fakeAgentRepo struct {
 	items     []ports.Agent
+	createErr error
 	updateErr error
 	deleteErr error
 }
@@ -109,6 +118,9 @@ func (f *fakeAgentRepo) ListReferencingKnowledgeBase(_ context.Context, tenantID
 }
 
 func (f *fakeAgentRepo) Create(_ context.Context, v ports.Agent) (ports.Agent, error) {
+	if f.createErr != nil {
+		return ports.Agent{}, f.createErr
+	}
 	f.items = append(f.items, v)
 	return v, nil
 }
@@ -498,6 +510,119 @@ func TestAISettingsMapsMissingRecordsAndStorageFailures(t *testing.T) {
 			response := perform(test.handler, test.method, test.target, test.body)
 			payload := envelopeData(t, response)
 			if response.Code != test.statusCode || payload["msg"] != test.machineCode {
+				t.Fatalf("response = %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestAISettingsMapsCreateStorageFailures(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.Handler
+		target  string
+		body    string
+	}{
+		{
+			name:    "knowledge base",
+			handler: NewKnowledgeBaseHandler(&fakeKBRepo{createErr: errors.New("database unavailable")}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			target:  "/dashboard/ai-settings/knowledge-bases",
+			body:    `{"name":"售后库","documentCount":0,"status":1}`,
+		},
+		{
+			name:    "agent",
+			handler: NewAgentHandler(&fakeAgentRepo{createErr: errors.New("database unavailable")}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
+			target:  "/dashboard/ai-settings/agents",
+			body:    `{"name":"客服助手","knowledgeBaseIds":[],"status":1}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := perform(test.handler, http.MethodPost, test.target, test.body)
+			payload := envelopeData(t, response)
+			if response.Code != http.StatusInternalServerError || payload["msg"] != machineCodeStorageFailure {
+				t.Fatalf("response = %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestAgentDistinguishesKnowledgeBaseLookupFailureFromInvalidIDs(t *testing.T) {
+	tests := []struct {
+		name           string
+		knowledgeBases *fakeKBRepo
+		statusCode     int
+		machineCode    string
+	}{
+		{
+			name:           "storage failure",
+			knowledgeBases: &fakeKBRepo{getByIDsErr: errors.New("database unavailable")},
+			statusCode:     http.StatusInternalServerError,
+			machineCode:    machineCodeStorageFailure,
+		},
+		{
+			name:           "missing knowledge base",
+			knowledgeBases: &fakeKBRepo{},
+			statusCode:     http.StatusBadRequest,
+			machineCode:    machineCodeKnowledgeBaseInvalid,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewAgentHandler(&fakeAgentRepo{}, test.knowledgeBases, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" })
+			response := perform(handler, http.MethodPost, "/dashboard/ai-settings/agents", `{"name":"客服助手","knowledgeBaseIds":["kb-1"],"status":1}`)
+			payload := envelopeData(t, response)
+			if response.Code != test.statusCode || payload["msg"] != test.machineCode {
+				t.Fatalf("response = %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestAISettingsValidatesDescriptionRuneLength(t *testing.T) {
+	tests := []struct {
+		name       string
+		handler    http.Handler
+		target     string
+		body       string
+		statusCode int
+	}{
+		{
+			name:       "knowledge base accepts 512 runes",
+			handler:    NewKnowledgeBaseHandler(&fakeKBRepo{}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			target:     "/dashboard/ai-settings/knowledge-bases",
+			body:       `{"name":"售后库","description":"` + strings.Repeat("你", 512) + `","documentCount":0,"status":1}`,
+			statusCode: http.StatusOK,
+		},
+		{
+			name:       "knowledge base rejects 513 runes",
+			handler:    NewKnowledgeBaseHandler(&fakeKBRepo{}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			target:     "/dashboard/ai-settings/knowledge-bases",
+			body:       `{"name":"售后库","description":"` + strings.Repeat("你", 513) + `","documentCount":0,"status":1}`,
+			statusCode: http.StatusBadRequest,
+		},
+		{
+			name:       "agent accepts 512 runes",
+			handler:    NewAgentHandler(&fakeAgentRepo{}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
+			target:     "/dashboard/ai-settings/agents",
+			body:       `{"name":"客服助手","description":"` + strings.Repeat("你", 512) + `","knowledgeBaseIds":[],"status":1}`,
+			statusCode: http.StatusOK,
+		},
+		{
+			name:       "agent rejects 513 runes",
+			handler:    NewAgentHandler(&fakeAgentRepo{}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
+			target:     "/dashboard/ai-settings/agents",
+			body:       `{"name":"客服助手","description":"` + strings.Repeat("你", 513) + `","knowledgeBaseIds":[],"status":1}`,
+			statusCode: http.StatusBadRequest,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := perform(test.handler, http.MethodPost, test.target, test.body)
+			if response.Code != test.statusCode {
+				t.Fatalf("code = %d, want %d; body = %s", response.Code, test.statusCode, response.Body.String())
+			}
+			if test.statusCode == http.StatusBadRequest && envelopeData(t, response)["msg"] != machineCodeDescriptionInvalid {
 				t.Fatalf("response = %s", response.Body.String())
 			}
 		})

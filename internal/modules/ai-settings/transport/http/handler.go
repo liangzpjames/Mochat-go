@@ -15,7 +15,7 @@ import (
 const maxJSONBodyBytes = 1 << 20
 
 const (
-	machineCodeConflict                = "AI_SETTINGS_CONFLICT"
+	machineCodeDescriptionInvalid      = "AI_SETTINGS_DESCRIPTION_INVALID"
 	machineCodeDocumentCountInvalid    = "AI_SETTINGS_DOCUMENT_COUNT_INVALID"
 	machineCodeForbidden               = "AI_SETTINGS_FORBIDDEN"
 	machineCodeIDRequired              = "AI_SETTINGS_ID_REQUIRED"
@@ -35,6 +35,8 @@ var (
 	ErrForbidden                  = errors.New("forbidden")
 	errCrossRepositoryUnavailable = errors.New("cross repository unavailable")
 	errInvalidStatus              = errors.New("invalid status")
+	errKnowledgeBaseInvalid       = errors.New("invalid knowledge base IDs")
+	errKnowledgeBaseLookup        = errors.New("knowledge base lookup failed")
 )
 
 type Principal struct {
@@ -115,6 +117,10 @@ func validName(value string) bool {
 	return count >= 2 && count <= 128
 }
 
+func validDescription(value string) bool {
+	return utf8.RuneCountInString(value) <= 512
+}
+
 func authorize(w http.ResponseWriter, r *http.Request, authorizer Authorizer, principal Principal, permission string) bool {
 	if authorizer == nil {
 		return true
@@ -190,6 +196,10 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			writeEnvelope(w, http.StatusBadRequest, machineCodeDocumentCountInvalid, nil)
 			return
 		}
+		if !validDescription(input.Description) {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeDescriptionInvalid, nil)
+			return
+		}
 		knowledgeBase := ports.KnowledgeBase{
 			TenantID: p.TenantID, CorpID: p.CorpID,
 			Name: input.Name, Description: input.Description, DocumentCount: input.DocumentCount, Status: status,
@@ -200,7 +210,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			knowledgeBase.CreatedBy = p.UserID
 			created, err := h.repo.Create(r.Context(), knowledgeBase)
 			if err != nil {
-				writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
+				writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
 				return
 			}
 			writeEnvelope(w, http.StatusOK, "success", created)
@@ -264,7 +274,7 @@ func (h *AgentHandler) validateKnowledgeBases(ctx context.Context, principal Pri
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if id == "" {
-			return nil, errors.New("empty knowledge base id")
+			return nil, errKnowledgeBaseInvalid
 		}
 		if _, exists := unique[id]; exists {
 			continue
@@ -279,8 +289,11 @@ func (h *AgentHandler) validateKnowledgeBases(ctx context.Context, principal Pri
 		return nil, errCrossRepositoryUnavailable
 	}
 	found, err := h.knowledgeBases.GetByIDs(ctx, principal.TenantID, principal.CorpID, normalized)
-	if err != nil || len(found) != len(normalized) {
-		return nil, errors.New("knowledge base validation failed")
+	if err != nil {
+		return nil, errKnowledgeBaseLookup
+	}
+	if len(found) != len(normalized) {
+		return nil, errKnowledgeBaseInvalid
 	}
 	return normalized, nil
 }
@@ -325,9 +338,13 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeNameInvalid, nil)
 			return
 		}
+		if !validDescription(input.Description) {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeDescriptionInvalid, nil)
+			return
+		}
 		knowledgeBaseIDs, err := h.validateKnowledgeBases(r.Context(), p, input.KnowledgeBaseIDs)
 		if err != nil {
-			if errors.Is(err, errCrossRepositoryUnavailable) {
+			if errors.Is(err, errCrossRepositoryUnavailable) || errors.Is(err, errKnowledgeBaseLookup) {
 				writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
 				return
 			}
@@ -344,7 +361,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			agent.CreatedBy = p.UserID
 			created, err := h.repo.Create(r.Context(), agent)
 			if err != nil {
-				writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
+				writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
 				return
 			}
 			writeEnvelope(w, http.StatusOK, "success", created)
