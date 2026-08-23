@@ -26,13 +26,7 @@ const (
 	maxDOCXXMLBytes   int64 = 8 << 20
 )
 
-type ParsedDocument struct {
-	Text           string
-	SHA256         string
-	CharacterCount int
-	Extension      string
-	MIMEType       string
-}
+type ParsedDocument = ports.ParsedDocument
 
 func ParseDocument(path, filename string) (ParsedDocument, error) {
 	info, err := os.Stat(path)

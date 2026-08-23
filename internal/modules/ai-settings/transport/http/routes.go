@@ -11,7 +11,7 @@ const (
 	AgentsPath         = "/dashboard/ai-settings/agents"
 )
 
-func RegisterRoutes(registrar appmodules.RouteRegistrar, knowledgeBases *KnowledgeBaseHandler, agents *AgentHandler) error {
+func RegisterRoutes(registrar appmodules.RouteRegistrar, knowledgeBases *KnowledgeBaseHandler, agents *AgentHandler, documentHandlers ...*DocumentHandler) error {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		if err := registrar.Handle(method, KnowledgeBasesPath, knowledgeBases); err != nil {
 			return err
@@ -25,6 +25,17 @@ func RegisterRoutes(registrar appmodules.RouteRegistrar, knowledgeBases *Knowled
 			return err
 		}
 		if err := registrar.Handle(method, AgentsPath+"/{id}", agents); err != nil {
+			return err
+		}
+	}
+	if len(documentHandlers) > 0 && documentHandlers[0] != nil {
+		documents := documentHandlers[0]
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			if err := registrar.Handle(method, KnowledgeBasesPath+"/{id}/documents", documents); err != nil {
+				return err
+			}
+		}
+		if err := registrar.Handle(http.MethodDelete, KnowledgeBasesPath+"/{id}/documents/{documentId}", documents); err != nil {
 			return err
 		}
 	}

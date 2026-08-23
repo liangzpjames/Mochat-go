@@ -11,6 +11,7 @@ import (
 
 type AISettingsDependencies struct {
 	DB                *sql.DB
+	FileStorageRoot   string
 	PrincipalResolver aisettingshttp.PrincipalResolver
 	Authorizer        aisettingshttp.Authorizer
 }
@@ -24,6 +25,7 @@ func RegisterAISettings(router *appmodules.Router, enabled bool, dependencies AI
 	}
 	module, err := aisettings.New(aisettings.Dependencies{
 		DB:                dependencies.DB,
+		FileStorageRoot:   dependencies.FileStorageRoot,
 		PrincipalResolver: dependencies.PrincipalResolver,
 		Authorizer:        dependencies.Authorizer,
 	})

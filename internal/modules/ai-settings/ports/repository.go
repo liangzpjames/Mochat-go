@@ -8,16 +8,17 @@ import (
 )
 
 var (
-	ErrKnowledgeBaseInvalid    = errors.New("AI settings knowledge base invalid")
-	ErrKnowledgeBaseReferenced = errors.New("AI settings knowledge base referenced")
-	ErrNotFound                = errors.New("AI settings record not found")
-	ErrDocumentLimit           = errors.New("AI settings document limit reached")
-	ErrDocumentDuplicate       = errors.New("AI settings document duplicate")
-	ErrUnsupportedDocumentType = errors.New("AI settings document type unsupported")
-	ErrDocumentTooLarge        = errors.New("AI settings document too large")
-	ErrDocumentTextTooLarge    = errors.New("AI settings document text too large")
-	ErrDocumentUnreadable      = errors.New("AI settings document unreadable")
-	ErrUnsafeObjectKey         = errors.New("AI settings object key unsafe")
+	ErrKnowledgeBaseInvalid      = errors.New("AI settings knowledge base invalid")
+	ErrKnowledgeBaseReferenced   = errors.New("AI settings knowledge base referenced")
+	ErrKnowledgeBaseHasDocuments = errors.New("AI settings knowledge base has documents")
+	ErrNotFound                  = errors.New("AI settings record not found")
+	ErrDocumentLimit             = errors.New("AI settings document limit reached")
+	ErrDocumentDuplicate         = errors.New("AI settings document duplicate")
+	ErrUnsupportedDocumentType   = errors.New("AI settings document type unsupported")
+	ErrDocumentTooLarge          = errors.New("AI settings document too large")
+	ErrDocumentTextTooLarge      = errors.New("AI settings document text too large")
+	ErrDocumentUnreadable        = errors.New("AI settings document unreadable")
+	ErrUnsafeObjectKey           = errors.New("AI settings object key unsafe")
 )
 
 const (
@@ -37,6 +38,18 @@ func (e *KnowledgeBaseReferencedError) Error() string {
 
 func (e *KnowledgeBaseReferencedError) Is(target error) bool {
 	return target == ErrKnowledgeBaseReferenced
+}
+
+type KnowledgeBaseHasDocumentsError struct {
+	Count int
+}
+
+func (e *KnowledgeBaseHasDocumentsError) Error() string {
+	return ErrKnowledgeBaseHasDocuments.Error()
+}
+
+func (e *KnowledgeBaseHasDocumentsError) Is(target error) bool {
+	return target == ErrKnowledgeBaseHasDocuments
 }
 
 type KnowledgeBase struct {
@@ -109,6 +122,24 @@ type DocumentUpload struct {
 	Reader    io.Reader
 }
 
+type ParsedDocument struct {
+	Text           string
+	SHA256         string
+	CharacterCount int
+	Extension      string
+	MIMEType       string
+}
+
+type DocumentStorage interface {
+	Stage(io.Reader) (string, int64, string, error)
+	Commit(string, string) (string, error)
+	Quarantine(string) (string, error)
+	Restore(string, string) error
+	PurgeQuarantine(string) error
+	Delete(string) error
+	RemoveStaged(string)
+}
+
 type SessionAssistantContext struct {
 	AgentID             string
 	Name                string
@@ -139,6 +170,7 @@ type AgentRepository interface {
 
 type DocumentRepository interface {
 	List(context.Context, int64, int64, string) ([]KnowledgeDocument, error)
+	Get(context.Context, int64, int64, string, string) (KnowledgeDocument, error)
 	Count(context.Context, int64, int64, string) (int, error)
 	Create(context.Context, KnowledgeDocument, []KnowledgeChunk) (KnowledgeDocument, error)
 	Delete(context.Context, int64, int64, int64, string, string) (KnowledgeDocument, error)

@@ -15,12 +15,17 @@ import (
 
 const (
 	maxJSONBodyBytes = 1 << 20
-	maxDocumentCount = 1<<31 - 1
 )
 
 const (
 	machineCodeDescriptionInvalid      = "AI_SETTINGS_DESCRIPTION_INVALID"
 	machineCodeDocumentCountInvalid    = "AI_SETTINGS_DOCUMENT_COUNT_INVALID"
+	machineCodeDocumentDuplicate       = "AI_SETTINGS_DOCUMENT_DUPLICATE"
+	machineCodeDocumentLimit           = "AI_SETTINGS_DOCUMENT_LIMIT"
+	machineCodeDocumentTooLarge        = "AI_SETTINGS_DOCUMENT_TOO_LARGE"
+	machineCodeDocumentTextTooLarge    = "AI_SETTINGS_DOCUMENT_TEXT_TOO_LARGE"
+	machineCodeDocumentTypeUnsupported = "AI_SETTINGS_DOCUMENT_TYPE_UNSUPPORTED"
+	machineCodeDocumentUnreadable      = "AI_SETTINGS_DOCUMENT_UNREADABLE"
 	machineCodeForbidden               = "AI_SETTINGS_FORBIDDEN"
 	machineCodeIDRequired              = "AI_SETTINGS_ID_REQUIRED"
 	machineCodeInvalidJSON             = "AI_SETTINGS_INVALID_JSON"
@@ -152,6 +157,11 @@ func authorize(w http.ResponseWriter, r *http.Request, authorizer Authorizer, pr
 }
 
 func writeMutationError(w http.ResponseWriter, err error) {
+	var hasDocuments *ports.KnowledgeBaseHasDocumentsError
+	if errors.As(err, &hasDocuments) {
+		writeEnvelope(w, http.StatusConflict, "AI_SETTINGS_KNOWLEDGE_BASE_HAS_DOCUMENTS", map[string]any{"documentCount": hasDocuments.Count})
+		return
+	}
 	var referenced *ports.KnowledgeBaseReferencedError
 	if errors.As(err, &referenced) {
 		writeEnvelope(w, http.StatusConflict, machineCodeKnowledgeBaseReferenced, map[string]any{"referenceCount": referenced.Count})
@@ -165,6 +175,14 @@ func writeMutationError(w http.ResponseWriter, err error) {
 		writeEnvelope(w, http.StatusNotFound, machineCodeNotFound, nil)
 		return
 	}
+	if errors.Is(err, ports.ErrDocumentLimit) {
+		writeEnvelope(w, http.StatusConflict, machineCodeDocumentLimit, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrDocumentDuplicate) {
+		writeEnvelope(w, http.StatusConflict, machineCodeDocumentDuplicate, nil)
+		return
+	}
 	writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
 }
 
@@ -174,10 +192,15 @@ type KnowledgeBaseHandler struct {
 	principal PrincipalResolver
 	authorize Authorizer
 	generate  func() string
+	documents ports.DocumentRepository
 }
 
-func NewKnowledgeBaseHandler(repo ports.KnowledgeBaseRepository, agents ports.AgentRepository, p PrincipalResolver, a Authorizer, generate func() string) *KnowledgeBaseHandler {
-	return &KnowledgeBaseHandler{repo: repo, agents: agents, principal: p, authorize: a, generate: generate}
+func NewKnowledgeBaseHandler(repo ports.KnowledgeBaseRepository, agents ports.AgentRepository, p PrincipalResolver, a Authorizer, generate func() string, documents ...ports.DocumentRepository) *KnowledgeBaseHandler {
+	var documentRepo ports.DocumentRepository
+	if len(documents) > 0 {
+		documentRepo = documents[0]
+	}
+	return &KnowledgeBaseHandler{repo: repo, agents: agents, principal: p, authorize: a, generate: generate, documents: documentRepo}
 }
 
 func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -220,17 +243,13 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			writeEnvelope(w, http.StatusBadRequest, machineCodeNameInvalid, nil)
 			return
 		}
-		if input.DocumentCount < 0 || input.DocumentCount > maxDocumentCount {
-			writeEnvelope(w, http.StatusBadRequest, machineCodeDocumentCountInvalid, nil)
-			return
-		}
 		if !validDescription(input.Description) {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeDescriptionInvalid, nil)
 			return
 		}
 		knowledgeBase := ports.KnowledgeBase{
 			TenantID: p.TenantID, CorpID: p.CorpID,
-			Name: input.Name, Description: input.Description, DocumentCount: input.DocumentCount, Status: status,
+			Name: input.Name, Description: input.Description, DocumentCount: 0, Status: status,
 			UpdatedBy: p.UserID,
 		}
 		if r.Method == http.MethodPost {
@@ -249,6 +268,16 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
 			return
 		}
+		current, err := h.repo.GetByIDs(r.Context(), p.TenantID, p.CorpID, []string{knowledgeBase.ID})
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
+			return
+		}
+		if len(current) != 1 {
+			writeEnvelope(w, http.StatusNotFound, machineCodeNotFound, nil)
+			return
+		}
+		knowledgeBase.DocumentCount = current[0].DocumentCount
 		updated, err := h.repo.Update(r.Context(), knowledgeBase)
 		if err != nil {
 			writeMutationError(w, err)
@@ -273,6 +302,17 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		if len(references) != 0 {
 			writeEnvelope(w, http.StatusConflict, machineCodeKnowledgeBaseReferenced, map[string]any{"referenceCount": len(references)})
 			return
+		}
+		if h.documents != nil {
+			count, err := h.documents.Count(r.Context(), p.TenantID, p.CorpID, id)
+			if err != nil {
+				writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
+				return
+			}
+			if count > 0 {
+				writeEnvelope(w, http.StatusConflict, "AI_SETTINGS_KNOWLEDGE_BASE_HAS_DOCUMENTS", map[string]any{"documentCount": count})
+				return
+			}
 		}
 		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, p.UserID, id); err != nil {
 			writeMutationError(w, err)

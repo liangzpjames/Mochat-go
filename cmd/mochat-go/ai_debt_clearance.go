@@ -53,6 +53,7 @@ func registerAIDebtClearanceModules(
 	}
 	if err := appbootstrap.RegisterAISettings(router, true, appbootstrap.AISettingsDependencies{
 		DB:                mysqlStore.DB(),
+		FileStorageRoot:   cfg.FileStorageRoot,
 		PrincipalResolver: aiSettingsPrincipalResolver{},
 		Authorizer:        aiDebtAuthorizer{delegate: leadAuthorizer},
 	}); err != nil {

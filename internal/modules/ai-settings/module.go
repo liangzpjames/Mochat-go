@@ -11,6 +11,7 @@ import (
 
 type Dependencies struct {
 	DB                *sql.DB
+	FileStorageRoot   string
 	PrincipalResolver transporthttp.PrincipalResolver
 	Authorizer        transporthttp.Authorizer
 }
@@ -18,6 +19,7 @@ type Dependencies struct {
 type Module struct {
 	knowledgeBases *transporthttp.KnowledgeBaseHandler
 	agents         *transporthttp.AgentHandler
+	documents      *transporthttp.DocumentHandler
 }
 
 func New(dependencies Dependencies) (*Module, error) {
@@ -35,10 +37,19 @@ func New(dependencies Dependencies) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
+	documentRepo, err := mysql.NewDocumentRepository(dependencies.DB)
+	if err != nil {
+		return nil, err
+	}
+	privateStorage, err := NewPrivateStorage(dependencies.FileStorageRoot)
+	if err != nil {
+		return nil, err
+	}
 	generate := mysql.NewIDGenerator()
 	return &Module{
-		knowledgeBases: transporthttp.NewKnowledgeBaseHandler(kbRepo, agentRepo, dependencies.PrincipalResolver, dependencies.Authorizer, generate),
+		knowledgeBases: transporthttp.NewKnowledgeBaseHandler(kbRepo, agentRepo, dependencies.PrincipalResolver, dependencies.Authorizer, generate, documentRepo),
 		agents:         transporthttp.NewAgentHandler(agentRepo, kbRepo, dependencies.PrincipalResolver, dependencies.Authorizer, generate),
+		documents:      transporthttp.NewDocumentHandler(documentRepo, kbRepo, privateStorage, ParseDocument, dependencies.PrincipalResolver, dependencies.Authorizer, generate),
 	}, nil
 }
 
@@ -46,5 +57,5 @@ func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {
 	if m == nil || m.knowledgeBases == nil {
 		return errors.New("AI settings module is not initialized")
 	}
-	return transporthttp.RegisterRoutes(registrar, m.knowledgeBases, m.agents)
+	return transporthttp.RegisterRoutes(registrar, m.knowledgeBases, m.agents, m.documents)
 }

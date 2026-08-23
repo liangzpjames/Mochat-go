@@ -163,6 +163,33 @@ func expectKnowledgeBaseDeleteGuards(mock sqlmock.Sqlmock, id string, referenceC
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mochat_go_ai_agents WHERE tenant_id=? AND corp_id=? AND JSON_CONTAINS(knowledge_base_ids, JSON_QUOTE(?)) AND deleted_at IS NULL")).
 		WithArgs(int64(1), int64(2), id).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(referenceCount))
+	if referenceCount == 0 {
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_documents WHERE tenant_id=? AND corp_id=? AND knowledge_base_id=? AND deleted_at IS NULL FOR UPDATE")).
+			WithArgs(int64(1), int64(2), id).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	}
+}
+
+func TestKnowledgeBaseRepositoryRejectsDeleteWithDocuments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT id FROM mochat_go_ai_knowledge_bases").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("kb-1"))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM mochat_go_ai_agents").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT id FROM mochat_go_ai_knowledge_documents").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("doc-1"))
+	mock.ExpectRollback()
+	repository, _ := NewKnowledgeBaseRepository(db)
+	err = repository.Delete(context.Background(), 1, 2, 7, "kb-1")
+	var conflict *ports.KnowledgeBaseHasDocumentsError
+	if !errors.As(err, &conflict) || conflict.Count != 1 {
+		t.Fatalf("error = %#v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 type jsonFieldsArgument struct {

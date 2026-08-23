@@ -159,6 +159,29 @@ func (r *KnowledgeBaseRepository) Delete(ctx context.Context, tenantID, corpID, 
 	if referenceCount > 0 {
 		return &ports.KnowledgeBaseReferencedError{Count: referenceCount}
 	}
+	documentRows, err := tx.QueryContext(ctx,
+		"SELECT id FROM mochat_go_ai_knowledge_documents WHERE tenant_id=? AND corp_id=? AND knowledge_base_id=? AND deleted_at IS NULL FOR UPDATE",
+		tenantID, corpID, id)
+	if err != nil {
+		return err
+	}
+	documentCount := 0
+	for documentRows.Next() {
+		var documentID string
+		if err := documentRows.Scan(&documentID); err != nil {
+			documentRows.Close()
+			return err
+		}
+		documentCount++
+	}
+	if err := documentRows.Err(); err != nil {
+		documentRows.Close()
+		return err
+	}
+	documentRows.Close()
+	if documentCount > 0 {
+		return &ports.KnowledgeBaseHasDocumentsError{Count: documentCount}
+	}
 	res, err := tx.ExecContext(ctx,
 		"UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
 		now, actorUserID, now, id, tenantID, corpID)

@@ -299,18 +299,19 @@ func TestKnowledgeBasePersistsDisabledStatus(t *testing.T) {
 	}
 }
 
-func TestKnowledgeBaseDocumentCountUsesStableInt32Boundary(t *testing.T) {
+func TestKnowledgeBaseDocumentCountIsServerDerivedAndClientValueIsIgnored(t *testing.T) {
 	repo := &fakeKBRepo{}
 	handler := NewKnowledgeBaseHandler(repo, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" })
 
-	accepted := perform(handler, http.MethodPost, "/dashboard/ai-settings/knowledge-bases", `{"name":"边界知识库","description":"","documentCount":2147483647,"status":1}`)
-	if accepted.Code != http.StatusOK || len(repo.items) != 1 || repo.items[0].DocumentCount != 2147483647 {
-		t.Fatalf("accepted response = %s, stored = %#v", accepted.Body.String(), repo.items)
+	created := perform(handler, http.MethodPost, "/dashboard/ai-settings/knowledge-bases", `{"name":"真实知识库","description":"","documentCount":2147483647,"status":1}`)
+	if created.Code != http.StatusOK || len(repo.items) != 1 || repo.items[0].DocumentCount != 0 {
+		t.Fatalf("created response = %s, stored = %#v", created.Body.String(), repo.items)
 	}
 
-	rejected := perform(handler, http.MethodPost, "/dashboard/ai-settings/knowledge-bases", `{"name":"越界知识库","description":"","documentCount":2147483648,"status":1}`)
-	if rejected.Code != http.StatusBadRequest || envelopeData(t, rejected)["msg"] != machineCodeDocumentCountInvalid || len(repo.items) != 1 {
-		t.Fatalf("rejected response = %s, stored = %#v", rejected.Body.String(), repo.items)
+	repo.items[0].DocumentCount = 3
+	updated := perform(handler, http.MethodPut, "/dashboard/ai-settings/knowledge-bases/kb-1", `{"name":"真实知识库","description":"已更新","documentCount":999,"status":1}`)
+	if updated.Code != http.StatusOK || len(repo.items) != 1 || repo.items[0].DocumentCount != 3 {
+		t.Fatalf("updated response = %s, stored = %#v", updated.Body.String(), repo.items)
 	}
 }
 
@@ -355,7 +356,7 @@ func TestAISettingsRejectsMissingStatusWithMachineCode(t *testing.T) {
 	}
 }
 
-func TestAISettingsValidatesNameRuneLengthAndDocumentCount(t *testing.T) {
+func TestAISettingsValidatesNameRuneLength(t *testing.T) {
 	tests := []struct {
 		name    string
 		handler http.Handler
@@ -385,12 +386,6 @@ func TestAISettingsValidatesNameRuneLengthAndDocumentCount(t *testing.T) {
 			handler: NewAgentHandler(&fakeAgentRepo{}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
 			target:  "/dashboard/ai-settings/agents",
 			body:    `{"name":"` + strings.Repeat("你", 129) + `","knowledgeBaseIds":[],"status":1}`,
-		},
-		{
-			name:    "negative document count",
-			handler: NewKnowledgeBaseHandler(&fakeKBRepo{}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
-			target:  "/dashboard/ai-settings/knowledge-bases",
-			body:    `{"name":"售后库","documentCount":-1,"status":1}`,
 		},
 	}
 	for _, test := range tests {
