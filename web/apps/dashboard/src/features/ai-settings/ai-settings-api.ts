@@ -6,6 +6,12 @@ export type AgentItem = {
   id: string; corpId: number; name: string; description: string;
   knowledgeBaseIds: string[]; status: number; createdAt: string; updatedAt: string;
 };
+export type KnowledgeBaseInput = {
+  name: string; description: string; documentCount: number; status: number;
+};
+export type AgentInput = {
+  name: string; description: string; knowledgeBaseIds: string[]; status: number;
+};
 
 type Client = { request(input: RequestInfo | URL, init?: RequestInit): Promise<unknown> };
 const jsonRequest = (method: string, body: unknown): RequestInit => ({
@@ -21,10 +27,10 @@ export function createAISettingsApi(client: Client) {
     listKnowledgeBases(corpId: number): Promise<KnowledgeBaseItem[]> {
       return client.request(knowledgeBasePath(corpId)) as Promise<KnowledgeBaseItem[]>;
     },
-    createKnowledgeBase(corpId: number, input: { name: string; description: string; documentCount: number; status: number }): Promise<KnowledgeBaseItem> {
+    createKnowledgeBase(corpId: number, input: KnowledgeBaseInput): Promise<KnowledgeBaseItem> {
       return client.request(knowledgeBasePath(corpId), jsonRequest('POST', { ...input, corpId })) as Promise<KnowledgeBaseItem>;
     },
-    updateKnowledgeBase(corpId: number, id: string, input: { name: string; description: string; documentCount: number; status: number }): Promise<KnowledgeBaseItem> {
+    updateKnowledgeBase(corpId: number, id: string, input: KnowledgeBaseInput): Promise<KnowledgeBaseItem> {
       return client.request(knowledgeBasePath(corpId, id), jsonRequest('PUT', { ...input, corpId })) as Promise<KnowledgeBaseItem>;
     },
     deleteKnowledgeBase(corpId: number, id: string): Promise<unknown> {
@@ -33,10 +39,10 @@ export function createAISettingsApi(client: Client) {
     listAgents(corpId: number): Promise<AgentItem[]> {
       return client.request(agentPath(corpId)) as Promise<AgentItem[]>;
     },
-    createAgent(corpId: number, input: { name: string; description: string; knowledgeBaseIds: string[]; status: number }): Promise<AgentItem> {
+    createAgent(corpId: number, input: AgentInput): Promise<AgentItem> {
       return client.request(agentPath(corpId), jsonRequest('POST', { ...input, corpId })) as Promise<AgentItem>;
     },
-    updateAgent(corpId: number, id: string, input: { name: string; description: string; knowledgeBaseIds: string[]; status: number }): Promise<AgentItem> {
+    updateAgent(corpId: number, id: string, input: AgentInput): Promise<AgentItem> {
       return client.request(agentPath(corpId, id), jsonRequest('PUT', { ...input, corpId })) as Promise<AgentItem>;
     },
     deleteAgent(corpId: number, id: string): Promise<unknown> {
