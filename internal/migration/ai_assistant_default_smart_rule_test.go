@@ -36,11 +36,19 @@ func TestAIAssistantDefaultSmartRuleMigration(t *testing.T) {
 		"DROP INDEX `uq_ai_rules_system_key`",
 		"DROP COLUMN `system_key`",
 		"'智能体管理'",
-		") restoration_seed",
-		"resource.`status` = 1",
+		"intentionally does not restore",
 	} {
 		if !strings.Contains(string(down), fragment) {
 			t.Fatalf("down migration missing %q", fragment)
+		}
+	}
+	for _, unsafeFragment := range []string{
+		") restoration_seed",
+		"SET resource.`status` = 1",
+		"resource.`deleted_at` = NULL",
+	} {
+		if strings.Contains(string(down), unsafeFragment) {
+			t.Fatalf("down migration may resurrect a pre-0158 disabled/deleted RBAC resource via %q", unsafeFragment)
 		}
 	}
 	if _, err := SplitSQLStatements(string(up)); err != nil {
