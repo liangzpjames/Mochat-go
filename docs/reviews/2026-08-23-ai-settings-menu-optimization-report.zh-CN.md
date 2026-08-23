@@ -47,7 +47,9 @@
 - 知识库登记文档数限制为 `0..2147483647`；状态必须显式为 `0` 或 `1`。
 - `tenant_id`、`corp_id` 与操作人全部来自登录 Principal；前端传入的 `corpId` 只用于现有查询兼容，不进入严格写入体，也不能覆盖 Principal。
 - 智能体关联知识库 ID 去重，并在当前租户、当前企业、未删除记录范围内校验。
-- 被任何未删除智能体引用的知识库禁止删除，返回 HTTP 409 和 `AI_SETTINGS_KNOWLEDGE_BASE_REFERENCED`。
+- Agent 写入会在同一事务中按稳定顺序锁定关联知识库；知识库删除会先锁定目标记录，再在同一事务中检查引用并软删除，消除“先校验、后写入”产生的并发竞态。
+- 被任何未删除智能体引用的知识库禁止删除，返回 HTTP 409、`AI_SETTINGS_KNOWLEDGE_BASE_REFERENCED` 和真实 `referenceCount`。
+- 顶层 `null`、数组、标量、未知字段、尾随 JSON 与超过 1 MiB 的请求体均按无效 JSON 拒绝。
 - 未找到、校验失败与存储失败使用稳定机器码；响应同时提供 `errorCode`，前端可映射成安全中文提示，不暴露数据库错误。
 - 存储中的畸形知识库 ID JSON 不再静默回退，按存储失败处理。
 
@@ -73,6 +75,7 @@
 - pending 期间防止重复提交和危险关闭；
 - 未保存变更二次确认，支持关闭按钮和 Escape；遮罩点击不会意外关闭编辑器；
 - 筛选空态、初始空态、加载错误态与重新加载；
+- 首屏加载或失败时指标显示 `—` 而不是伪造 `0`；缓存刷新失败时保留上次成功值并明确标记“上次成功数据，刷新失败”；
 - 智能体展示真实知识库名称；遗失关联会明确标记，不伪造名称；
 - 编辑既有智能体时可保留已关联的停用知识库，但不能新关联其他停用知识库；
 - 宽屏充分利用空间，390 窄屏下指标、筛选与内容按单列可滚动呈现。
@@ -105,7 +108,8 @@
 | 命令 | 结果 |
 | --- | --- |
 | `corepack pnpm --filter @mochat/dashboard typecheck` | 通过 |
-| `corepack pnpm --filter @mochat/dashboard test` | 通过：140 个测试文件、825 个测试 |
+| `corepack pnpm --filter @mochat/dashboard test` | 通过：140 个测试文件、827 个测试 |
+| `corepack pnpm --filter @mochat/api-client test && typecheck && build` | 通过：21 个测试，类型检查与构建通过 |
 | `corepack pnpm --filter @mochat/dashboard build` | 通过；仅有既有大 chunk 提示 |
 | AI 设置及共享组件定向 ESLint | 通过 |
 | `corepack pnpm --filter @mochat/e2e lint` | 通过 |
@@ -137,9 +141,9 @@
 
 1. 知识库：新建停用记录、查询停用状态、刷新保持 URL 和记录、编辑名称/说明、显式启用。
 2. 智能体：新建并关联上述真实知识库、查询启用状态、刷新保持、编辑、显式停用。
-3. 在智能体仍引用知识库时删除知识库，确认得到明确 409 中文反馈；修复运行时发现的 `errorCode` 响应缺口后重新构建并复测通过。
+3. 在智能体仍引用知识库时删除知识库，确认得到明确 409 中文反馈并展示“仍被 1 个智能体引用”；目标记录保持存在，未发生删除。
 4. 关闭按钮、Escape 都会对脏表单给出二次确认；遮罩点击不会意外关闭；继续编辑与放弃更改均实际执行。
-5. 停止 app 容器后刷新智能体页面，确认知识库指标显示加载失败、列表显示错误态和“重新加载”；恢复容器后重新加载成功。
+5. 停止 app 容器后刷新智能体页面，确认三个指标保留真实缓存值并全部标记“上次成功数据，刷新失败”，列表显示错误态和“重新加载”；恢复容器后重新加载成功。
 6. 删除智能体后再次删除知识库成功；刷新和数据库查询确认无活动验收记录，审计保留。
 7. 两个页面均用不存在的关键词验证筛选空态。
 8. 验收尺寸覆盖 2560x1440、1366x900、1366x620 和 390x844；窄屏菜单真实打开并导航到智能体页面。
@@ -160,6 +164,9 @@
 
 从基线到本报告前的实现提交如下（按新到旧）：
 
+- `4799efa fix(ai-settings): keep summary metrics truthful`
+- `683045a fix(ai-settings): serialize cross-entity integrity`
+- `9fe3828 docs(ai-settings): record implementation evidence`
 - `f7cf563 fix(ai-settings): expose stable error codes`
 - `8dbf674 fix(ai-settings): align write payload contracts`
 - `0e0cf14 fix(ai-settings): canonicalize explicit list params`
@@ -176,7 +183,7 @@
 - `0fc206f docs(ai-settings): plan optimization implementation`
 - `5bf8e9b docs(ai-settings): define optimization design`
 
-所有后端、RBAC、前端分项均经过独立规格与质量复审；运行时修复后再次独立复审通过。
+所有后端、RBAC、前端分项均经过独立规格与质量复审。最终分支复审发现并发校验窗口、失败态指标真实性、引用数量和顶层 `null` 合同四项问题后，均已按测试驱动补齐并重新执行全量验证。
 
 ## 10. 回滚边界与已知限制
 
@@ -185,4 +192,5 @@
 - 文档、检索和真实智能体运行均不在本任务范围内；页面对这些能力保持诚实受限，不做伪成功。
 - 没有执行任何外部 Provider 写操作，也不对未接入能力宣称通过。
 - 仓库全量 Dashboard lint 的 86 个既有错误仍需由对应页面任务处理。
+- `docs:check` 仍会命中仓库既有的 Phase 3 benchmark README 断链；该链接不属于本任务文档或改动范围。
 - 没有修改总进度台账、旧 `web/saas-admin/`、`.workbuddy/`、`tmp/` 或其他任务成果。
