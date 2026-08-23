@@ -246,7 +246,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			writeEnvelope(w, http.StatusConflict, machineCodeKnowledgeBaseReferenced, nil)
 			return
 		}
-		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, id); err != nil {
+		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, p.UserID, id); err != nil {
 			writeMutationError(w, err)
 			return
 		}
@@ -384,7 +384,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
 			return
 		}
-		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, id); err != nil {
+		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, p.UserID, id); err != nil {
 			writeMutationError(w, err)
 			return
 		}

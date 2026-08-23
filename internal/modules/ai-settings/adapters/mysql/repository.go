@@ -84,10 +84,21 @@ func (r *KnowledgeBaseRepository) GetByIDs(ctx context.Context, tenantID, corpID
 
 func (r *KnowledgeBaseRepository) Create(ctx context.Context, v ports.KnowledgeBase) (ports.KnowledgeBase, error) {
 	now := time.Now().UTC()
-	_, err := r.db.ExecContext(ctx,
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ports.KnowledgeBase{}, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx,
 		"INSERT INTO mochat_go_ai_knowledge_bases (id, tenant_id, corp_id, name, description, document_count, status, created_by, updated_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
 		v.ID, v.TenantID, v.CorpID, v.Name, v.Description, v.DocumentCount, v.Status, v.CreatedBy, v.UpdatedBy, now, now)
 	if err != nil {
+		return ports.KnowledgeBase{}, err
+	}
+	if err := insertAudit(ctx, tx, v.TenantID, v.CorpID, v.CreatedBy, "knowledge_base", v.ID, "create", []string{"name", "description", "document_count", "status"}); err != nil {
+		return ports.KnowledgeBase{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return ports.KnowledgeBase{}, err
 	}
 	return r.getByID(ctx, v.TenantID, v.CorpID, v.ID)
@@ -95,7 +106,12 @@ func (r *KnowledgeBaseRepository) Create(ctx context.Context, v ports.KnowledgeB
 
 func (r *KnowledgeBaseRepository) Update(ctx context.Context, v ports.KnowledgeBase) (ports.KnowledgeBase, error) {
 	now := time.Now().UTC()
-	res, err := r.db.ExecContext(ctx,
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ports.KnowledgeBase{}, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
 		"UPDATE mochat_go_ai_knowledge_bases SET name=?, description=?, document_count=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
 		v.Name, v.Description, v.DocumentCount, v.Status, v.UpdatedBy, now, v.ID, v.TenantID, v.CorpID)
 	if err != nil {
@@ -108,14 +124,25 @@ func (r *KnowledgeBaseRepository) Update(ctx context.Context, v ports.KnowledgeB
 	if affected == 0 {
 		return ports.KnowledgeBase{}, ports.ErrNotFound
 	}
+	if err := insertAudit(ctx, tx, v.TenantID, v.CorpID, v.UpdatedBy, "knowledge_base", v.ID, "update", []string{"name", "description", "document_count", "status"}); err != nil {
+		return ports.KnowledgeBase{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ports.KnowledgeBase{}, err
+	}
 	return r.getByID(ctx, v.TenantID, v.CorpID, v.ID)
 }
 
-func (r *KnowledgeBaseRepository) Delete(ctx context.Context, tenantID, corpID int64, id string) error {
+func (r *KnowledgeBaseRepository) Delete(ctx context.Context, tenantID, corpID, actorUserID int64, id string) error {
 	now := time.Now().UTC()
-	res, err := r.db.ExecContext(ctx,
-		"UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
-		now, now, id, tenantID, corpID)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
+		"UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
+		now, actorUserID, now, id, tenantID, corpID)
 	if err != nil {
 		return err
 	}
@@ -126,7 +153,10 @@ func (r *KnowledgeBaseRepository) Delete(ctx context.Context, tenantID, corpID i
 	if affected == 0 {
 		return ports.ErrNotFound
 	}
-	return nil
+	if err := insertAudit(ctx, tx, tenantID, corpID, actorUserID, "knowledge_base", id, "delete", []string{"deleted_at", "updated_by"}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *KnowledgeBaseRepository) getByID(ctx context.Context, tenantID, corpID int64, id string) (ports.KnowledgeBase, error) {
@@ -206,10 +236,21 @@ func (r *AgentRepository) Create(ctx context.Context, v ports.Agent) (ports.Agen
 	if err != nil {
 		return ports.Agent{}, err
 	}
-	_, err = r.db.ExecContext(ctx,
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ports.Agent{}, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx,
 		"INSERT INTO mochat_go_ai_agents (id, tenant_id, corp_id, name, description, knowledge_base_ids, status, created_by, updated_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
 		v.ID, v.TenantID, v.CorpID, v.Name, v.Description, string(kbJSON), v.Status, v.CreatedBy, v.UpdatedBy, now, now)
 	if err != nil {
+		return ports.Agent{}, err
+	}
+	if err := insertAudit(ctx, tx, v.TenantID, v.CorpID, v.CreatedBy, "agent", v.ID, "create", []string{"name", "description", "knowledge_base_ids", "status"}); err != nil {
+		return ports.Agent{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return ports.Agent{}, err
 	}
 	return r.getByID(ctx, v.TenantID, v.CorpID, v.ID)
@@ -221,7 +262,12 @@ func (r *AgentRepository) Update(ctx context.Context, v ports.Agent) (ports.Agen
 	if err != nil {
 		return ports.Agent{}, err
 	}
-	res, err := r.db.ExecContext(ctx,
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ports.Agent{}, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
 		"UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
 		v.Name, v.Description, string(kbJSON), v.Status, v.UpdatedBy, now, v.ID, v.TenantID, v.CorpID)
 	if err != nil {
@@ -234,14 +280,25 @@ func (r *AgentRepository) Update(ctx context.Context, v ports.Agent) (ports.Agen
 	if affected == 0 {
 		return ports.Agent{}, ports.ErrNotFound
 	}
+	if err := insertAudit(ctx, tx, v.TenantID, v.CorpID, v.UpdatedBy, "agent", v.ID, "update", []string{"name", "description", "knowledge_base_ids", "status"}); err != nil {
+		return ports.Agent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ports.Agent{}, err
+	}
 	return r.getByID(ctx, v.TenantID, v.CorpID, v.ID)
 }
 
-func (r *AgentRepository) Delete(ctx context.Context, tenantID, corpID int64, id string) error {
+func (r *AgentRepository) Delete(ctx context.Context, tenantID, corpID, actorUserID int64, id string) error {
 	now := time.Now().UTC()
-	res, err := r.db.ExecContext(ctx,
-		"UPDATE mochat_go_ai_agents SET deleted_at=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
-		now, now, id, tenantID, corpID)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
+		"UPDATE mochat_go_ai_agents SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
+		now, actorUserID, now, id, tenantID, corpID)
 	if err != nil {
 		return err
 	}
@@ -252,7 +309,10 @@ func (r *AgentRepository) Delete(ctx context.Context, tenantID, corpID int64, id
 	if affected == 0 {
 		return ports.ErrNotFound
 	}
-	return nil
+	if err := insertAudit(ctx, tx, tenantID, corpID, actorUserID, "agent", id, "delete", []string{"deleted_at", "updated_by"}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *AgentRepository) getByID(ctx context.Context, tenantID, corpID int64, id string) (ports.Agent, error) {
@@ -265,6 +325,17 @@ func nonNilStrings(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+func insertAudit(ctx context.Context, tx *sql.Tx, tenantID, corpID, actorUserID int64, entityType, entityID, action string, changedFields []string) error {
+	encoded, err := json.Marshal(changedFields)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO mochat_go_ai_settings_audits (tenant_id, corp_id, actor_user_id, entity_type, entity_id, action, changed_fields) VALUES (?,?,?,?,?,?,?)",
+		tenantID, corpID, actorUserID, entityType, entityID, action, string(encoded))
+	return err
 }
 
 func NewIDGenerator() func() string {

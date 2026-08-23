@@ -19,6 +19,7 @@ type fakeKBRepo struct {
 	getByIDsErr error
 	updateErr   error
 	deleteErr   error
+	deleteActor int64
 }
 
 func (f *fakeKBRepo) List(_ context.Context, tenantID, corpID int64) ([]ports.KnowledgeBase, error) {
@@ -71,10 +72,11 @@ func (f *fakeKBRepo) Update(_ context.Context, v ports.KnowledgeBase) (ports.Kno
 	return ports.KnowledgeBase{}, errors.New("not found")
 }
 
-func (f *fakeKBRepo) Delete(_ context.Context, tenantID, corpID int64, id string) error {
+func (f *fakeKBRepo) Delete(_ context.Context, tenantID, corpID, actorUserID int64, id string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
+	f.deleteActor = actorUserID
 	for i := range f.items {
 		if f.items[i].ID == id && f.items[i].TenantID == tenantID && f.items[i].CorpID == corpID {
 			f.items = append(f.items[:i], f.items[i+1:]...)
@@ -85,10 +87,11 @@ func (f *fakeKBRepo) Delete(_ context.Context, tenantID, corpID int64, id string
 }
 
 type fakeAgentRepo struct {
-	items     []ports.Agent
-	createErr error
-	updateErr error
-	deleteErr error
+	items       []ports.Agent
+	createErr   error
+	updateErr   error
+	deleteErr   error
+	deleteActor int64
 }
 
 func (f *fakeAgentRepo) List(_ context.Context, tenantID, corpID int64) ([]ports.Agent, error) {
@@ -138,10 +141,11 @@ func (f *fakeAgentRepo) Update(_ context.Context, v ports.Agent) (ports.Agent, e
 	return ports.Agent{}, errors.New("not found")
 }
 
-func (f *fakeAgentRepo) Delete(_ context.Context, tenantID, corpID int64, id string) error {
+func (f *fakeAgentRepo) Delete(_ context.Context, tenantID, corpID, actorUserID int64, id string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
+	f.deleteActor = actorUserID
 	for i := range f.items {
 		if f.items[i].ID == id && f.items[i].TenantID == tenantID && f.items[i].CorpID == corpID {
 			f.items = append(f.items[:i], f.items[i+1:]...)
@@ -650,6 +654,26 @@ func TestKnowledgeBaseDeleteRejectsReferencedRecord(t *testing.T) {
 	if response.Code != http.StatusConflict || payload["msg"] != machineCodeKnowledgeBaseReferenced || len(knowledgeBases.items) != 1 {
 		t.Fatalf("code = %d items = %#v, want 409 and unchanged knowledge base", response.Code, knowledgeBases.items)
 	}
+}
+
+func TestAISettingsDeleteUsesPrincipalAsAuditActor(t *testing.T) {
+	principal := fakeResolver{principal: Principal{UserID: 17, TenantID: 1, CorpID: 2}}
+	t.Run("knowledge base", func(t *testing.T) {
+		knowledgeBases := &fakeKBRepo{items: []ports.KnowledgeBase{{ID: "kb-1", TenantID: 1, CorpID: 2}}}
+		handler := NewKnowledgeBaseHandler(knowledgeBases, &fakeAgentRepo{}, principal, nil, func() string { return "x" })
+		response := perform(handler, http.MethodDelete, "/dashboard/ai-settings/knowledge-bases/kb-1", "")
+		if response.Code != http.StatusOK || knowledgeBases.deleteActor != 17 {
+			t.Fatalf("response = %s, actor = %d", response.Body.String(), knowledgeBases.deleteActor)
+		}
+	})
+	t.Run("agent", func(t *testing.T) {
+		agents := &fakeAgentRepo{items: []ports.Agent{{ID: "agent-1", TenantID: 1, CorpID: 2}}}
+		handler := NewAgentHandler(agents, &fakeKBRepo{}, principal, nil, func() string { return "x" })
+		response := perform(handler, http.MethodDelete, "/dashboard/ai-settings/agents/agent-1", "")
+		if response.Code != http.StatusOK || agents.deleteActor != 17 {
+			t.Fatalf("response = %s, actor = %d", response.Body.String(), agents.deleteActor)
+		}
+	})
 }
 
 func TestAISettingsRejectsUnknownOrTrailingJSON(t *testing.T) {

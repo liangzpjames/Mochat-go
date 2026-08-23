@@ -41,7 +41,7 @@ type KnowledgeBaseRepository interface {
 	GetByIDs(context.Context, int64, int64, []string) ([]KnowledgeBase, error)
 	Create(context.Context, KnowledgeBase) (KnowledgeBase, error)
 	Update(context.Context, KnowledgeBase) (KnowledgeBase, error)
-	Delete(context.Context, int64, int64, string) error
+	Delete(context.Context, int64, int64, int64, string) error
 }
 
 type AgentRepository interface {
@@ -49,7 +49,7 @@ type AgentRepository interface {
 	ListReferencingKnowledgeBase(context.Context, int64, int64, string) ([]Agent, error)
 	Create(context.Context, Agent) (Agent, error)
 	Update(context.Context, Agent) (Agent, error)
-	Delete(context.Context, int64, int64, string) error
+	Delete(context.Context, int64, int64, int64, string) error
 }
 
 type IDGenerator interface {
