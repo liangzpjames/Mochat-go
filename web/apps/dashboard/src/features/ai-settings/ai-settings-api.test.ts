@@ -69,11 +69,11 @@ describe('AI 设置 API', () => {
 
   it('persists an explicit disabled agent status', async () => {
     const request = vi.fn().mockResolvedValue({});
-    await createAISettingsApi({ request }).updateAgent(9, 'agent-1', { name: '客服助手', description: '', knowledgeBaseIds: [], status: 0 });
+    await createAISettingsApi({ request }).updateAgent(9, 'agent-1', { name: '会话分析助手', description: '', knowledgeBaseIds: [], status: 0, smartAnalysisRule: { objective: '识别客户风险', conversationTypes: ['direct', 'group'], lookbackDays: 14, minimumMessages: 3 } });
     expect(request).toHaveBeenCalledWith('/ai-settings/agents/agent-1?corpId=9', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: '客服助手', description: '', knowledgeBaseIds: [], status: 0 }),
+      body: JSON.stringify({ name: '会话分析助手', description: '', knowledgeBaseIds: [], status: 0, smartAnalysisRule: { objective: '识别客户风险', conversationTypes: ['direct', 'group'], lookbackDays: 14, minimumMessages: 3 } }),
     });
   });
 

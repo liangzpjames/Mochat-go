@@ -1,28 +1,22 @@
 import { ApiError } from '@mochat/api-client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { useSearchParams } from 'react-router';
 import { useOptionalDashboardAccess } from '../../app/access-context';
-import { ConfirmAction } from '../../components/confirm-action';
 import { DashboardDialog } from '../../components/dashboard-dialog';
-import { DashboardFilterPanel } from '../../components/dashboard-filter-panel';
-import { DashboardPagination } from '../../components/dashboard-pagination';
-import { updateSearch } from '../../shared/query-state';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
-import type { AgentItem, AISettingsApi } from './ai-settings-api';
-import { filterAndPageAISettings, formatAISettingsTime, parseAISettingsListState, resolveKnowledgeBaseNames } from './list-state';
+import type { AgentItem, AISettingsApi, SmartAnalysisRule } from './ai-settings-api';
+import { formatAISettingsTime, resolveKnowledgeBaseNames } from './list-state';
 
 function operationError(error: unknown): string {
   if (error instanceof ApiError) {
     const messages: Record<string, string> = {
       AI_SETTINGS_KNOWLEDGE_BASE_INVALID: '关联知识库已失效或不属于当前企业，请刷新后重新选择。',
-      AI_SETTINGS_NOT_FOUND: '记录不存在或已被删除，请刷新列表后重试。',
+      AI_SETTINGS_NOT_FOUND: '系统助手或默认规则不存在，请刷新后重试。',
       AI_SETTINGS_STATUS_INVALID: '状态值无效，请重新选择。',
-      AI_SETTINGS_NAME_REQUIRED: '请输入名称。',
-      AI_SETTINGS_NAME_INVALID: '名称需为 2–128 个字符。',
-      AI_SETTINGS_DESCRIPTION_INVALID: '说明内容过长，请精简后重试。',
+      AI_SETTINGS_DESCRIPTION_INVALID: '分析要求过长，请精简后重试。',
+      AI_SETTINGS_SMART_RULE_INVALID: '默认智能分析规则无效，请检查分析目标、会话范围、回看天数和最少消息数。',
       AI_SETTINGS_INVALID_JSON: '请求格式无效，请刷新后重试。',
       AI_SETTINGS_STORAGE_FAILURE: '服务暂时不可用，请稍后重试。',
     };
@@ -32,143 +26,111 @@ function operationError(error: unknown): string {
 }
 
 function textLength(value: string): number { return Array.from(value).length; }
+function sameStrings(left: string[], right: string[]): boolean { return JSON.stringify(left) === JSON.stringify(right); }
+
+type EditorState = {
+  description: string;
+  selectedBases: string[];
+  status: number;
+  objective: string;
+  conversationTypes: Array<'direct' | 'group'>;
+  lookbackDays: number;
+  minimumMessages: number;
+};
+
+function editorState(agent: AgentItem, rule: SmartAnalysisRule): EditorState {
+  return {
+    description: agent.description,
+    selectedBases: agent.knowledgeBaseIds ?? [],
+    status: agent.status,
+    objective: rule.objective,
+    conversationTypes: [...rule.conversationTypes],
+    lookbackDays: rule.lookbackDays,
+    minimumMessages: rule.minimumMessages,
+  };
+}
 
 export function AgentPage({ api }: { api: AISettingsApi }) {
   const corpId = useOptionalDashboardAccess()?.corp.id;
   const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const listState = parseAISettingsListState(searchParams);
-  const [draftKeyword, setDraftKeyword] = useState(listState.q);
-  const [draftStatus, setDraftStatus] = useState(listState.status);
   const [editing, setEditing] = useState<AgentItem | null>(null);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [selectedBases, setSelectedBases] = useState<string[]>([]);
-  const [status, setStatus] = useState(1);
+  const [draft, setDraft] = useState<EditorState | null>(null);
   const [editorError, setEditorError] = useState('');
   const [feedback, setFeedback] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => { setDraftKeyword(listState.q); setDraftStatus(listState.status); }, [listState.q, listState.status]);
-
   const query = useQuery({ queryKey: ['ai-agents', corpId], queryFn: () => api.listAgents(Number(corpId)), enabled: Boolean(corpId) });
   const knowledgeBases = useQuery({ queryKey: ['ai-kb', corpId], queryFn: () => api.listKnowledgeBases(Number(corpId)), enabled: Boolean(corpId) });
-  const items = query.data ?? [];
-  const page = filterAndPageAISettings(items, listState);
-  useEffect(() => {
-    const changes: Record<string, string | number> = {};
-    const resolvedPage = query.isSuccess ? page.page : listState.page;
-    const rawPage = searchParams.get('page');
-    const rawPageSize = searchParams.get('pageSize');
-    const rawStatus = searchParams.get('status');
-    if (rawPage !== null && rawPage !== String(resolvedPage)) changes.page = resolvedPage;
-    if (rawPageSize !== null && rawPageSize !== String(listState.pageSize)) changes.pageSize = listState.pageSize;
-    if (rawStatus !== null && rawStatus !== listState.status) changes.status = listState.status;
-    if (Object.keys(changes).length === 0) return;
-    setSearchParams(updateSearch(searchParams, changes), { replace: true });
-  }, [listState.page, listState.pageSize, listState.status, page.page, query.isSuccess, searchParams, setSearchParams]);
-  const total = items.length;
-  const enabledCount = items.filter((item) => item.status === 1).length;
+  const agent = query.data?.[0];
+  const rule = agent?.smartAnalysisRule;
   const activeBases = (knowledgeBases.data ?? []).filter((item) => item.status === 1);
-  const metricsHaveData = query.data !== undefined;
-  const metricsNote = query.isError
-    ? (metricsHaveData ? '上次成功数据，刷新失败' : '数据加载失败')
-    : (!metricsHaveData ? '正在加载' : null);
-  const basesHaveData = knowledgeBases.data !== undefined;
-  const basesMetricsNote = knowledgeBases.isError
-    ? (basesHaveData ? '上次成功数据，刷新失败' : '知识库加载失败')
-    : (!basesHaveData ? '正在加载' : null);
-  const initialBases = editing?.knowledgeBaseIds ?? [];
-  const editorOpen = editing !== null;
-  const dirty = editorOpen && (name !== (editing?.name ?? '') || description !== (editing?.description ?? '') || status !== (editing?.status ?? 1) || JSON.stringify(selectedBases) !== JSON.stringify(initialBases));
+  const relatedBaseNames = agent && knowledgeBases.isSuccess ? resolveKnowledgeBaseNames(agent.knowledgeBaseIds ?? [], knowledgeBases.data ?? []) : '—';
+  const initial = editing?.smartAnalysisRule ? editorState(editing, editing.smartAnalysisRule) : null;
+  const dirty = Boolean(draft && initial && (
+    draft.description !== initial.description || !sameStrings(draft.selectedBases, initial.selectedBases)
+    || draft.status !== initial.status || draft.objective !== initial.objective
+    || !sameStrings(draft.conversationTypes, initial.conversationTypes)
+    || draft.lookbackDays !== initial.lookbackDays || draft.minimumMessages !== initial.minimumMessages
+  ));
 
-  function submitFilters() {
-    setSearchParams(updateSearch(searchParams, { q: draftKeyword.trim() || undefined, status: draftStatus === 'all' ? undefined : draftStatus, page: 1, pageSize: listState.pageSize }));
-  }
-  function resetFilters() {
-    setDraftKeyword(''); setDraftStatus('all'); setSearchParams(updateSearch(searchParams, { q: undefined, status: undefined, page: 1, pageSize: listState.pageSize }));
-  }
-  function resetEditor() {
-    setEditing(null); setName(''); setDescription(''); setSelectedBases([]); setStatus(1); setEditorError(''); setDiscardOpen(false);
-  }
+  function resetEditor() { setEditing(null); setDraft(null); setEditorError(''); setDiscardOpen(false); }
   function requestEditorClose() {
     if (save.isPending) return;
     if (dirty) { setDiscardOpen(true); return; }
     resetEditor();
   }
-  function rememberTrigger(event: MouseEvent<HTMLButtonElement>) { editorTriggerRef.current = event.currentTarget; }
-  function openEdit(item: AgentItem, event: MouseEvent<HTMLButtonElement>) {
-    rememberTrigger(event); setEditing(item); setName(item.name); setDescription(item.description); setSelectedBases(item.knowledgeBaseIds ?? []); setStatus(item.status); setEditorError(''); setFeedback(null);
+  function openEditor(item: AgentItem, event: MouseEvent<HTMLButtonElement>) {
+    if (!item.smartAnalysisRule) return;
+    editorTriggerRef.current = event.currentTarget;
+    setEditing(item); setDraft(editorState(item, item.smartAnalysisRule)); setEditorError(''); setFeedback(null);
   }
-  function toggleBase(id: string) { setSelectedBases((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
+  function toggleBase(id: string) {
+    setDraft((current) => current ? { ...current, selectedBases: current.selectedBases.includes(id) ? current.selectedBases.filter((item) => item !== id) : [...current.selectedBases, id] } : current);
+  }
+  function toggleConversationType(value: 'direct' | 'group') {
+    setDraft((current) => current ? { ...current, conversationTypes: current.conversationTypes.includes(value) ? current.conversationTypes.filter((item) => item !== value) : [...current.conversationTypes, value] } : current);
+  }
 
   const save = useMutation({
-    mutationFn: () => api.updateAgent(Number(corpId), String(editing?.id), { name: '会话分析助手', description: description.trim(), knowledgeBaseIds: selectedBases, status }),
-    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ai-agents', corpId] }); setFeedback({ kind: 'success', text: '会话分析助手设置已更新，后续会话分析将使用新配置。' }); resetEditor(); },
+    mutationFn: () => api.updateAgent(Number(corpId), String(editing?.id), {
+      name: '会话分析助手', description: draft?.description.trim() ?? '', knowledgeBaseIds: draft?.selectedBases ?? [], status: draft?.status ?? 0,
+      smartAnalysisRule: { objective: draft?.objective.trim() ?? '', conversationTypes: draft?.conversationTypes ?? [], lookbackDays: draft?.lookbackDays ?? 0, minimumMessages: draft?.minimumMessages ?? 0 },
+    }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['ai-agents', corpId] });
+      setFeedback({ kind: 'success', text: '分析助手配置已保存，会话分析和智能分析将在下一次运行使用新配置。' }); resetEditor();
+    },
     onError: (error) => setEditorError(operationError(error)),
   });
-  const toggle = useMutation({
-    mutationFn: (item: AgentItem) => api.updateAgent(Number(corpId), item.id, { name: item.name, description: item.description, knowledgeBaseIds: item.knowledgeBaseIds, status: item.status === 1 ? 0 : 1 }).then(() => item),
-    onMutate: () => setFeedback(null),
-    onSuccess: async (item) => { await queryClient.invalidateQueries({ queryKey: ['ai-agents', corpId] }); setFeedback({ kind: 'success', text: `智能体“${item.name}”已${item.status === 1 ? '停用' : '启用'}。` }); },
-    onError: (error) => setFeedback({ kind: 'error', text: operationError(error) }),
-  });
 
-  const valid = Boolean(corpId && editing && textLength(description) <= 512 && knowledgeBases.isSuccess);
-  const filteredEmpty = total > 0 && page.total === 0;
+  const valid = Boolean(corpId && editing && draft && editing.smartAnalysisRule && knowledgeBases.isSuccess
+    && textLength(draft.description) <= 512 && textLength(draft.objective.trim()) >= 2 && textLength(draft.objective.trim()) <= 500
+    && draft.conversationTypes.length > 0 && draft.lookbackDays >= 1 && draft.lookbackDays <= 30 && draft.minimumMessages >= 2 && draft.minimumMessages <= 50);
   const listedBaseIds = new Set((knowledgeBases.data ?? []).map((item) => item.id));
+  const initialBases = editing?.knowledgeBaseIds ?? [];
   const invalidOriginalBases = initialBases.filter((id) => !listedBaseIds.has(id));
 
   return (
-    <Phase35PageShell title="智能体设置" description="配置 AI 洞察实际使用的会话分析助手">
-      <div className="phase35-page ai-settings-workspace">
-        <p className="ai-settings-capability-notice" role="note">系统仅提供“会话分析助手”，它会在 AI 洞察生成会话分析时读取这里的分析要求和已关联知识库。当前不开放新增智能体，避免产生没有业务入口的无效配置。</p>
-        <section className="phase35-kpis" aria-label="智能体指标">
-          <article className="phase35-kpi phase35-kpi-primary"><span>系统助手</span><strong>{metricsHaveData ? total : '—'}</strong><small>{metricsNote ?? '固定为会话分析助手'}</small></article>
-          <article className="phase35-kpi phase35-kpi-green"><span>运行状态</span><strong>{metricsHaveData ? (enabledCount ? '启用' : '停用') : '—'}</strong><small>{metricsNote ?? '直接控制后续会话分析'}</small></article>
-          <article className="phase35-kpi phase35-kpi-violet"><span>可关联知识库</span><strong>{basesHaveData ? activeBases.length : '—'}</strong><small>{basesMetricsNote ?? '仅统计已启用知识库'}</small></article>
-        </section>
-        <DashboardFilterPanel className="ai-settings-filter" onSubmit={submitFilters} onReset={resetFilters} pending={query.isFetching} extraActions={<button type="button" onClick={() => { setFeedback(null); void Promise.all([query.refetch(), knowledgeBases.refetch()]); }} disabled={query.isFetching || knowledgeBases.isFetching}>刷新</button>}>
-          <label>关键词<input aria-label="关键词" value={draftKeyword} onChange={(event) => setDraftKeyword(event.target.value)} placeholder="搜索名称或说明" /></label>
-          <label>状态<select aria-label="状态" value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as typeof draftStatus)}><option value="all">全部状态</option><option value="enabled">启用</option><option value="disabled">停用</option></select></label>
-        </DashboardFilterPanel>
+    <Phase35PageShell title="分析助手" description="统一配置 AI 洞察使用的系统助手、知识库和默认智能分析规则">
+      <div className="phase35-page ai-settings-workspace ai-assistant-workspace">
+        <section className="ai-assistant-intro" aria-label="AI 洞察与设置关系"><div><strong>AI 设置负责配置，AI 洞察负责查看结果</strong><p>系统只提供一个有真实业务入口的会话分析助手，不开放新增或删除。</p></div><a href="/ai-setting/ai-knowledge-base">管理 AI 知识库</a></section>
         {feedback && <p className={`ai-settings-feedback ai-settings-feedback--${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
-        <section className="phase35-card phase35-table-card">
-          <header className="phase35-card-header"><div><h2>会话分析助手</h2><p>唯一系统助手，配置变化会应用到下一次 AI 洞察分析</p></div><span className="phase35-chip">固定系统能力</span></header>
-          <Phase35DataState loading={query.isLoading} error={query.isError} empty={!total} emptyContent={<p className="phase35-empty">系统助手初始化失败，请刷新重试</p>} onRetry={() => void query.refetch()}>
-            {filteredEmpty ? <p className="phase35-empty">当前筛选条件下没有匹配的智能体</p> : <>
-              <div className="phase35-table ai-settings-table-scroll"><table>
-                <thead><tr><th>名称</th><th>说明</th><th>关联知识库</th><th>配置状态</th><th>更新时间</th><th>操作</th></tr></thead>
-                <tbody>{page.items.map((item) => {
-                  const rowPending = toggle.isPending && toggle.variables?.id === item.id;
-                  return <tr key={item.id}><td>{item.name}</td><td>{item.description || '—'}</td><td>{knowledgeBases.isLoading ? '正在加载知识库名称…' : knowledgeBases.isError ? '知识库名称加载失败' : resolveKnowledgeBaseNames(item.knowledgeBaseIds ?? [], knowledgeBases.data ?? [])}</td><td><span className={`ai-settings-status ai-settings-status--${item.status === 1 ? 'enabled' : 'disabled'}`}>{item.status === 1 ? '启用' : '停用'}</span></td><td>{formatAISettingsTime(item.updatedAt)}</td><td><div className="ai-settings-row-actions">
-                    <button type="button" aria-label={`编辑 ${item.name}`} disabled={rowPending} onClick={(event) => openEdit(item, event)}>编辑</button>
-                    <ConfirmAction danger={item.status === 1} title={`确认${item.status === 1 ? '停用' : '启用'}智能体“${item.name}”？`} onConfirm={() => toggle.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} disabled={rowPending}>{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
-                  </div></td></tr>;
-                })}</tbody>
-              </table></div>
-              <DashboardPagination ariaLabel="智能体分页" page={page.page} pageSize={page.pageSize} total={page.total} pageSizeOptions={[10, 20, 50]} onPageChange={(nextPage) => setSearchParams(updateSearch(searchParams, { page: nextPage, pageSize: page.pageSize }))} onPageSizeChange={(nextPageSize) => setSearchParams(updateSearch(searchParams, { page: 1, pageSize: nextPageSize }))} />
-            </>}
-          </Phase35DataState>
-        </section>
-        <DashboardDialog open={editorOpen} title="配置会话分析助手" triggerRef={editorTriggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={requestEditorClose} onConfirm={() => save.mutate()}>
-          <div className="ai-settings-dialog-body">{editorError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{editorError}</p>}<form onSubmit={(event) => { event.preventDefault(); if (valid && !save.isPending) save.mutate(); }}>
-            <label>名称<input value="会话分析助手" readOnly aria-readonly="true" /><small>系统固定名称，不支持新增或改名。</small></label>
-            <label>分析要求<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} placeholder="例如：重点识别客户采购意向、流失风险和员工服务质量" /></label>
-            <fieldset className="ai-settings-base-options"><legend>关联知识库</legend>
-              {knowledgeBases.isLoading && <p role="status">正在加载可关联知识库…</p>}
-              {knowledgeBases.isError && <p role="alert">知识库加载失败，暂时无法安全保存关联配置。请刷新后重试。</p>}
-              {knowledgeBases.isSuccess && activeBases.length === 0 && initialBases.length === 0 && <p className="phase35-empty">暂无已启用知识库可选。<a href="/ai-setting/ai-knowledge-base">前往 AI 知识库</a></p>}
-              {(knowledgeBases.data ?? []).map((kb) => {
-                const previouslyRelated = initialBases.includes(kb.id);
-                const selectable = kb.status === 1 || previouslyRelated;
-                return <label key={kb.id} className={!selectable ? 'ai-settings-base-option--disabled' : undefined}><input type="checkbox" checked={selectedBases.includes(kb.id)} disabled={!selectable} onChange={() => toggleBase(kb.id)} />{kb.name}<small>{kb.status === 1 ? '已启用' : previouslyRelated ? '已停用，仅可保留既有关联或移除' : '已停用，不可新关联'}</small></label>;
-              })}
-              {invalidOriginalBases.map((id) => <label key={id} className="ai-settings-base-option--invalid"><input type="checkbox" checked={selectedBases.includes(id)} disabled={!selectedBases.includes(id)} onChange={() => toggleBase(id)} />已失效（ID: {id}）<small>仅可从既有关联中移除</small></label>)}
-            </fieldset>
-            <label>运行状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>停用后，定时任务会记录“会话分析助手已停用”，不会伪造分析结果。</small></label>
-          </form></div>
+        <Phase35DataState loading={query.isLoading} error={query.isError} empty={!agent} emptyContent={<p className="phase35-empty">系统助手初始化失败，请刷新重试</p>} onRetry={() => void query.refetch()}>
+          {agent && <article className="ai-assistant-card">
+            <header className="ai-assistant-card__header"><div className="ai-assistant-card__identity"><span className="ai-assistant-card__icon" aria-hidden="true">AI</span><div><div className="ai-assistant-card__title"><h2>{agent.name}</h2><span className="phase35-chip">固定系统助手</span><span className={`ai-settings-status ai-settings-status--${agent.status === 1 ? 'enabled' : 'disabled'}`}>{agent.status === 1 ? '已启用' : '已停用'}</span></div><p>{agent.description || '尚未填写分析要求'}</p></div></div><div className="ai-assistant-card__actions"><button className="ai-settings-action-button ai-settings-secondary-button" type="button" onClick={() => { setFeedback(null); void Promise.all([query.refetch(), knowledgeBases.refetch()]); }} disabled={query.isFetching || knowledgeBases.isFetching}>刷新</button><button className="ai-settings-action-button ai-settings-primary-button" type="button" onClick={(event) => openEditor(agent, event)} disabled={!rule}>编辑配置</button></div></header>
+            {!rule && <p className="ai-settings-feedback ai-settings-feedback--error" role="alert">默认智能分析规则初始化失败，请刷新后重试。</p>}
+            <div className="ai-assistant-use-grid"><a className="ai-assistant-use-card" href="/ai-insight/session-analysis"><span>用于会话分析</span><strong>客户洞察与员工质检</strong><small>读取分析要求和已关联知识库</small></a><a className="ai-assistant-use-card" href="/ai-insight/smart-analysis"><span>用于智能分析</span><strong>{rule?.name ?? '默认规则不可用'}</strong><small>{rule ? `v${rule.currentVersion} · 回看 ${rule.lookbackDays} 天 · 至少 ${rule.minimumMessages} 条消息` : '请刷新后重试'}</small></a></div>
+            <dl className="ai-assistant-summary-grid"><div><dt>关联知识库</dt><dd>{knowledgeBases.isLoading ? '正在加载…' : knowledgeBases.isError ? '加载失败' : relatedBaseNames}</dd></div><div><dt>智能分析目标</dt><dd>{rule?.objective ?? '—'}</dd></div><div><dt>会话范围</dt><dd>{rule ? rule.conversationTypes.map((item) => item === 'direct' ? '客户单聊' : '客户群聊').join('、') : '—'}</dd></div><div><dt>最后更新</dt><dd>{formatAISettingsTime(agent.updatedAt)}</dd></div></dl>
+          </article>}
+        </Phase35DataState>
+
+        <DashboardDialog open={Boolean(editing && draft)} title="配置会话分析助手" triggerRef={editorTriggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={requestEditorClose} onConfirm={() => save.mutate()}>
+          {draft && <div className="ai-settings-dialog-body ai-assistant-dialog-body">{editorError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{editorError}</p>}<form onSubmit={(event) => { event.preventDefault(); if (valid && !save.isPending) save.mutate(); }}>
+            <section className="ai-assistant-editor-section"><header><h3>助手要求</h3><p>同时应用到会话分析与智能分析。</p></header><label>名称<input value="会话分析助手" readOnly aria-readonly="true" /><small>系统固定名称，不支持新增或改名。</small></label><label>AI 分析要求<textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={4} placeholder="例如：重点识别客户采购意向、流失风险和员工服务质量" /></label><label>运行状态<select aria-label="运行状态" value={draft.status} onChange={(event) => setDraft({ ...draft, status: Number(event.target.value) })}><option value={1}>启用</option><option value={0}>停用</option></select><small>停用后两类 AI 洞察都会记录真实停用状态，不会生成假结果。</small></label></section>
+            <section className="ai-assistant-editor-section"><header><h3>关联知识库</h3><p>知识只作背景资料，来源会话仍是唯一事实证据。</p></header><fieldset className="ai-settings-base-options"><legend className="sr-only">关联知识库</legend>{knowledgeBases.isLoading && <p role="status">正在加载可关联知识库…</p>}{knowledgeBases.isError && <p role="alert">知识库加载失败，暂时无法安全保存关联配置。请刷新后重试。</p>}{knowledgeBases.isSuccess && activeBases.length === 0 && initialBases.length === 0 && <p className="phase35-empty">暂无已启用知识库可选。<a href="/ai-setting/ai-knowledge-base">前往 AI 知识库</a></p>}{(knowledgeBases.data ?? []).map((kb) => { const previouslyRelated = initialBases.includes(kb.id); const selectable = kb.status === 1 || previouslyRelated; return <label key={kb.id} className={!selectable ? 'ai-settings-base-option--disabled' : undefined}><input type="checkbox" checked={draft.selectedBases.includes(kb.id)} disabled={!selectable} onChange={() => toggleBase(kb.id)} />{kb.name}<small>{kb.status === 1 ? '已启用' : previouslyRelated ? '已停用，仅可保留既有关联或移除' : '已停用，不可新关联'}</small></label>; })}{invalidOriginalBases.map((id) => <label key={id} className="ai-settings-base-option--invalid"><input type="checkbox" checked={draft.selectedBases.includes(id)} disabled={!draft.selectedBases.includes(id)} onChange={() => toggleBase(id)} />已失效（ID: {id}）<small>仅可从既有关联中移除</small></label>)}</fieldset></section>
+            <section className="ai-assistant-editor-section"><header><h3>默认智能分析规则</h3><p>所有智能分析只使用这一条规则；每次规则变更会生成新的可追溯版本。</p></header><label>规则名称<input value="默认智能分析规则" readOnly aria-readonly="true" /></label><label>智能分析目标<textarea aria-label="智能分析目标" value={draft.objective} onChange={(event) => setDraft({ ...draft, objective: event.target.value })} rows={3} /></label><fieldset className="ai-assistant-conversation-types"><legend>会话范围</legend><label><input aria-label="客户单聊" type="checkbox" checked={draft.conversationTypes.includes('direct')} onChange={() => toggleConversationType('direct')} />客户单聊</label><label><input aria-label="客户群聊" type="checkbox" checked={draft.conversationTypes.includes('group')} onChange={() => toggleConversationType('group')} />客户群聊</label></fieldset><div className="ai-assistant-rule-numbers"><label>回看天数<input aria-label="回看天数" type="number" min={1} max={30} value={draft.lookbackDays} onChange={(event) => setDraft({ ...draft, lookbackDays: Number(event.target.value) })} /><small>1–30 天</small></label><label>最少消息数<input aria-label="最少消息数" type="number" min={2} max={50} value={draft.minimumMessages} onChange={(event) => setDraft({ ...draft, minimumMessages: Number(event.target.value) })} /><small>2–50 条</small></label></div></section>
+          </form></div>}
         </DashboardDialog>
         <DashboardDialog open={discardOpen} title="放弃未保存更改？" danger confirmText="放弃更改" cancelText="继续编辑" onCancel={() => setDiscardOpen(false)} onConfirm={resetEditor}><p>当前修改尚未保存，放弃后无法恢复。</p></DashboardDialog>
       </div>

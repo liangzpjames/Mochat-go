@@ -30,4 +30,11 @@ describe('AI 设置响应式布局合同', () => {
     expect(hover).not.toContain('transform:');
     expect(hover).not.toContain('filter:');
   });
+
+  it('分析助手使用单卡片两列用途布局，所有顶层操作按钮等高', () => {
+    expect(block('.ai-assistant-card')).toContain('border-radius: 14px');
+    expect(block('.ai-assistant-use-grid')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(block('.ai-settings-action-button')).toContain('min-height: 36px');
+    expect(block('.ai-insight-query-actions button')).toContain('min-height: 36px');
+  });
 });

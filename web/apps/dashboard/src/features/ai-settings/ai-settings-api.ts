@@ -5,6 +5,11 @@ export type KnowledgeBaseItem = {
 export type AgentItem = {
   id: string; corpId: number; name: string; description: string;
   systemKey?: string; knowledgeBaseIds: string[]; status: number; createdAt: string; updatedAt: string;
+  smartAnalysisRule?: SmartAnalysisRule;
+};
+export type SmartAnalysisRule = {
+  id: number; name: string; objective: string; conversationTypes: Array<'direct' | 'group'>;
+  lookbackDays: number; minimumMessages: number; currentVersion: number; updatedAt: string;
 };
 export type KnowledgeDocumentItem = {
   id: string; corpId: number; knowledgeBaseId: string; filename: string; extension: string;
@@ -16,6 +21,7 @@ export type KnowledgeBaseInput = {
 };
 export type AgentInput = {
   name: string; description: string; knowledgeBaseIds: string[]; status: number;
+  smartAnalysisRule?: Pick<SmartAnalysisRule, 'objective' | 'conversationTypes' | 'lookbackDays' | 'minimumMessages'>;
 };
 
 type Client = { request(input: RequestInfo | URL, init?: RequestInit): Promise<unknown> };

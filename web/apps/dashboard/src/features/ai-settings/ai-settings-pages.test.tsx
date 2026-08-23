@@ -5,7 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router';
 import { ApiError } from '@mochat/api-client';
 import { KnowledgeBasePage } from './knowledge-base-page';
 import { AgentPage } from './agent-page';
-import type { AISettingsApi } from './ai-settings-api';
+import type { AgentItem, AISettingsApi } from './ai-settings-api';
 import { DashboardAccessProvider } from '../../app/access-context';
 
 function createApi(overrides: Partial<AISettingsApi> = {}): AISettingsApi {
@@ -31,6 +31,15 @@ beforeAll(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {
 function LocationProbe() {
   const location = useLocation();
   return <output aria-label="当前地址">{`${location.pathname}${location.search}`}</output>;
+}
+
+function analysisAgent(overrides: Partial<AgentItem> = {}): AgentItem {
+  return {
+    id: 'a-1', corpId: 9, name: '会话分析助手', systemKey: 'session-analysis', description: '',
+    knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '2026-08-24T00:00:00Z',
+    smartAnalysisRule: { id: 12, name: '默认智能分析规则', objective: '识别客户意向', conversationTypes: ['direct'], lookbackDays: 30, minimumMessages: 2, currentVersion: 1, updatedAt: '2026-08-24T00:00:00Z' },
+    ...overrides,
+  };
 }
 
 function renderPage(api: AISettingsApi, page: 'kb' | 'agent', initialEntry?: string) {
@@ -76,12 +85,11 @@ describe('AI 设置页面', () => {
     expect(metrics.textContent).not.toContain('知识库总数0');
   });
 
-  it('智能体：首屏失败时指标不伪装为零值', async () => {
+  it('分析助手：首屏失败时不伪造默认配置', async () => {
     renderPage(createApi({ listAgents: vi.fn().mockRejectedValue(new Error('boom')) }), 'agent');
     expect((await screen.findByRole('alert')).textContent).toContain('数据加载失败');
-    const metrics = screen.getByRole('region', { name: '智能体指标' });
-    expect(metrics.textContent).toContain('—');
-    expect(metrics.textContent).not.toContain('智能体总数0');
+    expect(screen.queryByRole('heading', { name: '会话分析助手' })).toBeNull();
+    expect(screen.queryByText('识别客户意向')).toBeNull();
   });
 
   it('知识库：刷新失败时保留并明确标记上次成功数据', async () => {
@@ -110,14 +118,13 @@ describe('AI 设置页面', () => {
     expect(listKnowledgeBases).not.toHaveBeenCalled();
   });
 
-  it('智能体：数据加载并渲染行，创建校验名称必填', async () => {
+  it('分析助手：读取固定助手并渲染真实配置', async () => {
     const api = createApi({
-      listAgents: vi.fn().mockResolvedValue([
-        { id: 'a-1', corpId: 9, name: '智能客服', description: '', knowledgeBaseIds: ['kb-1'], status: 1, createdAt: '', updatedAt: '2026-08-07T00:00:00Z' },
-      ]),
+      listAgents: vi.fn().mockResolvedValue([analysisAgent({ description: '检查采购与服务风险' })]),
     });
     renderPage(api, 'agent');
-    expect(await screen.findByText('智能客服')).toBeTruthy();
+    expect(await screen.findByText('会话分析助手')).toBeTruthy();
+    expect(screen.getByText('检查采购与服务风险')).toBeTruthy();
   });
 
   it('知识库：确认前不删除指定对象', async () => {
@@ -137,7 +144,7 @@ describe('AI 设置页面', () => {
     const createAgent = vi.fn();
     const deleteAgent = vi.fn();
     const api = createApi({
-      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', systemKey: 'session-analysis', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+      listAgents: vi.fn().mockResolvedValue([analysisAgent()]),
       createAgent, deleteAgent,
     });
     renderPage(api, 'agent');
@@ -146,6 +153,32 @@ describe('AI 设置页面', () => {
     expect(screen.queryByRole('button', { name: /删除 会话分析助手/ })).toBeNull();
     expect(createAgent).not.toHaveBeenCalled();
     expect(deleteAgent).not.toHaveBeenCalled();
+  });
+
+  it('分析助手：单卡片集中编辑默认智能分析规则且不展示通用管理控件', async () => {
+    const updateAgent = vi.fn().mockResolvedValue({});
+    const api = createApi({
+      listKnowledgeBases: vi.fn().mockResolvedValue([{ id: 'kb-1', corpId: 9, name: '产品知识库', description: '', documentCount: 2, status: 1, createdAt: '', updatedAt: '' }]),
+      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', systemKey: 'session-analysis', description: '关注客户需求', knowledgeBaseIds: ['kb-1'], status: 1, createdAt: '', updatedAt: '2026-08-24T00:00:00Z', smartAnalysisRule: { id: 12, name: '默认智能分析规则', objective: '识别客户意向', conversationTypes: ['direct'], lookbackDays: 30, minimumMessages: 2, currentVersion: 3, updatedAt: '2026-08-24T00:00:00Z' } }]),
+      updateAgent,
+    });
+    renderPage(api, 'agent');
+    expect(await screen.findByText('默认智能分析规则')).toBeTruthy();
+    expect(screen.getByText('用于会话分析')).toBeTruthy();
+    expect(screen.getByText('用于智能分析')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: '智能体指标' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: '关键词' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: '智能体分页' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '编辑配置' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '智能分析目标' }), { target: { value: '识别复购机会' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: '回看天数' }), { target: { value: '14' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: '最少消息数' }), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: '客户群聊' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(updateAgent).toHaveBeenCalledWith(9, 'a-1', {
+      name: '会话分析助手', description: '关注客户需求', knowledgeBaseIds: ['kb-1'], status: 1,
+      smartAnalysisRule: { objective: '识别复购机会', conversationTypes: ['direct', 'group'], lookbackDays: 14, minimumMessages: 3 },
+    }));
   });
 
   it('知识库：共享 Modal 支持 Esc 关闭并恢复触发焦点', async () => {
@@ -159,21 +192,18 @@ describe('AI 设置页面', () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
-  it('智能体：从 URL 恢复筛选并展示真实知识库名称', async () => {
+  it('分析助手：忽略旧列表筛选参数并展示真实知识库名称', async () => {
     const api = createApi({
       listKnowledgeBases: vi.fn().mockResolvedValue([
         { id: 'kb-1', corpId: 9, name: '售后话术库', description: '', documentCount: 3, status: 1, createdAt: '', updatedAt: '' },
       ]),
-      listAgents: vi.fn().mockResolvedValue([
-        { id: 'a-1', corpId: 9, name: '客服助手', description: '', knowledgeBaseIds: ['kb-1'], status: 1, createdAt: '', updatedAt: '' },
-        { id: 'a-2', corpId: 9, name: '停用助手', description: '', knowledgeBaseIds: [], status: 0, createdAt: '', updatedAt: '' },
-      ]),
+      listAgents: vi.fn().mockResolvedValue([analysisAgent({ knowledgeBaseIds: ['kb-1'] })]),
     });
     renderPage(api, 'agent', '/ai-setting/agent?q=客服&status=enabled&page=1&pageSize=10');
     expect(await screen.findByText('售后话术库')).toBeTruthy();
-    expect(screen.queryByText('停用助手')).toBeNull();
-    expect(screen.getByRole('textbox', { name: '关键词' })).toHaveProperty('value', '客服');
-    expect(screen.getByRole('combobox', { name: '状态' })).toHaveProperty('value', 'enabled');
+    expect(screen.queryByRole('textbox', { name: '关键词' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: '状态' })).toBeNull();
+    expect(screen.getByLabelText('当前地址').textContent).toContain('q=客服');
   });
 
   it('知识库：查询、重置、翻页和每页条数写入 URL', async () => {
@@ -222,13 +252,13 @@ describe('AI 设置页面', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('仍被 2 个智能体引用');
   });
 
-  it('智能体：知识库加载失败时禁用保存并保留明确错误语义', async () => {
+  it('分析助手：知识库加载失败时禁用保存并保留明确错误语义', async () => {
     const api = createApi({
       listKnowledgeBases: vi.fn().mockRejectedValue(new Error('network')),
-      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+      listAgents: vi.fn().mockResolvedValue([analysisAgent()]),
     });
     renderPage(api, 'agent');
-    fireEvent.click(await screen.findByRole('button', { name: '编辑 会话分析助手' }));
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置' }));
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(screen.getByRole('button', { name: '保存' })).toHaveProperty('disabled', true);
   });
@@ -279,28 +309,26 @@ describe('AI 设置页面', () => {
     expect(screen.queryByText('操作失败，请稍后重试。')).toBeNull();
   });
 
-  it('智能体：更新请求失败显示明确中文并保留编辑上下文', async () => {
+  it('分析助手：更新请求失败显示明确中文并保留编辑上下文', async () => {
     const updateAgent = vi.fn().mockRejectedValue(new ApiError('validation', 'invalid json', { status: 400, machineCode: 'AI_SETTINGS_INVALID_JSON' }));
-    renderPage(createApi({ updateAgent, listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]) }), 'agent');
-    fireEvent.click(await screen.findByRole('button', { name: '编辑 会话分析助手' }));
-    fireEvent.change(screen.getByRole('textbox', { name: '分析要求' }), { target: { value: '重点检查退款风险' } });
+    renderPage(createApi({ updateAgent, listAgents: vi.fn().mockResolvedValue([analysisAgent()]) }), 'agent');
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'AI 分析要求' }), { target: { value: '重点检查退款风险' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect((await screen.findByRole('alert')).textContent).toContain('请求格式无效，请刷新后重试。');
     expect(screen.queryByText('操作失败，请稍后重试。')).toBeNull();
   });
 
-  it('智能体：编辑时允许保留既有关联的停用知识库，但禁止新关联其他停用知识库', async () => {
+  it('分析助手：编辑时允许保留既有关联的停用知识库，但禁止新关联其他停用知识库', async () => {
     const api = createApi({
       listKnowledgeBases: vi.fn().mockResolvedValue([
         { id: 'kb-old', corpId: 9, name: '既有关联停用库', description: '', documentCount: 0, status: 0, createdAt: '', updatedAt: '' },
         { id: 'kb-disabled', corpId: 9, name: '其他停用库', description: '', documentCount: 0, status: 0, createdAt: '', updatedAt: '' },
       ]),
-      listAgents: vi.fn().mockResolvedValue([
-        { id: 'a-1', corpId: 9, name: '客服助手', description: '', knowledgeBaseIds: ['kb-old', 'missing-kb'], status: 1, createdAt: '', updatedAt: '' },
-      ]),
+      listAgents: vi.fn().mockResolvedValue([analysisAgent({ knowledgeBaseIds: ['kb-old', 'missing-kb'] })]),
     });
     renderPage(api, 'agent');
-    fireEvent.click(await screen.findByRole('button', { name: '编辑 客服助手' }));
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置' }));
     const existing = screen.getByRole('checkbox', { name: /既有关联停用库/ });
     const disabled = screen.getByRole('checkbox', { name: /其他停用库/ });
     expect(existing).toHaveProperty('checked', true);
@@ -309,16 +337,20 @@ describe('AI 设置页面', () => {
     expect(screen.getAllByText(/已失效（ID: missing-kb）/).length).toBeGreaterThan(0);
   });
 
-  it('智能体：显式停用使用完整真实记录更新并回读', async () => {
+  it('分析助手：在集中编辑器中停用并连同默认规则原子保存', async () => {
     const updateAgent = vi.fn().mockResolvedValue({});
     const listAgents = vi.fn().mockResolvedValue([
-      { id: 'a-1', corpId: 9, name: '客服助手', description: '真实说明', knowledgeBaseIds: ['kb-1'], status: 1, createdAt: '', updatedAt: '' },
+      analysisAgent({ description: '真实说明', knowledgeBaseIds: ['kb-1'] }),
     ]);
     renderPage(createApi({ updateAgent, listAgents }), 'agent');
-    fireEvent.click(await screen.findByRole('button', { name: '停用 客服助手' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    await waitFor(() => expect(updateAgent).toHaveBeenCalledWith(9, 'a-1', { name: '客服助手', description: '真实说明', knowledgeBaseIds: ['kb-1'], status: 0 }));
-    expect(await screen.findByText('智能体“客服助手”已停用。')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置' }));
+    fireEvent.change(screen.getByRole('combobox', { name: '运行状态' }), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(updateAgent).toHaveBeenCalledWith(9, 'a-1', {
+      name: '会话分析助手', description: '真实说明', knowledgeBaseIds: ['kb-1'], status: 0,
+      smartAnalysisRule: { objective: '识别客户意向', conversationTypes: ['direct'], lookbackDays: 30, minimumMessages: 2 },
+    }));
+    expect(await screen.findByText(/分析助手配置已保存/)).toBeTruthy();
     expect(listAgents.mock.calls.length).toBeGreaterThan(1);
   });
 
@@ -338,15 +370,11 @@ describe('AI 设置页面', () => {
     resolveSave?.({});
   });
 
-  it('智能体：直接访问越界页码时以 replace 规范化为最后一页', async () => {
-    const agents = Array.from({ length: 21 }, (_, index) => ({
-      id: `a-${index + 1}`, corpId: 9, name: `智能体 ${index + 1}`, description: '', knowledgeBaseIds: [], status: 1,
-      createdAt: '', updatedAt: '',
-    }));
-    renderPage(createApi({ listAgents: vi.fn().mockResolvedValue(agents) }), 'agent', '/ai-setting/agent?page=999&pageSize=10');
-    await screen.findByText('智能体 21');
-    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('page=3'));
-    expect(screen.getByLabelText('当前地址').textContent).not.toContain('page=999');
+  it('分析助手：旧分页参数不再影响固定助手', async () => {
+    renderPage(createApi({ listAgents: vi.fn().mockResolvedValue([analysisAgent()]) }), 'agent', '/ai-setting/agent?page=999&pageSize=10');
+    await screen.findByText('会话分析助手');
+    expect(screen.getByLabelText('当前地址').textContent).toContain('page=999');
+    expect(screen.queryByRole('navigation', { name: '智能体分页' })).toBeNull();
   });
 
   it('知识库：显式非法列表参数规范化为实际状态', async () => {
@@ -359,14 +387,13 @@ describe('AI 设置页面', () => {
     expect(screen.getByRole('combobox', { name: '每页条数' })).toHaveProperty('value', '10');
   });
 
-  it('智能体：显式非法列表参数规范化为实际状态', async () => {
+  it('分析助手：不再呈现列表状态和每页条数控件', async () => {
     renderPage(createApi({
-      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '参数智能体', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+      listAgents: vi.fn().mockResolvedValue([analysisAgent()]),
     }), 'agent', '/ai-setting/agent?page=1&pageSize=999&status=invalid');
-    await screen.findByText('参数智能体');
-    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toBe('/ai-setting/agent?page=1&pageSize=10&status=all'));
-    expect(screen.getByRole('combobox', { name: '状态' })).toHaveProperty('value', 'all');
-    expect(screen.getByRole('combobox', { name: '每页条数' })).toHaveProperty('value', '10');
+    await screen.findByText('会话分析助手');
+    expect(screen.queryByRole('combobox', { name: '状态' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: '每页条数' })).toBeNull();
   });
 
   it.each([
@@ -375,7 +402,7 @@ describe('AI 设置页面', () => {
   ])('%s：未提供列表参数时默认 URL 保持简洁', async (_label, pageKind, path, itemName) => {
     const api = pageKind === 'kb'
       ? createApi({ listKnowledgeBases: vi.fn().mockResolvedValue([{ id: 'kb-default', corpId: 9, name: itemName, description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }]) })
-      : createApi({ listAgents: vi.fn().mockResolvedValue([{ id: 'agent-default', corpId: 9, name: itemName, description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]) });
+      : createApi({ listAgents: vi.fn().mockResolvedValue([analysisAgent({ id: 'agent-default', name: itemName })]) });
     renderPage(api, pageKind, path);
     await screen.findByText(itemName);
     await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toBe(path));
@@ -416,22 +443,25 @@ describe('AI 设置页面', () => {
     await screen.findByText('知识库“待删除知识库”已删除。');
   });
 
-  it('智能体：异步启停确认保持 pending 并阻止重复请求', async () => {
-    let resolveToggle: ((value: unknown) => void) | undefined;
-    const updateAgent = vi.fn().mockImplementation(() => new Promise((resolve) => { resolveToggle = resolve; }));
+  it('分析助手：异步保存保持 pending 并阻止 Escape 关闭或重复请求', async () => {
+    let resolveSave: ((value: unknown) => void) | undefined;
+    const updateAgent = vi.fn().mockImplementation(() => new Promise((resolve) => { resolveSave = resolve; }));
     renderPage(createApi({
-      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '待停用助手', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+      listAgents: vi.fn().mockResolvedValue([analysisAgent()]),
       updateAgent,
     }), 'agent');
-    fireEvent.click(await screen.findByRole('button', { name: '停用 待停用助手' }));
-    const confirm = await screen.findByRole('button', { name: '确认' });
-    fireEvent.click(confirm);
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'AI 分析要求' }), { target: { value: '保存中配置' } });
+    const save = screen.getByRole('button', { name: '保存' });
+    fireEvent.click(save);
     await waitFor(() => expect(updateAgent).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(confirm.className).toContain('ant-btn-loading'));
-    fireEvent.click(confirm);
+    await waitFor(() => expect(save.className).toContain('ant-btn-loading'));
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+    expect(screen.getByRole('dialog', { name: '配置会话分析助手' })).toBeTruthy();
+    fireEvent.click(save);
     expect(updateAgent).toHaveBeenCalledTimes(1);
-    resolveToggle?.({});
-    await screen.findByText('智能体“待停用助手”已停用。');
+    resolveSave?.({});
+    await screen.findByText(/分析助手配置已保存/);
   });
 
   it('知识库：文档数由上传链路维护且 Unicode 长度不依赖原生 maxLength', async () => {

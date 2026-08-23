@@ -930,7 +930,7 @@
     },
     {
       "path": "/ai-setting/agent",
-      "title": "智能体管理",
+      "title": "分析助手",
       "groupId": "ai-settings",
       "level": "P2",
       "status": "documented",
