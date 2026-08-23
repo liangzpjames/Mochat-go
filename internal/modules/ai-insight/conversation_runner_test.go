@@ -22,11 +22,13 @@ func TestConversationRunnerPromptContainsSourceContract(t *testing.T) {
 
 type runnerRepoStub struct {
 	Repository
-	previous string
-	saved    []ConversationInsight
-	runs     []InsightRun
-	finished []InsightRunResult
-	rules    []AnalysisRuleVersion
+	previous       string
+	saved          []ConversationInsight
+	runs           []InsightRun
+	finished       []InsightRunResult
+	rules          []AnalysisRuleVersion
+	createRunErr   error
+	createRunErrAt int
 }
 
 func (r *runnerRepoStub) ConversationCandidates(context.Context, CandidateQuery) ([]ConversationCandidate, error) {
@@ -44,6 +46,9 @@ func (r *runnerRepoStub) SaveInsight(_ context.Context, insight ConversationInsi
 }
 func (r *runnerRepoStub) CreateRun(_ context.Context, run InsightRun) (int64, error) {
 	r.runs = append(r.runs, run)
+	if r.createRunErr != nil && (r.createRunErrAt == 0 || len(r.runs) == r.createRunErrAt) {
+		return 0, r.createRunErr
+	}
 	return int64(len(r.runs)), nil
 }
 func (r *runnerRepoStub) FinishRun(_ context.Context, _ int64, result InsightRunResult) error {
@@ -55,14 +60,16 @@ func (r *runnerRepoStub) EnabledRuleVersions(context.Context, int64, int64) ([]A
 }
 
 type assistantContextStub struct {
-	context settingsports.SessionAssistantContext
+	context   settingsports.SessionAssistantContext
+	ensureErr error
+	loadErr   error
 }
 
 func (s assistantContextStub) EnsureSessionAssistant(context.Context, int64, int64, int64, string) (settingsports.Agent, error) {
-	return settingsports.Agent{ID: "session", Name: settingsports.SessionAnalysisAssistantName}, nil
+	return settingsports.Agent{ID: "session", Name: settingsports.SessionAnalysisAssistantName}, s.ensureErr
 }
 func (s assistantContextStub) LoadSessionAssistantContext(context.Context, int64, int64) (settingsports.SessionAssistantContext, error) {
-	return s.context, nil
+	return s.context, s.loadErr
 }
 
 type capturingAIProvider struct {
@@ -149,6 +156,46 @@ func TestConversationRunnerDoesNotCallProviderWhenSessionAssistantDisabled(t *te
 	}
 	if provider.calls != 0 || len(repo.runs) != 2 || repo.runs[0].AnalysisType != AnalysisTypeSession || repo.runs[1].AnalysisType != AnalysisTypeSmart {
 		t.Fatalf("calls=%d runs=%#v", provider.calls, repo.runs)
+	}
+}
+
+func TestConversationRunnerReturnsUnavailableRunPersistenceFailure(t *testing.T) {
+	persistenceErr := errors.New("persist unavailable run failed")
+	tests := []struct {
+		name      string
+		assistant assistantContextStub
+	}{
+		{name: "ensure fails", assistant: assistantContextStub{ensureErr: errors.New("ensure failed")}},
+		{name: "load fails", assistant: assistantContextStub{loadErr: errors.New("load failed")}},
+		{name: "assistant disabled", assistant: assistantContextStub{context: settingsports.SessionAssistantContext{Enabled: false}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &runnerRepoStub{createRunErr: persistenceErr, createRunErrAt: 1}
+			runner := NewConversationAnalysisRunner(repo, &capturingAIProvider{}, RunnerConfig{}, nil, test.assistant)
+
+			err := runner.RunCorp(context.Background(), 1, 2)
+
+			if !errors.Is(err, persistenceErr) {
+				t.Fatalf("RunCorp error = %v, want %v", err, persistenceErr)
+			}
+		})
+	}
+}
+
+func TestConversationRunnerReturnsSmartUnavailableRunPersistenceFailure(t *testing.T) {
+	persistenceErr := errors.New("persist smart unavailable run failed")
+	repo := &runnerRepoStub{
+		rules:          []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1}},
+		createRunErr:   persistenceErr,
+		createRunErrAt: 2,
+	}
+	runner := NewConversationAnalysisRunner(repo, &capturingAIProvider{}, RunnerConfig{}, nil, assistantContextStub{context: settingsports.SessionAssistantContext{Enabled: false}})
+
+	err := runner.RunCorp(context.Background(), 1, 2)
+
+	if !errors.Is(err, persistenceErr) {
+		t.Fatalf("RunCorp error = %v, want %v", err, persistenceErr)
 	}
 }
 

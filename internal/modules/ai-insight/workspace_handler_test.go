@@ -18,13 +18,39 @@ type workspaceTestResolver struct {
 
 type workspaceAssistantStub struct {
 	assistant settingsports.SessionAssistantContext
+	ensureErr error
+	loadErr   error
 }
 
 func (s workspaceAssistantStub) EnsureSessionAssistant(context.Context, int64, int64, int64, string) (settingsports.Agent, error) {
-	return settingsports.Agent{}, nil
+	return settingsports.Agent{}, s.ensureErr
 }
 func (s workspaceAssistantStub) LoadSessionAssistantContext(context.Context, int64, int64) (settingsports.SessionAssistantContext, error) {
-	return s.assistant, nil
+	return s.assistant, s.loadErr
+}
+
+func TestWorkspaceStatusReturnsFailureWhenSessionAssistantIsUnavailable(t *testing.T) {
+	tests := []struct {
+		name      string
+		assistant workspaceAssistantStub
+	}{
+		{name: "ensure fails", assistant: workspaceAssistantStub{ensureErr: errors.New("ensure failed")}},
+		{name: "load fails", assistant: workspaceAssistantStub{loadErr: errors.New("load failed")}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewWorkspaceHandler(
+				workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil,
+				test.assistant,
+			)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/status", nil))
+
+			if recorder.Code != http.StatusInternalServerError || !strings.Contains(recorder.Body.String(), `"msg":"AI 洞察请求失败"`) {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
 }
 
 func TestWorkspaceSessionStatusExposesRuntimeAssistantSummary(t *testing.T) {

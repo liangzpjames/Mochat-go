@@ -104,13 +104,19 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 		id := fmt.Sprintf("session-%d-%d", tenantID, corpID)
 		if _, err := r.assistant.EnsureSessionAssistant(ctx, tenantID, corpID, 0, id); err != nil {
 			assistantFailure = "会话分析助手加载失败: " + err.Error()
-			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure)
+			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure); err != nil {
+				return err
+			}
 		} else if loaded, err := r.assistant.LoadSessionAssistantContext(ctx, tenantID, corpID); err != nil {
 			assistantFailure = "会话分析助手加载失败: " + err.Error()
-			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure)
+			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure); err != nil {
+				return err
+			}
 		} else if !loaded.Enabled {
 			assistantFailure = "会话分析助手已停用"
-			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure)
+			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure); err != nil {
+				return err
+			}
 		} else {
 			assistantContext = &loaded
 		}
@@ -126,7 +132,9 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 	}
 	for _, rule := range rules {
 		if r.assistant != nil && assistantContext == nil {
-			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, assistantFailure)
+			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, assistantFailure); err != nil {
+				return err
+			}
 			continue
 		}
 		days := rule.LookbackDays

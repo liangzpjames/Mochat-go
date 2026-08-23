@@ -148,14 +148,16 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 	}
 	data := map[string]any{"provider": provider}
 	if h.assistant != nil {
-		_, ensureErr := h.assistant.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID))
-		assistant, loadErr := h.assistant.LoadSessionAssistantContext(r.Context(), p.TenantID, p.CorpID)
-		if ensureErr != nil {
-			loadErr = ensureErr
+		if _, err := h.assistant.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID)); err != nil {
+			workspaceRepoError(w, err)
+			return
 		}
-		if loadErr == nil {
-			data["assistant"] = map[string]any{"name": assistant.Name, "enabled": assistant.Enabled, "knowledgeBaseCount": assistant.KnowledgeBaseCount, "readyDocumentCount": assistant.ReadyDocumentCount, "updatedAt": assistant.UpdatedAt}
+		assistant, err := h.assistant.LoadSessionAssistantContext(r.Context(), p.TenantID, p.CorpID)
+		if err != nil {
+			workspaceRepoError(w, err)
+			return
 		}
+		data["assistant"] = map[string]any{"name": assistant.Name, "enabled": assistant.Enabled, "knowledgeBaseCount": assistant.KnowledgeBaseCount, "readyDocumentCount": assistant.ReadyDocumentCount, "updatedAt": assistant.UpdatedAt}
 	}
 	if run != nil {
 		data["run"] = map[string]any{"status": run.Status, "candidateCount": run.CandidateCount, "successCount": run.SuccessCount, "failureCount": run.FailureCount, "backlogCount": run.BacklogCount, "errorSummary": run.ErrorSummary, "createdAt": run.CreatedAt}
