@@ -38,6 +38,11 @@ const knownPreviousInitialSchemaChecksum = "03425c87c5584e82b7991d7f5fe4c75f8918
 // idempotent seed and remain present in deployed migration ledgers.
 const knownLegacyCoreSeedChecksum = "de6513fb142d38fbd0205ecaa6e6ddbdd9d765e5c455ab20bd2afdd158d276ed"
 
+// The first Windows Docker Desktop deployment of 0153 was built from a
+// worktree containing mixed LF/CRLF line endings. The SQL is byte-normalized
+// to the current migration, but its immutable ledger retains this checksum.
+const knownLegacyLiveCodeWorkspaceChecksum = "f17df230c78b79ed0e23d77b87057a939fa8ef5d1ac97fa1db43b5aa34f7344c"
+
 type Migration struct {
 	Version         string
 	Description     string
@@ -727,6 +732,9 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 		checksumAliases := migrationLineEndingChecksumAliases(path)
 		if version == "0002_seed_core_data" {
 			checksumAliases = append(checksumAliases, knownLegacyCoreSeedChecksum)
+		}
+		if version == "0153_live_code_workspace" {
+			checksumAliases = append(checksumAliases, knownLegacyLiveCodeWorkspaceChecksum)
 		}
 		migrations = append(migrations, Migration{
 			Version:         version,
