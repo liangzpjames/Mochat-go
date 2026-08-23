@@ -1,0 +1,68 @@
+{
+  "任务": "AI 设置菜单整体优化",
+  "验收时间": "2026-08-23",
+  "环境": {
+    "入口": "http://127.0.0.1:18080",
+    "身份": "Dashboard Super Admin",
+    "企业": "蓝鲸数字科技（上海）有限公司",
+    "运行方式": "mochat-go-desktop Docker Compose，保留既有数据卷",
+    "迁移": "0155_ai_settings_integrity_audit 已应用",
+    "健康状态": "healthy"
+  },
+  "范围": [
+    {
+      "路由": "/ai-setting/ai-knowledge-base",
+      "页面": "AI 知识库",
+      "接口": [
+        "GET /dashboard/ai-settings/knowledge-bases",
+        "POST /dashboard/ai-settings/knowledge-bases",
+        "PUT /dashboard/ai-settings/knowledge-bases/{id}",
+        "DELETE /dashboard/ai-settings/knowledge-bases/{id}"
+      ]
+    },
+    {
+      "路由": "/ai-setting/agent",
+      "页面": "智能体管理",
+      "接口": [
+        "GET /dashboard/ai-settings/agents",
+        "POST /dashboard/ai-settings/agents",
+        "PUT /dashboard/ai-settings/agents/{id}",
+        "DELETE /dashboard/ai-settings/agents/{id}",
+        "GET /dashboard/ai-settings/knowledge-bases"
+      ]
+    }
+  ],
+  "真实工作流": [
+    "知识库新增、编辑、启用、按关键词和状态查询、URL 刷新持久化、引用冲突、解除引用后删除",
+    "智能体新增、关联真实知识库、编辑、停用、按关键词和状态查询、URL 刷新持久化、删除",
+    "新建表单必填校验、保存 pending 防重入、关闭按钮、Escape 与遮罩行为、未保存变更二次确认",
+    "两个页面的筛选空态；停止应用容器后的真实加载失败态；恢复容器后的重新加载",
+    "2560x1440 宽屏、1366x900 常规桌面、1366x620 小高度、390x844 窄屏"
+  ],
+  "持久化结果": {
+    "活动验收知识库": 0,
+    "已软删除验收知识库": 1,
+    "活动验收智能体": 0,
+    "已软删除验收智能体": 1,
+    "审计记录": 8,
+    "审计分布": [
+      "knowledge_base: create=1, update=2, delete=1",
+      "agent: create=1, update=2, delete=1"
+    ]
+  },
+  "截图": [
+    "agent-desktop-1366x900.png",
+    "agent-mobile-390x844.png",
+    "agent-network-failure-1366x620.png",
+    "agent-short-1366x620.png",
+    "kb-conflict-desktop-1366x900.png",
+    "kb-mobile-390x844.png",
+    "kb-wide-2560x1440.png"
+  ],
+  "限制": [
+    "知识库当前仅持久化元数据与人工登记文档数，未接入文档上传、解析、索引或检索链路。",
+    "智能体当前仅持久化配置元数据与知识库关系，未接入模型、提示词、工具、发布或真实运行能力。",
+    "未执行任何外部 Provider 写操作，也未宣称外部 AI 能力可用。",
+    "Phase 7 真实企微会话存档继续保持暂停。"
+  ]
+}
