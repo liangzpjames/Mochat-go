@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 type SQLRepository struct{ db *sql.DB }
@@ -65,7 +67,7 @@ func (r *SQLRepository) ConversationCandidates(ctx context.Context, query Candid
 		result = append(result, ConversationCandidate{
 			ConversationKey: key, EmployeeID: last.EmployeeID, EmployeeName: first.EmployeeName, EmployeeAvatar: first.EmployeeAvatar,
 			TargetType: fmt.Sprintf("%d", first.TargetType), TargetID: first.TargetID, TargetName: first.TargetName, TargetAvatar: first.TargetAvatar,
-			SourceStartedAt: first.MessageTime, SourceEndedAt: last.MessageTime, SourceMessageCount: len(messages), SourceFingerprint: fingerprintArchiveRows(messages),
+			SourceStartedAt: last.MessageTime, SourceEndedAt: first.MessageTime, SourceMessageCount: len(messages), SourceFingerprint: fingerprintArchiveRows(messages),
 		})
 	}
 	return result, nil
@@ -108,7 +110,11 @@ func (r *SQLRepository) archiveMessages(ctx context.Context, corpID int64, start
 		if err != nil {
 			// Fresh installations may not have all ten shards yet. A missing
 			// table is indistinguishable from an empty shard for read purposes.
-			continue
+			var mysqlErr *mysql.MySQLError
+			if errors.As(err, &mysqlErr) && mysqlErr.Number == 1146 {
+				continue
+			}
+			return nil, err
 		}
 		all = append(all, rows...)
 	}

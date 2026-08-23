@@ -1,10 +1,35 @@
 package aiinsight
 
 import (
+	"context"
+	"database/sql/driver"
+	"errors"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/go-sql-driver/mysql"
 )
+
+var archiveMessageColumns = []string{
+	"id", "msgid", "content_text", "work_employee_id", "to_user_type", "target_id", "sender_type", "seq", "msg_data_time",
+	"employee_name", "employee_avatar", "target_name", "target_avatar",
+}
+
+func expectArchiveShard(mock sqlmock.Sqlmock, tableIndex int, args []driver.Value, rows *sqlmock.Rows, err error) {
+	expectation := mock.ExpectQuery(regexp.QuoteMeta("FROM mc_work_message_" + strconv.Itoa(tableIndex) + " wm"))
+	if len(args) > 0 {
+		expectation.WithArgs(args...)
+	}
+	if err != nil {
+		expectation.WillReturnError(err)
+		return
+	}
+	expectation.WillReturnRows(rows)
+}
 
 func TestConversationCandidatesMergeShardsByGlobalMessageTime(t *testing.T) {
 	base := time.Date(2026, 8, 21, 9, 0, 0, 0, time.UTC)
@@ -20,6 +45,101 @@ func TestConversationCandidatesMergeShardsByGlobalMessageTime(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("global order = %#v, want %#v", got, want)
 		}
+	}
+}
+
+func TestConversationCandidateWindowCanReadBackItsSourceMessages(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := NewSQLRepository(db)
+	oldest := time.Date(2026, 8, 21, 9, 0, 0, 0, time.UTC)
+	newest := oldest.Add(5 * time.Minute)
+	queryStart, queryEnd := oldest.Add(-time.Hour), newest.Add(time.Hour)
+	conversationKey := "7:1:99"
+
+	candidateRows := sqlmock.NewRows(archiveMessageColumns).
+		AddRow("new", "msg-new", "新消息", 7, 1, "99", 1, 2, newest, "员工", "", "客户", "").
+		AddRow("old", "msg-old", "旧消息", 7, 1, "99", 0, 1, oldest, "员工", "", "客户", "")
+	expectArchiveShard(mock, 1, []driver.Value{int64(42), queryStart, queryEnd}, candidateRows, nil)
+	for tableIndex := 2; tableIndex <= 10; tableIndex++ {
+		expectArchiveShard(mock, tableIndex, []driver.Value{int64(42), queryStart, queryEnd}, nil, &mysql.MySQLError{Number: 1146, Message: "table does not exist"})
+	}
+
+	candidates, err := repo.ConversationCandidates(context.Background(), CandidateQuery{CorpID: 42, StartAt: queryStart, EndAt: queryEnd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %#v", candidates)
+	}
+	candidate := candidates[0]
+	if candidate.SourceStartedAt.After(candidate.SourceEndedAt) {
+		t.Fatalf("candidate window is reversed: started=%s ended=%s", candidate.SourceStartedAt, candidate.SourceEndedAt)
+	}
+	if !candidate.SourceStartedAt.Equal(oldest) || !candidate.SourceEndedAt.Equal(newest) {
+		t.Fatalf("candidate window = %s..%s, want %s..%s", candidate.SourceStartedAt, candidate.SourceEndedAt, oldest, newest)
+	}
+
+	messageRows := sqlmock.NewRows(archiveMessageColumns).
+		AddRow("new", "msg-new", "新消息", 7, 1, "99", 1, 2, newest, "员工", "", "客户", "").
+		AddRow("old", "msg-old", "旧消息", 7, 1, "99", 0, 1, oldest, "员工", "", "客户", "")
+	expectArchiveShard(mock, 1, []driver.Value{int64(42), oldest, newest, conversationKey}, messageRows, nil)
+	for tableIndex := 2; tableIndex <= 10; tableIndex++ {
+		expectArchiveShard(mock, tableIndex, []driver.Value{int64(42), oldest, newest, conversationKey}, nil, &mysql.MySQLError{Number: 1146, Message: "table does not exist"})
+	}
+	messages, err := repo.ConversationMessages(context.Background(), ConversationWindowQuery{
+		CorpID: 42, ConversationKey: conversationKey, StartAt: candidate.SourceStartedAt, EndAt: candidate.SourceEndedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[0].ID != "new" || messages[1].ID != "old" {
+		t.Fatalf("messages = %#v", messages)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestArchiveMessagesPropagatesNonMissingTableError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := NewSQLRepository(db)
+	wantErr := errors.New("connection reset")
+	expectArchiveShard(mock, 1, []driver.Value{int64(42)}, nil, wantErr)
+
+	_, err = repo.archiveMessages(context.Background(), 42, time.Time{}, time.Time{}, nil, false, "")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestArchiveMessagesIgnoresOnlyMissingTableError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := NewSQLRepository(db)
+	expectArchiveShard(mock, 1, []driver.Value{int64(42)}, nil, &mysql.MySQLError{Number: 1146, Message: "table does not exist"})
+	expectArchiveShard(mock, 2, []driver.Value{int64(42)}, nil, &mysql.MySQLError{Number: 1142, Message: "permission denied"})
+
+	_, err = repo.archiveMessages(context.Background(), 42, time.Time{}, time.Time{}, nil, false, "")
+	var mysqlErr *mysql.MySQLError
+	if !errors.As(err, &mysqlErr) || mysqlErr.Number != 1142 {
+		t.Fatalf("error = %v, want MySQL 1142", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
