@@ -7,13 +7,16 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"jiyi/mochat-go/internal/modules/ai-settings/ports"
 )
 
 type fakeKBRepo struct {
-	items []ports.KnowledgeBase
+	items     []ports.KnowledgeBase
+	updateErr error
+	deleteErr error
 }
 
 func (f *fakeKBRepo) List(_ context.Context, tenantID, corpID int64) ([]ports.KnowledgeBase, error) {
@@ -48,6 +51,9 @@ func (f *fakeKBRepo) Create(_ context.Context, v ports.KnowledgeBase) (ports.Kno
 }
 
 func (f *fakeKBRepo) Update(_ context.Context, v ports.KnowledgeBase) (ports.KnowledgeBase, error) {
+	if f.updateErr != nil {
+		return ports.KnowledgeBase{}, f.updateErr
+	}
 	for i := range f.items {
 		if f.items[i].ID == v.ID && f.items[i].TenantID == v.TenantID && f.items[i].CorpID == v.CorpID {
 			f.items[i] = v
@@ -58,6 +64,9 @@ func (f *fakeKBRepo) Update(_ context.Context, v ports.KnowledgeBase) (ports.Kno
 }
 
 func (f *fakeKBRepo) Delete(_ context.Context, tenantID, corpID int64, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	for i := range f.items {
 		if f.items[i].ID == id && f.items[i].TenantID == tenantID && f.items[i].CorpID == corpID {
 			f.items = append(f.items[:i], f.items[i+1:]...)
@@ -68,7 +77,9 @@ func (f *fakeKBRepo) Delete(_ context.Context, tenantID, corpID int64, id string
 }
 
 type fakeAgentRepo struct {
-	items []ports.Agent
+	items     []ports.Agent
+	updateErr error
+	deleteErr error
 }
 
 func (f *fakeAgentRepo) List(_ context.Context, tenantID, corpID int64) ([]ports.Agent, error) {
@@ -103,6 +114,9 @@ func (f *fakeAgentRepo) Create(_ context.Context, v ports.Agent) (ports.Agent, e
 }
 
 func (f *fakeAgentRepo) Update(_ context.Context, v ports.Agent) (ports.Agent, error) {
+	if f.updateErr != nil {
+		return ports.Agent{}, f.updateErr
+	}
 	for i := range f.items {
 		if f.items[i].ID == v.ID && f.items[i].TenantID == v.TenantID && f.items[i].CorpID == v.CorpID {
 			f.items[i] = v
@@ -113,6 +127,9 @@ func (f *fakeAgentRepo) Update(_ context.Context, v ports.Agent) (ports.Agent, e
 }
 
 func (f *fakeAgentRepo) Delete(_ context.Context, tenantID, corpID int64, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	for i := range f.items {
 		if f.items[i].ID == id && f.items[i].TenantID == tenantID && f.items[i].CorpID == corpID {
 			f.items = append(f.items[:i], f.items[i+1:]...)
@@ -289,8 +306,199 @@ func TestAISettingsRejectsInvalidStatus(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			response := perform(test.handler, http.MethodPost, test.target, test.body)
+			payload := envelopeData(t, response)
+			if response.Code != http.StatusBadRequest || payload["msg"] != machineCodeInvalidStatus {
+				t.Fatalf("code = %d, want 400; body = %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestAISettingsRejectsMissingStatusWithMachineCode(t *testing.T) {
+	handler := NewAgentHandler(&fakeAgentRepo{}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" })
+
+	response := perform(handler, http.MethodPost, "/dashboard/ai-settings/agents", `{"name":"客服助手","knowledgeBaseIds":[]}`)
+	payload := envelopeData(t, response)
+	if response.Code != http.StatusBadRequest || payload["msg"] != machineCodeInvalidStatus {
+		t.Fatalf("response = %s", response.Body.String())
+	}
+}
+
+func TestAISettingsValidatesNameRuneLengthAndDocumentCount(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.Handler
+		target  string
+		body    string
+	}{
+		{
+			name:    "knowledge base name too short",
+			handler: NewKnowledgeBaseHandler(&fakeKBRepo{}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			target:  "/dashboard/ai-settings/knowledge-bases",
+			body:    `{"name":"你","documentCount":0,"status":1}`,
+		},
+		{
+			name:    "knowledge base name too long in runes",
+			handler: NewKnowledgeBaseHandler(&fakeKBRepo{}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			target:  "/dashboard/ai-settings/knowledge-bases",
+			body:    `{"name":"` + strings.Repeat("你", 129) + `","documentCount":0,"status":1}`,
+		},
+		{
+			name:    "agent name too short",
+			handler: NewAgentHandler(&fakeAgentRepo{}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
+			target:  "/dashboard/ai-settings/agents",
+			body:    `{"name":"你","knowledgeBaseIds":[],"status":1}`,
+		},
+		{
+			name:    "agent name too long in runes",
+			handler: NewAgentHandler(&fakeAgentRepo{}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
+			target:  "/dashboard/ai-settings/agents",
+			body:    `{"name":"` + strings.Repeat("你", 129) + `","knowledgeBaseIds":[],"status":1}`,
+		},
+		{
+			name:    "negative document count",
+			handler: NewKnowledgeBaseHandler(&fakeKBRepo{}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			target:  "/dashboard/ai-settings/knowledge-bases",
+			body:    `{"name":"售后库","documentCount":-1,"status":1}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := perform(test.handler, http.MethodPost, test.target, test.body)
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("code = %d, want 400; body = %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestAgentPersistsStableDeduplicatedKnowledgeBaseIDs(t *testing.T) {
+	knowledgeBases := &fakeKBRepo{items: []ports.KnowledgeBase{
+		{ID: "kb-1", TenantID: 1, CorpID: 2},
+		{ID: "kb-2", TenantID: 1, CorpID: 2},
+	}}
+	agents := &fakeAgentRepo{}
+	handler := NewAgentHandler(agents, knowledgeBases, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" })
+
+	response := perform(handler, http.MethodPost, "/dashboard/ai-settings/agents", `{"name":"客服助手","knowledgeBaseIds":["kb-2","kb-1","kb-2"],"status":1}`)
+	if response.Code != http.StatusOK || len(agents.items) != 1 || strings.Join(agents.items[0].KnowledgeBaseIDs, ",") != "kb-2,kb-1" {
+		t.Fatalf("response = %s, stored = %#v", response.Body.String(), agents.items)
+	}
+}
+
+func TestAgentRejectsBlankKnowledgeBaseID(t *testing.T) {
+	handler := NewAgentHandler(&fakeAgentRepo{}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" })
+
+	response := perform(handler, http.MethodPost, "/dashboard/ai-settings/agents", `{"name":"客服助手","knowledgeBaseIds":[" "],"status":1}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAISettingsHandlesMissingCrossRepositoryWithoutPanic(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.Handler
+		method  string
+		target  string
+		body    string
+	}{
+		{
+			name:    "agent knowledge base validation",
+			handler: NewAgentHandler(&fakeAgentRepo{}, nil, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
+			method:  http.MethodPost,
+			target:  "/dashboard/ai-settings/agents",
+			body:    `{"name":"客服助手","knowledgeBaseIds":["kb-1"],"status":1}`,
+		},
+		{
+			name:    "knowledge base reference lookup",
+			handler: NewKnowledgeBaseHandler(&fakeKBRepo{}, nil, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			method:  http.MethodDelete,
+			target:  "/dashboard/ai-settings/knowledge-bases/kb-1",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := perform(test.handler, test.method, test.target, test.body)
+			payload := envelopeData(t, response)
+			if response.Code != http.StatusInternalServerError || payload["msg"] != machineCodeStorageFailure {
+				t.Fatalf("response = %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestAgentPersistsDisabledStatusAndKnowledgeBaseUpdatePersistsDisabledStatus(t *testing.T) {
+	knowledgeBases := &fakeKBRepo{items: []ports.KnowledgeBase{{ID: "kb-1", TenantID: 1, CorpID: 2, Status: 1}}}
+	agents := &fakeAgentRepo{}
+	agentHandler := NewAgentHandler(agents, knowledgeBases, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" })
+	knowledgeBaseHandler := NewKnowledgeBaseHandler(knowledgeBases, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" })
+
+	response := perform(agentHandler, http.MethodPost, "/dashboard/ai-settings/agents", `{"name":"客服助手","knowledgeBaseIds":[],"status":0}`)
+	if response.Code != http.StatusOK || len(agents.items) != 1 || agents.items[0].Status != 0 {
+		t.Fatalf("agent response = %s, stored = %#v", response.Body.String(), agents.items)
+	}
+	response = perform(agentHandler, http.MethodPut, "/dashboard/ai-settings/agents/agent-1", `{"name":"客服助手","knowledgeBaseIds":[],"status":0}`)
+	if response.Code != http.StatusOK || agents.items[0].Status != 0 {
+		t.Fatalf("agent update response = %s, stored = %#v", response.Body.String(), agents.items)
+	}
+	response = perform(knowledgeBaseHandler, http.MethodPut, "/dashboard/ai-settings/knowledge-bases/kb-1", `{"name":"售后库","documentCount":0,"status":0}`)
+	if response.Code != http.StatusOK || knowledgeBases.items[0].Status != 0 {
+		t.Fatalf("knowledge base response = %s, stored = %#v", response.Body.String(), knowledgeBases.items)
+	}
+}
+
+func TestAISettingsMapsMissingRecordsAndStorageFailures(t *testing.T) {
+	tests := []struct {
+		name        string
+		handler     http.Handler
+		method      string
+		target      string
+		body        string
+		statusCode  int
+		machineCode string
+	}{
+		{
+			name:        "knowledge base update missing",
+			handler:     NewKnowledgeBaseHandler(&fakeKBRepo{updateErr: ports.ErrNotFound}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			method:      http.MethodPut,
+			target:      "/dashboard/ai-settings/knowledge-bases/kb-1",
+			body:        `{"name":"售后库","documentCount":0,"status":1}`,
+			statusCode:  http.StatusNotFound,
+			machineCode: machineCodeNotFound,
+		},
+		{
+			name:        "knowledge base delete storage failure",
+			handler:     NewKnowledgeBaseHandler(&fakeKBRepo{deleteErr: errors.New("database unavailable")}, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" }),
+			method:      http.MethodDelete,
+			target:      "/dashboard/ai-settings/knowledge-bases/kb-1",
+			statusCode:  http.StatusInternalServerError,
+			machineCode: machineCodeStorageFailure,
+		},
+		{
+			name:        "agent update missing",
+			handler:     NewAgentHandler(&fakeAgentRepo{updateErr: ports.ErrNotFound}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
+			method:      http.MethodPut,
+			target:      "/dashboard/ai-settings/agents/agent-1",
+			body:        `{"name":"客服助手","knowledgeBaseIds":[],"status":1}`,
+			statusCode:  http.StatusNotFound,
+			machineCode: machineCodeNotFound,
+		},
+		{
+			name:        "agent delete storage failure",
+			handler:     NewAgentHandler(&fakeAgentRepo{deleteErr: errors.New("database unavailable")}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }),
+			method:      http.MethodDelete,
+			target:      "/dashboard/ai-settings/agents/agent-1",
+			statusCode:  http.StatusInternalServerError,
+			machineCode: machineCodeStorageFailure,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := perform(test.handler, test.method, test.target, test.body)
+			payload := envelopeData(t, response)
+			if response.Code != test.statusCode || payload["msg"] != test.machineCode {
+				t.Fatalf("response = %s", response.Body.String())
 			}
 		})
 	}
@@ -313,7 +521,8 @@ func TestKnowledgeBaseDeleteRejectsReferencedRecord(t *testing.T) {
 	handler := NewKnowledgeBaseHandler(knowledgeBases, agents, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "x" })
 
 	response := perform(handler, http.MethodDelete, "/dashboard/ai-settings/knowledge-bases/kb-1", "")
-	if response.Code != http.StatusConflict || len(knowledgeBases.items) != 1 {
+	payload := envelopeData(t, response)
+	if response.Code != http.StatusConflict || payload["msg"] != machineCodeKnowledgeBaseReferenced || len(knowledgeBases.items) != 1 {
 		t.Fatalf("code = %d items = %#v, want 409 and unchanged knowledge base", response.Code, knowledgeBases.items)
 	}
 }

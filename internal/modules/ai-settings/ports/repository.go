@@ -1,7 +1,12 @@
 // Package ports defines the contracts owned by the AI settings module.
 package ports
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var ErrNotFound = errors.New("AI settings record not found")
 
 type KnowledgeBase struct {
 	ID            string `json:"id"`

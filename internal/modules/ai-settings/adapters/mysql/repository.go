@@ -101,9 +101,12 @@ func (r *KnowledgeBaseRepository) Update(ctx context.Context, v ports.KnowledgeB
 	if err != nil {
 		return ports.KnowledgeBase{}, err
 	}
-	affected, _ := res.RowsAffected()
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return ports.KnowledgeBase{}, err
+	}
 	if affected == 0 {
-		return ports.KnowledgeBase{}, errors.New("knowledge base not found or not scoped to this tenant/corp")
+		return ports.KnowledgeBase{}, ports.ErrNotFound
 	}
 	return r.getByID(ctx, v.TenantID, v.CorpID, v.ID)
 }
@@ -116,9 +119,12 @@ func (r *KnowledgeBaseRepository) Delete(ctx context.Context, tenantID, corpID i
 	if err != nil {
 		return err
 	}
-	affected, _ := res.RowsAffected()
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if affected == 0 {
-		return errors.New("knowledge base not found or already deleted")
+		return ports.ErrNotFound
 	}
 	return nil
 }
@@ -149,7 +155,9 @@ func scanAgent(row interface{ Scan(...any) error }) (ports.Agent, error) {
 	if err != nil {
 		return ports.Agent{}, err
 	}
-	_ = json.Unmarshal([]byte(kbIDs), &v.KnowledgeBaseIDs)
+	if err := json.Unmarshal([]byte(kbIDs), &v.KnowledgeBaseIDs); err != nil {
+		return ports.Agent{}, err
+	}
 	if v.KnowledgeBaseIDs == nil {
 		v.KnowledgeBaseIDs = []string{}
 	}
@@ -219,9 +227,12 @@ func (r *AgentRepository) Update(ctx context.Context, v ports.Agent) (ports.Agen
 	if err != nil {
 		return ports.Agent{}, err
 	}
-	affected, _ := res.RowsAffected()
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return ports.Agent{}, err
+	}
 	if affected == 0 {
-		return ports.Agent{}, errors.New("agent not found or not scoped to this tenant/corp")
+		return ports.Agent{}, ports.ErrNotFound
 	}
 	return r.getByID(ctx, v.TenantID, v.CorpID, v.ID)
 }
@@ -234,9 +245,12 @@ func (r *AgentRepository) Delete(ctx context.Context, tenantID, corpID int64, id
 	if err != nil {
 		return err
 	}
-	affected, _ := res.RowsAffected()
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if affected == 0 {
-		return errors.New("agent not found or already deleted")
+		return ports.ErrNotFound
 	}
 	return nil
 }

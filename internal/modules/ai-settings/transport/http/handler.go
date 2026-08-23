@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"jiyi/mochat-go/internal/modules/ai-settings/ports"
 )
@@ -15,6 +16,7 @@ const maxJSONBodyBytes = 1 << 20
 
 const (
 	machineCodeConflict                = "AI_SETTINGS_CONFLICT"
+	machineCodeDocumentCountInvalid    = "AI_SETTINGS_DOCUMENT_COUNT_INVALID"
 	machineCodeForbidden               = "AI_SETTINGS_FORBIDDEN"
 	machineCodeIDRequired              = "AI_SETTINGS_ID_REQUIRED"
 	machineCodeInvalidJSON             = "AI_SETTINGS_INVALID_JSON"
@@ -22,14 +24,17 @@ const (
 	machineCodeKnowledgeBaseInvalid    = "AI_SETTINGS_KNOWLEDGE_BASE_INVALID"
 	machineCodeKnowledgeBaseReferenced = "AI_SETTINGS_KNOWLEDGE_BASE_REFERENCED"
 	machineCodeNameRequired            = "AI_SETTINGS_NAME_REQUIRED"
+	machineCodeNameInvalid             = "AI_SETTINGS_NAME_INVALID"
 	machineCodePrincipalUnauthorized   = "AI_SETTINGS_PRINCIPAL_UNAUTHORIZED"
+	machineCodeNotFound                = "AI_SETTINGS_NOT_FOUND"
 	machineCodeStorageFailure          = "AI_SETTINGS_STORAGE_FAILURE"
 )
 
 var (
-	ErrPrincipalUnauthorized = errors.New("principal unauthorized")
-	ErrForbidden             = errors.New("forbidden")
-	errInvalidStatus         = errors.New("invalid status")
+	ErrPrincipalUnauthorized      = errors.New("principal unauthorized")
+	ErrForbidden                  = errors.New("forbidden")
+	errCrossRepositoryUnavailable = errors.New("cross repository unavailable")
+	errInvalidStatus              = errors.New("invalid status")
 )
 
 type Principal struct {
@@ -105,6 +110,11 @@ func parseStatus(value *int) (int, error) {
 	return *value, nil
 }
 
+func validName(value string) bool {
+	count := utf8.RuneCountInString(strings.TrimSpace(value))
+	return count >= 2 && count <= 128
+}
+
 func authorize(w http.ResponseWriter, r *http.Request, authorizer Authorizer, principal Principal, permission string) bool {
 	if authorizer == nil {
 		return true
@@ -114,6 +124,14 @@ func authorize(w http.ResponseWriter, r *http.Request, authorizer Authorizer, pr
 		return false
 	}
 	return true
+}
+
+func writeMutationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ports.ErrNotFound) {
+		writeEnvelope(w, http.StatusNotFound, machineCodeNotFound, nil)
+		return
+	}
+	writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
 }
 
 type KnowledgeBaseHandler struct {
@@ -164,6 +182,14 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			writeEnvelope(w, http.StatusBadRequest, machineCodeNameRequired, nil)
 			return
 		}
+		if !validName(input.Name) {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeNameInvalid, nil)
+			return
+		}
+		if input.DocumentCount < 0 {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeDocumentCountInvalid, nil)
+			return
+		}
 		knowledgeBase := ports.KnowledgeBase{
 			TenantID: p.TenantID, CorpID: p.CorpID,
 			Name: input.Name, Description: input.Description, DocumentCount: input.DocumentCount, Status: status,
@@ -187,7 +213,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		}
 		updated, err := h.repo.Update(r.Context(), knowledgeBase)
 		if err != nil {
-			writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
+			writeMutationError(w, err)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", updated)
@@ -195,6 +221,10 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		id := pathID(r)
 		if id == "" || id == "knowledge-bases" {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
+			return
+		}
+		if h.agents == nil {
+			writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
 			return
 		}
 		references, err := h.agents.ListReferencingKnowledgeBase(r.Context(), p.TenantID, p.CorpID, id)
@@ -207,7 +237,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, id); err != nil {
-			writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
+			writeMutationError(w, err)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", map[string]any{"id": id})
@@ -228,22 +258,31 @@ func NewAgentHandler(repo ports.AgentRepository, knowledgeBases ports.KnowledgeB
 	return &AgentHandler{repo: repo, knowledgeBases: knowledgeBases, principal: p, authorize: a, generate: generate}
 }
 
-func (h *AgentHandler) validateKnowledgeBases(ctx context.Context, principal Principal, ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
+func (h *AgentHandler) validateKnowledgeBases(ctx context.Context, principal Principal, ids []string) ([]string, error) {
 	unique := make(map[string]struct{}, len(ids))
+	normalized := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if strings.TrimSpace(id) == "" {
-			return errors.New("empty knowledge base id")
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, errors.New("empty knowledge base id")
+		}
+		if _, exists := unique[id]; exists {
+			continue
 		}
 		unique[id] = struct{}{}
+		normalized = append(normalized, id)
 	}
-	found, err := h.knowledgeBases.GetByIDs(ctx, principal.TenantID, principal.CorpID, ids)
-	if err != nil || len(found) != len(unique) {
-		return errors.New("knowledge base validation failed")
+	if len(normalized) == 0 {
+		return normalized, nil
 	}
-	return nil
+	if h.knowledgeBases == nil {
+		return nil, errCrossRepositoryUnavailable
+	}
+	found, err := h.knowledgeBases.GetByIDs(ctx, principal.TenantID, principal.CorpID, normalized)
+	if err != nil || len(found) != len(normalized) {
+		return nil, errors.New("knowledge base validation failed")
+	}
+	return normalized, nil
 }
 
 func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -282,13 +321,22 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeNameRequired, nil)
 			return
 		}
-		if err := h.validateKnowledgeBases(r.Context(), p, input.KnowledgeBaseIDs); err != nil {
+		if !validName(input.Name) {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeNameInvalid, nil)
+			return
+		}
+		knowledgeBaseIDs, err := h.validateKnowledgeBases(r.Context(), p, input.KnowledgeBaseIDs)
+		if err != nil {
+			if errors.Is(err, errCrossRepositoryUnavailable) {
+				writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
+				return
+			}
 			writeEnvelope(w, http.StatusBadRequest, machineCodeKnowledgeBaseInvalid, nil)
 			return
 		}
 		agent := ports.Agent{
 			TenantID: p.TenantID, CorpID: p.CorpID,
-			Name: input.Name, Description: input.Description, KnowledgeBaseIDs: input.KnowledgeBaseIDs, Status: status,
+			Name: input.Name, Description: input.Description, KnowledgeBaseIDs: knowledgeBaseIDs, Status: status,
 			UpdatedBy: p.UserID,
 		}
 		if r.Method == http.MethodPost {
@@ -309,7 +357,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		updated, err := h.repo.Update(r.Context(), agent)
 		if err != nil {
-			writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
+			writeMutationError(w, err)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", updated)
@@ -320,7 +368,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, id); err != nil {
-			writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
+			writeMutationError(w, err)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", map[string]any{"id": id})
