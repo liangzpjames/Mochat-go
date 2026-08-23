@@ -1665,6 +1665,11 @@
           "scopeRequired": false
         },
         {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-settings/knowledge-bases",
+          "scopeRequired": false
+        },
+        {
           "method": "POST",
           "pathPattern": "/dashboard/ai-settings/agents",
           "scopeRequired": false

@@ -804,10 +804,17 @@ async function main() {
   const liveCodeMappings = [...new Set(employeeAccountMappings.concat(extractMigrationPermissionResourceMappings(
     await readFile('deploy/standalone/migrations/0153_live_code_workspace.up.sql', 'utf8'),
   )))];
-  const seededMappings = applyPermissionResourceReconciliation({
+  const reconciledMappings = applyPermissionResourceReconciliation({
     mappings: liveCodeMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0154_dashboard_permission_resource_reconciliation.up.sql',
+      'utf8',
+    ),
+  });
+  const seededMappings = applyPermissionResourceReconciliation({
+    mappings: reconciledMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0155_ai_settings_integrity_audit.up.sql',
       'utf8',
     ),
   });

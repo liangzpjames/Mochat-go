@@ -59,6 +59,30 @@ test('accepts exactly 53 pages, 48 ordinary pages and five protected management 
   assert.equal(result.resourceCount, 1);
 });
 
+test('agent page receives only the shared knowledge-base GET dependency', async () => {
+  const catalog = JSON.parse(await readFile('internal/dashboard/dashboard_page_catalog.json', 'utf8'));
+  const agentPage = catalog.pages.find((page) => page.code === 'dashboard.ai_setting.agent');
+  assert.ok(agentPage, 'agent page must remain registered');
+  assert.deepEqual(
+    agentPage.resources.filter((resource) => resource.pathPattern.includes('knowledge-bases')),
+    [{ method: 'GET', pathPattern: '/dashboard/ai-settings/knowledge-bases', scopeRequired: false }],
+  );
+});
+
+test('0155 seeds and rolls back only the Agent knowledge-base GET dependency', async () => {
+  const [up, down] = await Promise.all([
+    readFile('deploy/standalone/migrations/0155_ai_settings_integrity_audit.up.sql', 'utf8'),
+    readFile('deploy/standalone/migrations/0155_ai_settings_integrity_audit.down.sql', 'utf8'),
+  ]);
+  assert.deepEqual(extractMigrationPermissionResourceMappings(up), [
+    'dashboard.ai_setting.agent\tGET /dashboard/ai-settings/knowledge-bases\t0',
+  ]);
+  assert.match(down, /permission\.`code` = 'dashboard\.ai_setting\.agent'/);
+  assert.match(down, /resource\.`http_method` = 'GET'/);
+  assert.match(down, /resource\.`path_pattern` = '\/dashboard\/ai-settings\/knowledge-bases'/);
+  assert.doesNotMatch(down, /dashboard\.ai_setting\.ai_knowledge_base/);
+});
+
 test('rejects manifest and catalog page drift', () => {
   const input = fixture();
   input.catalog.pop();

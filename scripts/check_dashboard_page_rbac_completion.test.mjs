@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateCompletionFacts } from './check_dashboard_page_rbac_completion.mjs';
+import { runCompletionGate, validateCompletionFacts } from './check_dashboard_page_rbac_completion.mjs';
 
 const base = {
   catalogOutput: '53 pages, 48 ordinary, 5 superadmin_only, 0 unmapped dashboard API usages',
@@ -12,6 +12,14 @@ const base = {
 
 test('completion gate accepts complete matrix facts', () => {
   assert.deepEqual(validateCompletionFacts(base), { pages: 53, ordinary: 48, superadminOnly: 5 });
+});
+
+test('completion gate includes the 0155 Agent knowledge-base read overlay', async () => {
+  const result = await runCompletionGate();
+  assert.deepEqual(
+    { pages: result.pages, ordinary: result.ordinary, superadminOnly: result.superadminOnly },
+    { pages: 53, ordinary: 48, superadminOnly: 5 },
+  );
 });
 
 test('completion gate rejects legacy benchmark authorization facts', () => {

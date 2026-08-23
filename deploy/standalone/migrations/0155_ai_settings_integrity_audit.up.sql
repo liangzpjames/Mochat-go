@@ -14,3 +14,23 @@ CREATE TABLE IF NOT EXISTS `mochat_go_ai_settings_audits` (
   PRIMARY KEY (`id`),
   KEY `idx_ai_settings_audits_scope` (`tenant_id`,`corp_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- An agent configuration needs to resolve its selected knowledge-base names.
+-- Grant this shared read dependency only; knowledge-base writes remain owned by
+-- the AI knowledge-base page permission.
+INSERT INTO `mochat_go_dashboard_permission_resources`
+  (`permission_id`, `resource_type`, `http_method`, `path_pattern`, `scope_required`, `status`, `version`)
+SELECT permission.`id`, 'api', resource_seed.`http_method`, resource_seed.`path_pattern`, resource_seed.`scope_required`, 1, 1
+FROM `mochat_go_dashboard_permissions` permission
+INNER JOIN (
+  SELECT 'dashboard.ai_setting.agent' AS `permission_code`, 'GET' AS `http_method`,
+    '/dashboard/ai-settings/knowledge-bases' AS `path_pattern`, 0 AS `scope_required`
+) resource_seed ON resource_seed.`permission_code` = permission.`code`
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM `mochat_go_dashboard_permission_resources` existing
+  WHERE existing.`permission_id` = permission.`id`
+    AND existing.`resource_type` = 'api'
+    AND existing.`http_method` = resource_seed.`http_method`
+    AND existing.`path_pattern` = resource_seed.`path_pattern`
+);
