@@ -2459,6 +2459,7 @@ body {
 .ai-settings-base-option--invalid { color: #b0673f; }
 
 .ai-settings-document-manager { display: grid; gap: 16px; }
+.ai-settings-document-manager .ai-settings-table-scroll table { min-width: 760px; }
 .ai-settings-upload-panel {
   align-items: end;
   background: #f7f9ff;
