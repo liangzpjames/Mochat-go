@@ -1648,6 +1648,21 @@
           "method": "DELETE",
           "pathPattern": "/dashboard/ai-settings/knowledge-bases/{id}",
           "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-settings/knowledge-bases/{id}/documents",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/ai-settings/knowledge-bases/{id}/documents",
+          "scopeRequired": false
+        },
+        {
+          "method": "DELETE",
+          "pathPattern": "/dashboard/ai-settings/knowledge-bases/{id}/documents/{documentId}",
+          "scopeRequired": false
         }
       ]
     },
@@ -1670,17 +1685,7 @@
           "scopeRequired": false
         },
         {
-          "method": "POST",
-          "pathPattern": "/dashboard/ai-settings/agents",
-          "scopeRequired": false
-        },
-        {
           "method": "PUT",
-          "pathPattern": "/dashboard/ai-settings/agents/{id}",
-          "scopeRequired": false
-        },
-        {
-          "method": "DELETE",
           "pathPattern": "/dashboard/ai-settings/agents/{id}",
           "scopeRequired": false
         }
