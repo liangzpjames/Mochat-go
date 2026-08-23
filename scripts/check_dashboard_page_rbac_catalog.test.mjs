@@ -83,6 +83,19 @@ test('0155 seeds and rolls back only the Agent knowledge-base GET dependency', a
   assert.doesNotMatch(down, /dashboard\.ai_setting\.ai_knowledge_base/);
 });
 
+test('0156 seeds and rolls back the knowledge document resources', async () => {
+  const [up, down] = await Promise.all([
+    readFile('deploy/standalone/migrations/0156_ai_settings_knowledge_runtime.up.sql', 'utf8'),
+    readFile('deploy/standalone/migrations/0156_ai_settings_knowledge_runtime.down.sql', 'utf8'),
+  ]);
+  assert.deepEqual(extractMigrationPermissionResourceMappings(up), [
+    'dashboard.ai_setting.ai_knowledge_base\tGET /dashboard/ai-settings/knowledge-bases/{id}/documents\t0',
+    'dashboard.ai_setting.ai_knowledge_base\tPOST /dashboard/ai-settings/knowledge-bases/{id}/documents\t0',
+    'dashboard.ai_setting.ai_knowledge_base\tDELETE /dashboard/ai-settings/knowledge-bases/{id}/documents/{documentId}\t0',
+  ]);
+  assert.match(down, /dashboard\.ai_setting\.ai_knowledge_base/);
+});
+
 test('rejects manifest and catalog page drift', () => {
   const input = fixture();
   input.catalog.pop();

@@ -811,10 +811,17 @@ async function main() {
       'utf8',
     ),
   });
-  const seededMappings = applyPermissionResourceReconciliation({
+  const aiSettingsMappings = applyPermissionResourceReconciliation({
     mappings: reconciledMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0155_ai_settings_integrity_audit.up.sql',
+      'utf8',
+    ),
+  });
+  const seededMappings = applyPermissionResourceReconciliation({
+    mappings: aiSettingsMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0156_ai_settings_knowledge_runtime.up.sql',
       'utf8',
     ),
   });
