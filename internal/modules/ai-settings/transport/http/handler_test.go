@@ -666,7 +666,7 @@ func TestKnowledgeBaseDeleteRejectsReferencedRecord(t *testing.T) {
 
 	response := perform(handler, http.MethodDelete, "/dashboard/ai-settings/knowledge-bases/kb-1", "")
 	payload := envelopeData(t, response)
-	if response.Code != http.StatusConflict || payload["msg"] != machineCodeKnowledgeBaseReferenced || len(knowledgeBases.items) != 1 {
+	if response.Code != http.StatusConflict || payload["msg"] != machineCodeKnowledgeBaseReferenced || payload["errorCode"] != machineCodeKnowledgeBaseReferenced || len(knowledgeBases.items) != 1 {
 		t.Fatalf("code = %d items = %#v, want 409 and unchanged knowledge base", response.Code, knowledgeBases.items)
 	}
 }

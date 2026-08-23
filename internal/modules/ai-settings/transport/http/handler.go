@@ -73,7 +73,11 @@ type agentInput struct {
 func writeEnvelope(w http.ResponseWriter, code int, msg string, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "msg": msg, "data": data})
+	payload := map[string]any{"code": code, "msg": msg, "data": data}
+	if strings.HasPrefix(msg, "AI_SETTINGS_") {
+		payload["errorCode"] = msg
+	}
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func resolvePrincipal(w http.ResponseWriter, r *http.Request, resolver PrincipalResolver) (Principal, bool) {
