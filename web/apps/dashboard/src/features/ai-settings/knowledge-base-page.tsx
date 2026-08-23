@@ -32,6 +32,7 @@ function operationError(error: unknown): string {
 }
 
 function textLength(value: string): number { return Array.from(value).length; }
+const maxDocumentCount = 2_147_483_647;
 
 export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const corpId = useOptionalDashboardAccess()?.corp.id;
@@ -59,6 +60,10 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const query = useQuery({ queryKey: ['ai-kb', corpId], queryFn: () => api.listKnowledgeBases(Number(corpId)), enabled: Boolean(corpId) });
   const items = query.data ?? [];
   const page = filterAndPageAISettings(items, listState);
+  useEffect(() => {
+    if (!query.isSuccess || page.page === listState.page) return;
+    setSearchParams(updateSearch(searchParams, { page: page.page, pageSize: page.pageSize }), { replace: true });
+  }, [listState.page, page.page, page.pageSize, query.isSuccess, searchParams, setSearchParams]);
   const total = items.length;
   const enabledCount = items.filter((item) => item.status === 1).length;
   const documents = items.reduce((sum, item) => sum + Number(item.documentCount ?? 0), 0);
@@ -120,7 +125,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
     onError: (error) => setFeedback({ kind: 'error', text: operationError(error) }),
   });
 
-  const documentCountValid = /^\d+$/.test(documentCount) && Number.isSafeInteger(Number(documentCount));
+  const documentCountValid = /^\d+$/.test(documentCount) && Number.isSafeInteger(Number(documentCount)) && Number(documentCount) <= maxDocumentCount;
   const valid = Boolean(corpId && textLength(name.trim()) >= 2 && textLength(name.trim()) <= 128 && textLength(description) <= 512 && documentCountValid);
   const filteredEmpty = total > 0 && page.total === 0;
 
@@ -148,8 +153,8 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
                   const rowPending = (remove.isPending && remove.variables?.id === item.id) || (toggle.isPending && toggle.variables?.id === item.id);
                   return <tr key={item.id}><td>{item.name}</td><td>{item.description || '—'}</td><td>{item.documentCount}</td><td><span className={`ai-settings-status ai-settings-status--${item.status === 1 ? 'enabled' : 'disabled'}`}>{item.status === 1 ? '启用' : '停用'}</span></td><td>{formatAISettingsTime(item.updatedAt)}</td><td><div className="ai-settings-row-actions">
                     <button type="button" aria-label={`编辑 ${item.name}`} disabled={rowPending} onClick={(event) => openEdit(item, event)}>编辑</button>
-                    <ConfirmAction title={`确认${item.status === 1 ? '停用' : '启用'}知识库“${item.name}”？`} onConfirm={() => toggle.mutate(item)}><button type="button" aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} disabled={rowPending}>{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
-                    <ConfirmAction title={`确认删除知识库“${item.name}”？`} description="删除后无法恢复；被智能体引用时服务端会拒绝删除。" onConfirm={() => remove.mutate(item)}><button type="button" aria-label={`删除 ${item.name}`} disabled={rowPending}>删除</button></ConfirmAction>
+                    <ConfirmAction danger={item.status === 1} title={`确认${item.status === 1 ? '停用' : '启用'}知识库“${item.name}”？`} onConfirm={() => toggle.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} disabled={rowPending}>{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
+                    <ConfirmAction title={`确认删除知识库“${item.name}”？`} description="删除后无法恢复；被智能体引用时服务端会拒绝删除。" onConfirm={() => remove.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`删除 ${item.name}`} disabled={rowPending}>删除</button></ConfirmAction>
                   </div></td></tr>;
                 })}</tbody>
               </table></div>
@@ -159,9 +164,9 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
         </section>
         <DashboardDialog open={editorOpen} title={editing ? '编辑知识库' : '新建知识库'} triggerRef={editorTriggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={requestEditorClose} onConfirm={() => save.mutate()}>
           <div className="ai-settings-dialog-body">{editorError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{editorError}</p>}<form onSubmit={(event) => { event.preventDefault(); if (valid && !save.isPending) save.mutate(); }}>
-            <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：售后话术库" maxLength={128} /></label>
-            <label>说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={512} rows={3} /></label>
-            <label>登记文档数<input type="number" min="0" step="1" value={documentCount} onChange={(event) => setDocumentCount(event.target.value)} /><small>仅为登记值，不会上传或索引文档。</small></label>
+            <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：售后话术库" /></label>
+            <label>说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
+            <label>登记文档数<input type="number" min="0" max={maxDocumentCount} step="1" value={documentCount} onChange={(event) => setDocumentCount(event.target.value)} /><small>仅为登记值，不会上传或索引文档。</small></label>
             <label>配置状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>启用不代表 AI 运行能力已接入。</small></label>
           </form></div>
         </DashboardDialog>

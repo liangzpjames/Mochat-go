@@ -56,6 +56,10 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
   const knowledgeBases = useQuery({ queryKey: ['ai-kb', corpId], queryFn: () => api.listKnowledgeBases(Number(corpId)), enabled: Boolean(corpId) });
   const items = query.data ?? [];
   const page = filterAndPageAISettings(items, listState);
+  useEffect(() => {
+    if (!query.isSuccess || page.page === listState.page) return;
+    setSearchParams(updateSearch(searchParams, { page: page.page, pageSize: page.pageSize }), { replace: true });
+  }, [listState.page, page.page, page.pageSize, query.isSuccess, searchParams, setSearchParams]);
   const total = items.length;
   const enabledCount = items.filter((item) => item.status === 1).length;
   const activeBases = (knowledgeBases.data ?? []).filter((item) => item.status === 1);
@@ -135,8 +139,8 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
                   const rowPending = (remove.isPending && remove.variables?.id === item.id) || (toggle.isPending && toggle.variables?.id === item.id);
                   return <tr key={item.id}><td>{item.name}</td><td>{item.description || '—'}</td><td>{knowledgeBases.isLoading ? '正在加载知识库名称…' : knowledgeBases.isError ? '知识库名称加载失败' : resolveKnowledgeBaseNames(item.knowledgeBaseIds ?? [], knowledgeBases.data ?? [])}</td><td><span className={`ai-settings-status ai-settings-status--${item.status === 1 ? 'enabled' : 'disabled'}`}>{item.status === 1 ? '启用' : '停用'}</span></td><td>{formatAISettingsTime(item.updatedAt)}</td><td><div className="ai-settings-row-actions">
                     <button type="button" aria-label={`编辑 ${item.name}`} disabled={rowPending} onClick={(event) => openEdit(item, event)}>编辑</button>
-                    <ConfirmAction title={`确认${item.status === 1 ? '停用' : '启用'}智能体“${item.name}”？`} onConfirm={() => toggle.mutate(item)}><button type="button" aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} disabled={rowPending}>{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
-                    <ConfirmAction title={`确认删除智能体“${item.name}”？`} description="删除后无法恢复。" onConfirm={() => remove.mutate(item)}><button type="button" aria-label={`删除 ${item.name}`} disabled={rowPending}>删除</button></ConfirmAction>
+                    <ConfirmAction danger={item.status === 1} title={`确认${item.status === 1 ? '停用' : '启用'}智能体“${item.name}”？`} onConfirm={() => toggle.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} disabled={rowPending}>{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
+                    <ConfirmAction title={`确认删除智能体“${item.name}”？`} description="删除后无法恢复。" onConfirm={() => remove.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`删除 ${item.name}`} disabled={rowPending}>删除</button></ConfirmAction>
                   </div></td></tr>;
                 })}</tbody>
               </table></div>
@@ -146,8 +150,8 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
         </section>
         <DashboardDialog open={editorOpen} title={editing ? '编辑智能体' : '新建智能体'} triggerRef={editorTriggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={requestEditorClose} onConfirm={() => save.mutate()}>
           <div className="ai-settings-dialog-body">{editorError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{editorError}</p>}<form onSubmit={(event) => { event.preventDefault(); if (valid && !save.isPending) save.mutate(); }}>
-            <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：智能客服" maxLength={128} /></label>
-            <label>说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={512} rows={3} /></label>
+            <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：智能客服" /></label>
+            <label>说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
             <fieldset className="ai-settings-base-options"><legend>关联知识库</legend>
               {knowledgeBases.isLoading && <p role="status">正在加载可关联知识库…</p>}
               {knowledgeBases.isError && <p role="alert">知识库加载失败，暂时无法安全保存关联配置。请刷新后重试。</p>}

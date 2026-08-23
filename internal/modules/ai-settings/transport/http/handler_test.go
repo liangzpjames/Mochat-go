@@ -299,6 +299,21 @@ func TestKnowledgeBasePersistsDisabledStatus(t *testing.T) {
 	}
 }
 
+func TestKnowledgeBaseDocumentCountUsesStableInt32Boundary(t *testing.T) {
+	repo := &fakeKBRepo{}
+	handler := NewKnowledgeBaseHandler(repo, &fakeAgentRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "kb-1" })
+
+	accepted := perform(handler, http.MethodPost, "/dashboard/ai-settings/knowledge-bases", `{"name":"边界知识库","description":"","documentCount":2147483647,"status":1}`)
+	if accepted.Code != http.StatusOK || len(repo.items) != 1 || repo.items[0].DocumentCount != 2147483647 {
+		t.Fatalf("accepted response = %s, stored = %#v", accepted.Body.String(), repo.items)
+	}
+
+	rejected := perform(handler, http.MethodPost, "/dashboard/ai-settings/knowledge-bases", `{"name":"越界知识库","description":"","documentCount":2147483648,"status":1}`)
+	if rejected.Code != http.StatusBadRequest || envelopeData(t, rejected)["msg"] != machineCodeDocumentCountInvalid || len(repo.items) != 1 {
+		t.Fatalf("rejected response = %s, stored = %#v", rejected.Body.String(), repo.items)
+	}
+}
+
 func TestAISettingsRejectsInvalidStatus(t *testing.T) {
 	tests := []struct {
 		name    string

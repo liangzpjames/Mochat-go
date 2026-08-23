@@ -12,7 +12,10 @@ import (
 	"jiyi/mochat-go/internal/modules/ai-settings/ports"
 )
 
-const maxJSONBodyBytes = 1 << 20
+const (
+	maxJSONBodyBytes = 1 << 20
+	maxDocumentCount = 1<<31 - 1
+)
 
 const (
 	machineCodeDescriptionInvalid      = "AI_SETTINGS_DESCRIPTION_INVALID"
@@ -192,7 +195,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			writeEnvelope(w, http.StatusBadRequest, machineCodeNameInvalid, nil)
 			return
 		}
-		if input.DocumentCount < 0 {
+		if input.DocumentCount < 0 || input.DocumentCount > maxDocumentCount {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeDocumentCountInvalid, nil)
 			return
 		}

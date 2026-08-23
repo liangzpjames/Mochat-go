@@ -285,4 +285,84 @@ describe('AI 设置页面', () => {
     expect(createKnowledgeBase).toHaveBeenCalledTimes(1);
     resolveSave?.({});
   });
+
+  it('智能体：直接访问越界页码时以 replace 规范化为最后一页', async () => {
+    const agents = Array.from({ length: 21 }, (_, index) => ({
+      id: `a-${index + 1}`, corpId: 9, name: `智能体 ${index + 1}`, description: '', knowledgeBaseIds: [], status: 1,
+      createdAt: '', updatedAt: '',
+    }));
+    renderPage(createApi({ listAgents: vi.fn().mockResolvedValue(agents) }), 'agent', '/ai-setting/agent?page=999&pageSize=10');
+    await screen.findByText('智能体 21');
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('page=3'));
+    expect(screen.getByLabelText('当前地址').textContent).not.toContain('page=999');
+  });
+
+  it('知识库：删除最后一页唯一记录后回退并规范化为第一页', async () => {
+    const items = Array.from({ length: 11 }, (_, index) => ({
+      id: `kb-${index + 1}`, corpId: 9, name: `知识库 ${index + 1}`, description: '', documentCount: 0, status: 1,
+      createdAt: '', updatedAt: '',
+    }));
+    const listKnowledgeBases = vi.fn().mockImplementation(() => Promise.resolve([...items]));
+    const deleteKnowledgeBase = vi.fn().mockImplementation((_corpId: number, id: string) => {
+      items.splice(items.findIndex((item) => item.id === id), 1);
+      return Promise.resolve({});
+    });
+    renderPage(createApi({ listKnowledgeBases, deleteKnowledgeBase }), 'kb', '/ai-setting/ai-knowledge-base?page=2&pageSize=10');
+    fireEvent.click(await screen.findByRole('button', { name: '删除 知识库 11' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    await waitFor(() => expect(deleteKnowledgeBase).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByLabelText('当前地址').textContent).toContain('page=1'));
+  });
+
+  it('知识库：异步删除确认保持 pending 并阻止重复请求', async () => {
+    let resolveDelete: ((value: unknown) => void) | undefined;
+    const deleteKnowledgeBase = vi.fn().mockImplementation(() => new Promise((resolve) => { resolveDelete = resolve; }));
+    renderPage(createApi({
+      listKnowledgeBases: vi.fn().mockResolvedValue([{ id: 'kb-1', corpId: 9, name: '待删除知识库', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }]),
+      deleteKnowledgeBase,
+    }), 'kb');
+    fireEvent.click(await screen.findByRole('button', { name: '删除 待删除知识库' }));
+    const confirm = await screen.findByRole('button', { name: '确认' });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(deleteKnowledgeBase).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(confirm.className).toContain('ant-btn-loading'));
+    fireEvent.click(confirm);
+    expect(deleteKnowledgeBase).toHaveBeenCalledTimes(1);
+    resolveDelete?.({});
+    await screen.findByText('知识库“待删除知识库”已删除。');
+  });
+
+  it('智能体：异步启停确认保持 pending 并阻止重复请求', async () => {
+    let resolveToggle: ((value: unknown) => void) | undefined;
+    const updateAgent = vi.fn().mockImplementation(() => new Promise((resolve) => { resolveToggle = resolve; }));
+    renderPage(createApi({
+      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '待停用助手', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+      updateAgent,
+    }), 'agent');
+    fireEvent.click(await screen.findByRole('button', { name: '停用 待停用助手' }));
+    const confirm = await screen.findByRole('button', { name: '确认' });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(updateAgent).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(confirm.className).toContain('ant-btn-loading'));
+    fireEvent.click(confirm);
+    expect(updateAgent).toHaveBeenCalledTimes(1);
+    resolveToggle?.({});
+    await screen.findByText('智能体“待停用助手”已停用。');
+  });
+
+  it('知识库：文档数使用 int32 上限且 Unicode 长度不依赖原生 maxLength', async () => {
+    renderPage(createApi(), 'kb');
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    const nameInput = screen.getByRole('textbox', { name: '名称' });
+    const descriptionInput = screen.getByRole('textbox', { name: '说明' });
+    const countInput = screen.getByRole('spinbutton', { name: /登记文档数/ });
+    expect(nameInput.getAttribute('maxlength')).toBeNull();
+    expect(descriptionInput.getAttribute('maxlength')).toBeNull();
+    expect(countInput.getAttribute('max')).toBe('2147483647');
+    fireEvent.change(nameInput, { target: { value: '😀'.repeat(128) } });
+    fireEvent.change(countInput, { target: { value: '2147483648' } });
+    expect(screen.getByRole('button', { name: '保存' })).toHaveProperty('disabled', true);
+    fireEvent.change(countInput, { target: { value: '2147483647' } });
+    expect(screen.getByRole('button', { name: '保存' })).toHaveProperty('disabled', false);
+  });
 });

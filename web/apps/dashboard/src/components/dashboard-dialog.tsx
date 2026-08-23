@@ -55,7 +55,6 @@ export function DashboardDialog({
 
   function handleCancel() {
     onCancel();
-    queueMicrotask(() => triggerRef?.current?.focus());
   }
 
   const resolvedFooter = footer === undefined

@@ -32,8 +32,21 @@ describe('dashboard interaction primitives', () => {
     fireEvent.click(screen.getByRole('button', { name: '停用' }));
     expect(onConfirm).not.toHaveBeenCalled();
 
-    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    const confirm = await screen.findByRole('button', { name: '确认' });
+    expect(confirm.className).toContain('ant-btn-dangerous');
+    fireEvent.click(confirm);
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows non-destructive confirmations to use the primary style', async () => {
+    render(
+      <ConfirmAction danger={false} title="确认启用？" onConfirm={() => undefined}>
+        <button type="button">启用</button>
+      </ConfirmAction>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '启用' }));
+    expect((await screen.findByRole('button', { name: '确认' })).className).not.toContain('ant-btn-dangerous');
   });
 
   it('rejects an inverted date range without submitting', () => {
@@ -123,6 +136,47 @@ describe('dashboard interaction primitives', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '客户名称' })));
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '编辑客户' })));
+  });
+
+  it('keeps focus inside a dialog when cancel requests do not close it', async () => {
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => getComputedStyle(element));
+    const onCancel = vi.fn();
+
+    function LockedDialogHarness() {
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={triggerRef} type="button">打开保存中弹窗</button>
+          <DashboardDialog open title="保存中" confirmLoading triggerRef={triggerRef} onCancel={onCancel}>
+            <label>配置名称<input /></label>
+          </DashboardDialog>
+        </>
+      );
+    }
+
+    render(<LockedDialogHarness />);
+    const dialog = await screen.findByRole('dialog', { name: '保存中' });
+    const input = screen.getByRole('textbox', { name: '配置名称' });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+    await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+
+    const wrap = dialog.closest('.ant-modal-wrap');
+    expect(wrap).not.toBeNull();
+    if (wrap) {
+      fireEvent.mouseDown(wrap);
+      fireEvent.mouseUp(wrap);
+      fireEvent.click(wrap);
+    }
+    await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
   });
 
   it('includes the target name in row action accessible text', () => {
