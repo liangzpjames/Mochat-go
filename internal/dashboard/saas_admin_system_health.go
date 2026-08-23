@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0156_ai_settings_knowledge_runtime"
-	SaaSAdminExpectedMigrationCount   = 156
+	SaaSAdminExpectedMigrationVersion = "0157_ai_settings_document_count_reconcile"
+	SaaSAdminExpectedMigrationCount   = 157
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"
