@@ -389,7 +389,8 @@ func (r *SQLRepository) DeleteRule(ctx context.Context, write RuleDelete) error 
 	return err
 }
 func (r *SQLRepository) EnabledRuleVersions(ctx context.Context, tenantID, corpID int64) ([]AnalysisRuleVersion, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT v.id,v.tenant_id,v.corp_id,v.rule_id,v.version,v.objective,v.conversation_types_json,v.target_scope,v.target_ids_json,v.lookback_days,v.minimum_messages,v.created_at FROM mochat_go_ai_analysis_rule_versions v JOIN mochat_go_ai_analysis_rules r ON r.id=v.rule_id AND r.tenant_id=v.tenant_id AND r.corp_id=v.corp_id AND r.status='enabled' AND r.deleted_at IS NULL WHERE v.tenant_id=? AND v.corp_id=? ORDER BY v.rule_id,v.version DESC`, tenantID, corpID)
+	query, args := enabledRuleVersionsQuery(tenantID, corpID)
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -406,6 +407,15 @@ func (r *SQLRepository) EnabledRuleVersions(ctx context.Context, tenantID, corpI
 		result = append(result, v)
 	}
 	return result, rows.Err()
+}
+
+func enabledRuleVersionsQuery(tenantID, corpID int64) (string, []any) {
+	return `SELECT v.id,v.tenant_id,v.corp_id,v.rule_id,v.version,v.objective,v.conversation_types_json,v.target_scope,v.target_ids_json,v.lookback_days,v.minimum_messages,v.created_at
+        FROM mochat_go_ai_analysis_rule_versions v
+        JOIN mochat_go_ai_analysis_rules r ON r.id=v.rule_id AND r.tenant_id=v.tenant_id AND r.corp_id=v.corp_id
+          AND r.status='enabled' AND r.deleted_at IS NULL AND v.version=r.current_version
+        WHERE v.tenant_id=? AND v.corp_id=? AND r.system_key=?
+        ORDER BY v.rule_id`, []any{tenantID, corpID, DefaultSmartAnalysisRuleSystemKey}
 }
 
 func (r *SQLRepository) queryInsightRow(ctx context.Context, query string, args ...any) (ConversationInsight, error) {

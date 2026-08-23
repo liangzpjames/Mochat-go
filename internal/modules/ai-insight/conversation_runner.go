@@ -79,14 +79,18 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 	now := r.now()
 	start := now.AddDate(0, 0, -r.config.SessionDays)
 	var assistantContext *settingsports.SessionAssistantContext
+	assistantFailure := ""
 	if r.assistant != nil {
 		id := fmt.Sprintf("session-%d-%d", tenantID, corpID)
 		if _, err := r.assistant.EnsureSessionAssistant(ctx, tenantID, corpID, 0, id); err != nil {
-			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, "会话分析助手加载失败: "+err.Error())
+			assistantFailure = "会话分析助手加载失败: " + err.Error()
+			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure)
 		} else if loaded, err := r.assistant.LoadSessionAssistantContext(ctx, tenantID, corpID); err != nil {
-			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, "会话分析助手加载失败: "+err.Error())
+			assistantFailure = "会话分析助手加载失败: " + err.Error()
+			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure)
 		} else if !loaded.Enabled {
-			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, "会话分析助手已停用")
+			assistantFailure = "会话分析助手已停用"
+			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, assistantFailure)
 		} else {
 			assistantContext = &loaded
 		}
@@ -101,11 +105,15 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 		return err
 	}
 	for _, rule := range rules {
+		if r.assistant != nil && assistantContext == nil {
+			_ = r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, assistantFailure)
+			continue
+		}
 		days := rule.LookbackDays
 		if days <= 0 {
 			days = r.config.SessionDays
 		}
-		if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, now.AddDate(0, 0, -days), now, &rule, nil); err != nil {
+		if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, now.AddDate(0, 0, -days), now, &rule, assistantContext); err != nil {
 			r.logger.Printf("AI conversation smart analysis failed for corp %d rule %d: %v", corpID, rule.RuleID, err)
 		}
 	}

@@ -9,8 +9,9 @@ import (
 type AnalysisType string
 
 const (
-	AnalysisTypeSession AnalysisType = "session"
-	AnalysisTypeSmart   AnalysisType = "smart"
+	AnalysisTypeSession               AnalysisType = "session"
+	AnalysisTypeSmart                 AnalysisType = "smart"
+	DefaultSmartAnalysisRuleSystemKey              = "default-smart-analysis"
 )
 
 type AnalysisStatus string

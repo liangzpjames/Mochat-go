@@ -147,7 +147,7 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 		provider = map[string]any{"state": string(status.State), "source": string(status.Source), "code": status.Code, "message": status.Reason}
 	}
 	data := map[string]any{"provider": provider}
-	if page == "session-analysis" && h.assistant != nil {
+	if h.assistant != nil {
 		_, ensureErr := h.assistant.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID))
 		assistant, loadErr := h.assistant.LoadSessionAssistantContext(r.Context(), p.TenantID, p.CorpID)
 		if ensureErr != nil {
@@ -199,59 +199,13 @@ func (h *WorkspaceHandler) rules(w http.ResponseWriter, r *http.Request, p Works
 			items = append(items, workspaceRuleJSON(rule))
 		}
 		workspaceEnvelope(w, 200, "success", map[string]any{"page": page.Page, "pageSize": page.PageSize, "total": page.Total, "items": items})
-	case http.MethodPost, http.MethodPut:
-		var input workspaceRuleInput
-		if json.NewDecoder(r.Body).Decode(&input) != nil {
-			workspaceEnvelope(w, 400, "规则参数无效", nil)
-			return
-		}
-		write := input.toWrite(p)
-		var rule AnalysisRule
-		var err error
-		if r.Method == http.MethodPost {
-			rule, err = h.repo.CreateRule(r.Context(), write)
-		} else {
-			rule, err = h.repo.UpdateRule(r.Context(), write)
-		}
-		if err != nil {
-			workspaceRepoError(w, err)
-			return
-		}
-		workspaceEnvelope(w, 200, "success", workspaceRuleJSON(rule))
-	case http.MethodDelete:
-		id, err := workspacePositiveID(r, "id")
-		if err != nil {
-			workspaceEnvelope(w, 400, "规则 ID 无效", nil)
-			return
-		}
-		if err := h.repo.DeleteRule(r.Context(), RuleDelete{TenantID: p.TenantID, CorpID: p.CorpID, ID: id, ActorID: p.UserID}); err != nil {
-			workspaceRepoError(w, err)
-			return
-		}
-		workspaceEnvelope(w, 200, "success", map[string]any{"deleted": true})
 	default:
 		workspaceEnvelope(w, 405, "method not allowed", nil)
 	}
 }
 
 func (h *WorkspaceHandler) ruleStatus(w http.ResponseWriter, r *http.Request, p WorkspacePrincipal) {
-	if r.Method != http.MethodPost {
-		workspaceEnvelope(w, 405, "method not allowed", nil)
-		return
-	}
-	var input struct {
-		ID     int64  `json:"id"`
-		Status string `json:"status"`
-	}
-	if json.NewDecoder(r.Body).Decode(&input) != nil || input.ID <= 0 || (input.Status != "enabled" && input.Status != "disabled") {
-		workspaceEnvelope(w, 400, "规则状态参数无效", nil)
-		return
-	}
-	if err := h.repo.SetRuleStatus(r.Context(), RuleStatusWrite{TenantID: p.TenantID, CorpID: p.CorpID, ID: input.ID, Status: input.Status, ActorID: p.UserID}); err != nil {
-		workspaceRepoError(w, err)
-		return
-	}
-	workspaceEnvelope(w, 200, "success", map[string]any{"status": input.Status})
+	workspaceEnvelope(w, 405, "method not allowed", nil)
 }
 
 type workspaceRuleInput struct {

@@ -40,6 +40,36 @@ func TestWorkspaceSessionStatusExposesRuntimeAssistantSummary(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSmartStatusExposesSameRuntimeAssistantSummary(t *testing.T) {
+	handler := NewWorkspaceHandler(
+		workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil,
+		workspaceAssistantStub{assistant: settingsports.SessionAssistantContext{Name: settingsports.SessionAnalysisAssistantName, Enabled: true, KnowledgeBaseCount: 2, ReadyDocumentCount: 5, UpdatedAt: "2026-08-23T12:00:00Z"}},
+	)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/smart-analysis/status", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"会话分析助手"`) || !strings.Contains(rec.Body.String(), `"readyDocumentCount":5`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestWorkspaceRejectsIndependentSmartRuleWrites(t *testing.T) {
+	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil)
+	requests := []*http.Request{
+		httptest.NewRequest(http.MethodPost, "/dashboard/ai-insight/smart-analysis/rules", strings.NewReader(`{"name":"无入口规则"}`)),
+		httptest.NewRequest(http.MethodPut, "/dashboard/ai-insight/smart-analysis/rules", strings.NewReader(`{"id":1}`)),
+		httptest.NewRequest(http.MethodDelete, "/dashboard/ai-insight/smart-analysis/rules?id=1", nil),
+		httptest.NewRequest(http.MethodPost, "/dashboard/ai-insight/smart-analysis/rules/status", strings.NewReader(`{"id":1,"status":"enabled"}`)),
+	}
+	for _, request := range requests {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s %s status=%d body=%s", request.Method, request.URL.Path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func (r workspaceTestResolver) Resolve(*http.Request) (WorkspacePrincipal, error) {
 	return r.principal, r.err
 }

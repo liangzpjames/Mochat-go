@@ -24,6 +24,7 @@ type runnerRepoStub struct {
 	previous string
 	saved    []ConversationInsight
 	runs     []InsightRun
+	rules    []AnalysisRuleVersion
 }
 
 func (r *runnerRepoStub) ConversationCandidates(context.Context, CandidateQuery) ([]ConversationCandidate, error) {
@@ -45,7 +46,7 @@ func (r *runnerRepoStub) CreateRun(_ context.Context, run InsightRun) (int64, er
 }
 func (r *runnerRepoStub) FinishRun(context.Context, int64, InsightRunResult) error { return nil }
 func (r *runnerRepoStub) EnabledRuleVersions(context.Context, int64, int64) ([]AnalysisRuleVersion, error) {
-	return []AnalysisRuleVersion{}, nil
+	return r.rules, nil
 }
 
 type assistantContextStub struct {
@@ -60,14 +61,42 @@ func (s assistantContextStub) LoadSessionAssistantContext(context.Context, int64
 }
 
 type capturingAIProvider struct {
-	request providers.ChatRequest
-	calls   int
+	request  providers.ChatRequest
+	requests []providers.ChatRequest
+	calls    int
 }
 
 func (p *capturingAIProvider) Chat(_ context.Context, request providers.ChatRequest) (string, error) {
 	p.request = request
+	p.requests = append(p.requests, request)
 	p.calls++
+	if strings.Contains(request.Prompt, `"conclusion"`) {
+		return `{"schemaVersion":1,"conclusion":"发现退款风险","matched":true,"confidence":0.8,"evidenceMessageIds":["msg:inside"],"recommendations":["核对审批"]}`, nil
+	}
 	return validSessionJSON(), nil
+}
+
+func TestConversationRunnerUsesAssistantContextForDefaultSmartAnalysis(t *testing.T) {
+	repo := &runnerRepoStub{rules: []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1, Objective: "识别退款风险", ConversationTypes: []string{"direct"}, LookbackDays: 30, MinimumMessages: 1}}}
+	provider := &capturingAIProvider{}
+	assistant := assistantContextStub{context: settingsports.SessionAssistantContext{
+		AgentID: "session", Instructions: "遵循售后升级要求", Enabled: true, SettingsFingerprint: "settings-v3",
+		KnowledgeChunks: []settingsports.KnowledgeChunk{{DocumentName: "售后规则.md", Ordinal: 0, Content: "退款需要主管审批", CharacterCount: 9}},
+	}}
+	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistant)
+	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("provider calls = %d, want session and smart", provider.calls)
+	}
+	smart := provider.requests[1]
+	if !strings.Contains(smart.System, "遵循售后升级要求") || !strings.Contains(smart.Prompt, "退款需要主管审批") {
+		t.Fatalf("smart request did not consume assistant context: %#v", smart)
+	}
+	if len(repo.saved) != 2 || repo.saved[1].SourceFingerprint == "messages-v1" {
+		t.Fatalf("saved insights = %#v", repo.saved)
+	}
 }
 func (p *capturingAIProvider) Status() providers.Status {
 	return providers.Status{State: providers.StateReady}
@@ -97,13 +126,13 @@ func TestConversationRunnerConsumesAssistantInstructionsKnowledgeAndSettingsFing
 }
 
 func TestConversationRunnerDoesNotCallProviderWhenSessionAssistantDisabled(t *testing.T) {
-	repo := &runnerRepoStub{}
+	repo := &runnerRepoStub{rules: []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1, Objective: "识别客户风险", ConversationTypes: []string{"direct"}, LookbackDays: 30, MinimumMessages: 1}}}
 	provider := &capturingAIProvider{}
 	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistantContextStub{context: settingsports.SessionAssistantContext{AgentID: "session", Enabled: false, SettingsFingerprint: "disabled"}})
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
 	}
-	if provider.calls != 0 || len(repo.runs) != 1 || repo.runs[0].AnalysisType != AnalysisTypeSession {
+	if provider.calls != 0 || len(repo.runs) != 2 || repo.runs[0].AnalysisType != AnalysisTypeSession || repo.runs[1].AnalysisType != AnalysisTypeSmart {
 		t.Fatalf("calls=%d runs=%#v", provider.calls, repo.runs)
 	}
 }

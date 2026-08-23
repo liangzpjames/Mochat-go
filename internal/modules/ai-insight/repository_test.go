@@ -55,3 +55,13 @@ func TestRuleWriteValidation(t *testing.T) {
 		t.Fatal("expected minimum message validation")
 	}
 }
+
+func TestEnabledRuleVersionsQuerySelectsOnlySystemDefault(t *testing.T) {
+	query, args := enabledRuleVersionsQuery(7, 8)
+	if !strings.Contains(query, "r.system_key=?") || !strings.Contains(query, "v.version=r.current_version") {
+		t.Fatalf("query does not select the fixed current rule: %s", query)
+	}
+	if len(args) != 3 || args[0] != int64(7) || args[1] != int64(8) || args[2] != DefaultSmartAnalysisRuleSystemKey {
+		t.Fatalf("args = %#v", args)
+	}
+}
