@@ -34,10 +34,15 @@ type WorkspaceHandler struct {
 	authorize WorkspaceAuthorizer
 	repo      Repository
 	ai        providers.AIProvider
+	assistant AssistantContextProvider
 }
 
-func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, ai providers.AIProvider) *WorkspaceHandler {
-	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, ai: ai}
+func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, ai providers.AIProvider, assistants ...AssistantContextProvider) *WorkspaceHandler {
+	var assistant AssistantContextProvider
+	if len(assistants) > 0 {
+		assistant = assistants[0]
+	}
+	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, ai: ai, assistant: assistant}
 }
 
 func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +147,16 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 		provider = map[string]any{"state": string(status.State), "source": string(status.Source), "code": status.Code, "message": status.Reason}
 	}
 	data := map[string]any{"provider": provider}
+	if page == "session-analysis" && h.assistant != nil {
+		_, ensureErr := h.assistant.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID))
+		assistant, loadErr := h.assistant.LoadSessionAssistantContext(r.Context(), p.TenantID, p.CorpID)
+		if ensureErr != nil {
+			loadErr = ensureErr
+		}
+		if loadErr == nil {
+			data["assistant"] = map[string]any{"name": assistant.Name, "enabled": assistant.Enabled, "knowledgeBaseCount": assistant.KnowledgeBaseCount, "readyDocumentCount": assistant.ReadyDocumentCount, "updatedAt": assistant.UpdatedAt}
+		}
+	}
 	if run != nil {
 		data["run"] = map[string]any{"status": run.Status, "candidateCount": run.CandidateCount, "successCount": run.SuccessCount, "failureCount": run.FailureCount, "backlogCount": run.BacklogCount, "errorSummary": run.ErrorSummary, "createdAt": run.CreatedAt}
 	}

@@ -41,7 +41,6 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
   const [draftKeyword, setDraftKeyword] = useState(listState.q);
   const [draftStatus, setDraftStatus] = useState(listState.status);
   const [editing, setEditing] = useState<AgentItem | null>(null);
-  const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedBases, setSelectedBases] = useState<string[]>([]);
@@ -81,7 +80,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
     ? (basesHaveData ? '上次成功数据，刷新失败' : '知识库加载失败')
     : (!basesHaveData ? '正在加载' : null);
   const initialBases = editing?.knowledgeBaseIds ?? [];
-  const editorOpen = creating || editing !== null;
+  const editorOpen = editing !== null;
   const dirty = editorOpen && (name !== (editing?.name ?? '') || description !== (editing?.description ?? '') || status !== (editing?.status ?? 1) || JSON.stringify(selectedBases) !== JSON.stringify(initialBases));
 
   function submitFilters() {
@@ -91,7 +90,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
     setDraftKeyword(''); setDraftStatus('all'); setSearchParams(updateSearch(searchParams, { q: undefined, status: undefined, page: 1, pageSize: listState.pageSize }));
   }
   function resetEditor() {
-    setEditing(null); setCreating(false); setName(''); setDescription(''); setSelectedBases([]); setStatus(1); setEditorError(''); setDiscardOpen(false);
+    setEditing(null); setName(''); setDescription(''); setSelectedBases([]); setStatus(1); setEditorError(''); setDiscardOpen(false);
   }
   function requestEditorClose() {
     if (save.isPending) return;
@@ -99,26 +98,15 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
     resetEditor();
   }
   function rememberTrigger(event: MouseEvent<HTMLButtonElement>) { editorTriggerRef.current = event.currentTarget; }
-  function openCreate(event: MouseEvent<HTMLButtonElement>) {
-    rememberTrigger(event); setCreating(true); setEditing(null); setName(''); setDescription(''); setSelectedBases([]); setStatus(1); setEditorError(''); setFeedback(null);
-  }
   function openEdit(item: AgentItem, event: MouseEvent<HTMLButtonElement>) {
-    rememberTrigger(event); setEditing(item); setCreating(false); setName(item.name); setDescription(item.description); setSelectedBases(item.knowledgeBaseIds ?? []); setStatus(item.status); setEditorError(''); setFeedback(null);
+    rememberTrigger(event); setEditing(item); setName(item.name); setDescription(item.description); setSelectedBases(item.knowledgeBaseIds ?? []); setStatus(item.status); setEditorError(''); setFeedback(null);
   }
   function toggleBase(id: string) { setSelectedBases((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
   const save = useMutation({
-    mutationFn: () => editing
-      ? api.updateAgent(Number(corpId), editing.id, { name: name.trim(), description: description.trim(), knowledgeBaseIds: selectedBases, status })
-      : api.createAgent(Number(corpId), { name: name.trim(), description: description.trim(), knowledgeBaseIds: selectedBases, status }),
-    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ai-agents', corpId] }); setFeedback({ kind: 'success', text: editing ? '智能体已更新。' : '智能体已创建。' }); resetEditor(); },
+    mutationFn: () => api.updateAgent(Number(corpId), String(editing?.id), { name: '会话分析助手', description: description.trim(), knowledgeBaseIds: selectedBases, status }),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ai-agents', corpId] }); setFeedback({ kind: 'success', text: '会话分析助手设置已更新，后续会话分析将使用新配置。' }); resetEditor(); },
     onError: (error) => setEditorError(operationError(error)),
-  });
-  const remove = useMutation({
-    mutationFn: (item: AgentItem) => api.deleteAgent(Number(corpId), item.id).then(() => item),
-    onMutate: () => setFeedback(null),
-    onSuccess: async (item) => { await queryClient.invalidateQueries({ queryKey: ['ai-agents', corpId] }); setFeedback({ kind: 'success', text: `智能体“${item.name}”已删除。` }); },
-    onError: (error) => setFeedback({ kind: 'error', text: operationError(error) }),
   });
   const toggle = useMutation({
     mutationFn: (item: AgentItem) => api.updateAgent(Number(corpId), item.id, { name: item.name, description: item.description, knowledgeBaseIds: item.knowledgeBaseIds, status: item.status === 1 ? 0 : 1 }).then(() => item),
@@ -127,19 +115,19 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
     onError: (error) => setFeedback({ kind: 'error', text: operationError(error) }),
   });
 
-  const valid = Boolean(corpId && textLength(name.trim()) >= 2 && textLength(name.trim()) <= 128 && textLength(description) <= 512 && knowledgeBases.isSuccess);
+  const valid = Boolean(corpId && editing && textLength(description) <= 512 && knowledgeBases.isSuccess);
   const filteredEmpty = total > 0 && page.total === 0;
   const listedBaseIds = new Set((knowledgeBases.data ?? []).map((item) => item.id));
   const invalidOriginalBases = initialBases.filter((id) => !listedBaseIds.has(id));
 
   return (
-    <Phase35PageShell title="智能体管理" description="维护智能体配置元数据与企业内知识库关联" actions={<button type="button" onClick={openCreate}>新建智能体</button>}>
+    <Phase35PageShell title="智能体设置" description="配置 AI 洞察实际使用的会话分析助手">
       <div className="phase35-page ai-settings-workspace">
-        <p className="ai-settings-capability-notice" role="note">当前仅保存智能体配置元数据；模型、提示词、工具、发布与真实运行能力尚未接入。启用不代表智能体已可对外服务。</p>
+        <p className="ai-settings-capability-notice" role="note">系统仅提供“会话分析助手”，它会在 AI 洞察生成会话分析时读取这里的分析要求和已关联知识库。当前不开放新增智能体，避免产生没有业务入口的无效配置。</p>
         <section className="phase35-kpis" aria-label="智能体指标">
-          <article className="phase35-kpi phase35-kpi-primary"><span>智能体总数</span><strong>{metricsHaveData ? total : '—'}</strong><small>{metricsNote ?? '当前企业真实记录'}</small></article>
-          <article className="phase35-kpi phase35-kpi-green"><span>已启用</span><strong>{metricsHaveData ? enabledCount : '—'}</strong><small>{metricsNote ?? '仅表示配置状态'}</small></article>
-          <article className="phase35-kpi phase35-kpi-violet"><span>可新关联知识库</span><strong>{basesHaveData ? activeBases.length : '—'}</strong><small>{basesMetricsNote ?? '仅统计已启用知识库'}</small></article>
+          <article className="phase35-kpi phase35-kpi-primary"><span>系统助手</span><strong>{metricsHaveData ? total : '—'}</strong><small>{metricsNote ?? '固定为会话分析助手'}</small></article>
+          <article className="phase35-kpi phase35-kpi-green"><span>运行状态</span><strong>{metricsHaveData ? (enabledCount ? '启用' : '停用') : '—'}</strong><small>{metricsNote ?? '直接控制后续会话分析'}</small></article>
+          <article className="phase35-kpi phase35-kpi-violet"><span>可关联知识库</span><strong>{basesHaveData ? activeBases.length : '—'}</strong><small>{basesMetricsNote ?? '仅统计已启用知识库'}</small></article>
         </section>
         <DashboardFilterPanel className="ai-settings-filter" onSubmit={submitFilters} onReset={resetFilters} pending={query.isFetching} extraActions={<button type="button" onClick={() => { setFeedback(null); void Promise.all([query.refetch(), knowledgeBases.refetch()]); }} disabled={query.isFetching || knowledgeBases.isFetching}>刷新</button>}>
           <label>关键词<input aria-label="关键词" value={draftKeyword} onChange={(event) => setDraftKeyword(event.target.value)} placeholder="搜索名称或说明" /></label>
@@ -147,17 +135,16 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
         </DashboardFilterPanel>
         {feedback && <p className={`ai-settings-feedback ai-settings-feedback--${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
         <section className="phase35-card phase35-table-card">
-          <header className="phase35-card-header"><div><h2>智能体列表</h2><p>真实展示知识库关联，并提供显式启停与删除</p></div><span className="phase35-chip">筛选 {metricsHaveData ? page.total : '—'} / 全部 {metricsHaveData ? total : '—'} 条</span></header>
-          <Phase35DataState loading={query.isLoading} error={query.isError} empty={!total} emptyContent={<p className="phase35-empty">暂无智能体，点击“新建智能体”开始创建</p>} onRetry={() => void query.refetch()}>
+          <header className="phase35-card-header"><div><h2>会话分析助手</h2><p>唯一系统助手，配置变化会应用到下一次 AI 洞察分析</p></div><span className="phase35-chip">固定系统能力</span></header>
+          <Phase35DataState loading={query.isLoading} error={query.isError} empty={!total} emptyContent={<p className="phase35-empty">系统助手初始化失败，请刷新重试</p>} onRetry={() => void query.refetch()}>
             {filteredEmpty ? <p className="phase35-empty">当前筛选条件下没有匹配的智能体</p> : <>
               <div className="phase35-table ai-settings-table-scroll"><table>
                 <thead><tr><th>名称</th><th>说明</th><th>关联知识库</th><th>配置状态</th><th>更新时间</th><th>操作</th></tr></thead>
                 <tbody>{page.items.map((item) => {
-                  const rowPending = (remove.isPending && remove.variables?.id === item.id) || (toggle.isPending && toggle.variables?.id === item.id);
+                  const rowPending = toggle.isPending && toggle.variables?.id === item.id;
                   return <tr key={item.id}><td>{item.name}</td><td>{item.description || '—'}</td><td>{knowledgeBases.isLoading ? '正在加载知识库名称…' : knowledgeBases.isError ? '知识库名称加载失败' : resolveKnowledgeBaseNames(item.knowledgeBaseIds ?? [], knowledgeBases.data ?? [])}</td><td><span className={`ai-settings-status ai-settings-status--${item.status === 1 ? 'enabled' : 'disabled'}`}>{item.status === 1 ? '启用' : '停用'}</span></td><td>{formatAISettingsTime(item.updatedAt)}</td><td><div className="ai-settings-row-actions">
                     <button type="button" aria-label={`编辑 ${item.name}`} disabled={rowPending} onClick={(event) => openEdit(item, event)}>编辑</button>
                     <ConfirmAction danger={item.status === 1} title={`确认${item.status === 1 ? '停用' : '启用'}智能体“${item.name}”？`} onConfirm={() => toggle.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} disabled={rowPending}>{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
-                    <ConfirmAction title={`确认删除智能体“${item.name}”？`} description="删除后无法恢复。" onConfirm={() => remove.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`删除 ${item.name}`} disabled={rowPending}>删除</button></ConfirmAction>
                   </div></td></tr>;
                 })}</tbody>
               </table></div>
@@ -165,10 +152,10 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
             </>}
           </Phase35DataState>
         </section>
-        <DashboardDialog open={editorOpen} title={editing ? '编辑智能体' : '新建智能体'} triggerRef={editorTriggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={requestEditorClose} onConfirm={() => save.mutate()}>
+        <DashboardDialog open={editorOpen} title="配置会话分析助手" triggerRef={editorTriggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={requestEditorClose} onConfirm={() => save.mutate()}>
           <div className="ai-settings-dialog-body">{editorError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{editorError}</p>}<form onSubmit={(event) => { event.preventDefault(); if (valid && !save.isPending) save.mutate(); }}>
-            <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：智能客服" /></label>
-            <label>说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
+            <label>名称<input value="会话分析助手" readOnly aria-readonly="true" /><small>系统固定名称，不支持新增或改名。</small></label>
+            <label>分析要求<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} placeholder="例如：重点识别客户采购意向、流失风险和员工服务质量" /></label>
             <fieldset className="ai-settings-base-options"><legend>关联知识库</legend>
               {knowledgeBases.isLoading && <p role="status">正在加载可关联知识库…</p>}
               {knowledgeBases.isError && <p role="alert">知识库加载失败，暂时无法安全保存关联配置。请刷新后重试。</p>}
@@ -180,7 +167,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
               })}
               {invalidOriginalBases.map((id) => <label key={id} className="ai-settings-base-option--invalid"><input type="checkbox" checked={selectedBases.includes(id)} disabled={!selectedBases.includes(id)} onChange={() => toggleBase(id)} />已失效（ID: {id}）<small>仅可从既有关联中移除</small></label>)}
             </fieldset>
-            <label>配置状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>启用不代表模型与运行能力已接入。</small></label>
+            <label>运行状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>停用后，定时任务会记录“会话分析助手已停用”，不会伪造分析结果。</small></label>
           </form></div>
         </DashboardDialog>
         <DashboardDialog open={discardOpen} title="放弃未保存更改？" danger confirmText="放弃更改" cancelText="继续编辑" onCancel={() => setDiscardOpen(false)} onConfirm={resetEditor}><p>当前修改尚未保存，放弃后无法恢复。</p></DashboardDialog>

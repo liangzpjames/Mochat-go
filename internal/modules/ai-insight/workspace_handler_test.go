@@ -5,12 +5,39 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
 )
 
 type workspaceTestResolver struct {
 	principal WorkspacePrincipal
 	err       error
+}
+
+type workspaceAssistantStub struct {
+	assistant settingsports.SessionAssistantContext
+}
+
+func (s workspaceAssistantStub) EnsureSessionAssistant(context.Context, int64, int64, int64, string) (settingsports.Agent, error) {
+	return settingsports.Agent{}, nil
+}
+func (s workspaceAssistantStub) LoadSessionAssistantContext(context.Context, int64, int64) (settingsports.SessionAssistantContext, error) {
+	return s.assistant, nil
+}
+
+func TestWorkspaceSessionStatusExposesRuntimeAssistantSummary(t *testing.T) {
+	handler := NewWorkspaceHandler(
+		workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil,
+		workspaceAssistantStub{assistant: settingsports.SessionAssistantContext{Name: settingsports.SessionAnalysisAssistantName, Enabled: true, KnowledgeBaseCount: 2, ReadyDocumentCount: 5, UpdatedAt: "2026-08-23T12:00:00Z"}},
+	)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/status", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"会话分析助手"`) || !strings.Contains(rec.Body.String(), `"readyDocumentCount":5`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
 }
 
 func (r workspaceTestResolver) Resolve(*http.Request) (WorkspacePrincipal, error) {

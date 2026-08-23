@@ -11,7 +11,7 @@ import { DashboardPagination } from '../../components/dashboard-pagination';
 import { updateSearch } from '../../shared/query-state';
 import { Phase35PageShell } from '../phase35/components/phase35-page-shell';
 import { Phase35DataState } from '../phase35/components/data-state';
-import type { AISettingsApi, KnowledgeBaseItem } from './ai-settings-api';
+import type { AISettingsApi, KnowledgeBaseItem, KnowledgeDocumentItem } from './ai-settings-api';
 import { filterAndPageAISettings, formatAISettingsTime, parseAISettingsListState } from './list-state';
 
 function operationError(error: unknown): string {
@@ -26,6 +26,9 @@ function operationError(error: unknown): string {
       }
       return '该知识库仍被智能体引用，请先解除关联后再删除。';
     }
+    if (error.machineCode === 'AI_SETTINGS_KNOWLEDGE_BASE_HAS_DOCUMENTS') {
+      return '该知识库仍包含文档，请先在“管理文档”中删除全部文档。';
+    }
     const messages: Record<string, string> = {
       AI_SETTINGS_NOT_FOUND: '记录不存在或已被删除，请刷新列表后重试。',
       AI_SETTINGS_STATUS_INVALID: '状态值无效，请重新选择。',
@@ -33,6 +36,12 @@ function operationError(error: unknown): string {
       AI_SETTINGS_NAME_INVALID: '名称需为 2–128 个字符。',
       AI_SETTINGS_DESCRIPTION_INVALID: '说明内容过长，请精简后重试。',
       AI_SETTINGS_DOCUMENT_COUNT_INVALID: '登记文档数必须是非负整数。',
+      AI_SETTINGS_DOCUMENT_DUPLICATE: '该文件内容已存在，无需重复上传。',
+      AI_SETTINGS_DOCUMENT_LIMIT: '单个知识库最多保存 100 个文档。',
+      AI_SETTINGS_DOCUMENT_TOO_LARGE: '文件不能超过 20 MB。',
+      AI_SETTINGS_DOCUMENT_TEXT_TOO_LARGE: '文档文本过长，暂不支持解析。',
+      AI_SETTINGS_DOCUMENT_TYPE_UNSUPPORTED: '仅支持 TXT、Markdown、PDF 和 DOCX 文件。',
+      AI_SETTINGS_DOCUMENT_UNREADABLE: '无法读取该文档，请确认文件未加密且包含可提取文字。',
       AI_SETTINGS_INVALID_JSON: '请求格式无效，请刷新后重试。',
       AI_SETTINGS_STORAGE_FAILURE: '服务暂时不可用，请稍后重试。',
     };
@@ -42,7 +51,12 @@ function operationError(error: unknown): string {
 }
 
 function textLength(value: string): number { return Array.from(value).length; }
-const maxDocumentCount = 2_147_483_647;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const corpId = useOptionalDashboardAccess()?.corp.id;
@@ -55,8 +69,10 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [documentCount, setDocumentCount] = useState('0');
   const [status, setStatus] = useState(1);
+  const [managing, setManaging] = useState<KnowledgeBaseItem | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const documentTriggerRef = useRef<HTMLButtonElement>(null);
   const [editorError, setEditorError] = useState('');
   const [feedback, setFeedback] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
@@ -68,6 +84,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   }, [listState.q, listState.status]);
 
   const query = useQuery({ queryKey: ['ai-kb', corpId], queryFn: () => api.listKnowledgeBases(Number(corpId)), enabled: Boolean(corpId) });
+  const documentQuery = useQuery({ queryKey: ['ai-kb-documents', corpId, managing?.id], queryFn: () => api.listKnowledgeDocuments(Number(corpId), String(managing?.id)), enabled: Boolean(corpId && managing) });
   const items = query.data ?? [];
   const page = filterAndPageAISettings(items, listState);
   useEffect(() => {
@@ -91,9 +108,9 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
     : (!metricsHaveData ? '正在加载' : null);
   const editorOpen = creating || editing !== null;
   const initialEditor = editing
-    ? { name: editing.name, description: editing.description, documentCount: String(editing.documentCount ?? 0), status: editing.status }
-    : { name: '', description: '', documentCount: '0', status: 1 };
-  const dirty = editorOpen && (name !== initialEditor.name || description !== initialEditor.description || documentCount !== initialEditor.documentCount || status !== initialEditor.status);
+    ? { name: editing.name, description: editing.description, status: editing.status }
+    : { name: '', description: '', status: 1 };
+  const dirty = editorOpen && (name !== initialEditor.name || description !== initialEditor.description || status !== initialEditor.status);
 
   function submitFilters() {
     setSearchParams(updateSearch(searchParams, { q: draftKeyword.trim() || undefined, status: draftStatus === 'all' ? undefined : draftStatus, page: 1, pageSize: listState.pageSize }));
@@ -106,7 +123,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   }
 
   function resetEditor() {
-    setEditing(null); setCreating(false); setName(''); setDescription(''); setDocumentCount('0'); setStatus(1); setEditorError(''); setDiscardOpen(false);
+    setEditing(null); setCreating(false); setName(''); setDescription(''); setStatus(1); setEditorError(''); setDiscardOpen(false);
   }
 
   function requestEditorClose() {
@@ -117,16 +134,16 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
 
   function rememberTrigger(event: MouseEvent<HTMLButtonElement>) { editorTriggerRef.current = event.currentTarget; }
   function openCreate(event: MouseEvent<HTMLButtonElement>) {
-    rememberTrigger(event); setCreating(true); setEditing(null); setName(''); setDescription(''); setDocumentCount('0'); setStatus(1); setEditorError(''); setFeedback(null);
+    rememberTrigger(event); setCreating(true); setEditing(null); setName(''); setDescription(''); setStatus(1); setEditorError(''); setFeedback(null);
   }
   function openEdit(item: KnowledgeBaseItem, event: MouseEvent<HTMLButtonElement>) {
-    rememberTrigger(event); setEditing(item); setCreating(false); setName(item.name); setDescription(item.description); setDocumentCount(String(item.documentCount ?? 0)); setStatus(item.status); setEditorError(''); setFeedback(null);
+    rememberTrigger(event); setEditing(item); setCreating(false); setName(item.name); setDescription(item.description); setStatus(item.status); setEditorError(''); setFeedback(null);
   }
 
   const save = useMutation({
     mutationFn: () => editing
-      ? api.updateKnowledgeBase(Number(corpId), editing.id, { name: name.trim(), description: description.trim(), documentCount: Number(documentCount), status })
-      : api.createKnowledgeBase(Number(corpId), { name: name.trim(), description: description.trim(), documentCount: Number(documentCount), status }),
+      ? api.updateKnowledgeBase(Number(corpId), editing.id, { name: name.trim(), description: description.trim(), documentCount: editing.documentCount, status })
+      : api.createKnowledgeBase(Number(corpId), { name: name.trim(), description: description.trim(), documentCount: 0, status }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['ai-kb', corpId] });
       setFeedback({ kind: 'success', text: editing ? '知识库已更新。' : '知识库已创建。' });
@@ -146,19 +163,43 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
     onSuccess: async (item) => { await queryClient.invalidateQueries({ queryKey: ['ai-kb', corpId] }); setFeedback({ kind: 'success', text: `知识库“${item.name}”已${item.status === 1 ? '停用' : '启用'}。` }); },
     onError: (error) => setFeedback({ kind: 'error', text: operationError(error) }),
   });
+  const upload = useMutation({
+    mutationFn: () => api.uploadKnowledgeDocument(Number(corpId), String(managing?.id), uploadFile as File),
+    onSuccess: async (document) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['ai-kb-documents', corpId, managing?.id] }),
+        queryClient.invalidateQueries({ queryKey: ['ai-kb', corpId] }),
+      ]);
+      setUploadFile(null);
+      setFeedback(document.status === 'ready'
+        ? { kind: 'success', text: `文档“${document.filename}”已解析，可用于会话分析。` }
+        : { kind: 'error', text: `文档“${document.filename}”已保存，但解析失败，暂不会用于分析。` });
+    },
+    onError: (error) => setFeedback({ kind: 'error', text: operationError(error) }),
+  });
+  const removeDocument = useMutation({
+    mutationFn: (document: KnowledgeDocumentItem) => api.deleteKnowledgeDocument(Number(corpId), String(managing?.id), document.id).then(() => document),
+    onSuccess: async (document) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['ai-kb-documents', corpId, managing?.id] }),
+        queryClient.invalidateQueries({ queryKey: ['ai-kb', corpId] }),
+      ]);
+      setFeedback({ kind: 'success', text: `文档“${document.filename}”已删除。` });
+    },
+    onError: (error) => setFeedback({ kind: 'error', text: operationError(error) }),
+  });
 
-  const documentCountValid = /^\d+$/.test(documentCount) && Number.isSafeInteger(Number(documentCount)) && Number(documentCount) <= maxDocumentCount;
-  const valid = Boolean(corpId && textLength(name.trim()) >= 2 && textLength(name.trim()) <= 128 && textLength(description) <= 512 && documentCountValid);
+  const valid = Boolean(corpId && textLength(name.trim()) >= 2 && textLength(name.trim()) <= 128 && textLength(description) <= 512);
   const filteredEmpty = total > 0 && page.total === 0;
 
   return (
-    <Phase35PageShell title="AI 知识库" description="维护可供未来 AI 能力消费的知识库元数据" actions={<button type="button" onClick={openCreate}>新建知识库</button>}>
+    <Phase35PageShell title="AI 知识库" description="上传并管理会话分析助手可检索的企业文档" actions={<button type="button" onClick={openCreate}>新建知识库</button>}>
       <div className="phase35-page ai-settings-workspace">
-        <p className="ai-settings-capability-notice" role="note">当前仅保存知识库配置元数据；文档上传、解析与检索能力尚未接入。文档数量均为人工登记值，不代表内容已可检索。</p>
+        <p className="ai-settings-capability-notice" role="note">已启用且被“会话分析助手”关联的知识库，会在 AI 洞察生成会话分析时提供背景资料。知识不能替代真实会话消息作为分析证据。</p>
         <section className="phase35-kpis" aria-label="知识库指标">
           <article className="phase35-kpi phase35-kpi-primary"><span>知识库总数</span><strong>{metricsHaveData ? total : '—'}</strong><small>{metricsNote ?? '当前企业真实记录'}</small></article>
           <article className="phase35-kpi phase35-kpi-green"><span>已启用</span><strong>{metricsHaveData ? enabledCount : '—'}</strong><small>{metricsNote ?? '仅表示配置状态'}</small></article>
-          <article className="phase35-kpi phase35-kpi-violet"><span>登记文档数合计</span><strong>{metricsHaveData ? documents : '—'}</strong><small>{metricsNote ?? '人工登记值，未接入内容链路'}</small></article>
+          <article className="phase35-kpi phase35-kpi-violet"><span>已上传文档</span><strong>{metricsHaveData ? documents : '—'}</strong><small>{metricsNote ?? '来自持久化文档记录'}</small></article>
         </section>
         <DashboardFilterPanel className="ai-settings-filter" onSubmit={submitFilters} onReset={resetFilters} pending={query.isFetching} extraActions={<button type="button" onClick={() => { setFeedback(null); void query.refetch(); }} disabled={query.isFetching}>刷新</button>}>
           <label>关键词<input aria-label="关键词" value={draftKeyword} onChange={(event) => setDraftKeyword(event.target.value)} placeholder="搜索名称或说明" /></label>
@@ -170,10 +211,11 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
           <Phase35DataState loading={query.isLoading} error={query.isError} empty={!total} emptyContent={<p className="phase35-empty">暂无知识库，点击“新建知识库”开始创建</p>} onRetry={() => void query.refetch()}>
             {filteredEmpty ? <p className="phase35-empty">当前筛选条件下没有匹配的知识库</p> : <>
               <div className="phase35-table ai-settings-table-scroll"><table>
-                <thead><tr><th>名称</th><th>说明</th><th>登记文档数</th><th>配置状态</th><th>更新时间</th><th>操作</th></tr></thead>
+                <thead><tr><th>名称</th><th>说明</th><th>文档数</th><th>配置状态</th><th>更新时间</th><th>操作</th></tr></thead>
                 <tbody>{page.items.map((item) => {
                   const rowPending = (remove.isPending && remove.variables?.id === item.id) || (toggle.isPending && toggle.variables?.id === item.id);
                   return <tr key={item.id}><td>{item.name}</td><td>{item.description || '—'}</td><td>{item.documentCount}</td><td><span className={`ai-settings-status ai-settings-status--${item.status === 1 ? 'enabled' : 'disabled'}`}>{item.status === 1 ? '启用' : '停用'}</span></td><td>{formatAISettingsTime(item.updatedAt)}</td><td><div className="ai-settings-row-actions">
+                    <button type="button" aria-label={`管理文档 ${item.name}`} disabled={rowPending} onClick={(event) => { documentTriggerRef.current = event.currentTarget; setManaging(item); setUploadFile(null); setFeedback(null); }}>管理文档</button>
                     <button type="button" aria-label={`编辑 ${item.name}`} disabled={rowPending} onClick={(event) => openEdit(item, event)}>编辑</button>
                     <ConfirmAction danger={item.status === 1} title={`确认${item.status === 1 ? '停用' : '启用'}知识库“${item.name}”？`} onConfirm={() => toggle.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`${item.status === 1 ? '停用' : '启用'} ${item.name}`} disabled={rowPending}>{item.status === 1 ? '停用' : '启用'}</button></ConfirmAction>
                     <ConfirmAction title={`确认删除知识库“${item.name}”？`} description="删除后无法恢复；被智能体引用时服务端会拒绝删除。" onConfirm={() => remove.mutateAsync(item).catch(() => undefined)}><button type="button" aria-label={`删除 ${item.name}`} disabled={rowPending}>删除</button></ConfirmAction>
@@ -188,9 +230,24 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
           <div className="ai-settings-dialog-body">{editorError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{editorError}</p>}<form onSubmit={(event) => { event.preventDefault(); if (valid && !save.isPending) save.mutate(); }}>
             <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：售后话术库" /></label>
             <label>说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
-            <label>登记文档数<input type="number" min="0" max={maxDocumentCount} step="1" value={documentCount} onChange={(event) => setDocumentCount(event.target.value)} /><small>仅为登记值，不会上传或索引文档。</small></label>
-            <label>配置状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>启用不代表 AI 运行能力已接入。</small></label>
+            <label>配置状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>停用后关联文档不会进入新的会话分析。</small></label>
           </form></div>
+        </DashboardDialog>
+        <DashboardDialog open={managing !== null} title={`管理文档 · ${managing?.name ?? ''}`} triggerRef={documentTriggerRef} width={860} cancelText="关闭" onCancel={() => { if (!upload.isPending && !removeDocument.isPending) { setManaging(null); setUploadFile(null); } }} footer={null}>
+          <div className="ai-settings-document-manager">
+            <div className="ai-settings-upload-panel">
+              <div><strong>上传文档</strong><p>支持 .txt、.md、.pdf、.docx，单个文件不超过 20 MB。PDF 需包含文字层。</p></div>
+              <input aria-label="选择文档" type="file" accept=".txt,.md,.pdf,.docx" disabled={upload.isPending} onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} />
+              <button type="button" disabled={!uploadFile || upload.isPending} onClick={() => upload.mutate()}>{upload.isPending ? '上传解析中…' : '上传并解析'}</button>
+            </div>
+            {documentQuery.isLoading && <p role="status">正在加载文档…</p>}
+            {documentQuery.isError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">文档列表加载失败，请关闭后重试。</p>}
+            {documentQuery.isSuccess && documentQuery.data.length === 0 && <p className="phase35-empty">暂无文档。上传成功并解析后，内容才会参与会话分析。</p>}
+            {documentQuery.isSuccess && documentQuery.data.length > 0 && <div className="phase35-table ai-settings-table-scroll"><table><thead><tr><th>文件</th><th>解析状态</th><th>大小</th><th>内容</th><th>上传时间</th><th>操作</th></tr></thead><tbody>
+              {documentQuery.data.map((document) => <tr key={document.id}><td>{document.filename}</td><td><span className={`ai-settings-status ai-settings-status--${document.status === 'ready' ? 'enabled' : 'disabled'}`}>{document.status === 'ready' ? '可用于分析' : '解析失败'}</span>{document.errorSummary && <small className="ai-settings-document-error">{document.errorSummary}</small>}</td><td>{formatBytes(document.sizeBytes)}</td><td>{document.status === 'ready' ? `${document.characterCount} 字符 / ${document.chunkCount} 分段` : '未建立分段'}</td><td>{formatAISettingsTime(document.createdAt)}</td><td><ConfirmAction title={`确认删除文档“${document.filename}”？`} description="删除后，该文档内容将不再用于新的会话分析。" onConfirm={() => removeDocument.mutateAsync(document).catch(() => undefined)}><button type="button" aria-label={`删除文档 ${document.filename}`} disabled={removeDocument.isPending || upload.isPending}>删除</button></ConfirmAction></td></tr>)}
+            </tbody></table></div>}
+            <div className="ai-settings-document-footer"><button type="button" disabled={upload.isPending || removeDocument.isPending} onClick={() => { setManaging(null); setUploadFile(null); }}>关闭</button></div>
+          </div>
         </DashboardDialog>
         <DashboardDialog open={discardOpen} title="放弃未保存更改？" danger confirmText="放弃更改" cancelText="继续编辑" onCancel={() => setDiscardOpen(false)} onConfirm={resetEditor}><p>当前修改尚未保存，放弃后无法恢复。</p></DashboardDialog>
       </div>

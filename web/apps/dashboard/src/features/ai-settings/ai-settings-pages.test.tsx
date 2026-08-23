@@ -14,6 +14,9 @@ function createApi(overrides: Partial<AISettingsApi> = {}): AISettingsApi {
     createKnowledgeBase: vi.fn().mockResolvedValue({ id: 'kb-1', corpId: 9, name: 'x', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }),
     updateKnowledgeBase: vi.fn(),
     deleteKnowledgeBase: vi.fn().mockResolvedValue({}),
+    listKnowledgeDocuments: vi.fn().mockResolvedValue([]),
+    uploadKnowledgeDocument: vi.fn().mockResolvedValue({ id: 'doc-1', filename: '资料.md', status: 'ready' }),
+    deleteKnowledgeDocument: vi.fn().mockResolvedValue({}),
     listAgents: vi.fn().mockResolvedValue([]),
     createAgent: vi.fn().mockResolvedValue({ id: 'a-1', corpId: 9, name: 'x', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }),
     updateAgent: vi.fn(),
@@ -130,15 +133,18 @@ describe('AI 设置页面', () => {
     await waitFor(() => expect(deleteKnowledgeBase).toHaveBeenCalledTimes(1));
   });
 
-  it('智能体：取消删除时请求数为零', async () => {
-    const deleteAgent = vi.fn().mockResolvedValue({});
+  it('智能体：固定系统助手不提供新增或删除入口', async () => {
+    const createAgent = vi.fn();
+    const deleteAgent = vi.fn();
     const api = createApi({
-      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '智能客服', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
-      deleteAgent,
+      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', systemKey: 'session-analysis', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+      createAgent, deleteAgent,
     });
     renderPage(api, 'agent');
-    fireEvent.click(await screen.findByRole('button', { name: '删除 智能客服' }));
-    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(await screen.findByText('会话分析助手')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /新建智能体/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /删除 会话分析助手/ })).toBeNull();
+    expect(createAgent).not.toHaveBeenCalled();
     expect(deleteAgent).not.toHaveBeenCalled();
   });
 
@@ -191,7 +197,7 @@ describe('AI 设置页面', () => {
     expect(screen.getByLabelText('当前地址').textContent).toContain('pageSize=20');
   });
 
-  it('知识库：区分真实空态、筛选无结果与登记值能力边界', async () => {
+  it('知识库：区分筛选无结果并明确实际消费边界', async () => {
     const api = createApi({
       listKnowledgeBases: vi.fn().mockResolvedValue([
         { id: 'kb-1', corpId: 9, name: '产品资料库', description: '', documentCount: 7, status: 1, createdAt: '', updatedAt: '' },
@@ -199,8 +205,8 @@ describe('AI 设置页面', () => {
     });
     renderPage(api, 'kb', '/ai-setting/ai-knowledge-base?q=不存在');
     expect(await screen.findByText('当前筛选条件下没有匹配的知识库')).toBeTruthy();
-    expect(screen.getByText(/文档上传、解析与检索能力尚未接入/)).toBeTruthy();
-    expect(screen.getByText('登记文档数合计')).toBeTruthy();
+    expect(screen.getByText(/知识不能替代真实会话消息作为分析证据/)).toBeTruthy();
+    expect(screen.getByText('已上传文档')).toBeTruthy();
   });
 
   it('知识库：被智能体引用时把稳定机器码映射为中文冲突反馈', async () => {
@@ -217,9 +223,12 @@ describe('AI 设置页面', () => {
   });
 
   it('智能体：知识库加载失败时禁用保存并保留明确错误语义', async () => {
-    const api = createApi({ listKnowledgeBases: vi.fn().mockRejectedValue(new Error('network')) });
+    const api = createApi({
+      listKnowledgeBases: vi.fn().mockRejectedValue(new Error('network')),
+      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]),
+    });
     renderPage(api, 'agent');
-    fireEvent.click(await screen.findByRole('button', { name: '新建智能体' }));
+    fireEvent.click(await screen.findByRole('button', { name: '编辑 会话分析助手' }));
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(screen.getByRole('button', { name: '保存' })).toHaveProperty('disabled', true);
   });
@@ -242,10 +251,9 @@ describe('AI 设置页面', () => {
     renderPage(createApi({ createKnowledgeBase, listKnowledgeBases }), 'kb');
     fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
     fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '验收知识库' } });
-    fireEvent.change(screen.getByRole('spinbutton', { name: /登记文档数/ }), { target: { value: '4' } });
     fireEvent.change(screen.getByRole('combobox', { name: /配置状态/ }), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await waitFor(() => expect(createKnowledgeBase).toHaveBeenCalledWith(9, expect.objectContaining({ name: '验收知识库', documentCount: 4, status: 0 })));
+    await waitFor(() => expect(createKnowledgeBase).toHaveBeenCalledWith(9, expect.objectContaining({ name: '验收知识库', documentCount: 0, status: 0 })));
     expect(await screen.findByText('知识库已创建。')).toBeTruthy();
     expect(listKnowledgeBases.mock.calls.length).toBeGreaterThan(1);
   });
@@ -271,11 +279,11 @@ describe('AI 设置页面', () => {
     expect(screen.queryByText('操作失败，请稍后重试。')).toBeNull();
   });
 
-  it('智能体：请求 JSON 合同失败显示明确中文反馈', async () => {
-    const createAgent = vi.fn().mockRejectedValue(new ApiError('validation', 'invalid json', { status: 400, machineCode: 'AI_SETTINGS_INVALID_JSON' }));
-    renderPage(createApi({ createAgent }), 'agent');
-    fireEvent.click(await screen.findByRole('button', { name: '新建智能体' }));
-    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '请求智能体' } });
+  it('智能体：更新请求失败显示明确中文并保留编辑上下文', async () => {
+    const updateAgent = vi.fn().mockRejectedValue(new ApiError('validation', 'invalid json', { status: 400, machineCode: 'AI_SETTINGS_INVALID_JSON' }));
+    renderPage(createApi({ updateAgent, listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }]) }), 'agent');
+    fireEvent.click(await screen.findByRole('button', { name: '编辑 会话分析助手' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '分析要求' }), { target: { value: '重点检查退款风险' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect((await screen.findByRole('alert')).textContent).toContain('请求格式无效，请刷新后重试。');
     expect(screen.queryByText('操作失败，请稍后重试。')).toBeNull();
@@ -426,19 +434,34 @@ describe('AI 设置页面', () => {
     await screen.findByText('智能体“待停用助手”已停用。');
   });
 
-  it('知识库：文档数使用 int32 上限且 Unicode 长度不依赖原生 maxLength', async () => {
+  it('知识库：文档数由上传链路维护且 Unicode 长度不依赖原生 maxLength', async () => {
     renderPage(createApi(), 'kb');
     fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
     const nameInput = screen.getByRole('textbox', { name: '名称' });
     const descriptionInput = screen.getByRole('textbox', { name: '说明' });
-    const countInput = screen.getByRole('spinbutton', { name: /登记文档数/ });
     expect(nameInput.getAttribute('maxlength')).toBeNull();
     expect(descriptionInput.getAttribute('maxlength')).toBeNull();
-    expect(countInput.getAttribute('max')).toBe('2147483647');
+    expect(screen.queryByRole('spinbutton', { name: /登记文档数/ })).toBeNull();
     fireEvent.change(nameInput, { target: { value: '😀'.repeat(128) } });
-    fireEvent.change(countInput, { target: { value: '2147483648' } });
-    expect(screen.getByRole('button', { name: '保存' })).toHaveProperty('disabled', true);
-    fireEvent.change(countInput, { target: { value: '2147483647' } });
     expect(screen.getByRole('button', { name: '保存' })).toHaveProperty('disabled', false);
+  });
+
+  it('知识库：管理文档执行真实上传、展示解析状态并支持删除', async () => {
+    const uploadKnowledgeDocument = vi.fn().mockResolvedValue({ id: 'doc-2', filename: '退款制度.md', status: 'ready' });
+    const deleteKnowledgeDocument = vi.fn().mockResolvedValue({});
+    renderPage(createApi({
+      listKnowledgeBases: vi.fn().mockResolvedValue([{ id: 'kb-1', corpId: 9, name: '制度库', description: '', documentCount: 1, status: 1, createdAt: '', updatedAt: '' }]),
+      listKnowledgeDocuments: vi.fn().mockResolvedValue([{ id: 'doc-1', corpId: 9, knowledgeBaseId: 'kb-1', filename: '售后流程.pdf', extension: 'pdf', mimeType: 'application/pdf', sizeBytes: 2048, sha256: 'x', status: 'ready', errorSummary: '', characterCount: 120, chunkCount: 2, createdAt: '2026-08-23T12:00:00Z', updatedAt: '' }]),
+      uploadKnowledgeDocument, deleteKnowledgeDocument,
+    }), 'kb');
+    fireEvent.click(await screen.findByRole('button', { name: '管理文档 制度库' }));
+    expect(await screen.findByText('售后流程.pdf')).toBeTruthy();
+    const file = new File(['退款需要主管审批'], '退款制度.md', { type: 'text/markdown' });
+    fireEvent.change(screen.getByLabelText('选择文档'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '上传并解析' }));
+    await waitFor(() => expect(uploadKnowledgeDocument).toHaveBeenCalledWith(9, 'kb-1', file));
+    fireEvent.click(screen.getByRole('button', { name: '删除文档 售后流程.pdf' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    await waitFor(() => expect(deleteKnowledgeDocument).toHaveBeenCalledWith(9, 'kb-1', 'doc-1'));
   });
 });

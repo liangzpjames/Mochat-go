@@ -11,7 +11,7 @@ export type InsightDetail<T extends object> = T & { messages: SourceMessage[]; c
 export type SourceMessage = { id: string; time: string; direction: 'inbound' | 'outbound'; senderName: string; content: string };
 export type AnalysisRule = { id: number; name: string; objective: string; conversationTypes: ConversationType[]; targetScope: 'all' | 'department' | 'employee'; targetIds: number[]; lookbackDays: number; minimumMessages: number; status: 'enabled' | 'disabled'; currentVersion: number; createdAt: string; updatedAt: string };
 export type AnalysisRuleInput = Omit<AnalysisRule, 'id' | 'currentVersion' | 'createdAt' | 'updatedAt'> & { id?: number };
-export type InsightRunStatus = { provider: { state: string; source?: string; code?: string; message?: string }; run?: { status: InsightStatus; candidateCount: number; successCount: number; failureCount: number; backlogCount: number; errorSummary: string; createdAt: string } };
+export type InsightRunStatus = { provider: { state: string; source?: string; code?: string; message?: string }; assistant?: { name: string; enabled: boolean; knowledgeBaseCount: number; readyDocumentCount: number; updatedAt: string }; run?: { status: InsightStatus; candidateCount: number; successCount: number; failureCount: number; backlogCount: number; errorSummary: string; createdAt: string } };
 export type AiInsightWorkspaceApi = {
   sessionRecords(filters: SessionInsightFilters): Promise<InsightPage<SessionInsightRow>>;
   sessionDetail(id: number): Promise<InsightDetail<SessionInsightRow>>;

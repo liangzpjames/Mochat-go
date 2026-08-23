@@ -34,6 +34,23 @@ describe('AI 设置 API', () => {
     expect(request).toHaveBeenCalledWith('/ai-settings/knowledge-bases/kb-1?corpId=9', { method: 'DELETE' });
   });
 
+  it('uses real multipart document contracts without overriding the content type', async () => {
+    const request = vi.fn().mockResolvedValue([]);
+    const api = createAISettingsApi({ request });
+    await api.listKnowledgeDocuments(9, 'kb-1');
+    expect(request).toHaveBeenLastCalledWith('/ai-settings/knowledge-bases/kb-1/documents?corpId=9');
+    const file = new File(['退款制度'], '退款制度.md', { type: 'text/markdown' });
+    await api.uploadKnowledgeDocument(9, 'kb-1', file);
+    const calls = request.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit?]>;
+    const init = calls.at(-1)?.[1];
+    expect(init).toMatchObject({ method: 'POST' });
+    expect(init?.headers).toBeUndefined();
+    expect(init?.body).toBeInstanceOf(FormData);
+    expect((init?.body as FormData).get('file')).toBe(file);
+    await api.deleteKnowledgeDocument(9, 'kb-1', 'doc-1');
+    expect(request).toHaveBeenLastCalledWith('/ai-settings/knowledge-bases/kb-1/documents/doc-1?corpId=9', { method: 'DELETE' });
+  });
+
   it('uses the agent read contract', async () => {
     const request = vi.fn().mockResolvedValue([]);
     await createAISettingsApi({ request }).listAgents(9);

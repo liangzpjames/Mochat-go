@@ -8,6 +8,7 @@ import (
 
 	appmodules "jiyi/mochat-go/internal/app/modules"
 	transporthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
+	aisettingsmysql "jiyi/mochat-go/internal/modules/ai-settings/adapters/mysql"
 	"jiyi/mochat-go/internal/modules/providers"
 )
 
@@ -34,7 +35,8 @@ func New(dependencies Dependencies) (*Module, error) {
 		if dependencies.Authorizer != nil {
 			workspaceAuthorizer = workspaceAuthorizerAdapter{authorizer: dependencies.Authorizer}
 		}
-		workspace = NewWorkspaceHandler(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProvider)
+		assistantRepo, _ := aisettingsmysql.NewAgentRepository(dependencies.DB)
+		workspace = NewWorkspaceHandler(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProvider, assistantRepo)
 	}
 	return &Module{handler: handler, workspace: workspace}, nil
 }
