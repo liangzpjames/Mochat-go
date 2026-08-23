@@ -1,21 +1,18 @@
-INSERT INTO `mochat_go_dashboard_permission_resources`
-  (`permission_id`, `resource_type`, `http_method`, `path_pattern`, `scope_required`, `status`, `version`)
-SELECT permission.`id`, 'api', route.`http_method`, route.`path_pattern`, 1, 1, 1
-FROM `mochat_go_dashboard_permissions` permission
-CROSS JOIN (
-  SELECT 'POST' AS `http_method`, '/dashboard/ai-insight/smart-analysis/rules' AS `path_pattern`
-  UNION ALL SELECT 'PUT', '/dashboard/ai-insight/smart-analysis/rules'
-  UNION ALL SELECT 'DELETE', '/dashboard/ai-insight/smart-analysis/rules'
-  UNION ALL SELECT 'POST', '/dashboard/ai-insight/smart-analysis/rules/status'
-) route
-WHERE permission.`code` = 'dashboard.ai_insight.smart_analysis'
-  AND NOT EXISTS (
-    SELECT 1 FROM `mochat_go_dashboard_permission_resources` existing
-    WHERE existing.`permission_id` = permission.`id`
-      AND existing.`resource_type` = 'api'
-      AND existing.`http_method` = route.`http_method`
-      AND existing.`path_pattern` = route.`path_pattern`
-  );
+UPDATE `mochat_go_dashboard_permission_resources` resource
+INNER JOIN `mochat_go_dashboard_permissions` permission ON permission.`id` = resource.`permission_id`
+INNER JOIN (
+  SELECT 'dashboard.ai_insight.smart_analysis' AS `permission_code`, 'POST' AS `http_method`, '/dashboard/ai-insight/smart-analysis/rules' AS `path_pattern`
+  UNION ALL SELECT 'dashboard.ai_insight.smart_analysis', 'PUT', '/dashboard/ai-insight/smart-analysis/rules'
+  UNION ALL SELECT 'dashboard.ai_insight.smart_analysis', 'DELETE', '/dashboard/ai-insight/smart-analysis/rules'
+  UNION ALL SELECT 'dashboard.ai_insight.smart_analysis', 'POST', '/dashboard/ai-insight/smart-analysis/rules/status'
+) restoration_seed ON restoration_seed.`permission_code` = permission.`code`
+  AND restoration_seed.`http_method` = resource.`http_method`
+  AND restoration_seed.`path_pattern` = resource.`path_pattern`
+SET resource.`status` = 1,
+    resource.`deleted_at` = NULL,
+    resource.`version` = resource.`version` + 1
+WHERE resource.`resource_type` = 'api'
+  AND resource.`status` = 0;
 
 UPDATE `mochat_go_dashboard_permissions`
 SET `name` = '智能体管理', `version` = `version` + 1

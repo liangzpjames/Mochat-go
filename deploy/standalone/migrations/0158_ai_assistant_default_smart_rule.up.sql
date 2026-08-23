@@ -45,16 +45,21 @@ UPDATE `mochat_go_dashboard_permissions`
 SET `name` = '分析助手', `version` = `version` + 1
 WHERE `code` = 'dashboard.ai_setting.agent' AND `name` <> '分析助手';
 
--- DELETE resource rows for independent rule creation, mutation, deletion and
--- status changes. The fixed rule is now saved atomically through AI settings.
-DELETE resource
-FROM `mochat_go_dashboard_permission_resources` resource
+-- Deactivate independent rule creation, mutation, deletion and status grants.
+-- The fixed rule is now saved atomically through AI settings.
+UPDATE `mochat_go_dashboard_permission_resources` resource
 INNER JOIN `mochat_go_dashboard_permissions` permission ON permission.`id` = resource.`permission_id`
-WHERE permission.`code` = 'dashboard.ai_insight.smart_analysis'
-  AND resource.`resource_type` = 'api'
-  AND (
-    (resource.`path_pattern` = '/dashboard/ai-insight/smart-analysis/rules'
-      AND resource.`http_method` IN ('POST', 'PUT', 'DELETE'))
-    OR (resource.`path_pattern` = '/dashboard/ai-insight/smart-analysis/rules/status'
-      AND resource.`http_method` = 'POST')
-  );
+INNER JOIN (
+  SELECT 'dashboard.ai_insight.smart_analysis' AS `permission_code`, 'POST' AS `http_method`, '/dashboard/ai-insight/smart-analysis/rules' AS `path_pattern`
+  UNION ALL SELECT 'dashboard.ai_insight.smart_analysis', 'PUT', '/dashboard/ai-insight/smart-analysis/rules'
+  UNION ALL SELECT 'dashboard.ai_insight.smart_analysis', 'DELETE', '/dashboard/ai-insight/smart-analysis/rules'
+  UNION ALL SELECT 'dashboard.ai_insight.smart_analysis', 'POST', '/dashboard/ai-insight/smart-analysis/rules/status'
+) deactivation_seed ON deactivation_seed.`permission_code` = permission.`code`
+  AND deactivation_seed.`http_method` = resource.`http_method`
+  AND deactivation_seed.`path_pattern` = resource.`path_pattern`
+SET resource.`status` = 0,
+    resource.`deleted_at` = COALESCE(resource.`deleted_at`, CURRENT_TIMESTAMP),
+    resource.`version` = resource.`version` + 1
+WHERE resource.`resource_type` = 'api'
+  AND resource.`status` = 1
+  AND resource.`deleted_at` IS NULL;

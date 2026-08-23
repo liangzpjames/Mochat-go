@@ -96,6 +96,23 @@ test('0156 seeds and rolls back the knowledge document resources', async () => {
   assert.match(down, /dashboard\.ai_setting\.ai_knowledge_base/);
 });
 
+test('0158 deactivates independent smart-rule writes and rollback restores them', async () => {
+  const [up, down] = await Promise.all([
+    readFile('deploy/standalone/migrations/0158_ai_assistant_default_smart_rule.up.sql', 'utf8'),
+    readFile('deploy/standalone/migrations/0158_ai_assistant_default_smart_rule.down.sql', 'utf8'),
+  ]);
+  const mappings = [
+    'dashboard.ai_insight.smart_analysis\tGET /dashboard/ai-insight/smart-analysis/rules\t1',
+    'dashboard.ai_insight.smart_analysis\tPOST /dashboard/ai-insight/smart-analysis/rules\t1',
+    'dashboard.ai_insight.smart_analysis\tPUT /dashboard/ai-insight/smart-analysis/rules\t1',
+    'dashboard.ai_insight.smart_analysis\tDELETE /dashboard/ai-insight/smart-analysis/rules\t1',
+    'dashboard.ai_insight.smart_analysis\tPOST /dashboard/ai-insight/smart-analysis/rules/status\t1',
+  ];
+  assert.deepEqual(applyPermissionResourceReconciliation({ mappings, overlaySource: up }), [mappings[0]]);
+  assert.match(down, /SET resource\.`status` = 1,[\s\S]*resource\.`deleted_at` = NULL/);
+  assert.match(down, /dashboard\.ai_insight\.smart_analysis/);
+});
+
 test('rejects manifest and catalog page drift', () => {
   const input = fixture();
   input.catalog.pop();

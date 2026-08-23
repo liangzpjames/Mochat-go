@@ -24,7 +24,8 @@ func TestAIAssistantDefaultSmartRuleMigration(t *testing.T) {
 		"默认智能分析规则",
 		"mochat_go_ai_analysis_rule_versions",
 		"'分析助手'",
-		"DELETE resource",
+		") deactivation_seed",
+		"resource.`status` = 0",
 		"'/dashboard/ai-insight/smart-analysis/rules/status'",
 	} {
 		if !strings.Contains(string(up), fragment) {
@@ -35,6 +36,8 @@ func TestAIAssistantDefaultSmartRuleMigration(t *testing.T) {
 		"DROP INDEX `uq_ai_rules_system_key`",
 		"DROP COLUMN `system_key`",
 		"'智能体管理'",
+		") restoration_seed",
+		"resource.`status` = 1",
 	} {
 		if !strings.Contains(string(down), fragment) {
 			t.Fatalf("down migration missing %q", fragment)

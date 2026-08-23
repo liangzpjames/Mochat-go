@@ -64,7 +64,11 @@ func PageMappedDashboardRouteContracts() []string {
 // denyOnlyDashboardRouteContracts are registered endpoints that are intentionally
 // unavailable to ordinary Dashboard users. A same-tenant superadmin may still use them.
 var denyOnlyDashboardRouteContracts = []string{
+	"DELETE /dashboard/ai-insight/smart-analysis/rules",
 	"GET /dashboard/company/profile",
+	"POST /dashboard/ai-insight/smart-analysis/rules",
+	"POST /dashboard/ai-insight/smart-analysis/rules/status",
+	"PUT /dashboard/ai-insight/smart-analysis/rules",
 	"PUT /dashboard/company/profile",
 	"PUT /dashboard/company/wecom-credentials",
 	"PUT /dashboard/company/agent-credentials",
