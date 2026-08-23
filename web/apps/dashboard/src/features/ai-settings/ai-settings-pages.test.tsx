@@ -66,8 +66,32 @@ describe('AI 设置页面', () => {
     const refetch = vi.fn().mockRejectedValue(new Error('boom'));
     const api = createApi({ listKnowledgeBases: refetch });
     renderPage(api, 'kb');
-    expect(await screen.findByText(/数据加载失败/)).toBeTruthy();
+    expect((await screen.findByRole('alert')).textContent).toContain('数据加载失败');
     expect(screen.getByRole('button', { name: '重新加载' })).toBeTruthy();
+    const metrics = screen.getByRole('region', { name: '知识库指标' });
+    expect(metrics.textContent).toContain('—');
+    expect(metrics.textContent).not.toContain('知识库总数0');
+  });
+
+  it('智能体：首屏失败时指标不伪装为零值', async () => {
+    renderPage(createApi({ listAgents: vi.fn().mockRejectedValue(new Error('boom')) }), 'agent');
+    expect((await screen.findByRole('alert')).textContent).toContain('数据加载失败');
+    const metrics = screen.getByRole('region', { name: '智能体指标' });
+    expect(metrics.textContent).toContain('—');
+    expect(metrics.textContent).not.toContain('智能体总数0');
+  });
+
+  it('知识库：刷新失败时保留并明确标记上次成功数据', async () => {
+    const listKnowledgeBases = vi.fn()
+      .mockResolvedValueOnce([{ id: 'kb-1', corpId: 9, name: '缓存知识库', description: '', documentCount: 3, status: 1, createdAt: '', updatedAt: '' }])
+      .mockRejectedValueOnce(new Error('offline'));
+    renderPage(createApi({ listKnowledgeBases }), 'kb');
+    await screen.findByText('缓存知识库');
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() => expect(listKnowledgeBases).toHaveBeenCalledTimes(2));
+    const metrics = screen.getByRole('region', { name: '知识库指标' });
+    await waitFor(() => expect(metrics.textContent).toContain('上次成功数据，刷新失败'));
+    expect(metrics.textContent).toContain('知识库总数1');
   });
 
   it('知识库：受限态（未授权 corp 不请求）', () => {
@@ -184,12 +208,12 @@ describe('AI 设置页面', () => {
       listKnowledgeBases: vi.fn().mockResolvedValue([
         { id: 'kb-1', corpId: 9, name: '售后话术库', description: '', documentCount: 3, status: 1, createdAt: '', updatedAt: '' },
       ]),
-      deleteKnowledgeBase: vi.fn().mockRejectedValue(new ApiError('validation', 'conflict', { status: 409, machineCode: 'AI_SETTINGS_KNOWLEDGE_BASE_REFERENCED' })),
+      deleteKnowledgeBase: vi.fn().mockRejectedValue(new ApiError('validation', 'conflict', { status: 409, machineCode: 'AI_SETTINGS_KNOWLEDGE_BASE_REFERENCED', data: { referenceCount: 2 } })),
     });
     renderPage(api, 'kb');
     fireEvent.click(await screen.findByRole('button', { name: '删除 售后话术库' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('仍被智能体引用');
+    expect((await screen.findByRole('alert')).textContent).toContain('仍被 2 个智能体引用');
   });
 
   it('智能体：知识库加载失败时禁用保存并保留明确错误语义', async () => {

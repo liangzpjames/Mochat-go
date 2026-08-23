@@ -72,6 +72,14 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
   const total = items.length;
   const enabledCount = items.filter((item) => item.status === 1).length;
   const activeBases = (knowledgeBases.data ?? []).filter((item) => item.status === 1);
+  const metricsHaveData = query.data !== undefined;
+  const metricsNote = query.isError
+    ? (metricsHaveData ? '上次成功数据，刷新失败' : '数据加载失败')
+    : (!metricsHaveData ? '正在加载' : null);
+  const basesHaveData = knowledgeBases.data !== undefined;
+  const basesMetricsNote = knowledgeBases.isError
+    ? (basesHaveData ? '上次成功数据，刷新失败' : '知识库加载失败')
+    : (!basesHaveData ? '正在加载' : null);
   const initialBases = editing?.knowledgeBaseIds ?? [];
   const editorOpen = creating || editing !== null;
   const dirty = editorOpen && (name !== (editing?.name ?? '') || description !== (editing?.description ?? '') || status !== (editing?.status ?? 1) || JSON.stringify(selectedBases) !== JSON.stringify(initialBases));
@@ -129,9 +137,9 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
       <div className="phase35-page ai-settings-workspace">
         <p className="ai-settings-capability-notice" role="note">当前仅保存智能体配置元数据；模型、提示词、工具、发布与真实运行能力尚未接入。启用不代表智能体已可对外服务。</p>
         <section className="phase35-kpis" aria-label="智能体指标">
-          <article className="phase35-kpi phase35-kpi-primary"><span>智能体总数</span><strong>{total}</strong><small>当前企业真实记录</small></article>
-          <article className="phase35-kpi phase35-kpi-green"><span>已启用</span><strong>{enabledCount}</strong><small>仅表示配置状态</small></article>
-          <article className="phase35-kpi phase35-kpi-violet"><span>可新关联知识库</span><strong>{knowledgeBases.isSuccess ? activeBases.length : '—'}</strong><small>{knowledgeBases.isError ? '知识库加载失败' : '仅统计已启用知识库'}</small></article>
+          <article className="phase35-kpi phase35-kpi-primary"><span>智能体总数</span><strong>{metricsHaveData ? total : '—'}</strong><small>{metricsNote ?? '当前企业真实记录'}</small></article>
+          <article className="phase35-kpi phase35-kpi-green"><span>已启用</span><strong>{metricsHaveData ? enabledCount : '—'}</strong><small>{metricsNote ?? '仅表示配置状态'}</small></article>
+          <article className="phase35-kpi phase35-kpi-violet"><span>可新关联知识库</span><strong>{basesHaveData ? activeBases.length : '—'}</strong><small>{basesMetricsNote ?? '仅统计已启用知识库'}</small></article>
         </section>
         <DashboardFilterPanel className="ai-settings-filter" onSubmit={submitFilters} onReset={resetFilters} pending={query.isFetching} extraActions={<button type="button" onClick={() => { setFeedback(null); void Promise.all([query.refetch(), knowledgeBases.refetch()]); }} disabled={query.isFetching || knowledgeBases.isFetching}>刷新</button>}>
           <label>关键词<input aria-label="关键词" value={draftKeyword} onChange={(event) => setDraftKeyword(event.target.value)} placeholder="搜索名称或说明" /></label>
@@ -139,7 +147,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
         </DashboardFilterPanel>
         {feedback && <p className={`ai-settings-feedback ai-settings-feedback--${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
         <section className="phase35-card phase35-table-card">
-          <header className="phase35-card-header"><div><h2>智能体列表</h2><p>真实展示知识库关联，并提供显式启停与删除</p></div><span className="phase35-chip">筛选 {page.total} / 全部 {total} 条</span></header>
+          <header className="phase35-card-header"><div><h2>智能体列表</h2><p>真实展示知识库关联，并提供显式启停与删除</p></div><span className="phase35-chip">筛选 {metricsHaveData ? page.total : '—'} / 全部 {metricsHaveData ? total : '—'} 条</span></header>
           <Phase35DataState loading={query.isLoading} error={query.isError} empty={!total} emptyContent={<p className="phase35-empty">暂无智能体，点击“新建智能体”开始创建</p>} onRetry={() => void query.refetch()}>
             {filteredEmpty ? <p className="phase35-empty">当前筛选条件下没有匹配的智能体</p> : <>
               <div className="phase35-table ai-settings-table-scroll"><table>

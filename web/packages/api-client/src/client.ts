@@ -78,6 +78,7 @@ export function createApiClient(options: ApiClientOptions): {
       const errorDetails = {
         status: response.status,
         code: envelope.code,
+        data: envelope.data,
         ...(envelope.errorCode === undefined ? {} : { machineCode: envelope.errorCode }),
       };
       if (response.status === 401) {
@@ -162,6 +163,7 @@ export function createApiClient(options: ApiClientOptions): {
         const errorDetails = {
           status: response.status,
           code: envelope.code,
+          data: envelope.data,
           ...(envelope.errorCode === undefined ? {} : { machineCode: envelope.errorCode }),
         };
         if (response.status === 401) {

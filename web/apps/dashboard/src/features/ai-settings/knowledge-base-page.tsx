@@ -16,8 +16,17 @@ import { filterAndPageAISettings, formatAISettingsTime, parseAISettingsListState
 
 function operationError(error: unknown): string {
   if (error instanceof ApiError) {
+    if (error.machineCode === 'AI_SETTINGS_KNOWLEDGE_BASE_REFERENCED') {
+      const data = error.data;
+      const referenceCount = typeof data === 'object' && data !== null && 'referenceCount' in data
+        ? (data as { referenceCount?: unknown }).referenceCount
+        : undefined;
+      if (typeof referenceCount === 'number' && Number.isSafeInteger(referenceCount) && referenceCount > 0) {
+        return `该知识库仍被 ${referenceCount} 个智能体引用，请先解除关联后再删除。`;
+      }
+      return '该知识库仍被智能体引用，请先解除关联后再删除。';
+    }
     const messages: Record<string, string> = {
-      AI_SETTINGS_KNOWLEDGE_BASE_REFERENCED: '该知识库仍被智能体引用，请先解除关联后再删除。',
       AI_SETTINGS_NOT_FOUND: '记录不存在或已被删除，请刷新列表后重试。',
       AI_SETTINGS_STATUS_INVALID: '状态值无效，请重新选择。',
       AI_SETTINGS_NAME_REQUIRED: '请输入名称。',
@@ -76,6 +85,10 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const total = items.length;
   const enabledCount = items.filter((item) => item.status === 1).length;
   const documents = items.reduce((sum, item) => sum + Number(item.documentCount ?? 0), 0);
+  const metricsHaveData = query.data !== undefined;
+  const metricsNote = query.isError
+    ? (metricsHaveData ? '上次成功数据，刷新失败' : '数据加载失败')
+    : (!metricsHaveData ? '正在加载' : null);
   const editorOpen = creating || editing !== null;
   const initialEditor = editing
     ? { name: editing.name, description: editing.description, documentCount: String(editing.documentCount ?? 0), status: editing.status }
@@ -143,9 +156,9 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
       <div className="phase35-page ai-settings-workspace">
         <p className="ai-settings-capability-notice" role="note">当前仅保存知识库配置元数据；文档上传、解析与检索能力尚未接入。文档数量均为人工登记值，不代表内容已可检索。</p>
         <section className="phase35-kpis" aria-label="知识库指标">
-          <article className="phase35-kpi phase35-kpi-primary"><span>知识库总数</span><strong>{total}</strong><small>当前企业真实记录</small></article>
-          <article className="phase35-kpi phase35-kpi-green"><span>已启用</span><strong>{enabledCount}</strong><small>仅表示配置状态</small></article>
-          <article className="phase35-kpi phase35-kpi-violet"><span>登记文档数合计</span><strong>{documents}</strong><small>人工登记值，未接入内容链路</small></article>
+          <article className="phase35-kpi phase35-kpi-primary"><span>知识库总数</span><strong>{metricsHaveData ? total : '—'}</strong><small>{metricsNote ?? '当前企业真实记录'}</small></article>
+          <article className="phase35-kpi phase35-kpi-green"><span>已启用</span><strong>{metricsHaveData ? enabledCount : '—'}</strong><small>{metricsNote ?? '仅表示配置状态'}</small></article>
+          <article className="phase35-kpi phase35-kpi-violet"><span>登记文档数合计</span><strong>{metricsHaveData ? documents : '—'}</strong><small>{metricsNote ?? '人工登记值，未接入内容链路'}</small></article>
         </section>
         <DashboardFilterPanel className="ai-settings-filter" onSubmit={submitFilters} onReset={resetFilters} pending={query.isFetching} extraActions={<button type="button" onClick={() => { setFeedback(null); void query.refetch(); }} disabled={query.isFetching}>刷新</button>}>
           <label>关键词<input aria-label="关键词" value={draftKeyword} onChange={(event) => setDraftKeyword(event.target.value)} placeholder="搜索名称或说明" /></label>
@@ -153,7 +166,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
         </DashboardFilterPanel>
         {feedback && <p className={`ai-settings-feedback ai-settings-feedback--${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
         <section className="phase35-card phase35-table-card">
-          <header className="phase35-card-header"><div><h2>知识库列表</h2><p>新增、编辑、显式启停与删除企业内知识库</p></div><span className="phase35-chip">筛选 {page.total} / 全部 {total} 条</span></header>
+          <header className="phase35-card-header"><div><h2>知识库列表</h2><p>新增、编辑、显式启停与删除企业内知识库</p></div><span className="phase35-chip">筛选 {metricsHaveData ? page.total : '—'} / 全部 {metricsHaveData ? total : '—'} 条</span></header>
           <Phase35DataState loading={query.isLoading} error={query.isError} empty={!total} emptyContent={<p className="phase35-empty">暂无知识库，点击“新建知识库”开始创建</p>} onRetry={() => void query.refetch()}>
             {filteredEmpty ? <p className="phase35-empty">当前筛选条件下没有匹配的知识库</p> : <>
               <div className="phase35-table ai-settings-table-scroll"><table>

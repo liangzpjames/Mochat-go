@@ -9,6 +9,7 @@ export type ApiErrorDetails = {
 	status?: number;
 	code?: number;
 	machineCode?: string;
+	data?: unknown;
 	cause?: unknown;
 };
 
@@ -17,6 +18,7 @@ export class ApiError extends Error {
 	readonly status?: number;
 	readonly code?: number;
 	readonly machineCode?: string;
+	readonly data?: unknown;
 
   constructor(kind: ApiErrorKind, message: string, details: ApiErrorDetails = {}) {
     super(message, details.cause === undefined ? undefined : { cause: details.cause });
@@ -30,6 +32,9 @@ export class ApiError extends Error {
     }
     if (details.machineCode !== undefined) {
       this.machineCode = details.machineCode;
+    }
+    if (details.data !== undefined) {
+      this.data = details.data;
     }
   }
 }

@@ -204,7 +204,7 @@ describe('createApiClient', () => {
   it('rejects a non-2xx response even when its envelope uses a success code', async () => {
     server.use(
       http.post('https://api.example.test/dashboard/scrm/contacts', () =>
-        HttpResponse.json({ code: 0, msg: 'invalid contact', data: null }, { status: 422 }),
+        HttpResponse.json({ code: 0, msg: 'invalid contact', data: { field: 'name' } }, { status: 422 }),
       ),
     );
     const client = createApiClient({
@@ -218,6 +218,7 @@ describe('createApiClient', () => {
       status: 422,
       code: 0,
       message: 'invalid contact',
+      data: { field: 'name' },
     });
   });
 
