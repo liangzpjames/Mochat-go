@@ -747,9 +747,47 @@ type fakeSessionAgentRepo struct {
 
 func (f *fakeSessionAgentRepo) EnsureSessionAssistant(_ context.Context, tenantID, corpID, actorID int64, id string) (ports.Agent, error) {
 	if f.session.ID == "" {
-		f.session = ports.Agent{ID: id, TenantID: tenantID, CorpID: corpID, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, Description: "分析客户意向与服务质量", KnowledgeBaseIDs: []string{}, Status: 1, CreatedBy: actorID, UpdatedBy: actorID}
+		f.session = ports.Agent{ID: id, TenantID: tenantID, CorpID: corpID, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, Description: "分析客户意向与服务质量", KnowledgeBaseIDs: []string{}, Status: 1, CreatedBy: actorID, UpdatedBy: actorID, SmartAnalysisRule: &ports.SmartAnalysisRule{ID: 12, Name: ports.DefaultSmartAnalysisRuleName, Objective: "识别客户意向", ConversationTypes: []string{"direct", "group"}, LookbackDays: 30, MinimumMessages: 2, CurrentVersion: 1}}
 	}
 	return f.session, nil
+}
+
+func TestAgentHandlerUpdatesAssistantAndDefaultSmartRuleTogether(t *testing.T) {
+	repo := &fakeSessionAgentRepo{session: ports.Agent{ID: "session-1", TenantID: 1, CorpID: 2, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, KnowledgeBaseIDs: []string{}, Status: 1, SmartAnalysisRule: &ports.SmartAnalysisRule{ID: 12, Name: ports.DefaultSmartAnalysisRuleName, Objective: "旧目标", ConversationTypes: []string{"direct"}, LookbackDays: 30, MinimumMessages: 2, CurrentVersion: 1}}}
+	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
+	response := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", `{"name":"会话分析助手","description":"识别服务风险","knowledgeBaseIds":[],"status":1,"smartAnalysisRule":{"objective":"识别复购机会","conversationTypes":["direct","group"],"lookbackDays":14,"minimumMessages":3}}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if repo.session.SmartAnalysisRule == nil || repo.session.SmartAnalysisRule.Objective != "识别复购机会" || repo.session.SmartAnalysisRule.LookbackDays != 14 || repo.session.SmartAnalysisRule.MinimumMessages != 3 {
+		t.Fatalf("rule = %#v", repo.session.SmartAnalysisRule)
+	}
+}
+
+func TestAgentHandlerRejectsInvalidDefaultSmartRule(t *testing.T) {
+	tests := []struct {
+		name string
+		rule string
+	}{
+		{name: "missing", rule: "null"},
+		{name: "objective too short", rule: `{"objective":"仅","conversationTypes":["direct"],"lookbackDays":30,"minimumMessages":2}`},
+		{name: "empty conversation types", rule: `{"objective":"识别客户意向","conversationTypes":[],"lookbackDays":30,"minimumMessages":2}`},
+		{name: "unknown conversation type", rule: `{"objective":"识别客户意向","conversationTypes":["internal"],"lookbackDays":30,"minimumMessages":2}`},
+		{name: "lookback out of range", rule: `{"objective":"识别客户意向","conversationTypes":["direct"],"lookbackDays":31,"minimumMessages":2}`},
+		{name: "minimum messages out of range", rule: `{"objective":"识别客户意向","conversationTypes":["direct"],"lookbackDays":30,"minimumMessages":1}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeSessionAgentRepo{session: ports.Agent{ID: "session-1", TenantID: 1, CorpID: 2, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, Status: 1, SmartAnalysisRule: &ports.SmartAnalysisRule{ID: 12}}}
+			handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
+			body := `{"name":"会话分析助手","knowledgeBaseIds":[],"status":1,"smartAnalysisRule":` + test.rule + "}"
+			response := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", body)
+			payload := envelopeData(t, response)
+			if response.Code != http.StatusBadRequest || payload["msg"] != machineCodeSmartRuleInvalid {
+				t.Fatalf("response = %s", response.Body.String())
+			}
+		})
+	}
 }
 
 func (f *fakeSessionAgentRepo) GetSessionAssistant(_ context.Context, tenantID, corpID int64) (ports.Agent, error) {

@@ -18,6 +18,7 @@ import (
 const (
 	sessionAgentColumns                = "id, tenant_id, corp_id, system_key, name, description, knowledge_base_ids, status, created_by, updated_by, created_at, updated_at"
 	defaultSessionAssistantDescription = "分析企业微信会话中的客户意向、流失风险与员工服务质量。"
+	defaultSmartAnalysisObjective      = "识别客户意向、沟通质量、风险信号和建议跟进动作"
 	maxRuntimeKnowledgeChunks          = 2000
 )
 
@@ -65,6 +66,21 @@ func (r *AgentRepository) EnsureSessionAssistant(ctx context.Context, tenantID, 
 			return ports.Agent{}, err
 		}
 	}
+	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO mochat_go_ai_analysis_rules
+        (tenant_id,corp_id,system_key,name,objective,conversation_types_json,target_scope,target_ids_json,lookback_days,minimum_messages,status,current_version,created_by,updated_by,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,'all','[]',?,?,'enabled',1,?,?,?,?)`,
+		tenantID, corpID, ports.DefaultSmartAnalysisSystemKey, ports.DefaultSmartAnalysisRuleName,
+		defaultSmartAnalysisObjective, `["direct","group"]`, 30, 2, actorUserID, actorUserID, now, now)
+	if err != nil {
+		return ports.Agent{}, err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO mochat_go_ai_analysis_rule_versions
+        (tenant_id,corp_id,rule_id,version,objective,conversation_types_json,target_scope,target_ids_json,lookback_days,minimum_messages,created_by,created_at)
+        SELECT tenant_id,corp_id,id,current_version,objective,conversation_types_json,target_scope,target_ids_json,lookback_days,minimum_messages,updated_by,NOW()
+        FROM mochat_go_ai_analysis_rules WHERE tenant_id=? AND corp_id=? AND system_key=? AND deleted_at IS NULL`, tenantID, corpID, ports.DefaultSmartAnalysisSystemKey)
+	if err != nil {
+		return ports.Agent{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return ports.Agent{}, err
 	}
@@ -76,12 +92,49 @@ func (r *AgentRepository) GetSessionAssistant(ctx context.Context, tenantID, cor
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.Agent{}, ports.ErrNotFound
 	}
-	return value, err
+	if err != nil {
+		return ports.Agent{}, err
+	}
+	rule, err := loadDefaultSmartAnalysisRule(ctx, r.db, tenantID, corpID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ports.Agent{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return ports.Agent{}, err
+	}
+	value.SmartAnalysisRule = &rule
+	return value, nil
+}
+
+func loadDefaultSmartAnalysisRule(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, tenantID, corpID int64) (ports.SmartAnalysisRule, error) {
+	var value ports.SmartAnalysisRule
+	var conversationTypesJSON string
+	var updatedAt time.Time
+	err := queryer.QueryRowContext(ctx, `SELECT id,name,objective,conversation_types_json,lookback_days,minimum_messages,current_version,updated_at
+        FROM mochat_go_ai_analysis_rules
+        WHERE tenant_id=? AND corp_id=? AND system_key=? AND deleted_at IS NULL`, tenantID, corpID, ports.DefaultSmartAnalysisSystemKey).
+		Scan(&value.ID, &value.Name, &value.Objective, &conversationTypesJSON, &value.LookbackDays, &value.MinimumMessages, &value.CurrentVersion, &updatedAt)
+	if err != nil {
+		return ports.SmartAnalysisRule{}, err
+	}
+	if err := json.Unmarshal([]byte(conversationTypesJSON), &value.ConversationTypes); err != nil {
+		return ports.SmartAnalysisRule{}, err
+	}
+	if value.ConversationTypes == nil {
+		value.ConversationTypes = []string{}
+	}
+	value.UpdatedAt = updatedAt.Format(time.RFC3339)
+	return value, nil
 }
 
 func (r *AgentRepository) UpdateSessionAssistant(ctx context.Context, value ports.Agent) (ports.Agent, error) {
 	value.Name = ports.SessionAnalysisAssistantName
 	value.SystemKey = ports.SessionAnalysisSystemKey
+	if value.SmartAnalysisRule == nil {
+		return ports.Agent{}, errors.New("default smart analysis rule is required")
+	}
 	encoded, err := json.Marshal(nonNilStrings(value.KnowledgeBaseIDs))
 	if err != nil {
 		return ports.Agent{}, err
@@ -106,8 +159,56 @@ func (r *AgentRepository) UpdateSessionAssistant(ctx context.Context, value port
 	if affected == 0 {
 		return ports.Agent{}, ports.ErrNotFound
 	}
+	var ruleID int64
+	var currentObjective, currentTypesJSON string
+	var currentLookbackDays, currentMinimumMessages, currentVersion int
+	err = tx.QueryRowContext(ctx, `SELECT id,objective,conversation_types_json,lookback_days,minimum_messages,current_version
+        FROM mochat_go_ai_analysis_rules
+        WHERE tenant_id=? AND corp_id=? AND system_key=? AND deleted_at IS NULL FOR UPDATE`, value.TenantID, value.CorpID, ports.DefaultSmartAnalysisSystemKey).
+		Scan(&ruleID, &currentObjective, &currentTypesJSON, &currentLookbackDays, &currentMinimumMessages, &currentVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ports.Agent{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return ports.Agent{}, err
+	}
+	typesJSON, err := json.Marshal(nonNilStrings(value.SmartAnalysisRule.ConversationTypes))
+	if err != nil {
+		return ports.Agent{}, err
+	}
+	ruleChanged := currentObjective != value.SmartAnalysisRule.Objective || currentTypesJSON != string(typesJSON) || currentLookbackDays != value.SmartAnalysisRule.LookbackDays || currentMinimumMessages != value.SmartAnalysisRule.MinimumMessages
+	if ruleChanged {
+		nextVersion := currentVersion + 1
+		result, err := tx.ExecContext(ctx, `UPDATE mochat_go_ai_analysis_rules
+            SET objective=?,conversation_types_json=?,lookback_days=?,minimum_messages=?,current_version=?,updated_by=?,updated_at=?
+            WHERE tenant_id=? AND corp_id=? AND id=? AND system_key=? AND deleted_at IS NULL`,
+			value.SmartAnalysisRule.Objective, string(typesJSON), value.SmartAnalysisRule.LookbackDays, value.SmartAnalysisRule.MinimumMessages,
+			nextVersion, value.UpdatedBy, now, value.TenantID, value.CorpID, ruleID, ports.DefaultSmartAnalysisSystemKey)
+		if err != nil {
+			return ports.Agent{}, err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return ports.Agent{}, err
+		}
+		if affected == 0 {
+			return ports.Agent{}, ports.ErrNotFound
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_ai_analysis_rule_versions
+            (tenant_id,corp_id,rule_id,version,objective,conversation_types_json,target_scope,target_ids_json,lookback_days,minimum_messages,created_by,created_at)
+            VALUES (?,?,?,?,?,?,'all','[]',?,?,?,?)`, value.TenantID, value.CorpID, ruleID, nextVersion,
+			value.SmartAnalysisRule.Objective, string(typesJSON), value.SmartAnalysisRule.LookbackDays, value.SmartAnalysisRule.MinimumMessages, value.UpdatedBy, now)
+		if err != nil {
+			return ports.Agent{}, err
+		}
+	}
 	if err := insertAudit(ctx, tx, value.TenantID, value.CorpID, value.UpdatedBy, "agent", value.ID, "update", []string{"description", "knowledge_base_ids", "status"}); err != nil {
 		return ports.Agent{}, err
+	}
+	if ruleChanged {
+		if err := insertAudit(ctx, tx, value.TenantID, value.CorpID, value.UpdatedBy, "analysis_rule", fmt.Sprintf("%d", ruleID), "update", []string{"objective", "conversation_types", "lookback_days", "minimum_messages", "current_version"}); err != nil {
+			return ports.Agent{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return ports.Agent{}, err

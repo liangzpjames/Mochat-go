@@ -37,6 +37,7 @@ const (
 	machineCodePrincipalUnauthorized   = "AI_SETTINGS_PRINCIPAL_UNAUTHORIZED"
 	machineCodeNotFound                = "AI_SETTINGS_NOT_FOUND"
 	machineCodeStorageFailure          = "AI_SETTINGS_STORAGE_FAILURE"
+	machineCodeSmartRuleInvalid        = "AI_SETTINGS_SMART_RULE_INVALID"
 )
 
 var (
@@ -70,10 +71,18 @@ type knowledgeBaseInput struct {
 }
 
 type agentInput struct {
-	Name             string   `json:"name"`
-	Description      string   `json:"description"`
-	KnowledgeBaseIDs []string `json:"knowledgeBaseIds"`
-	Status           *int     `json:"status"`
+	Name              string                  `json:"name"`
+	Description       string                  `json:"description"`
+	KnowledgeBaseIDs  []string                `json:"knowledgeBaseIds"`
+	Status            *int                    `json:"status"`
+	SmartAnalysisRule *smartAnalysisRuleInput `json:"smartAnalysisRule"`
+}
+
+type smartAnalysisRuleInput struct {
+	Objective         string   `json:"objective"`
+	ConversationTypes []string `json:"conversationTypes"`
+	LookbackDays      int      `json:"lookbackDays"`
+	MinimumMessages   int      `json:"minimumMessages"`
 }
 
 func writeEnvelope(w http.ResponseWriter, code int, msg string, data any) {
@@ -429,6 +438,20 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeDescriptionInvalid, nil)
 			return
 		}
+		var smartRule *ports.SmartAnalysisRule
+		if h.session != nil {
+			if input.SmartAnalysisRule == nil || !validSmartAnalysisRule(*input.SmartAnalysisRule) {
+				writeEnvelope(w, http.StatusBadRequest, machineCodeSmartRuleInvalid, nil)
+				return
+			}
+			smartRule = &ports.SmartAnalysisRule{
+				Name:              ports.DefaultSmartAnalysisRuleName,
+				Objective:         strings.TrimSpace(input.SmartAnalysisRule.Objective),
+				ConversationTypes: normalizeConversationTypes(input.SmartAnalysisRule.ConversationTypes),
+				LookbackDays:      input.SmartAnalysisRule.LookbackDays,
+				MinimumMessages:   input.SmartAnalysisRule.MinimumMessages,
+			}
+		}
 		knowledgeBaseIDs, err := h.validateKnowledgeBases(r.Context(), p, input.KnowledgeBaseIDs)
 		if err != nil {
 			if errors.Is(err, errCrossRepositoryUnavailable) || errors.Is(err, errKnowledgeBaseLookup) {
@@ -440,7 +463,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		agent := ports.Agent{
 			TenantID: p.TenantID, CorpID: p.CorpID,
-			Name: input.Name, Description: input.Description, KnowledgeBaseIDs: knowledgeBaseIDs, Status: status,
+			Name: input.Name, Description: input.Description, KnowledgeBaseIDs: knowledgeBaseIDs, Status: status, SmartAnalysisRule: smartRule,
 			UpdatedBy: p.UserID,
 		}
 		if h.session != nil {
@@ -492,4 +515,29 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeEnvelope(w, http.StatusMethodNotAllowed, "method not allowed", nil)
 	}
+}
+
+func validSmartAnalysisRule(input smartAnalysisRuleInput) bool {
+	objectiveLength := utf8.RuneCountInString(strings.TrimSpace(input.Objective))
+	if objectiveLength < 2 || objectiveLength > 500 || input.LookbackDays < 1 || input.LookbackDays > 30 || input.MinimumMessages < 2 || input.MinimumMessages > 50 {
+		return false
+	}
+	types := normalizeConversationTypes(input.ConversationTypes)
+	return len(types) > 0 && len(types) == len(input.ConversationTypes)
+}
+
+func normalizeConversationTypes(values []string) []string {
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "direct" && value != "group" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	return normalized
 }

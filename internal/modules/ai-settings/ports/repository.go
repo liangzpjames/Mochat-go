@@ -22,10 +22,12 @@ var (
 )
 
 const (
-	DocumentStatusReady          = "ready"
-	DocumentStatusFailed         = "failed"
-	SessionAnalysisSystemKey     = "session-analysis"
-	SessionAnalysisAssistantName = "会话分析助手"
+	DocumentStatusReady           = "ready"
+	DocumentStatusFailed          = "failed"
+	SessionAnalysisSystemKey      = "session-analysis"
+	SessionAnalysisAssistantName  = "会话分析助手"
+	DefaultSmartAnalysisSystemKey = "default-smart-analysis"
+	DefaultSmartAnalysisRuleName  = "默认智能分析规则"
 )
 
 type KnowledgeBaseReferencedError struct {
@@ -68,18 +70,30 @@ type KnowledgeBase struct {
 }
 
 type Agent struct {
-	ID               string   `json:"id"`
-	TenantID         int64    `json:"-"`
-	CorpID           int64    `json:"corpId"`
-	SystemKey        string   `json:"systemKey,omitempty"`
-	Name             string   `json:"name"`
-	Description      string   `json:"description"`
-	KnowledgeBaseIDs []string `json:"knowledgeBaseIds"`
-	Status           int      `json:"status"`
-	CreatedBy        int64    `json:"-"`
-	UpdatedBy        int64    `json:"-"`
-	CreatedAt        string   `json:"createdAt"`
-	UpdatedAt        string   `json:"updatedAt"`
+	ID                string             `json:"id"`
+	TenantID          int64              `json:"-"`
+	CorpID            int64              `json:"corpId"`
+	SystemKey         string             `json:"systemKey,omitempty"`
+	Name              string             `json:"name"`
+	Description       string             `json:"description"`
+	KnowledgeBaseIDs  []string           `json:"knowledgeBaseIds"`
+	Status            int                `json:"status"`
+	CreatedBy         int64              `json:"-"`
+	UpdatedBy         int64              `json:"-"`
+	CreatedAt         string             `json:"createdAt"`
+	UpdatedAt         string             `json:"updatedAt"`
+	SmartAnalysisRule *SmartAnalysisRule `json:"smartAnalysisRule,omitempty"`
+}
+
+type SmartAnalysisRule struct {
+	ID                int64    `json:"id"`
+	Name              string   `json:"name"`
+	Objective         string   `json:"objective"`
+	ConversationTypes []string `json:"conversationTypes"`
+	LookbackDays      int      `json:"lookbackDays"`
+	MinimumMessages   int      `json:"minimumMessages"`
+	CurrentVersion    int      `json:"currentVersion"`
+	UpdatedAt         string   `json:"updatedAt"`
 }
 
 type KnowledgeDocument struct {
