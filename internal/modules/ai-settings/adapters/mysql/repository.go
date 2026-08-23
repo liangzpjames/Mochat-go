@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"jiyi/mochat-go/internal/modules/ai-settings/ports"
@@ -45,6 +46,32 @@ func (r *KnowledgeBaseRepository) List(ctx context.Context, tenantID, corpID int
 	}
 	defer rows.Close()
 	result := make([]ports.KnowledgeBase, 0)
+	for rows.Next() {
+		v, err := scanKnowledgeBase(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, v)
+	}
+	return result, rows.Err()
+}
+
+func (r *KnowledgeBaseRepository) GetByIDs(ctx context.Context, tenantID, corpID int64, ids []string) ([]ports.KnowledgeBase, error) {
+	if len(ids) == 0 {
+		return []ports.KnowledgeBase{}, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids)+2)
+	args = append(args, tenantID, corpID)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := r.db.QueryContext(ctx, "SELECT "+kbColumns+" FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN ("+placeholders+") AND deleted_at IS NULL", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]ports.KnowledgeBase, 0, len(ids))
 	for rows.Next() {
 		v, err := scanKnowledgeBase(rows)
 		if err != nil {
@@ -133,6 +160,23 @@ func scanAgent(row interface{ Scan(...any) error }) (ports.Agent, error) {
 
 func (r *AgentRepository) List(ctx context.Context, tenantID, corpID int64) ([]ports.Agent, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT "+agentColumns+" FROM mochat_go_ai_agents WHERE tenant_id=? AND corp_id=? AND deleted_at IS NULL ORDER BY updated_at DESC", tenantID, corpID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]ports.Agent, 0)
+	for rows.Next() {
+		v, err := scanAgent(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, v)
+	}
+	return result, rows.Err()
+}
+
+func (r *AgentRepository) ListReferencingKnowledgeBase(ctx context.Context, tenantID, corpID int64, knowledgeBaseID string) ([]ports.Agent, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT "+agentColumns+" FROM mochat_go_ai_agents WHERE tenant_id=? AND corp_id=? AND JSON_CONTAINS(knowledge_base_ids, JSON_QUOTE(?)) AND deleted_at IS NULL ORDER BY updated_at DESC", tenantID, corpID, knowledgeBaseID)
 	if err != nil {
 		return nil, err
 	}

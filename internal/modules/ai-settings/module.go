@@ -37,8 +37,8 @@ func New(dependencies Dependencies) (*Module, error) {
 	}
 	generate := mysql.NewIDGenerator()
 	return &Module{
-		knowledgeBases: transporthttp.NewKnowledgeBaseHandler(kbRepo, dependencies.PrincipalResolver, dependencies.Authorizer, generate),
-		agents:         transporthttp.NewAgentHandler(agentRepo, dependencies.PrincipalResolver, dependencies.Authorizer, generate),
+		knowledgeBases: transporthttp.NewKnowledgeBaseHandler(kbRepo, agentRepo, dependencies.PrincipalResolver, dependencies.Authorizer, generate),
+		agents:         transporthttp.NewAgentHandler(agentRepo, kbRepo, dependencies.PrincipalResolver, dependencies.Authorizer, generate),
 	}, nil
 }
 

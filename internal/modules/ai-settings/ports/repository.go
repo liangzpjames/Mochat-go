@@ -33,6 +33,7 @@ type Agent struct {
 
 type KnowledgeBaseRepository interface {
 	List(context.Context, int64, int64) ([]KnowledgeBase, error)
+	GetByIDs(context.Context, int64, int64, []string) ([]KnowledgeBase, error)
 	Create(context.Context, KnowledgeBase) (KnowledgeBase, error)
 	Update(context.Context, KnowledgeBase) (KnowledgeBase, error)
 	Delete(context.Context, int64, int64, string) error
@@ -40,6 +41,7 @@ type KnowledgeBaseRepository interface {
 
 type AgentRepository interface {
 	List(context.Context, int64, int64) ([]Agent, error)
+	ListReferencingKnowledgeBase(context.Context, int64, int64, string) ([]Agent, error)
 	Create(context.Context, Agent) (Agent, error)
 	Update(context.Context, Agent) (Agent, error)
 	Delete(context.Context, int64, int64, string) error

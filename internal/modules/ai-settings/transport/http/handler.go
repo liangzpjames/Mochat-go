@@ -4,15 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
 	"jiyi/mochat-go/internal/modules/ai-settings/ports"
 )
 
+const maxJSONBodyBytes = 1 << 20
+
+const (
+	machineCodeConflict                = "AI_SETTINGS_CONFLICT"
+	machineCodeForbidden               = "AI_SETTINGS_FORBIDDEN"
+	machineCodeIDRequired              = "AI_SETTINGS_ID_REQUIRED"
+	machineCodeInvalidJSON             = "AI_SETTINGS_INVALID_JSON"
+	machineCodeInvalidStatus           = "AI_SETTINGS_STATUS_INVALID"
+	machineCodeKnowledgeBaseInvalid    = "AI_SETTINGS_KNOWLEDGE_BASE_INVALID"
+	machineCodeKnowledgeBaseReferenced = "AI_SETTINGS_KNOWLEDGE_BASE_REFERENCED"
+	machineCodeNameRequired            = "AI_SETTINGS_NAME_REQUIRED"
+	machineCodePrincipalUnauthorized   = "AI_SETTINGS_PRINCIPAL_UNAUTHORIZED"
+	machineCodeStorageFailure          = "AI_SETTINGS_STORAGE_FAILURE"
+)
+
 var (
 	ErrPrincipalUnauthorized = errors.New("principal unauthorized")
 	ErrForbidden             = errors.New("forbidden")
+	errInvalidStatus         = errors.New("invalid status")
 )
 
 type Principal struct {
@@ -29,6 +46,20 @@ type Authorizer interface {
 	Authorize(context.Context, Principal, int64, string) error
 }
 
+type knowledgeBaseInput struct {
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	DocumentCount int    `json:"documentCount"`
+	Status        *int   `json:"status"`
+}
+
+type agentInput struct {
+	Name             string   `json:"name"`
+	Description      string   `json:"description"`
+	KnowledgeBaseIDs []string `json:"knowledgeBaseIds"`
+	Status           *int     `json:"status"`
+}
+
 func writeEnvelope(w http.ResponseWriter, code int, msg string, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
@@ -38,7 +69,7 @@ func writeEnvelope(w http.ResponseWriter, code int, msg string, data any) {
 func resolvePrincipal(w http.ResponseWriter, r *http.Request, resolver PrincipalResolver) (Principal, bool) {
 	p, err := resolver.Resolve(r)
 	if err != nil || p.UserID <= 0 || p.TenantID <= 0 || p.CorpID <= 0 {
-		writeEnvelope(w, http.StatusUnauthorized, "principal unauthorized", nil)
+		writeEnvelope(w, http.StatusUnauthorized, machineCodePrincipalUnauthorized, nil)
 		return Principal{}, false
 	}
 	return p, true
@@ -52,15 +83,49 @@ func pathID(r *http.Request) string {
 	return parts[len(parts)-1]
 }
 
+func decodeJSON(w http.ResponseWriter, r *http.Request, body any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(body); err != nil {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidJSON, nil)
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidJSON, nil)
+		return false
+	}
+	return true
+}
+
+func parseStatus(value *int) (int, error) {
+	if value == nil || (*value != 0 && *value != 1) {
+		return 0, errInvalidStatus
+	}
+	return *value, nil
+}
+
+func authorize(w http.ResponseWriter, r *http.Request, authorizer Authorizer, principal Principal, permission string) bool {
+	if authorizer == nil {
+		return true
+	}
+	if err := authorizer.Authorize(r.Context(), principal, principal.CorpID, permission); err != nil {
+		writeEnvelope(w, http.StatusForbidden, machineCodeForbidden, nil)
+		return false
+	}
+	return true
+}
+
 type KnowledgeBaseHandler struct {
 	repo      ports.KnowledgeBaseRepository
+	agents    ports.AgentRepository
 	principal PrincipalResolver
 	authorize Authorizer
 	generate  func() string
 }
 
-func NewKnowledgeBaseHandler(repo ports.KnowledgeBaseRepository, p PrincipalResolver, a Authorizer, generate func() string) *KnowledgeBaseHandler {
-	return &KnowledgeBaseHandler{repo: repo, principal: p, authorize: a, generate: generate}
+func NewKnowledgeBaseHandler(repo ports.KnowledgeBaseRepository, agents ports.AgentRepository, p PrincipalResolver, a Authorizer, generate func() string) *KnowledgeBaseHandler {
+	return &KnowledgeBaseHandler{repo: repo, agents: agents, principal: p, authorize: a, generate: generate}
 }
 
 func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -68,79 +133,81 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	var body map[string]any
+	var input knowledgeBaseInput
 	if r.Method == http.MethodPost || r.Method == http.MethodPut {
-		if json.NewDecoder(r.Body).Decode(&body) != nil {
-			writeEnvelope(w, http.StatusBadRequest, "invalid json", nil)
+		if !decodeJSON(w, r, &input) {
 			return
 		}
 	}
-	corp := p.CorpID
 	permission := "/ai-settings/knowledge-base#get"
 	if r.Method != http.MethodGet {
 		permission = "/ai-settings/knowledge-base@edit#put"
 	}
-	if h.authorize != nil {
-		if err := h.authorize.Authorize(r.Context(), p, corp, permission); err != nil {
-			writeEnvelope(w, http.StatusForbidden, ErrForbidden.Error(), nil)
-			return
-		}
+	if !authorize(w, r, h.authorize, p, permission) {
+		return
 	}
 	switch r.Method {
 	case http.MethodGet:
-		items, err := h.repo.List(r.Context(), p.TenantID, corp)
+		items, err := h.repo.List(r.Context(), p.TenantID, p.CorpID)
 		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, err.Error(), nil)
+			writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", items)
-	case http.MethodPost:
-		kb := ports.KnowledgeBase{
-			ID: h.generate(), TenantID: p.TenantID, CorpID: corp,
-			Name: str(head(body, "name")), Description: str(head(body, "description")),
-			DocumentCount: int(num(body["documentCount"])), Status: intStatus(body, "status"),
-			CreatedBy: p.UserID, UpdatedBy: p.UserID,
-		}
-		if strings.TrimSpace(kb.Name) == "" {
-			writeEnvelope(w, http.StatusBadRequest, "name is required", nil)
-			return
-		}
-		created, err := h.repo.Create(r.Context(), kb)
+	case http.MethodPost, http.MethodPut:
+		status, err := parseStatus(input.Status)
 		if err != nil {
-			writeEnvelope(w, http.StatusConflict, err.Error(), nil)
+			writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidStatus, nil)
 			return
 		}
-		writeEnvelope(w, http.StatusOK, "success", created)
-	case http.MethodPut:
-		id := pathID(r)
-		if id == "" || id == "knowledge-bases" {
-			writeEnvelope(w, http.StatusBadRequest, "id required", nil)
+		if strings.TrimSpace(input.Name) == "" {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeNameRequired, nil)
 			return
 		}
-		kb := ports.KnowledgeBase{
-			ID: id, TenantID: p.TenantID, CorpID: corp,
-			Name: str(head(body, "name")), Description: str(head(body, "description")),
-			DocumentCount: int(num(body["documentCount"])), Status: intStatus(body, "status"),
+		knowledgeBase := ports.KnowledgeBase{
+			TenantID: p.TenantID, CorpID: p.CorpID,
+			Name: input.Name, Description: input.Description, DocumentCount: input.DocumentCount, Status: status,
 			UpdatedBy: p.UserID,
 		}
-		if strings.TrimSpace(kb.Name) == "" {
-			writeEnvelope(w, http.StatusBadRequest, "name is required", nil)
+		if r.Method == http.MethodPost {
+			knowledgeBase.ID = h.generate()
+			knowledgeBase.CreatedBy = p.UserID
+			created, err := h.repo.Create(r.Context(), knowledgeBase)
+			if err != nil {
+				writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
+				return
+			}
+			writeEnvelope(w, http.StatusOK, "success", created)
 			return
 		}
-		updated, err := h.repo.Update(r.Context(), kb)
+		knowledgeBase.ID = pathID(r)
+		if knowledgeBase.ID == "" || knowledgeBase.ID == "knowledge-bases" {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
+			return
+		}
+		updated, err := h.repo.Update(r.Context(), knowledgeBase)
 		if err != nil {
-			writeEnvelope(w, http.StatusConflict, err.Error(), nil)
+			writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", updated)
 	case http.MethodDelete:
 		id := pathID(r)
 		if id == "" || id == "knowledge-bases" {
-			writeEnvelope(w, http.StatusBadRequest, "id required", nil)
+			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
 			return
 		}
-		if err := h.repo.Delete(r.Context(), p.TenantID, corp, id); err != nil {
-			writeEnvelope(w, http.StatusConflict, err.Error(), nil)
+		references, err := h.agents.ListReferencingKnowledgeBase(r.Context(), p.TenantID, p.CorpID, id)
+		if err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
+			return
+		}
+		if len(references) != 0 {
+			writeEnvelope(w, http.StatusConflict, machineCodeKnowledgeBaseReferenced, nil)
+			return
+		}
+		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, id); err != nil {
+			writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", map[string]any{"id": id})
@@ -150,14 +217,33 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 type AgentHandler struct {
-	repo      ports.AgentRepository
-	principal PrincipalResolver
-	authorize Authorizer
-	generate  func() string
+	repo           ports.AgentRepository
+	knowledgeBases ports.KnowledgeBaseRepository
+	principal      PrincipalResolver
+	authorize      Authorizer
+	generate       func() string
 }
 
-func NewAgentHandler(repo ports.AgentRepository, p PrincipalResolver, a Authorizer, generate func() string) *AgentHandler {
-	return &AgentHandler{repo: repo, principal: p, authorize: a, generate: generate}
+func NewAgentHandler(repo ports.AgentRepository, knowledgeBases ports.KnowledgeBaseRepository, p PrincipalResolver, a Authorizer, generate func() string) *AgentHandler {
+	return &AgentHandler{repo: repo, knowledgeBases: knowledgeBases, principal: p, authorize: a, generate: generate}
+}
+
+func (h *AgentHandler) validateKnowledgeBases(ctx context.Context, principal Principal, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	unique := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			return errors.New("empty knowledge base id")
+		}
+		unique[id] = struct{}{}
+	}
+	found, err := h.knowledgeBases.GetByIDs(ctx, principal.TenantID, principal.CorpID, ids)
+	if err != nil || len(found) != len(unique) {
+		return errors.New("knowledge base validation failed")
+	}
+	return nil
 }
 
 func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -165,123 +251,80 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var body map[string]any
+	var input agentInput
 	if r.Method == http.MethodPost || r.Method == http.MethodPut {
-		if json.NewDecoder(r.Body).Decode(&body) != nil {
-			writeEnvelope(w, http.StatusBadRequest, "invalid json", nil)
+		if !decodeJSON(w, r, &input) {
 			return
 		}
 	}
-	corp := p.CorpID
 	permission := "/ai-settings/agent#get"
 	if r.Method != http.MethodGet {
 		permission = "/ai-settings/agent@edit#put"
 	}
-	if h.authorize != nil {
-		if err := h.authorize.Authorize(r.Context(), p, corp, permission); err != nil {
-			writeEnvelope(w, http.StatusForbidden, ErrForbidden.Error(), nil)
-			return
-		}
+	if !authorize(w, r, h.authorize, p, permission) {
+		return
 	}
 	switch r.Method {
 	case http.MethodGet:
-		items, err := h.repo.List(r.Context(), p.TenantID, corp)
+		items, err := h.repo.List(r.Context(), p.TenantID, p.CorpID)
 		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, err.Error(), nil)
+			writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", items)
-	case http.MethodPost:
-		agent := ports.Agent{
-			ID: h.generate(), TenantID: p.TenantID, CorpID: corp,
-			Name: str(head(body, "name")), Description: str(head(body, "description")),
-			KnowledgeBaseIDs: strSlice(body["knowledgeBaseIds"]), Status: intStatus(body, "status"),
-			CreatedBy: p.UserID, UpdatedBy: p.UserID,
-		}
-		if strings.TrimSpace(agent.Name) == "" {
-			writeEnvelope(w, http.StatusBadRequest, "name is required", nil)
-			return
-		}
-		created, err := h.repo.Create(r.Context(), agent)
+	case http.MethodPost, http.MethodPut:
+		status, err := parseStatus(input.Status)
 		if err != nil {
-			writeEnvelope(w, http.StatusConflict, err.Error(), nil)
+			writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidStatus, nil)
 			return
 		}
-		writeEnvelope(w, http.StatusOK, "success", created)
-	case http.MethodPut:
-		id := pathID(r)
-		if id == "" || id == "agents" {
-			writeEnvelope(w, http.StatusBadRequest, "id required", nil)
+		if strings.TrimSpace(input.Name) == "" {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeNameRequired, nil)
+			return
+		}
+		if err := h.validateKnowledgeBases(r.Context(), p, input.KnowledgeBaseIDs); err != nil {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeKnowledgeBaseInvalid, nil)
 			return
 		}
 		agent := ports.Agent{
-			ID: id, TenantID: p.TenantID, CorpID: corp,
-			Name: str(head(body, "name")), Description: str(head(body, "description")),
-			KnowledgeBaseIDs: strSlice(body["knowledgeBaseIds"]), Status: intStatus(body, "status"),
+			TenantID: p.TenantID, CorpID: p.CorpID,
+			Name: input.Name, Description: input.Description, KnowledgeBaseIDs: input.KnowledgeBaseIDs, Status: status,
 			UpdatedBy: p.UserID,
 		}
-		if strings.TrimSpace(agent.Name) == "" {
-			writeEnvelope(w, http.StatusBadRequest, "name is required", nil)
+		if r.Method == http.MethodPost {
+			agent.ID = h.generate()
+			agent.CreatedBy = p.UserID
+			created, err := h.repo.Create(r.Context(), agent)
+			if err != nil {
+				writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
+				return
+			}
+			writeEnvelope(w, http.StatusOK, "success", created)
+			return
+		}
+		agent.ID = pathID(r)
+		if agent.ID == "" || agent.ID == "agents" {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
 			return
 		}
 		updated, err := h.repo.Update(r.Context(), agent)
 		if err != nil {
-			writeEnvelope(w, http.StatusConflict, err.Error(), nil)
+			writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", updated)
 	case http.MethodDelete:
 		id := pathID(r)
 		if id == "" || id == "agents" {
-			writeEnvelope(w, http.StatusBadRequest, "id required", nil)
+			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
 			return
 		}
-		if err := h.repo.Delete(r.Context(), p.TenantID, corp, id); err != nil {
-			writeEnvelope(w, http.StatusConflict, err.Error(), nil)
+		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, id); err != nil {
+			writeEnvelope(w, http.StatusConflict, machineCodeConflict, nil)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", map[string]any{"id": id})
 	default:
 		writeEnvelope(w, http.StatusMethodNotAllowed, "method not allowed", nil)
 	}
-}
-
-func head(m map[string]any, key string) any {
-	return m[key]
-}
-
-func str(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-func num(v any) float64 {
-	if n, ok := v.(float64); ok {
-		return n
-	}
-	return 0
-}
-
-func intStatus(m map[string]any, key string) int {
-	n := num(m[key])
-	if n <= 0 {
-		return 1
-	}
-	return int(n)
-}
-
-func strSlice(v any) []string {
-	raw, ok := v.([]any)
-	if !ok {
-		return []string{}
-	}
-	result := make([]string, 0, len(raw))
-	for _, item := range raw {
-		if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-			result = append(result, s)
-		}
-	}
-	return result
 }
