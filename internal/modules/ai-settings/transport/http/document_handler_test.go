@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -222,6 +223,18 @@ func TestDocumentUploadRejectsUnsupportedTypeAndCrossCorpParent(t *testing.T) {
 	crossCorp := uploadDocument(t, handler, "/dashboard/ai-settings/knowledge-bases/other/documents", "guide.txt", []byte("content"))
 	if crossCorp.Code != http.StatusNotFound || len(documents.items) != 0 {
 		t.Fatalf("cross corp status=%d items=%#v", crossCorp.Code, documents.items)
+	}
+}
+
+func TestDocumentHandlerDoesNotMaskParentLookupFailureAsNotFound(t *testing.T) {
+	kbs := &fakeKBRepo{getByIDsErr: errors.New("database unavailable")}
+	handler, _ := newDocumentHandlerForTest(t, kbs, &fakeDocumentRepo{})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/dashboard/ai-settings/knowledge-bases/kb-1/documents", nil))
+
+	if response.Code != http.StatusInternalServerError || !bytes.Contains(response.Body.Bytes(), []byte(machineCodeStorageFailure)) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

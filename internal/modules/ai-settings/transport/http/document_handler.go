@@ -50,7 +50,12 @@ func (h *DocumentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !authorize(w, r, h.authorize, principal, permission) {
 		return
 	}
-	if !h.parentExists(r.Context(), principal, knowledgeBaseID) {
+	parentExists, err := h.parentExists(r.Context(), principal, knowledgeBaseID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
+		return
+	}
+	if !parentExists {
 		writeEnvelope(w, http.StatusNotFound, machineCodeNotFound, nil)
 		return
 	}
@@ -78,12 +83,15 @@ func (h *DocumentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *DocumentHandler) parentExists(ctx context.Context, principal Principal, knowledgeBaseID string) bool {
+func (h *DocumentHandler) parentExists(ctx context.Context, principal Principal, knowledgeBaseID string) (bool, error) {
 	if h.knowledgeBases == nil {
-		return false
+		return false, errors.New("knowledge base repository is unavailable")
 	}
 	items, err := h.knowledgeBases.GetByIDs(ctx, principal.TenantID, principal.CorpID, []string{knowledgeBaseID})
-	return err == nil && len(items) == 1 && items[0].ID == knowledgeBaseID
+	if err != nil {
+		return false, err
+	}
+	return len(items) == 1 && items[0].ID == knowledgeBaseID, nil
 }
 
 func (h *DocumentHandler) list(w http.ResponseWriter, r *http.Request, principal Principal, knowledgeBaseID string) {
