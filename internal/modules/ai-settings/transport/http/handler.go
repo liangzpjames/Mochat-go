@@ -326,6 +326,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 type AgentHandler struct {
 	repo           ports.AgentRepository
+	session        ports.SessionAssistantRepository
 	knowledgeBases ports.KnowledgeBaseRepository
 	principal      PrincipalResolver
 	authorize      Authorizer
@@ -333,7 +334,8 @@ type AgentHandler struct {
 }
 
 func NewAgentHandler(repo ports.AgentRepository, knowledgeBases ports.KnowledgeBaseRepository, p PrincipalResolver, a Authorizer, generate func() string) *AgentHandler {
-	return &AgentHandler{repo: repo, knowledgeBases: knowledgeBases, principal: p, authorize: a, generate: generate}
+	session, _ := repo.(ports.SessionAssistantRepository)
+	return &AgentHandler{repo: repo, session: session, knowledgeBases: knowledgeBases, principal: p, authorize: a, generate: generate}
 }
 
 func (h *AgentHandler) validateKnowledgeBases(ctx context.Context, principal Principal, ids []string) ([]string, error) {
@@ -386,6 +388,15 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		if h.session != nil {
+			item, err := h.session.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, h.generate())
+			if err != nil {
+				writeMutationError(w, err)
+				return
+			}
+			writeEnvelope(w, http.StatusOK, "success", []ports.Agent{item})
+			return
+		}
 		items, err := h.repo.List(r.Context(), p.TenantID, p.CorpID)
 		if err != nil {
 			writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
@@ -393,6 +404,10 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeEnvelope(w, http.StatusOK, "success", items)
 	case http.MethodPost, http.MethodPut:
+		if h.session != nil && r.Method == http.MethodPost {
+			writeEnvelope(w, http.StatusMethodNotAllowed, "method not allowed", nil)
+			return
+		}
 		status, err := parseStatus(input.Status)
 		if err != nil {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidStatus, nil)
@@ -403,6 +418,10 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !validName(input.Name) {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeNameInvalid, nil)
+			return
+		}
+		if h.session != nil && strings.TrimSpace(input.Name) != ports.SessionAnalysisAssistantName {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeNameInvalid, nil)
 			return
 		}
@@ -424,6 +443,10 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Name: input.Name, Description: input.Description, KnowledgeBaseIDs: knowledgeBaseIDs, Status: status,
 			UpdatedBy: p.UserID,
 		}
+		if h.session != nil {
+			agent.SystemKey = ports.SessionAnalysisSystemKey
+			agent.Name = ports.SessionAnalysisAssistantName
+		}
 		if r.Method == http.MethodPost {
 			agent.ID = h.generate()
 			agent.CreatedBy = p.UserID
@@ -440,13 +463,22 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
 			return
 		}
-		updated, err := h.repo.Update(r.Context(), agent)
+		var updated ports.Agent
+		if h.session != nil {
+			updated, err = h.session.UpdateSessionAssistant(r.Context(), agent)
+		} else {
+			updated, err = h.repo.Update(r.Context(), agent)
+		}
 		if err != nil {
 			writeMutationError(w, err)
 			return
 		}
 		writeEnvelope(w, http.StatusOK, "success", updated)
 	case http.MethodDelete:
+		if h.session != nil {
+			writeEnvelope(w, http.StatusMethodNotAllowed, "method not allowed", nil)
+			return
+		}
 		id := pathID(r)
 		if id == "" || id == "agents" {
 			writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)

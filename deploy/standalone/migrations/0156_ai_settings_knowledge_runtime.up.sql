@@ -79,16 +79,3 @@ WHERE permission.`code` = 'dashboard.ai_setting.ai_knowledge_base'
       AND existing.`http_method` = route.`http_method`
       AND existing.`path_pattern` = route.`path_pattern`
   );
-
--- Custom agents are intentionally unavailable until another product surface
--- consumes them. Remove obsolete create/delete authorization while preserving
--- the historical records themselves.
-DELETE resource
-FROM `mochat_go_dashboard_permission_resources` resource
-INNER JOIN `mochat_go_dashboard_permissions` permission ON permission.`id` = resource.`permission_id`
-WHERE permission.`code` = 'dashboard.ai_setting.agent'
-  AND resource.`resource_type` = 'api'
-  AND (
-    (resource.`http_method` = 'POST' AND resource.`path_pattern` = '/dashboard/ai-settings/agents')
-    OR (resource.`http_method` = 'DELETE' AND resource.`path_pattern` = '/dashboard/ai-settings/agents/{id}')
-  );

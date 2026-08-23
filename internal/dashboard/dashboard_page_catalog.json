@@ -1685,7 +1685,17 @@
           "scopeRequired": false
         },
         {
+          "method": "POST",
+          "pathPattern": "/dashboard/ai-settings/agents",
+          "scopeRequired": false
+        },
+        {
           "method": "PUT",
+          "pathPattern": "/dashboard/ai-settings/agents/{id}",
+          "scopeRequired": false
+        },
+        {
+          "method": "DELETE",
           "pathPattern": "/dashboard/ai-settings/agents/{id}",
           "scopeRequired": false
         }

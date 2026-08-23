@@ -739,3 +739,63 @@ func TestAISettingsRejectsUnknownOrTrailingJSON(t *testing.T) {
 		})
 	}
 }
+
+type fakeSessionAgentRepo struct {
+	fakeAgentRepo
+	session ports.Agent
+}
+
+func (f *fakeSessionAgentRepo) EnsureSessionAssistant(_ context.Context, tenantID, corpID, actorID int64, id string) (ports.Agent, error) {
+	if f.session.ID == "" {
+		f.session = ports.Agent{ID: id, TenantID: tenantID, CorpID: corpID, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, Description: "分析客户意向与服务质量", KnowledgeBaseIDs: []string{}, Status: 1, CreatedBy: actorID, UpdatedBy: actorID}
+	}
+	return f.session, nil
+}
+
+func (f *fakeSessionAgentRepo) GetSessionAssistant(_ context.Context, tenantID, corpID int64) (ports.Agent, error) {
+	if f.session.ID == "" || f.session.TenantID != tenantID || f.session.CorpID != corpID {
+		return ports.Agent{}, ports.ErrNotFound
+	}
+	return f.session, nil
+}
+
+func (f *fakeSessionAgentRepo) UpdateSessionAssistant(_ context.Context, value ports.Agent) (ports.Agent, error) {
+	if f.session.ID == "" || value.ID != f.session.ID {
+		return ports.Agent{}, ports.ErrNotFound
+	}
+	value.SystemKey = ports.SessionAnalysisSystemKey
+	value.Name = ports.SessionAnalysisAssistantName
+	f.session = value
+	return value, nil
+}
+
+func (f *fakeSessionAgentRepo) LoadSessionAssistantContext(context.Context, int64, int64) (ports.SessionAssistantContext, error) {
+	return ports.SessionAssistantContext{}, nil
+}
+
+func TestAgentHandlerEnsuresAndReturnsOnlySystemSessionAssistant(t *testing.T) {
+	repo := &fakeSessionAgentRepo{fakeAgentRepo: fakeAgentRepo{items: []ports.Agent{{ID: "legacy", TenantID: 1, CorpID: 2, Name: "旧自定义智能体"}}}}
+	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
+	response := perform(handler, http.MethodGet, "/dashboard/ai-settings/agents", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	data := envelopeData(t, response)["data"].([]any)
+	if len(data) != 1 || data[0].(map[string]any)["name"] != ports.SessionAnalysisAssistantName || data[0].(map[string]any)["systemKey"] != ports.SessionAnalysisSystemKey {
+		t.Fatalf("data = %#v", data)
+	}
+}
+
+func TestAgentHandlerRejectsSystemAssistantCreateDeleteAndRename(t *testing.T) {
+	repo := &fakeSessionAgentRepo{session: ports.Agent{ID: "session-1", TenantID: 1, CorpID: 2, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, KnowledgeBaseIDs: []string{}, Status: 1}}
+	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
+	created := perform(handler, http.MethodPost, "/dashboard/ai-settings/agents", `{"name":"其他助手","description":"","knowledgeBaseIds":[],"status":1}`)
+	deleted := perform(handler, http.MethodDelete, "/dashboard/ai-settings/agents/session-1", "")
+	renamed := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", `{"name":"其他助手","description":"","knowledgeBaseIds":[],"status":1}`)
+	if created.Code != http.StatusMethodNotAllowed || deleted.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("create=%d delete=%d", created.Code, deleted.Code)
+	}
+	if renamed.Code != http.StatusBadRequest || envelopeData(t, renamed)["msg"] != machineCodeNameInvalid {
+		t.Fatalf("rename status=%d body=%s", renamed.Code, renamed.Body.String())
+	}
+}
