@@ -669,6 +669,30 @@ func TestKnowledgeBaseDeleteRejectsReferencedRecord(t *testing.T) {
 	if response.Code != http.StatusConflict || payload["msg"] != machineCodeKnowledgeBaseReferenced || payload["errorCode"] != machineCodeKnowledgeBaseReferenced || len(knowledgeBases.items) != 1 {
 		t.Fatalf("code = %d items = %#v, want 409 and unchanged knowledge base", response.Code, knowledgeBases.items)
 	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok || data["referenceCount"] != float64(1) {
+		t.Fatalf("data = %#v, want referenceCount 1", payload["data"])
+	}
+}
+
+func TestAISettingsRejectsTopLevelNullAsInvalidJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.Handler
+		path    string
+	}{
+		{name: "knowledge base", handler: newTestKBs(nil), path: "/dashboard/ai-settings/knowledge-bases"},
+		{name: "agent", handler: NewAgentHandler(&fakeAgentRepo{}, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "agent-1" }), path: "/dashboard/ai-settings/agents"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := perform(test.handler, http.MethodPost, test.path, "null")
+			payload := envelopeData(t, response)
+			if response.Code != http.StatusBadRequest || payload["errorCode"] != machineCodeInvalidJSON {
+				t.Fatalf("response = %s, want invalid JSON", response.Body.String())
+			}
+		})
+	}
 }
 
 func TestAISettingsDeleteUsesPrincipalAsAuditActor(t *testing.T) {

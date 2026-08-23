@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -100,12 +101,23 @@ func pathID(r *http.Request) string {
 func decodeJSON(w http.ResponseWriter, r *http.Request, body any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
 	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(body); err != nil {
+	var raw json.RawMessage
+	if err := decoder.Decode(&raw); err != nil {
 		writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidJSON, nil)
 		return false
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidJSON, nil)
+		return false
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidJSON, nil)
+		return false
+	}
+	objectDecoder := json.NewDecoder(bytes.NewReader(trimmed))
+	objectDecoder.DisallowUnknownFields()
+	if err := objectDecoder.Decode(body); err != nil {
 		writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidJSON, nil)
 		return false
 	}
@@ -140,6 +152,15 @@ func authorize(w http.ResponseWriter, r *http.Request, authorizer Authorizer, pr
 }
 
 func writeMutationError(w http.ResponseWriter, err error) {
+	var referenced *ports.KnowledgeBaseReferencedError
+	if errors.As(err, &referenced) {
+		writeEnvelope(w, http.StatusConflict, machineCodeKnowledgeBaseReferenced, map[string]any{"referenceCount": referenced.Count})
+		return
+	}
+	if errors.Is(err, ports.ErrKnowledgeBaseInvalid) {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeKnowledgeBaseInvalid, nil)
+		return
+	}
 	if errors.Is(err, ports.ErrNotFound) {
 		writeEnvelope(w, http.StatusNotFound, machineCodeNotFound, nil)
 		return
@@ -250,7 +271,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if len(references) != 0 {
-			writeEnvelope(w, http.StatusConflict, machineCodeKnowledgeBaseReferenced, nil)
+			writeEnvelope(w, http.StatusConflict, machineCodeKnowledgeBaseReferenced, map[string]any{"referenceCount": len(references)})
 			return
 		}
 		if err := h.repo.Delete(r.Context(), p.TenantID, p.CorpID, p.UserID, id); err != nil {
@@ -368,7 +389,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			agent.CreatedBy = p.UserID
 			created, err := h.repo.Create(r.Context(), agent)
 			if err != nil {
-				writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
+				writeMutationError(w, err)
 				return
 			}
 			writeEnvelope(w, http.StatusOK, "success", created)

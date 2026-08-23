@@ -6,7 +6,23 @@ import (
 	"errors"
 )
 
-var ErrNotFound = errors.New("AI settings record not found")
+var (
+	ErrKnowledgeBaseInvalid    = errors.New("AI settings knowledge base invalid")
+	ErrKnowledgeBaseReferenced = errors.New("AI settings knowledge base referenced")
+	ErrNotFound                = errors.New("AI settings record not found")
+)
+
+type KnowledgeBaseReferencedError struct {
+	Count int
+}
+
+func (e *KnowledgeBaseReferencedError) Error() string {
+	return ErrKnowledgeBaseReferenced.Error()
+}
+
+func (e *KnowledgeBaseReferencedError) Is(target error) bool {
+	return target == ErrKnowledgeBaseReferenced
+}
 
 type KnowledgeBase struct {
 	ID            string `json:"id"`

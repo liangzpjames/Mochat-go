@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -140,6 +141,24 @@ func (r *KnowledgeBaseRepository) Delete(ctx context.Context, tenantID, corpID, 
 		return err
 	}
 	defer tx.Rollback()
+	var lockedID string
+	if err := tx.QueryRowContext(ctx,
+		"SELECT id FROM mochat_go_ai_knowledge_bases WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE",
+		id, tenantID, corpID).Scan(&lockedID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ports.ErrNotFound
+		}
+		return err
+	}
+	var referenceCount int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM mochat_go_ai_agents WHERE tenant_id=? AND corp_id=? AND JSON_CONTAINS(knowledge_base_ids, JSON_QUOTE(?)) AND deleted_at IS NULL",
+		tenantID, corpID, id).Scan(&referenceCount); err != nil {
+		return err
+	}
+	if referenceCount > 0 {
+		return &ports.KnowledgeBaseReferencedError{Count: referenceCount}
+	}
 	res, err := tx.ExecContext(ctx,
 		"UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
 		now, actorUserID, now, id, tenantID, corpID)
@@ -241,6 +260,9 @@ func (r *AgentRepository) Create(ctx context.Context, v ports.Agent) (ports.Agen
 		return ports.Agent{}, err
 	}
 	defer tx.Rollback()
+	if err := lockKnowledgeBases(ctx, tx, v.TenantID, v.CorpID, v.KnowledgeBaseIDs); err != nil {
+		return ports.Agent{}, err
+	}
 	_, err = tx.ExecContext(ctx,
 		"INSERT INTO mochat_go_ai_agents (id, tenant_id, corp_id, name, description, knowledge_base_ids, status, created_by, updated_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
 		v.ID, v.TenantID, v.CorpID, v.Name, v.Description, string(kbJSON), v.Status, v.CreatedBy, v.UpdatedBy, now, now)
@@ -267,6 +289,9 @@ func (r *AgentRepository) Update(ctx context.Context, v ports.Agent) (ports.Agen
 		return ports.Agent{}, err
 	}
 	defer tx.Rollback()
+	if err := lockKnowledgeBases(ctx, tx, v.TenantID, v.CorpID, v.KnowledgeBaseIDs); err != nil {
+		return ports.Agent{}, err
+	}
 	res, err := tx.ExecContext(ctx,
 		"UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
 		v.Name, v.Description, string(kbJSON), v.Status, v.UpdatedBy, now, v.ID, v.TenantID, v.CorpID)
@@ -325,6 +350,50 @@ func nonNilStrings(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+func lockKnowledgeBases(ctx context.Context, tx *sql.Tx, tenantID, corpID int64, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	unique := make(map[string]struct{}, len(ids))
+	ordered := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, exists := unique[id]; exists {
+			continue
+		}
+		unique[id] = struct{}{}
+		ordered = append(ordered, id)
+	}
+	sort.Strings(ordered)
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ordered)), ",")
+	args := make([]any, 0, len(ordered)+2)
+	args = append(args, tenantID, corpID)
+	for _, id := range ordered {
+		args = append(args, id)
+	}
+	rows, err := tx.QueryContext(ctx,
+		"SELECT id FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN ("+placeholders+") AND deleted_at IS NULL ORDER BY id FOR UPDATE",
+		args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if count != len(ordered) {
+		return ports.ErrKnowledgeBaseInvalid
+	}
+	return nil
 }
 
 func insertAudit(ctx context.Context, tx *sql.Tx, tenantID, corpID, actorUserID int64, entityType, entityID, action string, changedFields []string) error {

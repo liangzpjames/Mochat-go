@@ -91,6 +91,7 @@ func TestAISettingsRepositoriesCommitEveryMutationWithAudit(t *testing.T) {
 			actor:         17,
 			changedFields: []string{"deleted_at", "updated_by"},
 			expectBusiness: func(mock sqlmock.Sqlmock) {
+				expectKnowledgeBaseDeleteGuards(mock, "kb-1", 0)
 				mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
 					WithArgs(sqlmock.AnyArg(), int64(17), sqlmock.AnyArg(), "kb-1", int64(1), int64(2)).
 					WillReturnResult(sqlmock.NewResult(0, 1))
@@ -111,6 +112,7 @@ func TestAISettingsRepositoriesCommitEveryMutationWithAudit(t *testing.T) {
 			actor:         17,
 			changedFields: []string{"name", "description", "knowledge_base_ids", "status"},
 			expectBusiness: func(mock sqlmock.Sqlmock) {
+				expectKnowledgeBaseLocks(mock, "kb-1")
 				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_ai_agents (id, tenant_id, corp_id, name, description, knowledge_base_ids, status, created_by, updated_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")).
 					WithArgs("agent-1", int64(1), int64(2), "客服助手", "仅配置", `["kb-1"]`, 1, int64(17), int64(17), sqlmock.AnyArg(), sqlmock.AnyArg()).
 					WillReturnResult(sqlmock.NewResult(1, 1))
@@ -137,6 +139,7 @@ func TestAISettingsRepositoriesCommitEveryMutationWithAudit(t *testing.T) {
 			actor:         17,
 			changedFields: []string{"name", "description", "knowledge_base_ids", "status"},
 			expectBusiness: func(mock sqlmock.Sqlmock) {
+				expectKnowledgeBaseLocks(mock, "kb-1")
 				mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
 					WithArgs("客服助手", "仅配置", `["kb-1"]`, 0, int64(17), sqlmock.AnyArg(), "agent-1", int64(1), int64(2)).
 					WillReturnResult(sqlmock.NewResult(0, 1))
@@ -278,6 +281,7 @@ func TestAISettingsRepositoriesRollbackAtomicMutationFailures(t *testing.T) {
 			name: "knowledge base commit failure is returned",
 			setup: func(mock sqlmock.Sqlmock) {
 				mock.ExpectBegin()
+				expectKnowledgeBaseDeleteGuards(mock, "kb-1", 0)
 				mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
 					WillReturnResult(sqlmock.NewResult(0, 1))
 				mock.ExpectExec(regexp.QuoteMeta(auditInsertSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
@@ -350,8 +354,9 @@ func TestAISettingsRepositoriesRollbackMissingUpdatesAndDeletes(t *testing.T) {
 			name: "knowledge base delete",
 			setup: func(mock sqlmock.Sqlmock) {
 				mock.ExpectBegin()
-				mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
-					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_bases WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE")).
+					WithArgs("kb-missing", int64(1), int64(2)).
+					WillReturnRows(sqlmock.NewRows([]string{"id"}))
 				mock.ExpectRollback()
 			},
 			call: func(db *sql.DB) error {

@@ -53,6 +53,7 @@ func TestAgentRepositoryRollsBackWhenAuditWriteFails(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	expectKnowledgeBaseLocks(mock, "kb-1")
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
 		WithArgs("客服助手", "仅配置", `["kb-1"]`, 0, int64(7), sqlmock.AnyArg(), "agent-1", int64(1), int64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -81,6 +82,7 @@ func TestKnowledgeBaseRepositoryDeleteWritesActorAudit(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	expectKnowledgeBaseDeleteGuards(mock, "kb-1", 0)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
 		WithArgs(sqlmock.AnyArg(), int64(11), sqlmock.AnyArg(), "kb-1", int64(1), int64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -109,6 +111,7 @@ func TestAgentRepositoryCreateAuditsFieldNamesWithoutKnowledgeBaseValues(t *test
 	defer db.Close()
 
 	mock.ExpectBegin()
+	expectKnowledgeBaseLocks(mock, "kb-1")
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_ai_agents (id, tenant_id, corp_id, name, description, knowledge_base_ids, status, created_by, updated_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")).
 		WithArgs("agent-1", int64(1), int64(2), "客服助手", "仅配置", `["kb-1"]`, 1, int64(7), int64(7), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -138,6 +141,28 @@ func knowledgeBaseRows() *sqlmock.Rows {
 
 func agentRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "tenant_id", "corp_id", "name", "description", "knowledge_base_ids", "status", "created_by", "updated_by", "created_at", "updated_at"})
+}
+
+func expectKnowledgeBaseLocks(mock sqlmock.Sqlmock, ids ...string) {
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	expectation := mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (" + placeholders + ") AND deleted_at IS NULL ORDER BY id FOR UPDATE"))
+	args := make([]driver.Value, 0, len(ids)+2)
+	args = append(args, int64(1), int64(2))
+	rows := sqlmock.NewRows([]string{"id"})
+	for _, id := range ids {
+		args = append(args, id)
+		rows.AddRow(id)
+	}
+	expectation.WithArgs(args...).WillReturnRows(rows)
+}
+
+func expectKnowledgeBaseDeleteGuards(mock sqlmock.Sqlmock, id string, referenceCount int) {
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_bases WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE")).
+		WithArgs(id, int64(1), int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(id))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mochat_go_ai_agents WHERE tenant_id=? AND corp_id=? AND JSON_CONTAINS(knowledge_base_ids, JSON_QUOTE(?)) AND deleted_at IS NULL")).
+		WithArgs(int64(1), int64(2), id).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(referenceCount))
 }
 
 type jsonFieldsArgument struct {
@@ -305,9 +330,9 @@ func TestKnowledgeBaseRepositoryClassifiesMissingAndStorageFailures(t *testing.T
 			missing: true,
 			expect: func(mock sqlmock.Sqlmock) {
 				mock.ExpectBegin()
-				mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
-					WithArgs(sqlmock.AnyArg(), int64(7), sqlmock.AnyArg(), "kb-1", int64(1), int64(2)).
-					WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_bases WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE")).
+					WithArgs("kb-1", int64(1), int64(2)).
+					WillReturnRows(sqlmock.NewRows([]string{"id"}))
 				mock.ExpectRollback()
 			},
 			call: func(repository *KnowledgeBaseRepository) error {
@@ -319,6 +344,7 @@ func TestKnowledgeBaseRepositoryClassifiesMissingAndStorageFailures(t *testing.T
 			missing: false,
 			expect: func(mock sqlmock.Sqlmock) {
 				mock.ExpectBegin()
+				expectKnowledgeBaseDeleteGuards(mock, "kb-1", 0)
 				mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_knowledge_bases SET deleted_at=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
 					WithArgs(sqlmock.AnyArg(), int64(7), sqlmock.AnyArg(), "kb-1", int64(1), int64(2)).
 					WillReturnError(errors.New("database unavailable"))
@@ -444,5 +470,55 @@ func TestAgentRepositoryClassifiesMissingAndStorageFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestKnowledgeBaseRepositoryDeleteLocksTargetAndRejectsReferencesAtomically(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_bases WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE")).
+		WithArgs("kb-1", int64(1), int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("kb-1"))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mochat_go_ai_agents WHERE tenant_id=? AND corp_id=? AND JSON_CONTAINS(knowledge_base_ids, JSON_QUOTE(?)) AND deleted_at IS NULL")).
+		WithArgs(int64(1), int64(2), "kb-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectRollback()
+
+	repository, _ := NewKnowledgeBaseRepository(db)
+	err = repository.Delete(context.Background(), 1, 2, 17, "kb-1")
+	var referenced *ports.KnowledgeBaseReferencedError
+	if !errors.As(err, &referenced) || referenced.Count != 2 {
+		t.Fatalf("error = %v, want reference count 2", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentRepositoryCreateLocksAndRevalidatesKnowledgeBasesInMutationTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (?) AND deleted_at IS NULL ORDER BY id FOR UPDATE")).
+		WithArgs(int64(1), int64(2), "kb-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectRollback()
+
+	repository, _ := NewAgentRepository(db)
+	_, err = repository.Create(context.Background(), ports.Agent{ID: "agent-1", TenantID: 1, CorpID: 2, Name: "客服助手", KnowledgeBaseIDs: []string{"kb-1"}, Status: 1, CreatedBy: 17, UpdatedBy: 17})
+	if !errors.Is(err, ports.ErrKnowledgeBaseInvalid) {
+		t.Fatalf("error = %v, want ErrKnowledgeBaseInvalid", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
