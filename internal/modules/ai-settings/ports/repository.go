@@ -70,19 +70,21 @@ type KnowledgeBase struct {
 }
 
 type Agent struct {
-	ID                string             `json:"id"`
-	TenantID          int64              `json:"-"`
-	CorpID            int64              `json:"corpId"`
-	SystemKey         string             `json:"systemKey,omitempty"`
-	Name              string             `json:"name"`
-	Description       string             `json:"description"`
-	KnowledgeBaseIDs  []string           `json:"knowledgeBaseIds"`
-	Status            int                `json:"status"`
-	CreatedBy         int64              `json:"-"`
-	UpdatedBy         int64              `json:"-"`
-	CreatedAt         string             `json:"createdAt"`
-	UpdatedAt         string             `json:"updatedAt"`
-	SmartAnalysisRule *SmartAnalysisRule `json:"smartAnalysisRule,omitempty"`
+	ID                 string             `json:"id"`
+	TenantID           int64              `json:"-"`
+	CorpID             int64              `json:"corpId"`
+	SystemKey          string             `json:"systemKey,omitempty"`
+	Name               string             `json:"name"`
+	Description        string             `json:"description"`
+	KnowledgeBaseIDs   []string           `json:"knowledgeBaseIds"`
+	KnowledgeBaseCount int                `json:"knowledgeBaseCount"`
+	ReadyDocumentCount int                `json:"readyDocumentCount"`
+	Status             int                `json:"status"`
+	CreatedBy          int64              `json:"-"`
+	UpdatedBy          int64              `json:"-"`
+	CreatedAt          string             `json:"createdAt"`
+	UpdatedAt          string             `json:"updatedAt"`
+	SmartAnalysisRule  *SmartAnalysisRule `json:"smartAnalysisRule,omitempty"`
 }
 
 type SmartAnalysisRule struct {

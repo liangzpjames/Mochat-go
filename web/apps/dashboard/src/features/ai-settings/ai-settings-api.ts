@@ -5,6 +5,7 @@ export type KnowledgeBaseItem = {
 export type AgentItem = {
   id: string; corpId: number; name: string; description: string;
   systemKey?: string; knowledgeBaseIds: string[]; status: number; createdAt: string; updatedAt: string;
+  knowledgeBaseCount: number; readyDocumentCount: number;
   smartAnalysisRule?: SmartAnalysisRule;
 };
 export type SmartAnalysisRule = {

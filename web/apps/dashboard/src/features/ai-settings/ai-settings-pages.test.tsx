@@ -18,7 +18,7 @@ function createApi(overrides: Partial<AISettingsApi> = {}): AISettingsApi {
     uploadKnowledgeDocument: vi.fn().mockResolvedValue({ id: 'doc-1', filename: '资料.md', status: 'ready' }),
     deleteKnowledgeDocument: vi.fn().mockResolvedValue({}),
     listAgents: vi.fn().mockResolvedValue([]),
-    createAgent: vi.fn().mockResolvedValue({ id: 'a-1', corpId: 9, name: 'x', description: '', knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '' }),
+    createAgent: vi.fn().mockResolvedValue({ id: 'a-1', corpId: 9, name: 'x', description: '', knowledgeBaseIds: [], knowledgeBaseCount: 0, readyDocumentCount: 0, status: 1, createdAt: '', updatedAt: '' }),
     updateAgent: vi.fn(),
     deleteAgent: vi.fn().mockResolvedValue({}),
     ...overrides,
@@ -36,7 +36,7 @@ function LocationProbe() {
 function analysisAgent(overrides: Partial<AgentItem> = {}): AgentItem {
   return {
     id: 'a-1', corpId: 9, name: '会话分析助手', systemKey: 'session-analysis', description: '',
-    knowledgeBaseIds: [], status: 1, createdAt: '', updatedAt: '2026-08-24T00:00:00Z',
+    knowledgeBaseIds: [], knowledgeBaseCount: 0, readyDocumentCount: 0, status: 1, createdAt: '', updatedAt: '2026-08-24T00:00:00Z',
     smartAnalysisRule: { id: 12, name: '默认智能分析规则', objective: '识别客户意向', conversationTypes: ['direct'], lookbackDays: 30, minimumMessages: 2, currentVersion: 1, updatedAt: '2026-08-24T00:00:00Z' },
     ...overrides,
   };
@@ -155,11 +155,19 @@ describe('AI 设置页面', () => {
     expect(deleteAgent).not.toHaveBeenCalled();
   });
 
+  it('分析助手：卡片展示后端返回的真实知识库与就绪文档数量', async () => {
+    const api = createApi({
+      listAgents: vi.fn().mockResolvedValue([analysisAgent({ knowledgeBaseCount: 2, readyDocumentCount: 7 })]),
+    });
+    renderPage(api, 'agent');
+    expect(await screen.findByText('2 个知识库 · 7 份就绪文档')).toBeTruthy();
+  });
+
   it('分析助手：单卡片集中编辑默认智能分析规则且不展示通用管理控件', async () => {
     const updateAgent = vi.fn().mockResolvedValue({});
     const api = createApi({
       listKnowledgeBases: vi.fn().mockResolvedValue([{ id: 'kb-1', corpId: 9, name: '产品知识库', description: '', documentCount: 2, status: 1, createdAt: '', updatedAt: '' }]),
-      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', systemKey: 'session-analysis', description: '关注客户需求', knowledgeBaseIds: ['kb-1'], status: 1, createdAt: '', updatedAt: '2026-08-24T00:00:00Z', smartAnalysisRule: { id: 12, name: '默认智能分析规则', objective: '识别客户意向', conversationTypes: ['direct'], lookbackDays: 30, minimumMessages: 2, currentVersion: 3, updatedAt: '2026-08-24T00:00:00Z' } }]),
+      listAgents: vi.fn().mockResolvedValue([{ id: 'a-1', corpId: 9, name: '会话分析助手', systemKey: 'session-analysis', description: '关注客户需求', knowledgeBaseIds: ['kb-1'], knowledgeBaseCount: 1, readyDocumentCount: 2, status: 1, createdAt: '', updatedAt: '2026-08-24T00:00:00Z', smartAnalysisRule: { id: 12, name: '默认智能分析规则', objective: '识别客户意向', conversationTypes: ['direct'], lookbackDays: 30, minimumMessages: 2, currentVersion: 3, updatedAt: '2026-08-24T00:00:00Z' } }]),
       updateAgent,
     });
     renderPage(api, 'agent');

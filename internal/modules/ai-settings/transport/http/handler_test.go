@@ -812,14 +812,21 @@ func (f *fakeSessionAgentRepo) LoadSessionAssistantContext(context.Context, int6
 }
 
 func TestAgentHandlerEnsuresAndReturnsOnlySystemSessionAssistant(t *testing.T) {
-	repo := &fakeSessionAgentRepo{fakeAgentRepo: fakeAgentRepo{items: []ports.Agent{{ID: "legacy", TenantID: 1, CorpID: 2, Name: "旧自定义智能体"}}}}
+	repo := &fakeSessionAgentRepo{
+		fakeAgentRepo: fakeAgentRepo{items: []ports.Agent{{ID: "legacy", TenantID: 1, CorpID: 2, Name: "旧自定义智能体"}}},
+		session:       ports.Agent{ID: "session-1", TenantID: 1, CorpID: 2, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, KnowledgeBaseIDs: []string{"kb-1", "kb-2"}, KnowledgeBaseCount: 2, ReadyDocumentCount: 7, Status: 1},
+	}
 	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
 	response := perform(handler, http.MethodGet, "/dashboard/ai-settings/agents", "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	data := envelopeData(t, response)["data"].([]any)
-	if len(data) != 1 || data[0].(map[string]any)["name"] != ports.SessionAnalysisAssistantName || data[0].(map[string]any)["systemKey"] != ports.SessionAnalysisSystemKey {
+	if len(data) != 1 {
+		t.Fatalf("data = %#v", data)
+	}
+	item := data[0].(map[string]any)
+	if item["name"] != ports.SessionAnalysisAssistantName || item["systemKey"] != ports.SessionAnalysisSystemKey || item["knowledgeBaseCount"] != float64(2) || item["readyDocumentCount"] != float64(7) {
 		t.Fatalf("data = %#v", data)
 	}
 }

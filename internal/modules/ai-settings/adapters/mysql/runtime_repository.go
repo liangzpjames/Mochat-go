@@ -95,6 +95,9 @@ func (r *AgentRepository) GetSessionAssistant(ctx context.Context, tenantID, cor
 	if err != nil {
 		return ports.Agent{}, err
 	}
+	if err := r.loadAgentKnowledgeStatistics(ctx, &value); err != nil {
+		return ports.Agent{}, err
+	}
 	rule, err := loadDefaultSmartAnalysisRule(ctx, r.db, tenantID, corpID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.Agent{}, ports.ErrNotFound
@@ -104,6 +107,32 @@ func (r *AgentRepository) GetSessionAssistant(ctx context.Context, tenantID, cor
 	}
 	value.SmartAnalysisRule = &rule
 	return value, nil
+}
+
+func (r *AgentRepository) loadAgentKnowledgeStatistics(ctx context.Context, value *ports.Agent) error {
+	if len(value.KnowledgeBaseIDs) == 0 {
+		return nil
+	}
+	ids := append([]string{}, value.KnowledgeBaseIDs...)
+	sort.Strings(ids)
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids)+2)
+	args = append(args, value.TenantID, value.CorpID)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	return r.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT knowledge_base.id), COUNT(DISTINCT document.id)
+		FROM mochat_go_ai_knowledge_bases knowledge_base
+		LEFT JOIN mochat_go_ai_knowledge_documents document
+		  ON document.tenant_id=knowledge_base.tenant_id
+		 AND document.corp_id=knowledge_base.corp_id
+		 AND document.knowledge_base_id=knowledge_base.id
+		 AND knowledge_base.status=1
+		 AND document.status='ready'
+		 AND document.deleted_at IS NULL
+		WHERE knowledge_base.tenant_id=? AND knowledge_base.corp_id=?
+		  AND knowledge_base.id IN (`+placeholders+`)
+		  AND knowledge_base.deleted_at IS NULL`, args...).Scan(&value.KnowledgeBaseCount, &value.ReadyDocumentCount)
 }
 
 func loadDefaultSmartAnalysisRule(ctx context.Context, queryer interface {
@@ -144,8 +173,14 @@ func (r *AgentRepository) UpdateSessionAssistant(ctx context.Context, value port
 		return ports.Agent{}, err
 	}
 	defer tx.Rollback()
-	if err := lockKnowledgeBases(ctx, tx, value.TenantID, value.CorpID, value.KnowledgeBaseIDs); err != nil {
-		return ports.Agent{}, err
+	if len(value.KnowledgeBaseIDs) > 0 {
+		existingKnowledgeBaseIDs, err := lockAgentKnowledgeBaseIDs(ctx, tx, value.TenantID, value.CorpID, value.ID, ports.SessionAnalysisSystemKey)
+		if err != nil {
+			return ports.Agent{}, err
+		}
+		if err := lockKnowledgeBases(ctx, tx, value.TenantID, value.CorpID, value.KnowledgeBaseIDs, existingKnowledgeBaseIDs); err != nil {
+			return ports.Agent{}, err
+		}
 	}
 	now := time.Now().UTC()
 	result, err := tx.ExecContext(ctx, "UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND system_key=? AND deleted_at IS NULL", value.Name, value.Description, string(encoded), value.Status, value.UpdatedBy, now, value.ID, value.TenantID, value.CorpID, ports.SessionAnalysisSystemKey)

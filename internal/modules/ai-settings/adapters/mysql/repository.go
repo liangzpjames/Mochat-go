@@ -283,7 +283,7 @@ func (r *AgentRepository) Create(ctx context.Context, v ports.Agent) (ports.Agen
 		return ports.Agent{}, err
 	}
 	defer tx.Rollback()
-	if err := lockKnowledgeBases(ctx, tx, v.TenantID, v.CorpID, v.KnowledgeBaseIDs); err != nil {
+	if err := lockKnowledgeBases(ctx, tx, v.TenantID, v.CorpID, v.KnowledgeBaseIDs, nil); err != nil {
 		return ports.Agent{}, err
 	}
 	_, err = tx.ExecContext(ctx,
@@ -312,8 +312,14 @@ func (r *AgentRepository) Update(ctx context.Context, v ports.Agent) (ports.Agen
 		return ports.Agent{}, err
 	}
 	defer tx.Rollback()
-	if err := lockKnowledgeBases(ctx, tx, v.TenantID, v.CorpID, v.KnowledgeBaseIDs); err != nil {
-		return ports.Agent{}, err
+	if len(v.KnowledgeBaseIDs) > 0 {
+		existingKnowledgeBaseIDs, err := lockAgentKnowledgeBaseIDs(ctx, tx, v.TenantID, v.CorpID, v.ID, "")
+		if err != nil {
+			return ports.Agent{}, err
+		}
+		if err := lockKnowledgeBases(ctx, tx, v.TenantID, v.CorpID, v.KnowledgeBaseIDs, existingKnowledgeBaseIDs); err != nil {
+			return ports.Agent{}, err
+		}
 	}
 	res, err := tx.ExecContext(ctx,
 		"UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL",
@@ -375,7 +381,33 @@ func nonNilStrings(values []string) []string {
 	return values
 }
 
-func lockKnowledgeBases(ctx context.Context, tx *sql.Tx, tenantID, corpID int64, ids []string) error {
+func lockAgentKnowledgeBaseIDs(ctx context.Context, tx *sql.Tx, tenantID, corpID int64, agentID, systemKey string) (map[string]struct{}, error) {
+	query := "SELECT knowledge_base_ids FROM mochat_go_ai_agents WHERE id=? AND tenant_id=? AND corp_id=?"
+	args := []any{agentID, tenantID, corpID}
+	if systemKey != "" {
+		query += " AND system_key=?"
+		args = append(args, systemKey)
+	}
+	query += " AND deleted_at IS NULL FOR UPDATE"
+	var encoded string
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&encoded); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ports.ErrNotFound
+		}
+		return nil, err
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(encoded), &ids); err != nil {
+		return nil, err
+	}
+	result := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		result[id] = struct{}{}
+	}
+	return result, nil
+}
+
+func lockKnowledgeBases(ctx context.Context, tx *sql.Tx, tenantID, corpID int64, ids []string, retained map[string]struct{}) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -396,7 +428,7 @@ func lockKnowledgeBases(ctx context.Context, tx *sql.Tx, tenantID, corpID int64,
 		args = append(args, id)
 	}
 	rows, err := tx.QueryContext(ctx,
-		"SELECT id FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN ("+placeholders+") AND deleted_at IS NULL ORDER BY id FOR UPDATE",
+		"SELECT id,status FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN ("+placeholders+") AND deleted_at IS NULL ORDER BY id FOR UPDATE",
 		args...)
 	if err != nil {
 		return err
@@ -405,8 +437,12 @@ func lockKnowledgeBases(ctx context.Context, tx *sql.Tx, tenantID, corpID int64,
 	count := 0
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		var status int
+		if err := rows.Scan(&id, &status); err != nil {
 			return err
+		}
+		if _, wasRetained := retained[id]; status != 1 && !wasRetained {
+			return ports.ErrKnowledgeBaseInvalid
 		}
 		count++
 	}

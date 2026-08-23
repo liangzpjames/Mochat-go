@@ -53,6 +53,7 @@ func TestAgentRepositoryRollsBackWhenAuditWriteFails(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	expectAgentKnowledgeBaseLock(mock, "agent-1", `["kb-1"]`)
 	expectKnowledgeBaseLocks(mock, "kb-1")
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
 		WithArgs("客服助手", "仅配置", `["kb-1"]`, 0, int64(7), sqlmock.AnyArg(), "agent-1", int64(1), int64(2)).
@@ -145,15 +146,50 @@ func agentRows() *sqlmock.Rows {
 
 func expectKnowledgeBaseLocks(mock sqlmock.Sqlmock, ids ...string) {
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
-	expectation := mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (" + placeholders + ") AND deleted_at IS NULL ORDER BY id FOR UPDATE"))
+	expectation := mock.ExpectQuery(regexp.QuoteMeta("SELECT id,status FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (" + placeholders + ") AND deleted_at IS NULL ORDER BY id FOR UPDATE"))
 	args := make([]driver.Value, 0, len(ids)+2)
 	args = append(args, int64(1), int64(2))
-	rows := sqlmock.NewRows([]string{"id"})
+	rows := sqlmock.NewRows([]string{"id", "status"})
 	for _, id := range ids {
 		args = append(args, id)
-		rows.AddRow(id)
+		rows.AddRow(id, 1)
 	}
 	expectation.WithArgs(args...).WillReturnRows(rows)
+}
+
+func expectAgentKnowledgeBaseLock(mock sqlmock.Sqlmock, agentID, encoded string) {
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT knowledge_base_ids FROM mochat_go_ai_agents WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE")).
+		WithArgs(agentID, int64(1), int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"knowledge_base_ids"}).AddRow(encoded))
+}
+
+func expectSessionAgentKnowledgeBaseLock(mock sqlmock.Sqlmock, agentID, encoded string) {
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT knowledge_base_ids FROM mochat_go_ai_agents WHERE id=? AND tenant_id=? AND corp_id=? AND system_key=? AND deleted_at IS NULL FOR UPDATE")).
+		WithArgs(agentID, int64(1), int64(2), ports.SessionAnalysisSystemKey).
+		WillReturnRows(sqlmock.NewRows([]string{"knowledge_base_ids"}).AddRow(encoded))
+}
+
+func expectAgentKnowledgeStatistics(mock sqlmock.Sqlmock, knowledgeBaseCount, readyDocumentCount int, ids ...string) {
+	args := make([]driver.Value, 0, len(ids)+2)
+	args = append(args, int64(1), int64(2))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	expectedQuery := `SELECT COUNT(DISTINCT knowledge_base.id), COUNT(DISTINCT document.id)
+		FROM mochat_go_ai_knowledge_bases knowledge_base
+		LEFT JOIN mochat_go_ai_knowledge_documents document
+		  ON document.tenant_id=knowledge_base.tenant_id
+		 AND document.corp_id=knowledge_base.corp_id
+		 AND document.knowledge_base_id=knowledge_base.id
+		 AND knowledge_base.status=1
+		 AND document.status='ready'
+		 AND document.deleted_at IS NULL
+		WHERE knowledge_base.tenant_id=? AND knowledge_base.corp_id=?
+		  AND knowledge_base.id IN (` + strings.TrimRight(strings.Repeat("?,", len(ids)), ",") + `)
+		  AND knowledge_base.deleted_at IS NULL`
+	mock.ExpectQuery(regexp.QuoteMeta(expectedQuery)).
+		WithArgs(args...).
+		WillReturnRows(sqlmock.NewRows([]string{"knowledge_base_count", "ready_document_count"}).AddRow(knowledgeBaseCount, readyDocumentCount))
 }
 
 func expectKnowledgeBaseDeleteGuards(mock sqlmock.Sqlmock, id string, referenceCount int) {
@@ -535,15 +571,134 @@ func TestAgentRepositoryCreateLocksAndRevalidatesKnowledgeBasesInMutationTransac
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (?) AND deleted_at IS NULL ORDER BY id FOR UPDATE")).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,status FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (?) AND deleted_at IS NULL ORDER BY id FOR UPDATE")).
 		WithArgs(int64(1), int64(2), "kb-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}))
 	mock.ExpectRollback()
 
 	repository, _ := NewAgentRepository(db)
 	_, err = repository.Create(context.Background(), ports.Agent{ID: "agent-1", TenantID: 1, CorpID: 2, Name: "客服助手", KnowledgeBaseIDs: []string{"kb-1"}, Status: 1, CreatedBy: 17, UpdatedBy: 17})
 	if !errors.Is(err, ports.ErrKnowledgeBaseInvalid) {
 		t.Fatalf("error = %v, want ErrKnowledgeBaseInvalid", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentRepositoryRejectsDisabledKnowledgeBaseOnCreate(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,status FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (?) AND deleted_at IS NULL ORDER BY id FOR UPDATE")).
+		WithArgs(int64(1), int64(2), "kb-disabled").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow("kb-disabled", 0))
+	mock.ExpectRollback()
+
+	repository, _ := NewAgentRepository(db)
+	_, err = repository.Create(context.Background(), ports.Agent{ID: "agent-1", TenantID: 1, CorpID: 2, Name: "客服助手", KnowledgeBaseIDs: []string{"kb-disabled"}, Status: 1, CreatedBy: 17, UpdatedBy: 17})
+	if !errors.Is(err, ports.ErrKnowledgeBaseInvalid) {
+		t.Fatalf("error = %v, want ErrKnowledgeBaseInvalid", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentRepositoryRejectsNewDisabledKnowledgeBaseOnUpdate(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT knowledge_base_ids FROM mochat_go_ai_agents WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE")).
+		WithArgs("agent-1", int64(1), int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"knowledge_base_ids"}).AddRow(`["kb-old"]`))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,status FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (?,?) AND deleted_at IS NULL ORDER BY id FOR UPDATE")).
+		WithArgs(int64(1), int64(2), "kb-disabled", "kb-old").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).
+			AddRow("kb-disabled", 0).
+			AddRow("kb-old", 0))
+	mock.ExpectRollback()
+
+	repository, _ := NewAgentRepository(db)
+	_, err = repository.Update(context.Background(), ports.Agent{ID: "agent-1", TenantID: 1, CorpID: 2, Name: "客服助手", KnowledgeBaseIDs: []string{"kb-old", "kb-disabled"}, Status: 1, UpdatedBy: 17})
+	if !errors.Is(err, ports.ErrKnowledgeBaseInvalid) {
+		t.Fatalf("error = %v, want ErrKnowledgeBaseInvalid", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentRepositoryAllowsRetainingDisabledKnowledgeBaseOnUpdate(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT knowledge_base_ids FROM mochat_go_ai_agents WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL FOR UPDATE")).
+		WithArgs("agent-1", int64(1), int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"knowledge_base_ids"}).AddRow(`["kb-disabled"]`))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,status FROM mochat_go_ai_knowledge_bases WHERE tenant_id=? AND corp_id=? AND id IN (?) AND deleted_at IS NULL ORDER BY id FOR UPDATE")).
+		WithArgs(int64(1), int64(2), "kb-disabled").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow("kb-disabled", 0))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
+		WithArgs("客服助手", "", `["kb-disabled"]`, 1, int64(17), sqlmock.AnyArg(), "agent-1", int64(1), int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(auditInsertSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT "+agentColumns+" FROM mochat_go_ai_agents WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
+		WithArgs("agent-1", int64(1), int64(2)).
+		WillReturnRows(agentRows().AddRow("agent-1", 1, 2, "客服助手", "", `["kb-disabled"]`, 1, 17, 17, now, now))
+
+	repository, _ := NewAgentRepository(db)
+	updated, err := repository.Update(context.Background(), ports.Agent{ID: "agent-1", TenantID: 1, CorpID: 2, Name: "客服助手", KnowledgeBaseIDs: []string{"kb-disabled"}, Status: 1, UpdatedBy: 17})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.KnowledgeBaseIDs) != 1 || updated.KnowledgeBaseIDs[0] != "kb-disabled" {
+		t.Fatalf("updated = %#v", updated)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentRepositoryAllowsRemovingDisabledKnowledgeBaseOnUpdate(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
+		WithArgs("客服助手", "", `[]`, 1, int64(17), sqlmock.AnyArg(), "agent-1", int64(1), int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(auditInsertSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT "+agentColumns+" FROM mochat_go_ai_agents WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
+		WithArgs("agent-1", int64(1), int64(2)).
+		WillReturnRows(agentRows().AddRow("agent-1", 1, 2, "客服助手", "", `[]`, 1, 17, 17, now, now))
+
+	repository, _ := NewAgentRepository(db)
+	updated, err := repository.Update(context.Background(), ports.Agent{ID: "agent-1", TenantID: 1, CorpID: 2, Name: "客服助手", KnowledgeBaseIDs: []string{}, Status: 1, UpdatedBy: 17})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.KnowledgeBaseIDs) != 0 {
+		t.Fatalf("updated = %#v", updated)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

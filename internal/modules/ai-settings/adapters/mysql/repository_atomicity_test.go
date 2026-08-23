@@ -139,6 +139,7 @@ func TestAISettingsRepositoriesCommitEveryMutationWithAudit(t *testing.T) {
 			actor:         17,
 			changedFields: []string{"name", "description", "knowledge_base_ids", "status"},
 			expectBusiness: func(mock sqlmock.Sqlmock) {
+				expectAgentKnowledgeBaseLock(mock, "agent-1", `["kb-1"]`)
 				expectKnowledgeBaseLocks(mock, "kb-1")
 				mock.ExpectExec(regexp.QuoteMeta("UPDATE mochat_go_ai_agents SET name=?, description=?, knowledge_base_ids=?, status=?, updated_by=?, updated_at=? WHERE id=? AND tenant_id=? AND corp_id=? AND deleted_at IS NULL")).
 					WithArgs("客服助手", "仅配置", `["kb-1"]`, 0, int64(17), sqlmock.AnyArg(), "agent-1", int64(1), int64(2)).
