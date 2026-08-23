@@ -793,26 +793,6 @@
           "method": "GET",
           "pathPattern": "/dashboard/ai-insight/smart-analysis/rules",
           "scopeRequired": true
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules",
-          "scopeRequired": true
-        },
-        {
-          "method": "PUT",
-          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules",
-          "scopeRequired": true
-        },
-        {
-          "method": "DELETE",
-          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules",
-          "scopeRequired": true
-        },
-        {
-          "method": "POST",
-          "pathPattern": "/dashboard/ai-insight/smart-analysis/rules/status",
-          "scopeRequired": true
         }
       ]
     },
@@ -1669,7 +1649,7 @@
     {
       "code": "dashboard.ai_setting.agent",
       "path": "/ai-setting/agent",
-      "name": "智能体管理",
+      "name": "分析助手",
       "groupCode": "ai-settings",
       "sort": 48,
       "superadminOnly": false,

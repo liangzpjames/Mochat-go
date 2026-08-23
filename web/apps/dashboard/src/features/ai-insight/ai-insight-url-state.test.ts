@@ -8,8 +8,11 @@ describe('AI 洞察 URL 状态', () => {
     const next = writeSessionFilters({ page: 1, keyword: '采购' }, url);
     expect(readSessionFilters(next)).toMatchObject({ page: 1, keyword: '采购' });
   });
-  it('智能分析保留标签和规则版本', () => {
-    const url = writeSmartState({ tab: 'rules', filters: { page: 2, ruleVersionId: 7 } }, 'http://localhost/ai-insight/smart-analysis');
-    expect(readSmartState(url)).toEqual({ tab: 'rules', filters: { page: 2, ruleVersionId: 7 } });
+  it('智能分析忽略旧规则页和规则版本参数，只保留结果筛选', () => {
+    const input = 'http://localhost/ai-insight/smart-analysis?tab=rules&ruleVersionId=7&page=2&keyword=复购';
+    expect(readSmartState(input)).toEqual({ filters: { page: 2, keyword: '复购' } });
+    const url = writeSmartState({ filters: { page: 2, keyword: '复购' } }, input);
+    expect(new URL(url).searchParams.has('tab')).toBe(false);
+    expect(new URL(url).searchParams.has('ruleVersionId')).toBe(false);
   });
 });
