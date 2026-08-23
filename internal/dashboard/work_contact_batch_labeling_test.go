@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +27,9 @@ func TestWorkContactBatchLabelingWritesMissingPivots(t *testing.T) {
 	if store.lastBatchLabelEmployeeID != 88 {
 		t.Fatalf("employeeID = %d", store.lastBatchLabelEmployeeID)
 	}
+	if store.lastBatchLabelCorpID != 7 {
+		t.Fatalf("corpID = %d", store.lastBatchLabelCorpID)
+	}
 	if len(store.lastBatchLabelContactIDs) != 2 || store.lastBatchLabelContactIDs[0] != 21 || store.lastBatchLabelContactIDs[1] != 22 {
 		t.Fatalf("contactIDs = %#v", store.lastBatchLabelContactIDs)
 	}
@@ -35,6 +39,26 @@ func TestWorkContactBatchLabelingWritesMissingPivots(t *testing.T) {
 	body := decodeBody(t, rec.Body.Bytes())
 	if body["code"].(float64) != 200 || len(body["data"].([]any)) != 0 {
 		t.Fatalf("body = %#v", body)
+	}
+}
+
+func TestWorkContactBatchLabelingRejectsOutOfScopeIDs(t *testing.T) {
+	store := &fakeWorkReadStore{
+		users:         map[int]User{1: {ID: 1}},
+		batchLabelErr: ErrWorkContactBatchLabelScope,
+	}
+	handler := NewWorkReadHandler(store, staticAdminCache("7-88"), HeaderUserIDResolver{}, "")
+	req := authenticatedDashboardRequestForTestAs(http.MethodPost, "/dashboard/workContact/batchLabeling", strings.NewReader(`{"contactId":"21","tagId":"99"}`), 1, 1, 7, 88)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.WorkContactBatchLabeling(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !errors.Is(store.batchLabelErr, ErrWorkContactBatchLabelScope) {
+		t.Fatal("scope error was not preserved")
 	}
 }
 

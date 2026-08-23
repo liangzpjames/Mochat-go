@@ -2079,6 +2079,19 @@ func main() {
 		}
 	}
 
+	if cfg.MigrateSidebarWorkbench {
+		mysqlStore := getMySQLStore()
+		workbench := dashboard.NewSidebarWorkbenchHandler(mysqlStore, buildSidebarEmployeeResolver("sidebarWorkbench"))
+		options = append(options,
+			compatserver.WithSidebarWorkbenchSummaryHandler(http.HandlerFunc(workbench.Summary)),
+			compatserver.WithSidebarWorkContactIndexHandler(http.HandlerFunc(workbench.Contacts)),
+			compatserver.WithSidebarWorkbenchTasksHandler(http.HandlerFunc(workbench.Tasks)),
+		)
+		log.Printf("go migrated route enabled: GET /sidebar/workbench/summary")
+		log.Printf("go migrated route enabled: GET /sidebar/workContact/index")
+		log.Printf("go migrated route enabled: GET /sidebar/workbench/tasks")
+	}
+
 	if cfg.MigrateChatToolConfig {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("chatToolConfig")

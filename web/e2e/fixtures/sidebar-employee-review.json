@@ -1,0 +1,98 @@
+{
+  "agentId": "7",
+  "token": "sidebar-browser-token",
+  "workbenchSummary": {
+    "employee": {
+      "id": 7,
+      "name": "员工甲",
+      "avatar": null,
+      "departmentNames": ["客户成功部", "华东一组"],
+      "corpName": "MoChat 验收企业"
+    },
+    "customers": { "total": 126, "addedToday": 8, "taggedTotal": 93, "ownedRoomTotal": 12 },
+    "tasks": { "contactSopRecords": 3, "roomSopPending": 2, "batchAddPending": 1 }
+  },
+  "workContacts": {
+    "page": 1,
+    "perPage": 20,
+    "total": 3,
+    "totalPage": 1,
+    "items": [
+      { "id": 23, "wxExternalUserid": "external-user-1", "name": "专项验收客户", "avatar": null, "remark": "重点客户", "status": 1, "addedAt": "2026-08-22 09:00", "tags": ["高意向", "已成交"] },
+      { "id": 24, "wxExternalUserid": "external-user-2", "name": "陈晨", "avatar": null, "remark": "下午回访", "status": 1, "addedAt": "2026-08-21 16:30", "tags": ["待回访"] },
+      { "id": 25, "wxExternalUserid": "external-user-3", "name": "星河科技有限公司采购负责人", "avatar": null, "remark": "长名称与换行验收", "status": 1, "addedAt": "2026-08-20 11:20", "tags": [] }
+    ]
+  },
+  "workbenchTasks": {
+    "contactSop": {
+      "page": 1, "perPage": 20, "total": 1, "totalPage": 1,
+      "items": [{ "id": 4, "kind": "contactSop", "title": "新客首日回访", "subjectName": "专项验收客户", "scheduledAt": "2026-08-23 09:00", "state": "recorded" }]
+    },
+    "roomSop": {
+      "page": 1, "perPage": 20, "total": 1, "totalPage": 1,
+      "items": [{ "id": 5, "kind": "roomSop", "title": "群内活动提醒", "subjectName": "专项验收客户群", "scheduledAt": "2026-08-23 10:00", "state": "pending" }]
+    },
+    "batchAdd": {
+      "page": 1, "perPage": 20, "total": 1, "totalPage": 1,
+      "items": [{ "id": 9, "kind": "batchAdd", "title": "华东线索导入", "subjectName": "1 位待添加", "scheduledAt": "2026-08-23 11:00", "state": "pending" }]
+    }
+  },
+  "contactDetail": {
+    "id": 23,
+    "name": "专项验收客户",
+    "avatar": null,
+    "corpId": 9
+  },
+  "contactSummary": {
+    "name": "专项验收客户",
+    "avatar": null,
+    "gender": 2,
+    "genderText": "女",
+    "businessNo": "C-23",
+    "remark": "重点客户",
+    "description": "偏好下午沟通",
+    "tag": [{ "tagId": 7, "tagName": "高意向" }],
+    "roomName": ["专项验收客户群"],
+    "employeeName": ["员工甲"]
+  },
+  "tracks": [{ "id": 1, "content": "已完成首次沟通", "createdAt": "2026-08-22 09:00" }],
+  "portraitFields": [{ "contactFieldId": 31, "contactFieldPivotId": 901, "name": "画像备注", "type": 0, "typeText": "文本", "options": [], "value": "已核验" }],
+  "tagGroups": [{ "groupId": 3, "groupName": "阶段" }],
+  "tags": [{ "id": 7, "name": "高意向" }, { "id": 9, "name": "待回访" }],
+  "batch": {
+    "employeeName": "员工甲",
+    "list": [{ "id": 1, "phone": "13800000000", "status": "待添加" }]
+  },
+  "contactSop": {
+    "id": 4,
+    "contactSopId": 12,
+    "creator": "员工甲",
+    "time": "09:00",
+    "tipTime": "2026-08-22 09:00",
+    "task": { "content": [{ "type": 0, "value": "请今日回访" }] },
+    "contact": { "id": 23, "name": "专项验收客户", "avatar": null }
+  },
+  "contactSopTips": [{
+    "id": 4,
+    "contactSopId": 12,
+    "creator": "员工甲",
+    "time": "09:00",
+    "tipTime": "2026-08-22 09:00",
+    "task": { "content": [{ "type": 0, "value": "请今日回访" }] },
+    "contact": { "id": 23, "name": "专项验收客户", "avatar": null }
+  }],
+  "roomSop": {
+    "id": 5,
+    "roomSopId": 13,
+    "creator": "员工甲",
+    "time": "10:00",
+    "state": 0,
+    "task": { "content": [{ "type": 0, "value": "群内发送活动提醒" }] },
+    "room": { "id": 21, "name": "专项验收客户群" }
+  },
+  "mediumGroups": [{ "id": 0, "name": "未分组" }],
+  "mediumPage": {
+    "page": { "perPage": 20, "total": 1, "totalPage": 1 },
+    "list": [{ "id": 8, "type": "文本", "mediaId": "", "content": { "content": "专项验收素材" } }]
+  }
+}

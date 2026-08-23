@@ -952,7 +952,7 @@ func TestSidebarWorkContactDetailReturnsContact(t *testing.T) {
 			ID:     900001,
 			Name:   "Go迁移客户",
 			Avatar: "avatars/customer.png",
-			CorpID: 1,
+			CorpID: 7,
 		},
 		workContactFound: true,
 	}
@@ -970,13 +970,38 @@ func TestSidebarWorkContactDetailReturnsContact(t *testing.T) {
 	if store.lastSidebarEmployeeID != 5 {
 		t.Fatalf("lastSidebarEmployeeID = %d", store.lastSidebarEmployeeID)
 	}
-	if store.lastWorkContactExternalUserID != "external-user-900001" {
-		t.Fatalf("external user id = %q", store.lastWorkContactExternalUserID)
+	if store.lastSidebarContactExternalID != "external-user-900001" || store.lastSidebarContactCorpID != 7 || store.lastSidebarContactEmployeeID != 5 {
+		t.Fatalf("sidebar detail lookup = external %q corp %d employee %d", store.lastSidebarContactExternalID, store.lastSidebarContactCorpID, store.lastSidebarContactEmployeeID)
+	}
+	if store.lastWorkContactExternalUserID != "" || store.contactAccessibleCalls != 0 {
+		t.Fatalf("sidebar detail used legacy lookup: external=%q accessCalls=%d", store.lastWorkContactExternalUserID, store.contactAccessibleCalls)
 	}
 	body := decodeBody(t, rec.Body.Bytes())
 	data := body["data"].(map[string]any)
-	if int(data["id"].(float64)) != 900001 || data["name"] != "Go迁移客户" || data["avatar"] != "http://api.example.com/static/avatars/customer.png" || int(data["corpId"].(float64)) != 1 {
+	if int(data["id"].(float64)) != 900001 || data["name"] != "Go迁移客户" || data["avatar"] != "http://api.example.com/static/avatars/customer.png" || int(data["corpId"].(float64)) != 7 {
 		t.Fatalf("data = %#v", data)
+	}
+}
+
+func TestSidebarWorkContactDetailRejectsAContactOutsideTheEmployeeScope(t *testing.T) {
+	store := &fakeWorkReadStore{
+		sidebarEmployees:  map[int]SidebarEmployee{5: {ID: 5, CorpID: 7}},
+		workContactDetail: WorkContactDetail{ID: 31, CorpID: 8, Name: "其他企业客户"},
+		workContactFound:  true,
+		denyContactAccess: true,
+	}
+	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/detail?wxExternalUserid=external-other", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarWorkContactDetail(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastSidebarContactCorpID != 7 || store.lastSidebarContactEmployeeID != 5 {
+		t.Fatalf("sidebar detail scope = corp %d employee %d", store.lastSidebarContactCorpID, store.lastSidebarContactEmployeeID)
 	}
 }
 
@@ -1037,8 +1062,8 @@ func TestSidebarWorkContactShowReturnsBasicInfo(t *testing.T) {
 	if store.lastSidebarEmployeeID != 5 {
 		t.Fatalf("lastSidebarEmployeeID = %d", store.lastSidebarEmployeeID)
 	}
-	if store.lastWorkContactShowContactID != 900001 || store.lastWorkContactShowEmployeeID != 5 {
-		t.Fatalf("show lookup = contact %d employee %d", store.lastWorkContactShowContactID, store.lastWorkContactShowEmployeeID)
+	if store.lastWorkContactShowContactID != 900001 || store.lastWorkContactShowEmployeeID != 5 || store.lastWorkContactShowCorpID != 7 {
+		t.Fatalf("show lookup = contact %d employee %d corp %d", store.lastWorkContactShowContactID, store.lastWorkContactShowEmployeeID, store.lastWorkContactShowCorpID)
 	}
 	body := decodeBody(t, rec.Body.Bytes())
 	data := body["data"].(map[string]any)
@@ -1086,6 +1111,27 @@ func TestSidebarWorkContactShowRequiresContactID(t *testing.T) {
 	}
 }
 
+func TestSidebarWorkContactShowRejectsContactOutsideEmployeeScope(t *testing.T) {
+	store := &fakeWorkReadStore{
+		sidebarEmployees:  map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+		denyContactAccess: true,
+	}
+	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/show?contactId=900001", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarWorkContactShow(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastWorkContactShowContactID != 0 {
+		t.Fatalf("unauthorized contact was loaded: %d", store.lastWorkContactShowContactID)
+	}
+}
+
 func TestWorkContactShowReturnsBasicInfoWithAuthorization(t *testing.T) {
 	store := &fakeWorkReadStore{
 		users: map[int]User{1: {ID: 1}},
@@ -1122,8 +1168,8 @@ func TestWorkContactShowReturnsBasicInfoWithAuthorization(t *testing.T) {
 	if authorizer.permissionKey != "/dashboard/workContact/show#get" || authorizer.corpID != 7 || authorizer.workEmployeeID != 99 {
 		t.Fatalf("authorizer = %#v", authorizer)
 	}
-	if store.lastWorkContactShowContactID != 900001 || store.lastWorkContactShowEmployeeID != 1 {
-		t.Fatalf("show lookup = contact %d employee %d", store.lastWorkContactShowContactID, store.lastWorkContactShowEmployeeID)
+	if store.lastWorkContactShowContactID != 900001 || store.lastWorkContactShowEmployeeID != 1 || store.lastWorkContactShowCorpID != 7 {
+		t.Fatalf("show lookup = contact %d employee %d corp %d", store.lastWorkContactShowContactID, store.lastWorkContactShowEmployeeID, store.lastWorkContactShowCorpID)
 	}
 	body := decodeBody(t, rec.Body.Bytes())
 	data := body["data"].(map[string]any)
@@ -1798,6 +1844,27 @@ func TestSidebarWorkContactTrackReturnsTracks(t *testing.T) {
 	}
 }
 
+func TestSidebarWorkContactTrackRejectsContactOutsideEmployeeScope(t *testing.T) {
+	store := &fakeWorkReadStore{
+		sidebarEmployees:  map[int]SidebarEmployee{5: {ID: 5, CorpID: 7, LogUserID: 1}},
+		denyContactAccess: true,
+	}
+	handler := NewWorkReadHandler(store, nil, HeaderUserIDResolver{}, "").
+		WithSidebarEmployeeResolver(HeaderUserIDResolver{HeaderName: "X-Mochat-Go-Employee-ID"})
+	req := authenticatedDashboardRequestForTest(http.MethodGet, "/sidebar/workContact/track?contactId=900001", nil)
+	req.Header.Set("X-Mochat-Go-Employee-ID", "5")
+	rec := httptest.NewRecorder()
+
+	handler.SidebarWorkContactTrack(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if store.lastContactTrackContactID != 0 {
+		t.Fatalf("unauthorized tracks were loaded: %d", store.lastContactTrackContactID)
+	}
+}
+
 func TestWorkContactTrackReturnsTracksWithAuthorization(t *testing.T) {
 	store := &fakeWorkReadStore{
 		users: map[int]User{1: {ID: 1}},
@@ -2058,9 +2125,11 @@ type fakeWorkReadStore struct {
 	workContactLossPage               WorkContactLossPage
 	workContactShow                   WorkContactShow
 	workContactShowFound              bool
+	denyContactAccess                 bool
 	workContactUpdateResult           WorkContactUpdateResult
 	workContactUpdateFound            bool
 	batchLabelInserted                int
+	batchLabelErr                     error
 	roomWelcomeCredential             RoomWelcomeCorpCredential
 	roomWelcomeCredentialFound        bool
 	workContactRoomPage               WorkContactRoomPage
@@ -2122,14 +2191,20 @@ type fakeWorkReadStore struct {
 	lastContactTagListCorpIDs         []int
 	lastContactTagListName            string
 	lastWorkContactExternalUserID     string
+	lastSidebarContactExternalID      string
+	lastSidebarContactCorpID          int
+	lastSidebarContactEmployeeID      int
+	contactAccessibleCalls            int
 	lastWorkContactIndexFilter        WorkContactIndexFilter
 	lastWorkContactLossFilter         WorkContactLossFilter
 	lastWorkContactShowContactID      int
 	lastWorkContactShowEmployeeID     int
+	lastWorkContactShowCorpID         int
 	lastWorkContactUpdate             WorkContactUpdateValues
 	lastBatchLabelContactIDs          []int
 	lastBatchLabelTagIDs              []int
 	lastBatchLabelEmployeeID          int
+	lastBatchLabelCorpID              int
 	lastCredentialCorpID              int
 	lastWorkContactRoomFilter         WorkContactRoomFilter
 	lastWorkRoomOptionFilter          WorkRoomOptionFilter
@@ -2144,6 +2219,16 @@ type fakeWorkReadStore struct {
 	lastContactTrackContactID         int
 	lastProcessCorpID                 int
 	lastProcessStatusID               int
+}
+
+func (s *fakeWorkReadStore) ContactAccessibleToEmployee(_ context.Context, _ int, _ int, _ int) (bool, error) {
+	s.contactAccessibleCalls++
+	return !s.denyContactAccess, nil
+}
+
+func (s *fakeWorkReadStore) SidebarContactEmployeeTracksByContactID(_ context.Context, contactID int, _ int, _ int) ([]ContactEmployeeTrack, error) {
+	s.lastContactTrackContactID = contactID
+	return s.contactEmployeeTracks, nil
 }
 
 func (s *fakeWorkReadStore) UserByID(_ context.Context, userID int) (User, bool, error) {
@@ -2383,6 +2468,16 @@ func (s *fakeWorkReadStore) WorkContactByExternalUserID(_ context.Context, exter
 	return s.workContactDetail, s.workContactFound, nil
 }
 
+func (s *fakeWorkReadStore) SidebarWorkContactByExternalUserID(_ context.Context, externalUserID string, corpID int, employeeID int) (WorkContactDetail, bool, error) {
+	s.lastSidebarContactExternalID = externalUserID
+	s.lastSidebarContactCorpID = corpID
+	s.lastSidebarContactEmployeeID = employeeID
+	if !s.workContactFound || s.denyContactAccess || s.workContactDetail.CorpID != corpID {
+		return WorkContactDetail{}, false, nil
+	}
+	return s.workContactDetail, true, nil
+}
+
 func (s *fakeWorkReadStore) WorkContactIndexPage(_ context.Context, filter WorkContactIndexFilter) (WorkContactIndexPage, error) {
 	s.lastWorkContactIndexFilter = filter
 	return s.workContactIndexPage, nil
@@ -2393,9 +2488,10 @@ func (s *fakeWorkReadStore) WorkContactLossPage(_ context.Context, filter WorkCo
 	return s.workContactLossPage, nil
 }
 
-func (s *fakeWorkReadStore) WorkContactShowByID(_ context.Context, contactID int, employeeID int) (WorkContactShow, bool, error) {
+func (s *fakeWorkReadStore) WorkContactShowByID(_ context.Context, contactID int, employeeID int, corpID int) (WorkContactShow, bool, error) {
 	s.lastWorkContactShowContactID = contactID
 	s.lastWorkContactShowEmployeeID = employeeID
+	s.lastWorkContactShowCorpID = corpID
 	return s.workContactShow, s.workContactShowFound, nil
 }
 
@@ -2486,11 +2582,12 @@ func (s *fakeWorkReadStore) UpdateWorkContactProfile(_ context.Context, values W
 	return s.workContactUpdateResult, s.workContactUpdateFound, nil
 }
 
-func (s *fakeWorkReadStore) BatchLabelWorkContacts(_ context.Context, contactIDs []int, tagIDs []int, employeeID int) (int, error) {
+func (s *fakeWorkReadStore) BatchLabelWorkContacts(_ context.Context, contactIDs []int, tagIDs []int, employeeID int, corpID int) (int, error) {
 	s.lastBatchLabelContactIDs = append([]int{}, contactIDs...)
 	s.lastBatchLabelTagIDs = append([]int{}, tagIDs...)
 	s.lastBatchLabelEmployeeID = employeeID
-	return s.batchLabelInserted, nil
+	s.lastBatchLabelCorpID = corpID
+	return s.batchLabelInserted, s.batchLabelErr
 }
 
 func (s *fakeWorkReadStore) RoomWelcomeCorpCredentialByID(_ context.Context, corpID int) (RoomWelcomeCorpCredential, bool, error) {

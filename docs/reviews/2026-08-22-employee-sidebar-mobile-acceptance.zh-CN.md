@@ -1,0 +1,206 @@
+# Mochat 员工移动端整体优化验收报告
+
+> 验收日期：2026-08-22<br>
+> 验收对象：员工在企业微信中使用的移动侧边栏 `web/apps/sidebar` 及其实际依赖契约<br>
+> 结论：本任务所有可控实现、测试、构建、Docker 加载和浏览器验收均通过；真实企业微信 OAuth 与可信域名内 JSSDK 调用因缺少外部企业凭证和已登记域名，按要求记为 `SKIP`，未伪报为 `PASS`。
+
+## 1. 基线、分支与交付边界
+
+| 项目 | 结果 |
+| --- | --- |
+| 实际 Git 仓库 | `D:\workspace\mochat-go\mochat-go` |
+| 隔离 worktree | `D:\workspace\mochat-go\mochat-go\.worktrees\employee-sidebar-mobile-optimization` |
+| 功能分支 | `feat/employee-sidebar-mobile-optimization` |
+| 精确基线 | `b9a47cab45ec872bc81e61a20b06a8a3529311b2`（任务开始时已获取并验证的 `origin/main`） |
+| 代码验收提交 | `c7b2b2c5293e431ef13d78ab5c097f6ad694ea0e` |
+| 最终测试与复审提交 | `c7b2b2c5293e431ef13d78ab5c097f6ad694ea0e` |
+| 截图证据提交 | `2b9b445fe998fbc6251996eb1d6ad49712230bd2` |
+| 第二轮紧凑化验收提交 | `2b9b445fe998fbc6251996eb1d6ad49712230bd2` |
+| 代码门禁时远端主线 | `de902ef1797ae1dea2933ee9be2838253b34248e`；代码 HEAD `c7b2b2c` 时为 ahead 32 / behind 35 |
+| 主线漂移策略 | 不盲目合并；集成前由主线维护者显式 rebase 或逐提交 cherry-pick，并重新运行本文门禁 |
+
+本次只修改 Sidebar、确有必要的 `mobile-foundation` 契约、员工侧边栏实际调用的 Go/API 契约、相关测试、E2E、部署验证脚本与本任务文档。未修改运营 H5 业务、Dashboard 管理界面、SaaS Admin、Phase 7、真实企微会话存档，也未修改监督台账 `docs/PROJECT_PROGRESS.zh-CN.md`。
+
+## 2. 设计与实施文档
+
+- 中文设计文档：`docs/superpowers/specs/2026-08-22-employee-sidebar-mobile-optimization-design.zh-CN.md`
+- 中文实施文档：`docs/superpowers/plans/2026-08-22-employee-sidebar-mobile-optimization.zh-CN.md`
+- 第二轮紧凑化设计：`docs/superpowers/specs/2026-08-22-employee-sidebar-compact-review-design.zh-CN.md`
+- 第二轮紧凑化实施计划：`docs/superpowers/plans/2026-08-22-employee-sidebar-compact-review.zh-CN.md`
+
+首轮两份文档在业务代码前完成，内容基于四张本地参考图逐图查看、12 路由盘点、既有 API 与移动端基础包事实；实现中的鉴权收紧、JSSDK 时间戳兼容和独立审阅整改已同步回写。第二轮文档在紧凑化实现前固定尺寸合同、同源夹具、本机 Review Server 和 standalone 公开 URL 边界，未改变生产鉴权语义。
+
+## 3. 提交列表与回滚点
+
+| 提交 | 内容 | 可用回滚点 |
+| --- | --- | --- |
+| `f3cf86b` | 中文设计文档 | 仅文档，可单独回滚 |
+| `5bdf032` | 中文实施计划 | 仅文档，可单独回滚 |
+| `3669353` | 经验证的员工客户领域与 API 契约 | 后端/API 边界回滚点 |
+| `265cca6` | 12 路由移动工作流与统一壳层 | 主要功能回滚点 |
+| `524e0ed` | 员工移动端浏览器验收 | E2E 回滚点 |
+| `11e3058` | 群 SOP 基础契约对齐 | 共享基础包回滚点 |
+| `486bd6f` | 独立审阅问题整改与安全收口 | 推荐代码验收点 |
+| `d6ccc8b` | 最新多尺寸截图证据 | 仅证据，可单独回滚 |
+| `7408c82` | 初版中文验收报告 | 仅文档，可单独回滚 |
+| `2bca48e` | 二次复审发现的多租户边界、交互降级与专项 E2E 收口 | 最终安全代码验收点 |
+| `2d032af` | 专项业务状态 E2E、设计同步与完整范围空白修复 | 最终测试与独立复审点 |
+| `6b8be76` | 第二轮紧凑化与本机审阅设计 | 仅文档，可单独回滚 |
+| `55b758e` | 第二轮紧凑化实施计划 | 仅文档，可单独回滚 |
+| `c27bc83` | 收紧 Sidebar 员工移动端密度 | 第二轮样式回滚点 |
+| `85de3a6` | 补充工作台入口可见性合同 | 第二轮专项测试回滚点 |
+| `b883edb` | E2E 与 Review Server 共享固定验收夹具 | 夹具回滚点 |
+| `7698ec9` | 新增只服务本机的 Sidebar Review Server | 本地审阅入口回滚点 |
+| `b5cefcf` | 强制 Review Server 仅绑定 loopback | 本地服务安全回滚点 |
+| `6f467b2` | 修正 standalone 浏览器公开 URL | Docker 公开地址回滚点 |
+| `16de3a9` | 刷新紧凑化多尺寸截图和专项证据 | 第二轮最终代码/证据验收点 |
+| `8537d98` | 记录紧凑化浏览器验收结果 | 仅文档，可单独回滚 |
+| `70f1e87` | 完成紧凑化门禁复验记录 | 仅文档，可单独回滚 |
+| `52eb0c5` | 将 JSSDK 签名绑定到当前员工企业与同源 URL | JSSDK 安全回滚点 |
+| `34006b9` | 拒绝跨企业客户标签写入 | 标签租户边界回滚点 |
+| `47b58e0` | 收紧员工客户读写、画像事务与部分同步契约 | 员工数据一致性回滚点 |
+| `dc4f3a4` | 保留业务上下文并禁用无上下文假入口 | 导航上下文回滚点 |
+| `c4ca0f4` | 将独立工具归入“我的”并更新无上下文导航合同 | 底栏信息架构回滚点 |
+| `1144b34` | 关闭匿名 JSSDK、批量标签及不可同步标签语义缺口 | 最终租户/同步安全回滚点 |
+| `36d47fe` | 将标签同步意图传播到后台 worker | 后台标签同步回滚点 |
+| `2b9b445` | 刷新最终截图并增加“继续授权”真实浏览器点击用例 | 最终浏览器证据回滚点 |
+| `c7b2b2c` | callback 标签同步失败进入重试而不误 ACK | 最终代码验收点 |
+
+最终报告提交不在报告内自引用，精确 SHA 在交付摘要记录。未直接合入 `main`，未强推，未重置或清理用户工作树，未删除任何 Docker 命名卷。
+
+## 4. 十二条路由完成状态
+
+| 路由 | 完成状态 | 真实功能与状态覆盖 | 数据来源 |
+| --- | --- | --- | --- |
+| `/` | `PASS` | 员工工作台、客户/素材/任务入口、统一底部导航、移动安全区 | 本地导航配置；不伪造业务结果 |
+| `/auth` | `PASS` | 安全解析授权回调、存储会话、目标白名单跳转、错误恢复 | `/sidebar/agent/auth` 回调契约 |
+| `/codeAuth` | `PASS` | 兼容旧入口，严格映射 `act` 与业务上下文，不泄漏跨页面 ID | `/sidebar/agent/oauth` 回调契约 |
+| `/contact` | `PASS` | 客户摘要、编辑/备注/标签入口、客户阶段、跟进轨迹、客户画像、真实 SOP 提醒；分区加载、空态、错误和重试互不阻塞 | 客户详情、客户阶段、跟进、画像字段、SOP 提醒 API |
+| `/contact/editDetail` | `PASS` | 多类型画像字段、图片上传、校验、保存、取消、重复提交锁和失败重试 | `/contactFieldPivot/index`、`/contactFieldPivot/update`、`/common/upload` |
+| `/contact/remark` | `PASS` | 真实备注/描述回显、长度校验、保存、取消、失败重试 | 客户详情读取与备注更新 API |
+| `/contact/settingTag` | `PASS` | 已有标签、可选标签、仅提交新增 ID、空态、保存/取消、失败重试 | 标签分组与客户标签更新 API |
+| `/contactBatchAdd` | `PASS` | 批次客户列表、筛选状态、复制并添加、Clipboard API 缺失降级、JSSDK 外部联系人动作、重复提交锁、空态/错误/重试 | `/contactBatchAdd/detail` + 剪贴板 + 企业微信桥接 |
+| `/contactSop` | `PASS` | 个人客户 SOP 任务、客户信息、任务内容、复制失败反馈、空态/错误/重试 | `/contactSop/getSopInfo`、`/contactSop/getSopTipInfo` |
+| `/login` | `PASS` | 明确保留授权安全语义、继续授权、失败恢复，不弱化鉴权 | `/sidebar/agent/auth` |
+| `/medium` | `PASS` | 素材分组、类型、搜索、分页、跨页选择、未知类型禁用、真实发送结果与失败反馈 | `/mediumGroup/index`、`/medium/index`、`/medium/mediaIdUpdate`、JSSDK 消息发送 |
+| `/roomSop` | `PASS` | 群 SOP 内容、群信息、完成动作、服务端回读确认、任意非零终态禁用、重复提交锁、空态/错误/重试 | `/roomSop/getSopInfo`、`/roomSop/logState` |
+
+## 5. 数据真实性、鉴权与错误策略
+
+- 正常生产部署下，业务页面只消费真实持久化 API；单元测试和 E2E 中的固定数据均是明确测试夹具，不进入生产 bundle，也未将随机成功或纯内存状态包装为生产能力。
+- 第二轮 Review Server 使用 `web/e2e/fixtures/sidebar-employee-review.json` 的固定验收夹具，页面顶部明确标注“本地验收数据 · 重启后重置”。其写操作只改变当前 Node 进程内状态，重启即恢复初值；它不是生产数据源，也不复用生产 Go 鉴权。
+- Review Server 仅绑定 `127.0.0.1`，校验 `Host`、固定 `agentId=7`、安全的 Sidebar 内部 `target` 与固定 Bearer token；未知 API 以 `404` 失败关闭，上传等未支持能力返回明确错误。该入口只用于本机点击验收，不能作为生产鉴权或部署方案。
+- 缺数据时显示诚实空态；网络或服务器失败显示错误与重试；`401` 触发重新授权；`403`、`404` 和校验错误分别给出可理解反馈，避免将权限问题伪装为网络问题。
+- Sidebar 客户详情、客户摘要、客户轨迹、画像读取和画像更新均新增“当前员工—客户—企业”可访问性校验；摘要和轨迹 SQL 本身绑定员工关系与企业，跨企业客户、非当前员工持有客户、外来画像 pivot 或 field 均无法返回数据。
+- `/sidebar/agent/jssdkConfig` 与兼容 `/sidebar/wxJsSdk/config` 都必须解析 Sidebar 员工身份，企业只从员工会话派生；客户端 `corpId` 不再作为授权依据，`agentId` 还需二次验证同企业，签名 URL 仅允许 Sidebar 同源 HTTP(S)。
+- 单客户与 Dashboard 批量标签写入均在同一事务验证员工、客户关系、全部标签的企业范围；任一 ID 越界整笔回滚。标签缺少企业微信映射时返回“本地已保存、企微未同步、不可立即重试”的结构化状态，不再伪报完整成功。
+- 后台 `MarkTags` 与企微 callback 会保留标签同步意图：无映射、混合映射或远端失败均不会提前标记 applied/ACK，而会进入既有重试/死信链；远端成功且不存在未映射标签后才标记完成。
+- 素材 `mediaIdUpdate` 使用 Sidebar 专用读写合同，读取和更新 SQL 都绑定当前企业、Sidebar 可见和可用状态；个人 SOP 两个 ID 查找分支及 SOP/客户/员工 JOIN 全部绑定 `corp_id`，避免企业间相同 userid 导致的跨租户读取。
+- JSSDK 配置严格接受正安全整数的字符串或数字时间戳，兼容 Go JSON 响应的字符串格式；浏览器契约测试使用真实响应形态覆盖 `agentConfig` 和调用链。
+- 页面导航仅传播目标页面允许的上下文字段，清除 hash，禁止把 `wxExternalUserid`、`batchId`、SOP `id` 等跨业务泄漏。
+- 没有新增数据库迁移；后端变更为既有关系上的权限验证和契约收紧。Dashboard 已有成功路径由回归测试保持，但未改其界面。
+
+## 6. 参考图、紧凑化合同与实现证据
+
+第二轮紧凑化只覆盖 Sidebar 应用级 token：`space-3 = 10px`、`space-4 = 12px`、卡片圆角 `12px`、页面/网格间距 `10px`。360×800 工作台浏览器合同要求 Hero 高度不超过 `128px`、入口卡片不超过 `92px`、入口与按钮继续不小于 `44px`；工作台入口描述最多显示两行。客户摘要头像为 `56px`，SOP 头像为 `44px`，表单与主要动作仍保持 `44–48px` 最小高度。
+
+| 用户参考图 | 页面映射 | 实现后证据 | 主要差异说明 |
+| --- | --- | --- | --- |
+| `2e66797253a09c2a453eddd76fa10f68.jpg` | 员工主页/个人工作入口 | `docs/reviews/evidence/employee-sidebar-mobile/reference-2e667-home-360x800.png` | 当前图显示紧凑蓝色 Hero、两列八个入口和固定三栏底部导航；入口描述限制两行，卡片未挤压触控面积 |
+| `b8e1cff0d6eeaeb79c6ebeb7173af11d.jpg` | 客户资料摘要与快捷操作 | `docs/reviews/evidence/employee-sidebar-mobile/reference-b8e1-contact-390x844.png` | 当前图显示 56px 头像摘要、三项 48px 快捷操作、客户概览与互动轨迹；画面内容是固定浏览器验收夹具，不冒充生产客户数据 |
+| `7837dae832938f84613d03cc55e2c50b.jpg` | 会话侧任务/SOP | `docs/reviews/evidence/employee-sidebar-mobile/reference-7837-contact-sop-430x932.png` | 当前图显示 44px SOP 对象标识、任务内容和整行复制动作，主内容短时仍由底部安全区稳定收口；不伪造聊天或会话存档 |
+| `cb8f4a742f5f46ff33a3011fa7f8647b.jpg` | 筛选列表/批量加好友 | `docs/reviews/evidence/employee-sidebar-mobile/reference-cb8f-batch-add-360x800.png` | 当前图显示状态筛选、员工条目、待添加状态和 44px“复制并添加”动作；测试夹具手机号只用于验收动作链 |
+
+补充证据：
+
+- 320×568 窄屏：`docs/reviews/evidence/employee-sidebar-mobile/narrow-medium-320x568.png`；当前图完整显示素材分组、类型、搜索控件、诚实的 JSSDK 提示与底部导航，无横向裁切。
+- 844×390 横屏及聚焦输入：`docs/reviews/evidence/employee-sidebar-mobile/landscape-focused-remark-844x390.png`；当前图保持居中内容列、聚焦描边、取消/保存双动作与底部导航，输入聚焦后未横向溢出。
+
+多尺寸检查未发现横向溢出、固定操作区遮挡、底部安全区丢失或小于 44px 的可操作按钮。图片均提供与内容相符的替代文本。
+
+## 7. 自动化、自测与浏览器验收
+
+### 7.1 可控门禁
+
+以下命令均在最终代码/证据 HEAD `c7b2b2c5293e431ef13d78ab5c097f6ad694ea0e`（截图为 `2b9b445`，后续 `c7b2b2c` 只修改 Go worker）上重新运行，退出码均为 `0`；测试数来自本轮实际输出，不沿用旧报告。
+
+| 检查项 | 命令/覆盖 | 结果 |
+| --- | --- | --- |
+| Sidebar 全部单元/组件/路由测试 | `corepack pnpm --filter @mochat/sidebar test` | `PASS`，12 文件、134/134 |
+| Sidebar 类型检查 | `corepack pnpm --filter @mochat/sidebar typecheck` | `PASS` |
+| Sidebar lint | `corepack pnpm --filter @mochat/sidebar lint` | `PASS` |
+| Sidebar production build | `corepack pnpm --filter @mochat/sidebar build` | `PASS` |
+| mobile-foundation 全部测试 | `corepack pnpm --filter @mochat/mobile-foundation test` | `PASS`，5 文件、30/30 |
+| mobile-foundation 类型检查 | `corepack pnpm --filter @mochat/mobile-foundation typecheck` | `PASS` |
+| mobile-foundation lint | `corepack pnpm --filter @mochat/mobile-foundation lint` | `PASS` |
+| mobile-foundation build | `corepack pnpm --filter @mochat/mobile-foundation build` | `PASS` |
+| Operation 回归测试 | `corepack pnpm --filter @mochat/operation test` | `PASS`，5 文件、74/74；仅作为回归基准，未优化其业务 |
+| Operation 类型检查 | `corepack pnpm --filter @mochat/operation typecheck` | `PASS`；仅回归 |
+| Operation lint | `corepack pnpm --filter @mochat/operation lint` | `PASS`；仅回归 |
+| Operation build | `corepack pnpm --filter @mochat/operation build` | `PASS`；仅回归 |
+| 移动客户端基础门禁 | `corepack pnpm check:mobile-clients-foundation` | `PASS`，58/58；Sidebar 12 路由、Operation 10 路由、直接 fetch 0、Dashboard 会话引用 0、伪业务结果 0 |
+| Review/Compose Node 合同 | `node --test scripts/sidebar_review_server.test.mjs scripts/check_standalone_public_urls.test.mjs` | `PASS`，15/15；Review 绑定/Host/Bearer/安全 target/进程内写入/失败关闭及四个公开 URL 均有覆盖 |
+| Review Server 语法检查 | `node --check scripts/sidebar_review_server.mjs` | `PASS` |
+| 相关 Go/API | `go test ./internal/dashboard ./internal/server ./internal/store -count=1` | `PASS`；含匿名/跨企业 JSSDK、批量标签整笔回滚、真实 Schema 标签查询、未映射标签与 worker Retry/Ack 时序 |
+| E2E 类型检查 | `corepack pnpm --filter @mochat/e2e typecheck` | `PASS` |
+| E2E lint | `corepack pnpm --filter @mochat/e2e lint` | `PASS` |
+| 合并移动 E2E | `$env:MOCHAT_E2E_BASE_URL='http://127.0.0.1:28080'; corepack pnpm --filter @mochat/e2e exec playwright test tests/mobile-clients-foundation.spec.ts tests/sidebar-employee-mobile.spec.ts --workers=1` | `PASS`，100/100（移动基础 56 + Sidebar 专项 44），耗时 1.3 分钟；专项覆盖 12 路由三主视口、紧凑密度与 390×844 业务状态 |
+| Review 授权点击 E2E | `$env:MOCHAT_E2E_BASE_URL='http://127.0.0.1:28083'; corepack pnpm --filter @mochat/e2e exec playwright test tests/sidebar-review-login.spec.ts --workers=1` | `PASS`，1/1；点击“继续授权”完成 callback、写入仅限 `/sidebar-app` 的 token/agentId cookie 并进入工作台，控制台与页面错误均为空 |
+| Sidebar SQL 安全合同 | `internal/store/sidebar_employee_security_test.go` | `PASS`；客户摘要/轨迹、素材读写和个人 SOP 两个分支均断言企业/员工约束 |
+
+### 7.1.1 最终代码/证据提交后的 Git 复验
+
+以下三条命令在最终代码与证据均已提交后重新运行，不是实现前结果：
+
+| 命令 | 输出摘要 | 退出码 |
+| --- | --- | --- |
+| `git status --short --branch` | 代码 HEAD `c7b2b2c` 时为 `ahead 32 / behind 35`；最终只剩本次报告修订，未混入其他任务文件 | 0 |
+| `git diff --check b9a47cab45ec872bc81e61a20b06a8a3529311b2..HEAD` | 无空白错误输出 | 0 |
+| `git diff --exit-code b9a47cab45ec872bc81e61a20b06a8a3529311b2..HEAD -- docs/PROJECT_PROGRESS.zh-CN.md` | 无差异输出，监督台账 `docs/PROJECT_PROGRESS.zh-CN.md` 未被本分支修改 | 0 |
+
+### 7.2 E2E 覆盖
+
+- Sidebar 12 条路由全部验证可达；专项用例在 360×800、390×844、430×932 三个主视口逐路由执行，授权路由验证安全回调与失败路径，业务路由验证固定夹具内容、加载、空态、错误、重试和返回。
+- 主视觉尺寸覆盖 360×800、390×844、430×932；额外覆盖 320×568 窄屏和 844×390 横屏/输入聚焦等价场景。
+- 备注流程覆盖持久化回显、校验、保存和取消；素材覆盖筛选与多选；SOP 覆盖复制/完成；批量加好友覆盖字符串时间戳 JSSDK 配置及调用。
+- 56 个移动基础用例加 44 个 Sidebar 专项用例统一检查可操作按钮触控几何、页面横向溢出、控制台/未处理错误和路由加载；专项用例新增紧凑密度合同，并覆盖延迟加载、空态、5xx/重试、备注校验/保存/取消、标签追加、画像保存、SDK 不可用、群 SOP 完成回读和批次筛选。
+
+### 7.3 Review Server、Docker 与应用内浏览器
+
+- 可点击 Review URL：<http://127.0.0.1:28083/sidebar-app/login?agentId=7&target=%2F>。验收时 `/readyz` 返回 HTTP 200 与 `sidebar-local-review`，页面含“本地验收数据 · 重启后重置”。PID 为 `17396`，命令行为 `node scripts/sidebar_review_server.mjs`，监听仅为 `127.0.0.1:28083`；交付后继续运行供点击。
+- Review Server 复用 E2E 固定夹具，只在进程内写入；校验 loopback Host、固定 Bearer、`agentId=7` 和安全 Sidebar 内部 `target`，未知 API 失败关闭。它绕开真实 OAuth 仅为本地验收便利，不是生产鉴权实现。
+- 使用隔离 Compose 项目 `mochat-sidebar-mobile-acceptance` 验证第二轮最终代码；app、MySQL、Redis 全部 `healthy`。映射端口为应用 `28080`、Sidebar `28081`、Operation `28082`、MySQL `23316`、Redis `36389`；`28080/readyz` 返回 HTTP 200。
+- standalone 公开 URL 的根因是浏览器收到容器内部 Sidebar 监听端口 `8081`，主机无法直接按该内部地址访问；修复后容器环境显式使用主机映射地址：API/Dashboard `28080`、Sidebar `28081`、Operation `28082`。生产部署仍必须覆盖为 HTTPS 可信域名。
+- 真实 `GET /sidebar/agent/auth?agentId=1&target=%2F` 仍返回 HTTP 302 到 `http://127.0.0.1:28081/auth?...`；其中 state 解码为 `{"code":400,"msg":"应用不存在","data":null}`，未用本地夹具伪装真实企业应用。
+- Docker 环境下两套 Playwright 合并执行为 `PASS`（100/100），其中包含四张参考映射、多尺寸视觉、12 路由三主视口、紧凑密度和专项业务状态；Review Server 的“继续授权”另以 Chromium 点击链 `1/1 PASS` 验证。
+- 应用内浏览器实测登录页标题为“MoChat 客户侧边栏”，主标题为“侧边栏登录”，操作为“继续授权”；1280 宽视口无横向溢出，控制台错误为空。
+- 验收时三个容器继续运行且健康，以下四个命名卷全部保留：
+  - `mochat-sidebar-mobile-acceptance_app-storage`
+  - `mochat-sidebar-mobile-acceptance_audit-anchor-storage`
+  - `mochat-sidebar-mobile-acceptance_mysql-data`
+  - `mochat-sidebar-mobile-acceptance_redis-data`
+- 既有 `mochat-go-desktop` 应用、MySQL、Redis 未受影响并保持健康。
+
+## 8. PASS / FAIL / SKIP 汇总
+
+| 状态 | 数量与说明 |
+| --- | --- |
+| `PASS` | 所有本任务可控单元、组件、路由、类型、lint、构建、15 项 Review/Compose Node 合同、58 项基础门禁、Go/SQL 安全契约、56 项移动基础 E2E、44 项 Sidebar 专项 E2E、1 项 Review 授权点击 E2E、Review Server 运行态、Docker 健康与公开 URL、浏览器控制台及溢出检查 |
+| `FAIL` | 0 |
+| `SKIP` | 真实企业微信 OAuth、真实企业可信域名内 JSSDK 与外部联系人/消息发送；当前环境没有可用企业应用凭证、可信域名和真实会话上下文 |
+
+`SKIP` 部分已通过仓库安全测试入口验证可控边界：OAuth 参数/目标白名单、会话解析、Go 返回契约、字符串时间戳、`agentConfig`、JSSDK invoke、失败处理和重授权均为 `PASS`。使用虚拟 `agentId` 访问真实授权入口会得到“应用不存在”，这正是环境缺凭证的预期外部阻塞，不计为产品通过。
+
+独立代码审阅持续覆盖到 `c7b2b2c`：先后发现并关闭 JSSDK 签名身份、客户/画像权限、导航上下文、多租户标签 IDOR、真实 Schema SQL、部分同步误报、无映射标签、后台 worker applied/ACK 时序及 callback 重试断链。最终定向复审剩余 `Critical: 0`、`Important: 0`、`Minor: 0`，代码结论为 `Ready: Yes`。
+
+## 9. 已知风险与集成要求
+
+1. `origin/main` 已从本任务基线推进到 `de902ef`；代码 HEAD `c7b2b2c` 时分支为 ahead 32 / behind 35。分支未吸收其他未验收工作；集成前必须显式 rebase/cherry-pick 并重新跑本文全部门禁，不能把本报告的通过结论直接外推到集成结果。
+2. 真实企业微信 WebView 仍需在持有企业应用凭证、可信域名和真实客户/群会话的环境做最终冒烟；重点复核 OAuth 回跳、底部安全区、软键盘、外部联系人添加与素材发送。
+3. Review Server 是本机固定夹具入口，重启会重置写入，且不具备生产鉴权；其可点击验收结果不能替代真实企业微信环境冒烟。
+4. 本任务未实现真实企微会话存档，也未扩展 Operation、Dashboard UI 或 Phase 7；Operation 本轮只作 74 项回归，不应描述为紧凑化改造成果。
+5. 若回滚，首轮安全边界为 `2bca48e`，紧凑化证据点为 `2b9b445`，最终标签同步/重试验收点为 `c7b2b2c`；如需定位可按第 3 节的原子提交分别回滚。不需要删除数据库卷，也没有数据库 schema 回退动作。
+
+## 10. 最终结论
+
+员工侧边栏已从分散页面升级为一致但不模板化的移动工作流，并在第二轮把卡片、间距和内容密度收紧到明确的浏览器合同，同时保留不小于 44px 的触控目标。客户资料、备注、标签、素材、个人 SOP、群 SOP、批量加好友及登录/授权恢复均具备用途相符的信息层级、真实生产数据边界和移动交互保护；本机 Review Server 明确使用可重置固定夹具，不与生产能力混淆。当前 HEAD 上所有可控门禁为绿，无已知 `FAIL`；剩余工作是依赖真实企业微信外部环境的冒烟验证，以及主线推进后的显式集成复验。

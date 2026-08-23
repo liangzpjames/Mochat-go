@@ -123,7 +123,7 @@ function registry(name, paths) {
 function routeCases(name, paths) {
   return `const ${name}Cases = [\n${paths.map((path) => {
     const needsSession = name === 'sidebar' && !['/auth', '/codeAuth', '/login'].includes(path);
-    const activeNavigation = path === '/' ? '我的' : path === '/contactSop' ? '会话' : '客户';
+    const activeNavigation = ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
     return `  { path: ${JSON.stringify(path)}, title: ${JSON.stringify(`${name}-${path}`)}, expectsAction: ${name === 'sidebar' && path === '/login'}${name === 'sidebar' ? `, needsSession: ${needsSession}${needsSession ? `, activeNavigation: ${JSON.stringify(activeNavigation)}` : ''}` : ''}${name === 'operation' && path === '/workFission' ? ", query: '?id=17'" : ''} },`;
   }).join('\n')}\n] as const;`;
 }
@@ -232,10 +232,9 @@ for (const viewport of viewports) {
         await assertContentAboveBottomNavigation(page);
         const navigationHrefs = await navigation.locator('a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
         expect(navigationHrefs.every((href) => href?.startsWith('/sidebar-app'))).toBe(true);
-        if (routeCase.path === '/') {
-          await navigation.getByRole('link', { name: '会话' }).click();
-          expect(new URL(page.url()).pathname).toBe('/sidebar-app/contactSop');
-        }
+        await expect(navigation.getByRole('link', { name: '客户', exact: true })).toBeVisible();
+        await expect(navigation.getByRole('link', { name: '会话', exact: true })).toBeVisible();
+        await expect(navigation.getByRole('link', { name: '我的', exact: true })).toBeVisible();
       } else {
         await expect(navigation).toHaveCount(0);
       }
@@ -538,9 +537,32 @@ test('rejects a wrong source-independent Sidebar route-to-tab mapping', (t) => {
   write(
     root,
     'web/e2e/tests/mobile-clients-foundation.spec.ts',
-    validE2E().replace('activeNavigation: "我的"', 'activeNavigation: "客户"'),
+    validE2E().replace('activeNavigation: "客户"', 'activeNavigation: "我的"'),
   );
-  expectDefect(root, /Sidebar \/.*active navigation.*我的/i);
+  expectDefect(root, /Sidebar \/.*active navigation.*客户/i);
+});
+
+test('rejects a missing visible Sidebar tab assertion independently', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace("        await expect(navigation.getByRole('link', { name: '会话', exact: true })).toBeVisible();\n", ''),
+  );
+  expectDefect(root, /all three employee navigation tabs/i);
+});
+
+test('rejects mapping room SOP away from the conversation tab', (t) => {
+  const root = fixture(t);
+  write(
+    root,
+    'web/e2e/tests/mobile-clients-foundation.spec.ts',
+    validE2E().replace(
+      /(\{ path: "\/roomSop"[^\n]*activeNavigation: )"会话"/,
+      '$1"客户"',
+    ),
+  );
+  expectDefect(root, /Sidebar \/roomSop.*active navigation.*会话/i);
 });
 
 test('rejects a missing content-not-covered assertion independently', (t) => {

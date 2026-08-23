@@ -509,6 +509,7 @@ type Config struct {
 	MigrateSidebarContactSOPTipInfo                    bool
 	MigrateSidebarRoomSOPInfo                          bool
 	MigrateSidebarRoomSOPLogState                      bool
+	MigrateSidebarWorkbench                            bool
 	MigrateChatToolConfig                              bool
 	MigrateCommonUpload                                bool
 	MigrateCommonUploadFile                            bool
@@ -1740,6 +1741,7 @@ func FromEnv() (Config, error) {
 		MigrateSidebarContactSOPTipInfo:                    envBoolDefault("MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_SOP_GET_SOP_TIP_INFO", enableAllMigratedRoutes),
 		MigrateSidebarRoomSOPInfo:                          envBoolDefault("MOCHAT_GO_MIGRATE_SIDEBAR_ROOM_SOP_GET_SOP_INFO", enableAllMigratedRoutes),
 		MigrateSidebarRoomSOPLogState:                      envBoolDefault("MOCHAT_GO_MIGRATE_SIDEBAR_ROOM_SOP_LOG_STATE", enableAllMigratedRoutes),
+		MigrateSidebarWorkbench:                            envBoolDefault("MOCHAT_GO_MIGRATE_SIDEBAR_WORKBENCH", enableAllMigratedRoutes),
 		MigrateChatToolConfig:                              envBoolDefault("MOCHAT_GO_MIGRATE_CHAT_TOOL_CONFIG", enableAllMigratedRoutes),
 		MigrateCommonUpload:                                envBoolDefault("MOCHAT_GO_MIGRATE_COMMON_UPLOAD", enableAllMigratedRoutes),
 		MigrateCommonUploadFile:                            envBoolDefault("MOCHAT_GO_MIGRATE_COMMON_UPLOAD_FILE", enableAllMigratedRoutes),
@@ -2034,7 +2036,7 @@ func FromEnv() (Config, error) {
 		cfg.MigrateRoomWelcomeIndex || cfg.MigrateRoomWelcomeSelect || cfg.MigrateRoomWelcomeShow || cfg.MigrateRoomWelcomeStore || cfg.MigrateRoomWelcomeUpdate || cfg.MigrateRoomWelcomeDestroy ||
 		cfg.MigrateContactFieldIndex || cfg.MigrateContactFieldShow || cfg.MigrateContactFieldPortrait ||
 		cfg.MigrateContactFieldStore || cfg.MigrateContactFieldUpdate || cfg.MigrateContactFieldStatus || cfg.MigrateContactFieldDestroy || cfg.MigrateContactFieldBatch ||
-		cfg.MigrateContactFieldPivot || cfg.MigrateContactFieldPivotUpdate || cfg.MigrateSidebarFieldPivot || cfg.MigrateSidebarFieldPivotUpdate || cfg.MigrateSidebarContactSOPInfo || cfg.MigrateSidebarContactSOPTipInfo || cfg.MigrateSidebarRoomSOPInfo || cfg.MigrateSidebarRoomSOPLogState ||
+		cfg.MigrateContactFieldPivot || cfg.MigrateContactFieldPivotUpdate || cfg.MigrateSidebarFieldPivot || cfg.MigrateSidebarFieldPivotUpdate || cfg.MigrateSidebarContactSOPInfo || cfg.MigrateSidebarContactSOPTipInfo || cfg.MigrateSidebarRoomSOPInfo || cfg.MigrateSidebarRoomSOPLogState || cfg.MigrateSidebarWorkbench ||
 		cfg.MigrateChatToolConfig || cfg.MigrateAgentStore || cfg.MigrateSidebarAgentAuth || cfg.MigrateSidebarAgentOAuth || cfg.MigrateSidebarAgentJSSDK || cfg.MigrateSidebarWxJSSDK || cfg.MigrateRoleSelect ||
 		cfg.MigrateRoleIndex || cfg.MigrateRoleShow ||
 		cfg.MigrateRolePermission || cfg.MigrateRoleShowEmployee ||
@@ -2117,7 +2119,7 @@ func FromEnv() (Config, error) {
 	if cfg.MigrateSidebarAgentAuth && cfg.SidebarJWTSecret == "" {
 		return Config{}, fmt.Errorf("MOCHAT_SIDEBAR_JWT_SECRET or SIDEBAR_JWT_SECRET is required when sidebar agent auth signs sidebar JWT")
 	}
-	sidebarBackedRead := cfg.MigrateSidebarTagGroupIndex || cfg.MigrateSidebarContactTagAll || cfg.MigrateSidebarContactDetail || cfg.MigrateSidebarContactShow || cfg.MigrateSidebarContactTrack || cfg.MigrateSidebarContactUpdate || cfg.MigrateSidebarWorkRoomManage || cfg.MigrateSidebarProcessStatus || cfg.MigrateSidebarProcessUpdate || cfg.MigrateSidebarContactBatchAddDetail || cfg.MigrateSidebarMediumIndex || cfg.MigrateSidebarMediumMediaIDUpdate || cfg.MigrateSidebarMediumGroupIndex || cfg.MigrateSidebarFieldPivot || cfg.MigrateSidebarFieldPivotUpdate || cfg.MigrateSidebarContactSOPInfo || cfg.MigrateSidebarContactSOPTipInfo || cfg.MigrateSidebarRoomSOPInfo || cfg.MigrateSidebarRoomSOPLogState || cfg.MigrateSidebarCommonUpload || cfg.MigrateSidebarAgentJSSDK
+	sidebarBackedRead := cfg.MigrateSidebarTagGroupIndex || cfg.MigrateSidebarContactTagAll || cfg.MigrateSidebarContactDetail || cfg.MigrateSidebarContactShow || cfg.MigrateSidebarContactTrack || cfg.MigrateSidebarContactUpdate || cfg.MigrateSidebarWorkRoomManage || cfg.MigrateSidebarProcessStatus || cfg.MigrateSidebarProcessUpdate || cfg.MigrateSidebarContactBatchAddDetail || cfg.MigrateSidebarMediumIndex || cfg.MigrateSidebarMediumMediaIDUpdate || cfg.MigrateSidebarMediumGroupIndex || cfg.MigrateSidebarFieldPivot || cfg.MigrateSidebarFieldPivotUpdate || cfg.MigrateSidebarContactSOPInfo || cfg.MigrateSidebarContactSOPTipInfo || cfg.MigrateSidebarRoomSOPInfo || cfg.MigrateSidebarRoomSOPLogState || cfg.MigrateSidebarWorkbench || cfg.MigrateSidebarCommonUpload || cfg.MigrateSidebarAgentJSSDK
 	if sidebarBackedRead && !cfg.DevAuthHeader && cfg.SidebarJWTSecret == "" {
 		return Config{}, fmt.Errorf("MOCHAT_SIDEBAR_JWT_SECRET or SIDEBAR_JWT_SECRET is required when migrated sidebar routes use PHP sidebar JWT auth")
 	}

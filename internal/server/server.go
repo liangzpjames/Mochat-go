@@ -481,6 +481,9 @@ type Server struct {
 	sidebarContactSOPTipInfo                        http.Handler
 	sidebarRoomSOPInfo                              http.Handler
 	sidebarRoomSOPLogState                          http.Handler
+	sidebarWorkbenchSummary                         http.Handler
+	sidebarWorkContactIndex                         http.Handler
+	sidebarWorkbenchTasks                           http.Handler
 	saasAlertPage                                   http.Handler
 	saasAlertIndex                                  http.Handler
 	saasAlertResolve                                http.Handler
@@ -3288,6 +3291,24 @@ func WithSidebarRoomSOPLogStateHandler(handler http.Handler) Option {
 	}
 }
 
+func WithSidebarWorkbenchSummaryHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.sidebarWorkbenchSummary = handler
+	}
+}
+
+func WithSidebarWorkContactIndexHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.sidebarWorkContactIndex = handler
+	}
+}
+
+func WithSidebarWorkbenchTasksHandler(handler http.Handler) Option {
+	return func(server *Server) {
+		server.sidebarWorkbenchTasks = handler
+	}
+}
+
 func WithSaaSAlertIndexHandler(handler http.Handler) Option {
 	return func(server *Server) {
 		server.saasAlertIndex = handler
@@ -5486,6 +5507,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.sidebarRoomSOPInfo.ServeHTTP(w, r)
 	case r.URL.Path == "/sidebar/roomSop/logState" && r.Method == http.MethodPut && s.sidebarRoomSOPLogState != nil:
 		s.sidebarRoomSOPLogState.ServeHTTP(w, r)
+	case r.URL.Path == "/sidebar/workbench/summary" && r.Method == http.MethodGet && s.sidebarWorkbenchSummary != nil:
+		s.sidebarWorkbenchSummary.ServeHTTP(w, r)
+	case r.URL.Path == "/sidebar/workContact/index" && r.Method == http.MethodGet && s.sidebarWorkContactIndex != nil:
+		s.sidebarWorkContactIndex.ServeHTTP(w, r)
+	case r.URL.Path == "/sidebar/workbench/tasks" && r.Method == http.MethodGet && s.sidebarWorkbenchTasks != nil:
+		s.sidebarWorkbenchTasks.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAlert/page" && (r.Method == http.MethodGet || r.Method == http.MethodHead) && s.saasAlertPage != nil:
 		s.saasAlertPage.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAlert/index" && r.Method == http.MethodGet && s.saasAlertIndex != nil:
@@ -7360,6 +7387,15 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.sidebarRoomSOPLogState != nil {
 		routes = append(routes, "PUT /sidebar/roomSop/logState")
+	}
+	if s.sidebarWorkbenchSummary != nil {
+		routes = append(routes, "GET /sidebar/workbench/summary")
+	}
+	if s.sidebarWorkContactIndex != nil {
+		routes = append(routes, "GET /sidebar/workContact/index")
+	}
+	if s.sidebarWorkbenchTasks != nil {
+		routes = append(routes, "GET /sidebar/workbench/tasks")
 	}
 	if s.saasAlertPage != nil {
 		routes = append(routes, "GET /dashboard/saasAlert/page", "HEAD /dashboard/saasAlert/page")

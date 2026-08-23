@@ -98,6 +98,10 @@ docker compose \
 - Go operation 前端：容器栈默认映射到 `127.0.0.1:18082`，可用 `MOCHAT_OPERATION_PORT` 覆盖
 - 上传静态资源：Go dashboard/API 会把容器内 `MOCHAT_FILE_STORAGE_ROOT` 以只读方式托管到 `/static/*`
 
+为保证 Sidebar 登录回调和浏览器 API 请求指向宿主机可访问地址，app 进程会将 `MOCHAT_API_BASE_URL` 与 `MOCHAT_SIDEBAR_BASE_URL` 分别默认设为 `MOCHAT_GO_PORT` 和 `MOCHAT_SIDEBAR_PORT` 对应的 loopback 地址。例如把两者覆盖为 `28080`、`28081` 后，公开 URL 分别是 `http://127.0.0.1:28080`、`http://127.0.0.1:28081`，不会回落到容器内部的 `8080`、`8081`。Dashboard 与 Operation 的地址策略未在本次 Sidebar 调整范围内。
+
+这些默认值只适合本机 loopback 绑定。生产部署必须为 `MOCHAT_API_BASE_URL` 与 `MOCHAT_SIDEBAR_BASE_URL` 显式配置浏览器可达、受信任的 HTTPS 域名（例如 `MOCHAT_SIDEBAR_BASE_URL=https://sidebar.example.com`）；显式 URL 优先于端口派生的本机默认值。真实 OAuth 仍需要有效且已正确配置的企业微信应用，公开 URL 配置不会替代企业微信侧的应用、回调和可信域名配置。
+
 数据库初始化使用本项目内置 SQL：
 
 ```text

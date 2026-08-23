@@ -33,7 +33,7 @@ type ContactSOPItem struct {
 type ContactSOPStore interface {
 	SidebarEmployeeByID(ctx context.Context, employeeID int) (SidebarEmployee, bool, error)
 	ContactSOPTips(ctx context.Context, employeeID int, contactID int) ([]ContactSOPItem, error)
-	ContactSOPInfo(ctx context.Context, employeeID int, id int) (ContactSOPItem, bool, error)
+	ContactSOPInfo(ctx context.Context, employeeID int, corpID int, id int) (ContactSOPItem, bool, error)
 }
 
 type ContactSOPHandler struct {
@@ -86,7 +86,7 @@ func (h *ContactSOPHandler) GetSOPInfo(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "ID 必填", nil)
 		return
 	}
-	item, found, err := h.store.ContactSOPInfo(r.Context(), employee.ID, id)
+	item, found, err := h.store.ContactSOPInfo(r.Context(), employee.ID, employee.CorpID, id)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return

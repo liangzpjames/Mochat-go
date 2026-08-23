@@ -8,8 +8,8 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, '..');
 const capturePlan = [
   { viewport: 'mobile', url: '/sidebar-app/contact?wxExternalUserid=visual-contact&agentId=7', filename: 'sidebar-contact-390.png', readyText: '林小青' },
-  { viewport: 'mobile', url: '/sidebar-app/', filename: 'sidebar-workbench-390.png', readyText: '从当前客户会话开始工作' },
-  { viewport: 'mobile', url: '/sidebar-app/roomSop', filename: 'sidebar-pending-390.png', readyText: '客户群 SOP模块待迁移' },
+  { viewport: 'mobile', url: '/sidebar-app/', filename: 'sidebar-workbench-390.png', readyText: '客户经营工作台' },
+  { viewport: 'mobile', url: '/sidebar-app/roomSop?id=5', filename: 'sidebar-pending-390.png', readyText: '视觉验收客户群' },
   { viewport: 'mobile', url: '/operation-app/workFission?id=17', filename: 'operation-work-fission-390.png', readyText: '已邀请 2 位好友' },
   { viewport: 'mobile', url: '/operation-app/lottery', filename: 'operation-pending-390.png', readyText: '抽奖活动模块待迁移' },
   { viewport: 'desktop', url: '/sidebar-app/contact?wxExternalUserid=visual-contact&agentId=7', filename: 'sidebar-contact-1280.png', readyText: '林小青' },
@@ -121,6 +121,43 @@ async function installFixtures(page) {
     contentType: 'application/json',
     body: envelope({ id: 23, name: '林小青', avatar: null, corpId: 9 }, 'visual-contact'),
   }));
+  await page.route('**/sidebar/workbench/summary', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: envelope({
+      employee: { id: 7, name: '员工甲', avatar: null, departmentNames: ['客户成功部'], corpName: '视觉验收企业' },
+      customers: { total: 126, addedToday: 8, taggedTotal: 93, ownedRoomTotal: 12 },
+      tasks: { contactSopRecords: 3, roomSopPending: 2, batchAddPending: 1 },
+    }, 'visual-workbench-summary'),
+  }));
+  await page.route('**/sidebar/workContact/show?*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: envelope({
+      name: '林小青', avatar: null, gender: 2, genderText: '女', businessNo: 'C-23',
+      remark: '重点客户', description: '偏好下午沟通', tag: [{ tagId: 7, tagName: '高意向' }],
+      roomName: ['视觉验收客户群'], employeeName: ['员工甲'],
+    }, 'visual-contact-workspace'),
+  }));
+  await page.route('**/sidebar/workContact/track?*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: envelope([], 'visual-contact-track'),
+  }));
+  await page.route('**/sidebar/contactFieldPivot/index?*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: envelope([], 'visual-contact-portrait'),
+  }));
+  await page.route('**/sidebar/roomSop/getSopInfo?*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: envelope({
+      id: 5, roomSopId: 13, creator: '员工甲', time: '10:00', state: 0,
+      task: { content: [{ type: 0, value: '群内发送活动提醒' }] },
+      room: { id: 21, name: '视觉验收客户群' },
+    }, 'visual-room-sop'),
+  }));
   await page.route('**/operation/openUserInfo/workFission?*', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -164,7 +201,12 @@ try {
   for (const capture of capturePlan) {
     await page.setViewportSize(viewports[capture.viewport]);
     await page.goto(`${baseURL}${capture.url}`);
-    await page.getByText(capture.readyText, { exact: true }).first().waitFor({ state: 'visible' });
+    try {
+      await page.getByText(capture.readyText, { exact: true }).first().waitFor({ state: 'visible' });
+    } catch (error) {
+      const visibleText = (await page.locator('body').innerText()).replaceAll(/\s+/g, ' ').slice(0, 500);
+      throw new Error(`capture ${capture.url} ended at ${page.url()}: ${visibleText}`, { cause: error });
+    }
     const screenshotPath = join(outputDirectory, capture.filename);
     await page.screenshot({ path: screenshotPath });
     process.stdout.write(`${screenshotPath}\n`);

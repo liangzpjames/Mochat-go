@@ -16,17 +16,87 @@ type SidebarPageShellProps = {
 
 type SidebarNavigationKey = 'customers' | 'conversations' | 'profile';
 
-function navigationKey(pathname: string): SidebarNavigationKey {
-  if (pathname === '/contactSop') return 'conversations';
-  if (pathname === '/' || pathname === '') return 'profile';
+export type SidebarBusinessNavigation = {
+  available: boolean;
+  reason?: string;
+  suffix: string;
+};
+
+function navigationKey(pathname: string, search: string): SidebarNavigationKey {
+  if (pathname === '/' || pathname === '') {
+    const tab = new URLSearchParams(search).get('tab');
+    if (tab === 'conversations' || tab === 'profile') return tab;
+    return 'customers';
+  }
+  if (pathname === '/contactSop' || pathname === '/roomSop') return 'conversations';
   return 'customers';
 }
 
-export function sidebarBusinessContextSuffix(search: string, hash: string): string {
-  const params = new URLSearchParams(search);
-  params.delete('state');
-  const serialized = params.toString();
-  return `${serialized.length === 0 ? '' : `?${serialized}`}${hash}`;
+function positiveParam(params: URLSearchParams, name: string): string | null {
+  const value = params.get(name)?.trim() ?? '';
+  return /^[1-9]\d*$/.test(value) ? value : null;
+}
+
+export function sidebarBusinessNavigation(
+  targetPath: string,
+  sourcePath: string,
+  search: string,
+): SidebarBusinessNavigation {
+  const source = new URLSearchParams(search);
+  const context = new URLSearchParams();
+  const copy = (name: string) => {
+    const value = source.get(name)?.trim();
+    if (value) context.set(name, value);
+  };
+  copy('agentId');
+  copy('wxExternalUserid');
+  for (const name of ['contactId', 'contactSopId', 'roomSopId', 'batchId']) {
+    const value = positiveParam(source, name);
+    if (value !== null) context.set(name, value);
+  }
+  const sourceTaskId = positiveParam(source, 'id');
+  if (sourceTaskId !== null && sourcePath === '/contactSop') context.set('contactSopId', sourceTaskId);
+  if (sourceTaskId !== null && sourcePath === '/roomSop') context.set('roomSopId', sourceTaskId);
+
+  const customerRoute = targetPath === '/contact'
+    || targetPath === '/contact/editDetail'
+    || targetPath === '/contact/remark'
+    || targetPath === '/contact/settingTag';
+  let available = true;
+  let reason: string | undefined;
+  if (customerRoute && !context.has('wxExternalUserid')) {
+    available = false;
+    reason = '需从企业微信客户会话进入';
+  } else if (targetPath === '/contactSop' && !context.has('contactSopId') && !context.has('contactId')) {
+    available = false;
+    reason = '需从个人客户 SOP 任务或客户详情进入';
+  } else if (targetPath === '/roomSop' && !context.has('roomSopId')) {
+    available = false;
+    reason = '需从客户群 SOP 任务进入';
+  } else if (targetPath === '/contactBatchAdd' && !context.has('batchId')) {
+    available = false;
+    reason = '需从批量加好友任务进入';
+  }
+
+  const target = new URLSearchParams(context);
+  if (targetPath === '/contactSop' && target.has('contactSopId')) {
+    target.set('id', target.get('contactSopId') ?? '');
+    target.delete('contactSopId');
+  }
+  if (targetPath === '/roomSop' && target.has('roomSopId')) {
+    target.set('id', target.get('roomSopId') ?? '');
+    target.delete('roomSopId');
+  }
+  const serialized = target.toString();
+  return {
+    available,
+    ...(reason === undefined ? {} : { reason }),
+    suffix: serialized.length === 0 ? '' : `?${serialized}`,
+  };
+}
+
+export function sidebarBusinessContextSuffix(targetPath: string, search: string, sourcePath = ''): string {
+  return sidebarBusinessNavigation(targetPath, sourcePath, search).suffix;
 }
 
 function SidebarLineIcon({ kind }: { kind: SidebarNavigationKey }) {
@@ -62,11 +132,20 @@ export function SidebarPageShell({
   children,
 }: SidebarPageShellProps) {
   const location = useLocation();
-  const suffix = sidebarBusinessContextSuffix(location.search, location.hash);
-  const current = navigationKey(location.pathname);
-  const customersHref = useHref(`/contact${suffix}`);
-  const conversationsHref = useHref(`/contactSop${suffix}`);
-  const profileHref = useHref(`/${suffix}`);
+  const current = navigationKey(location.pathname, location.search);
+  const context = new URLSearchParams(
+    sidebarBusinessNavigation('/', location.pathname, location.search).suffix.replace(/^\?/, ''),
+  );
+  const mountedRootHref = useHref('/');
+  const rootTargetHref = (tab: SidebarNavigationKey) => {
+    const query = new URLSearchParams(context);
+    query.set('tab', tab);
+    const root = mountedRootHref.endsWith('/') ? mountedRootHref : `${mountedRootHref}/`;
+    return `${root}?${query.toString()}`;
+  };
+  const customersHref = rootTargetHref('customers');
+  const conversationsHref = rootTargetHref('conversations');
+  const profileHref = rootTargetHref('profile');
   const items: MobileBottomNavigationItem[] = [
     { key: 'customers', label: '客户', icon: <SidebarLineIcon kind="customers" />, href: customersHref, current: current === 'customers' },
     { key: 'conversations', label: '会话', icon: <SidebarLineIcon kind="conversations" />, href: conversationsHref, current: current === 'conversations' },

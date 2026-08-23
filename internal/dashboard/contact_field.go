@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -35,6 +36,7 @@ type ContactFieldPage struct {
 
 type ContactFieldPivot struct {
 	ID             int
+	ContactID      int
 	ContactFieldID int
 	Value          string
 }
@@ -44,6 +46,26 @@ type ContactFieldPivotCreate struct {
 	ContactFieldID int
 	Value          string
 }
+
+type ContactFieldPivotWrite struct {
+	PivotID        int
+	ContactFieldID int
+	Name           string
+	Value          string
+}
+
+type ContactFieldPivotBatchWrite struct {
+	ContactID             int
+	EmployeeID            int
+	CorpID                int
+	RequireEmployeeAccess bool
+	Items                 []ContactFieldPivotWrite
+}
+
+var (
+	ErrContactFieldPivotAccess        = errors.New("contact field pivot access denied")
+	ErrContactFieldPivotFieldNotFound = errors.New("contact field not found")
+)
 
 type ContactEmployeeTrackCreate struct {
 	EmployeeID int
@@ -78,6 +100,7 @@ type ContactFieldStore interface {
 	SidebarEmployeeByID(ctx context.Context, employeeID int) (SidebarEmployee, bool, error)
 	EmployeeIDByUserCorp(ctx context.Context, userID int, corpID int) (int, error)
 	FirstEmployeeByUser(ctx context.Context, userID int) (corpID int, employeeID int, ok bool, err error)
+	ContactAccessibleToEmployee(ctx context.Context, contactID int, employeeID int, corpID int) (bool, error)
 	ContactFieldPage(ctx context.Context, filter ContactFieldFilter) (ContactFieldPage, error)
 	ContactFieldByID(ctx context.Context, fieldID int) (ContactField, bool, error)
 	ContactFieldsByStatusOrder(ctx context.Context, status int) ([]ContactField, error)
@@ -86,6 +109,7 @@ type ContactFieldStore interface {
 	UpdateContactFieldPivotValue(ctx context.Context, pivotID int, value string) (bool, error)
 	CreateContactFieldPivots(ctx context.Context, pivots []ContactFieldPivotCreate) error
 	CreateContactEmployeeTrack(ctx context.Context, track ContactEmployeeTrackCreate) error
+	UpdateContactFieldPivotsAtomically(ctx context.Context, write ContactFieldPivotBatchWrite) error
 	ContactFieldLabelExists(ctx context.Context, label string, excludeFieldID int) (bool, error)
 	CreateContactField(ctx context.Context, values ContactFieldWriteValues) (int, error)
 	UpdateContactField(ctx context.Context, fieldID int, values ContactFieldWriteValues) (bool, error)
@@ -250,7 +274,7 @@ func (h *ContactFieldHandler) FieldPivotIndex(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	h.writeFieldPivotIndex(w, r)
+	h.writeFieldPivotIndex(w, r, principalScope.WorkEmployeeID, corpID, false)
 }
 
 func (h *ContactFieldHandler) SidebarFieldPivotIndex(w http.ResponseWriter, r *http.Request) {
@@ -258,11 +282,12 @@ func (h *ContactFieldHandler) SidebarFieldPivotIndex(w http.ResponseWriter, r *h
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	if _, ok := h.resolveSidebarAccess(w, r); !ok {
+	employee, ok := h.resolveSidebarAccess(w, r)
+	if !ok {
 		return
 	}
 
-	h.writeFieldPivotIndex(w, r)
+	h.writeFieldPivotIndex(w, r, employee.ID, employee.CorpID, true)
 }
 
 func (h *ContactFieldHandler) FieldPivotUpdate(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +308,7 @@ func (h *ContactFieldHandler) FieldPivotUpdate(w http.ResponseWriter, r *http.Re
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
 		return
 	}
-	h.writeFieldPivotUpdate(w, r, params, principalScope.WorkEmployeeID, corpID)
+	h.writeFieldPivotUpdate(w, r, params, principalScope.WorkEmployeeID, corpID, false)
 }
 
 func (h *ContactFieldHandler) SidebarFieldPivotUpdate(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +325,7 @@ func (h *ContactFieldHandler) SidebarFieldPivotUpdate(w http.ResponseWriter, r *
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "invalid request body", nil)
 		return
 	}
-	h.writeFieldPivotUpdate(w, r, params, employee.ID, employee.CorpID)
+	h.writeFieldPivotUpdate(w, r, params, employee.ID, employee.CorpID, true)
 }
 
 func (h *ContactFieldHandler) Store(w http.ResponseWriter, r *http.Request) {
@@ -560,10 +585,13 @@ func (h *ContactFieldHandler) BatchUpdate(w http.ResponseWriter, r *http.Request
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
 }
 
-func (h *ContactFieldHandler) writeFieldPivotIndex(w http.ResponseWriter, r *http.Request) {
+func (h *ContactFieldHandler) writeFieldPivotIndex(w http.ResponseWriter, r *http.Request, employeeID int, corpID int, enforceContactAccess bool) {
 	contactID, err := positiveQueryIntRequired(r, "contactId")
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
+		return
+	}
+	if enforceContactAccess && !h.requireContactAccess(w, r, contactID, employeeID, corpID) {
 		return
 	}
 	fields, err := h.store.ContactFieldsByStatusOrder(r.Context(), 1)
@@ -627,7 +655,7 @@ func (h *ContactFieldHandler) writeFieldPivotIndex(w http.ResponseWriter, r *htt
 	writeEnvelope(w, http.StatusOK, 200, "success", list)
 }
 
-func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *http.Request, params map[string]any, employeeID int, corpID int) {
+func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *http.Request, params map[string]any, employeeID int, corpID int, enforceContactAccess bool) {
 	contactID, okInt, err := intParam(params, "contactId")
 	if err != nil || !okInt || contactID <= 0 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
@@ -642,60 +670,48 @@ func (h *ContactFieldHandler) writeFieldPivotUpdate(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	if len(items) == 0 {
-		writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+	writes := make([]ContactFieldPivotWrite, 0, len(items))
+	for _, item := range items {
+		writes = append(writes, ContactFieldPivotWrite{
+			PivotID:        item.PivotID,
+			ContactFieldID: item.ContactFieldID,
+			Name:           item.Name,
+			Value:          item.Value,
+		})
+	}
+	err = h.store.UpdateContactFieldPivotsAtomically(r.Context(), ContactFieldPivotBatchWrite{
+		ContactID:             contactID,
+		EmployeeID:            employeeID,
+		CorpID:                corpID,
+		RequireEmployeeAccess: enforceContactAccess,
+		Items:                 writes,
+	})
+	if errors.Is(err, ErrContactFieldPivotAccess) {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权修改该客户画像", nil)
 		return
 	}
-
-	content := "编辑用户画像："
-	creates := make([]ContactFieldPivotCreate, 0)
-	for _, item := range items {
-		if item.PivotID <= 0 {
-			creates = append(creates, ContactFieldPivotCreate{
-				ContactID:      contactID,
-				ContactFieldID: item.ContactFieldID,
-				Value:          item.Value,
-			})
-			if item.Value != "" {
-				content += item.Name + " "
-			}
-			continue
-		}
-
-		pivot, found, err := h.store.ContactFieldPivotByID(r.Context(), item.PivotID)
-		if err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
-			return
-		}
-		if found && pivot.Value != item.Value {
-			content += item.Name + " "
-		}
-		updated, err := h.store.UpdateContactFieldPivotValue(r.Context(), item.PivotID, item.Value)
-		if err != nil || !updated {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "编辑用户画像失败", nil)
-			return
-		}
+	if errors.Is(err, ErrContactFieldPivotFieldNotFound) {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "用户画像字段不存在", nil)
+		return
 	}
-
-	if content != "编辑用户画像：" {
-		if err := h.store.CreateContactEmployeeTrack(r.Context(), ContactEmployeeTrackCreate{
-			EmployeeID: employeeID,
-			ContactID:  contactID,
-			Content:    content,
-			CorpID:     corpID,
-			Event:      4,
-		}); err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "记录轨迹失败", nil)
-			return
-		}
-	}
-	if len(creates) > 0 {
-		if err := h.store.CreateContactFieldPivots(r.Context(), creates); err != nil {
-			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "添加用户画像失败", nil)
-			return
-		}
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "编辑用户画像失败", nil)
+		return
 	}
 	writeEnvelope(w, http.StatusOK, 200, "success", []any{})
+}
+
+func (h *ContactFieldHandler) requireContactAccess(w http.ResponseWriter, r *http.Request, contactID int, employeeID int, corpID int) bool {
+	allowed, err := h.store.ContactAccessibleToEmployee(r.Context(), contactID, employeeID, corpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return false
+	}
+	if !allowed {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权访问该客户", nil)
+		return false
+	}
+	return true
 }
 
 func (h *ContactFieldHandler) parseContactFieldValues(w http.ResponseWriter, params map[string]any, existing ContactField, update bool) (ContactFieldWriteValues, bool) {

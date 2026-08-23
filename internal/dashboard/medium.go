@@ -94,8 +94,8 @@ type MediumStore interface {
 	UpdateMedium(ctx context.Context, mediumID int, values MediumWrite) (bool, error)
 	DeleteMedium(ctx context.Context, corpID int, mediumID int) (bool, error)
 	UpdateMediumGroupID(ctx context.Context, corpID int, mediumID int, groupID int) (bool, error)
-	MediumMediaForUpdateByID(ctx context.Context, mediumID int) (MediumMediaUpdateItem, bool, error)
-	UpdateMediumMediaID(ctx context.Context, mediumID int, mediaID string, lastUploadTime int64) (bool, error)
+	SidebarMediumMediaForUpdateByID(ctx context.Context, corpID int, mediumID int) (MediumMediaUpdateItem, bool, error)
+	UpdateSidebarMediumMediaID(ctx context.Context, corpID int, mediumID int, mediaID string, lastUploadTime int64) (bool, error)
 	MediumCorpCredentialByID(ctx context.Context, corpID int) (MediumCorpCredential, bool, error)
 }
 
@@ -187,7 +187,7 @@ func (h *MediumHandler) MediaIDUpdate(w http.ResponseWriter, r *http.Request) {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "素材id必须", nil)
 		return
 	}
-	item, found, err := h.store.MediumMediaForUpdateByID(r.Context(), mediumID)
+	item, found, err := h.store.SidebarMediumMediaForUpdateByID(r.Context(), corpID, mediumID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -231,7 +231,7 @@ func (h *MediumHandler) MediaIDUpdate(w http.ResponseWriter, r *http.Request) {
 		h.writeMediaID(w, item.MediaID)
 		return
 	}
-	updated, err := h.store.UpdateMediumMediaID(r.Context(), item.ID, mediaID, now)
+	updated, err := h.store.UpdateSidebarMediumMediaID(r.Context(), corpID, item.ID, mediaID, now)
 	if err != nil || !updated {
 		h.writeMediaID(w, item.MediaID)
 		return

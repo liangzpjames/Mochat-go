@@ -609,7 +609,7 @@ func (w *WeWorkCallbackWorker) syncContactFromEvent(ctx context.Context, corpID 
 			return err
 		}
 		if err := w.markContactTagsFromState(ctx, corpID, credential, employee.ID, result.ContactID, event); err != nil {
-			w.logger.Printf("wework callback mark contact tags skipped: corp=%d employee=%d contact=%d state=%q err=%v", corpID, employee.ID, result.ContactID, contactWelcomeState(event), err)
+			return fmt.Errorf("wework callback mark contact tags failed: corp=%d employee=%d contact=%d state=%q: %w", corpID, employee.ID, result.ContactID, contactWelcomeState(event), err)
 		}
 		if err := w.handleFissionAddContactFromState(ctx, corpID, credential, employee, contact, result, event); err != nil {
 			w.logger.Printf("wework callback work fission add contact skipped: corp=%d employee=%d contact=%d state=%q err=%v", corpID, employee.ID, result.ContactID, contactWelcomeState(event), err)
@@ -725,17 +725,25 @@ func (w *WeWorkCallbackWorker) markContactTagsFromState(ctx context.Context, cor
 		HasTag:     true,
 		TagIDs:     tagIDs,
 	})
-	if err != nil || !found || len(result.AddedWXTagIDs) == 0 {
+	if err != nil || !found {
 		return err
 	}
-	if strings.TrimSpace(result.WXUserID) == "" || strings.TrimSpace(result.WXExternalUserID) == "" {
-		return nil
+	if len(result.AddedWXTagIDs) > 0 {
+		if strings.TrimSpace(result.WXUserID) == "" || strings.TrimSpace(result.WXExternalUserID) == "" {
+			return fmt.Errorf("work contact tag sync identity is incomplete")
+		}
+		if err := w.client.MarkExternalContactTags(ctx, credential, WorkContactMarkTagsPayload{
+			UserID:         result.WXUserID,
+			ExternalUserID: result.WXExternalUserID,
+			AddTag:         result.AddedWXTagIDs,
+		}); err != nil {
+			return err
+		}
 	}
-	return w.client.MarkExternalContactTags(ctx, credential, WorkContactMarkTagsPayload{
-		UserID:         result.WXUserID,
-		ExternalUserID: result.WXExternalUserID,
-		AddTag:         result.AddedWXTagIDs,
-	})
+	if len(result.UnsyncableTagIDs) > 0 {
+		return fmt.Errorf("work contact tags are missing WeCom mappings: %v", result.UnsyncableTagIDs)
+	}
+	return nil
 }
 
 func (w *WeWorkCallbackWorker) contactTagIDsFromState(ctx context.Context, event WeWorkCallbackEvent) ([]int, bool, error) {

@@ -116,6 +116,52 @@ func TestMarkTagsWorkerRetriesFailedDelivery(t *testing.T) {
 	}
 }
 
+func TestMarkTagsWorkerRetriesUnmappedTagWithoutMarkingAutoRecordApplied(t *testing.T) {
+	queue := &fakeMarkTagsQueue{}
+	store := &fakeMarkTagsWorkerStore{
+		credential: MarkTagsWorkerCredentialFixture(),
+		result: MarkTagsApplyResult{
+			WXUserID:         "go-employee",
+			WXExternalUserID: "external-user",
+			TagSyncRequested: true,
+			UnsyncableTagIDs: []int{2},
+		},
+	}
+	worker := NewMarkTagsWorker(queue, store, &fakeMarkTagsWorkerClient{}, log.New(io.Discard, "", 0))
+
+	worker.handleDelivery(context.Background(), MarkTagsDelivery{
+		Raw:   "unmapped-job",
+		Event: MarkTagsEvent{CorpID: 7, ContactID: 101, EmployeeID: 3, TagIDs: []int{2}, AutoTagRecordID: 91},
+	})
+
+	if queue.retryRaw != "unmapped-job" || queue.ackRaw != "" {
+		t.Fatalf("retry=%q ack=%q", queue.retryRaw, queue.ackRaw)
+	}
+	if store.markedRecord != 0 {
+		t.Fatalf("auto tag record marked applied before mapping: %d", store.markedRecord)
+	}
+}
+
+func TestMarkTagsWorkerRetriesRemoteFailureBeforeMarkingAutoRecordApplied(t *testing.T) {
+	store := &fakeMarkTagsWorkerStore{
+		credential: MarkTagsWorkerCredentialFixture(),
+		result: MarkTagsApplyResult{
+			WXUserID: "go-employee", WXExternalUserID: "external-user", AddedWXTagIDs: []string{"wx-tag-2"},
+		},
+	}
+	worker := NewMarkTagsWorker(nil, store, &fakeMarkTagsWorkerClient{err: fmt.Errorf("wecom unavailable")}, log.New(io.Discard, "", 0))
+
+	err := worker.Process(context.Background(), MarkTagsEvent{
+		CorpID: 7, ContactID: 101, EmployeeID: 3, TagIDs: []int{2}, AutoTagRecordID: 91,
+	})
+	if err == nil {
+		t.Fatal("remote failure was reported as success")
+	}
+	if store.markedRecord != 0 {
+		t.Fatalf("auto tag record marked applied before remote success: %d", store.markedRecord)
+	}
+}
+
 func MarkTagsWorkerCredentialFixture() RoomWelcomeCorpCredential {
 	return RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"}
 }

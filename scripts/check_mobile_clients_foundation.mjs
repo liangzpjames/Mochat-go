@@ -398,7 +398,7 @@ function validateSidebarNavigationCases(sidebarCasesBody, errors) {
       }
       continue;
     }
-    const expected = path === '/' ? '我的' : path === '/contactSop' ? '会话' : '客户';
+    const expected = ['/contactSop', '/roomSop'].includes(path) ? '会话' : '客户';
     if (
       !/needsSession\s*:\s*true/.test(source)
       || !new RegExp(`activeNavigation\\s*:\\s*['"]${expected}['"]`).test(source)
@@ -608,9 +608,11 @@ function validateViewportRouteLoops(source, operationCasesBody, errors) {
   }
   if (
     !/navigation\.locator\(\s*['"]a['"]\s*\)[\s\S]{0,220}?\/sidebar-app/.test(sidebarBody)
-    || !/\.click\(\)[\s\S]{0,220}?\/sidebar-app\/contactSop/.test(sidebarBody)
+    || !/navigation\.getByRole\(\s*['"]link['"]\s*,\s*\{\s*name\s*:\s*['"]客户['"]\s*,\s*exact\s*:\s*true\s*\}\s*\)[\s\S]{0,80}?toBeVisible/.test(sidebarBody)
+    || !/navigation\.getByRole\(\s*['"]link['"]\s*,\s*\{\s*name\s*:\s*['"]会话['"]\s*,\s*exact\s*:\s*true\s*\}\s*\)[\s\S]{0,80}?toBeVisible/.test(sidebarBody)
+    || !/navigation\.getByRole\(\s*['"]link['"]\s*,\s*\{\s*name\s*:\s*['"]我的['"]\s*,\s*exact\s*:\s*true\s*\}\s*\)[\s\S]{0,80}?toBeVisible/.test(sidebarBody)
   ) {
-    errors.push('Sidebar viewport loop must click a basename-scoped navigation link');
+    errors.push('Sidebar viewport loop must verify scoped links and all three employee navigation tabs');
   }
   if (
     !/employeeNavigationLabel[\s\S]{0,240}?toHaveCount\(\s*0\s*\)/.test(operationBody)

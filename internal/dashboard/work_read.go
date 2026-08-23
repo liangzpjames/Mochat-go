@@ -439,9 +439,11 @@ type WorkReadStore interface {
 	MoveWorkContactTags(ctx context.Context, corpID int, tagIDs []int, groupID int) (bool, error)
 	SyncWorkContactTags(ctx context.Context, corpID int, groups []WorkContactTagSyncGroup) (WorkContactTagSyncResult, error)
 	WorkContactByExternalUserID(ctx context.Context, externalUserID string) (WorkContactDetail, bool, error)
+	SidebarWorkContactByExternalUserID(ctx context.Context, externalUserID string, corpID int, employeeID int) (WorkContactDetail, bool, error)
+	ContactAccessibleToEmployee(ctx context.Context, contactID int, employeeID int, corpID int) (bool, error)
 	WorkContactIndexPage(ctx context.Context, filter WorkContactIndexFilter) (WorkContactIndexPage, error)
 	WorkContactLossPage(ctx context.Context, filter WorkContactLossFilter) (WorkContactLossPage, error)
-	WorkContactShowByID(ctx context.Context, contactID int, employeeID int) (WorkContactShow, bool, error)
+	WorkContactShowByID(ctx context.Context, contactID int, employeeID int, corpID int) (WorkContactShow, bool, error)
 	WorkContactRoomIndex(ctx context.Context, filter WorkContactRoomFilter) (WorkContactRoomPage, bool, error)
 	WorkRoomOptions(ctx context.Context, filter WorkRoomOptionFilter) (WorkRoomOptionPage, error)
 	WorkRoomIndexPage(ctx context.Context, filter WorkRoomIndexFilter) (WorkRoomIndexPage, error)
@@ -451,12 +453,13 @@ type WorkReadStore interface {
 	UpdateWorkRoomsGroup(ctx context.Context, values WorkRoomBatchUpdateValues) (int, error)
 	SyncWorkRooms(ctx context.Context, corpID int, rooms []WorkRoomSyncRoom) (WorkRoomSyncResult, error)
 	ContactEmployeeTracksByContactID(ctx context.Context, contactID int) ([]ContactEmployeeTrack, error)
+	SidebarContactEmployeeTracksByContactID(ctx context.Context, contactID int, employeeID int, corpID int) ([]ContactEmployeeTrack, error)
 	ContactProcessesByCorpID(ctx context.Context, corpID int) ([]ContactProcessStatus, error)
 	CreateDefaultContactProcesses(ctx context.Context, corpID int) error
 	ContactProcessByID(ctx context.Context, statusID int) (ContactProcessStatus, bool, error)
 	UpdateContactProcessStatus(ctx context.Context, update ContactProcessStatusUpdate) error
 	UpdateWorkContactProfile(ctx context.Context, values WorkContactUpdateValues) (WorkContactUpdateResult, bool, error)
-	BatchLabelWorkContacts(ctx context.Context, contactIDs []int, tagIDs []int, employeeID int) (int, error)
+	BatchLabelWorkContacts(ctx context.Context, contactIDs []int, tagIDs []int, employeeID int, corpID int) (int, error)
 	RoomWelcomeCorpCredentialByID(ctx context.Context, corpID int) (RoomWelcomeCorpCredential, bool, error)
 }
 
@@ -1128,7 +1131,8 @@ func (h *WorkReadHandler) SidebarWorkContactDetail(w http.ResponseWriter, r *htt
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	if _, ok := h.resolveSidebarAccess(w, r); !ok {
+	employee, ok := h.resolveSidebarAccess(w, r)
+	if !ok {
 		return
 	}
 
@@ -1137,7 +1141,7 @@ func (h *WorkReadHandler) SidebarWorkContactDetail(w http.ResponseWriter, r *htt
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "微信userId必须", nil)
 		return
 	}
-	contact, found, err := h.store.WorkContactByExternalUserID(r.Context(), externalUserID)
+	contact, found, err := h.store.SidebarWorkContactByExternalUserID(r.Context(), externalUserID, employee.CorpID, employee.ID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -1146,7 +1150,6 @@ func (h *WorkReadHandler) SidebarWorkContactDetail(w http.ResponseWriter, r *htt
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户不存在", nil)
 		return
 	}
-
 	writeEnvelope(w, http.StatusOK, 200, "success", map[string]any{
 		"id":     contact.ID,
 		"name":   contact.Name,
@@ -1169,8 +1172,17 @@ func (h *WorkReadHandler) SidebarWorkContactShow(w http.ResponseWriter, r *http.
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
 		return
 	}
+	allowed, err := h.store.ContactAccessibleToEmployee(r.Context(), contactID, employee.ID, employee.CorpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !allowed {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权访问该客户", nil)
+		return
+	}
 
-	h.writeWorkContactShow(w, r, contactID, employee.ID)
+	h.writeWorkContactShow(w, r, contactID, employee.ID, employee.CorpID)
 }
 
 func (h *WorkReadHandler) WorkContactShow(w http.ResponseWriter, r *http.Request) {
@@ -1210,7 +1222,7 @@ func (h *WorkReadHandler) WorkContactShow(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	h.writeWorkContactShow(w, r, contactID, employeeID)
+	h.writeWorkContactShow(w, r, contactID, employeeID, principalScope.Principal.CorpID)
 }
 
 func (h *WorkReadHandler) WorkContactIndex(w http.ResponseWriter, r *http.Request) {
@@ -1600,15 +1612,15 @@ func (h *WorkReadHandler) WorkRoomIndex(w http.ResponseWriter, r *http.Request) 
 			activeTotal++
 		}
 		list = append(list, map[string]any{
-			"workRoomId": item.WorkRoomID,
-			"memberNum":  item.MemberNum,
+			"workRoomId":  item.WorkRoomID,
+			"memberNum":   item.MemberNum,
 			"memberCount": item.MemberNum,
-			"roomName":   item.RoomName,
-			"ownerId":    item.OwnerID,
-			"ownerName":  item.OwnerName,
-			"roomGroup":  item.RoomGroup,
-			"status":     item.Status,
-			"statusText": workRoomStatusText(item.Status),
+			"roomName":    item.RoomName,
+			"ownerId":     item.OwnerID,
+			"ownerName":   item.OwnerName,
+			"roomGroup":   item.RoomGroup,
+			"status":      item.Status,
+			"statusText":  workRoomStatusText(item.Status),
 			"activeStatus": func() string {
 				if item.Status == 1 {
 					return "active"
@@ -1739,8 +1751,8 @@ func (h *WorkReadHandler) WorkRoomStatisticsIndex(w http.ResponseWriter, r *http
 	})
 }
 
-func (h *WorkReadHandler) writeWorkContactShow(w http.ResponseWriter, r *http.Request, contactID int, employeeID int) {
-	info, _, err := h.store.WorkContactShowByID(r.Context(), contactID, employeeID)
+func (h *WorkReadHandler) writeWorkContactShow(w http.ResponseWriter, r *http.Request, contactID int, employeeID int, corpID int) {
+	info, _, err := h.store.WorkContactShowByID(r.Context(), contactID, employeeID, corpID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
@@ -1772,11 +1784,24 @@ func (h *WorkReadHandler) SidebarWorkContactTrack(w http.ResponseWriter, r *http
 		writeEnvelope(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed", nil)
 		return
 	}
-	if _, ok := h.resolveSidebarAccess(w, r); !ok {
+	employee, ok := h.resolveSidebarAccess(w, r)
+	if !ok {
 		return
 	}
-
-	h.writeContactEmployeeTrack(w, r)
+	contactID, ok := contactEmployeeTrackID(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.store.ContactAccessibleToEmployee(r.Context(), contactID, employee.ID, employee.CorpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	if !allowed {
+		writeEnvelope(w, http.StatusForbidden, http.StatusForbidden, "无权访问该客户", nil)
+		return
+	}
+	h.writeSidebarContactEmployeeTrackByID(w, r, contactID, employee)
 }
 
 func (h *WorkReadHandler) WorkContactTrack(w http.ResponseWriter, r *http.Request) {
@@ -1853,21 +1878,46 @@ func (h *WorkReadHandler) SidebarContactProcessStatusIndex(w http.ResponseWriter
 }
 
 func (h *WorkReadHandler) writeContactEmployeeTrack(w http.ResponseWriter, r *http.Request) {
+	contactID, ok := contactEmployeeTrackID(w, r)
+	if !ok {
+		return
+	}
+	h.writeContactEmployeeTrackByID(w, r, contactID)
+}
+
+func contactEmployeeTrackID(w http.ResponseWriter, r *http.Request) (int, bool) {
 	rawContactID := strings.TrimSpace(r.URL.Query().Get("contactId"))
 	if rawContactID == "" {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户id必传", nil)
-		return
+		return 0, false
 	}
 	contactID, err := strconv.Atoi(rawContactID)
 	if err != nil || contactID < 1 {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "客户ID 不可小于1", nil)
-		return
+		return 0, false
 	}
+	return contactID, true
+}
+
+func (h *WorkReadHandler) writeContactEmployeeTrackByID(w http.ResponseWriter, r *http.Request, contactID int) {
 	tracks, err := h.store.ContactEmployeeTracksByContactID(r.Context(), contactID)
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
+	h.writeContactEmployeeTrackPayload(w, tracks)
+}
+
+func (h *WorkReadHandler) writeSidebarContactEmployeeTrackByID(w http.ResponseWriter, r *http.Request, contactID int, employee SidebarEmployee) {
+	tracks, err := h.store.SidebarContactEmployeeTracksByContactID(r.Context(), contactID, employee.ID, employee.CorpID)
+	if err != nil {
+		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
+		return
+	}
+	h.writeContactEmployeeTrackPayload(w, tracks)
+}
+
+func (h *WorkReadHandler) writeContactEmployeeTrackPayload(w http.ResponseWriter, tracks []ContactEmployeeTrack) {
 	list := make([]map[string]any, 0, len(tracks))
 	for _, track := range tracks {
 		list = append(list, map[string]any{

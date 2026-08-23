@@ -162,6 +162,20 @@ func TestFromEnvDefaults(t *testing.T) {
 	}
 }
 
+func TestFromEnvEnablesSidebarWorkbenchMigration(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_MIGRATE_SIDEBAR_WORKBENCH", "1")
+	t.Setenv("MOCHAT_GO_DEV_AUTH_HEADER", "1")
+	t.Setenv("MOCHAT_MYSQL_DSN", "mochat:secret@tcp(127.0.0.1:3306)/mochat")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.MigrateSidebarWorkbench {
+		t.Fatal("MigrateSidebarWorkbench = false")
+	}
+}
+
 func TestFromEnvRejectsInvalidTimezone(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_TIMEZONE", "Mars/Olympus")
@@ -3611,6 +3625,7 @@ func clearEnv(t *testing.T) {
 		"MOCHAT_GO_MIGRATE_SIDEBAR_MEDIUM_MEDIA_ID_UPDATE",
 		"MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_FIELD_PIVOT_INDEX",
 		"MOCHAT_GO_MIGRATE_SIDEBAR_CONTACT_FIELD_PIVOT_UPDATE",
+		"MOCHAT_GO_MIGRATE_SIDEBAR_WORKBENCH",
 		"MOCHAT_GO_MIGRATE_CHANNEL_CODE_INDEX",
 		"MOCHAT_GO_MIGRATE_CHANNEL_CODE_SHOW",
 		"MOCHAT_GO_MIGRATE_CHANNEL_CODE_CONTACT",

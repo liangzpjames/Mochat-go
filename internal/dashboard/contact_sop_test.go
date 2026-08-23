@@ -94,8 +94,8 @@ func TestContactSOPInfoReturnsSingleReminder(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	if store.infoEmployeeID != 7 || store.infoID != 55 {
-		t.Fatalf("store args employee=%d id=%d", store.infoEmployeeID, store.infoID)
+	if store.infoEmployeeID != 7 || store.infoCorpID != 9 || store.infoID != 55 {
+		t.Fatalf("store args employee=%d corp=%d id=%d", store.infoEmployeeID, store.infoCorpID, store.infoID)
 	}
 }
 
@@ -108,6 +108,7 @@ type fakeContactSOPStore struct {
 	tipEmployeeID  int
 	tipContactID   int
 	infoEmployeeID int
+	infoCorpID     int
 	infoID         int
 }
 
@@ -124,8 +125,9 @@ func (s *fakeContactSOPStore) ContactSOPTips(_ context.Context, employeeID int, 
 	return s.tips, nil
 }
 
-func (s *fakeContactSOPStore) ContactSOPInfo(_ context.Context, employeeID int, id int) (ContactSOPItem, bool, error) {
+func (s *fakeContactSOPStore) ContactSOPInfo(_ context.Context, employeeID int, corpID int, id int) (ContactSOPItem, bool, error) {
 	s.infoEmployeeID = employeeID
+	s.infoCorpID = corpID
 	s.infoID = id
 	return s.info, s.infoFound, nil
 }

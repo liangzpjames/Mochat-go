@@ -12,11 +12,31 @@ import {
   type SidebarSessionAdapter,
 } from '../auth/sidebar-session';
 import { sidebarRouteRegistry } from '../routes/registry';
-import { createSidebarRouter } from './sidebar-router';
+import type { WeComBridge } from '../wecom/wecom-bridge';
+import { createSidebarRouter, type SidebarRequest } from './sidebar-router';
 
 const emptyCookies: CookieAdapter = {
   get: vi.fn(() => null),
   set: vi.fn(),
+};
+
+const bridge: WeComBridge = {
+  available: () => false,
+  sendChatMessage: vi.fn(),
+  navigateToAddCustomer: vi.fn(),
+};
+
+const businessRequest: SidebarRequest = <T,>(path: string): Promise<T> => {
+  if (path === '/workbench/summary') return Promise.resolve({
+    employee: { id: 7, name: '测试员工', avatar: null, departmentNames: ['客户成功部'], corpName: '测试企业' },
+    customers: { total: 12, addedToday: 2, taggedTotal: 8, ownedRoomTotal: 3 },
+    tasks: { contactSopRecords: 4, roomSopPending: 5, batchAddPending: 6 },
+  } as T);
+  if (path === '/mediumGroup/index') return Promise.resolve([] as T);
+  if (path.startsWith('/medium/index?')) {
+    return Promise.resolve({ page: { perPage: 20, total: 0, totalPage: 0 }, list: [] } as T);
+  }
+  return Promise.reject(new Error(`Unexpected request: ${path}`));
 };
 
 function successfulAuthPath(target = '/login?agentId=7'): string {
@@ -50,7 +70,8 @@ function authRuntime(session: SidebarSessionAdapter) {
     basename: '/',
     session,
     origin: window.location.origin,
-    request: vi.fn(),
+    request: businessRequest,
+    bridge,
   };
 }
 
@@ -68,7 +89,8 @@ function renderPath(path: string) {
       basename: '/',
       session: createCookieSidebarSessionAdapter(emptyCookies, false),
     origin: window.location.origin,
-    request: vi.fn(),
+    request: businessRequest,
+    bridge,
   });
   render(<RouterProvider router={router} />);
   return router;
@@ -101,7 +123,7 @@ describe('Sidebar route registry', () => {
   it.each([
     ['/login?agentId=7', '侧边栏登录'],
     ['/auth', '登录失败'],
-    ['/codeAuth', '企业微信扫码授权模块待迁移'],
+    ['/codeAuth', '兼容授权参数无效'],
     ['/not-a-sidebar-page', '页面不存在'],
   ])('does not render employee navigation on %s', (path, expectedText) => {
     const router = renderPath(path);
@@ -110,43 +132,72 @@ describe('Sidebar route registry', () => {
     router.dispose();
   });
 
-  it('renders the workbench with only registered authenticated business links', () => {
+  it('renders the real employee workspace and honestly disables only context-bound details', async () => {
     window.history.replaceState(null, '', '/');
     const router = createSidebarRouter(authenticatedRuntime());
     render(<RouterProvider router={router} />);
 
-    const links = screen.getAllByRole('link').filter((link) => link.classList.contains('mobile-icon-tile'));
-    const authenticatedPaths = sidebarRouteRegistry
-      .filter((route) => route.auth && route.path !== '/')
-      .map((route) => route.path)
-      .sort();
-
-    expect(links.map((link) => link.getAttribute('href')).sort()).toEqual(authenticatedPaths);
-    expect(screen.queryByText(/成功|客户总数|今日/)).toBeNull();
+    expect(await screen.findByText('客户总数')).not.toBeNull();
+    expect(screen.getByText('12')).not.toBeNull();
+    expect(screen.getByText('当前客户').closest('[aria-disabled="true"]')).not.toBeNull();
+    expect(screen.queryByRole('link', { name: /当前客户/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /通讯录/ }).getAttribute('href')).toContain('view=contacts');
+    expect(screen.getAllByRole('link', { name: /客户|会话|我的/ }).length).toBeGreaterThanOrEqual(3);
     router.dispose();
   });
 
-  it('keeps the active customer context on workbench business links', () => {
+  it('keeps the active customer context on workbench business links', async () => {
     window.history.replaceState(null, '', '/?wxExternalUserid=external-1&state=callback-state#profile');
     const router = createSidebarRouter(authenticatedRuntime());
     render(<RouterProvider router={router} />);
 
-    expect(screen.getByRole('link', { name: /^客户资料/ }).getAttribute('href')).toBe(
-      '/contact?wxExternalUserid=external-1#profile',
+    expect((await screen.findByRole('link', { name: /^当前客户/ })).getAttribute('href')).toBe(
+      '/contact?wxExternalUserid=external-1',
     );
     router.dispose();
   });
 
-  it('keeps workbench module links inside the prefixed Sidebar mount', () => {
-    window.history.replaceState(null, '', '/sidebar-app/');
+  it('builds real task-list links from a restored profile context', async () => {
+    window.history.replaceState(null, '', '/?agentId=7&wxExternalUserid=external-1&contactId=23&contactSopId=4&roomSopId=5&batchId=9');
+    const router = createSidebarRouter(authenticatedRuntime());
+    render(<RouterProvider router={router} />);
+
+    expect((await screen.findByRole('link', { name: /^当前客户/ })).getAttribute('href')).toContain('wxExternalUserid=external-1');
+    expect(screen.getByRole('link', { name: /^个人客户 SOP/ }).getAttribute('href')).toContain('view=contactSop');
+    expect(screen.getByRole('link', { name: /^客户群 SOP/ }).getAttribute('href')).toContain('view=roomSop');
+    expect(screen.getAllByRole('link', { name: /^批量加好友/ })[0]?.getAttribute('href')).toContain('view=batchAdd');
+    router.dispose();
+  });
+
+  it.each([
+    ['/', '客户'],
+    ['/contact', '客户资料'],
+    ['/contact/editDetail', '编辑客户资料'],
+    ['/contact/remark', '客户备注'],
+    ['/contact/settingTag', '设置客户标签'],
+    ['/contactBatchAdd', '批量加好友'],
+    ['/contactSop', '个人客户 SOP'],
+    ['/medium', '素材库'],
+    ['/roomSop', '客户群 SOP'],
+  ])('renders the real protected route shell for %s', (path, title) => {
+    window.history.replaceState(null, '', path);
+    const router = createSidebarRouter(authenticatedRuntime());
+    render(<RouterProvider router={router} />);
+    expect(screen.getByRole('heading', { level: 1, name: title })).not.toBeNull();
+    expect(screen.queryByText(/模块待迁移/)).toBeNull();
+    router.dispose();
+  });
+
+  it('keeps workbench module links inside the prefixed Sidebar mount', async () => {
+    window.history.replaceState(null, '', '/sidebar-app/?wxExternalUserid=external-1');
     const router = createSidebarRouter({
       ...authenticatedRuntime(),
       basename: '/sidebar-app',
     });
     render(<RouterProvider router={router} />);
 
-    expect(screen.getByRole('link', { name: /^客户资料/ }).getAttribute('href')).toBe(
-      '/sidebar-app/contact',
+    expect((await screen.findByRole('link', { name: /^当前客户/ })).getAttribute('href')).toBe(
+      '/sidebar-app/contact?wxExternalUserid=external-1',
     );
     router.dispose();
   });
@@ -155,7 +206,7 @@ describe('Sidebar route registry', () => {
     const router = renderPath('/medium?agentId=7');
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
-    expect(screen.queryByText('素材库模块待迁移')).toBeNull();
+    expect(screen.queryByText('素材库')).toBeNull();
     expect(screen.getByRole('link', { name: '继续授权' }).getAttribute('href')).toContain(
       '/sidebar/agent/auth?agentId=7&target=',
     );
@@ -208,7 +259,7 @@ describe('Sidebar route registry', () => {
     render(<RouterProvider router={router} />);
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/sidebar-app/medium'));
-    expect(screen.getByText('素材库模块待迁移')).not.toBeNull();
+    expect(await screen.findByText('暂无可用素材')).not.toBeNull();
     expect(writes).toHaveBeenCalledTimes(2);
     expect(writes.mock.calls.every(([value]) => value.includes('Path=/sidebar-app'))).toBe(true);
     router.dispose();
@@ -222,7 +273,7 @@ describe('Sidebar route registry', () => {
     render(<RouterProvider router={router} />);
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/medium'));
-    expect(screen.getByText('素材库模块待迁移')).not.toBeNull();
+    expect(await screen.findByText('暂无可用素材')).not.toBeNull();
     router.dispose();
   });
 });
