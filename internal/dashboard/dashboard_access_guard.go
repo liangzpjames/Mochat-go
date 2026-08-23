@@ -299,7 +299,7 @@ func dashboardPathPatternMatches(pattern, path string) bool {
 	}
 	for index := range patternSegments {
 		segment := patternSegments[index]
-		if segment == "{id}" {
+		if len(segment) > 2 && strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
 			if pathSegments[index] == "" {
 				return false
 			}

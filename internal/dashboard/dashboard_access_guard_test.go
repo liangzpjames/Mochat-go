@@ -765,18 +765,19 @@ func TestDashboardPageCatalogConversationExportResources(t *testing.T) {
 	}
 }
 
-func TestDashboardResourceMatcherOnlySupportsIDSegmentsAndPrefersStatic(t *testing.T) {
+func TestDashboardResourceMatcherSupportsNamedSegmentsAndPrefersStatic(t *testing.T) {
 	resources := []DashboardPermissionResource{
 		{PermissionCode: "dynamic", Method: http.MethodGet, PathPattern: "/dashboard/reports/{id}"},
 		{PermissionCode: "static", Method: http.MethodGet, PathPattern: "/dashboard/reports/overview"},
-		{PermissionCode: "unsupported", Method: http.MethodGet, PathPattern: "/dashboard/reports/{kind}"},
+		{PermissionCode: "document", Method: http.MethodDelete, PathPattern: "/dashboard/knowledge-bases/{id}/documents/{documentId}"},
 	}
 	matches := matchingDashboardResources(resources, http.MethodGet, "/dashboard/reports/overview")
 	if len(matches) != 1 || matches[0].PermissionCode != "static" {
 		t.Fatalf("matches=%+v", matches)
 	}
-	if dashboardPathPatternMatches("/dashboard/reports/{kind}", "/dashboard/reports/customer") {
-		t.Fatal("unsupported {kind} pattern matched")
+	documentMatches := matchingDashboardResources(resources, http.MethodDelete, "/dashboard/knowledge-bases/kb-1/documents/doc-1")
+	if len(documentMatches) != 1 || documentMatches[0].PermissionCode != "document" {
+		t.Fatalf("named segment matches=%+v", documentMatches)
 	}
 	if dashboardPathPatternMatches("/dashboard/reports/{id}/", "/dashboard/reports/12") {
 		t.Fatal("trailing slash mismatch expanded the route")
