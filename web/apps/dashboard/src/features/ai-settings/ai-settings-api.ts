@@ -28,10 +28,10 @@ export function createAISettingsApi(client: Client) {
       return client.request(knowledgeBasePath(corpId)) as Promise<KnowledgeBaseItem[]>;
     },
     createKnowledgeBase(corpId: number, input: KnowledgeBaseInput): Promise<KnowledgeBaseItem> {
-      return client.request(knowledgeBasePath(corpId), jsonRequest('POST', { ...input, corpId })) as Promise<KnowledgeBaseItem>;
+      return client.request(knowledgeBasePath(corpId), jsonRequest('POST', input)) as Promise<KnowledgeBaseItem>;
     },
     updateKnowledgeBase(corpId: number, id: string, input: KnowledgeBaseInput): Promise<KnowledgeBaseItem> {
-      return client.request(knowledgeBasePath(corpId, id), jsonRequest('PUT', { ...input, corpId })) as Promise<KnowledgeBaseItem>;
+      return client.request(knowledgeBasePath(corpId, id), jsonRequest('PUT', input)) as Promise<KnowledgeBaseItem>;
     },
     deleteKnowledgeBase(corpId: number, id: string): Promise<unknown> {
       return client.request(knowledgeBasePath(corpId, id), { method: 'DELETE' });
@@ -40,10 +40,10 @@ export function createAISettingsApi(client: Client) {
       return client.request(agentPath(corpId)) as Promise<AgentItem[]>;
     },
     createAgent(corpId: number, input: AgentInput): Promise<AgentItem> {
-      return client.request(agentPath(corpId), jsonRequest('POST', { ...input, corpId })) as Promise<AgentItem>;
+      return client.request(agentPath(corpId), jsonRequest('POST', input)) as Promise<AgentItem>;
     },
     updateAgent(corpId: number, id: string, input: AgentInput): Promise<AgentItem> {
-      return client.request(agentPath(corpId, id), jsonRequest('PUT', { ...input, corpId })) as Promise<AgentItem>;
+      return client.request(agentPath(corpId, id), jsonRequest('PUT', input)) as Promise<AgentItem>;
     },
     deleteAgent(corpId: number, id: string): Promise<unknown> {
       return client.request(agentPath(corpId, id), { method: 'DELETE' });

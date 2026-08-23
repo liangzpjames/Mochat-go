@@ -11,17 +11,21 @@ describe('AI 设置 API', () => {
   it('uses the knowledge-base create contract', async () => {
     const request = vi.fn().mockResolvedValue({});
     await createAISettingsApi({ request }).createKnowledgeBase(9, { name: '售后话术库', description: '服务团队', documentCount: 3, status: 1 });
-    expect(request).toHaveBeenCalledWith('/ai-settings/knowledge-bases?corpId=9', expect.objectContaining({
-      method: 'POST', body: JSON.stringify({ name: '售后话术库', description: '服务团队', documentCount: 3, status: 1, corpId: 9 }),
-    }));
+    expect(request).toHaveBeenCalledWith('/ai-settings/knowledge-bases?corpId=9', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '售后话术库', description: '服务团队', documentCount: 3, status: 1 }),
+    });
   });
 
   it('uses the knowledge-base update contract', async () => {
     const request = vi.fn().mockResolvedValue({});
     await createAISettingsApi({ request }).updateKnowledgeBase(9, 'kb-1', { name: '售后话术库', description: '', documentCount: 0, status: 0 });
-    expect(request).toHaveBeenCalledWith('/ai-settings/knowledge-bases/kb-1?corpId=9', expect.objectContaining({
-      method: 'PUT', body: JSON.stringify({ name: '售后话术库', description: '', documentCount: 0, status: 0, corpId: 9 }),
-    }));
+    expect(request).toHaveBeenCalledWith('/ai-settings/knowledge-bases/kb-1?corpId=9', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '售后话术库', description: '', documentCount: 0, status: 0 }),
+    });
   });
 
   it('uses the knowledge-base delete contract', async () => {
@@ -39,9 +43,11 @@ describe('AI 设置 API', () => {
   it('uses the agent create contract', async () => {
     const request = vi.fn().mockResolvedValue({});
     await createAISettingsApi({ request }).createAgent(9, { name: '客服助手', description: '处理售后问题', knowledgeBaseIds: ['kb-1'], status: 1 });
-    expect(request).toHaveBeenCalledWith('/ai-settings/agents?corpId=9', expect.objectContaining({
-      method: 'POST', body: JSON.stringify({ name: '客服助手', description: '处理售后问题', knowledgeBaseIds: ['kb-1'], status: 1, corpId: 9 }),
-    }));
+    expect(request).toHaveBeenCalledWith('/ai-settings/agents?corpId=9', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '客服助手', description: '处理售后问题', knowledgeBaseIds: ['kb-1'], status: 1 }),
+    });
   });
 
   it('persists an explicit disabled agent status', async () => {
@@ -50,7 +56,7 @@ describe('AI 设置 API', () => {
     expect(request).toHaveBeenCalledWith('/ai-settings/agents/agent-1?corpId=9', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: '客服助手', description: '', knowledgeBaseIds: [], status: 0, corpId: 9 }),
+      body: JSON.stringify({ name: '客服助手', description: '', knowledgeBaseIds: [], status: 0 }),
     });
   });
 

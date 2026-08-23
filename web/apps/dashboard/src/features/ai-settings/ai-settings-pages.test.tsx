@@ -237,6 +237,26 @@ describe('AI 设置页面', () => {
     expect(screen.queryByText('raw sql error')).toBeNull();
   });
 
+  it('知识库：请求 JSON 合同失败显示明确中文反馈', async () => {
+    const createKnowledgeBase = vi.fn().mockRejectedValue(new ApiError('validation', 'invalid json', { status: 400, machineCode: 'AI_SETTINGS_INVALID_JSON' }));
+    renderPage(createApi({ createKnowledgeBase }), 'kb');
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '请求知识库' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('请求格式无效，请刷新后重试。');
+    expect(screen.queryByText('操作失败，请稍后重试。')).toBeNull();
+  });
+
+  it('智能体：请求 JSON 合同失败显示明确中文反馈', async () => {
+    const createAgent = vi.fn().mockRejectedValue(new ApiError('validation', 'invalid json', { status: 400, machineCode: 'AI_SETTINGS_INVALID_JSON' }));
+    renderPage(createApi({ createAgent }), 'agent');
+    fireEvent.click(await screen.findByRole('button', { name: '新建智能体' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '请求智能体' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('请求格式无效，请刷新后重试。');
+    expect(screen.queryByText('操作失败，请稍后重试。')).toBeNull();
+  });
+
   it('智能体：编辑时允许保留既有关联的停用知识库，但禁止新关联其他停用知识库', async () => {
     const api = createApi({
       listKnowledgeBases: vi.fn().mockResolvedValue([

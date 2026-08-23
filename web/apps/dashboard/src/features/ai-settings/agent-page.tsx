@@ -23,6 +23,7 @@ function operationError(error: unknown): string {
       AI_SETTINGS_NAME_REQUIRED: '请输入名称。',
       AI_SETTINGS_NAME_INVALID: '名称需为 2–128 个字符。',
       AI_SETTINGS_DESCRIPTION_INVALID: '说明内容过长，请精简后重试。',
+      AI_SETTINGS_INVALID_JSON: '请求格式无效，请刷新后重试。',
       AI_SETTINGS_STORAGE_FAILURE: '服务暂时不可用，请稍后重试。',
     };
     return messages[error.machineCode ?? ''] ?? '操作失败，请稍后重试。';
