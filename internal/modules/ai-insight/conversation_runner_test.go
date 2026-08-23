@@ -2,6 +2,7 @@ package aiinsight
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ type runnerRepoStub struct {
 	previous string
 	saved    []ConversationInsight
 	runs     []InsightRun
+	finished []InsightRunResult
 	rules    []AnalysisRuleVersion
 }
 
@@ -44,7 +46,10 @@ func (r *runnerRepoStub) CreateRun(_ context.Context, run InsightRun) (int64, er
 	r.runs = append(r.runs, run)
 	return int64(len(r.runs)), nil
 }
-func (r *runnerRepoStub) FinishRun(context.Context, int64, InsightRunResult) error { return nil }
+func (r *runnerRepoStub) FinishRun(_ context.Context, _ int64, result InsightRunResult) error {
+	r.finished = append(r.finished, result)
+	return nil
+}
 func (r *runnerRepoStub) EnabledRuleVersions(context.Context, int64, int64) ([]AnalysisRuleVersion, error) {
 	return r.rules, nil
 }
@@ -64,6 +69,16 @@ type capturingAIProvider struct {
 	request  providers.ChatRequest
 	requests []providers.ChatRequest
 	calls    int
+}
+
+type unavailableAIProvider struct{}
+
+func (unavailableAIProvider) Chat(context.Context, providers.ChatRequest) (string, error) {
+	return "", errors.New("provider unavailable")
+}
+
+func (unavailableAIProvider) Status() providers.Status {
+	return providers.Status{State: providers.StateUnavailable, Reason: "未配置模型凭证"}
 }
 
 func (p *capturingAIProvider) Chat(_ context.Context, request providers.ChatRequest) (string, error) {
@@ -134,6 +149,29 @@ func TestConversationRunnerDoesNotCallProviderWhenSessionAssistantDisabled(t *te
 	}
 	if provider.calls != 0 || len(repo.runs) != 2 || repo.runs[0].AnalysisType != AnalysisTypeSession || repo.runs[1].AnalysisType != AnalysisTypeSmart {
 		t.Fatalf("calls=%d runs=%#v", provider.calls, repo.runs)
+	}
+}
+
+func TestConversationRunnerRecordsSessionAndDefaultSmartFailuresWhenProviderUnavailable(t *testing.T) {
+	repo := &runnerRepoStub{rules: []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1}}}
+	runner := NewConversationAnalysisRunner(repo, unavailableAIProvider{}, RunnerConfig{}, nil)
+
+	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.runs) != 2 {
+		t.Fatalf("runs = %#v, want session and default smart failures", repo.runs)
+	}
+	if repo.runs[0].AnalysisType != AnalysisTypeSession || repo.runs[1].AnalysisType != AnalysisTypeSmart || repo.runs[1].RuleVersionID != 22 {
+		t.Fatalf("runs = %#v", repo.runs)
+	}
+	if len(repo.finished) != 2 {
+		t.Fatalf("finished = %#v, want two failed results", repo.finished)
+	}
+	for _, result := range repo.finished {
+		if result.Status != AnalysisStatusFailed || !strings.Contains(result.ErrorSummary, "未配置模型凭证") {
+			t.Fatalf("finished = %#v", repo.finished)
+		}
 	}
 }
 

@@ -73,8 +73,28 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 	if r == nil || r.repo == nil {
 		return errors.New("AI insight conversation repository is unavailable")
 	}
-	if r.ai == nil || r.ai.Status().State != providers.StateReady {
-		return r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, "AI provider is not ready")
+	providerStatus := providers.Status{}
+	if r.ai != nil {
+		providerStatus = r.ai.Status()
+	}
+	if r.ai == nil || providerStatus.State != providers.StateReady {
+		message := "AI provider is not ready"
+		if strings.TrimSpace(providerStatus.Reason) != "" {
+			message += ": " + strings.TrimSpace(providerStatus.Reason)
+		}
+		if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, message); err != nil {
+			return err
+		}
+		rules, err := r.repo.EnabledRuleVersions(ctx, tenantID, corpID)
+		if err != nil {
+			return err
+		}
+		for _, rule := range rules {
+			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, message); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	now := r.now()
 	start := now.AddDate(0, 0, -r.config.SessionDays)

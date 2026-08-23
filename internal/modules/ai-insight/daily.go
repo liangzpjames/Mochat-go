@@ -53,9 +53,8 @@ func (r *DailyAnalysisRunner) RunOnce(ctx context.Context) error {
 	if r == nil || r.db == nil {
 		return errors.New("AI insight daily analysis database is unavailable")
 	}
-	if r.ai == nil || r.ai.Status().State != providers.StateReady {
-		return errors.New("AI insight daily analysis skipped: AI provider is not ready")
-	}
+	providerReady := r.ai != nil && r.ai.Status().State == providers.StateReady
+	providerErr := errors.New("AI insight daily analysis skipped: AI provider is not ready")
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT c.tenant_id, c.id
 		FROM mc_corp c
@@ -79,6 +78,9 @@ func (r *DailyAnalysisRunner) RunOnce(ctx context.Context) error {
 	}
 	if len(corps) == 0 {
 		r.logger.Printf("AI insight daily analysis: no active corps, nothing to analyze")
+		if !providerReady {
+			return providerErr
+		}
 		return nil
 	}
 	for _, corp := range corps {
@@ -87,9 +89,15 @@ func (r *DailyAnalysisRunner) RunOnce(ctx context.Context) error {
 				r.logger.Printf("AI insight conversation analysis failed for corp %d: %v", corp.corpID, err)
 			}
 		}
+		if !providerReady {
+			continue
+		}
 		if err := r.runCorp(ctx, corp.corpID); err != nil {
 			r.logger.Printf("AI insight daily analysis failed for corp %d: %v", corp.corpID, err)
 		}
+	}
+	if !providerReady {
+		return providerErr
 	}
 	return nil
 }

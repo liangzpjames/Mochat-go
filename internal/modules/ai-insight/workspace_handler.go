@@ -295,7 +295,7 @@ func workspacePath(path string) (string, string) {
 	return page, parts[3]
 }
 func workspaceInsightJSON(item ConversationInsight) map[string]any {
-	data := map[string]any{"id": item.ID, "conversationKey": item.ConversationKey, "employee": map[string]any{"id": item.EmployeeID, "name": item.EmployeeName, "avatar": item.EmployeeAvatar}, "target": map[string]any{"type": workspaceTypeName(item.TargetType), "id": item.TargetID, "name": item.TargetName, "avatar": item.TargetAvatar}, "sourceWindow": map[string]any{"startedAt": item.SourceStartedAt, "endedAt": item.SourceEndedAt, "messageCount": item.SourceMessageCount, "fingerprint": item.SourceFingerprint}, "status": item.Status, "summary": item.Summary, "analysisAt": workspaceTime(item.GeneratedAt), "provider": item.Provider, "model": item.Model, "promptVersion": item.PromptVersion}
+	data := map[string]any{"id": item.ID, "conversationKey": item.ConversationKey, "employee": map[string]any{"id": item.EmployeeID, "name": item.EmployeeName, "avatar": item.EmployeeAvatar}, "target": map[string]any{"type": workspaceTypeName(item.TargetType), "id": item.TargetID, "name": item.TargetName, "avatar": item.TargetAvatar}, "sourceWindow": map[string]any{"startedAt": item.SourceStartedAt, "endedAt": item.SourceEndedAt, "messageCount": item.SourceMessageCount, "fingerprint": item.SourceFingerprint}, "status": item.Status, "summary": item.Summary, "errorSummary": item.ErrorSummary, "analysisAt": workspaceTime(item.GeneratedAt), "provider": item.Provider, "model": item.Model, "promptVersion": item.PromptVersion}
 	if item.RuleID > 0 {
 		data["rule"] = map[string]any{"id": item.RuleID, "name": item.RuleNameSnapshot, "version": item.RuleVersion}
 	}

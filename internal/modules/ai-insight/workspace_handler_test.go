@@ -82,6 +82,19 @@ func (a workspaceTestAuthorizer) Authorize(context.Context, WorkspacePrincipal, 
 
 type workspaceTestRepo struct{}
 
+type workspaceInsightRepo struct {
+	workspaceTestRepo
+	item ConversationInsight
+}
+
+func (r workspaceInsightRepo) InsightPage(context.Context, InsightFilter) (InsightPage, error) {
+	return InsightPage{Page: 1, PageSize: 20, Total: 1, Items: []ConversationInsight{r.item}}, nil
+}
+
+func (r workspaceInsightRepo) InsightDetail(context.Context, InsightDetailFilter) (ConversationInsight, error) {
+	return r.item, nil
+}
+
 func (workspaceTestRepo) ConversationCandidates(context.Context, CandidateQuery) ([]ConversationCandidate, error) {
 	return nil, nil
 }
@@ -148,5 +161,25 @@ func TestWorkspaceAuthorizationIsCheckedBeforeRead(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status=%d,want 403", rec.Code)
+	}
+}
+
+func TestWorkspaceRecordsAndDetailExposeInsightFailureReason(t *testing.T) {
+	item := ConversationInsight{
+		ID: 9, AnalysisType: AnalysisTypeSession, ConversationKey: "1001:1:2001",
+		EmployeeID: 1001, EmployeeName: "员工甲", TargetType: "1", TargetID: "2001", TargetName: "客户甲",
+		SourceMessageCount: 3, SourceFingerprint: strings.Repeat("a", 64), Status: AnalysisStatusFailed,
+		ErrorSummary: "模型响应超时",
+	}
+	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceInsightRepo{item: item}, nil)
+	for _, path := range []string{
+		"/dashboard/ai-insight/session-analysis/records",
+		"/dashboard/ai-insight/session-analysis/detail?id=9",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"errorSummary":"模型响应超时"`) {
+			t.Fatalf("path=%s status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		}
 	}
 }

@@ -19,4 +19,13 @@ describe('AI 洞察工作台 API', () => {
     const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [valid] }) };
     await expect(createAiInsightWorkspaceApi(client).smartRecords({ page: 1 })).rejects.toThrow('智能分析结果缺少规则快照');
   });
+  it('列表和详情保留失败原因', async () => {
+    const failed = { ...valid, status: 'failed', errorSummary: '模型响应超时' };
+    const client = { request: vi.fn()
+      .mockResolvedValueOnce({ page: 1, total: 1, items: [failed] })
+      .mockResolvedValueOnce({ ...failed, messages: [], conversationUrl: '/chat/v2-customer?conversationId=1' }) };
+    const api = createAiInsightWorkspaceApi(client);
+    expect((await api.sessionRecords({ page: 1 })).items[0]!.errorSummary).toBe('模型响应超时');
+    expect((await api.sessionDetail(1)).errorSummary).toBe('模型响应超时');
+  });
 });
