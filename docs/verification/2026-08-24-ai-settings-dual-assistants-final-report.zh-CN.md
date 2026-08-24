@@ -1,7 +1,7 @@
 # AI 设置双助手与量化洞察最终实施、自测报告
 
-日期：2026-08-24  
-分支：`feat/ai-settings-menu-optimization`  
+日期：2026-08-24
+分支：`feat/ai-settings-menu-optimization`
 隔离工作树：`D:\workspace\mochat-go\mochat-go\.worktrees\ai-settings-menu-optimization`
 
 ## 1. 交付结论

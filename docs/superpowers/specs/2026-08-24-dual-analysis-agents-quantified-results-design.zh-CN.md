@@ -1,6 +1,6 @@
 # 双分析助手与量化洞察增量设计
 
-日期：2026-08-24  
+日期：2026-08-24
 适用路由：`/ai-setting/ai-knowledge-base`、`/ai-setting/agent`、`/ai-insight/session-analysis`、`/ai-insight/smart-analysis`
 
 ## 一、问题与目标
