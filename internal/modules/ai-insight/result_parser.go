@@ -7,15 +7,18 @@ import (
 	"strings"
 )
 
-const insightSchemaVersion = 1
+const (
+	insightSchemaVersionV1 = 1
+	insightSchemaVersionV2 = 2
+)
 
 func ParseSessionAnalysisResult(raw string, allowedMessageIDs map[string]struct{}) (SessionAnalysisResult, error) {
 	var result SessionAnalysisResult
 	if err := decodeInsightJSON(raw, &result); err != nil {
 		return result, err
 	}
-	if result.SchemaVersion != insightSchemaVersion {
-		return result, fmt.Errorf("schemaVersion must be %d", insightSchemaVersion)
+	if result.SchemaVersion != insightSchemaVersionV1 && result.SchemaVersion != insightSchemaVersionV2 {
+		return result, errors.New("schemaVersion must be 1 or 2")
 	}
 	if strings.TrimSpace(result.Summary) == "" {
 		return result, errors.New("summary must not be empty")
@@ -43,6 +46,27 @@ func ParseSessionAnalysisResult(raw string, allowedMessageIDs map[string]struct{
 			return result, fmt.Errorf("employeeQa.dimensions[%d].score must be between 0 and 100", index)
 		}
 	}
+	if result.SchemaVersion == insightSchemaVersionV2 {
+		if err := validateNullableScore("customer.qualityScore", result.Customer.QualityScore); err != nil {
+			return result, err
+		}
+		for name, dimensions := range map[string][]QuantifiedDimension{
+			"purchaseIntent.dimensions": result.Customer.PurchaseIntent.Dimensions,
+			"churnRisk.dimensions":      result.Customer.ChurnRisk.Dimensions,
+		} {
+			if err := validateQuantifiedDimensions(name, dimensions, allowedMessageIDs); err != nil {
+				return result, err
+			}
+		}
+		for name, issues := range map[string][]UnresolvedIssue{
+			"employeeQa.unresolvedCustomerIssues": result.EmployeeQA.UnresolvedCustomerIssues,
+			"employeeQa.unresolvedObjections":     result.EmployeeQA.UnresolvedObjections,
+		} {
+			if err := validateUnresolvedIssues(name, issues, allowedMessageIDs); err != nil {
+				return result, err
+			}
+		}
+	}
 	return result, nil
 }
 
@@ -51,14 +75,34 @@ func ParseSmartAnalysisResult(raw string, allowedMessageIDs map[string]struct{})
 	if err := decodeInsightJSON(raw, &result); err != nil {
 		return result, err
 	}
-	if result.SchemaVersion != insightSchemaVersion {
-		return result, fmt.Errorf("schemaVersion must be %d", insightSchemaVersion)
+	if result.SchemaVersion != insightSchemaVersionV1 && result.SchemaVersion != insightSchemaVersionV2 {
+		return result, errors.New("schemaVersion must be 1 or 2")
 	}
 	if strings.TrimSpace(result.Conclusion) == "" {
 		return result, errors.New("conclusion must not be empty")
 	}
-	if result.Confidence != nil && (*result.Confidence < 0 || *result.Confidence > 1) {
-		return result, errors.New("confidence must be between 0 and 1")
+	if result.SchemaVersion == insightSchemaVersionV1 {
+		if result.Confidence != nil && (*result.Confidence < 0 || *result.Confidence > 1) {
+			return result, errors.New("confidence must be between 0 and 1")
+		}
+	} else {
+		if err := validateSmartV2Shape(raw); err != nil {
+			return result, err
+		}
+		for name, score := range map[string]*float64{
+			"matchScore": result.MatchScore, "confidenceScore": result.ConfidenceScore,
+			"evidenceCoverageScore": result.EvidenceCoverageScore, "priorityScore": result.PriorityScore,
+		} {
+			if err := validateNullableScore(name, score); err != nil {
+				return result, err
+			}
+		}
+		if err := validateLevel("priorityLevel", result.PriorityLevel, true); err != nil {
+			return result, err
+		}
+		if err := validateQuantifiedDimensions("dimensions", result.Dimensions, allowedMessageIDs); err != nil {
+			return result, err
+		}
 	}
 	if err := validateEvidence("evidenceMessageIds", result.EvidenceMessageIDs, allowedMessageIDs); err != nil {
 		return result, err
@@ -67,15 +111,9 @@ func ParseSmartAnalysisResult(raw string, allowedMessageIDs map[string]struct{})
 }
 
 func decodeInsightJSON(raw string, target any) error {
-	value := strings.TrimSpace(raw)
-	if strings.HasPrefix(value, "```") {
-		if !strings.HasPrefix(value, "```json") || !strings.HasSuffix(value, "```") {
-			return errors.New("AI result must be JSON or a single json code fence")
-		}
-		value = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "```json"), "```"))
-	}
-	if value == "" {
-		return errors.New("AI result is empty")
+	value, err := normalizedInsightJSON(raw)
+	if err != nil {
+		return err
 	}
 	decoder := json.NewDecoder(strings.NewReader(value))
 	decoder.DisallowUnknownFields()
@@ -85,6 +123,85 @@ func decodeInsightJSON(raw string, target any) error {
 	var extra any
 	if err := decoder.Decode(&extra); err == nil {
 		return errors.New("AI result must contain one JSON object")
+	}
+	return nil
+}
+
+func normalizedInsightJSON(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if strings.HasPrefix(value, "```") {
+		if !strings.HasPrefix(value, "```json") || !strings.HasSuffix(value, "```") {
+			return "", errors.New("AI result must be JSON or a single json code fence")
+		}
+		value = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "```json"), "```"))
+	}
+	if value == "" {
+		return "", errors.New("AI result is empty")
+	}
+	return value, nil
+}
+
+func validateSmartV2Shape(raw string) error {
+	value, err := normalizedInsightJSON(raw)
+	if err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(value), &fields); err != nil {
+		return fmt.Errorf("invalid AI result JSON: %w", err)
+	}
+	for _, name := range []string{"matchScore", "confidenceScore", "evidenceCoverageScore", "priorityScore", "priorityLevel", "dimensions"} {
+		if _, ok := fields[name]; !ok {
+			return fmt.Errorf("%s is required for schemaVersion 2", name)
+		}
+	}
+	if _, ok := fields["confidence"]; ok {
+		return errors.New("confidence is only valid for schemaVersion 1")
+	}
+	return nil
+}
+
+func validateNullableScore(name string, score *float64) error {
+	if score != nil && (*score < 0 || *score > 100) {
+		return fmt.Errorf("%s must be between 0 and 100", name)
+	}
+	return nil
+}
+
+func validateQuantifiedDimensions(name string, dimensions []QuantifiedDimension, allowed map[string]struct{}) error {
+	for index, dimension := range dimensions {
+		prefix := fmt.Sprintf("%s[%d]", name, index)
+		if strings.TrimSpace(dimension.Name) == "" {
+			return fmt.Errorf("%s.name must not be empty", prefix)
+		}
+		if dimension.Weight < 0 || dimension.Weight > 1 {
+			return fmt.Errorf("%s.weight must be between 0 and 1", prefix)
+		}
+		if err := validateNullableScore(prefix+".score", dimension.Score); err != nil {
+			return err
+		}
+		if strings.TrimSpace(dimension.Reason) == "" {
+			return fmt.Errorf("%s.reason must not be empty", prefix)
+		}
+		if err := validateEvidence(prefix+".evidenceMessageIds", dimension.EvidenceMessageIDs, allowed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateUnresolvedIssues(name string, issues []UnresolvedIssue, allowed map[string]struct{}) error {
+	for index, issue := range issues {
+		prefix := fmt.Sprintf("%s[%d]", name, index)
+		if strings.TrimSpace(issue.Title) == "" {
+			return fmt.Errorf("%s.title must not be empty", prefix)
+		}
+		if strings.TrimSpace(issue.Reason) == "" {
+			return fmt.Errorf("%s.reason must not be empty", prefix)
+		}
+		if err := validateEvidence(prefix+".evidenceMessageIds", issue.EvidenceMessageIDs, allowed); err != nil {
+			return err
+		}
 	}
 	return nil
 }

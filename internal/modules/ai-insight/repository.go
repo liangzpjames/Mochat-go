@@ -405,7 +405,7 @@ func (r *SQLRepository) EnabledRuleVersions(ctx context.Context, tenantID, corpI
 	for rows.Next() {
 		var v AnalysisRuleVersion
 		var types, ids []byte
-		if err := rows.Scan(&v.ID, &v.TenantID, &v.CorpID, &v.RuleID, &v.Version, &v.Objective, &types, &v.TargetScope, &ids, &v.LookbackDays, &v.MinimumMessages, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.TenantID, &v.CorpID, &v.RuleID, &v.Version, &v.Name, &v.Objective, &v.CustomerAnalysisPrompt, &v.EmployeeQAPrompt, &types, &v.TargetScope, &ids, &v.LookbackDays, &v.MinimumMessages, &v.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(types, &v.ConversationTypes)
@@ -416,12 +416,41 @@ func (r *SQLRepository) EnabledRuleVersions(ctx context.Context, tenantID, corpI
 }
 
 func enabledRuleVersionsQuery(tenantID, corpID int64) (string, []any) {
-	return `SELECT v.id,v.tenant_id,v.corp_id,v.rule_id,v.version,v.objective,v.conversation_types_json,v.target_scope,v.target_ids_json,v.lookback_days,v.minimum_messages,v.created_at
+	return `SELECT v.id,v.tenant_id,v.corp_id,v.rule_id,v.version,r.name,v.objective,COALESCE(v.customer_analysis_prompt,''),COALESCE(v.employee_qa_prompt,''),v.conversation_types_json,v.target_scope,v.target_ids_json,v.lookback_days,v.minimum_messages,v.created_at
         FROM mochat_go_ai_analysis_rule_versions v
         JOIN mochat_go_ai_analysis_rules r ON r.id=v.rule_id AND r.tenant_id=v.tenant_id AND r.corp_id=v.corp_id
           AND r.status='enabled' AND r.deleted_at IS NULL AND v.version=r.current_version
         WHERE v.tenant_id=? AND v.corp_id=? AND r.system_key=?
         ORDER BY v.rule_id`, []any{tenantID, corpID, DefaultSmartAnalysisRuleSystemKey}
+}
+
+func (r *SQLRepository) CurrentEnabledRuleVersion(ctx context.Context, tenantID, corpID int64, systemKey string) (*AnalysisRuleVersion, error) {
+	query, args := currentEnabledRuleVersionQuery(tenantID, corpID, systemKey)
+	var version AnalysisRuleVersion
+	var types, ids []byte
+	err := r.db.QueryRowContext(ctx, query, args...).Scan(
+		&version.ID, &version.TenantID, &version.CorpID, &version.RuleID, &version.Version, &version.Name,
+		&version.Objective, &version.CustomerAnalysisPrompt, &version.EmployeeQAPrompt, &types, &version.TargetScope,
+		&ids, &version.LookbackDays, &version.MinimumMessages, &version.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal(types, &version.ConversationTypes)
+	_ = json.Unmarshal(ids, &version.TargetIDs)
+	return &version, nil
+}
+
+func currentEnabledRuleVersionQuery(tenantID, corpID int64, systemKey string) (string, []any) {
+	return `SELECT v.id,v.tenant_id,v.corp_id,v.rule_id,v.version,r.name,v.objective,COALESCE(v.customer_analysis_prompt,''),COALESCE(v.employee_qa_prompt,''),v.conversation_types_json,v.target_scope,v.target_ids_json,v.lookback_days,v.minimum_messages,v.created_at
+        FROM mochat_go_ai_analysis_rule_versions v
+        JOIN mochat_go_ai_analysis_rules r ON r.id=v.rule_id AND r.tenant_id=v.tenant_id AND r.corp_id=v.corp_id
+          AND r.status='enabled' AND r.deleted_at IS NULL AND v.version=r.current_version
+        WHERE v.tenant_id=? AND v.corp_id=? AND r.system_key=?
+        LIMIT 1`, []any{tenantID, corpID, systemKey}
 }
 
 func (r *SQLRepository) queryInsightRow(ctx context.Context, query string, args ...any) (ConversationInsight, error) {

@@ -91,9 +91,20 @@ type AudioProvider interface {
 
 // ChatRequest is a single-turn completion request.
 type ChatRequest struct {
-	Model  string
-	System string
-	Prompt string
+	Model    string
+	System   string
+	Prompt   string
+	JSONMode bool
+}
+
+// AIProviderMetadata is optional, non-sensitive runtime identification.
+type AIProviderMetadata struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+type AIProviderMetadataReader interface {
+	Metadata() AIProviderMetadata
 }
 
 // AIProvider produces text completions through a model service.

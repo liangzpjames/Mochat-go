@@ -22,6 +22,19 @@ type workspaceAssistantStub struct {
 	loadErr   error
 }
 
+type workspaceSystemAssistantStub struct {
+	contexts map[string]settingsports.SystemAssistantContext
+	loaded   []string
+}
+
+func (s *workspaceSystemAssistantStub) EnsureSystemAssistants(context.Context, int64, int64, int64, string, string) ([]settingsports.Agent, error) {
+	return nil, nil
+}
+func (s *workspaceSystemAssistantStub) LoadSystemAssistantContext(_ context.Context, _, _ int64, key string) (settingsports.SystemAssistantContext, error) {
+	s.loaded = append(s.loaded, key)
+	return s.contexts[key], nil
+}
+
 func (s workspaceAssistantStub) EnsureSessionAssistant(context.Context, int64, int64, int64, string) (settingsports.Agent, error) {
 	return settingsports.Agent{}, s.ensureErr
 }
@@ -76,6 +89,27 @@ func TestWorkspaceSmartStatusExposesSameRuntimeAssistantSummary(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"会话分析助手"`) || !strings.Contains(rec.Body.String(), `"readyDocumentCount":5`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestWorkspaceStatusMapsEachPageToItsOwnAssistant(t *testing.T) {
+	assistants := &workspaceSystemAssistantStub{contexts: map[string]settingsports.SystemAssistantContext{
+		settingsports.SessionAnalysisSystemKey: {Name: "会话助手独立", Enabled: true},
+		settingsports.SmartAnalysisSystemKey:   {Name: "智能助手独立", Enabled: true},
+	}}
+	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil, assistants)
+	for path, expected := range map[string]string{
+		"/dashboard/ai-insight/session-analysis/status": "会话助手独立",
+		"/dashboard/ai-insight/smart-analysis/status":   "智能助手独立",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), expected) {
+			t.Fatalf("path=%s status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+	if len(assistants.loaded) != 2 || assistants.loaded[0] != settingsports.SessionAnalysisSystemKey || assistants.loaded[1] != settingsports.SmartAnalysisSystemKey {
+		t.Fatalf("loaded keys = %#v", assistants.loaded)
 	}
 }
 
@@ -157,6 +191,9 @@ func (workspaceTestRepo) UpdateRule(context.Context, RuleWrite) (AnalysisRule, e
 func (workspaceTestRepo) SetRuleStatus(context.Context, RuleStatusWrite) error { return nil }
 func (workspaceTestRepo) DeleteRule(context.Context, RuleDelete) error         { return nil }
 func (workspaceTestRepo) EnabledRuleVersions(context.Context, int64, int64) ([]AnalysisRuleVersion, error) {
+	return nil, nil
+}
+func (workspaceTestRepo) CurrentEnabledRuleVersion(context.Context, int64, int64, string) (*AnalysisRuleVersion, error) {
 	return nil, nil
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-sql-driver/mysql"
+	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
 )
 
 var archiveMessageColumns = []string{
@@ -222,6 +223,18 @@ func TestEnabledRuleVersionsQuerySelectsOnlySystemDefault(t *testing.T) {
 		t.Fatalf("query does not select the fixed current rule: %s", query)
 	}
 	if len(args) != 3 || args[0] != int64(7) || args[1] != int64(8) || args[2] != DefaultSmartAnalysisRuleSystemKey {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestCurrentEnabledRuleVersionQuerySelectsRequestedSystemKeyAndPromptSnapshot(t *testing.T) {
+	query, args := currentEnabledRuleVersionQuery(7, 8, settingsports.SessionAnalysisSystemKey)
+	for _, fragment := range []string{"r.system_key=?", "v.version=r.current_version", "r.name", "v.customer_analysis_prompt", "v.employee_qa_prompt"} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("query missing %q: %s", fragment, query)
+		}
+	}
+	if len(args) != 3 || args[2] != settingsports.SessionAnalysisSystemKey {
 		t.Fatalf("args = %#v", args)
 	}
 }

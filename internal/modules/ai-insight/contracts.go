@@ -26,8 +26,17 @@ const (
 // EvidenceAssessment is a bounded assessment whose evidence must refer to
 // source messages supplied in the same model request.
 type EvidenceAssessment struct {
-	Level              string   `json:"level"`
-	Score              *int     `json:"score"`
+	Level              string                `json:"level"`
+	Score              *int                  `json:"score"`
+	Reason             string                `json:"reason"`
+	EvidenceMessageIDs []string              `json:"evidenceMessageIds"`
+	Dimensions         []QuantifiedDimension `json:"dimensions,omitempty"`
+}
+
+type QuantifiedDimension struct {
+	Name               string   `json:"name"`
+	Weight             float64  `json:"weight"`
+	Score              *float64 `json:"score"`
 	Reason             string   `json:"reason"`
 	EvidenceMessageIDs []string `json:"evidenceMessageIds"`
 }
@@ -40,6 +49,7 @@ type CustomerEmotion struct {
 
 type CustomerAnalysis struct {
 	QualityLevel     string             `json:"qualityLevel"`
+	QualityScore     *float64           `json:"qualityScore,omitempty"`
 	QualityReason    string             `json:"qualityReason"`
 	PurchaseIntent   EvidenceAssessment `json:"purchaseIntent"`
 	ChurnRisk        EvidenceAssessment `json:"churnRisk"`
@@ -52,6 +62,12 @@ type CustomerAnalysis struct {
 	Notes            []string           `json:"notes"`
 }
 
+type UnresolvedIssue struct {
+	Title              string   `json:"title"`
+	Reason             string   `json:"reason"`
+	EvidenceMessageIDs []string `json:"evidenceMessageIds"`
+}
+
 type EmployeeQADimension struct {
 	Name    string `json:"name"`
 	Score   int    `json:"score"`
@@ -59,11 +75,13 @@ type EmployeeQADimension struct {
 }
 
 type EmployeeQA struct {
-	Score       int                   `json:"score"`
-	Dimensions  []EmployeeQADimension `json:"dimensions"`
-	Strengths   []string              `json:"strengths"`
-	Issues      []string              `json:"issues"`
-	Suggestions []string              `json:"suggestions"`
+	Score                    int                   `json:"score"`
+	Dimensions               []EmployeeQADimension `json:"dimensions"`
+	Strengths                []string              `json:"strengths"`
+	Issues                   []string              `json:"issues"`
+	Suggestions              []string              `json:"suggestions"`
+	UnresolvedCustomerIssues []UnresolvedIssue     `json:"unresolvedCustomerIssues,omitempty"`
+	UnresolvedObjections     []UnresolvedIssue     `json:"unresolvedObjections,omitempty"`
 }
 
 type SessionAnalysisResult struct {
@@ -74,12 +92,18 @@ type SessionAnalysisResult struct {
 }
 
 type SmartAnalysisResult struct {
-	SchemaVersion      int      `json:"schemaVersion"`
-	Conclusion         string   `json:"conclusion"`
-	Matched            bool     `json:"matched"`
-	Confidence         *float64 `json:"confidence"`
-	EvidenceMessageIDs []string `json:"evidenceMessageIds"`
-	Recommendations    []string `json:"recommendations"`
+	SchemaVersion         int                   `json:"schemaVersion"`
+	Conclusion            string                `json:"conclusion"`
+	Matched               bool                  `json:"matched"`
+	Confidence            *float64              `json:"confidence,omitempty"`
+	MatchScore            *float64              `json:"matchScore,omitempty"`
+	ConfidenceScore       *float64              `json:"confidenceScore,omitempty"`
+	EvidenceCoverageScore *float64              `json:"evidenceCoverageScore,omitempty"`
+	PriorityScore         *float64              `json:"priorityScore,omitempty"`
+	PriorityLevel         string                `json:"priorityLevel,omitempty"`
+	Dimensions            []QuantifiedDimension `json:"dimensions,omitempty"`
+	EvidenceMessageIDs    []string              `json:"evidenceMessageIds"`
+	Recommendations       []string              `json:"recommendations"`
 }
 
 type SourceMessage struct {
@@ -185,18 +209,21 @@ type AnalysisRule struct {
 }
 
 type AnalysisRuleVersion struct {
-	ID                int64
-	TenantID          int64
-	CorpID            int64
-	RuleID            int64
-	Version           int
-	Objective         string
-	ConversationTypes []string
-	TargetScope       string
-	TargetIDs         []int64
-	LookbackDays      int
-	MinimumMessages   int
-	CreatedAt         time.Time
+	ID                     int64
+	TenantID               int64
+	CorpID                 int64
+	RuleID                 int64
+	Version                int
+	Name                   string
+	Objective              string
+	CustomerAnalysisPrompt string
+	EmployeeQAPrompt       string
+	ConversationTypes      []string
+	TargetScope            string
+	TargetIDs              []int64
+	LookbackDays           int
+	MinimumMessages        int
+	CreatedAt              time.Time
 }
 
 type InsightRun struct {
@@ -325,4 +352,5 @@ type Repository interface {
 	SetRuleStatus(context.Context, RuleStatusWrite) error
 	DeleteRule(context.Context, RuleDelete) error
 	EnabledRuleVersions(context.Context, int64, int64) ([]AnalysisRuleVersion, error)
+	CurrentEnabledRuleVersion(context.Context, int64, int64, string) (*AnalysisRuleVersion, error)
 }

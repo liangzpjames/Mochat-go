@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
 	"jiyi/mochat-go/internal/modules/providers"
 )
 
@@ -30,19 +31,22 @@ type WorkspaceAuthorizer interface {
 }
 
 type WorkspaceHandler struct {
-	principal WorkspacePrincipalResolver
-	authorize WorkspaceAuthorizer
-	repo      Repository
-	ai        providers.AIProvider
-	assistant AssistantContextProvider
+	principal       WorkspacePrincipalResolver
+	authorize       WorkspaceAuthorizer
+	repo            Repository
+	ai              providers.AIProvider
+	assistant       AssistantContextProvider
+	systemAssistant SystemAssistantContextProvider
 }
 
-func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, ai providers.AIProvider, assistants ...AssistantContextProvider) *WorkspaceHandler {
+func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, ai providers.AIProvider, assistants ...any) *WorkspaceHandler {
 	var assistant AssistantContextProvider
+	var systemAssistant SystemAssistantContextProvider
 	if len(assistants) > 0 {
-		assistant = assistants[0]
+		assistant, _ = assistants[0].(AssistantContextProvider)
+		systemAssistant, _ = assistants[0].(SystemAssistantContextProvider)
 	}
-	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, ai: ai, assistant: assistant}
+	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, ai: ai, assistant: assistant, systemAssistant: systemAssistant}
 }
 
 func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +151,22 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 		provider = map[string]any{"state": string(status.State), "source": string(status.Source), "code": status.Code, "message": status.Reason}
 	}
 	data := map[string]any{"provider": provider}
-	if h.assistant != nil {
+	if h.systemAssistant != nil {
+		if _, err := h.systemAssistant.EnsureSystemAssistants(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID), fmt.Sprintf("smart-%d-%d", p.TenantID, p.CorpID)); err != nil {
+			workspaceRepoError(w, err)
+			return
+		}
+		key := settingsports.SessionAnalysisSystemKey
+		if page == "smart-analysis" {
+			key = settingsports.SmartAnalysisSystemKey
+		}
+		assistant, err := h.systemAssistant.LoadSystemAssistantContext(r.Context(), p.TenantID, p.CorpID, key)
+		if err != nil {
+			workspaceRepoError(w, err)
+			return
+		}
+		data["assistant"] = workspaceAssistantJSON(assistant)
+	} else if h.assistant != nil {
 		if _, err := h.assistant.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID)); err != nil {
 			workspaceRepoError(w, err)
 			return
@@ -157,12 +176,16 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 			workspaceRepoError(w, err)
 			return
 		}
-		data["assistant"] = map[string]any{"name": assistant.Name, "enabled": assistant.Enabled, "knowledgeBaseCount": assistant.KnowledgeBaseCount, "readyDocumentCount": assistant.ReadyDocumentCount, "updatedAt": assistant.UpdatedAt}
+		data["assistant"] = workspaceAssistantJSON(assistant)
 	}
 	if run != nil {
 		data["run"] = map[string]any{"status": run.Status, "candidateCount": run.CandidateCount, "successCount": run.SuccessCount, "failureCount": run.FailureCount, "backlogCount": run.BacklogCount, "errorSummary": run.ErrorSummary, "createdAt": run.CreatedAt}
 	}
 	workspaceEnvelope(w, 200, "success", data)
+}
+
+func workspaceAssistantJSON(assistant settingsports.SystemAssistantContext) map[string]any {
+	return map[string]any{"name": assistant.Name, "enabled": assistant.Enabled, "knowledgeBaseCount": assistant.KnowledgeBaseCount, "readyDocumentCount": assistant.ReadyDocumentCount, "updatedAt": assistant.UpdatedAt}
 }
 
 func (h *WorkspaceHandler) export(w http.ResponseWriter, r *http.Request, p WorkspacePrincipal, page string) {

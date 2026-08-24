@@ -65,6 +65,10 @@ func (c *Client) Status() providers.Status {
 	return providers.Status{Kind: "ai", State: providers.StateReady}
 }
 
+func (c *Client) Metadata() providers.AIProviderMetadata {
+	return providers.AIProviderMetadata{Provider: "openai-compatible", Model: c.model}
+}
+
 func (c *Client) Chat(ctx context.Context, req providers.ChatRequest) (string, error) {
 	if c.apiKey == "" {
 		return "", providers.ErrNotConfigured
@@ -78,11 +82,15 @@ func (c *Client) Chat(ctx context.Context, req providers.ChatRequest) (string, e
 		messages = append(messages, map[string]string{"role": "system", "content": system})
 	}
 	messages = append(messages, map[string]string{"role": "user", "content": req.Prompt})
-	body, err := json.Marshal(map[string]any{
+	requestPayload := map[string]any{
 		"model":       model,
 		"messages":    messages,
 		"temperature": 0.3,
-	})
+	}
+	if req.JSONMode {
+		requestPayload["response_format"] = map[string]string{"type": "json_object"}
+	}
+	body, err := json.Marshal(requestPayload)
 	if err != nil {
 		return "", fmt.Errorf("marshal chat request: %w", err)
 	}
