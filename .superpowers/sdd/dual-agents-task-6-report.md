@@ -46,3 +46,11 @@
 ## 关注点
 
 - 定向页面测试通过时，Ant Design Modal 在 JSDOM 下仍会输出 `window.getComputedStyle(..., pseudoElt)` 的既有 stderr 噪音，但不影响测试结果，当前也不是本任务新增失败项。
+
+## Review P2 补充
+
+- 按 review 要求补充了 `ai-settings-filter` 作用域下的统一动作尺寸合同：
+  - 选择器：`.ai-settings-filter .dashboard-filter-panel__actions > *`
+  - 范围：仅覆盖知识库筛选区同组的查询、重置、刷新
+  - 尺寸：`min-height: 36px`、`min-width: 68px`、`padding: 7px 14px`、`border-radius: 8px`、`box-sizing: border-box`
+- 同步扩展 `ai-settings-layout.test.ts`，显式锁定三者共用同一 scoped rule，而不再只验证 refresh 的 `secondary` class。

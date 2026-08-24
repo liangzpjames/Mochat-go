@@ -2367,6 +2367,14 @@ body {
   padding: 8px 10px;
 }
 
+.ai-settings-filter .dashboard-filter-panel__actions > * {
+  border-radius: 8px;
+  box-sizing: border-box;
+  min-height: 36px;
+  min-width: 68px;
+  padding: 7px 14px;
+}
+
 .ai-settings-table-scroll {
   max-width: 100%;
   overflow-x: auto;

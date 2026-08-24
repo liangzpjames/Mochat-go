@@ -37,12 +37,13 @@ describe('AI 设置响应式布局合同', () => {
     expect(stylesheet).toContain('.ai-assistant-card-grid, .ai-conversation-scope-grid { grid-template-columns: 1fr; }');
   });
 
-  it('知识库刷新按钮使用统一 secondary action 尺寸合同', () => {
-    const secondary = block('.dashboard-secondary-action');
-    expect(secondary).toContain('box-sizing: border-box');
-    expect(secondary).toContain('min-height: 36px');
-    expect(secondary).toContain('min-width: 68px');
-    expect(secondary).toContain('padding: 7px 14px');
-    expect(secondary).toContain('border-radius: 8px');
+  it('知识库筛选区查询、重置、刷新共用同一组显式尺寸合同', () => {
+    const actions = block('.ai-settings-filter .dashboard-filter-panel__actions > *');
+    expect(actions).toContain('box-sizing: border-box');
+    expect(actions).toContain('min-height: 36px');
+    expect(actions).toContain('min-width: 68px');
+    expect(actions).toContain('padding: 7px 14px');
+    expect(actions).toContain('border-radius: 8px');
+    expect(block('.dashboard-secondary-action')).toContain('box-sizing: border-box');
   });
 });
