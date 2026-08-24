@@ -26,8 +26,12 @@ const (
 	DocumentStatusFailed          = "failed"
 	SessionAnalysisSystemKey      = "session-analysis"
 	SessionAnalysisAssistantName  = "会话分析助手"
+	SessionAnalysisRuleName       = "会话分析规则"
+	SmartAnalysisSystemKey        = "smart-analysis"
+	SmartAnalysisAssistantName    = "智能分析助手"
 	DefaultSmartAnalysisSystemKey = "default-smart-analysis"
-	DefaultSmartAnalysisRuleName  = "默认智能分析规则"
+	DefaultSmartAnalysisRuleName  = "智能分析规则"
+	MaxAnalysisPromptRunes        = 4000
 )
 
 type KnowledgeBaseReferencedError struct {
@@ -88,14 +92,16 @@ type Agent struct {
 }
 
 type SmartAnalysisRule struct {
-	ID                int64    `json:"id"`
-	Name              string   `json:"name"`
-	Objective         string   `json:"objective"`
-	ConversationTypes []string `json:"conversationTypes"`
-	LookbackDays      int      `json:"lookbackDays"`
-	MinimumMessages   int      `json:"minimumMessages"`
-	CurrentVersion    int      `json:"currentVersion"`
-	UpdatedAt         string   `json:"updatedAt"`
+	ID                     int64    `json:"id"`
+	Name                   string   `json:"name"`
+	Objective              string   `json:"objective"`
+	CustomerAnalysisPrompt string   `json:"customerAnalysisPrompt"`
+	EmployeeQAPrompt       string   `json:"employeeQAPrompt"`
+	ConversationTypes      []string `json:"conversationTypes"`
+	LookbackDays           int      `json:"lookbackDays"`
+	MinimumMessages        int      `json:"minimumMessages"`
+	CurrentVersion         int      `json:"currentVersion"`
+	UpdatedAt              string   `json:"updatedAt"`
 }
 
 type KnowledgeDocument struct {
