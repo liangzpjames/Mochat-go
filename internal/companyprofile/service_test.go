@@ -176,11 +176,39 @@ func (v *companyProfileTestVerifier) Verify(context.Context, VerificationRequest
 	return v.result, v.err
 }
 
-func TestServiceRejectsNonSuperAdminBeforeAnyStoreRead(t *testing.T) {
+func TestServiceRejectsOrdinaryUserWithoutCompanyPermissionBeforeAnyStoreRead(t *testing.T) {
 	store := &companyProfileContractStore{}
 	service := NewService(store, &companyProfileTestVerifier{})
 
 	_, err := service.GetProfile(context.Background(), companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("error = %v, want ErrPermissionDenied", err)
+	}
+	if store.getCalls != 0 {
+		t.Fatalf("store reads = %d, want 0", store.getCalls)
+	}
+}
+
+func TestServiceAllowsActiveOrdinaryUserWithGrantableCompanyPermission(t *testing.T) {
+	store := &companyProfileContractStore{profile: Profile{TenantID: 202, CorpID: 303, DisplayName: "授权企业"}}
+	service := NewService(store, &companyProfileTestVerifier{})
+	ctx := dashboardprincipal.WithCapabilityAccess(context.Background(), false, []string{"dashboard.company_setting.website"})
+
+	profile, err := service.GetProfile(ctx, companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive))
+	if err != nil {
+		t.Fatalf("GetProfile() error = %v", err)
+	}
+	if profile.DisplayName != "授权企业" || store.getCalls != 1 {
+		t.Fatalf("profile=%+v store reads=%d, want granted profile and one read", profile, store.getCalls)
+	}
+}
+
+func TestServiceRejectsPendingOrdinaryUserEvenWithCompanyPermission(t *testing.T) {
+	store := &companyProfileContractStore{}
+	service := NewService(store, &companyProfileTestVerifier{})
+	ctx := dashboardprincipal.WithCapabilityAccess(context.Background(), false, []string{"dashboard.company_setting.website"})
+
+	_, err := service.GetProfile(ctx, companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusPending))
 	if !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("error = %v, want ErrPermissionDenied", err)
 	}

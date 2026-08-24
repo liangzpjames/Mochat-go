@@ -24,6 +24,30 @@ func TestVisibleProviderCapabilitiesUsesExplicitPermissionMapping(t *testing.T) 
 	}
 }
 
+func TestHasPermissionCodeFailsClosedForOrdinaryPrincipal(t *testing.T) {
+	ordinary := DashboardPrincipal{}
+	granted := WithCapabilityAccess(context.Background(), false, []string{"dashboard.company_setting.website"})
+	if !HasPermissionCode(granted, ordinary, "dashboard.company_setting.website") {
+		t.Fatal("exact permission code was not recognized")
+	}
+	for name, ctx := range map[string]context.Context{
+		"missing context": context.Background(),
+		"unknown code":    granted,
+		"spoofed admin":   WithCapabilityAccess(context.Background(), true, []string{"dashboard.company_setting.website"}),
+	} {
+		code := "dashboard.company_setting.website"
+		if name == "unknown code" {
+			code = "dashboard.company_setting.unknown"
+		}
+		if HasPermissionCode(ctx, ordinary, code) {
+			t.Fatalf("%s unexpectedly authorized", name)
+		}
+	}
+	if !HasPermissionCode(context.Background(), DashboardPrincipal{IsSuperAdmin: true}, "dashboard.company_setting.website") {
+		t.Fatal("real superadmin was not authorized")
+	}
+}
+
 func TestProviderPageCapabilityMappingUsesCatalogPageCodes(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {

@@ -34,12 +34,18 @@ func (s *Service) WithEmployeeSyncScheduler(scheduler EmployeeSyncScheduler) *Se
 	return s
 }
 
-func (s *Service) authorize(principal dashboardprincipal.DashboardPrincipal, allowPending bool) error {
-	if principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 || principal.AuthVersion == 0 || !principal.IsSuperAdmin {
+func (s *Service) authorize(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, allowPending bool) error {
+	if principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 || principal.AuthVersion == 0 {
 		return ErrPermissionDenied
 	}
 	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
 		return ErrTenantAccessDenied
+	}
+	if !principal.IsSuperAdmin {
+		if principal.CorpStatus == dashboardprincipal.CorpBindingStatusPending ||
+			!dashboardprincipal.HasPermissionCode(ctx, principal, "dashboard.company_setting.website") {
+			return ErrPermissionDenied
+		}
 	}
 	if principal.CorpStatus != dashboardprincipal.CorpBindingStatusActive &&
 		(!allowPending || principal.CorpStatus != dashboardprincipal.CorpBindingStatusPending) {
@@ -56,7 +62,7 @@ func (s *Service) requireStore() error {
 }
 
 func (s *Service) GetProfile(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (Profile, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return Profile{}, err
 	}
 	if err := s.requireStore(); err != nil {
@@ -66,7 +72,7 @@ func (s *Service) GetProfile(ctx context.Context, principal dashboardprincipal.D
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input UpdateProfileInput) (Profile, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return Profile{}, err
 	}
 	if input.ExpectedVersion == 0 || strings.TrimSpace(input.DisplayName) == "" || len([]rune(strings.TrimSpace(input.DisplayName))) > 255 {
@@ -79,7 +85,7 @@ func (s *Service) UpdateProfile(ctx context.Context, principal dashboardprincipa
 }
 
 func (s *Service) RotateWeComCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input WeComCredentialsInput) (Profile, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return Profile{}, err
 	}
 	if input.WXCorpID != nil {
@@ -95,7 +101,7 @@ func (s *Service) RotateWeComCredentials(ctx context.Context, principal dashboar
 }
 
 func (s *Service) RotateAgentCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input AgentCredentialsInput) (Profile, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return Profile{}, err
 	}
 	if input.ExpectedVersion == 0 || (input.AgentID <= 0 && strings.TrimSpace(input.WXAgentID) == "") {
@@ -111,7 +117,7 @@ func (s *Service) RotateAgentCredentials(ctx context.Context, principal dashboar
 }
 
 func (s *Service) ConfigureApplication(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input ApplicationCredentialsInput) (Profile, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return Profile{}, err
 	}
 	input.WXAgentID = strings.TrimSpace(input.WXAgentID)
@@ -131,7 +137,7 @@ func (s *Service) ConfigureApplication(ctx context.Context, principal dashboardp
 }
 
 func (s *Service) RotateArchiveCredentials(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input ArchiveCredentialsInput) (Profile, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return Profile{}, err
 	}
 	if input.ExpectedVersion == 0 || (input.ChatSecret == nil && input.RSAPublicKey == nil && input.RSAPrivateKey == nil) {
@@ -167,7 +173,7 @@ func (s *Service) RotateArchiveCredentials(ctx context.Context, principal dashbo
 }
 
 func (s *Service) GetCallbackConfiguration(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (CallbackConfiguration, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return CallbackConfiguration{}, err
 	}
 	if err := s.requireStore(); err != nil {
@@ -177,7 +183,7 @@ func (s *Service) GetCallbackConfiguration(ctx context.Context, principal dashbo
 }
 
 func (s *Service) RegenerateCallbackConfiguration(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input CallbackConfigurationInput) (CallbackConfiguration, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return CallbackConfiguration{}, err
 	}
 	if input.ExpectedVersion == 0 {
@@ -252,7 +258,7 @@ func randomAlphanumeric(length int) (string, error) {
 }
 
 func (s *Service) Verify(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input VerifyInput) (Profile, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return Profile{}, err
 	}
 	if input.ExpectedVersion == 0 {
@@ -299,7 +305,7 @@ func (s *Service) Verify(ctx context.Context, principal dashboardprincipal.Dashb
 }
 
 func (s *Service) StartEmployeeSync(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (SyncResult, error) {
-	if err := s.authorize(principal, false); err != nil {
+	if err := s.authorize(ctx, principal, false); err != nil {
 		return SyncResult{}, err
 	}
 	if s == nil || s.store == nil || s.syncScheduler == nil {
@@ -346,7 +352,7 @@ func (s *Service) StartEmployeeSync(ctx context.Context, principal dashboardprin
 }
 
 func (s *Service) GetSyncStatus(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (SyncStatus, error) {
-	if err := s.authorize(principal, false); err != nil {
+	if err := s.authorize(ctx, principal, false); err != nil {
 		return SyncStatus{}, err
 	}
 	if s == nil || s.store == nil {
@@ -360,7 +366,7 @@ func (s *Service) GetSyncStatus(ctx context.Context, principal dashboardprincipa
 }
 
 func (s *Service) ListAudits(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, filter AuditFilter) (AuditPage, error) {
-	if err := s.authorize(principal, true); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return AuditPage{}, err
 	}
 	if filter.Page <= 0 {

@@ -23,6 +23,28 @@ func WithCapabilityAccess(ctx context.Context, superadmin bool, permissionCodes 
 	})
 }
 
+// HasPermissionCode keeps service-layer authorization bound to the exact
+// permission codes attached by the Dashboard access guard. Missing or
+// inconsistent context fails closed for ordinary users.
+func HasPermissionCode(ctx context.Context, principal DashboardPrincipal, code string) bool {
+	if principal.IsSuperAdmin {
+		return true
+	}
+	if ctx == nil || code == "" {
+		return false
+	}
+	access, ok := ctx.Value(capabilityAccessKey{}).(capabilityAccess)
+	if !ok || access.SuperAdmin {
+		return false
+	}
+	for _, allowed := range access.PermissionCodes {
+		if allowed == code {
+			return true
+		}
+	}
+	return false
+}
+
 // VisibleProviderCapabilities is an allowlist derived from exact dashboard
 // page permission codes. Unknown permissions expose nothing.
 func VisibleProviderCapabilities(ctx context.Context, principal DashboardPrincipal) []string {
