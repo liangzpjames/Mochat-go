@@ -5,13 +5,15 @@ import type { AiInsightWorkspaceApi } from './ai-insight-workspace-api';
 import { CommunicationKeywordInsightPage, EmotionInsightPage, EmployeeScoreInsightPage } from './derived-insight-pages';
 
 type ExpectedDerivedPageProps = { api: AiInsightWorkspaceApi; onNavigate?: ((path: string) => void) | undefined };
-type Equal<Left, Right> = (<Type>() => Type extends Left ? 1 : 2) extends (<Type>() => Type extends Right ? 1 : 2)
-  ? (<Type>() => Type extends Right ? 1 : 2) extends (<Type>() => Type extends Left ? 1 : 2) ? true : false
-  : false;
 type Assert<Type extends true> = Type;
-type _EmotionPageProps = Assert<Equal<ComponentProps<typeof EmotionInsightPage>, ExpectedDerivedPageProps>>;
-type _EmployeeScorePageProps = Assert<Equal<ComponentProps<typeof EmployeeScoreInsightPage>, ExpectedDerivedPageProps>>;
-type _CommunicationKeywordPageProps = Assert<Equal<ComponentProps<typeof CommunicationKeywordInsightPage>, ExpectedDerivedPageProps>>;
+type AcceptsRequiredDerivedPageProps<Props> = Props extends { api: AiInsightWorkspaceApi }
+  ? 'onNavigate' extends keyof Props
+    ? ExpectedDerivedPageProps extends Props ? true : false
+    : false
+  : false;
+type _EmotionPageProps = Assert<AcceptsRequiredDerivedPageProps<ComponentProps<typeof EmotionInsightPage>>>;
+type _EmployeeScorePageProps = Assert<AcceptsRequiredDerivedPageProps<ComponentProps<typeof EmployeeScoreInsightPage>>>;
+type _CommunicationKeywordPageProps = Assert<AcceptsRequiredDerivedPageProps<ComponentProps<typeof CommunicationKeywordInsightPage>>>;
 const derivedPagePropsCompile: [_EmotionPageProps, _EmployeeScorePageProps, _CommunicationKeywordPageProps] = [true, true, true];
 void derivedPagePropsCompile;
 
@@ -103,8 +105,9 @@ describe('三个 AI 洞察专用投影页面', () => {
     expect(new URLSearchParams(window.location.search).get('status')).toBe('succeeded');
 
     const pushesBeforeRefresh = pushState.mock.calls.length;
+    const replacesBeforeRefresh = replaceState.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: '刷新' }));
-    await waitFor(() => expect(replaceState).toHaveBeenCalled());
+    await waitFor(() => expect(replaceState.mock.calls.length).toBe(replacesBeforeRefresh + 1));
     expect(pushState.mock.calls.length).toBe(pushesBeforeRefresh);
 
     window.history.pushState({}, '', '/ai-insight/emotion?customerName=%E5%AE%A2%E6%88%B7%E4%B8%99&status=failed&startDate=2026-08-01&endDate=2026-08-02&page=2');

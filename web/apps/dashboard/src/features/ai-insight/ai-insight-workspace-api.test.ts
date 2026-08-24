@@ -21,16 +21,33 @@ type Equal<Left, Right> = (<Type>() => Type extends Left ? 1 : 2) extends (<Type
   ? (<Type>() => Type extends Right ? 1 : 2) extends (<Type>() => Type extends Left ? 1 : 2) ? true : false
   : false;
 type Assert<Type extends true> = Type;
+type ExpectedDerivedInsightView = 'emotion' | 'employee-score' | 'communication-keyword';
+type ExpectedEmotionLabel = 'positive' | 'neutral' | 'negative' | 'mixed' | 'unknown';
+type ExpectedInsightStatus = 'pending' | 'running' | 'succeeded' | 'failed';
+type ExpectedDerivedInsightFilters = {
+  page: number;
+  employeeId?: number | undefined;
+  customerName?: string | undefined;
+  status?: ExpectedInsightStatus | undefined;
+  startDate?: string | undefined;
+  endDate?: string | undefined;
+  emotion?: ExpectedEmotionLabel | undefined;
+  minScore?: number | undefined;
+  maxScore?: number | undefined;
+  keyword?: string | undefined;
+};
+type _DerivedInsightViewIsExact = Assert<Equal<DerivedInsightView, ExpectedDerivedInsightView>>;
+type _EmotionLabelIsExact = Assert<Equal<EmotionLabel, ExpectedEmotionLabel>>;
+type _DerivedInsightFilterKeysAreExact = Assert<Equal<keyof DerivedInsightFilters, keyof ExpectedDerivedInsightFilters>>;
+type _DerivedInsightFiltersAreExact = Assert<Equal<DerivedInsightFilters, ExpectedDerivedInsightFilters>>;
 type ExpectedDerivedApiMethods = {
-  derivedRecords(view: DerivedInsightView, filters: DerivedInsightFilters): Promise<InsightPage<SessionInsightRow>>;
-  derivedDetail(view: DerivedInsightView, id: number): Promise<InsightDetail<SessionInsightRow>>;
-  derivedStatus(view: DerivedInsightView): Promise<InsightRunStatus>;
-  derivedFilterOptions(view: DerivedInsightView, employeeKeyword?: string, limit?: number): Promise<EmployeeFilterOptions>;
-  derivedExportUrl(view: DerivedInsightView, filters: DerivedInsightFilters): string;
+  derivedRecords(view: ExpectedDerivedInsightView, filters: ExpectedDerivedInsightFilters): Promise<InsightPage<SessionInsightRow>>;
+  derivedDetail(view: ExpectedDerivedInsightView, id: number): Promise<InsightDetail<SessionInsightRow>>;
+  derivedStatus(view: ExpectedDerivedInsightView): Promise<InsightRunStatus>;
+  derivedFilterOptions(view: ExpectedDerivedInsightView, employeeKeyword?: string, limit?: number): Promise<EmployeeFilterOptions>;
+  derivedExportUrl(view: ExpectedDerivedInsightView, filters: ExpectedDerivedInsightFilters): string;
 };
 type _DerivedApiPublicSignature = Assert<Equal<AiInsightWorkspaceApi & ExpectedDerivedApiMethods, AiInsightWorkspaceApi>>;
-const derivedApiPublicSignatureCompiles: _DerivedApiPublicSignature = true;
-void derivedApiPublicSignatureCompiles;
 
 const valid = {
   id: 1,
