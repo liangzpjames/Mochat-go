@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   EmployeeFilterOptions,
@@ -144,6 +144,35 @@ const smartV1Row: SmartInsightRow = {
   },
 };
 
+const sessionSuccessResult = sessionSuccessRow.result as Record<string, unknown> & {
+  customer: Record<string, unknown> & {
+    qualityScore: number | null;
+    qualityLevel: string;
+    purchaseIntent: Record<string, unknown> & {
+      score: number | null;
+      level: string;
+    };
+  };
+};
+
+const sessionNullableScoreRow: SessionInsightRow = {
+  ...sessionSuccessRow,
+  id: 5,
+  result: {
+    ...sessionSuccessResult,
+    customer: {
+      ...sessionSuccessResult.customer,
+      qualityScore: null,
+      qualityLevel: 'high',
+      purchaseIntent: {
+        ...sessionSuccessResult.customer.purchaseIntent,
+        score: null,
+        level: 'low',
+      },
+    },
+  },
+};
+
 function renderFilterField(overrides: {
   selectedEmployeeId?: number;
   knownEmployeeName?: string;
@@ -251,6 +280,27 @@ describe('AI 洞察工作台渲染', () => {
     expect(screen.getByText('预算信号')).toBeTruthy();
     expect(screen.getByText('由销售主管跟进')).toBeTruthy();
     expect(screen.getByText('优先安排演示')).toBeTruthy();
+  });
+
+  it('nullable 分数即使带 high/low 枚举也必须显示证据不足，0 分仍保留数值', () => {
+    const detail = {
+      ...sessionNullableScoreRow,
+      messages: [],
+      conversationUrl: '/chat/v2-customer?conversationId=5',
+    } as InsightDetail<SessionInsightRow>;
+    render(<InsightDrawer detail={detail} onClose={vi.fn()} />);
+
+    const qualityPair = screen.getByText('质量分 / 等级').closest('.ai-insight-detail-pair');
+    const purchasePair = screen.getByText('购买意向').closest('.ai-insight-detail-pair');
+    expect(qualityPair).toBeTruthy();
+    expect(purchasePair).toBeTruthy();
+    expect(within(qualityPair as HTMLElement).getByText('证据不足')).toBeTruthy();
+    expect(within(qualityPair as HTMLElement).queryByText('高')).toBeNull();
+    expect(within(purchasePair as HTMLElement).getByText('证据不足')).toBeTruthy();
+    expect(within(purchasePair as HTMLElement).queryByText('低')).toBeNull();
+
+    render(<SmartTable page={{ page: 1, pageSize: 20, total: 1, items: [smartV2Row] }} onOpen={vi.fn()} />);
+    expect(screen.getByText('0分 · 低')).toBeTruthy();
   });
 
   it('失败详情不渲染伪分数，并支持 Escape、遮罩和原会话跳转', async () => {

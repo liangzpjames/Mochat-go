@@ -83,7 +83,7 @@ function metricValue(primary: unknown, secondary?: unknown): string {
   const score = asNumber(primary);
   const secondaryText = localizeLevel(secondary);
   if (score !== null) return `${score}分${secondaryText && secondaryText !== '证据不足' ? ` · ${secondaryText}` : ''}`;
-  return secondaryText || '证据不足';
+  return '证据不足';
 }
 
 type Dimension = { name: string; score: unknown; weight: string; reason: string };
