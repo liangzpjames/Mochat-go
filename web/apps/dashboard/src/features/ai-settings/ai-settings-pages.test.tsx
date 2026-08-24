@@ -118,6 +118,8 @@ describe('AI 设置页面', () => {
     expect(within(sessionCard).getByText('会话范围')).toBeTruthy();
     expect(within(sessionCard).getByText('客户单聊')).toBeTruthy();
     expect(within(sessionCard).getByText('回看 14 天 · 至少 3 条消息')).toBeTruthy();
+    expect(within(sessionCard).queryByText('关联知识库摘要')).toBeNull();
+    expect(within(sessionCard).queryByText('文档就绪摘要')).toBeNull();
     expect(screen.queryByText('默认智能体')).toBeNull();
     expect(screen.queryByText('默认智能分析规则')).toBeNull();
     expect(screen.queryByText('同一个助手服务两页')).toBeNull();
@@ -169,6 +171,20 @@ describe('AI 设置页面', () => {
     expect(await screen.findByText(/会话分析助手配置已保存/)).toBeTruthy();
   });
 
+  it('会话分析助手的小数规则窗口在前端即视为无效，不发起保存', async () => {
+    const updateAgent = vi.fn().mockResolvedValue({});
+    renderPage(createApi({ updateAgent }), 'agent');
+
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置 会话分析助手' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '回看天数' }), { target: { value: '7.5' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: '最少消息数' }), { target: { value: '4.2' } });
+
+    const save = screen.getByRole('button', { name: '保存' });
+    expect(save).toHaveProperty('disabled', true);
+    fireEvent.click(save);
+    expect(updateAgent).not.toHaveBeenCalled();
+  });
+
   it('智能分析助手会话范围支持整卡点击、键盘切换和互斥保存', async () => {
     const updateAgent = vi.fn().mockResolvedValue({});
     renderPage(createApi({ updateAgent }), 'agent');
@@ -199,6 +215,20 @@ describe('AI 设置页面', () => {
       },
     }));
     expect(updateAgent.mock.calls[0]?.[2]).not.toHaveProperty('sessionAnalysisRule');
+  });
+
+  it('智能分析助手的小数规则窗口在前端即视为无效，不发起保存', async () => {
+    const updateAgent = vi.fn().mockResolvedValue({});
+    renderPage(createApi({ updateAgent }), 'agent');
+
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置 智能分析助手' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '回看天数' }), { target: { value: '7.5' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: '最少消息数' }), { target: { value: '4.2' } });
+
+    const save = screen.getByRole('button', { name: '保存' });
+    expect(save).toHaveProperty('disabled', true);
+    fireEvent.click(save);
+    expect(updateAgent).not.toHaveBeenCalled();
   });
 
   it('两次保存互不串改，切换编辑器不会带入另一张卡的草稿', async () => {
@@ -245,7 +275,7 @@ describe('AI 设置页面', () => {
     await waitFor(() => expect(listAgents).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(listKnowledgeBases).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('刷新后的会话说明')).toBeTruthy();
-    expect(screen.getAllByText('新的会话知识库').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('新的会话知识库')).toHaveLength(1);
   });
 
   it('更新失败时保留输入并映射稳定机器码', async () => {

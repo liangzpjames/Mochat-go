@@ -34,6 +34,9 @@ function operationError(error: unknown): string {
 
 function textLength(value: string): number { return Array.from(value).length; }
 function sameStrings(left: string[], right: string[]): boolean { return JSON.stringify(left) === JSON.stringify(right); }
+function isIntegerInRange(value: number, min: number, max: number): boolean {
+  return Number.isInteger(value) && value >= min && value <= max;
+}
 
 type SessionDraft = {
   description: string;
@@ -275,8 +278,6 @@ function SessionAssistantCard({
       <div className="ai-assistant-summary-grid">
         <div><dt>运行状态</dt><dd>{agent.status === 1 ? '仅影响会话分析运行' : '当前已停用，会话分析不会产出新结果'}</dd></div>
         <div><dt>结果入口</dt><dd><a href="/ai-insight/session-analysis">前往会话分析</a></dd></div>
-        <div><dt>关联知识库摘要</dt><dd>{knowledgeBaseNames}</dd></div>
-        <div><dt>文档就绪摘要</dt><dd>{agent.knowledgeBaseCount} 个知识库 · {agent.readyDocumentCount} 份就绪文档</dd></div>
       </div>
     </article>
   );
@@ -501,10 +502,8 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
     && textLength(sessionDraft.employeeQaPrompt.trim()) >= 2
     && textLength(sessionDraft.employeeQaPrompt.trim()) <= 4000
     && sessionDraft.conversationTypes.length > 0
-    && sessionDraft.lookbackDays >= 1
-    && sessionDraft.lookbackDays <= 30
-    && sessionDraft.minimumMessages >= 2
-    && sessionDraft.minimumMessages <= 50,
+    && isIntegerInRange(sessionDraft.lookbackDays, 1, 30)
+    && isIntegerInRange(sessionDraft.minimumMessages, 2, 50),
   );
   const smartValid = Boolean(
     corpId
@@ -515,10 +514,8 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
     && textLength(smartDraft.objective.trim()) >= 2
     && textLength(smartDraft.objective.trim()) <= 4000
     && smartDraft.conversationTypes.length > 0
-    && smartDraft.lookbackDays >= 1
-    && smartDraft.lookbackDays <= 30
-    && smartDraft.minimumMessages >= 2
-    && smartDraft.minimumMessages <= 50,
+    && isIntegerInRange(smartDraft.lookbackDays, 1, 30)
+    && isIntegerInRange(smartDraft.minimumMessages, 2, 50),
   );
 
   const sessionKnowledgeNames = sessionAgent && knowledgeBasesQuery.isSuccess
