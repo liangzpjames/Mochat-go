@@ -2569,6 +2569,7 @@ body {
 .ai-assistant-rule-numbers label { color: #4f5768; display: grid; font-size: .8rem; font-weight: 600; gap: 7px; }
 .ai-conversation-scope-fieldset { border: 0; margin: 0; padding: 0; }
 .ai-conversation-scope-fieldset legend { color: #4f5768; font-size: .8rem; font-weight: 600; margin-bottom: 8px; }
+.ai-conversation-scope-caption { color: #7f8899; font-size: .74rem; line-height: 1.6; margin: 0 0 10px; }
 .ai-conversation-scope-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ai-conversation-scope-option {
   align-items: flex-start;

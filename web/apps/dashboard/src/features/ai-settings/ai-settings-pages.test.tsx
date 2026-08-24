@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation } from 'react-router';
@@ -109,10 +109,15 @@ function renderPage(api: AISettingsApi, page: 'kb' | 'agent', initialEntry?: str
 describe('AI 设置页面', () => {
   it('分析助手页展示双助手卡片与固定说明，不再出现默认术语', async () => {
     renderPage(createApi(), 'agent');
-    expect(await screen.findByRole('heading', { name: '会话分析助手' })).toBeTruthy();
+    const sessionHeading = await screen.findByRole('heading', { name: '会话分析助手' });
+    const sessionCard = sessionHeading.closest('.ai-assistant-card') as HTMLElement;
+    expect(sessionHeading).toBeTruthy();
     expect(screen.getByRole('heading', { name: '智能分析助手' })).toBeTruthy();
     expect(screen.getByText('分别配置会话分析与智能分析使用的固定系统助手')).toBeTruthy();
     expect(screen.getByText(/AI 设置管配置、AI 洞察看结果/)).toBeTruthy();
+    expect(within(sessionCard).getByText('会话范围')).toBeTruthy();
+    expect(within(sessionCard).getByText('客户单聊')).toBeTruthy();
+    expect(within(sessionCard).getByText('回看 14 天 · 至少 3 条消息')).toBeTruthy();
     expect(screen.queryByText('默认智能体')).toBeNull();
     expect(screen.queryByText('默认智能分析规则')).toBeNull();
     expect(screen.queryByText('同一个助手服务两页')).toBeNull();
@@ -125,13 +130,25 @@ describe('AI 设置页面', () => {
     expect(screen.queryByRole('heading', { name: '智能分析助手' })).toBeNull();
   });
 
-  it('会话分析助手编辑器只提交互斥的会话规则字段', async () => {
+  it('会话分析助手会话范围支持整卡点击、窗口编辑，并只提交互斥的会话规则字段', async () => {
     const updateAgent = vi.fn().mockResolvedValue({});
     renderPage(createApi({ updateAgent }), 'agent');
 
     fireEvent.click(await screen.findByRole('button', { name: '编辑配置 会话分析助手' }));
+    const dialog = screen.getByRole('dialog', { name: '配置会话分析助手' });
+    const groupCard = within(dialog).getByText('客户群聊').closest('.ai-conversation-scope-option') as HTMLElement;
+    const directCheckbox = within(dialog).getByRole('checkbox', { name: '客户单聊' });
+    const groupCheckbox = within(dialog).getByRole('checkbox', { name: '客户群聊' });
+    fireEvent.click(groupCard);
+    expect(groupCheckbox).toHaveProperty('checked', true);
+    fireEvent.click(directCheckbox);
+    expect(directCheckbox).toHaveProperty('checked', false);
+    expect(groupCheckbox).toHaveProperty('checked', true);
+    expect(groupCard.className).toContain('ai-conversation-scope-option--selected');
     fireEvent.change(screen.getByRole('textbox', { name: '客户分析提示词' }), { target: { value: '重点识别复购机会' } });
     fireEvent.change(screen.getByRole('textbox', { name: '员工质检提示词' }), { target: { value: '检查异议和未解决问题' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: '回看天数' }), { target: { value: '21' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: '最少消息数' }), { target: { value: '5' } });
     fireEvent.change(screen.getByRole('combobox', { name: '运行状态' }), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
@@ -143,9 +160,9 @@ describe('AI 设置页面', () => {
       sessionAnalysisRule: {
         customerAnalysisPrompt: '重点识别复购机会',
         employeeQaPrompt: '检查异议和未解决问题',
-        conversationTypes: ['direct'],
-        lookbackDays: 14,
-        minimumMessages: 3,
+        conversationTypes: ['group'],
+        lookbackDays: 21,
+        minimumMessages: 5,
       },
     }));
     expect(updateAgent.mock.calls[0]?.[2]).not.toHaveProperty('smartAnalysisRule');
@@ -190,12 +207,14 @@ describe('AI 设置页面', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '编辑配置 会话分析助手' }));
     fireEvent.change(screen.getByRole('textbox', { name: '客户分析提示词' }), { target: { value: '识别二次购买意向' } });
+    fireEvent.click(screen.getByText('客户群聊').closest('.ai-conversation-scope-option') as HTMLElement);
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     await waitFor(() => expect(updateAgent).toHaveBeenCalledTimes(1));
 
     fireEvent.click(await screen.findByRole('button', { name: '编辑配置 智能分析助手' }));
     expect(screen.queryByRole('textbox', { name: '客户分析提示词' })).toBeNull();
     expect(screen.getByRole('textbox', { name: '智能分析目标' })).toHaveProperty('value', '识别商机与流失风险');
+    expect(screen.getByRole('checkbox', { name: '客户群聊' })).toHaveProperty('checked', false);
     fireEvent.change(screen.getByRole('textbox', { name: '智能分析目标' }), { target: { value: '识别沉默客户' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
@@ -226,7 +245,7 @@ describe('AI 设置页面', () => {
     await waitFor(() => expect(listAgents).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(listKnowledgeBases).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('刷新后的会话说明')).toBeTruthy();
-    expect(screen.getByText('新的会话知识库')).toBeTruthy();
+    expect(screen.getAllByText('新的会话知识库').length).toBeGreaterThan(0);
   });
 
   it('更新失败时保留输入并映射稳定机器码', async () => {

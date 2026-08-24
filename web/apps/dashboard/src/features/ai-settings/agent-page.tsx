@@ -41,6 +41,9 @@ type SessionDraft = {
   status: number;
   customerAnalysisPrompt: string;
   employeeQaPrompt: string;
+  conversationTypes: ConversationType[];
+  lookbackDays: number;
+  minimumMessages: number;
 };
 
 type SmartDraft = {
@@ -60,6 +63,9 @@ function sessionDraftFromAgent(agent: SessionAnalysisAgentItem): SessionDraft {
     status: agent.status,
     customerAnalysisPrompt: agent.sessionAnalysisRule.customerAnalysisPrompt,
     employeeQaPrompt: agent.sessionAnalysisRule.employeeQaPrompt,
+    conversationTypes: [...agent.sessionAnalysisRule.conversationTypes],
+    lookbackDays: agent.sessionAnalysisRule.lookbackDays,
+    minimumMessages: agent.sessionAnalysisRule.minimumMessages,
   };
 }
 
@@ -176,6 +182,52 @@ function conversationScopeLabel(value: ConversationType): string {
   return value === 'direct' ? '客户单聊' : '客户群聊';
 }
 
+function conversationScopeDescription(value: ConversationType): string {
+  return value === 'direct'
+    ? '适合客户单聊中的意向、流失和服务质量判断。'
+    : '适合群聊中的协同信号、异议和群体互动观察。';
+}
+
+function ConversationScopeFieldset({
+  conversationTypes,
+  onToggle,
+}: {
+  conversationTypes: ConversationType[];
+  onToggle: (value: ConversationType) => void;
+}) {
+  return (
+    <fieldset className="ai-conversation-scope-fieldset">
+      <legend>会话范围</legend>
+      <p className="ai-conversation-scope-caption">至少保留一种会话类型，当前选择只作用于当前助手。</p>
+      <div className="ai-conversation-scope-grid">
+        {(['direct', 'group'] as const).map((type) => {
+          const checked = conversationTypes.includes(type);
+          const title = conversationScopeLabel(type);
+          return (
+            <label
+              key={type}
+              className={`ai-conversation-scope-option${checked ? ' ai-conversation-scope-option--selected' : ''}`}
+              tabIndex={0}
+              onKeyDown={(event) => keyboardToggle(event, () => onToggle(type))}
+            >
+              <input
+                aria-label={title}
+                type="checkbox"
+                checked={checked}
+                onChange={() => onToggle(type)}
+              />
+              <div>
+                <strong>{title}</strong>
+                <small>{conversationScopeDescription(type)}</small>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 function SessionAssistantCard({
   agent,
   knowledgeBaseNames,
@@ -217,8 +269,14 @@ function SessionAssistantCard({
       <div className="ai-assistant-summary-grid">
         <div><dt>客户分析提示词</dt><dd>{agent.sessionAnalysisRule.customerAnalysisPrompt}</dd></div>
         <div><dt>员工质检提示词</dt><dd>{agent.sessionAnalysisRule.employeeQaPrompt}</dd></div>
+        <div><dt>会话范围</dt><dd>{agent.sessionAnalysisRule.conversationTypes.map(conversationScopeLabel).join('、')}</dd></div>
+        <div><dt>规则窗口</dt><dd>回看 {agent.sessionAnalysisRule.lookbackDays} 天 · 至少 {agent.sessionAnalysisRule.minimumMessages} 条消息</dd></div>
+      </div>
+      <div className="ai-assistant-summary-grid">
         <div><dt>运行状态</dt><dd>{agent.status === 1 ? '仅影响会话分析运行' : '当前已停用，会话分析不会产出新结果'}</dd></div>
         <div><dt>结果入口</dt><dd><a href="/ai-insight/session-analysis">前往会话分析</a></dd></div>
+        <div><dt>关联知识库摘要</dt><dd>{knowledgeBaseNames}</dd></div>
+        <div><dt>文档就绪摘要</dt><dd>{agent.knowledgeBaseCount} 个知识库 · {agent.readyDocumentCount} 份就绪文档</dd></div>
       </div>
     </article>
   );
@@ -300,6 +358,9 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
     || sessionDraft.status !== sessionInitial.status
     || sessionDraft.customerAnalysisPrompt !== sessionInitial.customerAnalysisPrompt
     || sessionDraft.employeeQaPrompt !== sessionInitial.employeeQaPrompt
+    || !sameStrings(sessionDraft.conversationTypes, sessionInitial.conversationTypes)
+    || sessionDraft.lookbackDays !== sessionInitial.lookbackDays
+    || sessionDraft.minimumMessages !== sessionInitial.minimumMessages
   ));
   const smartDirty = Boolean(smartDraft && smartInitial && (
     smartDraft.description !== smartInitial.description
@@ -358,6 +419,17 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
       : current);
   }
 
+  function toggleSessionConversationType(value: ConversationType) {
+    setSessionDraft((current) => {
+      if (!current) return current;
+      if (current.conversationTypes.includes(value)) {
+        if (current.conversationTypes.length === 1) return current;
+        return { ...current, conversationTypes: current.conversationTypes.filter((item) => item !== value) };
+      }
+      return { ...current, conversationTypes: [...current.conversationTypes, value] };
+    });
+  }
+
   function toggleConversationType(value: ConversationType) {
     setSmartDraft((current) => {
       if (!current) return current;
@@ -378,9 +450,9 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
       sessionAnalysisRule: {
         customerAnalysisPrompt: sessionDraft?.customerAnalysisPrompt.trim() ?? '',
         employeeQaPrompt: sessionDraft?.employeeQaPrompt.trim() ?? '',
-        conversationTypes: sessionAgent?.sessionAnalysisRule.conversationTypes ?? ['direct'],
-        lookbackDays: sessionAgent?.sessionAnalysisRule.lookbackDays ?? 14,
-        minimumMessages: sessionAgent?.sessionAnalysisRule.minimumMessages ?? 3,
+        conversationTypes: sessionDraft?.conversationTypes ?? [],
+        lookbackDays: sessionDraft?.lookbackDays ?? 0,
+        minimumMessages: sessionDraft?.minimumMessages ?? 0,
       },
     }),
     onSuccess: async () => {
@@ -427,7 +499,12 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
     && textLength(sessionDraft.customerAnalysisPrompt.trim()) >= 2
     && textLength(sessionDraft.customerAnalysisPrompt.trim()) <= 4000
     && textLength(sessionDraft.employeeQaPrompt.trim()) >= 2
-    && textLength(sessionDraft.employeeQaPrompt.trim()) <= 4000,
+    && textLength(sessionDraft.employeeQaPrompt.trim()) <= 4000
+    && sessionDraft.conversationTypes.length > 0
+    && sessionDraft.lookbackDays >= 1
+    && sessionDraft.lookbackDays <= 30
+    && sessionDraft.minimumMessages >= 2
+    && sessionDraft.minimumMessages <= 50,
   );
   const smartValid = Boolean(
     corpId
@@ -530,6 +607,17 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
                   />
                 </section>
                 <section className="ai-assistant-editor-section">
+                  <header><h3>会话分析范围</h3><p>配置会话分析助手覆盖的会话类型与规则窗口，不影响智能分析助手。</p></header>
+                  <ConversationScopeFieldset
+                    conversationTypes={sessionDraft.conversationTypes}
+                    onToggle={toggleSessionConversationType}
+                  />
+                  <div className="ai-assistant-rule-numbers">
+                    <label>回看天数<input aria-label="回看天数" type="number" min={1} max={30} value={sessionDraft.lookbackDays} onChange={(event) => setSessionDraft({ ...sessionDraft, lookbackDays: Number(event.target.value) })} /><small>1–30 天</small></label>
+                    <label>最少消息数<input aria-label="最少消息数" type="number" min={2} max={50} value={sessionDraft.minimumMessages} onChange={(event) => setSessionDraft({ ...sessionDraft, minimumMessages: Number(event.target.value) })} /><small>2–50 条</small></label>
+                  </div>
+                </section>
+                <section className="ai-assistant-editor-section">
                   <header><h3>会话分析提示词</h3><p>客户洞察与员工质检分别使用独立提示词。</p></header>
                   <label>客户分析提示词<textarea aria-label="客户分析提示词" value={sessionDraft.customerAnalysisPrompt} onChange={(event) => setSessionDraft({ ...sessionDraft, customerAnalysisPrompt: event.target.value })} rows={4} /><small>用于购买意向、流失风险、需求和行动建议。</small></label>
                   <label>员工质检提示词<textarea aria-label="员工质检提示词" value={sessionDraft.employeeQaPrompt} onChange={(event) => setSessionDraft({ ...sessionDraft, employeeQaPrompt: event.target.value })} rows={4} /><small>用于质检维度、未解决问题/异议和改进建议。</small></label>
@@ -573,35 +661,10 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
                 <section className="ai-assistant-editor-section">
                   <header><h3>智能分析规则</h3><p>配置目标、会话范围和窗口约束。</p></header>
                   <label>智能分析目标<textarea aria-label="智能分析目标" value={smartDraft.objective} onChange={(event) => setSmartDraft({ ...smartDraft, objective: event.target.value })} rows={4} /></label>
-                  <fieldset className="ai-conversation-scope-fieldset">
-                    <legend>会话范围</legend>
-                    <div className="ai-conversation-scope-grid">
-                      {(['direct', 'group'] as const).map((type) => {
-                        const checked = smartDraft.conversationTypes.includes(type);
-                        const title = conversationScopeLabel(type);
-                        const description = type === 'direct' ? '适合客户单聊中的商机、流失和风险判断。' : '适合群聊中的协同信号和群体异常观察。';
-                        return (
-                          <label
-                            key={type}
-                            className={`ai-conversation-scope-option${checked ? ' ai-conversation-scope-option--selected' : ''}`}
-                            tabIndex={0}
-                            onKeyDown={(event) => keyboardToggle(event, () => toggleConversationType(type))}
-                          >
-                            <input
-                              aria-label={title}
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleConversationType(type)}
-                            />
-                            <div>
-                              <strong>{title}</strong>
-                              <small>{description}</small>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
+                  <ConversationScopeFieldset
+                    conversationTypes={smartDraft.conversationTypes}
+                    onToggle={toggleConversationType}
+                  />
                   <div className="ai-assistant-rule-numbers">
                     <label>回看天数<input aria-label="回看天数" type="number" min={1} max={30} value={smartDraft.lookbackDays} onChange={(event) => setSmartDraft({ ...smartDraft, lookbackDays: Number(event.target.value) })} /><small>1–30 天</small></label>
                     <label>最少消息数<input aria-label="最少消息数" type="number" min={2} max={50} value={smartDraft.minimumMessages} onChange={(event) => setSmartDraft({ ...smartDraft, minimumMessages: Number(event.target.value) })} /><small>2–50 条</small></label>

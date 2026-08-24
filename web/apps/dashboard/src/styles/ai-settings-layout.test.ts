@@ -34,6 +34,7 @@ describe('AI 设置响应式布局合同', () => {
   it('双助手卡片在桌面并排、移动端改为单列，会话范围卡也遵守同样合同', () => {
     expect(block('.ai-assistant-card-grid')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
     expect(block('.ai-conversation-scope-grid')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(block('.ai-conversation-scope-option--selected')).toContain('border-color: #536bf4');
     expect(stylesheet).toContain('.ai-assistant-card-grid, .ai-conversation-scope-grid { grid-template-columns: 1fr; }');
   });
 
