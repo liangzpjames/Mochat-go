@@ -51,6 +51,36 @@
   - `git diff --check`
   - 结果：通过（仅保留换行风格 warning，无 diff error）
 
+## Review fixes（Task 7 第二轮审查修复）
+
+- 分数量化标签与枚举本地化：
+  - `low / medium / high / insufficient` 统一映射为 `低 / 中 / 高 / 证据不足`
+  - `emotion.label` 的 `positive / neutral / negative / mixed / unknown` 映射为中文标签
+  - `metricValue` 对 `null + insufficient` 特判为 `证据不足`
+  - 保留 `0` 分的真实展示，不再把 `0` 误判为空
+- 员工搜索竞态加固：
+  - effect cleanup 时立即使旧请求失效
+  - close / commit / clear 时同步失效在飞请求
+  - loading 阶段主动清空旧 `options` 与 `activeIndex`
+  - 避免晚到结果重新写回列表，或让 `aria-activedescendant` 指向不存在的 option
+- 补充 deferred promise 竞态测试：
+  - 覆盖旧请求晚到、loading 清空旧选项、最终只接纳最新结果
+
+### 第二轮修复验证
+
+- Vitest：
+  - `pnpm exec vitest run src/features/ai-insight/ai-insight-workspace-api.test.ts src/features/ai-insight/ai-insight-url-state.test.ts src/features/ai-insight/ai-insight-workspace.test.tsx src/features/ai-insight/session-analysis-page.test.tsx src/features/ai-insight/smart-analysis-page.test.tsx`
+  - 结果：`5 passed / 28 passed`
+- Typecheck：
+  - `pnpm run typecheck`
+  - 结果：通过
+- ESLint（任务范围 TS/TSX）：
+  - `pnpm exec eslint src/features/ai-insight/ai-insight-workspace-api.ts src/features/ai-insight/ai-insight-url-state.ts src/features/ai-insight/ai-insight-workspace.tsx src/features/ai-insight/ai-insight-workspace.test.tsx src/features/ai-insight/session-analysis-page.tsx src/features/ai-insight/session-analysis-page.test.tsx src/features/ai-insight/smart-analysis-page.tsx src/features/ai-insight/smart-analysis-page.test.tsx`
+  - 结果：通过
+- Diff check：
+  - `git diff --check`
+  - 结果：通过（仅保留换行风格 warning，无 diff error）
+
 ## 备注
 
 - 未修改后端、AI settings、其他 AI insight 页面、全局菜单。

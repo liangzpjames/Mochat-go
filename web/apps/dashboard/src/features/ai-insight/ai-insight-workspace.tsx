@@ -15,6 +15,19 @@ import type {
 import { readSessionFilters, readSmartState, writeSessionFilters, writeSmartState } from './ai-insight-url-state';
 
 const EMPLOYEE_CACHE_KEY = 'ai-insight.employee-name';
+const LEVEL_LABELS: Record<string, string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+  insufficient: '证据不足',
+};
+const EMOTION_LABELS: Record<string, string> = {
+  positive: '积极',
+  neutral: '中性',
+  negative: '消极',
+  mixed: '混合',
+  unknown: '未知',
+};
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -31,6 +44,20 @@ function asText(value: unknown): string {
 function asNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   return null;
+}
+
+function normalizedText(value: unknown): string {
+  return asText(value).trim().toLowerCase();
+}
+
+function localizeLevel(value: unknown): string {
+  const normalized = normalizedText(value);
+  return LEVEL_LABELS[normalized] ?? asText(value).trim();
+}
+
+function localizeEmotion(value: unknown): string {
+  const normalized = normalizedText(value);
+  return EMOTION_LABELS[normalized] ?? asText(value).trim();
 }
 
 function scoreText(value: unknown): string {
@@ -54,8 +81,8 @@ function listOrFallback(value: unknown): string[] {
 
 function metricValue(primary: unknown, secondary?: unknown): string {
   const score = asNumber(primary);
-  if (score !== null) return `${score}分${secondary ? ` · ${asText(secondary)}` : ''}`;
-  const secondaryText = asText(secondary).trim();
+  const secondaryText = localizeLevel(secondary);
+  if (score !== null) return `${score}分${secondaryText && secondaryText !== '证据不足' ? ` · ${secondaryText}` : ''}`;
   return secondaryText || '证据不足';
 }
 
@@ -185,6 +212,7 @@ export function EmployeeSearchField({
   const [error, setError] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
   const requestRef = useRef(0);
+  const timerRef = useRef<number | null>(null);
   const listboxId = 'ai-insight-employee-options';
   const activeOptionId = open && activeIndex >= 0 && options[activeIndex] ? `ai-insight-employee-option-${options[activeIndex].id}` : undefined;
 
@@ -197,7 +225,10 @@ export function EmployeeSearchField({
     const currentRequest = ++requestRef.current;
     setLoading(true);
     setError('');
-    const timer = window.setTimeout(() => {
+    setOptions([]);
+    setActiveIndex(-1);
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
       void loadOptions(inputValue.trim() || undefined, 20)
         .then((result) => {
           if (currentRequest !== requestRef.current) return;
@@ -214,24 +245,39 @@ export function EmployeeSearchField({
           if (currentRequest === requestRef.current) setLoading(false);
         });
     }, 150);
-    return () => window.clearTimeout(timer);
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      if (requestRef.current === currentRequest) requestRef.current += 1;
+    };
   }, [inputValue, loadOptions, open]);
 
+  function cancelPendingRequest() {
+    requestRef.current += 1;
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    setLoading(false);
+    setOptions([]);
+    setActiveIndex(-1);
+  }
+
   function commit(employee: Person) {
+    cancelPendingRequest();
     rememberEmployee(employee);
     setInputValue(employee.name);
     setOpen(false);
-    setOptions([]);
-    setActiveIndex(-1);
     setError('');
     onSelect(employee);
   }
 
   function clear() {
+    cancelPendingRequest();
     setInputValue('');
     setOpen(false);
-    setOptions([]);
-    setActiveIndex(-1);
     setError('');
     onSelect(undefined);
   }
@@ -242,6 +288,7 @@ export function EmployeeSearchField({
       return;
     }
     if (event.key === 'Escape') {
+      cancelPendingRequest();
       setOpen(false);
       return;
     }
@@ -461,7 +508,7 @@ function SessionDetailSections({ result }: { result: Record<string, unknown> }) 
           <DetailField label="质量分 / 等级" value={metricValue(customer.qualityScore, customer.qualityLevel)} />
           <DetailField label="购买意向" value={metricValue(purchase.score, purchase.level)} />
           <DetailField label="流失风险" value={metricValue(churn.score, churn.level)} />
-          <DetailField label="客户情绪" value={asText(emotion.label) || '证据不足'} />
+          <DetailField label="客户情绪" value={localizeEmotion(emotion.label) || '证据不足'} />
         </div>
         <DetailField label="质量依据" value={asText(customer.qualityReason) || '证据不足'} />
         <DetailField label="购买意向依据" value={asText(purchase.reason) || '证据不足'} />

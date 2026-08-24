@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   EmployeeFilterOptions,
@@ -15,6 +15,16 @@ import {
   SessionTable,
   SmartTable,
 } from './ai-insight-workspace';
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -48,11 +58,11 @@ const sessionSuccessRow: SessionInsightRow = {
     schemaVersion: 2,
     customer: {
       qualityScore: 86,
-      qualityLevel: '高',
+      qualityLevel: 'high',
       qualityReason: '预算与需求都比较清晰。',
       purchaseIntent: {
         score: 92,
-        level: '高',
+        level: 'high',
         reason: '客户明确询价并确认交付周期。',
         evidenceMessageIds: ['m2'],
         dimensions: [
@@ -61,7 +71,7 @@ const sessionSuccessRow: SessionInsightRow = {
       },
       churnRisk: {
         score: null,
-        level: '',
+        level: 'insufficient',
         reason: '证据不足',
         evidenceMessageIds: [],
         dimensions: [
@@ -72,7 +82,7 @@ const sessionSuccessRow: SessionInsightRow = {
       explicitNeeds: ['希望 9 月前上线'],
       implicitNeeds: ['需要更明确的实施排期'],
       emotion: {
-        label: '积极',
+        label: 'positive',
         reason: '客户持续追问报价与上线时间。',
         evidenceMessageIds: ['m1'],
       },
@@ -107,8 +117,8 @@ const smartV2Row: SmartInsightRow = {
     schemaVersion: 2,
     matchScore: 88,
     confidenceScore: 73,
-    priorityScore: 91,
-    priorityLevel: 'P1',
+    priorityScore: 0,
+    priorityLevel: 'low',
     evidenceCoverageScore: 65,
     conclusion: '建议 48 小时内重点回访。',
     dimensions: [
@@ -175,8 +185,9 @@ describe('AI 洞察工作台渲染', () => {
     expect(screen.getByText('置信度')).toBeTruthy();
     expect(screen.getByText('73分')).toBeTruthy();
     expect(screen.getByText('优先级')).toBeTruthy();
-    expect(screen.getByText('91分 · P1')).toBeTruthy();
+    expect(screen.getByText('0分 · 低')).toBeTruthy();
     expect(screen.getByText(/覆盖度 65分/)).toBeTruthy();
+    expect(screen.queryByText('low')).toBeNull();
   });
 
   it('智能 v1 历史结果显示 matched、confidence 百分比和历史说明', () => {
@@ -205,6 +216,7 @@ describe('AI 洞察工作台渲染', () => {
     expect(screen.getByText('质量分 / 等级')).toBeTruthy();
     expect(screen.getByText('客户情绪')).toBeTruthy();
     expect(screen.getByText('积极')).toBeTruthy();
+    expect(screen.queryByText('positive')).toBeNull();
     expect(screen.getByText('客户持续追问报价与上线时间。')).toBeTruthy();
     expect(screen.getByText('客户明确询价并确认交付周期。')).toBeTruthy();
     expect(screen.getByText('尚未确认决策窗口。')).toBeTruthy();
@@ -219,6 +231,7 @@ describe('AI 洞察工作台渲染', () => {
     expect(screen.getByText('避免一次性给出过多折扣')).toBeTruthy();
     expect(screen.getByText('关键诉求已追问。')).toBeTruthy();
     expect(screen.getAllByText('关键证据').length).toBe(3);
+    expect(screen.queryByText('insufficient')).toBeNull();
   });
 
   it('智能 v2 详情展示四项 KPI、维度、建议和证据', () => {
@@ -233,6 +246,7 @@ describe('AI 洞察工作台渲染', () => {
     expect(screen.getByRole('heading', { name: '量化指标' })).toBeTruthy();
     expect(screen.getByText('覆盖度')).toBeTruthy();
     expect(screen.getByText('65分')).toBeTruthy();
+    expect(screen.getByText('0分 · 低')).toBeTruthy();
     expect(screen.getByText('建议 48 小时内重点回访。')).toBeTruthy();
     expect(screen.getByText('预算信号')).toBeTruthy();
     expect(screen.getByText('由销售主管跟进')).toBeTruthy();
@@ -286,6 +300,58 @@ describe('AI 洞察工作台渲染', () => {
     fireEvent.change(combo, { target: { value: '李' } });
     await waitFor(() => expect(loadOptions).toHaveBeenCalledTimes(2));
     expect((await screen.findByRole('status')).textContent).toContain('没有匹配员工');
+  });
+
+  it('员工筛选组合框忽略过期请求结果，loading 时不保留旧 option 或失效 aria', async () => {
+    vi.useFakeTimers();
+    try {
+      const first = createDeferred<EmployeeFilterOptions>();
+      const second = createDeferred<EmployeeFilterOptions>();
+      const loadOptions = vi.fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      renderFilterField({ loadOptions });
+      const combo = screen.getByRole('combobox', { name: '员工' });
+
+      fireEvent.focus(combo);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
+      expect(loadOptions).toHaveBeenNthCalledWith(1, undefined, 20);
+      expect(screen.getByRole('status').textContent).toContain('正在加载员工…');
+      expect(screen.queryByRole('option')).toBeNull();
+      expect(combo.getAttribute('aria-activedescendant')).toBeNull();
+
+      fireEvent.change(combo, { target: { value: '李' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
+      expect(loadOptions).toHaveBeenNthCalledWith(2, '李', 20);
+      expect(screen.getByRole('status').textContent).toContain('正在加载员工…');
+      expect(screen.queryByRole('option')).toBeNull();
+      expect(combo.getAttribute('aria-activedescendant')).toBeNull();
+
+      await act(async () => {
+        first.resolve({ employees: [{ id: 1001, name: '张三', avatar: '' }] });
+        await Promise.resolve();
+      });
+      expect(screen.queryByText('张三')).toBeNull();
+      expect(combo.getAttribute('aria-activedescendant')).toBeNull();
+
+      await act(async () => {
+        second.resolve({ employees: [{ id: 1002, name: '李四', avatar: '' }] });
+        await Promise.resolve();
+      });
+      const option = screen.getByRole('option', { name: /李四/ });
+      expect(option.id).toContain('ai-insight-employee-option-1002');
+      expect(combo.getAttribute('aria-activedescendant')).toBe(option.id);
+
+      fireEvent.click(screen.getByRole('button', { name: '清除员工' }));
+      expect(screen.queryByRole('option')).toBeNull();
+      expect(combo.getAttribute('aria-activedescendant')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('失败状态和 Provider 不可用状态保持明确', () => {
