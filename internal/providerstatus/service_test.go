@@ -52,6 +52,45 @@ func TestServiceProjectsRuntimeStatusWithoutConfigurationNamesForOrdinaryUsers(t
 	}
 }
 
+func TestServiceProjectsRedactedCompanyProviderStatusesForWebsitePermission(t *testing.T) {
+	now := time.Date(2026, 8, 24, 10, 30, 0, 0, time.UTC)
+	source := &statusTestSource{statuses: []providers.Status{
+		{
+			Kind: "wecom_standard", State: providers.StateLimited, Code: "wecom.credentials_missing",
+			Source: providers.SourceExternal, Reason: "MOCHAT_WECOM_SECRET is missing", Missing: []string{"MOCHAT_WECOM_SECRET"},
+			Capabilities: []string{"employee_sync"}, LastSuccessAt: &now,
+		},
+		{
+			Kind: "wecom_archive", State: providers.StateLimited, Code: "archive.credentials_missing",
+			Source: providers.SourceExternal, Reason: "MOCHAT_ARCHIVE_SECRET is missing", Missing: []string{"MOCHAT_ARCHIVE_SECRET"},
+			Capabilities: []string{"archive_sync"}, LastFailureAt: &now,
+		},
+		{
+			Kind: "ai", State: providers.StateLimited, Code: "ai.key_missing", Source: providers.SourceExternal,
+			Capabilities: []string{"chat"},
+		},
+	}}
+	ctx := dashboardprincipal.WithCapabilityAccess(context.Background(), false, []string{"dashboard.company_setting.website"})
+	view, err := NewService(source).Resolve(ctx, statusTestPrincipal(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Providers) != 2 {
+		t.Fatalf("website provider statuses = %#v, want redacted WeCom and archive statuses only", view.Providers)
+	}
+	for _, status := range view.Providers {
+		if status.Reason != "" || len(status.Missing) != 0 || status.Action != "请联系管理员配置或验证 Provider" {
+			t.Fatalf("website status leaked diagnostics: %#v", status)
+		}
+	}
+	if view.Providers[0].LastSuccessAt == nil || !view.Providers[0].LastSuccessAt.Equal(now) {
+		t.Fatalf("standard provider timestamp = %#v, want %s", view.Providers[0].LastSuccessAt, now)
+	}
+	if view.Providers[1].LastFailureAt == nil || !view.Providers[1].LastFailureAt.Equal(now) {
+		t.Fatalf("archive provider timestamp = %#v, want %s", view.Providers[1].LastFailureAt, now)
+	}
+}
+
 func TestServiceRedactsUntrustedMachineCodesForOrdinaryUsers(t *testing.T) {
 	source := &statusTestSource{statuses: []providers.Status{{
 		Kind: "wecom_standard", State: providers.StateLimited, Code: "MOCHAT_SECRET", Source: providers.SourceExternal,

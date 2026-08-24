@@ -42,10 +42,8 @@ func VisibleProviderCapabilities(ctx context.Context, principal DashboardPrincip
 		}
 	}
 	visible := make([]string, 0, len(seen))
-	for _, capability := range wecomcapability.All {
-		if _, ok := seen[capability]; ok {
-			visible = append(visible, capability)
-		}
+	for capability := range seen {
+		visible = append(visible, capability)
 	}
 	sort.Strings(visible)
 	return visible
@@ -54,6 +52,7 @@ func VisibleProviderCapabilities(ctx context.Context, principal DashboardPrincip
 // ProviderPageCapabilityMapping is intentionally exact and is cross-checked
 // against internal/dashboard/dashboard_page_catalog.json in tests.
 var ProviderPageCapabilityMapping = map[string][]string{
+	"dashboard.company_setting.website":             append(append([]string(nil), wecomcapability.All...), "archive_sync"),
 	"dashboard.index":                               {wecomcapability.EmployeeSync, wecomcapability.DepartmentSync},
 	"dashboard.chat.v2_all":                         {wecomcapability.EmployeeSync, wecomcapability.ExternalContactSync, wecomcapability.RoomSync},
 	"dashboard.chat.v2_staff":                       {wecomcapability.EmployeeSync, wecomcapability.DepartmentSync},

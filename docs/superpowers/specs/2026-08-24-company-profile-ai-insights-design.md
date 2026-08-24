@@ -164,7 +164,7 @@
 
 ### 9.3 迁移
 
-- `0162_company_profile_grantable`：只纠正页面 restriction；down 恢复 0131 策略。
+- `0162_company_profile_grantable`：纠正页面 restriction，并把只读 `/dashboard/providers/status` 幂等登记为 website 页面资源；down 恢复 0131 restriction，并只删除本迁移登记的资源键。
 - `0163_ai_insight_projection_resources`：为三个页面新增只读 API resource；down 仅删除本迁移新增的资源。
 - 不改写 0127、0131 或其他已应用迁移字节。
 - 必须验证 fresh apply、重复执行、checksum、保留卷升级和迁移健康。

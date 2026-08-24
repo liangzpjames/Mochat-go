@@ -47,7 +47,8 @@ type OperationFeedback = { scope: FeedbackScope; tone: 'error' | 'notice'; messa
 export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, onNavigate, providerStatusApi }: CompanyWebsitePageProps) {
   const access = useOptionalDashboardAccess();
   const queryClient = useQueryClient();
-  const canView = isSuperAdmin ?? access?.profile?.isSuperAdmin ?? false;
+  const canView = access?.allowedRoutes.has('/company-setting/website') ?? isSuperAdmin ?? false;
+  const canViewProviderDiagnostics = access?.profile?.isSuperAdmin ?? false;
   const [displayName, setDisplayName] = useState('');
   const [verifyCorpId, setVerifyCorpId] = useState('');
   const [archiveChatSecret, setArchiveChatSecret] = useState('');
@@ -212,8 +213,8 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 
   if (!canView) {
     return (
-      <Phase35PageShell title="唯一企业资料" description="仅企业超级管理员可查看和维护企业配置。">
-        <PageState state="forbidden" title="暂无权限查看企业资料" description="只有企业超级管理员可以查看和维护企业配置。" />
+      <Phase35PageShell title="唯一企业资料" description="企业资料页面按租户角色或直接授权开放。">
+        <PageState state="forbidden" title="暂无权限查看企业资料" description="当前账号未获企业资料页面权限，请联系管理员授权。" />
       </Phase35PageShell>
     );
   }
@@ -253,7 +254,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   return (
     <Phase35PageShell title="唯一企业资料" description="企业绑定由服务端确定，当前页面不提供新建、切换或删除企业。">
       <div className="phase35-page company-profile-page">
-        {providerStatusApi === undefined ? null : <ProviderStatusPage api={providerStatusApi} isSuperAdmin={canView} />}
+        {providerStatusApi === undefined ? null : <ProviderStatusPage api={providerStatusApi} isSuperAdmin={canViewProviderDiagnostics} />}
         <section className="phase35-card company-profile-card" aria-labelledby="company-identity-heading">
           <header className="company-profile-card-header">
             <div>

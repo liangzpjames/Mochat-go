@@ -100,7 +100,7 @@ Expected: 当前 superadmin-only 与 deny-only 策略导致至少一项失败。
 
 - [ ] **Step 1: 新增纠正迁移**
 
-`up` 只执行参数固定的 catalog 更新：`restriction='grantable', superadmin_only=0`；`down` 恢复 `restriction='superadmin_only', superadmin_only=1`。不得编辑 0131。
+`up` 执行参数固定的 catalog 更新：`restriction='grantable', superadmin_only=0`，并幂等登记 website 的 `GET /dashboard/providers/status` 只读资源；`down` 恢复 `restriction='superadmin_only', superadmin_only=1`，并删除该迁移登记的资源键。不得编辑 0131。
 
 - [ ] **Step 2: 对齐 canonical catalog 与 deny-only**
 

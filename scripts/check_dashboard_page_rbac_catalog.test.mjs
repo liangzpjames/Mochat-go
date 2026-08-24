@@ -17,7 +17,6 @@ import {
 } from './check_dashboard_page_rbac_catalog.mjs';
 
 const adminPaths = [
-  '/company-setting/website',
   '/company-setting/staff',
   '/setting/role',
   '/setting/additional',
@@ -30,6 +29,7 @@ function fixture() {
     title: `页面 ${index}`,
     groupId: index === 0 ? null : 'group',
   }));
+  pages[47] = { path: '/company-setting/website', title: '企业信息', groupId: 'company-settings' };
   adminPaths.forEach((path, index) => {
     pages[48 + index] = { path, title: `管理页 ${index}`, groupId: 'company-settings' };
   });
@@ -53,11 +53,11 @@ function fixture() {
   };
 }
 
-test('accepts exactly 53 pages, 48 ordinary pages and five protected management pages', () => {
+test('accepts exactly 53 pages, 49 ordinary pages and four protected management pages', () => {
   const result = validateDashboardPageRBACCatalog(fixture());
   assert.equal(result.pageCount, 53);
-  assert.equal(result.ordinaryPageCount, 48);
-  assert.equal(result.superadminOnlyCount, 5);
+  assert.equal(result.ordinaryPageCount, 49);
+  assert.equal(result.superadminOnlyCount, 4);
   assert.equal(result.resourceCount, 1);
 });
 
@@ -116,6 +116,23 @@ test('0161 overlay rejects a migration missing either protected filter route', (
     }),
     /0161 AI insight filter resource seed is incomplete/,
   );
+});
+
+test('0162 makes company profile grantable and owns only the Provider status resource key', async () => {
+  const [up, down] = await Promise.all([
+    readFile('deploy/standalone/migrations/0162_company_profile_grantable.up.sql', 'utf8'),
+    readFile('deploy/standalone/migrations/0162_company_profile_grantable.down.sql', 'utf8'),
+  ]);
+
+  const normalizedUp = up.replaceAll('`', '');
+  const normalizedDown = down.replaceAll('`', '');
+  assert.match(normalizedUp, /SET\s+restriction\s*=\s*'grantable'\s*,\s*superadmin_only\s*=\s*0[\s\S]*WHERE\s+code\s*=\s*'dashboard\.company_setting\.website'/i);
+  assert.match(normalizedUp, /dashboard\.company_setting\.website[\s\S]*GET[\s\S]*\/dashboard\/providers\/status[\s\S]*0\s+AS\s+scope_required/i);
+  assert.match(normalizedUp, /\(permission_id,\s*resource_type,\s*http_method,\s*path_pattern,\s*scope_required,\s*status,\s*version\)[\s\S]*SELECT[\s\S]*1,\s*1/i);
+  assert.match(normalizedUp, /WHERE\s+NOT\s+EXISTS[\s\S]*resource_type[\s\S]*http_method[\s\S]*path_pattern/i);
+
+  assert.match(normalizedDown, /SET\s+restriction\s*=\s*'superadmin_only'\s*,\s*superadmin_only\s*=\s*1[\s\S]*WHERE\s+code\s*=\s*'dashboard\.company_setting\.website'/i);
+  assert.match(normalizedDown, /DELETE[\s\S]*dashboard\.company_setting\.website[\s\S]*resource_type[\s\S]*GET[\s\S]*\/dashboard\/providers\/status/i);
 });
 
 test('0158 deactivates independent smart-rule writes and refuses history-destroying rollback', async () => {
@@ -317,17 +334,13 @@ test('deny-only routes can be consumed by an explicitly protected page without g
   );
 });
 
-test('company deny-only routes may be consumed only by the protected company page', () => {
+test('grantable company routes cannot remain in deny-only policy', () => {
   const input = fixture();
   const companyPage = input.catalog.find((page) => page.path === '/company-setting/website');
   companyPage.resources = [{ method: 'GET', pathPattern: '/dashboard/company/profile', scopeRequired: false }];
   input.apiUsages.push('GET /dashboard/company/profile');
   input.registeredAPIs.push('GET /dashboard/company/profile');
   input.denyOnly = ['GET /dashboard/company/profile'];
-  assert.doesNotThrow(() => validateDashboardPageRBACCatalog(input));
-
-  companyPage.resources = [];
-  input.catalog[1].resources = [{ method: 'GET', pathPattern: '/dashboard/company/profile', scopeRequired: false }];
   assert.throws(
     () => validateDashboardPageRBACCatalog(input),
     /deny-only dashboard route is mapped to a page: GET \/dashboard\/company\/profile/,

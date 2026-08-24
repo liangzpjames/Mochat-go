@@ -12,8 +12,8 @@ import {
 } from './check_dashboard_page_rbac_catalog.mjs';
 
 export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource, smokeSource, packageJSON, frontendSource = '', backendEvidence = '', scopeMappings = '' }) {
-  if (!/^53 pages, 48 ordinary, 5 superadmin_only, 0 unmapped dashboard API usages$/.test(catalogOutput.trim())) {
-    throw new Error('catalog gate must report 53/48/5 and zero unmapped usages');
+  if (!/^53 pages, 49 ordinary, 4 superadmin_only, 0 unmapped dashboard API usages$/.test(catalogOutput.trim())) {
+    throw new Error('catalog gate must report 53/49/4 and zero unmapped usages');
   }
   for (const forbidden of ['benchmarkRoutes', 'SaaS 绠＄悊鍚庡彴', 'Dashboard鈫扴aaS']) {
     if (sourceCorpus.includes(forbidden)) throw new Error(`forbidden legacy authorization fact: ${forbidden}`);
@@ -23,8 +23,8 @@ export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource
   if (frontendSource && /dashboard\/access\/profile/.test(frontendSource) && !/dashboard\/access\/catalog/.test(frontendSource)) throw new Error('frontend API extraction missed catalog usage');
   if (backendEvidence && /GET \/dashboard\/access\/users/.test(backendEvidence) && !/source:/.test(backendEvidence)) throw new Error('backend handler evidence must include source file and line');
   if (scopeMappings && !/handler .*\(.+:[0-9]+\) -> guard .*:[0-9]+ -> consumer .+:[0-9]+/.test(scopeMappings)) throw new Error('scope mapping must include handler, guard, and consumer source evidence');
-  if (!e2eSource.includes('390') || !e2eSource.includes('53') || !e2eSource.includes('48') || !e2eSource.includes('5') || !/for\s*\(const route of (routes|ordinaryRoutes)/.test(e2eSource)) {
-    throw new Error('Playwright matrix must declare 53/48/5 and 390px coverage');
+  if (!e2eSource.includes('390') || !e2eSource.includes('53') || !e2eSource.includes('49') || !e2eSource.includes('4') || !/for\s*\(const route of (routes|ordinaryRoutes)/.test(e2eSource)) {
+    throw new Error('Playwright matrix must declare 53/49/4 and 390px coverage');
   }
   if (!e2eSource.includes('TENANT_ACCESS_DENIED') || !e2eSource.includes('DASHBOARD_PERMISSION_DENIED') || !/status\(\)\)?\.toBe\(403\)/.test(e2eSource)) {
     throw new Error('Playwright matrix must cover both stable 403 machine codes');
@@ -43,7 +43,7 @@ export function validateCompletionFacts({ catalogOutput, sourceCorpus, e2eSource
     throw new Error('Playwright must assert page shell, 390px overflow, and console/network evidence');
   }
   if (!e2eSource.includes('MOCHAT_E2E_LIVE_BASE') || !e2eSource.includes('MOCHAT_E2E_RBAC_FIXTURE_JSON') || !e2eSource.includes('liveFixture') || !e2eSource.includes('exactAllowedRoutes') || !e2eSource.includes('expectedSources') || !e2eSource.includes('forbiddenCodes') || !e2eSource.includes('forbiddenRoleIds') || !e2eSource.includes('noPermission') || !e2eSource.includes('mochat_dashboard_token') || !e2eSource.includes('tenantDenied')) throw new Error('live Playwright fixture/login matrix is required');
-  return { pages: 53, ordinary: 48, superadminOnly: 5 };
+  return { pages: 53, ordinary: 49, superadminOnly: 4 };
 }
 async function readGoFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -117,10 +117,17 @@ export async function runCompletionGate(root = process.cwd()) {
       'utf8',
     ),
   });
-  const seededMappings = applyAIInsightFilterOptionsRBACOverlay({
+  const aiInsightFilterMappings = applyAIInsightFilterOptionsRBACOverlay({
     mappings: smartRuleMappings,
     overlaySource: await readFile(
       path.join(root, 'deploy/standalone/migrations/0161_ai_insight_filter_options_rbac.up.sql'),
+      'utf8',
+    ),
+  });
+  const seededMappings = applyPermissionResourceReconciliation({
+    mappings: aiInsightFilterMappings,
+    overlaySource: await readFile(
+      path.join(root, 'deploy/standalone/migrations/0162_company_profile_grantable.up.sql'),
       'utf8',
     ),
   });

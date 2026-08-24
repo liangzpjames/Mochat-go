@@ -4,7 +4,6 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SUPERADMIN_ONLY_PATHS = new Set([
-  '/company-setting/website',
   '/company-setting/staff',
   '/setting/role',
   '/setting/additional',
@@ -862,10 +861,17 @@ async function main() {
       'utf8',
     ),
   });
-  const seededMappings = applyAIInsightFilterOptionsRBACOverlay({
+  const aiInsightFilterMappings = applyAIInsightFilterOptionsRBACOverlay({
     mappings: smartRuleMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0161_ai_insight_filter_options_rbac.up.sql',
+      'utf8',
+    ),
+  });
+  const seededMappings = applyPermissionResourceReconciliation({
+    mappings: aiInsightFilterMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0162_company_profile_grantable.up.sql',
       'utf8',
     ),
   });

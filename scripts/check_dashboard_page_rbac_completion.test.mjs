@@ -3,22 +3,22 @@ import assert from 'node:assert/strict';
 import { runCompletionGate, validateCompletionFacts } from './check_dashboard_page_rbac_completion.mjs';
 
 const base = {
-  catalogOutput: '53 pages, 48 ordinary, 5 superadmin_only, 0 unmapped dashboard API usages',
+  catalogOutput: '53 pages, 49 ordinary, 4 superadmin_only, 0 unmapped dashboard API usages',
   sourceCorpus: 'loadAccessProfile();',
-  e2eSource: 'const MOCHAT_E2E_LIVE_BASE=""; const MOCHAT_E2E_RBAC_FIXTURE_JSON=""; const liveFixture={ exactAllowedRoutes: [], expectedSources: [], forbiddenCodes: [], forbiddenRoleIds: [] }; const directCode=""; const roleUnionCode=""; const disabledRoleCode=""; const noPermission={}; const tenantDenied={}; const mochat_dashboard_token=""; const routes=[]; const ordinaryRoutes=[]; for (const route of routes) {} for (const route of ordinaryRoutes) {}; const ordinary=48; const protectedPages=5; const allPages=53; viewport=390; TENANT_ACCESS_DENIED; DASHBOARD_PERMISSION_DENIED; profileResponse.status()).toBe(403); .phase35-page-shell; document.documentElement.scrollWidth; page.on("response", fn);',
+  e2eSource: 'const MOCHAT_E2E_LIVE_BASE=""; const MOCHAT_E2E_RBAC_FIXTURE_JSON=""; const liveFixture={ exactAllowedRoutes: [], expectedSources: [], forbiddenCodes: [], forbiddenRoleIds: [] }; const directCode=""; const roleUnionCode=""; const disabledRoleCode=""; const noPermission={}; const tenantDenied={}; const mochat_dashboard_token=""; const routes=[]; const ordinaryRoutes=[]; for (const route of routes) {} for (const route of ordinaryRoutes) {}; const ordinary=49; const protectedPages=4; const allPages=53; viewport=390; TENANT_ACCESS_DENIED; DASHBOARD_PERMISSION_DENIED; profileResponse.status()).toBe(403); .phase35-page-shell; document.documentElement.scrollWidth; page.on("response", fn);',
   smokeSource: 'docker compose ps; docker volume ls; Invoke-RestMethod /dashboard/user/auth; headers.Authorization = Bearer token; TargetUserId CrossTenantUserId MutationJson sh -lc COUNT(*)',
   packageJSON: { scripts: { 'check:phase4-dashboard-page-rbac': 'node scripts/check_dashboard_page_rbac_completion.mjs' } },
 };
 
 test('completion gate accepts complete matrix facts', () => {
-  assert.deepEqual(validateCompletionFacts(base), { pages: 53, ordinary: 48, superadminOnly: 5 });
+  assert.deepEqual(validateCompletionFacts(base), { pages: 53, ordinary: 49, superadminOnly: 4 });
 });
 
-test('completion gate includes the 0155 Agent dependency and 0161 insight-filter overlays', async () => {
+test('completion gate includes the 0155 Agent, 0161 insight-filter and 0162 company-profile overlays', async () => {
   const result = await runCompletionGate();
   assert.deepEqual(
     { pages: result.pages, ordinary: result.ordinary, superadminOnly: result.superadminOnly },
-    { pages: 53, ordinary: 48, superadminOnly: 5 },
+    { pages: 53, ordinary: 49, superadminOnly: 4 },
   );
 });
 
@@ -38,7 +38,7 @@ test('completion gate rejects structural regressions, not just matching strings'
   for (const sourceCorpus of ['ordinary company-setting/staff fallback: allow', 'handler uses DataPermission']) {
     assert.throws(() => validateCompletionFacts({ ...base, sourceCorpus }), /ordinary management|DataPermission/);
   }
-  assert.throws(() => validateCompletionFacts({ ...base, catalogOutput: '52 pages, 47 ordinary, 5 superadmin_only, 0 unmapped dashboard API usages' }), /catalog gate/);
+  assert.throws(() => validateCompletionFacts({ ...base, catalogOutput: '52 pages, 48 ordinary, 4 superadmin_only, 0 unmapped dashboard API usages' }), /catalog gate/);
   assert.throws(() => validateCompletionFacts({ ...base, frontendSource: '/dashboard/access/profile' }), /frontend API/);
 });
 

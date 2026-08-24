@@ -278,6 +278,91 @@ describe('企业设置页面', () => {
     expect(getProfile).toHaveBeenCalledOnce();
   });
 
+  it('企业信息：拥有页面授权的普通用户仍看不到 Provider 超管诊断', async () => {
+    const api = companyApi();
+    const providerStatusApi = {
+      getStatus: vi.fn().mockResolvedValue({
+        providers: [{
+          kind: 'wecom_archive' as const,
+          state: 'limited' as const,
+          code: 'archive.credentials_missing',
+          source: 'external' as const,
+          action: '请联系管理员配置 Provider',
+          reason: 'sensitive diagnostic reason',
+          missing: ['MOCHAT_ARCHIVE_SECRET'],
+          capabilities: ['archive_sync'],
+          capabilityStatuses: [],
+        }],
+        freshAt: '2026-08-24T00:00:00Z',
+      }),
+    };
+    const access: AccessContext = {
+      session: { token: 'token', userId: '7', expiresAt: Date.now() + 60_000 },
+      corp: { id: '11', name: '演示企业', authorized: true },
+      profile: {
+        userId: 7,
+        userName: '普通用户',
+        tenantId: 7,
+        corpId: 11,
+        corpName: '演示企业',
+        workEmployeeId: 0,
+        departmentIds: [],
+        departmentEmployeeIds: [],
+        isSuperAdmin: false,
+        corpBindingStatus: 'verified',
+        catalog: [],
+        effectivePermissions: [],
+        allowedRoutes: ['/company-setting/website'],
+      },
+      allowedRoutes: new Set(['/company-setting/website']),
+      allowedActions: new Set(),
+    };
+    renderPage(
+      <DashboardAccessProvider value={access}>
+        <CompanyWebsitePage api={api} isSuperAdmin providerStatusApi={providerStatusApi} />
+      </DashboardAccessProvider>,
+    );
+
+    expect(await screen.findByText('Provider 运行状态')).toBeTruthy();
+    expect(screen.getByText('下一步：请联系管理员配置 Provider')).toBeTruthy();
+    expect(screen.queryByText('sensitive diagnostic reason')).toBeNull();
+    expect(screen.queryByText('MOCHAT_ARCHIVE_SECRET')).toBeNull();
+  });
+
+  it('企业信息：旧测试访问上下文缺少 profile 时仍失败关闭 Provider 诊断', async () => {
+    const providerStatusApi = {
+      getStatus: vi.fn().mockResolvedValue({
+        providers: [{
+          kind: 'wecom_archive' as const,
+          state: 'limited' as const,
+          code: 'archive.credentials_missing',
+          source: 'external' as const,
+          action: '请联系管理员配置 Provider',
+          reason: 'legacy fixture secret reason',
+          missing: ['MOCHAT_ARCHIVE_SECRET'],
+          capabilities: ['archive_sync'],
+          capabilityStatuses: [],
+        }],
+        freshAt: '2026-08-24T00:00:00Z',
+      }),
+    };
+    const access: AccessContext = {
+      session: { token: 'token', userId: '7', expiresAt: Date.now() + 60_000 },
+      corp: { id: '11', name: '演示企业', authorized: true },
+      allowedRoutes: new Set(['/company-setting/website']),
+      allowedActions: new Set(),
+    };
+    renderPage(
+      <DashboardAccessProvider value={access}>
+        <CompanyWebsitePage api={companyApi()} providerStatusApi={providerStatusApi} />
+      </DashboardAccessProvider>,
+    );
+
+    expect(await screen.findByText('Provider 运行状态')).toBeTruthy();
+    expect(screen.queryByText('legacy fixture secret reason')).toBeNull();
+    expect(screen.queryByText('MOCHAT_ARCHIVE_SECRET')).toBeNull();
+  });
+
   it('企业信息：缺少页面授权的普通用户不加载企业数据', async () => {
     const getProfile = vi.fn();
     const api = companyApi({ getProfile });
@@ -309,6 +394,7 @@ describe('企业设置页面', () => {
     );
 
     expect(await screen.findByText('暂无权限查看企业资料')).toBeTruthy();
+    expect(screen.getByText('当前账号未获企业资料页面权限，请联系管理员授权。')).toBeTruthy();
     expect(getProfile).not.toHaveBeenCalled();
   });
 

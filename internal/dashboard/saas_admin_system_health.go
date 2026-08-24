@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0161_ai_insight_filter_options_rbac"
-	SaaSAdminExpectedMigrationCount   = 161
+	SaaSAdminExpectedMigrationVersion = "0162_company_profile_grantable"
+	SaaSAdminExpectedMigrationCount   = 162
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

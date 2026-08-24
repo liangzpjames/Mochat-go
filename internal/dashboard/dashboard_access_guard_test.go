@@ -325,8 +325,6 @@ func TestDashboardAccessGuardSuperadminAndDenyOnlyPolicy(t *testing.T) {
 		{name: "superadmin mapped", path: "/dashboard/workContact/123", superadmin: true, want: true},
 		{name: "ordinary deny-only", path: "/dashboard/acceptance/phase35", want: false},
 		{name: "superadmin deny-only", path: "/dashboard/acceptance/phase35", superadmin: true, want: true},
-		{name: "ordinary provider status deny-only", path: "/dashboard/providers/status", want: false},
-		{name: "superadmin provider status deny-only", path: "/dashboard/providers/status", superadmin: true, want: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			guard, _ := newDashboardAccessGuardFixture(test.superadmin)
@@ -345,42 +343,44 @@ func TestDashboardAccessGuardSuperadminAndDenyOnlyPolicy(t *testing.T) {
 
 func TestDashboardAccessGuardAllowsCompanyProfileForGrantedOrdinaryUser(t *testing.T) {
 	guard, store := newDashboardAccessGuardFixture(false)
-	store.resources = []DashboardPermissionResource{{
-		PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet,
-		PathPattern: "/dashboard/company/profile", ScopeRequired: false,
-	}}
+	store.resources = []DashboardPermissionResource{
+		{PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet, PathPattern: "/dashboard/company/profile", ScopeRequired: false},
+		{PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet, PathPattern: "/dashboard/providers/status", ScopeRequired: false},
+	}
 	store.catalog = []DashboardPermissionDefinition{{
 		ID: 49, Code: "dashboard.company_setting.website", Path: "/company-setting/website", Name: "唯一企业资料",
 	}}
 	store.grants = []DashboardPermissionGrantFact{{
 		TenantID: 9, PermissionID: 49, SourceType: PermissionSourceDirect, SourceID: 7, Scope: string(DataScopeTenant),
 	}}
-	recorder := httptest.NewRecorder()
-	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/company/profile", nil)
-
-	if !guard.Authorize(recorder, request) {
-		t.Fatalf("granted company profile request rejected: status=%d body=%s", recorder.Code, recorder.Body.String())
+	for _, path := range []string{"/dashboard/company/profile", "/dashboard/providers/status"} {
+		recorder := httptest.NewRecorder()
+		request := dashboardAccessGuardRequest(guard, http.MethodGet, path, nil)
+		if !guard.Authorize(recorder, request) {
+			t.Fatalf("granted company profile request %s rejected: status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 
 func TestDashboardAccessGuardDeniesCompanyProfileWithoutGrant(t *testing.T) {
 	guard, store := newDashboardAccessGuardFixture(false)
-	store.resources = []DashboardPermissionResource{{
-		PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet,
-		PathPattern: "/dashboard/company/profile", ScopeRequired: false,
-	}}
+	store.resources = []DashboardPermissionResource{
+		{PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet, PathPattern: "/dashboard/company/profile", ScopeRequired: false},
+		{PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet, PathPattern: "/dashboard/providers/status", ScopeRequired: false},
+	}
 	store.catalog = []DashboardPermissionDefinition{{
 		ID: 49, Code: "dashboard.company_setting.website", Path: "/company-setting/website", Name: "唯一企业资料",
 	}}
 	store.grants = nil
-	recorder := httptest.NewRecorder()
-	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/company/profile", nil)
-
-	if guard.Authorize(recorder, request) {
-		t.Fatal("ungranted company profile request was allowed")
-	}
-	if recorder.Code != http.StatusForbidden || machineCode(t, recorder) != DashboardPermissionDeniedCode {
-		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	for _, path := range []string{"/dashboard/company/profile", "/dashboard/providers/status"} {
+		recorder := httptest.NewRecorder()
+		request := dashboardAccessGuardRequest(guard, http.MethodGet, path, nil)
+		if guard.Authorize(recorder, request) {
+			t.Fatalf("ungranted company profile request %s was allowed", path)
+		}
+		if recorder.Code != http.StatusForbidden || machineCode(t, recorder) != DashboardPermissionDeniedCode {
+			t.Fatalf("path=%s status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 

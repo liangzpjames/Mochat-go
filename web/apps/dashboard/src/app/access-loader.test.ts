@@ -111,7 +111,7 @@ describe('createAccessLoader', () => {
         name: '唯一企业资料',
         groupCode: 'company-settings',
         sort: 49,
-        superadminOnly: true,
+        superadminOnly: false,
         scopeRequired: false,
       }],
       effectivePermissions: [{
@@ -142,7 +142,7 @@ describe('createAccessLoader', () => {
         name: '唯一企业资料',
         groupCode: 'company-settings',
         sort: 49,
-        superadminOnly: true,
+        superadminOnly: false,
         scopeRequired: false,
       }],
       effectivePermissions: [],

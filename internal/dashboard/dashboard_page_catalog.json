@@ -1697,7 +1697,7 @@
       "name": "企业信息",
       "groupCode": "company-settings",
       "sort": 49,
-      "superadminOnly": true,
+      "superadminOnly": false,
       "resources": [
         {
           "method": "GET",
@@ -1757,6 +1757,11 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/company/audits",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/providers/status",
           "scopeRequired": false
         }
       ]

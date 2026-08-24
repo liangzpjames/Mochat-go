@@ -6,12 +6,12 @@ type Manifest = { pages: Array<{ path: string }> };
 type LiveAccount = { phone: string; password: string; exactAllowedRoutes: string[]; expectedSources?: Array<{ code: string; type: 'direct' | 'role' | 'inherited'; id?: number }>; directPermissionCode?: string; twoRolePermissionCode?: string; twoRoleIds?: number[]; disabledRolePermissionCode?: string; disabledRoleId?: number; directRetainedPermissionCode?: string; forbiddenCodes?: string[]; forbiddenRoleIds?: number[] };
 const manifest = JSON.parse(readFileSync(new URL('../../apps/dashboard/src/benchmark/manifest.json', import.meta.url), 'utf8')) as Manifest;
 const routes = manifest.pages.map((page) => page.path);
-const protectedRoutes = new Set(['/company-setting/website', '/company-setting/staff', '/setting/role', '/setting/additional', '/setting/authorization']);
+const protectedRoutes = new Set(['/company-setting/staff', '/setting/role', '/setting/additional', '/setting/authorization']);
 const ordinaryRoutes = routes.filter((route) => !protectedRoutes.has(route));
 const liveBase = process.env.MOCHAT_E2E_LIVE_BASE;
 const liveFixture = process.env.MOCHAT_E2E_RBAC_FIXTURE_JSON ? JSON.parse(process.env.MOCHAT_E2E_RBAC_FIXTURE_JSON) as {
   managedUserId: number;
-  tenantDenied: LiveAccount; noPermission: LiveAccount; direct: LiveAccount; twoRole: LiveAccount; roleDisabledDirectRetained: LiveAccount; ordinary48: LiveAccount; superadmin: LiveAccount;
+  tenantDenied: LiveAccount; noPermission: LiveAccount; direct: LiveAccount; twoRole: LiveAccount; roleDisabledDirectRetained: LiveAccount; ordinary49: LiveAccount; superadmin: LiveAccount;
 } : undefined;
 
 function assertExactRoutes(actual: string[] | undefined, expected: string[], label: string) {
@@ -93,10 +93,10 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
       await expect(page.locator('main h1')).toBeVisible();
       await expect(page.locator('.phase35-page-shell')).toHaveCount(0);
     }
-    expect(routes).toHaveLength(53); expect(ordinaryRoutes).toHaveLength(48); expect([...protectedRoutes]).toHaveLength(5);
+    expect(routes).toHaveLength(53); expect(ordinaryRoutes).toHaveLength(49); expect([...protectedRoutes]).toHaveLength(4);
   });
 
-  test('ordinary 48 pages render shells; protected pages remain denied at 390px', async ({ page }) => {
+  test('ordinary 49 pages render shells; protected pages remain denied at 390px', async ({ page }) => {
     test.skip(Boolean(liveBase), 'live mode uses the real desktop service and fixture credentials');
     await seedSession(page); await mockDashboardBackend(page, { menuRoutes: ordinaryRoutes }); await installAccessProfile(page, ordinaryRoutes);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -106,7 +106,7 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 
-  test('superadmin renders every catalog page, including all five management pages', async ({ page }) => {
+  test('superadmin renders every catalog page, including all four protected management pages', async ({ page }) => {
     test.skip(Boolean(liveBase), 'live mode uses the real desktop service and fixture credentials');
     await seedSession(page); await mockDashboardBackend(page, { menuRoutes: routes }); await installAccessProfile(page, routes, { superadmin: true });
     for (const route of routes) { await page.goto(route); await assertPageShell(page); }
@@ -146,10 +146,10 @@ test.describe('Dashboard Page RBAC completion matrix', () => {
     expect(catalogResponse.status()).toBe(200);
     const catalog = await catalogResponse.json() as { data: Array<{ code: string; superadminOnly: boolean }> };
     await replaceLiveAccess(page, live, adminHeaders, liveFixture!.managedUserId, [], catalog.data.filter((permission) => !permission.superadminOnly).map((permission) => ({ code: permission.code, scope: 'tenant' })));
-    await loginLive(page, live, liveFixture!.ordinary48);
-    const ordinaryProfile = await fetchLiveProfile(page, live); expect(ordinaryProfile.status).toBe(200); const ordinaryData = ordinaryProfile.body.data!; assertExactRoutes(ordinaryData.allowedRoutes, liveFixture!.ordinary48.exactAllowedRoutes, 'ordinary48');
+    await loginLive(page, live, liveFixture!.ordinary49);
+    const ordinaryProfile = await fetchLiveProfile(page, live); expect(ordinaryProfile.status).toBe(200); const ordinaryData = ordinaryProfile.body.data!; assertExactRoutes(ordinaryData.allowedRoutes, liveFixture!.ordinary49.exactAllowedRoutes, 'ordinary49');
     for (const route of ordinaryRoutes) { await page.goto(`${live}${route}`); await assertPageShell(page); }
-    await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertMenuMatches(page, liveFixture!.ordinary48.exactAllowedRoutes); await assertNoSaaSLinks(page);
+    await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertMenuMatches(page, liveFixture!.ordinary49.exactAllowedRoutes); await assertNoSaaSLinks(page);
     for (const route of protectedRoutes) { await page.goto(`${live}${route}`); await expect(page.locator('main h1')).toBeVisible(); await expect(page.locator('.phase35-page-shell')).toHaveCount(0); }
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`${live}${ordinaryRoutes[0]!}`); await assertPageShell(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390); await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); }); await loginLive(page, live, liveFixture!.superadmin);
