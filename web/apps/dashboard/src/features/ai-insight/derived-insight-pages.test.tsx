@@ -135,11 +135,11 @@ describe('三个 AI 洞察专用投影页面', () => {
       const api = createApi();
       const Page = test.Page;
       render(<Page api={api as unknown as AiInsightWorkspaceApi} />);
-      expect((await screen.findByRole('combobox', { name: '员工' }) as HTMLInputElement).value).toBe('员工甲');
-      expect((screen.getByLabelText('客户名称') as HTMLInputElement).value).toBe('客户甲');
-      expect((screen.getByLabelText('分析状态') as HTMLSelectElement).value).toBe('failed');
-      expect((screen.getByLabelText('开始日期') as HTMLInputElement).value).toBe('2026-08-20');
-      expect((screen.getByLabelText('结束日期') as HTMLInputElement).value).toBe('2026-08-24');
+      expect(await screen.findByRole('combobox', { name: '员工' })).toHaveProperty('value', '员工甲');
+      expect(screen.getByLabelText('客户名称')).toHaveProperty('value', '客户甲');
+      expect(screen.getByLabelText('分析状态')).toHaveProperty('value', 'failed');
+      expect(screen.getByLabelText('开始日期')).toHaveProperty('value', '2026-08-20');
+      expect(screen.getByLabelText('结束日期')).toHaveProperty('value', '2026-08-24');
       await waitFor(() => expect(api.derivedRecords).toHaveBeenCalledWith(test.view, expect.objectContaining({
         page: 1, employeeId: 1001, customerName: '客户甲', status: 'failed', startDate: '2026-08-20', endDate: '2026-08-24',
       })));
@@ -153,7 +153,7 @@ describe('三个 AI 洞察专用投影页面', () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     const api = createApi();
     render(<EmotionInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
-    expect((await screen.findByLabelText('客户名称') as HTMLInputElement).value).toBe('客户甲');
+    expect(await screen.findByLabelText('客户名称')).toHaveProperty('value', '客户甲');
 
     fireEvent.change(screen.getByLabelText('客户名称'), { target: { value: '客户乙' } });
     fireEvent.change(screen.getByLabelText('分析状态'), { target: { value: 'succeeded' } });
@@ -173,7 +173,7 @@ describe('三个 AI 洞察专用投影页面', () => {
     await waitFor(() => expect(api.derivedRecords).toHaveBeenLastCalledWith('emotion', expect.objectContaining({
       page: 2, customerName: '客户丙', status: 'failed', startDate: '2026-08-01', endDate: '2026-08-02',
     })));
-    expect((screen.getByLabelText('客户名称') as HTMLInputElement).value).toBe('客户丙');
+    expect(screen.getByLabelText('客户名称')).toHaveProperty('value', '客户丙');
   });
 
   it('情绪页只展示五态客户情绪和真实原因，不制造员工情绪结论', async () => {
@@ -253,7 +253,8 @@ describe('三个 AI 洞察专用投影页面', () => {
     expect(screen.getByText('AI 服务不可用：尚未配置')).toBeTruthy();
     cleanup();
 
-    const { result: _result, ...failedBase } = row;
+    const failedBase = { ...row };
+    Reflect.deleteProperty(failedBase, 'result');
     const failedApi = createApi({ derivedRecords: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [{ ...failedBase, status: 'failed', errorSummary: '模型响应超时' }] }) });
     render(<EmotionInsightPage api={failedApi as unknown as AiInsightWorkspaceApi} />);
     expect(await screen.findByText('分析失败：模型响应超时')).toBeTruthy();

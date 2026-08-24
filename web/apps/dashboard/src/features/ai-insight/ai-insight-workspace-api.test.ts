@@ -48,6 +48,14 @@ type ExpectedDerivedApiMethods = {
   derivedExportUrl(view: ExpectedDerivedInsightView, filters: ExpectedDerivedInsightFilters): string;
 };
 type _DerivedApiPublicSignature = Assert<Equal<AiInsightWorkspaceApi & ExpectedDerivedApiMethods, AiInsightWorkspaceApi>>;
+const derivedApiTypeOracle: [
+  _DerivedInsightViewIsExact,
+  _EmotionLabelIsExact,
+  _DerivedInsightFilterKeysAreExact,
+  _DerivedInsightFiltersAreExact,
+  _DerivedApiPublicSignature,
+] = [true, true, true, true, true];
+void derivedApiTypeOracle;
 
 const valid = {
   id: 1,
@@ -178,12 +186,10 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     await api.derivedDetail('emotion', 1);
     await api.derivedStatus('communication-keyword');
     await api.derivedFilterOptions('emotion', '张 三', 20);
-    expect(client.request.mock.calls.map(([path]) => path)).toEqual([
-      '/ai-insight/employee-score/records?page=2&employeeId=1001&customerName=%E5%AE%A2%E6%88%B7%E7%94%B2&status=succeeded&startDate=2026-08-20&endDate=2026-08-24&minScore=0&maxScore=100',
-      '/ai-insight/emotion/detail?id=1',
-      '/ai-insight/communication-keyword/status',
-      '/ai-insight/emotion/filter-options?employeeKeyword=%E5%BC%A0+%E4%B8%89&limit=20',
-    ]);
+    expect(client.request).toHaveBeenNthCalledWith(1, '/ai-insight/employee-score/records?page=2&employeeId=1001&customerName=%E5%AE%A2%E6%88%B7%E7%94%B2&status=succeeded&startDate=2026-08-20&endDate=2026-08-24&minScore=0&maxScore=100');
+    expect(client.request).toHaveBeenNthCalledWith(2, '/ai-insight/emotion/detail?id=1');
+    expect(client.request).toHaveBeenNthCalledWith(3, '/ai-insight/communication-keyword/status');
+    expect(client.request).toHaveBeenNthCalledWith(4, '/ai-insight/emotion/filter-options?employeeKeyword=%E5%BC%A0+%E4%B8%89&limit=20');
     expect(api.derivedExportUrl('communication-keyword', { page: 1, keyword: '50%_\\采购' }))
       .toBe('/ai-insight/communication-keyword/export?keyword=50%25_%5C%E9%87%87%E8%B4%AD');
   });
@@ -205,7 +211,8 @@ describe('AI 洞察专用投影统一 API 合同', () => {
   });
 
   it('失败记录允许没有 result，但必须保留 errorSummary', async () => {
-    const { result: _result, ...failedBase } = validDerived;
+    const failedBase = { ...validDerived };
+    Reflect.deleteProperty(failedBase, 'result');
     const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...failedBase, status: 'failed', errorSummary: '模型响应超时' }] }) };
     const row = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
     expect(row.result).toBeUndefined();
@@ -258,7 +265,10 @@ describe('AI 洞察专用投影统一 API 合同', () => {
   });
 
   it('provider/model/promptVersion 未记录时保持空值，不写死展示元数据', async () => {
-    const { provider: _provider, model: _model, promptVersion: _promptVersion, ...withoutMetadata } = validDerived;
+    const withoutMetadata = { ...validDerived };
+    Reflect.deleteProperty(withoutMetadata, 'provider');
+    Reflect.deleteProperty(withoutMetadata, 'model');
+    Reflect.deleteProperty(withoutMetadata, 'promptVersion');
     const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [withoutMetadata] }) };
     const row = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
     expect(row).toMatchObject({ provider: '', model: '', promptVersion: '' });
