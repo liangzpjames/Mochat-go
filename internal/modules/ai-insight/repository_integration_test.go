@@ -99,7 +99,7 @@ func TestEmployeeOptionsSearchesNamesOnRealMariaDB(t *testing.T) {
 		ConversationKey: "employee-option", EmployeeID: 1106, EmployeeName: "归档员工名", TargetType: "1", TargetID: "customer", TargetName: "客户",
 		SourceStartedAt: generatedAt.Add(-time.Minute), SourceEndedAt: generatedAt, SourceMessageCount: 2,
 		SourceFingerprint: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-		Status: AnalysisStatusSucceeded, Summary: "摘要", ResultJSON: []byte(`{}`), PromptVersion: "prompt-v1", GeneratedAt: &generatedAt,
+		Status:            AnalysisStatusSucceeded, Summary: "摘要", ResultJSON: []byte(`{}`), PromptVersion: "prompt-v1", GeneratedAt: &generatedAt,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -304,4 +304,94 @@ func assertAIInsightJSONEqual(t *testing.T, got, want []byte) {
 	if !reflect.DeepEqual(gotJSON, wantJSON) {
 		t.Fatalf("result JSON = %s, want %s", got, want)
 	}
+}
+
+func TestProjectionFiltersUseRealMariaDBJSONAndEmployeeScope(t *testing.T) {
+	db := aiInsightIntegrationDB(t)
+	createAIInsightIntegrationTable(t, db)
+	generatedAt := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+
+	states := []string{"positive", "neutral", "negative", "mixed", "unknown"}
+	for index, label := range states {
+		keywords := []string{"常规标签"}
+		if label == "positive" {
+			keywords = []string{`50%_\采购`, "高意向"}
+		}
+		insertProjectionIntegrationInsight(t, db, 7, 8, 1001, "emotion-"+label, label, index*20, keywords, generatedAt.Add(time.Duration(index)*time.Minute))
+	}
+	insertProjectionIntegrationInsight(t, db, 7, 8, 1002, "other-employee", "positive", 0, []string{`50%_\采购`}, generatedAt)
+	insertProjectionIntegrationInsight(t, db, 9, 8, 1001, "other-tenant", "positive", 0, []string{`50%_\采购`}, generatedAt)
+
+	for _, label := range states {
+		filter := InsightFilter{TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Restricted: true, AllowedEmployeeIDs: []int64{1001}}
+		setProjectionFilterField(t, &filter, "View", "emotion")
+		setProjectionFilterField(t, &filter, "Emotion", label)
+		keys := queryProjectionIntegrationKeys(t, db, filter)
+		if !reflect.DeepEqual(keys, []string{"emotion-" + label}) {
+			t.Fatalf("emotion=%s keys=%#v", label, keys)
+		}
+	}
+
+	zero := 0
+	scoreFilter := InsightFilter{TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Restricted: true, AllowedEmployeeIDs: []int64{1001}}
+	setProjectionFilterField(t, &scoreFilter, "View", "employee-score")
+	setProjectionFilterField(t, &scoreFilter, "MinScore", &zero)
+	setProjectionFilterField(t, &scoreFilter, "MaxScore", &zero)
+	if keys := queryProjectionIntegrationKeys(t, db, scoreFilter); !reflect.DeepEqual(keys, []string{"emotion-positive"}) {
+		t.Fatalf("score=0 keys=%#v", keys)
+	}
+
+	keywordFilter := InsightFilter{TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Keyword: `50%_\采购`, Restricted: true, AllowedEmployeeIDs: []int64{1001}}
+	setProjectionFilterField(t, &keywordFilter, "View", "communication-keyword")
+	if keys := queryProjectionIntegrationKeys(t, db, keywordFilter); !reflect.DeepEqual(keys, []string{"emotion-positive"}) {
+		t.Fatalf("escaped keyword keys=%#v", keys)
+	}
+}
+
+func insertProjectionIntegrationInsight(t *testing.T, db *sql.DB, tenantID, corpID, employeeID int64, key, emotion string, score int, keywords []string, sourceAt time.Time) {
+	t.Helper()
+	resultJSON, err := json.Marshal(map[string]any{
+		"schemaVersion": 2,
+		"summary":       "真实会话投影",
+		"customer": map[string]any{
+			"emotion":  map[string]any{"label": emotion, "reason": "真实原因", "evidenceMessageIds": []string{"m1"}},
+			"keywords": keywords,
+		},
+		"employeeQa": map[string]any{"score": score, "dimensions": []any{}, "strengths": []any{}, "issues": []any{}, "suggestions": []any{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := strings.Repeat(string(rune('a'+len(key)%20)), 64)
+	_, err = db.Exec(`INSERT INTO mochat_go_ai_conversation_insights
+ (tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		tenantID, corpID, AnalysisTypeSession, 0, 0, key, employeeID, "员工", "", "1", "customer-"+key, "客户", "",
+		sourceAt.Add(-time.Minute), sourceAt, 2, fingerprint, AnalysisStatusSucceeded, "真实会话投影", resultJSON, "", "provider", "model", "v2", sourceAt, sourceAt, sourceAt,
+	)
+	if err != nil {
+		t.Fatalf("insert projection fixture %s: %v", key, err)
+	}
+}
+
+func queryProjectionIntegrationKeys(t *testing.T, db *sql.DB, filter InsightFilter) []string {
+	t.Helper()
+	where, args := insightWhere(filter)
+	rows, err := db.Query("SELECT i.conversation_key FROM mochat_go_ai_conversation_insights i WHERE "+strings.Join(where, " AND ")+" ORDER BY i.conversation_key", args...)
+	if err != nil {
+		t.Fatalf("query projection keys: %v; where=%s args=%#v", err, strings.Join(where, " AND "), args)
+	}
+	defer rows.Close()
+	keys := make([]string, 0)
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return keys
 }

@@ -2,13 +2,17 @@ package aiinsight
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
+	"jiyi/mochat-go/internal/modules/providers"
 )
 
 type workspaceTestResolver struct {
@@ -327,5 +331,279 @@ func TestWorkspaceRecordsAndDetailExposeInsightFailureReason(t *testing.T) {
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"errorSummary":"模型响应超时"`) {
 			t.Fatalf("path=%s status=%d body=%s", path, recorder.Code, recorder.Body.String())
 		}
+	}
+}
+
+type projectionWorkspaceRepo struct {
+	workspaceTestRepo
+	pageFilters     []InsightFilter
+	detailFilters   []InsightDetailFilter
+	messageQueries  []ConversationWindowQuery
+	employeeFilters []EmployeeOptionFilter
+	latestRunTypes  []AnalysisType
+	item            ConversationInsight
+	detailErr       error
+}
+
+func (r *projectionWorkspaceRepo) InsightPage(_ context.Context, filter InsightFilter) (InsightPage, error) {
+	r.pageFilters = append(r.pageFilters, filter)
+	return InsightPage{Page: 1, PageSize: 20, Items: []ConversationInsight{}}, nil
+}
+
+func (r *projectionWorkspaceRepo) InsightDetail(_ context.Context, filter InsightDetailFilter) (ConversationInsight, error) {
+	r.detailFilters = append(r.detailFilters, filter)
+	if r.detailErr != nil {
+		return ConversationInsight{}, r.detailErr
+	}
+	return r.item, nil
+}
+
+func (r *projectionWorkspaceRepo) ConversationMessages(_ context.Context, query ConversationWindowQuery) ([]SourceMessage, error) {
+	r.messageQueries = append(r.messageQueries, query)
+	return []SourceMessage{}, nil
+}
+
+func (r *projectionWorkspaceRepo) EmployeeOptions(_ context.Context, filter EmployeeOptionFilter) ([]EmployeeOption, error) {
+	r.employeeFilters = append(r.employeeFilters, filter)
+	return []EmployeeOption{}, nil
+}
+
+func (r *projectionWorkspaceRepo) LatestRun(_ context.Context, _, _ int64, typ AnalysisType) (*InsightRun, error) {
+	r.latestRunTypes = append(r.latestRunTypes, typ)
+	return nil, nil
+}
+
+type projectionAIProvider struct {
+	chatCalls   int
+	statusCalls int
+}
+
+func (p *projectionAIProvider) Chat(context.Context, providers.ChatRequest) (string, error) {
+	p.chatCalls++
+	return "unexpected", nil
+}
+
+func (p *projectionAIProvider) Status() providers.Status {
+	p.statusCalls++
+	return providers.Status{State: providers.StateReady}
+}
+
+func projectionFilterString(t *testing.T, filter InsightFilter, name string) string {
+	t.Helper()
+	field := reflect.ValueOf(filter).FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("InsightFilter 缺少投影字段 %s", name)
+	}
+	if field.Kind() != reflect.String {
+		t.Fatalf("InsightFilter.%s 类型=%s，want string", name, field.Type())
+	}
+	return field.String()
+}
+
+func projectionFilterIntPointer(t *testing.T, filter InsightFilter, name string) *int {
+	t.Helper()
+	field := reflect.ValueOf(filter).FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("InsightFilter 缺少投影字段 %s", name)
+	}
+	want := reflect.TypeOf((*int)(nil))
+	if field.Type() != want {
+		t.Fatalf("InsightFilter.%s 类型=%s，want *int", name, field.Type())
+	}
+	if field.IsNil() {
+		return nil
+	}
+	value := int(field.Elem().Int())
+	return &value
+}
+
+func TestProjectionRecordsMapEveryDerivedViewToSessionRepository(t *testing.T) {
+	for _, view := range []string{"emotion", "employee-score", "communication-keyword"} {
+		t.Run(view, func(t *testing.T) {
+			repo := &projectionWorkspaceRepo{}
+			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+				UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1002, 1001},
+			}}, nil, repo, nil)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+view+"/records", nil))
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("GET %s records status=%d body=%s; derived view route must reach repository", view, recorder.Code, recorder.Body.String())
+			}
+			if len(repo.pageFilters) != 1 {
+				t.Fatalf("GET %s repository calls=%d，want 1", view, len(repo.pageFilters))
+			}
+			filter := repo.pageFilters[0]
+			if filter.AnalysisType != AnalysisTypeSession || projectionFilterString(t, filter, "View") != view || !filter.Restricted || !reflect.DeepEqual(filter.AllowedEmployeeIDs, []int64{1002, 1001}) {
+				t.Fatalf("GET %s filter=%#v", view, filter)
+			}
+		})
+	}
+}
+
+func TestProjectionQueryValidationPreservesEmotionStatesAndScoreZero(t *testing.T) {
+	valid := []struct {
+		view  string
+		query string
+		check func(*testing.T, InsightFilter)
+	}{
+		{view: "emotion", query: "emotion=positive", check: func(t *testing.T, f InsightFilter) {
+			if projectionFilterString(t, f, "Emotion") != "positive" {
+				t.Fatal("emotion 未保留")
+			}
+		}},
+		{view: "emotion", query: "emotion=neutral", check: func(t *testing.T, f InsightFilter) {
+			if projectionFilterString(t, f, "Emotion") != "neutral" {
+				t.Fatal("emotion 未保留")
+			}
+		}},
+		{view: "emotion", query: "emotion=negative", check: func(t *testing.T, f InsightFilter) {
+			if projectionFilterString(t, f, "Emotion") != "negative" {
+				t.Fatal("emotion 未保留")
+			}
+		}},
+		{view: "emotion", query: "emotion=mixed", check: func(t *testing.T, f InsightFilter) {
+			if projectionFilterString(t, f, "Emotion") != "mixed" {
+				t.Fatal("emotion 未保留")
+			}
+		}},
+		{view: "emotion", query: "emotion=unknown", check: func(t *testing.T, f InsightFilter) {
+			if projectionFilterString(t, f, "Emotion") != "unknown" {
+				t.Fatal("emotion 未保留")
+			}
+		}},
+		{view: "employee-score", query: "minScore=0&maxScore=100", check: func(t *testing.T, f InsightFilter) {
+			min, max := projectionFilterIntPointer(t, f, "MinScore"), projectionFilterIntPointer(t, f, "MaxScore")
+			if min == nil || *min != 0 || max == nil || *max != 100 {
+				t.Fatalf("score range=%v..%v，必须保留真实 0", min, max)
+			}
+		}},
+	}
+	for _, test := range valid {
+		t.Run(test.view+"_"+test.query, func(t *testing.T) {
+			repo := &projectionWorkspaceRepo{}
+			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, repo, nil)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+test.view+"/records?"+test.query, nil))
+			if recorder.Code != http.StatusOK || len(repo.pageFilters) != 1 {
+				t.Fatalf("valid %s?%s status=%d calls=%d body=%s", test.view, test.query, recorder.Code, len(repo.pageFilters), recorder.Body.String())
+			}
+			test.check(t, repo.pageFilters[0])
+		})
+	}
+
+	invalid := []struct{ view, query string }{
+		{view: "emotion", query: "emotion=happy"},
+		{view: "employee-score", query: "minScore=-1"},
+		{view: "employee-score", query: "maxScore=101"},
+		{view: "employee-score", query: "minScore=80&maxScore=20"},
+		{view: "employee-score", query: "emotion=positive"},
+		{view: "emotion", query: "minScore=0"},
+		{view: "communication-keyword", query: "maxScore=100"},
+		{view: "communication-keyword", query: "emotion=neutral"},
+	}
+	for _, test := range invalid {
+		t.Run("reject_"+test.view+"_"+test.query, func(t *testing.T) {
+			repo := &projectionWorkspaceRepo{}
+			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, repo, nil)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+test.view+"/records?"+test.query, nil))
+			if recorder.Code != http.StatusBadRequest || len(repo.pageFilters) != 0 {
+				t.Fatalf("invalid %s?%s status=%d calls=%d body=%s", test.view, test.query, recorder.Code, len(repo.pageFilters), recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestProjectionDateRangeUsesInclusiveStartAndExclusiveNextDayEnd(t *testing.T) {
+	filter, err := parseWorkspaceFilter(
+		httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/emotion/records?startDate=2026-08-20&endDate=2026-08-24", nil),
+		WorkspacePrincipal{TenantID: 11, CorpID: 22}, "emotion",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStart := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	if filter.StartAt == nil || !filter.StartAt.Equal(wantStart) {
+		t.Fatalf("startDate=%v，want inclusive %s", filter.StartAt, wantStart)
+	}
+	if filter.EndAt == nil || !filter.EndAt.Equal(wantEnd) {
+		t.Fatalf("endDate=%v，want exclusive next-day boundary %s", filter.EndAt, wantEnd)
+	}
+}
+
+func TestProjectionDetailUsesSessionIdentityAndSameEmployeeScopeForMessages(t *testing.T) {
+	started := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
+	ended := started.Add(10 * time.Minute)
+	for _, view := range []string{"emotion", "employee-score", "communication-keyword"} {
+		t.Run(view, func(t *testing.T) {
+			repo := &projectionWorkspaceRepo{item: ConversationInsight{
+				ID: 91, TenantID: 11, CorpID: 22, AnalysisType: AnalysisTypeSession, ConversationKey: "1001:1:2001",
+				EmployeeID: 1001, EmployeeName: "员工甲", TargetType: "1", TargetID: "2001", TargetName: "客户甲",
+				SourceStartedAt: started, SourceEndedAt: ended, SourceMessageCount: 2, SourceFingerprint: strings.Repeat("a", 64), Status: AnalysisStatusSucceeded,
+			}}
+			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+				UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001},
+			}}, nil, repo, nil)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+view+"/detail?id=91", nil))
+			if recorder.Code != http.StatusOK || len(repo.detailFilters) != 1 || len(repo.messageQueries) != 1 {
+				t.Fatalf("view=%s status=%d detailCalls=%d messageCalls=%d body=%s", view, recorder.Code, len(repo.detailFilters), len(repo.messageQueries), recorder.Body.String())
+			}
+			detail, messages := repo.detailFilters[0], repo.messageQueries[0]
+			if detail.TenantID != 11 || detail.CorpID != 22 || detail.AnalysisType != AnalysisTypeSession || detail.ID != 91 || !detail.Restricted || !reflect.DeepEqual(detail.AllowedEmployeeIDs, []int64{1001}) {
+				t.Fatalf("detail filter=%#v", detail)
+			}
+			if messages.TenantID != 11 || messages.CorpID != 22 || messages.ConversationKey != "1001:1:2001" || !messages.Restricted || !reflect.DeepEqual(messages.AllowedEmployeeIDs, []int64{1001}) {
+				t.Fatalf("message query=%#v", messages)
+			}
+		})
+	}
+}
+
+func TestProjectionDetailDoesNotDowngradeCrossScopeLookup(t *testing.T) {
+	for _, view := range []string{"emotion", "employee-score", "communication-keyword"} {
+		t.Run(view, func(t *testing.T) {
+			notFoundRepo := &projectionWorkspaceRepo{detailErr: sql.ErrNoRows}
+			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, notFoundRepo, nil)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+view+"/detail?id=91", nil))
+			if recorder.Code != http.StatusNotFound || len(notFoundRepo.detailFilters) != 1 || len(notFoundRepo.messageQueries) != 0 {
+				t.Fatalf("view=%s status=%d detailCalls=%d messageCalls=%d body=%s", view, recorder.Code, len(notFoundRepo.detailFilters), len(notFoundRepo.messageQueries), recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestProjectionReadsNeverChatAndStatusOnlyReadsProviderStatus(t *testing.T) {
+	for _, view := range []string{"emotion", "employee-score", "communication-keyword"} {
+		t.Run(view, func(t *testing.T) {
+			provider := &projectionAIProvider{}
+			repo := &projectionWorkspaceRepo{item: ConversationInsight{ID: 1, ConversationKey: "1001:1:2001", EmployeeID: 1001, TargetType: "1"}}
+			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+				UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001},
+			}}, nil, repo, provider)
+			for _, action := range []string{"records", "detail?id=1", "filter-options", "export"} {
+				recorder := httptest.NewRecorder()
+				handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+view+"/"+action, nil))
+				if recorder.Code != http.StatusOK {
+					t.Fatalf("GET %s/%s status=%d body=%s", view, action, recorder.Code, recorder.Body.String())
+				}
+			}
+			if provider.chatCalls != 0 || provider.statusCalls != 0 {
+				t.Fatalf("ordinary reads chat=%d status=%d", provider.chatCalls, provider.statusCalls)
+			}
+			if len(repo.employeeFilters) != 1 || repo.employeeFilters[0].AnalysisType != AnalysisTypeSession || !repo.employeeFilters[0].Restricted || !reflect.DeepEqual(repo.employeeFilters[0].AllowedEmployeeIDs, []int64{1001}) {
+				t.Fatalf("derived filter-options scope=%#v", repo.employeeFilters)
+			}
+			if len(repo.pageFilters) != 2 || projectionFilterString(t, repo.pageFilters[0], "View") != view || projectionFilterString(t, repo.pageFilters[1], "View") != view {
+				t.Fatalf("records/export projection filters=%#v", repo.pageFilters)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+view+"/status", nil))
+			if recorder.Code != http.StatusOK || provider.chatCalls != 0 || provider.statusCalls != 1 || len(repo.latestRunTypes) != 1 || repo.latestRunTypes[0] != AnalysisTypeSession {
+				t.Fatalf("status=%d chat=%d statusCalls=%d runTypes=%#v body=%s", recorder.Code, provider.chatCalls, provider.statusCalls, repo.latestRunTypes, recorder.Body.String())
+			}
+		})
 	}
 }

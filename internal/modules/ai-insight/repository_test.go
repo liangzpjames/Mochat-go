@@ -2,8 +2,10 @@ package aiinsight
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -361,5 +363,134 @@ func TestCurrentEnabledRuleVersionQuerySelectsRequestedSystemKeyAndPromptSnapsho
 	}
 	if len(args) != 3 || args[2] != settingsports.SessionAnalysisSystemKey {
 		t.Fatalf("args = %#v", args)
+	}
+}
+
+func setProjectionFilterField(t *testing.T, filter *InsightFilter, name string, value any) {
+	t.Helper()
+	field := reflect.ValueOf(filter).Elem().FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("InsightFilter 缺少投影字段 %s", name)
+	}
+	if !field.CanSet() {
+		t.Fatalf("InsightFilter.%s 不可写", name)
+	}
+	want := reflect.ValueOf(value)
+	if !want.Type().AssignableTo(field.Type()) {
+		t.Fatalf("InsightFilter.%s 类型=%s，不能赋值 %s", name, field.Type(), want.Type())
+	}
+	field.Set(want)
+}
+
+func TestProjectionInsightFilterDeclaresTypedDerivedFields(t *testing.T) {
+	typ := reflect.TypeOf(InsightFilter{})
+	for _, want := range []struct {
+		name string
+		typ  reflect.Type
+	}{
+		{name: "View", typ: reflect.TypeOf("")},
+		{name: "Emotion", typ: reflect.TypeOf("")},
+		{name: "MinScore", typ: reflect.TypeOf((*int)(nil))},
+		{name: "MaxScore", typ: reflect.TypeOf((*int)(nil))},
+	} {
+		field, ok := typ.FieldByName(want.name)
+		if !ok {
+			t.Errorf("InsightFilter 缺少字段 %s", want.name)
+			continue
+		}
+		if field.Type != want.typ {
+			t.Errorf("InsightFilter.%s 类型=%s，want %s", want.name, field.Type, want.typ)
+		}
+	}
+}
+
+func TestProjectionInsightWhereUsesParameterizedMariaDBJSONAndStableScopeOrder(t *testing.T) {
+	zero, hundred := 0, 100
+	tests := []struct {
+		name     string
+		view     string
+		emotion  string
+		minScore *int
+		maxScore *int
+		keyword  string
+		fragment string
+		tailArgs []any
+	}{
+		{
+			name: "emotion exact customer label", view: "emotion", emotion: "negative",
+			fragment: "JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.customer.emotion.label'))=?", tailArgs: []any{"negative", int64(1001), int64(1002)},
+		},
+		{
+			name: "score keeps zero and one hundred", view: "employee-score", minScore: &zero, maxScore: &hundred,
+			fragment: "CAST(JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.employeeQa.score')) AS SIGNED)>=?", tailArgs: []any{0, 100, int64(1001), int64(1002)},
+		},
+		{
+			name: "keyword searches customer keyword array with escaped like characters", view: "communication-keyword", keyword: `50%_\采购`,
+			fragment: "JSON_SEARCH(JSON_EXTRACT(i.result_json,'$.customer.keywords'),'one',?,'\\\\','$[*]') IS NOT NULL", tailArgs: []any{`%50\%\_\\采购%`, int64(1001), int64(1002)},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			filter := InsightFilter{TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Keyword: test.keyword, Restricted: true, AllowedEmployeeIDs: []int64{1002, 1001}}
+			setProjectionFilterField(t, &filter, "View", test.view)
+			setProjectionFilterField(t, &filter, "Emotion", test.emotion)
+			setProjectionFilterField(t, &filter, "MinScore", test.minScore)
+			setProjectionFilterField(t, &filter, "MaxScore", test.maxScore)
+			where, args := insightWhere(filter)
+			joined := strings.Join(where, " AND ")
+			for _, fragment := range []string{"i.tenant_id=?", "i.corp_id=?", "i.analysis_type=?", test.fragment, "i.employee_id IN (?,?)"} {
+				if !strings.Contains(joined, fragment) {
+					t.Fatalf("where=%s，missing %s", joined, fragment)
+				}
+			}
+			if test.view == "employee-score" && !strings.Contains(joined, "CAST(JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.employeeQa.score')) AS SIGNED)<=?") {
+				t.Fatalf("where=%s，missing score max condition", joined)
+			}
+			wantArgs := append([]any{int64(7), int64(8), AnalysisTypeSession}, test.tailArgs...)
+			if !reflect.DeepEqual(args, wantArgs) {
+				t.Fatalf("args=%#v，want stable tenant/corp/type/projection/scope order %#v", args, wantArgs)
+			}
+		})
+	}
+}
+
+func TestProjectionInsightWhereUsesExclusiveEndBoundaryForWholeSelectedDay(t *testing.T) {
+	start := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	endExclusive := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	where, args := insightWhere(InsightFilter{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, StartAt: &start, EndAt: &endExclusive,
+	})
+	joined := strings.Join(where, " AND ")
+	if !strings.Contains(joined, "i.source_ended_at>=?") {
+		t.Fatalf("where=%s，startDate must be inclusive", joined)
+	}
+	if !strings.Contains(joined, "i.source_started_at<?") || strings.Contains(joined, "i.source_started_at<=?") {
+		t.Fatalf("where=%s，endDate must use next-day exclusive '<' boundary", joined)
+	}
+	if len(args) != 5 || args[3] != start || args[4] != endExclusive {
+		t.Fatalf("args=%#v", args)
+	}
+}
+
+func TestProjectionInsightDetailIsSingleTenantCorpSessionEmployeeScopedQuery(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT i\.id.*FROM mochat_go_ai_conversation_insights i.*WHERE i\.tenant_id=\? AND i\.corp_id=\? AND i\.analysis_type=\? AND i\.id=\? AND i\.employee_id IN \(\?,\?\)`).
+		WithArgs(int64(11), int64(22), AnalysisTypeSession, int64(91), int64(1001), int64(1002)).
+		WillReturnRows(sqlmock.NewRows(insightColumns()))
+
+	_, err = NewSQLRepository(db).InsightDetail(context.Background(), InsightDetailFilter{
+		TenantID: 11, CorpID: 22, AnalysisType: AnalysisTypeSession, ID: 91,
+		Restricted: true, AllowedEmployeeIDs: []int64{1002, 1001},
+	})
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("cross-scope detail error=%v，want sql.ErrNoRows for handler 404", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("detail must not issue an unscoped fallback query: %v", err)
 	}
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createAiInsightWorkspaceApi } from './ai-insight-workspace-api';
+import type { DerivedInsightFilters, DerivedInsightView, EmotionLabel } from './ai-insight-workspace-api';
+
+const typedDerivedViews: DerivedInsightView[] = ['emotion', 'employee-score', 'communication-keyword'];
+const typedEmotionLabels: EmotionLabel[] = ['positive', 'neutral', 'negative', 'mixed', 'unknown'];
+const typedDerivedFilters: DerivedInsightFilters = { page: 1, minScore: 0 };
+void [typedDerivedViews, typedEmotionLabels, typedDerivedFilters];
 
 const valid = {
   id: 1,
@@ -69,5 +75,131 @@ describe('AI 洞察工作台 API', () => {
     const api = createAiInsightWorkspaceApi({ request: vi.fn() });
     expect(api.sessionExportUrl({ page: 2, employeeId: 1001, customerName: '客户甲', keyword: '结论' }))
       .toContain('page=2&employeeId=1001&customerName=%E5%AE%A2%E6%88%B7%E7%94%B2&keyword=%E7%BB%93%E8%AE%BA');
+  });
+});
+
+const validDerived = {
+  ...valid,
+  result: {
+    schemaVersion: 2,
+    summary: '真实会话投影',
+    customer: {
+      emotion: { label: 'positive', reason: '客户明确表达认可', evidenceMessageIds: ['m1'] },
+      keywords: ['50%_\\采购', '高意向'],
+    },
+    employeeQa: { score: 0, dimensions: [], strengths: [], issues: [], suggestions: [] },
+  },
+};
+
+type DerivedApiContract = {
+  derivedRecords(view: string, filters: Record<string, unknown>): Promise<{ page: number; pageSize: 20; total: number; items: Array<Record<string, unknown>> }>;
+  derivedDetail(view: string, id: number): Promise<Record<string, unknown>>;
+  derivedStatus(view: string): Promise<Record<string, unknown>>;
+  derivedFilterOptions(view: string, employeeKeyword?: string, limit?: number): Promise<Record<string, unknown>>;
+  derivedExportUrl(view: string, filters: Record<string, unknown>): string;
+};
+
+function createDerivedApi(client: { request: ReturnType<typeof vi.fn> }): DerivedApiContract {
+  const api = createAiInsightWorkspaceApi(client) as unknown as Partial<DerivedApiContract>;
+  for (const name of ['derivedRecords', 'derivedDetail', 'derivedStatus', 'derivedFilterOptions', 'derivedExportUrl'] as const) {
+    if (typeof api[name] !== 'function') throw new Error(`AiInsightWorkspaceApi 缺少统一方法 ${name}`);
+  }
+  return api as DerivedApiContract;
+}
+
+describe('AI 洞察专用投影统一 API 合同', () => {
+  it('五个统一方法生成精确 derived 路径并保留真实 0 分', async () => {
+    const detail = {
+      ...validDerived,
+      messages: [{ id: 'm1', time: '2026-08-21T09:01:00Z', direction: 'inbound', senderName: '客户甲', content: '采购 50%_\\ 套餐' }],
+      conversationUrl: '/chat/v2-customer?employeeId=1001&conversationId=1001%3A1%3A2001',
+    };
+    const client = {
+      request: vi.fn()
+        .mockResolvedValueOnce({ page: 1, pageSize: 99, total: 1, items: [validDerived] })
+        .mockResolvedValueOnce(detail)
+        .mockResolvedValueOnce({ provider: { state: 'ready' } })
+        .mockResolvedValueOnce({ employees: [{ id: 1001, name: '员工甲', avatar: '' }] }),
+    };
+    const api = createDerivedApi(client);
+    await api.derivedRecords('employee-score', {
+      page: 2, employeeId: 1001, customerName: '客户甲', status: 'succeeded', startDate: '2026-08-20', endDate: '2026-08-24', minScore: 0, maxScore: 100,
+    });
+    await api.derivedDetail('emotion', 1);
+    await api.derivedStatus('communication-keyword');
+    await api.derivedFilterOptions('emotion', '张 三', 20);
+    expect(client.request.mock.calls.map(([path]) => path)).toEqual([
+      '/ai-insight/employee-score/records?page=2&employeeId=1001&customerName=%E5%AE%A2%E6%88%B7%E7%94%B2&status=succeeded&startDate=2026-08-20&endDate=2026-08-24&minScore=0&maxScore=100',
+      '/ai-insight/emotion/detail?id=1',
+      '/ai-insight/communication-keyword/status',
+      '/ai-insight/emotion/filter-options?employeeKeyword=%E5%BC%A0+%E4%B8%89&limit=20',
+    ]);
+    expect(api.derivedExportUrl('communication-keyword', { page: 1, keyword: '50%_\\采购' }))
+      .toBe('/ai-insight/communication-keyword/export?keyword=50%25_%5C%E9%87%87%E8%B4%AD');
+  });
+
+  it('按 view 严格解析五态情绪、0 到 100 分和字符串关键词数组', async () => {
+    for (const label of ['positive', 'neutral', 'negative', 'mixed', 'unknown']) {
+      const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, emotion: { ...validDerived.result.customer.emotion, label } } } }] }) };
+      const page = await createDerivedApi(client).derivedRecords('emotion', { page: 1 });
+      expect(((page.items[0]!.result as Record<string, unknown>).customer as { emotion: { label: string } }).emotion.label).toBe(label);
+    }
+    for (const score of [0, 100]) {
+      const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...validDerived, result: { ...validDerived.result, employeeQa: { ...validDerived.result.employeeQa, score } } }] }) };
+      const page = await createDerivedApi(client).derivedRecords('employee-score', { page: 1, minScore: 0, maxScore: 100 });
+      expect(((page.items[0]!.result as Record<string, unknown>).employeeQa as { score: number }).score).toBe(score);
+    }
+    const keywordClient = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [validDerived] }) };
+    const keywordPage = await createDerivedApi(keywordClient).derivedRecords('communication-keyword', { page: 1, keyword: '采购' });
+    expect(((keywordPage.items[0]!.result as Record<string, unknown>).customer as { keywords: string[] }).keywords).toEqual(['50%_\\采购', '高意向']);
+  });
+
+  it('失败记录允许没有 result，但必须保留 errorSummary', async () => {
+    const { result: _result, ...failedBase } = validDerived;
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...failedBase, status: 'failed', errorSummary: '模型响应超时' }] }) };
+    const row = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
+    expect(row.result).toBeUndefined();
+    expect(row.errorSummary).toBe('模型响应超时');
+  });
+
+  it.each([
+    ['emotion', { ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, emotion: { ...validDerived.result.customer.emotion, label: 'happy' } } } }, '未知客户情绪：happy'],
+    ['employee-score', { ...validDerived, result: { ...validDerived.result, employeeQa: { ...validDerived.result.employeeQa, score: 101 } } }, '员工评分超出 0-100'],
+    ['communication-keyword', { ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, keywords: ['采购', 7] } } }, '客户关键词必须是字符串数组'],
+  ])('拒绝 %s 投影的伪造成功结果', async (view, item, message) => {
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [item] }) };
+    await expect(createDerivedApi(client).derivedRecords(view, { page: 1 })).rejects.toThrow(message);
+  });
+
+  it.each([
+    [{ ...validDerived, id: 0 }, 'AI 洞察列表接口返回了无效数据'],
+    [{ ...validDerived, conversationKey: '' }, 'AI 洞察列表接口返回了无效数据'],
+    [{ ...validDerived, sourceWindow: { ...validDerived.sourceWindow, messageCount: 0 } }, 'AI 洞察列表接口返回了无效数据'],
+    [{ ...validDerived, sourceWindow: { ...validDerived.sourceWindow, fingerprint: '' } }, 'AI 洞察列表接口返回了无效数据'],
+    [{ ...validDerived, employee: { id: 0, name: '', avatar: '' } }, '员工资料不完整'],
+    [{ ...validDerived, target: { type: 'direct', id: '0', name: '客户甲', avatar: '' } }, '对象资料不完整'],
+    [{ ...validDerived, target: { type: 'unknown', id: '2001', name: '客户甲', avatar: '' } }, '未知会话类型：unknown'],
+    [{ ...validDerived, status: 'complete' }, '未知分析状态：complete'],
+  ])('严格拒绝缺失真实来源身份的数据', async (item, message) => {
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [item] }) };
+    await expect(createDerivedApi(client).derivedRecords('emotion', { page: 1 })).rejects.toThrow(message);
+  });
+
+  it('详情要求正数 id、conversationUrl 和已知消息方向', async () => {
+    const invalidIdClient = { request: vi.fn() };
+    await expect(createDerivedApi(invalidIdClient).derivedDetail('emotion', 0)).rejects.toThrow('详情 ID 必须为正数');
+    expect(invalidIdClient.request).not.toHaveBeenCalled();
+
+    const missingUrl = { ...validDerived, messages: [], conversationUrl: '' };
+    await expect(createDerivedApi({ request: vi.fn().mockResolvedValue(missingUrl) }).derivedDetail('emotion', 1)).rejects.toThrow('详情缺少会话跳转地址');
+    const badDirection = { ...validDerived, messages: [{ id: 'm1', time: '', direction: 'sideways', senderName: '客户', content: '你好' }], conversationUrl: '/chat/v2-customer' };
+    await expect(createDerivedApi({ request: vi.fn().mockResolvedValue(badDirection) }).derivedDetail('emotion', 1)).rejects.toThrow('详情消息方向无效');
+  });
+
+  it('provider/model/promptVersion 未记录时保持空值，不写死展示元数据', async () => {
+    const { provider: _provider, model: _model, promptVersion: _promptVersion, ...withoutMetadata } = validDerived;
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [withoutMetadata] }) };
+    const row = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
+    expect(row).toMatchObject({ provider: '', model: '', promptVersion: '' });
   });
 });
