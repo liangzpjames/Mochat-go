@@ -321,6 +321,9 @@ func TestProjectionFiltersUseRealMariaDBJSONAndEmployeeScope(t *testing.T) {
 	}
 	insertProjectionIntegrationInsight(t, db, 7, 8, 1002, "other-employee", "positive", 0, []string{`50%_\采购`}, generatedAt)
 	insertProjectionIntegrationInsight(t, db, 9, 8, 1001, "other-tenant", "positive", 0, []string{`50%_\采购`}, generatedAt)
+	insertProjectionIntegrationInsight(t, db, 7, 8, 1001, "score-json-null", "corrupt", nil, []string{"损坏评分"}, generatedAt)
+	insertProjectionIntegrationInsight(t, db, 7, 8, 1001, "score-string", "corrupt", "0", []string{"损坏评分"}, generatedAt)
+	insertProjectionIntegrationInsight(t, db, 7, 8, 1001, "score-missing", "corrupt", projectionMissingScore{}, []string{"损坏评分"}, generatedAt)
 
 	for _, label := range states {
 		filter := InsightFilter{TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Restricted: true, AllowedEmployeeIDs: []int64{1001}}
@@ -348,8 +351,32 @@ func TestProjectionFiltersUseRealMariaDBJSONAndEmployeeScope(t *testing.T) {
 	}
 }
 
-func insertProjectionIntegrationInsight(t *testing.T, db *sql.DB, tenantID, corpID, employeeID int64, key, emotion string, score int, keywords []string, sourceAt time.Time) {
+func TestProjectionMariaDBJSONTypeScoreContract(t *testing.T) {
+	db := aiInsightIntegrationDB(t)
+	var integerType, nullType, stringType string
+	var missingType sql.NullString
+	err := db.QueryRow(`SELECT
+ JSON_TYPE(JSON_EXTRACT('{"employeeQa":{"score":0}}','$.employeeQa.score')),
+ JSON_TYPE(JSON_EXTRACT('{"employeeQa":{"score":null}}','$.employeeQa.score')),
+ JSON_TYPE(JSON_EXTRACT('{"employeeQa":{"score":"0"}}','$.employeeQa.score')),
+ JSON_TYPE(JSON_EXTRACT('{"employeeQa":{}}','$.employeeQa.score'))`).
+		Scan(&integerType, &nullType, &stringType, &missingType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if integerType != "INTEGER" || nullType != "NULL" || stringType != "STRING" || missingType.Valid {
+		t.Fatalf("MariaDB JSON_TYPE score contract integer=%q null=%q string=%q missing=%#v", integerType, nullType, stringType, missingType)
+	}
+}
+
+type projectionMissingScore struct{}
+
+func insertProjectionIntegrationInsight(t *testing.T, db *sql.DB, tenantID, corpID, employeeID int64, key, emotion string, score any, keywords []string, sourceAt time.Time) {
 	t.Helper()
+	employeeQA := map[string]any{"dimensions": []any{}, "strengths": []any{}, "issues": []any{}, "suggestions": []any{}}
+	if _, missing := score.(projectionMissingScore); !missing {
+		employeeQA["score"] = score
+	}
 	resultJSON, err := json.Marshal(map[string]any{
 		"schemaVersion": 2,
 		"summary":       "真实会话投影",
@@ -357,7 +384,7 @@ func insertProjectionIntegrationInsight(t *testing.T, db *sql.DB, tenantID, corp
 			"emotion":  map[string]any{"label": emotion, "reason": "真实原因", "evidenceMessageIds": []string{"m1"}},
 			"keywords": keywords,
 		},
-		"employeeQa": map[string]any{"score": score, "dimensions": []any{}, "strengths": []any{}, "issues": []any{}, "suggestions": []any{}},
+		"employeeQa": employeeQA,
 	})
 	if err != nil {
 		t.Fatal(err)

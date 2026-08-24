@@ -585,6 +585,9 @@ func insightWhere(filter InsightFilter) ([]string, []any) {
 			args = append(args, emotion)
 		}
 	case "employee-score":
+		if filter.MinScore != nil || filter.MaxScore != nil {
+			where = append(where, "JSON_TYPE(JSON_EXTRACT(i.result_json,'$.employeeQa.score'))='INTEGER'")
+		}
 		if filter.MinScore != nil {
 			where = append(where, "CAST(JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.employeeQa.score')) AS SIGNED)>=?")
 			args = append(args, *filter.MinScore)
