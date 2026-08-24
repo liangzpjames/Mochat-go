@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +11,62 @@ import (
 	"jiyi/mochat-go/internal/modules/providers"
 	"jiyi/mochat-go/internal/modules/providers/catalog"
 )
+
+func TestBuildAIProviderPrefersProtectedKeyFile(t *testing.T) {
+	const fileSecret = "file-secret-material"
+	const environmentSecret = "environment-secret-material"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ai-provider-key")
+	if err := os.WriteFile(path, []byte("  "+fileSecret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY_FILE", path)
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", environmentSecret)
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_MODEL", "test-model")
+
+	provider, err := buildAIProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := provider.Status()
+	if status.State != providers.StateReady {
+		t.Fatalf("status=%#v, protected file key must make provider ready", status)
+	}
+	encoded, _ := json.Marshal(status)
+	if containsSecret(string(encoded), fileSecret) || containsSecret(string(encoded), environmentSecret) {
+		t.Fatal("provider status leaked secret material")
+	}
+}
+
+func TestBuildAIProviderLimitsUnavailableConfiguredKeyFileWithoutEnvFallback(t *testing.T) {
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY_FILE", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", "must-not-be-used")
+
+	provider, err := buildAIProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := provider.Status(); status.State != providers.StateLimited {
+		t.Fatalf("status=%#v, configured missing key file must fail closed as limited", status)
+	}
+}
+
+func TestBuildAIProviderLimitsEmptyConfiguredKeyFileWithoutEnvFallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty")
+	if err := os.WriteFile(path, []byte(" \r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY_FILE", path)
+	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", "must-not-be-used")
+
+	provider, err := buildAIProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := provider.Status(); status.State != providers.StateLimited {
+		t.Fatalf("status=%#v, configured empty key file must fail closed as limited", status)
+	}
+}
 
 func TestDashboardAIStatusProviderUsesEnabledRuntime(t *testing.T) {
 	const secret = "composition-test-secret"

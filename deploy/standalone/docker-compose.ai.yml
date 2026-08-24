@@ -1,0 +1,16 @@
+# Optional secure AI provider overlay.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.ai.yml --profile app up -d --build app
+# MOCHAT_GO_AI_PROVIDER_KEY_FILE must point to a host file readable by Docker.
+secrets:
+  ai_provider_key:
+    file: "${MOCHAT_GO_AI_PROVIDER_KEY_FILE:?MOCHAT_GO_AI_PROVIDER_KEY_FILE must point to a protected file}"
+
+services:
+  app:
+    secrets:
+      - source: ai_provider_key
+        target: mochat-ai-provider-key
+        mode: 0400
+    environment:
+      MOCHAT_GO_AI_PROVIDER_KEY: ""
+      MOCHAT_GO_AI_PROVIDER_KEY_FILE: "/run/secrets/mochat-ai-provider-key"

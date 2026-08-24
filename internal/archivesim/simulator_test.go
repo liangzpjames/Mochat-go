@@ -40,3 +40,16 @@ func TestSimulationRejectsUnsafeBatchKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSimulationEntityLabelsAreDedicatedAndTraceable(t *testing.T) {
+	labels := simulationEntityLabels("ai_insight_accept_20260824")
+	if labels.EmployeeA != "AI验收员工A-ai_insight_accept_20260824" || labels.EmployeeB != "AI验收员工B-ai_insight_accept_20260824" {
+		t.Fatalf("employee labels=%+v", labels)
+	}
+	if labels.Contact != "AI验收客户-ai_insight_accept_20260824" {
+		t.Fatalf("contact label=%q", labels.Contact)
+	}
+	if labels.Room != "AI验收客户群-ai_insight_accept_20260824" {
+		t.Fatalf("room label=%q", labels.Room)
+	}
+}

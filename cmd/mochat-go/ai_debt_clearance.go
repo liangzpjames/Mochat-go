@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	appbootstrap "jiyi/mochat-go/internal/app/bootstrap"
@@ -101,7 +102,7 @@ func startAIInsightDailyAnalysis(cfg config.Config, mysqlStore *store.MySQLStore
 func buildAIProvider() (providers.AIProvider, error) {
 	provider, err := openai.New(openai.Config{
 		BaseURL: os.Getenv("MOCHAT_GO_AI_PROVIDER_BASE_URL"),
-		APIKey:  os.Getenv("MOCHAT_GO_AI_PROVIDER_KEY"),
+		APIKey:  aiProviderAPIKey(),
 		Model:   os.Getenv("MOCHAT_GO_AI_PROVIDER_MODEL"),
 		Timeout: time.Duration(envInt("MOCHAT_GO_AI_PROVIDER_TIMEOUT_SECONDS", 30)) * time.Second,
 	})
@@ -109,6 +110,26 @@ func buildAIProvider() (providers.AIProvider, error) {
 		return nil, err
 	}
 	return provider, nil
+}
+
+// aiProviderAPIKey reads a protected file when configured. A configured file
+// fails closed: it never falls back to a process environment secret when the
+// file is missing or empty. The environment variable remains available for
+// non-container legacy deployments that have not opted into file injection.
+func aiProviderAPIKey() string {
+	path := strings.TrimSpace(os.Getenv("MOCHAT_GO_AI_PROVIDER_KEY_FILE"))
+	if path == "" {
+		return strings.TrimSpace(os.Getenv("MOCHAT_GO_AI_PROVIDER_KEY"))
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	value := strings.TrimSpace(string(contents))
+	if value == "" {
+		return ""
+	}
+	return value
 }
 
 func buildDashboardAIStatusProvider(cfg config.Config) (providers.StatusProvider, error) {

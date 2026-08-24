@@ -342,28 +342,29 @@ type employee struct {
 	WXID string
 }
 
+type simulationLabels struct {
+	EmployeeA string
+	EmployeeB string
+	Contact   string
+	Room      string
+}
+
+func simulationEntityLabels(batch string) simulationLabels {
+	return simulationLabels{
+		EmployeeA: "AI验收员工A-" + batch,
+		EmployeeB: "AI验收员工B-" + batch,
+		Contact:   "AI验收客户-" + batch,
+		Room:      "AI验收客户群-" + batch,
+	}
+}
+
 func (simulator *Simulator) ensureEmployees(ctx context.Context, tx *sql.Tx, batchID int64, corpID int, batch string) ([]employee, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id,wx_user_id FROM mc_work_employee WHERE corp_id=? AND deleted_at IS NULL ORDER BY id LIMIT 2`, corpID)
-	if err != nil {
-		return nil, err
-	}
-	employees := []employee{}
-	for rows.Next() {
-		var item employee
-		if err := rows.Scan(&item.ID, &item.WXID); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		if strings.TrimSpace(item.WXID) != "" {
-			employees = append(employees, item)
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	for len(employees) < 2 {
-		externalKey := fmt.Sprintf("MOCHAT_SIM_EMP_%s_%d", batch, len(employees)+1)
-		result, err := tx.ExecContext(ctx, `INSERT INTO mc_work_employee (wx_user_id,corp_id,name,status,log_user_id,created_at,updated_at) VALUES (?,?,?,1,0,NOW(),NOW())`, externalKey, corpID, fmt.Sprintf("模拟员工%d", len(employees)+1))
+	labels := simulationEntityLabels(batch)
+	names := []string{labels.EmployeeA, labels.EmployeeB}
+	employees := make([]employee, 0, len(names))
+	for index, name := range names {
+		externalKey := fmt.Sprintf("MOCHAT_SIM_EMP_%s_%d", batch, index+1)
+		result, err := tx.ExecContext(ctx, `INSERT INTO mc_work_employee (wx_user_id,corp_id,name,status,log_user_id,created_at,updated_at) VALUES (?,?,?,1,0,NOW(),NOW())`, externalKey, corpID, name)
 		if err != nil {
 			return nil, err
 		}
@@ -381,7 +382,7 @@ func (simulator *Simulator) ensureEmployees(ctx context.Context, tx *sql.Tx, bat
 
 func (simulator *Simulator) createContact(ctx context.Context, tx *sql.Tx, batchID int64, corpID int, batch string) (string, error) {
 	externalKey := "MOCHAT_SIM_CONTACT_" + batch
-	result, err := tx.ExecContext(ctx, `INSERT INTO mc_work_contact (corp_id,wx_external_userid,name,nick_name,created_at,updated_at) VALUES (?,?,?,'',NOW(),NOW())`, corpID, externalKey, "模拟客户")
+	result, err := tx.ExecContext(ctx, `INSERT INTO mc_work_contact (corp_id,wx_external_userid,name,nick_name,created_at,updated_at) VALUES (?,?,?,'',NOW(),NOW())`, corpID, externalKey, simulationEntityLabels(batch).Contact)
 	if err != nil {
 		return "", err
 	}
@@ -394,7 +395,7 @@ func (simulator *Simulator) createContact(ctx context.Context, tx *sql.Tx, batch
 
 func (simulator *Simulator) createRoom(ctx context.Context, tx *sql.Tx, batchID int64, corpID int, batch string, ownerID int) (string, error) {
 	externalKey := "MOCHAT_SIM_ROOM_" + batch
-	result, err := tx.ExecContext(ctx, `INSERT INTO mc_work_room (corp_id,wx_chat_id,name,owner_id,notice,status,created_at,updated_at) VALUES (?,?,?,?,?,0,NOW(),NOW())`, corpID, externalKey, "模拟客户群", ownerID, "仅用于本地验收")
+	result, err := tx.ExecContext(ctx, `INSERT INTO mc_work_room (corp_id,wx_chat_id,name,owner_id,notice,status,created_at,updated_at) VALUES (?,?,?,?,?,0,NOW(),NOW())`, corpID, externalKey, simulationEntityLabels(batch).Room, ownerID, "仅用于本地验收")
 	if err != nil {
 		return "", err
 	}
