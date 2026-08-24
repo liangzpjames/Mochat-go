@@ -101,7 +101,7 @@ func TestCompanyProfileRoutesRequireDashboardIdentityGuard(t *testing.T) {
 	}
 }
 
-func TestCompanyProfileRoutesAreDashboardSuperadminDenyOnlyContracts(t *testing.T) {
+func TestCompanyProfileRoutesAreGrantableDashboardContracts(t *testing.T) {
 	denyOnly := make(map[string]struct{})
 	for _, contract := range dashboard.DenyOnlyDashboardRouteContracts() {
 		denyOnly[contract] = struct{}{}
@@ -121,8 +121,8 @@ func TestCompanyProfileRoutesAreDashboardSuperadminDenyOnlyContracts(t *testing.
 		"GET /dashboard/company/audits",
 		"GET /dashboard/providers/status",
 	} {
-		if _, ok := denyOnly[contract]; !ok {
-			t.Fatalf("company route %q is not classified as dashboard deny-only", contract)
+		if _, ok := denyOnly[contract]; ok {
+			t.Fatalf("grantable company route %q must not remain dashboard deny-only", contract)
 		}
 	}
 }

@@ -22,7 +22,9 @@ func (store *providerStatusGuardStore) DashboardAccessIdentity(context.Context, 
 }
 
 func (*providerStatusGuardStore) DashboardPermissionCatalog(context.Context) ([]dashboard.DashboardPermissionDefinition, error) {
-	return nil, nil
+	return []dashboard.DashboardPermissionDefinition{{
+		ID: 49, Code: "dashboard.company_setting.website", Path: "/company-setting/website", Name: "唯一企业资料",
+	}}, nil
 }
 
 func (*providerStatusGuardStore) DashboardPermissionGrants(context.Context, int, int) ([]dashboard.DashboardPermissionGrantFact, error) {
@@ -37,8 +39,14 @@ func (*providerStatusGuardStore) DashboardTenantAccess(_ context.Context, tenant
 	return dashboard.DashboardTenantAccess{TenantID: tenantID, Allowed: true}, nil
 }
 
-func (*providerStatusGuardStore) DashboardPermissionResources(context.Context, string) ([]dashboard.DashboardPermissionResource, error) {
-	return nil, nil
+func (*providerStatusGuardStore) DashboardPermissionResources(_ context.Context, method string) ([]dashboard.DashboardPermissionResource, error) {
+	if method != http.MethodGet {
+		return nil, nil
+	}
+	return []dashboard.DashboardPermissionResource{{
+		PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet,
+		PathPattern: "/dashboard/providers/status", ScopeRequired: false,
+	}}, nil
 }
 
 func TestProviderStatusRouteHonorsRealDashboardGuard(t *testing.T) {

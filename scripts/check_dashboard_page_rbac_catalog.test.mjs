@@ -347,6 +347,24 @@ test('grantable company routes cannot remain in deny-only policy', () => {
   );
 });
 
+test('expands derived AI insight view templates into every concrete permission route', () => {
+  const usages = extractFrontendAPIUsages([
+    `export type DerivedInsightView = 'emotion' | 'employee-score' | 'communication-keyword';
+     export function load(client, view, id) {
+       client.request(\`/ai-insight/\${view}/detail?id=\${encodeURIComponent(id)}\`);
+       client.request(\`/ai-insight/\${view}/status\`);
+     }`,
+  ]);
+  assert.deepEqual(usages, [
+    'GET /dashboard/ai-insight/communication-keyword/detail',
+    'GET /dashboard/ai-insight/communication-keyword/status',
+    'GET /dashboard/ai-insight/emotion/detail',
+    'GET /dashboard/ai-insight/emotion/status',
+    'GET /dashboard/ai-insight/employee-score/detail',
+    'GET /dashboard/ai-insight/employee-score/status',
+  ]);
+});
+
 test('company website resources are grantable and excluded from deny-only policy', async () => {
   const [catalogSource, routePolicySource] = await Promise.all([
     readFile('internal/dashboard/dashboard_page_catalog.json', 'utf8'),

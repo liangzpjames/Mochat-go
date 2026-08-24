@@ -95,6 +95,15 @@ function normalizeFrontendPaths(rawPath, corpus) {
     const pages = [...corpus.matchAll(/\bpage="([a-z0-9-]+)"/g)].map((match) => match[1]);
     return [...new Set(pages)].map((pageName) => normalizeFrontendPath(rawPath.replace('${page}', pageName)));
   }
+  if (rawPath.includes('${view}')) {
+    const definition = corpus.match(/\btype\s+DerivedInsightView\s*=\s*([^;]+);/);
+    const views = definition === null
+      ? []
+      : [...definition[1].matchAll(/['"]([a-z0-9-]+)['"]/g)].map((match) => match[1]);
+    if (views.length > 0) {
+      return [...new Set(views)].map((view) => normalizeFrontendPath(rawPath.replace('${view}', view)));
+    }
+  }
   return [normalizeFrontendPath(rawPath)];
 }
 
