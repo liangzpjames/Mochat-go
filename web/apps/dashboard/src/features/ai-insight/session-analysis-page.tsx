@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
-import { AiInsightField, AiInsightHeader, AiInsightQueryBar, AiInsightStatusStrip, InsightDrawer, InsightPagination, SessionTable, type WorkspaceProps } from './ai-insight-workspace';
+import {
+  AiInsightField,
+  AiInsightHeader,
+  AiInsightQueryBar,
+  AiInsightStatusStrip,
+  EmployeeSearchField,
+  InsightDrawer,
+  InsightPagination,
+  SessionTable,
+  readEmployeeName,
+  type WorkspaceProps,
+} from './ai-insight-workspace';
 import type { InsightDetail, InsightPage, InsightRunStatus, SessionInsightFilters, SessionInsightRow } from './ai-insight-workspace-api';
 import { readSessionFilters, writeSessionFilters } from './ai-insight-url-state';
 
@@ -9,6 +20,7 @@ export function SessionAnalysisPage({ api, navigate }: WorkspaceProps) {
   const initial = readSessionFilters();
   const [draft, setDraft] = useState<SessionInsightFilters>(initial);
   const [applied, setApplied] = useState<SessionInsightFilters>(initial);
+  const [employeeName, setEmployeeName] = useState(() => readEmployeeName(initial.employeeId));
   const [page, setPage] = useState<InsightPage<SessionInsightRow>>({ page: 1, pageSize: 20, total: 0, items: [] });
   const [status, setStatus] = useState<InsightRunStatus>();
   const [loading, setLoading] = useState(true);
@@ -40,9 +52,19 @@ export function SessionAnalysisPage({ api, navigate }: WorkspaceProps) {
     <AiInsightHeader title="会话分析" description="按真实归档会话查看客户判断与员工质检结果" actions={<button className="ai-insight-secondary" type="button" onClick={() => { window.location.href = api.sessionExportUrl(applied); }}>导出结果</button>} />
     {status?.assistant && <section className="ai-insight-assistant-summary" aria-label="会话分析助手配置"><div><strong>{status.assistant.name || '会话分析助手'}</strong><span className={`ai-settings-status ai-settings-status--${status.assistant.enabled ? 'enabled' : 'disabled'}`}>{status.assistant.enabled ? '已启用' : '已停用'}</span></div><p>本页分析由该系统助手生成，当前关联 {status.assistant.knowledgeBaseCount} 个已启用知识库、{status.assistant.readyDocumentCount} 份可用文档。</p><a href="/ai-setting/agent">前往配置</a></section>}
     <AiInsightQueryBar onSubmit={() => apply({ ...draft, page: 1 })} onReset={() => apply(emptyFilters)} onRefresh={() => apply(applied)}>
-      <AiInsightField label="关键词"><input value={draft.keyword ?? ''} onChange={(event) => setDraft({ ...draft, keyword: event.target.value })} placeholder="搜索会话摘要" /></AiInsightField>
+      <AiInsightField label="结果关键词"><input value={draft.keyword ?? ''} onChange={(event) => setDraft({ ...draft, keyword: event.target.value })} placeholder="搜索结果摘要或结论" /></AiInsightField>
+      <AiInsightField label="客户名称"><input value={draft.customerName ?? ''} onChange={(event) => setDraft({ ...draft, customerName: event.target.value || undefined })} placeholder="按客户名称筛选" /></AiInsightField>
       <AiInsightField label="会话类型"><select value={draft.conversationType ?? ''} onChange={(event) => setDraft({ ...draft, conversationType: (event.target.value || undefined) as SessionInsightFilters['conversationType'] })}><option value="">全部会话</option><option value="direct">客户单聊</option><option value="group">客户群聊</option></select></AiInsightField>
-      <AiInsightField label="员工 ID"><input inputMode="numeric" value={draft.employeeId ?? ''} onChange={(event) => setDraft({ ...draft, employeeId: event.target.value ? Number(event.target.value) : undefined })} placeholder="可选" /></AiInsightField>
+      <EmployeeSearchField
+        label="员工"
+        selectedEmployeeId={draft.employeeId}
+        knownEmployeeName={employeeName}
+        loadOptions={(keyword, limit) => api.sessionFilterOptions(keyword, limit)}
+        onSelect={(employee) => {
+          setEmployeeName(employee?.name ?? '');
+          setDraft((current) => ({ ...current, employeeId: employee?.id }));
+        }}
+      />
       <AiInsightField label="开始日期"><input type="date" value={draft.startDate ?? ''} onChange={(event) => setDraft({ ...draft, startDate: event.target.value || undefined })} /></AiInsightField>
       <AiInsightField label="结束日期"><input type="date" value={draft.endDate ?? ''} onChange={(event) => setDraft({ ...draft, endDate: event.target.value || undefined })} /></AiInsightField>
     </AiInsightQueryBar>
