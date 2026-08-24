@@ -2600,8 +2600,15 @@ body {
   background: #f7f9ff;
   border: 1px dashed #b9c4f8;
   border-radius: 10px;
+  display: grid;
+  gap: 8px;
   padding: 12px;
 }
+.ai-settings-create-upload > label { color: #34415a; display: grid; font-size: .88rem; font-weight: 600; gap: 8px; }
+.ai-settings-create-upload > small { color: #7f8899; line-height: 1.6; }
+.ai-settings-create-upload__selection { align-items: center; display: flex; gap: 12px; justify-content: space-between; min-width: 0; }
+.ai-settings-create-upload__selection span { color: #536079; font-size: .84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-settings-create-upload__selection button { flex: 0 0 auto; min-height: 32px; padding: 5px 10px; }
 
 .ai-insight-assistant-summary {
   align-items: center;

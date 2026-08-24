@@ -71,6 +71,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState(1);
   const [createFile, setCreateFile] = useState<File | null>(null);
+  const createFileInputRef = useRef<HTMLInputElement>(null);
   const [managing, setManaging] = useState<KnowledgeBaseItem | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const documentTriggerRef = useRef<HTMLButtonElement>(null);
@@ -124,7 +125,12 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   }
 
   function resetEditor() {
-    setEditing(null); setCreating(false); setName(''); setDescription(''); setStatus(1); setCreateFile(null); setEditorError(''); setDiscardOpen(false);
+    setEditing(null); setCreating(false); setName(''); setDescription(''); setStatus(1); clearCreateFile(); setEditorError(''); setDiscardOpen(false);
+  }
+
+  function clearCreateFile() {
+    setCreateFile(null);
+    if (createFileInputRef.current) createFileInputRef.current.value = '';
   }
 
   function requestEditorClose() {
@@ -249,11 +255,15 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
           </Phase35DataState>
         </section>
         <DashboardDialog open={editorOpen} title={editing ? '编辑知识库' : '新建知识库'} triggerRef={editorTriggerRef} confirmDisabled={!valid} confirmLoading={save.isPending} onCancel={requestEditorClose} onConfirm={() => save.mutate()}>
-          <div className="ai-settings-dialog-body">{editorError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{editorError}</p>}<form onSubmit={(event) => { event.preventDefault(); if (valid && !save.isPending) save.mutate(); }}>
-            <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：售后话术库" /></label>
-            <label>说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
-            <label>配置状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>停用后关联文档不会进入新的会话分析。</small></label>
-            {creating && <label className="ai-settings-create-upload">初始文档（可选）<input aria-label="初始文档（可选）" type="file" accept=".txt,.md,.pdf,.docx" disabled={save.isPending} onChange={(event) => setCreateFile(event.target.files?.[0] ?? null)} /><small>支持 .txt、.md、.pdf、.docx，单个文件不超过 20 MB；也可创建后再到“管理文档”上传。</small></label>}
+          <div className="ai-settings-dialog-body">{editorError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{editorError}</p>}<form aria-busy={save.isPending} onSubmit={(event) => { event.preventDefault(); if (valid && !save.isPending) save.mutate(); }}>
+            <label>名称<input value={name} disabled={save.isPending} onChange={(event) => setName(event.target.value)} placeholder="如：售后话术库" /></label>
+            <label>说明<textarea value={description} disabled={save.isPending} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
+            <label>配置状态<select value={status} disabled={save.isPending} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>停用后关联文档不会进入新的会话分析。</small></label>
+            {creating && <div className="ai-settings-create-upload">
+              <label>初始文档（可选）<input ref={createFileInputRef} aria-label="初始文档（可选）" type="file" accept=".txt,.md,.pdf,.docx" disabled={save.isPending} onChange={(event) => setCreateFile(event.target.files?.[0] ?? null)} /></label>
+              {createFile && <div className="ai-settings-create-upload__selection"><span title={createFile.name}>{createFile.name}</span><button type="button" disabled={save.isPending} onClick={clearCreateFile}>移除已选文档</button></div>}
+              <small>支持 .txt、.md、.pdf、.docx，单个文件不超过 20 MB；也可创建后再到“管理文档”上传。</small>
+            </div>}
           </form></div>
         </DashboardDialog>
         <DashboardDialog open={managing !== null} title={`管理文档 · ${managing?.name ?? ''}`} triggerRef={documentTriggerRef} width={860} cancelText="关闭" onCancel={() => { if (!upload.isPending && !removeDocument.isPending) { setManaging(null); setUploadFile(null); } }} footer={null}>

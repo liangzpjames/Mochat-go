@@ -364,8 +364,10 @@ describe('AI 设置页面', () => {
   });
 
   it('新建知识库可选择文档并使用新知识库 ID 上传', async () => {
+    const listKnowledgeBases = vi.fn().mockResolvedValue([]);
     const uploadKnowledgeDocument = vi.fn().mockResolvedValue({ id: 'doc-created', filename: '产品资料.md', status: 'ready' });
     const api = createApi({
+      listKnowledgeBases,
       createKnowledgeBase: vi.fn().mockResolvedValue({ id: 'kb-created', corpId: 9, name: '产品资料库', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }),
       uploadKnowledgeDocument,
     });
@@ -379,6 +381,84 @@ describe('AI 设置页面', () => {
 
     await waitFor(() => expect(uploadKnowledgeDocument).toHaveBeenCalledWith(9, 'kb-created', file));
     expect(await screen.findByText(/知识库“产品资料库”已创建，文档“产品资料\.md”已解析/)).toBeTruthy();
+    await waitFor(() => expect(listKnowledgeBases).toHaveBeenCalledTimes(2));
+  });
+
+  it('创建知识库失败时保留弹窗和草稿且不上传文档', async () => {
+    const uploadKnowledgeDocument = vi.fn();
+    const api = createApi({
+      createKnowledgeBase: vi.fn().mockRejectedValue(new ApiError('validation', 'invalid name', { status: 400, machineCode: 'AI_SETTINGS_NAME_INVALID' })),
+      uploadKnowledgeDocument,
+    });
+    renderPage(api, 'kb');
+    const file = new File(['draft'], '待上传.md', { type: 'text/markdown' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '失败后保留库' } });
+    fireEvent.change(screen.getByLabelText('初始文档（可选）'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('名称需为 2–128 个字符');
+    expect(screen.getByRole('dialog', { name: '新建知识库' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '名称' })).toHaveProperty('value', '失败后保留库');
+    expect(uploadKnowledgeDocument).not.toHaveBeenCalled();
+  });
+
+  it('初始文档已保存但解析失败时明确提示文档不可用', async () => {
+    const api = createApi({
+      createKnowledgeBase: vi.fn().mockResolvedValue({ id: 'kb-parse-failed', corpId: 9, name: '解析失败库', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }),
+      uploadKnowledgeDocument: vi.fn().mockResolvedValue({ id: 'doc-failed', filename: '扫描件.pdf', status: 'failed', errorSummary: '无文字层' }),
+    });
+    renderPage(api, 'kb');
+    const file = new File(['scan'], '扫描件.pdf', { type: 'application/pdf' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '解析失败库' } });
+    fireEvent.change(screen.getByLabelText('初始文档（可选）'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    const feedback = await screen.findByRole('alert');
+    expect(feedback.textContent).toContain('文档“扫描件.pdf”解析失败');
+    expect(feedback.textContent).toContain('暂不能用于分析');
+  });
+
+  it('创建与上传进行中锁定整个表单，避免未持久化编辑被静默丢弃', async () => {
+    let resolveUpload: (value: { id: string; filename: string; status: 'ready' }) => void = () => undefined;
+    const uploadKnowledgeDocument = vi.fn().mockImplementation(() => new Promise((resolve) => { resolveUpload = resolve; }));
+    const api = createApi({
+      createKnowledgeBase: vi.fn().mockResolvedValue({ id: 'kb-pending', corpId: 9, name: '等待上传库', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }),
+      uploadKnowledgeDocument,
+    });
+    renderPage(api, 'kb');
+    const file = new File(['pending'], '等待.md', { type: 'text/markdown' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    const dialog = screen.getByRole('dialog', { name: '新建知识库' });
+    const nameInput = within(dialog).getByRole('textbox', { name: '名称' });
+    fireEvent.change(nameInput, { target: { value: '等待上传库' } });
+    fireEvent.change(within(dialog).getByLabelText('初始文档（可选）'), { target: { files: [file] } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(uploadKnowledgeDocument).toHaveBeenCalledTimes(1));
+    expect(nameInput).toHaveProperty('disabled', true);
+    expect(within(dialog).getByRole('textbox', { name: '说明' })).toHaveProperty('disabled', true);
+    expect(within(dialog).getByRole('combobox')).toHaveProperty('disabled', true);
+    expect(dialog.querySelector('form')?.getAttribute('aria-busy')).toBe('true');
+    resolveUpload({ id: 'doc-pending', filename: '等待.md', status: 'ready' });
+    await screen.findByText(/文档“等待\.md”已解析/);
+  });
+
+  it('可移除已选初始文档并恢复为无文件草稿', async () => {
+    renderPage(createApi(), 'kb');
+    const file = new File(['draft'], '可移除.md', { type: 'text/markdown' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    fireEvent.change(screen.getByLabelText('初始文档（可选）'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '移除已选文档' }));
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '新建知识库' })).toBeNull());
+    expect(screen.queryByText('放弃未保存更改？')).toBeNull();
   });
 
   it('知识库创建成功但初始文档上传失败时保留知识库并提供重试指引', async () => {
