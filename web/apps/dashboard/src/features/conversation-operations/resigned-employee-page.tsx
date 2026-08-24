@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { updateSearch } from '../../shared/query-state';
-import type { ConversationGlobalApi, ConversationTargetType, StaffDirectoryMode } from '../conversation-global/conversation-global-api';
+import type { ConversationGlobalApi, ConversationTargetType } from '../conversation-global/conversation-global-api';
 import { EmployeeConversationDetail } from '../conversation-global/employee-conversation-detail';
 import { EmployeeConversationDirectory } from '../conversation-global/employee-conversation-directory';
 import { EmployeeConversationList } from '../conversation-global/employee-conversation-list';

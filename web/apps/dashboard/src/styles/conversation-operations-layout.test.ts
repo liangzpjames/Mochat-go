@@ -14,6 +14,6 @@ describe('conversation operations layout contract', () => {
   it('does not move controls on hover and collapses below 1024px', () => {
     expect(css).not.toMatch(/:hover[^}]*transform\s*:/s);
     expect(css).toMatch(/@media\s*\(max-width:\s*1024px\)/);
-    expect(css).toMatch(/\.resigned-employee-workspace[^\{]*\{[^}]*grid-template-columns:\s*1fr/s);
+    expect(css).toMatch(/\.resigned-employee-workspace[^{]*\{[^}]*grid-template-columns:\s*1fr/s);
   });
 });

@@ -20,19 +20,22 @@ function renderPage(api: ConversationGlobalApi) {
 
 describe('ResignedEmployeePage', () => {
   it('requests departed employees, opens their conversation and hides deferred types', async () => {
+    const search = vi.fn<ConversationGlobalApi['search']>().mockResolvedValue({ list: [conversation], total: 1, page: 1, pageSize: 20 });
+    const staffDirectory = vi.fn<NonNullable<ConversationGlobalApi['staffDirectory']>>().mockResolvedValue({ departments: [], employees: [employee], counts: { all: 1, focused: 0, archived: 1, departed: 1 }, page: 1, pageSize: 50, total: 1, limitations: [], capabilities: [] });
+    const staffDetail = vi.fn<NonNullable<ConversationGlobalApi['staffDetail']>>().mockResolvedValue(detail);
     const api: ConversationGlobalApi = {
-      search: vi.fn().mockResolvedValue({ list: [conversation], total: 1, page: 1, pageSize: 20 }),
+      search,
       detail: vi.fn().mockResolvedValue({ id: 'unused', employeeId: 9, employeeName: '张三', targetType: 'customer', targetId: 31, targetName: '星河科技', messageTotal: 1, truncated: false, window: 'latest', messages: [] }),
-      staffDirectory: vi.fn().mockResolvedValue({ departments: [], employees: [employee], counts: { all: 1, focused: 0, archived: 1, departed: 1 }, page: 1, pageSize: 50, total: 1, limitations: [], capabilities: [] }),
-      staffDetail: vi.fn().mockResolvedValue(detail),
+      staffDirectory,
+      staffDetail,
     };
     renderPage(api);
-    await waitFor(() => expect(api.staffDirectory).toHaveBeenCalledWith(expect.objectContaining({ mode: 'departed', pageSize: 50 })));
+    await waitFor(() => expect(staffDirectory).toHaveBeenCalledWith(expect.objectContaining({ mode: 'departed', pageSize: 50 })));
     fireEvent.click(await screen.findByRole('button', { name: /张三.*已离职/ }));
-    await waitFor(() => expect(api.search).toHaveBeenCalledWith(expect.objectContaining({ employeeIds: ['9'], pageSize: 20 })));
+    await waitFor(() => expect(search).toHaveBeenCalledWith(expect.objectContaining({ employeeIds: ['9'], pageSize: 20 })));
     expect(screen.queryByRole('button', { name: '内部群' })).toBeNull();
     fireEvent.click(await screen.findByRole('button', { name: /星河科技/ }));
-    await waitFor(() => expect(api.staffDetail).toHaveBeenCalledWith(expect.objectContaining({ conversationId: '9:1:31', pageSize: 50 })));
+    await waitFor(() => expect(staffDetail).toHaveBeenCalledWith(expect.objectContaining({ conversationId: '9:1:31', pageSize: 50 })));
   });
 
   it('filters departed employees through the shared compact department picker', async () => {

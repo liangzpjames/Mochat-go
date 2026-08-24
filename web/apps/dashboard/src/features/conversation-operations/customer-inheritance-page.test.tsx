@@ -36,13 +36,15 @@ function renderPage(api: ContactTransferApi, path = '/customer/inheritance') {
 
 describe('CustomerInheritancePage', () => {
   it('loads resigned customers and rooms through their real endpoints', async () => {
-    const api = makeApi();
+    const unassigned = vi.fn<ContactTransferApi['unassigned']>().mockResolvedValue({ list: [customer(31, '重点客户')], lastTime: '2026-08-20 10:00:00' });
+    const rooms = vi.fn<ContactTransferApi['rooms']>().mockResolvedValue([{ roomId: 8, chatId: 'room-8', roomName: '产品交流群', owner: '李四', userNum: 8, addNum: 2, quitNum: 1, createTime: '2026-08-20 09:00:00' }]);
+    const api = makeApi({ unassigned, rooms });
     renderPage(api, '/customer/inheritance?inheritanceTab=resigned&assetTab=customer');
     expect(await screen.findByText('重点客户')).not.toBeNull();
-    expect(api.unassigned).toHaveBeenCalled();
+    expect(unassigned).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('tab', { name: '待分配群聊' }));
     expect(await screen.findByText('产品交流群')).not.toBeNull();
-    expect(api.rooms).toHaveBeenCalled();
+    expect(rooms).toHaveBeenCalled();
   });
 
   it('keeps the sync action available while browsing unassigned rooms', async () => {
@@ -63,14 +65,15 @@ describe('CustomerInheritancePage', () => {
   });
 
   it('guards assignment until a different successor is selected', async () => {
-    const api = makeApi();
+    const assigned = vi.fn<ContactTransferApi['assigned']>().mockResolvedValue([customer(31, '重点客户')]);
+    const api = makeApi({ assigned });
     renderPage(api, '/customer/inheritance?inheritanceTab=active');
     await screen.findAllByRole('option', { name: '原员工' });
     fireEvent.change(screen.getByLabelText('原跟进员工'), { target: { value: '9' } });
-    await waitFor(() => expect(api.assigned).toHaveBeenCalledWith(expect.objectContaining({ employeeIds: [9] })));
+    await waitFor(() => expect(assigned).toHaveBeenCalledWith(expect.objectContaining({ employeeIds: [9] })));
     fireEvent.click(await screen.findByLabelText('选择客户 31'));
     fireEvent.change(screen.getByLabelText('接替员工'), { target: { value: '9' } });
-    expect((screen.getByRole('button', { name: '分配给其他员工' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '分配给其他员工' }).disabled).toBe(true);
     expect(screen.getByText('接替员工不能与原跟进员工相同')).not.toBeNull();
   });
 
@@ -87,7 +90,7 @@ describe('CustomerInheritancePage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认分配' }));
     expect((await screen.findByRole('status')).textContent).toContain('成功 1 条，失败 1 条');
     expect(screen.queryByLabelText('选择客户 31')).toBeNull();
-    expect((screen.getByLabelText('选择客户 32') as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>('选择客户 32').checked).toBe(true);
   });
 
   it('reveals the refreshed snapshot again after a successful synchronization', async () => {
@@ -113,13 +116,14 @@ describe('CustomerInheritancePage', () => {
   });
 
   it('opens inheritance records and keeps the main filter after closing', async () => {
-    const api = makeApi({ logs: vi.fn().mockResolvedValue([{ mode: 1, name: '重点客户', employee: '接替员工', state: '已完成', corpName: '星河科技', roomNum: 0, createTime: '2026-08-20 10:00:00' }]) });
+    const logs = vi.fn<ContactTransferApi['logs']>().mockResolvedValue([{ mode: 1, name: '重点客户', employee: '接替员工', state: '已完成', corpName: '星河科技', roomNum: 0, createTime: '2026-08-20 10:00:00' }]);
+    const api = makeApi({ logs });
     renderPage(api, '/customer/inheritance?contactName=%E9%87%8D%E7%82%B9');
-    expect((screen.getByLabelText('客户名称') as HTMLInputElement).value).toBe('重点');
+    expect(screen.getByLabelText<HTMLInputElement>('客户名称').value).toBe('重点');
     fireEvent.click(screen.getByRole('button', { name: '继承记录' }));
     expect((await screen.findAllByText('重点客户')).length).toBeGreaterThan(0);
-    expect(api.logs).toHaveBeenCalledWith(expect.objectContaining({ mode: 1 }));
+    expect(logs).toHaveBeenCalledWith(expect.objectContaining({ mode: 1 }));
     fireEvent.click(screen.getByRole('button', { name: '关闭继承记录' }));
-    await waitFor(() => expect((screen.getByLabelText('客户名称') as HTMLInputElement).value).toBe('重点'));
+    await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('客户名称').value).toBe('重点'));
   });
 });

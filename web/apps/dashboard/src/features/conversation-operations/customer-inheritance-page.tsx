@@ -12,7 +12,6 @@ import type {
   ContactTransferFilter,
   EmployeeOption,
   TransferCustomer,
-  TransferLog,
   TransferRoom,
 } from './contact-transfer-api';
 
@@ -31,7 +30,9 @@ function positivePage(value: string | null) {
 }
 
 function stringValue(value: unknown) {
-  return typeof value === 'string' ? value : value == null ? '' : String(value);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  return '';
 }
 
 function employeeId(value: string | null) {

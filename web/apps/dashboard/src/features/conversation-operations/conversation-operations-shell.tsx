@@ -45,9 +45,9 @@ export function ConversationTabs<T extends string>(props: {
 export function ConversationQueryBar(props: {
   children: ReactNode;
   fetching?: boolean;
-  onQuery(): void;
-  onReset(): void;
-  onRefresh(): void;
+  onQuery: () => void;
+  onReset: () => void;
+  onRefresh: () => void;
 }) {
   const submit = (event: FormEvent) => {
     event.preventDefault();

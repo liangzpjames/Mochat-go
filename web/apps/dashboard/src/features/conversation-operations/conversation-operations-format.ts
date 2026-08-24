@@ -1,5 +1,7 @@
 export function displayValue(value: unknown): string {
-  return value === null || value === undefined || value === '' ? '--' : String(value);
+  if (typeof value === 'string') return value === '' ? '--' : value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  return '--';
 }
 
 export function formatDateTime(value: string): string {

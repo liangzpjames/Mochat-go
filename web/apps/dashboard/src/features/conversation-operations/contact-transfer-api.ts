@@ -84,7 +84,11 @@ function numberValue(value: unknown): number {
   return Number.isFinite(result) ? result : 0;
 }
 
-function stringValue(value: unknown): string { return typeof value === 'string' ? value : value == null ? '' : String(value); }
+function stringValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  return '';
+}
 
 function transferCustomer(value: unknown): TransferCustomer {
   const source = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
