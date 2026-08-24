@@ -672,10 +672,15 @@ type companyActorFacts struct {
 	Activated      bool
 }
 
-func companyActorFactsAllowed(facts companyActorFacts, principal dashboardprincipal.DashboardPrincipal) bool {
+func companyActorFactsAllowed(facts companyActorFacts, principal dashboardprincipal.DashboardPrincipal, hasCompanyPermission bool) bool {
+	expectedSuperAdmin := 0
+	if principal.IsSuperAdmin {
+		expectedSuperAdmin = 1
+	}
 	return facts.TenantID == principal.TenantID &&
-		facts.UserStatus == 1 && facts.IsSuperAdmin == 1 && facts.IdentityStatus == 1 &&
-		facts.AuthVersion == principal.AuthVersion && facts.Activated
+		facts.UserStatus == 1 && facts.IsSuperAdmin == expectedSuperAdmin && facts.IdentityStatus == 1 &&
+		facts.AuthVersion == principal.AuthVersion && facts.Activated &&
+		(principal.IsSuperAdmin || hasCompanyPermission)
 }
 
 // businessActorFactsAllowed is deliberately separate from companyActorFactsAllowed:
@@ -714,7 +719,8 @@ func (s *MySQLStore) checkCompanyActor(ctx context.Context, queryer companyProfi
 	if err != nil {
 		return companyprofile.ErrStoreUnavailable
 	}
-	if !companyActorFactsAllowed(facts, principal) {
+	hasCompanyPermission := dashboardprincipal.HasPermissionCode(ctx, principal, "dashboard.company_setting.website")
+	if !companyActorFactsAllowed(facts, principal, hasCompanyPermission) {
 		return companyprofile.ErrPermissionDenied
 	}
 	return nil

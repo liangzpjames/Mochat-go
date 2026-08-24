@@ -359,6 +359,10 @@ func TestDashboardAccessGuardAllowsCompanyProfileForGrantedOrdinaryUser(t *testi
 		if !guard.Authorize(recorder, request) {
 			t.Fatalf("granted company profile request %s rejected: status=%d body=%s", path, recorder.Code, recorder.Body.String())
 		}
+		principal, err := dashboardprincipal.DashboardPrincipalFromContext(request.Context())
+		if err != nil || !dashboardprincipal.HasPermissionCode(request.Context(), principal, "dashboard.company_setting.website") {
+			t.Fatalf("granted company profile request %s lost service-layer permission context: principal=%+v err=%v", path, principal, err)
+		}
 	}
 }
 

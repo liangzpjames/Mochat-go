@@ -38,6 +38,34 @@ func TestCompanyProfileStoreDoesNotReadLegacyPlaintextCredentialColumns(t *testi
 	}
 }
 
+func TestCompanyProfileStoreAllowsGrantedOrdinaryActorOnRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey: testCompanyCredentialKey(18), EncryptionKeyID: "company-ordinary-key",
+		RequireEncryption: true, DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	if _, err := db.Exec(`UPDATE mc_user SET isSuperAdmin=0 WHERE id=10 AND tenant_id=1`); err != nil {
+		t.Fatal(err)
+	}
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{
+		UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1,
+	}
+	ctx := dashboardprincipal.WithCapabilityAccess(context.Background(), false, []string{"dashboard.company_setting.website"})
+	profile, err := store.GetProfile(ctx, principal)
+	if err != nil {
+		t.Fatalf("GetProfile() error = %v", err)
+	}
+	if profile.TenantID != 1 || profile.CorpID != 100 {
+		t.Fatalf("profile=%+v, want tenant=1 corp=100", profile)
+	}
+	if _, err := store.GetProfile(context.Background(), principal); !errors.Is(err, companyprofile.ErrPermissionDenied) {
+		t.Fatalf("ungranted GetProfile() error = %v, want ErrPermissionDenied", err)
+	}
+}
+
 func TestCompanyProfileApplicationCallbackAndArchiveConfigurationIsAtomicRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
