@@ -1,7 +1,19 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiInsightWorkspaceApi } from './ai-insight-workspace-api';
 import { CommunicationKeywordInsightPage, EmotionInsightPage, EmployeeScoreInsightPage } from './derived-insight-pages';
+
+type ExpectedDerivedPageProps = { api: AiInsightWorkspaceApi; onNavigate?: ((path: string) => void) | undefined };
+type Equal<Left, Right> = (<Type>() => Type extends Left ? 1 : 2) extends (<Type>() => Type extends Right ? 1 : 2)
+  ? (<Type>() => Type extends Right ? 1 : 2) extends (<Type>() => Type extends Left ? 1 : 2) ? true : false
+  : false;
+type Assert<Type extends true> = Type;
+type _EmotionPageProps = Assert<Equal<ComponentProps<typeof EmotionInsightPage>, ExpectedDerivedPageProps>>;
+type _EmployeeScorePageProps = Assert<Equal<ComponentProps<typeof EmployeeScoreInsightPage>, ExpectedDerivedPageProps>>;
+type _CommunicationKeywordPageProps = Assert<Equal<ComponentProps<typeof CommunicationKeywordInsightPage>, ExpectedDerivedPageProps>>;
+const derivedPagePropsCompile: [_EmotionPageProps, _EmployeeScorePageProps, _CommunicationKeywordPageProps] = [true, true, true];
+void derivedPagePropsCompile;
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -52,6 +64,57 @@ function createApi(overrides: Record<string, unknown> = {}) {
 }
 
 describe('三个 AI 洞察专用投影页面', () => {
+  it('三页从 URL 初始化员工、客户、状态和日期 common filters 并请求真实 ID', async () => {
+    window.sessionStorage.setItem('ai-insight.employee-name', JSON.stringify({ '1001': '员工甲' }));
+    for (const test of [
+      { view: 'emotion', path: '/ai-insight/emotion', Page: EmotionInsightPage },
+      { view: 'employee-score', path: '/ai-insight/employee-score', Page: EmployeeScoreInsightPage },
+      { view: 'communication-keyword', path: '/ai-insight/communication-keyword', Page: CommunicationKeywordInsightPage },
+    ] as const) {
+      window.history.replaceState({}, '', `${test.path}?employeeId=1001&customerName=%E5%AE%A2%E6%88%B7%E7%94%B2&status=failed&startDate=2026-08-20&endDate=2026-08-24`);
+      const api = createApi();
+      const Page = test.Page;
+      render(<Page api={api as unknown as AiInsightWorkspaceApi} />);
+      expect((await screen.findByRole('combobox', { name: '员工' }) as HTMLInputElement).value).toBe('员工甲');
+      expect((screen.getByLabelText('客户名称') as HTMLInputElement).value).toBe('客户甲');
+      expect((screen.getByLabelText('分析状态') as HTMLSelectElement).value).toBe('failed');
+      expect((screen.getByLabelText('开始日期') as HTMLInputElement).value).toBe('2026-08-20');
+      expect((screen.getByLabelText('结束日期') as HTMLInputElement).value).toBe('2026-08-24');
+      await waitFor(() => expect(api.derivedRecords).toHaveBeenCalledWith(test.view, expect.objectContaining({
+        page: 1, employeeId: 1001, customerName: '客户甲', status: 'failed', startDate: '2026-08-20', endDate: '2026-08-24',
+      })));
+      cleanup();
+    }
+  });
+
+  it('查询 push、刷新 replace，并在 popstate 时恢复 common filters 后重新请求', async () => {
+    window.history.replaceState({}, '', '/ai-insight/emotion?customerName=%E5%AE%A2%E6%88%B7%E7%94%B2');
+    const pushState = vi.spyOn(window.history, 'pushState');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    const api = createApi();
+    render(<EmotionInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
+    expect((await screen.findByLabelText('客户名称') as HTMLInputElement).value).toBe('客户甲');
+
+    fireEvent.change(screen.getByLabelText('客户名称'), { target: { value: '客户乙' } });
+    fireEvent.change(screen.getByLabelText('分析状态'), { target: { value: 'succeeded' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(pushState).toHaveBeenCalled());
+    expect(new URLSearchParams(window.location.search).get('customerName')).toBe('客户乙');
+    expect(new URLSearchParams(window.location.search).get('status')).toBe('succeeded');
+
+    const pushesBeforeRefresh = pushState.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() => expect(replaceState).toHaveBeenCalled());
+    expect(pushState.mock.calls.length).toBe(pushesBeforeRefresh);
+
+    window.history.pushState({}, '', '/ai-insight/emotion?customerName=%E5%AE%A2%E6%88%B7%E4%B8%99&status=failed&startDate=2026-08-01&endDate=2026-08-02&page=2');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await waitFor(() => expect(api.derivedRecords).toHaveBeenLastCalledWith('emotion', expect.objectContaining({
+      page: 2, customerName: '客户丙', status: 'failed', startDate: '2026-08-01', endDate: '2026-08-02',
+    })));
+    expect((screen.getByLabelText('客户名称') as HTMLInputElement).value).toBe('客户丙');
+  });
+
   it('情绪页只展示五态客户情绪和真实原因，不制造员工情绪结论', async () => {
     const api = createApi();
     render(<EmotionInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
@@ -135,32 +198,29 @@ describe('三个 AI 洞察专用投影页面', () => {
     expect(await screen.findByText('分析失败：模型响应超时')).toBeTruthy();
   });
 
-  it('整行打开详情，按钮、Escape、遮罩均可关闭，原会话跳转不误触行', async () => {
+  it('整行复用 InsightDrawer，关闭按钮、Escape、遮罩均可关闭，原会话按钮不重复打开详情', async () => {
     const onNavigate = vi.fn();
     const api = createApi();
     render(<CommunicationKeywordInsightPage api={api as unknown as AiInsightWorkspaceApi} onNavigate={onNavigate} />);
     const resultRow = await screen.findByRole('row', { name: /员工甲.*客户甲/ });
     fireEvent.click(resultRow);
-    expect(await screen.findByRole('dialog', { name: '沟通关键词洞察详情' })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: '分析详情' })).toBeTruthy();
     expect(api.derivedDetail).toHaveBeenCalledWith('communication-keyword', 9);
-    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-
-    fireEvent.click(resultRow);
-    await screen.findByRole('dialog');
-    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
-    expect(screen.queryByRole('dialog')).toBeNull();
-
-    fireEvent.click(resultRow);
-    await screen.findByRole('dialog');
-    fireEvent.click(screen.getByTestId('derived-detail-backdrop'));
-    expect(screen.queryByRole('dialog')).toBeNull();
-
-    fireEvent.click(resultRow);
-    await screen.findByRole('dialog');
-    const callsBeforeLink = api.derivedDetail.mock.calls.length;
-    fireEvent.click(screen.getByRole('link', { name: '打开原会话' }));
+    const callsBeforeNavigate = api.derivedDetail.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '查看原会话' }));
     expect(onNavigate).toHaveBeenCalledWith(detail.conversationUrl);
-    expect(api.derivedDetail).toHaveBeenCalledTimes(callsBeforeLink);
+    expect(api.derivedDetail).toHaveBeenCalledTimes(callsBeforeNavigate);
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(resultRow);
+    await screen.findByRole('dialog');
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(resultRow);
+    await screen.findByRole('dialog');
+    fireEvent.click(screen.getByLabelText('关闭详情'));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

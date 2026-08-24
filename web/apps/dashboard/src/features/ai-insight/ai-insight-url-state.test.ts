@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readSessionFilters, readSmartState, writeSessionFilters, writeSmartState } from './ai-insight-url-state';
 import * as urlState from './ai-insight-url-state';
+import type { DerivedInsightFilters, DerivedInsightView } from './ai-insight-workspace-api';
 
 describe('AI 洞察 URL 状态', () => {
   it('空筛选不写入查询参数，查询变化可重置页码', () => {
@@ -30,10 +31,18 @@ describe('AI 洞察 URL 状态', () => {
   });
 });
 
+type Equal<Left, Right> = (<Type>() => Type extends Left ? 1 : 2) extends (<Type>() => Type extends Right ? 1 : 2)
+  ? (<Type>() => Type extends Right ? 1 : 2) extends (<Type>() => Type extends Left ? 1 : 2) ? true : false
+  : false;
+type Assert<Type extends true> = Type;
 type DerivedUrlStateContract = {
-  readDerivedFilters(view: string, input?: string | URL): Record<string, unknown>;
-  writeDerivedFilters(view: string, filters: Record<string, unknown>, input?: string | URL): string;
+  readDerivedFilters(view: DerivedInsightView, input?: string | URL): DerivedInsightFilters;
+  writeDerivedFilters(view: DerivedInsightView, filters: DerivedInsightFilters, input?: string | URL): string;
 };
+type _ReadDerivedFiltersSignature = Assert<Equal<typeof urlState.readDerivedFilters, DerivedUrlStateContract['readDerivedFilters']>>;
+type _WriteDerivedFiltersSignature = Assert<Equal<typeof urlState.writeDerivedFilters, DerivedUrlStateContract['writeDerivedFilters']>>;
+const derivedUrlSignaturesCompile: [_ReadDerivedFiltersSignature, _WriteDerivedFiltersSignature] = [true, true];
+void derivedUrlSignaturesCompile;
 
 function derivedUrlState(): DerivedUrlStateContract {
   const module = urlState as unknown as Partial<DerivedUrlStateContract>;
@@ -43,6 +52,16 @@ function derivedUrlState(): DerivedUrlStateContract {
 }
 
 describe('AI 洞察专用投影 URL 状态', () => {
+  it('情绪五态逐一读写且不丢失', () => {
+    const { readDerivedFilters, writeDerivedFilters } = derivedUrlState();
+    for (const emotion of ['positive', 'neutral', 'negative', 'mixed', 'unknown'] as const) {
+      expect(readDerivedFilters('emotion', `http://localhost/ai-insight/emotion?emotion=${emotion}`)).toEqual({ page: 1, emotion });
+      const url = writeDerivedFilters('emotion', { page: 1, emotion }, 'http://localhost/ai-insight/emotion?emotion=stale&minScore=0&keyword=old');
+      expect(new URL(url).search).toBe(`?emotion=${emotion}`);
+      expect(readDerivedFilters('emotion', url)).toEqual({ page: 1, emotion });
+    }
+  });
+
   it('三页只恢复 common 条件和各自专用条件', () => {
     const { readDerivedFilters } = derivedUrlState();
     const common = 'page=2&employeeId=1001&customerName=%E5%AE%A2%E6%88%B7%E7%94%B2&status=succeeded&startDate=2026-08-20&endDate=2026-08-24';

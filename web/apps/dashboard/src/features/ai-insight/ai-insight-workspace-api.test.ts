@@ -1,11 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createAiInsightWorkspaceApi } from './ai-insight-workspace-api';
-import type { DerivedInsightFilters, DerivedInsightView, EmotionLabel } from './ai-insight-workspace-api';
+import type {
+  AiInsightWorkspaceApi,
+  DerivedInsightFilters,
+  DerivedInsightView,
+  EmotionLabel,
+  EmployeeFilterOptions,
+  InsightDetail,
+  InsightPage,
+  InsightRunStatus,
+  SessionInsightRow,
+} from './ai-insight-workspace-api';
 
 const typedDerivedViews: DerivedInsightView[] = ['emotion', 'employee-score', 'communication-keyword'];
 const typedEmotionLabels: EmotionLabel[] = ['positive', 'neutral', 'negative', 'mixed', 'unknown'];
 const typedDerivedFilters: DerivedInsightFilters = { page: 1, minScore: 0 };
 void [typedDerivedViews, typedEmotionLabels, typedDerivedFilters];
+
+type Equal<Left, Right> = (<Type>() => Type extends Left ? 1 : 2) extends (<Type>() => Type extends Right ? 1 : 2)
+  ? (<Type>() => Type extends Right ? 1 : 2) extends (<Type>() => Type extends Left ? 1 : 2) ? true : false
+  : false;
+type Assert<Type extends true> = Type;
+type ExpectedDerivedApiMethods = {
+  derivedRecords(view: DerivedInsightView, filters: DerivedInsightFilters): Promise<InsightPage<SessionInsightRow>>;
+  derivedDetail(view: DerivedInsightView, id: number): Promise<InsightDetail<SessionInsightRow>>;
+  derivedStatus(view: DerivedInsightView): Promise<InsightRunStatus>;
+  derivedFilterOptions(view: DerivedInsightView, employeeKeyword?: string, limit?: number): Promise<EmployeeFilterOptions>;
+  derivedExportUrl(view: DerivedInsightView, filters: DerivedInsightFilters): string;
+};
+type _DerivedApiPublicSignature = Assert<Equal<AiInsightWorkspaceApi & ExpectedDerivedApiMethods, AiInsightWorkspaceApi>>;
+const derivedApiPublicSignatureCompiles: _DerivedApiPublicSignature = true;
+void derivedApiPublicSignatureCompiles;
 
 const valid = {
   id: 1,
@@ -80,6 +105,9 @@ describe('AI 洞察工作台 API', () => {
 
 const validDerived = {
   ...valid,
+  provider: 'provider-a',
+  model: 'model-a',
+  promptVersion: 'v2',
   result: {
     schemaVersion: 2,
     summary: '真实会话投影',
@@ -91,13 +119,7 @@ const validDerived = {
   },
 };
 
-type DerivedApiContract = {
-  derivedRecords(view: string, filters: Record<string, unknown>): Promise<{ page: number; pageSize: 20; total: number; items: Array<Record<string, unknown>> }>;
-  derivedDetail(view: string, id: number): Promise<Record<string, unknown>>;
-  derivedStatus(view: string): Promise<Record<string, unknown>>;
-  derivedFilterOptions(view: string, employeeKeyword?: string, limit?: number): Promise<Record<string, unknown>>;
-  derivedExportUrl(view: string, filters: Record<string, unknown>): string;
-};
+type DerivedApiContract = ExpectedDerivedApiMethods;
 
 function createDerivedApi(client: { request: ReturnType<typeof vi.fn> }): DerivedApiContract {
   const api = createAiInsightWorkspaceApi(client) as unknown as Partial<DerivedApiContract>;
@@ -122,9 +144,10 @@ describe('AI 洞察专用投影统一 API 合同', () => {
         .mockResolvedValueOnce({ employees: [{ id: 1001, name: '员工甲', avatar: '' }] }),
     };
     const api = createDerivedApi(client);
-    await api.derivedRecords('employee-score', {
+    const page = await api.derivedRecords('employee-score', {
       page: 2, employeeId: 1001, customerName: '客户甲', status: 'succeeded', startDate: '2026-08-20', endDate: '2026-08-24', minScore: 0, maxScore: 100,
     });
+    expect(page.pageSize).toBe(20);
     await api.derivedDetail('emotion', 1);
     await api.derivedStatus('communication-keyword');
     await api.derivedFilterOptions('emotion', '张 三', 20);
@@ -164,11 +187,22 @@ describe('AI 洞察专用投影统一 API 合同', () => {
 
   it.each([
     ['emotion', { ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, emotion: { ...validDerived.result.customer.emotion, label: 'happy' } } } }, '未知客户情绪：happy'],
-    ['employee-score', { ...validDerived, result: { ...validDerived.result, employeeQa: { ...validDerived.result.employeeQa, score: 101 } } }, '员工评分超出 0-100'],
     ['communication-keyword', { ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, keywords: ['采购', 7] } } }, '客户关键词必须是字符串数组'],
   ])('拒绝 %s 投影的伪造成功结果', async (view, item, message) => {
     const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [item] }) };
-    await expect(createDerivedApi(client).derivedRecords(view, { page: 1 })).rejects.toThrow(message);
+    await expect(createDerivedApi(client).derivedRecords(view as DerivedInsightView, { page: 1 })).rejects.toThrow(message);
+  });
+
+  it.each([
+    [-1, '员工评分超出 0-100'],
+    [101, '员工评分超出 0-100'],
+    ['not-a-number', '员工评分缺失或不是数值'],
+    [undefined, '员工评分缺失或不是数值'],
+  ])('成功记录的 employeeQa.score=%s 时明确拒绝', async (score, message) => {
+    const result = { ...validDerived.result, employeeQa: { ...validDerived.result.employeeQa } } as Record<string, unknown>;
+    (result.employeeQa as Record<string, unknown>).score = score;
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...validDerived, result }] }) };
+    await expect(createDerivedApi(client).derivedRecords('employee-score', { page: 1 })).rejects.toThrow(message);
   });
 
   it.each([

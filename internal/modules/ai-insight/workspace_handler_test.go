@@ -477,6 +477,11 @@ func TestProjectionQueryValidationPreservesEmotionStatesAndScoreZero(t *testing.
 				t.Fatalf("score range=%v..%v，必须保留真实 0", min, max)
 			}
 		}},
+		{view: "communication-keyword", query: "keyword=采购", check: func(t *testing.T, f InsightFilter) {
+			if f.Keyword != "采购" {
+				t.Fatalf("keyword=%q", f.Keyword)
+			}
+		}},
 	}
 	for _, test := range valid {
 		t.Run(test.view+"_"+test.query, func(t *testing.T) {
@@ -497,7 +502,9 @@ func TestProjectionQueryValidationPreservesEmotionStatesAndScoreZero(t *testing.
 		{view: "employee-score", query: "maxScore=101"},
 		{view: "employee-score", query: "minScore=80&maxScore=20"},
 		{view: "employee-score", query: "emotion=positive"},
+		{view: "employee-score", query: "keyword=采购"},
 		{view: "emotion", query: "minScore=0"},
+		{view: "emotion", query: "keyword=采购"},
 		{view: "communication-keyword", query: "maxScore=100"},
 		{view: "communication-keyword", query: "emotion=neutral"},
 	}
@@ -556,6 +563,9 @@ func TestProjectionDetailUsesSessionIdentityAndSameEmployeeScopeForMessages(t *t
 			}
 			if messages.TenantID != 11 || messages.CorpID != 22 || messages.ConversationKey != "1001:1:2001" || !messages.Restricted || !reflect.DeepEqual(messages.AllowedEmployeeIDs, []int64{1001}) {
 				t.Fatalf("message query=%#v", messages)
+			}
+			if !messages.StartAt.Equal(started) || !messages.EndAt.Equal(ended) || messages.Limit != 200 {
+				t.Fatalf("message source window=%s..%s limit=%d, want %s..%s limit=200", messages.StartAt, messages.EndAt, messages.Limit, started, ended)
 			}
 		})
 	}
