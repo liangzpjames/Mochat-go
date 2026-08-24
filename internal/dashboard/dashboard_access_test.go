@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"reflect"
 	"testing"
 )
@@ -109,6 +111,48 @@ func TestDashboardAccessScopeUnionOrder(t *testing.T) {
 	}
 	if got := MergeDataScopes(DataScopeTenant, DataScopeSelf); got != DataScopeTenant {
 		t.Fatalf("tenant + self = %q", got)
+	}
+}
+
+func TestDashboardAccessCompanyWebsiteCatalogIsGrantable(t *testing.T) {
+	raw, err := os.ReadFile("dashboard_page_catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Pages []DashboardPermissionDefinition `json:"pages"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range catalog.Pages {
+		if page.Code == "dashboard.company_setting.website" {
+			if page.SuperadminOnly {
+				t.Fatal("company website page must be grantable to ordinary users")
+			}
+			return
+		}
+	}
+	t.Fatal("company website page is missing")
+}
+
+func TestDashboardAccessResolvesCompanyWebsiteGrantForOrdinaryUser(t *testing.T) {
+	store := &fakeDashboardAccessStore{
+		identityFound: true,
+		identity:      DashboardAccessIdentity{UserID: 7, TenantID: 9, UserName: "普通用户", Status: 1},
+		catalog: []DashboardPermissionDefinition{{
+			ID: 49, Code: "dashboard.company_setting.website", Path: "/company-setting/website", Name: "唯一企业资料",
+		}},
+		grants: []DashboardPermissionGrantFact{{
+			TenantID: 9, PermissionID: 49, SourceType: PermissionSourceDirect, SourceID: 7, Scope: string(DataScopeTenant),
+		}},
+	}
+	profile, err := NewDashboardAccessService(store).Resolve(context.Background(), 7, 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !profile.AllowsPage("/company-setting/website") {
+		t.Fatalf("allowed routes = %v", profile.AllowedRoutes)
 	}
 }
 

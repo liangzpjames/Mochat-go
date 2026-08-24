@@ -343,6 +343,47 @@ func TestDashboardAccessGuardSuperadminAndDenyOnlyPolicy(t *testing.T) {
 	}
 }
 
+func TestDashboardAccessGuardAllowsCompanyProfileForGrantedOrdinaryUser(t *testing.T) {
+	guard, store := newDashboardAccessGuardFixture(false)
+	store.resources = []DashboardPermissionResource{{
+		PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet,
+		PathPattern: "/dashboard/company/profile", ScopeRequired: false,
+	}}
+	store.catalog = []DashboardPermissionDefinition{{
+		ID: 49, Code: "dashboard.company_setting.website", Path: "/company-setting/website", Name: "唯一企业资料",
+	}}
+	store.grants = []DashboardPermissionGrantFact{{
+		TenantID: 9, PermissionID: 49, SourceType: PermissionSourceDirect, SourceID: 7, Scope: string(DataScopeTenant),
+	}}
+	recorder := httptest.NewRecorder()
+	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/company/profile", nil)
+
+	if !guard.Authorize(recorder, request) {
+		t.Fatalf("granted company profile request rejected: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestDashboardAccessGuardDeniesCompanyProfileWithoutGrant(t *testing.T) {
+	guard, store := newDashboardAccessGuardFixture(false)
+	store.resources = []DashboardPermissionResource{{
+		PermissionCode: "dashboard.company_setting.website", Method: http.MethodGet,
+		PathPattern: "/dashboard/company/profile", ScopeRequired: false,
+	}}
+	store.catalog = []DashboardPermissionDefinition{{
+		ID: 49, Code: "dashboard.company_setting.website", Path: "/company-setting/website", Name: "唯一企业资料",
+	}}
+	store.grants = nil
+	recorder := httptest.NewRecorder()
+	request := dashboardAccessGuardRequest(guard, http.MethodGet, "/dashboard/company/profile", nil)
+
+	if guard.Authorize(recorder, request) {
+		t.Fatal("ungranted company profile request was allowed")
+	}
+	if recorder.Code != http.StatusForbidden || machineCode(t, recorder) != DashboardPermissionDeniedCode {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestDashboardAccessGuardExemptionsAreExactAndProtectedOnSessionRoutes(t *testing.T) {
 	guard, store := newDashboardAccessGuardFixture(false)
 	for _, test := range []struct {

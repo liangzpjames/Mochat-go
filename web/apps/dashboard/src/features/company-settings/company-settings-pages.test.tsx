@@ -7,6 +7,8 @@ import { CompanyStaffPage } from './staff-page';
 import { CompanyWebsitePage } from './website-page';
 import { CompanyAdditionalPage } from './additional-page';
 import { CompanyAuthorizationPage } from './authorization-page';
+import { DashboardAccessProvider } from '../../app/access-context';
+import type { AccessContext } from '../../app/access-loader';
 import { createRoleApi } from '../role/role-api';
 import { createUserAdminApi } from '../user-admin/user-admin-api';
 import { createMenuAdminApi } from '../menu-admin/menu-admin-api';
@@ -231,6 +233,80 @@ describe('企业设置页面', () => {
     const getProfile = vi.fn();
     const api = companyApi({ getProfile });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin={false} />);
+
+    expect(await screen.findByText('暂无权限查看企业资料')).toBeTruthy();
+    expect(getProfile).not.toHaveBeenCalled();
+  });
+
+  it('企业信息：拥有页面授权的普通用户会加载唯一企业资料', async () => {
+    const getProfile = vi.fn().mockResolvedValue(companyProfile);
+    const api = companyApi({ getProfile });
+    const access: AccessContext = {
+      session: { token: 'token', userId: '7', expiresAt: Date.now() + 60_000 },
+      corp: { id: '11', name: '演示企业', authorized: true },
+      profile: {
+        userId: 7,
+        userName: '普通用户',
+        tenantId: 7,
+        corpId: 11,
+        corpName: '演示企业',
+        workEmployeeId: 0,
+        departmentIds: [],
+        departmentEmployeeIds: [],
+        isSuperAdmin: false,
+        corpBindingStatus: 'verified',
+        catalog: [],
+        effectivePermissions: [{
+          code: 'dashboard.company_setting.website',
+          path: '/company-setting/website',
+          name: '唯一企业资料',
+          scope: 'tenant',
+          sources: [],
+        }],
+        allowedRoutes: ['/company-setting/website'],
+      },
+      allowedRoutes: new Set(['/company-setting/website']),
+      allowedActions: new Set(),
+    };
+    renderPage(
+      <DashboardAccessProvider value={access}>
+        <CompanyWebsitePage api={api} />
+      </DashboardAccessProvider>,
+    );
+
+    expect(await screen.findByText('权威企业名称')).toBeTruthy();
+    expect(getProfile).toHaveBeenCalledOnce();
+  });
+
+  it('企业信息：缺少页面授权的普通用户不加载企业数据', async () => {
+    const getProfile = vi.fn();
+    const api = companyApi({ getProfile });
+    const access: AccessContext = {
+      session: { token: 'token', userId: '7', expiresAt: Date.now() + 60_000 },
+      corp: { id: '11', name: '演示企业', authorized: true },
+      profile: {
+        userId: 7,
+        userName: '普通用户',
+        tenantId: 7,
+        corpId: 11,
+        corpName: '演示企业',
+        workEmployeeId: 0,
+        departmentIds: [],
+        departmentEmployeeIds: [],
+        isSuperAdmin: false,
+        corpBindingStatus: 'verified',
+        catalog: [],
+        effectivePermissions: [],
+        allowedRoutes: [],
+      },
+      allowedRoutes: new Set(),
+      allowedActions: new Set(),
+    };
+    renderPage(
+      <DashboardAccessProvider value={access}>
+        <CompanyWebsitePage api={api} />
+      </DashboardAccessProvider>,
+    );
 
     expect(await screen.findByText('暂无权限查看企业资料')).toBeTruthy();
     expect(getProfile).not.toHaveBeenCalled();

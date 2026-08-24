@@ -101,6 +101,61 @@ describe('createAccessLoader', () => {
     expect((result as { allowedRoutes: ReadonlySet<string> }).allowedRoutes).toEqual(new Set(['/chat/v2-all']));
   });
 
+  it('allows an ordinary user directly granted the company website page', async () => {
+    const companyWebsiteProfile = {
+      ...profile,
+      catalog: [{
+        id: 49,
+        code: 'dashboard.company_setting.website',
+        path: '/company-setting/website',
+        name: '唯一企业资料',
+        groupCode: 'company-settings',
+        sort: 49,
+        superadminOnly: true,
+        scopeRequired: false,
+      }],
+      effectivePermissions: [{
+        code: 'dashboard.company_setting.website',
+        path: '/company-setting/website',
+        name: '唯一企业资料',
+        scope: 'tenant' as const,
+        sources: [],
+      }],
+      allowedRoutes: ['/company-setting/website'],
+    };
+    const result = await createAccessLoader(deps({
+      loadProfile: vi.fn(() => Promise.resolve(companyWebsiteProfile)),
+      knownRoutes: new Set(['/company-setting/website']),
+      manifestRoutes: new Set(['/company-setting/website']),
+    }))({ request: new Request('https://app.test/company-setting/website') });
+
+    expect(result.allowedRoutes).toEqual(new Set(['/company-setting/website']));
+  });
+
+  it('returns 403 for the company website page without its grant', async () => {
+    const companyWebsiteProfile = {
+      ...profile,
+      catalog: [{
+        id: 49,
+        code: 'dashboard.company_setting.website',
+        path: '/company-setting/website',
+        name: '唯一企业资料',
+        groupCode: 'company-settings',
+        sort: 49,
+        superadminOnly: true,
+        scopeRequired: false,
+      }],
+      effectivePermissions: [],
+      allowedRoutes: [],
+    };
+
+    await expect(createAccessLoader(deps({
+      loadProfile: vi.fn(() => Promise.resolve(companyWebsiteProfile)),
+      knownRoutes: new Set(['/company-setting/website']),
+      manifestRoutes: new Set(['/company-setting/website']),
+    }))({ request: new Request('https://app.test/company-setting/website') })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('redirects a pending binding to settings and keeps the session', async () => {
     const pendingProfile = { ...profile, corpBindingStatus: 'pending' as const };
     const loadProfile = vi.fn(() => Promise.resolve(pendingProfile));

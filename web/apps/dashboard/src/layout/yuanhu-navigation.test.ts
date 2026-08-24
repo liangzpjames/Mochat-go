@@ -22,6 +22,7 @@ const manifest: YuanhuManifest = {
     { path: '/chat/v2-staff', title: '员工会话', groupId: 'conversation' },
     { path: '/chat/v2-all', title: '重复页面', groupId: 'conversation' },
     { path: '/ai-insight/v2/risk', title: '风险行为', groupId: 'risk-warning' },
+    { path: '/company-setting/website', title: '唯一企业资料', groupId: 'company-settings' },
     { path: '/index', title: '数据概览', groupId: null },
   ],
 };
@@ -52,5 +53,18 @@ describe('buildYuanhuNavigation', () => {
     }, manifest)).toEqual([
       { title: '数据概览', path: '/index', activePath: '/index' },
     ]);
+  });
+
+  it('shows 唯一企业资料 to an ordinary user granted the company website page', () => {
+    const navigation = buildYuanhuNavigation({
+      allowedRoutes: new Set(['/company-setting/website']),
+      pathname: '/company-setting/website',
+    }, manifest);
+
+    expect(navigation).toContainEqual({
+      id: 'company-settings',
+      title: '企业设置',
+      items: [{ title: '唯一企业资料', path: '/company-setting/website', activePath: '/company-setting/website' }],
+    });
   });
 });

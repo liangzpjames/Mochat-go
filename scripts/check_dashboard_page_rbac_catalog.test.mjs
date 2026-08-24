@@ -10,6 +10,7 @@ import {
   extractCutoverPermissionResourceMappings,
   applyCutoverPermissionResourceOverlay,
   extractFrontendAPIUsages,
+  extractGoDashboardRoutePolicy,
   extractMigrationPermissionResourceMappings,
   productionDashboardSourceFiles,
   validateDashboardPageRBACCatalog,
@@ -331,6 +332,21 @@ test('company deny-only routes may be consumed only by the protected company pag
     () => validateDashboardPageRBACCatalog(input),
     /deny-only dashboard route is mapped to a page: GET \/dashboard\/company\/profile/,
   );
+});
+
+test('company website resources are grantable and excluded from deny-only policy', async () => {
+  const [catalogSource, routePolicySource] = await Promise.all([
+    readFile('internal/dashboard/dashboard_page_catalog.json', 'utf8'),
+    readFile('internal/dashboard/dashboard_route_policy.go', 'utf8'),
+  ]);
+  const companyPage = JSON.parse(catalogSource).pages.find((page) => page.code === 'dashboard.company_setting.website');
+  assert.ok(companyPage, 'company website page must remain registered');
+  assert.equal(companyPage.superadminOnly, false);
+
+  const denyOnly = new Set(extractGoDashboardRoutePolicy(routePolicySource).denyOnly);
+  for (const resource of companyPage.resources) {
+    assert.equal(denyOnly.has(`${resource.method} ${resource.pathPattern}`), false);
+  }
 });
 
 test('rejects routes assigned to both exact-exempt and deny-only classes', () => {
