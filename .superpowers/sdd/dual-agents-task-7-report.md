@@ -55,3 +55,38 @@
 
 - 未修改后端、AI settings、其他 AI insight 页面、全局菜单。
 - 未纳入 `.superpowers/sdd/progress.md`。
+
+## Review fixes（Task 7 审查修复）
+
+- 按 `internal/modules/ai-insight/contracts.go` 对齐真实结果合同：
+  - Smart v2 以 `schemaVersion = 2` 判定，覆盖度改读 `evidenceCoverageScore`
+  - Session 详情改为展示 `explicitNeeds`、`implicitNeeds`、`emotion.label/reason`、`recommendedReply`、`actions`、`notes`
+  - `purchaseIntent` / `churnRisk` 分别展示各自 `dimensions` 与 `reason`
+  - `employeeQa.dimensions` 展示 `comment`
+  - `unresolvedCustomerIssues` / `unresolvedObjections` 按 `{ title, reason }` 结构化展示
+  - 证据高亮递归收集所有嵌套 `evidenceMessageIds`，但仅按当前详情实际返回的 messages 去重高亮
+- 修复浏览器历史交互：
+  - 查询 / 重置 / 分页使用 `pushState`
+  - `popstate` 时重新按 URL 恢复筛选并刷新数据
+  - 刷新使用 `replaceState`，不新增历史记录
+- 收敛 Smart 页面文案：
+  - 移除“默认”措辞
+  - 助手名称为空时回退为“智能分析助手”
+- 补齐组合框无障碍属性：
+  - option 增加稳定 `id`
+  - input 增加 `aria-activedescendant`
+
+### 审查修复验证
+
+- Vitest：
+  - `pnpm exec vitest run src/features/ai-insight/ai-insight-workspace-api.test.ts src/features/ai-insight/ai-insight-url-state.test.ts src/features/ai-insight/ai-insight-workspace.test.tsx src/features/ai-insight/session-analysis-page.test.tsx src/features/ai-insight/smart-analysis-page.test.tsx`
+  - 结果：`5 passed / 27 passed`
+- Typecheck：
+  - `pnpm run typecheck`
+  - 结果：通过
+- ESLint（任务范围 TS/TSX）：
+  - `pnpm exec eslint src/features/ai-insight/ai-insight-workspace-api.ts src/features/ai-insight/ai-insight-url-state.ts src/features/ai-insight/ai-insight-workspace.tsx src/features/ai-insight/ai-insight-workspace.test.tsx src/features/ai-insight/session-analysis-page.tsx src/features/ai-insight/session-analysis-page.test.tsx src/features/ai-insight/smart-analysis-page.tsx src/features/ai-insight/smart-analysis-page.test.tsx`
+  - 结果：通过
+- Diff check：
+  - `git diff --check`
+  - 结果：通过（仅保留换行风格 warning，无 diff error）

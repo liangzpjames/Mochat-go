@@ -53,6 +53,29 @@ describe('会话分析工作台', () => {
     expect(window.location.search).toContain('employeeId=1001');
     expect(decodeURIComponent(window.location.search)).not.toContain('张三');
   });
+  it('查询和分页写入历史，popstate 时按 URL 恢复筛选并刷新，刷新不新增历史', async () => {
+    const api = createApi();
+    const pushState = vi.spyOn(window.history, 'pushState');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    render(<SessionAnalysisPage api={api as unknown as AiInsightWorkspaceApi} />);
+
+    fireEvent.change(await screen.findByLabelText('客户名称'), { target: { value: '客户乙' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(pushState).toHaveBeenCalled());
+
+    window.history.pushState({}, '', '/insight?customerName=%E5%AE%A2%E6%88%B7%E7%94%B2&page=2');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    await waitFor(() => expect(api.sessionRecords).toHaveBeenLastCalledWith(expect.objectContaining({
+      customerName: '客户甲',
+      page: 2,
+    })));
+
+    const beforeRefresh = pushState.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() => expect(replaceState).toHaveBeenCalled());
+    expect(pushState.mock.calls.length).toBe(beforeRefresh);
+  });
   it('从 URL 的 employeeId 恢复已知姓名并继续按 ID 请求', async () => {
     const api = createApi();
     window.sessionStorage.setItem('ai-insight.employee-name', JSON.stringify({ '1001': '张三' }));

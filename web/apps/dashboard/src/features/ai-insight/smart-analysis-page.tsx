@@ -38,17 +38,36 @@ export function SmartAnalysisPage({ api, navigate }: WorkspaceProps) {
         setPage(rows ?? { page: 1, pageSize: 20, total: 0, items: [] });
         setStatus(run);
       })
-      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : '加载失败'); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      .catch((reason: unknown) => {
+        if (active) setError(reason instanceof Error ? reason.message : '加载失败');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [api, applied]);
 
-  const apply = (next: SmartInsightFilters) => {
+  useEffect(() => {
+    const restore = () => {
+      const next = readSmartState().filters;
+      setDraft(next);
+      setApplied(next);
+      setEmployeeName(readEmployeeName(next.employeeId));
+    };
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, []);
+
+  const apply = (next: SmartInsightFilters, historyMode: 'push' | 'replace' = 'push') => {
     const normalized = { ...next, page: next.page || 1 };
     setApplied(normalized);
     setDraft(normalized);
-    window.history.replaceState({}, '', writeSmartState({ filters: normalized }));
+    setEmployeeName(readEmployeeName(normalized.employeeId));
+    window.history[historyMode === 'push' ? 'pushState' : 'replaceState']({}, '', writeSmartState({ filters: normalized }));
   };
+
   const open = (id: number) => {
     setDetailLoading(true);
     void api.smartDetail(id)
@@ -58,9 +77,9 @@ export function SmartAnalysisPage({ api, navigate }: WorkspaceProps) {
   };
 
   return <div className="ai-insight-workspace">
-    <AiInsightHeader title="智能分析" description="集中查看默认分析助手识别出的业务信号" />
-    {status?.assistant && <section className="ai-insight-assistant-summary" aria-label="智能分析助手配置"><div><strong>{status.assistant.name || '会话分析助手'}</strong><span className={`ai-settings-status ai-settings-status--${status.assistant.enabled ? 'enabled' : 'disabled'}`}>{status.assistant.enabled ? '已启用' : '已停用'}</span></div><p>本页结果统一使用分析助手中的默认智能分析规则，当前关联 {status.assistant.knowledgeBaseCount} 个已启用知识库、{status.assistant.readyDocumentCount} 份可用文档。</p><a href="/ai-setting/agent">前往配置</a></section>}
-    <AiInsightQueryBar onSubmit={() => apply({ ...draft, page: 1 })} onReset={() => apply(emptyFilters)} onRefresh={() => apply(applied)}>
+    <AiInsightHeader title="智能分析" description="集中查看分析助手识别出的业务信号" />
+    {status?.assistant && <section className="ai-insight-assistant-summary" aria-label="智能分析助手配置"><div><strong>{status.assistant.name || '智能分析助手'}</strong><span className={`ai-settings-status ai-settings-status--${status.assistant.enabled ? 'enabled' : 'disabled'}`}>{status.assistant.enabled ? '已启用' : '已停用'}</span></div><p>本页结果由当前分析助手生成，当前关联 {status.assistant.knowledgeBaseCount} 个已启用知识库、{status.assistant.readyDocumentCount} 份可用文档。</p><a href="/ai-setting/agent">前往配置</a></section>}
+    <AiInsightQueryBar onSubmit={() => apply({ ...draft, page: 1 }, 'push')} onReset={() => apply(emptyFilters, 'push')} onRefresh={() => apply(applied, 'replace')}>
       <AiInsightField label="结果关键词"><input value={draft.keyword ?? ''} onChange={(event) => setDraft({ ...draft, keyword: event.target.value })} placeholder="搜索结果摘要或结论" /></AiInsightField>
       <AiInsightField label="客户名称"><input value={draft.customerName ?? ''} onChange={(event) => setDraft({ ...draft, customerName: event.target.value || undefined })} placeholder="按客户名称筛选" /></AiInsightField>
       <AiInsightField label="会话类型"><select value={draft.conversationType ?? ''} onChange={(event) => setDraft({ ...draft, conversationType: (event.target.value || undefined) as SmartInsightFilters['conversationType'] })}><option value="">全部会话</option><option value="direct">客户单聊</option><option value="group">客户群聊</option></select></AiInsightField>
@@ -78,7 +97,7 @@ export function SmartAnalysisPage({ api, navigate }: WorkspaceProps) {
       <AiInsightField label="结束日期"><input type="date" value={draft.endDate ?? ''} onChange={(event) => setDraft({ ...draft, endDate: event.target.value || undefined })} /></AiInsightField>
     </AiInsightQueryBar>
     <AiInsightStatusStrip status={status} />
-    <section className="ai-insight-results"><header className="ai-insight-results-header"><div><h2>分析结果</h2><p>规则版本随结果快照保留；规则配置统一在分析助手中维护</p></div><span>{page.total} 条</span></header>{loading ? <div className="ai-insight-loading">正在读取智能分析结果…</div> : error ? <div className="ai-insight-error" role="alert">{error}</div> : page.items.length === 0 ? <div className="ai-insight-empty">当前暂无匹配的智能分析结果</div> : <SmartTable page={page} onOpen={open} />}<InsightPagination page={page.page} total={page.total} onChange={(next) => apply({ ...applied, page: next })} /></section>
+    <section className="ai-insight-results"><header className="ai-insight-results-header"><div><h2>分析结果</h2><p>规则版本随结果快照保留；规则配置统一在分析助手中维护</p></div><span>{page.total} 条</span></header>{loading ? <div className="ai-insight-loading">正在读取智能分析结果…</div> : error ? <div className="ai-insight-error" role="alert">{error}</div> : page.items.length === 0 ? <div className="ai-insight-empty">当前暂无匹配的智能分析结果</div> : <SmartTable page={page} onOpen={open} />}<InsightPagination page={page.page} total={page.total} onChange={(next) => apply({ ...applied, page: next }, 'push')} /></section>
     {detailLoading ? <div className="ai-insight-status">正在打开分析详情…</div> : detail ? <InsightDrawer detail={detail} onClose={() => setDetail(undefined)} onNavigate={navigate} /> : null}
   </div>;
 }

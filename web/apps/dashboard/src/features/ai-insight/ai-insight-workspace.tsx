@@ -60,6 +60,7 @@ function metricValue(primary: unknown, secondary?: unknown): string {
 }
 
 type Dimension = { name: string; score: unknown; weight: string; reason: string };
+type IssueItem = { title: string; reason: string };
 
 function parseDimensions(value: unknown): Dimension[] {
   return asArray(value).map((entry) => {
@@ -69,6 +70,16 @@ function parseDimensions(value: unknown): Dimension[] {
       name: asText(item.name) || '未命名维度',
       score: item.score,
       weight: weight === null ? '—' : `${Math.round(weight * 100)}%`,
+      reason: asText(item.reason) || asText(item.comment) || '证据不足',
+    };
+  });
+}
+
+function parseIssueItems(value: unknown): IssueItem[] {
+  return asArray(value).map((entry) => {
+    const item = asRecord(entry);
+    return {
+      title: asText(item.title) || '未命名问题',
       reason: asText(item.reason) || '证据不足',
     };
   });
@@ -174,6 +185,8 @@ export function EmployeeSearchField({
   const [error, setError] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
   const requestRef = useRef(0);
+  const listboxId = 'ai-insight-employee-options';
+  const activeOptionId = open && activeIndex >= 0 && options[activeIndex] ? `ai-insight-employee-option-${options[activeIndex].id}` : undefined;
 
   useEffect(() => {
     setInputValue(knownEmployeeName ?? readEmployeeName(selectedEmployeeId));
@@ -250,7 +263,8 @@ export function EmployeeSearchField({
     <AiInsightField label={label}>
       <div className="ai-insight-combobox">
         <input
-          aria-controls="ai-insight-employee-options"
+          aria-activedescendant={activeOptionId}
+          aria-controls={listboxId}
           aria-expanded={open}
           aria-label={label}
           aria-autocomplete="list"
@@ -273,10 +287,11 @@ export function EmployeeSearchField({
             {!loading && error && <div role="alert" className="ai-insight-combobox-state">{error}</div>}
             {!loading && !error && options.length === 0 && <div role="status" className="ai-insight-combobox-state">没有匹配员工</div>}
             {!loading && !error && options.length > 0 && (
-              <ul id="ai-insight-employee-options" role="listbox">
+              <ul id={listboxId} role="listbox">
                 {options.map((employee, index) => (
                   <li
                     key={employee.id}
+                    id={`ai-insight-employee-option-${employee.id}`}
                     aria-selected={index === activeIndex}
                     role="option"
                     tabIndex={-1}
@@ -313,7 +328,7 @@ function renderSessionMetrics(result: Record<string, unknown>) {
 }
 
 function isSmartV2(result: Record<string, unknown>): boolean {
-  return asNumber(result.matchScore) !== null || asText(result.version) === 'v2';
+  return asNumber(result.schemaVersion) === 2;
 }
 
 function renderSmartMetrics(result: Record<string, unknown>) {
@@ -331,7 +346,7 @@ function renderSmartMetrics(result: Record<string, unknown>) {
     <div className="ai-insight-row-metrics">
       {metricCard('命中度', scoreText(result.matchScore))}
       {metricCard('置信度', scoreText(result.confidenceScore))}
-      {metricCard('优先级', metricValue(result.priorityScore, result.priorityLevel), asNumber(result.coverageScore) === null ? undefined : `覆盖度 ${scoreText(result.coverageScore)}`)}
+      {metricCard('优先级', metricValue(result.priorityScore, result.priorityLevel), asNumber(result.evidenceCoverageScore) === null ? undefined : `覆盖度 ${scoreText(result.evidenceCoverageScore)}`)}
     </div>
   );
 }
@@ -399,6 +414,23 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
+function IssueList({ title, items }: { title: string; items: IssueItem[] }) {
+  if (items.length === 0) return <DetailList title={title} items={['证据不足']} />;
+  return (
+    <div className="ai-insight-detail-list">
+      <span>{title}</span>
+      <ul>
+        {items.map((item) => (
+          <li key={`${title}-${item.title}-${item.reason}`}>
+            <strong>{item.title}</strong>
+            <small>{item.reason}</small>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function DimensionTable({ dimensions }: { dimensions: Dimension[] }) {
   if (dimensions.length === 0) return <p className="ai-insight-detail-muted">证据不足</p>;
   return (
@@ -419,6 +451,7 @@ function SessionDetailSections({ result }: { result: Record<string, unknown> }) 
   const customer = asRecord(result.customer);
   const purchase = asRecord(customer.purchaseIntent);
   const churn = asRecord(customer.churnRisk);
+  const emotion = asRecord(customer.emotion);
   const employeeQa = asRecord(result.employeeQa);
   return (
     <>
@@ -428,13 +461,20 @@ function SessionDetailSections({ result }: { result: Record<string, unknown> }) 
           <DetailField label="质量分 / 等级" value={metricValue(customer.qualityScore, customer.qualityLevel)} />
           <DetailField label="购买意向" value={metricValue(purchase.score, purchase.level)} />
           <DetailField label="流失风险" value={metricValue(churn.score, churn.level)} />
-          <DetailField label="客户情绪" value={asText(customer.sentiment) || '证据不足'} />
+          <DetailField label="客户情绪" value={asText(emotion.label) || '证据不足'} />
         </div>
-        <DetailList title="客户需求" items={listOrFallback(customer.needs)} />
-        <div className="ai-insight-detail-list"><span>量化维度</span><DimensionTable dimensions={parseDimensions(customer.quantifiedDimensions)} /></div>
-        <DetailList title="建议话术" items={listOrFallback(customer.suggestedResponse ? [customer.suggestedResponse] : [])} />
-        <DetailList title="行动事项" items={listOrFallback(customer.actionItems)} />
-        <DetailList title="注意事项" items={listOrFallback(customer.cautions)} />
+        <DetailField label="质量依据" value={asText(customer.qualityReason) || '证据不足'} />
+        <DetailField label="购买意向依据" value={asText(purchase.reason) || '证据不足'} />
+        <DetailField label="流失风险依据" value={asText(churn.reason) || '证据不足'} />
+        <DetailField label="情绪依据" value={asText(emotion.reason) || '证据不足'} />
+        <DetailList title="关键词" items={listOrFallback(customer.keywords)} />
+        <DetailList title="明确需求" items={listOrFallback(customer.explicitNeeds)} />
+        <DetailList title="潜在需求" items={listOrFallback(customer.implicitNeeds)} />
+        <div className="ai-insight-detail-list"><span>购买意向维度</span><DimensionTable dimensions={parseDimensions(purchase.dimensions)} /></div>
+        <div className="ai-insight-detail-list"><span>流失风险维度</span><DimensionTable dimensions={parseDimensions(churn.dimensions)} /></div>
+        <DetailList title="推荐回复" items={listOrFallback(customer.recommendedReply ? [customer.recommendedReply] : [])} />
+        <DetailList title="行动建议" items={listOrFallback(customer.actions)} />
+        <DetailList title="补充备注" items={listOrFallback(customer.notes)} />
       </section>
       <section className="ai-insight-detail-card">
         <h3>员工质检</h3>
@@ -442,8 +482,8 @@ function SessionDetailSections({ result }: { result: Record<string, unknown> }) 
           <DetailField label="总分" value={scoreText(employeeQa.score)} />
         </div>
         <div className="ai-insight-detail-list"><span>质检维度</span><DimensionTable dimensions={parseDimensions(employeeQa.dimensions)} /></div>
-        <DetailList title="未解决客户问题" items={listOrFallback(employeeQa.unresolvedCustomerIssues)} />
-        <DetailList title="未解决异议" items={listOrFallback(employeeQa.unresolvedObjections)} />
+        <IssueList title="未解决客户问题" items={parseIssueItems(employeeQa.unresolvedCustomerIssues)} />
+        <IssueList title="未解决异议" items={parseIssueItems(employeeQa.unresolvedObjections)} />
         <DetailList title="优点" items={listOrFallback(employeeQa.strengths)} />
         <DetailList title="问题" items={listOrFallback(employeeQa.issues)} />
         <DetailList title="建议" items={listOrFallback(employeeQa.suggestions)} />
@@ -474,8 +514,9 @@ function SmartDetailSections({ result }: { result: Record<string, unknown> }) {
           <DetailField label="命中度" value={scoreText(result.matchScore)} />
           <DetailField label="置信度" value={scoreText(result.confidenceScore)} />
           <DetailField label="优先级" value={metricValue(result.priorityScore, result.priorityLevel)} />
-          <DetailField label="覆盖度" value={scoreText(result.coverageScore)} />
+          <DetailField label="覆盖度" value={scoreText(result.evidenceCoverageScore)} />
         </div>
+        <DetailList title="分析结论" items={listOrFallback(result.conclusion ? [asText(result.conclusion)] : [])} />
       </section>
       <section className="ai-insight-detail-card">
         <h3>维度分析</h3>
@@ -491,10 +532,19 @@ function SmartDetailSections({ result }: { result: Record<string, unknown> }) {
 
 function extractEvidenceIds(result: Record<string, unknown>): Set<string> {
   const ids = new Set<string>();
-  for (const container of [result, result.customer, result.employeeQa]) {
-    const source = asRecord(container);
+
+  function visit(value: unknown) {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    const source = asRecord(value);
     for (const id of nonEmptyList(source.evidenceMessageIds)) ids.add(id);
+    for (const nested of Object.values(source)) visit(nested);
   }
+
+  visit(result);
   return ids;
 }
 

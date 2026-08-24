@@ -45,33 +45,55 @@ const sessionSuccessRow: SessionInsightRow = {
   errorSummary: '',
   analysisAt: '2026-08-21T09:11:00Z',
   result: {
+    schemaVersion: 2,
     customer: {
       qualityScore: 86,
       qualityLevel: '高',
-      purchaseIntent: { score: 92, level: '高', reason: '客户明确询价并确认交付周期。' },
-      churnRisk: { score: null, level: '', reason: '证据不足' },
-      quantifiedDimensions: [
-        { name: '预算匹配', score: 88, weight: 0.4, reason: '预算范围清晰。' },
-        { name: '决策时机', score: null, weight: 0.3, reason: '尚未确认决策窗口。' },
-      ],
-      needs: ['希望 9 月前上线'],
-      sentiment: '积极',
-      suggestedResponse: '优先发送正式报价并确认实施窗口。',
-      actionItems: ['24 小时内回访', '补充实施排期'],
-      cautions: ['避免一次性给出过多折扣'],
-      evidenceMessageIds: ['m2'],
+      qualityReason: '预算与需求都比较清晰。',
+      purchaseIntent: {
+        score: 92,
+        level: '高',
+        reason: '客户明确询价并确认交付周期。',
+        evidenceMessageIds: ['m2'],
+        dimensions: [
+          { name: '预算匹配', score: 88, weight: 0.4, reason: '预算范围清晰。', evidenceMessageIds: ['m2'] },
+        ],
+      },
+      churnRisk: {
+        score: null,
+        level: '',
+        reason: '证据不足',
+        evidenceMessageIds: [],
+        dimensions: [
+          { name: '决策时机', score: null, weight: 0.3, reason: '尚未确认决策窗口。', evidenceMessageIds: ['m4'] },
+        ],
+      },
+      keywords: ['报价', '实施周期'],
+      explicitNeeds: ['希望 9 月前上线'],
+      implicitNeeds: ['需要更明确的实施排期'],
+      emotion: {
+        label: '积极',
+        reason: '客户持续追问报价与上线时间。',
+        evidenceMessageIds: ['m1'],
+      },
+      recommendedReply: '优先发送正式报价并确认实施窗口。',
+      actions: ['24 小时内回访', '补充实施排期'],
+      notes: ['避免一次性给出过多折扣'],
     },
     employeeQa: {
       score: 78,
       dimensions: [
-        { name: '需求澄清', score: 82, reason: '关键诉求已追问。' },
+        { name: '需求澄清', score: 82, comment: '关键诉求已追问。' },
       ],
-      unresolvedCustomerIssues: ['交付周期未完全确认'],
-      unresolvedObjections: ['价格异议未闭环'],
+      unresolvedCustomerIssues: [
+        { title: '交付周期未完全确认', reason: '客户需要更明确的上线时间表。', evidenceMessageIds: ['m1'] },
+      ],
+      unresolvedObjections: [
+        { title: '价格异议未闭环', reason: '客户仍在比较预算区间。', evidenceMessageIds: ['m2', 'm3'] },
+      ],
       strengths: ['响应及时'],
       issues: ['报价说明不完整'],
       suggestions: ['补充实施里程碑'],
-      evidenceMessageIds: ['m3'],
     },
   },
 };
@@ -82,16 +104,15 @@ const smartV2Row: SmartInsightRow = {
   summary: '客户近期有较高成交机会，优先级较高。',
   rule: { id: 12, name: '商机识别', version: 3 },
   result: {
-    version: 'v2',
+    schemaVersion: 2,
     matchScore: 88,
     confidenceScore: 73,
     priorityScore: 91,
     priorityLevel: 'P1',
-    coverageScore: 65,
-    summary: '命中高价值商机信号',
+    evidenceCoverageScore: 65,
     conclusion: '建议 48 小时内重点回访。',
     dimensions: [
-      { name: '预算信号', score: 82, weight: 0.5, reason: '客户已确认预算区间。' },
+      { name: '预算信号', score: 82, weight: 0.5, reason: '客户已确认预算区间。', evidenceMessageIds: ['m2'] },
     ],
     recommendations: ['由销售主管跟进', '优先安排演示'],
     evidenceMessageIds: ['m2'],
@@ -104,10 +125,12 @@ const smartV1Row: SmartInsightRow = {
   summary: '历史记录显示存在初步意向。',
   rule: { id: 13, name: '历史规则', version: 1 },
   result: {
-    version: 'v1',
+    schemaVersion: 1,
     matched: true,
     confidence: 0.87,
     conclusion: '历史规则判定为潜在商机。',
+    evidenceMessageIds: ['m2'],
+    recommendations: [],
   },
 };
 
@@ -179,12 +202,23 @@ describe('AI 洞察工作台渲染', () => {
     expect(screen.getByRole('heading', { name: '证据消息' })).toBeTruthy();
     expect(screen.getByText('质量分 / 等级')).toBeTruthy();
     expect(screen.getByText('86分 · 高')).toBeTruthy();
+    expect(screen.getByText('质量分 / 等级')).toBeTruthy();
+    expect(screen.getByText('客户情绪')).toBeTruthy();
+    expect(screen.getByText('积极')).toBeTruthy();
+    expect(screen.getByText('客户持续追问报价与上线时间。')).toBeTruthy();
+    expect(screen.getByText('客户明确询价并确认交付周期。')).toBeTruthy();
+    expect(screen.getByText('尚未确认决策窗口。')).toBeTruthy();
     expect(screen.getByText('预算匹配')).toBeTruthy();
     expect(screen.getByText('决策时机')).toBeTruthy();
     expect(screen.getAllByText('证据不足').length).toBeGreaterThan(0);
     expect(screen.getByText('交付周期未完全确认')).toBeTruthy();
+    expect(screen.getByText('客户需要更明确的上线时间表。')).toBeTruthy();
     expect(screen.getByText('价格异议未闭环')).toBeTruthy();
-    expect(screen.getAllByText('关键证据').length).toBe(2);
+    expect(screen.getByText('希望 9 月前上线')).toBeTruthy();
+    expect(screen.getByText('需要更明确的实施排期')).toBeTruthy();
+    expect(screen.getByText('避免一次性给出过多折扣')).toBeTruthy();
+    expect(screen.getByText('关键诉求已追问。')).toBeTruthy();
+    expect(screen.getAllByText('关键证据').length).toBe(3);
   });
 
   it('智能 v2 详情展示四项 KPI、维度、建议和证据', () => {
@@ -199,6 +233,7 @@ describe('AI 洞察工作台渲染', () => {
     expect(screen.getByRole('heading', { name: '量化指标' })).toBeTruthy();
     expect(screen.getByText('覆盖度')).toBeTruthy();
     expect(screen.getByText('65分')).toBeTruthy();
+    expect(screen.getByText('建议 48 小时内重点回访。')).toBeTruthy();
     expect(screen.getByText('预算信号')).toBeTruthy();
     expect(screen.getByText('由销售主管跟进')).toBeTruthy();
     expect(screen.getByText('优先安排演示')).toBeTruthy();
@@ -227,9 +262,13 @@ describe('AI 洞察工作台渲染', () => {
     renderFilterField({ selectedEmployeeId: 1001, knownEmployeeName: '张三', loadOptions, onSelect });
     const combo = screen.getByRole('combobox', { name: '员工' });
     expect((combo as HTMLInputElement).value).toBe('张三');
+    expect(combo.getAttribute('aria-activedescendant')).toBeNull();
     fireEvent.focus(combo);
     await waitFor(() => expect(loadOptions).toHaveBeenCalled());
-    fireEvent.mouseDown((await screen.findAllByRole('option'))[0]!);
+    const option = (await screen.findAllByRole('option'))[0]!;
+    expect(option.id).toContain('ai-insight-employee-option-1001');
+    expect(combo.getAttribute('aria-activedescendant')).toBe(option.id);
+    fireEvent.mouseDown(option);
     expect(onSelect).toHaveBeenLastCalledWith({ id: 1001, name: '张三', avatar: '' });
     fireEvent.click(screen.getByRole('button', { name: '清除员工' }));
     expect(onSelect).toHaveBeenLastCalledWith(undefined);
