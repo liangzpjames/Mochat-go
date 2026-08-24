@@ -76,7 +76,7 @@ describe('AI 洞察工作台 API', () => {
   });
 
   it('解析会话结果并固定每页 20 条', async () => {
-    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 99, total: 1, items: [valid] }) };
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [valid] }) };
     const page = await createAiInsightWorkspaceApi(client).sessionRecords({ page: 1, customerName: '客户甲' });
     expect(page.items[0]!.conversationKey).toBe('1001:1:2001');
     expect(page.pageSize).toBe(20);
@@ -84,7 +84,7 @@ describe('AI 洞察工作台 API', () => {
   });
 
   it('智能结果必须带规则快照', async () => {
-    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [valid] }) };
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [valid] }) };
     await expect(createAiInsightWorkspaceApi(client).smartRecords({ page: 1 })).rejects.toThrow('智能分析结果缺少规则快照');
   });
 
@@ -92,7 +92,7 @@ describe('AI 洞察工作台 API', () => {
     const failed = { ...valid, status: 'failed', errorSummary: '模型响应超时' };
     const client = {
       request: vi.fn()
-        .mockResolvedValueOnce({ page: 1, total: 1, items: [failed] })
+        .mockResolvedValueOnce({ page: 1, pageSize: 20, total: 1, items: [failed] })
         .mockResolvedValueOnce({ ...failed, messages: [], conversationUrl: '/chat/v2-customer?conversationId=1' }),
     };
     const api = createAiInsightWorkspaceApi(client);
@@ -196,7 +196,7 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     };
     const client = {
       request: vi.fn()
-        .mockResolvedValueOnce({ page: 1, pageSize: 99, total: 1, items: [validDerived] })
+        .mockResolvedValueOnce({ page: 1, pageSize: 20, total: 1, items: [validDerived] })
         .mockResolvedValueOnce(detail)
         .mockResolvedValueOnce({ provider: { state: 'ready' } })
         .mockResolvedValueOnce({ employees: [{ id: 1001, name: '员工甲', avatar: '' }] }),
@@ -220,16 +220,16 @@ describe('AI 洞察专用投影统一 API 合同', () => {
 
   it('按 view 严格解析五态情绪、0 到 100 分和字符串关键词数组', async () => {
     for (const label of ['positive', 'neutral', 'negative', 'mixed', 'unknown']) {
-      const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, emotion: { ...validDerived.result.customer.emotion, label } } } }] }) };
+      const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [{ ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, emotion: { ...validDerived.result.customer.emotion, label } } } }] }) };
       const page = await createDerivedApi(client).derivedRecords('emotion', { page: 1 });
       expect(((page.items[0]!.result as Record<string, unknown>).customer as { emotion: { label: string } }).emotion.label).toBe(label);
     }
     for (const score of [0, 100]) {
-      const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...validDerived, result: { ...validDerived.result, employeeQa: { ...validDerived.result.employeeQa, score } } }] }) };
+      const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [{ ...validDerived, result: { ...validDerived.result, employeeQa: { ...validDerived.result.employeeQa, score } } }] }) };
       const page = await createDerivedApi(client).derivedRecords('employee-score', { page: 1, minScore: 0, maxScore: 100 });
       expect(((page.items[0]!.result as Record<string, unknown>).employeeQa as { score: number }).score).toBe(score);
     }
-    const keywordClient = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [validDerived] }) };
+    const keywordClient = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [validDerived] }) };
     const keywordPage = await createDerivedApi(keywordClient).derivedRecords('communication-keyword', { page: 1, keyword: '采购' });
     expect(((keywordPage.items[0]!.result as Record<string, unknown>).customer as { keywords: string[] }).keywords).toEqual(['50%_\\采购', '高意向']);
   });
@@ -237,7 +237,7 @@ describe('AI 洞察专用投影统一 API 合同', () => {
   it('失败记录允许没有 result，但必须保留 errorSummary', async () => {
     const failedBase = { ...validDerived };
     Reflect.deleteProperty(failedBase, 'result');
-    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...failedBase, status: 'failed', errorSummary: '模型响应超时' }] }) };
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [{ ...failedBase, status: 'failed', errorSummary: '模型响应超时' }] }) };
     const row = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
     expect(row.result).toBeUndefined();
     expect(row.errorSummary).toBe('模型响应超时');
@@ -247,7 +247,7 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     ['emotion', { ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, emotion: { ...validDerived.result.customer.emotion, label: 'happy' } } } }, '未知客户情绪：happy'],
     ['communication-keyword', { ...validDerived, result: { ...validDerived.result, customer: { ...validDerived.result.customer, keywords: ['采购', 7] } } }, '客户关键词必须是字符串数组'],
   ])('拒绝 %s 投影的伪造成功结果', async (view, item, message) => {
-    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [item] }) };
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [item] }) };
     await expect(createDerivedApi(client).derivedRecords(view as DerivedInsightView, { page: 1 })).rejects.toThrow(message);
   });
 
@@ -259,7 +259,7 @@ describe('AI 洞察专用投影统一 API 合同', () => {
   ])('成功记录的 employeeQa.score=%s 时明确拒绝', async (score, message) => {
     const result = { ...validDerived.result, employeeQa: { ...validDerived.result.employeeQa } } as Record<string, unknown>;
     (result.employeeQa as Record<string, unknown>).score = score;
-    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...validDerived, result }] }) };
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [{ ...validDerived, result }] }) };
     await expect(createDerivedApi(client).derivedRecords('employee-score', { page: 1 })).rejects.toThrow(message);
   });
 
@@ -273,7 +273,7 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     [{ ...validDerived, target: { type: 'unknown', id: '2001', name: '客户甲', avatar: '' } }, '未知会话类型：unknown'],
     [{ ...validDerived, status: 'complete' }, '未知分析状态：complete'],
   ])('严格拒绝缺失真实来源身份的数据', async (item, message) => {
-    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [item] }) };
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [item] }) };
     await expect(createDerivedApi(client).derivedRecords('emotion', { page: 1 })).rejects.toThrow(message);
   });
 
@@ -300,7 +300,7 @@ describe('AI 洞察专用投影统一 API 合同', () => {
       { type: 'direct', id: 'wm_customer_A1', name: '客户甲', avatar: '' },
       { type: 'group', id: 'wr_room_B2', name: '客户群乙', avatar: '' },
     ]) {
-      const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...validDerived, target }] }) };
+      const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [{ ...validDerived, target }] }) };
       const item = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
       expect(item.target.id).toBe(target.id);
     }

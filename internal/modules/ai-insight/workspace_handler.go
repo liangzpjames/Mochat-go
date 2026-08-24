@@ -530,7 +530,7 @@ func workspaceInsightJSON(item ConversationInsight) map[string]any {
 func workspaceMessagesJSON(messages []SourceMessage) []map[string]any {
 	items := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
-		items = append(items, map[string]any{"id": message.ID, "time": message.MessageTime, "direction": message.Direction, "senderName": message.SenderName, "content": message.Content})
+		items = append(items, map[string]any{"id": message.ID, "legacyId": message.LegacyID, "time": message.MessageTime, "direction": message.Direction, "senderName": message.SenderName, "content": message.Content})
 	}
 	return items
 }

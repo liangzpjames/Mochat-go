@@ -282,6 +282,22 @@ describe('AI 洞察工作台渲染', () => {
     expect(screen.getByText('优先安排演示')).toBeTruthy();
   });
 
+  it('历史分表内 ID 仅在详情窗口唯一时兼容高亮，碰撞时失败关闭', () => {
+    const result = { ...sessionSuccessRow.result, evidenceMessageIds: ['7'] };
+    const baseDetail = { ...sessionSuccessRow, result, conversationUrl: '/chat/v2-customer?conversationId=legacy' };
+    const unique = render(<InsightDrawer detail={{ ...baseDetail, messages: [
+      { id: 'msgid:global-7', legacyId: '7', time: '2026-08-21T09:01:00Z', direction: 'inbound', senderName: '客户甲', content: '唯一旧证据' },
+    ] } as InsightDetail<SessionInsightRow>} onClose={vi.fn()} />);
+    expect(screen.getAllByText('关键证据')).toHaveLength(1);
+    unique.unmount();
+
+    render(<InsightDrawer detail={{ ...baseDetail, messages: [
+      { id: 'msgid:global-7', legacyId: '7', time: '2026-08-21T09:01:00Z', direction: 'inbound', senderName: '客户甲', content: '碰撞证据一' },
+      { id: 'shard:2:7', legacyId: '7', time: '2026-08-21T09:02:00Z', direction: 'inbound', senderName: '客户乙', content: '碰撞证据二' },
+    ] } as InsightDetail<SessionInsightRow>} onClose={vi.fn()} />);
+    expect(screen.queryByText('关键证据')).toBeNull();
+  });
+
   it('nullable 分数即使带 high/low 枚举也必须显示证据不足，0 分仍保留数值', () => {
     const detail = {
       ...sessionNullableScoreRow,

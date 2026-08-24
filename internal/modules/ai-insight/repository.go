@@ -89,12 +89,25 @@ func (r *SQLRepository) ConversationMessages(ctx context.Context, query Conversa
 	}
 	for _, row := range rows {
 		direction := "inbound"
+		senderID, senderName := row.TargetID, row.TargetName
 		if row.SenderType == 0 {
 			direction = "outbound"
+			senderID, senderName = fmt.Sprint(row.EmployeeID), row.EmployeeName
+		} else if row.TargetType == 2 {
+			senderName = "群成员（身份未归档）"
+		} else if strings.TrimSpace(senderName) == "" {
+			senderName = "对方（身份未归档）"
 		}
-		result = append(result, SourceMessage{ID: row.ID, ConversationKey: row.ConversationKey, MessageTime: row.MessageTime, Direction: direction, SenderID: fmt.Sprint(row.EmployeeID), SenderName: row.EmployeeName, Content: row.Content, TableIndex: row.TableIndex, Sequence: row.Sequence})
+		result = append(result, SourceMessage{ID: archiveEvidenceID(row), LegacyID: row.ID, ConversationKey: row.ConversationKey, MessageTime: row.MessageTime, Direction: direction, SenderID: senderID, SenderName: senderName, Content: row.Content, TableIndex: row.TableIndex, Sequence: row.Sequence})
 	}
 	return result, nil
+}
+
+func archiveEvidenceID(row archiveMessageRow) string {
+	if msgID := strings.TrimSpace(row.MsgID); msgID != "" {
+		return "msgid:" + msgID
+	}
+	return fmt.Sprintf("shard:%d:%s", row.TableIndex, row.ID)
 }
 
 func (r *SQLRepository) archiveMessages(ctx context.Context, corpID int64, startAt, endAt time.Time, allowed []int64, restricted bool, conversationKey string) ([]archiveMessageRow, error) {

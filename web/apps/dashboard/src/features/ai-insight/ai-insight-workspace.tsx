@@ -9,6 +9,7 @@ import type {
   Person,
   SessionInsightFilters,
   SessionInsightRow,
+  SourceMessage,
   SmartInsightFilters,
   SmartInsightRow,
 } from './ai-insight-workspace-api';
@@ -613,6 +614,9 @@ export function InsightDrawer<T extends SessionInsightRow>({ detail, onClose, on
 
   const result = asRecord(detail.result);
   const evidenceIds = extractEvidenceIds(result);
+  const legacyIdCounts = new Map<string, number>();
+  detail.messages.forEach((message) => { if (message.legacyId) legacyIdCounts.set(message.legacyId, (legacyIdCounts.get(message.legacyId) ?? 0) + 1); });
+  const isEvidence = (message: SourceMessage) => evidenceIds.has(message.id) || Boolean(message.legacyId && legacyIdCounts.get(message.legacyId) === 1 && evidenceIds.has(message.legacyId));
   const isFailed = detail.status === 'failed';
   const isSmart = 'rule' in detail;
 
@@ -644,10 +648,10 @@ export function InsightDrawer<T extends SessionInsightRow>({ detail, onClose, on
           <section className="ai-insight-detail-card">
             <h3>证据消息</h3>
             <ul className="ai-insight-evidence">{detail.messages.length ? detail.messages.map((message) => (
-              <li key={message.id} className={evidenceIds.has(message.id) ? 'is-highlighted' : undefined}>
+              <li key={message.id} className={isEvidence(message) ? 'is-highlighted' : undefined}>
                 <small>{message.senderName} · {formatTime(message.time)} · {message.direction === 'outbound' ? '员工发送' : '客户发送'}</small>
                 <span>{message.content || '（非文本消息）'}</span>
-                {evidenceIds.has(message.id) && <em>关键证据</em>}
+                {isEvidence(message) && <em>关键证据</em>}
               </li>
             )) : <li>暂无可展示的证据消息</li>}</ul>
           </section>

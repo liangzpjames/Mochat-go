@@ -161,6 +161,7 @@ func (result SmartAnalysisResult) MarshalJSON() ([]byte, error) {
 
 type SourceMessage struct {
 	ID              string
+	LegacyID        string
 	ConversationKey string
 	MessageTime     time.Time
 	Direction       string

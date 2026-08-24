@@ -99,7 +99,7 @@ func TestConversationCandidateWindowCanReadBackItsSourceMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 2 || messages[0].ID != "new" || messages[1].ID != "old" {
+	if len(messages) != 2 || messages[0].ID != "msgid:msg-new" || messages[1].ID != "msgid:msg-old" {
 		t.Fatalf("messages = %#v", messages)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
