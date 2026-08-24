@@ -253,4 +253,15 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     const row = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
     expect(row).toMatchObject({ provider: '', model: '', promptVersion: '' });
   });
+
+  it('保留真实字母数字客户和群聊目标 ID', async () => {
+    for (const target of [
+      { type: 'direct', id: 'wm_customer_A1', name: '客户甲', avatar: '' },
+      { type: 'group', id: 'wr_room_B2', name: '客户群乙', avatar: '' },
+    ]) {
+      const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [{ ...validDerived, target }] }) };
+      const item = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
+      expect(item.target.id).toBe(target.id);
+    }
+  });
 });

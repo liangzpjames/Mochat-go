@@ -62,9 +62,8 @@ import { ReportPage } from '../features/phase35/report-page';
 import type { AISettingsApi } from '../features/ai-settings/ai-settings-api';
 import { KnowledgeBasePage } from '../features/ai-settings/knowledge-base-page';
 import { AgentPage } from '../features/ai-settings/agent-page';
-import type { AiInsightApi } from '../features/ai-insight/ai-insight-api';
-import { AiInsightPage } from '../features/ai-insight/ai-insight-pages';
 import type { AiInsightWorkspaceApi } from '../features/ai-insight/ai-insight-workspace-api';
+import { CommunicationKeywordInsightPage, EmotionInsightPage, EmployeeScoreInsightPage } from '../features/ai-insight/derived-insight-pages';
 import { SessionAnalysisPage } from '../features/ai-insight/session-analysis-page';
 import { SmartAnalysisPage } from '../features/ai-insight/smart-analysis-page';
 import { CompanyWebsitePage } from '../features/company-settings/website-page';
@@ -98,7 +97,6 @@ export function createBenchmarkP0Pages({
   contactApi,
   businessWorkbenchApi,
   aiSettingsApi,
-  aiInsightApi,
   aiInsightWorkspaceApi,
   fileAudioApi,
   refuseArchiveApi,
@@ -120,7 +118,6 @@ export function createBenchmarkP0Pages({
   contactApi?: ContactApi;
   businessWorkbenchApi?: BusinessWorkbenchApi;
   aiSettingsApi?: AISettingsApi;
-  aiInsightApi?: AiInsightApi;
   aiInsightWorkspaceApi?: AiInsightWorkspaceApi;
   fileAudioApi?: FileAudioApi;
   refuseArchiveApi?: RefuseArchiveApi;
@@ -199,14 +196,12 @@ export function createBenchmarkP0Pages({
       '/ai-setting/ai-knowledge-base': <KnowledgeBasePage api={aiSettingsApi} />,
       '/ai-setting/agent': <AgentPage api={aiSettingsApi} />,
     }),
-    ...(aiInsightApi === undefined ? {} : {
-      '/ai-insight/emotion': <AiInsightPage api={aiInsightApi} page="emotion" />,
-      '/ai-insight/employee-score': <AiInsightPage api={aiInsightApi} page="employee-score" />,
-      '/ai-insight/communication-keyword': <AiInsightPage api={aiInsightApi} page="communication-keyword" />,
-    }),
     ...(aiInsightWorkspaceApi === undefined ? {} : {
       '/ai-insight/session-analysis': <SessionAnalysisPage api={aiInsightWorkspaceApi} />,
       '/ai-insight/smart-analysis': <SmartAnalysisPage api={aiInsightWorkspaceApi} />,
+      '/ai-insight/emotion': <EmotionInsightPage api={aiInsightWorkspaceApi} onNavigate={onNavigate} />,
+      '/ai-insight/employee-score': <EmployeeScoreInsightPage api={aiInsightWorkspaceApi} onNavigate={onNavigate} />,
+      '/ai-insight/communication-keyword': <CommunicationKeywordInsightPage api={aiInsightWorkspaceApi} onNavigate={onNavigate} />,
     }),
     ...(companyProfileApi === undefined ? {} : {
       '/company-setting/website': <CompanyWebsitePage

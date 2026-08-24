@@ -226,4 +226,13 @@ describe('三个 AI 洞察专用投影页面', () => {
     fireEvent.click(screen.getByLabelText('关闭详情'));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('窄屏卡片为每个隐藏表头的字段保留可读标签', async () => {
+    const api = createApi();
+    render(<CommunicationKeywordInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
+    const resultRow = await screen.findByRole('row', { name: /员工甲.*客户甲/ });
+    expect(within(resultRow).getAllByRole('cell').map((cell) => cell.getAttribute('data-label'))).toEqual([
+      '沟通员工', '客户 / 群聊', '沟通关键词', '结果摘要', '来源窗口', '分析时间', '操作',
+    ]);
+  });
 });

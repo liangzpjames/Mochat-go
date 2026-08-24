@@ -35,7 +35,7 @@ const failedRow: SessionInsightRow = {
   id: 1,
   conversationKey: '1001:1:2001',
   employee: { id: 1001, name: '员工甲', avatar: '' },
-  target: { id: 2001, name: '客户甲', avatar: '', type: 'direct' },
+  target: { id: '2001', name: '客户甲', avatar: '', type: 'direct' },
   sourceWindow: { startedAt: '2026-08-21T09:00:00Z', endedAt: '2026-08-21T09:10:00Z', messageCount: 4, fingerprint: 'a'.repeat(64) },
   status: 'failed',
   summary: '',

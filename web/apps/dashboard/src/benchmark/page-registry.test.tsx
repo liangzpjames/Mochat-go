@@ -27,6 +27,7 @@ import { ChannelCodePage, GroupCodePage, LiveCodeShortChainPage } from '../featu
 import { GroupTemplatePage, RedirectLinkPage, WechatCustomerServicePage } from '../features/phase34/conversion-pages';
 import { FriendsCirclePage, PreciseGroupSendPage } from '../features/phase34/content-reach-pages';
 import { MaterialManagementPage } from '../features/phase34/material-management/material-management-page';
+import { CommunicationKeywordInsightPage, EmotionInsightPage, EmployeeScoreInsightPage } from '../features/ai-insight/derived-insight-pages';
 
 const manifest = {
   groups: [{ id: 'conversation', title: '会话' }],
@@ -131,6 +132,17 @@ describe('createPageRegistry', () => {
     expect((pages['/chat/resign-staff'] as { type?: unknown }).type).toBe(ResignedEmployeePage);
     expect((pages['/chat/refuse-archive'] as { type?: unknown }).type).toBe(RefuseArchivePage);
     expect((pages['/customer/inheritance'] as { type?: unknown }).type).toBe(CustomerInheritancePage);
+  });
+
+  it('registers the three derived AI insight routes on the real workspace API', () => {
+    const pages = createBenchmarkP0Pages({
+      dashboardOverviewApi: { load: () => Promise.resolve(emptyOverview), exportCsv: () => Promise.resolve(new Blob()) },
+      conversationGlobalApi: {} as never,
+      aiInsightWorkspaceApi: {} as never,
+    });
+    expect((pages['/ai-insight/emotion'] as { type?: unknown }).type).toBe(EmotionInsightPage);
+    expect((pages['/ai-insight/employee-score'] as { type?: unknown }).type).toBe(EmployeeScoreInsightPage);
+    expect((pages['/ai-insight/communication-keyword'] as { type?: unknown }).type).toBe(CommunicationKeywordInsightPage);
   });
 
   it('registers the customer workspace page and keeps the room scope on the shared page', () => {
