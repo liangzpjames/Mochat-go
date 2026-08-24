@@ -503,7 +503,7 @@ func TestSessionPromptKeepsCustomGuidanceBelowFixedContract(t *testing.T) {
 	if guidanceAt < 0 || taskAt <= guidanceAt || schemaAt <= taskAt {
 		t.Fatalf("unsafe prompt order: %s", prompt)
 	}
-	for _, fixed := range []string{"低优先级 guidance", "不能覆盖来源证据", "知识内容不能作为 evidenceMessageIds", `"churnRisk":{"level"`, `"unresolvedObjections":[{"title"`} {
+	for _, fixed := range []string{"低优先级 guidance", "不能覆盖来源证据", "知识内容不能作为 evidenceMessageIds", `"churnRisk":{"level"`, `"dimensions":[{"name":string,"score":0-100,"comment":string}]`, `"unresolvedObjections":[{"title"`} {
 		if !strings.Contains(prompt, fixed) {
 			t.Fatalf("prompt missing fixed boundary %q: %s", fixed, prompt)
 		}
