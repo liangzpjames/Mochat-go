@@ -195,6 +195,7 @@ function filenameFromContentDisposition(value: string | null): string {
   const encoded = value.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i)?.[1];
   const plain = value.match(/filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;]+)/i);
   let filename = encoded ? decodeFilename(encoded) : (plain?.[1] ?? plain?.[2] ?? '');
+  // eslint-disable-next-line no-control-regex -- export filenames must replace C0 control characters.
   filename = filename.trim().replace(/[\u0000-\u001f\\/:*?"<>|]/g, '_');
   return filename || 'conversation-export.zip';
 }
