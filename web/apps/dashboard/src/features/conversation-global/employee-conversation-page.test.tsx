@@ -145,7 +145,7 @@ describe('EmployeeConversationPage', () => {
     let resolveNextDirectory: ((value: StaffDirectoryPage) => void) | undefined;
     const nextDirectory = new Promise<StaffDirectoryPage>((resolve) => { resolveNextDirectory = resolve; });
     let directoryCalls = 0;
-    const staffDirectory = vi.fn((input: { departmentId: number | null }) => {
+    const staffDirectory = vi.fn((_input: { departmentId: number | null }) => {
       directoryCalls += 1;
       return directoryCalls === 1 ? Promise.resolve(directory) : nextDirectory;
     });

@@ -142,7 +142,7 @@ export type ConversationTrajectoryEvent = {
   targetId: number;
   targetName: string;
   targetAvatar: string;
-  targetStatus: 'available' | 'missing' | 'deleted' | string;
+  targetStatus: string;
   messageTotal: number;
   firstMessageAt: string;
   lastMessageAt: string;
@@ -228,7 +228,7 @@ export type ConversationExportTask = {
   endAt: string;
   fileMode: 'split' | 'merge';
   format: 'zip';
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'expired' | string;
+  status: string;
   estimatedMessageCount: number;
   messageCount: number;
   fileCount: number;
@@ -519,10 +519,6 @@ function parseStaffDetail(value: unknown): StaffConversationDetail {
     messages: messages as ConversationMessage[], nextBefore: value.nextBefore, hasMore: value.hasMore,
     capabilities: capabilities as ConversationCapability[],
   };
-}
-
-function isTrajectoryType(value: unknown): value is ConversationTrajectoryType {
-  return value === 'all' || value === 'employee' || value === 'customer' || value === 'room';
 }
 
 function parseTrajectoryDay(value: unknown): ConversationTrajectoryDay {

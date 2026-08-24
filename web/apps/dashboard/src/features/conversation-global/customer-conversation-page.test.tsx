@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../app/access-context';
 import type { AccessContext } from '../../app/access-loader';
-import type { ConversationGlobalApi, CustomerConversationDetail, CustomerConversationPage, CustomerDirectoryPage } from './conversation-global-api';
+import type { ConversationGlobalApi, CustomerConversationDetail, CustomerConversationInput, CustomerConversationPage, CustomerDirectoryPage } from './conversation-global-api';
 import { CustomerConversationPage as CustomerConversationPageView } from './customer-conversation-page';
 
 const access: AccessContext = {
@@ -31,7 +31,7 @@ const detail: CustomerConversationDetail = {
 
 function LocationProbe() { const location = useLocation(); return <output data-testid="location">{location.search}</output>; }
 function createApi(overrides: Partial<ConversationGlobalApi> = {}): ConversationGlobalApi {
-  return { search: vi.fn(), detail: vi.fn(), customerDirectory: vi.fn(() => Promise.resolve(directory)), customerConversations: vi.fn((input) => Promise.resolve({ ...conversations, mode: input.mode })), customerDetail: vi.fn(() => Promise.resolve(detail)), setFocus: vi.fn(() => Promise.resolve()), removeFocus: vi.fn(() => Promise.resolve()), ...overrides };
+  return { search: vi.fn(), detail: vi.fn(), customerDirectory: vi.fn(() => Promise.resolve(directory)), customerConversations: vi.fn((input: CustomerConversationInput) => Promise.resolve({ ...conversations, mode: input.mode })), customerDetail: vi.fn(() => Promise.resolve(detail)), setFocus: vi.fn(() => Promise.resolve()), removeFocus: vi.fn(() => Promise.resolve()), ...overrides };
 }
 function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-customer') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -42,15 +42,10 @@ afterEach(cleanup);
 
 describe('CustomerConversationPage', () => {
   it('normalizes URL values and queries all three layers with fixed page sizes', async () => {
-    const api = createApi();
-    // Keep the original Vitest spy identity for matcher assertions.
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    const customerDirectory = api.customerDirectory;
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    const customerConversations = api.customerConversations;
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    const customerDetail = api.customerDetail;
-    if (!customerDirectory || !customerConversations || !customerDetail) throw new Error('customer API mocks missing');
+    const customerDirectory = vi.fn(() => Promise.resolve(directory));
+    const customerConversations = vi.fn((input: CustomerConversationInput) => Promise.resolve({ ...conversations, mode: input.mode }));
+    const customerDetail = vi.fn(() => Promise.resolve(detail));
+    const api = createApi({ customerDirectory, customerConversations, customerDetail });
     renderPage(api, '/chat/v2-customer?customerMode=focused&customerPage=2&customerId=31&conversationMode=group&page=3&pageSize=99&conversationId=9:2:44&messageTypes=image');
     await waitFor(() => expect(customerDirectory).toHaveBeenCalledWith({ mode: 'focused', keyword: '', page: 2, pageSize: 50 }));
     await waitFor(() => expect(customerConversations).toHaveBeenCalledWith({ customerId: 31, mode: 'group', page: 3, pageSize: 20 }));
@@ -80,13 +75,9 @@ describe('CustomerConversationPage', () => {
   });
 
   it('invalidates customer query layers after focus succeeds', async () => {
-    const api = createApi();
-    // Keep the original Vitest spy identity for matcher assertions.
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    const setFocus = api.setFocus;
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    const customerDirectory = api.customerDirectory;
-    if (!setFocus || !customerDirectory) throw new Error('focus/customer API mocks missing');
+    const setFocus = vi.fn(() => Promise.resolve());
+    const customerDirectory = vi.fn(() => Promise.resolve(directory));
+    const api = createApi({ setFocus, customerDirectory });
     renderPage(api, '/chat/v2-customer?customerId=31&conversationId=9%3A2%3A44');
     await screen.findByText('你好');
     fireEvent.click(screen.getByRole('button', { name: '关注客户' }));
@@ -108,12 +99,13 @@ describe('CustomerConversationPage', () => {
   });
 
   it('opens the first available conversation after selecting a customer', async () => {
-    const api = createApi();
+    const customerDetail = vi.fn(() => Promise.resolve(detail));
+    const api = createApi({ customerDetail });
     renderPage(api);
 
     fireEvent.click(await screen.findByRole('button', { name: /星河科技/ }));
     await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('conversationId=9%3A2%3A44'));
-    await waitFor(() => expect(api.customerDetail).toHaveBeenCalledWith(expect.objectContaining({ customerId: 31, conversationId: '9:2:44' })));
+    await waitFor(() => expect(customerDetail).toHaveBeenCalledWith(expect.objectContaining({ customerId: 31, conversationId: '9:2:44' })));
     expect(await screen.findByText('你好')).toBeTruthy();
   });
 });

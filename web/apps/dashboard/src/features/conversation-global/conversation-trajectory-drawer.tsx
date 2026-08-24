@@ -3,7 +3,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import type { ConversationGlobalApi, ConversationMessage, StaffConversationDetail } from './conversation-global-api';
 import { messageText } from './conversation-global-api';
 
-type Props = { api: ConversationGlobalApi; conversationId: string; date: string; eventHour?: string; onClose(): void };
+type Props = { api: ConversationGlobalApi; conversationId: string; date: string; eventHour?: string; onClose: () => void };
 
 function mergePages(pages: readonly StaffConversationDetail[]): readonly ConversationMessage[] {
   const byId = new Map<string, ConversationMessage>();

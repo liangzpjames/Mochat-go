@@ -14,7 +14,6 @@ import { GroupConversationProfile } from './group-conversation-profile';
 const pageSize = 50;
 function positive(value: string | null, fallback: number) { const parsed = Number(value); return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback; }
 function roomMode(value: string | null): GroupRoomMode { return value === 'dissolved' ? 'dissolved' : 'active'; }
-function memberMode(value: string | null): GroupMemberMode { return value === 'employee' || value === 'customer' || value === 'left' ? value : 'all'; }
 function ids(search: URLSearchParams, key: string) { return search.getAll(key).map(Number).filter((value) => Number.isInteger(value) && value > 0); }
 function errorOf(error: unknown) { return error instanceof Error ? error : error === null || error === undefined ? null : new Error('请求失败'); }
 

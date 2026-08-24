@@ -14,8 +14,14 @@ const profile = { ...room, createdAt: '2026-08-01 10:00:00', status: 'active', d
 const messages = { roomId: 71, stats: { messageTotal: 1, employeeTotal: 1, customerTotal: 0, riskTotal: 0, timeoutTotal: 0 }, messages: [{ id: 'm1', senderId: 9, senderName: '张三', senderAvatar: '', senderKind: 'employee', direction: 'outbound' as const, sentAt: '2026-08-19 11:00:00', archiveSource: 'external', archiveSourceId: 'wecom', type: 1, content: { text: '你好' } }], nextBefore: '', hasMore: false, capabilities: [] };
 const members = { items: [], total: 0, page: 1, pageSize: 50 as const, capabilities: [] };
 
-function createApi(): ConversationGlobalApi {
-  return { search: vi.fn(), detail: vi.fn(), groupRoomDirectory: vi.fn(() => Promise.resolve({ items: [room], total: 1, page: 1, pageSize: 50 as const, capabilities: [], limitations: [] })), groupRoomProfile: vi.fn(() => Promise.resolve(profile)), groupRoomMessages: vi.fn(() => Promise.resolve(messages)), groupRoomMembers: vi.fn(() => Promise.resolve(members)), groupRoomFilterOptions: vi.fn(() => Promise.resolve({ employees: [], customers: [], groups: [], capabilities: [] })) };
+function createApi() {
+  const groupRoomDirectory = vi.fn<NonNullable<ConversationGlobalApi['groupRoomDirectory']>>(() => Promise.resolve({ items: [room], total: 1, page: 1, pageSize: 50 as const, capabilities: [], limitations: [] }));
+  const groupRoomProfile = vi.fn<NonNullable<ConversationGlobalApi['groupRoomProfile']>>(() => Promise.resolve(profile));
+  const groupRoomMessages = vi.fn<NonNullable<ConversationGlobalApi['groupRoomMessages']>>(() => Promise.resolve(messages));
+  const groupRoomMembers = vi.fn<NonNullable<ConversationGlobalApi['groupRoomMembers']>>(() => Promise.resolve(members));
+  const groupRoomFilterOptions = vi.fn<NonNullable<ConversationGlobalApi['groupRoomFilterOptions']>>(() => Promise.resolve({ employees: [], customers: [], groups: [], capabilities: [] }));
+  const api: ConversationGlobalApi = { search: vi.fn(), detail: vi.fn(), groupRoomDirectory, groupRoomProfile, groupRoomMessages, groupRoomMembers, groupRoomFilterOptions };
+  return { api, groupRoomDirectory, groupRoomProfile, groupRoomMessages, groupRoomMembers };
 }
 
 function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-group') { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return render(<MemoryRouter initialEntries={[entry]}><QueryClientProvider client={client}><DashboardAccessProvider value={access}><GroupConversationPage api={api} /></DashboardAccessProvider></QueryClientProvider></MemoryRouter>); }
@@ -23,32 +29,32 @@ function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-group') { cons
 describe('GroupConversationPage', () => {
   afterEach(cleanup);
   it('loads the directory first, then loads the three selected-room data streams', async () => {
-    const api = createApi();
+    const { api, groupRoomProfile, groupRoomMessages, groupRoomMembers } = createApi();
     renderPage(api);
     expect(await screen.findByRole('button', { name: /星河客户群/ })).toBeTruthy();
-    expect(api.groupRoomProfile).not.toHaveBeenCalled();
+    expect(groupRoomProfile).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /星河客户群/ }));
-    await waitFor(() => expect(api.groupRoomProfile).toHaveBeenCalledWith(71));
-    expect(api.groupRoomMessages).toHaveBeenCalledWith(expect.objectContaining({ roomId: 71, pageSize: 50 }));
-    expect((api.groupRoomMessages as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).not.toHaveProperty('before');
-    expect(api.groupRoomMembers).toHaveBeenCalledWith(expect.objectContaining({ roomId: 71, pageSize: 50 }));
+    await waitFor(() => expect(groupRoomProfile).toHaveBeenCalledWith(71));
+    expect(groupRoomMessages).toHaveBeenCalledWith(expect.objectContaining({ roomId: 71, pageSize: 50 }));
+    expect(groupRoomMessages.mock.calls[0]?.[0]).not.toHaveProperty('before');
+    expect(groupRoomMembers).toHaveBeenCalledWith(expect.objectContaining({ roomId: 71, pageSize: 50 }));
     expect(await screen.findByText('你好')).toBeTruthy();
   });
 
   it('keeps message keyword local until the message query is submitted', async () => {
-    const api = createApi();
+    const { api, groupRoomMessages } = createApi();
     renderPage(api, '/chat/v2-group?roomId=71');
     await screen.findByRole('button', { name: /星河客户群/ });
     const input = await screen.findByLabelText('搜索群消息');
-    const calls = (api.groupRoomMessages as ReturnType<typeof vi.fn>).mock.calls.length;
+    const calls = groupRoomMessages.mock.calls.length;
     fireEvent.change(input, { target: { value: '报价' } });
-    expect((api.groupRoomMessages as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls);
+    expect(groupRoomMessages.mock.calls.length).toBe(calls);
     fireEvent.click(screen.getByRole('button', { name: '查询消息' }));
-    await waitFor(() => expect(api.groupRoomMessages).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: '报价' })));
+    await waitFor(() => expect(groupRoomMessages).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: '报价' })));
   });
 
   it('collapses the wide-screen profile column from the right-side close button and reopens it from the message header', async () => {
-    const api = createApi();
+    const { api } = createApi();
     renderPage(api, '/chat/v2-group?roomId=71');
     await screen.findByText('wr_71');
 

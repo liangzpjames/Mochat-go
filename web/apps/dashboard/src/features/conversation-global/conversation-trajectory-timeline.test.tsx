@@ -51,10 +51,10 @@ describe('ConversationTrajectoryTimeline 日期切换', () => {
 
 describe('ConversationTrajectoryTimeline 时间轴滚动', () => {
   it('选中人员后只滚动时间轴内部，不滚动外层页面', () => {
-    const scrollTo = vi.fn();
-    const scrollIntoView = vi.fn();
-    const originalScrollTo = HTMLElement.prototype.scrollTo;
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const scrollTo = vi.fn<(options?: ScrollToOptions) => void>();
+    const scrollIntoView = vi.fn<(arg?: boolean | ScrollIntoViewOptions) => void>();
+    const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo');
+    const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: scrollTo });
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
 
@@ -100,12 +100,15 @@ describe('ConversationTrajectoryTimeline 时间轴滚动', () => {
       const timeline = container.querySelector('.conversation-trajectory-scroll');
       expect(timeline).not.toBeNull();
       expect(scrollIntoView).not.toHaveBeenCalled();
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: expect.any(Number), behavior: 'auto' }));
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      const scrollOptions = scrollTo.mock.calls[0]?.[0];
+      expect(scrollOptions?.behavior).toBe('auto');
+      expect(typeof scrollOptions?.top).toBe('number');
       expect(scrollTo.mock.instances[0]).toBe(timeline);
     } finally {
-      if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: originalScrollTo });
+      if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, 'scrollTo', originalScrollTo);
       else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollTo;
-      if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: originalScrollIntoView });
+      if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
       else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
     }
   });

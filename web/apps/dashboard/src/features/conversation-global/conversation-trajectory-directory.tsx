@@ -1,4 +1,4 @@
-import type { StaffDirectoryEmployee, StaffDirectoryPage } from './conversation-global-api';
+import type { StaffDirectoryPage } from './conversation-global-api';
 
 export type TrajectoryDirectoryMode = 'archived' | 'organization';
 
