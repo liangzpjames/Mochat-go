@@ -113,7 +113,7 @@ Provider 不可用或尚未运行时，页面明确显示不可用、等待分�
 | `go test ./... -count=1` | 通过 |
 | Dashboard lint | 通过，0 errors / 0 warnings |
 | Dashboard typecheck | 通过 |
-| Dashboard test | 142 个测试文件、908 项测试全部通过 |
+| Dashboard test | 142 个测试文件、916 项测试全部通过 |
 | Dashboard production build | 通过；保留现有大 chunk 提示，不影响构建退出码 |
 | Phase 4 Dashboard RBAC catalog/completion | 通过；53 页，49 个普通页面，4 个超级管理员页面，无未映射页面 |
 | Yuanhu benchmark manifest | 53 页通过 |
@@ -141,7 +141,7 @@ Provider 不可用或尚未运行时，页面明确显示不可用、等待分�
 - `0162`、`0163` 已应用；迁移账本分别记录校验和 `1ea2fd27ace5f64971fa336a8087f227fb5825021c933c590483a09a6b3291a2`、`2137d532e9f17e05953f68c90a47103f8ae81bf225cc0c0eb2c79c5a411030a1`。
 - 两个 up 都会保留预先存在的精确资源，无法事后证明行所有权。因此 down 改为保守 no-op，不删除或覆盖未知来源资源；旧代码仍由路由 deny-only 或缺失处理器失败关闭。已在专用 MariaDB schema 预置两个同键资源，执行 0162/0163 up 后再执行 down，最终 16 个资源全部保留，两个预置版本标记各保留 1 条，schema 清理计数为 0。
 - 在同一保留卷重复执行 `mochat-migrate -action up -project-root /app` 退出码为 0，两项迁移均保持 `applied`，未改写已应用迁移。
-- 最新应用镜像已从本分支重建，镜像摘要为 `sha256:2b55944454b498c7293aae511767e008e57587ea3e069d58b52005d959dc46d5`；app、MariaDB 10.6、Redis 7 均为 healthy，`/healthz` 与 `/readyz` 均返回 200。
+- 最新应用镜像已从本分支重建，镜像摘要为 `sha256:3f83598d53a87b5c7fdb91582b8193312b52b1be2db9787822064fb47055b3b8`；app、MariaDB 10.6、Redis 7 均为 healthy，`/healthz` 与 `/readyz` 均返回 200。
 - 应用最近 400 行日志中 migration failure、checksum、panic、fatal 命中数为 0。
 - MariaDB 与 Redis 卷均保留，创建时间均为 `2026-08-12T10:54:32Z`；没有删除或重建数据卷。
 
@@ -181,5 +181,6 @@ Provider 不可用或尚未运行时，页面明确显示不可用、等待分�
 | AI 前端工作区与竞态/导出保护 | `847e3e3`、`b8ca0eb` |
 | Dashboard lint 原子批次 | `0152fe8`、`38118e8`、`0828982`、`a893149`、`63b057e` |
 | 独立复审 RED 与追溯/回滚闭环 | `b79c115`、`f074f7d` |
+| 追溯与 Provider 字段错误类型回归 | `b3ba279`、`672ad2b` |
 
 最终交付保留在 `feat/company-profile-ai-insights-20260824` 和隔离 worktree 中。未经用户明确授权，不合并到 `main`，不推送该分支。建议审阅后使用普通 merge 保留原子提交与完整测试轨迹。
