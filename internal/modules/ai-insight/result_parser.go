@@ -20,6 +20,9 @@ func ParseSessionAnalysisResult(raw string, allowedMessageIDs map[string]struct{
 	if result.SchemaVersion != insightSchemaVersionV1 && result.SchemaVersion != insightSchemaVersionV2 {
 		return result, errors.New("schemaVersion must be 1 or 2")
 	}
+	if err := validateSessionVersionShape(raw, result.SchemaVersion); err != nil {
+		return result, err
+	}
 	if strings.TrimSpace(result.Summary) == "" {
 		return result, errors.New("summary must not be empty")
 	}
@@ -77,6 +80,11 @@ func ParseSmartAnalysisResult(raw string, allowedMessageIDs map[string]struct{})
 	}
 	if result.SchemaVersion != insightSchemaVersionV1 && result.SchemaVersion != insightSchemaVersionV2 {
 		return result, errors.New("schemaVersion must be 1 or 2")
+	}
+	if result.SchemaVersion == insightSchemaVersionV1 {
+		if err := rejectRawFields(raw, "schemaVersion 1", "matchScore", "confidenceScore", "evidenceCoverageScore", "priorityScore", "priorityLevel", "dimensions"); err != nil {
+			return result, err
+		}
 	}
 	if strings.TrimSpace(result.Conclusion) == "" {
 		return result, errors.New("conclusion must not be empty")
@@ -157,6 +165,118 @@ func validateSmartV2Shape(raw string) error {
 	}
 	if _, ok := fields["confidence"]; ok {
 		return errors.New("confidence is only valid for schemaVersion 1")
+	}
+	if err := validateRawDimensions(fields["dimensions"], "dimensions"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSessionVersionShape(raw string, version int) error {
+	root, err := rawInsightObject(raw)
+	if err != nil {
+		return err
+	}
+	customer, err := nestedRawObject(root, "customer")
+	if err != nil {
+		return err
+	}
+	purchaseIntent, err := nestedRawObject(customer, "purchaseIntent")
+	if err != nil {
+		return err
+	}
+	churnRisk, err := nestedRawObject(customer, "churnRisk")
+	if err != nil {
+		return err
+	}
+	employeeQA, err := nestedRawObject(root, "employeeQa")
+	if err != nil {
+		return err
+	}
+	if version == insightSchemaVersionV1 {
+		if _, ok := customer["qualityScore"]; ok {
+			return errors.New("customer.qualityScore is only valid for schemaVersion 2")
+		}
+		for name, assessment := range map[string]map[string]json.RawMessage{"purchaseIntent": purchaseIntent, "churnRisk": churnRisk} {
+			if _, ok := assessment["dimensions"]; ok {
+				return fmt.Errorf("customer.%s.dimensions is only valid for schemaVersion 2", name)
+			}
+		}
+		for _, name := range []string{"unresolvedCustomerIssues", "unresolvedObjections"} {
+			if _, ok := employeeQA[name]; ok {
+				return fmt.Errorf("employeeQa.%s is only valid for schemaVersion 2", name)
+			}
+		}
+		return nil
+	}
+	if _, ok := customer["qualityScore"]; !ok {
+		return errors.New("customer.qualityScore is required for schemaVersion 2")
+	}
+	for name, assessment := range map[string]map[string]json.RawMessage{"purchaseIntent": purchaseIntent, "churnRisk": churnRisk} {
+		if dimensions, ok := assessment["dimensions"]; ok {
+			if err := validateRawDimensions(dimensions, "customer."+name+".dimensions"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func rejectRawFields(raw, version string, names ...string) error {
+	fields, err := rawInsightObject(raw)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if _, ok := fields[name]; ok {
+			return fmt.Errorf("%s is not valid for %s", name, version)
+		}
+	}
+	return nil
+}
+
+func rawInsightObject(raw string) (map[string]json.RawMessage, error) {
+	value, err := normalizedInsightJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(value), &fields); err != nil {
+		return nil, fmt.Errorf("invalid AI result JSON: %w", err)
+	}
+	return fields, nil
+}
+
+func nestedRawObject(parent map[string]json.RawMessage, name string) (map[string]json.RawMessage, error) {
+	value, ok := parent[name]
+	if !ok {
+		return nil, fmt.Errorf("%s is required", name)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(value, &fields); err != nil || fields == nil {
+		return nil, fmt.Errorf("%s must be an object", name)
+	}
+	return fields, nil
+}
+
+func validateRawDimensions(raw json.RawMessage, name string) error {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
+		return fmt.Errorf("%s must be an array", name)
+	}
+	var dimensions []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &dimensions); err != nil {
+		return fmt.Errorf("%s must be an array", name)
+	}
+	for index, dimension := range dimensions {
+		for _, field := range []string{"weight", "score"} {
+			value, ok := dimension[field]
+			if !ok {
+				return fmt.Errorf("%s[%d].%s is required", name, index, field)
+			}
+			if field == "weight" && strings.TrimSpace(string(value)) == "null" {
+				return fmt.Errorf("%s[%d].weight must be a number", name, index)
+			}
+		}
 	}
 	return nil
 }

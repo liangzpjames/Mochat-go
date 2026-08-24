@@ -27,6 +27,7 @@ type runnerRepoStub struct {
 	runs           []InsightRun
 	finished       []InsightRunResult
 	rules          []AnalysisRuleVersion
+	rulesErr       error
 	sessionRule    *AnalysisRuleVersion
 	sessionRuleErr error
 	rulesLoader    func() []AnalysisRuleVersion
@@ -61,9 +62,9 @@ func (r *runnerRepoStub) FinishRun(_ context.Context, _ int64, result InsightRun
 }
 func (r *runnerRepoStub) EnabledRuleVersions(context.Context, int64, int64) ([]AnalysisRuleVersion, error) {
 	if r.rulesLoader != nil {
-		return r.rulesLoader(), nil
+		return r.rulesLoader(), r.rulesErr
 	}
-	return r.rules, nil
+	return r.rules, r.rulesErr
 }
 func (r *runnerRepoStub) CurrentEnabledRuleVersion(context.Context, int64, int64, string) (*AnalysisRuleVersion, error) {
 	if r.sessionLoader != nil {
@@ -116,7 +117,10 @@ func (p *capturingAIProvider) Chat(_ context.Context, request providers.ChatRequ
 }
 
 func TestConversationRunnerUsesAssistantContextForDefaultSmartAnalysis(t *testing.T) {
-	repo := &runnerRepoStub{rules: []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1, Objective: "识别退款风险", ConversationTypes: []string{"direct"}, LookbackDays: 30, MinimumMessages: 1}}}
+	repo := &runnerRepoStub{
+		sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1},
+		rules:       []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1, Objective: "识别退款风险", ConversationTypes: []string{"direct"}, LookbackDays: 30, MinimumMessages: 1}},
+	}
 	provider := &capturingAIProvider{}
 	assistant := assistantContextStub{context: settingsports.SessionAssistantContext{
 		AgentID: "session", Instructions: "遵循售后升级要求", Enabled: true, SettingsFingerprint: "settings-v3",
@@ -142,7 +146,7 @@ func (p *capturingAIProvider) Status() providers.Status {
 }
 
 func TestConversationRunnerConsumesAssistantInstructionsKnowledgeAndSettingsFingerprint(t *testing.T) {
-	repo := &runnerRepoStub{previous: "messages-v1"}
+	repo := &runnerRepoStub{previous: "messages-v1", sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}}
 	provider := &capturingAIProvider{}
 	assistant := assistantContextStub{context: settingsports.SessionAssistantContext{
 		AgentID: "session", Name: settingsports.SessionAnalysisAssistantName, Instructions: "重点核对退款审批流程", Enabled: true, SettingsFingerprint: "settings-v2",
@@ -217,7 +221,7 @@ func TestConversationRunnerReturnsSmartUnavailableRunPersistenceFailure(t *testi
 }
 
 func TestConversationRunnerRecordsSessionAndDefaultSmartFailuresWhenProviderUnavailable(t *testing.T) {
-	repo := &runnerRepoStub{rules: []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1}}}
+	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1}, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1}}}
 	runner := NewConversationAnalysisRunner(repo, unavailableAIProvider{}, RunnerConfig{}, nil)
 
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
@@ -389,6 +393,88 @@ func TestConversationRunnerAssistantFailureOnlyStopsMatchingFlow(t *testing.T) {
 				t.Fatalf("finished=%#v, want one real failed run", repo.finished)
 			}
 		})
+	}
+}
+
+func TestConversationRunnerDoesNotRunSessionWithoutCurrentRuleVersion(t *testing.T) {
+	repo := &runnerRepoStub{rules: []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1, Objective: "智能目标", ConversationTypes: []string{"direct"}, MinimumMessages: 1}}}
+	provider := &capturingAIProvider{}
+	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil)
+
+	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || !strings.Contains(provider.request.Prompt, "智能目标") {
+		t.Fatalf("provider calls=%d request=%#v, want only smart analysis", provider.calls, provider.request)
+	}
+	if len(repo.runs) != 2 || repo.runs[0].AnalysisType != AnalysisTypeSession || repo.runs[0].RuleVersionID != 0 {
+		t.Fatalf("runs=%#v, want a real session failure before smart run", repo.runs)
+	}
+	if len(repo.finished) != 2 || repo.finished[0].Status != AnalysisStatusFailed || !strings.Contains(repo.finished[0].ErrorSummary, "规则") {
+		t.Fatalf("finished=%#v, want missing session rule failure", repo.finished)
+	}
+}
+
+func TestConversationRunnerRecordsMissingSessionRuleBeforeReturningSmartRuleError(t *testing.T) {
+	smartRuleErr := errors.New("smart rules unavailable")
+	repo := &runnerRepoStub{rulesErr: smartRuleErr}
+	runner := NewConversationAnalysisRunner(repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, nil)
+
+	err := runner.RunCorp(context.Background(), 1, 2)
+	if !errors.Is(err, smartRuleErr) {
+		t.Fatalf("RunCorp error=%v, want %v", err, smartRuleErr)
+	}
+	if len(repo.runs) != 1 || repo.runs[0].AnalysisType != AnalysisTypeSession || len(repo.finished) != 1 || repo.finished[0].Status != AnalysisStatusFailed {
+		t.Fatalf("runs=%#v finished=%#v, want persisted missing session rule failure", repo.runs, repo.finished)
+	}
+}
+
+func TestConversationRunnerLoadsBothContextsAfterEnsureFailure(t *testing.T) {
+	sessionRule := &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}
+	repo := &runnerRepoStub{sessionRule: sessionRule, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1, Objective: "智能目标", ConversationTypes: []string{"direct"}, MinimumMessages: 1}}}
+	provider := &capturingAIProvider{}
+	assistants := &systemAssistantStub{
+		ensureErr: errors.New("ensure failed after partial initialization"),
+		contexts: map[string]settingsports.SystemAssistantContext{
+			settingsports.SessionAnalysisSystemKey: {Enabled: true},
+			settingsports.SmartAnalysisSystemKey:   {Enabled: true},
+		},
+		loadErrs: map[string]error{},
+	}
+	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
+
+	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(assistants.loaded) != 2 {
+		t.Fatalf("loaded=%#v, want both contexts attempted", assistants.loaded)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("provider calls=%d, want both available flows", provider.calls)
+	}
+}
+
+func TestConversationRunnerEnsureFailureOnlyFailsActuallyUnavailableContext(t *testing.T) {
+	sessionRule := &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}
+	repo := &runnerRepoStub{sessionRule: sessionRule, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1, Objective: "智能目标", ConversationTypes: []string{"direct"}, MinimumMessages: 1}}}
+	provider := &capturingAIProvider{}
+	assistants := &systemAssistantStub{
+		ensureErr: errors.New("ensure failed after partial initialization"),
+		contexts: map[string]settingsports.SystemAssistantContext{
+			settingsports.SmartAnalysisSystemKey: {Enabled: true},
+		},
+		loadErrs: map[string]error{settingsports.SessionAnalysisSystemKey: errors.New("session context unavailable")},
+	}
+	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
+
+	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(assistants.loaded) != 2 || provider.calls != 1 || !strings.Contains(provider.request.Prompt, "智能目标") {
+		t.Fatalf("loaded=%#v calls=%d request=%#v", assistants.loaded, provider.calls, provider.request)
+	}
+	if len(repo.finished) != 2 || repo.finished[0].Status != AnalysisStatusFailed || repo.finished[1].Status != AnalysisStatusSucceeded {
+		t.Fatalf("finished=%#v, want only unavailable session flow failed", repo.finished)
 	}
 }
 

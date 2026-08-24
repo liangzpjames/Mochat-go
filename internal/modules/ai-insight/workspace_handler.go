@@ -166,7 +166,7 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 			return
 		}
 		data["assistant"] = workspaceAssistantJSON(assistant)
-	} else if h.assistant != nil {
+	} else if h.assistant != nil && page == "session-analysis" {
 		if _, err := h.assistant.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID)); err != nil {
 			workspaceRepoError(w, err)
 			return

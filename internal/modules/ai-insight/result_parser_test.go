@@ -1,6 +1,7 @@
 package aiinsight
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -160,5 +161,223 @@ func TestParseSmartAnalysisV2RequiresPreciseScoreFieldsAndRejectsLegacyConfidenc
 	legacy := strings.Replace(validSmartV2JSON(), `"matched":true,`, `"matched":true,"confidence":0.9,`, 1)
 	if _, err := ParseSmartAnalysisResult(legacy, map[string]struct{}{"msg:inside": {}}); err == nil {
 		t.Fatal("expected v2 legacy confidence error")
+	}
+}
+
+func TestParseAnalysisV1RejectsV2OnlyFields(t *testing.T) {
+	allowed := map[string]struct{}{"msg:inside": {}}
+	tests := []struct {
+		name  string
+		parse func(string) error
+		raw   string
+	}{
+		{
+			name: "session quality score",
+			parse: func(raw string) error {
+				_, err := ParseSessionAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSessionJSON(), `"qualityLevel":"high",`, `"qualityLevel":"high","qualityScore":80,`, 1),
+		},
+		{
+			name: "session quantified dimensions",
+			parse: func(raw string) error {
+				_, err := ParseSessionAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSessionJSON(), `"evidenceMessageIds":["msg:inside"]`, `"evidenceMessageIds":["msg:inside"],"dimensions":[]`, 1),
+		},
+		{
+			name: "session unresolved issues",
+			parse: func(raw string) error {
+				_, err := ParseSessionAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSessionJSON(), `"suggestions":[]`, `"suggestions":[],"unresolvedCustomerIssues":[]`, 1),
+		},
+		{
+			name: "smart quantified scores",
+			parse: func(raw string) error {
+				_, err := ParseSmartAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: `{"schemaVersion":1,"conclusion":"暂未命中","matched":false,"confidence":null,"matchScore":null,"evidenceMessageIds":[],"recommendations":[]}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.parse(test.raw); err == nil {
+				t.Fatal("expected schema-version field pollution error")
+			}
+		})
+	}
+}
+
+func TestParseAnalysisV2RequiresNullableScoresAndDimensionFields(t *testing.T) {
+	allowed := map[string]struct{}{"msg:inside": {}}
+	tests := []struct {
+		name  string
+		parse func(string) error
+		raw   string
+	}{
+		{
+			name: "session qualityScore",
+			parse: func(raw string) error {
+				_, err := ParseSessionAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSessionV2JSON(), `"qualityScore":82.5,`, "", 1),
+		},
+		{
+			name: "session dimension weight",
+			parse: func(raw string) error {
+				_, err := ParseSessionAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSessionV2JSON(), `"weight":0.6,`, "", 1),
+		},
+		{
+			name: "session dimension score",
+			parse: func(raw string) error {
+				_, err := ParseSessionAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSessionV2JSON(), `"score":90,`, "", 1),
+		},
+		{
+			name: "session dimension null weight",
+			parse: func(raw string) error {
+				_, err := ParseSessionAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSessionV2JSON(), `"weight":0.6`, `"weight":null`, 1),
+		},
+		{
+			name: "smart dimension weight",
+			parse: func(raw string) error {
+				_, err := ParseSmartAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSmartV2JSON(), `"weight":1,`, "", 1),
+		},
+		{
+			name: "smart dimension score",
+			parse: func(raw string) error {
+				_, err := ParseSmartAnalysisResult(raw, allowed)
+				return err
+			},
+			raw: strings.Replace(validSmartV2JSON(), `"score":88,`, "", 1),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.parse(test.raw); err == nil {
+				t.Fatal("expected required v2 field error")
+			}
+		})
+	}
+}
+
+func TestAnalysisResultRoundTripPreservesV2NullsWithoutPollutingV1(t *testing.T) {
+	allowed := map[string]struct{}{"msg:inside": {}}
+	sessionV2Raw := strings.NewReplacer(
+		`"qualityScore":82.5`, `"qualityScore":null`,
+		`"score":90`, `"score":null`,
+	).Replace(validSessionV2JSON())
+	sessionV2, err := ParseSessionAnalysisResult(sessionV2Raw, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONPathsAreNull(t, sessionV2, "customer.qualityScore", "customer.purchaseIntent.dimensions.0.score")
+
+	smartV2Raw := strings.NewReplacer(
+		`"matchScore":88`, `"matchScore":null`,
+		`"confidenceScore":76.5`, `"confidenceScore":null`,
+		`"evidenceCoverageScore":50`, `"evidenceCoverageScore":null`,
+		`"priorityScore":91`, `"priorityScore":null`,
+		`"score":88`, `"score":null`,
+	).Replace(validSmartV2JSON())
+	smartV2, err := ParseSmartAnalysisResult(smartV2Raw, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONPathsAreNull(t, smartV2, "matchScore", "confidenceScore", "evidenceCoverageScore", "priorityScore", "dimensions.0.score")
+
+	sessionV1, err := ParseSessionAnalysisResult(validSessionJSON(), allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionV1JSON, err := json.Marshal(sessionV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sessionV1Object map[string]any
+	if err := json.Unmarshal(sessionV1JSON, &sessionV1Object); err != nil {
+		t.Fatal(err)
+	}
+	customer := sessionV1Object["customer"].(map[string]any)
+	employeeQA := sessionV1Object["employeeQa"].(map[string]any)
+	if _, ok := customer["qualityScore"]; ok {
+		t.Fatalf("v1 session result injected qualityScore: %s", sessionV1JSON)
+	}
+	for _, assessmentName := range []string{"purchaseIntent", "churnRisk"} {
+		assessment := customer[assessmentName].(map[string]any)
+		if _, ok := assessment["dimensions"]; ok {
+			t.Fatalf("v1 session result injected %s.dimensions: %s", assessmentName, sessionV1JSON)
+		}
+	}
+	for _, field := range []string{"unresolvedCustomerIssues", "unresolvedObjections"} {
+		if _, ok := employeeQA[field]; ok {
+			t.Fatalf("v1 session result injected %s: %s", field, sessionV1JSON)
+		}
+	}
+
+	smartV1, err := ParseSmartAnalysisResult(`{"schemaVersion":1,"conclusion":"暂未命中","matched":false,"confidence":null,"evidenceMessageIds":[],"recommendations":[]}`, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	smartV1JSON, err := json.Marshal(smartV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"matchScore", "confidenceScore", "evidenceCoverageScore", "priorityScore", "priorityLevel", "dimensions"} {
+		if strings.Contains(string(smartV1JSON), `"`+field+`"`) {
+			t.Fatalf("v1 smart result injected %s: %s", field, smartV1JSON)
+		}
+	}
+}
+
+func assertJSONPathsAreNull(t *testing.T, value any, paths ...string) {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root any
+	if err := json.Unmarshal(encoded, &root); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		current := root
+		for _, part := range strings.Split(path, ".") {
+			switch node := current.(type) {
+			case map[string]any:
+				var ok bool
+				current, ok = node[part]
+				if !ok {
+					t.Fatalf("JSON path %s missing from %s", path, encoded)
+				}
+			case []any:
+				if part != "0" || len(node) == 0 {
+					t.Fatalf("JSON path %s missing from %s", path, encoded)
+				}
+				current = node[0]
+			default:
+				t.Fatalf("JSON path %s missing from %s", path, encoded)
+			}
+		}
+		if current != nil {
+			t.Fatalf("JSON path %s = %#v, want null in %s", path, current, encoded)
+		}
 	}
 }

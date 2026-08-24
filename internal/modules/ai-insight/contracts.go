@@ -2,6 +2,7 @@ package aiinsight
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -91,6 +92,32 @@ type SessionAnalysisResult struct {
 	EmployeeQA    EmployeeQA       `json:"employeeQa"`
 }
 
+func (result SessionAnalysisResult) MarshalJSON() ([]byte, error) {
+	type wire SessionAnalysisResult
+	encoded, err := json.Marshal(wire(result))
+	if err != nil {
+		return nil, err
+	}
+	var root map[string]any
+	if err := json.Unmarshal(encoded, &root); err != nil {
+		return nil, err
+	}
+	customer, _ := root["customer"].(map[string]any)
+	employeeQA, _ := root["employeeQa"].(map[string]any)
+	if result.SchemaVersion == insightSchemaVersionV1 {
+		delete(customer, "qualityScore")
+		for _, name := range []string{"purchaseIntent", "churnRisk"} {
+			assessment, _ := customer[name].(map[string]any)
+			delete(assessment, "dimensions")
+		}
+		delete(employeeQA, "unresolvedCustomerIssues")
+		delete(employeeQA, "unresolvedObjections")
+	} else if result.SchemaVersion == insightSchemaVersionV2 {
+		customer["qualityScore"] = result.Customer.QualityScore
+	}
+	return json.Marshal(root)
+}
+
 type SmartAnalysisResult struct {
 	SchemaVersion         int                   `json:"schemaVersion"`
 	Conclusion            string                `json:"conclusion"`
@@ -104,6 +131,30 @@ type SmartAnalysisResult struct {
 	Dimensions            []QuantifiedDimension `json:"dimensions,omitempty"`
 	EvidenceMessageIDs    []string              `json:"evidenceMessageIds"`
 	Recommendations       []string              `json:"recommendations"`
+}
+
+func (result SmartAnalysisResult) MarshalJSON() ([]byte, error) {
+	type wire SmartAnalysisResult
+	encoded, err := json.Marshal(wire(result))
+	if err != nil {
+		return nil, err
+	}
+	var root map[string]any
+	if err := json.Unmarshal(encoded, &root); err != nil {
+		return nil, err
+	}
+	if result.SchemaVersion == insightSchemaVersionV1 {
+		for _, name := range []string{"matchScore", "confidenceScore", "evidenceCoverageScore", "priorityScore", "priorityLevel", "dimensions"} {
+			delete(root, name)
+		}
+	} else if result.SchemaVersion == insightSchemaVersionV2 {
+		delete(root, "confidence")
+		root["matchScore"] = result.MatchScore
+		root["confidenceScore"] = result.ConfidenceScore
+		root["evidenceCoverageScore"] = result.EvidenceCoverageScore
+		root["priorityScore"] = result.PriorityScore
+	}
+	return json.Marshal(root)
 }
 
 type SourceMessage struct {

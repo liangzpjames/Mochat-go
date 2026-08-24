@@ -29,3 +29,21 @@
 - `SessionAssistantContext` 保留为 `SystemAssistantContext` 的 alias；构造器保留旧会话助手接口的兼容分支，生产接线使用系统助手能力。
 - v1 智能洞察仍接受 `confidence: 0..1|null`，不会填充 v2 四项综合分；v2 明确拒绝 legacy `confidence`。
 - 工作树的 `.superpowers/sdd/progress.md` 为既有进度记录，按任务要求不纳入本提交。
+
+## 独立审查 Important 修复追加记录（2026-08-24）
+
+本轮按 TDD 修复 Task 4 独立审查的全部 Important findings：
+
+- 版本合同：新增版本专属 raw shape 检查。RED 时，v1 会接受 Session 的 `qualityScore`、量化 `dimensions`、未解决问题字段以及 Smart 的 v2 分数字段；v2 会接受缺失的 Session `qualityScore` 和量化维度 `weight`/`score`，并把 `weight:null` 当作 0。GREEN 后，v1 拒绝全部 v2-only 字段，v2 对 nullable 分数字段区分“缺失”与显式 `null`，量化 `weight` 必须为非 null 数字。
+- JSON round-trip：RED 时，Session v2 的 `qualityScore:null` 以及 Smart v2 的四个显式空分数会被 `omitempty` 丢弃。GREEN 后，版本条件序列化保留 Session `qualityScore`、Smart 四项分数和量化 `score` 的显式 `null`，同时 v1 序列化不会注入 v2 字段。
+- 会话规则缺失：RED 时，`CurrentEnabledRuleVersion(session)` 返回 `nil, nil` 后仍会以 `ruleVersionID=0` 执行并成功。GREEN 后，会话流先持久化“当前启用规则版本不存在”的真实 failed run，不调用会话模型；即使智能规则加载同时失败，也会先保存该会话失败。
+- 助手初始化隔离：RED 时，`EnsureSystemAssistants` 返回错误会跳过两个 context 加载并使两类都失败。GREEN 后仍分别尝试 `session-analysis` 和 `smart-analysis`；可加载且启用的类型继续执行，仅加载失败或停用的类型记录失败。
+- 状态兼容分支：RED 时，旧 `SessionAssistantRepository` 在 smart 页返回了会话助手。GREEN 后旧分支仅为 session 页返回助手，smart 页省略助手字段；系统助手分支仍按 page 加载对应 system key。
+
+本轮新鲜验证：
+
+- 聚焦 RED：新增回归用例均按上述预期失败，失败原因分别为版本污染未拒绝、必填字段缺失未拒绝、显式 `null` 丢失、会话规则 ID 0 运行、Ensure 错误阻断双加载、smart 页暴露会话助手。
+- 聚焦 GREEN：`go test ./internal/modules/ai-insight -run 'Test(ParseAnalysisV1RejectsV2OnlyFields|ParseAnalysisV2RequiresNullableScoresAndDimensionFields|AnalysisResultRoundTripPreservesV2NullsWithoutPollutingV1|ConversationRunnerDoesNotRunSessionWithoutCurrentRuleVersion|ConversationRunnerLoadsBothContextsAfterEnsureFailure|ConversationRunnerEnsureFailureOnlyFailsActuallyUnavailableContext|WorkspaceSmartStatusDoesNotExposeLegacySessionAssistant)$' -count=1`：通过。
+- 目标全量：`go test ./internal/modules/ai-insight/... ./internal/modules/providers/ai/openai/... -count=1`：通过。
+- bootstrap：`go test ./internal/app/bootstrap/... -count=1`：通过。
+- `git diff --check`：退出码 0；仅 Git 的 LF/CRLF 提示，无 whitespace 错误。

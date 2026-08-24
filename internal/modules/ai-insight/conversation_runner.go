@@ -89,6 +89,12 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 	}
 	sessionRule, sessionRuleErr := r.repo.CurrentEnabledRuleVersion(ctx, tenantID, corpID, settingsports.SessionAnalysisSystemKey)
 	rules, smartRulesErr := r.repo.EnabledRuleVersions(ctx, tenantID, corpID)
+	sessionRuleFailure := ""
+	if sessionRuleErr != nil {
+		sessionRuleFailure = "会话分析规则加载失败: " + sessionRuleErr.Error()
+	} else if sessionRule == nil {
+		sessionRuleFailure = "会话分析当前启用规则版本不存在"
+	}
 	providerStatus := providers.Status{}
 	if r.ai != nil {
 		providerStatus = r.ai.Status()
@@ -98,11 +104,14 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 		if strings.TrimSpace(providerStatus.Reason) != "" {
 			message += ": " + strings.TrimSpace(providerStatus.Reason)
 		}
-		sessionVersionID := int64(0)
+		sessionVersionID, sessionMessage := int64(0), sessionRuleFailure
 		if sessionRule != nil {
 			sessionVersionID = sessionRule.ID
 		}
-		if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, message); err != nil {
+		if sessionMessage == "" {
+			sessionMessage = message
+		}
+		if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, sessionMessage); err != nil {
 			return err
 		}
 		if smartRulesErr != nil {
@@ -119,8 +128,12 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 		return nil
 	}
 	now := r.now()
-	if sessionRuleErr != nil {
-		if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, 0, "会话分析规则加载失败: "+sessionRuleErr.Error()); err != nil {
+	sessionVersionID := int64(0)
+	if sessionRule != nil {
+		sessionVersionID = sessionRule.ID
+	}
+	if sessionRuleFailure != "" {
+		if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, sessionRuleFailure); err != nil {
 			return err
 		}
 	}
@@ -130,20 +143,19 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 	contexts := map[AnalysisType]*settingsports.SystemAssistantContext{}
 	failures := map[AnalysisType]string{}
 	if r.systemAssistant != nil {
-		if systemEnsureErr != nil {
-			failures[AnalysisTypeSession] = "会话分析助手加载失败: " + systemEnsureErr.Error()
-			failures[AnalysisTypeSmart] = "智能分析助手加载失败: " + systemEnsureErr.Error()
-		} else {
-			for analysisType, key := range map[AnalysisType]string{AnalysisTypeSession: settingsports.SessionAnalysisSystemKey, AnalysisTypeSmart: settingsports.SmartAnalysisSystemKey} {
-				loaded, err := r.systemAssistant.LoadSystemAssistantContext(ctx, tenantID, corpID, key)
-				if err != nil {
-					failures[analysisType] = analysisTypeLabel(analysisType) + "助手加载失败: " + err.Error()
-				} else if !loaded.Enabled {
-					failures[analysisType] = analysisTypeLabel(analysisType) + "助手已停用"
-				} else {
-					copy := loaded
-					contexts[analysisType] = &copy
+		for analysisType, key := range map[AnalysisType]string{AnalysisTypeSession: settingsports.SessionAnalysisSystemKey, AnalysisTypeSmart: settingsports.SmartAnalysisSystemKey} {
+			loaded, err := r.systemAssistant.LoadSystemAssistantContext(ctx, tenantID, corpID, key)
+			if err != nil {
+				message := err.Error()
+				if systemEnsureErr != nil {
+					message = systemEnsureErr.Error() + "; " + message
 				}
+				failures[analysisType] = analysisTypeLabel(analysisType) + "助手加载失败: " + message
+			} else if !loaded.Enabled {
+				failures[analysisType] = analysisTypeLabel(analysisType) + "助手已停用"
+			} else {
+				copy := loaded
+				contexts[analysisType] = &copy
 			}
 		}
 	} else if r.assistant != nil {
@@ -161,21 +173,19 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 			contexts[AnalysisTypeSession], contexts[AnalysisTypeSmart] = &loaded, &loaded
 		}
 	}
-	sessionVersionID := int64(0)
-	if sessionRule != nil {
-		sessionVersionID = sessionRule.ID
-	}
-	if failure := failures[AnalysisTypeSession]; failure != "" {
-		if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, failure); err != nil {
-			return err
-		}
-	} else if sessionRuleErr == nil {
-		days := r.config.SessionDays
-		if sessionRule != nil && sessionRule.LookbackDays > 0 {
-			days = sessionRule.LookbackDays
-		}
-		if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, now.AddDate(0, 0, -days), now, sessionRule, contexts[AnalysisTypeSession]); err != nil {
-			r.logger.Printf("AI conversation session analysis failed for corp %d: %v", corpID, err)
+	if sessionRuleFailure == "" {
+		if failure := failures[AnalysisTypeSession]; failure != "" {
+			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, failure); err != nil {
+				return err
+			}
+		} else {
+			days := r.config.SessionDays
+			if sessionRule.LookbackDays > 0 {
+				days = sessionRule.LookbackDays
+			}
+			if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, now.AddDate(0, 0, -days), now, sessionRule, contexts[AnalysisTypeSession]); err != nil {
+				r.logger.Printf("AI conversation session analysis failed for corp %d: %v", corpID, err)
+			}
 		}
 	}
 	for _, rule := range rules {
