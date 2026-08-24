@@ -190,6 +190,7 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     expect(client.request).toHaveBeenNthCalledWith(2, '/ai-insight/emotion/detail?id=1');
     expect(client.request).toHaveBeenNthCalledWith(3, '/ai-insight/communication-keyword/status');
     expect(client.request).toHaveBeenNthCalledWith(4, '/ai-insight/emotion/filter-options?employeeKeyword=%E5%BC%A0+%E4%B8%89&limit=20');
+    expect(client.request).toHaveBeenCalledTimes(4);
     expect(api.derivedExportUrl('communication-keyword', { page: 1, keyword: '50%_\\采购' }))
       .toBe('/ai-insight/communication-keyword/export?keyword=50%25_%5C%E9%87%87%E8%B4%AD');
   });
