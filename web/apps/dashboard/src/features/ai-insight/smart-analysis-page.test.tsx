@@ -23,6 +23,11 @@ function createApi() {
 }
 
 describe('智能分析工作台', () => {
+	  it('网络中断时展示可行动的中文反馈', async () => {
+	    const api = { ...createApi(), smartRecords: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) };
+	    render(<SmartAnalysisPage api={api as unknown as AiInsightWorkspaceApi} />);
+	    expect((await screen.findByRole('alert')).textContent).toBe('服务暂时不可用，请稍后刷新重试。');
+	  });
   it('只展示默认助手生成的结果，不再提供规则管理和规则版本筛选', async () => {
     const api = createApi();
     render(<SmartAnalysisPage api={api as unknown as AiInsightWorkspaceApi} />);

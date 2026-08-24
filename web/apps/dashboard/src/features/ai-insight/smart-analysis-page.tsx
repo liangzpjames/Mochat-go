@@ -8,6 +8,7 @@ import {
   InsightDrawer,
   InsightPagination,
   SmartTable,
+  insightErrorMessage,
   readEmployeeName,
   type WorkspaceProps,
 } from './ai-insight-workspace';
@@ -39,7 +40,7 @@ export function SmartAnalysisPage({ api, navigate }: WorkspaceProps) {
         setStatus(run);
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : '加载失败');
+        if (active) setError(insightErrorMessage(reason, '加载失败'));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -72,7 +73,7 @@ export function SmartAnalysisPage({ api, navigate }: WorkspaceProps) {
     setDetailLoading(true);
     void api.smartDetail(id)
       .then(setDetail)
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '详情加载失败'))
+      .catch((reason: unknown) => setError(insightErrorMessage(reason, '详情加载失败')))
       .finally(() => setDetailLoading(false));
   };
 

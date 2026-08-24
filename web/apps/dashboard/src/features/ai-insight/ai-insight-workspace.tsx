@@ -29,6 +29,15 @@ const EMOTION_LABELS: Record<string, string> = {
   unknown: '未知',
 };
 
+export function insightErrorMessage(reason: unknown, fallback: string): string {
+  if (!(reason instanceof Error)) return fallback;
+  const message = reason.message.trim();
+  if (/failed to fetch|network(?:error| request failed)|load failed/i.test(message)) {
+    return '服务暂时不可用，请稍后刷新重试。';
+  }
+  return message || fallback;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
