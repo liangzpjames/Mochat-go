@@ -31,10 +31,18 @@ describe('AI 设置响应式布局合同', () => {
     expect(hover).not.toContain('filter:');
   });
 
-  it('分析助手使用单卡片两列用途布局，所有顶层操作按钮等高', () => {
-    expect(block('.ai-assistant-card')).toContain('border-radius: 14px');
-    expect(block('.ai-assistant-use-grid')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
-    expect(block('.ai-settings-action-button')).toContain('min-height: 36px');
-    expect(block('.ai-insight-query-actions button')).toContain('min-height: 36px');
+  it('双助手卡片在桌面并排、移动端改为单列，会话范围卡也遵守同样合同', () => {
+    expect(block('.ai-assistant-card-grid')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(block('.ai-conversation-scope-grid')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(stylesheet).toContain('.ai-assistant-card-grid, .ai-conversation-scope-grid { grid-template-columns: 1fr; }');
+  });
+
+  it('知识库刷新按钮使用统一 secondary action 尺寸合同', () => {
+    const secondary = block('.dashboard-secondary-action');
+    expect(secondary).toContain('box-sizing: border-box');
+    expect(secondary).toContain('min-height: 36px');
+    expect(secondary).toContain('min-width: 68px');
+    expect(secondary).toContain('padding: 7px 14px');
+    expect(secondary).toContain('border-radius: 8px');
   });
 });

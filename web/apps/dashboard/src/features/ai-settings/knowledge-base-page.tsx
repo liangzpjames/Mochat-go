@@ -201,7 +201,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
           <article className="phase35-kpi phase35-kpi-green"><span>已启用</span><strong>{metricsHaveData ? enabledCount : '—'}</strong><small>{metricsNote ?? '仅表示配置状态'}</small></article>
           <article className="phase35-kpi phase35-kpi-violet"><span>已上传文档</span><strong>{metricsHaveData ? documents : '—'}</strong><small>{metricsNote ?? '来自持久化文档记录'}</small></article>
         </section>
-        <DashboardFilterPanel className="ai-settings-filter" onSubmit={submitFilters} onReset={resetFilters} pending={query.isFetching} extraActions={<button type="button" onClick={() => { setFeedback(null); void query.refetch(); }} disabled={query.isFetching}>刷新</button>}>
+        <DashboardFilterPanel className="ai-settings-filter" onSubmit={submitFilters} onReset={resetFilters} pending={query.isFetching} extraActions={<button className="dashboard-secondary-action" type="button" onClick={() => { setFeedback(null); void query.refetch(); }} disabled={query.isFetching}>刷新</button>}>
           <label>关键词<input aria-label="关键词" value={draftKeyword} onChange={(event) => setDraftKeyword(event.target.value)} placeholder="搜索名称或说明" /></label>
           <label>状态<select aria-label="状态" value={draftStatus} onChange={(event) => setDraftStatus(event.target.value as typeof draftStatus)}><option value="all">全部状态</option><option value="enabled">启用</option><option value="disabled">停用</option></select></label>
         </DashboardFilterPanel>
