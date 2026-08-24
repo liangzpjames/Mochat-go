@@ -167,10 +167,12 @@
 
 失败或旧 schema 缺字段的记录在无专用过滤时可见；启用专用过滤时自然不匹配。
 
+会话证据不得使用分表内自增 `id` 作为全局标识：优先输出带命名空间的企微 `msgid`，缺少 `msgid` 时使用 `shard:{tableIndex}:{id}`。入站消息使用客户名称；群聊没有参与人身份链路时明确显示“群成员（身份未归档）”，不得冒用员工姓名。历史结果中的旧自增 ID 只在当前详情窗口唯一时兼容高亮，跨分表碰撞时失败关闭。
+
 ### 9.3 迁移
 
-- `0162_company_profile_grantable`：纠正页面 restriction，并把只读 `/dashboard/providers/status` 幂等登记为 website 页面资源；down 恢复 0131 restriction，并只删除本迁移登记的资源键。
-- `0163_ai_insight_projection_resources`：为三个页面新增只读 API resource；down 仅删除本迁移新增的资源。
+- `0162_company_profile_grantable`：纠正页面 restriction，并把只读 `/dashboard/providers/status` 幂等登记为 website 页面资源。由于 up 会保留预先存在的同键资源，无法证明资源所有权和旧 restriction，down 采用保守 no-op，不删除或覆盖未知来源数据。
+- `0163_ai_insight_projection_resources`：为三个页面新增只读 API resource；同理，down 采用保守 no-op，避免误删 catalog 同步或人工预置的精确资源。
 - 不改写 0127、0131 或其他已应用迁移字节。
 - 必须验证 fresh apply、重复执行、checksum、保留卷升级和迁移健康。
 
@@ -195,7 +197,7 @@
 1. 已授权普通用户的菜单包含“唯一企业资料”，刷新后仍存在，直接 URL 进入成功且高亮正确；无权限普通用户菜单无该项，直接 URL 与 API 均 403；超管和 pending bootstrap 行为无回归。
 2. Dashboard 全量 lint 为 0 errors / 0 warnings，未关闭规则、未增加大范围 ignore、未滥用 `any` 或改变 tsconfig。
 3. 三页查询、重置、刷新、分页、URL 恢复、详情、证据回读、原会话跳转、错误重试、空态和 Provider 状态符合本设计。
-4. 每个数值、标签和列表字段可追溯到 API 与存储；前端不存在业务静态数组、随机数、固定趋势或伪成功。
+4. 每个数值、标签和列表字段可追溯到 API 与存储；成功结果缺少 Provider、模型、提示词版本或分析时间时诚实失败；分页、状态和详情元数据畸形时不得折叠为空页；前端不存在业务静态数组、随机数、固定趋势或伪成功。
 5. 相关前后端测试、Dashboard 全量测试/typecheck/lint/build、全量 Go、隔离 MariaDB integration、Phase 4 RBAC、53 页 benchmark、all-pages evidence、provider completion、`git diff --check` 和凭证扫描通过。
 6. 保留卷 Docker 仅重建必要服务；app/MySQL/Redis healthy，`/healthz`、`/readyz` 200，日志无 migration/checksum/panic/fatal。
 7. 浏览器覆盖普通桌面、2560×1440、窄屏和小高度，控制台无新增 error/warning，无未解释的请求失败或横向溢出。

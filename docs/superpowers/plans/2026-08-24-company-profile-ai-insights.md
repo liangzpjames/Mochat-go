@@ -100,7 +100,7 @@ Expected: 当前 superadmin-only 与 deny-only 策略导致至少一项失败。
 
 - [ ] **Step 1: 新增纠正迁移**
 
-`up` 执行参数固定的 catalog 更新：`restriction='grantable', superadmin_only=0`，并幂等登记 website 的 `GET /dashboard/providers/status` 只读资源；`down` 恢复 `restriction='superadmin_only', superadmin_only=1`，并删除该迁移登记的资源键。不得编辑 0131。
+`up` 执行参数固定的 catalog 更新：`restriction='grantable', superadmin_only=0`，并幂等登记 website 的 `GET /dashboard/providers/status` 只读资源。实施复审确认 up 的 `NOT EXISTS` 无法证明同键资源所有权或旧 restriction，因此 `down` 必须保守 no-op，不删除或覆盖可能预先存在的数据；旧代码仍由 deny-only 失败关闭。不得编辑 0131。
 
 - [ ] **Step 2: 对齐 canonical catalog 与 deny-only**
 
@@ -188,7 +188,7 @@ Expected: 专用页面或 API 方法未定义，测试失败。
 
 - [ ] **Step 4: 注册路由和资源迁移**
 
-为每页添加 5 个 GET route/resource，`scope_required=1`；up 用 `NOT EXISTS` 幂等插入，down 只删除精确方法+路径。
+为每页添加 5 个 GET route/resource，`scope_required=1`；up 用 `NOT EXISTS` 幂等插入。实施复审确认精确键仍不足以证明资源由本迁移创建，因此 down 保守 no-op，并用预置同键资源的隔离 MariaDB 回归证明不会误删。
 
 - [ ] **Step 5: 验证后端 GREEN**
 
