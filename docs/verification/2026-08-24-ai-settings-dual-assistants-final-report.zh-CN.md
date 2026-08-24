@@ -185,9 +185,9 @@ Dashboard 测试中 Ant Design 在 jsdom 调用伪元素 `getComputedStyle` 会�
 
 | 命令/门禁 | 新鲜结果 |
 | --- | --- |
-| 新增测试红灯 | 6 个预期失败，分别命中横向布局、可选文件、顺序上传、部分失败和脏状态 |
-| AI 设置目标 Vitest | 2 个文件、23 个测试全部通过 |
-| Dashboard 全量 Vitest | 141 个文件、842 个测试全部通过 |
+| 新增测试红灯 | 8 个预期失败，分别命中横向布局、可选文件、顺序上传、部分失败、脏状态、上传中锁定和文件撤销 |
+| AI 设置目标 Vitest | 2 个文件、27 个测试全部通过 |
+| Dashboard 全量 Vitest | 141 个文件、846 个测试全部通过 |
 | `pnpm typecheck` | 12 个工作区项目全部通过 |
 | 变更范围 lint（基线 `23c50a8`） | 22 个 Dashboard TS/TSX 文件，0 错误 |
 | Dashboard production build | 通过，1789 个模块；只有既有 chunk size 提示 |
@@ -195,7 +195,7 @@ Dashboard 测试中 Ant Design 在 jsdom 调用伪元素 `getComputedStyle` 会�
 | AI 设置/AI 洞察相关 Go 包 | 全部通过 |
 | Yuanhu benchmark / 页面 evidence | 53 页通过；evidence 12/12 通过 |
 | RBAC catalog + completion | 47/47 脚本测试通过；53/48/5、`scopeRequired=130` |
-| Docker build / health | 新镜像 `sha256:00730633…`；app/MySQL/Redis healthy，`healthz=200`、`readyz=200` |
+| Docker build / health | 新镜像 `sha256:5f0e9fe3…`；app/MySQL/Redis healthy，`healthz=200`、`readyz=200` |
 | 数据卷 | `mysql-data`、`redis-data`、`app-storage`、`audit-anchor-storage` 全部保留 |
 
 验收中发现 RBAC completion gate 的有效种子链只读取到 0158，漏掉已存在的 0161 AI 洞察筛选权限覆盖；独立 catalog 已应用 0161，因此两者口径不一致。已补齐 completion gate 对同一覆盖解析器的调用，并由 `runCompletionGate` 集成测试验证，不修改已应用迁移字节。
@@ -207,6 +207,7 @@ Dashboard 测试中 Ant Design 在 jsdom 调用伪元素 `getComputedStyle` 会�
 - 766×678：编辑器自动回落单列，内容区 `clientHeight=428`、`scrollHeight=1133`、`overflow-y=auto`，底部保存/取消按钮保持可见，页面无横向溢出。
 - 新建“验收知识库-0824-2136”时选择 `acceptance-knowledge.md`，真实创建和文档解析成功；刷新后知识库仍为 1 份文档，“管理文档”显示“可用于分析”。该验收数据按用户要求保留，便于继续测试。
 - 新建弹窗的文件输入在真实 DOM 中 `required=false`；不选文件的创建和不调用上传接口由自动化用例覆盖。
+- 选择初始文档后显示文件名及“移除已选文档”；真实点击移除后文件状态与原生输入同时清空，取消可直接关闭且不会误报未保存内容。
 - 浏览器控制台最终没有 error 或 warning；临时视口已恢复到 1280×720。
 
 新增证据：
@@ -222,5 +223,10 @@ Dashboard 测试中 Ant Design 在 jsdom 调用伪元素 `getComputedStyle` 会�
 - `3070b9d`：增量实施计划。
 - `94d6da6`：横向助手编辑器与新建知识库可选上传实现/测试。
 - `70fea07`：RBAC completion gate 纳入 0161 筛选权限覆盖。
+- `ac933a8`：增量实施报告与浏览器证据。
+- `e7abb54`：修正文档尾部格式。
+- `fbfa589`：锁定上传中表单、补充移除文件能力与失败/失效查询测试。
+
+独立复审针对上传中编辑、失败保留、解析失败、查询失效及撤销选中文件五项进行复核，未发现剩余 Critical 或 Important 问题，结论为可以合并。
 
 用户要求取消关机后已执行系统取消命令；系统确认当时没有待执行的关机计划，此后未再安排关机。AI 日分析和启动即分析仍保持关闭。
