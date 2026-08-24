@@ -219,6 +219,13 @@ func validateSessionVersionShape(raw string, version int) error {
 			}
 		}
 	}
+	for _, name := range []string{"unresolvedCustomerIssues", "unresolvedObjections"} {
+		if issues, ok := employeeQA[name]; ok {
+			if err := validateRawUnresolvedIssues(issues, "employeeQa."+name); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -277,6 +284,40 @@ func validateRawDimensions(raw json.RawMessage, name string) error {
 				return fmt.Errorf("%s[%d].weight must be a number", name, index)
 			}
 		}
+		if err := validateRequiredRawStringArray(dimension, "evidenceMessageIds", fmt.Sprintf("%s[%d].evidenceMessageIds", name, index)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRawUnresolvedIssues(raw json.RawMessage, name string) error {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
+		return fmt.Errorf("%s must be an array", name)
+	}
+	var issues []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &issues); err != nil {
+		return fmt.Errorf("%s must be an array", name)
+	}
+	for index, issue := range issues {
+		if err := validateRequiredRawStringArray(issue, "evidenceMessageIds", fmt.Sprintf("%s[%d].evidenceMessageIds", name, index)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRequiredRawStringArray(fields map[string]json.RawMessage, field, name string) error {
+	raw, ok := fields[field]
+	if !ok {
+		return fmt.Errorf("%s is required", name)
+	}
+	if strings.TrimSpace(string(raw)) == "null" {
+		return fmt.Errorf("%s must be an array", name)
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return fmt.Errorf("%s must be an array", name)
 	}
 	return nil
 }

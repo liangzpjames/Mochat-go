@@ -347,6 +347,75 @@ func TestAnalysisResultRoundTripPreservesV2NullsWithoutPollutingV1(t *testing.T)
 	}
 }
 
+func TestSmartAnalysisVersionRoundTripsPreserveRequiredFields(t *testing.T) {
+	tests := []struct {
+		name         string
+		raw          string
+		wantFragment string
+	}{
+		{
+			name:         "v1 explicit null confidence",
+			raw:          `{"schemaVersion":1,"conclusion":"证据不足","matched":false,"confidence":null,"evidenceMessageIds":[],"recommendations":[]}`,
+			wantFragment: `"confidence":null`,
+		},
+		{
+			name:         "v2 empty dimensions",
+			raw:          strings.Replace(validSmartV2JSON(), `"dimensions":[{"name":"退款意向","weight":1,"score":88,"reason":"客户明确提出退款","evidenceMessageIds":["msg:inside"]}]`, `"dimensions":[]`, 1),
+			wantFragment: `"dimensions":[]`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := ParseSmartAnalysisResult(test.raw, map[string]struct{}{"msg:inside": {}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(parsed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(encoded), test.wantFragment) {
+				t.Fatalf("round trip lost %s: %s", test.wantFragment, encoded)
+			}
+			if _, err := ParseSmartAnalysisResult(string(encoded), map[string]struct{}{"msg:inside": {}}); err != nil {
+				t.Fatalf("marshaled result cannot be parsed again: %v; JSON=%s", err, encoded)
+			}
+		})
+	}
+}
+
+func TestParseAnalysisV2RequiresNestedEvidenceMessageIDArrays(t *testing.T) {
+	allowed := map[string]struct{}{"msg:inside": {}}
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "dimension evidence missing",
+			raw:  strings.Replace(validSessionV2JSON(), `"reason":"主动询价","evidenceMessageIds":["msg:inside"]`, `"reason":"主动询价"`, 1),
+		},
+		{
+			name: "dimension evidence null",
+			raw:  strings.Replace(validSessionV2JSON(), `"reason":"主动询价","evidenceMessageIds":["msg:inside"]`, `"reason":"主动询价","evidenceMessageIds":null`, 1),
+		},
+		{
+			name: "unresolved issue evidence missing",
+			raw:  strings.Replace(validSessionV2JSON(), `"reason":"员工尚未给出日期","evidenceMessageIds":["msg:inside"]`, `"reason":"员工尚未给出日期"`, 1),
+		},
+		{
+			name: "unresolved issue evidence null",
+			raw:  strings.Replace(validSessionV2JSON(), `"reason":"员工尚未给出日期","evidenceMessageIds":["msg:inside"]`, `"reason":"员工尚未给出日期","evidenceMessageIds":null`, 1),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := ParseSessionAnalysisResult(test.raw, allowed); err == nil {
+				t.Fatal("expected required evidenceMessageIds array error")
+			}
+		})
+	}
+}
+
 func assertJSONPathsAreNull(t *testing.T, value any, paths ...string) {
 	t.Helper()
 	encoded, err := json.Marshal(value)

@@ -147,12 +147,14 @@ func (result SmartAnalysisResult) MarshalJSON() ([]byte, error) {
 		for _, name := range []string{"matchScore", "confidenceScore", "evidenceCoverageScore", "priorityScore", "priorityLevel", "dimensions"} {
 			delete(root, name)
 		}
+		root["confidence"] = result.Confidence
 	} else if result.SchemaVersion == insightSchemaVersionV2 {
 		delete(root, "confidence")
 		root["matchScore"] = result.MatchScore
 		root["confidenceScore"] = result.ConfidenceScore
 		root["evidenceCoverageScore"] = result.EvidenceCoverageScore
 		root["priorityScore"] = result.PriorityScore
+		root["dimensions"] = result.Dimensions
 	}
 	return json.Marshal(root)
 }

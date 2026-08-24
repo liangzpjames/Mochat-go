@@ -98,14 +98,17 @@ func TestWorkspaceStatusMapsEachPageToItsOwnAssistant(t *testing.T) {
 		settingsports.SmartAnalysisSystemKey:   {Name: "智能助手独立", Enabled: true},
 	}}
 	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil, assistants)
-	for path, expected := range map[string]string{
-		"/dashboard/ai-insight/session-analysis/status": "会话助手独立",
-		"/dashboard/ai-insight/smart-analysis/status":   "智能助手独立",
+	for _, test := range []struct {
+		path     string
+		expected string
+	}{
+		{path: "/dashboard/ai-insight/session-analysis/status", expected: "会话助手独立"},
+		{path: "/dashboard/ai-insight/smart-analysis/status", expected: "智能助手独立"},
 	} {
 		recorder := httptest.NewRecorder()
-		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
-		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), expected) {
-			t.Fatalf("path=%s status=%d body=%s", path, recorder.Code, recorder.Body.String())
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), test.expected) {
+			t.Fatalf("path=%s status=%d body=%s", test.path, recorder.Code, recorder.Body.String())
 		}
 	}
 	if len(assistants.loaded) != 2 || assistants.loaded[0] != settingsports.SessionAnalysisSystemKey || assistants.loaded[1] != settingsports.SmartAnalysisSystemKey {

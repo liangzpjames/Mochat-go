@@ -47,3 +47,16 @@
 - 目标全量：`go test ./internal/modules/ai-insight/... ./internal/modules/providers/ai/openai/... -count=1`：通过。
 - bootstrap：`go test ./internal/app/bootstrap/... -count=1`：通过。
 - `git diff --check`：退出码 0；仅 Git 的 LF/CRLF 提示，无 whitespace 错误。
+
+## 第二轮复审 Important 修复追加记录（2026-08-24）
+
+- Smart 版本序列化：RED 时 v1 的 `confidence:null` 与 v2 的合法 `dimensions:[]` 会被 `omitempty` 删除，其中 v2 marshal 结果无法再次通过 parser。GREEN 后，v1 始终按版本合同输出 `confidence`，v2 始终输出 `dimensions`；两类结果均完成 parse→marshal→parse round-trip。
+- v2 nested raw shape：RED 时，`QuantifiedDimension` 和 `UnresolvedIssue` 的 `evidenceMessageIds` 缺失或为 `null` 都会折叠成 nil slice并通过校验。GREEN 后，每个 nested item 都要求该字段存在、非 null 且为字符串数组，空数组仍合法。
+- legacy 助手隔离：RED 时，`AssistantContextProvider` 的会话说明、知识库和 fingerprint 会进入 smart 流，且会话助手停用会同时停止 smart。GREEN 后，legacy context 与其加载失败/停用状态仅作用于 session；smart 继续无 context 执行。旧的 smart 不可用持久化测试改用真正支持双 system key 的 provider stub。
+- 测试稳定性：完整包验证复现了 status 映射测试以 map 驱动请求却固定断言顺序的既有 flaky 行为；仅将测试输入改为有序表，未修改生产映射。
+
+本轮红绿证据：
+
+- 聚焦 RED：`TestSmartAnalysisVersionRoundTripsPreserveRequiredFields`、`TestParseAnalysisV2RequiresNestedEvidenceMessageIDArrays`、`TestConversationRunnerLegacyAssistantContextOnlyAppliesToSessionAnalysis`、`TestConversationRunnerLegacySessionAssistantDisabledDoesNotStopSmartAnalysis` 均按预期失败。
+- 聚焦 GREEN：上述测试及修正后的 smart unavailable persistence 测试全部通过。
+- 完整 `ai-insight`：`go test ./internal/modules/ai-insight/... -count=1` 通过。

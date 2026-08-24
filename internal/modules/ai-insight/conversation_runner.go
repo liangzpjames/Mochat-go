@@ -162,15 +162,12 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 		id := fmt.Sprintf("session-%d-%d", tenantID, corpID)
 		if _, err := r.assistant.EnsureSessionAssistant(ctx, tenantID, corpID, 0, id); err != nil {
 			failures[AnalysisTypeSession] = "会话分析助手加载失败: " + err.Error()
-			failures[AnalysisTypeSmart] = failures[AnalysisTypeSession]
 		} else if loaded, err := r.assistant.LoadSessionAssistantContext(ctx, tenantID, corpID); err != nil {
 			failures[AnalysisTypeSession] = "会话分析助手加载失败: " + err.Error()
-			failures[AnalysisTypeSmart] = failures[AnalysisTypeSession]
 		} else if !loaded.Enabled {
 			failures[AnalysisTypeSession] = "会话分析助手已停用"
-			failures[AnalysisTypeSmart] = failures[AnalysisTypeSession]
 		} else {
-			contexts[AnalysisTypeSession], contexts[AnalysisTypeSmart] = &loaded, &loaded
+			contexts[AnalysisTypeSession] = &loaded
 		}
 	}
 	if sessionRuleFailure == "" {
