@@ -137,9 +137,13 @@ func (r workspaceTestResolver) Resolve(*http.Request) (WorkspacePrincipal, error
 	return r.principal, r.err
 }
 
-type workspaceTestAuthorizer struct{ err error }
+type workspaceTestAuthorizer struct {
+	err        error
+	permission string
+}
 
-func (a workspaceTestAuthorizer) Authorize(context.Context, WorkspacePrincipal, int64, string) error {
+func (a *workspaceTestAuthorizer) Authorize(_ context.Context, _ WorkspacePrincipal, _ int64, permission string) error {
+	a.permission = permission
 	return a.err
 }
 
@@ -172,6 +176,9 @@ func (workspaceTestRepo) CreateRun(context.Context, InsightRun) (int64, error)  
 func (workspaceTestRepo) FinishRun(context.Context, int64, InsightRunResult) error { return nil }
 func (workspaceTestRepo) InsightPage(context.Context, InsightFilter) (InsightPage, error) {
 	return InsightPage{Page: 1, PageSize: 20, Items: []ConversationInsight{}}, nil
+}
+func (workspaceTestRepo) EmployeeOptions(context.Context, EmployeeOptionFilter) ([]EmployeeOption, error) {
+	return []EmployeeOption{}, nil
 }
 func (workspaceTestRepo) InsightDetail(context.Context, InsightDetailFilter) (ConversationInsight, error) {
 	return ConversationInsight{}, nil
@@ -221,12 +228,85 @@ func TestWorkspaceRejectsInvalidPageBeforeRepository(t *testing.T) {
 }
 
 func TestWorkspaceAuthorizationIsCheckedBeforeRead(t *testing.T) {
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, workspaceTestAuthorizer{err: errors.New("denied")}, workspaceTestRepo{}, nil)
+	authorizer := &workspaceTestAuthorizer{err: errors.New("denied")}
+	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, authorizer, workspaceTestRepo{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/smart-analysis/records", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status=%d,want 403", rec.Code)
+	}
+}
+
+type workspaceEmployeeOptionsRepo struct {
+	workspaceTestRepo
+	filter  EmployeeOptionFilter
+	options []EmployeeOption
+	err     error
+}
+
+func (r *workspaceEmployeeOptionsRepo) EmployeeOptions(_ context.Context, filter EmployeeOptionFilter) ([]EmployeeOption, error) {
+	r.filter = filter
+	return r.options, r.err
+}
+
+func TestWorkspaceFilterOptionsMapsEachPageAndPreservesPrincipalScope(t *testing.T) {
+	for _, test := range []struct {
+		path string
+		typ  AnalysisType
+	}{
+		{path: "/dashboard/ai-insight/session-analysis/filter-options?employeeKeyword=%E7%8E%8B&limit=25", typ: AnalysisTypeSession},
+		{path: "/dashboard/ai-insight/smart-analysis/filter-options?employeeKeyword=%E7%8E%8B&limit=25", typ: AnalysisTypeSmart},
+	} {
+		repo := &workspaceEmployeeOptionsRepo{options: []EmployeeOption{{ID: 1001, Name: "王甲", Avatar: "avatar"}}}
+		authorizer := &workspaceTestAuthorizer{}
+		handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+			UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001, 1002},
+		}}, authorizer, repo, nil)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"employees":[{"avatar":"avatar","id":1001,"name":"王甲"}]`) {
+			t.Fatalf("path=%s status=%d body=%s", test.path, recorder.Code, recorder.Body.String())
+		}
+		if repo.filter.TenantID != 11 || repo.filter.CorpID != 22 || repo.filter.AnalysisType != test.typ || repo.filter.EmployeeKeyword != "王" || repo.filter.Limit != 25 || !repo.filter.Restricted || len(repo.filter.AllowedEmployeeIDs) != 2 {
+			t.Fatalf("path=%s filter=%#v", test.path, repo.filter)
+		}
+		page := map[AnalysisType]string{AnalysisTypeSession: "session-analysis", AnalysisTypeSmart: "smart-analysis"}[test.typ]
+		if authorizer.permission != "/ai-insight/"+page+"#read" {
+			t.Fatalf("permission=%q", authorizer.permission)
+		}
+	}
+}
+
+func TestWorkspaceFilterOptionsRejectsInvalidLimitBeforeRepository(t *testing.T) {
+	for _, limit := range []string{"0", "101", "abc"} {
+		repo := &workspaceEmployeeOptionsRepo{}
+		handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, repo, nil)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/filter-options?limit="+limit, nil))
+		if recorder.Code != http.StatusBadRequest || repo.filter.TenantID != 0 {
+			t.Fatalf("limit=%s status=%d filter=%#v", limit, recorder.Code, repo.filter)
+		}
+	}
+}
+
+func TestWorkspaceRecordsParsesCustomerName(t *testing.T) {
+	filter, err := parseWorkspaceFilter(httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/records?customerName=%E5%AE%A2%E6%88%B7%E7%94%B2", nil), WorkspacePrincipal{TenantID: 1, CorpID: 2}, "session-analysis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filter.CustomerName != "客户甲" {
+		t.Fatalf("customerName=%q", filter.CustomerName)
+	}
+}
+
+func TestWorkspaceFilterOptionsDoesNotLeakRepositoryError(t *testing.T) {
+	repo := &workspaceEmployeeOptionsRepo{err: errors.New("SELECT failed: password=secret")}
+	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, repo, nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/filter-options", nil))
+	if recorder.Code != http.StatusInternalServerError || strings.Contains(recorder.Body.String(), "password") || !strings.Contains(recorder.Body.String(), "AI 洞察请求失败") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

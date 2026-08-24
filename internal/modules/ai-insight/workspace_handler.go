@@ -84,6 +84,8 @@ func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.detail(w, r, p, page)
 	case "status":
 		h.status(w, r, p, page)
+	case "filter-options":
+		h.filterOptions(w, r, p, page)
 	case "export":
 		h.export(w, r, p, page)
 	case "rules":
@@ -93,6 +95,36 @@ func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		workspaceEnvelope(w, 404, "resource not found", nil)
 	}
+}
+
+func (h *WorkspaceHandler) filterOptions(w http.ResponseWriter, r *http.Request, p WorkspacePrincipal, page string) {
+	limit := 50
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100 {
+			workspaceEnvelope(w, 400, "数量限制无效", nil)
+			return
+		}
+		limit = parsed
+	}
+	typ := AnalysisTypeSession
+	if page == "smart-analysis" {
+		typ = AnalysisTypeSmart
+	}
+	options, err := h.repo.EmployeeOptions(r.Context(), EmployeeOptionFilter{
+		TenantID: p.TenantID, CorpID: p.CorpID, AnalysisType: typ,
+		EmployeeKeyword: strings.TrimSpace(r.URL.Query().Get("employeeKeyword")), Limit: limit,
+		AllowedEmployeeIDs: p.AllowedEmployeeIDs, Restricted: p.EmployeeScopeRestricted,
+	})
+	if err != nil {
+		workspaceRepoError(w, err)
+		return
+	}
+	employees := make([]map[string]any, 0, len(options))
+	for _, option := range options {
+		employees = append(employees, map[string]any{"id": option.ID, "name": option.Name, "avatar": option.Avatar})
+	}
+	workspaceEnvelope(w, 200, "success", map[string]any{"employees": employees})
 }
 
 func (h *WorkspaceHandler) records(w http.ResponseWriter, r *http.Request, p WorkspacePrincipal, page string) {
@@ -282,6 +314,7 @@ func parseWorkspaceFilter(r *http.Request, p WorkspacePrincipal, page string) (I
 		return filter, errors.New("会话类型无效")
 	}
 	filter.Keyword = strings.TrimSpace(q.Get("keyword"))
+	filter.CustomerName = strings.TrimSpace(q.Get("customerName"))
 	filter.Status = AnalysisStatus(q.Get("status"))
 	if filter.Status != "" && filter.Status != AnalysisStatusSucceeded && filter.Status != AnalysisStatusFailed {
 		return filter, errors.New("分析状态无效")

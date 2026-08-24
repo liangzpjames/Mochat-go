@@ -231,8 +231,16 @@ func (r *SQLRepository) InsightPage(ctx context.Context, filter InsightFilter) (
 		return InsightPage{}, errors.New("AI insight repository database is unavailable")
 	}
 	where, args := insightWhere(filter)
-	query := `SELECT i.id,i.tenant_id,i.corp_id,i.analysis_type,i.rule_id,i.rule_version_id,COALESCE(rule.name,''),COALESCE(version.version,0),i.conversation_key,i.employee_id,i.employee_name,i.employee_avatar,i.target_type,i.target_id,i.target_name,i.target_avatar,i.source_started_at,i.source_ended_at,i.source_message_count,i.source_fingerprint,i.status,i.summary,i.result_json,i.error_summary,i.provider,i.model,i.prompt_version,i.generated_at,i.created_at FROM mochat_go_ai_conversation_insights i LEFT JOIN mochat_go_ai_analysis_rules rule ON rule.id=i.rule_id AND rule.tenant_id=i.tenant_id AND rule.corp_id=i.corp_id LEFT JOIN mochat_go_ai_analysis_rule_versions version ON version.id=i.rule_version_id AND version.tenant_id=i.tenant_id AND version.corp_id=i.corp_id WHERE ` + strings.Join(where, " AND ") + ` ORDER BY i.generated_at DESC, i.id DESC`
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_ai_conversation_insights i WHERE `+whereSQL, args...).Scan(&total); err != nil {
+		return InsightPage{}, err
+	}
+	page, size := normalizePage(filter.Page, filter.PageSize)
+	offset := (page - 1) * size
+	query := `SELECT i.id,i.tenant_id,i.corp_id,i.analysis_type,i.rule_id,i.rule_version_id,COALESCE(rule.name,''),COALESCE(version.version,0),i.conversation_key,i.employee_id,i.employee_name,i.employee_avatar,i.target_type,i.target_id,i.target_name,i.target_avatar,i.source_started_at,i.source_ended_at,i.source_message_count,i.source_fingerprint,i.status,i.summary,i.result_json,i.error_summary,i.provider,i.model,i.prompt_version,i.generated_at,i.created_at FROM mochat_go_ai_conversation_insights i LEFT JOIN mochat_go_ai_analysis_rules rule ON rule.id=i.rule_id AND rule.tenant_id=i.tenant_id AND rule.corp_id=i.corp_id LEFT JOIN mochat_go_ai_analysis_rule_versions version ON version.id=i.rule_version_id AND version.tenant_id=i.tenant_id AND version.corp_id=i.corp_id WHERE ` + whereSQL + ` ORDER BY i.generated_at DESC, i.id DESC LIMIT ? OFFSET ?`
+	listArgs := append(append([]any(nil), args...), size, offset)
+	rows, err := r.db.QueryContext(ctx, query, listArgs...)
 	if err != nil {
 		return InsightPage{}, err
 	}
@@ -243,25 +251,57 @@ func (r *SQLRepository) InsightPage(ctx context.Context, filter InsightFilter) (
 		if err != nil {
 			return InsightPage{}, err
 		}
-		if filter.Keyword != "" && !strings.Contains(strings.ToLower(item.Summary+" "+item.TargetName+" "+item.EmployeeName), strings.ToLower(filter.Keyword)) {
-			continue
-		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return InsightPage{}, err
 	}
-	total := len(items)
-	page, size := normalizePage(filter.Page, filter.PageSize)
-	start := (page - 1) * size
-	if start > len(items) {
-		start = len(items)
+	return InsightPage{Items: items, Page: page, PageSize: size, Total: total}, nil
+}
+
+func (r *SQLRepository) EmployeeOptions(ctx context.Context, filter EmployeeOptionFilter) ([]EmployeeOption, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("AI insight repository database is unavailable")
 	}
-	end := start + size
-	if end > len(items) {
-		end = len(items)
+	where := []string{"i.tenant_id=?", "i.corp_id=?", "i.analysis_type=?"}
+	args := []any{filter.TenantID, filter.CorpID, filter.AnalysisType}
+	if filter.Restricted {
+		ids := uniqueInt64s(filter.AllowedEmployeeIDs)
+		if len(ids) == 0 {
+			return []EmployeeOption{}, nil
+		}
+		where = append(where, "i.employee_id IN ("+placeholders(len(ids))+")")
+		for _, id := range ids {
+			args = append(args, id)
+		}
 	}
-	return InsightPage{Items: items[start:end], Page: page, PageSize: size, Total: total}, nil
+	if keyword := strings.TrimSpace(filter.EmployeeKeyword); keyword != "" {
+		where = append(where, "COALESCE(NULLIF(e.name,''),i.employee_name) LIKE ? ESCAPE '\\\\'")
+		args = append(args, escapedLike(keyword))
+	}
+	limit := filter.Limit
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	args = append(args, limit)
+	query := `SELECT i.employee_id,COALESCE(NULLIF(MAX(e.name),''),NULLIF(MAX(i.employee_name),''),'') AS employee_name,COALESCE(NULLIF(MAX(e.avatar),''),NULLIF(MAX(i.employee_avatar),''),'') AS employee_avatar FROM mochat_go_ai_conversation_insights i LEFT JOIN mc_work_employee e ON e.id=i.employee_id AND e.corp_id=i.corp_id AND e.deleted_at IS NULL WHERE ` + strings.Join(where, " AND ") + ` GROUP BY i.employee_id ORDER BY employee_name ASC, i.employee_id ASC LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	options := make([]EmployeeOption, 0)
+	for rows.Next() {
+		var option EmployeeOption
+		if err := rows.Scan(&option.ID, &option.Name, &option.Avatar); err != nil {
+			return nil, err
+		}
+		options = append(options, option)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return options, nil
 }
 
 func (r *SQLRepository) InsightDetail(ctx context.Context, filter InsightDetailFilter) (ConversationInsight, error) {
@@ -538,6 +578,15 @@ func insightWhere(filter InsightFilter) ([]string, []any) {
 		where = append(where, "i.source_started_at<=?")
 		args = append(args, *filter.EndAt)
 	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		value := escapedLike(keyword)
+		where = append(where, "(i.summary LIKE ? ESCAPE '\\\\' OR i.target_name LIKE ? ESCAPE '\\\\' OR i.employee_name LIKE ? ESCAPE '\\\\')")
+		args = append(args, value, value, value)
+	}
+	if customerName := strings.TrimSpace(filter.CustomerName); customerName != "" {
+		where = append(where, "(i.target_type='1' AND i.target_name LIKE ? ESCAPE '\\\\')")
+		args = append(args, escapedLike(customerName))
+	}
 	if filter.Restricted {
 		ids := uniqueInt64s(filter.AllowedEmployeeIDs)
 		if len(ids) == 0 {
@@ -549,6 +598,11 @@ func insightWhere(filter InsightFilter) ([]string, []any) {
 		}
 	}
 	return where, args
+}
+
+func escapedLike(value string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
+	return "%" + escaped + "%"
 }
 
 func fingerprintArchiveRows(rows []archiveMessageRow) string {

@@ -319,10 +319,27 @@ type InsightFilter struct {
 	RuleVersionID      int64
 	Status             AnalysisStatus
 	Keyword            string
+	CustomerName       string
 	StartAt            *time.Time
 	EndAt              *time.Time
 	AllowedEmployeeIDs []int64
 	Restricted         bool
+}
+
+type EmployeeOptionFilter struct {
+	TenantID           int64
+	CorpID             int64
+	AnalysisType       AnalysisType
+	EmployeeKeyword    string
+	Limit              int
+	AllowedEmployeeIDs []int64
+	Restricted         bool
+}
+
+type EmployeeOption struct {
+	ID     int64
+	Name   string
+	Avatar string
 }
 
 type InsightPage struct {
@@ -396,6 +413,7 @@ type Repository interface {
 	CreateRun(context.Context, InsightRun) (int64, error)
 	FinishRun(context.Context, int64, InsightRunResult) error
 	InsightPage(context.Context, InsightFilter) (InsightPage, error)
+	EmployeeOptions(context.Context, EmployeeOptionFilter) ([]EmployeeOption, error)
 	InsightDetail(context.Context, InsightDetailFilter) (ConversationInsight, error)
 	LatestRun(context.Context, int64, int64, AnalysisType) (*InsightRun, error)
 	RulePage(context.Context, RuleFilter) (RulePage, error)

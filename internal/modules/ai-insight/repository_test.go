@@ -206,6 +206,131 @@ func TestInsightPageFilterIsTenantCorpAndEmployeeScoped(t *testing.T) {
 	}
 }
 
+func TestInsightWhereCombinesScopedNameFiltersAndEscapesLikeMetacharacters(t *testing.T) {
+	where, args := insightWhere(InsightFilter{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession,
+		EmployeeID: 1001, Keyword: `50%_\摘要`, CustomerName: `客%_\户`,
+		Restricted: true, AllowedEmployeeIDs: []int64{1002, 1001},
+	})
+	joined := strings.Join(where, " AND ")
+	for _, fragment := range []string{
+		"i.employee_id=?",
+		"(i.summary LIKE ? ESCAPE '\\\\' OR i.target_name LIKE ? ESCAPE '\\\\' OR i.employee_name LIKE ? ESCAPE '\\\\')",
+		"(i.target_type='1' AND i.target_name LIKE ? ESCAPE '\\\\')",
+		"i.employee_id IN (?,?)",
+	} {
+		if !strings.Contains(joined, fragment) {
+			t.Fatalf("where = %s, missing %s", joined, fragment)
+		}
+	}
+	wantLike := `%50\%\_\\摘要%`
+	wantCustomerLike := `%客\%\_\\户%`
+	if len(args) != 10 || args[4] != wantLike || args[5] != wantLike || args[6] != wantLike || args[7] != wantCustomerLike {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestInsightWhereCustomerNameMatchesDirectConversationsOnly(t *testing.T) {
+	where, args := insightWhere(InsightFilter{TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSmart, CustomerName: "客户甲"})
+	joined := strings.Join(where, " AND ")
+	if !strings.Contains(joined, "i.target_type='1'") || !strings.Contains(joined, "i.target_name LIKE ? ESCAPE '\\\\'") {
+		t.Fatalf("where = %s", joined)
+	}
+	if len(args) != 4 || args[3] != "%客户甲%" {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestInsightPageCountsBeforeSelectingWithIdenticalWhereAndArgs(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	filter := InsightFilter{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Page: 2, PageSize: 2,
+		EmployeeID: 1001, Keyword: "摘要", CustomerName: "客户", Restricted: true, AllowedEmployeeIDs: []int64{1001},
+	}
+	where, args := insightWhere(filter)
+	whereSQL := strings.Join(where, " AND ")
+	driverArgs := make([]driver.Value, len(args))
+	for i := range args {
+		driverArgs[i] = args[i]
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mochat_go_ai_conversation_insights i WHERE " + whereSQL)).
+		WithArgs(driverArgs...).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
+	listArgs := append(append([]driver.Value(nil), driverArgs...), 2, 2)
+	mock.ExpectQuery("SELECT i\\.id.*WHERE " + regexp.QuoteMeta(whereSQL) + ".*ORDER BY i\\.generated_at DESC, i\\.id DESC LIMIT \\? OFFSET \\?").
+		WithArgs(listArgs...).WillReturnRows(sqlmock.NewRows(insightColumns()))
+
+	page, err := NewSQLRepository(db).InsightPage(context.Background(), filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Page != 2 || page.PageSize != 2 || page.Total != 5 || len(page.Items) != 0 {
+		t.Fatalf("page = %#v", page)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEmployeeOptionsQueryIsTenantCorpAnalysisAndEmployeeScoped(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	query := EmployeeOptionFilter{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSmart, EmployeeKeyword: `王%_\`, Limit: 2,
+		Restricted: true, AllowedEmployeeIDs: []int64{1002, 1001},
+	}
+	mock.ExpectQuery(`SELECT i\.employee_id.*FROM mochat_go_ai_conversation_insights i.*LEFT JOIN mc_work_employee e.*i\.tenant_id=\?.*i\.corp_id=\?.*i\.analysis_type=\?.*i\.employee_id IN \(\?,\?\).*LIKE \? ESCAPE.*GROUP BY i\.employee_id.*ORDER BY employee_name ASC, i\.employee_id ASC.*LIMIT \?`).
+		WithArgs(int64(7), int64(8), AnalysisTypeSmart, int64(1001), int64(1002), `%王\%\_\\%`, 2).
+		WillReturnRows(sqlmock.NewRows([]string{"employee_id", "employee_name", "employee_avatar"}).
+			AddRow(1001, "王甲", "a1").AddRow(1002, "王乙", "a2"))
+
+	options, err := NewSQLRepository(db).EmployeeOptions(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options) != 2 || options[0].ID != 1001 || options[0].Name != "王甲" || options[1].ID != 1002 {
+		t.Fatalf("options = %#v", options)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEmployeeOptionsRestrictedEmptyScopeReturnsEmptyWithoutQuery(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	options, err := NewSQLRepository(db).EmployeeOptions(context.Background(), EmployeeOptionFilter{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Restricted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options) != 0 {
+		t.Fatalf("options = %#v", options)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insightColumns() []string {
+	return []string{
+		"id", "tenant_id", "corp_id", "analysis_type", "rule_id", "rule_version_id", "rule_name", "rule_version",
+		"conversation_key", "employee_id", "employee_name", "employee_avatar", "target_type", "target_id", "target_name", "target_avatar",
+		"source_started_at", "source_ended_at", "source_message_count", "source_fingerprint", "status", "summary", "result_json",
+		"error_summary", "provider", "model", "prompt_version", "generated_at", "created_at",
+	}
+}
+
 func TestRuleWriteValidation(t *testing.T) {
 	valid := RuleWrite{Name: "采购意向", Objective: "识别明确询价", ConversationTypes: []string{"direct"}, TargetScope: "all", LookbackDays: 30, MinimumMessages: 2, Status: "enabled"}
 	if err := validateRuleWrite(valid); err != nil {
