@@ -66,6 +66,7 @@
 - 当前样本有一条真实列表记录；详情复用完整会话分析抽屉。
 - 可借鉴：人员与情绪筛选分离、状态标签、会话时间与分析时间同时呈现、分析详情与原会话并列。
 - 不照搬：MoChat 当前持久化合同只有客户情绪，没有独立员工情绪结论；不得把员工质检分伪装为员工情绪。
+- 本仓库会话分析 schema 还允许 `mixed` 与 `unknown`。新页面不复制参考页的三态限制，筛选与展示同时支持正面、中性、负面、混合、未知五态，避免把合法历史结果误报为接口错误。
 
 ### 5.2 员工评分 `/ai-insight/employee-score`
 
@@ -156,7 +157,7 @@
 
 不新增结果表，不改写会话分析历史数据。只扩展现有 repository filter：
 
-- `emotion`：`JSON_UNQUOTE(JSON_EXTRACT(result_json,'$.customer.emotion.label')) = ?`
+- `emotion`：`JSON_UNQUOTE(JSON_EXTRACT(result_json,'$.customer.emotion.label')) = ?`，合法值为 `positive|neutral|negative|mixed|unknown`
 - `minScore/maxScore`：对 `$.employeeQa.score` 做 0–100 数值过滤
 - `keyword`：对 `$.customer.keywords` 的 JSON 文本做转义后的包含过滤
 

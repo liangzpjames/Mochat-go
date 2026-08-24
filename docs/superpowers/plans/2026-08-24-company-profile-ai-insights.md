@@ -176,7 +176,7 @@ Expected: 专用页面或 API 方法未定义，测试失败。
 
 - [ ] **Step 1: 扩展 filter 合同**
 
-新增 `View string`、`Emotion string`、`MinScore *int`、`MaxScore *int`；校验 emotion 仅 `positive|neutral|negative`，分数 0–100 且 min<=max。
+新增 `View string`、`Emotion string`、`MinScore *int`、`MaxScore *int`；校验 emotion 仅 `positive|neutral|negative|mixed|unknown`，分数 0–100 且 min<=max。
 
 - [ ] **Step 2: 实现参数化 JSON 过滤**
 
