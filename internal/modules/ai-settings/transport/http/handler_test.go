@@ -740,106 +740,171 @@ func TestAISettingsRejectsUnknownOrTrailingJSON(t *testing.T) {
 	}
 }
 
-type fakeSessionAgentRepo struct {
+type fakeSystemAgentRepo struct {
 	fakeAgentRepo
-	session ports.Agent
+	ensureCalls int
+	lastUpdate  ports.Agent
 }
 
-func (f *fakeSessionAgentRepo) EnsureSessionAssistant(_ context.Context, tenantID, corpID, actorID int64, id string) (ports.Agent, error) {
-	if f.session.ID == "" {
-		f.session = ports.Agent{ID: id, TenantID: tenantID, CorpID: corpID, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, Description: "分析客户意向与服务质量", KnowledgeBaseIDs: []string{}, Status: 1, CreatedBy: actorID, UpdatedBy: actorID, SmartAnalysisRule: &ports.SmartAnalysisRule{ID: 12, Name: ports.DefaultSmartAnalysisRuleName, Objective: "识别客户意向", ConversationTypes: []string{"direct", "group"}, LookbackDays: 30, MinimumMessages: 2, CurrentVersion: 1}}
+func systemTestAgents(tenantID, corpID int64) []ports.Agent {
+	return []ports.Agent{
+		{ID: "session-1", TenantID: tenantID, CorpID: corpID, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, Description: "会话说明", KnowledgeBaseIDs: []string{}, Status: 1, SessionAnalysisRule: &ports.SessionAnalysisRule{ID: 11, Name: ports.SessionAnalysisRuleName, CustomerAnalysisPrompt: "分析客户购买意向", EmployeeQAPrompt: "检查员工服务质量", ConversationTypes: []string{"direct", "group"}, LookbackDays: 30, MinimumMessages: 2, CurrentVersion: 1}},
+		{ID: "smart-1", TenantID: tenantID, CorpID: corpID, SystemKey: ports.SmartAnalysisSystemKey, Name: ports.SmartAnalysisAssistantName, Description: "智能说明", KnowledgeBaseIDs: []string{}, Status: 1, SmartAnalysisRule: &ports.SmartAnalysisRule{ID: 12, Name: ports.DefaultSmartAnalysisRuleName, Objective: "识别客户意向", ConversationTypes: []string{"direct", "group"}, LookbackDays: 30, MinimumMessages: 2, CurrentVersion: 1}},
 	}
-	return f.session, nil
 }
 
-func TestAgentHandlerUpdatesAssistantAndDefaultSmartRuleTogether(t *testing.T) {
-	repo := &fakeSessionAgentRepo{session: ports.Agent{ID: "session-1", TenantID: 1, CorpID: 2, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, KnowledgeBaseIDs: []string{}, Status: 1, SmartAnalysisRule: &ports.SmartAnalysisRule{ID: 12, Name: ports.DefaultSmartAnalysisRuleName, Objective: "旧目标", ConversationTypes: []string{"direct"}, LookbackDays: 30, MinimumMessages: 2, CurrentVersion: 1}}}
-	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
-	response := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", `{"name":"会话分析助手","description":"识别服务风险","knowledgeBaseIds":[],"status":1,"smartAnalysisRule":{"objective":"识别复购机会","conversationTypes":["direct","group"],"lookbackDays":14,"minimumMessages":3}}`)
+func (f *fakeSystemAgentRepo) EnsureSystemAssistants(_ context.Context, tenantID, corpID, _ int64, _, _ string) ([]ports.Agent, error) {
+	f.ensureCalls++
+	if len(f.items) == 0 {
+		f.items = systemTestAgents(tenantID, corpID)
+	}
+	result := make([]ports.Agent, 0, 2)
+	for _, item := range f.items {
+		if item.TenantID == tenantID && item.CorpID == corpID && (item.SystemKey == ports.SessionAnalysisSystemKey || item.SystemKey == ports.SmartAnalysisSystemKey) {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeSystemAgentRepo) GetSystemAssistant(_ context.Context, tenantID, corpID int64, id string) (ports.Agent, error) {
+	for _, item := range f.items {
+		if item.ID == id && item.TenantID == tenantID && item.CorpID == corpID && (item.SystemKey == ports.SessionAnalysisSystemKey || item.SystemKey == ports.SmartAnalysisSystemKey) {
+			return item, nil
+		}
+	}
+	return ports.Agent{}, ports.ErrNotFound
+}
+
+func (f *fakeSystemAgentRepo) UpdateSystemAssistant(_ context.Context, value ports.Agent) (ports.Agent, error) {
+	for i := range f.items {
+		if f.items[i].ID != value.ID || f.items[i].TenantID != value.TenantID || f.items[i].CorpID != value.CorpID {
+			continue
+		}
+		value.SystemKey = f.items[i].SystemKey
+		if value.SystemKey == ports.SessionAnalysisSystemKey {
+			value.Name = ports.SessionAnalysisAssistantName
+			value.SmartAnalysisRule = nil
+		} else {
+			value.Name = ports.SmartAnalysisAssistantName
+			value.SessionAnalysisRule = nil
+		}
+		f.lastUpdate = value
+		f.items[i] = value
+		return value, nil
+	}
+	return ports.Agent{}, ports.ErrNotFound
+}
+
+func (f *fakeSystemAgentRepo) LoadSystemAssistantContext(context.Context, int64, int64, string) (ports.SessionAssistantContext, error) {
+	return ports.SessionAssistantContext{}, nil
+}
+
+func TestAgentHandlerEnsuresExactlyTwoSystemAssistants(t *testing.T) {
+	repo := &fakeSystemAgentRepo{fakeAgentRepo: fakeAgentRepo{items: append(systemTestAgents(1, 2), ports.Agent{ID: "legacy", TenantID: 1, CorpID: 2, Name: "旧自定义智能体"})}}
+	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "generated-id" })
+	response := perform(handler, http.MethodGet, "/dashboard/ai-settings/agents", "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if repo.session.SmartAnalysisRule == nil || repo.session.SmartAnalysisRule.Objective != "识别复购机会" || repo.session.SmartAnalysisRule.LookbackDays != 14 || repo.session.SmartAnalysisRule.MinimumMessages != 3 {
-		t.Fatalf("rule = %#v", repo.session.SmartAnalysisRule)
+	data := envelopeData(t, response)["data"].([]any)
+	if len(data) != 2 || repo.ensureCalls != 1 {
+		t.Fatalf("data=%#v ensureCalls=%d", data, repo.ensureCalls)
+	}
+	byKey := map[string]map[string]any{}
+	for _, raw := range data {
+		item := raw.(map[string]any)
+		byKey[item["systemKey"].(string)] = item
+	}
+	if byKey[ports.SessionAnalysisSystemKey]["name"] != ports.SessionAnalysisAssistantName || byKey[ports.SessionAnalysisSystemKey]["sessionAnalysisRule"] == nil {
+		t.Fatalf("session = %#v", byKey[ports.SessionAnalysisSystemKey])
+	}
+	if byKey[ports.SmartAnalysisSystemKey]["name"] != ports.SmartAnalysisAssistantName || byKey[ports.SmartAnalysisSystemKey]["smartAnalysisRule"] == nil {
+		t.Fatalf("smart = %#v", byKey[ports.SmartAnalysisSystemKey])
 	}
 }
 
-func TestAgentHandlerRejectsInvalidDefaultSmartRule(t *testing.T) {
+func TestAgentHandlerRoutesUpdateByPersistedSystemKey(t *testing.T) {
+	repo := &fakeSystemAgentRepo{fakeAgentRepo: fakeAgentRepo{items: systemTestAgents(1, 2)}}
+	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "unused" })
+
+	sessionResponse := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", `{"name":"会话分析助手","description":"新会话说明","knowledgeBaseIds":[],"status":1,"sessionAnalysisRule":{"customerAnalysisPrompt":"  分析客户需求  ","employeeQaPrompt":"  检查员工回答  ","conversationTypes":["direct"],"lookbackDays":14,"minimumMessages":3}}`)
+	if sessionResponse.Code != http.StatusOK {
+		t.Fatalf("session status=%d body=%s", sessionResponse.Code, sessionResponse.Body.String())
+	}
+	if repo.lastUpdate.SystemKey != ports.SessionAnalysisSystemKey || repo.lastUpdate.SessionAnalysisRule == nil || repo.lastUpdate.SmartAnalysisRule != nil || repo.lastUpdate.SessionAnalysisRule.CustomerAnalysisPrompt != "分析客户需求" || repo.lastUpdate.SessionAnalysisRule.EmployeeQAPrompt != "检查员工回答" {
+		t.Fatalf("session update = %#v", repo.lastUpdate)
+	}
+
+	smartResponse := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/smart-1", `{"name":"智能分析助手","description":"新智能说明","knowledgeBaseIds":[],"status":0,"smartAnalysisRule":{"objective":"识别复购机会","conversationTypes":["group"],"lookbackDays":7,"minimumMessages":4}}`)
+	if smartResponse.Code != http.StatusOK {
+		t.Fatalf("smart status=%d body=%s", smartResponse.Code, smartResponse.Body.String())
+	}
+	if repo.lastUpdate.SystemKey != ports.SmartAnalysisSystemKey || repo.lastUpdate.SmartAnalysisRule == nil || repo.lastUpdate.SessionAnalysisRule != nil || repo.lastUpdate.SmartAnalysisRule.Objective != "识别复购机会" {
+		t.Fatalf("smart update = %#v", repo.lastUpdate)
+	}
+}
+
+func TestAgentHandlerRejectsRuleForWrongAssistantPurpose(t *testing.T) {
 	tests := []struct {
-		name string
-		rule string
+		name, id, body, code string
 	}{
-		{name: "missing", rule: "null"},
-		{name: "objective too short", rule: `{"objective":"仅","conversationTypes":["direct"],"lookbackDays":30,"minimumMessages":2}`},
-		{name: "empty conversation types", rule: `{"objective":"识别客户意向","conversationTypes":[],"lookbackDays":30,"minimumMessages":2}`},
-		{name: "unknown conversation type", rule: `{"objective":"识别客户意向","conversationTypes":["internal"],"lookbackDays":30,"minimumMessages":2}`},
-		{name: "lookback out of range", rule: `{"objective":"识别客户意向","conversationTypes":["direct"],"lookbackDays":31,"minimumMessages":2}`},
-		{name: "minimum messages out of range", rule: `{"objective":"识别客户意向","conversationTypes":["direct"],"lookbackDays":30,"minimumMessages":1}`},
+		{name: "session cannot update smart rule", id: "session-1", body: `{"name":"会话分析助手","description":"","knowledgeBaseIds":[],"status":1,"smartAnalysisRule":{"objective":"识别复购机会","conversationTypes":["direct"],"lookbackDays":30,"minimumMessages":2}}`, code: machineCodeSessionRuleInvalid},
+		{name: "smart cannot update session prompts", id: "smart-1", body: `{"name":"智能分析助手","description":"","knowledgeBaseIds":[],"status":1,"sessionAnalysisRule":{"customerAnalysisPrompt":"分析客户需求","employeeQaPrompt":"检查员工回答","conversationTypes":["direct"],"lookbackDays":30,"minimumMessages":2}}`, code: machineCodeSmartRuleInvalid},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			repo := &fakeSessionAgentRepo{session: ports.Agent{ID: "session-1", TenantID: 1, CorpID: 2, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, Status: 1, SmartAnalysisRule: &ports.SmartAnalysisRule{ID: 12}}}
-			handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
-			body := `{"name":"会话分析助手","knowledgeBaseIds":[],"status":1,"smartAnalysisRule":` + test.rule + "}"
-			response := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", body)
-			payload := envelopeData(t, response)
-			if response.Code != http.StatusBadRequest || payload["msg"] != machineCodeSmartRuleInvalid {
+			repo := &fakeSystemAgentRepo{fakeAgentRepo: fakeAgentRepo{items: systemTestAgents(1, 2)}}
+			handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "unused" })
+			response := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/"+test.id, test.body)
+			if response.Code != http.StatusBadRequest || envelopeData(t, response)["msg"] != test.code {
 				t.Fatalf("response = %s", response.Body.String())
 			}
 		})
 	}
 }
 
-func (f *fakeSessionAgentRepo) GetSessionAssistant(_ context.Context, tenantID, corpID int64) (ports.Agent, error) {
-	if f.session.ID == "" || f.session.TenantID != tenantID || f.session.CorpID != corpID {
-		return ports.Agent{}, ports.ErrNotFound
+func TestAgentHandlerValidatesBothSessionPromptsByUnicodeLength(t *testing.T) {
+	tests := []struct{ name, customer, employee string }{
+		{name: "customer too short after trim", customer: "  客  ", employee: "检查员工回答"},
+		{name: "employee too short after trim", customer: "分析客户需求", employee: "  员  "},
+		{name: "customer too long", customer: strings.Repeat("客", ports.MaxAnalysisPromptRunes+1), employee: "检查员工回答"},
+		{name: "employee too long", customer: "分析客户需求", employee: strings.Repeat("员", ports.MaxAnalysisPromptRunes+1)},
 	}
-	return f.session, nil
-}
-
-func (f *fakeSessionAgentRepo) UpdateSessionAssistant(_ context.Context, value ports.Agent) (ports.Agent, error) {
-	if f.session.ID == "" || value.ID != f.session.ID {
-		return ports.Agent{}, ports.ErrNotFound
-	}
-	value.SystemKey = ports.SessionAnalysisSystemKey
-	value.Name = ports.SessionAnalysisAssistantName
-	f.session = value
-	return value, nil
-}
-
-func (f *fakeSessionAgentRepo) LoadSessionAssistantContext(context.Context, int64, int64) (ports.SessionAssistantContext, error) {
-	return ports.SessionAssistantContext{}, nil
-}
-
-func TestAgentHandlerEnsuresAndReturnsOnlySystemSessionAssistant(t *testing.T) {
-	repo := &fakeSessionAgentRepo{
-		fakeAgentRepo: fakeAgentRepo{items: []ports.Agent{{ID: "legacy", TenantID: 1, CorpID: 2, Name: "旧自定义智能体"}}},
-		session:       ports.Agent{ID: "session-1", TenantID: 1, CorpID: 2, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, KnowledgeBaseIDs: []string{"kb-1", "kb-2"}, KnowledgeBaseCount: 2, ReadyDocumentCount: 7, Status: 1},
-	}
-	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
-	response := perform(handler, http.MethodGet, "/dashboard/ai-settings/agents", "")
-	if response.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
-	}
-	data := envelopeData(t, response)["data"].([]any)
-	if len(data) != 1 {
-		t.Fatalf("data = %#v", data)
-	}
-	item := data[0].(map[string]any)
-	if item["name"] != ports.SessionAnalysisAssistantName || item["systemKey"] != ports.SessionAnalysisSystemKey || item["knowledgeBaseCount"] != float64(2) || item["readyDocumentCount"] != float64(7) {
-		t.Fatalf("data = %#v", data)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeSystemAgentRepo{fakeAgentRepo: fakeAgentRepo{items: systemTestAgents(1, 2)}}
+			handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "unused" })
+			body, err := json.Marshal(map[string]any{"name": ports.SessionAnalysisAssistantName, "description": "", "knowledgeBaseIds": []string{}, "status": 1, "sessionAnalysisRule": map[string]any{"customerAnalysisPrompt": test.customer, "employeeQaPrompt": test.employee, "conversationTypes": []string{"direct"}, "lookbackDays": 30, "minimumMessages": 2}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", string(body))
+			if response.Code != http.StatusBadRequest || envelopeData(t, response)["msg"] != machineCodeSessionRuleInvalid {
+				t.Fatalf("response = %s", response.Body.String())
+			}
+		})
 	}
 }
 
-func TestAgentHandlerRejectsSystemAssistantCreateDeleteAndRename(t *testing.T) {
-	repo := &fakeSessionAgentRepo{session: ports.Agent{ID: "session-1", TenantID: 1, CorpID: 2, SystemKey: ports.SessionAnalysisSystemKey, Name: ports.SessionAnalysisAssistantName, KnowledgeBaseIDs: []string{}, Status: 1}}
-	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "session-1" })
-	created := perform(handler, http.MethodPost, "/dashboard/ai-settings/agents", `{"name":"其他助手","description":"","knowledgeBaseIds":[],"status":1}`)
+func TestAgentHandlerSystemAssistantsAreTenantScopedAndImmutable(t *testing.T) {
+	repo := &fakeSystemAgentRepo{fakeAgentRepo: fakeAgentRepo{items: systemTestAgents(9, 2)}}
+	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "unused" })
+	crossTenant := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", `{"name":"会话分析助手","description":"","knowledgeBaseIds":[],"status":1,"sessionAnalysisRule":{"customerAnalysisPrompt":"分析客户需求","employeeQaPrompt":"检查员工回答","conversationTypes":["direct"],"lookbackDays":30,"minimumMessages":2}}`)
+	created := perform(handler, http.MethodPost, "/dashboard/ai-settings/agents", `not-json`)
 	deleted := perform(handler, http.MethodDelete, "/dashboard/ai-settings/agents/session-1", "")
-	renamed := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/session-1", `{"name":"其他助手","description":"","knowledgeBaseIds":[],"status":1}`)
+	if crossTenant.Code != http.StatusNotFound {
+		t.Fatalf("cross tenant status=%d body=%s", crossTenant.Code, crossTenant.Body.String())
+	}
 	if created.Code != http.StatusMethodNotAllowed || deleted.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("create=%d delete=%d", created.Code, deleted.Code)
 	}
+}
+
+func TestAgentHandlerRejectsSystemAssistantRename(t *testing.T) {
+	repo := &fakeSystemAgentRepo{fakeAgentRepo: fakeAgentRepo{items: systemTestAgents(1, 2)}}
+	handler := NewAgentHandler(repo, &fakeKBRepo{}, fakeResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, func() string { return "unused" })
+	renamed := perform(handler, http.MethodPut, "/dashboard/ai-settings/agents/smart-1", `{"name":"会话分析助手","description":"","knowledgeBaseIds":[],"status":1,"smartAnalysisRule":{"objective":"识别复购机会","conversationTypes":["direct"],"lookbackDays":30,"minimumMessages":2}}`)
 	if renamed.Code != http.StatusBadRequest || envelopeData(t, renamed)["msg"] != machineCodeNameInvalid {
 		t.Fatalf("rename status=%d body=%s", renamed.Code, renamed.Body.String())
 	}

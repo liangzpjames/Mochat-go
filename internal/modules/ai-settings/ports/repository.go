@@ -74,21 +74,34 @@ type KnowledgeBase struct {
 }
 
 type Agent struct {
-	ID                 string             `json:"id"`
-	TenantID           int64              `json:"-"`
-	CorpID             int64              `json:"corpId"`
-	SystemKey          string             `json:"systemKey,omitempty"`
-	Name               string             `json:"name"`
-	Description        string             `json:"description"`
-	KnowledgeBaseIDs   []string           `json:"knowledgeBaseIds"`
-	KnowledgeBaseCount int                `json:"knowledgeBaseCount"`
-	ReadyDocumentCount int                `json:"readyDocumentCount"`
-	Status             int                `json:"status"`
-	CreatedBy          int64              `json:"-"`
-	UpdatedBy          int64              `json:"-"`
-	CreatedAt          string             `json:"createdAt"`
-	UpdatedAt          string             `json:"updatedAt"`
-	SmartAnalysisRule  *SmartAnalysisRule `json:"smartAnalysisRule,omitempty"`
+	ID                  string               `json:"id"`
+	TenantID            int64                `json:"-"`
+	CorpID              int64                `json:"corpId"`
+	SystemKey           string               `json:"systemKey,omitempty"`
+	Name                string               `json:"name"`
+	Description         string               `json:"description"`
+	KnowledgeBaseIDs    []string             `json:"knowledgeBaseIds"`
+	KnowledgeBaseCount  int                  `json:"knowledgeBaseCount"`
+	ReadyDocumentCount  int                  `json:"readyDocumentCount"`
+	Status              int                  `json:"status"`
+	CreatedBy           int64                `json:"-"`
+	UpdatedBy           int64                `json:"-"`
+	CreatedAt           string               `json:"createdAt"`
+	UpdatedAt           string               `json:"updatedAt"`
+	SessionAnalysisRule *SessionAnalysisRule `json:"sessionAnalysisRule,omitempty"`
+	SmartAnalysisRule   *SmartAnalysisRule   `json:"smartAnalysisRule,omitempty"`
+}
+
+type SessionAnalysisRule struct {
+	ID                     int64    `json:"id"`
+	Name                   string   `json:"name"`
+	CustomerAnalysisPrompt string   `json:"customerAnalysisPrompt"`
+	EmployeeQAPrompt       string   `json:"employeeQaPrompt"`
+	ConversationTypes      []string `json:"conversationTypes"`
+	LookbackDays           int      `json:"lookbackDays"`
+	MinimumMessages        int      `json:"minimumMessages"`
+	CurrentVersion         int      `json:"currentVersion"`
+	UpdatedAt              string   `json:"updatedAt"`
 }
 
 type SmartAnalysisRule struct {
@@ -162,7 +175,7 @@ type DocumentStorage interface {
 	RemoveStaged(string)
 }
 
-type SessionAssistantContext struct {
+type SystemAssistantContext struct {
 	AgentID             string
 	Name                string
 	Instructions        string
@@ -173,6 +186,10 @@ type SessionAssistantContext struct {
 	SettingsFingerprint string
 	UpdatedAt           string
 }
+
+// SessionAssistantContext remains an alias while ai-insight migrates to the
+// system-key-aware contract.
+type SessionAssistantContext = SystemAssistantContext
 
 type KnowledgeBaseRepository interface {
 	List(context.Context, int64, int64) ([]KnowledgeBase, error)
@@ -203,6 +220,13 @@ type SessionAssistantRepository interface {
 	GetSessionAssistant(context.Context, int64, int64) (Agent, error)
 	UpdateSessionAssistant(context.Context, Agent) (Agent, error)
 	LoadSessionAssistantContext(context.Context, int64, int64) (SessionAssistantContext, error)
+}
+
+type SystemAssistantRepository interface {
+	EnsureSystemAssistants(context.Context, int64, int64, int64, string, string) ([]Agent, error)
+	GetSystemAssistant(context.Context, int64, int64, string) (Agent, error)
+	UpdateSystemAssistant(context.Context, Agent) (Agent, error)
+	LoadSystemAssistantContext(context.Context, int64, int64, string) (SystemAssistantContext, error)
 }
 
 type IDGenerator interface {

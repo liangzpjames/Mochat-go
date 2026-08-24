@@ -37,6 +37,7 @@ const (
 	machineCodePrincipalUnauthorized   = "AI_SETTINGS_PRINCIPAL_UNAUTHORIZED"
 	machineCodeNotFound                = "AI_SETTINGS_NOT_FOUND"
 	machineCodeStorageFailure          = "AI_SETTINGS_STORAGE_FAILURE"
+	machineCodeSessionRuleInvalid      = "AI_SETTINGS_SESSION_RULE_INVALID"
 	machineCodeSmartRuleInvalid        = "AI_SETTINGS_SMART_RULE_INVALID"
 )
 
@@ -71,11 +72,20 @@ type knowledgeBaseInput struct {
 }
 
 type agentInput struct {
-	Name              string                  `json:"name"`
-	Description       string                  `json:"description"`
-	KnowledgeBaseIDs  []string                `json:"knowledgeBaseIds"`
-	Status            *int                    `json:"status"`
-	SmartAnalysisRule *smartAnalysisRuleInput `json:"smartAnalysisRule"`
+	Name                string                    `json:"name"`
+	Description         string                    `json:"description"`
+	KnowledgeBaseIDs    []string                  `json:"knowledgeBaseIds"`
+	Status              *int                      `json:"status"`
+	SessionAnalysisRule *sessionAnalysisRuleInput `json:"sessionAnalysisRule"`
+	SmartAnalysisRule   *smartAnalysisRuleInput   `json:"smartAnalysisRule"`
+}
+
+type sessionAnalysisRuleInput struct {
+	CustomerAnalysisPrompt string   `json:"customerAnalysisPrompt"`
+	EmployeeQAPrompt       string   `json:"employeeQaPrompt"`
+	ConversationTypes      []string `json:"conversationTypes"`
+	LookbackDays           int      `json:"lookbackDays"`
+	MinimumMessages        int      `json:"minimumMessages"`
 }
 
 type smartAnalysisRuleInput struct {
@@ -335,6 +345,7 @@ func (h *KnowledgeBaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 type AgentHandler struct {
 	repo           ports.AgentRepository
+	system         ports.SystemAssistantRepository
 	session        ports.SessionAssistantRepository
 	knowledgeBases ports.KnowledgeBaseRepository
 	principal      PrincipalResolver
@@ -343,8 +354,9 @@ type AgentHandler struct {
 }
 
 func NewAgentHandler(repo ports.AgentRepository, knowledgeBases ports.KnowledgeBaseRepository, p PrincipalResolver, a Authorizer, generate func() string) *AgentHandler {
+	system, _ := repo.(ports.SystemAssistantRepository)
 	session, _ := repo.(ports.SessionAssistantRepository)
-	return &AgentHandler{repo: repo, session: session, knowledgeBases: knowledgeBases, principal: p, authorize: a, generate: generate}
+	return &AgentHandler{repo: repo, system: system, session: session, knowledgeBases: knowledgeBases, principal: p, authorize: a, generate: generate}
 }
 
 func (h *AgentHandler) validateKnowledgeBases(ctx context.Context, principal Principal, ids []string) ([]string, error) {
@@ -383,7 +395,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input agentInput
-	if r.Method == http.MethodPost || r.Method == http.MethodPut {
+	if r.Method == http.MethodPut || (r.Method == http.MethodPost && h.system == nil && h.session == nil) {
 		if !decodeJSON(w, r, &input) {
 			return
 		}
@@ -397,6 +409,20 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		if h.system != nil {
+			items, err := h.system.EnsureSystemAssistants(r.Context(), p.TenantID, p.CorpID, p.UserID, h.generate(), h.generate())
+			if err != nil {
+				writeMutationError(w, err)
+				return
+			}
+			items = publicSystemAssistants(items)
+			if len(items) != 2 {
+				writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
+				return
+			}
+			writeEnvelope(w, http.StatusOK, "success", items)
+			return
+		}
 		if h.session != nil {
 			item, err := h.session.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, h.generate())
 			if err != nil {
@@ -413,6 +439,14 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeEnvelope(w, http.StatusOK, "success", items)
 	case http.MethodPost, http.MethodPut:
+		if h.system != nil {
+			if r.Method == http.MethodPost {
+				writeEnvelope(w, http.StatusMethodNotAllowed, "method not allowed", nil)
+				return
+			}
+			h.updateSystemAssistant(w, r, p, input)
+			return
+		}
 		if h.session != nil && r.Method == http.MethodPost {
 			writeEnvelope(w, http.StatusMethodNotAllowed, "method not allowed", nil)
 			return
@@ -498,7 +532,7 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeEnvelope(w, http.StatusOK, "success", updated)
 	case http.MethodDelete:
-		if h.session != nil {
+		if h.system != nil || h.session != nil {
 			writeEnvelope(w, http.StatusMethodNotAllowed, "method not allowed", nil)
 			return
 		}
@@ -517,13 +551,110 @@ func (h *AgentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func publicSystemAssistants(values []ports.Agent) []ports.Agent {
+	byKey := make(map[string]ports.Agent, 2)
+	for _, value := range values {
+		switch value.SystemKey {
+		case ports.SessionAnalysisSystemKey:
+			value.Name = ports.SessionAnalysisAssistantName
+			value.SmartAnalysisRule = nil
+			byKey[value.SystemKey] = value
+		case ports.SmartAnalysisSystemKey:
+			value.Name = ports.SmartAnalysisAssistantName
+			value.SessionAnalysisRule = nil
+			byKey[value.SystemKey] = value
+		}
+	}
+	result := make([]ports.Agent, 0, 2)
+	for _, key := range []string{ports.SessionAnalysisSystemKey, ports.SmartAnalysisSystemKey} {
+		if value, ok := byKey[key]; ok {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func (h *AgentHandler) updateSystemAssistant(w http.ResponseWriter, r *http.Request, p Principal, input agentInput) {
+	id := pathID(r)
+	if id == "" || id == "agents" {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeIDRequired, nil)
+		return
+	}
+	persisted, err := h.system.GetSystemAssistant(r.Context(), p.TenantID, p.CorpID, id)
+	if err != nil {
+		writeMutationError(w, err)
+		return
+	}
+	status, err := parseStatus(input.Status)
+	if err != nil {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeInvalidStatus, nil)
+		return
+	}
+	if !validDescription(input.Description) {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeDescriptionInvalid, nil)
+		return
+	}
+	expectedName := ports.SessionAnalysisAssistantName
+	if persisted.SystemKey == ports.SmartAnalysisSystemKey {
+		expectedName = ports.SmartAnalysisAssistantName
+	} else if persisted.SystemKey != ports.SessionAnalysisSystemKey {
+		writeMutationError(w, ports.ErrNotFound)
+		return
+	}
+	if strings.TrimSpace(input.Name) != expectedName {
+		writeEnvelope(w, http.StatusBadRequest, machineCodeNameInvalid, nil)
+		return
+	}
+	agent := ports.Agent{ID: id, TenantID: p.TenantID, CorpID: p.CorpID, SystemKey: persisted.SystemKey, Name: expectedName, Description: input.Description, Status: status, UpdatedBy: p.UserID}
+	if persisted.SystemKey == ports.SessionAnalysisSystemKey {
+		if input.SmartAnalysisRule != nil || input.SessionAnalysisRule == nil || !validSessionAnalysisRule(*input.SessionAnalysisRule) {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeSessionRuleInvalid, nil)
+			return
+		}
+		rule := input.SessionAnalysisRule
+		agent.SessionAnalysisRule = &ports.SessionAnalysisRule{Name: ports.SessionAnalysisRuleName, CustomerAnalysisPrompt: strings.TrimSpace(rule.CustomerAnalysisPrompt), EmployeeQAPrompt: strings.TrimSpace(rule.EmployeeQAPrompt), ConversationTypes: normalizeConversationTypes(rule.ConversationTypes), LookbackDays: rule.LookbackDays, MinimumMessages: rule.MinimumMessages}
+	} else {
+		if input.SessionAnalysisRule != nil || input.SmartAnalysisRule == nil || !validSmartAnalysisRule(*input.SmartAnalysisRule) {
+			writeEnvelope(w, http.StatusBadRequest, machineCodeSmartRuleInvalid, nil)
+			return
+		}
+		rule := input.SmartAnalysisRule
+		agent.SmartAnalysisRule = &ports.SmartAnalysisRule{Name: ports.DefaultSmartAnalysisRuleName, Objective: strings.TrimSpace(rule.Objective), ConversationTypes: normalizeConversationTypes(rule.ConversationTypes), LookbackDays: rule.LookbackDays, MinimumMessages: rule.MinimumMessages}
+	}
+	agent.KnowledgeBaseIDs, err = h.validateKnowledgeBases(r.Context(), p, input.KnowledgeBaseIDs)
+	if err != nil {
+		if errors.Is(err, errCrossRepositoryUnavailable) || errors.Is(err, errKnowledgeBaseLookup) {
+			writeEnvelope(w, http.StatusInternalServerError, machineCodeStorageFailure, nil)
+			return
+		}
+		writeEnvelope(w, http.StatusBadRequest, machineCodeKnowledgeBaseInvalid, nil)
+		return
+	}
+	updated, err := h.system.UpdateSystemAssistant(r.Context(), agent)
+	if err != nil {
+		writeMutationError(w, err)
+		return
+	}
+	writeEnvelope(w, http.StatusOK, "success", updated)
+}
+
+func validSessionAnalysisRule(input sessionAnalysisRuleInput) bool {
+	customerLength := utf8.RuneCountInString(strings.TrimSpace(input.CustomerAnalysisPrompt))
+	employeeLength := utf8.RuneCountInString(strings.TrimSpace(input.EmployeeQAPrompt))
+	return customerLength >= 2 && customerLength <= ports.MaxAnalysisPromptRunes && employeeLength >= 2 && employeeLength <= ports.MaxAnalysisPromptRunes && validAnalysisRuleScope(input.ConversationTypes, input.LookbackDays, input.MinimumMessages)
+}
+
 func validSmartAnalysisRule(input smartAnalysisRuleInput) bool {
 	objectiveLength := utf8.RuneCountInString(strings.TrimSpace(input.Objective))
-	if objectiveLength < 2 || objectiveLength > 500 || input.LookbackDays < 1 || input.LookbackDays > 30 || input.MinimumMessages < 2 || input.MinimumMessages > 50 {
+	return objectiveLength >= 2 && objectiveLength <= 500 && validAnalysisRuleScope(input.ConversationTypes, input.LookbackDays, input.MinimumMessages)
+}
+
+func validAnalysisRuleScope(conversationTypes []string, lookbackDays, minimumMessages int) bool {
+	if lookbackDays < 1 || lookbackDays > 30 || minimumMessages < 2 || minimumMessages > 50 {
 		return false
 	}
-	types := normalizeConversationTypes(input.ConversationTypes)
-	return len(types) > 0 && len(types) == len(input.ConversationTypes)
+	types := normalizeConversationTypes(conversationTypes)
+	return len(types) > 0 && len(types) == len(conversationTypes)
 }
 
 func normalizeConversationTypes(values []string) []string {
