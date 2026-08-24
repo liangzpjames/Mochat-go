@@ -3,6 +3,7 @@ package archivesim
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ func TestApplyCleanupReapplyRemovesSimulationSourceRun(t *testing.T) {
 	createArchiveSimulationFixture(t, db)
 	executeArchiveSimulationMigration(t, db, "0138_archive_source_sync.up.sql")
 	executeArchiveSimulationMigration(t, db, "0133_archive_simulation_registry.up.sql")
+	executeArchiveSimulationMigration(t, db, "0143_group_conversation_workspace.up.sql")
 
 	simulator := New(db)
 	ctx := context.Background()
@@ -62,6 +64,58 @@ func TestApplyCleanupReapplyRemovesSimulationSourceRun(t *testing.T) {
 		t.Fatalf("reapply reused deleted run id=%d", newRunID)
 	}
 	assertSimulationRows(t, db, newRunID, true)
+}
+
+func TestSimulationBatchesOwnDedicatedEntitiesAndCleanupIsIsolated(t *testing.T) {
+	db := newArchiveSimulationIntegrationDB(t)
+	createArchiveSimulationFixture(t, db)
+	executeArchiveSimulationMigration(t, db, "0138_archive_source_sync.up.sql")
+	executeArchiveSimulationMigration(t, db, "0133_archive_simulation_registry.up.sql")
+	executeArchiveSimulationMigration(t, db, "0143_group_conversation_workspace.up.sql")
+	for _, statement := range []string{
+		`INSERT INTO mc_work_employee (corp_id,wx_user_id,name,status,log_user_id) VALUES (27,'REAL_EMPLOYEE','真实员工',1,99)`,
+		`INSERT INTO mc_work_contact (corp_id,wx_external_userid,name) VALUES (27,'REAL_CONTACT','真实客户')`,
+		`INSERT INTO mc_work_room (corp_id,wx_chat_id,name,owner_id,notice,status) VALUES (27,'REAL_ROOM','真实客户群',0,'',1)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	simulator := New(db)
+	for _, batch := range []string{"acceptance-a", "acceptance-b"} {
+		if result, err := simulator.Apply(context.Background(), 27, batch); err != nil || result.Status != "complete" {
+			t.Fatalf("apply %s result=%#v err=%v cause=%v", batch, result, err, errors.Unwrap(err))
+		}
+	}
+	var dedicatedEmployees, realEmployees int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mc_work_employee WHERE corp_id=27 AND wx_user_id LIKE 'MOCHAT_SIM_EMP_acceptance-%' AND log_user_id=0`).Scan(&dedicatedEmployees); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mc_work_employee WHERE corp_id=27 AND wx_user_id='REAL_EMPLOYEE' AND name='真实员工' AND log_user_id=99`).Scan(&realEmployees); err != nil {
+		t.Fatal(err)
+	}
+	if dedicatedEmployees != 4 || realEmployees != 1 {
+		t.Fatalf("dedicated employees=%d real employees=%d", dedicatedEmployees, realEmployees)
+	}
+
+	if _, err := simulator.Cleanup(context.Background(), 27, "acceptance-a"); err != nil {
+		t.Fatal(err)
+	}
+	for query, want := range map[string]int{
+		`SELECT COUNT(*) FROM mc_work_employee WHERE corp_id=27 AND wx_user_id LIKE 'MOCHAT_SIM_EMP_acceptance-a_%'`: 0,
+		`SELECT COUNT(*) FROM mc_work_employee WHERE corp_id=27 AND wx_user_id LIKE 'MOCHAT_SIM_EMP_acceptance-b_%'`: 2,
+		`SELECT COUNT(*) FROM mc_work_contact WHERE corp_id=27 AND wx_external_userid='REAL_CONTACT'`:                1,
+		`SELECT COUNT(*) FROM mc_work_room WHERE corp_id=27 AND wx_chat_id='REAL_ROOM'`:                              1,
+	} {
+		var count int
+		if err := db.QueryRow(query).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != want {
+			t.Fatalf("query %q count=%d want=%d", query, count, want)
+		}
+	}
 }
 
 func assertSimulationRows(t *testing.T, db *sql.DB, expectedRunID int64, expectedPresence bool) {

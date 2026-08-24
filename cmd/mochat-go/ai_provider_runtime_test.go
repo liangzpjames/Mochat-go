@@ -93,7 +93,7 @@ func TestDashboardAIStatusProviderUsesEnabledRuntime(t *testing.T) {
 	}
 	encoded, _ := json.Marshal(status)
 	if string(encoded) == "" || string(encoded) == secret || containsSecret(string(encoded), secret) {
-		t.Fatalf("status leaked AI key: %s", encoded)
+		t.Fatal("provider status leaked AI key")
 	}
 }
 
@@ -120,7 +120,7 @@ func TestDashboardAIStatusProviderDisabledIsCodeOnlyEvenWhenKeyExists(t *testing
 	}
 	encoded, _ := json.Marshal(status)
 	if containsSecret(string(encoded), secret) {
-		t.Fatalf("status leaked disabled AI key: %s", encoded)
+		t.Fatal("disabled provider status leaked AI key")
 	}
 }
 
