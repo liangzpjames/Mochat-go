@@ -163,3 +163,64 @@ Dashboard 测试中 Ant Design 在 jsdom 调用伪元素 `getComputedStyle` 会�
 - 用户自建智能体仍关闭；只有未来出现清晰业务消费位置后才应扩展。
 - 历史隐藏智能体仍可能引用知识库，因此“产品知识库”当前显示 3 个引用；这是持久化事实，不应由前端伪装清零。
 - 用户曾在对话中提供 Provider key；尽管代码、提交、日志和容器环境变量均未保存明文，仍建议在验收后轮换该 key。
+
+## 9. 后续增量：横向编辑器与新建知识库可选上传
+
+### 9.1 用户反馈与最终设计
+
+针对“分析助手编辑弹窗横向展示更多信息”和“新建知识库可同时选择非必填文档”的后续反馈，本次新增：
+
+- 两个固定分析助手继续使用弹窗交互，桌面端弹窗宽度上限为 1180px，内部为十二列网格；基础信息、关联知识库、会话范围/智能分析规则三块同排。
+- 会话分析助手的客户分析提示词、员工质检提示词在桌面端并排；980px 以下主要区块改两列，768px 以下全部改为单列。
+- 新建知识库增加“初始文档（可选）”，支持现有 `.txt`、`.md`、`.pdf`、`.docx` 合同，文件不参与必填校验。
+- 保存复用既有真实接口，顺序执行“创建知识库 → 有文件时上传文档”。知识库创建成功但上传/解析失败时保留知识库，并明确提示到“管理文档”重试或处理；不自动删除、不伪装完整成功。
+- 文件选择纳入未保存状态，Escape、遮罩、取消和保存中禁止关闭继续沿用共享弹窗语义。
+
+增量设计与计划：
+
+- [增量设计](../superpowers/specs/2026-08-24-ai-settings-editor-upload-followup-design.zh-CN.md)
+- [增量实施计划](../superpowers/plans/2026-08-24-ai-settings-editor-upload-followup.zh-CN.md)
+
+### 9.2 自动化与门禁
+
+| 命令/门禁 | 新鲜结果 |
+| --- | --- |
+| 新增测试红灯 | 6 个预期失败，分别命中横向布局、可选文件、顺序上传、部分失败和脏状态 |
+| AI 设置目标 Vitest | 2 个文件、23 个测试全部通过 |
+| Dashboard 全量 Vitest | 141 个文件、842 个测试全部通过 |
+| `pnpm typecheck` | 12 个工作区项目全部通过 |
+| 变更范围 lint（基线 `23c50a8`） | 22 个 Dashboard TS/TSX 文件，0 错误 |
+| Dashboard production build | 通过，1789 个模块；只有既有 chunk size 提示 |
+| `go test ./... -count=1` | 全部通过 |
+| AI 设置/AI 洞察相关 Go 包 | 全部通过 |
+| Yuanhu benchmark / 页面 evidence | 53 页通过；evidence 12/12 通过 |
+| RBAC catalog + completion | 47/47 脚本测试通过；53/48/5、`scopeRequired=130` |
+| Docker build / health | 新镜像 `sha256:00730633…`；app/MySQL/Redis healthy，`healthz=200`、`readyz=200` |
+| 数据卷 | `mysql-data`、`redis-data`、`app-storage`、`audit-anchor-storage` 全部保留 |
+
+验收中发现 RBAC completion gate 的有效种子链只读取到 0158，漏掉已存在的 0161 AI 洞察筛选权限覆盖；独立 catalog 已应用 0161，因此两者口径不一致。已补齐 completion gate 对同一覆盖解析器的调用，并由 `runCompletionGate` 集成测试验证，不修改已应用迁移字节。
+
+### 9.3 真实浏览器验收
+
+- 常规 1280×720：会话分析助手弹窗实际宽度 1160px，十二列网格，三个主要区块均为 356px 且同一纵坐标；两类提示词各 527px 并排；无页面横向溢出。
+- 智能分析助手同样为 1160px，三个主要区块同排，无横向溢出。
+- 766×678：编辑器自动回落单列，内容区 `clientHeight=428`、`scrollHeight=1133`、`overflow-y=auto`，底部保存/取消按钮保持可见，页面无横向溢出。
+- 新建“验收知识库-0824-2136”时选择 `acceptance-knowledge.md`，真实创建和文档解析成功；刷新后知识库仍为 1 份文档，“管理文档”显示“可用于分析”。该验收数据按用户要求保留，便于继续测试。
+- 新建弹窗的文件输入在真实 DOM 中 `required=false`；不选文件的创建和不调用上传接口由自动化用例覆盖。
+- 浏览器控制台最终没有 error 或 warning；临时视口已恢复到 1280×720。
+
+新增证据：
+
+- [桌面横向助手编辑器](evidence/2026-08-24-ai-assistant-insight/16-assistant-horizontal-editor.png)
+- [窄屏助手编辑器](evidence/2026-08-24-ai-assistant-insight/17-assistant-editor-followup-narrow.png)
+- [知识库文档解析并持久化](evidence/2026-08-24-ai-assistant-insight/18-knowledge-create-with-optional-file.png)
+- [新建知识库可选初始文档](evidence/2026-08-24-ai-assistant-insight/19-knowledge-create-optional-file.png)
+
+### 9.4 增量提交与运行状态
+
+- `6e3018a`：增量设计。
+- `3070b9d`：增量实施计划。
+- `94d6da6`：横向助手编辑器与新建知识库可选上传实现/测试。
+- `70fea07`：RBAC completion gate 纳入 0161 筛选权限覆盖。
+
+用户要求取消关机后已执行系统取消命令；系统确认当时没有待执行的关机计划，此后未再安排关机。AI 日分析和启动即分析仍保持关闭。
