@@ -28,7 +28,10 @@ describe('RiskBehaviorApi', () => {
   it('parses a detail response with conversation availability', async () => {
     const request = vi.fn().mockResolvedValue({ record: { id: 9 }, audits: [], conversationAvailable: true });
     const api = createRiskBehaviorApi({ request });
-    await expect(api.recordDetail(9)).resolves.toEqual(expect.objectContaining({ record: expect.objectContaining({ id: 9 }), audits: [], conversationAvailable: true }));
+    const detail = await api.recordDetail(9);
+    expect(detail.record.id).toBe(9);
+    expect(detail.audits).toEqual([]);
+    expect(detail.conversationAvailable).toBe(true);
     expect(request).toHaveBeenCalledWith('/risk/records/detail?id=9');
   });
 

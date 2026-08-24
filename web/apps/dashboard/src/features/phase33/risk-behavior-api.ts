@@ -1,7 +1,7 @@
 export type RiskRecord = {
   id: number;
   behavior: string;
-  riskLevel: 'low' | 'medium' | 'high' | string;
+  riskLevel: string;
   conversationType: string;
   conversationId: string;
   messageId: string;
@@ -16,8 +16,8 @@ export type RiskRecordSummary = { total: number; pending: number; highRisk: numb
 export type RiskRecordPage = { items: RiskRecord[]; total: number; page: number; perPage: 20; summary: RiskRecordSummary | null };
 export type RiskRecordAudit = { id: number; action: string; remark: string; createdAt: string; actorName: string };
 export type RiskRecordDetail = { record: RiskRecord; audits: RiskRecordAudit[]; conversationAvailable: boolean };
-export type RiskRuleStrategy = { id?: number; behavior: string; pattern: string; notifyType: 'none' | string; riskLevel: 'low' | 'medium' | 'high' };
-export type RiskRule = { id: number; name: string; status: 'enabled' | 'disabled' | string; subject: string; whitelist: string[]; aiInsightEnabled: boolean; triggerCount: number; strategies: RiskRuleStrategy[] };
+export type RiskRuleStrategy = { id?: number; behavior: string; pattern: string; notifyType: string; riskLevel: 'low' | 'medium' | 'high' };
+export type RiskRule = { id: number; name: string; status: string; subject: string; whitelist: string[]; aiInsightEnabled: boolean; triggerCount: number; strategies: RiskRuleStrategy[] };
 export type RiskRulePage = { items: RiskRule[]; total: number; page: number; perPage: 20 };
 export type ScannerStatus = { enabled: boolean; state: 'ready' | 'never_run' | 'failed' | 'disabled'; lastAttemptAt: string; lastSuccessAt: string; lastFailureAt: string; lastError: string };
 export type RiskRecordFilters = {

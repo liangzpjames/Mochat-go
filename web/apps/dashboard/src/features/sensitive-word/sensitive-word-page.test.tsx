@@ -35,19 +35,20 @@ function renderPage(api: SensitiveWordApi) {
 
 describe('SensitiveWordPage', () => {
   it('uses an explicit query button and fixed 20-row pagination', async () => {
-    const api = apiFixture();
+    const matches = vi.fn<SensitiveWordApi['matches']>().mockResolvedValue({ items: [{ id: 9, sensitiveWordID: 11, sensitiveWordName: '报价', source: 2, sourceText: '员工', triggerName: '小王', triggerScenario: '客户群', triggerTime: '2026-07-01 10:00:00', contentPreview: '报价不可外发', workRoomID: 9 }], total: 25, page: 1, perPage: 20 });
+    const api = apiFixture({ matches });
     renderPage(api);
     await screen.findByText('报价');
     expect(screen.queryByText('AI 洞察')).toBeNull();
-    expect(api.matches).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 20 }));
-    const callsBeforeTyping = (api.matches as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(matches).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 20 }));
+    const callsBeforeTyping = matches.mock.calls.length;
     fireEvent.change(screen.getByRole('combobox', { name: '触发员工' }), { target: { value: '3' } });
-    expect((api.matches as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeTyping);
+    expect(matches.mock.calls.length).toBe(callsBeforeTyping);
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
-    await waitFor(() => expect(api.matches).toHaveBeenLastCalledWith(expect.objectContaining({ employeeIds: [3], page: 1, perPage: 20 })));
+    await waitFor(() => expect(matches).toHaveBeenLastCalledWith(expect.objectContaining({ employeeIds: [3], page: 1, perPage: 20 })));
     await screen.findByRole('button', { name: '第 2 页' });
     fireEvent.click(screen.getByRole('button', { name: '第 2 页' }));
-    await waitFor(() => expect(api.matches).toHaveBeenLastCalledWith(expect.objectContaining({ employeeIds: [3], page: 2, perPage: 20 })));
+    await waitFor(() => expect(matches).toHaveBeenLastCalledWith(expect.objectContaining({ employeeIds: [3], page: 2, perPage: 20 })));
   });
 
   it('opens detail from the whole row and closes through the shared overlay', async () => {
@@ -69,7 +70,8 @@ describe('SensitiveWordPage', () => {
   });
 
   it('keeps configuration in a fixed left-group/right-table workspace', async () => {
-    const api = apiFixture();
+    const list = vi.fn<SensitiveWordApi['list']>().mockResolvedValue({ items: [{ id: 1, groupId: 2, groupName: '默认', name: '旧词', status: 1, version: 'word-v1', employeeHitCount: 3, customerHitCount: 5, createdAt: '2026-08-21 10:00:00' }], total: 1, page: 1, perPage: 20 });
+    const api = apiFixture({ list });
     const { container } = renderPage(api);
     fireEvent.click(await screen.findByRole('button', { name: '敏感词配置' }));
     expect(container.querySelector('.sensitive-word-config-workspace')).not.toBeNull();
@@ -78,20 +80,21 @@ describe('SensitiveWordPage', () => {
     expect(screen.getByRole('button', { name: /默认/ }).getAttribute('aria-pressed')).toBe('true');
     await screen.findByText('旧词');
     fireEvent.change(screen.getByRole('textbox', { name: '搜索敏感词' }), { target: { value: '报价' } });
-    const callsBeforeQuery = (api.list as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBeforeQuery = list.mock.calls.length;
     expect(callsBeforeQuery).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
-    await waitFor(() => expect((api.list as ReturnType<typeof vi.fn>).mock.calls.some(([input]) => input.groupId === 2 && input.keywords === '报价' && input.page === 1 && input.perPage === 20)).toBe(true));
+    await waitFor(() => expect(list.mock.calls.some(([input]) => input.groupId === 2 && input.keywords === '报价' && input.page === 1 && input.perPage === 20)).toBe(true));
   });
 
   it('uses confirmation before mutating a real word', async () => {
-    const api = apiFixture();
+    const setEnabled = vi.fn<SensitiveWordApi['setEnabled']>().mockResolvedValue({ version: 'word-v2', idempotent: false });
+    const api = apiFixture({ setEnabled });
     renderPage(api);
     fireEvent.click(await screen.findByRole('button', { name: '敏感词配置' }));
     fireEvent.click(await screen.findByRole('button', { name: '停用 旧词' }));
-    expect(api.setEnabled).not.toHaveBeenCalled();
+    expect(setEnabled).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    await waitFor(() => expect(api.setEnabled).toHaveBeenCalledWith(expect.objectContaining({ id: 1, enabled: false, version: 'word-v1' })));
+    await waitFor(() => expect(setEnabled).toHaveBeenCalledWith(expect.objectContaining({ id: 1, enabled: false, version: 'word-v1' })));
   });
 
   it('shows empty state without inventing records', async () => {

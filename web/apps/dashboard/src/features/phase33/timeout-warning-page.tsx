@@ -63,7 +63,7 @@ export function TimeoutWarningPage({ api: workbenchApi }: { api: BusinessWorkben
 
   const records = useQuery({ queryKey: ['timeout-records', access.corp.id, filters], queryFn: () => api.timeoutRecords(filters), enabled: access.corp.authorized && tab === 'records', retry: false });
   const rules = useQuery({ queryKey: ['timeout-rules', access.corp.id, ruleNameFilter], queryFn: () => api.timeoutRules({ name: ruleNameFilter.trim() || undefined, page: 1, perPage: pageSize }), enabled: access.corp.authorized && tab === 'rules', retry: false });
-  const settings = useQuery({ queryKey: ['timeout-settings', access.corp.id], queryFn: api.timeoutSettings, enabled: access.corp.authorized && tab === 'settings', retry: false });
+  const settings = useQuery({ queryKey: ['timeout-settings', access.corp.id], queryFn: () => api.timeoutSettings(), enabled: access.corp.authorized && tab === 'settings', retry: false });
   const audit = useMutation({ mutationFn: (action: string) => api.write('/timeout-warning/records/audit', { ids: [...checked], action, remark: '' }), onSuccess: async () => { setChecked(new Set()); await queryClient.invalidateQueries({ queryKey: ['timeout-records', access.corp.id] }); } });
   const toggleRule = useMutation({ mutationFn: (rule: TimeoutRule) => api.write('/timeout-warning/rules/status', { id: rule.id, status: rule.status === 'enabled' ? 'disabled' : 'enabled' }, 'PUT'), onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['timeout-rules', access.corp.id] }) });
   const deleteRule = useMutation({ mutationFn: (rule: TimeoutRule) => api.write(`/timeout-warning/rules?id=${rule.id}`, {}, 'DELETE'), onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['timeout-rules', access.corp.id] }) });

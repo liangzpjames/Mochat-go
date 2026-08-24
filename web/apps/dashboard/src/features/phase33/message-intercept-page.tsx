@@ -8,7 +8,7 @@ import { DashboardPagination } from '../../components/dashboard-pagination';
 import { PageState, pageStateForError } from '../../components/page-state/page-state';
 import { RiskWarningDrawer, RiskWarningQueryBar, RiskWarningShell, RiskWarningTabs } from '../risk-warning/risk-warning-shell';
 import { auditStatusLabel, conversationTypeLabel, formatRiskDateTime } from '../risk-warning/risk-warning-format';
-import type { KeywordLibrary, MessageInterceptApi, MessageInterceptRecord, MessageInterceptRule } from './message-intercept-api';
+import type { MessageInterceptApi, MessageInterceptRecord, MessageInterceptRule } from './message-intercept-api';
 
 const recordDefault = { keyword: '', conversationType: '', decision: '', auditStatus: '', page: 1, perPage: 20 };
 const ruleDefault = { name: '', status: '', decision: '', page: 1, perPage: 20 };

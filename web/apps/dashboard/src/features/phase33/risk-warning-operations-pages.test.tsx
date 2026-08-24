@@ -29,7 +29,8 @@ function silentApi(overrides: Partial<SilentCustomerApi> = {}): SilentCustomerAp
 
 describe('risk warning operation pages', () => {
   it('uses a compact library workspace and typed entry labels', async () => {
-    const api = messageApi();
+    const libraries = vi.fn<MessageInterceptApi['libraries']>().mockResolvedValue({ items: [{ id: 1, name: '违禁词库', description: '', matchMode: 'contains', status: 'enabled', draftVersion: 2, publishedVersion: 1, entryCount: 2, updatedAt: '2026-08-21' }], total: 1, page: 1, perPage: 20 });
+    const api = messageApi({ libraries });
     const { container } = renderPage(<KeywordLibraryPage api={api} />);
     expect(await screen.findByText('违禁词库')).toBeTruthy();
     expect(container.querySelector('.sensitive-word-config-workspace')).not.toBeNull();
@@ -40,7 +41,7 @@ describe('risk warning operation pages', () => {
     expect(screen.getByRole('button', { name: '新建词库' }).className).toContain('risk-warning-primary-button');
     fireEvent.click(screen.getByRole('button', { name: /违禁词库/ }));
     expect(await screen.findByText('报价')).toBeTruthy();
-    expect(api.libraries).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 20 }));
+    expect(libraries).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 20 }));
     expect(screen.getByRole('button', { name: '添加关键词' }).className).toContain('risk-warning-primary-button');
     expect(screen.getByRole('button', { name: '编辑词库' }).className).toContain('risk-warning-secondary-button');
     expect(screen.getByRole('button', { name: '发布' }).className).toContain('risk-warning-primary-button');
@@ -48,18 +49,18 @@ describe('risk warning operation pages', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '新建词库' }));
     expect(await screen.findByRole('heading', { name: '新建词库' })).toBeTruthy();
-    expect((screen.getByRole('textbox', { name: '编辑词库名称' }) as HTMLInputElement).value).toBe('');
-    expect((screen.getByRole('textbox', { name: '词库说明' }) as HTMLTextAreaElement).value).toBe('');
+    expect(screen.getByRole('textbox', { name: '编辑词库名称' })).toHaveProperty('value', '');
+    expect(screen.getByRole('textbox', { name: '词库说明' })).toHaveProperty('value', '');
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
 
     fireEvent.click(screen.getByRole('button', { name: '选择词库 违禁词库' }));
     fireEvent.click(screen.getByRole('button', { name: '编辑词库' }));
     expect(await screen.findByRole('heading', { name: '编辑词库' })).toBeTruthy();
-    expect((screen.getByRole('textbox', { name: '编辑词库名称' }) as HTMLInputElement).value).toBe('违禁词库');
+    expect(screen.getByRole('textbox', { name: '编辑词库名称' })).toHaveProperty('value', '违禁词库');
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     fireEvent.click(screen.getByRole('button', { name: '新建词库' }));
     expect(await screen.findByRole('heading', { name: '新建词库' })).toBeTruthy();
-    expect((screen.getByRole('textbox', { name: '编辑词库名称' }) as HTMLInputElement).value).toBe('');
+    expect(screen.getByRole('textbox', { name: '编辑词库名称' })).toHaveProperty('value', '');
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(await screen.findByRole('button', { name: '添加关键词' })).toBeTruthy();
   });
@@ -77,27 +78,29 @@ describe('risk warning operation pages', () => {
   });
 
   it('keeps intercept filters explicit and opens a human-readable detail drawer', async () => {
-    const api = messageApi();
+    const records = vi.fn<MessageInterceptApi['records']>().mockResolvedValue({ items: [{ id: 4, ruleId: 3, ruleName: '自动拦截', libraryId: 1, libraryName: '违禁词库', libraryVersion: 1, conversationType: 'customer', conversationId: 'c1', messageId: 'm1', senderId: 's1', senderName: '小王', messageContent: '报价不可外发', matchedKeywords: ['报价'], decision: 'blocked', explanation: '命中已发布词库', auditStatus: 'pending', occurredAt: '2026-08-21' }], total: 1, page: 1, perPage: 20 });
+    const api = messageApi({ records });
     renderPage(<MessageInterceptPage api={api} />);
     expect(await screen.findByText('报价不可外发')).toBeTruthy();
-    expect(api.records).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 20 }));
+    expect(records).toHaveBeenCalledWith(expect.objectContaining({ page: 1, perPage: 20 }));
     fireEvent.change(screen.getByRole('textbox', { name: '内容或关键词' }), { target: { value: '合同' } });
-    const calls = (api.records as ReturnType<typeof vi.fn>).mock.calls.length;
+    const calls = records.mock.calls.length;
     expect(calls).toBe(1);
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
-    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: '合同', page: 1 })));
+    await waitFor(() => expect(records).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: '合同', page: 1 })));
     fireEvent.click(await screen.findByText('报价不可外发'));
     expect(await screen.findByRole('dialog', { name: '消息拦截详情' })).toBeTruthy();
     expect(screen.queryByText('conversationId')).toBeNull();
   });
 
   it('uses a staff selector for silent-customer actions instead of an ID input', async () => {
-    const api = silentApi();
+    const staffOptions = vi.fn<SilentCustomerApi['staffOptions']>().mockResolvedValue([{ id: 8, name: '小王', departments: ['销售部'] }]);
+    const api = silentApi({ staffOptions });
     renderPage(<SilentCustomerPage api={api} />);
     expect(await screen.findByText('客户A')).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: '选择记录 5' }));
     expect(await screen.findByRole('combobox', { name: '分派员工' })).toBeTruthy();
     expect(screen.queryByLabelText('分派员工 ID')).toBeNull();
-    expect(api.staffOptions).toHaveBeenCalled();
+    expect(staffOptions).toHaveBeenCalled();
   });
 });

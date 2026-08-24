@@ -21,11 +21,11 @@ export type TimeoutRecord = {
   customerAvatar: string;
   employeeId: number;
   employeeName: string;
-  conversationType: 'single' | 'group' | string;
-  riskLevel: Exclude<RiskLevel, 'unclassified'> | string;
+  conversationType: string;
+  riskLevel: string;
   ruleId: number;
   ruleName: string;
-  auditStatus: AuditStatus | string;
+  auditStatus: string;
   assignedEmployeeId: number;
   occurredAt: string;
 };
@@ -33,7 +33,7 @@ export type TimeoutRecord = {
 export type TimeoutRule = {
   id: number;
   name: string;
-  status: RuleStatus | string;
+  status: string;
   monitorTarget: string;
   conversationScopes: string[];
   triggerCount: number;
@@ -48,10 +48,10 @@ export type CustomerLossRecord = {
   customerAvatar: string;
   employeeId: number;
   employeeName: string;
-  lossType: 'employee_removed_customer' | 'customer_removed_employee' | string;
-  riskLevel: RiskLevel | string;
+  lossType: string;
+  riskLevel: string;
   ruleName: string;
-  auditStatus: AuditStatus | string;
+  auditStatus: string;
   lastMessage: string;
   occurredAt: string;
   tags: string[];

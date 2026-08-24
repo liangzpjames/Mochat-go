@@ -75,9 +75,9 @@ export function SensitiveWordPage({ api }: { api: SensitiveWordApi }) {
   const groupsKey = useMemo(() => ['sensitive-word', corpID, 'groups'] as const, [corpID]);
   const wordsKey = useMemo(() => ['sensitive-word', corpID, 'words'] as const, [corpID]);
   const recordsKey = useMemo(() => ['sensitive-word', corpID, 'records'] as const, [corpID]);
-  const groups = useQuery({ queryKey: groupsKey, queryFn: api.groups, retry: false });
-  const options = useQuery({ queryKey: ['sensitive-word', corpID, 'filter-options'], queryFn: api.filterOptions, enabled: partition === 'records', retry: false });
-  const scanner = useQuery({ queryKey: ['sensitive-word', corpID, 'scanner-status'], queryFn: api.monitorStatus, enabled: partition === 'records', retry: false });
+  const groups = useQuery({ queryKey: groupsKey, queryFn: () => api.groups(), retry: false });
+  const options = useQuery({ queryKey: ['sensitive-word', corpID, 'filter-options'], queryFn: () => api.filterOptions(), enabled: partition === 'records', retry: false });
+  const scanner = useQuery({ queryKey: ['sensitive-word', corpID, 'scanner-status'], queryFn: () => api.monitorStatus(), enabled: partition === 'records', retry: false });
   const records = useQuery({ queryKey: [...recordsKey, recordApplied], queryFn: () => api.matches(recordApplied), enabled: partition === 'records', retry: false });
   const words = useQuery({ queryKey: [...wordsKey, wordApplied], queryFn: () => { const input = { groupId: wordApplied.groupId, keywords: wordApplied.keywords, page: wordApplied.page, perPage: 20 }; return api.list(wordApplied.status ? { ...input, status: wordApplied.status } : input); }, enabled: partition === 'config', retry: false });
   const detail = useQuery({ queryKey: ['sensitive-word', corpID, 'detail', selectedMatchID], queryFn: () => api.matchDetail(selectedMatchID ?? 0), enabled: selectedMatchID !== null, retry: false });

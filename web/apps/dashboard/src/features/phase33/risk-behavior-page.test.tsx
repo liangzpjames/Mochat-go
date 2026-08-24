@@ -19,12 +19,13 @@ function api(overrides: Partial<RiskBehaviorApi> = {}): RiskBehaviorApi {
 
 describe('RiskBehaviorPage', () => {
   it('renders typed real records without dynamic field names', async () => {
-    const client = api({ records: vi.fn().mockResolvedValue({ items: [{ id: 1, behavior: 'private_transaction', riskLevel: 'high', conversationType: 'customer', triggerMessage: '请私下交易', auditStatus: 'pending', occurredAt: '2026-08-01T10:00:00Z', relatedUser: { name: '客户A' }, conversationId: '', messageId: '', aiSummary: '' }], total: 1, page: 1, perPage: 20, summary: { total: 1, pending: 1, highRisk: 1, processed: 0 } }) });
+    const records = vi.fn<RiskBehaviorApi['records']>().mockResolvedValue({ items: [{ id: 1, behavior: 'private_transaction', riskLevel: 'high', conversationType: 'customer', triggerMessage: '请私下交易', auditStatus: 'pending', occurredAt: '2026-08-01T10:00:00Z', relatedUser: { name: '客户A' }, conversationId: '', messageId: '', aiSummary: '' }], total: 1, page: 1, perPage: 20, summary: { total: 1, pending: 1, highRisk: 1, processed: 0 } });
+    const client = api({ records });
     view(client);
     expect(await screen.findByText('私下交易')).toBeTruthy();
     expect(screen.queryByText('AI 洞察')).toBeNull();
     expect(screen.queryByText('conversationId')).toBeNull();
-    expect(client.records).toHaveBeenCalledWith({ page: 1, riskLevel: '', behavior: '', auditStatus: '', conversationType: '', employeeIds: [], occurredFrom: '', occurredTo: '' });
+    expect(records).toHaveBeenCalledWith({ page: 1, riskLevel: '', behavior: '', auditStatus: '', conversationType: '', employeeIds: [], occurredFrom: '', occurredTo: '' });
   });
 
   it('queries only after the filter is explicitly submitted', async () => {
@@ -57,13 +58,14 @@ describe('RiskBehaviorPage', () => {
   });
 
   it('keeps rule mutations behind confirmation', async () => {
-    const client = api({ rules: vi.fn().mockResolvedValue({ items: [{ id: 11, name: '私下交易规则', status: 'enabled', subject: 'employee', triggerCount: 1, aiInsightEnabled: false, whitelist: [], strategies: [{ behavior: 'private_transaction', pattern: '私下交易', notifyType: 'none', riskLevel: 'high' }] }], total: 1, page: 1, perPage: 20 }) });
+    const setRuleEnabled = vi.fn<RiskBehaviorApi['setRuleEnabled']>().mockResolvedValue({});
+    const client = api({ rules: vi.fn().mockResolvedValue({ items: [{ id: 11, name: '私下交易规则', status: 'enabled', subject: 'employee', triggerCount: 1, aiInsightEnabled: false, whitelist: [], strategies: [{ behavior: 'private_transaction', pattern: '私下交易', notifyType: 'none', riskLevel: 'high' }] }], total: 1, page: 1, perPage: 20 }), setRuleEnabled });
     view(client);
     fireEvent.click(screen.getByRole('button', { name: '规则配置' }));
     const disable = await screen.findByRole('button', { name: '停用' });
     fireEvent.click(disable);
-    expect(client.setRuleEnabled).not.toHaveBeenCalled();
+    expect(setRuleEnabled).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    await waitFor(() => expect(client.setRuleEnabled).toHaveBeenCalledWith({ id: 11, status: 'disabled' }));
+    await waitFor(() => expect(setRuleEnabled).toHaveBeenCalledWith({ id: 11, status: 'disabled' }));
   });
 });
