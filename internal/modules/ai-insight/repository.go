@@ -207,7 +207,7 @@ func (r *SQLRepository) SaveInsight(ctx context.Context, insight ConversationIns
 	}
 	_, err := r.db.ExecContext(ctx, `INSERT INTO mochat_go_ai_conversation_insights
  (tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at)
- VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())
+ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())
  ON DUPLICATE KEY UPDATE status=VALUES(status),summary=VALUES(summary),result_json=VALUES(result_json),error_summary=VALUES(error_summary),provider=VALUES(provider),model=VALUES(model),prompt_version=VALUES(prompt_version),generated_at=VALUES(generated_at),updated_at=NOW()`,
 		insight.TenantID, insight.CorpID, insight.AnalysisType, insight.RuleID, insight.RuleVersionID, insight.ConversationKey, insight.EmployeeID, insight.EmployeeName, insight.EmployeeAvatar, insight.TargetType, insight.TargetID, insight.TargetName, insight.TargetAvatar, nullTime(insight.SourceStartedAt), nullTime(insight.SourceEndedAt), insight.SourceMessageCount, insight.SourceFingerprint, insight.Status, insight.Summary, string(resultJSON), insight.ErrorSummary, insight.Provider, insight.Model, insight.PromptVersion, nullTimePtr(insight.GeneratedAt))
 	return err
