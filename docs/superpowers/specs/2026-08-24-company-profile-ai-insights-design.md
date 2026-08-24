@@ -38,11 +38,13 @@
 
 直接 URL 与页面 API 分别由 `access-loader.ts` 和 `DashboardAccessGuard` 再次失败关闭。
 
-### 4.2 三层阻断
+### 4.2 五层阻断
 
 1. 迁移 `0131_identity_realms_single_corp_cutover.up.sql` 将 `dashboard.company_setting.website` 改为 `restriction='superadmin_only'`、`superadmin_only=1`。
 2. `dashboard_route_policy.go` 将企业资料全部 API 和 `/dashboard/providers/status` 列入 deny-only，普通用户即使有目录资源映射也会先被拒绝。
 3. `website-page.tsx` 用 `isSuperAdmin` 决定是否发起查询，造成前端第二次拒绝。
+4. 菜单和路由放行后，`companyprofile.Service.authorize` 仍只接受 `IsSuperAdmin`，使已授权普通用户在应用服务层收到 403。
+5. 服务层放行后，`store.checkCompanyActor` 及 `companyActorFactsAllowed` 仍把超级管理员身份作为唯一成立条件，使真实 MariaDB 仓储调用继续失败关闭。
 
 因此该问题是确定性权限策略不一致，不是树展开、单企业数量、路由注册或 CSS 偶发问题。
 
@@ -52,6 +54,8 @@
 - 从 deny-only 中移除只属于该页面资源的企业资料 API；继续由 catalog resource + effective permission 进行租户内授权。
 - 待配置企业仍沿用现有 bootstrap 特例：只有同租户超级管理员可完成首次配置。
 - 页面组件以 `allowedRoutes.has('/company-setting/website')` 作为普通运行时准入；测试可显式注入访问权。
+- 应用服务层只接受上下文中的精确资源码 `dashboard.company_setting.website`；普通用户还必须处于激活企业绑定，缺少上下文授权、待配置或停用绑定均失败关闭。
+- 仓储层继续校验数据库中的用户、租户、企业绑定、认证版本和管理员事实，同时仅允许携带上述精确资源码的普通用户通过；不把前端声明或任意资源码当成授权。
 - Provider 状态的底层原因与缺失项仍只对超级管理员展示；普通被授权用户只看到脱敏状态、代码和运行时间。
 - 未授权普通用户不获得有效权限、菜单不出现、直接 URL 403、API 403，不放宽其他企业设置页面。
 
