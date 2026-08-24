@@ -63,6 +63,8 @@ func TestDualAnalysisAssistantsMigrationContract(t *testing.T) {
 		"rule_version_id",
 		"LEFT JOIN `mochat_go_ai_conversation_insights` insight",
 		"insight.`id` IS NULL",
+		"LEFT JOIN `mochat_go_ai_insight_runs` insight_run",
+		"insight_run.`id` IS NULL",
 		"`system_key` = 'session-analysis'",
 		"`system_key` = 'smart-analysis'",
 		"Prompt columns are deliberately retained",

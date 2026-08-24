@@ -12,10 +12,15 @@ LEFT JOIN `mochat_go_ai_conversation_insights` insight
   ON insight.`rule_version_id` = version.`id`
  AND insight.`tenant_id` = version.`tenant_id`
  AND insight.`corp_id` = version.`corp_id`
+LEFT JOIN `mochat_go_ai_insight_runs` insight_run
+  ON insight_run.`rule_version_id` = version.`id`
+ AND insight_run.`tenant_id` = version.`tenant_id`
+ AND insight_run.`corp_id` = version.`corp_id`
 WHERE rule.`system_key` = 'session-analysis'
   AND version.`version` = 1
   AND version.`created_by` = 0
-  AND insight.`id` IS NULL;
+  AND insight.`id` IS NULL
+  AND insight_run.`id` IS NULL;
 
 DELETE rule
 FROM `mochat_go_ai_analysis_rules` rule
