@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAiInsightWorkspaceApi } from './ai-insight-workspace-api';
+import { createAiInsightExportDownloader, createAiInsightWorkspaceApi } from './ai-insight-workspace-api';
 import type {
   AiInsightWorkspaceApi,
   DerivedInsightFilters,
@@ -147,6 +147,16 @@ function createDerivedApi(client: { request: ReturnType<typeof vi.fn> }): Derive
 }
 
 describe('AI 洞察专用投影统一 API 合同', () => {
+  it('通过带登录态的客户端请求导出 Blob 并保留服务端文件名', async () => {
+    const blob = new Blob(['emotion,csv']);
+    const download = vi.fn().mockResolvedValue({ blob, filename: 'emotion-insights.csv' });
+    const downloadExport = createAiInsightExportDownloader({ request: vi.fn(), download });
+
+    await expect(downloadExport('emotion', { page: 2, employeeId: 1001, emotion: 'negative' }))
+      .resolves.toEqual({ blob, filename: 'emotion-insights.csv' });
+    expect(download).toHaveBeenCalledWith('/ai-insight/emotion/export?page=2&employeeId=1001&emotion=negative');
+  });
+
   it('五个统一方法生成精确 derived 路径并保留真实 0 分', async () => {
     const detail = {
       ...validDerived,

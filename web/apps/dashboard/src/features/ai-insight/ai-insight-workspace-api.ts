@@ -45,8 +45,12 @@ type DerivedInsightApiMethods = {
   derivedExportUrl(view: DerivedInsightView, filters: DerivedInsightFilters): string;
 };
 export type AiInsightWorkspaceApi = BaseAiInsightWorkspaceApi & DerivedInsightApiMethods;
+export type AiInsightExportDownloader = (view: DerivedInsightView, filters: DerivedInsightFilters) => Promise<{ blob: Blob; filename: string }>;
 
-type Client = { request<T = unknown>(input: RequestInfo | URL, init?: RequestInit): Promise<T> };
+type Client = {
+  request<T = unknown>(input: RequestInfo | URL, init?: RequestInit): Promise<T>;
+  download?: (input: RequestInfo | URL, init?: RequestInit) => Promise<{ blob: Blob; filename: string }>;
+};
 
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function text(value: unknown): string { return typeof value === 'string' || typeof value === 'number' ? String(value) : ''; }
@@ -113,6 +117,13 @@ function derivedPath(view: DerivedInsightView, filters: DerivedInsightFilters, s
   return withQuery(`/ai-insight/${view}/${suffix}`, { ...common, ...specialized }, true);
 }
 function filterOptionsPath(prefix: 'session-analysis' | 'smart-analysis' | DerivedInsightView, employeeKeyword?: string, limit?: number): string { const values = { employeeKeyword, limit }; return prefix === 'session-analysis' || prefix === 'smart-analysis' ? `/ai-insight/${prefix}/filter-options?${query(values)}` : withQuery(`/ai-insight/${prefix}/filter-options`, values); }
+
+export function createAiInsightExportDownloader(client: Client): AiInsightExportDownloader {
+  return async (view, filters) => {
+    if (!client.download) throw new Error('当前客户端未接入认证导出能力');
+    return client.download(derivedPath(view, filters, 'export'));
+  };
+}
 
 export function createAiInsightWorkspaceApi(client: Client): AiInsightWorkspaceApi {
   return {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AiInsightField,
   AiInsightHeader,
@@ -14,6 +14,7 @@ import {
 } from './ai-insight-workspace';
 import type {
   AiInsightWorkspaceApi,
+  AiInsightExportDownloader,
   DerivedInsightFilters,
   DerivedInsightView,
   EmotionLabel,
@@ -24,7 +25,7 @@ import type {
 } from './ai-insight-workspace-api';
 import { readDerivedFilters, writeDerivedFilters } from './ai-insight-url-state';
 
-type DerivedPageProps = { api: AiInsightWorkspaceApi; onNavigate?: ((path: string) => void) | undefined };
+type DerivedPageProps = { api: AiInsightWorkspaceApi; downloadExport?: AiInsightExportDownloader | undefined; onNavigate?: ((path: string) => void) | undefined };
 type ViewConfig = { view: DerivedInsightView; title: string; description: string; specializedFilter: (draft: DerivedInsightFilters, update: (next: Partial<DerivedInsightFilters>) => void) => ReactNode };
 
 const emotionLabels: Record<EmotionLabel, string> = { positive: '正向', neutral: '中性', negative: '负向', mixed: '混合', unknown: '未知' };
@@ -106,7 +107,7 @@ const configs: Record<DerivedInsightView, ViewConfig> = {
   },
 };
 
-function DerivedInsightWorkspace({ api, onNavigate, config }: DerivedPageProps & { config: ViewConfig }) {
+function DerivedInsightWorkspace({ api, downloadExport, onNavigate, config }: DerivedPageProps & { config: ViewConfig }) {
   const initial = readDerivedFilters(config.view);
   const [draft, setDraft] = useState<DerivedInsightFilters>(initial);
   const [applied, setApplied] = useState<DerivedInsightFilters>(initial);
@@ -118,6 +119,9 @@ function DerivedInsightWorkspace({ api, onNavigate, config }: DerivedPageProps &
   const [detail, setDetail] = useState<InsightDetail<SessionInsightRow>>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const detailRequest = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -148,11 +152,39 @@ function DerivedInsightWorkspace({ api, onNavigate, config }: DerivedPageProps &
     window.history[mode === 'push' ? 'pushState' : 'replaceState']({}, '', writeDerivedFilters(config.view, normalized));
   };
   const updateDraft = (next: Partial<DerivedInsightFilters>) => setDraft((current) => ({ ...current, ...next }));
-  const open = (id: number) => { setDetailError(''); setDetailLoading(true); void api.derivedDetail(config.view, id).then(setDetail).catch((reason: unknown) => setDetailError(insightErrorMessage(reason, '详情加载失败'))).finally(() => setDetailLoading(false)); };
+  const open = (id: number) => {
+    const request = detailRequest.current + 1;
+    detailRequest.current = request;
+    setDetail(undefined);
+    setDetailError('');
+    setDetailLoading(true);
+    void api.derivedDetail(config.view, id)
+      .then((next) => { if (detailRequest.current === request) setDetail(next); })
+      .catch((reason: unknown) => { if (detailRequest.current === request) setDetailError(insightErrorMessage(reason, '详情加载失败')); })
+      .finally(() => { if (detailRequest.current === request) setDetailLoading(false); });
+  };
+  const download = async () => {
+    setExportError('');
+    setExporting(true);
+    try {
+      if (!downloadExport) throw new Error('当前客户端未接入认证导出能力');
+      const result = await downloadExport(config.view, applied);
+      const url = URL.createObjectURL(result.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = result.filename || `${config.view}-insights.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (reason) {
+      setExportError(insightErrorMessage(reason, '导出 CSV 失败'));
+    } finally {
+      setExporting(false);
+    }
+  };
   const totalPages = Math.max(1, Math.ceil(page.total / 20));
 
   return <div className="ai-insight-workspace ai-insight-derived-workspace">
-    <AiInsightHeader title={config.title} description={config.description} actions={<a className="ai-insight-secondary ai-insight-export-link" href={api.derivedExportUrl(config.view, applied)} download>导出 CSV</a>} />
+    <AiInsightHeader title={config.title} description={config.description} actions={<button className="ai-insight-secondary ai-insight-export-link" type="button" disabled={exporting} onClick={() => void download()}>{exporting ? '正在导出…' : '导出 CSV'}</button>} />
     <AiInsightQueryBar onSubmit={() => apply({ ...draft, page: 1 }, 'push')} onReset={() => apply({ page: 1 }, 'push')} onRefresh={() => apply(applied, 'replace')}>
       <EmployeeSearchField label="员工" selectedEmployeeId={draft.employeeId} knownEmployeeName={employeeName} loadOptions={(keyword, limit) => api.derivedFilterOptions(config.view, keyword, limit)} onSelect={(employee) => { setEmployeeName(employee?.name ?? ''); setDraft((current) => ({ ...current, employeeId: employee?.id })); }} />
       <AiInsightField label="客户名称"><input aria-label="客户名称" value={draft.customerName ?? ''} onChange={(event) => updateDraft({ customerName: event.target.value || undefined })} placeholder="按客户名称筛选" /></AiInsightField>
@@ -162,6 +194,7 @@ function DerivedInsightWorkspace({ api, onNavigate, config }: DerivedPageProps &
       {config.specializedFilter(draft, updateDraft)}
     </AiInsightQueryBar>
     <ViewStatus status={status} />
+    {exportError && <div className="ai-insight-error ai-insight-inline-error" role="alert">{exportError}</div>}
     {detailError && <div className="ai-insight-error ai-insight-inline-error" role="alert">{detailError}</div>}
     {!loading && !error && <SummaryCards page={page} view={config.view} />}
     <section className="ai-insight-results"><header className="ai-insight-results-header"><div><h2>洞察结果</h2><p>只展示已持久化的真实会话分析结果与来源证据</p></div><div className="ai-insight-derived-page-summary"><span>共 {page.total} 条，当前页 {page.page} / {totalPages}</span><span>每页 20 条</span></div></header>{loading ? <div className="ai-insight-loading">正在加载洞察数据…</div> : error ? <div className="ai-insight-error" role="alert"><span>{error}</span><button type="button" className="ai-insight-secondary" onClick={() => apply(applied, 'replace')}>重试</button></div> : page.items.length === 0 ? <div className="ai-insight-empty">当前筛选暂无洞察结果</div> : <DerivedTable page={page} view={config.view} onOpen={open} />}<InsightPagination page={page.page} total={page.total} onChange={(next) => apply({ ...applied, page: next }, 'push')} /></section>

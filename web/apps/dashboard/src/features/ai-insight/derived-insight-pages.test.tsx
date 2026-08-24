@@ -54,6 +54,27 @@ const detail = {
   conversationUrl: '/chat/v2-customer?employeeId=1001&conversationId=1001%3A1%3A2001',
 };
 
+const secondRow = {
+  ...row,
+  id: 10,
+  conversationKey: '1001:1:2002',
+  target: { type: 'direct' as const, id: '2002', name: '客户乙', avatar: '' },
+  summary: '客户乙询问交付时间',
+};
+
+const secondDetail = {
+  ...secondRow,
+  messages: [{ id: 'm2', time: '2026-08-24T09:02:00Z', direction: 'inbound' as const, senderName: '客户乙', content: '请问什么时候可以交付' }],
+  conversationUrl: '/chat/v2-customer?employeeId=1001&conversationId=1001%3A1%3A2002',
+};
+
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+  return { promise, resolve, reject };
+}
+
 function createApi(overrides: Record<string, unknown> = {}) {
   return {
     derivedRecords: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [row] }),
@@ -66,6 +87,43 @@ function createApi(overrides: Record<string, unknown> = {}) {
 }
 
 describe('三个 AI 洞察专用投影页面', () => {
+  it('通过认证 API 下载当前筛选的 CSV Blob，并使用服务端文件名', async () => {
+    let clickedDownload = '';
+    let clickedHref = '';
+    const createObjectURL = vi.fn().mockReturnValue('blob:authenticated-export');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function captureDownload(this: HTMLAnchorElement) {
+      clickedDownload = this.download;
+      clickedHref = this.href;
+    });
+    window.history.replaceState({}, '', '/ai-insight/emotion?emotion=negative&employeeId=1001');
+    const blob = new Blob(['emotion,csv']);
+    const api = createApi();
+    const downloadExport = vi.fn().mockResolvedValue({ blob, filename: 'emotion-insights.csv' });
+    render(<EmotionInsightPage api={api as unknown as AiInsightWorkspaceApi} downloadExport={downloadExport} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '导出 CSV' }));
+
+    await waitFor(() => expect(downloadExport).toHaveBeenCalledWith('emotion', expect.objectContaining({ page: 1, employeeId: 1001, emotion: 'negative' })));
+    await waitFor(() => expect(clickedDownload).toBe('emotion-insights.csv'));
+    expect(clickedHref).toBe('blob:authenticated-export');
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:authenticated-export');
+  });
+
+  it('认证导出失败时保留页面并显示可恢复错误', async () => {
+    const api = createApi();
+    const downloadExport = vi.fn().mockRejectedValue(new Error('导出权限不足'));
+    render(<EmotionInsightPage api={api as unknown as AiInsightWorkspaceApi} downloadExport={downloadExport} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '导出 CSV' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('导出权限不足');
+    expect(screen.getByText('员工甲')).toBeTruthy();
+  });
+
   it('三页从 URL 初始化员工、客户、状态和日期 common filters 并请求真实 ID', async () => {
     window.sessionStorage.setItem('ai-insight.employee-name', JSON.stringify({ '1001': '员工甲' }));
     for (const test of [
@@ -225,6 +283,46 @@ describe('三个 AI 洞察专用投影页面', () => {
     await screen.findByRole('dialog');
     fireEvent.click(screen.getByLabelText('关闭详情'));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('连续点击两行且第二个详情先返回时，旧响应不能覆盖最后点击的证据', async () => {
+    const first = deferred<typeof detail>();
+    const second = deferred<typeof secondDetail>();
+    const api = createApi({
+      derivedRecords: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 2, items: [row, secondRow] }),
+      derivedDetail: vi.fn((_view: string, id: number) => id === row.id ? first.promise : second.promise),
+    });
+    render(<CommunicationKeywordInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
+    fireEvent.click(await screen.findByRole('row', { name: /员工甲.*客户甲/ }));
+    fireEvent.click(screen.getByRole('row', { name: /员工甲.*客户乙/ }));
+
+    second.resolve(secondDetail);
+    expect(await screen.findByText('请问什么时候可以交付')).toBeTruthy();
+    first.resolve(detail);
+    await Promise.resolve();
+
+    expect(screen.getByText('请问什么时候可以交付')).toBeTruthy();
+    expect(screen.queryByText('我认可这个方案')).toBeNull();
+  });
+
+  it('旧详情先失败并执行 finally 时，不显示旧错误也不清除最新请求的 loading', async () => {
+    const first = deferred<typeof detail>();
+    const second = deferred<typeof secondDetail>();
+    const api = createApi({
+      derivedRecords: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 2, items: [row, secondRow] }),
+      derivedDetail: vi.fn((_view: string, id: number) => id === row.id ? first.promise : second.promise),
+    });
+    render(<CommunicationKeywordInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
+    fireEvent.click(await screen.findByRole('row', { name: /员工甲.*客户甲/ }));
+    fireEvent.click(screen.getByRole('row', { name: /员工甲.*客户乙/ }));
+
+    first.reject(new Error('旧详情失败'));
+    await waitFor(() => expect(screen.queryByText('旧详情失败')).toBeNull());
+    expect(screen.getByText('正在打开分析详情…')).toBeTruthy();
+
+    second.resolve(secondDetail);
+    expect(await screen.findByText('请问什么时候可以交付')).toBeTruthy();
+    expect(screen.queryByText('正在打开分析详情…')).toBeNull();
   });
 
   it('窄屏卡片为每个隐藏表头的字段保留可读标签', async () => {

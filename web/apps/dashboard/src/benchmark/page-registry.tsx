@@ -62,7 +62,7 @@ import { ReportPage } from '../features/phase35/report-page';
 import type { AISettingsApi } from '../features/ai-settings/ai-settings-api';
 import { KnowledgeBasePage } from '../features/ai-settings/knowledge-base-page';
 import { AgentPage } from '../features/ai-settings/agent-page';
-import type { AiInsightWorkspaceApi } from '../features/ai-insight/ai-insight-workspace-api';
+import type { AiInsightExportDownloader, AiInsightWorkspaceApi } from '../features/ai-insight/ai-insight-workspace-api';
 import { CommunicationKeywordInsightPage, EmotionInsightPage, EmployeeScoreInsightPage } from '../features/ai-insight/derived-insight-pages';
 import { SessionAnalysisPage } from '../features/ai-insight/session-analysis-page';
 import { SmartAnalysisPage } from '../features/ai-insight/smart-analysis-page';
@@ -98,6 +98,7 @@ export function createBenchmarkP0Pages({
   businessWorkbenchApi,
   aiSettingsApi,
   aiInsightWorkspaceApi,
+  aiInsightExportDownloader,
   fileAudioApi,
   refuseArchiveApi,
   contactTransferApi,
@@ -119,6 +120,7 @@ export function createBenchmarkP0Pages({
   businessWorkbenchApi?: BusinessWorkbenchApi;
   aiSettingsApi?: AISettingsApi;
   aiInsightWorkspaceApi?: AiInsightWorkspaceApi;
+  aiInsightExportDownloader?: AiInsightExportDownloader;
   fileAudioApi?: FileAudioApi;
   refuseArchiveApi?: RefuseArchiveApi;
   contactTransferApi?: ContactTransferApi;
@@ -199,9 +201,9 @@ export function createBenchmarkP0Pages({
     ...(aiInsightWorkspaceApi === undefined ? {} : {
       '/ai-insight/session-analysis': <SessionAnalysisPage api={aiInsightWorkspaceApi} />,
       '/ai-insight/smart-analysis': <SmartAnalysisPage api={aiInsightWorkspaceApi} />,
-      '/ai-insight/emotion': <EmotionInsightPage api={aiInsightWorkspaceApi} onNavigate={onNavigate} />,
-      '/ai-insight/employee-score': <EmployeeScoreInsightPage api={aiInsightWorkspaceApi} onNavigate={onNavigate} />,
-      '/ai-insight/communication-keyword': <CommunicationKeywordInsightPage api={aiInsightWorkspaceApi} onNavigate={onNavigate} />,
+      '/ai-insight/emotion': <EmotionInsightPage api={aiInsightWorkspaceApi} downloadExport={aiInsightExportDownloader} onNavigate={onNavigate} />,
+      '/ai-insight/employee-score': <EmployeeScoreInsightPage api={aiInsightWorkspaceApi} downloadExport={aiInsightExportDownloader} onNavigate={onNavigate} />,
+      '/ai-insight/communication-keyword': <CommunicationKeywordInsightPage api={aiInsightWorkspaceApi} downloadExport={aiInsightExportDownloader} onNavigate={onNavigate} />,
     }),
     ...(companyProfileApi === undefined ? {} : {
       '/company-setting/website': <CompanyWebsitePage

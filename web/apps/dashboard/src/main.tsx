@@ -44,7 +44,7 @@ import { createLeadApi } from './features/scrm/lead-api';
 import { createScrmApi } from './features/scrm/scrm-api';
 import { createContactApi } from './features/scrm/contact-api';
 import { createAISettingsApi } from './features/ai-settings/ai-settings-api';
-import { createAiInsightWorkspaceApi } from './features/ai-insight/ai-insight-workspace-api';
+import { createAiInsightExportDownloader, createAiInsightWorkspaceApi } from './features/ai-insight/ai-insight-workspace-api';
 import { createFileAudioApi } from './features/phase35/file-audio-api';
 import { createRefuseArchiveApi } from './features/conversation-operations/refuse-archive-api';
 import { createContactTransferApi } from './features/conversation-operations/contact-transfer-api';
@@ -116,6 +116,7 @@ const scrmApi = createScrmApi(apiClient);
 const contactApi = createContactApi(apiClient);
 const aiSettingsApi = createAISettingsApi(apiClient);
 const aiInsightWorkspaceApi = createAiInsightWorkspaceApi(apiClient);
+const aiInsightExportDownloader = createAiInsightExportDownloader(apiClient);
 const fileAudioApi = createFileAudioApi(apiClient);
 const refuseArchiveApi = createRefuseArchiveApi(apiClient);
 const contactTransferApi = createContactTransferApi(apiClient);
@@ -172,6 +173,7 @@ const router = createDashboardRouter({
         businessWorkbenchApi,
         aiSettingsApi,
         aiInsightWorkspaceApi,
+        aiInsightExportDownloader,
         fileAudioApi,
         refuseArchiveApi,
         contactTransferApi,
