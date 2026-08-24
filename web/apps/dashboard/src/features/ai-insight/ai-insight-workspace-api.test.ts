@@ -155,6 +155,29 @@ function createDerivedApi(client: { request: ReturnType<typeof vi.fn> }): Derive
 }
 
 describe('AI 洞察专用投影统一 API 合同', () => {
+  it.each([
+    [null],
+    [{}],
+    [{ page: 1, pageSize: 20, total: 0 }],
+    [{ page: 0, pageSize: 20, total: 0, items: [] }],
+    [{ page: 1.5, pageSize: 20, total: 0, items: [] }],
+    [{ page: 1, pageSize: 99, total: 0, items: [] }],
+    [{ page: 1, pageSize: 20, total: -1, items: [] }],
+    [{ page: 1, pageSize: 20, total: '0', items: [] }],
+  ])('分页响应 %j 不完整时诚实失败', async (response) => {
+    const client = { request: vi.fn().mockResolvedValue(response) };
+    await expect(createDerivedApi(client).derivedRecords('emotion', { page: 1 })).rejects.toThrow('分页数据无效');
+  });
+
+  it.each([
+    [{ provider: { state: 'ready' }, run: { status: 'succeeded', candidateCount: '1', successCount: 1, failureCount: 0, backlogCount: 0, errorSummary: '', createdAt: '2026-08-25T00:00:00Z' } }],
+    [{ provider: { state: 'ready' }, run: { status: 'succeeded', candidateCount: 1, successCount: -1, failureCount: 0, backlogCount: 0, errorSummary: '', createdAt: '2026-08-25T00:00:00Z' } }],
+    [{ provider: { state: 'ready' }, run: { status: 'succeeded', candidateCount: 1, successCount: 1, failureCount: 0, backlogCount: 0, errorSummary: '', createdAt: '' } }],
+  ])('运行状态元数据 %j 破损时诚实失败', async (response) => {
+    const client = { request: vi.fn().mockResolvedValue(response) };
+    await expect(createDerivedApi(client).derivedStatus('emotion')).rejects.toThrow('运行状态接口返回了无效数据');
+  });
+
   it('通过带登录态的客户端请求导出 Blob 并保留服务端文件名', async () => {
     const blob = new Blob(['emotion,csv']);
     const download = vi.fn().mockResolvedValue({ blob, filename: 'emotion-insights.csv' });
@@ -265,14 +288,11 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     await expect(createDerivedApi({ request: vi.fn().mockResolvedValue(badDirection) }).derivedDetail('emotion', 1)).rejects.toThrow('详情消息方向无效');
   });
 
-  it('provider/model/promptVersion 未记录时保持空值，不写死展示元数据', async () => {
+  it.each(['provider', 'model', 'promptVersion', 'analysisAt'])('成功结果缺少追溯字段 %s 时诚实失败', async (field) => {
     const withoutMetadata = { ...validDerived };
-    Reflect.deleteProperty(withoutMetadata, 'provider');
-    Reflect.deleteProperty(withoutMetadata, 'model');
-    Reflect.deleteProperty(withoutMetadata, 'promptVersion');
-    const client = { request: vi.fn().mockResolvedValue({ page: 1, total: 1, items: [withoutMetadata] }) };
-    const row = (await createDerivedApi(client).derivedRecords('emotion', { page: 1 })).items[0]!;
-    expect(row).toMatchObject({ provider: '', model: '', promptVersion: '' });
+    Reflect.deleteProperty(withoutMetadata, field);
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [withoutMetadata] }) };
+    await expect(createDerivedApi(client).derivedRecords('emotion', { page: 1 })).rejects.toThrow('成功结果缺少追溯元数据');
   });
 
   it('保留真实字母数字客户和群聊目标 ID', async () => {

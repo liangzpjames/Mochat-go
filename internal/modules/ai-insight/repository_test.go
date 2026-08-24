@@ -107,6 +107,44 @@ func TestConversationCandidateWindowCanReadBackItsSourceMessages(t *testing.T) {
 	}
 }
 
+func TestConversationMessagesUsesGlobalEvidenceIDsAndCorrectSenderNamesAcrossShards(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := NewSQLRepository(db)
+	messageTime := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+
+	expectArchiveShard(mock, 1, []driver.Value{int64(42)}, sqlmock.NewRows(archiveMessageColumns).
+		AddRow("7", "wx-global-7", "员工回复", 11, 1, "customer-1", 0, 1, messageTime.Add(time.Minute), "员工甲", "", "客户乙", ""), nil)
+	expectArchiveShard(mock, 2, []driver.Value{int64(42)}, sqlmock.NewRows(archiveMessageColumns).
+		AddRow("7", "", "客户追问", 11, 1, "customer-1", 1, 2, messageTime, "员工甲", "", "客户乙", ""), nil)
+	for tableIndex := 3; tableIndex <= 10; tableIndex++ {
+		expectArchiveShard(mock, tableIndex, []driver.Value{int64(42)}, nil, &mysql.MySQLError{Number: 1146, Message: "table does not exist"})
+	}
+
+	messages, err := repo.ConversationMessages(context.Background(), ConversationWindowQuery{CorpID: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("messages=%#v", messages)
+	}
+	if messages[0].ID != "msgid:wx-global-7" || messages[0].LegacyID != "7" || messages[0].Direction != "outbound" || messages[0].SenderName != "员工甲" {
+		t.Fatalf("outbound=%#v", messages[0])
+	}
+	if messages[1].ID != "shard:2:7" || messages[1].LegacyID != "7" || messages[1].Direction != "inbound" || messages[1].SenderName != "客户乙" {
+		t.Fatalf("inbound=%#v", messages[1])
+	}
+	if messages[0].ID == messages[1].ID {
+		t.Fatal("cross-shard evidence IDs collided")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestArchiveMessagesPropagatesNonMissingTableError(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

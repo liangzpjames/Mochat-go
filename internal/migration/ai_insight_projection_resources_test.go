@@ -24,16 +24,13 @@ func TestAIInsightProjectionResources0163MigrationContract(t *testing.T) {
 		"dashboard.ai_insight.communication_keyword": "communication-keyword",
 	}
 	for permission, view := range views {
-		if !strings.Contains(up, permission) || !strings.Contains(down, permission) {
-			t.Errorf("0163 must target permission %q in both directions", permission)
+		if !strings.Contains(up, permission) {
+			t.Errorf("0163 must target permission %q", permission)
 		}
 		for _, action := range []string{"records", "detail", "status", "filter-options", "export"} {
 			path := "/dashboard/ai-insight/" + view + "/" + action
 			if strings.Count(up, path) != 1 {
 				t.Errorf("0163 up path %q count=%d, want 1", path, strings.Count(up, path))
-			}
-			if strings.Count(down, path) != 1 {
-				t.Errorf("0163 down path %q count=%d, want 1", path, strings.Count(down, path))
 			}
 		}
 	}
@@ -42,22 +39,11 @@ func TestAIInsightProjectionResources0163MigrationContract(t *testing.T) {
 			t.Errorf("0163 up missing %q", fragment)
 		}
 	}
-	if !strings.Contains(down, "DELETE resource") || !strings.Contains(down, "resource.`http_method` = 'GET'") {
-		t.Fatal("0163 down must delete only exact GET resources")
+	upperDown := strings.ToUpper(down)
+	if strings.Contains(upperDown, "DELETE") || strings.Contains(upperDown, "UPDATE") {
+		t.Fatal("0163 down must fail closed and preserve resources whose pre-migration ownership is unknown")
 	}
-	for _, fragment := range []string{
-		"seed.`permission_code` = permission.`code`",
-		"seed.`http_method` = resource.`http_method`",
-		"seed.`path_pattern` = resource.`path_pattern`",
-	} {
-		if !strings.Contains(down, fragment) {
-			t.Errorf("0163 down must pair every permission and route through %q", fragment)
-		}
-	}
-	if strings.Contains(down, "permission.`code` IN") || strings.Contains(down, "resource.`path_pattern` IN") {
-		t.Fatal("0163 down must not delete the permission/path cross product")
-	}
-	if strings.Contains(strings.ToUpper(down), "DELETE FROM `MOCHAT_GO_DASHBOARD_PERMISSIONS`") {
-		t.Fatal("0163 down must preserve page permissions")
+	if !strings.Contains(down, "ownership is unknown") || !strings.Contains(upperDown, "DO 0") {
+		t.Fatal("0163 down must document and execute its conservative no-op rollback")
 	}
 }
