@@ -236,7 +236,7 @@ func (r *SQLRepository) InsightPage(ctx context.Context, filter InsightFilter) (
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_ai_conversation_insights i WHERE `+whereSQL, args...).Scan(&total); err != nil {
 		return InsightPage{}, err
 	}
-	page, size := normalizePage(filter.Page, filter.PageSize)
+	page, size := normalizeInsightPage(filter)
 	offset := (page - 1) * size
 	query := `SELECT i.id,i.tenant_id,i.corp_id,i.analysis_type,i.rule_id,i.rule_version_id,COALESCE(rule.name,''),COALESCE(version.version,0),i.conversation_key,i.employee_id,i.employee_name,i.employee_avatar,i.target_type,i.target_id,i.target_name,i.target_avatar,i.source_started_at,i.source_ended_at,i.source_message_count,i.source_fingerprint,i.status,i.summary,i.result_json,i.error_summary,i.provider,i.model,i.prompt_version,i.generated_at,i.created_at FROM mochat_go_ai_conversation_insights i LEFT JOIN mochat_go_ai_analysis_rules rule ON rule.id=i.rule_id AND rule.tenant_id=i.tenant_id AND rule.corp_id=i.corp_id LEFT JOIN mochat_go_ai_analysis_rule_versions version ON version.id=i.rule_version_id AND version.tenant_id=i.tenant_id AND version.corp_id=i.corp_id WHERE ` + whereSQL + ` ORDER BY i.generated_at DESC, i.id DESC LIMIT ? OFFSET ?`
 	listArgs := append(append([]any(nil), args...), size, offset)
@@ -575,13 +575,35 @@ func insightWhere(filter InsightFilter) ([]string, []any) {
 		args = append(args, *filter.StartAt)
 	}
 	if filter.EndAt != nil {
-		where = append(where, "i.source_started_at<=?")
+		where = append(where, "i.source_started_at<?")
 		args = append(args, *filter.EndAt)
 	}
-	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
-		value := escapedLike(keyword)
-		where = append(where, "(i.summary LIKE ? ESCAPE '\\\\' OR i.target_name LIKE ? ESCAPE '\\\\' OR i.employee_name LIKE ? ESCAPE '\\\\')")
-		args = append(args, value, value, value)
+	switch filter.View {
+	case "emotion":
+		if emotion := strings.TrimSpace(filter.Emotion); emotion != "" {
+			where = append(where, "JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.customer.emotion.label'))=?")
+			args = append(args, emotion)
+		}
+	case "employee-score":
+		if filter.MinScore != nil {
+			where = append(where, "CAST(JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.employeeQa.score')) AS SIGNED)>=?")
+			args = append(args, *filter.MinScore)
+		}
+		if filter.MaxScore != nil {
+			where = append(where, "CAST(JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.employeeQa.score')) AS SIGNED)<=?")
+			args = append(args, *filter.MaxScore)
+		}
+	case "communication-keyword":
+		if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+			where = append(where, "JSON_SEARCH(JSON_EXTRACT(i.result_json,'$.customer.keywords'),'one',?,'\\\\','$[*]') IS NOT NULL")
+			args = append(args, escapedLike(keyword))
+		}
+	default:
+		if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+			value := escapedLike(keyword)
+			where = append(where, "(i.summary LIKE ? ESCAPE '\\\\' OR i.target_name LIKE ? ESCAPE '\\\\' OR i.employee_name LIKE ? ESCAPE '\\\\')")
+			args = append(args, value, value, value)
+		}
 	}
 	if customerName := strings.TrimSpace(filter.CustomerName); customerName != "" {
 		where = append(where, "(i.target_type='1' AND i.target_name LIKE ? ESCAPE '\\\\')")
@@ -667,6 +689,13 @@ func normalizePage(page, size int) (int, int) {
 		size = 20
 	}
 	return page, size
+}
+
+func normalizeInsightPage(filter InsightFilter) (int, int) {
+	if filter.Export {
+		return 1, 10000
+	}
+	return normalizePage(filter.Page, filter.PageSize)
 }
 func validateRuleWrite(write RuleWrite) error {
 	if strings.TrimSpace(write.Name) == "" || len([]rune(write.Name)) > 80 {

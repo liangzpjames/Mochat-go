@@ -311,6 +311,11 @@ type InsightFilter struct {
 	TenantID           int64
 	CorpID             int64
 	AnalysisType       AnalysisType
+	View               string
+	Emotion            string
+	MinScore           *int
+	MaxScore           *int
+	Export             bool
 	Page               int
 	PageSize           int
 	EmployeeID         int64

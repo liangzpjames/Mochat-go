@@ -56,8 +56,12 @@ func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, action := workspacePath(r.URL.Path)
-	if page != "session-analysis" && page != "smart-analysis" {
+	if !workspacePageAllowed(page) {
 		workspaceEnvelope(w, 404, "page not found", nil)
+		return
+	}
+	if workspaceDerivedPage(page) && !workspaceDerivedActionAllowed(action) {
+		workspaceEnvelope(w, 404, "resource not found", nil)
 		return
 	}
 	if h.authorize != nil {
@@ -160,7 +164,11 @@ func (h *WorkspaceHandler) detail(w http.ResponseWriter, r *http.Request, p Work
 		workspaceRepoError(w, err)
 		return
 	}
-	messages, _ := h.repo.ConversationMessages(r.Context(), ConversationWindowQuery{TenantID: p.TenantID, CorpID: p.CorpID, ConversationKey: item.ConversationKey, StartAt: item.SourceStartedAt, EndAt: item.SourceEndedAt, Limit: 200, AllowedEmployeeIDs: p.AllowedEmployeeIDs, Restricted: p.EmployeeScopeRestricted})
+	messages, err := h.repo.ConversationMessages(r.Context(), ConversationWindowQuery{TenantID: p.TenantID, CorpID: p.CorpID, ConversationKey: item.ConversationKey, StartAt: item.SourceStartedAt, EndAt: item.SourceEndedAt, Limit: 200, AllowedEmployeeIDs: p.AllowedEmployeeIDs, Restricted: p.EmployeeScopeRestricted})
+	if err != nil {
+		workspaceRepoError(w, err)
+		return
+	}
 	data := workspaceInsightJSON(item)
 	data["messages"] = workspaceMessagesJSON(messages)
 	data["conversationUrl"] = fmt.Sprintf("/chat/v2-%s?employeeId=%d&conversationId=%s", map[bool]string{true: "customer", false: "staff"}[item.TargetType == "1"], item.EmployeeID, item.ConversationKey)
@@ -198,7 +206,7 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 			return
 		}
 		data["assistant"] = workspaceAssistantJSON(assistant)
-	} else if h.assistant != nil && page == "session-analysis" {
+	} else if h.assistant != nil && page != "smart-analysis" {
 		if _, err := h.assistant.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID)); err != nil {
 			workspaceRepoError(w, err)
 			return
@@ -226,7 +234,7 @@ func (h *WorkspaceHandler) export(w http.ResponseWriter, r *http.Request, p Work
 		workspaceEnvelope(w, 400, err.Error(), nil)
 		return
 	}
-	filter.Page, filter.PageSize = 1, 10000
+	filter.Page, filter.PageSize, filter.Export = 1, 10000, true
 	result, err := h.repo.InsightPage(r.Context(), filter)
 	if err != nil {
 		workspaceRepoError(w, err)
@@ -236,6 +244,11 @@ func (h *WorkspaceHandler) export(w http.ResponseWriter, r *http.Request, p Work
 	w.Header().Set("Content-Disposition", "attachment; filename=\"ai-insight.csv\"")
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(w)
+	if workspaceDerivedPage(page) {
+		workspaceWriteProjectionCSV(writer, page, result.Items)
+		writer.Flush()
+		return
+	}
 	_ = writer.Write([]string{"沟通人", "对象", "分析结果", "来源消息数", "来源时间", "分析时间"})
 	for _, item := range result.Items {
 		_ = writer.Write([]string{workspaceCSV(item.EmployeeName), workspaceCSV(item.TargetName), workspaceCSV(item.Summary), strconv.Itoa(item.SourceMessageCount), item.SourceEndedAt.Format("2006-01-02 15:04"), workspaceTime(item.GeneratedAt)})
@@ -286,6 +299,8 @@ func parseWorkspaceFilter(r *http.Request, p WorkspacePrincipal, page string) (I
 	filter.AnalysisType = AnalysisTypeSession
 	if page == "smart-analysis" {
 		filter.AnalysisType = AnalysisTypeSmart
+	} else if workspaceDerivedPage(page) {
+		filter.View = page
 	}
 	q := r.URL.Query()
 	if value := q.Get("page"); value != "" {
@@ -313,6 +328,43 @@ func parseWorkspaceFilter(r *http.Request, p WorkspacePrincipal, page string) (I
 	if filter.ConversationType != "" && filter.ConversationType != "1" && filter.ConversationType != "2" {
 		return filter, errors.New("会话类型无效")
 	}
+	_, hasKeyword := q["keyword"]
+	_, hasEmotion := q["emotion"]
+	_, hasMinScore := q["minScore"]
+	_, hasMaxScore := q["maxScore"]
+	if hasEmotion && page != "emotion" {
+		return filter, errors.New("客户情绪筛选无效")
+	}
+	if (hasMinScore || hasMaxScore) && page != "employee-score" {
+		return filter, errors.New("员工评分筛选无效")
+	}
+	if hasKeyword && workspaceDerivedPage(page) && page != "communication-keyword" {
+		return filter, errors.New("沟通关键词筛选无效")
+	}
+	if page == "emotion" && hasEmotion {
+		filter.Emotion = strings.TrimSpace(q.Get("emotion"))
+		if !workspaceEmotionAllowed(filter.Emotion) {
+			return filter, errors.New("客户情绪筛选无效")
+		}
+	}
+	if page == "employee-score" {
+		var err error
+		if hasMinScore {
+			filter.MinScore, err = workspaceScore(q.Get("minScore"))
+			if err != nil {
+				return filter, err
+			}
+		}
+		if hasMaxScore {
+			filter.MaxScore, err = workspaceScore(q.Get("maxScore"))
+			if err != nil {
+				return filter, err
+			}
+		}
+		if filter.MinScore != nil && filter.MaxScore != nil && *filter.MinScore > *filter.MaxScore {
+			return filter, errors.New("员工评分范围无效")
+		}
+	}
 	filter.Keyword = strings.TrimSpace(q.Get("keyword"))
 	filter.CustomerName = strings.TrimSpace(q.Get("customerName"))
 	filter.Status = AnalysisStatus(q.Get("status"))
@@ -335,7 +387,117 @@ func parseWorkspaceFilter(r *http.Request, p WorkspacePrincipal, page string) (I
 			*dest = &parsed
 		}
 	}
+	if filter.EndAt != nil {
+		endExclusive := filter.EndAt.AddDate(0, 0, 1)
+		filter.EndAt = &endExclusive
+	}
+	if filter.StartAt != nil && filter.EndAt != nil && !filter.StartAt.Before(*filter.EndAt) {
+		return filter, errors.New("日期范围无效")
+	}
 	return filter, nil
+}
+
+func workspacePageAllowed(page string) bool {
+	return page == "session-analysis" || page == "smart-analysis" || workspaceDerivedPage(page)
+}
+
+func workspaceDerivedPage(page string) bool {
+	return page == "emotion" || page == "employee-score" || page == "communication-keyword"
+}
+
+func workspaceDerivedActionAllowed(action string) bool {
+	return action == "records" || action == "detail" || action == "status" || action == "filter-options" || action == "export"
+}
+
+func workspaceEmotionAllowed(emotion string) bool {
+	switch emotion {
+	case "positive", "neutral", "negative", "mixed", "unknown":
+		return true
+	default:
+		return false
+	}
+}
+
+func workspaceScore(value string) (*int, error) {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 || parsed > 100 {
+		return nil, errors.New("员工评分筛选无效")
+	}
+	return &parsed, nil
+}
+
+func workspaceWriteProjectionCSV(writer *csv.Writer, page string, items []ConversationInsight) {
+	headers := map[string][]string{
+		"emotion":               {"员工", "对象", "客户情绪", "情绪依据", "状态", "失败原因", "来源开始时间", "来源结束时间", "来源消息数", "分析时间", "Provider", "Model", "Prompt"},
+		"employee-score":        {"员工", "对象", "员工评分", "评分摘要", "优点", "问题", "建议", "状态", "失败原因", "来源开始时间", "来源结束时间", "来源消息数", "分析时间", "Provider", "Model", "Prompt"},
+		"communication-keyword": {"员工", "对象", "沟通关键词", "摘要", "状态", "失败原因", "来源开始时间", "来源结束时间", "来源消息数", "分析时间", "Provider", "Model", "Prompt"},
+	}
+	_ = writer.Write(headers[page])
+	for _, item := range items {
+		row := workspaceProjectionCSVRow(page, item)
+		for index := range row {
+			row[index] = workspaceCSV(row[index])
+		}
+		_ = writer.Write(row)
+	}
+}
+
+func workspaceProjectionCSVRow(page string, item ConversationInsight) []string {
+	commonTail := []string{string(item.Status), item.ErrorSummary, workspaceCSVTime(item.SourceStartedAt), workspaceCSVTime(item.SourceEndedAt), strconv.Itoa(item.SourceMessageCount), workspaceTime(item.GeneratedAt), item.Provider, item.Model, item.PromptVersion}
+	result, recordedScore := workspaceSessionResult(item)
+	switch page {
+	case "emotion":
+		label, reason := "", ""
+		if result != nil {
+			label = result.Customer.Emotion.Label
+			reason = result.Customer.Emotion.Reason
+		}
+		return append([]string{item.EmployeeName, item.TargetName, label, reason}, commonTail...)
+	case "employee-score":
+		score, strengths, issues, suggestions := "", "", "", ""
+		if result != nil {
+			if recordedScore != nil {
+				score = strconv.Itoa(*recordedScore)
+			}
+			strengths = strings.Join(result.EmployeeQA.Strengths, "；")
+			issues = strings.Join(result.EmployeeQA.Issues, "；")
+			suggestions = strings.Join(result.EmployeeQA.Suggestions, "；")
+		}
+		return append([]string{item.EmployeeName, item.TargetName, score, item.Summary, strengths, issues, suggestions}, commonTail...)
+	default:
+		keywords := ""
+		if result != nil {
+			keywords = strings.Join(result.Customer.Keywords, "；")
+		}
+		return append([]string{item.EmployeeName, item.TargetName, keywords, item.Summary}, commonTail...)
+	}
+}
+
+func workspaceSessionResult(item ConversationInsight) (*SessionAnalysisResult, *int) {
+	if len(item.ResultJSON) > 0 {
+		var wire struct {
+			EmployeeQA struct {
+				Score *int `json:"score"`
+			} `json:"employeeQa"`
+		}
+		var result SessionAnalysisResult
+		if json.Unmarshal(item.ResultJSON, &result) == nil && json.Unmarshal(item.ResultJSON, &wire) == nil {
+			return &result, wire.EmployeeQA.Score
+		}
+		return nil, nil
+	}
+	if item.SessionResult == nil {
+		return nil, nil
+	}
+	score := item.SessionResult.EmployeeQA.Score
+	return item.SessionResult, &score
+}
+
+func workspaceCSVTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format("2006-01-02 15:04")
 }
 
 func workspacePath(path string) (string, string) {

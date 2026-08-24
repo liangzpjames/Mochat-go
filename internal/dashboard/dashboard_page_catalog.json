@@ -818,6 +818,31 @@
           "method": "GET",
           "pathPattern": "/dashboard/ai-insight/emotion",
           "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/emotion/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/emotion/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/emotion/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/emotion/filter-options",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/emotion/export",
+          "scopeRequired": true
         }
       ]
     },
@@ -833,6 +858,31 @@
           "method": "GET",
           "pathPattern": "/dashboard/ai-insight/employee-score",
           "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/employee-score/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/employee-score/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/employee-score/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/employee-score/filter-options",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/employee-score/export",
+          "scopeRequired": true
         }
       ]
     },
@@ -847,6 +897,31 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/ai-insight/communication-keyword",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/communication-keyword/records",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/communication-keyword/detail",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/communication-keyword/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/communication-keyword/filter-options",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/communication-keyword/export",
           "scopeRequired": true
         }
       ]

@@ -31,6 +31,21 @@ func RegisterWorkspaceRoutes(registrar appmodules.RouteRegistrar, handler http.H
 		{http.MethodPut, "/dashboard/ai-insight/smart-analysis/rules"},
 		{http.MethodDelete, "/dashboard/ai-insight/smart-analysis/rules"},
 		{http.MethodPost, "/dashboard/ai-insight/smart-analysis/rules/status"},
+		{http.MethodGet, "/dashboard/ai-insight/emotion/records"},
+		{http.MethodGet, "/dashboard/ai-insight/emotion/detail"},
+		{http.MethodGet, "/dashboard/ai-insight/emotion/status"},
+		{http.MethodGet, "/dashboard/ai-insight/emotion/filter-options"},
+		{http.MethodGet, "/dashboard/ai-insight/emotion/export"},
+		{http.MethodGet, "/dashboard/ai-insight/employee-score/records"},
+		{http.MethodGet, "/dashboard/ai-insight/employee-score/detail"},
+		{http.MethodGet, "/dashboard/ai-insight/employee-score/status"},
+		{http.MethodGet, "/dashboard/ai-insight/employee-score/filter-options"},
+		{http.MethodGet, "/dashboard/ai-insight/employee-score/export"},
+		{http.MethodGet, "/dashboard/ai-insight/communication-keyword/records"},
+		{http.MethodGet, "/dashboard/ai-insight/communication-keyword/detail"},
+		{http.MethodGet, "/dashboard/ai-insight/communication-keyword/status"},
+		{http.MethodGet, "/dashboard/ai-insight/communication-keyword/filter-options"},
+		{http.MethodGet, "/dashboard/ai-insight/communication-keyword/export"},
 	}
 	for _, route := range routes {
 		if err := registrar.Handle(route.method, route.path, handler); err != nil {

@@ -868,10 +868,17 @@ async function main() {
       'utf8',
     ),
   });
-  const seededMappings = applyPermissionResourceReconciliation({
+  const companyProfileMappings = applyPermissionResourceReconciliation({
     mappings: aiInsightFilterMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0162_company_profile_grantable.up.sql',
+      'utf8',
+    ),
+  });
+  const seededMappings = applyPermissionResourceReconciliation({
+    mappings: companyProfileMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0163_ai_insight_projection_resources.up.sql',
       'utf8',
     ),
   });
