@@ -240,7 +240,8 @@ describe('Dashboard shell', () => {
       },
     });
 
-    const search = await screen.findByRole('searchbox', { name: '搜索功能' });
+    await screen.findByRole('button', { name: 'SCRM' });
+    const search = screen.getByRole('searchbox', { name: '搜索功能' });
     fireEvent.change(search, { target: { value: '标签' } });
     expect(screen.getByRole('link', { name: '标签' }).getAttribute('href')).toBe('/customer/tags');
 
