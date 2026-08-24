@@ -23,7 +23,7 @@ func TestAIInsightFilterOptionsRBACMigrationCoversBothPages(t *testing.T) {
 		"dashboard.ai_insight.smart_analysis",
 		"/dashboard/ai-insight/smart-analysis/filter-options",
 		"scope_required`, `status`, `version`",
-		"1, 1, 1",
+		"route.`scope_required`, 1, 1",
 	} {
 		if !strings.Contains(string(up), fragment) {
 			t.Fatalf("up migration missing %q", fragment)

@@ -69,7 +69,7 @@ test('agent page receives only the shared knowledge-base GET dependency', async 
   );
 });
 
-test('0155 seeds and rolls back only the Agent knowledge-base GET dependency', async () => {
+test('0155 seeds the Agent knowledge-base GET dependency and rolls back non-destructively', async () => {
   const [up, down] = await Promise.all([
     readFile('deploy/standalone/migrations/0155_ai_settings_integrity_audit.up.sql', 'utf8'),
     readFile('deploy/standalone/migrations/0155_ai_settings_integrity_audit.down.sql', 'utf8'),
@@ -77,13 +77,11 @@ test('0155 seeds and rolls back only the Agent knowledge-base GET dependency', a
   assert.deepEqual(extractMigrationPermissionResourceMappings(up), [
     'dashboard.ai_setting.agent\tGET /dashboard/ai-settings/knowledge-bases\t0',
   ]);
-  assert.match(down, /permission\.`code` = 'dashboard\.ai_setting\.agent'/);
-  assert.match(down, /resource\.`http_method` = 'GET'/);
-  assert.match(down, /resource\.`path_pattern` = '\/dashboard\/ai-settings\/knowledge-bases'/);
-  assert.doesNotMatch(down, /dashboard\.ai_setting\.ai_knowledge_base/);
+  assert.match(down, /SELECT 1/);
+  assert.doesNotMatch(down, /DELETE/i);
 });
 
-test('0156 seeds and rolls back the knowledge document resources', async () => {
+test('0156 seeds knowledge document resources and refuses destructive rollback', async () => {
   const [up, down] = await Promise.all([
     readFile('deploy/standalone/migrations/0156_ai_settings_knowledge_runtime.up.sql', 'utf8'),
     readFile('deploy/standalone/migrations/0156_ai_settings_knowledge_runtime.down.sql', 'utf8'),
@@ -93,10 +91,19 @@ test('0156 seeds and rolls back the knowledge document resources', async () => {
     'dashboard.ai_setting.ai_knowledge_base\tPOST /dashboard/ai-settings/knowledge-bases/{id}/documents\t0',
     'dashboard.ai_setting.ai_knowledge_base\tDELETE /dashboard/ai-settings/knowledge-bases/{id}/documents/{documentId}\t0',
   ]);
-  assert.match(down, /dashboard\.ai_setting\.ai_knowledge_base/);
+  assert.match(down, /SIGNAL SQLSTATE '45000'/);
+  assert.doesNotMatch(down, /DELETE|DROP TABLE|DROP COLUMN/i);
 });
 
-test('0158 deactivates independent smart-rule writes and rollback restores them', async () => {
+test('0161 seeds scoped employee-name filter resources for both insight pages', async () => {
+  const up = await readFile('deploy/standalone/migrations/0161_ai_insight_filter_options_rbac.up.sql', 'utf8');
+  assert.deepEqual(extractMigrationPermissionResourceMappings(up), [
+    'dashboard.ai_insight.session_analysis\tGET /dashboard/ai-insight/session-analysis/filter-options\t1',
+    'dashboard.ai_insight.smart_analysis\tGET /dashboard/ai-insight/smart-analysis/filter-options\t1',
+  ]);
+});
+
+test('0158 deactivates independent smart-rule writes and refuses history-destroying rollback', async () => {
   const [up, down] = await Promise.all([
     readFile('deploy/standalone/migrations/0158_ai_assistant_default_smart_rule.up.sql', 'utf8'),
     readFile('deploy/standalone/migrations/0158_ai_assistant_default_smart_rule.down.sql', 'utf8'),
@@ -109,8 +116,8 @@ test('0158 deactivates independent smart-rule writes and rollback restores them'
     'dashboard.ai_insight.smart_analysis\tPOST /dashboard/ai-insight/smart-analysis/rules/status\t1',
   ];
   assert.deepEqual(applyPermissionResourceReconciliation({ mappings, overlaySource: up }), [mappings[0]]);
-  assert.match(down, /SET resource\.`status` = 1,[\s\S]*resource\.`deleted_at` = NULL/);
-  assert.match(down, /dashboard\.ai_insight\.smart_analysis/);
+  assert.match(down, /SIGNAL SQLSTATE '45000'/);
+  assert.doesNotMatch(down, /DELETE|DROP COLUMN|SET resource\.`status` = 1/i);
 });
 
 test('rejects manifest and catalog page drift', () => {

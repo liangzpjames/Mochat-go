@@ -58,14 +58,14 @@ func TestChatNotConfiguredAndServerError(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "boom", http.StatusBadGateway)
+		http.Error(w, "upstream leaked Authorization: Bearer top-secret", http.StatusBadGateway)
 	}))
 	defer server.Close()
 	client, err = New(Config{BaseURL: server.URL, APIKey: "k", Model: "m", Timeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Chat(context.Background(), providers.ChatRequest{Prompt: "x"}); err == nil || !strings.Contains(err.Error(), "502") {
+	if _, err := client.Chat(context.Background(), providers.ChatRequest{Prompt: "x"}); err == nil || !strings.Contains(err.Error(), "502") || strings.Contains(err.Error(), "top-secret") || strings.Contains(err.Error(), "Authorization") {
 		t.Fatalf("Chat error = %v, want 502", err)
 	}
 }

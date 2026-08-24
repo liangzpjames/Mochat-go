@@ -756,6 +756,11 @@
         },
         {
           "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/session-analysis/filter-options",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
           "pathPattern": "/dashboard/ai-insight/session-analysis/export",
           "scopeRequired": true
         }
@@ -787,6 +792,11 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/ai-insight/smart-analysis/status",
+          "scopeRequired": true
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/ai-insight/smart-analysis/filter-options",
           "scopeRequired": true
         },
         {

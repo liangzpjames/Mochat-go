@@ -27,8 +27,8 @@ func TestAISettingsIntegrityAuditMigration(t *testing.T) {
 			t.Fatalf("audit scope column must preserve int64 domain: missing %q", column)
 		}
 	}
-	if !strings.Contains(string(down), "DROP TABLE IF EXISTS `mochat_go_ai_settings_audits`") {
-		t.Fatal("rollback must remove only the audit table introduced by 0155")
+	if strings.Contains(strings.ToUpper(string(down)), "DELETE") || !strings.Contains(string(down), "SELECT 1") {
+		t.Fatal("rollback must preserve pre-existing resource mappings and the additive audit ledger")
 	}
 	if _, err := SplitSQLStatements(string(up)); err != nil {
 		t.Fatalf("up migration is not executable by production splitter: %v", err)

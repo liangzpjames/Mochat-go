@@ -30,13 +30,12 @@ func TestAISettingsKnowledgeRuntimeMigration(t *testing.T) {
 			t.Fatalf("up migration missing %q", fragment)
 		}
 	}
-	for _, fragment := range []string{
-		"DROP TABLE IF EXISTS `mochat_go_ai_knowledge_chunks`",
-		"DROP TABLE IF EXISTS `mochat_go_ai_knowledge_documents`",
-		"DROP COLUMN `system_key`",
-	} {
-		if !strings.Contains(string(down), fragment) {
-			t.Fatalf("down migration missing %q", fragment)
+	if !strings.Contains(string(down), "SIGNAL SQLSTATE '45000'") {
+		t.Fatal("rollback must refuse to destroy uploaded knowledge data")
+	}
+	for _, destructive := range []string{"DELETE ", "DROP TABLE", "DROP COLUMN"} {
+		if strings.Contains(strings.ToUpper(string(down)), destructive) {
+			t.Fatalf("down migration contains destructive operation %q", destructive)
 		}
 	}
 	if _, err := SplitSQLStatements(string(up)); err != nil {

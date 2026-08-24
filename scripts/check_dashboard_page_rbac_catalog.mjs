@@ -825,10 +825,17 @@ async function main() {
       'utf8',
     ),
   });
-  const seededMappings = applyPermissionResourceReconciliation({
+  const smartRuleMappings = applyPermissionResourceReconciliation({
     mappings: knowledgeRuntimeMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0158_ai_assistant_default_smart_rule.up.sql',
+      'utf8',
+    ),
+  });
+  const seededMappings = applyPermissionResourceReconciliation({
+    mappings: smartRuleMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0161_ai_insight_filter_options_rbac.up.sql',
       'utf8',
     ),
   });

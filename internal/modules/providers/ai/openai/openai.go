@@ -110,7 +110,7 @@ func (c *Client) Chat(ctx context.Context, req providers.ChatRequest) (string, e
 		return "", fmt.Errorf("read AI provider response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", fmt.Errorf("AI provider returned HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(payload)))
+		return "", fmt.Errorf("AI provider returned HTTP %d", response.StatusCode)
 	}
 	var completion struct {
 		Choices []struct {
