@@ -23,13 +23,14 @@ func TestAIInsightFilterOptionsRBACMigrationCoversBothPages(t *testing.T) {
 		"dashboard.ai_insight.smart_analysis",
 		"/dashboard/ai-insight/smart-analysis/filter-options",
 		"scope_required`, `status`, `version`",
+		"1, 1, 1",
 	} {
 		if !strings.Contains(string(up), fragment) {
 			t.Fatalf("up migration missing %q", fragment)
 		}
 	}
-	if !strings.Contains(string(down), "filter-options") {
-		t.Fatal("down migration must remove only filter-options resources")
+	if strings.Contains(strings.ToUpper(string(down)), "DELETE") || !strings.Contains(string(down), "SELECT 1") {
+		t.Fatal("down migration must be a non-destructive forward-fix rollback")
 	}
 	if _, err := SplitSQLStatements(string(up)); err != nil {
 		t.Fatalf("up migration is not executable by production splitter: %v", err)
