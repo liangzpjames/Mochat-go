@@ -178,6 +178,16 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     await expect(createDerivedApi(client).derivedStatus('emotion')).rejects.toThrow('运行状态接口返回了无效数据');
   });
 
+  it.each([
+    [{ provider: { state: 123 } }],
+    [{ provider: { state: 'ready', source: 123 } }],
+    [{ provider: { state: 'ready', code: false } }],
+    [{ provider: { state: 'ready', message: {} } }],
+  ])('Provider 状态字段 %j 类型错误时诚实失败', async (response) => {
+    const client = { request: vi.fn().mockResolvedValue(response) };
+    await expect(createDerivedApi(client).derivedStatus('emotion')).rejects.toThrow('AI 服务状态接口返回了无效数据');
+  });
+
   it('通过带登录态的客户端请求导出 Blob 并保留服务端文件名', async () => {
     const blob = new Blob(['emotion,csv']);
     const download = vi.fn().mockResolvedValue({ blob, filename: 'emotion-insights.csv' });
@@ -292,6 +302,17 @@ describe('AI 洞察专用投影统一 API 合同', () => {
     const withoutMetadata = { ...validDerived };
     Reflect.deleteProperty(withoutMetadata, field);
     const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [withoutMetadata] }) };
+    await expect(createDerivedApi(client).derivedRecords('emotion', { page: 1 })).rejects.toThrow('成功结果缺少追溯元数据');
+  });
+
+  it.each([
+    ['provider', 123],
+    ['model', false],
+    ['promptVersion', 789],
+    ['analysisAt', 123],
+  ])('成功结果追溯字段 %s=%j 类型错误时诚实失败', async (field, value) => {
+    const invalidMetadata = { ...validDerived, [field]: value };
+    const client = { request: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 1, items: [invalidMetadata] }) };
     await expect(createDerivedApi(client).derivedRecords('emotion', { page: 1 })).rejects.toThrow('成功结果缺少追溯元数据');
   });
 
