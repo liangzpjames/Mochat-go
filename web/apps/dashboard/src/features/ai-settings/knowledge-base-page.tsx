@@ -70,6 +70,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState(1);
+  const [createFile, setCreateFile] = useState<File | null>(null);
   const [managing, setManaging] = useState<KnowledgeBaseItem | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const documentTriggerRef = useRef<HTMLButtonElement>(null);
@@ -110,7 +111,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   const initialEditor = editing
     ? { name: editing.name, description: editing.description, status: editing.status }
     : { name: '', description: '', status: 1 };
-  const dirty = editorOpen && (name !== initialEditor.name || description !== initialEditor.description || status !== initialEditor.status);
+  const dirty = editorOpen && (name !== initialEditor.name || description !== initialEditor.description || status !== initialEditor.status || (creating && createFile !== null));
 
   function submitFilters() {
     setSearchParams(updateSearch(searchParams, { q: draftKeyword.trim() || undefined, status: draftStatus === 'all' ? undefined : draftStatus, page: 1, pageSize: listState.pageSize }));
@@ -123,7 +124,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
   }
 
   function resetEditor() {
-    setEditing(null); setCreating(false); setName(''); setDescription(''); setStatus(1); setEditorError(''); setDiscardOpen(false);
+    setEditing(null); setCreating(false); setName(''); setDescription(''); setStatus(1); setCreateFile(null); setEditorError(''); setDiscardOpen(false);
   }
 
   function requestEditorClose() {
@@ -134,19 +135,40 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
 
   function rememberTrigger(event: MouseEvent<HTMLButtonElement>) { editorTriggerRef.current = event.currentTarget; }
   function openCreate(event: MouseEvent<HTMLButtonElement>) {
-    rememberTrigger(event); setCreating(true); setEditing(null); setName(''); setDescription(''); setStatus(1); setEditorError(''); setFeedback(null);
+    rememberTrigger(event); setCreating(true); setEditing(null); setName(''); setDescription(''); setStatus(1); setCreateFile(null); setEditorError(''); setFeedback(null);
   }
   function openEdit(item: KnowledgeBaseItem, event: MouseEvent<HTMLButtonElement>) {
-    rememberTrigger(event); setEditing(item); setCreating(false); setName(item.name); setDescription(item.description); setStatus(item.status); setEditorError(''); setFeedback(null);
+    rememberTrigger(event); setEditing(item); setCreating(false); setName(item.name); setDescription(item.description); setStatus(item.status); setCreateFile(null); setEditorError(''); setFeedback(null);
   }
 
   const save = useMutation({
-    mutationFn: () => editing
-      ? api.updateKnowledgeBase(Number(corpId), editing.id, { name: name.trim(), description: description.trim(), documentCount: editing.documentCount, status })
-      : api.createKnowledgeBase(Number(corpId), { name: name.trim(), description: description.trim(), documentCount: 0, status }),
-    onSuccess: async () => {
+    mutationFn: async () => {
+      if (editing) {
+        const item = await api.updateKnowledgeBase(Number(corpId), editing.id, { name: name.trim(), description: description.trim(), documentCount: editing.documentCount, status });
+        return { mode: 'updated' as const, item, document: null, uploadError: null };
+      }
+      const item = await api.createKnowledgeBase(Number(corpId), { name: name.trim(), description: description.trim(), documentCount: 0, status });
+      if (!createFile) return { mode: 'created' as const, item, document: null, uploadError: null };
+      try {
+        const document = await api.uploadKnowledgeDocument(Number(corpId), item.id, createFile);
+        return { mode: 'created' as const, item, document, uploadError: null };
+      } catch (uploadError) {
+        return { mode: 'created' as const, item, document: null, uploadError };
+      }
+    },
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ['ai-kb', corpId] });
-      setFeedback({ kind: 'success', text: editing ? '知识库已更新。' : '知识库已创建。' });
+      if (result.mode === 'updated') {
+        setFeedback({ kind: 'success', text: '知识库已更新。' });
+      } else if (result.uploadError) {
+        setFeedback({ kind: 'error', text: `知识库“${result.item.name}”已创建，但初始文档上传失败：${operationError(result.uploadError)} 请在“管理文档”中重试。` });
+      } else if (result.document?.status === 'failed') {
+        setFeedback({ kind: 'error', text: `知识库“${result.item.name}”已创建，但文档“${result.document.filename}”解析失败，暂不能用于分析；请在“管理文档”中处理。` });
+      } else if (result.document) {
+        setFeedback({ kind: 'success', text: `知识库“${result.item.name}”已创建，文档“${result.document.filename}”已解析，可用于分析。` });
+      } else {
+        setFeedback({ kind: 'success', text: '知识库已创建。' });
+      }
       resetEditor();
     },
     onError: (error) => setEditorError(operationError(error)),
@@ -231,6 +253,7 @@ export function KnowledgeBasePage({ api }: { api: AISettingsApi }) {
             <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="如：售后话术库" /></label>
             <label>说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
             <label>配置状态<select value={status} onChange={(event) => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select><small>停用后关联文档不会进入新的会话分析。</small></label>
+            {creating && <label className="ai-settings-create-upload">初始文档（可选）<input aria-label="初始文档（可选）" type="file" accept=".txt,.md,.pdf,.docx" disabled={save.isPending} onChange={(event) => setCreateFile(event.target.files?.[0] ?? null)} /><small>支持 .txt、.md、.pdf、.docx，单个文件不超过 20 MB；也可创建后再到“管理文档”上传。</small></label>}
           </form></div>
         </DashboardDialog>
         <DashboardDialog open={managing !== null} title={`管理文档 · ${managing?.name ?? ''}`} triggerRef={documentTriggerRef} width={860} cancelText="关闭" onCancel={() => { if (!upload.isPending && !removeDocument.isPending) { setManaging(null); setUploadFile(null); } }} footer={null}>

@@ -2555,7 +2555,12 @@ body {
 .ai-assistant-summary-grid dd { color: #435069; font-size: .8rem; line-height: 1.5; margin: 5px 0 0; overflow-wrap: anywhere; }
 .ai-assistant-summary-grid dd a { color: #536bf4; }
 .ai-assistant-dialog-body form { gap: 16px; }
+.ai-assistant-editor-form { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); }
 .ai-assistant-editor-section { border: 1px solid #e7ebf2; border-radius: 11px; display: grid; gap: 12px; padding: 14px; }
+.ai-assistant-editor-section--primary { align-content: start; grid-column: span 4; }
+.ai-assistant-editor-section--prompts { grid-column: 1 / -1; }
+.ai-assistant-prompt-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ai-assistant-prompt-grid > label { color: #4f5768; display: grid; font-size: .8rem; font-weight: 600; gap: 7px; }
 .ai-assistant-editor-section > header h3 { color: #354057; font-size: .9rem; margin: 0; }
 .ai-assistant-editor-section > header p { color: #8b94a6; font-size: .72rem; line-height: 1.5; margin: 4px 0 0; }
 .ai-assistant-editor-section > label { color: #4f5768; display: grid; font-size: .8rem; font-weight: 600; gap: 7px; }
@@ -2591,6 +2596,13 @@ body {
 .ai-conversation-scope-option:focus-within { box-shadow: 0 0 0 3px rgb(83 107 244 / 12%); outline: none; }
 .ai-conversation-scope-option--selected { background: #f7f9ff; border-color: #536bf4; }
 
+.ai-settings-create-upload {
+  background: #f7f9ff;
+  border: 1px dashed #b9c4f8;
+  border-radius: 10px;
+  padding: 12px;
+}
+
 .ai-insight-assistant-summary {
   align-items: center;
   background: linear-gradient(135deg, #f7f9ff, #fff);
@@ -2607,6 +2619,10 @@ body {
 
 .ai-settings-workspace button:hover:not(:disabled) {
   box-shadow: none;
+}
+
+@media (max-width: 980px) {
+  .ai-assistant-editor-section--primary { grid-column: span 6; }
 }
 
 @media (max-width: 768px) {
@@ -2630,6 +2646,9 @@ body {
   .ai-assistant-card__actions .ai-settings-action-button { flex: 1; }
   .ai-assistant-card-grid, .ai-conversation-scope-grid { grid-template-columns: 1fr; }
   .ai-assistant-summary-grid { grid-template-columns: 1fr; }
+  .ai-assistant-editor-form { grid-template-columns: 1fr; }
+  .ai-assistant-editor-section--primary, .ai-assistant-editor-section--prompts { grid-column: 1 / -1; }
+  .ai-assistant-prompt-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-height: 680px) {

@@ -38,6 +38,15 @@ describe('AI 设置响应式布局合同', () => {
     expect(stylesheet).toContain('.ai-assistant-card-grid, .ai-conversation-scope-grid { grid-template-columns: 1fr; }');
   });
 
+  it('助手编辑弹窗桌面横向展示主要信息并在窄屏回落', () => {
+    expect(block('.ai-assistant-editor-form')).toContain('grid-template-columns: repeat(12, minmax(0, 1fr))');
+    expect(block('.ai-assistant-editor-section--primary')).toContain('grid-column: span 4');
+    expect(block('.ai-assistant-editor-section--prompts')).toContain('grid-column: 1 / -1');
+    expect(block('.ai-assistant-prompt-grid')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(stylesheet).toContain('.ai-assistant-editor-section--primary { grid-column: span 6; }');
+    expect(stylesheet).toContain('.ai-assistant-editor-section--primary, .ai-assistant-editor-section--prompts { grid-column: 1 / -1; }');
+  });
+
   it('知识库筛选区查询、重置、刷新共用同一组显式尺寸合同', () => {
     const actions = block('.ai-settings-filter .dashboard-filter-panel__actions > *');
     expect(actions).toContain('box-sizing: border-box');

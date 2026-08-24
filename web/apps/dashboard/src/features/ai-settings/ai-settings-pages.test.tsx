@@ -171,6 +171,24 @@ describe('AI 设置页面', () => {
     expect(await screen.findByText(/会话分析助手配置已保存/)).toBeTruthy();
   });
 
+  it('两个分析助手编辑器使用宽屏横向信息布局', async () => {
+    renderPage(createApi(), 'agent');
+
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置 会话分析助手' }));
+    const sessionDialog = screen.getByRole('dialog', { name: '配置会话分析助手' });
+    expect(sessionDialog.querySelector('.ai-assistant-editor-form')).toBeTruthy();
+    expect(sessionDialog.querySelectorAll('.ai-assistant-editor-section--primary')).toHaveLength(3);
+    expect(sessionDialog.querySelector('.ai-assistant-editor-section--prompts')).toBeTruthy();
+    expect(sessionDialog.querySelector('.ai-assistant-prompt-grid')).toBeTruthy();
+    fireEvent.click(within(sessionDialog).getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '配置会话分析助手' })).toBeNull());
+
+    fireEvent.click(await screen.findByRole('button', { name: '编辑配置 智能分析助手' }));
+    const smartDialog = screen.getByRole('textbox', { name: '智能分析目标' }).closest('[role="dialog"]') as HTMLElement;
+    expect(smartDialog.querySelector('.ai-assistant-editor-form')).toBeTruthy();
+    expect(smartDialog.querySelectorAll('.ai-assistant-editor-section--primary')).toHaveLength(3);
+  });
+
   it('会话分析助手的小数规则窗口在前端即视为无效，不发起保存', async () => {
     const updateAgent = vi.fn().mockResolvedValue({});
     renderPage(createApi({ updateAgent }), 'agent');
@@ -327,5 +345,72 @@ describe('AI 设置页面', () => {
     renderPage(createApi(), 'kb');
     const refresh = await screen.findByRole('button', { name: '刷新' });
     expect(refresh.className).toContain('dashboard-secondary-action');
+  });
+
+  it('新建知识库不选文档时只创建知识库', async () => {
+    const createKnowledgeBase = vi.fn().mockResolvedValue({ id: 'kb-plain', corpId: 9, name: '售后知识库', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' });
+    const uploadKnowledgeDocument = vi.fn();
+    const api = createApi({ createKnowledgeBase, uploadKnowledgeDocument });
+    renderPage(api, 'kb');
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '售后知识库' } });
+    expect(screen.getByLabelText('初始文档（可选）')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(createKnowledgeBase).toHaveBeenCalledTimes(1));
+    expect(uploadKnowledgeDocument).not.toHaveBeenCalled();
+    expect(await screen.findByText('知识库已创建。')).toBeTruthy();
+  });
+
+  it('新建知识库可选择文档并使用新知识库 ID 上传', async () => {
+    const uploadKnowledgeDocument = vi.fn().mockResolvedValue({ id: 'doc-created', filename: '产品资料.md', status: 'ready' });
+    const api = createApi({
+      createKnowledgeBase: vi.fn().mockResolvedValue({ id: 'kb-created', corpId: 9, name: '产品资料库', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }),
+      uploadKnowledgeDocument,
+    });
+    renderPage(api, 'kb');
+    const file = new File(['# 产品资料'], '产品资料.md', { type: 'text/markdown' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '产品资料库' } });
+    fireEvent.change(screen.getByLabelText('初始文档（可选）'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(uploadKnowledgeDocument).toHaveBeenCalledWith(9, 'kb-created', file));
+    expect(await screen.findByText(/知识库“产品资料库”已创建，文档“产品资料\.md”已解析/)).toBeTruthy();
+  });
+
+  it('知识库创建成功但初始文档上传失败时保留知识库并提供重试指引', async () => {
+    const deleteKnowledgeBase = vi.fn();
+    const api = createApi({
+      createKnowledgeBase: vi.fn().mockResolvedValue({ id: 'kb-partial', corpId: 9, name: '部分成功库', description: '', documentCount: 0, status: 1, createdAt: '', updatedAt: '' }),
+      uploadKnowledgeDocument: vi.fn().mockRejectedValue(new ApiError('validation', 'too large', { status: 400, machineCode: 'AI_SETTINGS_DOCUMENT_TOO_LARGE' })),
+      deleteKnowledgeBase,
+    });
+    renderPage(api, 'kb');
+    const file = new File(['content'], '过大资料.md', { type: 'text/markdown' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), { target: { value: '部分成功库' } });
+    fireEvent.change(screen.getByLabelText('初始文档（可选）'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    const feedback = await screen.findByRole('alert');
+    expect(feedback.textContent).toContain('知识库“部分成功库”已创建');
+    expect(feedback.textContent).toContain('管理文档');
+    expect(deleteKnowledgeBase).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: '新建知识库' })).toBeNull();
+  });
+
+  it('新建知识库只选择文档也会触发未保存确认', async () => {
+    renderPage(createApi(), 'kb');
+    const file = new File(['draft'], '草稿.md', { type: 'text/markdown' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建知识库' }));
+    fireEvent.change(screen.getByLabelText('初始文档（可选）'), { target: { files: [file] } });
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+
+    expect(await screen.findByText('放弃未保存更改？')).toBeTruthy();
   });
 });

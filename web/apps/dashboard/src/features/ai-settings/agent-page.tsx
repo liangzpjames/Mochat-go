@@ -576,6 +576,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
         <DashboardDialog
           open={Boolean(sessionDraft && sessionAgent)}
           title="配置会话分析助手"
+          width="min(1180px, calc(100vw - 48px))"
           triggerRef={sessionTriggerRef}
           confirmDisabled={!sessionValid}
           confirmLoading={saveSession.isPending}
@@ -585,14 +586,14 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
           {sessionDraft && sessionAgent && (
             <div className="ai-settings-dialog-body ai-assistant-dialog-body">
               {sessionError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{sessionError}</p>}
-              <form onSubmit={(event) => { event.preventDefault(); if (sessionValid && !saveSession.isPending) saveSession.mutate(); }}>
-                <section className="ai-assistant-editor-section">
+              <form className="ai-assistant-editor-form" onSubmit={(event) => { event.preventDefault(); if (sessionValid && !saveSession.isPending) saveSession.mutate(); }}>
+                <section className="ai-assistant-editor-section ai-assistant-editor-section--primary">
                   <header><h3>助手基础信息</h3><p>名称固定，状态和说明只影响会话分析。</p></header>
                   <label>名称<input value={sessionAgent.name} readOnly aria-readonly="true" /></label>
                   <label>助手说明<textarea value={sessionDraft.description} onChange={(event) => setSessionDraft({ ...sessionDraft, description: event.target.value })} rows={2} /></label>
                   <label>运行状态<select aria-label="运行状态" value={sessionDraft.status} onChange={(event) => setSessionDraft({ ...sessionDraft, status: Number(event.target.value) })}><option value={1}>启用</option><option value={0}>停用</option></select><small>只影响会话分析，不影响智能分析助手。</small></label>
                 </section>
-                <section className="ai-assistant-editor-section">
+                <section className="ai-assistant-editor-section ai-assistant-editor-section--primary">
                   <header><h3>关联知识库</h3><p>保留既有关联的停用知识库，但不能新关联其他停用库。</p></header>
                   <AssistantKnowledgeBaseFieldset
                     knowledgeBases={knowledgeBases}
@@ -603,7 +604,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
                     onToggle={toggleSessionBase}
                   />
                 </section>
-                <section className="ai-assistant-editor-section">
+                <section className="ai-assistant-editor-section ai-assistant-editor-section--primary">
                   <header><h3>会话分析范围</h3><p>配置会话分析助手覆盖的会话类型与规则窗口，不影响智能分析助手。</p></header>
                   <ConversationScopeFieldset
                     conversationTypes={sessionDraft.conversationTypes}
@@ -614,10 +615,12 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
                     <label>最少消息数<input aria-label="最少消息数" type="number" min={2} max={50} value={sessionDraft.minimumMessages} onChange={(event) => setSessionDraft({ ...sessionDraft, minimumMessages: Number(event.target.value) })} /><small>2–50 条</small></label>
                   </div>
                 </section>
-                <section className="ai-assistant-editor-section">
+                <section className="ai-assistant-editor-section ai-assistant-editor-section--prompts">
                   <header><h3>会话分析提示词</h3><p>客户洞察与员工质检分别使用独立提示词。</p></header>
-                  <label>客户分析提示词<textarea aria-label="客户分析提示词" value={sessionDraft.customerAnalysisPrompt} onChange={(event) => setSessionDraft({ ...sessionDraft, customerAnalysisPrompt: event.target.value })} rows={4} /><small>用于购买意向、流失风险、需求和行动建议。</small></label>
-                  <label>员工质检提示词<textarea aria-label="员工质检提示词" value={sessionDraft.employeeQaPrompt} onChange={(event) => setSessionDraft({ ...sessionDraft, employeeQaPrompt: event.target.value })} rows={4} /><small>用于质检维度、未解决问题/异议和改进建议。</small></label>
+                  <div className="ai-assistant-prompt-grid">
+                    <label>客户分析提示词<textarea aria-label="客户分析提示词" value={sessionDraft.customerAnalysisPrompt} onChange={(event) => setSessionDraft({ ...sessionDraft, customerAnalysisPrompt: event.target.value })} rows={4} /><small>用于购买意向、流失风险、需求和行动建议。</small></label>
+                    <label>员工质检提示词<textarea aria-label="员工质检提示词" value={sessionDraft.employeeQaPrompt} onChange={(event) => setSessionDraft({ ...sessionDraft, employeeQaPrompt: event.target.value })} rows={4} /><small>用于质检维度、未解决问题/异议和改进建议。</small></label>
+                  </div>
                   <p className="ai-assistant-rule-version">当前规则版本 v{sessionAgent.sessionAnalysisRule.currentVersion}</p>
                 </section>
               </form>
@@ -628,6 +631,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
         <DashboardDialog
           open={Boolean(smartDraft && smartAgent)}
           title="配置智能分析助手"
+          width="min(1180px, calc(100vw - 48px))"
           triggerRef={smartTriggerRef}
           confirmDisabled={!smartValid}
           confirmLoading={saveSmart.isPending}
@@ -637,14 +641,14 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
           {smartDraft && smartAgent && (
             <div className="ai-settings-dialog-body ai-assistant-dialog-body">
               {smartError && <p role="alert" className="ai-settings-feedback ai-settings-feedback--error">{smartError}</p>}
-              <form onSubmit={(event) => { event.preventDefault(); if (smartValid && !saveSmart.isPending) saveSmart.mutate(); }}>
-                <section className="ai-assistant-editor-section">
+              <form className="ai-assistant-editor-form" onSubmit={(event) => { event.preventDefault(); if (smartValid && !saveSmart.isPending) saveSmart.mutate(); }}>
+                <section className="ai-assistant-editor-section ai-assistant-editor-section--primary">
                   <header><h3>助手基础信息</h3><p>名称固定，状态和说明只影响智能分析。</p></header>
                   <label>名称<input value={smartAgent.name} readOnly aria-readonly="true" /></label>
                   <label>助手说明<textarea value={smartDraft.description} onChange={(event) => setSmartDraft({ ...smartDraft, description: event.target.value })} rows={2} /></label>
                   <label>运行状态<select aria-label="运行状态" value={smartDraft.status} onChange={(event) => setSmartDraft({ ...smartDraft, status: Number(event.target.value) })}><option value={1}>启用</option><option value={0}>停用</option></select><small>只影响智能分析，不影响会话分析助手。</small></label>
                 </section>
-                <section className="ai-assistant-editor-section">
+                <section className="ai-assistant-editor-section ai-assistant-editor-section--primary">
                   <header><h3>关联知识库</h3><p>智能分析助手使用独立知识库集合。</p></header>
                   <AssistantKnowledgeBaseFieldset
                     knowledgeBases={knowledgeBases}
@@ -655,7 +659,7 @@ export function AgentPage({ api }: { api: AISettingsApi }) {
                     onToggle={toggleSmartBase}
                   />
                 </section>
-                <section className="ai-assistant-editor-section">
+                <section className="ai-assistant-editor-section ai-assistant-editor-section--primary">
                   <header><h3>智能分析规则</h3><p>配置目标、会话范围和窗口约束。</p></header>
                   <label>智能分析目标<textarea aria-label="智能分析目标" value={smartDraft.objective} onChange={(event) => setSmartDraft({ ...smartDraft, objective: event.target.value })} rows={4} /></label>
                   <ConversationScopeFieldset
