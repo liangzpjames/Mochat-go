@@ -65,6 +65,11 @@ export const EMPLOYEE_ACCOUNT_RESOURCE_MAPPINGS = [
   'dashboard.company_setting.staff\tPOST /dashboard/access/employees/{id}/account/reset-password\t0',
 ];
 
+export const AI_INSIGHT_FILTER_OPTION_RESOURCE_MAPPINGS = [
+  'dashboard.ai_insight.session_analysis\tGET /dashboard/ai-insight/session-analysis/filter-options\t1',
+  'dashboard.ai_insight.smart_analysis\tGET /dashboard/ai-insight/smart-analysis/filter-options\t1',
+];
+
 async function sourceFiles(root, extensions) {
   const files = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -478,6 +483,31 @@ export function extractMigrationPermissionResourceMappings(source) {
   return mappings;
 }
 
+export function applyAIInsightFilterOptionsRBACOverlay({ mappings, overlaySource }) {
+  if (!Array.isArray(mappings) || typeof overlaySource !== 'string') {
+    throw new Error('0161 AI insight filter resource overlay inputs are invalid');
+  }
+  const requiredFragments = [
+    ...AI_INSIGHT_FILTER_OPTION_RESOURCE_MAPPINGS.flatMap((mapping) => {
+      const [permissionCode, contract] = mapping.split('\t');
+      return [permissionCode, contract.slice(contract.indexOf(' ') + 1)];
+    }),
+    "SELECT permission.`id`, 'api', 'GET', seed.`path_pattern`, 1, 1, 1",
+    'WHERE NOT EXISTS',
+  ];
+  if (requiredFragments.some((fragment) => !overlaySource.includes(fragment))) {
+    throw new Error('0161 AI insight filter resource seed is incomplete');
+  }
+  const result = [...mappings];
+  for (const addition of AI_INSIGHT_FILTER_OPTION_RESOURCE_MAPPINGS) {
+    if (result.includes(addition)) {
+      throw new Error(`0161 AI insight filter overlay duplicates effective mapping: ${addition}`);
+    }
+    result.push(addition);
+  }
+  return result;
+}
+
 export function applyPermissionResourceReconciliation({ mappings, overlaySource }) {
   if (!Array.isArray(mappings) || typeof overlaySource !== 'string') {
     throw new Error('0154 permission resource reconciliation inputs are invalid');
@@ -832,7 +862,7 @@ async function main() {
       'utf8',
     ),
   });
-  const seededMappings = applyPermissionResourceReconciliation({
+  const seededMappings = applyAIInsightFilterOptionsRBACOverlay({
     mappings: smartRuleMappings,
     overlaySource: await readFile(
       'deploy/standalone/migrations/0161_ai_insight_filter_options_rbac.up.sql',

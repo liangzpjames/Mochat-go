@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 import {
+  applyAIInsightFilterOptionsRBACOverlay,
   applyPermissionResourceReconciliation,
   applyCompanySettingsCredentialResourceOverlay,
   extractBackendRegisteredAPIs,
@@ -97,10 +98,23 @@ test('0156 seeds knowledge document resources and refuses destructive rollback',
 
 test('0161 seeds scoped employee-name filter resources for both insight pages', async () => {
   const up = await readFile('deploy/standalone/migrations/0161_ai_insight_filter_options_rbac.up.sql', 'utf8');
-  assert.deepEqual(extractMigrationPermissionResourceMappings(up), [
+  assert.deepEqual(applyAIInsightFilterOptionsRBACOverlay({ mappings: [], overlaySource: up }), [
     'dashboard.ai_insight.session_analysis\tGET /dashboard/ai-insight/session-analysis/filter-options\t1',
     'dashboard.ai_insight.smart_analysis\tGET /dashboard/ai-insight/smart-analysis/filter-options\t1',
   ]);
+});
+
+test('0161 overlay rejects a migration missing either protected filter route', () => {
+  assert.throws(
+    () => applyAIInsightFilterOptionsRBACOverlay({
+      mappings: [],
+      overlaySource: `
+        SELECT 'dashboard.ai_insight.session_analysis',
+          '/dashboard/ai-insight/session-analysis/filter-options';
+      `,
+    }),
+    /0161 AI insight filter resource seed is incomplete/,
+  );
 });
 
 test('0158 deactivates independent smart-rule writes and refuses history-destroying rollback', async () => {
