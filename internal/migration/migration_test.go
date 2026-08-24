@@ -348,8 +348,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0160_ai_settings_knowledge_collation" {
-		t.Fatalf("latest migration = %q, want 0160_ai_settings_knowledge_collation", latest.Version)
+	if latest.Version != "0161_ai_insight_filter_options_rbac" {
+		t.Fatalf("latest migration = %q, want 0161_ai_insight_filter_options_rbac", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -585,8 +585,8 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0160_ai_settings_knowledge_collation" {
-		t.Fatalf("latest migration = %q, want 0160_ai_settings_knowledge_collation", latest.Version)
+	if latest.Version != "0161_ai_insight_filter_options_rbac" {
+		t.Fatalf("latest migration = %q, want 0161_ai_insight_filter_options_rbac", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
 	if err != nil {

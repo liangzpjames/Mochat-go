@@ -75,6 +75,45 @@ func TestSaveInsightPersistsAndUpdatesRealMariaDB(t *testing.T) {
 	}
 }
 
+func TestEmployeeOptionsSearchesNamesOnRealMariaDB(t *testing.T) {
+	db := aiInsightIntegrationDB(t)
+	createAIInsightIntegrationTable(t, db)
+	if _, err := db.Exec(`CREATE TEMPORARY TABLE mc_work_employee (
+		id BIGINT UNSIGNED NOT NULL,
+		corp_id BIGINT UNSIGNED NOT NULL,
+		name VARCHAR(255) NOT NULL,
+		avatar VARCHAR(512) NOT NULL,
+		deleted_at DATETIME(6) NULL,
+		PRIMARY KEY (id)
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec("DROP TEMPORARY TABLE IF EXISTS mc_work_employee") })
+	if _, err := db.Exec(`INSERT INTO mc_work_employee (id,corp_id,name,avatar) VALUES (1106,8,'AI验收员工A','avatar')`); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewSQLRepository(db)
+	generatedAt := time.Date(2026, 8, 24, 15, 0, 0, 0, time.UTC)
+	if err := repository.SaveInsight(context.Background(), ConversationInsight{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, RuleID: 9, RuleVersionID: 10,
+		ConversationKey: "employee-option", EmployeeID: 1106, EmployeeName: "归档员工名", TargetType: "1", TargetID: "customer", TargetName: "客户",
+		SourceStartedAt: generatedAt.Add(-time.Minute), SourceEndedAt: generatedAt, SourceMessageCount: 2,
+		SourceFingerprint: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+		Status: AnalysisStatusSucceeded, Summary: "摘要", ResultJSON: []byte(`{}`), PromptVersion: "prompt-v1", GeneratedAt: &generatedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	options, err := repository.EmployeeOptions(context.Background(), EmployeeOptionFilter{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, EmployeeKeyword: "AI验收员工", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("EmployeeOptions: %v", err)
+	}
+	if len(options) != 1 || options[0].ID != 1106 || options[0].Name != "AI验收员工A" {
+		t.Fatalf("options = %#v", options)
+	}
+}
+
 type aiInsightIntegrationRow struct {
 	TenantID, CorpID, RuleVersionID int64
 	AnalysisType, ConversationKey   string
