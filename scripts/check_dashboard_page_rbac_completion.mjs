@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  applyAIInsightFilterOptionsRBACOverlay,
   applyPermissionResourceReconciliation,
   applyCompanySettingsCredentialResourceOverlay,
   applyCutoverPermissionResourceOverlay,
@@ -109,10 +110,17 @@ export async function runCompletionGate(root = process.cwd()) {
       'utf8',
     ),
   });
-  const seededMappings = applyPermissionResourceReconciliation({
+  const smartRuleMappings = applyPermissionResourceReconciliation({
     mappings: knowledgeRuntimeMappings,
     overlaySource: await readFile(
       path.join(root, 'deploy/standalone/migrations/0158_ai_assistant_default_smart_rule.up.sql'),
+      'utf8',
+    ),
+  });
+  const seededMappings = applyAIInsightFilterOptionsRBACOverlay({
+    mappings: smartRuleMappings,
+    overlaySource: await readFile(
+      path.join(root, 'deploy/standalone/migrations/0161_ai_insight_filter_options_rbac.up.sql'),
       'utf8',
     ),
   });
