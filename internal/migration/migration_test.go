@@ -617,12 +617,25 @@ func TestSaaSTenantAIProvider0164MigrationContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	upSQL := string(up)
+	statements, err := SplitSQLStatements(upSQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statements) != 1 || strings.Count(strings.ToUpper(upSQL), "CREATE TABLE") != 1 {
+		t.Fatalf("0164 up migration must contain exactly one CREATE TABLE statement")
+	}
+	for _, forbidden := range []string{"ALTER TABLE", "DROP TABLE", "CREATE INDEX", "CREATE VIEW", "CREATE TRIGGER", "CREATE PROCEDURE", "RENAME TABLE", "TRUNCATE TABLE"} {
+		if strings.Contains(strings.ToUpper(upSQL), forbidden) {
+			t.Fatalf("0164 up migration must not contain extra DDL %q", forbidden)
+		}
+	}
 	for _, required := range []string{
 		"CREATE TABLE IF NOT EXISTS `mochat_go_saas_tenant_ai_providers`",
 		"`tenant_id`", "`provider`", "`base_url`", "`model`", "`credential_ciphertext`", "`encryption_key_id`", "`api_key_hint`",
 		"`effective_at`", "`expires_at`", "`status`", "`version`", "`created_by`", "`updated_by`", "`created_at`", "`updated_at`", "UNIQUE KEY `uk_saas_tenant_ai_provider_tenant` (`tenant_id`)",
 	} {
-		if !strings.Contains(string(up), required) {
+		if !strings.Contains(upSQL, required) {
 			t.Fatalf("0164 up migration missing %q", required)
 		}
 	}

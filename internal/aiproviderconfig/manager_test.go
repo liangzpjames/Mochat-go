@@ -18,14 +18,14 @@ func TestManagerEncryptsTenantProviderCredentialWithoutPlaintext(t *testing.T) {
 		t.Fatal(err)
 	}
 	if keyID != "ai-v1" || hint != "1234" || strings.Contains(ciphertext, "fixture-key-alpha-1234") {
-		t.Fatalf("encrypted credential leaked plaintext or metadata mismatch: key=%q hint=%q ciphertext=%q", keyID, hint, ciphertext)
+		t.Fatal("encrypted credential leaked plaintext or metadata mismatch")
 	}
 	credential, err := manager.Decrypt(7, "openai", keyID, ciphertext)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if credential != "fixture-key-alpha-1234" {
-		t.Fatalf("decrypted credential = %q", credential)
+		t.Fatal("decrypted credential did not match the configured fixture")
 	}
 }
 
@@ -58,7 +58,7 @@ func TestManagerReadsHistoricalKeyAndWritesActiveKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if credential, err := manager.Decrypt(9, "anthropic", oldKeyID, ciphertext); err != nil || credential != "fixture-key-old-9999" {
-		t.Fatalf("historical credential = %q, %v", credential, err)
+		t.Fatalf("historical credential did not decrypt: %v", err)
 	}
 	_, activeKeyID, _, err := manager.Encrypt(9, "anthropic", "fixture-key-new-0000")
 	if err != nil {
@@ -88,7 +88,7 @@ func TestManagerRejectsCredentialTooShortForSafeHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, hint, err := manager.Encrypt(7, "openai", "tiny"); err != nil || hint != "" {
-		t.Fatalf("short credential encryption = hint:%q err:%v, want empty hint and no error", hint, err)
+		t.Fatal("short credential unexpectedly produced a hint or encryption error")
 	}
 }
 
@@ -104,7 +104,7 @@ func TestManagerDecryptStoredFailsClosedForInactiveOrExpiredConfig(t *testing.T)
 	now := time.Date(2026, time.August, 25, 0, 0, 0, 0, time.UTC)
 	config := StoredConfig{TenantID: 7, Provider: "openai", Model: "fixture-model", CredentialCiphertext: ciphertext, KeyID: keyID, Hint: hint, Status: StatusActive, Version: 1, CreatedBy: 41, UpdatedBy: 42}
 	if credential, err := manager.DecryptStored(config, now); err != nil || credential != "fixture-key-config-2468" {
-		t.Fatalf("active stored config decrypt = %q, %v", credential, err)
+		t.Fatalf("active stored config did not decrypt: %v", err)
 	}
 	config.Status = StatusDisabled
 	if _, err := manager.DecryptStored(config, now); err == nil {
@@ -115,6 +115,12 @@ func TestManagerDecryptStoredFailsClosedForInactiveOrExpiredConfig(t *testing.T)
 	config.ExpiresAt = &expired
 	if _, err := manager.DecryptStored(config, now); err == nil {
 		t.Fatal("expected expired stored config to fail closed")
+	}
+	config.ExpiresAt = nil
+	notYetEffective := now.Add(time.Second)
+	config.EffectiveAt = &notYetEffective
+	if _, err := manager.DecryptStored(config, now); err == nil {
+		t.Fatal("expected not-yet-effective stored config to fail closed")
 	}
 }
 
