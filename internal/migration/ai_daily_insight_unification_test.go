@@ -21,15 +21,15 @@ func TestAIDailyInsightUnification0165MigrationContract(t *testing.T) {
 	up := read("up")
 	down := read("down")
 	for _, fragment := range []string{
-		"ADD COLUMN `analysis_date` date",
-		"ADD COLUMN `previous_insight_id` bigint unsigned",
-		"ADD COLUMN `previous_score` decimal(6,2)",
-		"ADD COLUMN `previous_summary` varchar(1200)",
-		"ADD COLUMN `previous_generated_at` datetime(6)",
+		"ADD COLUMN IF NOT EXISTS `analysis_date` date",
+		"ADD COLUMN IF NOT EXISTS `previous_insight_id` bigint unsigned",
+		"ADD COLUMN IF NOT EXISTS `previous_score` decimal(6,2)",
+		"ADD COLUMN IF NOT EXISTS `previous_summary` varchar(1200)",
+		"ADD COLUMN IF NOT EXISTS `previous_generated_at` datetime(6)",
 		"UPDATE `mochat_go_ai_conversation_insights`",
 		"DELETE duplicate_row",
-		"DROP INDEX `uq_ai_conversation_source`",
-		"UNIQUE KEY `uq_ai_conversation_daily` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`analysis_date`)",
+		"DROP INDEX IF EXISTS `uq_ai_conversation_source`",
+		"UNIQUE KEY IF NOT EXISTS `uq_ai_conversation_daily` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`analysis_date`)",
 		"DROP TABLE IF EXISTS `mochat_go_ai_analysis`",
 	} {
 		if !strings.Contains(up, fragment) {
@@ -45,13 +45,13 @@ func TestAIDailyInsightUnification0165MigrationContract(t *testing.T) {
 
 	for _, fragment := range []string{
 		"CREATE TABLE IF NOT EXISTS `mochat_go_ai_analysis`",
-		"DROP INDEX `uq_ai_conversation_daily`",
-		"UNIQUE KEY `uq_ai_conversation_source` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`source_fingerprint`)",
-		"DROP COLUMN `previous_generated_at`",
-		"DROP COLUMN `previous_summary`",
-		"DROP COLUMN `previous_score`",
-		"DROP COLUMN `previous_insight_id`",
-		"DROP COLUMN `analysis_date`",
+		"DROP INDEX IF EXISTS `uq_ai_conversation_daily`",
+		"UNIQUE KEY IF NOT EXISTS `uq_ai_conversation_source` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`source_fingerprint`)",
+		"DROP COLUMN IF EXISTS `previous_generated_at`",
+		"DROP COLUMN IF EXISTS `previous_summary`",
+		"DROP COLUMN IF EXISTS `previous_score`",
+		"DROP COLUMN IF EXISTS `previous_insight_id`",
+		"DROP COLUMN IF EXISTS `analysis_date`",
 	} {
 		if !strings.Contains(down, fragment) {
 			t.Errorf("down migration missing %q", fragment)

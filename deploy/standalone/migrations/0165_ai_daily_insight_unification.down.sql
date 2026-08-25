@@ -1,8 +1,8 @@
 -- Rollback restores the former schema contract only. The removed legacy rows
 -- cannot be reconstructed truthfully, so the legacy table is recreated empty.
 ALTER TABLE `mochat_go_ai_conversation_insights`
-  DROP INDEX `idx_ai_insight_previous`,
-  DROP INDEX `uq_ai_conversation_daily`;
+  DROP INDEX IF EXISTS `idx_ai_insight_previous`,
+  DROP INDEX IF EXISTS `uq_ai_conversation_daily`;
 
 -- Multiple daily rows may share a source fingerprint. Keep the newest one so
 -- the historical source-fingerprint unique key can be restored safely.
@@ -18,12 +18,12 @@ INNER JOIN `mochat_go_ai_conversation_insights` retained_row
  AND retained_row.`id` > duplicate_row.`id`;
 
 ALTER TABLE `mochat_go_ai_conversation_insights`
-  ADD UNIQUE KEY `uq_ai_conversation_source` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`source_fingerprint`),
-  DROP COLUMN `previous_generated_at`,
-  DROP COLUMN `previous_summary`,
-  DROP COLUMN `previous_score`,
-  DROP COLUMN `previous_insight_id`,
-  DROP COLUMN `analysis_date`;
+  ADD UNIQUE KEY IF NOT EXISTS `uq_ai_conversation_source` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`source_fingerprint`),
+  DROP COLUMN IF EXISTS `previous_generated_at`,
+  DROP COLUMN IF EXISTS `previous_summary`,
+  DROP COLUMN IF EXISTS `previous_score`,
+  DROP COLUMN IF EXISTS `previous_insight_id`,
+  DROP COLUMN IF EXISTS `analysis_date`;
 
 CREATE TABLE IF NOT EXISTS `mochat_go_ai_analysis` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,

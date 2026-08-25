@@ -3,11 +3,11 @@
 -- them with numeric offsets so this backfill does not depend on MySQL timezone
 -- tables being installed.
 ALTER TABLE `mochat_go_ai_conversation_insights`
-  ADD COLUMN `analysis_date` date NULL AFTER `conversation_key`,
-  ADD COLUMN `previous_insight_id` bigint unsigned NULL AFTER `prompt_version`,
-  ADD COLUMN `previous_score` decimal(6,2) NULL AFTER `previous_insight_id`,
-  ADD COLUMN `previous_summary` varchar(1200) NOT NULL DEFAULT '' AFTER `previous_score`,
-  ADD COLUMN `previous_generated_at` datetime(6) NULL AFTER `previous_summary`;
+  ADD COLUMN IF NOT EXISTS `analysis_date` date NULL AFTER `conversation_key`,
+  ADD COLUMN IF NOT EXISTS `previous_insight_id` bigint unsigned NULL AFTER `prompt_version`,
+  ADD COLUMN IF NOT EXISTS `previous_score` decimal(6,2) NULL AFTER `previous_insight_id`,
+  ADD COLUMN IF NOT EXISTS `previous_summary` varchar(1200) NOT NULL DEFAULT '' AFTER `previous_score`,
+  ADD COLUMN IF NOT EXISTS `previous_generated_at` datetime(6) NULL AFTER `previous_summary`;
 
 UPDATE `mochat_go_ai_conversation_insights`
 SET `analysis_date` = COALESCE(
@@ -31,9 +31,9 @@ INNER JOIN `mochat_go_ai_conversation_insights` retained_row
  AND retained_row.`id` > duplicate_row.`id`;
 
 ALTER TABLE `mochat_go_ai_conversation_insights`
-  MODIFY COLUMN `analysis_date` date NOT NULL,
-  DROP INDEX `uq_ai_conversation_source`,
-  ADD UNIQUE KEY `uq_ai_conversation_daily` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`analysis_date`),
-  ADD KEY `idx_ai_insight_previous` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`analysis_date`,`status`);
+  MODIFY COLUMN IF EXISTS `analysis_date` date NOT NULL,
+  DROP INDEX IF EXISTS `uq_ai_conversation_source`,
+  ADD UNIQUE KEY IF NOT EXISTS `uq_ai_conversation_daily` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`analysis_date`),
+  ADD KEY IF NOT EXISTS `idx_ai_insight_previous` (`tenant_id`,`corp_id`,`analysis_type`,`rule_version_id`,`conversation_key`,`analysis_date`,`status`);
 
 DROP TABLE IF EXISTS `mochat_go_ai_analysis`;
