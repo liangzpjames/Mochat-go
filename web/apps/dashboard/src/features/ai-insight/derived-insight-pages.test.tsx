@@ -217,6 +217,8 @@ describe('三个 AI 洞察专用投影页面', () => {
     const api = createApi();
     render(<EmployeeScoreInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
     expect(await screen.findByRole('heading', { name: '员工评分洞察' })).toBeTruthy();
+    expect(screen.getByText('从已持久化会话质检结果中查看评分、说明与消息证据')).toBeTruthy();
+    expect(screen.queryByText(/查看真实评分/)).toBeNull();
     expect(screen.getByText('0 分')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('最低分'), { target: { value: '0' } });
     fireEvent.change(screen.getByLabelText('最高分'), { target: { value: '100' } });
@@ -228,6 +230,7 @@ describe('三个 AI 洞察专用投影页面', () => {
     const api = createApi();
     render(<CommunicationKeywordInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
     expect(await screen.findByRole('heading', { name: '沟通关键词洞察' })).toBeTruthy();
+    expect(screen.getByLabelText('沟通关键词')).toHaveProperty('placeholder', '搜索已提取关键词');
     expect(screen.getByText('50%_\\采购')).toBeTruthy();
     expect(screen.getByText('高意向')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('沟通关键词'), { target: { value: '采购' } });

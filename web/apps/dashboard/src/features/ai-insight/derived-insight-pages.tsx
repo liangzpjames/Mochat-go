@@ -105,12 +105,12 @@ const configs: Record<DerivedInsightView, ViewConfig> = {
     specializedFilter: (draft, update) => <AiInsightField label="客户情绪"><select aria-label="客户情绪" value={draft.emotion ?? ''} onChange={(event) => update({ emotion: (event.target.value || undefined) as EmotionLabel | undefined })}><option value="">全部情绪</option><option value="positive">正向客户</option><option value="neutral">中性客户</option><option value="negative">负向客户</option><option value="mixed">混合情绪</option><option value="unknown">未知情绪</option></select></AiInsightField>,
   },
   'employee-score': {
-    view: 'employee-score', title: '员工评分洞察', description: '从已持久化会话质检结果中查看真实评分、说明与消息证据',
+    view: 'employee-score', title: '员工评分洞察', description: '从已持久化会话质检结果中查看评分、说明与消息证据',
     specializedFilter: (draft, update) => <><AiInsightField label="最低分"><input aria-label="最低分" type="number" min="0" max="100" step="1" value={scoreInput(draft.minScore)} onChange={(event) => update({ minScore: parseScore(event.target.value) })} /></AiInsightField><AiInsightField label="最高分"><input aria-label="最高分" type="number" min="0" max="100" step="1" value={scoreInput(draft.maxScore)} onChange={(event) => update({ maxScore: parseScore(event.target.value) })} /></AiInsightField></>,
   },
   'communication-keyword': {
     view: 'communication-keyword', title: '沟通关键词洞察', description: '从已持久化会话分析中查看关键词、上下文与消息证据',
-    specializedFilter: (draft, update) => <AiInsightField label="沟通关键词"><input aria-label="沟通关键词" value={draft.keyword ?? ''} onChange={(event) => update({ keyword: event.target.value || undefined })} placeholder="搜索真实提取关键词" /></AiInsightField>,
+    specializedFilter: (draft, update) => <AiInsightField label="沟通关键词"><input aria-label="沟通关键词" value={draft.keyword ?? ''} onChange={(event) => update({ keyword: event.target.value || undefined })} placeholder="搜索已提取关键词" /></AiInsightField>,
   },
 };
 
