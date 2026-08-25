@@ -101,7 +101,7 @@ func (r *DailyAnalysisRunner) run(ctx context.Context, window *analysisWindow) e
 				conversationErr = r.conversation.RunCorpWindow(ctx, corp.tenantID, corp.corpID, window.startAt, window.endAt)
 			}
 			if conversationErr != nil {
-				r.logger.Printf("AI insight conversation analysis failed for corp %d: %v", corp.corpID, conversationErr)
+				r.logger.Printf("AI insight conversation analysis failed for corp %d: %s", corp.corpID, safeRunFailureCode(conversationErr, "AI_ANALYSIS_FAILED"))
 			}
 		}
 	}

@@ -1,8 +1,10 @@
 package aiinsight
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,47 @@ import (
 	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
 	"jiyi/mochat-go/internal/modules/providers"
 )
+
+func TestConversationRunnerOperationalFailuresNeverReachRunRecordsOrLogs(t *testing.T) {
+	secret := "fixture operational secret"
+	tests := []struct {
+		name   string
+		repo   *runnerRepoStub
+		assist any
+	}{
+		{name: "rule load", repo: &runnerRepoStub{sessionRuleErr: errors.New(secret), rulesErr: errors.New(secret)}},
+		{name: "assistant load", repo: &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11}, rules: []AnalysisRuleVersion{{ID: 22}}}, assist: assistantContextStub{loadErr: errors.New(secret)}},
+		{name: "create run", repo: &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11}, rules: []AnalysisRuleVersion{{ID: 22}}, createRunErr: errors.New(secret)}},
+		{name: "finish run", repo: &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11}, rules: []AnalysisRuleVersion{{ID: 22}}, finishErr: errors.New(secret)}},
+		{name: "save insight", repo: &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11}, rules: []AnalysisRuleVersion{{ID: 22}}, saveErr: errors.New(secret)}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			logger := log.New(&output, "", 0)
+			var runner *ConversationAnalysisRunner
+			if test.assist != nil {
+				runner = newConversationAnalysisRunnerForTest(test.repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, logger, test.assist)
+			} else {
+				runner = newConversationAnalysisRunnerForTest(test.repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, logger)
+			}
+			_ = runner.RunCorp(context.Background(), 1, 2)
+			if strings.Contains(output.String(), secret) {
+				t.Fatalf("logger leaked operational error: %s", output.String())
+			}
+			for _, finished := range test.repo.finished {
+				if strings.Contains(finished.ErrorSummary, secret) {
+					t.Fatalf("run record leaked operational error: %#v", finished)
+				}
+			}
+			for _, saved := range test.repo.saved {
+				if strings.Contains(saved.ErrorSummary, secret) {
+					t.Fatalf("insight record leaked operational error: %#v", saved)
+				}
+			}
+		})
+	}
+}
 
 func requireRunCode(t *testing.T, err error, want string) {
 	t.Helper()
@@ -265,9 +308,7 @@ func TestConversationRunnerReturnsUnavailableRunPersistenceFailure(t *testing.T)
 
 			err := runner.RunCorp(context.Background(), 1, 2)
 
-			if !errors.Is(err, persistenceErr) {
-				t.Fatalf("RunCorp error = %v, want %v", err, persistenceErr)
-			}
+			requireRunCode(t, err, "AI_RUN_PERSIST_FAILED")
 		})
 	}
 }
@@ -290,9 +331,7 @@ func TestConversationRunnerReturnsSmartUnavailableRunPersistenceFailure(t *testi
 
 	err := runner.RunCorp(context.Background(), 1, 2)
 
-	if !errors.Is(err, persistenceErr) {
-		t.Fatalf("RunCorp error = %v, want %v", err, persistenceErr)
-	}
+	requireRunCode(t, err, "AI_RUN_PERSIST_FAILED")
 }
 
 func TestConversationRunnerRecordsSessionAndDefaultSmartFailuresWhenProviderUnavailable(t *testing.T) {
@@ -310,7 +349,7 @@ func TestConversationRunnerRecordsSessionAndDefaultSmartFailuresWhenProviderUnav
 		t.Fatalf("finished = %#v, want two failed results", repo.finished)
 	}
 	for _, result := range repo.finished {
-		if result.Status != AnalysisStatusFailed || !strings.Contains(result.ErrorSummary, "未配置模型凭证") {
+		if result.Status != AnalysisStatusFailed || result.ErrorSummary != "AI_ANALYSIS_UNAVAILABLE" {
 			t.Fatalf("finished = %#v", repo.finished)
 		}
 	}
@@ -554,7 +593,7 @@ func TestConversationRunnerDoesNotRunSessionWithoutCurrentRuleVersion(t *testing
 	if len(repo.runs) != 2 || repo.runs[0].AnalysisType != AnalysisTypeSession || repo.runs[0].RuleVersionID != 0 {
 		t.Fatalf("runs=%#v, want a real session failure before smart run", repo.runs)
 	}
-	if len(repo.finished) != 2 || repo.finished[0].Status != AnalysisStatusFailed || !strings.Contains(repo.finished[0].ErrorSummary, "规则") {
+	if len(repo.finished) != 2 || repo.finished[0].Status != AnalysisStatusFailed || repo.finished[0].ErrorSummary != "AI_ANALYSIS_UNAVAILABLE" {
 		t.Fatalf("finished=%#v, want missing session rule failure", repo.finished)
 	}
 }
