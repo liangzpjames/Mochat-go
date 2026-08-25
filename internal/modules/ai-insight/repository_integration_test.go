@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -112,6 +113,144 @@ func TestEmployeeOptionsSearchesNamesOnRealMariaDB(t *testing.T) {
 	if len(options) != 1 || options[0].ID != 1106 || options[0].Name != "AI验收员工A" {
 		t.Fatalf("options = %#v", options)
 	}
+}
+
+func TestDirectoryOptionsUsesAuthoritativeDirectoriesAndRestrictedRelationsOnRealMariaDB(t *testing.T) {
+	db := aiInsightIntegrationDB(t)
+	createAIInsightIntegrationTable(t, db)
+	createAIInsightDirectoryIntegrationTables(t, db)
+
+	if _, err := db.Exec(`INSERT INTO mc_work_employee (id,corp_id,name,avatar,status,deleted_at) VALUES
+		(1001,8,'可用员工甲','employee-a',1,NULL),
+		(1002,8,'可用员工乙','employee-b',1,NULL),
+		(1003,8,'已离职员工','employee-c',5,NULL),
+		(1004,8,'已删除员工','employee-d',1,NOW())`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mc_work_contact (id,corp_id,name,avatar,deleted_at) VALUES
+		(2001,8,'客户甲','customer-a',NULL),
+		(2002,8,'客户乙','customer-b',NULL),
+		(2003,8,'已删除客户','customer-c',NOW())`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO mc_work_contact_employee (corp_id,contact_id,employee_id,status,deleted_at) VALUES
+		(8,2001,1001,1,NULL),
+		(8,2002,1002,1,NULL),
+		(8,2002,1001,0,NULL)`); err != nil {
+		t.Fatal(err)
+	}
+
+	generatedAt := time.Date(2026, 8, 25, 8, 0, 0, 0, time.UTC)
+	insertDirectoryIntegrationInsight(t, db, 7, 8, 1001, 2001, AnalysisStatusSucceeded, generatedAt)
+	insertDirectoryIntegrationInsight(t, db, 7, 8, 1002, 2002, AnalysisStatusFailed, generatedAt.Add(time.Minute))
+	insertDirectoryIntegrationInsight(t, db, 9, 8, 1002, 2002, AnalysisStatusSucceeded, generatedAt.Add(2*time.Minute))
+
+	repository := NewSQLRepository(db)
+	all, err := repository.DirectoryOptions(context.Background(), DirectoryOptionFilter{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("DirectoryOptions unrestricted: %v", err)
+	}
+	if got := directoryEmployeeIDs(all.Employees); !reflect.DeepEqual(got, []int64{1001, 1002}) {
+		t.Fatalf("unrestricted employee ids = %#v", got)
+	}
+	if got := directoryCustomerIDs(all.Customers); !reflect.DeepEqual(got, []int64{2001, 2002}) {
+		t.Fatalf("unrestricted customer ids = %#v", got)
+	}
+	if all.Coverage != (InsightDirectoryCoverage{AvailableEmployeeCount: 2, AvailableCustomerCount: 2, AnalyzedEmployeeCount: 1, AnalyzedCustomerCount: 1}) {
+		t.Fatalf("unrestricted coverage = %#v", all.Coverage)
+	}
+
+	restricted, err := repository.DirectoryOptions(context.Background(), DirectoryOptionFilter{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, Limit: 20,
+		Restricted: true, AllowedEmployeeIDs: []int64{1001},
+	})
+	if err != nil {
+		t.Fatalf("DirectoryOptions restricted: %v", err)
+	}
+	if got := directoryEmployeeIDs(restricted.Employees); !reflect.DeepEqual(got, []int64{1001}) {
+		t.Fatalf("restricted employee ids = %#v", got)
+	}
+	if got := directoryCustomerIDs(restricted.Customers); !reflect.DeepEqual(got, []int64{2001}) {
+		t.Fatalf("restricted customer ids = %#v", got)
+	}
+	if restricted.Coverage != (InsightDirectoryCoverage{AvailableEmployeeCount: 1, AvailableCustomerCount: 1, AnalyzedEmployeeCount: 1, AnalyzedCustomerCount: 1}) {
+		t.Fatalf("restricted coverage = %#v", restricted.Coverage)
+	}
+}
+
+func createAIInsightDirectoryIntegrationTables(t *testing.T, db *sql.DB) {
+	t.Helper()
+	statements := []string{
+		`CREATE TEMPORARY TABLE mc_work_employee (
+			id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+			corp_id BIGINT UNSIGNED NOT NULL,
+			name VARCHAR(255) NOT NULL,
+			avatar VARCHAR(512) NOT NULL,
+			status TINYINT NOT NULL,
+			deleted_at DATETIME(6) NULL
+		)`,
+		`CREATE TEMPORARY TABLE mc_work_contact (
+			id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+			corp_id BIGINT UNSIGNED NOT NULL,
+			name VARCHAR(255) NOT NULL,
+			avatar VARCHAR(512) NOT NULL,
+			deleted_at DATETIME(6) NULL
+		)`,
+		`CREATE TEMPORARY TABLE mc_work_contact_employee (
+			corp_id BIGINT UNSIGNED NOT NULL,
+			contact_id BIGINT UNSIGNED NOT NULL,
+			employee_id BIGINT UNSIGNED NOT NULL,
+			status TINYINT NOT NULL,
+			deleted_at DATETIME(6) NULL
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, table := range []string{"mc_work_contact_employee", "mc_work_contact", "mc_work_employee"} {
+			if _, err := db.Exec("DROP TEMPORARY TABLE IF EXISTS " + table); err != nil {
+				t.Errorf("drop temporary directory table %s: %v", table, err)
+			}
+		}
+	})
+}
+
+func insertDirectoryIntegrationInsight(t *testing.T, db *sql.DB, tenantID, corpID, employeeID, customerID int64, status AnalysisStatus, generatedAt time.Time) {
+	t.Helper()
+	key := "directory-" + string(status) + "-" + generatedAt.Format("150405")
+	fingerprint := strings.Repeat(string(rune('a'+generatedAt.Minute()%20)), 64)
+	_, err := db.Exec(`INSERT INTO mochat_go_ai_conversation_insights
+		(tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		tenantID, corpID, AnalysisTypeSession, 0, 0, key, employeeID, "员工", "", "1", customerID, "客户", "",
+		generatedAt.Add(-time.Minute), generatedAt, 2, fingerprint, status, "目录覆盖", []byte(`{}`), "", "provider", "model", "v2", generatedAt, generatedAt, generatedAt,
+	)
+	if err != nil {
+		t.Fatalf("insert directory insight: %v", err)
+	}
+}
+
+func directoryEmployeeIDs(options []EmployeeOption) []int64 {
+	ids := make([]int64, 0, len(options))
+	for _, option := range options {
+		ids = append(ids, option.ID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func directoryCustomerIDs(options []CustomerOption) []int64 {
+	ids := make([]int64, 0, len(options))
+	for _, option := range options {
+		ids = append(ids, option.ID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
 }
 
 type aiInsightIntegrationRow struct {
