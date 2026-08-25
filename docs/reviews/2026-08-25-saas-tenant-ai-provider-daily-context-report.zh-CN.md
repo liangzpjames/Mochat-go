@@ -88,7 +88,7 @@ corepack pnpm --filter @mochat/dashboard lint
 - `PUT /dashboard/saasAdmin/tenantAIProvider`，权限 `platform.integrations.manage`。
 - SaaS“客户租户 → 租户详情 → AI 分析配置”界面，可分别配置厂商、OpenAI-compatible Base URL、模型、API Key、生效时间、失效时间、状态和乐观锁版本。
 
-Key 只存在于提交瞬时内存；成功、失败、Escape 和关闭均清空；GET、Query cache、日志、审计、错误与 URL 均不返回 Key 或密文。版本冲突会重新拉取服务端事实，重新拉取失败时保持诚实错误，不显示伪成功。
+前端输入的明文 Key 仅存在于编辑与提交期间；成功、失败、Escape 和关闭均清空；GET、Query cache、日志、审计、错误与 URL 均不返回 Key 或密文。运行时按需解密 Key，仅用于 Authorization header。版本冲突会重新拉取服务端事实，重新拉取失败时保持诚实错误，不显示伪成功。
 
 ### 7.2 安全
 
@@ -106,7 +106,7 @@ Key 只存在于提交瞬时内存；成功、失败、Escape 和关闭均清空
 
 ## 8. AI 请求参数如何组装
 
-每个候选会话只进行一次结构化会话分析请求，三个投影页不会分别追加三次模型调用。请求组装顺序：
+每个候选会话执行一次结构化会话分析流程；如果首次结果未通过结构校验，最多追加一次结构纠错请求。三个投影页不会分别追加三次模型调用。请求组装顺序：
 
 1. 按租户解析当前有效 Provider、Base URL、模型和解密后的 Key；Key 仅进入 Authorization header。
 2. 固定系统约束：模型只能使用本次提供的消息证据，必须输出约定 JSON schema，证据 ID 必须来自允许集合。
@@ -185,4 +185,3 @@ Dashboard 全量测试中的 `jsdom window.getComputedStyle(..., pseudoElt)` 为
 本分支包含中文设计、中文实施计划、企业资料/RBAC、三页投影、目录与概览、Dashboard lint、租户 Provider 加密/API/UI、当日快照、连续性上下文、迁移中断恢复和诚实状态文案等原子提交。独立复审对实现与迁移给出 PASS，未发现 Critical、Important 或 Minor 问题。
 
 建议由用户审阅本报告和分支 diff 后，以普通 merge 或 cherry-pick 合入；本任务没有自行合并或推送新分支。
-
