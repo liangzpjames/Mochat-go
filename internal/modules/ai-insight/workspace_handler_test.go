@@ -704,6 +704,16 @@ type workspaceChatFailureProvider struct{ calls int }
 func (p *workspaceChatFailureProvider) Status() providers.Status {
 	return providers.Status{State: providers.StateReady}
 }
+
+type workspaceInvalidJSONProvider struct{ calls int }
+
+func (p *workspaceInvalidJSONProvider) Status() providers.Status {
+	return providers.Status{State: providers.StateReady}
+}
+func (p *workspaceInvalidJSONProvider) Chat(context.Context, providers.ChatRequest) (string, error) {
+	p.calls++
+	return `{"unexpected":true}`, nil
+}
 func (p *workspaceChatFailureProvider) Chat(context.Context, providers.ChatRequest) (string, error) {
 	p.calls++
 	return "", errors.New("transport https://secret.example/path?token=hidden")
@@ -794,5 +804,66 @@ func TestWorkspaceManualRunReturnsSafeFailureCodes(t *testing.T) {
 				t.Fatalf("status=%d body=%s", recorder.Code, body)
 			}
 		})
+	}
+}
+
+func TestWorkspaceManualRunNeverReportsOperationalFailuresAsSuccess(t *testing.T) {
+	baseRepo := func() *runnerRepoStub {
+		return &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}}}
+	}
+	tests := []struct {
+		name     string
+		repo     *runnerRepoStub
+		provider providers.AIProvider
+		assist   *systemAssistantStub
+		wantCode string
+	}{
+		{name: "provider not ready", repo: baseRepo(), provider: unavailableAIProvider{}, wantCode: "AI_PROVIDER_UNAVAILABLE"},
+		{name: "missing rules", repo: &runnerRepoStub{}, provider: &capturingAIProvider{}, wantCode: "AI_RULE_UNAVAILABLE"},
+		{name: "assistant load error", repo: baseRepo(), provider: &capturingAIProvider{}, assist: &systemAssistantStub{contexts: map[string]settingsports.SystemAssistantContext{}, loadErrs: map[string]error{settingsports.SessionAnalysisSystemKey: errors.New("fixture assistant secret"), settingsports.SmartAnalysisSystemKey: errors.New("fixture assistant secret")}}, wantCode: "AI_ASSISTANT_UNAVAILABLE"},
+		{name: "candidate query error", repo: func() *runnerRepoStub {
+			value := baseRepo()
+			value.candidateErr = errors.New("fixture query secret")
+			return value
+		}(), provider: &capturingAIProvider{}, wantCode: "AI_ANALYSIS_FAILED"},
+		{name: "correction remains invalid", repo: baseRepo(), provider: &workspaceInvalidJSONProvider{}, wantCode: "AI_ANALYSIS_FAILED"},
+		{name: "save insight error", repo: func() *runnerRepoStub {
+			value := baseRepo()
+			value.saveErr = errors.New("fixture save secret")
+			return value
+		}(), provider: &capturingAIProvider{}, wantCode: "AI_ANALYSIS_FAILED"},
+		{name: "finish run error", repo: func() *runnerRepoStub {
+			value := baseRepo()
+			value.finishErr = errors.New("fixture finish secret")
+			return value
+		}(), provider: &capturingAIProvider{}, wantCode: "AI_ANALYSIS_FAILED"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := &workspaceProviderResolver{provider: test.provider}
+			var handler *WorkspaceHandler
+			principal := workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22, CanRunAnalysis: true}}
+			if test.assist != nil {
+				handler = NewWorkspaceHandler(principal, &workspaceTestAuthorizer{}, test.repo, resolver, test.assist)
+			} else {
+				handler = NewWorkspaceHandler(principal, &workspaceTestAuthorizer{}, test.repo, resolver)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/dashboard/ai-insight/run", nil))
+			body := recorder.Body.String()
+			if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(body, test.wantCode) || strings.Contains(body, "fixture") || strings.Contains(body, "secret") {
+				t.Fatalf("status=%d body=%s", recorder.Code, body)
+			}
+		})
+	}
+}
+
+func TestWorkspaceStatusKeepsDefaultCodeForEmptyGenericSafeCode(t *testing.T) {
+	resolver := &workspaceProviderResolver{err: workspaceSafeResolveError{code: ""}}
+	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, workspaceTestRepo{}, resolver)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/status", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"code":"AI_PROVIDER_UNAVAILABLE"`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

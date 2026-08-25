@@ -205,7 +205,7 @@ func TestTenantResolverKeepsTenantProviderSecretsAndModelsIsolated(t *testing.T)
 	resolver := NewTenantResolver(db, manager, guard)
 	resolver.Now = func() time.Time { return now }
 	var captured []openai.Config
-	resolver.Factory = func(config openai.Config) (providers.AIProvider, error) {
+	resolver.factory = func(config openai.Config) (providers.AIProvider, error) {
 		captured = append(captured, config)
 		return resolverTestProvider{}, nil
 	}
@@ -310,7 +310,7 @@ func TestTenantResolverRejectsEveryUnsafeRuntimeStateBeforeProviderCreation(t *t
 			resolver := NewTenantResolver(db, cipherManager, guard)
 			resolver.Now = func() time.Time { return now }
 			factoryCalls := 0
-			resolver.Factory = func(openai.Config) (providers.AIProvider, error) { factoryCalls++; return resolverTestProvider{}, nil }
+			resolver.factory = func(openai.Config) (providers.AIProvider, error) { factoryCalls++; return resolverTestProvider{}, nil }
 			_, resolveErr := resolver.Resolve(context.Background(), 7, 9)
 			var safe *ResolveError
 			if !errors.As(resolveErr, &safe) || safe.Code != test.code || factoryCalls != 0 {

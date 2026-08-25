@@ -42,11 +42,17 @@ type runnerRepoStub struct {
 	sessionLoader    func() *AnalysisRuleVersion
 	createRunErr     error
 	createRunErrAt   int
+	candidateErr     error
+	saveErr          error
+	finishErr        error
 	candidateQueries []CandidateQuery
 }
 
 func (r *runnerRepoStub) ConversationCandidates(_ context.Context, query CandidateQuery) ([]ConversationCandidate, error) {
 	r.candidateQueries = append(r.candidateQueries, query)
+	if r.candidateErr != nil {
+		return nil, r.candidateErr
+	}
 	return []ConversationCandidate{{ConversationKey: "conversation-1", SourceFingerprint: "messages-v1", SourceMessageCount: 1, SourceStartedAt: time.Date(2026, 8, 23, 8, 0, 0, 0, time.UTC), SourceEndedAt: time.Date(2026, 8, 23, 8, 1, 0, 0, time.UTC)}}, nil
 }
 
@@ -68,7 +74,7 @@ func (r *runnerRepoStub) LatestSucceededFingerprint(context.Context, int64, int6
 }
 func (r *runnerRepoStub) SaveInsight(_ context.Context, insight ConversationInsight) error {
 	r.saved = append(r.saved, insight)
-	return nil
+	return r.saveErr
 }
 func (r *runnerRepoStub) CreateRun(_ context.Context, run InsightRun) (int64, error) {
 	r.runs = append(r.runs, run)
@@ -79,7 +85,7 @@ func (r *runnerRepoStub) CreateRun(_ context.Context, run InsightRun) (int64, er
 }
 func (r *runnerRepoStub) FinishRun(_ context.Context, _ int64, result InsightRunResult) error {
 	r.finished = append(r.finished, result)
-	return nil
+	return r.finishErr
 }
 func (r *runnerRepoStub) EnabledRuleVersions(context.Context, int64, int64) ([]AnalysisRuleVersion, error) {
 	if r.rulesLoader != nil {

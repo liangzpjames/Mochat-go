@@ -279,8 +279,8 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 		if err != nil {
 			code, message := "AI_PROVIDER_UNAVAILABLE", safeProviderFailure(err)
 			var resolveErr providers.AIProviderResolveError
-			if errors.As(err, &resolveErr) {
-				code, message = resolveErr.SafeCode(), resolveErr.SafeReason()
+			if errors.As(err, &resolveErr) && strings.TrimSpace(resolveErr.SafeCode()) != "" {
+				code, message = strings.TrimSpace(resolveErr.SafeCode()), strings.TrimSpace(resolveErr.SafeReason())
 			}
 			provider = map[string]any{"state": "unavailable", "code": code, "message": message}
 		} else {
