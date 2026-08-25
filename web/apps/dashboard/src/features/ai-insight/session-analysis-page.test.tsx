@@ -26,7 +26,7 @@ describe('会话分析工作台', () => {
 	    render(<SessionAnalysisPage api={api as unknown as AiInsightWorkspaceApi} />);
 	    expect((await screen.findByRole('alert')).textContent).toBe('服务暂时不可用，请稍后刷新重试。');
 	  });
-  it('使用紧凑查询和空状态，不显示能力说明大卡', async () => { render(<SessionAnalysisPage api={createApi() as unknown as AiInsightWorkspaceApi} />); expect(await screen.findByRole('heading', { name: '会话分析' })).toBeTruthy(); expect(screen.getByRole('button', { name: '查询' })).toBeTruthy(); expect(screen.getByText('当前筛选暂无分析结果')).toBeTruthy(); expect(screen.queryByText('AI 能力未接入')).toBeNull(); });
+  it('使用紧凑查询和空状态，不把归档来源笼统宣称为真实', async () => { render(<SessionAnalysisPage api={createApi() as unknown as AiInsightWorkspaceApi} />); expect(await screen.findByRole('heading', { name: '会话分析' })).toBeTruthy(); expect(screen.getByRole('button', { name: '查询' })).toBeTruthy(); expect(screen.getByText('当前筛选暂无分析结果')).toBeTruthy(); expect(screen.getByText('按已归档会话查看客户判断与员工质检结果')).toBeTruthy(); expect(screen.getByText('每条记录对应一个已归档会话，固定每页 20 条')).toBeTruthy(); expect(screen.queryByText(/真实归档会话/)).toBeNull(); });
   it('展示实际消费的系统助手与可用知识文档数', async () => {
     const linkedApi = { sessionRecords: vi.fn().mockResolvedValue({ page: 1, pageSize: 20, total: 0, items: [] }), sessionStatus: vi.fn().mockResolvedValue({ provider: { state: 'ready' }, assistant: { name: '会话分析助手', enabled: true, knowledgeBaseCount: 2, readyDocumentCount: 5, updatedAt: '' } }), sessionDetail: vi.fn(), sessionFilterOptions: vi.fn().mockResolvedValue({ employees: [] }), sessionExportUrl: vi.fn().mockReturnValue('/export') };
     render(<SessionAnalysisPage api={linkedApi as unknown as AiInsightWorkspaceApi} />);

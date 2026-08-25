@@ -131,7 +131,7 @@ function BusinessDashboard({ data, onRefresh, refreshing }: {
       <section aria-labelledby="overview-ai-title" className="overview-module dashboard-data-card">
       <OverviewModuleHeader
         description="只展示结构化数字，缺失字段不以 0 代替"
-        extra={<span className="overview-scope-chip">真实 AI 数据</span>}
+        extra={<span className="overview-scope-chip">持久化 AI 数据</span>}
         headingId="overview-ai-title"
         title="AI 洞察"
       />

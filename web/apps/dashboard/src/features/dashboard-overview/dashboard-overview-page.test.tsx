@@ -257,6 +257,8 @@ describe('DashboardOverviewPage', () => {
     expect(screen.getByText('统一报表口径')).toBeTruthy();
     expect(screen.getByRole('region', { name: '经营快照' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'AI 洞察' })).toBeTruthy();
+    expect(screen.getByText('持久化 AI 数据')).toBeTruthy();
+    expect(screen.queryByText('真实 AI 数据')).toBeNull();
     expect(screen.queryByRole('region', { name: '客户增长趋势' })).toBeNull();
     expect(screen.getByRole('region', { name: '会话数据' })).toBeTruthy();
     expect(container.querySelector('.overview-dashboard-main')).not.toBeNull();
