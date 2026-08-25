@@ -12,10 +12,10 @@ function rule(selector: string): string {
 }
 
 describe('dashboard overview cockpit layout', () => {
-  it('uses a four-card snapshot and compact five-card insight grid', () => {
+  it('uses a four-card snapshot and compact six-card insight grid', () => {
     expect(rule('.dashboard-overview-page .overview-metric-grid')).toContain('repeat(4, minmax(0, 1fr))');
     expect(css).toContain('.dashboard-overview-page .overview-ai-insight-grid');
-    expect(css).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))');
+    expect(css).toContain('grid-template-columns: repeat(6, minmax(0, 1fr))');
   });
 
   it('uses a 5:7 conversation and quality workspace with scroll-safe tables', () => {

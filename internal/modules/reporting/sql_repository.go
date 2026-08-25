@@ -156,16 +156,15 @@ func (r *SQLRepository) queryOverviewExtras(ctx context.Context, q ReportQuery) 
 	}
 	availability := qualityAvailability{}
 
-	if count, available, err := r.optionalCount(ctx, "mochat_go_ai_analysis", "corp_id=? AND status='succeeded' AND created_at>=? AND created_at<?", q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()); err != nil {
+	metrics, available, err := r.queryConversationInsightMetrics(ctx, q)
+	if err != nil {
 		return overviewExtras{}, err
-	} else if available {
-		extras.AIMetrics.AnalysisCount = count
-	} else {
-		extras.Limitations = append(extras.Limitations, Limitation{Provider: "ai_insight", Code: "analysis_table_unavailable", Message: "AI 分析记录表不可用"})
 	}
-	extras.AIMetrics.EmployeeNegativeEmotion = nil
-	extras.AIMetrics.CustomerNegativeEmotion = nil
-	extras.Limitations = append(extras.Limitations, Limitation{Provider: "ai_insight", Code: "structured_metrics_unavailable", Message: "AI 分析结果只有自然语言摘要，没有员工/客户负面情绪数字字段"})
+	if available {
+		extras.AIMetrics = metrics
+	} else {
+		extras.Limitations = append(extras.Limitations, Limitation{Provider: "ai_insight", Code: "conversation_insights_unavailable", Message: "会话洞察结果表不可用，数据概览无法与 AI 洞察页面同步"})
+	}
 
 	if count, available, err := r.optionalCount(ctx, "mochat_go_risk_records", "corp_id=? AND occurred_at>=? AND occurred_at<?", q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()); err != nil {
 		return overviewExtras{}, err
@@ -199,8 +198,6 @@ func (r *SQLRepository) queryOverviewExtras(ctx context.Context, q ReportQuery) 
 	} else {
 		extras.Limitations = append(extras.Limitations, Limitation{Provider: "customer_lifecycle", Code: "table_unavailable", Message: "客户关系记录表不可用"})
 	}
-	extras.AIMetrics.RiskBehavior = extras.Quality.RiskBehavior
-	extras.AIMetrics.SensitiveWords = extras.Quality.SensitiveWords
 	qualityTrend, err := r.queryQualityTrend(ctx, q, availability)
 	if err != nil {
 		return overviewExtras{}, err
@@ -224,6 +221,50 @@ func (r *SQLRepository) queryOverviewExtras(ctx context.Context, q ReportQuery) 
 		return overviewExtras{}, err
 	}
 	return extras, nil
+}
+
+func (r *SQLRepository) queryConversationInsightMetrics(ctx context.Context, q ReportQuery) (*AIMetrics, bool, error) {
+	var exists int
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='mochat_go_ai_conversation_insights'").Scan(&exists); err != nil {
+		return nil, false, err
+	}
+	if exists == 0 {
+		return &AIMetrics{}, false, nil
+	}
+
+	where := "i.tenant_id=? AND i.corp_id=? AND i.analysis_type='session' AND i.status='succeeded' AND i.source_ended_at>=? AND i.source_ended_at<?"
+	args := []any{q.TenantID, q.CorpID, q.StartAt.UTC(), q.EndAt.UTC()}
+	if len(q.EmployeeIDs) > 0 {
+		where += " AND i.employee_id IN (" + placeholders(len(q.EmployeeIDs)) + ")"
+		for _, employeeID := range q.EmployeeIDs {
+			args = append(args, employeeID)
+		}
+	}
+
+	query := `SELECT
+COUNT(*),
+COALESCE(SUM(CASE WHEN JSON_VALID(i.result_json) AND JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.customer.emotion.label'))='negative' THEN 1 ELSE 0 END),0),
+AVG(CASE WHEN JSON_VALID(i.result_json) AND JSON_TYPE(JSON_EXTRACT(i.result_json,'$.employeeQa.score'))='INTEGER' THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(i.result_json,'$.employeeQa.score')) AS DECIMAL(10,2)) END),
+COALESCE(SUM(CASE WHEN JSON_VALID(i.result_json) AND JSON_TYPE(JSON_EXTRACT(i.result_json,'$.customer.keywords'))='ARRAY' THEN JSON_LENGTH(JSON_EXTRACT(i.result_json,'$.customer.keywords')) ELSE 0 END),0),
+COUNT(DISTINCT i.employee_id),
+COUNT(DISTINCT CASE WHEN i.target_type='1' THEN i.target_id END)
+FROM mochat_go_ai_conversation_insights i WHERE ` + where
+	var analysisCount, negativeCount, keywordCount, employeeCount, customerCount int
+	var averageScore sql.NullFloat64
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&analysisCount, &negativeCount, &averageScore, &keywordCount, &employeeCount, &customerCount); err != nil {
+		return nil, true, err
+	}
+	metrics := &AIMetrics{
+		AnalysisCount:           reportIntPtr(analysisCount),
+		CustomerNegativeEmotion: reportIntPtr(negativeCount),
+		KeywordCount:            reportIntPtr(keywordCount),
+		AnalyzedEmployeeCount:   reportIntPtr(employeeCount),
+		AnalyzedCustomerCount:   reportIntPtr(customerCount),
+	}
+	if averageScore.Valid {
+		metrics.AverageEmployeeScore = &averageScore.Float64
+	}
+	return metrics, true, nil
 }
 
 func (r *SQLRepository) queryQualityTrend(ctx context.Context, q ReportQuery, available qualityAvailability) ([]QualityTrendPoint, error) {

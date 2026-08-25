@@ -93,11 +93,12 @@ type AIInsightSummary struct {
 }
 
 type AIMetrics struct {
-	AnalysisCount           *int `json:"analysisCount"`
-	EmployeeNegativeEmotion *int `json:"employeeNegativeEmotion"`
-	CustomerNegativeEmotion *int `json:"customerNegativeEmotion"`
-	RiskBehavior            *int `json:"riskBehavior"`
-	SensitiveWords          *int `json:"sensitiveWords"`
+	AnalysisCount           *int     `json:"analysisCount"`
+	CustomerNegativeEmotion *int     `json:"customerNegativeEmotion"`
+	AverageEmployeeScore    *float64 `json:"averageEmployeeScore"`
+	KeywordCount            *int     `json:"keywordCount"`
+	AnalyzedEmployeeCount   *int     `json:"analyzedEmployeeCount"`
+	AnalyzedCustomerCount   *int     `json:"analyzedCustomerCount"`
 }
 
 type QualityStats struct {

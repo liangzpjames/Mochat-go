@@ -71,15 +71,18 @@ describe('dashboard overview widgets', () => {
   });
 
   it('assembles AI insight into numeric controls without rendering the long summary', () => {
-    render(<OverviewAIInsightGrid
-      limitations={[{ provider: 'ai_insight', code: 'structured_metrics_unavailable', message: '只有自然语言摘要' }]}
-      metrics={{ analysisCount: 5, employeeNegativeEmotion: null, customerNegativeEmotion: null, riskBehavior: 4, sensitiveWords: 2 }}
-    />);
-    expect(screen.getByRole('article', { name: 'AI分析次数' }).textContent).toContain('5');
-    expect(screen.getByRole('article', { name: '风险行为' }).textContent).toContain('4');
-    expect(screen.getByRole('article', { name: '敏感词' }).textContent).toContain('2');
-    expect(screen.getByRole('article', { name: '客户负面情绪' }).textContent).toContain('--');
-    expect(screen.getByRole('status', { name: 'AI 数字字段暂缺' })).toBeTruthy();
+    render(<MemoryRouter><OverviewAIInsightGrid
+      limitations={[]}
+      metrics={{ analysisCount: 5, customerNegativeEmotion: 2, averageEmployeeScore: 86.5, keywordCount: 12, analyzedEmployeeCount: 3, analyzedCustomerCount: 4 }}
+    /></MemoryRouter>);
+    expect(screen.getByRole('article', { name: '已分析会话' }).textContent).toContain('5');
+    expect(screen.getByRole('article', { name: '负向客户会话' }).textContent).toContain('2');
+    expect(screen.getByRole('article', { name: '平均员工评分' }).textContent).toContain('86.5');
+    expect(screen.getByRole('article', { name: '关键词总数' }).textContent).toContain('12');
+    expect(screen.getByRole('article', { name: '已覆盖员工' }).textContent).toContain('3');
+    expect(screen.getByRole('article', { name: '已覆盖客户' }).textContent).toContain('4');
+    expect(screen.getByRole('link', { name: '查看负向客户会话详情' }).getAttribute('href')).toBe('/ai-insight/emotion?emotion=negative');
+    expect(screen.queryByRole('status', { name: 'AI 洞察数据暂缺' })).toBeNull();
     expect(screen.queryByText(/核心客户意图识别/)).toBeNull();
   });
 

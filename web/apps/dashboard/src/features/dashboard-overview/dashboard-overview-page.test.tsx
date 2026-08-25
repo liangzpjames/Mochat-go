@@ -73,7 +73,7 @@ const overview: DashboardOverview = {
       { date: '2026-08-16', customerSessions: 1, customerEmployeeMessages: 3, customerCustomerMessages: 0, roomSessions: 0, roomEmployeeMessages: 0, roomCustomerMessages: 0 },
     ],
   },
-  aiMetrics: { analysisCount: 5, employeeNegativeEmotion: null, customerNegativeEmotion: null, riskBehavior: 4, sensitiveWords: 2 },
+  aiMetrics: { analysisCount: 5, customerNegativeEmotion: 2, averageEmployeeScore: 86.5, keywordCount: 12, analyzedEmployeeCount: 3, analyzedCustomerCount: 4 },
   quality: {
     sensitiveWords: 2, riskBehavior: 4, customerLoss: 0, timeoutWarning: 3,
     trend: [{ date: '2026-08-15', sensitiveWords: 1, riskBehavior: 2, customerLoss: 0, timeoutWarning: 2 }],
@@ -229,7 +229,8 @@ describe('DashboardOverviewPage', () => {
     expect(screen.getByRole('heading', { name: '质检数据' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '员工会话数据排行' })).not.toBeNull();
     expect(screen.getByRole('heading', { name: '员工会话轨迹一览' })).not.toBeNull();
-    expect(screen.getByRole('status', { name: 'AI 数字字段暂缺' })).toBeTruthy();
+    expect(screen.getByRole('article', { name: '已分析会话' }).textContent).toContain('--');
+    expect(screen.queryByRole('status', { name: 'AI 洞察数据暂缺' })).toBeNull();
     expect(screen.getByRole('status', { name: '部分质检数据暂缺' })).toBeTruthy();
     expect(screen.getByRole('status', { name: '员工排行数据暂缺' })).toBeTruthy();
     expect(screen.getByRole('status', { name: '会话轨迹数据暂缺' })).toBeTruthy();
@@ -268,10 +269,10 @@ describe('DashboardOverviewPage', () => {
     renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
     await screen.findByText('客户总数');
 
-    expect(screen.getByRole('article', { name: 'AI分析次数' })).toBeTruthy();
+    expect(screen.getByRole('article', { name: '已分析会话' })).toBeTruthy();
     expect(screen.getByRole('region', { name: '质检数据' })).toBeTruthy();
-    expect(screen.getByRole('article', { name: '员工负面情绪' }).textContent).toContain('--');
-    expect(screen.getByRole('status', { name: 'AI 数字字段暂缺' })).toBeTruthy();
+    expect(screen.getByRole('article', { name: '平均员工评分' }).textContent).toContain('86.5');
+    expect(screen.queryByRole('status', { name: 'AI 洞察数据暂缺' })).toBeNull();
     expect(screen.queryByText(/根据提供的20条企业微信/)).toBeNull();
     expect(screen.queryByRole('region', { name: '经营趋势明细' })).toBeNull();
     expect(screen.queryByRole('navigation', { name: '分页' })).toBeNull();
@@ -435,9 +436,12 @@ describe('DashboardOverviewPage', () => {
     renderPage({ load: vi.fn(() => Promise.resolve(overview)) });
     await screen.findByText('客户总数');
 
-    expect(screen.getByRole('article', { name: 'AI分析次数' }).textContent).toContain('5');
-    expect(screen.getAllByRole('article', { name: '风险行为' })[0]?.textContent).toContain('4');
-    expect(screen.getByRole('article', { name: '敏感词' }).textContent).toContain('2');
+    expect(screen.getByRole('article', { name: '已分析会话' }).textContent).toContain('5');
+    expect(screen.getByRole('article', { name: '负向客户会话' }).textContent).toContain('2');
+    expect(screen.getByRole('article', { name: '平均员工评分' }).textContent).toContain('86.5');
+    expect(screen.getByRole('article', { name: '关键词总数' }).textContent).toContain('12');
+    expect(screen.getByRole('article', { name: '已覆盖员工' }).textContent).toContain('3');
+    expect(screen.getByRole('article', { name: '已覆盖客户' }).textContent).toContain('4');
     expect(screen.queryByText('核心客户意图识别：')).toBeNull();
   });
 

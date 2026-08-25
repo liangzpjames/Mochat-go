@@ -5793,8 +5793,24 @@ body {
 
 .dashboard-overview-page .overview-ai-insight-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
+}
+
+.dashboard-overview-page .overview-ai-insight-card-link {
+  color: inherit;
+  min-width: 0;
+  text-decoration: none;
+}
+
+.dashboard-overview-page .overview-ai-insight-card-link:focus-visible {
+  border-radius: 10px;
+  outline: 2px solid #5a99eb;
+  outline-offset: 2px;
+}
+
+.dashboard-overview-page .overview-ai-insight-card-link .overview-ai-insight-card {
+  height: 100%;
 }
 
 .dashboard-overview-page .overview-ai-insight-card {

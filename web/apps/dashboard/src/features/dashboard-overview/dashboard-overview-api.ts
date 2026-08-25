@@ -18,10 +18,11 @@ export type DashboardOverviewAIInsight = {
 
 export type DashboardOverviewAIMetrics = {
   analysisCount: number | null;
-  employeeNegativeEmotion: number | null;
   customerNegativeEmotion: number | null;
-  riskBehavior: number | null;
-  sensitiveWords: number | null;
+  averageEmployeeScore: number | null;
+  keywordCount: number | null;
+  analyzedEmployeeCount: number | null;
+  analyzedCustomerCount: number | null;
 };
 
 export type DashboardOverviewQuality = {
@@ -201,10 +202,11 @@ function parseAIMetrics(value: unknown): DashboardOverviewAIMetrics | undefined 
   if (!isRecord(value)) return undefined;
   return {
     analysisCount: nullableNumber(value.analysisCount),
-    employeeNegativeEmotion: nullableNumber(value.employeeNegativeEmotion),
     customerNegativeEmotion: nullableNumber(value.customerNegativeEmotion),
-    riskBehavior: nullableNumber(value.riskBehavior),
-    sensitiveWords: nullableNumber(value.sensitiveWords),
+    averageEmployeeScore: nullableNumber(value.averageEmployeeScore),
+    keywordCount: nullableNumber(value.keywordCount),
+    analyzedEmployeeCount: nullableNumber(value.analyzedEmployeeCount),
+    analyzedCustomerCount: nullableNumber(value.analyzedCustomerCount),
   };
 }
 

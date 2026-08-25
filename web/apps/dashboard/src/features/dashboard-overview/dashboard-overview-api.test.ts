@@ -13,7 +13,7 @@ const reportResponse = {
   pagination: { page: 1, pageSize: 20, total: 1 },
   freshness: { provider: 'scrm', status: 'available', dataThrough: '2026-07-31T09:30:00Z' },
   limitations: [{ provider: 'conversation_archive', code: 'provider_unavailable', message: '会话归档表不可用' }],
-  aiMetrics: { analysisCount: 5, employeeNegativeEmotion: null, customerNegativeEmotion: null, riskBehavior: null, sensitiveWords: null },
+  aiMetrics: { analysisCount: 5, customerNegativeEmotion: 2, averageEmployeeScore: 86.5, keywordCount: 12, analyzedEmployeeCount: 3, analyzedCustomerCount: 4 },
   quality: {
     sensitiveWords: 2, riskBehavior: 4, customerLoss: 0, timeoutWarning: 3,
     trend: [{ date: '2026-08-15', sensitiveWords: 1, riskBehavior: 2, customerLoss: 0, timeoutWarning: 2 }],
@@ -119,7 +119,11 @@ describe('createDashboardOverviewApi', () => {
     });
 
     expect(result.aiMetrics?.analysisCount).toBe(5);
-    expect(result.aiMetrics?.customerNegativeEmotion).toBeNull();
+    expect(result.aiMetrics?.customerNegativeEmotion).toBe(2);
+    expect(result.aiMetrics?.averageEmployeeScore).toBe(86.5);
+    expect(result.aiMetrics?.keywordCount).toBe(12);
+    expect(result.aiMetrics?.analyzedEmployeeCount).toBe(3);
+    expect(result.aiMetrics?.analyzedCustomerCount).toBe(4);
     expect(result.quality).toEqual(reportResponse.quality);
     expect(result.employeeRanking?.[0]).toEqual(reportResponse.employeeRanking[0]);
     expect(result.trajectory?.[0]).toEqual(reportResponse.trajectory[0]);

@@ -97,27 +97,30 @@ export function OverviewAISummary({ insight }: { insight?: DashboardOverviewAIIn
   })}</div><Link className="overview-link-button" to="/ai-insight/smart-analysis">查看 AI 洞察</Link></div>;
 }
 
-type AITile = { key: keyof DashboardOverviewAIMetrics; label: string; mark: string };
+type AITile = { key: keyof DashboardOverviewAIMetrics; label: string; mark: string; href: string };
 const aiTiles: readonly AITile[] = [
-  { key: 'analysisCount', label: 'AI分析次数', mark: '✦' },
-  { key: 'employeeNegativeEmotion', label: '员工负面情绪', mark: '◉' },
-  { key: 'customerNegativeEmotion', label: '客户负面情绪', mark: '◉' },
-  { key: 'riskBehavior', label: '风险行为', mark: '◇' },
-  { key: 'sensitiveWords', label: '敏感词', mark: '◇' },
+  { key: 'analysisCount', label: '已分析会话', mark: '✦', href: '/ai-insight/session-analysis' },
+  { key: 'customerNegativeEmotion', label: '负向客户会话', mark: '◉', href: '/ai-insight/emotion?emotion=negative' },
+  { key: 'averageEmployeeScore', label: '平均员工评分', mark: '◎', href: '/ai-insight/employee-score' },
+  { key: 'keywordCount', label: '关键词总数', mark: '◇', href: '/ai-insight/communication-keyword' },
+  { key: 'analyzedEmployeeCount', label: '已覆盖员工', mark: '♙', href: '/ai-insight/employee-score' },
+  { key: 'analyzedCustomerCount', label: '已覆盖客户', mark: '♙', href: '/ai-insight/emotion' },
 ];
 
 export function OverviewAIInsightGrid({ insight: _insight, metrics, limitations = [] }: { insight?: DashboardOverviewAIInsight | undefined; metrics?: DashboardOverviewAIMetrics | undefined; limitations?: readonly DashboardOverviewLimitation[] | undefined }) {
-  const metricGap = metrics === undefined || aiTiles.some((tile) => metrics[tile.key] === null || metrics[tile.key] === undefined);
+  const insightLimitations = limitations.filter((item) => item.provider === 'ai_insight');
   return <div className="overview-ai-insight-grid">
     {aiTiles.map((tile) => {
       const value = metrics?.[tile.key] ?? null;
-      return <article aria-label={tile.label} className={`overview-ai-insight-card${value === null ? ' overview-ai-insight-card-missing' : ''}`} key={tile.key}>
-        <div className="overview-ai-insight-card-top"><span>{tile.label}</span><i aria-hidden="true">{tile.mark}</i></div>
-        <strong>{metricValue(value)}</strong>
-        <small>{value === null ? '数据字段待接入' : '系统真实数据'}</small>
-      </article>;
+      return <Link aria-label={`查看${tile.label}详情`} className="overview-ai-insight-card-link" key={tile.key} to={tile.href}>
+        <article aria-label={tile.label} className={`overview-ai-insight-card${value === null ? ' overview-ai-insight-card-missing' : ''}`}>
+          <div className="overview-ai-insight-card-top"><span>{tile.label}</span><i aria-hidden="true">{tile.mark}</i></div>
+          <strong>{metricValue(value)}</strong>
+          <small>{value === null ? '当前时间窗无可评分结果' : '同 AI 洞察页面口径'}</small>
+        </article>
+      </Link>;
     })}
-    {(metricGap || limitations.some((item) => item.provider === 'ai_insight' && item.code === 'structured_metrics_unavailable')) && <OverviewDataNotice kind="limited" title="AI 数字字段暂缺" description="当前 AI Provider 只返回自然语言摘要，未返回员工/客户负面情绪数字。" limitations={limitations.filter((item) => item.provider === 'ai_insight')} />}
+    {insightLimitations.length > 0 && <OverviewDataNotice kind="limited" title="AI 洞察数据暂缺" description="会话洞察持久化结果当前不可用，未以其他数据源替代。" limitations={insightLimitations} />}
   </div>;
 }
 

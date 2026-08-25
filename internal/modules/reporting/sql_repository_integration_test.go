@@ -90,8 +90,8 @@ func TestOverviewIncludesConversationAIInsightAndFreshness(t *testing.T) {
 	} else if result.AIInsight.Capability != "ready" {
 		t.Fatalf("overview aiInsight capability = %q, want ready", result.AIInsight.Capability)
 	}
-	if result.AIMetrics == nil || result.AIMetrics.AnalysisCount == nil {
-		t.Fatal("overview aiMetrics.analysisCount is not populated from persisted analyses")
+	if result.AIMetrics == nil || result.AIMetrics.AnalysisCount == nil || result.AIMetrics.CustomerNegativeEmotion == nil || result.AIMetrics.KeywordCount == nil || result.AIMetrics.AnalyzedEmployeeCount == nil || result.AIMetrics.AnalyzedCustomerCount == nil {
+		t.Fatalf("overview aiMetrics are not populated from conversation insights: %+v", result.AIMetrics)
 	}
 	if result.Quality == nil || result.Quality.RiskBehavior == nil || result.Quality.SensitiveWords == nil || result.Quality.TimeoutWarning == nil || result.Quality.CustomerLoss == nil {
 		t.Fatalf("overview quality metrics are incomplete: %+v", result.Quality)
