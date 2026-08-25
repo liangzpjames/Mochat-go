@@ -292,7 +292,7 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 		provider = map[string]any{"state": string(status.State), "source": string(status.Source), "code": status.Code, "message": status.Reason}
 	}
 	data := map[string]any{"provider": provider}
-	if h.systemAssistant != nil {
+	if h.resolver != nil && h.systemAssistant != nil {
 		if _, err := h.systemAssistant.EnsureSystemAssistants(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID), fmt.Sprintf("smart-%d-%d", p.TenantID, p.CorpID)); err != nil {
 			workspaceRepoError(w, err)
 			return
@@ -307,7 +307,7 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 			return
 		}
 		data["assistant"] = workspaceAssistantJSON(assistant)
-	} else if h.assistant != nil && page != "smart-analysis" {
+	} else if h.resolver != nil && h.assistant != nil && page != "smart-analysis" {
 		if _, err := h.assistant.EnsureSessionAssistant(r.Context(), p.TenantID, p.CorpID, p.UserID, fmt.Sprintf("session-%d-%d", p.TenantID, p.CorpID)); err != nil {
 			workspaceRepoError(w, err)
 			return

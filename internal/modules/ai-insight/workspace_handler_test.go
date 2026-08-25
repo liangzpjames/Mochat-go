@@ -27,11 +27,13 @@ type workspaceAssistantStub struct {
 }
 
 type workspaceSystemAssistantStub struct {
-	contexts map[string]settingsports.SystemAssistantContext
-	loaded   []string
+	contexts    map[string]settingsports.SystemAssistantContext
+	ensureCalls int
+	loaded      []string
 }
 
 func (s *workspaceSystemAssistantStub) EnsureSystemAssistants(context.Context, int64, int64, int64, string, string) ([]settingsports.Agent, error) {
+	s.ensureCalls++
 	return nil, nil
 }
 func (s *workspaceSystemAssistantStub) LoadSystemAssistantContext(_ context.Context, _, _ int64, key string) (settingsports.SystemAssistantContext, error) {
@@ -117,6 +119,26 @@ func TestWorkspaceStatusMapsEachPageToItsOwnAssistant(t *testing.T) {
 	}
 	if len(assistants.loaded) != 2 || assistants.loaded[0] != settingsports.SessionAnalysisSystemKey || assistants.loaded[1] != settingsports.SmartAnalysisSystemKey {
 		t.Fatalf("loaded keys = %#v", assistants.loaded)
+	}
+}
+
+func TestWorkspaceStatusWithoutResolverDoesNotInitializeAssistants(t *testing.T) {
+	assistants := &workspaceSystemAssistantStub{}
+	handler := NewWorkspaceHandler(
+		workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}},
+		nil,
+		workspaceTestRepo{},
+		nil,
+		assistants,
+	)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/status", nil))
+
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"provider":{"message":"尚未运行","state":"unavailable"}`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if assistants.ensureCalls != 0 || len(assistants.loaded) != 0 {
+		t.Fatalf("assistant ensure calls=%d loaded=%#v", assistants.ensureCalls, assistants.loaded)
 	}
 }
 
@@ -741,6 +763,26 @@ func TestWorkspaceManualRunRejectsUnauthorizedWithoutResolving(t *testing.T) {
 				t.Fatalf("status=%d resolve=%d", recorder.Code, resolver.calls)
 			}
 		})
+	}
+}
+
+func TestWorkspaceRunWithoutResolverReturnsUnavailableBeforeAssistantInitialization(t *testing.T) {
+	assistants := &workspaceSystemAssistantStub{}
+	handler := NewWorkspaceHandler(
+		workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22, CanRunAnalysis: true}},
+		&workspaceTestAuthorizer{},
+		workspaceTestRepo{},
+		nil,
+		assistants,
+	)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/dashboard/ai-insight/run", nil))
+
+	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"msg":"AI_PROVIDER_UNAVAILABLE"`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if assistants.ensureCalls != 0 || len(assistants.loaded) != 0 {
+		t.Fatalf("assistant ensure calls=%d loaded=%#v", assistants.ensureCalls, assistants.loaded)
 	}
 }
 

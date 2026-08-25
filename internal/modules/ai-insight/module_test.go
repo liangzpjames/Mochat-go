@@ -13,7 +13,7 @@ import (
 type modulePrincipalResolver struct{}
 
 func (modulePrincipalResolver) Resolve(*http.Request) (transporthttp.Principal, error) {
-	return transporthttp.Principal{}, nil
+	return transporthttp.Principal{UserID: 7, TenantID: 11, CorpID: 22, IsSuperAdmin: true}, nil
 }
 
 func TestModuleRegistersWorkspaceRoutesWithoutAIProviderResolver(t *testing.T) {
