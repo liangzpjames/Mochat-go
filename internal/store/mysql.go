@@ -17,6 +17,7 @@ import (
 
 	"jiyi/mochat-go/internal/aiproviderconfig"
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/outboundhttp"
 	"jiyi/mochat-go/internal/saasalertcredentials"
 	"jiyi/mochat-go/internal/wechatopencredentials"
 	"jiyi/mochat-go/internal/wecomcredentials"
@@ -35,6 +36,7 @@ type MySQLStore struct {
 	weComCredentialCipher         *wecomcredentials.Manager
 	weChatOpenCredentialCipher    *wechatopencredentials.Manager
 	aiProviderCredentialCipher    *aiproviderconfig.Manager
+	aiProviderOutboundGuard       *outboundhttp.Guard
 }
 
 type corpDataQueryExecutor interface {

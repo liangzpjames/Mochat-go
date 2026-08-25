@@ -138,7 +138,8 @@ func main() {
 			WithSaaSAlertCredentialCipher(alertCredentialManager).
 			WithWeComCredentialCipher(weComCredentialManager).
 			WithWeChatOpenCredentialCipher(weChatOpenCredentialManager).
-			WithAIProviderCredentialCipher(aiProviderCredentialManager)
+			WithAIProviderCredentialCipher(aiProviderCredentialManager).
+			WithAIProviderOutboundGuard(outboundhttp.MustDefaultGuard())
 		return mysqlStore
 	}
 

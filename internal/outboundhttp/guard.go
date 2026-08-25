@@ -161,6 +161,21 @@ func (g *Guard) ValidateURL(raw string) error {
 	return nil
 }
 
+// ValidateURLWithResolution validates both URL syntax and every current DNS
+// destination. Callers that persist an outbound URL use this to fail closed
+// before storing a hostname that resolves to a restricted network.
+func (g *Guard) ValidateURLWithResolution(ctx context.Context, raw string) error {
+	if g == nil {
+		g = MustDefaultGuard()
+	}
+	if err := g.ValidateURL(raw); err != nil {
+		return err
+	}
+	parsed, _ := url.Parse(raw)
+	_, err := g.resolve(ctx, normalizedHostname(parsed))
+	return err
+}
+
 func (g *Guard) NewClient() *http.Client {
 	if g == nil {
 		g = MustDefaultGuard()

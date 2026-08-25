@@ -3,7 +3,6 @@ package dashboard
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
@@ -61,6 +60,16 @@ func ValidateSaaSTenantAIProviderCreate(input SaaSTenantAIProviderInput) error {
 	return nil
 }
 
+func ValidateSaaSTenantAIProviderUpdate(input SaaSTenantAIProviderInput, current SaaSTenantAIProvider) error {
+	if err := NormalizeAndValidateSaaSTenantAIProviderInput(&input); err != nil {
+		return err
+	}
+	if current.TenantID > 0 && current.ProviderCode != "" && current.ProviderCode != input.ProviderCode && strings.TrimSpace(input.APIKey) == "" {
+		return errors.New("apiKey is required when changing providerCode")
+	}
+	return nil
+}
+
 func NormalizeAndValidateSaaSTenantAIProviderInput(input *SaaSTenantAIProviderInput) error {
 	if input == nil {
 		return errors.New("tenant AI provider input is required")
@@ -70,6 +79,9 @@ func NormalizeAndValidateSaaSTenantAIProviderInput(input *SaaSTenantAIProviderIn
 	input.Model = strings.TrimSpace(input.Model)
 	input.Status = strings.ToLower(strings.TrimSpace(input.Status))
 	input.APIKey = strings.TrimSpace(input.APIKey)
+	if isMaskedTenantAIProviderAPIKey(input.APIKey) {
+		return errors.New("apiKey must be a replacement key, not a masked value")
+	}
 	if input.TenantID <= 0 || input.Version < 0 {
 		return errors.New("tenantId or version is invalid")
 	}
@@ -100,6 +112,38 @@ func NormalizeAndValidateSaaSTenantAIProviderInput(input *SaaSTenantAIProviderIn
 	}
 	input.EffectiveAt, input.ExpiresAt = effective.UTC().Format(time.RFC3339), expires.UTC().Format(time.RFC3339)
 	return nil
+}
+
+func isMaskedTenantAIProviderAPIKey(value string) bool {
+	if value == "" {
+		return false
+	}
+	runes := []rune(value)
+	if len(runes) >= 4 {
+		allMask := true
+		for _, r := range runes {
+			if r != '*' && r != '•' && r != '.' {
+				allMask = false
+				break
+			}
+		}
+		if allMask {
+			return true
+		}
+		if len(runes) >= 8 {
+			prefixMask := true
+			for _, r := range runes[:4] {
+				if r != '*' && r != '•' && r != '.' {
+					prefixMask = false
+					break
+				}
+			}
+			if prefixMask {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validateTenantAIProviderBaseURL(raw string) error {
@@ -178,23 +222,19 @@ func (h *SaaSAdminHandler) TenantAIProvider(w http.ResponseWriter, r *http.Reque
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "apiKey is required when creating a tenant AI provider", nil)
 		return
 	}
-	provider, err := store.SaveSaaSTenantAIProvider(r.Context(), input)
-	if err != nil {
-		writeSaaSAdminError(w, err)
+	if found && before.ProviderCode != input.ProviderCode && strings.TrimSpace(input.APIKey) == "" {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "apiKey is required when changing providerCode", nil)
 		return
 	}
-	beforeJSON := ""
-	if found {
-		beforeJSON = saasAdminPayloadJSON(saasTenantAIProviderAuditPayload(before, false))
-	}
-	if _, err := h.store.RecordSaaSAdminOperationLog(r.Context(), SaaSAdminOperationLog{TenantID: input.TenantID, ActorUserID: user.ID, ActorTenantID: user.TenantID, Action: SaaSAdminOperationActionTenantAIProviderSave, TargetType: SaaSAdminOperationTargetTenantAIProvider, TargetID: fmt.Sprintf("%d", input.TenantID), TargetName: input.ProviderCode, BeforeJSON: beforeJSON, AfterJSON: saasAdminPayloadJSON(saasTenantAIProviderAuditPayload(provider, strings.TrimSpace(input.APIKey) != "")), Remark: "tenant AI provider saved"}); err != nil {
+	provider, err := store.SaveSaaSTenantAIProvider(r.Context(), input)
+	if err != nil {
 		writeSaaSAdminError(w, err)
 		return
 	}
 	writeEnvelope(w, http.StatusOK, http.StatusOK, "success", map[string]any{"provider": SaaSTenantAIProviderPublicPayload(provider)})
 }
 
-func saasTenantAIProviderAuditPayload(provider SaaSTenantAIProvider, keyChanged bool) map[string]any {
+func SaaSTenantAIProviderAuditPayload(provider SaaSTenantAIProvider, keyChanged bool) map[string]any {
 	host := ""
 	if parsed, err := url.Parse(provider.BaseURL); err == nil && parsed != nil {
 		host = parsed.Hostname()

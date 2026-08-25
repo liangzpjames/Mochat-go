@@ -5770,7 +5770,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.saasAdminTenantDomainDeliveryJobs.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAdmin/tenantDomainDelivery" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.saasAdminTenantDomainDelivery != nil:
 		s.saasAdminTenantDomainDelivery.ServeHTTP(w, r)
-	case r.URL.Path == "/dashboard/saasAdmin/tenantAIProvider" && (r.Method == http.MethodGet || r.Method == http.MethodPut) && s.saasAdminTenantAIProvider != nil:
+	case r.URL.Path == "/dashboard/saasAdmin/tenantAIProvider" && s.saasAdminTenantAIProvider != nil:
 		s.saasAdminTenantAIProvider.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAdmin/releaseReadiness" && r.Method == http.MethodGet && s.saasAdminReleaseReadiness != nil:
 		s.saasAdminReleaseReadiness.ServeHTTP(w, r)
