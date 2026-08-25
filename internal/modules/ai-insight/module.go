@@ -36,9 +36,7 @@ func New(dependencies Dependencies) (*Module, error) {
 			workspaceAuthorizer = workspaceAuthorizerAdapter{authorizer: dependencies.Authorizer}
 		}
 		assistantRepo, _ := aisettingsmysql.NewAgentRepository(dependencies.DB)
-		if dependencies.AIProviderResolver != nil {
-			workspace = NewWorkspaceHandlerWithResolver(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProviderResolver, assistantRepo)
-		}
+		workspace = NewWorkspaceHandlerWithResolver(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProviderResolver, assistantRepo)
 	}
 	return &Module{handler: handler, workspace: workspace}, nil
 }
