@@ -11,6 +11,7 @@ import type {
   PackagePlan,
   PackagesData,
   TenantDetailData,
+  TenantAIProvider,
   TenantAIProviderData,
   TenantAIProviderSaveData,
   TenantSummary,
@@ -58,10 +59,10 @@ interface TenantAIProviderForm {
   version: number
 }
 
-const providerPresets: Record<Exclude<TenantAIProviderForm['providerCode'], 'custom'>, { baseUrl: string; model: string }> = {
-  deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
-  openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' },
-  dashscope: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+const providerPresets: Record<Exclude<TenantAIProviderForm['providerCode'], 'custom'>, { baseUrl: string }> = {
+  deepseek: { baseUrl: 'https://api.deepseek.com' },
+  openai: { baseUrl: 'https://api.openai.com/v1' },
+  dashscope: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
 }
 
 function localDateTime(value: string) {
@@ -75,7 +76,33 @@ function defaultProviderForm(): TenantAIProviderForm {
   const now = new Date()
   const expires = new Date(now)
   expires.setFullYear(expires.getFullYear() + 1)
-  return { providerCode: 'deepseek', ...providerPresets.deepseek, apiKey: '', effectiveAt: localDateTime(now.toISOString()), expiresAt: localDateTime(expires.toISOString()), status: 'active', version: 0 }
+  return { providerCode: 'deepseek', ...providerPresets.deepseek, model: '', apiKey: '', effectiveAt: localDateTime(now.toISOString()), expiresAt: localDateTime(expires.toISOString()), status: 'active', version: 0 }
+}
+
+function providerFormFromData(provider: TenantAIProvider): TenantAIProviderForm {
+  return {
+    providerCode: provider.providerCode || 'custom',
+    baseUrl: provider.baseUrl,
+    model: provider.model,
+    apiKey: '',
+    effectiveAt: localDateTime(provider.effectiveAt),
+    expiresAt: localDateTime(provider.expiresAt),
+    status: provider.status || 'disabled',
+    version: provider.version,
+  }
+}
+
+export function tenantAIProviderState(configured: boolean, provider: TenantAIProvider, now = new Date()) {
+  if (!configured) return { label: '未配置', tone: 'neutral' as const, hint: '尚未设置租户专属模型。' }
+  if (provider.credentialProtection !== 'usable') return { label: '凭证不可用', tone: 'danger' as const, hint: '密钥当前无法解密，分析失败关闭。' }
+  if (provider.status !== 'active') return { label: '已停用', tone: 'neutral' as const, hint: '配置保留，但不会用于分析。' }
+  const effectiveAt = new Date(provider.effectiveAt)
+  const expiresAt = new Date(provider.expiresAt)
+  if (Number.isNaN(effectiveAt.getTime()) || Number.isNaN(expiresAt.getTime()) || expiresAt <= effectiveAt) return { label: '配置无效', tone: 'danger' as const, hint: '有效期配置不完整，分析失败关闭。' }
+  if (now < effectiveAt) return { label: '待生效', tone: 'warning' as const, hint: `将于 ${formatDate(provider.effectiveAt)} 生效。` }
+  if (now >= expiresAt) return { label: '已过期', tone: 'danger' as const, hint: `已于 ${formatDate(provider.expiresAt)} 失效。` }
+  if (expiresAt.getTime() - now.getTime() <= 7 * 24 * 60 * 60 * 1000) return { label: '即将过期', tone: 'warning' as const, hint: `将于 ${formatDate(provider.expiresAt)} 失效。` }
+  return { label: '可用', tone: 'success' as const, hint: `有效至 ${formatDate(provider.expiresAt)}。` }
 }
 
 const makeRequestKey = (prefix: string) => {
@@ -171,16 +198,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   const openAIProvider = () => {
     const current = aiProviderQuery.data?.provider
     if (current && aiProviderQuery.data?.configured) {
-      setAIProviderForm({
-        providerCode: current.providerCode || 'custom',
-        baseUrl: current.baseUrl,
-        model: current.model,
-        apiKey: '',
-        effectiveAt: localDateTime(current.effectiveAt),
-        expiresAt: localDateTime(current.expiresAt),
-        status: current.status || 'disabled',
-        version: current.version,
-      })
+      setAIProviderForm(providerFormFromData(current))
     } else {
       setAIProviderForm(defaultProviderForm())
     }
@@ -211,9 +229,13 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
       closeAIProvider()
       toast.success('租户 AI 模型配置已保存；保存动作不会触发模型调用')
     },
-    onError: (error) => {
+    onError: async (error) => {
       setAIProviderForm((form) => ({ ...form, apiKey: '' }))
       toast.error(errorMessage(error, 'AI 模型配置保存失败，API Key 已从页面清除'))
+      if (error instanceof ApiError && error.status === 409) {
+        const refreshed = await aiProviderQuery.refetch()
+        if (refreshed.data?.configured) setAIProviderForm(providerFormFromData(refreshed.data.provider))
+      }
     },
   })
 
@@ -426,6 +448,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   const replacementIdentity = governanceQuery.data?.identities.find((identity) => identity.id === Number(replacementAdminId))
   const governanceSummary = selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}），管理员 ${targetIdentity?.name || '未选择'}，绑定版本 ${governanceVersion || '加载中'}` : '请先打开一个客户租户详情。'
   const governanceMutationError = resendMutation.error || replaceMutation.error || statusMutation.error
+  const aiProviderView = aiProviderQuery.data ? tenantAIProviderState(aiProviderQuery.data.configured, aiProviderQuery.data.provider) : null
 
   if (overviewQuery.isLoading || packagesQuery.isLoading) return <LoadingState label="正在加载客户租户" />
   if (overviewQuery.isError || !overviewQuery.data) return <ErrorState message={errorMessage(overviewQuery.error, '无法加载客户租户')} onRetry={() => overviewQuery.refetch()} />
@@ -489,9 +512,9 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
             {aiProviderQuery.isError && <ErrorState message={errorMessage(aiProviderQuery.error, '无法加载租户 AI 配置')} onRetry={() => aiProviderQuery.refetch()} />}
             {aiProviderQuery.data && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">Provider / 模型</span><strong className="mt-1 block break-words text-sm">{aiProviderQuery.data.configured ? `${aiProviderQuery.data.provider.providerCode} / ${aiProviderQuery.data.provider.model}` : '尚未配置'}</strong></div>
-              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">密钥保护</span><div className="mt-1 flex items-center gap-2"><Badge tone={aiProviderQuery.data.provider.credentialProtection === 'usable' ? 'success' : 'danger'}>{aiProviderQuery.data.provider.credentialProtection === 'usable' ? '可用' : aiProviderQuery.data.provider.credentialProtection === 'unconfigured' ? '未配置' : '不可用'}</Badge><span className="text-sm text-zinc-700">{aiProviderQuery.data.provider.apiKeyHint || '无密钥提示'}</span></div></div>
-              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">状态</span><div className="mt-1"><Badge tone={aiProviderQuery.data.provider.status === 'active' ? 'success' : 'neutral'}>{aiProviderQuery.data.provider.status === 'active' ? '启用' : '停用'}</Badge></div></div>
-              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">有效期</span><strong className="mt-1 block text-sm">{aiProviderQuery.data.provider.expiresAt ? formatDate(aiProviderQuery.data.provider.expiresAt) : '未设置'}</strong></div>
+              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">当前状态</span><div className="mt-1"><Badge tone={aiProviderView?.tone || 'neutral'}>{aiProviderView?.label || '未知'}</Badge><p className="mt-1 text-xs text-zinc-500">{aiProviderView?.hint}</p></div></div>
+              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">密钥提示</span><strong className="mt-1 block text-sm">{aiProviderQuery.data.provider.apiKeyHint || '无密钥提示'}</strong></div>
+              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">配置版本</span><strong className="mt-1 block text-sm">v{aiProviderQuery.data.provider.version || 0}</strong><span className="mt-1 block text-xs text-zinc-500">更新于 {aiProviderQuery.data.provider.updatedAt ? formatDate(aiProviderQuery.data.provider.updatedAt) : '未知'}</span></div>
             </div>}
             {!canManageAIProvider && <p className="text-xs text-zinc-500">当前账号只有查看权限，不能修改模型或密钥。</p>}
           </section>}
@@ -506,7 +529,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
           <Field label="Provider 厂商"><Select value={aiProviderForm.providerCode} onChange={(event) => {
             const providerCode = event.target.value as TenantAIProviderForm['providerCode']
             const preset = providerCode === 'custom' ? null : providerPresets[providerCode]
-            setAIProviderForm((form) => ({ ...form, providerCode, apiKey: '', ...(preset || { baseUrl: '', model: '' }) }))
+            setAIProviderForm((form) => ({ ...form, providerCode, apiKey: '', baseUrl: preset?.baseUrl || '', model: '' }))
           }}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="dashscope">阿里云百炼 / DashScope</option><option value="custom">OpenAI 兼容服务</option></Select></Field>
           <Field label="运行状态"><Select value={aiProviderForm.status} onChange={(event) => setAIProviderForm((form) => ({ ...form, status: event.target.value as TenantAIProviderForm['status'] }))}><option value="active">启用</option><option value="disabled">停用</option></Select></Field>
           <Field label="接口地址" hint="必须为可公开访问的 HTTPS 地址；服务端仍会执行 SSRF 防护。" className="sm:col-span-2"><Input type="url" value={aiProviderForm.baseUrl} onChange={(event) => setAIProviderForm((form) => ({ ...form, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" /></Field>
