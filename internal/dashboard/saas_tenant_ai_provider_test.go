@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,33 @@ type tenantAIProviderHandlerStore struct {
 	saved    SaaSTenantAIProviderInput
 	readErr  error
 	saveErr  error
+}
+
+type tenantAIProviderAccessHandlerStore struct {
+	*tenantAIProviderHandlerStore
+	profile SaaSAdminAccessProfile
+}
+
+func (s *tenantAIProviderAccessHandlerStore) SaaSAdminAccessProfile(_ context.Context, userID int, tenantID int) (SaaSAdminAccessProfile, error) {
+	profile := s.profile
+	profile.UserID, profile.TenantID = userID, tenantID
+	return profile, nil
+}
+
+func (*tenantAIProviderAccessHandlerStore) SaaSAdminAccessRoles(context.Context) ([]SaaSAdminAccessRole, error) {
+	return nil, nil
+}
+
+func (*tenantAIProviderAccessHandlerStore) UpsertSaaSAdminAccessRole(context.Context, SaaSAdminAccessRoleUpsert) (SaaSAdminAccessRoleUpsertResult, error) {
+	return SaaSAdminAccessRoleUpsertResult{}, nil
+}
+
+func (*tenantAIProviderAccessHandlerStore) SaaSAdminAccessAssignments(context.Context, int, SaaSAdminAccessAssignmentOptions) ([]SaaSAdminAccessAssignment, error) {
+	return nil, nil
+}
+
+func (*tenantAIProviderAccessHandlerStore) UpdateSaaSAdminAccessAssignment(context.Context, int, SaaSAdminAccessAssignmentUpdate) (SaaSAdminAccessAssignmentUpdateResult, error) {
+	return SaaSAdminAccessAssignmentUpdateResult{}, nil
 }
 
 func (s *tenantAIProviderHandlerStore) SaaSTenantAIProvider(context.Context, int) (SaaSTenantAIProvider, bool, error) {
@@ -86,6 +114,139 @@ func TestTenantAIProviderHandlerRejectsBadInputWithoutEchoingBody(t *testing.T) 
 				t.Fatal("error response leaked submitted credential")
 			}
 		})
+	}
+}
+
+func TestTenantAIProviderHandlerSuccessPayloadsAreRedacted(t *testing.T) {
+	base := &fakeSaaSAdminStore{users: map[int]User{1: {ID: 1, TenantID: 1, Status: 1, IsSuperAdmin: 1}}}
+	store := &tenantAIProviderHandlerStore{fakeSaaSAdminStore: base}
+	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)
+	request := func(method, raw string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/dashboard/saasAdmin/tenantAIProvider?tenantId=7", strings.NewReader(raw))
+		req.Header.Set("X-Mochat-Go-User-ID", "1")
+		rec := httptest.NewRecorder()
+		handler.TenantAIProvider(rec, req)
+		return rec
+	}
+	for _, tc := range []struct {
+		name       string
+		configured bool
+		method     string
+		body       string
+	}{
+		{"unconfigured", false, http.MethodGet, ""}, {"configured", true, http.MethodGet, ""}, {"put", false, http.MethodPut, `{"tenantId":7,"providerCode":"openai","baseUrl":"https://api.example.test/v1","model":"model-v1","apiKey":"fixture-key-1234","effectiveAt":"2026-08-25T00:00:00Z","expiresAt":"2026-08-26T00:00:00Z","status":"active","version":0}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store.found = tc.configured
+			store.provider = SaaSTenantAIProvider{TenantID: 7, ProviderCode: "openai", BaseURL: "https://api.example.test/v1", Model: "model-v1", APIKeyConfigured: true, APIKeyHint: "1234", CredentialProtection: "usable", Version: 1}
+			rec := request(tc.method, tc.body)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s status=%d", tc.name, rec.Code)
+			}
+			var decoded any
+			if json.Unmarshal(rec.Body.Bytes(), &decoded) != nil {
+				t.Fatal("invalid response")
+			}
+			assertTenantAIProviderResponseRedacted(t, decoded)
+		})
+	}
+}
+
+func TestTenantAIProviderHandlerStoreFailuresDoNotLeakCredentialData(t *testing.T) {
+	base := &fakeSaaSAdminStore{users: map[int]User{1: {ID: 1, TenantID: 1, Status: 1, IsSuperAdmin: 1}}}
+	store := &tenantAIProviderHandlerStore{fakeSaaSAdminStore: base}
+	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)
+	for _, tc := range []struct {
+		name   string
+		method string
+	}{
+		{"get", http.MethodGet}, {"put", http.MethodPut},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store.readErr, store.saveErr = nil, nil
+			if tc.method == http.MethodGet {
+				store.readErr = errors.New("ordinary storage failure")
+			} else {
+				store.saveErr = errors.New("ordinary storage failure")
+			}
+			body := ""
+			path := "/dashboard/saasAdmin/tenantAIProvider?tenantId=7"
+			if tc.method == http.MethodPut {
+				body = `{"tenantId":7,"providerCode":"openai","baseUrl":"https://provider.example.test/private","model":"model-v1","apiKey":"fixture-key-1234","effectiveAt":"2026-08-25T00:00:00Z","expiresAt":"2026-08-26T00:00:00Z","status":"active"}`
+				path = "/dashboard/saasAdmin/tenantAIProvider"
+			}
+			req := httptest.NewRequest(tc.method, path, strings.NewReader(body))
+			req.Header.Set("X-Mochat-Go-User-ID", "1")
+			rec := httptest.NewRecorder()
+			handler.TenantAIProvider(rec, req)
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("%s status=%d", tc.name, rec.Code)
+			}
+			for _, prohibited := range []string{"fixture-key-1234", "1234", "ciphertext", "https://provider.example.test/private"} {
+				if strings.Contains(rec.Body.String(), prohibited) {
+					t.Fatal("ordinary store error response exposed protected provider data")
+				}
+			}
+		})
+	}
+}
+
+func TestTenantAIProviderHandlerUsesActualIntegrationsPermissions(t *testing.T) {
+	base := &fakeSaaSAdminStore{users: map[int]User{1: {ID: 1, TenantID: 1, Status: 1, IsSuperAdmin: 0}}}
+	store := &tenantAIProviderAccessHandlerStore{tenantAIProviderHandlerStore: &tenantAIProviderHandlerStore{fakeSaaSAdminStore: base}}
+	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)
+	request := func(method string) *httptest.ResponseRecorder {
+		path, body := "/dashboard/saasAdmin/tenantAIProvider?tenantId=7", ""
+		if method == http.MethodPut {
+			path = "/dashboard/saasAdmin/tenantAIProvider"
+			body = `{"tenantId":7,"providerCode":"openai","baseUrl":"https://provider.example.test/v1","model":"model-v1","apiKey":"fixture-key-1234","effectiveAt":"2026-08-25T00:00:00Z","expiresAt":"2026-08-26T00:00:00Z","status":"active"}`
+		}
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("X-Mochat-Go-User-ID", "1")
+		rec := httptest.NewRecorder()
+		handler.TenantAIProvider(rec, req)
+		return rec
+	}
+	store.profile.Permissions = []string{SaaSAdminPermissionIntegrationsRead}
+	if rec := request(http.MethodGet); rec.Code != http.StatusOK {
+		t.Fatalf("read-only GET status=%d", rec.Code)
+	}
+	if rec := request(http.MethodPut); rec.Code != http.StatusForbidden {
+		t.Fatalf("read-only PUT status=%d", rec.Code)
+	}
+	store.profile.Permissions = []string{SaaSAdminPermissionIntegrationsManage}
+	if rec := request(http.MethodGet); rec.Code != http.StatusForbidden {
+		t.Fatalf("manage-only GET status=%d", rec.Code)
+	}
+	if rec := request(http.MethodPut); rec.Code != http.StatusOK {
+		t.Fatalf("manage-only PUT status=%d", rec.Code)
+	}
+	store.profile.Permissions = []string{SaaSAdminPermissionIntegrationsRead, SaaSAdminPermissionIntegrationsManage}
+	if rec := request(http.MethodPut); rec.Code != http.StatusOK {
+		t.Fatalf("read-manage PUT status=%d", rec.Code)
+	}
+}
+
+func assertTenantAIProviderResponseRedacted(t *testing.T, value any) {
+	t.Helper()
+	switch item := value.(type) {
+	case map[string]any:
+		for key, nested := range item {
+			lowered := strings.ToLower(key)
+			if lowered == "apikey" || strings.Contains(lowered, "ciphertext") || strings.Contains(lowered, "authorization") {
+				t.Fatal("response contains protected field")
+			}
+			if key == "baseUrl" {
+				if text, ok := nested.(string); ok && strings.Contains(text, "/private/") {
+					t.Fatal("response contains full private URL path")
+				}
+			}
+			assertTenantAIProviderResponseRedacted(t, nested)
+		}
+	case []any:
+		for _, nested := range item {
+			assertTenantAIProviderResponseRedacted(t, nested)
+		}
 	}
 }
 
