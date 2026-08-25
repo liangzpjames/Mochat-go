@@ -16,7 +16,6 @@ type Dependencies struct {
 	PrincipalResolver  transporthttp.PrincipalResolver
 	Authorizer         transporthttp.Authorizer
 	DB                 *sql.DB
-	AIProvider         providers.AIProvider
 	AIProviderResolver providers.AIProviderResolver
 }
 
@@ -39,8 +38,6 @@ func New(dependencies Dependencies) (*Module, error) {
 		assistantRepo, _ := aisettingsmysql.NewAgentRepository(dependencies.DB)
 		if dependencies.AIProviderResolver != nil {
 			workspace = NewWorkspaceHandlerWithResolver(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProviderResolver, assistantRepo)
-		} else {
-			workspace = NewWorkspaceHandler(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProvider, assistantRepo)
 		}
 	}
 	return &Module{handler: handler, workspace: workspace}, nil

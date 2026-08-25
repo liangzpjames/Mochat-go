@@ -14,7 +14,6 @@ type AIInsightDependencies struct {
 	PrincipalResolver  aiinsighthttp.PrincipalResolver
 	Authorizer         aiinsighthttp.Authorizer
 	DB                 *sql.DB
-	AIProvider         providers.AIProvider
 	AIProviderResolver providers.AIProviderResolver
 }
 
@@ -29,7 +28,6 @@ func RegisterAIInsight(router *appmodules.Router, enabled bool, dependencies AII
 		PrincipalResolver:  dependencies.PrincipalResolver,
 		Authorizer:         dependencies.Authorizer,
 		DB:                 dependencies.DB,
-		AIProvider:         dependencies.AIProvider,
 		AIProviderResolver: dependencies.AIProviderResolver,
 	})
 	if err != nil {

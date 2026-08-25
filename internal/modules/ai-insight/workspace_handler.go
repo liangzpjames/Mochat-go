@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"jiyi/mochat-go/internal/aiproviderconfig"
 	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
 	"jiyi/mochat-go/internal/modules/providers"
 )
@@ -38,29 +39,30 @@ type WorkspaceHandler struct {
 	principal       WorkspacePrincipalResolver
 	authorize       WorkspaceAuthorizer
 	repo            Repository
-	ai              providers.AIProvider
 	resolver        providers.AIProviderResolver
 	assistant       AssistantContextProvider
 	systemAssistant SystemAssistantContextProvider
 }
 
-func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, ai providers.AIProvider, assistants ...any) *WorkspaceHandler {
+func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, resolver providers.AIProviderResolver, assistants ...any) *WorkspaceHandler {
 	var assistant AssistantContextProvider
 	var systemAssistant SystemAssistantContextProvider
 	if len(assistants) > 0 {
 		assistant, _ = assistants[0].(AssistantContextProvider)
 		systemAssistant, _ = assistants[0].(SystemAssistantContextProvider)
 	}
-	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, ai: ai, assistant: assistant, systemAssistant: systemAssistant}
+	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, resolver: resolver, assistant: assistant, systemAssistant: systemAssistant}
+}
+
+func newWorkspaceHandlerForTest(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, ai providers.AIProvider, assistants ...any) *WorkspaceHandler {
+	return NewWorkspaceHandler(principal, authorize, repo, providers.StaticAIProviderResolver{Provider: ai}, assistants...)
 }
 
 // NewWorkspaceHandlerWithResolver creates the tenant-scoped runtime path.
 // Read-only endpoints do not resolve or call the model; status resolves only
 // the authenticated principal's tenant/corp and never accepts request scope.
 func NewWorkspaceHandlerWithResolver(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, resolver providers.AIProviderResolver, assistants ...any) *WorkspaceHandler {
-	handler := NewWorkspaceHandler(principal, authorize, repo, nil, assistants...)
-	handler.resolver = resolver
-	return handler
+	return NewWorkspaceHandler(principal, authorize, repo, resolver, assistants...)
 }
 
 func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -228,11 +230,16 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 		return
 	}
 	provider := map[string]any{"state": "unavailable", "message": "尚未运行"}
-	ai := h.ai
+	var ai providers.AIProvider
 	if h.resolver != nil {
 		resolved, err := h.resolver.Resolve(r.Context(), p.TenantID, p.CorpID)
 		if err != nil {
-			provider = map[string]any{"state": "unavailable", "code": "AI_PROVIDER_UNAVAILABLE", "message": safeProviderFailure(err)}
+			code, message := "AI_PROVIDER_UNAVAILABLE", safeProviderFailure(err)
+			var resolveErr *aiproviderconfig.ResolveError
+			if errors.As(err, &resolveErr) {
+				code, message = resolveErr.SafeCode(), resolveErr.SafeReason()
+			}
+			provider = map[string]any{"state": "unavailable", "code": code, "message": message}
 		} else {
 			ai = resolved
 		}

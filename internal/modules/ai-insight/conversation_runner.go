@@ -51,7 +51,7 @@ type analysisWindow struct {
 	endAt   time.Time
 }
 
-func NewConversationAnalysisRunner(repo Repository, ai providers.AIProvider, config RunnerConfig, logger *log.Logger, assistants ...any) *ConversationAnalysisRunner {
+func NewConversationAnalysisRunner(repo Repository, resolver providers.AIProviderResolver, config RunnerConfig, logger *log.Logger, assistants ...any) *ConversationAnalysisRunner {
 	if logger == nil {
 		logger = log.Default()
 	}
@@ -61,16 +61,18 @@ func NewConversationAnalysisRunner(repo Repository, ai providers.AIProvider, con
 		systemAssistant, _ = assistants[0].(SystemAssistantContextProvider)
 		assistant, _ = assistants[0].(AssistantContextProvider)
 	}
-	return &ConversationAnalysisRunner{repo: repo, ai: ai, config: normalizeRunnerConfig(config), logger: logger, now: time.Now, assistant: assistant, systemAssistant: systemAssistant}
+	return &ConversationAnalysisRunner{repo: repo, resolver: resolver, config: normalizeRunnerConfig(config), logger: logger, now: time.Now, assistant: assistant, systemAssistant: systemAssistant}
+}
+
+func newConversationAnalysisRunnerForTest(repo Repository, ai providers.AIProvider, config RunnerConfig, logger *log.Logger, assistants ...any) *ConversationAnalysisRunner {
+	return NewConversationAnalysisRunner(repo, providers.StaticAIProviderResolver{Provider: ai}, config, logger, assistants...)
 }
 
 // NewConversationAnalysisRunnerWithResolver resolves a provider once for each
 // tenant/corp run. The returned provider is passed through the complete run so
 // session and smart analysis cannot cross tenant boundaries.
 func NewConversationAnalysisRunnerWithResolver(repo Repository, resolver providers.AIProviderResolver, config RunnerConfig, logger *log.Logger, assistants ...any) *ConversationAnalysisRunner {
-	runner := NewConversationAnalysisRunner(repo, nil, config, logger, assistants...)
-	runner.resolver = resolver
-	return runner
+	return NewConversationAnalysisRunner(repo, resolver, config, logger, assistants...)
 }
 
 func normalizeRunnerConfig(config RunnerConfig) RunnerConfig {
@@ -124,9 +126,11 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 	} else if sessionRule == nil {
 		sessionRuleFailure = "会话分析当前启用规则版本不存在"
 	}
-	ai := r.ai
+	var ai providers.AIProvider
 	resolveMessage := ""
-	if r.resolver != nil {
+	if r.resolver == nil {
+		resolveMessage = "AI_PROVIDER_UNAVAILABLE"
+	} else {
 		var resolveErr error
 		ai, resolveErr = r.resolver.Resolve(ctx, tenantID, corpID)
 		if resolveErr != nil {
@@ -411,7 +415,7 @@ func buildCorrectionPrompt(original string, cause error, messages []SourceMessag
 }
 
 func (r *ConversationAnalysisRunner) saveFailedInsight(ctx context.Context, tenantID, corpID int64, candidate ConversationCandidate, analysisType AnalysisType, ruleVersionID int64, rule *AnalysisRuleVersion, cause error) error {
-	insight := ConversationInsight{TenantID: tenantID, CorpID: corpID, AnalysisType: analysisType, RuleVersionID: ruleVersionID, ConversationKey: candidate.ConversationKey, EmployeeID: candidate.EmployeeID, EmployeeName: candidate.EmployeeName, EmployeeAvatar: candidate.EmployeeAvatar, TargetType: candidate.TargetType, TargetID: candidate.TargetID, TargetName: candidate.TargetName, TargetAvatar: candidate.TargetAvatar, SourceStartedAt: candidate.SourceStartedAt, SourceEndedAt: candidate.SourceEndedAt, SourceMessageCount: candidate.SourceMessageCount, SourceFingerprint: candidate.SourceFingerprint, Status: AnalysisStatusFailed, ErrorSummary: cause.Error(), ResultJSON: []byte(`{}`), PromptVersion: r.config.PromptVersion}
+	insight := ConversationInsight{TenantID: tenantID, CorpID: corpID, AnalysisType: analysisType, RuleVersionID: ruleVersionID, ConversationKey: candidate.ConversationKey, EmployeeID: candidate.EmployeeID, EmployeeName: candidate.EmployeeName, EmployeeAvatar: candidate.EmployeeAvatar, TargetType: candidate.TargetType, TargetID: candidate.TargetID, TargetName: candidate.TargetName, TargetAvatar: candidate.TargetAvatar, SourceStartedAt: candidate.SourceStartedAt, SourceEndedAt: candidate.SourceEndedAt, SourceMessageCount: candidate.SourceMessageCount, SourceFingerprint: candidate.SourceFingerprint, Status: AnalysisStatusFailed, ErrorSummary: safeAnalysisFailure(cause), ResultJSON: []byte(`{}`), PromptVersion: r.config.PromptVersion}
 	if rule != nil {
 		insight.RuleID = rule.RuleID
 		insight.RuleVersion = rule.Version
@@ -420,8 +424,10 @@ func (r *ConversationAnalysisRunner) saveFailedInsight(ctx context.Context, tena
 	if err := r.repo.SaveInsight(ctx, insight); err != nil {
 		return err
 	}
-	return cause
+	return errors.New(insight.ErrorSummary)
 }
+
+func safeAnalysisFailure(error) string { return "AI_PROVIDER_REQUEST_FAILED" }
 
 func (r *ConversationAnalysisRunner) recordUnavailableRun(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, message string) error {
 	now := r.now()

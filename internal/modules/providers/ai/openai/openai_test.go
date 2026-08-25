@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,22 @@ import (
 
 	"jiyi/mochat-go/internal/modules/providers"
 )
+
+type failingTransport struct{ err error }
+
+func (t failingTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, t.err }
+
+func TestChatTransportFailureDoesNotLeakRequestURLOrCredential(t *testing.T) {
+	secret := "fixture-secret-transport-1234"
+	client, err := New(Config{BaseURL: "https://provider.example.test/v1?private=query", APIKey: secret, Model: "m", Client: &http.Client{Transport: failingTransport{err: errors.New("Post https://provider.example.test/v1?private=query: Authorization: Bearer " + secret)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Chat(context.Background(), providers.ChatRequest{Prompt: "x"})
+	if err == nil || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "provider.example.test") || strings.Contains(err.Error(), "Authorization") {
+		t.Fatalf("unsafe error: %v", err)
+	}
+}
 
 func TestChatSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

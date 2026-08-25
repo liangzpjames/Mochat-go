@@ -44,7 +44,7 @@ func (r *runnerRepoStub) ConversationCandidates(_ context.Context, query Candida
 
 func TestConversationRunnerExplicitWindowOverridesRuleLookback(t *testing.T) {
 	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, LookbackDays: 1, MinimumMessages: 1}}
-	runner := NewConversationAnalysisRunner(repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, nil)
+	runner := newConversationAnalysisRunnerForTest(repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, nil)
 	startAt := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	endAt := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
 	if err := runner.RunCorpWindow(context.Background(), 1, 2, startAt, endAt); err != nil {
@@ -130,7 +130,7 @@ func (p *correctingAIProvider) Metadata() providers.AIProviderMetadata {
 func TestConversationRunnerRetriesInvalidStructuredEvidenceOnce(t *testing.T) {
 	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}}
 	provider := &correctingAIProvider{}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil)
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil)
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestConversationRunnerLegacyAssistantContextOnlyAppliesToSessionAnalysis(t 
 		AgentID: "session", Instructions: "遵循售后升级要求", Enabled: true, SettingsFingerprint: "settings-v3",
 		KnowledgeChunks: []settingsports.KnowledgeChunk{{DocumentName: "售后规则.md", Ordinal: 0, Content: "退款需要主管审批", CharacterCount: 9}},
 	}}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistant)
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistant)
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestConversationRunnerConsumesAssistantInstructionsKnowledgeAndSettingsFing
 		AgentID: "session", Name: settingsports.SessionAnalysisAssistantName, Instructions: "重点核对退款审批流程", Enabled: true, SettingsFingerprint: "settings-v2",
 		KnowledgeChunks: []settingsports.KnowledgeChunk{{DocumentName: "退款制度.md", Ordinal: 0, Content: "退款超过一万元需要主管审批", CharacterCount: 14}},
 	}}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistant)
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistant)
 	runner.now = func() time.Time { return time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC) }
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
@@ -230,7 +230,7 @@ func TestConversationRunnerLegacySessionAssistantDisabledDoesNotStopSmartAnalysi
 		rules:       []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1, Objective: "识别客户风险", ConversationTypes: []string{"direct"}, LookbackDays: 30, MinimumMessages: 1}},
 	}
 	provider := &capturingAIProvider{}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistantContextStub{context: settingsports.SessionAssistantContext{AgentID: "session", Enabled: false, SettingsFingerprint: "disabled"}})
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistantContextStub{context: settingsports.SessionAssistantContext{AgentID: "session", Enabled: false, SettingsFingerprint: "disabled"}})
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestConversationRunnerReturnsUnavailableRunPersistenceFailure(t *testing.T)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repo := &runnerRepoStub{createRunErr: persistenceErr, createRunErrAt: 1}
-			runner := NewConversationAnalysisRunner(repo, &capturingAIProvider{}, RunnerConfig{}, nil, test.assistant)
+			runner := newConversationAnalysisRunnerForTest(repo, &capturingAIProvider{}, RunnerConfig{}, nil, test.assistant)
 
 			err := runner.RunCorp(context.Background(), 1, 2)
 
@@ -274,7 +274,7 @@ func TestConversationRunnerReturnsSmartUnavailableRunPersistenceFailure(t *testi
 		createRunErr:   persistenceErr,
 		createRunErrAt: 2,
 	}
-	runner := NewConversationAnalysisRunner(repo, &capturingAIProvider{}, RunnerConfig{}, nil, &systemAssistantStub{
+	runner := newConversationAnalysisRunnerForTest(repo, &capturingAIProvider{}, RunnerConfig{}, nil, &systemAssistantStub{
 		contexts: map[string]settingsports.SystemAssistantContext{
 			settingsports.SessionAnalysisSystemKey: {Enabled: true},
 			settingsports.SmartAnalysisSystemKey:   {Enabled: false},
@@ -291,7 +291,7 @@ func TestConversationRunnerReturnsSmartUnavailableRunPersistenceFailure(t *testi
 
 func TestConversationRunnerRecordsSessionAndDefaultSmartFailuresWhenProviderUnavailable(t *testing.T) {
 	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1}, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1}}}
-	runner := NewConversationAnalysisRunner(repo, unavailableAIProvider{}, RunnerConfig{}, nil)
+	runner := newConversationAnalysisRunnerForTest(repo, unavailableAIProvider{}, RunnerConfig{}, nil)
 
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
@@ -376,7 +376,7 @@ func TestConversationRunnerSeparatesAssistantContextsRulesAndMetadata(t *testing
 		settingsports.SessionAnalysisSystemKey: {AgentID: "session", Instructions: "仅会话助手说明", Enabled: true, SettingsFingerprint: "session-fingerprint", KnowledgeChunks: []settingsports.KnowledgeChunk{{DocumentName: "会话知识.md", Content: "会话知识：退款审批"}}},
 		settingsports.SmartAnalysisSystemKey:   {AgentID: "smart", Instructions: "仅智能助手说明", Enabled: true, SettingsFingerprint: "smart-fingerprint", KnowledgeChunks: []settingsports.KnowledgeChunk{{DocumentName: "智能知识.md", Content: "智能知识：退款风险"}}},
 	}}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestConversationRunnerLoadsRulesAfterFirstAssistantInitialization(t *testin
 		afterEnsure: func() { initialized = true },
 	}
 	provider := &capturingAIProvider{}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestConversationRunnerAssistantFailureOnlyStopsMatchingFlow(t *testing.T) {
 			} else {
 				assistants.loadErrs[test.failedKey] = errors.New("load failed")
 			}
-			runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
+			runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
 			if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 				t.Fatal(err)
 			}
@@ -495,7 +495,7 @@ func TestConversationRunnerAssistantFailureOnlyStopsMatchingFlow(t *testing.T) {
 func TestConversationRunnerDoesNotRunSessionWithoutCurrentRuleVersion(t *testing.T) {
 	repo := &runnerRepoStub{rules: []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1, Objective: "智能目标", ConversationTypes: []string{"direct"}, MinimumMessages: 1}}}
 	provider := &capturingAIProvider{}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil)
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil)
 
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
@@ -514,7 +514,7 @@ func TestConversationRunnerDoesNotRunSessionWithoutCurrentRuleVersion(t *testing
 func TestConversationRunnerRecordsMissingSessionRuleBeforeReturningSmartRuleError(t *testing.T) {
 	smartRuleErr := errors.New("smart rules unavailable")
 	repo := &runnerRepoStub{rulesErr: smartRuleErr}
-	runner := NewConversationAnalysisRunner(repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, nil)
+	runner := newConversationAnalysisRunnerForTest(repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, nil)
 
 	err := runner.RunCorp(context.Background(), 1, 2)
 	if !errors.Is(err, smartRuleErr) {
@@ -537,7 +537,7 @@ func TestConversationRunnerLoadsBothContextsAfterEnsureFailure(t *testing.T) {
 		},
 		loadErrs: map[string]error{},
 	}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
 
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)
@@ -561,7 +561,7 @@ func TestConversationRunnerEnsureFailureOnlyFailsActuallyUnavailableContext(t *t
 		},
 		loadErrs: map[string]error{settingsports.SessionAnalysisSystemKey: errors.New("session context unavailable")},
 	}
-	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
+	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
 
 	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
 		t.Fatal(err)

@@ -174,22 +174,35 @@ func validateContext(tenantID int, provider string) (string, error) {
 }
 
 func (config StoredConfig) validateForUse(now time.Time) error {
-	if _, err := validateContext(config.TenantID, config.Provider); err != nil {
+	provider, err := validateContext(config.TenantID, config.Provider)
+	if err != nil || !runtimeProviderAllowed(provider) {
 		return errors.New("AI provider configuration is invalid")
 	}
-	if strings.TrimSpace(config.Model) == "" || strings.TrimSpace(config.CredentialCiphertext) == "" || !keyIDPattern.MatchString(strings.TrimSpace(config.KeyID)) || config.Version <= 0 {
+	if strings.TrimSpace(config.BaseURL) == "" || strings.TrimSpace(config.Model) == "" || strings.TrimSpace(config.CredentialCiphertext) == "" || !keyIDPattern.MatchString(strings.TrimSpace(config.KeyID)) || config.Version <= 0 {
 		return errors.New("AI provider configuration is invalid")
 	}
-	if config.Status != StatusActive {
+	if strings.TrimSpace(config.Status) != StatusActive {
 		return errors.New("AI provider configuration is inactive")
 	}
-	if config.EffectiveAt != nil && now.Before(*config.EffectiveAt) {
+	if config.EffectiveAt == nil || config.ExpiresAt == nil || !config.EffectiveAt.Before(*config.ExpiresAt) {
+		return errors.New("AI provider configuration is invalid")
+	}
+	if now.Before(*config.EffectiveAt) {
 		return errors.New("AI provider configuration is not yet effective")
 	}
-	if config.ExpiresAt != nil && !now.Before(*config.ExpiresAt) {
+	if !now.Before(*config.ExpiresAt) {
 		return errors.New("AI provider configuration has expired")
 	}
 	return nil
+}
+
+func runtimeProviderAllowed(provider string) bool {
+	switch strings.TrimSpace(provider) {
+	case "deepseek", "openai", "dashscope", "custom":
+		return true
+	default:
+		return false
+	}
 }
 
 func deriveKey(master []byte) []byte {

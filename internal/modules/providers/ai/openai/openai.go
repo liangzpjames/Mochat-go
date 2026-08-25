@@ -102,18 +102,18 @@ func (c *Client) Chat(ctx context.Context, req providers.ChatRequest) (string, e
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build chat request: %w", err)
+		return "", errors.New("AI provider request is invalid")
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+c.apiKey)
 	response, err := c.client.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("call AI provider: %w", err)
+		return "", errors.New("AI provider request failed")
 	}
 	defer response.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
-		return "", fmt.Errorf("read AI provider response: %w", err)
+		return "", errors.New("AI provider response could not be read")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return "", fmt.Errorf("AI provider returned HTTP %d", response.StatusCode)
@@ -126,7 +126,7 @@ func (c *Client) Chat(ctx context.Context, req providers.ChatRequest) (string, e
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(payload, &completion); err != nil {
-		return "", fmt.Errorf("parse AI provider response: %w", err)
+		return "", errors.New("AI provider response is invalid")
 	}
 	if len(completion.Choices) == 0 || strings.TrimSpace(completion.Choices[0].Message.Content) == "" {
 		return "", errors.New("AI provider returned no content")

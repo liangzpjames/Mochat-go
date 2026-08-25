@@ -12,16 +12,9 @@ import (
 	"jiyi/mochat-go/internal/modules/providers"
 )
 
-var dailyAnalysisPages = []string{
-	"emotion",
-	"employee-score",
-	"communication-keyword",
-}
-
 // DailyConfig configures the once-per-day AI insight analysis job.
 type DailyConfig struct {
 	DB         *sql.DB
-	AI         providers.AIProvider // compatibility-only test construction
 	Resolver   providers.AIProviderResolver
 	Hour       int
 	RunOnStart bool
@@ -33,30 +26,26 @@ type DailyConfig struct {
 // writer so each analysis page is refreshed at most once per day.
 type DailyAnalysisRunner struct {
 	db           *sql.DB
-	ai           providers.AIProvider
 	resolver     providers.AIProviderResolver
 	analysis     transporthttp.AnalysisStore
 	conversation *ConversationAnalysisRunner
 	logger       *log.Logger
 }
 
-func NewDailyAnalysisRunner(db *sql.DB, ai providers.AIProvider, logger *log.Logger) *DailyAnalysisRunner {
-	if logger == nil {
-		logger = log.Default()
-	}
-	repo := NewSQLRepository(db)
-	assistantRepo, _ := aisettingsmysql.NewAgentRepository(db)
-	return &DailyAnalysisRunner{db: db, ai: ai, resolver: providers.StaticAIProviderResolver{Provider: ai}, analysis: transporthttp.NewSQLAnalysisStore(db), conversation: NewConversationAnalysisRunner(repo, ai, RunnerConfig{}, logger, assistantRepo), logger: logger}
-}
-
 // NewDailyAnalysisRunnerWithResolver is the production construction path. It
 // never accepts a process-wide AI client; each corp run resolves its own
 // database-backed provider once inside the conversation runner.
-func NewDailyAnalysisRunnerWithResolver(db *sql.DB, repo Repository, resolver providers.AIProviderResolver, logger *log.Logger) *DailyAnalysisRunner {
+func NewDailyAnalysisRunnerWithResolver(db *sql.DB, repo Repository, resolver providers.AIProviderResolver, logger *log.Logger, assistants ...any) *DailyAnalysisRunner {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &DailyAnalysisRunner{db: db, resolver: resolver, analysis: transporthttp.NewSQLAnalysisStore(db), conversation: NewConversationAnalysisRunnerWithResolver(repo, resolver, RunnerConfig{}, logger), logger: logger}
+	var assistant any
+	if len(assistants) > 0 {
+		assistant = assistants[0]
+	} else {
+		assistant, _ = aisettingsmysql.NewAgentRepository(db)
+	}
+	return &DailyAnalysisRunner{db: db, resolver: resolver, analysis: transporthttp.NewSQLAnalysisStore(db), conversation: NewConversationAnalysisRunner(repo, resolver, RunnerConfig{}, logger, assistant), logger: logger}
 }
 
 // RunOnce analyzes archive texts for every active corp and persists the
@@ -119,44 +108,13 @@ func (r *DailyAnalysisRunner) run(ctx context.Context, window *analysisWindow) e
 	return nil
 }
 
-func (r *DailyAnalysisRunner) runCorp(ctx context.Context, corpID int64) error {
-	texts, err := transporthttp.FetchArchiveTexts(ctx, r.db, corpID, 20, nil, false)
-	if err != nil {
-		return err
-	}
-	if len(texts) == 0 {
-		r.logger.Printf("AI insight daily analysis: corp %d has no archive texts", corpID)
-		return nil
-	}
-	now := time.Now()
-	for _, page := range dailyAnalysisPages {
-		system, prompt := transporthttp.BuildAnalysisPrompt(page, texts)
-		summary, chatErr := r.ai.Chat(ctx, providers.ChatRequest{System: system, Prompt: prompt})
-		if chatErr != nil {
-			r.logger.Printf("AI insight daily analysis: corp %d page %s chat failed: %v", corpID, page, chatErr)
-			continue
-		}
-		payload := map[string]any{
-			"summary":     summary,
-			"keywords":    []any{},
-			"generatedAt": now.Format(time.RFC3339),
-		}
-		if saveErr := r.analysis.Save(ctx, corpID, page, "succeeded", payload, ""); saveErr != nil {
-			r.logger.Printf("AI insight daily analysis: corp %d page %s save failed: %v", corpID, page, saveErr)
-			continue
-		}
-		r.logger.Printf("AI insight daily analysis: corp %d page %s saved", corpID, page)
-	}
-	return nil
-}
-
 // RunDailyLoop schedules RunOnce at the configured local hour (default 00:00,
 // i.e. 每日 24 点) in Asia/Shanghai and reschedules after each run.
 func RunDailyLoop(ctx context.Context, config DailyConfig) {
 	if config.Logger == nil {
 		config.Logger = log.Default()
 	}
-	if config.DB == nil || (config.Resolver == nil && config.AI == nil) {
+	if config.DB == nil || config.Resolver == nil {
 		config.Logger.Printf("AI insight daily loop skipped: dependencies missing")
 		return
 	}
@@ -168,8 +126,6 @@ func RunDailyLoop(ctx context.Context, config DailyConfig) {
 	if config.Resolver != nil {
 		repo := NewSQLRepository(config.DB)
 		runner = NewDailyAnalysisRunnerWithResolver(config.DB, repo, config.Resolver, config.Logger)
-	} else {
-		runner = NewDailyAnalysisRunner(config.DB, config.AI, config.Logger)
 	}
 	run := func() {
 		started := time.Now()

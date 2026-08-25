@@ -31,8 +31,7 @@ func TestDailyRunnerRecordsConversationFailuresBeforeReportingUnavailableProvide
 	provider := unavailableAIProvider{}
 	runner := &DailyAnalysisRunner{
 		db:           db,
-		ai:           provider,
-		conversation: NewConversationAnalysisRunner(repo, provider, RunnerConfig{}, log.New(io.Discard, "", 0)),
+		conversation: newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{}, log.New(io.Discard, "", 0)),
 		logger:       log.New(io.Discard, "", 0),
 	}
 
@@ -61,7 +60,7 @@ func TestDailyRunnerContinuesAfterOneCorpProviderResolutionFailure(t *testing.T)
 	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, MinimumMessages: 1}}
 	provider := &capturingAIProvider{}
 	resolver := &scopedResolver{providers: map[string]providers.AIProvider{"3/4": provider}, errors: map[string]error{"1/2": errors.New("fixture-secret-must-not-persist")}}
-	runner := NewDailyAnalysisRunnerWithResolver(db, repo, resolver, log.New(io.Discard, "", 0))
+	runner := NewDailyAnalysisRunnerWithResolver(db, repo, resolver, log.New(io.Discard, "", 0), nil)
 	if err := runner.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}

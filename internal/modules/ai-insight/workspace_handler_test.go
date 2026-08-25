@@ -56,7 +56,7 @@ func TestWorkspaceStatusReturnsFailureWhenSessionAssistantIsUnavailable(t *testi
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			handler := NewWorkspaceHandler(
+			handler := newWorkspaceHandlerForTest(
 				workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil,
 				test.assistant,
 			)
@@ -71,7 +71,7 @@ func TestWorkspaceStatusReturnsFailureWhenSessionAssistantIsUnavailable(t *testi
 }
 
 func TestWorkspaceSessionStatusExposesRuntimeAssistantSummary(t *testing.T) {
-	handler := NewWorkspaceHandler(
+	handler := newWorkspaceHandlerForTest(
 		workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil,
 		workspaceAssistantStub{assistant: settingsports.SessionAssistantContext{Name: settingsports.SessionAnalysisAssistantName, Enabled: true, KnowledgeBaseCount: 2, ReadyDocumentCount: 5, UpdatedAt: "2026-08-23T12:00:00Z"}},
 	)
@@ -84,7 +84,7 @@ func TestWorkspaceSessionStatusExposesRuntimeAssistantSummary(t *testing.T) {
 }
 
 func TestWorkspaceSmartStatusDoesNotExposeLegacySessionAssistant(t *testing.T) {
-	handler := NewWorkspaceHandler(
+	handler := newWorkspaceHandlerForTest(
 		workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil,
 		workspaceAssistantStub{assistant: settingsports.SessionAssistantContext{Name: settingsports.SessionAnalysisAssistantName, Enabled: true, KnowledgeBaseCount: 2, ReadyDocumentCount: 5, UpdatedAt: "2026-08-23T12:00:00Z"}},
 	)
@@ -101,7 +101,7 @@ func TestWorkspaceStatusMapsEachPageToItsOwnAssistant(t *testing.T) {
 		settingsports.SessionAnalysisSystemKey: {Name: "会话助手独立", Enabled: true},
 		settingsports.SmartAnalysisSystemKey:   {Name: "智能助手独立", Enabled: true},
 	}}
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil, assistants)
+	handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil, assistants)
 	for _, test := range []struct {
 		path     string
 		expected string
@@ -121,7 +121,7 @@ func TestWorkspaceStatusMapsEachPageToItsOwnAssistant(t *testing.T) {
 }
 
 func TestWorkspaceRejectsIndependentSmartRuleWrites(t *testing.T) {
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil)
+	handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil)
 	requests := []*http.Request{
 		httptest.NewRequest(http.MethodPost, "/dashboard/ai-insight/smart-analysis/rules", strings.NewReader(`{"name":"无入口规则"}`)),
 		httptest.NewRequest(http.MethodPut, "/dashboard/ai-insight/smart-analysis/rules", strings.NewReader(`{"id":1}`)),
@@ -212,7 +212,7 @@ func (workspaceTestRepo) CurrentEnabledRuleVersion(context.Context, int64, int64
 }
 
 func TestWorkspaceDetailHidesUnauthorizedRecordAsNotFound(t *testing.T) {
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001}}}, nil, workspaceTestRepo{}, nil)
+	handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001}}}, nil, workspaceTestRepo{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/detail?id=99", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -222,7 +222,7 @@ func TestWorkspaceDetailHidesUnauthorizedRecordAsNotFound(t *testing.T) {
 }
 
 func TestWorkspaceRejectsInvalidPageBeforeRepository(t *testing.T) {
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil)
+	handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceTestRepo{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/records?page=0", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -233,7 +233,7 @@ func TestWorkspaceRejectsInvalidPageBeforeRepository(t *testing.T) {
 
 func TestWorkspaceAuthorizationIsCheckedBeforeRead(t *testing.T) {
 	authorizer := &workspaceTestAuthorizer{err: errors.New("denied")}
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, authorizer, workspaceTestRepo{}, nil)
+	handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, authorizer, workspaceTestRepo{}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/smart-analysis/records", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -271,7 +271,7 @@ func TestWorkspaceFilterOptionsMapsEachPageAndPreservesPrincipalScope(t *testing
 	} {
 		repo := &workspaceEmployeeOptionsRepo{directoryOptions: DirectoryOptions{Employees: []EmployeeOption{{ID: 1001, Name: "王甲", Avatar: "avatar"}}}}
 		authorizer := &workspaceTestAuthorizer{}
-		handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+		handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{
 			UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001, 1002},
 		}}, authorizer, repo, nil)
 		recorder := httptest.NewRecorder()
@@ -295,7 +295,7 @@ func TestWorkspaceDerivedFilterOptionsReturnsAuthorityCustomersAndCoverage(t *te
 		Customers: []CustomerOption{{ID: 2001, Name: "客户甲", Avatar: "customer-avatar"}},
 		Coverage:  InsightDirectoryCoverage{AvailableEmployeeCount: 12, AvailableCustomerCount: 16, AnalyzedEmployeeCount: 1, AnalyzedCustomerCount: 1},
 	}}
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+	handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{
 		UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001, 1002},
 	}}, nil, repo, nil)
 	recorder := httptest.NewRecorder()
@@ -319,7 +319,7 @@ func TestWorkspaceDerivedFilterOptionsReturnsAuthorityCustomersAndCoverage(t *te
 func TestWorkspaceFilterOptionsRejectsInvalidLimitBeforeRepository(t *testing.T) {
 	for _, limit := range []string{"0", "101", "abc"} {
 		repo := &workspaceEmployeeOptionsRepo{}
-		handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, repo, nil)
+		handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, repo, nil)
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/filter-options?limit="+limit, nil))
 		if recorder.Code != http.StatusBadRequest || repo.directoryFilter.TenantID != 0 {
@@ -356,7 +356,7 @@ func TestWorkspaceRecordsParsesPositiveCustomerID(t *testing.T) {
 
 func TestWorkspaceFilterOptionsDoesNotLeakRepositoryError(t *testing.T) {
 	repo := &workspaceEmployeeOptionsRepo{err: errors.New("SELECT failed: password=secret")}
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, repo, nil)
+	handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, repo, nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/filter-options", nil))
 	if recorder.Code != http.StatusInternalServerError || strings.Contains(recorder.Body.String(), "password") || !strings.Contains(recorder.Body.String(), "AI 洞察请求失败") {
@@ -371,7 +371,7 @@ func TestWorkspaceRecordsAndDetailExposeInsightFailureReason(t *testing.T) {
 		SourceMessageCount: 3, SourceFingerprint: strings.Repeat("a", 64), Status: AnalysisStatusFailed,
 		ErrorSummary: "模型响应超时",
 	}
-	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceInsightRepo{item: item}, nil)
+	handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, workspaceInsightRepo{item: item}, nil)
 	for _, path := range []string{
 		"/dashboard/ai-insight/session-analysis/records",
 		"/dashboard/ai-insight/session-analysis/detail?id=9",
@@ -471,7 +471,7 @@ func TestProjectionRecordsMapEveryDerivedViewToSessionRepository(t *testing.T) {
 	for _, view := range []string{"emotion", "employee-score", "communication-keyword"} {
 		t.Run(view, func(t *testing.T) {
 			repo := &projectionWorkspaceRepo{}
-			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+			handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{
 				UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1002, 1001},
 			}}, nil, repo, nil)
 			recorder := httptest.NewRecorder()
@@ -536,7 +536,7 @@ func TestProjectionQueryValidationPreservesEmotionStatesAndScoreZero(t *testing.
 	for _, test := range valid {
 		t.Run(test.view+"_"+test.query, func(t *testing.T) {
 			repo := &projectionWorkspaceRepo{}
-			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, repo, nil)
+			handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, repo, nil)
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+test.view+"/records?"+test.query, nil))
 			if recorder.Code != http.StatusOK || len(repo.pageFilters) != 1 {
@@ -561,7 +561,7 @@ func TestProjectionQueryValidationPreservesEmotionStatesAndScoreZero(t *testing.
 	for _, test := range invalid {
 		t.Run("reject_"+test.view+"_"+test.query, func(t *testing.T) {
 			repo := &projectionWorkspaceRepo{}
-			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, repo, nil)
+			handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, repo, nil)
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+test.view+"/records?"+test.query, nil))
 			if recorder.Code != http.StatusBadRequest || len(repo.pageFilters) != 0 {
@@ -599,7 +599,7 @@ func TestProjectionDetailUsesSessionIdentityAndSameEmployeeScopeForMessages(t *t
 				EmployeeID: 1001, EmployeeName: "员工甲", TargetType: "1", TargetID: "2001", TargetName: "客户甲",
 				SourceStartedAt: started, SourceEndedAt: ended, SourceMessageCount: 2, SourceFingerprint: strings.Repeat("a", 64), Status: AnalysisStatusSucceeded,
 			}}
-			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+			handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{
 				UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001},
 			}}, nil, repo, nil)
 			recorder := httptest.NewRecorder()
@@ -625,7 +625,7 @@ func TestProjectionDetailDoesNotDowngradeCrossScopeLookup(t *testing.T) {
 	for _, view := range []string{"emotion", "employee-score", "communication-keyword"} {
 		t.Run(view, func(t *testing.T) {
 			notFoundRepo := &projectionWorkspaceRepo{detailErr: sql.ErrNoRows}
-			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, notFoundRepo, nil)
+			handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, notFoundRepo, nil)
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/"+view+"/detail?id=91", nil))
 			if recorder.Code != http.StatusNotFound || len(notFoundRepo.detailFilters) != 1 || len(notFoundRepo.messageQueries) != 0 {
@@ -640,7 +640,7 @@ func TestProjectionReadsNeverChatAndStatusOnlyReadsProviderStatus(t *testing.T) 
 		t.Run(view, func(t *testing.T) {
 			provider := &projectionAIProvider{}
 			repo := &projectionWorkspaceRepo{item: ConversationInsight{ID: 1, ConversationKey: "1001:1:2001", EmployeeID: 1001, TargetType: "1"}}
-			handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+			handler := newWorkspaceHandlerForTest(workspaceTestResolver{principal: WorkspacePrincipal{
 				UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001},
 			}}, nil, repo, provider)
 			for _, action := range []string{"records", "detail?id=1", "filter-options", "export"} {

@@ -2,7 +2,6 @@ package aiproviderconfig
 
 import (
 	"context"
-	"database/sql/driver"
 	"errors"
 	"net/netip"
 	"regexp"
@@ -37,6 +36,7 @@ func TestTenantResolverBuildsIsolatedConfiguredProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+	effective, expires := now.Add(-time.Hour), now.Add(time.Hour)
 	guard, err := outboundhttp.NewGuard(outboundhttp.Config{RequireHTTPS: true, Resolver: resolverDNSStub{}})
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestTenantResolverBuildsIsolatedConfiguredProvider(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, provider, base_url, model, credential_ciphertext, encryption_key_id, api_key_hint, effective_at, expires_at, status, version
 		FROM mochat_go_saas_tenant_ai_providers
 		WHERE tenant_id = ?
-		LIMIT 1`)).WithArgs(int64(7)).WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "provider", "base_url", "model", "credential_ciphertext", "encryption_key_id", "api_key_hint", "effective_at", "expires_at", "status", "version"}).AddRow(7, "deepseek", "https://provider.example.test/v1", "deepseek-chat", ciphertext, keyID, "1234", driver.Value(nil), driver.Value(nil), StatusActive, 1))
+		LIMIT 1`)).WithArgs(int64(7)).WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "provider", "base_url", "model", "credential_ciphertext", "encryption_key_id", "api_key_hint", "effective_at", "expires_at", "status", "version"}).AddRow(7, "deepseek", "https://provider.example.test/v1", "deepseek-chat", ciphertext, keyID, "1234", effective, expires, StatusActive, 1))
 
 	resolver := NewTenantResolver(db, manager, guard)
 	resolver.Now = func() time.Time { return now }
@@ -91,10 +91,10 @@ func TestTenantResolverFailsClosedWithSafeCodes(t *testing.T) {
 			return sqlmock.NewRows([]string{"tenant_id", "provider", "base_url", "model", "credential_ciphertext", "encryption_key_id", "api_key_hint", "effective_at", "expires_at", "status", "version"})
 		}, code: ErrorNotConfigured},
 		{name: "expired boundary", row: func() *sqlmock.Rows {
-			return resolverRows().AddRow(7, "openai", "https://provider.example.test/v1", "model", validCiphertext, keyID, "9876", nil, now, StatusActive, 1)
+			return resolverRows().AddRow(7, "openai", "https://provider.example.test/v1", "model", validCiphertext, keyID, "9876", now.Add(-time.Hour), now, StatusActive, 1)
 		}, code: ErrorExpired},
 		{name: "unavailable key", row: func() *sqlmock.Rows {
-			return resolverRows().AddRow(7, "openai", "https://provider.example.test/v1", "model", validCiphertext, "missing-key", "9876", nil, nil, StatusActive, 1)
+			return resolverRows().AddRow(7, "openai", "https://provider.example.test/v1", "model", validCiphertext, "missing-key", "9876", now.Add(-time.Hour), now.Add(time.Hour), StatusActive, 1)
 		}, code: ErrorCredentialUnavailable},
 	}
 	for _, test := range tests {
@@ -129,6 +129,27 @@ func TestTenantResolverFailsClosedWithSafeCodes(t *testing.T) {
 			}
 			if err := mock.ExpectationsWereMet(); err != nil {
 				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestStoredConfigRuntimeValidationRequiresCompleteActiveWindowAndKnownProvider(t *testing.T) {
+	now := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+	start, end := now.Add(-time.Hour), now.Add(time.Hour)
+	valid := StoredConfig{TenantID: 7, Provider: "openai", BaseURL: "https://provider.example.test/v1", Model: "model", CredentialCiphertext: "cipher", KeyID: "ai-v1", Status: StatusActive, Version: 1, EffectiveAt: &start, ExpiresAt: &end}
+	for name, mutate := range map[string]func(*StoredConfig){
+		"missing effective": func(config *StoredConfig) { config.EffectiveAt = nil },
+		"missing expiry":    func(config *StoredConfig) { config.ExpiresAt = nil },
+		"invalid window":    func(config *StoredConfig) { value := start; config.ExpiresAt = &value },
+		"unknown provider":  func(config *StoredConfig) { config.Provider = "other" },
+		"missing base url":  func(config *StoredConfig) { config.BaseURL = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := valid
+			mutate(&config)
+			if err := config.validateForUse(now); err == nil {
+				t.Fatal("validateForUse error=nil, want fail closed")
 			}
 		})
 	}

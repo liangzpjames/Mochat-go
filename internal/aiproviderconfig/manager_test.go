@@ -102,7 +102,8 @@ func TestManagerDecryptStoredFailsClosedForInactiveOrExpiredConfig(t *testing.T)
 		t.Fatal(err)
 	}
 	now := time.Date(2026, time.August, 25, 0, 0, 0, 0, time.UTC)
-	config := StoredConfig{TenantID: 7, Provider: "openai", Model: "fixture-model", CredentialCiphertext: ciphertext, KeyID: keyID, Hint: hint, Status: StatusActive, Version: 1, CreatedBy: 41, UpdatedBy: 42}
+	effective, expires := now.Add(-time.Hour), now.Add(time.Hour)
+	config := StoredConfig{TenantID: 7, Provider: "openai", BaseURL: "https://provider.example.test/v1", Model: "fixture-model", CredentialCiphertext: ciphertext, KeyID: keyID, Hint: hint, EffectiveAt: &effective, ExpiresAt: &expires, Status: StatusActive, Version: 1, CreatedBy: 41, UpdatedBy: 42}
 	if credential, err := manager.DecryptStored(config, now); err != nil || credential != "fixture-key-config-2468" {
 		t.Fatalf("active stored config did not decrypt: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestManagerDecryptStoredFailsClosedForInactiveOrExpiredConfig(t *testing.T)
 	if _, err := manager.DecryptStored(config, now); err == nil {
 		t.Fatal("expected expired stored config to fail closed")
 	}
-	config.ExpiresAt = nil
+	config.ExpiresAt = &expires
 	notYetEffective := now.Add(time.Second)
 	config.EffectiveAt = &notYetEffective
 	if _, err := manager.DecryptStored(config, now); err == nil {
