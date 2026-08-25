@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"jiyi/mochat-go/internal/aiproviderconfig"
 	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
 	"jiyi/mochat-go/internal/modules/providers"
 )
@@ -269,7 +268,7 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 		resolved, err := h.resolver.Resolve(r.Context(), p.TenantID, p.CorpID)
 		if err != nil {
 			code, message := "AI_PROVIDER_UNAVAILABLE", safeProviderFailure(err)
-			var resolveErr *aiproviderconfig.ResolveError
+			var resolveErr providers.AIProviderResolveError
 			if errors.As(err, &resolveErr) {
 				code, message = resolveErr.SafeCode(), resolveErr.SafeReason()
 			}

@@ -128,10 +128,10 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 	}
 	var ai providers.AIProvider
 	resolveMessage := ""
+	var resolveErr error
 	if r.resolver == nil {
 		resolveMessage = "AI_PROVIDER_UNAVAILABLE"
 	} else {
-		var resolveErr error
 		ai, resolveErr = r.resolver.Resolve(ctx, tenantID, corpID)
 		if resolveErr != nil {
 			resolveMessage = safeProviderFailure(resolveErr)
@@ -168,6 +168,9 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, message); err != nil {
 				return err
 			}
+		}
+		if resolveErr != nil {
+			return resolveErr
 		}
 		return nil
 	}
