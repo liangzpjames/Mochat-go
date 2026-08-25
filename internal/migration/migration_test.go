@@ -152,6 +152,44 @@ func TestDefaultMigrationsAcceptsHistoricalMixedLineEndingChecksumForLiveCodeWor
 	}
 }
 
+func TestDefaultMigrationsAcceptsHistoricalMixedLineEndingChecksumForSCRMLeadParity(t *testing.T) {
+	root := t.TempDir()
+	schemaPath := filepath.Join(root, "deploy", "standalone", "schema")
+	migrationPath := filepath.Join(root, "deploy", "standalone", "migrations")
+	if err := os.MkdirAll(schemaPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(migrationPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(schemaPath, "mochat.sql"), []byte("CREATE TABLE mc_user (id int);\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	current := []byte("ALTER TABLE mochat_go_scrm_leads ADD COLUMN corp_id bigint;\n")
+	if err := os.WriteFile(filepath.Join(migrationPath, "0106_scrm_lead_parity.up.sql"), current, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(migrationPath, "0106_scrm_lead_parity.down.sql"), []byte("ALTER TABLE mochat_go_scrm_leads DROP COLUMN corp_id;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const historicalChecksum = "cf299bfb4ef21b95da0f76ee9e9c8cb24475843f575cfb749a2b23f09261496b"
+	migrations := DefaultMigrations(root)
+	var leadParity Migration
+	for _, item := range migrations {
+		if item.Version == "0106_scrm_lead_parity" {
+			leadParity = item
+			break
+		}
+	}
+	if leadParity.Version == "" {
+		t.Fatalf("0106 migration missing from %#v", migrations)
+	}
+	if !checksumMatches(historicalChecksum, checksumBytes(current), leadParity.ChecksumAliases) {
+		t.Fatalf("historical mixed-line-ending checksum %s not accepted by aliases %#v", historicalChecksum, leadParity.ChecksumAliases)
+	}
+}
+
 func TestNewRunnerValidatesMigrations(t *testing.T) {
 	_, err := NewRunner(nil, []Migration{{Version: "0001", Path: "one.sql"}})
 	if err == nil || !strings.Contains(err.Error(), "db is nil") {

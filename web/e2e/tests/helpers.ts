@@ -127,6 +127,19 @@ export async function mockDashboardBackend(
       }));
       return;
     }
+    if (route.request().method() === 'GET' && (
+      routePath.startsWith('/access/employees')
+      || routePath.startsWith('/access/users')
+      || routePath.startsWith('/access/roles')
+      || routePath.startsWith('/access/audits')
+    )) {
+      await json(route, envelope({ list: [], page: { page: 1, perPage: 50, total: 0, totalPage: 0 } }));
+      return;
+    }
+    if (routePath === '/access/catalog') {
+      await json(route, envelope([]));
+      return;
+    }
     if (routePath === '/workContactTagGroup/index' || routePath === '/menu/select' || routePath === '/menu/iconIndex') {
       await json(route, envelope([]));
       return;

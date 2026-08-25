@@ -38,6 +38,11 @@ const knownPreviousInitialSchemaChecksum = "03425c87c5584e82b7991d7f5fe4c75f8918
 // idempotent seed and remain present in deployed migration ledgers.
 const knownLegacyCoreSeedChecksum = "de6513fb142d38fbd0205ecaa6e6ddbdd9d765e5c455ab20bd2afdd158d276ed"
 
+// The first server deployment of 0106 was built from a worktree containing
+// mixed LF/CRLF line endings. The normalized SQL is identical to the current
+// migration, but its immutable ledger retains this checksum.
+const knownLegacySCRMLeadParityChecksum = "cf299bfb4ef21b95da0f76ee9e9c8cb24475843f575cfb749a2b23f09261496b"
+
 // The first Windows Docker Desktop deployment of 0153 was built from a
 // worktree containing mixed LF/CRLF line endings. The SQL is byte-normalized
 // to the current migration, but its immutable ledger retains this checksum.
@@ -732,6 +737,9 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 		checksumAliases := migrationLineEndingChecksumAliases(path)
 		if version == "0002_seed_core_data" {
 			checksumAliases = append(checksumAliases, knownLegacyCoreSeedChecksum)
+		}
+		if version == "0106_scrm_lead_parity" {
+			checksumAliases = append(checksumAliases, knownLegacySCRMLeadParityChecksum)
 		}
 		if version == "0153_live_code_workspace" {
 			checksumAliases = append(checksumAliases, knownLegacyLiveCodeWorkspaceChecksum)

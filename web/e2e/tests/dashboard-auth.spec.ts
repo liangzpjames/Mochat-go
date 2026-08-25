@@ -11,7 +11,7 @@ test('protected URL redirects to Dashboard login and returns to the requested pa
   await page.locator('input[autocomplete="current-password"]').fill('secret');
   await page.locator('button[type="submit"]').click();
 
-  await expect(page).toHaveURL(/\/index$/);
+  await expect(page).toHaveURL(/\/index\?from=e2e$/);
   await expect(page.locator('.dashboard-content > *').first()).toBeVisible();
 });
 
@@ -39,6 +39,6 @@ test('403 remains inside the React error boundary without an enterprise selector
   await page.goto('/index');
 
   await expect(page).toHaveURL(/\/index$/);
-  await expect(page.getByRole('heading', { name: '鏃犳潈璁块棶' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '无权访问' })).toBeVisible();
   await expect(page.locator('.dashboard-corp-switcher')).toHaveCount(0);
 });

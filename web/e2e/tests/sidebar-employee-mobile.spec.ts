@@ -154,7 +154,7 @@ test.describe('employee Sidebar compact density', () => {
 test.describe('employee Sidebar business states at 390x844', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test('renders all four reference-mapped workspaces from real review APIs', async ({ page }) => {
+  test('renders all four reference-mapped workspaces from review API fixtures', async ({ page }) => {
     const audit = await installFixtures(page);
     await injectSession(page);
     await page.goto('/sidebar-app/?agentId=7');
@@ -205,7 +205,7 @@ test.describe('employee Sidebar business states at 390x844', () => {
     expect(attempts).toBe(2);
   });
 
-  test('round-trips customer context through profile and opens real SOP reminders', async ({ page }) => {
+  test('round-trips customer context through profile and opens fixture-backed SOP reminders', async ({ page }) => {
     const audit = await installFixtures(page);
     await injectSession(page);
     await page.goto('/sidebar-app/contact?wxExternalUserid=external-user-1&agentId=7');
