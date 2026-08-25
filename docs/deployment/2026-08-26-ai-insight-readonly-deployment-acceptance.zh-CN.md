@@ -10,7 +10,7 @@
 
 本次修复已部署并通过验收。修复前，5 个 AI 洞察页面的工作区接口稳定返回 HTTP 501，Dashboard 将非标准错误信封显示为 Zod 原始校验错误。修复后，这些接口均返回 HTTP 200 和标准 `code/msg/data` 信封；页面显示真实 0 条空态及“AI 服务暂不可用：尚未运行”，未开启 AI 模型、日分析或启动即运行能力。
 
-部署后已重新实际点击 Dashboard 全部 53 个菜单页面，结果为 53/53 可达；未发现 501、Zod 原始错误、破图、横向溢出或浏览器控制台错误。容器完成一次实际重启后仍为 healthy，`/healthz` 与 `/readyz` 均返回 200，重启后会话分析再次刷新通过。
+部署后已重新实际点击 Dashboard 全部 53 个菜单页面，结果为 53/53 可达；未发现 501、Zod 原始错误、破图、横向溢出或浏览器控制台错误。容器完成一次实际重启后仍为 healthy，`/healthz` 与 `/readyz` 均返回 200，重启后会话分析再次刷新通过。对应的时间戳、脱敏日志摘录、分批路由清单及接口/健康输出已固化至[浏览器与服务器脱敏验收证据](evidence/2026-08-26-ai-insight-readonly-browser-server.zh-CN.md)。
 
 ## 根因与修复
 
@@ -84,11 +84,11 @@
 | 员工评分 | 200 | `AI 服务不可用：尚未运行`，真实空态 | 通过 | 0 日志、0 破图、无溢出 |
 | 沟通关键词 | 200 | `AI 服务不可用：尚未运行`，真实空态 | 通过 | 0 日志、0 破图、无溢出 |
 
-Nginx 访问日志确认上述 records、status 和 filter-options 请求均为 200，响应大小分别为真实空列表/状态信封，不再出现 501。容器日志未发现 panic、fatal、迁移失败、SQL 错误或跨租户异常。
+Nginx 访问日志确认上述 records、status 和 filter-options 请求均为 200，不再出现 501；脱敏的路径、方法、状态及采样窗口见[浏览器与服务器脱敏验收证据](evidence/2026-08-26-ai-insight-readonly-browser-server.zh-CN.md#服务器脱敏-nginx-访问日志摘录)。容器日志未发现 panic、fatal、迁移失败、SQL 错误或跨租户异常。
 
 ### 修复后全菜单回归
 
-将 53 个菜单路由分成 7 批逐一实际点击并采样：
+将 53 个菜单路由分成 7 批逐一实际点击并采样；逐批的完整路由顺序、空失败集和每批计数见[浏览器：53 路由点击记录](evidence/2026-08-26-ai-insight-readonly-browser-server.zh-CN.md#浏览器53-路由点击记录)：
 
 - 页面可达：53/53。
 - 点击失败：0。
@@ -116,7 +116,8 @@ Nginx 访问日志确认上述 records、status 和 filter-options 请求均为 
 - 实现计划：`docs/superpowers/plans/2026-08-26-ai-insight-readonly-workspace.md`
 - TDD 报告：`.superpowers/sdd/ai-insight-readonly-task-1-report.md`
 - 本地门禁/镜像报告：`.superpowers/sdd/ai-insight-readonly-task-2-report.md`
-- 重启后页面截图：`.superpowers/sdd/evidence/ai-insight-session-analysis-post-restart.png`
+- 浏览器与服务器脱敏验收证据：`docs/deployment/evidence/2026-08-26-ai-insight-readonly-browser-server.zh-CN.md`
+- 重启后页面截图：`.superpowers/sdd/evidence/ai-insight-session-analysis-post-restart.png`，仅为“会话分析”单页辅助证据；完整 5 页刷新和 53 页覆盖以结构化点击记录与脱敏访问日志为证。
 - 服务器访问日志：`/var/log/nginx/access.log`
 - 服务器容器日志：`docker logs standalone-app-1`
 - 服务器配置备份：`/opt/mochat-go/backups/20260826-ai-insight-readonly-predeploy/`
@@ -130,9 +131,29 @@ Nginx 访问日志确认上述 records、status 和 filter-options 请求均为 
 docker image tag mochat-go-rollback:pre-ai-insight-readonly-20260826 standalone-app:latest
 cd /opt/mochat-go/deploy/standalone
 docker compose --env-file .env.local up -d --no-deps --no-build --force-recreate app
+
+# 最多等待 50 秒，超时则保留容器状态和最近日志供排查。
+deadline=$((SECONDS + 50))
+while :; do
+  app_id="$(docker compose --env-file .env.local ps -q app)"
+  if [ -n "$app_id" ] && [ "$(docker inspect -f '{{.State.Health.Status}}' "$app_id")" = healthy ]; then
+    break
+  fi
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    docker compose --env-file .env.local ps
+    docker compose --env-file .env.local logs --since 5m app
+    exit 1
+  fi
+  sleep 2
+done
+
+curl -fsS -o /dev/null -w 'HEALTHZ_HTTP=%{http_code}\n' http://127.0.0.1:18080/healthz
+curl -fsS -o /dev/null -w 'READYZ_HTTP=%{http_code}\n' http://127.0.0.1:18080/readyz
+docker inspect -f 'IMAGE={{.Image}} HEALTH={{.State.Health.Status}}' "$app_id"
+docker compose --env-file .env.local logs --since 5m app
 ```
 
-随后检查 `standalone-app-1` 镜像 ID 应恢复为 `ef220d19…523eaf`，并复查 `/healthz`、`/readyz` 和关键页面。数据库与配置未改动，无数据回滚步骤。
+上述命令只将 `.env.local` 作为 Compose 输入，不读取或显示其内容。若健康等待、HTTP 检查或镜像核对失败，应停止回滚验收并保留已输出的状态和最近 5 分钟 app 日志。成功时，检查 `standalone-app-1` 镜像 ID 应恢复为 `ef220d19…523eaf`，并复查 `/healthz`、`/readyz` 和关键页面。数据库与配置未改动，无数据回滚步骤。
 
 ## 剩余风险与建议
 
