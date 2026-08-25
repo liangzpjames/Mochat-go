@@ -42,6 +42,7 @@ type WorkspaceHandler struct {
 	resolver        providers.AIProviderResolver
 	assistant       AssistantContextProvider
 	systemAssistant SystemAssistantContextProvider
+	now             func() time.Time
 }
 
 func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, resolver providers.AIProviderResolver, assistants ...any) *WorkspaceHandler {
@@ -51,7 +52,7 @@ func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize Workspa
 		assistant, _ = assistants[0].(AssistantContextProvider)
 		systemAssistant, _ = assistants[0].(SystemAssistantContextProvider)
 	}
-	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, resolver: resolver, assistant: assistant, systemAssistant: systemAssistant}
+	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, resolver: resolver, assistant: assistant, systemAssistant: systemAssistant, now: time.Now}
 }
 
 func newWorkspaceHandlerForTest(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, ai providers.AIProvider, assistants ...any) *WorkspaceHandler {
@@ -140,11 +141,20 @@ func (h *WorkspaceHandler) runNow(w http.ResponseWriter, r *http.Request, p Work
 	if err != nil {
 		location = time.FixedZone("CST", 8*3600)
 	}
-	now := time.Now().In(location)
+	nowFn := h.now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	now := nowFn().In(location)
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 	runner := NewConversationAnalysisRunner(h.repo, h.resolver, RunnerConfig{}, nil, h.systemAssistant)
 	if err := runner.RunCorpWindow(r.Context(), p.TenantID, p.CorpID, start, now); err != nil {
-		workspaceEnvelope(w, http.StatusServiceUnavailable, safeAnalysisFailure(err), nil)
+		code := "AI_ANALYSIS_FAILED"
+		var safe providers.AIProviderResolveError
+		if errors.As(err, &safe) && strings.TrimSpace(safe.SafeCode()) != "" {
+			code = strings.TrimSpace(safe.SafeCode())
+		}
+		workspaceEnvelope(w, http.StatusServiceUnavailable, code, nil)
 		return
 	}
 	workspaceEnvelope(w, http.StatusOK, "success", map[string]any{"tenantId": p.TenantID, "corpId": p.CorpID})

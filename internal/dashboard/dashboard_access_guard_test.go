@@ -72,6 +72,39 @@ func TestDashboardAccessGuardProfileRequiresAuthenticationAndTenantGate(t *testi
 	}
 }
 
+func TestDashboardAccessGuardManualAIInsightRunIsSuperadminDenyOnly(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		superadmin bool
+		want       bool
+	}{
+		{name: "ordinary denied", superadmin: false, want: false},
+		{name: "superadmin allowed", superadmin: true, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			guard, store := newDashboardAccessGuardFixture(test.superadmin)
+			request := dashboardAccessGuardRequest(guard, http.MethodPost, "/dashboard/ai-insight/run", nil)
+			response := httptest.NewRecorder()
+			if got := guard.Authorize(response, request); got != test.want {
+				t.Fatalf("Authorize=%v status=%d body=%s", got, response.Code, response.Body.String())
+			}
+			if !test.want {
+				if response.Code != http.StatusForbidden || machineCode(t, response) != DashboardPermissionDeniedCode {
+					t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+				}
+				return
+			}
+			access, ok := DashboardAccessFromContext(request.Context())
+			if !ok || !access.IsSuperAdmin || access.TenantID != 9 || access.CorpID != 12 {
+				t.Fatalf("access=%+v ok=%v", access, ok)
+			}
+			if store.resourceCalls != 0 || store.grantCalls != 0 {
+				t.Fatalf("deny-only route queried resources=%d grants=%d", store.resourceCalls, store.grantCalls)
+			}
+		})
+	}
+}
+
 func TestDashboardAccessGuardPendingBindingAllowsOnlyConfigurationContracts(t *testing.T) {
 	tests := []struct {
 		name        string

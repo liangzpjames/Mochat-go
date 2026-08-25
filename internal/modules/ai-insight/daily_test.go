@@ -12,6 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
+	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
 	"jiyi/mochat-go/internal/modules/providers"
 )
 
@@ -81,6 +82,55 @@ type scopedResolver struct {
 	providers map[string]providers.AIProvider
 	errors    map[string]error
 	calls     map[string]int
+}
+
+func TestDailyRunnerUsesAssistantEnablementAndTenantGuidance(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		assistants  *systemAssistantStub
+		wantCalls   int
+		wantContent []string
+	}{
+		{name: "disabled assistants never chat", assistants: &systemAssistantStub{contexts: map[string]settingsports.SystemAssistantContext{settingsports.SessionAnalysisSystemKey: {Enabled: false}, settingsports.SmartAnalysisSystemKey: {Enabled: false}}, loadErrs: map[string]error{}}, wantCalls: 0},
+		{name: "enabled assistants contribute settings", assistants: &systemAssistantStub{contexts: map[string]settingsports.SystemAssistantContext{
+			settingsports.SessionAnalysisSystemKey: {Enabled: true, Instructions: "每日会话说明", SettingsFingerprint: "daily-session", KnowledgeChunks: []settingsports.KnowledgeChunk{{Content: "每日会话知识"}}},
+			settingsports.SmartAnalysisSystemKey:   {Enabled: true, Instructions: "每日智能说明", SettingsFingerprint: "daily-smart", KnowledgeChunks: []settingsports.KnowledgeChunk{{Content: "每日智能知识"}}},
+		}, loadErrs: map[string]error{}}, wantCalls: 2, wantContent: []string{"每日会话说明", "每日会话知识", "每日智能说明", "每日智能知识"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			mock.ExpectQuery("SELECT c.tenant_id, c.id").WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "id"}).AddRow(1, 2))
+			repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1, Objective: "智能目标", ConversationTypes: []string{"direct"}, MinimumMessages: 1}}}
+			provider := &capturingAIProvider{}
+			resolver := &scopedResolver{providers: map[string]providers.AIProvider{"1/2": provider}, errors: map[string]error{}}
+			runner := NewDailyAnalysisRunnerWithResolver(db, repo, resolver, log.New(io.Discard, "", 0), test.assistants)
+			if err := runner.RunOnce(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if provider.calls != test.wantCalls {
+				t.Fatalf("chat calls=%d want=%d", provider.calls, test.wantCalls)
+			}
+			joined := ""
+			for _, request := range provider.requests {
+				joined += request.System + request.Prompt
+			}
+			for _, content := range test.wantContent {
+				if !strings.Contains(joined, content) {
+					t.Fatalf("requests missing expected assistant content category")
+				}
+			}
+			if test.wantCalls > 0 && (len(repo.saved) != 2 || repo.saved[0].SourceFingerprint == "messages-v1" || repo.saved[1].SourceFingerprint == "messages-v1") {
+				t.Fatalf("assistant settings fingerprint not applied")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 func (r *scopedResolver) Resolve(_ context.Context, tenantID, corpID int64) (providers.AIProvider, error) {

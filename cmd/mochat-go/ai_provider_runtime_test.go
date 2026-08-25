@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -9,6 +12,34 @@ import (
 	"jiyi/mochat-go/internal/modules/providers"
 	"jiyi/mochat-go/internal/modules/providers/catalog"
 )
+
+func TestProductionAICompositionUsesOneTenantResolverForWorkspaceAndDaily(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime caller unavailable")
+	}
+	contents, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "ai_debt_clearance.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(contents)
+	for _, required := range []string{
+		"aiResolver = mysqlStore.TenantAIProviderResolver()",
+		"AIProviderResolver: aiResolver",
+		"startAIInsightDailyAnalysis(cfg, mysqlStore, aiResolver)",
+		"!cfg.EnableAIInsight || !cfg.AIInsightDailyAnalysisEnabled || mysqlStore == nil || resolver == nil",
+		"Resolver:   resolver",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("production AI composition missing required tenant resolver wiring: %s", required)
+		}
+	}
+	for _, forbidden := range []string{"buildAIProvider(", "MOCHAT_GO_AI_PROVIDER_KEY", "StaticAIProviderResolver"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("production AI composition contains forbidden global fallback: %s", forbidden)
+		}
+	}
+}
 
 func TestDashboardAIStatusProviderDoesNotUseEnvironmentProviderFallback(t *testing.T) {
 	const secret = "composition-test-secret"

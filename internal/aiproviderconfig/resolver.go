@@ -62,6 +62,7 @@ type TenantResolver struct {
 	Guard   *outboundhttp.Guard
 	Now     func() time.Time
 	Timeout time.Duration
+	Factory func(openai.Config) (providers.AIProvider, error)
 }
 
 var _ providers.AIProviderResolver = (*TenantResolver)(nil)
@@ -102,7 +103,11 @@ func (r *TenantResolver) Resolve(ctx context.Context, tenantID, corpID int64) (p
 	if err != nil {
 		return nil, safeResolveError(ErrorCredentialUnavailable, "模型凭证不可用")
 	}
-	provider, err := openai.New(openai.Config{BaseURL: stored.BaseURL, APIKey: apiKey, Model: stored.Model, Provider: stored.Provider, Timeout: r.Timeout, Client: guard.NewClient()})
+	factory := r.Factory
+	if factory == nil {
+		factory = func(config openai.Config) (providers.AIProvider, error) { return openai.New(config) }
+	}
+	provider, err := factory(openai.Config{BaseURL: stored.BaseURL, APIKey: apiKey, Model: stored.Model, Provider: stored.Provider, Timeout: r.Timeout, Client: guard.NewClient()})
 	if err != nil {
 		return nil, safeResolveError(ErrorConfigurationInvalid, "租户模型配置不可用")
 	}

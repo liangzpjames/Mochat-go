@@ -159,10 +159,16 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 			return err
 		}
 		if smartRulesErr != nil {
-			return smartRulesErr
+			return newAnalysisRunError("AI_RULE_UNAVAILABLE", "AI 分析规则不可用")
 		}
 		if len(rules) == 0 {
-			return r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, 0, message)
+			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, 0, message); err != nil {
+				return err
+			}
+			if resolveErr != nil {
+				return resolveErr
+			}
+			return newAnalysisRunError("AI_PROVIDER_UNAVAILABLE", "AI 模型服务不可用")
 		}
 		for _, rule := range rules {
 			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, message); err != nil {
@@ -172,7 +178,7 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 		if resolveErr != nil {
 			return resolveErr
 		}
-		return nil
+		return newAnalysisRunError("AI_PROVIDER_UNAVAILABLE", "AI 模型服务不可用")
 	}
 	now := r.now()
 	sessionVersionID := int64(0)
@@ -185,7 +191,7 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 		}
 	}
 	if smartRulesErr != nil {
-		return smartRulesErr
+		return newAnalysisRunError("AI_RULE_UNAVAILABLE", "AI 分析规则不可用")
 	}
 	contexts := map[AnalysisType]*settingsports.SystemAssistantContext{}
 	failures := map[AnalysisType]string{}
@@ -217,29 +223,46 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 			contexts[AnalysisTypeSession] = &loaded
 		}
 	}
+	var runFailures []error
+	if sessionRuleFailure != "" {
+		runFailures = append(runFailures, newAnalysisRunError("AI_RULE_UNAVAILABLE", "会话分析规则不可用"))
+	}
 	if sessionRuleFailure == "" {
 		if failure := failures[AnalysisTypeSession]; failure != "" {
 			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, failure); err != nil {
 				return err
 			}
+			runFailures = append(runFailures, newAnalysisRunError("AI_ASSISTANT_UNAVAILABLE", "会话分析助手不可用"))
 		} else {
 			startAt, endAt := analysisTimeWindow(now, r.config.SessionDays, sessionRule.LookbackDays, window)
 			if err := r.runType(ctx, ai, tenantID, corpID, AnalysisTypeSession, sessionVersionID, startAt, endAt, sessionRule, contexts[AnalysisTypeSession]); err != nil {
 				r.logger.Printf("AI conversation session analysis failed for corp %d: %v", corpID, err)
+				runFailures = append(runFailures, newAnalysisRunError("AI_ANALYSIS_FAILED", "会话分析执行失败"))
 			}
 		}
+	}
+	if len(rules) == 0 {
+		if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, 0, "智能分析当前启用规则版本不存在"); err != nil {
+			return err
+		}
+		runFailures = append(runFailures, newAnalysisRunError("AI_RULE_UNAVAILABLE", "智能分析规则不可用"))
 	}
 	for _, rule := range rules {
 		if failure := failures[AnalysisTypeSmart]; failure != "" {
 			if err := r.recordUnavailableRun(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, failure); err != nil {
 				return err
 			}
+			runFailures = append(runFailures, newAnalysisRunError("AI_ASSISTANT_UNAVAILABLE", "智能分析助手不可用"))
 			continue
 		}
 		startAt, endAt := analysisTimeWindow(now, r.config.SessionDays, rule.LookbackDays, window)
 		if err := r.runType(ctx, ai, tenantID, corpID, AnalysisTypeSmart, rule.ID, startAt, endAt, &rule, contexts[AnalysisTypeSmart]); err != nil {
 			r.logger.Printf("AI conversation smart analysis failed for corp %d rule %d: %v", corpID, rule.RuleID, err)
+			runFailures = append(runFailures, newAnalysisRunError("AI_ANALYSIS_FAILED", "智能分析执行失败"))
 		}
+	}
+	if len(runFailures) > 0 {
+		return runFailures[0]
 	}
 	return nil
 }
@@ -263,8 +286,8 @@ func (r *ConversationAnalysisRunner) runType(ctx context.Context, ai providers.A
 	}
 	candidates, err := r.repo.ConversationCandidates(ctx, CandidateQuery{TenantID: tenantID, CorpID: corpID, AnalysisType: analysisType, RuleVersionID: ruleVersionID, StartAt: startAt, EndAt: endAt, Limit: r.config.BatchLimit})
 	if err != nil {
-		_ = r.repo.FinishRun(ctx, runID, InsightRunResult{Status: AnalysisStatusFailed, ErrorSummary: err.Error(), FinishedAt: r.now()})
-		return err
+		_ = r.repo.FinishRun(ctx, runID, InsightRunResult{Status: AnalysisStatusFailed, ErrorSummary: "AI_ANALYSIS_DATA_UNAVAILABLE", FinishedAt: r.now()})
+		return newAnalysisRunError("AI_ANALYSIS_DATA_UNAVAILABLE", "会话候选数据不可用")
 	}
 	filtered := candidates[:0]
 	for _, candidate := range candidates {
@@ -282,8 +305,18 @@ func (r *ConversationAnalysisRunner) runType(ctx context.Context, ai providers.A
 		counts.BacklogCount = len(candidates) - len(filtered)
 	}
 	counts.Status = AnalysisStatusSucceeded
+	if counts.FailureCount > 0 {
+		counts.Status = AnalysisStatusFailed
+		counts.ErrorSummary = "AI_ANALYSIS_FAILED"
+	}
 	counts.FinishedAt = r.now()
-	return r.repo.FinishRun(ctx, runID, counts)
+	if err := r.repo.FinishRun(ctx, runID, counts); err != nil {
+		return err
+	}
+	if counts.FailureCount > 0 {
+		return newAnalysisRunError("AI_ANALYSIS_FAILED", "部分或全部会话分析失败")
+	}
+	return nil
 }
 
 func (r *ConversationAnalysisRunner) processCandidates(ctx context.Context, ai providers.AIProvider, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, candidates []ConversationCandidate, rule *AnalysisRuleVersion, assistant *settingsports.SessionAssistantContext) InsightRunResult {
@@ -431,6 +464,16 @@ func (r *ConversationAnalysisRunner) saveFailedInsight(ctx context.Context, tena
 }
 
 func safeAnalysisFailure(error) string { return "AI_PROVIDER_REQUEST_FAILED" }
+
+type analysisRunError struct{ code, reason string }
+
+func (e *analysisRunError) Error() string      { return e.code }
+func (e *analysisRunError) SafeCode() string   { return e.code }
+func (e *analysisRunError) SafeReason() string { return e.reason }
+
+func newAnalysisRunError(code, reason string) error {
+	return &analysisRunError{code: code, reason: reason}
+}
 
 func (r *ConversationAnalysisRunner) recordUnavailableRun(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, message string) error {
 	now := r.now()

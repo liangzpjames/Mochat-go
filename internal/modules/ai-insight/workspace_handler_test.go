@@ -684,10 +684,115 @@ type workspaceProviderResolver struct {
 	provider         providers.AIProvider
 	calls            int
 	tenantID, corpID int64
+	err              error
 }
 
 func (r *workspaceProviderResolver) Resolve(_ context.Context, tenantID, corpID int64) (providers.AIProvider, error) {
 	r.calls++
 	r.tenantID, r.corpID = tenantID, corpID
-	return r.provider, nil
+	return r.provider, r.err
+}
+
+type workspaceSafeResolveError struct{ code string }
+
+func (e workspaceSafeResolveError) Error() string      { return e.code }
+func (e workspaceSafeResolveError) SafeCode() string   { return e.code }
+func (e workspaceSafeResolveError) SafeReason() string { return "配置不可用" }
+
+type workspaceChatFailureProvider struct{ calls int }
+
+func (p *workspaceChatFailureProvider) Status() providers.Status {
+	return providers.Status{State: providers.StateReady}
+}
+func (p *workspaceChatFailureProvider) Chat(context.Context, providers.ChatRequest) (string, error) {
+	p.calls++
+	return "", errors.New("transport https://secret.example/path?token=hidden")
+}
+
+func TestWorkspaceManualRunRejectsUnauthorizedWithoutResolving(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		principal WorkspacePrincipal
+		authErr   error
+	}{
+		{name: "ordinary user", principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}},
+		{name: "authorizer denied", principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22, CanRunAnalysis: true}, authErr: errors.New("denied")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := &workspaceProviderResolver{provider: &capturingAIProvider{}}
+			authorizer := &workspaceTestAuthorizer{err: test.authErr}
+			handler := NewWorkspaceHandler(workspaceTestResolver{principal: test.principal}, authorizer, &runnerRepoStub{}, resolver)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/dashboard/ai-insight/run?tenantId=999&corpId=888", strings.NewReader(`{"tenantId":999,"corpId":888}`)))
+			if recorder.Code != http.StatusForbidden || resolver.calls != 0 {
+				t.Fatalf("status=%d resolve=%d", recorder.Code, resolver.calls)
+			}
+		})
+	}
+}
+
+func TestWorkspaceManualRunUsesPrincipalScopeAndShanghaiDayWindow(t *testing.T) {
+	repo := &runnerRepoStub{
+		sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1},
+		rules:       []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1, Objective: "识别风险", ConversationTypes: []string{"direct"}, MinimumMessages: 1}},
+	}
+	provider := &capturingAIProvider{}
+	resolver := &workspaceProviderResolver{provider: provider}
+	assistants := &systemAssistantStub{contexts: map[string]settingsports.SystemAssistantContext{
+		settingsports.SessionAnalysisSystemKey: {Enabled: true, Instructions: "会话说明", SettingsFingerprint: "session-settings", KnowledgeChunks: []settingsports.KnowledgeChunk{{Content: "会话知识"}}},
+		settingsports.SmartAnalysisSystemKey:   {Enabled: true, Instructions: "智能说明", SettingsFingerprint: "smart-settings", KnowledgeChunks: []settingsports.KnowledgeChunk{{Content: "智能知识"}}},
+	}, loadErrs: map[string]error{}}
+	authorizer := &workspaceTestAuthorizer{}
+	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22, CanRunAnalysis: true}}, authorizer, repo, resolver, assistants)
+	handler.now = func() time.Time { return time.Date(2026, 8, 25, 2, 30, 0, 0, time.UTC) }
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/dashboard/ai-insight/run?tenantId=999&corpId=888", strings.NewReader(`{"tenantId":999,"corpId":888}`)))
+	if recorder.Code != http.StatusOK || resolver.calls != 1 || resolver.tenantID != 11 || resolver.corpID != 22 || authorizer.permission != "/ai-insight/run#run" {
+		t.Fatalf("status=%d resolver=%#v permission=%q body=%s", recorder.Code, resolver, authorizer.permission, recorder.Body.String())
+	}
+	if len(repo.candidateQueries) != 2 {
+		t.Fatalf("queries=%#v", repo.candidateQueries)
+	}
+	wantStart := time.Date(2026, 8, 25, 0, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	wantEnd := time.Date(2026, 8, 25, 10, 30, 0, 0, time.FixedZone("CST", 8*3600))
+	for _, query := range repo.candidateQueries {
+		if !query.StartAt.Equal(wantStart) || !query.EndAt.Equal(wantEnd) || query.TenantID != 11 || query.CorpID != 22 {
+			t.Fatalf("query=%#v want=%s..%s", query, wantStart, wantEnd)
+		}
+	}
+	if provider.calls != 2 || !strings.Contains(provider.requests[0].System, "会话说明") || !strings.Contains(provider.requests[0].Prompt, "会话知识") || !strings.Contains(provider.requests[1].System, "智能说明") || !strings.Contains(provider.requests[1].Prompt, "智能知识") {
+		t.Fatalf("requests=%#v", provider.requests)
+	}
+	if len(repo.saved) != 2 || repo.saved[0].SourceFingerprint == "messages-v1" || repo.saved[1].SourceFingerprint == "messages-v1" {
+		t.Fatalf("saved fingerprints=%#v", repo.saved)
+	}
+}
+
+func TestWorkspaceManualRunReturnsSafeFailureCodes(t *testing.T) {
+	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1}, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1}}}
+	for _, test := range []struct {
+		name     string
+		resolver *workspaceProviderResolver
+		assist   *systemAssistantStub
+		wantCode string
+	}{
+		{name: "generic resolver", resolver: &workspaceProviderResolver{err: workspaceSafeResolveError{code: "AI_PROVIDER_EXPIRED"}}, wantCode: "AI_PROVIDER_EXPIRED"},
+		{name: "disabled assistant", resolver: &workspaceProviderResolver{provider: &capturingAIProvider{}}, assist: &systemAssistantStub{contexts: map[string]settingsports.SystemAssistantContext{settingsports.SessionAnalysisSystemKey: {Enabled: false}, settingsports.SmartAnalysisSystemKey: {Enabled: false}}, loadErrs: map[string]error{}}, wantCode: "AI_ASSISTANT_UNAVAILABLE"},
+		{name: "chat failure", resolver: &workspaceProviderResolver{provider: &workspaceChatFailureProvider{}}, wantCode: "AI_ANALYSIS_FAILED"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var handler *WorkspaceHandler
+			if test.assist != nil {
+				handler = NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22, CanRunAnalysis: true}}, &workspaceTestAuthorizer{}, repo, test.resolver, test.assist)
+			} else {
+				handler = NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22, CanRunAnalysis: true}}, &workspaceTestAuthorizer{}, repo, test.resolver)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/dashboard/ai-insight/run", nil))
+			body := recorder.Body.String()
+			if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(body, test.wantCode) || strings.Contains(body, "secret.example") || strings.Contains(body, "token=hidden") {
+				t.Fatalf("status=%d body=%s", recorder.Code, body)
+			}
+		})
+	}
 }

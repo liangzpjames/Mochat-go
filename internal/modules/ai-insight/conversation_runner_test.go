@@ -11,6 +11,14 @@ import (
 	"jiyi/mochat-go/internal/modules/providers"
 )
 
+func requireRunCode(t *testing.T, err error, want string) {
+	t.Helper()
+	var safe providers.AIProviderResolveError
+	if !errors.As(err, &safe) || safe.SafeCode() != want {
+		t.Fatalf("run error=%v, want safe code %s", err, want)
+	}
+}
+
 func TestConversationRunnerPromptContainsSourceContract(t *testing.T) {
 	prompt := buildConversationPrompt(AnalysisTypeSession, "session-v1", "请分析客户采购意向", []SourceMessage{{ID: "msg:1", Direction: "inbound", MessageTime: time.Date(2026, 8, 21, 9, 0, 0, 0, time.UTC), SenderName: "客户", Content: "想了解价格"}}, "")
 	for _, fragment := range []string{"msg:1", "inbound", "采购意向", "schemaVersion", "evidenceMessageIds"} {
@@ -47,9 +55,7 @@ func TestConversationRunnerExplicitWindowOverridesRuleLookback(t *testing.T) {
 	runner := newConversationAnalysisRunnerForTest(repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, nil)
 	startAt := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	endAt := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
-	if err := runner.RunCorpWindow(context.Background(), 1, 2, startAt, endAt); err != nil {
-		t.Fatal(err)
-	}
+	requireRunCode(t, runner.RunCorpWindow(context.Background(), 1, 2, startAt, endAt), "AI_RULE_UNAVAILABLE")
 	if len(repo.candidateQueries) != 1 || !repo.candidateQueries[0].StartAt.Equal(startAt) || !repo.candidateQueries[0].EndAt.Equal(endAt) {
 		t.Fatalf("candidate queries = %#v, want explicit window", repo.candidateQueries)
 	}
@@ -131,9 +137,7 @@ func TestConversationRunnerRetriesInvalidStructuredEvidenceOnce(t *testing.T) {
 	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}}
 	provider := &correctingAIProvider{}
 	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil)
-	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
-		t.Fatal(err)
-	}
+	requireRunCode(t, runner.RunCorp(context.Background(), 1, 2), "AI_RULE_UNAVAILABLE")
 	if len(provider.requests) != 2 {
 		t.Fatalf("provider calls = %d, want one correction retry", len(provider.requests))
 	}
@@ -210,9 +214,7 @@ func TestConversationRunnerConsumesAssistantInstructionsKnowledgeAndSettingsFing
 	}}
 	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistant)
 	runner.now = func() time.Time { return time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC) }
-	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
-		t.Fatal(err)
-	}
+	requireRunCode(t, runner.RunCorp(context.Background(), 1, 2), "AI_RULE_UNAVAILABLE")
 	if provider.calls != 1 || !strings.Contains(provider.request.System, "重点核对退款审批流程") || !strings.Contains(provider.request.Prompt, "退款超过一万元需要主管审批") {
 		t.Fatalf("calls=%d request=%#v", provider.calls, provider.request)
 	}
@@ -231,9 +233,7 @@ func TestConversationRunnerLegacySessionAssistantDisabledDoesNotStopSmartAnalysi
 	}
 	provider := &capturingAIProvider{}
 	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistantContextStub{context: settingsports.SessionAssistantContext{AgentID: "session", Enabled: false, SettingsFingerprint: "disabled"}})
-	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
-		t.Fatal(err)
-	}
+	requireRunCode(t, runner.RunCorp(context.Background(), 1, 2), "AI_ASSISTANT_UNAVAILABLE")
 	if provider.calls != 1 || !strings.Contains(provider.request.Prompt, "识别客户风险") || len(repo.runs) != 2 || repo.runs[0].AnalysisType != AnalysisTypeSession || repo.runs[1].AnalysisType != AnalysisTypeSmart {
 		t.Fatalf("calls=%d runs=%#v", provider.calls, repo.runs)
 	}
@@ -293,9 +293,7 @@ func TestConversationRunnerRecordsSessionAndDefaultSmartFailuresWhenProviderUnav
 	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1}, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1}}}
 	runner := newConversationAnalysisRunnerForTest(repo, unavailableAIProvider{}, RunnerConfig{}, nil)
 
-	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
-		t.Fatal(err)
-	}
+	requireRunCode(t, runner.RunCorp(context.Background(), 1, 2), "AI_PROVIDER_UNAVAILABLE")
 	if len(repo.runs) != 2 {
 		t.Fatalf("runs = %#v, want session and default smart failures", repo.runs)
 	}
@@ -336,6 +334,54 @@ func TestConversationRunnerResolvesOneProviderForAllCorpAnalysisTypes(t *testing
 	}
 	if resolver.calls != 1 || provider.calls != 2 {
 		t.Fatalf("resolve=%d chat=%d, want one resolve and shared provider", resolver.calls, provider.calls)
+	}
+}
+
+type scopedProviderResolver struct {
+	providers map[int64]*capturingAIProvider
+	calls     map[int64]int
+	err       error
+}
+
+func (r *scopedProviderResolver) Resolve(_ context.Context, tenantID, _ int64) (providers.AIProvider, error) {
+	if r.calls == nil {
+		r.calls = map[int64]int{}
+	}
+	r.calls[tenantID]++
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.providers[tenantID], nil
+}
+
+func TestConversationRunnerKeepsTenantProvidersIsolatedAcrossRuns(t *testing.T) {
+	repo := &runnerRepoStub{
+		sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1},
+		rules:       []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1, Objective: "智能目标", ConversationTypes: []string{"direct"}, MinimumMessages: 1}},
+	}
+	providerA, providerB := &capturingAIProvider{}, &capturingAIProvider{}
+	resolver := &scopedProviderResolver{providers: map[int64]*capturingAIProvider{1: providerA, 2: providerB}}
+	runner := NewConversationAnalysisRunnerWithResolver(repo, resolver, RunnerConfig{Concurrency: 1}, nil)
+	if err := runner.RunCorp(context.Background(), 1, 101); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.RunCorp(context.Background(), 2, 202); err != nil {
+		t.Fatal(err)
+	}
+	if resolver.calls[1] != 1 || resolver.calls[2] != 1 || providerA.calls != 2 || providerB.calls != 2 {
+		t.Fatalf("resolve=%#v chatA=%d chatB=%d", resolver.calls, providerA.calls, providerB.calls)
+	}
+}
+
+func TestConversationRunnerResolverFailureRecordsUnavailableAndNeverChats(t *testing.T) {
+	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1}, rules: []AnalysisRuleVersion{{ID: 22, RuleID: 2, Version: 1}}}
+	provider := &capturingAIProvider{}
+	resolver := &scopedProviderResolver{providers: map[int64]*capturingAIProvider{1: provider}, err: workspaceSafeResolveError{code: "AI_PROVIDER_DISABLED"}}
+	runner := NewConversationAnalysisRunnerWithResolver(repo, resolver, RunnerConfig{Concurrency: 1}, nil)
+	err := runner.RunCorp(context.Background(), 1, 101)
+	requireRunCode(t, err, "AI_PROVIDER_DISABLED")
+	if provider.calls != 0 || len(repo.runs) != 2 || len(repo.finished) != 2 {
+		t.Fatalf("chat=%d runs=%#v finished=%#v", provider.calls, repo.runs, repo.finished)
 	}
 }
 
@@ -470,9 +516,7 @@ func TestConversationRunnerAssistantFailureOnlyStopsMatchingFlow(t *testing.T) {
 				assistants.loadErrs[test.failedKey] = errors.New("load failed")
 			}
 			runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
-			if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
-				t.Fatal(err)
-			}
+			requireRunCode(t, runner.RunCorp(context.Background(), 1, 2), "AI_ASSISTANT_UNAVAILABLE")
 			if provider.calls != 1 || !strings.Contains(provider.request.Prompt, test.wantPrompt) {
 				t.Fatalf("calls=%d request=%#v", provider.calls, provider.request)
 			}
@@ -497,9 +541,7 @@ func TestConversationRunnerDoesNotRunSessionWithoutCurrentRuleVersion(t *testing
 	provider := &capturingAIProvider{}
 	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil)
 
-	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
-		t.Fatal(err)
-	}
+	requireRunCode(t, runner.RunCorp(context.Background(), 1, 2), "AI_RULE_UNAVAILABLE")
 	if provider.calls != 1 || !strings.Contains(provider.request.Prompt, "智能目标") {
 		t.Fatalf("provider calls=%d request=%#v, want only smart analysis", provider.calls, provider.request)
 	}
@@ -517,9 +559,7 @@ func TestConversationRunnerRecordsMissingSessionRuleBeforeReturningSmartRuleErro
 	runner := newConversationAnalysisRunnerForTest(repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, nil)
 
 	err := runner.RunCorp(context.Background(), 1, 2)
-	if !errors.Is(err, smartRuleErr) {
-		t.Fatalf("RunCorp error=%v, want %v", err, smartRuleErr)
-	}
+	requireRunCode(t, err, "AI_RULE_UNAVAILABLE")
 	if len(repo.runs) != 1 || repo.runs[0].AnalysisType != AnalysisTypeSession || len(repo.finished) != 1 || repo.finished[0].Status != AnalysisStatusFailed {
 		t.Fatalf("runs=%#v finished=%#v, want persisted missing session rule failure", repo.runs, repo.finished)
 	}
@@ -563,9 +603,7 @@ func TestConversationRunnerEnsureFailureOnlyFailsActuallyUnavailableContext(t *t
 	}
 	runner := newConversationAnalysisRunnerForTest(repo, provider, RunnerConfig{Concurrency: 1}, nil, assistants)
 
-	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
-		t.Fatal(err)
-	}
+	requireRunCode(t, runner.RunCorp(context.Background(), 1, 2), "AI_ASSISTANT_UNAVAILABLE")
 	if len(assistants.loaded) != 2 || provider.calls != 1 || !strings.Contains(provider.request.Prompt, "智能目标") {
 		t.Fatalf("loaded=%#v calls=%d request=%#v", assistants.loaded, provider.calls, provider.request)
 	}
