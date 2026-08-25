@@ -23,6 +23,7 @@ type WorkspacePrincipal struct {
 	CorpID                  int64
 	AllowedEmployeeIDs      []int64
 	EmployeeScopeRestricted bool
+	CanRunAnalysis          bool
 }
 type WorkspacePrincipalResolver interface {
 	Resolve(*http.Request) (WorkspacePrincipal, error)
@@ -71,6 +72,10 @@ func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		workspaceEnvelope(w, 401, "principal unauthorized", nil)
 		return
 	}
+	if r.URL.Path == "/dashboard/ai-insight/run" {
+		h.runNow(w, r, p)
+		return
+	}
 	page, action := workspacePath(r.URL.Path)
 	if !workspacePageAllowed(page) {
 		workspaceEnvelope(w, 404, "page not found", nil)
@@ -115,6 +120,35 @@ func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		workspaceEnvelope(w, 404, "resource not found", nil)
 	}
+}
+
+func (h *WorkspaceHandler) runNow(w http.ResponseWriter, r *http.Request, p WorkspacePrincipal) {
+	if r.Method != http.MethodPost || !p.CanRunAnalysis {
+		workspaceEnvelope(w, http.StatusForbidden, "forbidden", nil)
+		return
+	}
+	if h.authorize != nil {
+		if err := h.authorize.Authorize(r.Context(), p, p.CorpID, "/ai-insight/run#run"); err != nil {
+			workspaceEnvelope(w, http.StatusForbidden, "forbidden", nil)
+			return
+		}
+	}
+	if h.resolver == nil {
+		workspaceEnvelope(w, http.StatusServiceUnavailable, "AI_PROVIDER_UNAVAILABLE", nil)
+		return
+	}
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		location = time.FixedZone("CST", 8*3600)
+	}
+	now := time.Now().In(location)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
+	runner := NewConversationAnalysisRunner(h.repo, h.resolver, RunnerConfig{}, nil, h.systemAssistant)
+	if err := runner.RunCorpWindow(r.Context(), p.TenantID, p.CorpID, start, now); err != nil {
+		workspaceEnvelope(w, http.StatusServiceUnavailable, safeAnalysisFailure(err), nil)
+		return
+	}
+	workspaceEnvelope(w, http.StatusOK, "success", map[string]any{"tenantId": p.TenantID, "corpId": p.CorpID})
 }
 
 func (h *WorkspaceHandler) filterOptions(w http.ResponseWriter, r *http.Request, p WorkspacePrincipal, page string) {

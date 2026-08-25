@@ -155,5 +155,5 @@ func (r aiInsightPrincipalResolver) Resolve(request *http.Request) (aiinsighthtt
 			allowed = append(allowed, int64(id))
 		}
 	}
-	return aiinsighthttp.Principal{UserID: int64(principal.UserID), TenantID: int64(principal.TenantID), CorpID: int64(principal.CorpID), AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: access.ScopeRequired && access.Scope != dashboard.DataScopeTenant}, nil
+	return aiinsighthttp.Principal{UserID: int64(principal.UserID), TenantID: int64(principal.TenantID), CorpID: int64(principal.CorpID), AllowedEmployeeIDs: allowed, EmployeeScopeRestricted: access.ScopeRequired && access.Scope != dashboard.DataScopeTenant, IsSuperAdmin: principal.IsSuperAdmin}, nil
 }

@@ -46,6 +46,7 @@ func RegisterWorkspaceRoutes(registrar appmodules.RouteRegistrar, handler http.H
 		{http.MethodGet, "/dashboard/ai-insight/communication-keyword/status"},
 		{http.MethodGet, "/dashboard/ai-insight/communication-keyword/filter-options"},
 		{http.MethodGet, "/dashboard/ai-insight/communication-keyword/export"},
+		{http.MethodPost, "/dashboard/ai-insight/run"},
 	}
 	for _, route := range routes {
 		if err := registrar.Handle(route.method, route.path, handler); err != nil {

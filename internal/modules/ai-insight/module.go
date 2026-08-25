@@ -28,7 +28,7 @@ func New(dependencies Dependencies) (*Module, error) {
 	if dependencies.PrincipalResolver == nil {
 		return nil, errors.New("AI insight principal resolver is required")
 	}
-	handler := transporthttp.NewInsightHandlerWithProvider(dependencies.PrincipalResolver, dependencies.Authorizer, dependencies.DB, nil)
+	handler := transporthttp.NewInsightHandlerWithStore(dependencies.PrincipalResolver, dependencies.Authorizer, dependencies.DB)
 	var workspace *WorkspaceHandler
 	if dependencies.DB != nil {
 		var workspaceAuthorizer WorkspaceAuthorizer
@@ -52,7 +52,7 @@ func (a workspacePrincipalAdapter) Resolve(r *http.Request) (WorkspacePrincipal,
 	if err != nil {
 		return WorkspacePrincipal{}, err
 	}
-	return WorkspacePrincipal{UserID: p.UserID, TenantID: p.TenantID, CorpID: p.CorpID, AllowedEmployeeIDs: p.AllowedEmployeeIDs, EmployeeScopeRestricted: p.EmployeeScopeRestricted}, nil
+	return WorkspacePrincipal{UserID: p.UserID, TenantID: p.TenantID, CorpID: p.CorpID, AllowedEmployeeIDs: p.AllowedEmployeeIDs, EmployeeScopeRestricted: p.EmployeeScopeRestricted, CanRunAnalysis: p.IsSuperAdmin}, nil
 }
 
 type workspaceAuthorizerAdapter struct{ authorizer transporthttp.Authorizer }

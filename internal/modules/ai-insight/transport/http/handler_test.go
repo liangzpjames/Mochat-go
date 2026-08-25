@@ -113,8 +113,7 @@ func (p *recordingAIProvider) Chat(_ context.Context, _ providers.ChatRequest) (
 }
 
 func TestInsightPageOpenNeverCallsModel(t *testing.T) {
-	ai := &recordingAIProvider{status: providers.Status{State: providers.StateReady}}
-	handler := NewInsightHandlerWithProvider(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, nil, ai)
+	handler := NewInsightHandlerWithStore(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, nil)
 	rec := insightRequest(handler, "emotion")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
@@ -127,14 +126,10 @@ func TestInsightPageOpenNeverCallsModel(t *testing.T) {
 	if data["capability"] != "limited" {
 		t.Fatalf("capability = %v, want limited when no saved analysis", data["capability"])
 	}
-	if ai.calls != 0 {
-		t.Fatalf("model called %d times on page open, want 0", ai.calls)
-	}
 }
 
 func TestInsightReadsSavedAnalysisWithoutModel(t *testing.T) {
-	ai := &recordingAIProvider{status: providers.Status{State: providers.StateReady}}
-	handler := NewInsightHandlerWithProvider(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, nil, ai)
+	handler := NewInsightHandlerWithStore(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, nil)
 	handler.analysis = memoryAnalysisStore{row: &AnalysisRow{
 		Payload:   `{"summary":"已保存的每日分析","keywords":[],"generatedAt":"2026-08-15T00:00:00+08:00"}`,
 		CreatedAt: time.Now(),
@@ -158,8 +153,5 @@ func TestInsightReadsSavedAnalysisWithoutModel(t *testing.T) {
 	summary, ok := items[0].(map[string]any)["summary"].(string)
 	if !ok || !strings.Contains(summary, "已保存的每日分析") {
 		t.Fatalf("summary = %#v, want saved analysis text", summary)
-	}
-	if ai.calls != 0 {
-		t.Fatalf("model called %d times on page open with saved analysis, want 0", ai.calls)
 	}
 }

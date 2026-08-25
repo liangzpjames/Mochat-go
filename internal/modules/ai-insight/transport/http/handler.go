@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	"jiyi/mochat-go/internal/modules/providers"
 )
 
 var (
@@ -23,6 +21,7 @@ type Principal struct {
 	CorpID                  int64
 	AllowedEmployeeIDs      []int64
 	EmployeeScopeRestricted bool
+	IsSuperAdmin            bool
 }
 
 type PrincipalResolver interface {
@@ -90,7 +89,6 @@ type InsightHandler struct {
 	principal PrincipalResolver
 	authorize Authorizer
 	db        *sql.DB
-	ai        providers.AIProvider
 	analysis  AnalysisStore
 }
 
@@ -98,10 +96,9 @@ func NewInsightHandler(p PrincipalResolver, a Authorizer) *InsightHandler {
 	return &InsightHandler{principal: p, authorize: a}
 }
 
-func NewInsightHandlerWithProvider(p PrincipalResolver, a Authorizer, db *sql.DB, ai providers.AIProvider) *InsightHandler {
+func NewInsightHandlerWithStore(p PrincipalResolver, a Authorizer, db *sql.DB) *InsightHandler {
 	handler := NewInsightHandler(p, a)
 	handler.db = db
-	handler.ai = ai
 	if db != nil {
 		handler.analysis = NewSQLAnalysisStore(db)
 	}
@@ -190,11 +187,6 @@ func BuildAnalysisPrompt(page string, texts []string) (string, string) {
 		instruction = "请分析以上会话内容，用中文回答。"
 	}
 	return system, prompt + instruction
-}
-
-func (h *InsightHandler) runAnalysis(ctx context.Context, page string, texts []string) (string, error) {
-	system, prompt := BuildAnalysisPrompt(page, texts)
-	return h.ai.Chat(ctx, providers.ChatRequest{System: system, Prompt: prompt})
 }
 
 func pathPage(path string) string {
