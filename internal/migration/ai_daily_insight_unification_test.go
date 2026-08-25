@@ -61,3 +61,57 @@ func TestAIDailyInsightUnification0165MigrationContract(t *testing.T) {
 		t.Fatal("down migration must recreate an empty legacy table without fabricating data")
 	}
 }
+
+func TestIsAIDailyMigrationIntegrationSchemaStrictlyDedicated(t *testing.T) {
+	for _, name := range []string{
+		"mochat_go_ai_insight_test",
+		"mochat_go_ai_insight_test_0165",
+		"mochat_go_ai_insight_integration",
+		"mochat_go_ai_insight_integration_ci_2",
+	} {
+		if !isAIDailyMigrationIntegrationSchema(name) {
+			t.Fatalf("dedicated schema %q was rejected", name)
+		}
+	}
+	for _, name := range []string{
+		"mochat_go_ai_insight_testproduction",
+		"mochat_go_ai_insight_integration-prod",
+		"mochat_go_ai_insight_test_",
+		"mochat_go_ai_insight_test_UPPER",
+		"mochat_go_ai_insight_tests",
+		"production",
+	} {
+		if isAIDailyMigrationIntegrationSchema(name) {
+			t.Fatalf("unsafe schema %q was accepted", name)
+		}
+	}
+}
+
+func isAIDailyMigrationIntegrationSchema(name string) bool {
+	name = strings.TrimSpace(name)
+	for _, base := range []string{"mochat_go_ai_insight_test", "mochat_go_ai_insight_integration"} {
+		if name == base {
+			return true
+		}
+		prefix := base + "_"
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		suffix := strings.TrimPrefix(name, prefix)
+		if suffix == "" {
+			return false
+		}
+		for _, part := range strings.Split(suffix, "_") {
+			if part == "" {
+				return false
+			}
+			for _, char := range part {
+				if (char < 'a' || char > 'z') && (char < '0' || char > '9') {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
+}

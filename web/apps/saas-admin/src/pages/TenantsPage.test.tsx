@@ -334,6 +334,24 @@ describe('SaaS 客户租户治理页面', () => {
     expect(JSON.parse(String(successfulSave?.[1]?.body)).version).toBe(4)
   })
 
+  it('409 后刷新失败时不误报已载入最新版本', async () => {
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-version-conflict-refresh-failure')
+    mocks.apiRequest
+      .mockImplementationOnce(async () => { throw new mocks.ApiError('version conflict', 409, 'VERSION_CONFLICT') })
+      .mockImplementationOnce(async () => { throw new Error('refresh unavailable') })
+    clickButton('保存 AI 配置')
+    await settle()
+    await settle()
+    expect(document.body.textContent).toContain('最新版本刷新失败')
+    expect(document.body.textContent).not.toContain('页面已载入最新版本')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
+  })
+
   it('综合状态覆盖待生效、即将过期、过期、停用和凭证不可用', () => {
     const base = { tenantId: 41, providerCode: 'deepseek' as const, baseUrl: 'https://api.deepseek.com', model: 'tenant-model', apiKeyConfigured: true, apiKeyHint: 'cafe', credentialProtection: 'usable', effectiveAt: '2026-08-20T00:00:00Z', expiresAt: '2026-09-20T00:00:00Z', status: 'active' as const, version: 3, updatedAt: '2026-08-25T00:00:00Z' }
     const now = new Date('2026-08-25T00:00:00Z')

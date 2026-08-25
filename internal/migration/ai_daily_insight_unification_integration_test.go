@@ -34,6 +34,7 @@ func TestAIDailyInsightUnification0165RetriesEveryPartialStageOnRealMariaDB(t *t
 		t.Run("down_after_statement_"+string(rune('0'+cut)), func(t *testing.T) {
 			resetAIDailyMigrationFixture(t, db)
 			execAIDailyMigrationStatements(t, db, up)
+			prepareAIDailyMigrationDownDuplicate(t, db)
 			execAIDailyMigrationStatements(t, db, down[:cut])
 			execAIDailyMigrationStatements(t, db, down)
 			execAIDailyMigrationStatements(t, db, down)
@@ -55,7 +56,7 @@ func aiDailyMigrationIntegrationDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal("invalid AI insight integration DSN")
 	}
-	if !strings.HasPrefix(config.DBName, "mochat_go_ai_insight_test") && !strings.HasPrefix(config.DBName, "mochat_go_ai_insight_integration") {
+	if !isAIDailyMigrationIntegrationSchema(config.DBName) {
 		t.Fatal("AI daily migration integration DSN must target a dedicated test schema")
 	}
 	config.MultiStatements = false
@@ -131,12 +132,23 @@ func resetAIDailyMigrationFixture(t *testing.T, db *sql.DB) {
 		`INSERT INTO mochat_go_ai_conversation_insights
 			(tenant_id,corp_id,analysis_type,rule_version_id,conversation_key,source_fingerprint,status,result_json,generated_at,created_at)
 		VALUES
-			(1,2,'session',3,'employee:customer',REPEAT('a',64),'succeeded',JSON_OBJECT(),'2026-08-25 01:00:00','2026-08-25 01:00:00'),
+			(1,2,'session',3,'employee:customer',REPEAT('a',64),'succeeded',JSON_OBJECT(),'2026-08-24 16:30:00','2026-08-24 16:30:00'),
 			(1,2,'session',3,'employee:customer',REPEAT('b',64),'succeeded',JSON_OBJECT(),'2026-08-25 02:00:00','2026-08-25 02:00:00')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func prepareAIDailyMigrationDownDuplicate(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.Exec(`INSERT INTO mochat_go_ai_conversation_insights
+		(tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,analysis_date,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,previous_insight_id,previous_score,previous_summary,previous_generated_at,generated_at,created_at,updated_at)
+	SELECT tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,'2026-08-26',employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,previous_insight_id,previous_score,previous_summary,previous_generated_at,'2026-08-26 02:00:00','2026-08-26 02:00:00','2026-08-26 02:00:00'
+	FROM mochat_go_ai_conversation_insights WHERE id=2`)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -154,6 +166,14 @@ func assertAIDailyMigrationUpState(t *testing.T, db *sql.DB) {
 	assertAIDailyMigrationObjectCount(t, db, "information_schema.columns", "table_schema=DATABASE() AND table_name='mochat_go_ai_conversation_insights' AND column_name='analysis_date'", 1)
 	assertAIDailyMigrationObjectCount(t, db, "information_schema.statistics", "table_schema=DATABASE() AND table_name='mochat_go_ai_conversation_insights' AND index_name='uq_ai_conversation_daily'", 6)
 	assertAIDailyMigrationObjectCount(t, db, "information_schema.tables", "table_schema=DATABASE() AND table_name='mochat_go_ai_analysis'", 0)
+	var id, rows int
+	var analysisDate string
+	if err := db.QueryRow("SELECT COUNT(*), MIN(id), DATE_FORMAT(MIN(analysis_date),'%Y-%m-%d') FROM mochat_go_ai_conversation_insights").Scan(&rows, &id, &analysisDate); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 || id != 2 || analysisDate != "2026-08-25" {
+		t.Fatalf("up data state rows=%d id=%d analysis_date=%s, want 1/2/2026-08-25", rows, id, analysisDate)
+	}
 }
 
 func assertAIDailyMigrationDownState(t *testing.T, db *sql.DB) {
@@ -161,6 +181,13 @@ func assertAIDailyMigrationDownState(t *testing.T, db *sql.DB) {
 	assertAIDailyMigrationObjectCount(t, db, "information_schema.columns", "table_schema=DATABASE() AND table_name='mochat_go_ai_conversation_insights' AND column_name='analysis_date'", 0)
 	assertAIDailyMigrationObjectCount(t, db, "information_schema.statistics", "table_schema=DATABASE() AND table_name='mochat_go_ai_conversation_insights' AND index_name='uq_ai_conversation_source'", 6)
 	assertAIDailyMigrationObjectCount(t, db, "information_schema.tables", "table_schema=DATABASE() AND table_name='mochat_go_ai_analysis'", 1)
+	var rows, id int
+	if err := db.QueryRow("SELECT COUNT(*), MIN(id) FROM mochat_go_ai_conversation_insights").Scan(&rows, &id); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 || id != 3 {
+		t.Fatalf("down data state rows=%d id=%d, want newest source row 1/3", rows, id)
+	}
 }
 
 func assertAIDailyMigrationObjectCount(t *testing.T, db *sql.DB, table, where string, want int) {
