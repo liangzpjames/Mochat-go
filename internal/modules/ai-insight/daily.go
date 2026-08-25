@@ -21,7 +21,8 @@ var dailyAnalysisPages = []string{
 // DailyConfig configures the once-per-day AI insight analysis job.
 type DailyConfig struct {
 	DB         *sql.DB
-	AI         providers.AIProvider
+	AI         providers.AIProvider // compatibility-only test construction
+	Resolver   providers.AIProviderResolver
 	Hour       int
 	RunOnStart bool
 	Logger     *log.Logger
@@ -33,6 +34,7 @@ type DailyConfig struct {
 type DailyAnalysisRunner struct {
 	db           *sql.DB
 	ai           providers.AIProvider
+	resolver     providers.AIProviderResolver
 	analysis     transporthttp.AnalysisStore
 	conversation *ConversationAnalysisRunner
 	logger       *log.Logger
@@ -44,7 +46,17 @@ func NewDailyAnalysisRunner(db *sql.DB, ai providers.AIProvider, logger *log.Log
 	}
 	repo := NewSQLRepository(db)
 	assistantRepo, _ := aisettingsmysql.NewAgentRepository(db)
-	return &DailyAnalysisRunner{db: db, ai: ai, analysis: transporthttp.NewSQLAnalysisStore(db), conversation: NewConversationAnalysisRunner(repo, ai, RunnerConfig{}, logger, assistantRepo), logger: logger}
+	return &DailyAnalysisRunner{db: db, ai: ai, resolver: providers.StaticAIProviderResolver{Provider: ai}, analysis: transporthttp.NewSQLAnalysisStore(db), conversation: NewConversationAnalysisRunner(repo, ai, RunnerConfig{}, logger, assistantRepo), logger: logger}
+}
+
+// NewDailyAnalysisRunnerWithResolver is the production construction path. It
+// never accepts a process-wide AI client; each corp run resolves its own
+// database-backed provider once inside the conversation runner.
+func NewDailyAnalysisRunnerWithResolver(db *sql.DB, repo Repository, resolver providers.AIProviderResolver, logger *log.Logger) *DailyAnalysisRunner {
+	if logger == nil {
+		logger = log.Default()
+	}
+	return &DailyAnalysisRunner{db: db, resolver: resolver, analysis: transporthttp.NewSQLAnalysisStore(db), conversation: NewConversationAnalysisRunnerWithResolver(repo, resolver, RunnerConfig{}, logger), logger: logger}
 }
 
 // RunOnce analyzes archive texts for every active corp and persists the
@@ -66,8 +78,6 @@ func (r *DailyAnalysisRunner) run(ctx context.Context, window *analysisWindow) e
 	if r == nil || r.db == nil {
 		return errors.New("AI insight daily analysis database is unavailable")
 	}
-	providerReady := r.ai != nil && r.ai.Status().State == providers.StateReady
-	providerErr := errors.New("AI insight daily analysis skipped: AI provider is not ready")
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT c.tenant_id, c.id
 		FROM mc_corp c
@@ -91,9 +101,6 @@ func (r *DailyAnalysisRunner) run(ctx context.Context, window *analysisWindow) e
 	}
 	if len(corps) == 0 {
 		r.logger.Printf("AI insight daily analysis: no active corps, nothing to analyze")
-		if !providerReady {
-			return providerErr
-		}
 		return nil
 	}
 	for _, corp := range corps {
@@ -108,15 +115,6 @@ func (r *DailyAnalysisRunner) run(ctx context.Context, window *analysisWindow) e
 				r.logger.Printf("AI insight conversation analysis failed for corp %d: %v", corp.corpID, conversationErr)
 			}
 		}
-		if !providerReady {
-			continue
-		}
-		if err := r.runCorp(ctx, corp.corpID); err != nil {
-			r.logger.Printf("AI insight daily analysis failed for corp %d: %v", corp.corpID, err)
-		}
-	}
-	if !providerReady {
-		return providerErr
 	}
 	return nil
 }
@@ -158,7 +156,7 @@ func RunDailyLoop(ctx context.Context, config DailyConfig) {
 	if config.Logger == nil {
 		config.Logger = log.Default()
 	}
-	if config.DB == nil || config.AI == nil {
+	if config.DB == nil || (config.Resolver == nil && config.AI == nil) {
 		config.Logger.Printf("AI insight daily loop skipped: dependencies missing")
 		return
 	}
@@ -166,7 +164,13 @@ func RunDailyLoop(ctx context.Context, config DailyConfig) {
 	if err != nil {
 		location = time.Local
 	}
-	runner := NewDailyAnalysisRunner(config.DB, config.AI, config.Logger)
+	var runner *DailyAnalysisRunner
+	if config.Resolver != nil {
+		repo := NewSQLRepository(config.DB)
+		runner = NewDailyAnalysisRunnerWithResolver(config.DB, repo, config.Resolver, config.Logger)
+	} else {
+		runner = NewDailyAnalysisRunner(config.DB, config.AI, config.Logger)
+	}
 	run := func() {
 		started := time.Now()
 		config.Logger.Printf("AI insight daily analysis started at %s", started.In(location).Format(time.RFC3339))

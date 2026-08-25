@@ -11,10 +11,11 @@ import (
 )
 
 type AIInsightDependencies struct {
-	PrincipalResolver aiinsighthttp.PrincipalResolver
-	Authorizer        aiinsighthttp.Authorizer
-	DB                *sql.DB
-	AIProvider        providers.AIProvider
+	PrincipalResolver  aiinsighthttp.PrincipalResolver
+	Authorizer         aiinsighthttp.Authorizer
+	DB                 *sql.DB
+	AIProvider         providers.AIProvider
+	AIProviderResolver providers.AIProviderResolver
 }
 
 func RegisterAIInsight(router *appmodules.Router, enabled bool, dependencies AIInsightDependencies) error {
@@ -25,10 +26,11 @@ func RegisterAIInsight(router *appmodules.Router, enabled bool, dependencies AII
 		return errors.New("route registrar is required")
 	}
 	module, err := aiinsight.New(aiinsight.Dependencies{
-		PrincipalResolver: dependencies.PrincipalResolver,
-		Authorizer:        dependencies.Authorizer,
-		DB:                dependencies.DB,
-		AIProvider:        dependencies.AIProvider,
+		PrincipalResolver:  dependencies.PrincipalResolver,
+		Authorizer:         dependencies.Authorizer,
+		DB:                 dependencies.DB,
+		AIProvider:         dependencies.AIProvider,
+		AIProviderResolver: dependencies.AIProviderResolver,
 	})
 	if err != nil {
 		return err

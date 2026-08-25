@@ -11,6 +11,7 @@ import (
 
 	"jiyi/mochat-go/internal/aiproviderconfig"
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/modules/providers"
 	"jiyi/mochat-go/internal/outboundhttp"
 )
 
@@ -25,6 +26,16 @@ func (s *MySQLStore) WithAIProviderOutboundGuard(guard *outboundhttp.Guard) *MyS
 		s.aiProviderOutboundGuard = guard
 	}
 	return s
+}
+
+// TenantAIProviderResolver exposes the database-backed resolver used by AI
+// runtime composition. It deliberately has no environment or global provider
+// fallback.
+func (s *MySQLStore) TenantAIProviderResolver() providers.AIProviderResolver {
+	if s == nil {
+		return aiproviderconfig.NewTenantResolver(nil, nil, nil)
+	}
+	return aiproviderconfig.NewTenantResolver(s.db, s.aiProviderCredentialCipher, s.aiProviderOutboundGuard)
 }
 
 func (s *MySQLStore) SaaSTenantAIProvider(ctx context.Context, tenantID int) (dashboard.SaaSTenantAIProvider, bool, error) {

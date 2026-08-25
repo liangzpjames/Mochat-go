@@ -13,10 +13,11 @@ import (
 )
 
 type Dependencies struct {
-	PrincipalResolver transporthttp.PrincipalResolver
-	Authorizer        transporthttp.Authorizer
-	DB                *sql.DB
-	AIProvider        providers.AIProvider
+	PrincipalResolver  transporthttp.PrincipalResolver
+	Authorizer         transporthttp.Authorizer
+	DB                 *sql.DB
+	AIProvider         providers.AIProvider
+	AIProviderResolver providers.AIProviderResolver
 }
 
 type Module struct {
@@ -28,7 +29,7 @@ func New(dependencies Dependencies) (*Module, error) {
 	if dependencies.PrincipalResolver == nil {
 		return nil, errors.New("AI insight principal resolver is required")
 	}
-	handler := transporthttp.NewInsightHandlerWithProvider(dependencies.PrincipalResolver, dependencies.Authorizer, dependencies.DB, dependencies.AIProvider)
+	handler := transporthttp.NewInsightHandlerWithProvider(dependencies.PrincipalResolver, dependencies.Authorizer, dependencies.DB, nil)
 	var workspace *WorkspaceHandler
 	if dependencies.DB != nil {
 		var workspaceAuthorizer WorkspaceAuthorizer
@@ -36,7 +37,11 @@ func New(dependencies Dependencies) (*Module, error) {
 			workspaceAuthorizer = workspaceAuthorizerAdapter{authorizer: dependencies.Authorizer}
 		}
 		assistantRepo, _ := aisettingsmysql.NewAgentRepository(dependencies.DB)
-		workspace = NewWorkspaceHandler(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProvider, assistantRepo)
+		if dependencies.AIProviderResolver != nil {
+			workspace = NewWorkspaceHandlerWithResolver(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProviderResolver, assistantRepo)
+		} else {
+			workspace = NewWorkspaceHandler(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProvider, assistantRepo)
+		}
 	}
 	return &Module{handler: handler, workspace: workspace}, nil
 }

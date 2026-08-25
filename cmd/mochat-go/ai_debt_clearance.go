@@ -3,12 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"strings"
-	"time"
 
 	appbootstrap "jiyi/mochat-go/internal/app/bootstrap"
 	appmodules "jiyi/mochat-go/internal/app/modules"
@@ -19,7 +15,6 @@ import (
 	aiinsighthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
 	aisettingshttp "jiyi/mochat-go/internal/modules/ai-settings/transport/http"
 	"jiyi/mochat-go/internal/modules/providers"
-	openai "jiyi/mochat-go/internal/modules/providers/ai/openai"
 	providercatalog "jiyi/mochat-go/internal/modules/providers/catalog"
 	scrmhttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
 	"jiyi/mochat-go/internal/store"
@@ -60,38 +55,31 @@ func registerAIDebtClearanceModules(
 	}); err != nil {
 		return err
 	}
-	var aiProvider providers.AIProvider
+	var aiResolver providers.AIProviderResolver
 	if cfg.EnableAIInsight {
-		aiProvider, err = buildAIProvider()
-		if err != nil {
-			return err
-		}
+		aiResolver = mysqlStore.TenantAIProviderResolver()
 	}
 	if err := appbootstrap.RegisterAIInsight(router, true, appbootstrap.AIInsightDependencies{
-		PrincipalResolver: aiInsightPrincipalResolver{},
-		Authorizer:        aiInsightAuthorizer{delegate: leadAuthorizer},
-		DB:                mysqlStore.DB(),
-		AIProvider:        aiProvider,
+		PrincipalResolver:  aiInsightPrincipalResolver{},
+		Authorizer:         aiInsightAuthorizer{delegate: leadAuthorizer},
+		DB:                 mysqlStore.DB(),
+		AIProviderResolver: aiResolver,
 	}); err != nil {
 		return err
 	}
-	startAIInsightDailyAnalysis(cfg, mysqlStore, aiProvider)
+	startAIInsightDailyAnalysis(cfg, mysqlStore, aiResolver)
 	return nil
 }
 
 // startAIInsightDailyAnalysis starts the once-per-day analysis loop. It is the
 // only component allowed to call the AI model; page reads are read-only.
-func startAIInsightDailyAnalysis(cfg config.Config, mysqlStore *store.MySQLStore, aiProvider providers.AIProvider) {
-	if !cfg.EnableAIInsight || !cfg.AIInsightDailyAnalysisEnabled || mysqlStore == nil || aiProvider == nil {
-		return
-	}
-	if aiProvider.Status().State != providers.StateReady {
-		log.Printf("AI insight daily analysis skipped: AI provider is not ready")
+func startAIInsightDailyAnalysis(cfg config.Config, mysqlStore *store.MySQLStore, resolver providers.AIProviderResolver) {
+	if !cfg.EnableAIInsight || !cfg.AIInsightDailyAnalysisEnabled || mysqlStore == nil || resolver == nil {
 		return
 	}
 	go aiinsight.RunDailyLoop(context.Background(), aiinsight.DailyConfig{
 		DB:         mysqlStore.DB(),
-		AI:         aiProvider,
+		Resolver:   resolver,
 		Hour:       cfg.AIInsightAnalysisHour,
 		RunOnStart: cfg.AIInsightAnalysisRunOnStart,
 		Logger:     log.Default(),
@@ -99,56 +87,19 @@ func startAIInsightDailyAnalysis(cfg config.Config, mysqlStore *store.MySQLStore
 	log.Printf("go cron enabled: AI insight daily analysis hour=%02d run_on_start=%v", cfg.AIInsightAnalysisHour, cfg.AIInsightAnalysisRunOnStart)
 }
 
-func buildAIProvider() (providers.AIProvider, error) {
-	provider, err := openai.New(openai.Config{
-		BaseURL: os.Getenv("MOCHAT_GO_AI_PROVIDER_BASE_URL"),
-		APIKey:  aiProviderAPIKey(),
-		Model:   os.Getenv("MOCHAT_GO_AI_PROVIDER_MODEL"),
-		Timeout: time.Duration(envInt("MOCHAT_GO_AI_PROVIDER_TIMEOUT_SECONDS", 30)) * time.Second,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return provider, nil
-}
-
-// aiProviderAPIKey reads a protected file when configured. A configured file
-// fails closed: it never falls back to a process environment secret when the
-// file is missing or empty. The environment variable remains available for
-// non-container legacy deployments that have not opted into file injection.
-func aiProviderAPIKey() string {
-	path := strings.TrimSpace(os.Getenv("MOCHAT_GO_AI_PROVIDER_KEY_FILE"))
-	if path == "" {
-		return strings.TrimSpace(os.Getenv("MOCHAT_GO_AI_PROVIDER_KEY"))
-	}
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	value := strings.TrimSpace(string(contents))
-	if value == "" {
-		return ""
-	}
-	return value
-}
-
 func buildDashboardAIStatusProvider(cfg config.Config) (providers.StatusProvider, error) {
 	if !cfg.EnableAIDebtClearance || !cfg.EnableAIInsight {
 		return providercatalog.DisabledAIProvider{}, nil
 	}
-	return buildAIProvider()
+	return tenantScopedAIStatusProvider{}, nil
 }
 
-func envInt(name string, fallback int) int {
-	value := os.Getenv(name)
-	if value == "" {
-		return fallback
-	}
-	var parsed int
-	if _, err := fmt.Sscanf(value, "%d", &parsed); err != nil || parsed <= 0 {
-		return fallback
-	}
-	return parsed
+// tenantScopedAIStatusProvider prevents the process-wide registry from
+// claiming readiness: only a resolver can determine a tenant/corp's state.
+type tenantScopedAIStatusProvider struct{}
+
+func (tenantScopedAIStatusProvider) Status() providers.Status {
+	return providers.Status{Kind: "ai", State: providers.StateLimited, Source: providers.SourceExternal, Code: "ai.tenant_scoped", Reason: "AI 模型状态需在当前租户企业范围内解析", Action: "在 AI 洞察工作区查看当前租户配置"}
 }
 
 type aiDebtAuthorizer struct {

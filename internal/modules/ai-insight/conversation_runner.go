@@ -38,6 +38,7 @@ type RunnerConfig struct {
 type ConversationAnalysisRunner struct {
 	repo            Repository
 	ai              providers.AIProvider
+	resolver        providers.AIProviderResolver
 	config          RunnerConfig
 	logger          *log.Logger
 	now             func() time.Time
@@ -61,6 +62,15 @@ func NewConversationAnalysisRunner(repo Repository, ai providers.AIProvider, con
 		assistant, _ = assistants[0].(AssistantContextProvider)
 	}
 	return &ConversationAnalysisRunner{repo: repo, ai: ai, config: normalizeRunnerConfig(config), logger: logger, now: time.Now, assistant: assistant, systemAssistant: systemAssistant}
+}
+
+// NewConversationAnalysisRunnerWithResolver resolves a provider once for each
+// tenant/corp run. The returned provider is passed through the complete run so
+// session and smart analysis cannot cross tenant boundaries.
+func NewConversationAnalysisRunnerWithResolver(repo Repository, resolver providers.AIProviderResolver, config RunnerConfig, logger *log.Logger, assistants ...any) *ConversationAnalysisRunner {
+	runner := NewConversationAnalysisRunner(repo, nil, config, logger, assistants...)
+	runner.resolver = resolver
+	return runner
 }
 
 func normalizeRunnerConfig(config RunnerConfig) RunnerConfig {
@@ -114,13 +124,24 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 	} else if sessionRule == nil {
 		sessionRuleFailure = "会话分析当前启用规则版本不存在"
 	}
-	providerStatus := providers.Status{}
-	if r.ai != nil {
-		providerStatus = r.ai.Status()
+	ai := r.ai
+	resolveMessage := ""
+	if r.resolver != nil {
+		var resolveErr error
+		ai, resolveErr = r.resolver.Resolve(ctx, tenantID, corpID)
+		if resolveErr != nil {
+			resolveMessage = safeProviderFailure(resolveErr)
+		}
 	}
-	if r.ai == nil || providerStatus.State != providers.StateReady {
+	providerStatus := providers.Status{}
+	if ai != nil {
+		providerStatus = ai.Status()
+	}
+	if ai == nil || providerStatus.State != providers.StateReady {
 		message := "AI provider is not ready"
-		if strings.TrimSpace(providerStatus.Reason) != "" {
+		if resolveMessage != "" {
+			message = resolveMessage
+		} else if strings.TrimSpace(providerStatus.Reason) != "" {
 			message += ": " + strings.TrimSpace(providerStatus.Reason)
 		}
 		sessionVersionID, sessionMessage := int64(0), sessionRuleFailure
@@ -196,7 +217,7 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 			}
 		} else {
 			startAt, endAt := analysisTimeWindow(now, r.config.SessionDays, sessionRule.LookbackDays, window)
-			if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, startAt, endAt, sessionRule, contexts[AnalysisTypeSession]); err != nil {
+			if err := r.runType(ctx, ai, tenantID, corpID, AnalysisTypeSession, sessionVersionID, startAt, endAt, sessionRule, contexts[AnalysisTypeSession]); err != nil {
 				r.logger.Printf("AI conversation session analysis failed for corp %d: %v", corpID, err)
 			}
 		}
@@ -209,7 +230,7 @@ func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corp
 			continue
 		}
 		startAt, endAt := analysisTimeWindow(now, r.config.SessionDays, rule.LookbackDays, window)
-		if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, startAt, endAt, &rule, contexts[AnalysisTypeSmart]); err != nil {
+		if err := r.runType(ctx, ai, tenantID, corpID, AnalysisTypeSmart, rule.ID, startAt, endAt, &rule, contexts[AnalysisTypeSmart]); err != nil {
 			r.logger.Printf("AI conversation smart analysis failed for corp %d rule %d: %v", corpID, rule.RuleID, err)
 		}
 	}
@@ -227,7 +248,7 @@ func analysisTimeWindow(now time.Time, fallbackDays, ruleDays int, override *ana
 	return now.AddDate(0, 0, -days), now
 }
 
-func (r *ConversationAnalysisRunner) runType(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, startAt, endAt time.Time, rule *AnalysisRuleVersion, assistant *settingsports.SessionAssistantContext) error {
+func (r *ConversationAnalysisRunner) runType(ctx context.Context, ai providers.AIProvider, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, startAt, endAt time.Time, rule *AnalysisRuleVersion, assistant *settingsports.SessionAssistantContext) error {
 	run := InsightRun{TenantID: tenantID, CorpID: corpID, AnalysisType: analysisType, RuleVersionID: ruleVersionID, Status: AnalysisStatusRunning, PlannedAt: &startAt, StartedAt: &endAt}
 	runID, err := r.repo.CreateRun(ctx, run)
 	if err != nil {
@@ -248,7 +269,7 @@ func (r *ConversationAnalysisRunner) runType(ctx context.Context, tenantID, corp
 		}
 		filtered = append(filtered, candidate)
 	}
-	counts := r.processCandidates(ctx, tenantID, corpID, analysisType, ruleVersionID, filtered, rule, assistant)
+	counts := r.processCandidates(ctx, ai, tenantID, corpID, analysisType, ruleVersionID, filtered, rule, assistant)
 	counts.CandidateCount = len(filtered)
 	if len(candidates) > len(filtered) {
 		counts.BacklogCount = len(candidates) - len(filtered)
@@ -258,7 +279,7 @@ func (r *ConversationAnalysisRunner) runType(ctx context.Context, tenantID, corp
 	return r.repo.FinishRun(ctx, runID, counts)
 }
 
-func (r *ConversationAnalysisRunner) processCandidates(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, candidates []ConversationCandidate, rule *AnalysisRuleVersion, assistant *settingsports.SessionAssistantContext) InsightRunResult {
+func (r *ConversationAnalysisRunner) processCandidates(ctx context.Context, ai providers.AIProvider, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, candidates []ConversationCandidate, rule *AnalysisRuleVersion, assistant *settingsports.SessionAssistantContext) InsightRunResult {
 	var result InsightRunResult
 	if len(candidates) == 0 {
 		return result
@@ -270,7 +291,7 @@ func (r *ConversationAnalysisRunner) processCandidates(ctx context.Context, tena
 	worker := func() {
 		defer wg.Done()
 		for item := range jobs {
-			err := r.processCandidate(ctx, tenantID, corpID, analysisType, ruleVersionID, item.candidate, rule, assistant)
+			err := r.processCandidate(ctx, ai, tenantID, corpID, analysisType, ruleVersionID, item.candidate, rule, assistant)
 			mu.Lock()
 			if err != nil {
 				result.FailureCount++
@@ -301,7 +322,7 @@ func (r *ConversationAnalysisRunner) processCandidates(ctx context.Context, tena
 	return result
 }
 
-func (r *ConversationAnalysisRunner) processCandidate(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, candidate ConversationCandidate, rule *AnalysisRuleVersion, assistant *settingsports.SessionAssistantContext) error {
+func (r *ConversationAnalysisRunner) processCandidate(ctx context.Context, ai providers.AIProvider, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, candidate ConversationCandidate, rule *AnalysisRuleVersion, assistant *settingsports.SessionAssistantContext) error {
 	if assistant != nil {
 		candidate.SourceFingerprint = combinedFingerprint(candidate.SourceFingerprint, assistant.SettingsFingerprint)
 	}
@@ -329,12 +350,12 @@ func (r *ConversationAnalysisRunner) processCandidate(ctx context.Context, tenan
 		knowledge = selectKnowledge(messages, assistant.KnowledgeChunks)
 	}
 	request := providers.ChatRequest{System: system, Prompt: buildConversationPrompt(analysisType, r.config.PromptVersion, ruleObjective(rule), messages, knowledge, rulePrompts(rule)...), JSONMode: true}
-	raw, err := r.ai.Chat(ctx, request)
+	raw, err := ai.Chat(ctx, request)
 	if err != nil {
 		return r.saveFailedInsight(ctx, tenantID, corpID, candidate, analysisType, ruleVersionID, rule, err)
 	}
 	providerName, modelName := "ai", strings.TrimSpace(request.Model)
-	if metadataReader, ok := r.ai.(providers.AIProviderMetadataReader); ok {
+	if metadataReader, ok := ai.(providers.AIProviderMetadataReader); ok {
 		metadata := metadataReader.Metadata()
 		providerName, modelName = metadata.Provider, metadata.Model
 	}
@@ -348,7 +369,7 @@ func (r *ConversationAnalysisRunner) processCandidate(ctx context.Context, tenan
 	if parseErr != nil {
 		correction := request
 		correction.Prompt = buildCorrectionPrompt(request.Prompt, parseErr, messages)
-		correctedRaw, correctionErr := r.ai.Chat(ctx, correction)
+		correctedRaw, correctionErr := ai.Chat(ctx, correction)
 		if correctionErr != nil {
 			return r.saveFailedInsight(ctx, tenantID, corpID, candidate, analysisType, ruleVersionID, rule, fmt.Errorf("structured result correction failed: %w", correctionErr))
 		}
@@ -409,6 +430,18 @@ func (r *ConversationAnalysisRunner) recordUnavailableRun(ctx context.Context, t
 		return err
 	}
 	return r.repo.FinishRun(ctx, runID, InsightRunResult{Status: AnalysisStatusFailed, ErrorSummary: message, FinishedAt: now})
+}
+
+func safeProviderFailure(err error) string {
+	var safe providers.AIProviderResolveError
+	if errors.As(err, &safe) && strings.TrimSpace(safe.SafeCode()) != "" {
+		message := strings.TrimSpace(safe.SafeCode())
+		if reason := strings.TrimSpace(safe.SafeReason()); reason != "" {
+			message += ": " + reason
+		}
+		return message
+	}
+	return "AI_PROVIDER_UNAVAILABLE"
 }
 
 func buildConversationPrompt(analysisType AnalysisType, promptVersion, objective string, messages []SourceMessage, knowledgeContext string, guidance ...string) string {

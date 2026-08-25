@@ -113,6 +113,33 @@ type AIProvider interface {
 	Status() Status
 }
 
+// AIProviderResolver returns the provider authorized for one tenant/corp
+// execution scope. Production implementations must not fall back to a
+// process-wide provider.
+type AIProviderResolver interface {
+	Resolve(ctx context.Context, tenantID, corpID int64) (AIProvider, error)
+}
+
+// AIProviderResolveError exposes diagnostics that are explicitly safe for a
+// tenant-facing run record. Resolver implementations must never return raw
+// transport, URL, ciphertext, or credential errors through these methods.
+type AIProviderResolveError interface {
+	error
+	SafeCode() string
+	SafeReason() string
+}
+
+// StaticAIProviderResolver is intentionally small and is for explicit test
+// construction only. Production composition uses a tenant-backed resolver.
+type StaticAIProviderResolver struct{ Provider AIProvider }
+
+func (r StaticAIProviderResolver) Resolve(context.Context, int64, int64) (AIProvider, error) {
+	if r.Provider == nil {
+		return nil, ErrNotConfigured
+	}
+	return r.Provider, nil
+}
+
 // SyncOptions controls an archive sync run.
 type SyncOptions struct {
 	CorpID int64

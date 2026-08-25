@@ -667,3 +667,27 @@ func TestProjectionReadsNeverChatAndStatusOnlyReadsProviderStatus(t *testing.T) 
 		})
 	}
 }
+
+func TestWorkspaceStatusResolvesAuthenticatedTenantCorpWithoutChat(t *testing.T) {
+	provider := &projectionAIProvider{}
+	resolver := &workspaceProviderResolver{provider: provider}
+	handler := NewWorkspaceHandlerWithResolver(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 11, CorpID: 22}}, nil, workspaceTestRepo{}, resolver)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/status", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || resolver.calls != 1 || resolver.tenantID != 11 || resolver.corpID != 22 || provider.chatCalls != 0 {
+		t.Fatalf("status=%d resolver=%#v chat=%d", rec.Code, resolver, provider.chatCalls)
+	}
+}
+
+type workspaceProviderResolver struct {
+	provider         providers.AIProvider
+	calls            int
+	tenantID, corpID int64
+}
+
+func (r *workspaceProviderResolver) Resolve(_ context.Context, tenantID, corpID int64) (providers.AIProvider, error) {
+	r.calls++
+	r.tenantID, r.corpID = tenantID, corpID
+	return r.provider, nil
+}

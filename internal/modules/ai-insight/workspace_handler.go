@@ -39,6 +39,7 @@ type WorkspaceHandler struct {
 	authorize       WorkspaceAuthorizer
 	repo            Repository
 	ai              providers.AIProvider
+	resolver        providers.AIProviderResolver
 	assistant       AssistantContextProvider
 	systemAssistant SystemAssistantContextProvider
 }
@@ -51,6 +52,15 @@ func NewWorkspaceHandler(principal WorkspacePrincipalResolver, authorize Workspa
 		systemAssistant, _ = assistants[0].(SystemAssistantContextProvider)
 	}
 	return &WorkspaceHandler{principal: principal, authorize: authorize, repo: repo, ai: ai, assistant: assistant, systemAssistant: systemAssistant}
+}
+
+// NewWorkspaceHandlerWithResolver creates the tenant-scoped runtime path.
+// Read-only endpoints do not resolve or call the model; status resolves only
+// the authenticated principal's tenant/corp and never accepts request scope.
+func NewWorkspaceHandlerWithResolver(principal WorkspacePrincipalResolver, authorize WorkspaceAuthorizer, repo Repository, resolver providers.AIProviderResolver, assistants ...any) *WorkspaceHandler {
+	handler := NewWorkspaceHandler(principal, authorize, repo, nil, assistants...)
+	handler.resolver = resolver
+	return handler
 }
 
 func (h *WorkspaceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -218,8 +228,17 @@ func (h *WorkspaceHandler) status(w http.ResponseWriter, r *http.Request, p Work
 		return
 	}
 	provider := map[string]any{"state": "unavailable", "message": "尚未运行"}
-	if h.ai != nil {
-		status := h.ai.Status()
+	ai := h.ai
+	if h.resolver != nil {
+		resolved, err := h.resolver.Resolve(r.Context(), p.TenantID, p.CorpID)
+		if err != nil {
+			provider = map[string]any{"state": "unavailable", "code": "AI_PROVIDER_UNAVAILABLE", "message": safeProviderFailure(err)}
+		} else {
+			ai = resolved
+		}
+	}
+	if ai != nil {
+		status := ai.Status()
 		provider = map[string]any{"state": string(status.State), "source": string(status.Source), "code": status.Code, "message": status.Reason}
 	}
 	data := map[string]any{"provider": provider}

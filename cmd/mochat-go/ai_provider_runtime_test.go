@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,63 +10,7 @@ import (
 	"jiyi/mochat-go/internal/modules/providers/catalog"
 )
 
-func TestBuildAIProviderPrefersProtectedKeyFile(t *testing.T) {
-	const fileSecret = "file-secret-material"
-	const environmentSecret = "environment-secret-material"
-	dir := t.TempDir()
-	path := filepath.Join(dir, "ai-provider-key")
-	if err := os.WriteFile(path, []byte("  "+fileSecret+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY_FILE", path)
-	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", environmentSecret)
-	t.Setenv("MOCHAT_GO_AI_PROVIDER_MODEL", "test-model")
-
-	provider, err := buildAIProvider()
-	if err != nil {
-		t.Fatal(err)
-	}
-	status := provider.Status()
-	if status.State != providers.StateReady {
-		t.Fatalf("status=%#v, protected file key must make provider ready", status)
-	}
-	encoded, _ := json.Marshal(status)
-	if containsSecret(string(encoded), fileSecret) || containsSecret(string(encoded), environmentSecret) {
-		t.Fatal("provider status leaked secret material")
-	}
-}
-
-func TestBuildAIProviderLimitsUnavailableConfiguredKeyFileWithoutEnvFallback(t *testing.T) {
-	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY_FILE", filepath.Join(t.TempDir(), "missing"))
-	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", "must-not-be-used")
-
-	provider, err := buildAIProvider()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status := provider.Status(); status.State != providers.StateLimited {
-		t.Fatalf("status=%#v, configured missing key file must fail closed as limited", status)
-	}
-}
-
-func TestBuildAIProviderLimitsEmptyConfiguredKeyFileWithoutEnvFallback(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "empty")
-	if err := os.WriteFile(path, []byte(" \r\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY_FILE", path)
-	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", "must-not-be-used")
-
-	provider, err := buildAIProvider()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status := provider.Status(); status.State != providers.StateLimited {
-		t.Fatalf("status=%#v, configured empty key file must fail closed as limited", status)
-	}
-}
-
-func TestDashboardAIStatusProviderUsesEnabledRuntime(t *testing.T) {
+func TestDashboardAIStatusProviderDoesNotUseEnvironmentProviderFallback(t *testing.T) {
 	const secret = "composition-test-secret"
 	t.Setenv("MOCHAT_GO_AI_PROVIDER_BASE_URL", "http://127.0.0.1:9/v1")
 	t.Setenv("MOCHAT_GO_AI_PROVIDER_KEY", secret)
@@ -79,16 +21,16 @@ func TestDashboardAIStatusProviderUsesEnabledRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := runtime.Status()
-	if status.State != providers.StateReady {
-		t.Fatalf("status=%#v, enabled runtime with key must be ready", status)
+	if status.State != providers.StateLimited || status.Code != "ai.tenant_scoped" {
+		t.Fatalf("status=%#v, global runtime must remain tenant-scoped limited", status)
 	}
 	registry, err := catalog.NewRegistry(catalog.Dependencies{AI: runtime, AIEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, registered := range registry.Snapshot(nil) {
-		if registered.Kind == "ai" && registered.Source != providers.SourceExternal {
-			t.Fatalf("enabled AI source=%q, want external", registered.Source)
+		if registered.Kind == "ai" && registered.State != providers.StateLimited {
+			t.Fatalf("enabled AI state=%q, want tenant-scoped limited", registered.State)
 		}
 	}
 	encoded, _ := json.Marshal(status)
@@ -140,7 +82,7 @@ func TestDashboardAIStatusProviderRequiresBothAIFlags(t *testing.T) {
 		{name: "debt disabled insight disabled", debt: false, insight: false, wantState: providers.StateLimited, wantSource: providers.SourceCodeOnly},
 		{name: "debt disabled insight enabled", debt: false, insight: true, wantState: providers.StateLimited, wantSource: providers.SourceCodeOnly},
 		{name: "debt enabled insight disabled", debt: true, insight: false, wantState: providers.StateLimited, wantSource: providers.SourceCodeOnly},
-		{name: "both enabled", debt: true, insight: true, wantState: providers.StateReady, wantSource: providers.SourceExternal},
+		{name: "both enabled", debt: true, insight: true, wantState: providers.StateLimited, wantSource: providers.SourceExternal},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

@@ -312,6 +312,33 @@ func TestConversationRunnerRecordsSessionAndDefaultSmartFailuresWhenProviderUnav
 	}
 }
 
+type countingProviderResolver struct {
+	provider providers.AIProvider
+	calls    int
+	err      error
+}
+
+func (r *countingProviderResolver) Resolve(context.Context, int64, int64) (providers.AIProvider, error) {
+	r.calls++
+	return r.provider, r.err
+}
+
+func TestConversationRunnerResolvesOneProviderForAllCorpAnalysisTypes(t *testing.T) {
+	repo := &runnerRepoStub{
+		sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1},
+		rules:       []AnalysisRuleVersion{{ID: 22, RuleID: 12, Version: 1, Objective: "识别退款风险", ConversationTypes: []string{"direct"}, MinimumMessages: 1}},
+	}
+	provider := &capturingAIProvider{}
+	resolver := &countingProviderResolver{provider: provider}
+	runner := NewConversationAnalysisRunnerWithResolver(repo, resolver, RunnerConfig{Concurrency: 1}, nil)
+	if err := runner.RunCorp(context.Background(), 7, 9); err != nil {
+		t.Fatal(err)
+	}
+	if resolver.calls != 1 || provider.calls != 2 {
+		t.Fatalf("resolve=%d chat=%d, want one resolve and shared provider", resolver.calls, provider.calls)
+	}
+}
+
 func TestConversationRunnerConfigDefaults(t *testing.T) {
 	config := normalizeRunnerConfig(RunnerConfig{})
 	if config.BatchLimit != 200 || config.Concurrency != 2 || config.SessionDays != 30 || config.SessionLimit != 200 || config.PromptVersion != "conversation-v2" {

@@ -16,20 +16,22 @@ import (
 
 // Config configures an OpenAI-compatible chat provider.
 type Config struct {
-	BaseURL string
-	APIKey  string
-	Model   string
-	Timeout time.Duration
-	Client  *http.Client
+	BaseURL  string
+	APIKey   string
+	Model    string
+	Provider string
+	Timeout  time.Duration
+	Client   *http.Client
 }
 
 // Client implements providers.AIProvider over /chat/completions.
 type Client struct {
-	baseURL string
-	apiKey  string
-	model   string
-	timeout time.Duration
-	client  *http.Client
+	baseURL  string
+	apiKey   string
+	model    string
+	provider string
+	timeout  time.Duration
+	client   *http.Client
 }
 
 var _ providers.AIProvider = (*Client)(nil)
@@ -55,18 +57,22 @@ func New(config Config) (*Client, error) {
 	} else {
 		client.Timeout = timeout
 	}
-	return &Client{baseURL: baseURL, apiKey: strings.TrimSpace(config.APIKey), model: model, timeout: timeout, client: client}, nil
+	provider := strings.TrimSpace(config.Provider)
+	if provider == "" {
+		provider = "openai-compatible"
+	}
+	return &Client{baseURL: baseURL, apiKey: strings.TrimSpace(config.APIKey), model: model, provider: provider, timeout: timeout, client: client}, nil
 }
 
 func (c *Client) Status() providers.Status {
 	if c.apiKey == "" {
-		return providers.Status{Kind: "ai", State: providers.StateLimited, Reason: "MOCHAT_GO_AI_PROVIDER_KEY 未配置"}
+		return providers.Status{Kind: "ai", State: providers.StateLimited, Reason: "AI provider credential unavailable"}
 	}
 	return providers.Status{Kind: "ai", State: providers.StateReady}
 }
 
 func (c *Client) Metadata() providers.AIProviderMetadata {
-	return providers.AIProviderMetadata{Provider: "openai-compatible", Model: c.model}
+	return providers.AIProviderMetadata{Provider: c.provider, Model: c.model}
 }
 
 func (c *Client) Chat(ctx context.Context, req providers.ChatRequest) (string, error) {
