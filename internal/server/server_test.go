@@ -1619,6 +1619,25 @@ func TestSaaSTenantDomainDeliveryRoutesDispatchAndList(t *testing.T) {
 	}
 }
 
+func TestTenantAIProviderRoutesDispatchAndList(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("tenant AI provider")) })
+	srv, err := New(config.Config{ListenAddr: ":0", Standalone: true, ProxyTimeout: time.Second}, WithSaaSAdminTenantAIProviderHandler(handler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		req := httptest.NewRequest(method, "/dashboard/saasAdmin/tenantAIProvider", nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "tenant AI provider" {
+			t.Fatalf("%s status=%d body=%q", method, rec.Code, rec.Body.String())
+		}
+		if !containsString(srv.migratedRoutes(), method+" /dashboard/saasAdmin/tenantAIProvider") {
+			t.Fatalf("route %q missing", method)
+		}
+	}
+}
+
 func TestSaaSAdminAccessRoutesDispatchAndList(t *testing.T) {
 	handler := func(body string) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) })

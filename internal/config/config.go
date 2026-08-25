@@ -13,6 +13,7 @@ import (
 	"text/template"
 	"time"
 
+	"jiyi/mochat-go/internal/aiproviderconfig"
 	appruntime "jiyi/mochat-go/internal/app/runtime"
 	"jiyi/mochat-go/internal/buildinfo"
 	"jiyi/mochat-go/internal/clientip"
@@ -159,6 +160,10 @@ type Config struct {
 	WeChatOpenCredentialEncryptionKeyID                string
 	WeChatOpenCredentialRequireEncryption              bool
 	WeChatOpenCredentialDedicatedConfigured            bool
+	AIProviderCredentialEncryptionKey                  string
+	AIProviderCredentialEncryptionKeys                 string
+	AIProviderCredentialEncryptionKeyID                string
+	AIProviderCredentialRequireEncryption              bool
 	EnableSaaSOperationQueueAssignmentReminderCron     bool
 	SaaSOperationQueueAssignmentReminderCronInterval   time.Duration
 	SaaSOperationQueueAssignmentReminderCronRunOnStart bool
@@ -1258,6 +1263,12 @@ func FromEnv() (Config, error) {
 			KeyID: os.Getenv("MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY_ID"),
 		},
 	)
+	aiProviderCredentialEncryption, _ := saasalertcredentials.SelectEncryptionSource(
+		saasalertcredentials.EncryptionSource{Key: os.Getenv("MOCHAT_GO_AI_PROVIDER_CREDENTIAL_ENCRYPTION_KEY"), Keys: os.Getenv("MOCHAT_GO_AI_PROVIDER_CREDENTIAL_ENCRYPTION_KEYS"), KeyID: os.Getenv("MOCHAT_GO_AI_PROVIDER_CREDENTIAL_ENCRYPTION_KEY_ID")},
+		saasalertcredentials.EncryptionSource{Key: os.Getenv("MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY"), Keys: os.Getenv("MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEYS"), KeyID: os.Getenv("MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY_ID")},
+		saasalertcredentials.EncryptionSource{Key: os.Getenv("MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEY"), Keys: os.Getenv("MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEYS"), KeyID: os.Getenv("MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEY_ID")},
+		saasalertcredentials.EncryptionSource{Key: os.Getenv("MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY"), Keys: os.Getenv("MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEYS"), KeyID: os.Getenv("MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY_ID")},
+	)
 
 	cfg := Config{
 		RuntimeRole:                                        runtimeRole,
@@ -1391,6 +1402,10 @@ func FromEnv() (Config, error) {
 		WeChatOpenCredentialEncryptionKeyID:                weChatOpenCredentialEncryption.KeyID,
 		WeChatOpenCredentialRequireEncryption:              envBool("MOCHAT_GO_WECHAT_OPEN_CREDENTIAL_REQUIRE_ENCRYPTION"),
 		WeChatOpenCredentialDedicatedConfigured:            weChatOpenCredentialDedicatedConfigured,
+		AIProviderCredentialEncryptionKey:                  aiProviderCredentialEncryption.Key,
+		AIProviderCredentialEncryptionKeys:                 aiProviderCredentialEncryption.Keys,
+		AIProviderCredentialEncryptionKeyID:                aiProviderCredentialEncryption.KeyID,
+		AIProviderCredentialRequireEncryption:              envBool("MOCHAT_GO_AI_PROVIDER_CREDENTIAL_REQUIRE_ENCRYPTION"),
 		EnableSaaSOperationQueueAssignmentReminderCron:     envBool("MOCHAT_GO_ENABLE_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_CRON"),
 		SaaSOperationQueueAssignmentReminderCronInterval:   time.Duration(saasOperationQueueAssignmentReminderCronInterval) * time.Second,
 		SaaSOperationQueueAssignmentReminderCronRunOnStart: envBool("MOCHAT_GO_SAAS_OPERATION_QUEUE_ASSIGNMENT_REMINDER_CRON_RUN_ON_START"),
@@ -1857,6 +1872,12 @@ func FromEnv() (Config, error) {
 		DedicatedConfigured: cfg.WeChatOpenCredentialDedicatedConfigured,
 	}); err != nil {
 		return Config{}, fmt.Errorf("WeChat Open credential encryption configuration: %w", err)
+	}
+	if _, err := aiproviderconfig.NewManager(aiproviderconfig.Config{
+		EncryptionKey: cfg.AIProviderCredentialEncryptionKey, EncryptionKeys: cfg.AIProviderCredentialEncryptionKeys,
+		EncryptionKeyID: cfg.AIProviderCredentialEncryptionKeyID, RequireEncryption: cfg.AIProviderCredentialRequireEncryption,
+	}); err != nil {
+		return Config{}, fmt.Errorf("AI provider credential encryption configuration: %w", err)
 	}
 	if (cfg.EnableSaaSAdminDashboard || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron) && cfg.SaaSPlatformAdminTenantID <= 0 {
 		return Config{}, fmt.Errorf("MOCHAT_GO_SAAS_PLATFORM_ADMIN_TENANT_ID must be a positive integer when SaaS admin dashboard or a SaaS platform cron is enabled")

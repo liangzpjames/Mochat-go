@@ -259,6 +259,12 @@ func SaaSAdminRequiredPermission(r *http.Request) string {
 	if name == "serviceAccounts" || name == "serviceAccountUsage" || name == "wecomCredentialProtection" || name == "wechatOpenCredentialProtection" {
 		return SaaSAdminPermissionIntegrationsRead
 	}
+	if name == "tenantAIProvider" {
+		if write {
+			return SaaSAdminPermissionIntegrationsManage
+		}
+		return SaaSAdminPermissionIntegrationsRead
+	}
 	if name == "serviceAccount" || name == "serviceAccountKeyRotate" || name == "serviceAccountKeyRevoke" || name == "serviceAccountUsageAlertEvaluate" || name == "wecomCredentialRotation" || name == "wechatOpenCredentialRotation" {
 		return SaaSAdminPermissionIntegrationsManage
 	}

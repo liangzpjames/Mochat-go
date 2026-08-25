@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"jiyi/mochat-go/internal/aiproviderconfig"
 	"jiyi/mochat-go/internal/authjwt"
 	"jiyi/mochat-go/internal/authrealm"
 	"jiyi/mochat-go/internal/clientip"
@@ -112,6 +113,13 @@ func main() {
 	log.Printf("WeChat Open credential protection: encryption_configured=%t require_encryption=%t dedicated_configured=%t active_key_id=%s key_count=%d",
 		weChatOpenCredentialStatus.EncryptionConfigured, weChatOpenCredentialStatus.RequireEncryption,
 		weChatOpenCredentialStatus.DedicatedConfigured, weChatOpenCredentialStatus.ActiveKeyID, weChatOpenCredentialStatus.KeyCount)
+	aiProviderCredentialManager, err := aiproviderconfig.NewManager(aiproviderconfig.Config{
+		EncryptionKey: cfg.AIProviderCredentialEncryptionKey, EncryptionKeys: cfg.AIProviderCredentialEncryptionKeys,
+		EncryptionKeyID: cfg.AIProviderCredentialEncryptionKeyID, RequireEncryption: cfg.AIProviderCredentialRequireEncryption,
+	})
+	if err != nil {
+		log.Fatalf("build AI provider credential encryption manager: %v", err)
+	}
 
 	var options []compatserver.Option
 	var mysqlStore *store.MySQLStore
@@ -129,7 +137,8 @@ func main() {
 		mysqlStore = store.NewMySQLStore(db).
 			WithSaaSAlertCredentialCipher(alertCredentialManager).
 			WithWeComCredentialCipher(weComCredentialManager).
-			WithWeChatOpenCredentialCipher(weChatOpenCredentialManager)
+			WithWeChatOpenCredentialCipher(weChatOpenCredentialManager).
+			WithAIProviderCredentialCipher(aiProviderCredentialManager)
 		return mysqlStore
 	}
 
@@ -2620,6 +2629,7 @@ func main() {
 			compatserver.WithSaaSAdminTenantDomainHandler(http.HandlerFunc(saasAdmin.TenantDomain)),
 			compatserver.WithSaaSAdminTenantDomainDeliveryJobsHandler(http.HandlerFunc(saasAdmin.TenantDomainDeliveryJobs)),
 			compatserver.WithSaaSAdminTenantDomainDeliveryHandler(http.HandlerFunc(saasAdmin.TenantDomainDelivery)),
+			compatserver.WithSaaSAdminTenantAIProviderHandler(http.HandlerFunc(saasAdmin.TenantAIProvider)),
 			compatserver.WithSaaSAdminReleaseReadinessHandler(http.HandlerFunc(saasAdmin.ReleaseReadiness)),
 			compatserver.WithSaaSAdminReleaseEvidenceHandler(http.HandlerFunc(saasAdmin.ReleaseEvidence)),
 			compatserver.WithSaaSAdminReleaseEvidenceActionHandler(http.HandlerFunc(saasAdmin.ReleaseEvidenceAction)),

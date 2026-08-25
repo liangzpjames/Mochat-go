@@ -610,6 +610,7 @@ type Server struct {
 	saasAdminTenantDomain                           http.Handler
 	saasAdminTenantDomainDeliveryJobs               http.Handler
 	saasAdminTenantDomainDelivery                   http.Handler
+	saasAdminTenantAIProvider                       http.Handler
 	saasAdminReleaseReadiness                       http.Handler
 	saasAdminReleaseEvidence                        http.Handler
 	saasAdminReleaseEvidenceAction                  http.Handler
@@ -3941,6 +3942,10 @@ func WithSaaSAdminTenantDomainDeliveryHandler(handler http.Handler) Option {
 	return func(server *Server) { server.saasAdminTenantDomainDelivery = handler }
 }
 
+func WithSaaSAdminTenantAIProviderHandler(handler http.Handler) Option {
+	return func(server *Server) { server.saasAdminTenantAIProvider = handler }
+}
+
 func WithSaaSAdminReleaseReadinessHandler(handler http.Handler) Option {
 	return func(server *Server) { server.saasAdminReleaseReadiness = handler }
 }
@@ -5765,6 +5770,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.saasAdminTenantDomainDeliveryJobs.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAdmin/tenantDomainDelivery" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.saasAdminTenantDomainDelivery != nil:
 		s.saasAdminTenantDomainDelivery.ServeHTTP(w, r)
+	case r.URL.Path == "/dashboard/saasAdmin/tenantAIProvider" && (r.Method == http.MethodGet || r.Method == http.MethodPut) && s.saasAdminTenantAIProvider != nil:
+		s.saasAdminTenantAIProvider.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAdmin/releaseReadiness" && r.Method == http.MethodGet && s.saasAdminReleaseReadiness != nil:
 		s.saasAdminReleaseReadiness.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/saasAdmin/releaseEvidence" && (r.Method == http.MethodPost || r.Method == http.MethodPut) && s.saasAdminReleaseEvidence != nil:
@@ -7774,6 +7781,9 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.saasAdminTenantDomainDelivery != nil {
 		routes = append(routes, "POST /dashboard/saasAdmin/tenantDomainDelivery", "PUT /dashboard/saasAdmin/tenantDomainDelivery")
+	}
+	if s.saasAdminTenantAIProvider != nil {
+		routes = append(routes, "GET /dashboard/saasAdmin/tenantAIProvider", "PUT /dashboard/saasAdmin/tenantAIProvider")
 	}
 	if s.saasAdminReleaseReadiness != nil {
 		routes = append(routes, "GET /dashboard/saasAdmin/releaseReadiness")

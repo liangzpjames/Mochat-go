@@ -98,6 +98,8 @@ func TestSaaSAdminRequiredPermission(t *testing.T) {
 		{http.MethodPost, "/dashboard/saasAdmin/approvalExecute", SaaSAdminPermissionApprovalsExecute},
 		{http.MethodGet, "/dashboard/saasAdmin/serviceAccounts", SaaSAdminPermissionIntegrationsRead},
 		{http.MethodGet, "/dashboard/saasAdmin/serviceAccountUsage", SaaSAdminPermissionIntegrationsRead},
+		{http.MethodGet, "/dashboard/saasAdmin/tenantAIProvider", SaaSAdminPermissionIntegrationsRead},
+		{http.MethodPut, "/dashboard/saasAdmin/tenantAIProvider", SaaSAdminPermissionIntegrationsManage},
 		{http.MethodPost, "/dashboard/saasAdmin/serviceAccountUsageAlertEvaluate", SaaSAdminPermissionIntegrationsManage},
 		{http.MethodPost, "/dashboard/saasAdmin/serviceAccount", SaaSAdminPermissionIntegrationsManage},
 		{http.MethodPut, "/dashboard/saasAdmin/serviceAccountKeyRotate", SaaSAdminPermissionIntegrationsManage},

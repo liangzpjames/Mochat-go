@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"jiyi/mochat-go/internal/aiproviderconfig"
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/saasalertcredentials"
 	"jiyi/mochat-go/internal/wechatopencredentials"
@@ -33,6 +34,7 @@ type MySQLStore struct {
 	saasAlertCredentialCipher     *saasalertcredentials.Manager
 	weComCredentialCipher         *wecomcredentials.Manager
 	weChatOpenCredentialCipher    *wechatopencredentials.Manager
+	aiProviderCredentialCipher    *aiproviderconfig.Manager
 }
 
 type corpDataQueryExecutor interface {
