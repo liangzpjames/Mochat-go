@@ -43,6 +43,10 @@ const knownLegacyCoreSeedChecksum = "de6513fb142d38fbd0205ecaa6e6ddbdd9d765e5c45
 // migration, but its immutable ledger retains this checksum.
 const knownLegacySCRMLeadParityChecksum = "cf299bfb4ef21b95da0f76ee9e9c8cb24475843f575cfb749a2b23f09261496b"
 
+// Only accept the historical mixed-line-ending checksum while the current
+// migration still normalizes to the verified SQL that produced it.
+const knownCanonicalSCRMLeadParityChecksum = "47cfa7915b970455f6a626806a56fea71f97dbd9056b22f1f375c42b55196266"
+
 // The first Windows Docker Desktop deployment of 0153 was built from a
 // worktree containing mixed LF/CRLF line endings. The SQL is byte-normalized
 // to the current migration, but its immutable ledger retains this checksum.
@@ -738,7 +742,7 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 		if version == "0002_seed_core_data" {
 			checksumAliases = append(checksumAliases, knownLegacyCoreSeedChecksum)
 		}
-		if version == "0106_scrm_lead_parity" {
+		if version == "0106_scrm_lead_parity" && migrationNormalizedChecksum(path) == knownCanonicalSCRMLeadParityChecksum {
 			checksumAliases = append(checksumAliases, knownLegacySCRMLeadParityChecksum)
 		}
 		if version == "0153_live_code_workspace" {
@@ -755,6 +759,14 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 		})
 	}
 	return migrations
+}
+
+func migrationNormalizedChecksum(path string) string {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return checksumBytes(bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n")))
 }
 
 func migrationLineEndingChecksumAliases(path string) []string {

@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -152,7 +153,33 @@ func TestDefaultMigrationsAcceptsHistoricalMixedLineEndingChecksumForLiveCodeWor
 	}
 }
 
-func TestDefaultMigrationsAcceptsHistoricalMixedLineEndingChecksumForSCRMLeadParity(t *testing.T) {
+func TestDefaultMigrationsAcceptsHistoricalMixedLineEndingChecksumForCanonicalSCRMLeadParity(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	var leadParity Migration
+	for _, item := range migrations {
+		if item.Version == "0106_scrm_lead_parity" {
+			leadParity = item
+			break
+		}
+	}
+	if leadParity.Version == "" {
+		t.Fatalf("0106 migration missing from %#v", migrations)
+	}
+	body, err := os.ReadFile(leadParity.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalizedChecksum := checksumBytes(bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n")))
+	if normalizedChecksum != knownCanonicalSCRMLeadParityChecksum {
+		t.Fatalf("canonical 0106 checksum = %s, want %s", normalizedChecksum, knownCanonicalSCRMLeadParityChecksum)
+	}
+	if !checksumMatches(knownLegacySCRMLeadParityChecksum, checksumBytes(body), leadParity.ChecksumAliases) {
+		t.Fatalf("historical mixed-line-ending checksum %s not accepted by aliases %#v", knownLegacySCRMLeadParityChecksum, leadParity.ChecksumAliases)
+	}
+}
+
+func TestDefaultMigrationsRejectsHistoricalSCRMLeadParityChecksumWhenSQLChanges(t *testing.T) {
 	root := t.TempDir()
 	schemaPath := filepath.Join(root, "deploy", "standalone", "schema")
 	migrationPath := filepath.Join(root, "deploy", "standalone", "migrations")
@@ -173,7 +200,6 @@ func TestDefaultMigrationsAcceptsHistoricalMixedLineEndingChecksumForSCRMLeadPar
 		t.Fatal(err)
 	}
 
-	const historicalChecksum = "cf299bfb4ef21b95da0f76ee9e9c8cb24475843f575cfb749a2b23f09261496b"
 	migrations := DefaultMigrations(root)
 	var leadParity Migration
 	for _, item := range migrations {
@@ -185,8 +211,8 @@ func TestDefaultMigrationsAcceptsHistoricalMixedLineEndingChecksumForSCRMLeadPar
 	if leadParity.Version == "" {
 		t.Fatalf("0106 migration missing from %#v", migrations)
 	}
-	if !checksumMatches(historicalChecksum, checksumBytes(current), leadParity.ChecksumAliases) {
-		t.Fatalf("historical mixed-line-ending checksum %s not accepted by aliases %#v", historicalChecksum, leadParity.ChecksumAliases)
+	if checksumMatches(knownLegacySCRMLeadParityChecksum, checksumBytes(current), leadParity.ChecksumAliases) {
+		t.Fatalf("changed 0106 SQL unexpectedly accepted historical checksum via aliases %#v", leadParity.ChecksumAliases)
 	}
 }
 
