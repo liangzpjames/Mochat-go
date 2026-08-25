@@ -30,6 +30,10 @@ type WorkspaceAuthorizer interface {
 	Authorize(context.Context, WorkspacePrincipal, int64, string) error
 }
 
+type directoryOptionRepository interface {
+	DirectoryOptions(context.Context, DirectoryOptionFilter) (DirectoryOptions, error)
+}
+
 type WorkspaceHandler struct {
 	principal       WorkspacePrincipalResolver
 	authorize       WorkspaceAuthorizer
@@ -114,6 +118,34 @@ func (h *WorkspaceHandler) filterOptions(w http.ResponseWriter, r *http.Request,
 	typ := AnalysisTypeSession
 	if page == "smart-analysis" {
 		typ = AnalysisTypeSmart
+	}
+	if directoryRepo, ok := h.repo.(directoryOptionRepository); ok {
+		options, err := directoryRepo.DirectoryOptions(r.Context(), DirectoryOptionFilter{
+			TenantID: p.TenantID, CorpID: p.CorpID, AnalysisType: typ,
+			EmployeeKeyword: strings.TrimSpace(r.URL.Query().Get("employeeKeyword")),
+			CustomerKeyword: strings.TrimSpace(r.URL.Query().Get("customerKeyword")), Limit: limit,
+			AllowedEmployeeIDs: p.AllowedEmployeeIDs, Restricted: p.EmployeeScopeRestricted,
+		})
+		if err != nil {
+			workspaceRepoError(w, err)
+			return
+		}
+		employees := make([]map[string]any, 0, len(options.Employees))
+		for _, option := range options.Employees {
+			employees = append(employees, map[string]any{"id": option.ID, "name": option.Name, "avatar": option.Avatar})
+		}
+		customers := make([]map[string]any, 0, len(options.Customers))
+		for _, option := range options.Customers {
+			customers = append(customers, map[string]any{"id": option.ID, "name": option.Name, "avatar": option.Avatar})
+		}
+		coverage := map[string]any{
+			"availableEmployeeCount": options.Coverage.AvailableEmployeeCount,
+			"availableCustomerCount": options.Coverage.AvailableCustomerCount,
+			"analyzedEmployeeCount":  options.Coverage.AnalyzedEmployeeCount,
+			"analyzedCustomerCount":  options.Coverage.AnalyzedCustomerCount,
+		}
+		workspaceEnvelope(w, 200, "success", map[string]any{"employees": employees, "customers": customers, "coverage": coverage})
+		return
 	}
 	options, err := h.repo.EmployeeOptions(r.Context(), EmployeeOptionFilter{
 		TenantID: p.TenantID, CorpID: p.CorpID, AnalysisType: typ,
@@ -367,6 +399,13 @@ func parseWorkspaceFilter(r *http.Request, p WorkspacePrincipal, page string) (I
 	}
 	filter.Keyword = strings.TrimSpace(q.Get("keyword"))
 	filter.CustomerName = strings.TrimSpace(q.Get("customerName"))
+	if value := q.Get("customerId"); value != "" {
+		parsed, e := strconv.ParseInt(value, 10, 64)
+		if e != nil || parsed < 1 {
+			return filter, errors.New("客户 ID 无效")
+		}
+		filter.CustomerID = parsed
+	}
 	filter.Status = AnalysisStatus(q.Get("status"))
 	if filter.Status != "" && filter.Status != AnalysisStatusSucceeded && filter.Status != AnalysisStatusFailed {
 		return filter, errors.New("分析状态无效")

@@ -326,10 +326,41 @@ type InsightFilter struct {
 	Status             AnalysisStatus
 	Keyword            string
 	CustomerName       string
+	CustomerID         int64
 	StartAt            *time.Time
 	EndAt              *time.Time
 	AllowedEmployeeIDs []int64
 	Restricted         bool
+}
+
+type DirectoryOptionFilter struct {
+	TenantID           int64
+	CorpID             int64
+	AnalysisType       AnalysisType
+	EmployeeKeyword    string
+	CustomerKeyword    string
+	Limit              int
+	AllowedEmployeeIDs []int64
+	Restricted         bool
+}
+
+type CustomerOption struct {
+	ID     int64
+	Name   string
+	Avatar string
+}
+
+type InsightDirectoryCoverage struct {
+	AvailableEmployeeCount int
+	AvailableCustomerCount int
+	AnalyzedEmployeeCount  int
+	AnalyzedCustomerCount  int
+}
+
+type DirectoryOptions struct {
+	Employees []EmployeeOption
+	Customers []CustomerOption
+	Coverage  InsightDirectoryCoverage
 }
 
 type EmployeeOptionFilter struct {

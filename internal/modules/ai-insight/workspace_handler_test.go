@@ -244,14 +244,21 @@ func TestWorkspaceAuthorizationIsCheckedBeforeRead(t *testing.T) {
 
 type workspaceEmployeeOptionsRepo struct {
 	workspaceTestRepo
-	filter  EmployeeOptionFilter
-	options []EmployeeOption
-	err     error
+	filter           EmployeeOptionFilter
+	options          []EmployeeOption
+	directoryFilter  DirectoryOptionFilter
+	directoryOptions DirectoryOptions
+	err              error
 }
 
 func (r *workspaceEmployeeOptionsRepo) EmployeeOptions(_ context.Context, filter EmployeeOptionFilter) ([]EmployeeOption, error) {
 	r.filter = filter
 	return r.options, r.err
+}
+
+func (r *workspaceEmployeeOptionsRepo) DirectoryOptions(_ context.Context, filter DirectoryOptionFilter) (DirectoryOptions, error) {
+	r.directoryFilter = filter
+	return r.directoryOptions, r.err
 }
 
 func TestWorkspaceFilterOptionsMapsEachPageAndPreservesPrincipalScope(t *testing.T) {
@@ -262,7 +269,7 @@ func TestWorkspaceFilterOptionsMapsEachPageAndPreservesPrincipalScope(t *testing
 		{path: "/dashboard/ai-insight/session-analysis/filter-options?employeeKeyword=%E7%8E%8B&limit=25", typ: AnalysisTypeSession},
 		{path: "/dashboard/ai-insight/smart-analysis/filter-options?employeeKeyword=%E7%8E%8B&limit=25", typ: AnalysisTypeSmart},
 	} {
-		repo := &workspaceEmployeeOptionsRepo{options: []EmployeeOption{{ID: 1001, Name: "王甲", Avatar: "avatar"}}}
+		repo := &workspaceEmployeeOptionsRepo{directoryOptions: DirectoryOptions{Employees: []EmployeeOption{{ID: 1001, Name: "王甲", Avatar: "avatar"}}}}
 		authorizer := &workspaceTestAuthorizer{}
 		handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
 			UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001, 1002},
@@ -272,13 +279,40 @@ func TestWorkspaceFilterOptionsMapsEachPageAndPreservesPrincipalScope(t *testing
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"employees":[{"avatar":"avatar","id":1001,"name":"王甲"}]`) {
 			t.Fatalf("path=%s status=%d body=%s", test.path, recorder.Code, recorder.Body.String())
 		}
-		if repo.filter.TenantID != 11 || repo.filter.CorpID != 22 || repo.filter.AnalysisType != test.typ || repo.filter.EmployeeKeyword != "王" || repo.filter.Limit != 25 || !repo.filter.Restricted || len(repo.filter.AllowedEmployeeIDs) != 2 {
-			t.Fatalf("path=%s filter=%#v", test.path, repo.filter)
+		if repo.directoryFilter.TenantID != 11 || repo.directoryFilter.CorpID != 22 || repo.directoryFilter.AnalysisType != test.typ || repo.directoryFilter.EmployeeKeyword != "王" || repo.directoryFilter.Limit != 25 || !repo.directoryFilter.Restricted || len(repo.directoryFilter.AllowedEmployeeIDs) != 2 {
+			t.Fatalf("path=%s filter=%#v", test.path, repo.directoryFilter)
 		}
 		page := map[AnalysisType]string{AnalysisTypeSession: "session-analysis", AnalysisTypeSmart: "smart-analysis"}[test.typ]
 		if authorizer.permission != "/ai-insight/"+page+"#read" {
 			t.Fatalf("permission=%q", authorizer.permission)
 		}
+	}
+}
+
+func TestWorkspaceDerivedFilterOptionsReturnsAuthorityCustomersAndCoverage(t *testing.T) {
+	repo := &workspaceEmployeeOptionsRepo{directoryOptions: DirectoryOptions{
+		Employees: []EmployeeOption{{ID: 1001, Name: "王甲", Avatar: "employee-avatar"}},
+		Customers: []CustomerOption{{ID: 2001, Name: "客户甲", Avatar: "customer-avatar"}},
+		Coverage:  InsightDirectoryCoverage{AvailableEmployeeCount: 12, AvailableCustomerCount: 16, AnalyzedEmployeeCount: 1, AnalyzedCustomerCount: 1},
+	}}
+	handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{
+		UserID: 7, TenantID: 11, CorpID: 22, EmployeeScopeRestricted: true, AllowedEmployeeIDs: []int64{1001, 1002},
+	}}, nil, repo, nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/emotion/filter-options?employeeKeyword=%E7%8E%8B&customerKeyword=%E5%AE%A2&limit=25", nil))
+	body := recorder.Body.String()
+	for _, fragment := range []string{
+		`"employees":[{"avatar":"employee-avatar","id":1001,"name":"王甲"}]`,
+		`"customers":[{"avatar":"customer-avatar","id":2001,"name":"客户甲"}]`,
+		`"availableEmployeeCount":12`, `"availableCustomerCount":16`, `"analyzedEmployeeCount":1`, `"analyzedCustomerCount":1`,
+	} {
+		if recorder.Code != http.StatusOK || !strings.Contains(body, fragment) {
+			t.Fatalf("status=%d body=%s missing=%s", recorder.Code, body, fragment)
+		}
+	}
+	filter := repo.directoryFilter
+	if filter.TenantID != 11 || filter.CorpID != 22 || filter.AnalysisType != AnalysisTypeSession || filter.EmployeeKeyword != "王" || filter.CustomerKeyword != "客" || filter.Limit != 25 || !filter.Restricted || len(filter.AllowedEmployeeIDs) != 2 {
+		t.Fatalf("filter=%#v", filter)
 	}
 }
 
@@ -288,8 +322,8 @@ func TestWorkspaceFilterOptionsRejectsInvalidLimitBeforeRepository(t *testing.T)
 		handler := NewWorkspaceHandler(workspaceTestResolver{principal: WorkspacePrincipal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, repo, nil)
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/session-analysis/filter-options?limit="+limit, nil))
-		if recorder.Code != http.StatusBadRequest || repo.filter.TenantID != 0 {
-			t.Fatalf("limit=%s status=%d filter=%#v", limit, recorder.Code, repo.filter)
+		if recorder.Code != http.StatusBadRequest || repo.directoryFilter.TenantID != 0 {
+			t.Fatalf("limit=%s status=%d filter=%#v", limit, recorder.Code, repo.directoryFilter)
 		}
 	}
 }
@@ -301,6 +335,22 @@ func TestWorkspaceRecordsParsesCustomerName(t *testing.T) {
 	}
 	if filter.CustomerName != "客户甲" {
 		t.Fatalf("customerName=%q", filter.CustomerName)
+	}
+}
+
+func TestWorkspaceRecordsParsesPositiveCustomerID(t *testing.T) {
+	filter, err := parseWorkspaceFilter(httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/emotion/records?customerId=2001", nil), WorkspacePrincipal{TenantID: 1, CorpID: 2}, "emotion")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filter.CustomerID != 2001 {
+		t.Fatalf("customerId=%d", filter.CustomerID)
+	}
+	for _, value := range []string{"0", "-1", "abc"} {
+		_, err := parseWorkspaceFilter(httptest.NewRequest(http.MethodGet, "/dashboard/ai-insight/emotion/records?customerId="+value, nil), WorkspacePrincipal{TenantID: 1, CorpID: 2}, "emotion")
+		if err == nil {
+			t.Fatalf("customerId=%q should fail", value)
+		}
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -315,6 +316,113 @@ func (r *SQLRepository) EmployeeOptions(ctx context.Context, filter EmployeeOpti
 		return nil, err
 	}
 	return options, nil
+}
+
+func (r *SQLRepository) DirectoryOptions(ctx context.Context, filter DirectoryOptionFilter) (DirectoryOptions, error) {
+	if r == nil || r.db == nil {
+		return DirectoryOptions{}, errors.New("AI insight repository database is unavailable")
+	}
+	ids := uniqueInt64s(filter.AllowedEmployeeIDs)
+	if filter.Restricted && len(ids) == 0 {
+		return DirectoryOptions{Employees: []EmployeeOption{}, Customers: []CustomerOption{}}, nil
+	}
+	limit := filter.Limit
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+
+	employeeWhere := []string{"e.corp_id=?", "e.deleted_at IS NULL", "e.status=1"}
+	employeeArgs := []any{filter.CorpID}
+	if filter.Restricted {
+		employeeWhere = append(employeeWhere, "e.id IN ("+placeholders(len(ids))+")")
+		for _, id := range ids {
+			employeeArgs = append(employeeArgs, id)
+		}
+	}
+	var result DirectoryOptions
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mc_work_employee e WHERE "+strings.Join(employeeWhere, " AND "), employeeArgs...).Scan(&result.Coverage.AvailableEmployeeCount); err != nil {
+		return DirectoryOptions{}, err
+	}
+	employeeListWhere := append([]string(nil), employeeWhere...)
+	employeeListArgs := append([]any(nil), employeeArgs...)
+	if keyword := strings.TrimSpace(filter.EmployeeKeyword); keyword != "" {
+		employeeListWhere = append(employeeListWhere, "e.name LIKE ? ESCAPE '\\\\'")
+		employeeListArgs = append(employeeListArgs, escapedLike(keyword))
+	}
+	employeeListArgs = append(employeeListArgs, limit)
+	employeeRows, err := r.db.QueryContext(ctx, "SELECT e.id,e.name,e.avatar FROM mc_work_employee e WHERE "+strings.Join(employeeListWhere, " AND ")+" ORDER BY e.name ASC,e.id ASC LIMIT ?", employeeListArgs...)
+	if err != nil {
+		return DirectoryOptions{}, err
+	}
+	result.Employees = make([]EmployeeOption, 0)
+	for employeeRows.Next() {
+		var option EmployeeOption
+		if err := employeeRows.Scan(&option.ID, &option.Name, &option.Avatar); err != nil {
+			employeeRows.Close()
+			return DirectoryOptions{}, err
+		}
+		result.Employees = append(result.Employees, option)
+	}
+	if err := employeeRows.Close(); err != nil {
+		return DirectoryOptions{}, err
+	}
+	if err := employeeRows.Err(); err != nil {
+		return DirectoryOptions{}, err
+	}
+
+	customerFrom := " FROM mc_work_contact c"
+	customerWhere := []string{"c.corp_id=?", "c.deleted_at IS NULL"}
+	customerArgs := []any{filter.CorpID}
+	if filter.Restricted {
+		customerFrom += " JOIN mc_work_contact_employee rel ON rel.corp_id=c.corp_id AND rel.contact_id=c.id AND rel.deleted_at IS NULL AND rel.status=1"
+		customerWhere = append(customerWhere, "rel.employee_id IN ("+placeholders(len(ids))+")")
+		for _, id := range ids {
+			customerArgs = append(customerArgs, id)
+		}
+	}
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(DISTINCT c.id)"+customerFrom+" WHERE "+strings.Join(customerWhere, " AND "), customerArgs...).Scan(&result.Coverage.AvailableCustomerCount); err != nil {
+		return DirectoryOptions{}, err
+	}
+	customerListWhere := append([]string(nil), customerWhere...)
+	customerListArgs := append([]any(nil), customerArgs...)
+	if keyword := strings.TrimSpace(filter.CustomerKeyword); keyword != "" {
+		customerListWhere = append(customerListWhere, "c.name LIKE ? ESCAPE '\\\\'")
+		customerListArgs = append(customerListArgs, escapedLike(keyword))
+	}
+	customerListArgs = append(customerListArgs, limit)
+	customerRows, err := r.db.QueryContext(ctx, "SELECT c.id,c.name,c.avatar"+customerFrom+" WHERE "+strings.Join(customerListWhere, " AND ")+" GROUP BY c.id,c.name,c.avatar ORDER BY c.name ASC,c.id ASC LIMIT ?", customerListArgs...)
+	if err != nil {
+		return DirectoryOptions{}, err
+	}
+	result.Customers = make([]CustomerOption, 0)
+	for customerRows.Next() {
+		var option CustomerOption
+		if err := customerRows.Scan(&option.ID, &option.Name, &option.Avatar); err != nil {
+			customerRows.Close()
+			return DirectoryOptions{}, err
+		}
+		result.Customers = append(result.Customers, option)
+	}
+	if err := customerRows.Close(); err != nil {
+		return DirectoryOptions{}, err
+	}
+	if err := customerRows.Err(); err != nil {
+		return DirectoryOptions{}, err
+	}
+
+	coverageWhere := []string{"i.tenant_id=?", "i.corp_id=?", "i.analysis_type=?", "i.status='succeeded'"}
+	coverageArgs := []any{filter.TenantID, filter.CorpID, filter.AnalysisType}
+	if filter.Restricted {
+		coverageWhere = append(coverageWhere, "i.employee_id IN ("+placeholders(len(ids))+")")
+		for _, id := range ids {
+			coverageArgs = append(coverageArgs, id)
+		}
+	}
+	coverageQuery := "SELECT COUNT(DISTINCT i.employee_id),COUNT(DISTINCT CASE WHEN i.target_type='1' THEN i.target_id END) FROM mochat_go_ai_conversation_insights i WHERE " + strings.Join(coverageWhere, " AND ")
+	if err := r.db.QueryRowContext(ctx, coverageQuery, coverageArgs...).Scan(&result.Coverage.AnalyzedEmployeeCount, &result.Coverage.AnalyzedCustomerCount); err != nil {
+		return DirectoryOptions{}, err
+	}
+	return result, nil
 }
 
 func (r *SQLRepository) InsightDetail(ctx context.Context, filter InsightDetailFilter) (ConversationInsight, error) {
@@ -624,6 +732,10 @@ func insightWhere(filter InsightFilter) ([]string, []any) {
 	if customerName := strings.TrimSpace(filter.CustomerName); customerName != "" {
 		where = append(where, "(i.target_type='1' AND i.target_name LIKE ? ESCAPE '\\\\')")
 		args = append(args, escapedLike(customerName))
+	}
+	if filter.CustomerID > 0 {
+		where = append(where, "i.target_type='1'", "i.target_id=?")
+		args = append(args, strconv.FormatInt(filter.CustomerID, 10))
 	}
 	if filter.Restricted {
 		ids := uniqueInt64s(filter.AllowedEmployeeIDs)
