@@ -4,8 +4,8 @@ import type {
   AiInsightWorkspaceApi,
   DerivedInsightFilters,
   DerivedInsightView,
+  DirectoryFilterOptions,
   EmotionLabel,
-  EmployeeFilterOptions,
   InsightDetail,
   InsightPage,
   InsightRunStatus,
@@ -27,6 +27,7 @@ type ExpectedInsightStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 type ExpectedDerivedInsightFilters = {
   page: number;
   employeeId?: number | undefined;
+  customerId?: number | undefined;
   customerName?: string | undefined;
   status?: ExpectedInsightStatus | undefined;
   startDate?: string | undefined;
@@ -44,7 +45,7 @@ type ExpectedDerivedApiMethods = {
   derivedRecords(view: ExpectedDerivedInsightView, filters: ExpectedDerivedInsightFilters): Promise<InsightPage<SessionInsightRow>>;
   derivedDetail(view: ExpectedDerivedInsightView, id: number): Promise<InsightDetail<SessionInsightRow>>;
   derivedStatus(view: ExpectedDerivedInsightView): Promise<InsightRunStatus>;
-  derivedFilterOptions(view: ExpectedDerivedInsightView, employeeKeyword?: string, limit?: number): Promise<EmployeeFilterOptions>;
+  derivedFilterOptions(view: ExpectedDerivedInsightView, employeeKeyword?: string, limit?: number, customerKeyword?: string): Promise<DirectoryFilterOptions>;
   derivedExportUrl(view: ExpectedDerivedInsightView, filters: ExpectedDerivedInsightFilters): string;
 };
 type _DerivedApiPublicSignature = Assert<Equal<AiInsightWorkspaceApi & ExpectedDerivedApiMethods, AiInsightWorkspaceApi>>;
@@ -155,6 +156,21 @@ function createDerivedApi(client: { request: ReturnType<typeof vi.fn> }): Derive
 }
 
 describe('AI 洞察专用投影统一 API 合同', () => {
+  it('严格解析权威员工、客户与覆盖，并按客户关键字请求', async () => {
+    const client = { request: vi.fn().mockResolvedValue({
+      employees: [{ id: 1001, name: '员工甲', avatar: '' }],
+      customers: [{ id: 2001, name: '客户甲', avatar: '' }],
+      coverage: { availableEmployeeCount: 12, availableCustomerCount: 16, analyzedEmployeeCount: 4, analyzedCustomerCount: 3 },
+    }) };
+    const options = await createDerivedApi(client).derivedFilterOptions('emotion', undefined, 20, '客户');
+    expect(options).toEqual({
+      employees: [{ id: 1001, name: '员工甲', avatar: '' }],
+      customers: [{ id: 2001, name: '客户甲', avatar: '' }],
+      coverage: { availableEmployeeCount: 12, availableCustomerCount: 16, analyzedEmployeeCount: 4, analyzedCustomerCount: 3 },
+    });
+    expect(client.request).toHaveBeenCalledWith('/ai-insight/emotion/filter-options?customerKeyword=%E5%AE%A2%E6%88%B7&limit=20');
+  });
+
   it.each([
     [null],
     [{}],
@@ -209,17 +225,17 @@ describe('AI 洞察专用投影统一 API 合同', () => {
         .mockResolvedValueOnce({ page: 1, pageSize: 20, total: 1, items: [validDerived] })
         .mockResolvedValueOnce(detail)
         .mockResolvedValueOnce({ provider: { state: 'ready' } })
-        .mockResolvedValueOnce({ employees: [{ id: 1001, name: '员工甲', avatar: '' }] }),
+        .mockResolvedValueOnce({ employees: [{ id: 1001, name: '员工甲', avatar: '' }], customers: [], coverage: { availableEmployeeCount: 1, availableCustomerCount: 0, analyzedEmployeeCount: 1, analyzedCustomerCount: 0 } }),
     };
     const api = createDerivedApi(client);
     const page = await api.derivedRecords('employee-score', {
-      page: 2, employeeId: 1001, customerName: '客户甲', status: 'succeeded', startDate: '2026-08-20', endDate: '2026-08-24', minScore: 0, maxScore: 100,
+      page: 2, employeeId: 1001, customerId: 2001, status: 'succeeded', startDate: '2026-08-20', endDate: '2026-08-24', minScore: 0, maxScore: 100,
     });
     expect(page.pageSize).toBe(20);
     await api.derivedDetail('emotion', 1);
     await api.derivedStatus('communication-keyword');
     await api.derivedFilterOptions('emotion', '张 三', 20);
-    expect(client.request).toHaveBeenNthCalledWith(1, '/ai-insight/employee-score/records?page=2&employeeId=1001&customerName=%E5%AE%A2%E6%88%B7%E7%94%B2&status=succeeded&startDate=2026-08-20&endDate=2026-08-24&minScore=0&maxScore=100');
+    expect(client.request).toHaveBeenNthCalledWith(1, '/ai-insight/employee-score/records?page=2&employeeId=1001&customerId=2001&status=succeeded&startDate=2026-08-20&endDate=2026-08-24&minScore=0&maxScore=100');
     expect(client.request).toHaveBeenNthCalledWith(2, '/ai-insight/emotion/detail?id=1');
     expect(client.request).toHaveBeenNthCalledWith(3, '/ai-insight/communication-keyword/status');
     expect(client.request).toHaveBeenNthCalledWith(4, '/ai-insight/emotion/filter-options?employeeKeyword=%E5%BC%A0+%E4%B8%89&limit=20');

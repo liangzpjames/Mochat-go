@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { DashboardPagination } from '../../components/dashboard-pagination';
 import type {
   AiInsightWorkspaceApi,
+  DirectoryFilterOptions,
   EmployeeFilterOptions,
   InsightDetail,
   InsightPage,
@@ -202,33 +203,36 @@ export function InsightPagination({ page, total, onChange }: { page: number; tot
   return <DashboardPagination page={page} pageSize={20} total={total} onPageChange={onChange} ariaLabel="AI 洞察分页" />;
 }
 
-export function EmployeeSearchField({
+function PersonSearchField({
   label,
-  selectedEmployeeId,
-  knownEmployeeName,
+  noun,
+  selectedId,
+  knownName,
   loadOptions,
   onSelect,
 }: {
   label: string;
-  selectedEmployeeId: number | undefined;
-  knownEmployeeName: string | undefined;
-  loadOptions: (keyword?: string, limit?: number) => Promise<EmployeeFilterOptions>;
-  onSelect: (employee: Person | undefined) => void;
+  noun: '员工' | '客户';
+  selectedId: number | undefined;
+  knownName: string | undefined;
+  loadOptions: (keyword?: string, limit?: number) => Promise<Person[]>;
+  onSelect: (person: Person | undefined) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [inputValue, setInputValue] = useState(knownEmployeeName ?? readEmployeeName(selectedEmployeeId));
+  const [inputValue, setInputValue] = useState(knownName ?? (noun === '员工' ? readEmployeeName(selectedId) : ''));
   const [options, setOptions] = useState<Person[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
   const requestRef = useRef(0);
   const timerRef = useRef<number | null>(null);
-  const listboxId = 'ai-insight-employee-options';
-  const activeOptionId = open && activeIndex >= 0 && options[activeIndex] ? `ai-insight-employee-option-${options[activeIndex].id}` : undefined;
+  const optionKind = noun === '员工' ? 'employee' : 'customer';
+  const listboxId = `ai-insight-${optionKind}-options`;
+  const activeOptionId = open && activeIndex >= 0 && options[activeIndex] ? `ai-insight-${optionKind}-option-${options[activeIndex].id}` : undefined;
 
   useEffect(() => {
-    setInputValue(knownEmployeeName ?? readEmployeeName(selectedEmployeeId));
-  }, [knownEmployeeName, selectedEmployeeId]);
+    setInputValue(knownName ?? (noun === '员工' ? readEmployeeName(selectedId) : ''));
+  }, [knownName, noun, selectedId]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -242,14 +246,14 @@ export function EmployeeSearchField({
       void loadOptions(inputValue.trim() || undefined, 20)
         .then((result) => {
           if (currentRequest !== requestRef.current) return;
-          setOptions(result.employees);
-          setActiveIndex(result.employees.length > 0 ? 0 : -1);
+          setOptions(result);
+          setActiveIndex(result.length > 0 ? 0 : -1);
         })
         .catch(() => {
           if (currentRequest !== requestRef.current) return;
           setOptions([]);
           setActiveIndex(-1);
-          setError('员工列表加载失败');
+          setError(`${noun}列表加载失败`);
         })
         .finally(() => {
           if (currentRequest === requestRef.current) setLoading(false);
@@ -262,7 +266,7 @@ export function EmployeeSearchField({
       }
       if (requestRef.current === currentRequest) requestRef.current += 1;
     };
-  }, [inputValue, loadOptions, open]);
+  }, [inputValue, loadOptions, noun, open]);
 
   function cancelPendingRequest() {
     requestRef.current += 1;
@@ -275,13 +279,13 @@ export function EmployeeSearchField({
     setActiveIndex(-1);
   }
 
-  function commit(employee: Person) {
+  function commit(person: Person) {
     cancelPendingRequest();
-    rememberEmployee(employee);
-    setInputValue(employee.name);
+    if (noun === '员工') rememberEmployee(person);
+    setInputValue(person.name);
     setOpen(false);
     setError('');
-    onSelect(employee);
+    onSelect(person);
   }
 
   function clear() {
@@ -327,38 +331,38 @@ export function EmployeeSearchField({
           aria-autocomplete="list"
           role="combobox"
           value={inputValue}
-          placeholder="搜索员工姓名"
+          placeholder={`搜索${noun}姓名`}
           onFocus={() => setOpen(true)}
           onChange={(event) => {
             setInputValue(event.target.value);
             setOpen(true);
             setError('');
-            if (selectedEmployeeId !== undefined) onSelect(undefined);
+            if (selectedId !== undefined) onSelect(undefined);
           }}
           onKeyDown={handleKeyDown}
         />
-        {(selectedEmployeeId !== undefined || inputValue) && <button type="button" className="ai-insight-combobox-clear" aria-label="清除员工" onClick={clear}>清除</button>}
+        {(selectedId !== undefined || inputValue) && <button type="button" className="ai-insight-combobox-clear" aria-label={`清除${noun}`} onClick={clear}>清除</button>}
         {open && (
           <div className="ai-insight-combobox-panel">
-            {loading && <div role="status" className="ai-insight-combobox-state">正在加载员工…</div>}
+            {loading && <div role="status" className="ai-insight-combobox-state">正在加载{noun}…</div>}
             {!loading && error && <div role="alert" className="ai-insight-combobox-state">{error}</div>}
-            {!loading && !error && options.length === 0 && <div role="status" className="ai-insight-combobox-state">没有匹配员工</div>}
+            {!loading && !error && options.length === 0 && <div role="status" className="ai-insight-combobox-state">没有匹配{noun}</div>}
             {!loading && !error && options.length > 0 && (
               <ul id={listboxId} role="listbox">
-                {options.map((employee, index) => (
+                {options.map((person, index) => (
                   <li
-                    key={employee.id}
-                    id={`ai-insight-employee-option-${employee.id}`}
+                    key={person.id}
+                    id={`ai-insight-${optionKind}-option-${person.id}`}
                     aria-selected={index === activeIndex}
                     role="option"
                     tabIndex={-1}
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      commit(employee);
+                      commit(person);
                     }}
                   >
-                    <Avatar {...employee} />
-                    <span>{employee.name}</span>
+                    <Avatar {...person} />
+                    <span>{person.name}</span>
                   </li>
                 ))}
               </ul>
@@ -368,6 +372,25 @@ export function EmployeeSearchField({
       </div>
     </AiInsightField>
   );
+}
+
+export function EmployeeSearchField({ label, selectedEmployeeId, knownEmployeeName, loadOptions, onSelect }: {
+  label: string;
+  selectedEmployeeId: number | undefined;
+  knownEmployeeName: string | undefined;
+  loadOptions: (keyword?: string, limit?: number) => Promise<EmployeeFilterOptions>;
+  onSelect: (employee: Person | undefined) => void;
+}) {
+  return <PersonSearchField label={label} noun="员工" selectedId={selectedEmployeeId} knownName={knownEmployeeName} loadOptions={async (keyword, limit) => (await loadOptions(keyword, limit)).employees} onSelect={onSelect} />;
+}
+
+export function CustomerSearchField({ selectedCustomerId, knownCustomerName, loadOptions, onSelect }: {
+  selectedCustomerId: number | undefined;
+  knownCustomerName: string | undefined;
+  loadOptions: (keyword?: string, limit?: number) => Promise<DirectoryFilterOptions>;
+  onSelect: (customer: Person | undefined) => void;
+}) {
+  return <PersonSearchField label="客户" noun="客户" selectedId={selectedCustomerId} knownName={knownCustomerName} loadOptions={async (keyword, limit) => (await loadOptions(keyword, limit)).customers} onSelect={onSelect} />;
 }
 
 function renderSessionMetrics(result: Record<string, unknown>) {

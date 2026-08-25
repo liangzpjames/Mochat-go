@@ -7,6 +7,7 @@ export type SmartInsightFilters = SessionInsightFilters;
 export type DerivedInsightFilters = {
   page: number;
   employeeId?: number | undefined;
+  customerId?: number | undefined;
   customerName?: string | undefined;
   status?: InsightStatus | undefined;
   startDate?: string | undefined;
@@ -21,6 +22,8 @@ export type SmartInsightRow = SessionInsightRow & { rule?: { id: number; name: s
 export type Person = { id: number; name: string; avatar: string };
 export type ConversationTarget = { id: string; name: string; avatar: string; type: ConversationType };
 export type EmployeeFilterOptions = { employees: Person[] };
+export type InsightDirectoryCoverage = { availableEmployeeCount: number; availableCustomerCount: number; analyzedEmployeeCount: number; analyzedCustomerCount: number };
+export type DirectoryFilterOptions = EmployeeFilterOptions & { customers: Person[]; coverage: InsightDirectoryCoverage };
 export type SourceWindow = { startedAt: string; endedAt: string; messageCount: number; fingerprint: string };
 export type InsightPage<T> = { page: number; pageSize: 20; total: number; items: T[] };
 export type InsightDetail<T extends object> = T & { messages: SourceMessage[]; conversationUrl: string };
@@ -41,7 +44,7 @@ type DerivedInsightApiMethods = {
   derivedRecords(view: DerivedInsightView, filters: DerivedInsightFilters): Promise<InsightPage<SessionInsightRow>>;
   derivedDetail(view: DerivedInsightView, id: number): Promise<InsightDetail<SessionInsightRow>>;
   derivedStatus(view: DerivedInsightView): Promise<InsightRunStatus>;
-  derivedFilterOptions(view: DerivedInsightView, employeeKeyword?: string, limit?: number): Promise<EmployeeFilterOptions>;
+  derivedFilterOptions(view: DerivedInsightView, employeeKeyword?: string, limit?: number, customerKeyword?: string): Promise<DirectoryFilterOptions>;
   derivedExportUrl(view: DerivedInsightView, filters: DerivedInsightFilters): string;
 };
 export type AiInsightWorkspaceApi = BaseAiInsightWorkspaceApi & DerivedInsightApiMethods;
@@ -113,17 +116,18 @@ function parseDerivedRow(value: unknown, view: DerivedInsightView): SessionInsig
 function parsePage<T>(value: unknown, parser: (value: unknown) => T): InsightPage<T> { const source = record(value); if (!Array.isArray(source.items)) throw new Error('分页数据无效'); const page = integer(source.page, 1, '分页数据无效'); const pageSize = integer(source.pageSize, 1, '分页数据无效'); const total = integer(source.total, 0, '分页数据无效'); if (pageSize !== 20) throw new Error('分页数据无效'); return { page, pageSize: 20, total, items: source.items.map(parser) }; }
 function parseDetail<T extends object>(value: unknown, parser: (value: unknown) => T): InsightDetail<T> { const source = record(value); const base = parser(source); if (!Array.isArray(source.messages)) throw new Error('详情消息数据无效'); const messages = source.messages.map((entry) => { const item = record(entry); const rawDirection = text(item.direction); if (rawDirection !== 'inbound' && rawDirection !== 'outbound') throw new Error('详情消息方向无效'); const direction: SourceMessage['direction'] = rawDirection; const id = requiredText(item.id, '详情消息数据无效'); const time = requiredTime(item.time, '详情消息数据无效'); const senderName = requiredText(item.senderName, '详情消息数据无效'); if (typeof item.content !== 'string') throw new Error('详情消息数据无效'); const legacyId = typeof item.legacyId === 'string' && item.legacyId.trim() ? item.legacyId : undefined; return { id, legacyId, time, direction, senderName, content: item.content }; }); const conversationUrl = text(source.conversationUrl); if (!conversationUrl) throw new Error('详情缺少会话跳转地址'); return Object.assign(base, { messages, conversationUrl }); }
 function parseEmployeeFilterOptions(value: unknown): EmployeeFilterOptions { const source = record(value); if (!Array.isArray(source.employees)) throw new Error('员工筛选选项返回了无效数据'); try { return { employees: source.employees.map((entry) => person(entry, '员工')) }; } catch { throw new Error('员工筛选选项返回了无效数据'); } }
+function parseDirectoryFilterOptions(value: unknown): DirectoryFilterOptions { const source = record(value); const employees = parseEmployeeFilterOptions(source).employees; if (!Array.isArray(source.customers)) throw new Error('客户筛选选项返回了无效数据'); const coverage = record(source.coverage); try { return { employees, customers: source.customers.map((entry) => person(entry, '客户')), coverage: { availableEmployeeCount: integer(coverage.availableEmployeeCount, 0, '目录覆盖返回了无效数据'), availableCustomerCount: integer(coverage.availableCustomerCount, 0, '目录覆盖返回了无效数据'), analyzedEmployeeCount: integer(coverage.analyzedEmployeeCount, 0, '目录覆盖返回了无效数据'), analyzedCustomerCount: integer(coverage.analyzedCustomerCount, 0, '目录覆盖返回了无效数据') } }; } catch (error) { if (error instanceof Error && error.message === '目录覆盖返回了无效数据') throw error; throw new Error('客户筛选选项返回了无效数据'); } }
 function parseRunStatus(value: unknown): InsightRunStatus { const source = record(value); const providerSource = record(source.provider); const invalidProvider = 'AI 服务状态接口返回了无效数据'; const providerState = requiredText(providerSource.state, invalidProvider); const provider: InsightRunStatus['provider'] = { state: providerState }; for (const key of ['source', 'code', 'message'] as const) { const value = providerSource[key]; if (value === undefined || value === null || value === '') continue; if (typeof value !== 'string') throw new Error(invalidProvider); Object.assign(provider, { [key]: value }); } const result: InsightRunStatus = { provider }; const runSource = record(source.run); if (Object.keys(runSource).length > 0) { try { result.run = { status: status(runSource.status), candidateCount: integer(runSource.candidateCount, 0, '运行状态接口返回了无效数据'), successCount: integer(runSource.successCount, 0, '运行状态接口返回了无效数据'), failureCount: integer(runSource.failureCount, 0, '运行状态接口返回了无效数据'), backlogCount: integer(runSource.backlogCount, 0, '运行状态接口返回了无效数据'), errorSummary: typeof runSource.errorSummary === 'string' ? runSource.errorSummary : '', createdAt: requiredTime(runSource.createdAt, '运行状态接口返回了无效数据') }; } catch (error) { if (error instanceof Error && error.message === '运行状态接口返回了无效数据') throw error; throw new Error('运行状态接口返回了无效数据'); } } return result; }
 function query(values: Record<string, string | number | boolean | undefined>, preserveZero = false): string { const params = new URLSearchParams(); Object.entries(values).forEach(([key, value]) => { if (value !== undefined && value !== '' && (preserveZero || value !== 0)) params.set(key, String(value)); }); return params.toString(); }
 function withQuery(base: string, values: Record<string, string | number | boolean | undefined>, preserveZero = false): string { const serialized = query(values, preserveZero); return serialized ? `${base}?${serialized}` : base; }
 function path(filters: SessionInsightFilters, suffix: string): string { const params = { page: filters.page, employeeId: filters.employeeId, customerName: filters.customerName, conversationType: filters.conversationType, targetId: filters.targetId, keyword: filters.keyword, status: filters.status, startDate: filters.startDate, endDate: filters.endDate }; return `/ai-insight/session-analysis/${suffix}?${query(params)}`; }
 function smartPath(filters: SmartInsightFilters, suffix: string): string { const params = { page: filters.page, employeeId: filters.employeeId, customerName: filters.customerName, conversationType: filters.conversationType, targetId: filters.targetId, keyword: filters.keyword, status: filters.status, startDate: filters.startDate, endDate: filters.endDate }; return `/ai-insight/smart-analysis/${suffix}?${query(params)}`; }
 function derivedPath(view: DerivedInsightView, filters: DerivedInsightFilters, suffix: string): string {
-  const common = { page: suffix === 'export' && filters.page === 1 ? undefined : filters.page, employeeId: filters.employeeId, customerName: filters.customerName, status: filters.status, startDate: filters.startDate, endDate: filters.endDate };
+  const common = { page: suffix === 'export' && filters.page === 1 ? undefined : filters.page, employeeId: filters.employeeId, customerId: filters.customerId, customerName: filters.customerName, status: filters.status, startDate: filters.startDate, endDate: filters.endDate };
   const specialized = view === 'emotion' ? { emotion: filters.emotion } : view === 'employee-score' ? { minScore: filters.minScore, maxScore: filters.maxScore } : { keyword: filters.keyword };
   return withQuery(`/ai-insight/${view}/${suffix}`, { ...common, ...specialized }, true);
 }
-function filterOptionsPath(prefix: 'session-analysis' | 'smart-analysis' | DerivedInsightView, employeeKeyword?: string, limit?: number): string { const values = { employeeKeyword, limit }; return prefix === 'session-analysis' || prefix === 'smart-analysis' ? `/ai-insight/${prefix}/filter-options?${query(values)}` : withQuery(`/ai-insight/${prefix}/filter-options`, values); }
+function filterOptionsPath(prefix: 'session-analysis' | 'smart-analysis' | DerivedInsightView, employeeKeyword?: string, limit?: number, customerKeyword?: string): string { const values = { employeeKeyword, customerKeyword, limit }; return prefix === 'session-analysis' || prefix === 'smart-analysis' ? `/ai-insight/${prefix}/filter-options?${query(values)}` : withQuery(`/ai-insight/${prefix}/filter-options`, values); }
 
 export function createAiInsightExportDownloader(client: Client): AiInsightExportDownloader {
   return async (view, filters) => {
@@ -146,7 +150,7 @@ export function createAiInsightWorkspaceApi(client: Client): AiInsightWorkspaceA
     async derivedRecords(view, filters) { return parsePage(await client.request(derivedPath(view, filters, 'records')), (value) => parseDerivedRow(value, view)); },
     async derivedDetail(view, id) { if (!Number.isInteger(id) || id <= 0) throw new Error('详情 ID 必须为正数'); return parseDetail(await client.request(`/ai-insight/${view}/detail?id=${encodeURIComponent(id)}`), (value) => parseDerivedRow(value, view)); },
     async derivedStatus(view) { return parseRunStatus(await client.request(`/ai-insight/${view}/status`)); },
-    async derivedFilterOptions(view, employeeKeyword, limit) { return parseEmployeeFilterOptions(await client.request(filterOptionsPath(view, employeeKeyword, limit))); },
+    async derivedFilterOptions(view, employeeKeyword, limit, customerKeyword) { return parseDirectoryFilterOptions(await client.request(filterOptionsPath(view, employeeKeyword, limit, customerKeyword))); },
     derivedExportUrl(view, filters) { return derivedPath(view, filters, 'export'); },
   };
 }

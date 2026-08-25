@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AiInsightField,
   AiInsightHeader,
   AiInsightQueryBar,
   Avatar,
+  CustomerSearchField,
   EmployeeSearchField,
   InsightDrawer,
   InsightPagination,
@@ -19,6 +20,7 @@ import type {
   DerivedInsightView,
   EmotionLabel,
   InsightDetail,
+  InsightDirectoryCoverage,
   InsightPage,
   InsightRunStatus,
   SessionInsightRow,
@@ -63,6 +65,11 @@ function SummaryCards({ page, view }: { page: InsightPage<SessionInsightRow>; vi
     businessValue = String(succeeded.reduce((total, item) => total + asStrings(customer(item).keywords).length, 0));
   }
   return <div className="ai-insight-derived-summary" aria-label="当前页摘要"><div><span>全部记录</span><strong>{page.total}</strong></div><div><span>当前页完成 / 失败</span><strong>{succeeded.length} / {failed}</strong></div><div><span>{businessLabel}</span><strong>{businessValue}</strong></div></div>;
+}
+
+function DirectoryCoverage({ coverage }: { coverage?: InsightDirectoryCoverage | undefined }) {
+  if (!coverage) return null;
+  return <div className="ai-insight-directory-coverage" aria-label="AI 洞察目录覆盖"><span>可用员工 {coverage.availableEmployeeCount} · 已分析 {coverage.analyzedEmployeeCount}</span><span>可用客户 {coverage.availableCustomerCount} · 已分析 {coverage.analyzedCustomerCount}</span><small>只有具备真实归档消息并成功落库的会话才会形成洞察结果</small></div>;
 }
 
 function ResultCell({ row, view }: { row: SessionInsightRow; view: DerivedInsightView }) {
@@ -112,6 +119,8 @@ function DerivedInsightWorkspace({ api, downloadExport, onNavigate, config }: De
   const [draft, setDraft] = useState<DerivedInsightFilters>(initial);
   const [applied, setApplied] = useState<DerivedInsightFilters>(initial);
   const [employeeName, setEmployeeName] = useState(() => readEmployeeName(initial.employeeId));
+  const [customerName, setCustomerName] = useState('');
+  const [coverage, setCoverage] = useState<InsightDirectoryCoverage>();
   const [page, setPage] = useState<InsightPage<SessionInsightRow>>(emptyPage);
   const [status, setStatus] = useState<InsightRunStatus>();
   const [loading, setLoading] = useState(true);
@@ -130,15 +139,16 @@ function DerivedInsightWorkspace({ api, downloadExport, onNavigate, config }: De
     void Promise.all([
       api.derivedRecords(config.view, applied),
       api.derivedStatus(config.view).catch((reason: unknown): InsightRunStatus => ({ provider: { state: 'unavailable', message: insightErrorMessage(reason, '状态读取失败') } })),
+      api.derivedFilterOptions(config.view, undefined, 100),
     ])
-      .then(([records, runStatus]) => { if (!active) return; setPage(records); setStatus(runStatus); })
+      .then(([records, runStatus, options]) => { if (!active) return; setPage(records); setStatus(runStatus); setCoverage(options.coverage); const selectedEmployee = options.employees.find((item) => item.id === applied.employeeId); if (selectedEmployee) setEmployeeName(selectedEmployee.name); const selectedCustomer = options.customers.find((item) => item.id === applied.customerId); setCustomerName(selectedCustomer?.name ?? ''); })
       .catch((reason: unknown) => { if (active) setError(insightErrorMessage(reason, '洞察数据加载失败')); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [api, applied, config.view]);
 
   useEffect(() => {
-    const restore = () => { const next = readDerivedFilters(config.view); setDraft(next); setApplied(next); setEmployeeName(readEmployeeName(next.employeeId)); };
+    const restore = () => { const next = readDerivedFilters(config.view); setDraft(next); setApplied(next); setEmployeeName(readEmployeeName(next.employeeId)); setCustomerName(''); };
     window.addEventListener('popstate', restore);
     return () => window.removeEventListener('popstate', restore);
   }, [config.view]);
@@ -149,6 +159,7 @@ function DerivedInsightWorkspace({ api, downloadExport, onNavigate, config }: De
     setDraft(normalized);
     setApplied(normalized);
     setEmployeeName(readEmployeeName(normalized.employeeId));
+    if (normalized.customerId === undefined) setCustomerName('');
     window.history[mode === 'push' ? 'pushState' : 'replaceState']({}, '', writeDerivedFilters(config.view, normalized));
   };
   const updateDraft = (next: Partial<DerivedInsightFilters>) => setDraft((current) => ({ ...current, ...next }));
@@ -182,22 +193,25 @@ function DerivedInsightWorkspace({ api, downloadExport, onNavigate, config }: De
     }
   };
   const totalPages = Math.max(1, Math.ceil(page.total / 20));
+  const loadEmployees = useCallback((keyword?: string, limit?: number) => api.derivedFilterOptions(config.view, keyword, limit), [api, config.view]);
+  const loadCustomers = useCallback((keyword?: string, limit?: number) => api.derivedFilterOptions(config.view, undefined, limit, keyword), [api, config.view]);
 
   return <div className="ai-insight-workspace ai-insight-derived-workspace">
     <AiInsightHeader title={config.title} description={config.description} actions={<button className="ai-insight-secondary ai-insight-export-link" type="button" disabled={exporting} onClick={() => void download()}>{exporting ? '正在导出…' : '导出 CSV'}</button>} />
     <AiInsightQueryBar onSubmit={() => apply({ ...draft, page: 1 }, 'push')} onReset={() => apply({ page: 1 }, 'push')} onRefresh={() => apply(applied, 'replace')}>
-      <EmployeeSearchField label="员工" selectedEmployeeId={draft.employeeId} knownEmployeeName={employeeName} loadOptions={(keyword, limit) => api.derivedFilterOptions(config.view, keyword, limit)} onSelect={(employee) => { setEmployeeName(employee?.name ?? ''); setDraft((current) => ({ ...current, employeeId: employee?.id })); }} />
-      <AiInsightField label="客户名称"><input aria-label="客户名称" value={draft.customerName ?? ''} onChange={(event) => updateDraft({ customerName: event.target.value || undefined })} placeholder="按客户名称筛选" /></AiInsightField>
+      <EmployeeSearchField label="员工" selectedEmployeeId={draft.employeeId} knownEmployeeName={employeeName} loadOptions={loadEmployees} onSelect={(employee) => { setEmployeeName(employee?.name ?? ''); setDraft((current) => ({ ...current, employeeId: employee?.id })); }} />
+      <CustomerSearchField selectedCustomerId={draft.customerId} knownCustomerName={customerName} loadOptions={loadCustomers} onSelect={(customer) => { setCustomerName(customer?.name ?? ''); setDraft((current) => ({ ...current, customerId: customer?.id, customerName: undefined })); }} />
       <AiInsightField label="分析状态"><select aria-label="分析状态" value={draft.status ?? ''} onChange={(event) => updateDraft({ status: (event.target.value || undefined) as DerivedInsightFilters['status'] })}><option value="">全部状态</option><option value="pending">待处理</option><option value="running">分析中</option><option value="succeeded">已完成</option><option value="failed">失败</option></select></AiInsightField>
       <AiInsightField label="开始日期"><input aria-label="开始日期" type="date" value={draft.startDate ?? ''} onChange={(event) => updateDraft({ startDate: event.target.value || undefined })} /></AiInsightField>
       <AiInsightField label="结束日期"><input aria-label="结束日期" type="date" value={draft.endDate ?? ''} onChange={(event) => updateDraft({ endDate: event.target.value || undefined })} /></AiInsightField>
       {config.specializedFilter(draft, updateDraft)}
     </AiInsightQueryBar>
+    <DirectoryCoverage coverage={coverage} />
     <ViewStatus status={status} />
     {exportError && <div className="ai-insight-error ai-insight-inline-error" role="alert">{exportError}</div>}
     {detailError && <div className="ai-insight-error ai-insight-inline-error" role="alert">{detailError}</div>}
     {!loading && !error && <SummaryCards page={page} view={config.view} />}
-    <section className="ai-insight-results"><header className="ai-insight-results-header"><div><h2>洞察结果</h2><p>只展示已持久化的真实会话分析结果与来源证据</p></div><div className="ai-insight-derived-page-summary"><span>共 {page.total} 条，当前页 {page.page} / {totalPages}</span><span>每页 20 条</span></div></header>{loading ? <div className="ai-insight-loading">正在加载洞察数据…</div> : error ? <div className="ai-insight-error" role="alert"><span>{error}</span><button type="button" className="ai-insight-secondary" onClick={() => apply(applied, 'replace')}>重试</button></div> : page.items.length === 0 ? <div className="ai-insight-empty">当前筛选暂无洞察结果</div> : <DerivedTable page={page} view={config.view} onOpen={open} />}<InsightPagination page={page.page} total={page.total} onChange={(next) => apply({ ...applied, page: next }, 'push')} /></section>
+    <section className="ai-insight-results"><header className="ai-insight-results-header"><div><h2>洞察结果</h2><p>只展示已持久化的真实会话分析结果与来源证据</p></div><div className="ai-insight-derived-page-summary"><span>共 {page.total} 条，当前页 {page.page} / {totalPages}</span><span>每页 20 条</span></div></header>{loading ? <div className="ai-insight-loading">正在加载洞察数据…</div> : error ? <div className="ai-insight-error" role="alert"><span>{error}</span><button type="button" className="ai-insight-secondary" onClick={() => apply(applied, 'replace')}>重试</button></div> : page.items.length === 0 ? <div className="ai-insight-empty">当前目录实体没有符合时间窗的已持久化分析结果</div> : <DerivedTable page={page} view={config.view} onOpen={open} />}<InsightPagination page={page.page} total={page.total} onChange={(next) => apply({ ...applied, page: next }, 'push')} /></section>
     {detailLoading ? <div className="ai-insight-status">正在打开分析详情…</div> : detail ? <InsightDrawer detail={detail} onClose={() => setDetail(undefined)} onNavigate={onNavigate} /> : null}
   </div>;
 }

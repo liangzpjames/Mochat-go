@@ -29,6 +29,7 @@ export function readDerivedFilters(view: DerivedInsightView, input: string | URL
   const params = new URL(input, window.location.origin).searchParams;
   const common = readCommon(params);
   const filters: DerivedInsightFilters = { page: common.page };
+  const customerId = positive(params.get('customerId')); if (customerId !== undefined) filters.customerId = customerId;
   for (const key of ['employeeId', 'customerName', 'status', 'startDate', 'endDate'] as const) { const value = common[key]; if (value !== undefined) Object.assign(filters, { [key]: value }); }
   if (view === 'emotion') {
     const emotion = params.get('emotion');
@@ -48,9 +49,9 @@ export function readDerivedFilters(view: DerivedInsightView, input: string | URL
 
 export function writeDerivedFilters(view: DerivedInsightView, filters: DerivedInsightFilters, input: string | URL = window.location.href): string {
   const url = new URL(input, window.location.origin);
-  for (const key of ['page', 'employeeId', 'customerName', 'status', 'startDate', 'endDate', 'emotion', 'minScore', 'maxScore', 'keyword']) url.searchParams.delete(key);
+  for (const key of ['page', 'employeeId', 'customerId', 'customerName', 'status', 'startDate', 'endDate', 'emotion', 'minScore', 'maxScore', 'keyword']) url.searchParams.delete(key);
   if (filters.page > 1) url.searchParams.set('page', String(filters.page));
-  for (const key of ['employeeId', 'customerName', 'status', 'startDate', 'endDate'] as const) { const value = filters[key]; if (value !== undefined && value !== '') url.searchParams.set(key, String(value)); }
+  for (const key of ['employeeId', 'customerId', 'customerName', 'status', 'startDate', 'endDate'] as const) { const value = filters[key]; if (value !== undefined && value !== '') url.searchParams.set(key, String(value)); }
   if (view === 'emotion' && filters.emotion) url.searchParams.set('emotion', filters.emotion);
   if (view === 'employee-score') { if (filters.minScore !== undefined) url.searchParams.set('minScore', String(filters.minScore)); if (filters.maxScore !== undefined) url.searchParams.set('maxScore', String(filters.maxScore)); }
   if (view === 'communication-keyword' && filters.keyword) url.searchParams.set('keyword', filters.keyword);

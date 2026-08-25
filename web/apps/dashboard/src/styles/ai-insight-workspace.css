@@ -634,6 +634,27 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.ai-insight-directory-coverage {
+  align-items: center;
+  background: #f6f9ff;
+  border: 1px solid #dfe8f7;
+  border-radius: 10px;
+  color: #42526d;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 11px 14px;
+}
+
+.ai-insight-directory-coverage span {
+  font-weight: 600;
+}
+
+.ai-insight-directory-coverage small {
+  color: #78859a;
+  margin-left: auto;
+}
+
 .ai-insight-derived-summary > div {
   background: #fff;
   border: 1px solid #e7ebf2;
@@ -776,6 +797,15 @@
 
   .ai-insight-derived-summary {
     grid-template-columns: 1fr;
+  }
+
+  .ai-insight-directory-coverage {
+    align-items: flex-start;
+    display: grid;
+  }
+
+  .ai-insight-directory-coverage small {
+    margin-left: 0;
   }
 
   .ai-insight-results-header {
