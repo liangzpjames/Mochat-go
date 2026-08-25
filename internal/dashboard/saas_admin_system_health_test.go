@@ -13,6 +13,9 @@ import (
 )
 
 func TestSaaSAdminSystemHealthMigrationExpectationMatchesRelease(t *testing.T) {
+	if SaaSAdminExpectedMigrationVersion != "0164_saas_tenant_ai_provider" || SaaSAdminExpectedMigrationCount != 164 {
+		t.Fatalf("SaaS admin migration baseline = %q/%d, want 0164_saas_tenant_ai_provider/164", SaaSAdminExpectedMigrationVersion, SaaSAdminExpectedMigrationCount)
+	}
 	migrations := migration.DefaultMigrations(filepath.Join("..", ".."))
 	if len(migrations) != SaaSAdminExpectedMigrationCount {
 		t.Fatalf("expected migration count=%d discovered=%d", SaaSAdminExpectedMigrationCount, len(migrations))

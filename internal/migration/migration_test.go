@@ -348,8 +348,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0163_ai_insight_projection_resources" {
-		t.Fatalf("latest migration = %q, want 0163_ai_insight_projection_resources", latest.Version)
+	if latest.Version != "0164_saas_tenant_ai_provider" {
+		t.Fatalf("latest migration = %q, want 0164_saas_tenant_ai_provider", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -585,8 +585,8 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0163_ai_insight_projection_resources" {
-		t.Fatalf("latest migration = %q, want 0163_ai_insight_projection_resources", latest.Version)
+	if latest.Version != "0164_saas_tenant_ai_provider" {
+		t.Fatalf("latest migration = %q, want 0164_saas_tenant_ai_provider", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
 	if err != nil {
@@ -596,6 +596,38 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 		if !strings.Contains(string(up), required) {
 			t.Fatalf("migration missing %q", required)
 		}
+	}
+}
+
+func TestSaaSTenantAIProvider0164MigrationContract(t *testing.T) {
+	root := filepath.Join("..", "..")
+	migrations := DefaultMigrations(root)
+	index := make(map[string]int, len(migrations))
+	for i, migration := range migrations {
+		index[migration.Version] = i
+	}
+	if index["0164_saas_tenant_ai_provider"] <= index["0163_ai_insight_projection_resources"] {
+		t.Fatalf("0164 migration must run after 0163: indexes=%#v", index)
+	}
+	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0164_saas_tenant_ai_provider.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0164_saas_tenant_ai_provider.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"CREATE TABLE IF NOT EXISTS `mochat_go_saas_tenant_ai_providers`",
+		"`tenant_id`", "`provider`", "`base_url`", "`model`", "`credential_ciphertext`", "`encryption_key_id`", "`api_key_hint`",
+		"`effective_at`", "`expires_at`", "`status`", "`version`", "`created_by`", "`updated_by`", "`created_at`", "`updated_at`", "UNIQUE KEY `uk_saas_tenant_ai_provider_tenant` (`tenant_id`)",
+	} {
+		if !strings.Contains(string(up), required) {
+			t.Fatalf("0164 up migration missing %q", required)
+		}
+	}
+	if strings.TrimSpace(string(down)) != "DROP TABLE IF EXISTS `mochat_go_saas_tenant_ai_providers`;" {
+		t.Fatalf("0164 down migration must only drop its new table: %q", down)
 	}
 }
 

@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS `mochat_go_saas_tenant_ai_providers` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id` int unsigned NOT NULL,
+  `provider` varchar(64) NOT NULL,
+  `base_url` varchar(512) NOT NULL DEFAULT '',
+  `model` varchar(128) NOT NULL DEFAULT '',
+  `credential_ciphertext` text NOT NULL,
+  `encryption_key_id` varchar(64) NOT NULL,
+  `api_key_hint` varchar(4) NOT NULL DEFAULT '',
+  `effective_at` datetime NULL,
+  `expires_at` datetime NULL,
+  `status` varchar(16) NOT NULL DEFAULT 'disabled',
+  `version` int unsigned NOT NULL DEFAULT 1,
+  `created_by` int unsigned NOT NULL DEFAULT 0,
+  `updated_by` int unsigned NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_saas_tenant_ai_provider_tenant` (`tenant_id`),
+  KEY `idx_saas_tenant_ai_provider_status_effective` (`status`,`effective_at`,`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
