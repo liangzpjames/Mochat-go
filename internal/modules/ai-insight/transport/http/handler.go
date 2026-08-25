@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"time"
 )
 
 var (
@@ -88,8 +86,6 @@ var pageCatalog = map[string]InsightPage{
 type InsightHandler struct {
 	principal PrincipalResolver
 	authorize Authorizer
-	db        *sql.DB
-	analysis  AnalysisStore
 }
 
 func NewInsightHandler(p PrincipalResolver, a Authorizer) *InsightHandler {
@@ -97,12 +93,8 @@ func NewInsightHandler(p PrincipalResolver, a Authorizer) *InsightHandler {
 }
 
 func NewInsightHandlerWithStore(p PrincipalResolver, a Authorizer, db *sql.DB) *InsightHandler {
-	handler := NewInsightHandler(p, a)
-	handler.db = db
-	if db != nil {
-		handler.analysis = NewSQLAnalysisStore(db)
-	}
-	return handler
+	_ = db
+	return NewInsightHandler(p, a)
 }
 
 func (h *InsightHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -124,69 +116,7 @@ func (h *InsightHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	config = h.resolvePage(r, config, corp, p)
 	writeEnvelope(w, http.StatusOK, "success", config)
-}
-
-func (h *InsightHandler) resolvePage(r *http.Request, config InsightPage, corp int64, principal Principal) InsightPage {
-	// 页面只读展示每日定时任务生成并落库的分析结果；页面打开时绝不调用模型。
-	if h.analysis != nil {
-		if row, err := h.analysis.Latest(r.Context(), corp, config.Page); err == nil && row != nil {
-			return readyPageFromPayload(config, row.Payload, row.CreatedAt)
-		}
-	}
-	config.Capability = "limited"
-	config.Provider = "dashscope"
-	config.Limitations = []string{"每日分析尚未生成，系统将在每日 24 点自动生成并保存，生成后本页将直接展示。", "如需立即生成，请等待下一个定时分析窗口。"}
-	return config
-}
-
-func readyPageFromPayload(config InsightPage, payload string, createdAt time.Time) InsightPage {
-	var stored map[string]any
-	if json.Unmarshal([]byte(payload), &stored) == nil {
-		summary, _ := stored["summary"].(string)
-		keywords, _ := stored["keywords"].([]any)
-		generatedAt, _ := stored["generatedAt"].(string)
-		config.Capability = "ready"
-		config.Provider = "dashscope"
-		config.Limitations = []string{}
-		config.GeneratedAt = generatedAt
-		config.Data = []any{map[string]any{
-			"sessionId":   "archive",
-			"summary":     summary,
-			"keywords":    keywords,
-			"generatedAt": generatedAt,
-		}}
-		_ = createdAt
-	}
-	return config
-}
-
-// BuildAnalysisPrompt returns the system and user prompt used for one AI
-// insight page. It is shared by the HTTP handler and the daily analysis job so
-// page-open reads and scheduled writes always use the same wording.
-func BuildAnalysisPrompt(page string, texts []string) (string, string) {
-	prompt := fmt.Sprintf("以下是企业微信会话归档文本（共 %d 条）：\n", len(texts))
-	for index, text := range texts {
-		prompt += fmt.Sprintf("%d. %s\n", index+1, text)
-	}
-	system := "你是企业微信会话分析助手，只根据提供的归档文本做客观分析，不要编造不存在的事实。"
-	var instruction string
-	switch page {
-	case "session-analysis":
-		instruction = "请生成会话分析摘要，并列出 3-5 个沟通关键词，用中文回答。"
-	case "smart-analysis":
-		instruction = "请识别客户意图，并给出 2-3 条跟进建议，用中文回答。"
-	case "emotion":
-		instruction = "请判断客户情绪倾向（正面/中性/负面）与异常波动，用中文回答。"
-	case "employee-score":
-		instruction = "请评估员工服务表现（响应时效、沟通质量），给出百分制得分与理由，用中文回答。"
-	case "communication-keyword":
-		instruction = "请统计高频词、敏感词命中与沟通趋势，用中文回答。"
-	default:
-		instruction = "请分析以上会话内容，用中文回答。"
-	}
-	return system, prompt + instruction
 }
 
 func pathPage(path string) string {

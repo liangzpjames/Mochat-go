@@ -211,37 +211,53 @@ type CandidateQuery struct {
 }
 
 type ConversationInsight struct {
-	ID                 int64
-	TenantID           int64
-	CorpID             int64
-	AnalysisType       AnalysisType
-	RuleID             int64
-	RuleVersionID      int64
-	RuleNameSnapshot   string
-	RuleVersion        int
-	ConversationKey    string
-	EmployeeID         int64
-	EmployeeName       string
-	EmployeeAvatar     string
-	TargetType         string
-	TargetID           string
-	TargetName         string
-	TargetAvatar       string
-	SourceStartedAt    time.Time
-	SourceEndedAt      time.Time
-	SourceMessageCount int
-	SourceFingerprint  string
-	Status             AnalysisStatus
-	Summary            string
-	SessionResult      *SessionAnalysisResult
-	SmartResult        *SmartAnalysisResult
-	ResultJSON         []byte
-	ErrorSummary       string
-	Provider           string
-	Model              string
-	PromptVersion      string
-	GeneratedAt        *time.Time
-	CreatedAt          time.Time
+	ID                  int64
+	TenantID            int64
+	CorpID              int64
+	AnalysisType        AnalysisType
+	RuleID              int64
+	RuleVersionID       int64
+	RuleNameSnapshot    string
+	RuleVersion         int
+	ConversationKey     string
+	AnalysisDate        time.Time
+	EmployeeID          int64
+	EmployeeName        string
+	EmployeeAvatar      string
+	TargetType          string
+	TargetID            string
+	TargetName          string
+	TargetAvatar        string
+	SourceStartedAt     time.Time
+	SourceEndedAt       time.Time
+	SourceMessageCount  int
+	SourceFingerprint   string
+	Status              AnalysisStatus
+	Summary             string
+	SessionResult       *SessionAnalysisResult
+	SmartResult         *SmartAnalysisResult
+	ResultJSON          []byte
+	ErrorSummary        string
+	Provider            string
+	Model               string
+	PromptVersion       string
+	PreviousInsightID   int64
+	PreviousScore       *float64
+	PreviousSummary     string
+	PreviousGeneratedAt *time.Time
+	GeneratedAt         *time.Time
+	CreatedAt           time.Time
+}
+
+// PreviousInsightSnapshot is the exact prior successful result context sent
+// to the model. It is continuity guidance only and is never a source of
+// evidence message identifiers.
+type PreviousInsightSnapshot struct {
+	ID           int64
+	Score        *float64
+	Summary      string
+	GeneratedAt  time.Time
+	AnalysisDate time.Time
 }
 
 type AnalysisRule struct {
@@ -445,7 +461,8 @@ type RuleDelete struct {
 type Repository interface {
 	ConversationCandidates(context.Context, CandidateQuery) ([]ConversationCandidate, error)
 	ConversationMessages(context.Context, ConversationWindowQuery) ([]SourceMessage, error)
-	LatestSucceededFingerprint(context.Context, int64, int64, AnalysisType, int64, string) (string, error)
+	LatestSucceededFingerprint(context.Context, int64, int64, AnalysisType, int64, string, time.Time) (string, error)
+	PreviousSucceededInsight(context.Context, int64, int64, AnalysisType, int64, string, time.Time) (*PreviousInsightSnapshot, error)
 	SaveInsight(context.Context, ConversationInsight) error
 	CreateRun(context.Context, InsightRun) (int64, error)
 	FinishRun(context.Context, int64, InsightRunResult) error

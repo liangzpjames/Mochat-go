@@ -27,7 +27,7 @@ func TestSaveInsightPersistsAndUpdatesRealMariaDB(t *testing.T) {
 	generatedAt := time.Date(2026, 8, 24, 10, 30, 0, 123000000, time.UTC)
 	insight := ConversationInsight{
 		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, RuleID: 9, RuleVersionID: 10,
-		ConversationKey: "11:1:customer", EmployeeID: 11, EmployeeName: "员工", EmployeeAvatar: "employee-avatar",
+		ConversationKey: "11:1:customer", AnalysisDate: generatedAt, EmployeeID: 11, EmployeeName: "员工", EmployeeAvatar: "employee-avatar",
 		TargetType: "1", TargetID: "customer", TargetName: "客户", TargetAvatar: "customer-avatar",
 		SourceStartedAt: generatedAt.Add(-time.Minute), SourceEndedAt: generatedAt,
 		SourceMessageCount: 2, SourceFingerprint: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
@@ -76,6 +76,56 @@ func TestSaveInsightPersistsAndUpdatesRealMariaDB(t *testing.T) {
 	}
 }
 
+func TestPreviousSucceededInsightUsesPriorDailyScopeOnRealMariaDB(t *testing.T) {
+	db := aiInsightIntegrationDB(t)
+	createAIInsightIntegrationTable(t, db)
+	repository := NewSQLRepository(db)
+	ctx := context.Background()
+	currentDate := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	base := ConversationInsight{
+		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, RuleVersionID: 10, ConversationKey: "daily-context",
+		EmployeeID: 11, TargetType: "1", TargetID: "customer", SourceFingerprint: strings.Repeat("a", 64),
+		Status: AnalysisStatusSucceeded, Summary: "上一次成功摘要", ResultJSON: []byte(`{"employeeQa":{"score":86}}`),
+		PromptVersion: "prompt-v2", AnalysisDate: currentDate.AddDate(0, 0, -2), GeneratedAt: timePtr(currentDate.Add(-36 * time.Hour)),
+	}
+	if err := repository.SaveInsight(ctx, base); err != nil {
+		t.Fatal(err)
+	}
+	failed := base
+	failed.AnalysisDate = currentDate.AddDate(0, 0, -1)
+	failed.GeneratedAt = timePtr(currentDate.Add(-12 * time.Hour))
+	failed.SourceFingerprint = strings.Repeat("b", 64)
+	failed.Status = AnalysisStatusFailed
+	failed.Summary = "失败结果不得选中"
+	if err := repository.SaveInsight(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	today := base
+	today.AnalysisDate = currentDate
+	today.GeneratedAt = timePtr(currentDate.Add(8 * time.Hour))
+	today.SourceFingerprint = strings.Repeat("c", 64)
+	today.Summary = "同日结果不得作为历史"
+	if err := repository.SaveInsight(ctx, today); err != nil {
+		t.Fatal(err)
+	}
+	otherTenant := base
+	otherTenant.TenantID = 9
+	otherTenant.AnalysisDate = currentDate.AddDate(0, 0, -1)
+	otherTenant.GeneratedAt = timePtr(currentDate.Add(-10 * time.Hour))
+	otherTenant.Summary = "其他租户不得选中"
+	if err := repository.SaveInsight(ctx, otherTenant); err != nil {
+		t.Fatal(err)
+	}
+
+	previous, err := repository.PreviousSucceededInsight(ctx, 7, 8, AnalysisTypeSession, 10, "daily-context", currentDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previous == nil || previous.Summary != "上一次成功摘要" || previous.Score == nil || *previous.Score != 86 || !previous.AnalysisDate.Equal(base.AnalysisDate) {
+		t.Fatalf("previous=%#v", previous)
+	}
+}
+
 func TestEmployeeOptionsSearchesNamesOnRealMariaDB(t *testing.T) {
 	db := aiInsightIntegrationDB(t)
 	createAIInsightIntegrationTable(t, db)
@@ -97,7 +147,7 @@ func TestEmployeeOptionsSearchesNamesOnRealMariaDB(t *testing.T) {
 	generatedAt := time.Date(2026, 8, 24, 15, 0, 0, 0, time.UTC)
 	if err := repository.SaveInsight(context.Background(), ConversationInsight{
 		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, RuleID: 9, RuleVersionID: 10,
-		ConversationKey: "employee-option", EmployeeID: 1106, EmployeeName: "归档员工名", TargetType: "1", TargetID: "customer", TargetName: "客户",
+		ConversationKey: "employee-option", AnalysisDate: generatedAt, EmployeeID: 1106, EmployeeName: "归档员工名", TargetType: "1", TargetID: "customer", TargetName: "客户",
 		SourceStartedAt: generatedAt.Add(-time.Minute), SourceEndedAt: generatedAt, SourceMessageCount: 2,
 		SourceFingerprint: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 		Status:            AnalysisStatusSucceeded, Summary: "摘要", ResultJSON: []byte(`{}`), PromptVersion: "prompt-v1", GeneratedAt: &generatedAt,
@@ -225,9 +275,9 @@ func insertDirectoryIntegrationInsight(t *testing.T, db *sql.DB, tenantID, corpI
 	key := "directory-" + string(status) + "-" + generatedAt.Format("150405")
 	fingerprint := strings.Repeat(string(rune('a'+generatedAt.Minute()%20)), 64)
 	_, err := db.Exec(`INSERT INTO mochat_go_ai_conversation_insights
-		(tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		tenantID, corpID, AnalysisTypeSession, 0, 0, key, employeeID, "员工", "", "1", customerID, "客户", "",
+		(tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,analysis_date,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		tenantID, corpID, AnalysisTypeSession, 0, 0, key, generatedAt, employeeID, "员工", "", "1", customerID, "客户", "",
 		generatedAt.Add(-time.Minute), generatedAt, 2, fingerprint, status, "目录覆盖", []byte(`{}`), "", "provider", "model", "v2", generatedAt, generatedAt, generatedAt,
 	)
 	if err != nil {
@@ -369,6 +419,7 @@ func createAIInsightIntegrationTable(t *testing.T, db *sql.DB) {
  rule_id BIGINT UNSIGNED NOT NULL,
  rule_version_id BIGINT UNSIGNED NOT NULL,
  conversation_key VARCHAR(191) NOT NULL,
+ analysis_date DATE NOT NULL,
  employee_id BIGINT UNSIGNED NOT NULL,
  employee_name VARCHAR(120) NOT NULL,
  employee_avatar VARCHAR(512) NOT NULL,
@@ -387,11 +438,15 @@ func createAIInsightIntegrationTable(t *testing.T, db *sql.DB) {
  provider VARCHAR(64) NOT NULL,
  model VARCHAR(128) NOT NULL,
  prompt_version VARCHAR(32) NOT NULL,
+ previous_insight_id BIGINT UNSIGNED NULL,
+ previous_score DECIMAL(6,2) NULL,
+ previous_summary VARCHAR(1200) NOT NULL DEFAULT '',
+ previous_generated_at DATETIME(6) NULL,
  generated_at DATETIME(6) NULL,
 	created_at DATETIME NOT NULL,
 	updated_at DATETIME NOT NULL,
  PRIMARY KEY (id),
- UNIQUE KEY uq_ai_conversation_source (tenant_id,corp_id,analysis_type,rule_version_id,conversation_key,source_fingerprint)
+ UNIQUE KEY uq_ai_conversation_daily (tenant_id,corp_id,analysis_type,rule_version_id,conversation_key,analysis_date)
 )`)
 	if err != nil {
 		t.Fatal(err)
@@ -530,9 +585,9 @@ func insertProjectionIntegrationInsight(t *testing.T, db *sql.DB, tenantID, corp
 	}
 	fingerprint := strings.Repeat(string(rune('a'+len(key)%20)), 64)
 	_, err = db.Exec(`INSERT INTO mochat_go_ai_conversation_insights
- (tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at)
- VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		tenantID, corpID, AnalysisTypeSession, 0, 0, key, employeeID, "员工", "", "1", "customer-"+key, "客户", "",
+ (tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,analysis_date,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		tenantID, corpID, AnalysisTypeSession, 0, 0, key, sourceAt, employeeID, "员工", "", "1", "customer-"+key, "客户", "",
 		sourceAt.Add(-time.Minute), sourceAt, 2, fingerprint, AnalysisStatusSucceeded, "真实会话投影", resultJSON, "", "provider", "model", "v2", sourceAt, sourceAt, sourceAt,
 	)
 	if err != nil {

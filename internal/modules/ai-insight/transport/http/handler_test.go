@@ -6,11 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
-	"time"
-
-	"jiyi/mochat-go/internal/modules/providers"
 )
 
 type insightResolver struct {
@@ -89,29 +85,6 @@ func TestInsightUnauthorizedForbiddenAndUnknownPage(t *testing.T) {
 	}
 }
 
-type memoryAnalysisStore struct {
-	row *AnalysisRow
-}
-
-func (m memoryAnalysisStore) Latest(_ context.Context, _ int64, _ string) (*AnalysisRow, error) {
-	return m.row, nil
-}
-
-func (m memoryAnalysisStore) Save(_ context.Context, _ int64, _ string, _ string, _ any, _ string) error {
-	return nil
-}
-
-type recordingAIProvider struct {
-	calls  int
-	status providers.Status
-}
-
-func (p *recordingAIProvider) Status() providers.Status { return p.status }
-func (p *recordingAIProvider) Chat(_ context.Context, _ providers.ChatRequest) (string, error) {
-	p.calls++
-	return "测试分析摘要", nil
-}
-
 func TestInsightPageOpenNeverCallsModel(t *testing.T) {
 	handler := NewInsightHandlerWithStore(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, nil)
 	rec := insightRequest(handler, "emotion")
@@ -125,33 +98,5 @@ func TestInsightPageOpenNeverCallsModel(t *testing.T) {
 	data := payload["data"].(map[string]any)
 	if data["capability"] != "limited" {
 		t.Fatalf("capability = %v, want limited when no saved analysis", data["capability"])
-	}
-}
-
-func TestInsightReadsSavedAnalysisWithoutModel(t *testing.T) {
-	handler := NewInsightHandlerWithStore(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, nil)
-	handler.analysis = memoryAnalysisStore{row: &AnalysisRow{
-		Payload:   `{"summary":"已保存的每日分析","keywords":[],"generatedAt":"2026-08-15T00:00:00+08:00"}`,
-		CreatedAt: time.Now(),
-	}}
-	rec := insightRequest(handler, "emotion")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d, want 200", rec.Code)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatal(err)
-	}
-	data := payload["data"].(map[string]any)
-	if data["capability"] != "ready" {
-		t.Fatalf("capability = %v, want ready with saved analysis", data["capability"])
-	}
-	items := data["data"].([]any)
-	if len(items) != 1 {
-		t.Fatalf("data length = %d, want 1", len(items))
-	}
-	summary, ok := items[0].(map[string]any)["summary"].(string)
-	if !ok || !strings.Contains(summary, "已保存的每日分析") {
-		t.Fatalf("summary = %#v, want saved analysis text", summary)
 	}
 }

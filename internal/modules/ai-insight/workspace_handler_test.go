@@ -172,8 +172,11 @@ func (workspaceTestRepo) ConversationCandidates(context.Context, CandidateQuery)
 func (workspaceTestRepo) ConversationMessages(context.Context, ConversationWindowQuery) ([]SourceMessage, error) {
 	return nil, nil
 }
-func (workspaceTestRepo) LatestSucceededFingerprint(context.Context, int64, int64, AnalysisType, int64, string) (string, error) {
+func (workspaceTestRepo) LatestSucceededFingerprint(context.Context, int64, int64, AnalysisType, int64, string, time.Time) (string, error) {
 	return "", nil
+}
+func (workspaceTestRepo) PreviousSucceededInsight(context.Context, int64, int64, AnalysisType, int64, string, time.Time) (*PreviousInsightSnapshot, error) {
+	return nil, nil
 }
 func (workspaceTestRepo) SaveInsight(context.Context, ConversationInsight) error   { return nil }
 func (workspaceTestRepo) CreateRun(context.Context, InsightRun) (int64, error)     { return 1, nil }

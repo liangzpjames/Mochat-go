@@ -193,7 +193,7 @@ func TestSaveInsightSourceFingerprintIsStable(t *testing.T) {
 	}
 }
 
-func TestSaveInsightUsesTwentyFiveBusinessPlaceholders(t *testing.T) {
+func TestSaveInsightUsesDailyUpsertContract(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func TestSaveInsightUsesTwentyFiveBusinessPlaceholders(t *testing.T) {
 	generatedAt := time.Date(2026, 8, 24, 10, 30, 0, 0, time.UTC)
 	insight := ConversationInsight{
 		TenantID: 7, CorpID: 8, AnalysisType: AnalysisTypeSession, RuleID: 9, RuleVersionID: 10,
-		ConversationKey: "11:1:customer", EmployeeID: 11, EmployeeName: "员工", EmployeeAvatar: "employee-avatar",
+		ConversationKey: "11:1:customer", AnalysisDate: generatedAt, EmployeeID: 11, EmployeeName: "员工", EmployeeAvatar: "employee-avatar",
 		TargetType: "1", TargetID: "customer", TargetName: "客户", TargetAvatar: "customer-avatar",
 		SourceStartedAt: generatedAt.Add(-time.Minute), SourceEndedAt: generatedAt,
 		SourceMessageCount: 2, SourceFingerprint: "source-fingerprint", Status: AnalysisStatusSucceeded,
@@ -211,17 +211,17 @@ func TestSaveInsightUsesTwentyFiveBusinessPlaceholders(t *testing.T) {
 	}
 
 	const saveInsightSQL = "INSERT INTO mochat_go_ai_conversation_insights " +
-		"(tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at) " +
-		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW()) " +
-		"ON DUPLICATE KEY UPDATE status=VALUES(status),summary=VALUES(summary),result_json=VALUES(result_json),error_summary=VALUES(error_summary),provider=VALUES(provider),model=VALUES(model),prompt_version=VALUES(prompt_version),generated_at=VALUES(generated_at),updated_at=NOW()"
+		"(tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,analysis_date,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,previous_insight_id,previous_score,previous_summary,previous_generated_at,generated_at,created_at,updated_at) " +
+		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW()) " +
+		"ON DUPLICATE KEY UPDATE rule_id=VALUES(rule_id),employee_id=VALUES(employee_id),employee_name=VALUES(employee_name),employee_avatar=VALUES(employee_avatar),target_type=VALUES(target_type),target_id=VALUES(target_id),target_name=VALUES(target_name),target_avatar=VALUES(target_avatar),source_started_at=VALUES(source_started_at),source_ended_at=VALUES(source_ended_at),source_message_count=VALUES(source_message_count),source_fingerprint=VALUES(source_fingerprint),status=VALUES(status),summary=VALUES(summary),result_json=VALUES(result_json),error_summary=VALUES(error_summary),provider=VALUES(provider),model=VALUES(model),prompt_version=VALUES(prompt_version),previous_insight_id=VALUES(previous_insight_id),previous_score=VALUES(previous_score),previous_summary=VALUES(previous_summary),previous_generated_at=VALUES(previous_generated_at),generated_at=VALUES(generated_at),updated_at=NOW()"
 	mock.ExpectExec(regexp.QuoteMeta(saveInsightSQL)).
 		WithArgs(
 			insight.TenantID, insight.CorpID, insight.AnalysisType, insight.RuleID, insight.RuleVersionID,
-			insight.ConversationKey, insight.EmployeeID, insight.EmployeeName, insight.EmployeeAvatar,
+			insight.ConversationKey, "2026-08-24", insight.EmployeeID, insight.EmployeeName, insight.EmployeeAvatar,
 			insight.TargetType, insight.TargetID, insight.TargetName, insight.TargetAvatar,
 			insight.SourceStartedAt, insight.SourceEndedAt, insight.SourceMessageCount, insight.SourceFingerprint,
 			insight.Status, insight.Summary, string(insight.ResultJSON), insight.ErrorSummary, insight.Provider,
-			insight.Model, insight.PromptVersion, generatedAt,
+			insight.Model, insight.PromptVersion, nil, nil, "", nil, generatedAt,
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 

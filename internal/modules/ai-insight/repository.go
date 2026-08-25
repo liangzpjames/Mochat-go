@@ -199,31 +199,61 @@ func (r *SQLRepository) queryArchiveTable(ctx context.Context, tableIndex int, c
 	return result, rows.Err()
 }
 
-func (r *SQLRepository) LatestSucceededFingerprint(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, conversationKey string) (string, error) {
+func (r *SQLRepository) LatestSucceededFingerprint(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, conversationKey string, analysisDate time.Time) (string, error) {
 	if r == nil || r.db == nil {
 		return "", errors.New("AI insight repository database is unavailable")
 	}
 	var fingerprint string
-	err := r.db.QueryRowContext(ctx, `SELECT source_fingerprint FROM mochat_go_ai_conversation_insights WHERE tenant_id=? AND corp_id=? AND analysis_type=? AND rule_version_id=? AND conversation_key=? AND status='succeeded' ORDER BY generated_at DESC, id DESC LIMIT 1`, tenantID, corpID, analysisType, ruleVersionID, conversationKey).Scan(&fingerprint)
+	err := r.db.QueryRowContext(ctx, `SELECT source_fingerprint FROM mochat_go_ai_conversation_insights WHERE tenant_id=? AND corp_id=? AND analysis_type=? AND rule_version_id=? AND conversation_key=? AND analysis_date=? AND status='succeeded' ORDER BY generated_at DESC, id DESC LIMIT 1`, tenantID, corpID, analysisType, ruleVersionID, conversationKey, analysisDateSQLValue(analysisDate)).Scan(&fingerprint)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
 	return fingerprint, err
 }
 
+func (r *SQLRepository) PreviousSucceededInsight(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, conversationKey string, analysisDate time.Time) (*PreviousInsightSnapshot, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("AI insight repository database is unavailable")
+	}
+	scorePath := "$.employeeQa.score"
+	if analysisType == AnalysisTypeSmart {
+		scorePath = "$.matchScore"
+	}
+	query := `SELECT id,CASE WHEN JSON_VALID(result_json) AND JSON_TYPE(JSON_EXTRACT(result_json,'` + scorePath + `')) IN ('INTEGER','DOUBLE') THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(result_json,'` + scorePath + `')) AS DECIMAL(6,2)) END,summary,generated_at,analysis_date FROM mochat_go_ai_conversation_insights WHERE tenant_id=? AND corp_id=? AND analysis_type=? AND rule_version_id=? AND conversation_key=? AND status='succeeded' AND analysis_date<? ORDER BY analysis_date DESC,generated_at DESC,id DESC LIMIT 1`
+	var snapshot PreviousInsightSnapshot
+	var score sql.NullFloat64
+	var generatedAt sql.NullTime
+	if err := r.db.QueryRowContext(ctx, query, tenantID, corpID, analysisType, ruleVersionID, conversationKey, analysisDateSQLValue(analysisDate)).Scan(&snapshot.ID, &score, &snapshot.Summary, &generatedAt, &snapshot.AnalysisDate); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if score.Valid {
+		snapshot.Score = &score.Float64
+	}
+	if generatedAt.Valid {
+		snapshot.GeneratedAt = generatedAt.Time
+	}
+	return &snapshot, nil
+}
+
 func (r *SQLRepository) SaveInsight(ctx context.Context, insight ConversationInsight) error {
 	if r == nil || r.db == nil {
 		return errors.New("AI insight repository database is unavailable")
+	}
+	if insight.AnalysisDate.IsZero() {
+		return errors.New("AI insight analysis date is required")
 	}
 	resultJSON := insight.ResultJSON
 	if len(resultJSON) == 0 {
 		resultJSON = []byte(`{}`)
 	}
 	_, err := r.db.ExecContext(ctx, `INSERT INTO mochat_go_ai_conversation_insights
- (tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,generated_at,created_at,updated_at)
- VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())
- ON DUPLICATE KEY UPDATE status=VALUES(status),summary=VALUES(summary),result_json=VALUES(result_json),error_summary=VALUES(error_summary),provider=VALUES(provider),model=VALUES(model),prompt_version=VALUES(prompt_version),generated_at=VALUES(generated_at),updated_at=NOW()`,
-		insight.TenantID, insight.CorpID, insight.AnalysisType, insight.RuleID, insight.RuleVersionID, insight.ConversationKey, insight.EmployeeID, insight.EmployeeName, insight.EmployeeAvatar, insight.TargetType, insight.TargetID, insight.TargetName, insight.TargetAvatar, nullTime(insight.SourceStartedAt), nullTime(insight.SourceEndedAt), insight.SourceMessageCount, insight.SourceFingerprint, insight.Status, insight.Summary, string(resultJSON), insight.ErrorSummary, insight.Provider, insight.Model, insight.PromptVersion, nullTimePtr(insight.GeneratedAt))
+ (tenant_id,corp_id,analysis_type,rule_id,rule_version_id,conversation_key,analysis_date,employee_id,employee_name,employee_avatar,target_type,target_id,target_name,target_avatar,source_started_at,source_ended_at,source_message_count,source_fingerprint,status,summary,result_json,error_summary,provider,model,prompt_version,previous_insight_id,previous_score,previous_summary,previous_generated_at,generated_at,created_at,updated_at)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())
+ ON DUPLICATE KEY UPDATE rule_id=VALUES(rule_id),employee_id=VALUES(employee_id),employee_name=VALUES(employee_name),employee_avatar=VALUES(employee_avatar),target_type=VALUES(target_type),target_id=VALUES(target_id),target_name=VALUES(target_name),target_avatar=VALUES(target_avatar),source_started_at=VALUES(source_started_at),source_ended_at=VALUES(source_ended_at),source_message_count=VALUES(source_message_count),source_fingerprint=VALUES(source_fingerprint),status=VALUES(status),summary=VALUES(summary),result_json=VALUES(result_json),error_summary=VALUES(error_summary),provider=VALUES(provider),model=VALUES(model),prompt_version=VALUES(prompt_version),previous_insight_id=VALUES(previous_insight_id),previous_score=VALUES(previous_score),previous_summary=VALUES(previous_summary),previous_generated_at=VALUES(previous_generated_at),generated_at=VALUES(generated_at),updated_at=NOW()`,
+		insight.TenantID, insight.CorpID, insight.AnalysisType, insight.RuleID, insight.RuleVersionID, insight.ConversationKey, analysisDateSQLValue(insight.AnalysisDate), insight.EmployeeID, insight.EmployeeName, insight.EmployeeAvatar, insight.TargetType, insight.TargetID, insight.TargetName, insight.TargetAvatar, nullTime(insight.SourceStartedAt), nullTime(insight.SourceEndedAt), insight.SourceMessageCount, insight.SourceFingerprint, insight.Status, insight.Summary, string(resultJSON), insight.ErrorSummary, insight.Provider, insight.Model, insight.PromptVersion, nullInt64(insight.PreviousInsightID), nullFloat64(insight.PreviousScore), insight.PreviousSummary, nullTimePtr(insight.PreviousGeneratedAt), nullTimePtr(insight.GeneratedAt))
 	return err
 }
 
@@ -854,6 +884,21 @@ func nullTime(value time.Time) any {
 		return nil
 	}
 	return value
+}
+func analysisDateSQLValue(value time.Time) string {
+	return value.Format("2006-01-02")
+}
+func nullInt64(value int64) any {
+	if value <= 0 {
+		return nil
+	}
+	return value
+}
+func nullFloat64(value *float64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 func nullTimePtr(value *time.Time) any {
 	if value == nil {

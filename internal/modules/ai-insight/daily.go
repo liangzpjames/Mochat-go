@@ -7,7 +7,6 @@ import (
 	"log"
 	"time"
 
-	transporthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
 	aisettingsmysql "jiyi/mochat-go/internal/modules/ai-settings/adapters/mysql"
 	"jiyi/mochat-go/internal/modules/providers"
 )
@@ -27,7 +26,6 @@ type DailyConfig struct {
 type DailyAnalysisRunner struct {
 	db           *sql.DB
 	resolver     providers.AIProviderResolver
-	analysis     transporthttp.AnalysisStore
 	conversation *ConversationAnalysisRunner
 	logger       *log.Logger
 }
@@ -45,7 +43,7 @@ func NewDailyAnalysisRunnerWithResolver(db *sql.DB, repo Repository, resolver pr
 	} else {
 		assistant, _ = aisettingsmysql.NewAgentRepository(db)
 	}
-	return &DailyAnalysisRunner{db: db, resolver: resolver, analysis: transporthttp.NewSQLAnalysisStore(db), conversation: NewConversationAnalysisRunner(repo, resolver, RunnerConfig{}, logger, assistant), logger: logger}
+	return &DailyAnalysisRunner{db: db, resolver: resolver, conversation: NewConversationAnalysisRunner(repo, resolver, RunnerConfig{}, logger, assistant), logger: logger}
 }
 
 // RunOnce analyzes archive texts for every active corp and persists the

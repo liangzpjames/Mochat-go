@@ -3,7 +3,6 @@ package reporting
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -105,7 +104,7 @@ func (r *SQLRepository) queryOverview(ctx context.Context, q ReportQuery) (Repor
 	limitations = append(limitations, conversion.Limitations...)
 	limitations = append(limitations, behavior.Limitations...)
 	limitations = append(limitations, employee.Limitations...)
-	aiInsight, aiErr := r.queryAIInsight(ctx, q.CorpID)
+	aiInsight, aiErr := r.queryAIInsight(ctx, q.TenantID, q.CorpID)
 	if aiErr != nil {
 		return ReportResult{}, aiErr
 	}
@@ -744,27 +743,26 @@ GROUP BY t.table_name`)
 
 // queryAIInsight reads the most recent persisted smart-analysis result for the
 // corp. Page reads never invoke the model; the once-daily job writes these rows.
-func (r *SQLRepository) queryAIInsight(ctx context.Context, corpID int64) (*AIInsightSummary, error) {
-	var payload string
+func (r *SQLRepository) queryAIInsight(ctx context.Context, tenantID, corpID int64) (*AIInsightSummary, error) {
+	var summary, provider string
+	var generatedAt sql.NullTime
 	err := r.db.QueryRowContext(ctx, `
-		SELECT payload
-		FROM mochat_go_ai_analysis
-		WHERE corp_id = ? AND page = 'smart-analysis' AND status = 'succeeded'
-		ORDER BY id DESC
-		LIMIT 1`, corpID).Scan(&payload)
+		SELECT summary, provider, generated_at
+		FROM mochat_go_ai_conversation_insights
+		WHERE tenant_id = ? AND corp_id = ? AND analysis_type = 'smart' AND status = 'succeeded'
+		ORDER BY analysis_date DESC, generated_at DESC, id DESC
+		LIMIT 1`, tenantID, corpID).Scan(&summary, &provider, &generatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var stored map[string]any
-	if json.Unmarshal([]byte(payload), &stored) != nil {
-		return nil, nil
+	generated := ""
+	if generatedAt.Valid {
+		generated = generatedAt.Time.Format(time.RFC3339)
 	}
-	summary, _ := stored["summary"].(string)
-	generatedAt, _ := stored["generatedAt"].(string)
-	return &AIInsightSummary{Capability: "ready", Provider: "dashscope", Summary: summary, GeneratedAt: generatedAt}, nil
+	return &AIInsightSummary{Capability: "ready", Provider: provider, Summary: summary, GeneratedAt: generated}, nil
 }
 
 // queryConversationStats aggregates archived messages from all partitions into
