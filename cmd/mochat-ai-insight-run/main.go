@@ -27,6 +27,7 @@ type runtimeConfig struct {
 	Model           string
 	ProviderTimeout time.Duration
 	RunTimeout      time.Duration
+	LookbackDays    int
 }
 
 func main() {
@@ -65,7 +66,16 @@ func loadRuntimeConfig(getenv func(string) string) (runtimeConfig, error) {
 		Model:           strings.TrimSpace(getenv("MOCHAT_GO_AI_PROVIDER_MODEL")),
 		ProviderTimeout: positiveDuration(getenv("MOCHAT_GO_AI_PROVIDER_TIMEOUT_SECONDS"), time.Second, 120*time.Second),
 		RunTimeout:      positiveDuration(getenv("MOCHAT_GO_AI_RUN_TIMEOUT_MINUTES"), time.Minute, 30*time.Minute),
+		LookbackDays:    positiveInt(getenv("MOCHAT_GO_AI_RUN_LOOKBACK_DAYS"), 30),
 	}, nil
+}
+
+func positiveInt(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func positiveDuration(raw string, unit, fallback time.Duration) time.Duration {
@@ -98,11 +108,13 @@ func run(ctx context.Context, config runtimeConfig) error {
 		return errors.New("AI insight database is unavailable")
 	}
 
-	startedAt := time.Now()
+	startedAt := time.Now().Add(-2 * time.Second)
 	metadata := provider.Metadata()
 	log.Printf("one-shot AI insight analysis started provider=%s model=%s", metadata.Provider, metadata.Model)
 	runner := aiinsight.NewDailyAnalysisRunner(db, provider, log.Default())
-	if err := runner.RunOnce(ctx); err != nil {
+	endAt := time.Now()
+	startAt := endAt.AddDate(0, 0, -config.LookbackDays)
+	if err := runner.RunBackfill(ctx, startAt, endAt); err != nil {
 		return fmt.Errorf("one-shot AI insight analysis failed: %w", err)
 	}
 	var runCount, failedRuns, failedCandidates, successfulCandidates int

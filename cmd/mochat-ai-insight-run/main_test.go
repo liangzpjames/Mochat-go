@@ -33,6 +33,7 @@ func TestLoadRuntimeConfigReadsKeyWithoutExposingIt(t *testing.T) {
 			"MOCHAT_GO_AI_PROVIDER_MODEL":           "deepseek-v4-flash",
 			"MOCHAT_GO_AI_PROVIDER_TIMEOUT_SECONDS": "90",
 			"MOCHAT_GO_AI_RUN_TIMEOUT_MINUTES":      "20",
+			"MOCHAT_GO_AI_RUN_LOOKBACK_DAYS":        "30",
 		}
 		return values[name]
 	}
@@ -45,5 +46,8 @@ func TestLoadRuntimeConfigReadsKeyWithoutExposingIt(t *testing.T) {
 	}
 	if config.ProviderTimeout.Seconds() != 90 || config.RunTimeout.Minutes() != 20 {
 		t.Fatalf("unexpected timeouts: provider=%s run=%s", config.ProviderTimeout, config.RunTimeout)
+	}
+	if config.LookbackDays != 30 {
+		t.Fatalf("lookback days = %d, want 30", config.LookbackDays)
 	}
 }

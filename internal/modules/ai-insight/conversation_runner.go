@@ -45,6 +45,11 @@ type ConversationAnalysisRunner struct {
 	systemAssistant SystemAssistantContextProvider
 }
 
+type analysisWindow struct {
+	startAt time.Time
+	endAt   time.Time
+}
+
 func NewConversationAnalysisRunner(repo Repository, ai providers.AIProvider, config RunnerConfig, logger *log.Logger, assistants ...any) *ConversationAnalysisRunner {
 	if logger == nil {
 		logger = log.Default()
@@ -78,6 +83,20 @@ func normalizeRunnerConfig(config RunnerConfig) RunnerConfig {
 }
 
 func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corpID int64) error {
+	return r.runCorp(ctx, tenantID, corpID, nil)
+}
+
+// RunCorpWindow performs an explicit operator-authorized backfill window while
+// retaining the enabled rule's conversation type, target and message-count
+// constraints. It does not change the stored rule or scheduler configuration.
+func (r *ConversationAnalysisRunner) RunCorpWindow(ctx context.Context, tenantID, corpID int64, startAt, endAt time.Time) error {
+	if startAt.IsZero() || endAt.IsZero() || !startAt.Before(endAt) {
+		return errors.New("AI insight backfill window is invalid")
+	}
+	return r.runCorp(ctx, tenantID, corpID, &analysisWindow{startAt: startAt, endAt: endAt})
+}
+
+func (r *ConversationAnalysisRunner) runCorp(ctx context.Context, tenantID, corpID int64, window *analysisWindow) error {
 	if r == nil || r.repo == nil {
 		return errors.New("AI insight conversation repository is unavailable")
 	}
@@ -176,11 +195,8 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 				return err
 			}
 		} else {
-			days := r.config.SessionDays
-			if sessionRule.LookbackDays > 0 {
-				days = sessionRule.LookbackDays
-			}
-			if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, now.AddDate(0, 0, -days), now, sessionRule, contexts[AnalysisTypeSession]); err != nil {
+			startAt, endAt := analysisTimeWindow(now, r.config.SessionDays, sessionRule.LookbackDays, window)
+			if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSession, sessionVersionID, startAt, endAt, sessionRule, contexts[AnalysisTypeSession]); err != nil {
 				r.logger.Printf("AI conversation session analysis failed for corp %d: %v", corpID, err)
 			}
 		}
@@ -192,15 +208,23 @@ func (r *ConversationAnalysisRunner) RunCorp(ctx context.Context, tenantID, corp
 			}
 			continue
 		}
-		days := rule.LookbackDays
-		if days <= 0 {
-			days = r.config.SessionDays
-		}
-		if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, now.AddDate(0, 0, -days), now, &rule, contexts[AnalysisTypeSmart]); err != nil {
+		startAt, endAt := analysisTimeWindow(now, r.config.SessionDays, rule.LookbackDays, window)
+		if err := r.runType(ctx, tenantID, corpID, AnalysisTypeSmart, rule.ID, startAt, endAt, &rule, contexts[AnalysisTypeSmart]); err != nil {
 			r.logger.Printf("AI conversation smart analysis failed for corp %d rule %d: %v", corpID, rule.RuleID, err)
 		}
 	}
 	return nil
+}
+
+func analysisTimeWindow(now time.Time, fallbackDays, ruleDays int, override *analysisWindow) (time.Time, time.Time) {
+	if override != nil {
+		return override.startAt, override.endAt
+	}
+	days := ruleDays
+	if days <= 0 {
+		days = fallbackDays
+	}
+	return now.AddDate(0, 0, -days), now
 }
 
 func (r *ConversationAnalysisRunner) runType(ctx context.Context, tenantID, corpID int64, analysisType AnalysisType, ruleVersionID int64, startAt, endAt time.Time, rule *AnalysisRuleVersion, assistant *settingsports.SessionAssistantContext) error {
@@ -320,24 +344,49 @@ func (r *ConversationAnalysisRunner) processCandidate(ctx context.Context, tenan
 		insight.RuleVersion = rule.Version
 		insight.RuleNameSnapshot = rule.Name
 	}
-	if analysisType == AnalysisTypeSession {
-		parsed, parseErr := ParseSessionAnalysisResult(raw, allowed)
-		if parseErr != nil {
+	parseErr := populateConversationInsightResult(&insight, analysisType, raw, allowed)
+	if parseErr != nil {
+		correction := request
+		correction.Prompt = buildCorrectionPrompt(request.Prompt, parseErr, messages)
+		correctedRaw, correctionErr := r.ai.Chat(ctx, correction)
+		if correctionErr != nil {
+			return r.saveFailedInsight(ctx, tenantID, corpID, candidate, analysisType, ruleVersionID, rule, fmt.Errorf("structured result correction failed: %w", correctionErr))
+		}
+		if parseErr = populateConversationInsightResult(&insight, analysisType, correctedRaw, allowed); parseErr != nil {
 			return r.saveFailedInsight(ctx, tenantID, corpID, candidate, analysisType, ruleVersionID, rule, parseErr)
+		}
+	}
+	return r.repo.SaveInsight(ctx, insight)
+}
+
+func populateConversationInsightResult(insight *ConversationInsight, analysisType AnalysisType, raw string, allowed map[string]struct{}) error {
+	if analysisType == AnalysisTypeSession {
+		parsed, err := ParseSessionAnalysisResult(raw, allowed)
+		if err != nil {
+			return err
 		}
 		insight.Summary = parsed.Summary
 		insight.SessionResult = &parsed
 		insight.ResultJSON, _ = json.Marshal(parsed)
-	} else {
-		parsed, parseErr := ParseSmartAnalysisResult(raw, allowed)
-		if parseErr != nil {
-			return r.saveFailedInsight(ctx, tenantID, corpID, candidate, analysisType, ruleVersionID, rule, parseErr)
-		}
-		insight.Summary = parsed.Conclusion
-		insight.SmartResult = &parsed
-		insight.ResultJSON, _ = json.Marshal(parsed)
+		return nil
 	}
-	return r.repo.SaveInsight(ctx, insight)
+	parsed, err := ParseSmartAnalysisResult(raw, allowed)
+	if err != nil {
+		return err
+	}
+	insight.Summary = parsed.Conclusion
+	insight.SmartResult = &parsed
+	insight.ResultJSON, _ = json.Marshal(parsed)
+	return nil
+}
+
+func buildCorrectionPrompt(original string, cause error, messages []SourceMessage) string {
+	allowed := make([]string, 0, len(messages))
+	for _, message := range messages {
+		allowed = append(allowed, message.ID)
+	}
+	return original + "\n上一次输出未通过结构化校验：" + limitRunes(cause.Error(), 600) +
+		"\n请重新输出完整 JSON。必须严格匹配上述 Schema，不得增加字段；所有 evidenceMessageIds 只能从以下 ID 中逐字选择，证据不足时使用空数组：[" + strings.Join(allowed, ", ") + "]。"
 }
 
 func (r *ConversationAnalysisRunner) saveFailedInsight(ctx context.Context, tenantID, corpID int64, candidate ConversationCandidate, analysisType AnalysisType, ruleVersionID int64, rule *AnalysisRuleVersion, cause error) error {

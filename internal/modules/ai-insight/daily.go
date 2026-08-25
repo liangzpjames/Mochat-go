@@ -50,6 +50,19 @@ func NewDailyAnalysisRunner(db *sql.DB, ai providers.AIProvider, logger *log.Log
 // RunOnce analyzes archive texts for every active corp and persists the
 // results. A failed corp or page never aborts the whole run.
 func (r *DailyAnalysisRunner) RunOnce(ctx context.Context) error {
+	return r.run(ctx, nil)
+}
+
+// RunBackfill executes the same persisted analysis flows over an explicit
+// operator-authorized window without enabling any recurring scheduler.
+func (r *DailyAnalysisRunner) RunBackfill(ctx context.Context, startAt, endAt time.Time) error {
+	if startAt.IsZero() || endAt.IsZero() || !startAt.Before(endAt) {
+		return errors.New("AI insight backfill window is invalid")
+	}
+	return r.run(ctx, &analysisWindow{startAt: startAt, endAt: endAt})
+}
+
+func (r *DailyAnalysisRunner) run(ctx context.Context, window *analysisWindow) error {
 	if r == nil || r.db == nil {
 		return errors.New("AI insight daily analysis database is unavailable")
 	}
@@ -85,8 +98,14 @@ func (r *DailyAnalysisRunner) RunOnce(ctx context.Context) error {
 	}
 	for _, corp := range corps {
 		if r.conversation != nil {
-			if err := r.conversation.RunCorp(ctx, corp.tenantID, corp.corpID); err != nil {
-				r.logger.Printf("AI insight conversation analysis failed for corp %d: %v", corp.corpID, err)
+			var conversationErr error
+			if window == nil {
+				conversationErr = r.conversation.RunCorp(ctx, corp.tenantID, corp.corpID)
+			} else {
+				conversationErr = r.conversation.RunCorpWindow(ctx, corp.tenantID, corp.corpID, window.startAt, window.endAt)
+			}
+			if conversationErr != nil {
+				r.logger.Printf("AI insight conversation analysis failed for corp %d: %v", corp.corpID, conversationErr)
 			}
 		}
 		if !providerReady {

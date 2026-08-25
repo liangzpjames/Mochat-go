@@ -22,22 +22,37 @@ func TestConversationRunnerPromptContainsSourceContract(t *testing.T) {
 
 type runnerRepoStub struct {
 	Repository
-	previous       string
-	saved          []ConversationInsight
-	runs           []InsightRun
-	finished       []InsightRunResult
-	rules          []AnalysisRuleVersion
-	rulesErr       error
-	sessionRule    *AnalysisRuleVersion
-	sessionRuleErr error
-	rulesLoader    func() []AnalysisRuleVersion
-	sessionLoader  func() *AnalysisRuleVersion
-	createRunErr   error
-	createRunErrAt int
+	previous         string
+	saved            []ConversationInsight
+	runs             []InsightRun
+	finished         []InsightRunResult
+	rules            []AnalysisRuleVersion
+	rulesErr         error
+	sessionRule      *AnalysisRuleVersion
+	sessionRuleErr   error
+	rulesLoader      func() []AnalysisRuleVersion
+	sessionLoader    func() *AnalysisRuleVersion
+	createRunErr     error
+	createRunErrAt   int
+	candidateQueries []CandidateQuery
 }
 
-func (r *runnerRepoStub) ConversationCandidates(context.Context, CandidateQuery) ([]ConversationCandidate, error) {
+func (r *runnerRepoStub) ConversationCandidates(_ context.Context, query CandidateQuery) ([]ConversationCandidate, error) {
+	r.candidateQueries = append(r.candidateQueries, query)
 	return []ConversationCandidate{{ConversationKey: "conversation-1", SourceFingerprint: "messages-v1", SourceMessageCount: 1, SourceStartedAt: time.Date(2026, 8, 23, 8, 0, 0, 0, time.UTC), SourceEndedAt: time.Date(2026, 8, 23, 8, 1, 0, 0, time.UTC)}}, nil
+}
+
+func TestConversationRunnerExplicitWindowOverridesRuleLookback(t *testing.T) {
+	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, LookbackDays: 1, MinimumMessages: 1}}
+	runner := NewConversationAnalysisRunner(repo, &capturingAIProvider{}, RunnerConfig{Concurrency: 1}, nil)
+	startAt := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	endAt := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	if err := runner.RunCorpWindow(context.Background(), 1, 2, startAt, endAt); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.candidateQueries) != 1 || !repo.candidateQueries[0].StartAt.Equal(startAt) || !repo.candidateQueries[0].EndAt.Equal(endAt) {
+		t.Fatalf("candidate queries = %#v, want explicit window", repo.candidateQueries)
+	}
 }
 func (r *runnerRepoStub) ConversationMessages(context.Context, ConversationWindowQuery) ([]SourceMessage, error) {
 	return []SourceMessage{{ID: "msg:inside", MessageTime: time.Date(2026, 8, 23, 8, 0, 0, 0, time.UTC), Direction: "inbound", SenderName: "客户", Content: "退款需要谁审批"}}, nil
@@ -90,6 +105,44 @@ type capturingAIProvider struct {
 	request  providers.ChatRequest
 	requests []providers.ChatRequest
 	calls    int
+}
+
+type correctingAIProvider struct {
+	requests []providers.ChatRequest
+}
+
+func (p *correctingAIProvider) Chat(_ context.Context, request providers.ChatRequest) (string, error) {
+	p.requests = append(p.requests, request)
+	if len(p.requests) == 1 {
+		return strings.ReplaceAll(validSessionJSON(), "msg:inside", "hallucinated-message"), nil
+	}
+	return validSessionJSON(), nil
+}
+
+func (p *correctingAIProvider) Status() providers.Status {
+	return providers.Status{State: providers.StateReady}
+}
+
+func (p *correctingAIProvider) Metadata() providers.AIProviderMetadata {
+	return providers.AIProviderMetadata{Provider: "openai-compatible", Model: "test-model"}
+}
+
+func TestConversationRunnerRetriesInvalidStructuredEvidenceOnce(t *testing.T) {
+	repo := &runnerRepoStub{sessionRule: &AnalysisRuleVersion{ID: 11, RuleID: 1, Version: 1, ConversationTypes: []string{"direct"}, MinimumMessages: 1}}
+	provider := &correctingAIProvider{}
+	runner := NewConversationAnalysisRunner(repo, provider, RunnerConfig{Concurrency: 1}, nil)
+	if err := runner.RunCorp(context.Background(), 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider calls = %d, want one correction retry", len(provider.requests))
+	}
+	if !strings.Contains(provider.requests[1].Prompt, "上一次输出未通过结构化校验") || !strings.Contains(provider.requests[1].Prompt, "msg:inside") {
+		t.Fatalf("correction prompt does not constrain evidence IDs: %s", provider.requests[1].Prompt)
+	}
+	if len(repo.saved) != 1 || repo.saved[0].Status != AnalysisStatusSucceeded {
+		t.Fatalf("saved insights = %#v, want corrected success only", repo.saved)
+	}
 }
 
 func (p *capturingAIProvider) Metadata() providers.AIProviderMetadata {
