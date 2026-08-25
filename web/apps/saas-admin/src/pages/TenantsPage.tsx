@@ -128,6 +128,11 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
+function aiProviderErrorMessage(error: unknown) {
+  if (error instanceof ApiError && error.status === 409) return `${error.machineCode}：配置已由其他管理员更新；页面已载入最新版本，请重新确认后保存。`
+  return errorMessage(error, 'AI 模型配置保存失败，API Key 已从页面清除')
+}
+
 function packageLimitsSnapshot(plan: PackagePlan) {
   const limits: Record<string, number> = {}
   for (const key of packageLimitKeys) {
@@ -231,7 +236,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
     },
     onError: async (error) => {
       setAIProviderForm((form) => ({ ...form, apiKey: '' }))
-      toast.error(errorMessage(error, 'AI 模型配置保存失败，API Key 已从页面清除'))
+      toast.error(aiProviderErrorMessage(error))
       if (error instanceof ApiError && error.status === 409) {
         const refreshed = await aiProviderQuery.refetch()
         if (refreshed.data?.configured) setAIProviderForm(providerFormFromData(refreshed.data.provider))
@@ -537,7 +542,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
           <Field label="API Key" hint={aiProviderQuery.data?.configured ? `留空保留现有密钥（${aiProviderQuery.data.provider.apiKeyHint || '已配置'}）` : '首次配置必须填写；保存失败或关闭窗口后立即清空。'}><div className="relative"><KeyRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" /><Input type="password" autoComplete="new-password" value={aiProviderForm.apiKey} onChange={(event) => setAIProviderForm((form) => ({ ...form, apiKey: event.target.value }))} className="pl-9" placeholder="留空则保留现有密钥" /></div></Field>
           <Field label="生效时间"><Input type="datetime-local" value={aiProviderForm.effectiveAt} onChange={(event) => setAIProviderForm((form) => ({ ...form, effectiveAt: event.target.value }))} /></Field>
           <Field label="失效时间"><Input type="datetime-local" value={aiProviderForm.expiresAt} onChange={(event) => setAIProviderForm((form) => ({ ...form, expiresAt: event.target.value }))} /></Field>
-          {Boolean(aiProviderMutation.error) && <p role="alert" className="sm:col-span-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage(aiProviderMutation.error, '保存失败；API Key 已从页面清除。')}</p>}
+          {Boolean(aiProviderMutation.error) && <p role="alert" className="sm:col-span-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{aiProviderErrorMessage(aiProviderMutation.error)}</p>}
           {aiProviderQuery.data?.provider.credentialProtection === 'unavailable' && <p className="sm:col-span-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">现有密钥当前不可解密。请填写新 API Key 后保存；运行时会继续失败关闭，直到凭证保护恢复。</p>}
           <p className="sm:col-span-2 text-xs leading-5 text-zinc-500">保存只更新加密配置，不会测试连接或触发 AI 分析。模型运行还必须满足租户有效期、企业绑定和手动运行权限。</p>
         </div>

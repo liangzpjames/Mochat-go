@@ -325,6 +325,8 @@ describe('SaaS 客户租户治理页面', () => {
     await settle()
     const getCalls = mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenantAIProvider?tenantId=41')
     expect(getCalls.length).toBeGreaterThanOrEqual(2)
+    expect(document.body.textContent).toContain('页面已载入最新版本')
+    expect(document.body.textContent).not.toContain('刷新治理列表')
     setValue('API Key', 'fixture-after-refresh')
     clickButton('保存 AI 配置')
     await settle()
