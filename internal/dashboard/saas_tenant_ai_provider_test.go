@@ -55,6 +55,40 @@ func TestTenantAIProviderHandlerMapsStoreNotFoundAndConflict(t *testing.T) {
 	}
 }
 
+func TestTenantAIProviderHandlerRejectsBadInputWithoutEchoingBody(t *testing.T) {
+	store := &tenantAIProviderHandlerStore{fakeSaaSAdminStore: &fakeSaaSAdminStore{users: map[int]User{1: {ID: 1, TenantID: 1, Status: 1, IsSuperAdmin: 1}}}}
+	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)
+	valid := SaaSTenantAIProviderInput{TenantID: 7, ProviderCode: "openai", BaseURL: "https://api.example.test/v1", Model: "model-v1", APIKey: "fixture-key-1234", EffectiveAt: "2026-08-25T00:00:00Z", ExpiresAt: "2026-08-26T00:00:00Z", Status: "active"}
+	cases := []struct {
+		name   string
+		mutate func(*SaaSTenantAIProviderInput)
+		raw    string
+	}{
+		{"provider", func(v *SaaSTenantAIProviderInput) { v.ProviderCode = "unsupported" }, ""}, {"model-empty", func(v *SaaSTenantAIProviderInput) { v.Model = "" }, ""}, {"model-long", func(v *SaaSTenantAIProviderInput) { v.Model = strings.Repeat("x", 129) }, ""}, {"status", func(v *SaaSTenantAIProviderInput) { v.Status = "bad" }, ""}, {"effective", func(v *SaaSTenantAIProviderInput) { v.EffectiveAt = "bad" }, ""}, {"expiry", func(v *SaaSTenantAIProviderInput) { v.ExpiresAt = v.EffectiveAt }, ""}, {"tenant", func(v *SaaSTenantAIProviderInput) { v.TenantID = 0 }, ""}, {"malformed", nil, "{"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := valid
+			raw := tc.raw
+			if tc.mutate != nil {
+				tc.mutate(&input)
+				body, _ := json.Marshal(input)
+				raw = string(body)
+			}
+			req := httptest.NewRequest(http.MethodPut, "/dashboard/saasAdmin/tenantAIProvider", strings.NewReader(raw))
+			req.Header.Set("X-Mochat-Go-User-ID", "1")
+			rec := httptest.NewRecorder()
+			handler.TenantAIProvider(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s status=%d", tc.name, rec.Code)
+			}
+			if strings.Contains(rec.Body.String(), "fixture-key-1234") {
+				t.Fatal("error response leaked submitted credential")
+			}
+		})
+	}
+}
+
 func TestTenantAIProviderHandlerRejectsTenantAdminAndMaskedKey(t *testing.T) {
 	store := &tenantAIProviderHandlerStore{fakeSaaSAdminStore: &fakeSaaSAdminStore{users: map[int]User{1: {ID: 1, TenantID: 1, Status: 1, IsSuperAdmin: 1}, 2: {ID: 2, TenantID: 2, Status: 1, IsSuperAdmin: 1}}}}
 	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)

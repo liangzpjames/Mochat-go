@@ -190,6 +190,121 @@ func TestTenantAIProviderStoreRejectsEmptyKeyUpdateWhenCurrentCredentialUnavaila
 	}
 }
 
+func TestTenantAIProviderStoreMapsExistingVersionMismatchToConflict(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	manager, err := aiproviderconfig.NewManager(aiproviderconfig.Config{EncryptionKey: base64.RawStdEncoding.EncodeToString(make([]byte, 32)), EncryptionKeyID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, keyID, hint, err := manager.Encrypt(9, "openai", "fixture-key-1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard, err := outboundhttp.NewGuard(outboundhttp.Config{RequireHTTPS: true, Resolver: tenantAIProviderResolver{addresses: []netip.Addr{netip.MustParseAddr("8.8.8.8")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewMySQLStore(db).WithAIProviderCredentialCipher(manager).WithAIProviderOutboundGuard(guard)
+	columns := []string{"tenant_id", "provider", "base_url", "model", "credential_ciphertext", "encryption_key_id", "api_key_hint", "effective_at", "expires_at", "status", "version", "updated_at"}
+	now := time.Date(2026, 8, 25, 1, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mc_tenant WHERE id = ? AND deleted_at IS NULL LIMIT 1")).WithArgs(9).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(9))
+	mock.ExpectQuery("SELECT tenant_id, provider, base_url").WithArgs(9).WillReturnRows(sqlmock.NewRows(columns).AddRow(9, "openai", "https://provider.example.test/v1", "model-v1", ciphertext, keyID, hint, now, now.Add(time.Hour), "active", 2, now))
+	mock.ExpectRollback()
+	_, err = store.SaveSaaSTenantAIProvider(context.Background(), dashboard.SaaSTenantAIProviderInput{TenantID: 9, ProviderCode: "openai", BaseURL: "https://provider.example.test/v1", Model: "model-v2", EffectiveAt: "2026-08-25T00:00:00Z", ExpiresAt: "2026-08-26T00:00:00Z", Status: "active", Version: 1})
+	var op *dashboard.SaaSAdminOperationError
+	if !errors.As(err, &op) || op.Status != 409 {
+		t.Fatal("version-mismatch did not return conflict")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTenantAIProviderStoreMapsZeroRowUpdateToConflict(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	manager, err := aiproviderconfig.NewManager(aiproviderconfig.Config{EncryptionKey: base64.RawStdEncoding.EncodeToString(make([]byte, 32)), EncryptionKeyID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, keyID, hint, err := manager.Encrypt(9, "openai", "fixture-key-1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard, err := outboundhttp.NewGuard(outboundhttp.Config{RequireHTTPS: true, Resolver: tenantAIProviderResolver{addresses: []netip.Addr{netip.MustParseAddr("8.8.8.8")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewMySQLStore(db).WithAIProviderCredentialCipher(manager).WithAIProviderOutboundGuard(guard)
+	columns := []string{"tenant_id", "provider", "base_url", "model", "credential_ciphertext", "encryption_key_id", "api_key_hint", "effective_at", "expires_at", "status", "version", "updated_at"}
+	now := time.Date(2026, 8, 25, 1, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mc_tenant WHERE id = ? AND deleted_at IS NULL LIMIT 1")).WithArgs(9).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(9))
+	mock.ExpectQuery("SELECT tenant_id, provider, base_url").WithArgs(9).WillReturnRows(sqlmock.NewRows(columns).AddRow(9, "openai", "https://provider.example.test/v1", "model-v1", ciphertext, keyID, hint, now, now.Add(time.Hour), "active", 1, now))
+	mock.ExpectExec("UPDATE mochat_go_saas_tenant_ai_providers").WithArgs("openai", "https://provider.example.test/v1", "model-v2", ciphertext, keyID, hint, sqlmock.AnyArg(), sqlmock.AnyArg(), "active", 0, 9, 1).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	_, err = store.SaveSaaSTenantAIProvider(context.Background(), dashboard.SaaSTenantAIProviderInput{TenantID: 9, ProviderCode: "openai", BaseURL: "https://provider.example.test/v1", Model: "model-v2", EffectiveAt: "2026-08-25T00:00:00Z", ExpiresAt: "2026-08-26T00:00:00Z", Status: "active", Version: 1})
+	var op *dashboard.SaaSAdminOperationError
+	if !errors.As(err, &op) || op.Status != 409 {
+		t.Fatal("zero-row update did not return conflict")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTenantAIProviderStoreRejectsMissingTenantAndNoKeyManagerBeforeWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		tenantRows *sqlmock.Rows
+		manager    *aiproviderconfig.Manager
+	}{
+		{"tenant-missing", sqlmock.NewRows([]string{"id"}), nil},
+		{"manager-unavailable", sqlmock.NewRows([]string{"id"}).AddRow(9), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			manager := tc.manager
+			if manager == nil {
+				manager, err = aiproviderconfig.NewManager(aiproviderconfig.Config{})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			guard, err := outboundhttp.NewGuard(outboundhttp.Config{RequireHTTPS: true, Resolver: tenantAIProviderResolver{addresses: []netip.Addr{netip.MustParseAddr("8.8.8.8")}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := NewMySQLStore(db).WithAIProviderCredentialCipher(manager).WithAIProviderOutboundGuard(guard)
+			mock.ExpectBegin()
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM mc_tenant WHERE id = ? AND deleted_at IS NULL LIMIT 1")).WithArgs(9).WillReturnRows(tc.tenantRows)
+			if tc.name == "manager-unavailable" {
+				mock.ExpectQuery("SELECT tenant_id, provider, base_url").WithArgs(9).WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "provider", "base_url", "model", "credential_ciphertext", "encryption_key_id", "api_key_hint", "effective_at", "expires_at", "status", "version", "updated_at"}))
+			}
+			mock.ExpectRollback()
+			_, err = store.SaveSaaSTenantAIProvider(context.Background(), dashboard.SaaSTenantAIProviderInput{TenantID: 9, ProviderCode: "openai", BaseURL: "https://provider.example.test/v1", Model: "model-v1", APIKey: "fixture-key-1234", EffectiveAt: "2026-08-25T00:00:00Z", ExpiresAt: "2026-08-26T00:00:00Z", Status: "active"})
+			if err == nil {
+				t.Fatal("failure case accepted")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestTenantAIProviderStoreReadRedactsCiphertextAndReportsUnavailableCredential(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
